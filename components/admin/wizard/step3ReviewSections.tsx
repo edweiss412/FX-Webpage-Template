@@ -2619,7 +2619,7 @@ export function WarningsBreakdown({
                       // the card div). In the elsewhere state the sentence is
                       // the panel's only body content, so nothing interactive
                       // sits inside the raised zone (e2e disjointness proof).
-                      className="relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-x-1/2 before:-translate-y-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+                      className="relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:outline-none"
                     >
                       {t.label}
                     </button>

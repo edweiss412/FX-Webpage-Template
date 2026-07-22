@@ -190,11 +190,7 @@ export function ShowReviewSurface({
   // byte-identical); the published review modal passes `syncHash` explicitly.
   extraSectionsBefore?: ExtraSection[]; // Phase 2: [Overview] — full rail items: scroll-spy + hash + chips participate
   extraSectionsAfter?: ExtraSection[]; // Phase 2: [Changes]
-  renderSectionExtras?: (
-    id: SectionId,
-    d: SectionData,
-    opts?: { seamless?: boolean },
-  ) => ReactNode; // Phase 2 hook: per-section warning controls
+  renderSectionExtras?: (id: SectionId, d: SectionData, opts?: { seamless?: boolean }) => ReactNode; // Phase 2 hook: per-section warning controls
   // warning-surface-trim §3.2: ACTIVE warn counts, split into the fallback
   // bucket rendering below the Parse warnings panel (`here`) and every other
   // section (`elsewhere`). Passed by the published modal alongside
@@ -459,6 +455,23 @@ export function ShowReviewSurface({
     const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
     scroller.scrollTo({ top });
   }
+
+  // Spec 2026-07-22-warning-panel-polish §3.5: the pointer sentence's ordered,
+  // label-resolved jump targets + the total elsewhere-section count (unresolved
+  // ids fold into "and N more"). `sections` is registry-ordered, so the targets
+  // inherit visual order. Hoisted (not inline in the provider value) so the
+  // JSX stays analyzable and the derivation memoizes with its inputs.
+  const pointerTargets = useMemo(() => {
+    if (!routedWarningsRenderElsewhere || routedWarnings === undefined) return null;
+    const elsewhereIds = Object.keys(routedWarnings.activeWarningsBySection).filter(
+      (id) => id !== "warnings",
+    );
+    if (elsewhereIds.length === 0) return null;
+    const targets = sections
+      .filter((sec) => elsewhereIds.includes(sec.id))
+      .map((sec) => ({ id: sec.id, label: sec.label }));
+    return { targets, totalSections: elsewhereIds.length };
+  }, [routedWarningsRenderElsewhere, routedWarnings, sections]);
 
   // ── §E4 warning jump + one-shot highlight (§H N3) ──────────────────────────
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1052,20 +1065,11 @@ export function ShowReviewSurface({
                   // "and N more"). `sections` is registry-ordered, so the
                   // targets inherit visual order. Warnings section only,
                   // spread-inserted (exactOptional discipline).
-                  ...(s.id === "warnings" && routedWarningsRenderElsewhere && routedWarnings
-                    ? (() => {
-                        const elsewhereIds = Object.keys(
-                          routedWarnings.activeWarningsBySection,
-                        ).filter((id) => id !== "warnings");
-                        if (elsewhereIds.length === 0) return {};
-                        const targets = sections
-                          .filter((sec) => elsewhereIds.includes(sec.id))
-                          .map((sec) => ({ id: sec.id, label: sec.label }));
-                        return {
-                          pointerTargets: { targets, totalSections: elsewhereIds.length },
-                          onJumpToSection: (id: SectionId) => handleNavClick(id),
-                        };
-                      })()
+                  ...(s.id === "warnings" && pointerTargets !== null
+                    ? {
+                        pointerTargets,
+                        onJumpToSection: (id: SectionId) => handleNavClick(id),
+                      }
                     : {}),
                   // attention-alert-routing §3.3: anchored cards thread into the
                   // section that OWNS the anchor — rooms hosts diagrams, event hosts
@@ -1110,6 +1114,7 @@ export function ShowReviewSurface({
                   subtree (Silent unmounts panel children,
                   step3ReviewSections.tsx:792-815) so the node survives every
                   state and role="status" announces each text change. */}
+              {/* §11: instant — deliberate (sr-only text swap; no visual transition) */}
               {s.id === "warnings" && routedWarningsRenderElsewhere ? (
                 <span role="status" className="sr-only" data-testid="warnings-panel-status">
                   {warningsPanelStatusSentence(

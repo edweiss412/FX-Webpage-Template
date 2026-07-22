@@ -149,11 +149,16 @@ describe("transition audit: nothing in the four-state path animates", () => {
     const ifs = (code.match(/\bif\s*\(/g) ?? []).length;
     const guards = (code.match(/&&/g) ?? []).length;
 
-    // 5 ternaries: the gate read, the parse-notes guard, List-vs-empty, Silent,
-    // Elsewhere. 0 `if`s. 1 `&&`: the parse-notes null check.
+    // 5 original ternaries (the gate read, the parse-notes guard,
+    // List-vs-empty, Silent, Elsewhere) + 5 from the warning-panel-polish §3.5
+    // pointer-sentence builder inside the Elsewhere branch (targets-present,
+    // jump-callback nameNode, withMore separator, last-name separator, the
+    // more-clause) — all content facts of one server render, instant by polish
+    // spec §5. 3 `if`s: the builder's early-fallback, the i>0 separator guard,
+    // and the withMore push. 1 `&&`: the parse-notes null check.
     expect({ ternaries, ifs, guards }, "the region's branch positions").toEqual({
-      ternaries: 5,
-      ifs: 0,
+      ternaries: 10,
+      ifs: 3,
       guards: 1,
     });
 

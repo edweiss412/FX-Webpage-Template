@@ -77,7 +77,8 @@ function scanSource(src: ts.SourceFile, path: string, scan: Scan): void {
         const parent = node.parent;
         const codeProp = ts.isObjectLiteralExpression(parent)
           ? parent.properties.find(
-              (p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && named(p.name, "code"),
+              (p): p is ts.PropertyAssignment =>
+                ts.isPropertyAssignment(p) && named(p.name, "code"),
             )
           : undefined;
         const code =

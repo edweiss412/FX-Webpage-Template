@@ -230,6 +230,12 @@ describe("the four body-empty states", () => {
       // row's content, not stray panel copy, and including it would make the
       // List case unassertable.
       if (parent.closest("li[data-warning-index]") !== null) continue;
+      // warning-panel-polish §3.5: the elsewhere sentence is a MIXED paragraph
+      // (text nodes interleaved with bolded section buttons), so its internal
+      // text nodes are fragments. Its FULL textContent is pinned by the exact
+      // ELSEWHERE_COPY equality in expectOnly("elsewhere"); skipping the
+      // fragments here keeps this stray-copy scan honest without double-pinning.
+      if (parent.closest(`[data-testid="${ELSEWHERE_TESTID}"]`) !== null) continue;
       paragraphs.push(text);
     }
 

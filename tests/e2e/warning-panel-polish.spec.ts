@@ -157,14 +157,24 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
           const h = Math.max(parseFloat(cs.height) || 0, box.height);
           const cx = box.left + box.width / 2;
           const cy = box.top + box.height / 2;
-          return { left: cx - w / 2, right: cx + w / 2, top: cy - h / 2, bottom: cy + h / 2, cx, cy };
+          return {
+            left: cx - w / 2,
+            right: cx + w / 2,
+            top: cy - h / 2,
+            bottom: cy + h / 2,
+            cx,
+            cy,
+          };
         });
       }, SENTENCE);
     await expect
-      .poll(async () => {
-        const rs = await measure();
-        return rs.length === 3 && rs.every((r) => r.right - r.left > 0) ? "ready" : "settling";
-      }, { timeout: 15_000 })
+      .poll(
+        async () => {
+          const rs = await measure();
+          return rs.length === 3 && rs.every((r) => r.right - r.left > 0) ? "ready" : "settling";
+        },
+        { timeout: 15_000 },
+      )
       .toBe("ready");
     const rects: R[] = await measure();
     for (const r of rects) {
@@ -177,7 +187,8 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
       for (let j = i + 1; j < rects.length; j++) {
         const a = rects[i]!;
         const b = rects[j]!;
-        const overlap = a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        const overlap =
+          a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
         expect(overlap, `overlay ${i} intersects overlay ${j}`).toBe(false);
       }
     }

@@ -47,9 +47,7 @@ describe("pointerSentenceParts (pure, spec §3.5)", () => {
  *  or a dead handler wire at the chrome contract level. handleNavClick wiring
  *  is the e2e spec's browser test. Pattern: routedWarningsGate.test.tsx
  *  direct-Provider probes. */
-function renderWarningsBreakdownWithChrome(
-  chromeExtras: Partial<Step3SectionChrome>,
-): void {
+function renderWarningsBreakdownWithChrome(chromeExtras: Partial<Step3SectionChrome>): void {
   const data = buildPublishedSurfaceProps({ gateOff: true }).data;
   const warningsDef = step3Sections(data).find((s) => s.id === "warnings")!;
   const chrome = {

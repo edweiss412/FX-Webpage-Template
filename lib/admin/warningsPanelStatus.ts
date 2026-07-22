@@ -20,7 +20,9 @@ export function warningsPanelStatusSentence(
   const parts: string[] = [];
   if (listed > 0) parts.push(listed === 1 ? "1 warning listed." : `${listed} warnings listed.`);
   if (here > 0) {
-    parts.push(here === 1 ? "1 warning needs a look below." : `${here} warnings need a look below.`);
+    parts.push(
+      here === 1 ? "1 warning needs a look below." : `${here} warnings need a look below.`,
+    );
   }
   if (elsewhere > 0) {
     parts.push(

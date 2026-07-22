@@ -37,7 +37,11 @@ function bodyFor(i: number) {
 describe("per-card follow-up placement (spec §3.1)", () => {
   it("followUp card: second paragraph outside the described element", () => {
     render(
-      <PerShowActionableWarnings items={[warnWithCell]} driveFileId="d1" followUpCopy={FOLLOW_UP} />,
+      <PerShowActionableWarnings
+        items={[warnWithCell]}
+        driveFileId="d1"
+        followUpCopy={FOLLOW_UP}
+      />,
     );
     const { body, describedEl } = bodyFor(0);
     expect(describedEl?.textContent ?? "").not.toContain("Fixed it in the sheet?");
@@ -80,7 +84,9 @@ describe("per-card follow-up placement (spec §3.1)", () => {
       message: "Typo alias 'venu' normalized to canonical 'venue'",
       rawSnippet: "venu",
     };
-    render(<PerShowActionableWarnings items={[noCell]} driveFileId="d1" followUpCopy={FOLLOW_UP} />);
+    render(
+      <PerShowActionableWarnings items={[noCell]} driveFileId="d1" followUpCopy={FOLLOW_UP} />,
+    );
     const item = screen.getAllByTestId("per-show-actionable-item")[0]!;
     expect(item.querySelector("p.mt-2")).toBeNull();
     // The sentence must be absent from the ENTIRE card, not just the extra
