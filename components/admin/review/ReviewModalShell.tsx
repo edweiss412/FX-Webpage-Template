@@ -201,7 +201,11 @@ function OpenReviewModalShell({
 
   // Initial focus → the consumer's close button; Tab-trap inside the panel;
   // restore focus to the trigger on unmount. (WCAG 2.4.3 / 2.1.2 — shared hook.)
-  useDialogFocus(panelRef, initialFocusRef);
+  // `mounted` is the reattach key: the mounted=true re-render moves the tree
+  // into the document.body portal and React RECREATES the panel node, so the
+  // trap must re-bind or it goes dead on every SSR cold-load (`/admin?show=`).
+  // Same node-recreation event the cold-load focus repair below handles.
+  useDialogFocus(panelRef, initialFocusRef, mounted);
 
   // Cold-load focus repair (spec §5 initial-focus contract): on an SSR/hydration
   // open (`/admin?show=` cold load) the hydration commit renders the dialog

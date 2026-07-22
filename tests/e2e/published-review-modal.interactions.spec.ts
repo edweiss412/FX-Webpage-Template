@@ -1462,4 +1462,249 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       }
     });
   });
+
+  test.describe("hoverhelp panel host (spec 2026-07-22-hoverhelp-smart-position §6 T4/T7/T8)", () => {
+    /** Seed one unresolved show-scoped alert whose catalog row carries
+     * helpfulContext + helpHref (SYNC_DELAYED_SEVERE — the same code the
+     * deeplink suite uses), so the attention card renders a HoverHelp
+     * trigger with a Learn-more link. Seeded per test and cleaned in a
+     * finally, mirroring T-HUB-ZORDER (an actionable alert auto-opens the
+     * attention menu and would perturb the rest of the file). */
+    async function withSeededAlert(fn: (alertId: string) => Promise<void>) {
+      const { data, error } = await admin
+        .from("admin_alerts")
+        .insert({
+          show_id: show.showId,
+          code: "SYNC_DELAYED_SEVERE",
+          context: {},
+          raised_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      if (error || !data) throw new Error(`hoverhelp alert seed failed: ${error?.message}`);
+      const alertId = data.id as string;
+      try {
+        await fn(alertId);
+      } finally {
+        const { error: cleanupError } = await admin.from("admin_alerts").delete().eq("id", alertId);
+        if (cleanupError) {
+          throw new Error(`hoverhelp alert cleanup failed (would leak): ${cleanupError.message}`);
+        }
+      }
+    }
+
+    /** HoverHelp's mouse-only pointerenter hover-opens before the click
+     * toggle (net closed) — same race the deep-link-walker documents; the
+     * pointer is already inside after click #1, so click #2 lands open. */
+    async function clickOpenTrigger(page: Page, trigger: ReturnType<Page["locator"]>) {
+      await trigger.click();
+      try {
+        await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+      } catch {
+        await trigger.click();
+      }
+      await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    }
+
+    test("T4a: popover on a pane-bottom card is TRULY visible through both clipping ancestors", async ({
+      page,
+    }) => {
+      await withSeededAlert(async (alertId) => {
+        await openModal(page, POPUP);
+        const card = page.locator(`[data-testid="attention-banner-${alertId}"]`);
+        await expect(card).toBeVisible();
+        // Scroll the pane so the card sits at its BOTTOM edge — the exact
+        // geometry BL-HOVERHELP-PORTAL documents as clipped pre-portal.
+        await card.evaluate((el) => el.scrollIntoView({ block: "end" }));
+        const trigger = card.locator('button[aria-expanded]').first();
+        await clickOpenTrigger(page, trigger);
+        const ownsId = await card
+          .locator('[aria-owns]')
+          .first()
+          .getAttribute("aria-owns");
+        if (!ownsId) throw new Error("affordance root missing aria-owns");
+        const body = page.locator(`[id=${JSON.stringify(ownsId)}]`);
+        await expect(body).toHaveAttribute("data-popover-side", /top|bottom/);
+        const hit = await body.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const probe = (x: number, y: number) => {
+            const at = document.elementFromPoint(x, y);
+            return at === el || el.contains(at);
+          };
+          const inset = 4;
+          return {
+            center: probe(r.left + r.width / 2, r.top + r.height / 2),
+            tl: probe(r.left + inset, r.top + inset),
+            tr: probe(r.right - inset, r.top + inset),
+            bl: probe(r.left + inset, r.bottom - inset),
+            br: probe(r.right - inset, r.bottom - inset),
+          };
+        });
+        expect(hit).toEqual({ center: true, tl: true, tr: true, bl: true, br: true });
+      });
+    });
+
+    test("T4b: dismiss-time inert covers the portaled body whenever it covers the panel", async ({
+      page,
+    }) => {
+      await withSeededAlert(async (alertId) => {
+        // Real motion: reduced-motion collapses the exit to none and the
+        // inert window would be unobservable.
+        await openModal(page, POPUP, { reducedMotion: "no-preference" });
+        const card = page.locator(`[data-testid="attention-banner-${alertId}"]`);
+        await card.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        const trigger = card.locator("button[aria-expanded]").first();
+        await clickOpenTrigger(page, trigger);
+        // Dismiss via the close button's programmatic click — no pointer
+        // movement, so the hover popover stays OPEN when `beginDismiss`
+        // inerts the dialog subtree (an Escape would be swallowed by the
+        // popover's containment and never reach the modal). Sampling starts
+        // in the same evaluate so frame 0 lands inside the inert window.
+        const samples = await page.evaluate(async (args) => {
+          const panel = document.querySelector("[data-review-modal-panel]");
+          const cardEl = document.querySelector(`[data-testid="attention-banner-${args.alertId}"]`);
+          const bid = cardEl?.querySelector("[aria-owns]")?.getAttribute("aria-owns");
+          const body = bid ? document.getElementById(bid) : null;
+          if (!panel || !body) throw new Error("panel or portaled popover body missing");
+          const closeBtn = document.querySelector<HTMLElement>(args.closeSel);
+          if (!closeBtn) throw new Error("close button missing");
+          const out: { panelInert: boolean; bodyInert: boolean }[] = [];
+          closeBtn.click();
+          for (let i = 0; i < 30; i++) {
+            // Only frames where the panel is still CONNECTED are meaningful:
+            // after the exit completes React removes the dialog tree, and the
+            // detached dialog root keeps its `inert` attribute while the
+            // portal child is detached separately — a post-unmount artifact,
+            // not an accessibility state a user can reach.
+            if (!panel.isConnected) break;
+            out.push({
+              panelInert: !!panel.closest("[inert]"),
+              bodyInert: !!body.closest("[inert]"),
+            });
+            await new Promise((r) => requestAnimationFrame(() => r(null)));
+          }
+          return out;
+        }, { alertId, closeSel: CLOSE });
+        const inertFrames = samples.filter((s) => s.panelInert);
+        // Non-vacuity: the exit transition must actually produce inert frames.
+        expect(inertFrames.length).toBeGreaterThan(0);
+        for (const f of inertFrames) expect(f.bodyInert).toBe(true);
+      });
+    });
+
+    test("T7 panel-host: narrow panel engages maxWidth and pane scroll tracks the trigger", async ({
+      page,
+    }) => {
+      await withSeededAlert(async (alertId) => {
+        // 300px viewport: sheet-mode panel ≈ viewport width, bounds ≈ 284px
+        // < the 288px natural body → the §4.2 width-first shrink engages.
+        await openModal(page, { width: 300, height: 844 });
+        const card = page.locator(`[data-testid="attention-banner-${alertId}"]`);
+        await card.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        const trigger = card.locator('button[aria-expanded]').first();
+        await clickOpenTrigger(page, trigger);
+        const ownsId = await card.locator("[aria-owns]").first().getAttribute("aria-owns");
+        if (!ownsId) throw new Error("affordance root missing aria-owns");
+        const body = page.locator(`[id=${JSON.stringify(ownsId)}]`);
+        // Horizontal containment at 300px: the body must sit fully inside the
+        // panel's bounds. (An inline maxWidth is structurally unreachable on
+        // this surface: the sheet-mode panel spans ~the full viewport, so the
+        // class cap `max-w-[80vw]` = 240px is ALWAYS below the §4.2 bounds
+        // width (vw - 2*VIEWPORT_INSET = 284px) — the width-first shrink
+        // never engages. The inline-maxWidth engage/restore path is covered
+        // by the geometry suite's `narrowpane` case, whose 160px pane host
+        // is genuinely narrower than the class cap.)
+        const containment = await page.evaluate((id) => {
+          const b = document.getElementById(id)!.getBoundingClientRect();
+          const p = document.querySelector("[data-review-modal-panel]")!.getBoundingClientRect();
+          return { fitsLeft: b.left >= p.left - 0.5, fitsRight: b.right <= p.right + 0.5, w: b.width };
+        }, ownsId);
+        expect(containment.fitsLeft).toBe(true);
+        expect(containment.fitsRight).toBe(true);
+        expect(containment.w).toBeGreaterThan(0); // non-vacuity: body visible
+        // pane scroll tracking (±1px against the trigger). The scroller is
+        // the card's own clipping ancestor — NOT `.overflow-y-auto:first`,
+        // which at 300px matches the display:none `lg:flex` rail.
+        const before = await page.evaluate((args) => {
+          const b = document.getElementById(args.id)!.getBoundingClientRect();
+          const t = document
+            .querySelector(`[data-testid="attention-banner-${args.alertId}"] button[aria-expanded="true"]`)!
+            .getBoundingClientRect();
+          return b.top - t.bottom;
+        }, { id: ownsId, alertId });
+        await card.evaluate((el) => {
+          const pane = el.closest(".overflow-y-auto");
+          if (!pane) throw new Error("card has no scrolling ancestor pane");
+          pane.scrollTop += 30;
+        });
+        await page.waitForTimeout(60);
+        const after = await page.evaluate((args) => {
+          const b = document.getElementById(args.id)!.getBoundingClientRect();
+          const t = document
+            .querySelector(`[data-testid="attention-banner-${args.alertId}"] button[aria-expanded="true"]`)!
+            .getBoundingClientRect();
+          return b.top - t.bottom;
+        }, { id: ownsId, alertId });
+        expect(Math.abs(after - before)).toBeLessThanOrEqual(1);
+      });
+    });
+
+    test("T8 panel-host: Tab cycle inside the trap reaches the Learn-more link and still wraps", async ({
+      page,
+    }) => {
+      await withSeededAlert(async (alertId) => {
+        await openModal(page, POPUP);
+        const card = page.locator(`[data-testid="attention-banner-${alertId}"]`);
+        await card.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        const trigger = card.locator('button[aria-expanded]').first();
+        await clickOpenTrigger(page, trigger);
+        // A full-cycle Tab walk is NOT viable here: focus-driven pane
+        // auto-scroll shifts the card away from the resting mouse pointer,
+        // Chrome recomputes hover, and the root's pointerleave schedules the
+        // hover close — the popover is legitimately closed (hidden, out of
+        // tab order) well before the walk reaches the panel's end. Instead,
+        // prove the two §6-T8 claims surgically:
+        //   (1) the learn-more link participates in native tab order INSIDE
+        //       the panel (Tab from its DOM predecessor reaches it), and
+        //   (2) the link is the trap's LAST focusable (the portal is the
+        //       panel's last child), so Tab from it WRAPS inside the dialog
+        //       instead of escaping to the document.
+        const setup = await page.evaluate(() => {
+          const panel = document.querySelector<HTMLElement>("[data-review-modal-panel]");
+          if (!panel) throw new Error("panel missing");
+          // Mirror lib/a11y/dialogFocus.ts FOCUSABLE_SELECTOR + offsetParent filter.
+          const focusables = Array.from(
+            panel.querySelectorAll<HTMLElement>(
+              'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+            ),
+          ).filter((el) => el.offsetParent !== null);
+          const idx = focusables.findIndex((el) =>
+            /^Learn more about /.test(el.getAttribute("aria-label") ?? ""),
+          );
+          if (idx < 1) return { idx, total: focusables.length, linkIsLast: false };
+          focusables[idx - 1]!.focus({ preventScroll: true });
+          return { idx, total: focusables.length, linkIsLast: idx === focusables.length - 1 };
+        });
+        expect(setup.idx, "learn-more link not in the panel's focusable list").toBeGreaterThan(0);
+        expect(setup.linkIsLast, "portaled link is the trap's last focusable").toBe(true);
+        const activeIdentity = () =>
+          page.evaluate(() => {
+            const el = document.activeElement;
+            const panel = document.querySelector("[data-review-modal-panel]");
+            return {
+              id: el ? `${el.tagName}:${el.getAttribute("aria-label") ?? el.getAttribute("data-testid") ?? el.tagName}` : "none",
+              insidePanel: !!(el && panel && panel.contains(el)),
+            };
+          });
+        await page.keyboard.press("Tab"); // predecessor → link (native order)
+        const onLink = await activeIdentity();
+        expect(onLink.id).toMatch(/^A:Learn more about /);
+        await page.keyboard.press("Tab"); // link is trap-last → wraps inside the dialog
+        const wrapped = await activeIdentity();
+        expect(wrapped.insidePanel, `Tab from the link escaped the trap (landed on ${wrapped.id})`).toBe(true);
+        expect(wrapped.id).not.toMatch(/^A:Learn more about /); // it moved
+      });
+    });
+  });
+
 });
