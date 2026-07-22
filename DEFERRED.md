@@ -4,7 +4,7 @@ Open deferral queue — work intentionally deferred with a concrete un-defer tri
 
 **Resolved / stale / N/A entries live in [DEFERRED-archive.md](./DEFERRED-archive.md)** — full provenance kept there, NOT in this working queue. When an item below ships, move its full entry to the archive.
 
-Last reconciled: 2026-07-22 (WARNCARD-POPOVER-OVERLAP-1 graduated to the archive — resolved by `feat/hoverhelp-smart-position` collision-aware placement. Same day: ATTN-GALLERY-CONTROLBAR-OVERLAP-1 SHIPPED via `2026-07-21-gallery-switcher-slim-bar` — slim single-row switcher bar, footnotes behind a collapsed disclosure; entry graduated to the archive. Earlier: SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
+Last reconciled: 2026-07-22 (seven warning-surface-trim items RESOLVED by the warning-panel-polish bundle and graduated to the archive; the six stay-parked items re-confirmed by 2026-07-21 owner decisions. Same day: WARNCARD-POPOVER-OVERLAP-1 graduated to the archive — resolved by `feat/hoverhelp-smart-position` collision-aware placement; and ATTN-GALLERY-CONTROLBAR-OVERLAP-1 SHIPPED via `2026-07-21-gallery-switcher-slim-bar` — slim single-row switcher bar, footnotes behind a collapsed disclosure; entry graduated to the archive. Earlier: 2026-07-21 SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
 
 ---
 
@@ -60,115 +60,48 @@ finding — "Careful rows carry no visual weight" — is not a deferral and live
   smudge rather than continuing the panel's elevation; the caret reads as continuous with the
   panel via matching `bg-surface` + border + same `z-40`. **Noted, not changed.**
 
-## warning-surface-trim (2026-07-21) — impeccable critique
+## warning-surface-trim (2026-07-21) — remaining deferrals after the 2026-07-22 polish bundle
 
-- **[P1] The heading count reads "(0)" in the Silent state while cards render below it.**
-  Spec §3.3 ratifies the rail count as "the rows the panel renders", with extras signalled
-  separately. The critique argues the heading count is a different surface from the rail and
-  should include the `here` bucket, since those cards sit inside the same `<section>`. Both
-  readings are defensible and they disagree about a ratified number, so the count is left as
-  specified rather than changed unilaterally at implementation time. The self-contradiction the
-  critique actually named, "(0)" wearing an amber "Needs a look" pill in one text run, IS fixed:
-  the pill now derives from the ACTIVE bucket count. **Noted, not changed.** Un-defer trigger:
-  an owner decision on whether the heading count and the rail count may diverge.
+Seven of the thirteen items recorded here on 2026-07-21 were RESOLVED by the
+warning-panel-polish bundle (`docs/superpowers/specs/2026-07-22-warning-panel-polish-design.md`, owner-ratified 2026-07-21) — their full
+entries are archived in [DEFERRED-archive.md](./DEFERRED-archive.md) under
+"Warning panel polish (2026-07-22)". The six below stay parked, each
+re-confirmed by an explicit owner decision on 2026-07-21 (spec §1.1 records the
+ratifications).
 
-- **[P3] The panel is still titled "Parse warnings" though it now holds info-severity
-  leftovers.** Ratified user decision, spec §1.1 ("a published-only rename splits the rail label
-  between staged and published for a panel whose identity is unchanged"). **Noted, not changed.**
+- **[P1] Heading count reads no "(0)" in the Silent state (suppression carve-out).** Owner
+  re-confirmed 2026-07-21: keep the suppression; the heading count does NOT include the
+  routed-card bucket, and the rail semantics are unchanged (trim spec §3.3; polish spec §1.1
+  item 1). Un-defer trigger: a future owner decision to redefine §3.3's count semantics.
 
-- **[P2] The popover renders two sentences as one run, not two paragraphs.** `HoverHelp` renders
-  its body in a plain `<div>` with no `whitespace-pre-line` (`components/admin/HoverHelp.tsx:254`),
-  so a real break would mean changing the SHARED popover body and every other popover on the
-  surface. The composed text is honest prose either way. **Noted, not changed.** Un-defer trigger:
-  a deliberate typographic pass on the shared popover.
-
-### warning-surface-trim — impeccable audit (2026-07-21)
-
-- **[P2] No live region announces the panel's state change.** Ignoring or un-ignoring a row
-  re-renders the panel through a server round trip, so the empty-state line mounts or unmounts
-  with nothing announced. Pre-existing on this surface (the panel had no live region before the
-  trim either), and the correct fix is an always-mounted `role="status"` sibling carrying the
-  current state, matching `components/admin/BulkIgnoreControls.tsx:174-177`. **Noted, not
-  changed.** Un-defer trigger: an accessibility pass on the show modal's dynamic regions.
-
-- **[P2] The follow-up sentence enters every card's accessible description.** `HoverHelp` keeps
-  its popover body in the DOM for `aria-describedby`, so a 12-card section repeats the same
-  sentence 12 times in screen-reader output, where the retired panel callout said it once. The
-  per-card placement is ratified in spec §4 (it exists only where a warning exists, which is what
-  killed the status-strip alternative), and moving it to a per-GROUP eyebrow is a design change
-  that spec §4.1 did not consider. **Noted, not changed.** Un-defer trigger: an owner decision on
-  per-card versus per-group placement.
-
-- **[P2] "…are in their own sections" names no section.** Spec §3.4 authored copy. Naming the
-  sections would make the line variable-length and unbounded; a jump affordance is the better fix
-  and is out of scope. **Noted, not changed.**
-
-- **[P3] The extras `border-t` reads as a heading underline when the card is suppressed**
-  (`components/admin/showpage/sectionWarningExtras.tsx:126`). Cosmetic, only in the Silent state.
-  **Noted, not changed.**
-
-- **[P3] `data-warning-index` comment still says "FULL-array index"** though `i` now indexes the
-  trimmed rows (`components/admin/wizard/step3ReviewSections.tsx:2573-2576`). Harmless today: the
-  only consumer is the staged jump path, which is never gated. **Noted, not changed.**
-
-### warning-surface-trim — whole-diff cross-model review (2026-07-21)
+- **[P3] The panel is still titled "Parse warnings".** Owner re-confirmed 2026-07-21 (polish
+  spec §1.1 item 2). **Noted, not changed.**
 
 - **[MEDIUM] The staged-mode byte-identical guarantee rests on a leaf render plus a card-level
   snapshot.** `tests/components/admin/stagedCardBaseline.test.tsx` renders `StagedReviewCard`
   directly and snapshots the card `<li>` elements, so a change to the surrounding wizard chrome,
   to card ordering relative to other content, or to a wizard-only prop is invisible to it. The
-  ungated assertions in the other suites use PUBLISHED data with the gate off, which exercises
-  the ungated code path but not the staged surface. **Noted, not changed.** A real staged-surface
-  snapshot needs a wizard-session fixture (staged sessions, use-raw decisions, rescan state) that
-  no current suite builds, and this diff's staged path is one boolean that is false there.
-  Un-defer trigger: any change that touches the wizard's Step-3 composition rather than only the
-  shared registry.
+  polish bundle's gate-off ABSENCE assertions (polish spec §8.7) narrow but do not close this.
+  **Noted, not changed.** Un-defer trigger: any change that touches the wizard's Step-3
+  composition rather than only the shared registry (polish spec §1.1 item 6).
 
-- **[MEDIUM] The alert cut is discoverable only through the bell.** `SHOW_FIRST_PUBLISHED` and
-  `ROLE_FLAGS_NOTICE` leave the modal's attention surface, and while the underlying STATE stays
-  visible (Published in the status strip, roles in Crew), the EVENT and its point-in-time
-  data-gaps digest exist only in the bell feed. An operator who only ever opens show modals can
-  miss both. This is the ratified intent of `2026-07-04-alert-audience-split` §3 rather than a
-  regression — the codes are info-severity and not actionable by default — but the dependency on
-  the operator noticing a separate surface is real. **Noted, not changed.** Un-defer trigger: an
-  owner decision to rehome the data-gaps digest onto the show modal.
+- **[MEDIUM] The alert cut is discoverable only through the bell.** Owner accepted bell-only on
+  2026-07-21 (polish spec §1.1 item 3), with the sharpening fact that role-flag DELTAS remain
+  visible on the show modal via the Sheet changes feed rows built in
+  `lib/sync/changeLog/fieldChanges.ts:154-181`; only the first-publish data-gaps digest is
+  bell-only, by the ratified intent of `2026-07-04-alert-audience-split` §3. **Noted, not
+  changed.** Un-defer trigger: an owner decision to rehome the data-gaps digest onto the show
+  modal.
 
-### warning-surface-trim — impeccable re-gate on the repair diff (2026-07-21)
+- **[P2] The correction sentence is reachable twice on one screen in the List state.** Owner
+  chose keep-both on 2026-07-21 (polish spec §1.1 item 5): each site covers a state the other
+  cannot — cards exist without the callout in the Silent state; the callout covers info rows
+  that never become cards; the overlap is List-state-only and the popover copy is on-demand.
+  **Noted, not changed.**
 
-- **[P2] The correction sentence is reachable twice on one screen in the List state.** The panel
-  callout renders it visibly whenever the published body still lists info rows, and each active
-  warn card carries it on demand in its `?` popover. Versus `origin/main` this is strictly less
-  callout rendering, not more, so it is not a regression — but it is a partial un-retirement of
-  what spec §3.5 removed. The alternatives are worse: dropping it for info rows is the P0 this
-  repair fixed, and suppressing the per-card copy when the panel body is non-empty would require
-  teaching `sectionWarningExtras` about the panel's body state, which is exactly the cross-layer
-  coupling the context-threaded gate exists to avoid. **Noted, not changed.** Un-defer trigger: an
-  owner decision on whether the panel callout or the per-card popover is the canonical site.
-
-- **[P3] The callout renders even when the only listed info row needs no action** (e.g. a sheet
-  whose sole warning is `TYPO_NORMALIZED`). Its copy is conditional ("Fixed it in the sheet?"), so
-  it asserts nothing false; scoping it to actionable info codes would mean a per-code registry for
-  one sentence. **Noted, not changed.**
-
-### warning-surface-trim — the in-row crew banner has no live producer (2026-07-21)
-
-- **[MEDIUM] `published-show-alerts` §5.4's in-row crew banner is now unreachable in production.**
-  A crew banner requires a `crewKey`, which requires a `crewName`
-  (`lib/admin/attentionItems.ts:257`). `crewNameFor`
-  (`lib/adminAlerts/fetchPerShowAlerts.ts:63`) produces one from exactly two sources: a
-  special case for `ROLE_FLAGS_NOTICE`, and a "Crew"-labeled identity segment. This change cuts
-  `ROLE_FLAGS_NOTICE` from the modal, and every other crew-routed code carrying a Crew segment
-  (`OAUTH_IDENTITY_CLAIMED`) is a health code already filtered upstream at
-  `fetchPerShowAlerts.ts:103`. So the feature is intact but has zero producers — the same zombie
-  shape that motivated change 3 in the first place, arrived at from the other direction.
-
-  Found at the final gate by a failing e2e, not by the spec: spec §5's impact table enumerated the
-  two dropped codes and their routes but did not ask what else consumed them.
-
-  **Noted, not changed.** The placement test at
-  `tests/e2e/published-show-attention.spec.ts:126` is SKIPPED rather than deleted, because its
-  assertions remain the correct contract and it should un-skip the moment a crew-routed,
-  non-health, actionable code carrying a `crewName` exists. Un-defer trigger: an owner decision on
-  whether any crew-routed notice should reach the show modal — the options are re-including
-  `ROLE_FLAGS_NOTICE` (contradicting the audience split), reclassifying a health code, or
-  accepting that crew-routed alerts live only in the bell.
+- **[MEDIUM] `published-show-alerts` §5.4's in-row crew banner has zero producers.** Owner chose
+  to leave it dormant on 2026-07-21 (polish spec §1.1 item 4): no code change, and the placement
+  test at `tests/e2e/published-show-attention.spec.ts:126` stays SKIPPED (not deleted) as the
+  contract that un-skips the moment a crew-routed, non-health, actionable code carrying a
+  `crewName` exists. Sharpening fact: role-flag deltas already reach the modal via the Sheet
+  changes feed, so banner dormancy loses event visibility on no surface. **Noted, not changed.**

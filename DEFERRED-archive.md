@@ -28,6 +28,52 @@ From the impeccable critique of `attention-modal-switcher-gallery` (2026-07-21).
 
 **Un-defer trigger:** if the gallery gains a per-scenario modal header (non-constant title), or a real operator reports losing the modal's close affordance — then offset the modal below the bar or make the bar a single collapsible row.
 
+## Warning panel polish (2026-07-22)
+
+Seven warning-surface-trim (2026-07-21) deferrals RESOLVED by
+`docs/superpowers/specs/2026-07-22-warning-panel-polish-design.md` (owner-ratified 2026-07-21; branch `feat/warning-panel-polish`).
+
+### WPP-POPOVER-PARAS — [P2] popover rendered two sentences as one run — ✅ RESOLVED
+
+Original deferral said a paragraph break "would mean changing the SHARED popover body"; that
+premise was refuted — `HoverHelp` accepts ReactNode children, and the polish added an additive
+`afterBodyText` slot (spec §3.1). The follow-up now renders as a second `<p className="mt-2">`.
+
+### WPP-LIVE-REGION — [P2] no live region announced the panel's state change — ✅ RESOLVED
+
+Always-mounted sr-only `role="status"` span mounted in `ShowReviewSurface`'s warnings-section
+block (OUTSIDE the suppressible card subtree), carrying the count-tuple sentence of
+`lib/admin/warningsPanelStatus.ts` (spec §3.2). Announces every ignore/un-ignore transition.
+
+### WPP-SR-REPETITION — [P2] follow-up sentence entered every card's accessible description — ✅ RESOLVED
+
+`afterBodyText` renders outside the `descId` wrapper and the describedby/aria-controls/role
+triple mirrors the shipped learnMore pattern (spec §3.1), so screen readers no longer hear the
+sentence once per card; the visible popover is unchanged.
+
+### WPP-SECTION-NAMES — [P2] "…are in their own sections" named no section — ✅ RESOLVED
+
+Owner picked mockup Option A + click-to-scroll (2026-07-21): the elsewhere sentence now names
+the sections (registry order, cap 3, unified "and N more." overflow) as bolded tappable buttons
+wired to `handleNavClick` (spec §3.5), with 44x44 hit areas proven in real-browser e2e.
+
+### WPP-SEAM — [P3] extras border-t read as a heading underline in the Silent state — ✅ RESOLVED
+
+`renderSectionExtras` gained a per-call `opts.seamless` and the `ShowReviewSurface.tsx:1076`
+call site passes `s.id === "warnings" && suppressWarningsPanelCard` (spec §3.3).
+
+### WPP-STALE-COMMENT — [P3] data-warning-index comment said "FULL-array index" — ✅ RESOLVED
+
+Comment corrected to state the index is into the RENDERED (trimmed) rows; only consumer is the
+never-gated staged jump path.
+
+### WPP-CALLOUT-ACTIONABILITY — [P3] callout rendered even when the only listed info row needed no action — ✅ RESOLVED
+
+The published branch's dead `sourceCell` conjunct (no info emitter is anchored,
+`lib/parser/dataGaps.ts:370-391`) was replaced with the `INFO_CODE_ACTIONABILITY` registry +
+two-layer fail-closed scanner (spec §3.4): `TYPO_NORMALIZED`-only sheets show no callout;
+`DAY_RESTRICTION_DOUBLE_LOCATION` sheets regain it.
+
 ## Share hub (2026-07-21)
 
 ### SHAREHUB-ROW-ANATOMY-1 — [P1] the two destructive rows inside the hub had different shapes — ✅ RESOLVED
