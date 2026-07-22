@@ -91,7 +91,7 @@ Non-modal consumers (dashboard, settings, needs-attention, wizard, shows table �
 export type PopoverPlacementInput = {
   trigger: Rect;            // trigger button rect, viewport coords
   naturalSize: { width: number; height: number };   // body measured with NO inline constraints
-  wrappedHeightAt: (width: number) => number;       // re-measure hook: body height at a forced width
+  wrappedHeightAt: (width: number) => number;       // re-measure hook: body BORDER-BOX height at a forced width (class max-height cap ACTIVE)
   bounds: Rect;             // B = intersect(hostRect, viewportRect) inset by VIEWPORT_INSET
   preferredSide: "top" | "bottom";
   align: "left" | "right";
@@ -103,12 +103,14 @@ export type PopoverPlacement =
 ```
 
 Evaluation order INSIDE the function (each step consumes the previous step's outputs — the R2 F1 class is structurally impossible to reintroduce without editing this one function):
-1. **Anchor-gone:** `trigger` does not intersect `bounds` → `{ kind: "hidden" }`.
+1. **Degenerate/hidden gate** (all checked first, in order): non-finite input anywhere → `hidden`; `bounds.width ≤ 0` or `bounds.height ≤ 0` (host∩viewport minus insets is empty) → `hidden`; `trigger` does not overlap `bounds` with POSITIVE area (touching edges do not count) → `hidden`; `max(spaceAbove, spaceBelow) ≤ 0` (computed as in step 3 — trigger spans the bounds vertically) → `hidden`.
 2. **Width first:** `maxWidth = naturalSize.width > bounds.width ? bounds.width : null`; `effectiveWidth = min(naturalSize.width, bounds.width)`; `height0 = maxWidth === null ? naturalSize.height : wrappedHeightAt(effectiveWidth)` — width shrink re-measures height BEFORE any vertical decision (R2 F1).
-3. **Vertical:** `spaceBelow = bounds.bottom − trigger.bottom − GAP`; `spaceAbove = trigger.top − bounds.top − GAP`. Side = preferred if `height0 ≤ space(preferred)`, else other if `height0 ≤ space(other)`, else the larger-space side with `maxHeight = space(chosen)`. `effectiveHeight = min(height0, space(chosen))`. `y = trigger.bottom + GAP` (bottom) or `trigger.top − GAP − effectiveHeight` (top).
+**Metric contract (uniform):** every height/width in this function — `naturalSize`, `wrappedHeightAt` results, `effectiveWidth/Height` — is a rendered BORDER-BOX measurement (`getBoundingClientRect`), taken with the body's class caps (`max-w-[80vw]`, `max-h-[min(60vh,24rem)]`) ACTIVE; only PREVIOUS inline constraints are cleared before measuring. `scrollHeight` appears nowhere in the contract.
+
+3. **Vertical:** `spaceBelow = max(0, bounds.bottom − trigger.bottom − GAP)`; `spaceAbove = max(0, trigger.top − bounds.top − GAP)`. Side = preferred if `height0 ≤ space(preferred)`, else other if `height0 ≤ space(other)`, else the larger-space side — TIES (equal spaces) resolve to `preferredSide` at every comparison — with `maxHeight = space(chosen)` (strictly positive here by the step-1 gate). `effectiveHeight = min(height0, space(chosen))`. `y = trigger.bottom + GAP` (bottom) or `trigger.top − GAP − effectiveHeight` (top).
 4. **Horizontal:** `x = align === "right" ? trigger.right − effectiveWidth : trigger.left`; clamp `x` into `[bounds.left, bounds.right − effectiveWidth]`.
 
-The COMPONENT is a thin shell around this function. Per reposition pass it: (a) clears BOTH previously applied inline `maxHeight` AND `maxWidth` (R2 F2 — no constraint survives into the next measurement), (b) measures `trigger`/body rects and `bounds`, (c) calls the function (`wrappedHeightAt` = apply the width inline, read `scrollHeight`-based height, restore), (d) converts the viewport point to host offsets and writes inline styles.
+The COMPONENT is a thin shell around this function. Per reposition pass it: (a) clears BOTH previously applied inline `maxHeight` AND `maxWidth` (R2 F2 — no constraint survives into the next measurement), (b) measures `trigger`/body rects and `bounds`, (c) calls the function (`wrappedHeightAt` = apply the width inline, read `getBoundingClientRect().height` — the rendered BORDER-BOX height with the class max-height cap still active — then restore), (d) converts the viewport point to host offsets and writes inline styles.
 
 **Host coordinate conversion (corrected per R2 F3 — two exact formulas, no shared approximation):**
 - **Panel host** (containing block = the panel, which is `position: relative`, ReviewModalShell.tsx:618; absolute offsets resolve from the containing block's PADDING box): `left = vx − hostRect.left − host.clientLeft`, `top = vy − hostRect.top − host.clientTop` (clientLeft/Top = border widths; the panel does not scroll — its inner pane does — so no scroll term exists to get wrong).
@@ -117,7 +119,7 @@ The COMPONENT is a thin shell around this function. Per reposition pass it: (a) 
 <!-- spec-lint: ignore — new files created by this spec; not yet tracked -->
 Constants (single source `lib/popover/position.ts`, exported): `GAP = 6` (today's `+6px`), `VIEWPORT_INSET = 8`. `bounds` construction: `intersect(hostRect, (0,0,innerWidth,innerHeight))` inset by `VIEWPORT_INSET` on all four sides (layout viewport per R8).
 
-**Vertical bounds invariant:** for fits-cases `y ≥ bounds.top` and `y + effectiveHeight ≤ bounds.bottom` hold by construction; for the shrink case `effectiveHeight = space(chosen)` exactly fills trigger-edge→bounds-edge. Pinned by T-PURE's exhaustive table and T3b.
+**Vertical bounds invariant:** for fits-cases `y ≥ bounds.top` and `y + effectiveHeight ≤ bounds.bottom` hold by construction; for the shrink case `effectiveHeight = space(chosen)` exactly fills trigger-edge→bounds-edge. Pinned by T-PURE's exhaustive table, T3b (flip bounds) and T3c (shrink).
 
 ### §4.3 Reposition lifecycle (resolves R1 F6)
 
@@ -127,7 +129,7 @@ Reposition runs:
 - (c) `resize` on `window`;
 - (d) a `ResizeObserver` on the trigger button, the body, AND the positioning HOST element (panel resize — e.g. viewport-class change re-sizing the modal — changes `bounds` without any window resize or scroll; R2 F5).
 
-All four call a single `schedule()` that coalesces through `requestAnimationFrame` (≤1 measurement per frame). Lifecycle contract: `schedule()` is a no-op while `open === false`; the rAF id is stored and **cancelled** on close, on unmount, and before scheduling anew; listeners (b)(c) and observer (d) attach when `open` flips true and detach on close/unmount. Therefore no measurement of a `display:none` body, no stale write after close, no null-ref race after unmount (R1 F6). Residual (declared, not silent): a pure TRANSLATION of the trigger without any scroll/resize/size-change (e.g. an ancestor's margin animating) is not observed until the next frame in which any of (b)(c)(d) fires — same approximation floating-ui's `autoUpdate` defaults make (`layoutShift` observation off).
+Triggers (b)(c)(d) call a single `schedule()`: if a frame is already pending it does NOTHING (that is the coalescing — repeated events collapse into the one pending frame); otherwise it requests a frame and stores the id. Trigger (a) does NOT go through `schedule()` — it invokes the measure-and-apply routine directly inside the layout effect (pre-paint), and any frame that a near-simultaneous (b)(c)(d) event has already queued runs afterwards as a harmless re-measure. Lifecycle contract: `schedule()` is a no-op while `open === false`; the stored rAF id is **cancelled** on close and on unmount (the only two cancellation sites); listeners (b)(c) and observer (d) attach when `open` flips true and detach on close/unmount. Therefore no measurement of a `display:none` body, no stale write after close, no null-ref race after unmount (R1 F6). Residual (declared, not silent): a pure TRANSLATION of the trigger without any scroll/resize/size-change (e.g. an ancestor's margin animating) is not observed until the next frame in which any of (b)(c)(d) fires — same approximation floating-ui's `autoUpdate` defaults make (`layoutShift` observation off).
 
 ### §4.4 What changes and what does not
 
@@ -162,14 +164,14 @@ This preserves today's semantic ("the link is reachable via Tab when the popover
 
 ### §4.6 Transition inventory
 
-States: `closed`, `open@bottom`, `open@top`, `open+anchor-hidden` (§4.2 step 2). Pairs and compounds:
+States: `closed`, `open@bottom`, `open@top`, `open+anchor-hidden` (§4.2 step 1). Pairs and compounds:
 
 | Transition | Treatment |
 |---|---|
 | closed → open (either side) | position set pre-paint (useLayoutEffect), then the shipped fade (`starting:opacity-0`, `duration-fast`) |
 | open → closed | shipped `transition-[opacity,display]` discrete hide — unchanged; pending rAF cancelled (§4.3) |
 | open@bottom ↔ open@top (flip mid-open) | INSTANT jump — a tooltip tracking its anchor must not tween; deliberate |
-| open ↔ anchor-hidden | `visibility` toggle, instant, open-state untouched |
+| open ↔ anchor-hidden (§4.2 step 1) | `visibility` toggle, instant, open-state untouched |
 | open + anchor scrolls (no flip) | instant per-frame tracking (rAF), no animation |
 | close/unmount while a reposition frame is pending | rAF cancelled; no write occurs (§4.3) |
 | close during fade-in / reopen during fade-out | shipped discrete-transition behavior, unchanged |
@@ -179,10 +181,10 @@ States: `closed`, `open@bottom`, `open@top`, `open+anchor-hidden` (§4.2 step 2)
 | Invariant | Guarantee | Asserted by |
 |---|---|---|
 | body width target 18rem, ≤ 80vw | `w-72 max-w-[80vw]` classes (unchanged :248) | T3d (equality, cap engaged) |
-| body height ≤ min(60vh, 24rem) | class cap (unchanged); inline `maxHeight` only ever smaller (§4.2 step 4) | T3d |
+| body height ≤ min(60vh, 24rem) | class cap (unchanged); inline `maxHeight` only ever smaller (§4.2 step 3) | T3d |
 | trigger↔body gap = 6px on the chosen side (fits-cases) | `GAP` in the §4.2 core | T-PURE numeric pin + T3a/T3b (±0.5px) |
 | open body entirely inside `B` (host∩viewport, 8px inset) | side-selection + shrink + horizontal clamp (§4.2) | T3b/T3c/T4 |
-| anchor outside `B` → body not visible | §4.2 step 2 | T3e |
+| anchor outside `B` → body not visible | §4.2 step 1 | T3e |
 
 ### §4.8 Guard conditions
 
@@ -191,9 +193,9 @@ States: `closed`, `open@bottom`, `open@top`, `open+anchor-hidden` (§4.2 step 2)
 | `placement` absent | preferred side `bottom` (shipped default, :63) |
 | pre-mounted (SSR/hydration window) | body not rendered; open impossible (needs JS) |
 | trigger rect zero-size but intersecting `B` | degenerate anchor; math well-defined (gap from the zero-size edges) |
-| trigger rect outside `B` | body `visibility: hidden` (§4.2 step 2) |
-| neither side fits | larger side + inline `maxHeight` shrink (§4.2 step 4) |
-| panel narrower than body | inline `maxWidth = B.width` + re-clamp (§4.2 step 5) |
+| trigger rect outside `B` | body `visibility: hidden` (§4.2 step 1) |
+| neither side fits | larger side + inline `maxHeight` shrink (§4.2 step 3) |
+| panel narrower than body | inline `maxWidth` via §4.2 step 2 width-first shrink |
 | host unmounts while popover open (modal closing) | popover unmounts with it (same React tree); rAF/listeners cleaned (§4.3) |
 | reduced motion | fade is opacity-only + `duration-fast`; unchanged |
 | jsdom (unit tests) | zero rects throughout → algorithm runs but asserts nothing geometric; unit tests cover NON-geometric contracts only (§6); all geometry is real-browser |
@@ -202,7 +204,7 @@ States: `closed`, `open@bottom`, `open@top`, `open+anchor-hidden` (§4.2 step 2)
 
 | Field | Storage | Write path | Read path | Effect |
 |---|---|---|---|---|
-| `placement?: "top" \| "bottom"` | prop | Step2Verify.tsx:638 (only writer; all other consumers omit) | §4.2 step 4 preferred side | preferred vertical side; auto-flip/shrink may override when it does not fit |
+| `placement?: "top" \| "bottom"` | prop | Step2Verify.tsx:638 (only writer; all other consumers omit) | §4.2 step 3 preferred side | preferred vertical side; auto-flip/shrink may override when it does not fit |
 
 Not a zombie: read path and effect both live.
 
@@ -221,26 +223,26 @@ Not a zombie: read path and effect both live.
 Anti-tautology: every geometry expectation below derives from measured trigger/host rects and the exported `GAP`/`VIEWPORT_INSET` constants — no hardcoded pixel coordinates. `getBoundingClientRect` alone is BANNED as a visibility proof (BACKLOG.md:33); true-visibility = `document.elementFromPoint` probes.
 
 <!-- spec-lint: ignore — new files created by this spec; not yet tracked -->
-- **T-PURE (unit — the positioning core, NEW `tests/lib/popover/position.test.ts`):** exhaustive decision-table over `computePopoverPlacement`: fits-below / fits-above-only / neither-side (shrink engaged, maxHeight === larger space) / anchor-gone / narrow-bounds width shrink WITH `wrappedHeightAt` returning a LARGER height that flips the vertical decision (the R2 F1 composite, pinned forever) / align-left+right at both bounds edges / clamp saturation / zero-size trigger. Pure algebra — no DOM. Also the independent numeric pins (R2 F9): `expect(GAP).toBe(6)` and `expect(VIEWPORT_INSET).toBe(8)` as spec-literal assertions, so geometry tests may then use the exported constants without the two-sided-drift tautology.
+- **T-PURE (unit — the positioning core, NEW `tests/lib/popover/position.test.ts`):** exhaustive decision-table over `computePopoverPlacement`: fits-below / fits-above-only / neither-side (shrink engaged, maxHeight === larger space) / anchor-gone / narrow-bounds width shrink WITH `wrappedHeightAt` returning a LARGER height that flips the vertical decision (the R2 F1 composite, pinned forever) / align-left+right at both bounds edges / clamp saturation / zero-size trigger / exact-fit equalities (`height0 === space(side)` both sides) / equal-space ties at every comparison (resolve to preferredSide, fits and shrink branches) / preferred-top symmetry rows mirroring every preferred-bottom row / partially-intersecting anchors (each edge) / `naturalSize.width === bounds.width` boundary / degenerate-bounds and non-finite-input rows → hidden. Pure algebra — no DOM. Also the independent numeric pins (R2 F9): `expect(GAP).toBe(6)` and `expect(VIEWPORT_INSET).toBe(8)` as spec-literal assertions, so geometry tests may then use the exported constants without the two-sided-drift tautology.
 - **T1 (unit — portal topology pins, extends the shipped containment suite):** inside a ReviewModalShell-topology fixture (panel + document-level Escape listener + PopoverHostContext): (i) Escape with focus on the trigger → popover closes, modal listener silent; (ii) Escape with focus on the portaled Learn-more link (event ORIGINATES inside the portal) → same; (iii) Escape with popover closed → modal listener fires; plus the STRUCTURAL pins (R2 F7): (iv) body node satisfies `panel.contains(body)` (trap enumeration + aria-modal subtree both reduce to descendant-ness of the `role="dialog"` element); (v) with NO provider, body's parent is `document.body`. Dismiss-time inert coverage lives in T4b (real browser — jsdom's `inert` support is unreliable).
 - **T2 (unit — full jsdom blast radius, R1 F4 + R2 F8):** `HoverHelp.test.tsx` (12 — including rewriting the `within(root)` body assertions at :140-142 to document scope + an explicit portal-location assertion), `hoverHelpCompactTrigger.test.tsx`, the seven `within(`-scoping consumer suites (§2 list), and `stagedCardBaseline.test.tsx` (outerHTML snapshot regenerated; review confirms the only delta is the body's departure). Re-assert: `aria-describedby` target EXISTS in `document` after mount (R6); closed body carries `hidden`; `getComputedStyle(document.body).position === "static"` precondition pin (§4.2).
 - **T3 (e2e, real browser — geometry, standalone harness):** fixture grid at controlled offsets in (a) body-host page and (b) panel-host (real ReviewModalShell). Each case asserts via measured rects + the T-PURE-pinned constants:
   - **T3a fits-below:** body top = trigger bottom + GAP (±0.5px).
   - **T3b flip-up + bounds:** `spaceBelow < height ≤ spaceAbove` fixture → body bottom = trigger top − GAP (±0.5px) AND body rect ⊆ B on all four edges.
   - **T3c neither-side shrink:** centered trigger + tall content → body ⊆ B, inline maxHeight === larger space (±0.5px), `scrollHeight > clientHeight` (overflow genuinely engaged).
-  - **T3d caps ENGAGED, both directions (R2 F10):** overflow-length content fixture → rendered width === 18rem exactly (w-72 engaged, lower bound) and ≤ 80vw; rendered height === min(60vh, 24rem) exactly at both 390px and 1280px (cap engaged). A missing cap class fails the equality; a missing w-72 fails the lower bound.
+  - **T3d caps ENGAGED — every arm, explicit viewport matrix (R2 F10 + R4-B4):** overflow-length content fixture throughout. 1280×800: width === 18rem exactly (w-72 engaged; 80vw=1024 slack) and height === 24rem exactly (24rem arm; 60vh=480 > 384). 320×844: width === 80vw = 256px exactly (80vw arm ENGAGED — 256 < 288 = 18rem; deleting `max-w-[80vw]` fails this equality). 1280×500: height === 60vh = 300px exactly (60vh arm ENGAGED — 300 < 384; deleting the max-h class fails it). Each equality ±0.5px; each arm's expected value derived from the live viewport, not hardcoded.
   - **T3e anchor-gone:** trigger scrolled out → `visibility: hidden`; back → visible, open state preserved.
-  - **T3f placement="top"** honored when it fits; flips down pinned to top edge.
+  - **T3f placement="top"** honored when it fits (body bottom = trigger top − GAP ±0.5px); with the trigger pinned near `B.top` so `spaceAbove < height0 ≤ spaceBelow`, flips down: body top = trigger bottom + GAP ±0.5px.
   - **T3g narrow-host width shrink (R2 F1 integration):** panel-host fixture narrower than 18rem → maxWidth applied, content wraps, body still ⊆ B on all edges.
 - **T4 (e2e — clipping kill-shot + inert, real modal):** (a) scroll an attention card to the pane's bottom edge, open popover: `document.elementFromPoint` at body center + four inset corners returns the body or a descendant (true visibility through BOTH clipping ancestors; `getBoundingClientRect` banned as proof, BACKLOG.md:33). (b) **dismiss-time inert (R2 F7):** start the modal dismiss; assert the body is inside the inerted subtree (`body.closest('[inert]') !== null`) whenever the panel is.
 - **T5 (e2e — overlap kill-shot):** compact warning card positioned so the flip engages: popover rect does NOT intersect the card's guidance-band rect (both measured live).
-- **T6 (e2e — scrollWidth + coordinate probes):** closed popovers on /admin at 390px/1280px: `document.documentElement.scrollWidth === clientWidth` (pattern admin-nav-layout-dimensions.spec.ts:118); one OPEN popover at 390px still no horizontal document scroll. Functional coordinate probes for BOTH host formulas (§4.2): place a probe node via each formula at a target viewport point, assert its viewport rect lands there (±0.5px) — including with a nonzero window scroll for the body-host formula.
+- **T6 (e2e — scrollWidth + end-to-end coordinate correctness):** closed popovers on /admin at 390px/1280px: `document.documentElement.scrollWidth === clientWidth` (pattern admin-nav-layout-dimensions.spec.ts:118); one OPEN popover at 390px still no horizontal document scroll. Coordinate correctness is asserted against the COMPONENT'S OWN rendered body (R4-B5 — no separate probe node): (i) body-host page scrolled to a nonzero `window.scrollY`, popover opened → body's viewport rect satisfies the T3a gap/alignment equations relative to the trigger's viewport rect (a broken scroll term shifts the body by scrollY and fails the gap equation); (ii) same assertion inside the panel host after scrolling the inner pane. The §4.2 formulas are thereby exercised through the real render path end-to-end.
 - **T7 (e2e + unit — reposition lifecycle):** e2e: (i) pane scroll → offset from trigger preserved (±1px) next frame; (ii) window resize while open → repositioned; (iii) body content growth (harness knob) → ResizeObserver reposition; (iv) HOST resize (harness shrinks the panel width — R2 F5) → re-bounded, body ⊆ new B, AND a previously applied maxWidth is CLEARED when the host re-expands (R2 F2 restoration). Unit (jsdom, mocked rAF — R2 F11): close with a frame pending → `cancelAnimationFrame` called with the stored id and no style write occurs; unmount with a frame pending → same, no error.
-- **T8 (e2e — keyboard reachability):** body-host page with learnMore: Tab from trigger reaches the link (with a STAGED pending close timer: hover-open, pointer leaves — starting the 120ms timer — then Tab within the window; wait past CLOSE_DELAY_MS; link still visible — R2 F6); Tab from link closes popover, focus returns to trigger; Shift+Tab from link → trigger, popover open. Panel-host: Tab cycles the modal's focusables INCLUDING the link; trap wrap (first↔last) still functions. deep-link-walker green with its updated HoverHelp arm.
+- **T8 (e2e — keyboard reachability):** body-host page with learnMore: Tab from trigger reaches the link (with a STAGED pending close timer: hover-open, pointer leaves — starting the 120ms timer — then Tab within the window; wait past CLOSE_DELAY_MS; link still visible — R2 F6); Tab from link closes the popover and returns focus to the trigger per the DECLARED §4.5 double-visit semantics (asserted exactly: popover closed AND focus === trigger AND a subsequent Tab lands on the trigger's natural successor); Shift+Tab from link → trigger, popover open. Panel-host: Tab cycles the modal's focusables INCLUDING the link; trap wrap (first↔last) still functions. deep-link-walker green with its updated HoverHelp arm.
 - **T9 (full suites):** entire unit + e2e suites green across all 9 consumers; typecheck; eslint; format:check (pre-push gates).
 
 <!-- spec-lint: ignore — new files created by this spec; not yet tracked -->
-**CI wiring (R2 F12 — enumerated, not nominal):** new standalone spec `tests/e2e/hoverhelp-geometry.spec.ts` (+ entry `tests/e2e/_hoverHelpGeometryLiveEntry.tsx`) added to the `tests/e2e/standalone.config.ts` explicit `testMatch` allow-list (:29-35 — absent = DARK) AND a dedicated workflow `.github/workflows/hoverhelp-geometry-e2e.yml` patterned on `attention-anchor-e2e.yml`, with `workflow_dispatch:` enabled and `paths:` covering AT MINIMUM: the spec file, the entry file, `components/admin/HoverHelp.tsx`, `lib/popover/position.ts`, `components/admin/review/ReviewModalShell.tsx`, `components/admin/wizard/Step3ReviewModal.tsx`, `components/admin/compactAlertHelp.tsx`, `tests/e2e/standalone.config.ts`, `app/globals.css`, and the workflow file itself; invocation `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts`. Server boot: none (standalone harness self-serves over `node:http` on an ephemeral port with Tailwind-CLI-compiled real CSS, template `compact-alert-card-layout.spec.ts:43` (`createServer`)); readiness gate: hydration sentinel before first assertion; detach-safety: samplers re-query per frame, never hold locators across scrolls. In-modal cases (T4/T7/T8 panel-host) extend the existing review-modal e2e family instead, whose workflows already filter on the modal surfaces.
+**CI wiring (R2 F12 — enumerated, not nominal):** new standalone spec `tests/e2e/hoverhelp-geometry.spec.ts` (+ entry `tests/e2e/_hoverHelpGeometryLiveEntry.tsx`) added to the `tests/e2e/standalone.config.ts` explicit `testMatch` allow-list (:29-35 — absent = DARK) AND a dedicated workflow `.github/workflows/hoverhelp-geometry-e2e.yml` patterned on `attention-anchor-e2e.yml`, with `workflow_dispatch:` enabled and `paths:` covering AT MINIMUM: the spec file, the entry file, `components/admin/HoverHelp.tsx`, `lib/popover/position.ts`, `components/admin/review/ReviewModalShell.tsx`, `components/admin/wizard/Step3ReviewModal.tsx`, `components/admin/compactAlertHelp.tsx`, `tests/e2e/standalone.config.ts`, `app/globals.css`, and the workflow file itself; invocation `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts`. Server boot: none (standalone harness self-serves over `node:http` on an ephemeral port with Tailwind-CLI-compiled real CSS, template `compact-alert-card-layout.spec.ts:43` (`createServer`)); readiness gate: hydration sentinel before first assertion; detach-safety: samplers re-query per frame, never hold locators across scrolls. `components/admin/CompactAlertCard.tsx` is ALSO in the `paths:` list (T5 depends on its trigger/guidance geometry). In-modal cases (T4, T7 panel-host, T8 panel-host) land in `tests/e2e/published-review-modal.interactions.spec.ts`, which `.github/workflows/published-modal-e2e.yml` already collects (workflow header enumerates the family; `paths:` at :37-50 include that spec) — the SAME commit extends that workflow's `paths:` with `components/admin/HoverHelp.tsx` and `lib/popover/position.ts` so popover-only changes still trigger the modal-family run.
 
 ## §7 Ship bookkeeping
 
