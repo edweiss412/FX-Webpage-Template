@@ -29,10 +29,11 @@
 - Modify: `components/admin/compactAlertHelp.tsx`, `components/admin/PerShowActionableWarnings.tsx` (T3)
 - Create: `tests/components/admin/perShowActionableFollowUp.test.tsx` (T3)
 - Create: `lib/admin/warningsPanelStatus.ts` — sentence builder (T4)
+- Create: `tests/helpers/publishedSurfaceProps.tsx` — SHARED surface-props builder for Tasks 4-7 (T4)
 - Modify: `components/admin/review/ShowReviewSurface.tsx` — status span + pointer chrome + seamless call (T4, T5, T7)
 - Create: `tests/admin/warningsPanelStatus.test.ts`, `tests/components/admin/review/warningsPanelStatusMount.test.tsx` (T4)
 - Modify: `components/admin/showpage/sectionWarningExtras.tsx` — seamless container (T5)
-- Modify: `components/admin/wizard/step3ReviewSections.tsx` — callout gate (T6), pointer sentence + chrome type (T7), comment fix (T6)
+- Modify: `components/admin/wizard/step3ReviewSections.tsx` — callout gate (T6), pointer sentence + chrome type (T7), comment fix (T5)
 - Create: `tests/components/admin/showpage/sectionWarningSeam.test.tsx` (T5), `tests/components/admin/calloutActionabilityGate.test.tsx` (T6), `tests/components/admin/wizard/pointerSentence.test.tsx` (T7)
 - Create: `tests/e2e/warning-panel-polish.spec.ts` (T8)
 - Modify: `DEFERRED.md`, create `docs/superpowers/plans/2026-07-22-warning-panel-polish/handoff.md` (T9)
@@ -81,9 +82,30 @@ function walkFiles(dir: string, out: string[] = []): string[] {
 type Scan = { infoCodes: Set<string>; violations: string[] };
 
 function scanFile(path: string, scan: Scan): void {
-  const src = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
+  scanSource(ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true), path, scan);
+}
+
+function scanSource(src: ts.SourceFile, path: string, scan: Scan): void {
   const visit = (node: ts.Node): void => {
-    if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && node.name.text === "severity") {
+    // "severity" as a property name in ANY syntactic form: identifier key,
+    // string-literal key, computed key, shorthand, method/accessor. Shorthand,
+    // computed, and method forms are unanalyzable BY CONSTRUCTION -> fail.
+    const namedSeverity = (name: ts.PropertyName): boolean =>
+      (ts.isIdentifier(name) && name.text === "severity") ||
+      (ts.isStringLiteral(name) && name.text === "severity") ||
+      (ts.isComputedPropertyName(name) &&
+        ts.isStringLiteral(name.expression) &&
+        name.expression.text === "severity");
+    if (ts.isShorthandPropertyAssignment(node) && node.name.text === "severity") {
+      scan.violations.push(`${path}: unanalyzable severity: extend the scanner or register the code`);
+    }
+    if (
+      (ts.isMethodDeclaration(node) || ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node)) &&
+      namedSeverity(node.name)
+    ) {
+      scan.violations.push(`${path}: unanalyzable severity: extend the scanner or register the code`);
+    }
+    if (ts.isPropertyAssignment(node) && namedSeverity(node.name)) {
       const v = node.initializer;
       const literal = ts.isStringLiteral(v) ? v.text : null;
       if (literal !== "warn" && literal !== "info") {
@@ -122,6 +144,37 @@ describe("INFO_CODE_ACTIONABILITY registry (spec §3.4)", () => {
 
   it("Layer 1: discovered info-code set equals the decision map's key set", () => {
     expect([...scan.infoCodes].sort()).toEqual(Object.keys(INFO_CODE_ACTIONABILITY).sort());
+  });
+
+  it("scanner self-test: synthetic fixtures prove discovery and each fail-closed branch", () => {
+    const probe = (code: string): Scan => {
+      const sc: Scan = { infoCodes: new Set(), violations: [] };
+      const path = "/synthetic/probe.ts";
+      const src = ts.createSourceFile(path, code, ts.ScriptTarget.Latest, true);
+      // reuse the same visitor via scanFileSource seam (see scanFile refactor below)
+      scanSource(src, path, sc);
+      return sc;
+    };
+    // info literal with code literal -> discovered, no violation
+    let r = probe(`const w = { severity: "info", code: "X_CODE", message: "m" };`);
+    expect([...r.infoCodes]).toEqual(["X_CODE"]);
+    expect(r.violations).toEqual([]);
+    // warn literal -> accepted silently
+    r = probe(`const w = { severity: "warn", code: "Y", message: "m" };`);
+    expect(r.infoCodes.size).toBe(0);
+    expect(r.violations).toEqual([]);
+    // variable severity -> unanalyzable
+    r = probe(`const sev = "info"; const w = { severity: sev, code: "Z" };`);
+    expect(r.violations).toHaveLength(1);
+    // shorthand -> unanalyzable
+    r = probe(`const severity = "info" as const; const w = { severity, code: "Z" };`);
+    expect(r.violations).toHaveLength(1);
+    // string-literal key -> analyzed like identifier key
+    r = probe(`const w = { "severity": "info", code: "Q" };`);
+    expect([...r.infoCodes]).toEqual(["Q"]);
+    // info without attributable code -> violation
+    r = probe(`const w = { severity: "info", message: "m" };`);
+    expect(r.violations).toHaveLength(1);
   });
 
   it("today's universe is exactly the two known codes with the ratified decisions", () => {
@@ -188,6 +241,7 @@ git commit --no-verify -m "feat(admin): info-code actionability registry with tw
 
 ```tsx
 // tests/components/admin/hoverHelpAfterBody.test.tsx
+// @vitest-environment jsdom
 /** Spec §3.1/§8.2: the afterBodyText attribute triple mirrors learnMore.
  *  Catches: describedby narrowed but tooltip role kept or aria-controls
  *  omitted (each quadrant pins all three attributes + DOM order). */
@@ -249,8 +303,17 @@ describe("HoverHelp afterBodyText quadrants", () => {
     expect(linkIdx).toBeGreaterThan(pIdx);
   });
 
-  it("empty/whitespace afterBodyText behaves as absent", () => {
-    render(<HoverHelp label="Help: q" testId="q3" afterBodyText="   ">ctx</HoverHelp>);
+  it("learnMore alone: shipped triple unchanged (pinned)", () => {
+    render(<HoverHelp label="Help: q" testId="q4" learnMore={{ href: "/help/x" }}>ctx</HoverHelp>);
+    const a = attrs("q4");
+    expect(a.describedbyEl!.textContent).toBe("ctx");
+    expect(a.describedbyEl).not.toBe(a.body);
+    expect(document.getElementById(a.controls ?? "")).toBe(a.body);
+    expect(a.role).toBeNull();
+  });
+
+  it.each(["", "   "])("empty/whitespace afterBodyText (%j) behaves as absent", (v) => {
+    render(<HoverHelp label="Help: q" testId="q3" afterBodyText={v}>ctx</HoverHelp>);
     const a = attrs("q3");
     expect(a.describedbyEl).toBe(a.body);
     expect(a.role).toBe("tooltip");
@@ -317,8 +380,8 @@ In `components/admin/HoverHelp.tsx`:
 
 - [ ] **Step 4: Run new test + existing HoverHelp suites**
 
-Run: `pnpm vitest run tests/components/admin/hoverHelpAfterBody.test.tsx && pnpm vitest run tests/components/admin --silent 2>&1 | tail -5`
-Expected: new suite PASS; no existing suite regressions (neither-prop path byte-identical).
+Run: `pnpm vitest run tests/components/admin/hoverHelpAfterBody.test.tsx tests/components/admin`
+Expected: exit 0, new suite PASS, no existing suite regressions (neither-prop path byte-identical). Check the exit CODE, not the tail of output (vitest can exit 1 on uncaught errors while every test line reads pass).
 
 - [ ] **Step 5: Commit**
 
@@ -344,6 +407,7 @@ git commit --no-verify -m "feat(admin): HoverHelp afterBodyText slot with learnM
 
 ```tsx
 // tests/components/admin/perShowActionableFollowUp.test.tsx
+// @vitest-environment jsdom
 /** Spec §3.1/§8.1: follow-up renders as a second popover paragraph OUTSIDE the
  *  described element; staged-shaped callers (no followUpCopy) are byte-identical.
  *  Fixtures copy real emitter shapes: TYPO/DOUBLE_LOCATION have no sourceCell
@@ -391,6 +455,27 @@ describe("per-card follow-up placement (spec §3.1)", () => {
     expect(body!.querySelector("p.mt-2")).toBeNull();
   });
 
+  it("context-null guard: non-catalog code with sourceCell renders followUp AS the described body", () => {
+    // isMessageCode("NOT_A_CATALOG_CODE") is false -> entry null -> trigger
+    // context null; the ratified guard makes the follow-up the body (spec
+    // section 3.1 boundary). Catches: guard omitted (no trigger at all) or
+    // inverted (followUp in afterBodyText with an empty described body).
+    const noContext: ParseWarning = {
+      severity: "warn",
+      code: "NOT_A_CATALOG_CODE",
+      message: "A human message",
+      rawSnippet: "row",
+      sourceCell: { title: "INFO", gid: 0, a1: "C3" },
+    };
+    render(
+      <PerShowActionableWarnings items={[noContext]} driveFileId="d1" followUpCopy={FOLLOW_UP} />,
+    );
+    const { body, describedEl } = bodyFor(0);
+    expect(describedEl).toBe(body); // no afterBody -> describedby stays whole body
+    expect(describedEl!.textContent).toBe(FOLLOW_UP);
+    expect(body!.querySelector("p.mt-2")).toBeNull();
+  });
+
   it("no sourceCell: no follow-up paragraph even with followUpCopy (existing gate)", () => {
     const noCell: ParseWarning = {
       severity: "info",
@@ -405,7 +490,7 @@ describe("per-card follow-up placement (spec §3.1)", () => {
 });
 ```
 
-NOTE for implementer: the `sourceCell` fixture shape above is the verified `SourceAnchor` (`lib/sheet-links/buildSheetDeepLink.ts:3`: `{ title: string; gid: number; a1?: string }`). If `PerShowActionableWarnings`'s help testId requires `isMessageCode` for a popover to exist, keep `UNKNOWN_ROLE_TOKEN` (it is a catalog code with `triggerContext`); if its `warningCardCopyFields` yields no trigger context the popover will not render — in that case pick another `OPERATOR_ACTIONABLE_ANCHORED` code that HAS `triggerContext` (verify via `lib/messages/catalog.ts`) rather than weakening the assertions.
+NOTE for implementer: the `sourceCell` fixture shape above is the verified `SourceAnchor` (`lib/sheet-links/buildSheetDeepLink.ts:3`: `{ title: string; gid: number; a1?: string }`). `UNKNOWN_ROLE_TOKEN` is VERIFIED to carry catalog `triggerContext` (`lib/messages/catalog.ts:1234`), so its popover exists and the red phase fails on the JOINED text, not on a missing popover.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -442,8 +527,9 @@ Destructure `afterBodyText` in the component and forward on `HoverHelp` (spread 
         // follow-up IS the body — the only content of a producer-less defensive
         // case — so the card keeps a described popover instead of losing its
         // trigger entirely.
-        const popoverBody = context ?? followUp;
-        const afterBodyText = context !== null ? followUp : null;
+        const contextOrNull: string | null = context ?? null; // one sentinel, exactOptional-safe
+        const popoverBody = contextOrNull ?? followUp;
+        const afterBodyText = contextOrNull !== null ? followUp : null;
 ```
 
 and pass to `CompactAlertHelp` (`:240-252`), spread-style:
@@ -459,7 +545,7 @@ and pass to `CompactAlertHelp` (`:240-252`), spread-style:
                   />
 ```
 
-(`context` here is the existing `const { trigger: context } = warningCardCopyFields(entry)` value at `:117`; normalize `context ?? null` if its type is `string | undefined`.)
+(`context` is the existing `warningCardCopyFields(entry).trigger` value at `:117`; `contextOrNull` is the ONE normalized sentinel — never branch on raw `context` — so an `undefined` trigger cannot put the follow-up into both `popoverBody` and `afterBodyText`, and the truthy-string spread can never pass explicit `undefined` to the optional prop.)
 
 - [ ] **Step 4: Run new + neighboring suites**
 
@@ -479,6 +565,7 @@ git commit --no-verify -m "feat(admin): follow-up sentence as second popover par
 
 **Files:**
 - Create: `lib/admin/warningsPanelStatus.ts`
+- Create: `tests/helpers/publishedSurfaceProps.tsx` — the SHARED `buildPublishedSurfaceProps` helper all of Tasks 4-7 import (`@/tests/helpers/publishedSurfaceProps`)
 - Modify: `components/admin/review/ShowReviewSurface.tsx` (warnings `<section>` block, after `:1076`)
 - Test: `tests/admin/warningsPanelStatus.test.ts`, `tests/components/admin/review/warningsPanelStatusMount.test.tsx`
 
@@ -556,6 +643,7 @@ export function warningsPanelStatusSentence(
 
 ```tsx
 // tests/components/admin/review/warningsPanelStatusMount.test.tsx
+// @vitest-environment jsdom
 /** Spec §3.2/§8.3: the status span lives OUTSIDE the suppressible panel-card
  *  subtree (step3ReviewSections.tsx:792-815 unmounts children in Silent), so
  *  the SAME node instance survives clean<->Silent and its text changes.
@@ -563,7 +651,7 @@ export function warningsPanelStatusSentence(
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 // Reuse the published fixture the trim suites already share:
-import { buildPublishedSurfaceProps } from "@/tests/helpers/warningSurfaceFixture";
+import { buildPublishedSurfaceProps } from "@/tests/helpers/publishedSurfaceProps";
 import { ShowReviewSurface } from "@/components/admin/review/ShowReviewSurface";
 
 describe("warnings panel live region (spec §3.2)", () => {
@@ -587,7 +675,7 @@ describe("warnings panel live region (spec §3.2)", () => {
 });
 ```
 
-NOTE for implementer: there is NO prebuilt `buildPublishedSurfaceProps` helper — author it at the top of this suite (or a small shared `tests/helpers/publishedSurfaceProps.tsx`) from the canonical scaffold in `tests/components/admin/review/routedWarningsGate.test.tsx`: `buildPublishedSectionData` (`components/admin/review/publishedAdapter`) over a `fixtureSnapshot`-style show (`tests/helpers/warningSurfaceFixture.ts:122`), `buildSectionWarningModel` + `deriveRoutedWarnings` for the counts, the `next/navigation` mock from that suite, and `renderSectionExtras` from `buildSectionWarningExtras` for gate-on renders (omit both for `gateOff`). The option names used in these steps (`listed`/`here`/`elsewhere`/`gateOff`/`withParseNotes`/`elsewhereInCrew`/`infoRows`/`elsewhereSections`) are the CONTRACT for that local helper — implement them there once, reuse across Tasks 4-7. Counts map to: `listed` = info rows in `data.warnings`, `here` = active warn rows in the `warnings` bucket, `elsewhere` = active warn rows in other sections. Do not weaken the same-instance assertion.
+NOTE for implementer: `tests/helpers/publishedSurfaceProps.tsx` is CREATED IN THIS TASK (before the mount test can run) and is the single shared helper every later task imports — never a suite-local copy. Author it from the canonical scaffold in `tests/components/admin/review/routedWarningsGate.test.tsx`: `buildPublishedSectionData` (`components/admin/review/publishedAdapter`) over a `fixtureSnapshot`-style show (`tests/helpers/warningSurfaceFixture.ts:122`), `buildSectionWarningModel` + `deriveRoutedWarnings` for the counts, the `next/navigation` mock from that suite, and `renderSectionExtras` from `buildSectionWarningExtras` for gate-on renders (omit both for `gateOff`). The option names used in these steps (`listed`/`here`/`elsewhere`/`gateOff`/`withParseNotes`/`elsewhereInCrew`/`infoRows`/`elsewhereSections`) are the CONTRACT for that local helper — implement them there once, reuse across Tasks 4-7. Counts map to: `listed` = info rows in `data.warnings`, `here` = active warn rows in the `warnings` bucket, `elsewhere` = active warn rows in other sections. Do not weaken the same-instance assertion.
 
 - [ ] **Step 5: Run to verify mount-test failure, then implement the mount**
 
@@ -620,7 +708,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add lib/admin/warningsPanelStatus.ts components/admin/review/ShowReviewSurface.tsx tests/admin/warningsPanelStatus.test.ts tests/components/admin/review/warningsPanelStatusMount.test.tsx
+git add lib/admin/warningsPanelStatus.ts tests/helpers/publishedSurfaceProps.tsx components/admin/review/ShowReviewSurface.tsx tests/admin/warningsPanelStatus.test.ts tests/components/admin/review/warningsPanelStatusMount.test.tsx
 git commit --no-verify -m "feat(admin): count-tuple live region for the published Parse-warnings panel"
 ```
 
@@ -640,12 +728,13 @@ git commit --no-verify -m "feat(admin): count-tuple live region for the publishe
 
 ```tsx
 // tests/components/admin/showpage/sectionWarningSeam.test.tsx
+// @vitest-environment jsdom
 /** Spec §3.3/§8.4. Catches: seam dropped in the wrong state or wrong section.
  *  Matrix: Silent -> warnings extras seamless; List -> byte-identical classes;
  *  here+parseNotes -> card AND seam stay; mixed -> only warnings seamless. */
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { buildPublishedSurfaceProps } from "@/tests/helpers/warningSurfaceFixture";
+import { buildPublishedSurfaceProps } from "@/tests/helpers/publishedSurfaceProps";
 import { ShowReviewSurface } from "@/components/admin/review/ShowReviewSurface";
 
 const SEAM_CLASSES = "mt-3 flex flex-col gap-3 border-t border-border pt-3";
@@ -689,7 +778,10 @@ describe("extras seam (spec §3.3)", () => {
 
 NOTE for implementer: reuse the Task-4 local helper (see its NOTE — routedWarningsGate.test.tsx scaffold); `withParseNotes` = supply the `warningsNotes` input that produces `parseNotes` (see `ShowReviewSurface.tsx:1041-1043`); keep exact-className assertions (spec §8.4 requires byte-identity in non-Silent states — copy the CURRENT class string from `sectionWarningExtras.tsx:218` verbatim into `SEAM_CLASSES` at write time).
 
-- [ ] **Step 2: Run to verify failure** — seamless case renders seam classes today.
+- [ ] **Step 2: Run to verify failure**
+
+Run: `pnpm vitest run tests/components/admin/showpage/sectionWarningSeam.test.tsx`
+Expected red phase: the Silent case AND the mixed here+elsewhere warnings-section case FAIL (seam classes render today); the List case and here+parseNotes case already PASS (they pin current classes).
 
 - [ ] **Step 3: Implement**
 
@@ -769,13 +861,14 @@ git commit --no-verify -m "feat(admin): seamless extras container in the Silent 
 
 ```tsx
 // tests/components/admin/calloutActionabilityGate.test.tsx
+// @vitest-environment jsdom
 /** Spec §3.4/§8.5. Catches: callout for a TYPO-only sheet (owner's ask), and
  *  the pre-change bug where the sourceCell conjunct suppressed it for ALL
  *  published info rows (neither info code is anchored, dataGaps.ts:370-391).
  *  Fixtures copy real emitter shapes: no sourceCell on either info code. */
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { buildPublishedSurfaceProps } from "@/tests/helpers/warningSurfaceFixture";
+import { buildPublishedSurfaceProps } from "@/tests/helpers/publishedSurfaceProps";
 import { ShowReviewSurface } from "@/components/admin/review/ShowReviewSurface";
 import type { ParseWarning } from "@/lib/parser/types";
 
@@ -822,7 +915,10 @@ describe("published callout actionability gate (spec §3.4)", () => {
 
 (Reuse the Task-4 local helper; `infoRows` = the info-severity entries of `data.warnings`.)
 
-- [ ] **Step 2: Run to verify failure** — today the published cases render NO callout at all (sourceCell conjunct), so the DOUBLE case fails.
+- [ ] **Step 2: Run to verify failure**
+
+Run: `pnpm vitest run tests/components/admin/calloutActionabilityGate.test.tsx`
+Expected red phase: DOUBLE-only and both-listed cases FAIL (published callout never renders today — dead sourceCell conjunct); TYPO-only and wizard cases already PASS.
 
 - [ ] **Step 3: Implement**
 
@@ -851,13 +947,14 @@ Import `infoRowInvitesCorrection` from `@/lib/admin/infoCodeActionability`.
 
 - [ ] **Step 4: Run + sweep pinned expectations**
 
-Run: `pnpm vitest run tests/components/admin/calloutActionabilityGate.test.tsx && rg -ln "correction-loop-callout" tests/ | xargs pnpm vitest run`
-Expected: new suite PASS. For each existing test pinning the OLD published gate (callout absent for cell-less rows), update the expectation to the registry behavior and enumerate every edited assertion in the commit body (class-sweep rule).
+Run: `pnpm vitest run tests/components/admin/calloutActionabilityGate.test.tsx && rg -ln "correction-loop-callout|CorrectionLoopCallout|correctionLoopCopy|Fixed it in the sheet" tests/ | xargs pnpm vitest run`
+Expected: new suite PASS. The sweep pattern covers the testid, the component, the copy helper, AND the literal sentence — an expectation encoding the retired sourceCell gate through any of those shapes surfaces here. For each hit pinning the OLD published gate, update to registry behavior and enumerate every edited assertion in the commit body (class-sweep rule).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/admin/wizard/step3ReviewSections.tsx tests/
+git add components/admin/wizard/step3ReviewSections.tsx tests/components/admin/calloutActionabilityGate.test.tsx
+# PLUS each swept test file actually edited in Step 4 — list them explicitly; never blanket-add tests/
 git commit --no-verify -m "feat(admin): callout gates on info-code actionability; retire dead sourceCell conjunct on published branch"
 ```
 
@@ -877,12 +974,13 @@ git commit --no-verify -m "feat(admin): callout gates on info-code actionability
 
 ```tsx
 // tests/components/admin/wizard/pointerSentence.test.tsx
+// @vitest-environment jsdom
 /** Spec §3.5/§8.6: FULL sentence textContent equality pins punctuation.
  *  Catches: missing terminal period, wrong 2-name/3-name separators, cap and
  *  unified-overflow regressions, wrong callback ids, missing-callback fallback. */
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { buildPublishedSurfaceProps } from "@/tests/helpers/warningSurfaceFixture";
+import { buildPublishedSurfaceProps } from "@/tests/helpers/publishedSurfaceProps";
 import { ShowReviewSurface } from "@/components/admin/review/ShowReviewSurface";
 import { pointerSentenceParts, POINTER_NAME_CAP } from "@/components/admin/wizard/step3ReviewSections";
 
@@ -943,10 +1041,31 @@ describe("pointer sentence render (spec §8.6)", () => {
     );
   });
 
-  it("tap fires the jump callback with the section id", () => {
+  it("1 section: exact sentence, no comma, no and", () => {
     renderElsewhere(["Crew"]);
+    expect(sentence()).toBe(
+      "Nothing else to note here. The warnings that need a look are in Crew.",
+    );
+  });
+
+  it("rendered partial-miss: 2 resolved + 1 unresolved section folds into the more-clause", () => {
+    renderElsewhere(["Crew", "Rooms & scope"], { totalSections: 3 });
+    expect(sentence()).toBe(
+      "Nothing else to note here. The warnings that need a look are in Crew, Rooms & scope, and 1 more.",
+    );
+  });
+
+  it("tap fires onJumpToSection with the section id (chrome-level contract)", () => {
+    // Direct chrome render — the Provider carries the spy; catches a wrong id
+    // or a dead handler wire. handleNavClick wiring is Task 8's browser test.
+    const onJump = vi.fn();
+    renderWarningsBreakdownWithChrome({
+      pointerTargets: { targets: [{ id: "crew", label: "Crew" }], totalSections: 1 },
+      onJumpToSection: onJump,
+    });
     fireEvent.click(screen.getByRole("button", { name: "Crew" }));
-    // Assert against the surface's scroll intent: the fixture exposes the spy.
+    expect(onJump).toHaveBeenCalledTimes(1);
+    expect(onJump).toHaveBeenCalledWith("crew");
   });
 
   it("no callback: bold text, no buttons", () => {
@@ -957,9 +1076,12 @@ describe("pointer sentence render (spec §8.6)", () => {
 });
 ```
 
-NOTE for implementer: the pure `pointerSentenceParts` tests are exact as written. For the render tests, extend the Task-4 local helper (elsewhere rows land in named sections); the tap test asserts whatever spy surface the fixture provides for `handleNavClick` — if none exists, render `WarningsBreakdown`'s section subtree with a chrome value carrying a `vi.fn()` as `onJumpToSection` and assert it is called with the right id (the chrome-level contract; `handleNavClick` wiring is covered by Task 8's real-browser scroll test). Full-string assertions must not be weakened to `toContain`.
+NOTE for implementer: the pure `pointerSentenceParts` tests are exact as written. For the render tests, extend the Task-4 local helper (elsewhere rows land in named sections); author `renderWarningsBreakdownWithChrome(chromeExtras)` in this suite following the direct-Provider pattern of `tests/components/admin/review/routedWarningsGate.test.tsx` (Provider value + the warnings section subtree in the elsewhere state). Full-string assertions must not be weakened to `toContain`.
 
-- [ ] **Step 2: Run to verify failure.**
+- [ ] **Step 2: Run to verify failure**
+
+Run: `pnpm vitest run tests/components/admin/wizard/pointerSentence.test.tsx`
+Expected red phase: module-load failure first (`pointerSentenceParts` / `POINTER_NAME_CAP` not yet exported) — that IS the failing state for the pure tests; after Step 3(b) exports land mid-implementation, the render cases fail on the static sentence until (c)/(d) complete.
 
 - [ ] **Step 3: Implement**
 
@@ -1055,7 +1177,7 @@ export function pointerSentenceParts(
           ) : (
 ```
 
-CAUTION for implementer: the separator logic above is the subtle part — derive it from the pinned §8.6 strings, not from this sketch: 1 name `"…in A."`; 2 names `"…in A and B."`; 3 names `"…in A, B, and C."`; any `moreCount>0` → `"…in A[, B[, C]], and N more."`. Write the joiner so those five exact strings fall out; adjust freely if the sketch misjoins, keeping the test as the contract. Verify `h-tap-min`/`min-w-tap-min` utility names against `app/globals.css` (`min-h-tap-min` is the known-good form used at `HoverHelp.tsx:212` — if `h-tap-min` is not a defined utility, use `before:min-h-tap-min` and confirm the overlay box empirically in Task 8).
+CAUTION for implementer: the separator logic above is the subtle part — derive it from the pinned §8.6 strings, not from this sketch: 1 name `"…in A."`; 2 names `"…in A and B."`; 3 names `"…in A, B, and C."`; any `moreCount>0` → `"…in A[, B[, C]], and N more."`. Write the joiner so those five exact strings fall out; adjust freely if the sketch misjoins, keeping the test as the contract. Overlay utilities RESOLVED: `--spacing-tap-min: 44px` is a theme spacing token (`app/globals.css:162`), so Tailwind v4 derives `h-tap-min`, `min-h-tap-min`, `min-w-tap-min`, `w-tap-min` automatically; `min-h-tap-min` is already in shipped use (`HoverHelp.tsx:212`). Use exactly `before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']` — Task 8 verifies the rendered box empirically.
 
 (d) `ShowReviewSurface.tsx` provider — add to the chrome value (spread-inserted, warnings section only):
 
@@ -1097,93 +1219,99 @@ git commit --no-verify -m "feat(admin): pointer sentence names elsewhere section
 ### Task 8: Real-browser e2e — scroll, 44×44 hit area, overlay disjointness
 
 **Files:**
-- Create: `tests/e2e/warning-panel-polish.spec.ts` (model on `tests/e2e/published-show-attention.spec.ts` — same server boot, seed, and hydration-gate helpers)
+- Create: `tests/e2e/warning-panel-polish.spec.ts`
+- Possibly modify (verification-driven repair): `components/admin/wizard/step3ReviewSections.tsx` (overlay classes), `components/admin/review/ShowReviewSurface.tsx`
 
 **Interfaces:**
-- Consumes: `data-testid` contracts from Tasks 4-7.
+- Consumes: `data-testid` contracts from Tasks 4-7; harness constants from `tests/e2e/published-show-attention.spec.ts` (`BASE`, modal selectors `:26-28`, scroller `[data-testid="wizard-step3-card-${dfid}-review-content"]` at `:170-172`, its boot/seed/hydration helpers).
+
+This task is deliberately a VERIFICATION task, not TDD: Tasks 4-7 already committed the implementation with jsdom-level TDD; this spec proves the real-layout claims jsdom cannot (spec §8.6 scroll, §8.8 geometry). Its failure mode is explicit: any red assertion here means a source repair in this task.
 
 - [ ] **Step 1: Write the spec**
 
-```ts
-// tests/e2e/warning-panel-polish.spec.ts
-/** Spec §8.6 (scroll with pre-click guard), §8.8 (44x44 + geometric
- *  disjointness). Harness: same boot + seed + hydration gate as
- *  published-show-attention.spec.ts — copy its beforeAll/fixture setup
- *  verbatim, then navigate to a published show whose warnings are routed
- *  to >=2 sections (elsewhere state). NEVER wait on networkidle alone. */
-import { expect, test } from "@playwright/test";
-// ...reuse the existing helpers/imports from published-show-attention.spec.ts...
+Copy the boot/seed/fixture prologue of `tests/e2e/published-show-attention.spec.ts` verbatim (same server boot, same seeded published show, same hydration gate — never `networkidle` alone), seeding warn rows routed to at least TWO sections (Crew + Rooms) with the panel in the elsewhere state (no listed info rows, no here-bucket rows). Then:
 
-test("pointer button scrolls its section into the aligned position", async ({ page }) => {
-  // ...boot + hydration gate...
-  const btn = page.getByRole("button", { name: "Crew" });
-  const section = page.getByTestId(/review-section-crew$/);
-  const scroller = page.getByTestId(/step3-scroller|review-scroller/); // real id from harness
-  // Pre-click guard (spec §8.6): target must NOT already be aligned.
-  const before = await section.evaluate((el) => el.getBoundingClientRect().top);
-  const scrollerTop = await scroller.evaluate((el) => el.getBoundingClientRect().top);
-  expect(Math.abs(before - scrollerTop - 8)).toBeGreaterThan(24);
+```ts
+const SCROLLER = `[data-testid="wizard-step3-card-${dfid}-review-content"]`;
+const SENTENCE = `[data-testid="wizard-step3-card-${dfid}-warnings-elsewhere"]`;
+const SECTION_CREW = `[data-testid="wizard-step3-card-${dfid}-review-section-crew"]`;
+
+test("pointer button scrolls its section to the aligned position", async ({ page }) => {
+  // ...boot + hydration gate from the prologue...
+  const btn = page.locator(`${SENTENCE} button`, { hasText: "Crew" });
+  const align = async () =>
+    page.evaluate(
+      ([sec, scr]) => {
+        const t = document.querySelector(sec)!.getBoundingClientRect().top;
+        const s = document.querySelector(scr)!.getBoundingClientRect().top;
+        return Math.abs(t - s - 8);
+      },
+      [SECTION_CREW, SCROLLER] as const,
+    );
+  // Pre-click guard (spec §8.6): target NOT already aligned, else vacuous.
+  expect(await align()).toBeGreaterThan(24);
   await btn.click();
-  await expect
-    .poll(async () => {
-      const t = await section.evaluate((el) => el.getBoundingClientRect().top);
-      const s = await scroller.evaluate((el) => el.getBoundingClientRect().top);
-      return Math.abs(t - s - 8);
-    })
-    .toBeLessThanOrEqual(24); // motion-safe smooth scroll settles at target-8
+  await expect.poll(align).toBeLessThanOrEqual(24);
 });
 
 test("pointer buttons: 44x44 effective hit area, adjacent overlays disjoint", async ({ page }) => {
-  // ...boot into a 2+-section elsewhere state...
-  const buttons = page.getByTestId(/warnings-elsewhere/).getByRole("button");
-  const rects: Array<{ cx: number; cy: number; w: number; h: number }> = [];
+  // ...boot into the 2-section elsewhere state...
+  const buttons = page.locator(`${SENTENCE} button`);
   const n = await buttons.count();
+  expect(n).toBeGreaterThanOrEqual(2); // disjointness must not pass vacuously
+  type R = { left: number; right: number; top: number; bottom: number; cx: number; cy: number };
+  const rects: R[] = [];
   for (let i = 0; i < n; i++) {
-    const b = buttons.nth(i);
-    const r = await b.evaluate((el) => {
+    const r = await buttons.nth(i).evaluate((el) => {
       const box = el.getBoundingClientRect();
       const cs = getComputedStyle(el, "::before");
-      return {
-        cx: box.left + box.width / 2,
-        cy: box.top + box.height / 2,
-        w: Math.max(parseFloat(cs.width) || 0, box.width),
-        h: Math.max(parseFloat(cs.height) || 0, box.height),
-      };
+      const w = Math.max(parseFloat(cs.width) || 0, box.width);
+      const h = Math.max(parseFloat(cs.height) || 0, box.height);
+      const cx = box.left + box.width / 2;
+      const cy = box.top + box.height / 2;
+      return { left: cx - w / 2, right: cx + w / 2, top: cy - h / 2, bottom: cy + h / 2, cx, cy };
     });
-    expect(r.w).toBeGreaterThanOrEqual(44);
-    expect(r.h).toBeGreaterThanOrEqual(44);
+    expect(r.right - r.left).toBeGreaterThanOrEqual(44);
+    expect(r.bottom - r.top).toBeGreaterThanOrEqual(44);
     rects.push(r);
   }
-  // Geometric disjointness (spec §8.8): numeric rect intersection, NOT elementFromPoint.
-  for (let i = 1; i < rects.length; i++) {
-    const a = rects[i - 1]!;
-    const b = rects[i]!;
-    expect(a.cx + a.w / 2).toBeLessThanOrEqual(b.cx - b.w / 2 + 0.5);
+  // Geometric disjointness (spec §8.8): full 2D rect-intersection check over
+  // every pair — not elementFromPoint (topmost-only), not x-axis alone.
+  for (let i = 0; i < rects.length; i++) {
+    for (let j = i + 1; j < rects.length; j++) {
+      const a = rects[i]!;
+      const b = rects[j]!;
+      const overlap =
+        a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      expect(overlap, `overlay ${i} intersects overlay ${j}`).toBe(false);
+    }
   }
-  // ±21px offset clicks still land on the intended target.
+  // ±21px offset clicks resolve to the intended button (behavioral floor probe).
   const first = buttons.first();
+  const label = (await first.textContent()) ?? "";
   const r0 = rects[0]!;
-  for (const [dx, dy] of [[0, -21], [0, 21], [-Math.min(21, r0.w / 2 - 1), 0], [Math.min(21, r0.w / 2 - 1), 0]] as const) {
+  for (const [dx, dy] of [[0, -21], [0, 21], [-21, 0], [21, 0]] as const) {
     const hit = await page.evaluate(
       ([x, y]) => document.elementFromPoint(x, y)?.closest("button")?.textContent ?? null,
       [r0.cx + dx, r0.cy + dy] as const,
     );
-    expect(hit).toBe(await first.textContent());
+    expect(hit).toBe(label);
   }
 });
 ```
 
-NOTE for implementer: pseudo-element hit areas are NOT reflected in `elementFromPoint` sizing unless the `::before` box is part of the button's paint/hit region (it is — absolutely positioned child box of the button). `getComputedStyle(el, "::before").width` returns the used value when content is set; if it returns "auto" in the harness browser, derive the overlay box from the translate+min-width rules instead and keep the ±21px `elementFromPoint` probes as the behavioral proof. Copy the REAL scroller/section testids from the harness (memory: `[data-review-modal-panel]` is the panel box; check `published-show-attention.spec.ts` for the scroller handle). e2e files are excluded from `pnpm test` (env-bound) — run explicitly.
+NOTE for implementer: if `getComputedStyle(el, "::before").width` returns `"auto"` in the harness browser, derive the overlay box from the button box plus the class contract (`w-full`/`min-w-tap-min`/`h-tap-min`, centered) and keep the ±21px `elementFromPoint` probes as the behavioral proof. Kill any stale sibling dev server on the harness port before booting; source `.env.local` (e2e is excluded from `pnpm test`).
 
 - [ ] **Step 2: Run**
 
-Run: `pnpm exec playwright test tests/e2e/warning-panel-polish.spec.ts` (with the same env/server prep the sibling spec's header documents — source `.env.local` first; kill any stale sibling dev server on the harness port before booting).
-Expected: PASS.
+Run: `pnpm exec playwright test tests/e2e/warning-panel-polish.spec.ts`
+Expected: PASS. On ANY failure: fix the SOURCE (overlay classes in `step3ReviewSections.tsx`, alignment offset, or provider wiring), re-run to green, and include the source fix in this task's commit — never weaken an assertion to pass.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add tests/e2e/warning-panel-polish.spec.ts
+# plus any source files repaired in Step 2 — list them explicitly
 git commit --no-verify -m "test(admin): e2e pointer scroll, 44x44 hit area, overlay disjointness"
 ```
 
@@ -1213,7 +1341,8 @@ git commit --no-verify -m "docs(handoff): graduate seven resolved DEFERRED items
 ### Close-out (pipeline stages after the tasks; not TDD tasks)
 
 - [ ] Full local gates: `pnpm test && pnpm typecheck && pnpm lint && pnpm format:check` (fix everything; vitest exit code 1 with all tests passing means an uncaught error — check the "Errors" summary line).
-- [ ] Impeccable dual-gate on the diff (invariant 8): `/impeccable critique` + `/impeccable audit` with canonical v3 setup (context.mjs load → register read). P0/P1 fixed or DEFERRED.md-entried; findings + dispositions into handoff §12.
-- [ ] Whole-diff cross-model review to APPROVE — split tight-scope briefs (per-surface file lists), REVIEWER ONLY inlined, verdict marker; inlined-artifact fallback on tool death.
-- [ ] Push, PR, real CI green (confirm `mergeStateStatus: CLEAN` via `gh pr checks <PR#>`), re-fetch origin/main first and rebase if behind (sibling PRs land often).
+- [ ] Impeccable dual-gate on the diff (invariant 8): `/impeccable critique` + `/impeccable audit` with canonical v3 setup (context.mjs load → register read). Each fix the gate forces is its own commit (test-first where behavioral); P0/P1 fixed or DEFERRED.md-entried. Then write findings + dispositions into handoff §12 and COMMIT the handoff + any DEFERRED.md edits (`docs(handoff): impeccable dispositions`). Re-run the affected vitest suites after any fix commit.
+- [ ] Whole-diff cross-model review to APPROVE — split tight-scope briefs (per-surface file lists), REVIEWER ONLY inlined, verdict marker; inlined-artifact fallback on tool death. Repairs are commits with re-run gates; re-dispatch review after repairs until APPROVE.
+- [ ] Re-fetch origin/main; if behind, rebase and RE-RUN the full local gates on the rebased tree (the pushed diff must be the gated diff). Push, PR, real CI green.
+- [ ] Confirm both: `gh pr checks <PR#>` all green AND `gh pr view <PR#> --json mergeStateStatus` reports `CLEAN` (checks alone do not establish merge state).
 - [ ] `gh pr merge --merge` in the same turn as CI-green; fast-forward local main; verify `git rev-list --left-right --count main...origin/main` == `0 0`; CronDelete the nudge; ship-state → done.
