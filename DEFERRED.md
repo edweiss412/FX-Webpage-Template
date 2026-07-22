@@ -14,12 +14,6 @@ From the impeccable critique of `attention-modal-switcher-gallery` (2026-07-21).
 
 **Un-defer trigger:** if the gallery gains a per-scenario modal header (non-constant title), or a real operator reports losing the modal's close affordance — then offset the modal below the bar or make the bar a single collapsible row.
 
-### WARNCARD-GUIDANCE-LENGTH-1 — [P2] two guidance rows read as paragraphs, not at-a-glance lines
-
-From the impeccable critique of `warning-card-copy-restore` (2026-07-20). Spec §4.2 rows 7 (CREW_COLUMN_POSITIONAL_FALLBACK, 241 ch) and 33 (PULL_SHEET_OVERRIDE_CONTENT_CHANGED, 245 ch) render ~5-6 lines at 320px; the median row (~175 ch) reads as intended. Cap is 300 so the meta-test passes; copy tightening, not a defect. Deferred because the copy table is the ratified §4.2 canonical (frozen fixture + §12.4 lockstep) and the impeccable tier is P2 (dual-gate mandates P0/P1 only).
-
-**Un-defer trigger:** any future §4.2 copy edit touching these codes — tighten both rows toward ~180 ch in that same lockstep commit.
-
 ### WARNCARD-POPOVER-OVERLAP-1 — [P3] right-aligned help popover opens over the guidance line it contextualizes
 
 Impeccable critique note (2026-07-20): the `?` popover (align="right", opens below the trigger) can cover the inline guidance while open. Acceptable tooltip behavior — spec `2026-07-20-show-alert-compact` ratified the overlap posture explicitly. Same critique, cosmetic P3s folded here: row 24's double-semicolon chain; "as-is" hyphen wrap at 400px.

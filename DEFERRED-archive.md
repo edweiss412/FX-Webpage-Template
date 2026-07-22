@@ -16,6 +16,16 @@ Deferred, not accepted as correct: the fix was a new compact row variant on `Pic
 
 From the invariant-8 dual-gate on the `share-hub-fidelity-fixes` diff (Assessment A). The critique wanted a warning tone on the two idle rows. Refuted against the ratified mock: the user-approved mock (`ActionBarMenu-1d.dc.html`) draws the IDLE rotate/reset icons in subtle gray (`color:#5a5b62` on a `currentColor` stroke), identical to the mailto row; the amber `#5c3f00` is the CONFIRM-state warning card only. Warm-toning the idle rows would contradict the mock AND the reserved-accent contract (the band's orange means "this matters now"; a standing warning tint on an always-present control dilutes it). The two-tap confirm + 4s auto-revert is the ratified safety net for these controls (§15 tier-2), and the confirm state carries all the warning weight. Recorded so a future reviewer does not re-derive it. No un-defer trigger — this was never a deferral.
 
+## Warning-card guidance length (2026-07-21)
+
+Source: WARNCARD-GUIDANCE-LENGTH-1 ship (`fix/warncard-guidance-length`). Copy-only tighten under the §12.4 lockstep; no behavioral change.
+
+### WARNCARD-GUIDANCE-LENGTH-1 — [P2] two guidance rows read as paragraphs, not at-a-glance lines — ✅ RESOLVED
+
+Original entry: from the impeccable critique of `warning-card-copy-restore` (2026-07-20). Spec §4.2 rows 7 (CREW_COLUMN_POSITIONAL_FALLBACK, 241 ch) and 33 (PULL_SHEET_OVERRIDE_CONTENT_CHANGED, 245 ch) rendered ~5-6 lines at 320px; the median row (~175 ch) reads as intended. Cap is 300 so the meta-test passed; copy tightening, not a defect. Deferred because the copy table is the ratified §4.2 canonical (frozen fixture + §12.4 lockstep) and the impeccable tier is P2 (dual-gate mandates P0/P1 only). **Un-defer trigger:** any future §4.2 copy edit touching these codes — tighten both rows toward ~180 ch in that same lockstep commit.
+
+**Resolution:** un-defer trigger fired (picked directly, user-approved copy). Both `helpfulContext` strings tightened to ~180 ch (row 7: 239→185; row 33: 243→178) across the full lockstep in one commit — master-spec §12.4 helpfulContext list, `pnpm gen:spec-codes` regen (`lib/messages/__generated__/spec-codes.ts`), `lib/messages/catalog.ts`, plus the ratified §4.2 canonical table in `2026-07-20-warning-card-copy-restore.md`. `dougFacing`/`longExplanation` untouched (restore-spec boundary: zero `dougFacing` edits). Banned-vocabulary + em-dash clean; both under the meta-test's ≤300 cap. `helpfulContext` carries no frozen-copy fixture (spec §3.5.5 — pinned by §12.4 lockstep + x1 parity instead), so no registry fixture edit was needed.
+
 ## Review-modal close (2026-07-19)
 
 Source: MODAL-SKELETON-CLOSE-1 ship (`fix/modal-skeleton-close`, spec `docs/superpowers/specs/2026-07-19-modal-skeleton-close.md`, plan `docs/superpowers/plans/2026-07-19-modal-skeleton-close.md`). The already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved here from the working queue in the same pass (queue policy: resolved entries live in the archive).
