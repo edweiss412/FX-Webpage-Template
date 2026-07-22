@@ -24,11 +24,13 @@ import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 import { T2_ANCHOR_ABSENT } from "@/lib/dev/attentionScenarios/tier2";
 import { deriveScenarioAttention, buildScenarioFeed } from "@/lib/dev/deriveScenarioAttention";
 import {
+  applyFixture,
   buildGallerySnapshot,
   buildGalleryModalData,
   type AnchorFlags,
 } from "@/lib/dev/publishedModalFixture";
 import { GALLERY_SLUG, type GalleryModalData } from "@/lib/dev/galleryModalTypes";
+import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 
 /**
  * Which anchors the scenario's alert codes need present so they land in their
@@ -48,23 +50,45 @@ export function anchorsWantedFor(s: AttentionScenario): AnchorFlags {
 
 export function buildScenarioModalData(s: AttentionScenario): GalleryModalData {
   const warnings = s.warnings ?? [];
-  const snap = buildGallerySnapshot(warnings, { anchors: anchorsWantedFor(s) });
-  const data = buildPublishedSectionData(snap, { slug: GALLERY_SLUG });
+  const attentionItems = deriveScenarioAttention(s);
+  // alertFlash targets the first SURVIVING derived alert item (validateScenario
+  // guarantees one exists) — never the raw alert list, whose first row may be
+  // cut/excluded and would strand the modal in its no-match fallback.
+  const firstAlertItem = attentionItems.find((i) => i.kind === "alert");
+  const firstSurvivingAlertId =
+    firstAlertItem !== undefined && firstAlertItem.kind === "alert"
+      ? firstAlertItem.alert.alertId
+      : undefined;
+  const { snapshot, dataOverrides } = applyFixture(
+    buildGallerySnapshot(warnings, { anchors: anchorsWantedFor(s) }),
+    s.fixture,
+    firstSurvivingAlertId !== undefined ? { firstSurvivingAlertId } : {},
+  );
+  const data = dataOverrides.data ?? buildPublishedSectionData(snapshot, { slug: GALLERY_SLUG });
+  // Content-keyed ignores: indexes into the scenario's warnings, fingerprinted
+  // through the REAL warningFingerprint (validateScenario guarantees each target
+  // has a non-blank rawSnippet and no active-fingerprint collision).
+  const ignoredFingerprints = new Set<string>(
+    (s.ignoreWarningIndexes ?? [])
+      .map((i) => (warnings[i] !== undefined ? warningFingerprint(warnings[i]!) : null))
+      .filter((f): f is string => f !== null),
+  );
   const bySection = buildSectionWarningModel({
     slug: GALLERY_SLUG,
     warnings: data.warnings,
-    ignoredFingerprints: new Set<string>(),
+    ignoredFingerprints,
     renderedSectionIds: new Set(renderedSectionIds(data)),
   });
-  const attentionItems = deriveScenarioAttention(s);
   const feed = buildScenarioFeed(s);
   return buildGalleryModalData({
+    ...dataOverrides,
     data,
     bySection,
     attentionItems,
     alertsDegraded: s.degraded ?? false,
     // The Changes feed must carry the same holds the changes-rail badge counts,
     // or a hold-bearing scenario shows a badge over an empty feed (Codex R1 P1).
-    ...(feed !== null ? { feed } : {}),
+    // feedNull renders ChangesSection's infra-error notice via an explicit null.
+    ...(s.feedNull === true ? { feed: null } : feed !== null ? { feed } : {}),
   });
 }

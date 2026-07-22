@@ -63,3 +63,117 @@ describe("deriveScenarioAttention", () => {
     expect(buildScenarioFeed({ ...base, holds: [], feedTruncated: true })).toBeNull();
   });
 });
+
+// ── Modal-state-coverage: changeLog + feed contracts (plan Task 4) ──────────
+import { shapeChangeFeed } from "@/lib/sync/feed/shapeChangeFeed";
+import type {
+  AttentionScenario as MscScenario,
+  ScenarioChangeLogRow,
+} from "@/lib/dev/attentionScenarios/types";
+
+const mscLog = (over: Partial<ScenarioChangeLogRow> = {}): ScenarioChangeLogRow => ({
+  occurred_at: "2026-07-01T10:00:00.000100Z",
+  status: "applied",
+  summary: "A change",
+  entity_ref: null,
+  change_kind: "field_changed",
+  individually_undoable: false,
+  source: "auto_apply",
+  acknowledged_at: null,
+  ...over,
+});
+
+const mscHold = {
+  drive_file_id: "gallery-fixture-file",
+  domain: "crew_email" as const,
+  entity_key: "crew_email:msc-dana",
+  held_value: { email: "old@example.test" },
+  proposed_value: {
+    disposition: "email_change" as const,
+    name: "Dana Reed",
+    email: "new@example.test",
+  },
+  base_modified_time: "2026-07-01T12:00:00.000200Z",
+  kind: "mi11_pending" as const,
+};
+
+describe("buildScenarioFeed with changeLog (modal-state coverage)", () => {
+  test("changeLog-only scenario feeds entries but derives ZERO attention items, even with an undoable row", () => {
+    const s: MscScenario = {
+      id: "t2-msc-log-only",
+      tier: 2,
+      label: "log only",
+      alerts: [],
+      holds: [],
+      changeLog: [
+        mscLog(),
+        mscLog({
+          occurred_at: "2026-07-01T09:00:00.000Z",
+          change_kind: "crew_renamed",
+          individually_undoable: true,
+          source: "mi11_approve",
+        }),
+      ],
+    };
+    const feed = buildScenarioFeed(s);
+    expect(feed).not.toBeNull();
+    expect(feed!.entries).toHaveLength(2);
+    expect(feed!.entries.some((e) => e.action === "undo")).toBe(true);
+    expect(deriveScenarioAttention(s)).toHaveLength(0);
+  });
+  test("holds + changeLog merge newest-first and DEEP-EQUAL the production shaper on hand-built rows", () => {
+    const s: MscScenario = {
+      id: "t2-msc-mixed",
+      tier: 2,
+      label: "mixed",
+      alerts: [],
+      holds: [mscHold],
+      changeLog: [mscLog()],
+    };
+    const feed = buildScenarioFeed(s);
+    expect(feed).not.toBeNull();
+    // Expected rows are HAND-BUILT literals (id synthesis rule applied by hand),
+    // never the production toChangeLogRows/toHoldRows on both sides.
+    const expected = shapeChangeFeed(
+      [
+        {
+          id: "t2-msc-mixed-log-0",
+          occurred_at: "2026-07-01T10:00:00.000100Z",
+          status: "applied",
+          summary: "A change",
+          entity_ref: null,
+          change_kind: "field_changed",
+          individually_undoable: false,
+          source: "auto_apply",
+          acknowledged_at: null,
+        },
+      ],
+      [
+        {
+          id: "t2-msc-mixed-hold-0",
+          entity_key: "crew_email:msc-dana",
+          held_value: { email: "old@example.test" },
+          proposed_value: {
+            disposition: "email_change",
+            name: "Dana Reed",
+            email: "new@example.test",
+          },
+          base_modified_time: "2026-07-01T12:00:00.000200Z",
+          created_at: "2026-07-01T12:00:00.000200Z",
+        },
+      ],
+    );
+    expect(feed!.entries).toEqual(expected);
+    expect(feed!.entries[0]?.id).toBe("t2-msc-mixed-hold-0");
+  });
+  test("absent holds AND absent changeLog still yields null (base empty feed default)", () => {
+    const s: MscScenario = {
+      id: "t2-msc-none",
+      tier: 2,
+      label: "none",
+      alerts: [],
+      holds: [],
+    };
+    expect(buildScenarioFeed(s)).toBeNull();
+  });
+});

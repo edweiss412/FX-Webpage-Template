@@ -118,3 +118,93 @@ describe("buildScenarioModalData", () => {
     expect(anchorsForData(buildScenarioModalData(s).data).size).toBe(0);
   });
 });
+
+// ── Modal-state-coverage wiring (plan Task 4) ────────────────────────────────
+import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+
+describe("buildScenarioModalData modal-state wiring", () => {
+  test("feedNull renders the infra state: modal feed is null", () => {
+    const s: AttentionScenario = {
+      id: "t2-msc-feed-null",
+      tier: 2,
+      label: "infra",
+      alerts: [],
+      holds: [],
+      feedNull: true,
+    };
+    expect(buildScenarioModalData(s).feed).toBeNull();
+  });
+  test("a no-feed scenario keeps the base empty feed object", () => {
+    const s: AttentionScenario = {
+      id: "t2-msc-basefeed",
+      tier: 2,
+      label: "base",
+      alerts: [],
+      holds: [],
+    };
+    expect(buildScenarioModalData(s).feed).toEqual({ entries: [], truncated: false });
+  });
+  test("ignoreWarningIndexes flow into the section warning model as ignored entries", () => {
+    const w = (rawSnippet: string) => ({
+      severity: "warn" as const,
+      code: "TYPO_NORMALIZED",
+      message: "Synthetic warning for gallery review.",
+      rawSnippet,
+    });
+    const s: AttentionScenario = {
+      id: "t2-msc-ignored",
+      tier: 2,
+      label: "ignored",
+      alerts: [],
+      holds: [],
+      warnings: [w("aaa"), w("bbb")],
+      ignoreWarningIndexes: [1],
+    };
+    const { bySection } = buildScenarioModalData(s);
+    const models = Object.values(bySection);
+    const ignoredCount = models.reduce((n, m) => n + m.ignored.length, 0);
+    expect(ignoredCount).toBe(1);
+    expect(warningFingerprint(w("bbb"))).not.toBeNull();
+  });
+  test("alertFlash sets data.alertId to the surviving derived alert id; others stay null", () => {
+    const s: AttentionScenario = {
+      id: "t2-msc-flash",
+      tier: 2,
+      label: "flash",
+      alerts: [
+        {
+          code: "SHEET_UNAVAILABLE",
+          context: {},
+          raised_at: "2026-07-01T11:00:00.000Z",
+          occurrence_count: 1,
+        },
+      ],
+      holds: [],
+      fixture: { alertFlash: true },
+    };
+    expect(buildScenarioModalData(s).alertId).toBe("t2-msc-flash-alert-0");
+    const plain: AttentionScenario = {
+      id: "t2-msc-noflash",
+      tier: 2,
+      label: "no flash",
+      alerts: [],
+      holds: [],
+    };
+    expect(buildScenarioModalData(plain).alertId).toBeNull();
+  });
+  test("fixture flows into both halves (archived scenario data + props)", () => {
+    const s: AttentionScenario = {
+      id: "t2-msc-archived",
+      tier: 2,
+      label: "archived",
+      alerts: [],
+      holds: [],
+      fixture: { archived: true, published: false },
+    };
+    const data = buildScenarioModalData(s);
+    expect(data.archived).toBe(true);
+    expect(data.published).toBe(false);
+    expect(data.finalizeOwned).toBe(false);
+    expect(data.pickerCrew).toEqual([]);
+  });
+});
