@@ -1,0 +1,61 @@
+name: HoverHelp geometry e2e (standalone harness)
+# Runs the standalone real-browser popover-geometry spec
+# (tests/e2e/hoverhelp-geometry.spec.ts, standalone-chromium project) in real
+# Chromium. The spec is FULLY self-contained: its beforeAll esbuild-bundles the
+# live entry, compiles the token CSS with the Tailwind CLI, and serves it over
+# its OWN node:http server — no app boot, no Supabase, no :3000-:3004.
+#
+# Why its own job: standalone.config.ts is an explicit allow-list that NO
+# general CI workflow invokes, so this spec would silently prove nothing on
+# main without a dedicated gate (spec 2026-07-22-hoverhelp-smart-position §6
+# CI wiring). workflow_dispatch so close-out can fire it via `gh workflow run`.
+on:
+  pull_request:
+    paths:
+      - "tests/e2e/hoverhelp-geometry.spec.ts"
+      - "tests/e2e/_hoverHelpGeometryLiveEntry.tsx"
+      - "tests/e2e/standalone.config.ts"
+      - "components/admin/HoverHelp.tsx"
+      - "lib/popover/position.ts"
+      - "components/admin/review/ReviewModalShell.tsx"
+      - "components/admin/wizard/Step3ReviewModal.tsx"
+      - "components/admin/compactAlertHelp.tsx"
+      - "components/admin/CompactAlertCard.tsx"
+      - "app/globals.css"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/hoverhelp-geometry-e2e.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  hoverhelp-geometry-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
+      - name: Run hoverhelp geometry standalone spec (no webServer)
+        run: pnpm test:e2e:hoverhelp-geometry
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoverhelp-geometry-e2e-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
