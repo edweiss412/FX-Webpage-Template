@@ -31,7 +31,16 @@
  * the URL up in the background.
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { ChevronDown, ExternalLink, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
@@ -312,6 +321,24 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // Interactive whenever a human might act — composite predicate, NEVER
   // `actionable` alone (spec §6/§6a: the menu can open at a needs-look-only state).
   const interactive = actionable.length > 0 || needsLook.length > 0;
+
+  // Compound reconciliation (spec §6 outcome contract, §8 case 2): if live data
+  // updates while the menu is open such that the pill is no longer interactive,
+  // the trigger <button> re-renders as a <span> — without this effect the open
+  // dropdown is orphaned and keyboard focus drops to <body>, breaking the modal
+  // focus trap. useLayoutEffect (before paint) closes the menu and lands focus
+  // on the dialog root — ONE named target, never <body>. tabindex is ensured
+  // programmatically so focus() cannot silently no-op. Mechanism selection is
+  // probe-ratified (§6a); the state contract is pinned by pillFocusReconcile.
+  useLayoutEffect(() => {
+    if (interactive || !menuOpen) return;
+    setMenuOpen(false);
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    if (dialog) {
+      if (!dialog.hasAttribute("tabindex")) dialog.setAttribute("tabindex", "-1");
+      dialog.focus();
+    }
+  }, [interactive, menuOpen]);
 
   // §3.3 anchor availability drives BOTH the bucketing (below) and the section an
   // item's banner ACTUALLY renders in. An asset/reel item whose anchor content

@@ -136,12 +136,18 @@ function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): Publishe
   };
 }
 
-export function renderPublishedModal(rawRows: readonly RawRow[], opts: HarnessOpts = {}) {
-  return render(
+/** The element form — lets tests drive LIVE transitions via RTL `rerender`
+ *  (attention split §11.5a: menu-open state reconciliation). */
+export function publishedModalElement(rawRows: readonly RawRow[], opts: HarnessOpts = {}) {
+  return (
     <ShareTokenProvider initialToken="TOK" initialEpoch={5}>
       <PublishedReviewModal {...baseProps(rawRows, opts)} />
-    </ShareTokenProvider>,
+    </ShareTokenProvider>
   );
+}
+
+export function renderPublishedModal(rawRows: readonly RawRow[], opts: HarnessOpts = {}) {
+  return render(publishedModalElement(rawRows, opts));
 }
 
 /** A non-actionable attention item → the header pill enters its "N clearing" state
