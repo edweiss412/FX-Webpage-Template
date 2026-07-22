@@ -33,6 +33,7 @@ export type GalleryModalData = Omit<PublishedReviewModalProps, ActionKeys>;
 export type GallerySwitcherScenario = {
   id: string;
   tier: 1 | 2 | 3;
+  group: ScenarioGroupId;
   label: string;
   codes: string[];
   data: GalleryModalData;
@@ -86,3 +87,36 @@ type _NoFnsInData = Assert<[FnKeys<GalleryModalData>] extends [never] ? true : f
 
 // Reference the guard aliases so they are not "unused" under strict lint.
 export type _GalleryTypeGuards = [_KeysExist, _AllActionsAreFns, _NoFnsInData];
+
+/** Landing-section nav groups (spec 2026-07-22 gap-fill §3.5). Gallery-local labels, not catalog codes. */
+export type ScenarioGroupId =
+  | "overview"
+  | "crew"
+  | "rooms"
+  | "event"
+  | "changes"
+  | "warnings"
+  | "mixed"
+  | "baseline";
+
+export const GROUP_ORDER: readonly ScenarioGroupId[] = [
+  "overview",
+  "crew",
+  "rooms",
+  "event",
+  "changes",
+  "warnings",
+  "mixed",
+  "baseline",
+];
+
+export const GROUP_LABELS: Record<ScenarioGroupId, string> = {
+  overview: "Overview",
+  crew: "Crew",
+  rooms: "Rooms",
+  event: "Event details",
+  changes: "Changes",
+  warnings: "Warnings",
+  mixed: "Mixed",
+  baseline: "Baseline",
+};

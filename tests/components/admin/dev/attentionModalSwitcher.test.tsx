@@ -33,11 +33,12 @@ vi.mock("@/components/admin/showpage/PublishedReviewModal", () => ({
 
 import { AttentionModalSwitcher, indexOfId } from "@/components/admin/dev/AttentionModalSwitcher";
 
-function scenario(id: string, title: string): GallerySwitcherScenario {
+function scenario(id: string, title: string, group: GallerySwitcherScenario["group"] = "overview"): GallerySwitcherScenario {
   return {
     id,
     tier: 1,
     label: id,
+    group,
     codes: [id.toUpperCase()],
     // The mocked modal ignores all but `title`; a lightweight cast keeps the
     // fixture from having to construct all ~20 real data props.
@@ -45,7 +46,7 @@ function scenario(id: string, title: string): GallerySwitcherScenario {
   };
 }
 
-const THREE = [scenario("a", "A"), scenario("b", "B"), scenario("c", "C")];
+const THREE = [scenario("a", "A"), scenario("b", "B"), scenario("c", "C", "crew")];
 
 function pressKey(key: string, init: KeyboardEventInit = {}): boolean {
   const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
