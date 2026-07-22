@@ -20,12 +20,12 @@ Every #546 UI state × existing scenario coverage:
 | Composite `confirm · review` | `t3-hold-pending-with-asset-drift` (1 hold + 1 LOOK) | covered |
 | Composite with monitoring segment (incl. all three) | none | **GAP → new composite** |
 | Needs-look row with EXTERNAL "Open in Sheet ↗" link | none (no scenario carries `context.drive_file_id` on a sheet code) | **GAP → new composite** |
-| Needs-look row with internal "Go to Overview" link | `alert-parse-error-last-good`, `alert-show-unpublished`, `t3-sheet-missing-mid-parse` | covered |
+| Needs-look row with an internal #overview anchor link | `alert-parse-error-last-good`, `alert-show-unpublished`, `alert-resync-quality-regressed`, `alert-resync-shrink-held`, `t3-sheet-missing-mid-parse` | covered |
 | Hint-only needs-look row (action unresolved) | `t3-sheet-missing-mid-parse` (SHEET_UNAVAILABLE `{}`), `t2-auto-resolving` | covered |
 | Menu with ALL THREE groups at once | none | **GAP → new composite** |
 | Monitoring summary count > 1 | none (SELF codes appear only as singles) | **closed by new composite** (2 SELF) |
 | 99+ cap (any segment) | none | **deliberate omission** — cap behavior unit-pinned (`publishedPill.test.tsx` cap suite); teaching value low; materializing 100+ rows pollutes dev DB |
-| Per-code needs-look row rendering | tier-1 singles (all 12 LOOK codes) | covered |
+| Per-code needs-look row rendering | tier-1 singles (11 of the 12 LOOK codes) | covered; the 12th, `USE_RAW_DECISION_STALE`, has NO admin_alerts producer (PR #546 deviation 1) so no tier-1 single exists and none is added — a scenario would teach a state that cannot occur |
 
 ## §3 The composite
 
@@ -50,8 +50,9 @@ Create a NEW test file, tests/dev/fullSplitComposite.test.ts (does not exist yet
 
 1. Composition: `scenarioById(T3_FULL_SPLIT)` exists, tier 3, 4 alerts + 1 hold, warnings absent.
 2. Derived split: exactly 1 actionable item (the hold), 2 `clearingKind === "needs_look"`, 2 `"self_heal"`.
-3. Action links: the SHEET_UNAVAILABLE item's `alert.action` equals `{ label: "Open in Sheet", href: "https://docs.google.com/spreadsheets/d/gallery-fixture-file/edit#gid=0", external: true }`; the RESYNC_QUALITY_REGRESSED item's action is internal with href `/admin?show=<GALLERY_SLUG>#overview` (assert via the exported gallery slug, never a hardcoded literal).
-4. Validator: `validateScenario` returns `[]` (already swept by the index test's all-scenarios loop; the composition test makes the intent explicit).
+3. Action links: the SHEET_UNAVAILABLE item's `alert.action` equals `{ label: "Open in Sheet", href: "https://docs.google.com/spreadsheets/d/gallery-fixture-file/edit#gid=0", external: true }`; the RESYNC_QUALITY_REGRESSED item's action equals `{ label: "Go to Overview", href: "/admin?show=<GALLERY_SLUG>#overview", external: false }` (href built from the exported gallery slug, never a hardcoded literal).
+4. Composition is pinned EXACTLY (review R1 P2): the alert-code sequence `["SHEET_UNAVAILABLE","RESYNC_QUALITY_REGRESSED","SYNC_STALLED","DRIVE_FETCH_FAILED"]`, the sheet context `{drive_file_id:"gallery-fixture-file"}`, empty `{}` contexts on the other three, the label copy, and the hold's `kind`/`domain`/`entity_key`.
+5. RENDERED pin (review R1 P1): a jsdom test mounts the REAL `PublishedReviewModal` (the #546 harness fixture) with `attentionItems = deriveScenarioAttention(scenario)` and asserts the taught state itself: pill visible text exactly `1 to confirm · 2 to review · 2 monitoring` on a BUTTON; after opening the menu, the "Needs your confirmation" header + 1 actionable row, the "Needs a look" heading with the external `Open in Sheet` link (`target="_blank"`, ↗) and the internal `Go to Overview` link, and the "Monitoring" summary `2 clearing on their own, no action needed`.
 
 Existing self-deriving suites (index totals, e2e markers, materialize plan/run) pick the scenario up with no edits; the plan runs them to prove it.
 

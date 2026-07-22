@@ -16,11 +16,26 @@ describe("t3-full-attention-split composite", () => {
     return s;
   };
 
-  it("is a tier-3 composite: 4 alerts, 1 hold, warnings ABSENT (tri-state untouched)", () => {
+  it("is a tier-3 composite: exact code sequence, contexts, label, hold shape; warnings ABSENT", () => {
     const s = scenario();
     expect(s.tier).toBe(3);
-    expect(s.alerts).toHaveLength(4);
+    expect(s.label).toBe("Everything at once: confirm, review, and monitoring");
+    // exact sequence + contexts (review R1 P2: a loose count pin would accept
+    // duplicate self-heal codes or a dropped sheet context)
+    expect(s.alerts.map((a) => a.code)).toEqual([
+      "SHEET_UNAVAILABLE",
+      "RESYNC_QUALITY_REGRESSED",
+      "SYNC_STALLED",
+      "DRIVE_FETCH_FAILED",
+    ]);
+    expect(s.alerts[0]?.context).toEqual({ drive_file_id: "gallery-fixture-file" });
+    for (const a of s.alerts.slice(1)) expect(a.context).toEqual({});
     expect(s.holds).toHaveLength(1);
+    expect(s.holds[0]).toMatchObject({
+      kind: "mi11_pending",
+      domain: "crew_email",
+      entity_key: "ren-park",
+    });
     expect("warnings" in s).toBe(false);
   });
 
@@ -45,9 +60,7 @@ describe("t3-full-attention-split composite", () => {
 
   it("overview row resolves the INTERNAL anchor from the gallery slug", () => {
     const items = deriveScenarioAttention(scenario());
-    const ov = items.find(
-      (i) => i.kind === "alert" && i.alert.code === "RESYNC_QUALITY_REGRESSED",
-    );
+    const ov = items.find((i) => i.kind === "alert" && i.alert.code === "RESYNC_QUALITY_REGRESSED");
     if (ov?.kind !== "alert") throw new Error("overview item missing");
     expect(ov.alert.action).toEqual({
       label: "Go to Overview",
