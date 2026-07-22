@@ -60,6 +60,36 @@ finding — "Careful rows carry no visual weight" — is not a deferral and live
   smudge rather than continuing the panel's elevation; the caret reads as continuous with the
   panel via matching `bg-surface` + border + same `z-40`. **Noted, not changed.**
 
+### warning-panel-polish (2026-07-22) — impeccable critique deferrals
+
+Dual-gate run on the polish diff: critique 34/40, audit 20/20, zero P0/P1 (dispositions in
+`docs/superpowers/plans/2026-07-22-warning-panel-polish/handoff.md` §12). Audit's three
+comment-accuracy P3s were fixed in-branch; these four critique findings stay open:
+
+- **[P2] Bulk ignore produces two polite announcements in one refresh.** The bulk chip's own
+  `role="status"` (`components/admin/BulkIgnoreControls.tsx:175`) and the panel's new
+  count-tuple live region both change on the same server round trip, so a screen reader queues
+  two status messages for one action. Polite regions queue rather than clobber, so nothing is
+  lost — but the pairing is chatty. **Noted, not changed.** Un-defer trigger: an accessibility
+  pass composing the modal's live regions (same trigger family as the original live-region
+  deferral this bundle resolved).
+
+- **[P2] The live region announces background count changes.** `role="status"` speaks on ANY
+  text change, including a realtime refresh (#505) altering counts mid-task. This gives
+  screen-reader users parity with sighted users (who see counts change silently) — but the
+  state-vs-action choice was inherited, not ratified. **Noted, not changed.** Un-defer trigger:
+  an owner decision on whether the panel's live region reports STATE (current behavior) or only
+  Doug-initiated ACTIONS.
+
+- **[P3] The elsewhere sentence opens with an apology before the action.** "Nothing else to
+  note here." precedes the tappable pointer; the actionable half should arguably lead.
+  Re-opens spec-authored copy (§3.5 kept the ratified frame). **Noted, not changed.**
+
+- **[P3] "and N more." is a dead end.** Non-interactive, and a label-resolution miss silently
+  folds into N (the defensive guard has no live producer today — every elsewhere section is a
+  rendered registry section). **Noted, not changed.** Un-defer trigger: a section registry
+  change that makes label misses producible.
+
 ## warning-surface-trim (2026-07-21) — remaining deferrals after the 2026-07-22 polish bundle
 
 Seven of the thirteen items recorded here on 2026-07-21 were RESOLVED by the

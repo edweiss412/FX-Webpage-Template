@@ -66,4 +66,23 @@ rather than renumbered so §12 keeps its contractual name.
 
 ## §12 Impeccable dual-gate findings + dispositions
 
-_Populated at close-out after `/impeccable critique` + `/impeccable audit` run on the diff._
+Run 2026-07-22 with the canonical v3 setup gates (context.mjs PRODUCT.md+DESIGN.md load, product
+register). Critique ran as two isolated subagents (Assessment A design review, Assessment B
+detector); snapshot persisted at `.impeccable/critique/2026-07-22T12-32-37Z__components-admin-wizard-step3reviewsections-tsx.md`.
+
+**Critique: 34/40, AI-slop verdict "not slop", zero P0/P1.** Assessment B: zero in-diff detector
+findings (one pre-existing DiagramTile raw-img false positive, out of diff; browser overlay
+skipped — the elsewhere state exists only inside the e2e harness lifecycle).
+
+**Audit: 20/20 (A11y 4, Performance 4, Theming 4, Responsive 4, Code quality 4), zero P0/P1/P2.**
+
+| Finding | Tier | Disposition |
+|---|---|---|
+| Bulk ignore double polite announcement | P2 | DEFERRED.md (a11y-pass trigger) |
+| Live region announces background changes | P2 | DEFERRED.md (owner state-vs-action decision) |
+| Elsewhere copy apology-first | P3 | DEFERRED.md (spec-authored copy) |
+| "and N more." dead end | P3 | DEFERRED.md (no live miss producer) |
+| Overlay comment cited compactTrigger geometry | P3 | FIXED in-branch |
+| Redundant `?? null` sentinel | P3 | FIXED in-branch |
+| Duplicated §3.5 comment block | P3 | FIXED in-branch |
+| Live-region per-render recompute | P3 | Accepted — chrome object already rebuilds per render |
