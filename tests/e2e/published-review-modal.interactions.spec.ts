@@ -1502,13 +1502,20 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
 
     /** HoverHelp's mouse-only pointerenter hover-opens before the click
      * toggle (net closed) — same race the deep-link-walker documents; the
-     * pointer is already inside after click #1, so click #2 lands open. */
+     * pointer is already inside after click #1, so click #2 usually lands
+     * open. A LOOP (not a single retry) because the parity is not stable
+     * under CPU contention (shared CI runners; sibling local pipelines):
+     * a slow frame can re-run the hover-open before a click commits, so
+     * each attempt just toggles again until the open state sticks. */
     async function clickOpenTrigger(page: Page, trigger: ReturnType<Page["locator"]>) {
-      await trigger.click();
-      try {
-        await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
-      } catch {
+      for (let attempt = 0; attempt < 5; attempt++) {
         await trigger.click();
+        try {
+          await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+          return;
+        } catch {
+          // toggled closed again — loop
+        }
       }
       await expect(trigger).toHaveAttribute("aria-expanded", "true");
     }
