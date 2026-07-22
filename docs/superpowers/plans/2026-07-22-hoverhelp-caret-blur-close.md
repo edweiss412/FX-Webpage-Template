@@ -131,19 +131,21 @@ describe("caret placement (spec 2026-07-22-hoverhelp-caret-blur-close §3.3)", (
     expect(p.caret).toBeNull();
   });
 
-  it("T-C7: maxWidth active - caret span uses the clamped effectiveWidth", () => {
+  it("T-C7: maxWidth active - caret span uses the clamped effectiveWidth, not natural", () => {
     const NARROW = rect(400, 8, 200, 784); // narrower than NATURAL_W -> maxWidth set
-    const TRK = rect(500, 300, 20, 20);
+    const TRK = rect(580, 300, 20, 20); // center 590: INSIDE the natural-width span, OUTSIDE the effective one
     const p = computePopoverPlacement(
-      input({ trigger: TRK, bounds: NARROW, wrappedHeightAt: () => 300 }),
+      input({ trigger: TRK, bounds: NARROW, align: "left", wrappedHeightAt: () => 300 }),
     );
     if (p.kind !== "placed" || p.caret === null) throw new Error("expected placed caret");
     expect(p.maxWidth).toBe(NARROW.width);
     const center0 = TRK.left + TRK.width / 2;
-    // precondition: tracking branch inside the CLAMPED span
-    expect(center0).toBeGreaterThanOrEqual(p.viewport.x + CARET_EDGE_INSET);
-    expect(center0).toBeLessThanOrEqual(p.viewport.x + NARROW.width - CARET_EDGE_INSET);
-    expect(p.caret.x).toBe(center0 - CARET_WIDTH / 2);
+    // preconditions: a wrong implementation using NATURAL_W would TRACK here;
+    // the correct effectiveWidth span pins. Both bounds asserted so the
+    // fixture cannot drift into a non-discriminating position.
+    expect(center0).toBeGreaterThan(p.viewport.x + NARROW.width - CARET_EDGE_INSET);
+    expect(center0).toBeLessThanOrEqual(p.viewport.x + NATURAL_W - CARET_EDGE_INSET);
+    expect(p.caret.x).toBe(p.viewport.x + NARROW.width - CARET_EDGE_INSET - CARET_WIDTH / 2);
   });
 
   it("T-C8: hidden placement carries no caret key", () => {
@@ -243,7 +245,7 @@ git commit --no-verify -m "feat(admin): caret placement math in popover position
 - Consumes: Task 1's `caret` field, `CARET_EDGE_INSET`, `CARET_WIDTH`, `CARET_HEIGHT`, `CARET_INNER_OFFSET`.
 - Produces: portal renders body div THEN caret div (`data-testid` `` `${testId}-caret` ``, single inner fill div); caret carries `data-popover-side` when placed. Task 3's T-E4 reuses the `caret` live-entry case's `caret-blur` fixture.
 
-- [ ] **Step 1: Write the failing jsdom tests** — append to the `measure-and-apply with stubbed rects` describe in `tests/components/admin/hoverHelpLifecycle.test.tsx` (helpers `stubRect`, `stubViewport`, `mount`, `PaneHarness`, `runPendingFrames` in scope). Import additions: `import { CARET_EDGE_INSET, CARET_INNER_OFFSET, CARET_WIDTH } from "@/lib/popover/position";`. Shared token list, defined once above the tests:
+- [ ] **Step 1: Write the failing jsdom tests** — append to the `measure-and-apply with stubbed rects` describe in `tests/components/admin/hoverHelpLifecycle.test.tsx` (helpers `stubRect`, `stubViewport`, `mount`, `PaneHarness`, `runPendingFrames` in scope). Import additions: `import { CARET_EDGE_INSET, CARET_INNER_OFFSET, CARET_WIDTH, GAP } from "@/lib/popover/position";` (`GAP` is NOT currently imported by this file - the T-A2 expectation needs it). Shared token list, defined once above the tests:
 
 ```ts
   /** Fade/stacking tokens the body and caret must SHARE (T-J6d parity). */
@@ -342,6 +344,11 @@ git commit --no-verify -m "feat(admin): caret placement math in popover position
     expect(body.style.visibility).toBe("hidden");
     expect(caret.style.visibility).toBe("hidden");
     expect(caret.hasAttribute("data-popover-side")).toBe(false);
+    // suppression mid-fade: visibility wins while the OPEN classes stay intact
+    for (const el of [body, caret]) {
+      expect(el.className).toContain("block");
+      expect(el.className).toContain("opacity-100");
+    }
     // T-A3 recovery: anchor returns -> both visible again, side restored
     stubRect(trigger, TR);
     fireEvent.scroll(window);
@@ -363,6 +370,15 @@ git commit --no-verify -m "feat(admin): caret placement math in popover position
     const caret = screen.getByTestId("lc-caret");
     expect(body.style.visibility).toBe("");
     expect(caret.style.visibility).toBe("hidden");
+    // closed <-> suppressed: closing FROM the suppressed state resets the
+    // inline visibility (cleanup), and reopening with a seatable body recovers.
+    fireEvent.click(trigger); // close while suppressed
+    expect(caret.style.visibility).toBe("");
+    expect(caret.className).toContain("hidden");
+    stubRect(body, { left: 0, top: 0, width: 288, height: 200 }); // now wide enough
+    fireEvent.click(trigger); // reopen
+    expect(caret.style.visibility).toBe("");
+    expect(caret.getAttribute("data-popover-side")).toBe("bottom");
   });
 
   test("T-J4: pane-host caret conversion applies host offsets like the body", () => {
@@ -431,14 +447,15 @@ git commit --no-verify -m "feat(admin): caret placement math in popover position
   });
 ```
 
-(`GAP` is already imported in this file? Verify — if not, extend the import from `@/lib/popover/position`.)
-
 - [ ] **Step 2: Write the failing e2e tests.** (a) In `tests/e2e/_hoverHelpGeometryLiveEntry.tsx`, add a `caret` case to the `CaseView` switch (before `default`), following the existing `At`/`ShortHelp` patterns:
 
 ```tsx
     case "caret":
       return (
         <>
+          {/* Document-height spacer so window scrolling is REAL in T-E5
+              (absolute children alone create no scrollable height). */}
+          <div style={{ height: window.innerHeight + 800 }} />
           {/* Wide custom trigger: half-width > CARET_EDGE_INSET so the caret
               TRACKS the raw center (unpinned branch). */}
           <At x={safeX(300)} y={200}>
@@ -463,6 +480,17 @@ git commit --no-verify -m "feat(admin): caret placement math in popover position
           {/* Bottom-pinned: side "top" placement (apex-down caret). */}
           <At x={safeX(500)} y={window.innerHeight - 60}>
             <ShortHelp testId="caret-top" />
+          </At>
+          {/* Body-host learnMore for the link->outside blur case (T-E4b). */}
+          <At x={safeX(200)} y={480}>
+            <HoverHelp
+              label="Help: caret lm"
+              testId="caret-lm"
+              align="left"
+              learnMore={{ href: "/help/admin" }}
+            >
+              <p>Body with a learn-more link.</p>
+            </HoverHelp>
           </At>
           {/* Plain popover + focusable neighbor for the Tab-away case (T-E4). */}
           <At x={safeX(200)} y={400}>
@@ -553,11 +581,16 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
     expect(s["border-bottom-width"]).toBe("0px");
   });
 
-  test("T-E5: caret tracks the trigger across a scroll reflow", async ({ page }) => {
+  test("T-E5: caret tracks the trigger across a REAL scroll reflow", async ({ page }) => {
     await open(page, "caret", "caret-track");
+    const before = await box(page, "caret-track-trigger");
     await page.evaluate(() => window.scrollBy(0, 40));
     await page.evaluate(() => new Promise(requestAnimationFrame));
+    // prove the scroll actually happened and moved the trigger in viewport space
+    const scrolled = await page.evaluate(() => window.scrollY);
+    expect(scrolled).toBeGreaterThanOrEqual(40 - TOL);
     const t = await box(page, "caret-track-trigger");
+    expect(Math.abs(before.top - t.top - 40)).toBeLessThanOrEqual(TOL);
     const b = await box(page, "caret-track-body");
     const c = await box(page, "caret-track-caret");
     expect(Math.abs(c.left - caretExpectedLeft(t, b))).toBeLessThanOrEqual(TOL);
@@ -915,6 +948,21 @@ describe("pair-scoped blur-close", () => {
     expectClosed();
   });
 
+  test("T-B11: blur ORIGINATING in the portaled body (link -> outside) closes via root handler", () => {
+    render(<Harness learnMore />);
+    open();
+    const link = screen.getByTestId("bc-body").querySelector("a");
+    if (!link) throw new Error("link missing");
+    (link as HTMLElement).focus();
+    const outside = screen.getByTestId("outside-b");
+    outside.focus();
+    // portal blurs bubble through the REACT tree to the root wrapper (probe P2);
+    // this dispatch proves the root handler receives a portaled descendant's blur.
+    fireEvent.focusOut(link, { relatedTarget: outside });
+    expectClosed();
+    expect(document.activeElement).toBe(outside);
+  });
+
   test("T-B10: blur-close clears a pending pointer-leave timer (no stale close on reopen)", () => {
     vi.useFakeTimers();
     render(<Harness />);
@@ -952,6 +1000,21 @@ describe("pair-scoped blur-close", () => {
       () => document.activeElement?.getAttribute("data-testid") ?? null,
     );
     expect(active).toBe("after-btn"); // blur-close never moves focus
+  });
+
+  test("T-E4b: real blur from the PORTALED link to an outside control closes", async ({
+    page,
+  }) => {
+    await open(page, "caret", "caret-lm"); // body-host learnMore: blur-close ACTIVE
+    const trigger = page.getByTestId("caret-lm-trigger");
+    await trigger.focus();
+    await page.keyboard.press("Tab"); // body-host bridge sends focus into the link
+    const onLink = await page.evaluate(
+      () => document.activeElement?.getAttribute("href") === "/help/admin",
+    );
+    expect(onLink).toBe(true);
+    await page.getByTestId("after-btn").click(); // focuses the button -> link focusout
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 ```
 
