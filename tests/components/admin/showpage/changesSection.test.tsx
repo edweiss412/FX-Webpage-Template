@@ -11,9 +11,8 @@
  *   (a) feed entries render from a fixture; empty → the affirmative empty state; null → the
  *       infra-error notice (no raw §12.4 code — invariant 5).
  *   (b) mounted as an `extraSectionsAfter` item of the REAL `ShowReviewSurface`, Changes is
- *       LAST in the content-panel order and carries the `#changes` hash anchor, while the
- *       raw-unrecognized `bottomSlot` lands AFTER the registry warnings section and BEFORE
- *       Changes (spec §5.3a placement).
+ *       LAST in the content-panel order and carries the `#changes` hash anchor, with Overview
+ *       (an `extraSectionsBefore` item) preceding the registry warnings section.
  *
  * SCOPE NOTE (Task 11 ↔ Task 13): the delivered `ShowReviewSurface` renders extra sections
  * in the content pane only; the rail-NAV item + scroll-spy participation for string-id
@@ -22,8 +21,8 @@
  * `#changes` hash target), which is what the surface guarantees today.
  *
  * Anti-tautology: DOM order is asserted via `compareDocumentPosition` on distinct elements
- * (the warnings section, the callout, the Changes section) — not by index into a container
- * that renders all three. The feed summary derives from the fixture entry.
+ * (the Overview section, the warnings section, the Changes section) — not by index into a
+ * container that renders all three. The feed summary derives from the fixture entry.
  */
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,7 +31,6 @@ import { Clock, Home } from "lucide-react";
 
 import { ChangesSection } from "@/components/admin/showpage/ChangesSection";
 import { ShowReviewSurface } from "@/components/admin/review/ShowReviewSurface";
-import { RawUnrecognizedCallout } from "@/components/admin/wizard/step3ReviewSections";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import type { FeedEntry } from "@/lib/sync/holds/types";
@@ -150,7 +148,6 @@ function snapshot(): ShowReviewSnapshot {
     internal: {
       financials: null,
       parse_warnings: [],
-      // Non-empty so the RawUnrecognizedCallout renders (empty → the callout returns null).
       raw_unrecognized: [{ block: "Mystery block", key: "k", value: "v" }],
       run_of_show: {},
       use_raw_decisions: [],
@@ -196,13 +193,12 @@ function SurfaceHarness() {
           ),
         },
       ]}
-      bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
     />
   );
 }
 
 describe("ChangesSection wired into ShowReviewSurface (spec §5.3a / §5.4)", () => {
-  it("(b) Changes is LAST in the panel column with the #changes anchor; raw-unrecognized sits after warnings, before Changes", () => {
+  it("(b) Changes is LAST in the panel column with the #changes anchor; Overview precedes the registry warnings section", () => {
     render(<SurfaceHarness />);
 
     const changes = screen.getByTestId("changes-section");
@@ -212,7 +208,6 @@ describe("ChangesSection wired into ShowReviewSurface (spec §5.3a / §5.4)", ()
     const warnings = document.querySelector<HTMLElement>(
       '[data-testid$="review-section-warnings"]',
     );
-    const callout = screen.getByText(/content we couldn.t read/i).closest("section")!;
     expect(warnings).not.toBeNull();
 
     const before = (a: Node, b: Node) =>
@@ -220,9 +215,8 @@ describe("ChangesSection wired into ShowReviewSurface (spec §5.3a / §5.4)", ()
 
     // Overview (extraSectionsBefore) precedes the registry warnings section.
     expect(before(overview, warnings!)).toBe(true);
-    // Raw-unrecognized bottomSlot: AFTER warnings, BEFORE Changes (§5.3a).
-    expect(before(warnings!, callout)).toBe(true);
-    expect(before(callout, changes)).toBe(true);
+    // Registry warnings precede Changes (extraSectionsAfter).
+    expect(before(warnings!, changes)).toBe(true);
 
     // Changes is the LAST panel — every registry section precedes it.
     const registrySections = Array.from(

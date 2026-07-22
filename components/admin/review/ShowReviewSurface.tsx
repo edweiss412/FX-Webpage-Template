@@ -17,7 +17,7 @@
  * strip — those belong to the SHELL (the modal today, the page in Phase 2).
  *
  * Byte-identical Phase-1 contract: with no `extraSectionsBefore`/`After`,
- * `bottomSlot`, `children`, or `renderSectionExtras` passed (exactly how the
+ * `children`, or `renderSectionExtras` passed (exactly how the
  * modal wraps it), the rendered rail/content DOM is identical to the pre-
  * extraction modal — every `data-testid`, class string, and constant is
  * preserved. The scroll container is owned by the SHELL and handed in via
@@ -173,7 +173,6 @@ export function ShowReviewSurface({
   extraSectionsAfter,
   renderSectionExtras,
   routedWarnings,
-  bottomSlot,
   children,
   isPublishRunActive = false,
   attentionSections,
@@ -196,8 +195,6 @@ export function ShowReviewSurface({
   // section (`elsewhere`). Passed by the published modal alongside
   // `renderSectionExtras`; the staged wizard passes neither.
   routedWarnings?: RoutedWarnings;
-  bottomSlot?: ReactNode; // Phase 2 hook: RawUnrecognizedCallout — renders AFTER the registry sections
-  // (incl. warnings) and BEFORE extraSectionsAfter. Not a rail item.
   children?: ReactNode; // shell-owned content-pane TOP slot (the modal's re-apply resolution body)
   // ── published-show-alerts attention plumbing (spec §5.3/§5.4/§6.2). All
   // optional; ABSENT → byte-identical rendering (the staged wizard passes none).
@@ -1079,11 +1076,6 @@ export function ShowReviewSurface({
               {renderSectionExtras?.(s.id, data)}
             </section>
           ))}
-          {/* Shell-owned BOTTOM slot (spec §5.3a): the modal passes
-            RawUnrecognizedCallout — content the parser captured but couldn't
-            understand. Renders after the registry sections, before
-            extraSectionsAfter. Nothing when the shell passes none. */}
-          {bottomSlot}
           {/* Extra rail sections mounted after the registry (Phase 2: Changes).
             Ref-wrapped for scroll-spy measurement. Phase 1 passes none. */}
           {extraSectionsAfter?.map(renderExtraPanel)}

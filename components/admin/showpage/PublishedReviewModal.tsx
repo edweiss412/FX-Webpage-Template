@@ -58,11 +58,7 @@ import {
   renderCrewUnderRowCards,
 } from "@/components/admin/showpage/sectionWarningExtras";
 import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
-import {
-  CREW_CAP,
-  RawUnrecognizedCallout,
-  dateSummarySegments,
-} from "@/components/admin/wizard/step3ReviewSections";
+import { CREW_CAP, dateSummarySegments } from "@/components/admin/wizard/step3ReviewSections";
 import { StatusStrip } from "@/components/admin/showpage/StatusStrip";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
 import { OverviewSection } from "@/components/admin/showpage/OverviewSection";
@@ -244,10 +240,9 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
 
   // §6.3 subline: identity's second line, derived ENTIRELY from `data` — no new
   // props (§F2). `dateSummarySegments` is imported from the wizard module in
-  // place; the helper does NOT move (§6.3, Watchpoint 6) — `PublishedReviewModal`
-  // already imports `RawUnrecognizedCallout` from that same module, so the
-  // cross-domain import is established, and moving the helper would drag its
-  // ten-caller `arr` dependency with it.
+  // place; the helper does NOT move (§6.3, Watchpoint 6) — the cross-domain
+  // import is already established (`CREW_CAP` from that same module), and moving
+  // the helper would drag its ten-caller `arr` dependency with it.
   const client = data.clientLabel;
   const segs = dateSummarySegments(data.dates ?? undefined);
 
@@ -712,16 +707,27 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 Alerts unavailable
               </span>
             ) : clearingCount > 0 ? (
-              /* §5.1 clearing state: auto-recovering items visible, never dark. */
+              /* §5.1 clearing state: auto-recovering items visible, never dark.
+                 The visible "N clearing" is terse; an sr-only tail spells out what
+                 "clearing" means so the accessible name is a full sentence, not a
+                 bare count. The name comes from TEXT CONTENT (not aria-label — a
+                 bare <span> has the generic role, which does not support naming),
+                 so every AT honors it. `title` adds the same phrasing as a
+                 desktop hover tooltip. The `{" "}` is a real space text node
+                 between the visible text and the sr-only tail; without it the
+                 accessible-name algorithm trims the sr-only's leading space and
+                 renders "clearingon their own". */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
+                title={`${clearingCount} clearing on their own, no action needed`}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold tabular-nums text-text-subtle"
               >
                 <span
                   aria-hidden="true"
                   className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
                 />
-                {clearingCount} clearing
+                {clearingCount} clearing{" "}
+                <span className="sr-only">on their own, no action needed</span>
               </span>
             ) : (
               /* §5.1 in-sync state (S3C-1 clean-dot recipe, DESIGN.md §92). */
@@ -776,7 +782,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         extraSectionsAfter={[changesExtra]}
         renderSectionExtras={renderSectionExtras}
         routedWarnings={routedWarnings}
-        bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
         attentionSections={attentionSections}
         attentionJump={jump}
         sectionAttention={sectionAttention}
