@@ -44,14 +44,31 @@
  * counts, and the Drive-health badge. Pass align="right" near a right edge.
  */
 import {
+  createContext,
+  useContext,
   useEffect,
   useId,
   useRef,
   useState,
+  type Context,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
+
+/**
+ * Positioning host for the portaled popover body (spec
+ * 2026-07-22-hoverhelp-smart-position §4.1). ReviewModalShell is the ONE
+ * provider site — every HoverHelp-bearing dialog composes it — and supplies
+ * its panelRef so the body stays a descendant of the `role="dialog"` element
+ * (focus-trap enumeration, aria-modal subtree, dismiss-time inert all hold
+ * with zero trap changes). Without a provider the body portals to
+ * document.body, escaping clipping ancestors on non-modal pages.
+ */
+export const PopoverHostContext: Context<RefObject<HTMLElement | null> | null> =
+  createContext<RefObject<HTMLElement | null> | null>(null);
 
 const CLOSE_DELAY_MS = 120;
 
@@ -103,6 +120,13 @@ export function HoverHelp({
   learnMore?: { href: string };
 }) {
   const [open, setOpen] = useState(false);
+  // Mounted gate (ReviewModalShell.tsx:710 pattern): the portal target does
+  // not exist during SSR/first client render; server and first client render
+  // stay identical (no body), the portal mounts in the effect and then lives
+  // for the component's lifetime — open/close only toggles display.
+  const hostRef = useContext(PopoverHostContext);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const bodyId = useId();
   const descId = useId();
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -193,6 +217,7 @@ export function HoverHelp({
     <div
       className="relative inline-flex"
       data-testid={rootTestId}
+      aria-owns={bodyId}
       onPointerEnter={onMouseEnter}
       onPointerLeave={onMouseLeave}
       onKeyDown={onRootKeyDown}
@@ -239,18 +264,18 @@ export function HoverHelp({
           (Tailwind v4 / CSS `transition-behavior: allow-discrete` +
           `@starting-style`); where unsupported the popover simply appears
           instantly, which is the correct degradation for a help tooltip. */}
-      <div
-        id={bodyId}
-        role={learnMore ? undefined : "tooltip"}
-        data-testid={`${testId}-body`}
-        onPointerEnter={openNow}
-        onPointerLeave={scheduleClose}
-        className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
-          placement === "top" ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"
-        } ${
-          open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
-        } ${align === "right" ? "right-0" : "left-0"}`}
-      >
+      {mounted
+        ? createPortal(
+            <div
+              id={bodyId}
+              role={learnMore ? undefined : "tooltip"}
+              data-testid={`${testId}-body`}
+              onPointerEnter={openNow}
+              onPointerLeave={scheduleClose}
+              className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
+                open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
+              }`}
+            >
         <div id={descId}>{children}</div>
         {learnMore ? (
           // M12.12 follow-up: aria-label keeps the decorative "→" out of the
@@ -270,8 +295,11 @@ export function HoverHelp({
           >
             Learn more →
           </a>
-        ) : null}
-      </div>
+              ) : null}
+            </div>,
+            hostRef?.current ?? document.body,
+          )
+        : null}
     </div>
   );
 }

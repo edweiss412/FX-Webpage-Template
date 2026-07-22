@@ -131,7 +131,7 @@ describe("HoverHelp", () => {
 
   // M12.12 affordance matrix — rootTestId lets an e2e walker locate the whole
   // affordance; trigger/body keep the existing `-trigger`/`-body` convention.
-  it("rootTestId lands on the wrapper; trigger/body keep the testId convention", () => {
+  it("rootTestId lands on the wrapper; trigger/body keep the testId convention", async () => {
     render(
       <HoverHelp label="Help: X" testId="x-help" rootTestId="help-affordance--x--tooltip">
         <p>Body copy.</p>
@@ -139,7 +139,11 @@ describe("HoverHelp", () => {
     );
     const root = screen.getByTestId("help-affordance--x--tooltip");
     expect(within(root).getByTestId("x-help-trigger")).toBeInTheDocument();
-    expect(within(root).getByTestId("x-help-body")).toBeInTheDocument();
+    // Portaled (hoverhelp-smart-position §4.1): the body lives under
+    // document.body, adopted back into the a11y tree via aria-owns.
+    const body = await screen.findByTestId("x-help-body");
+    expect(body.parentElement).toBe(document.body);
+    expect(root).toHaveAttribute("aria-owns", body.id);
   });
 
   // M12.12 — learnMore turns the body into a disclosure (a tooltip role must not

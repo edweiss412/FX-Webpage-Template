@@ -34,6 +34,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { useHasMounted } from "@/lib/a11y/useHasMounted";
 
@@ -680,8 +681,12 @@ function OpenReviewModalShell({
           ) : null}
 
           {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
-            wrapper (spec §5). The consumer's surface root IS the body element. */}
-          {children}
+            wrapper (spec §5). The consumer's surface root IS the body element.
+            PopoverHostContext (hoverhelp-smart-position §4.1): the shell is the
+            ONE provider site — HoverHelp popovers inside any shell consumer
+            portal into the PANEL, staying inside the focus trap / aria-modal /
+            inert subtree while escaping the inner scroll pane's clipping. */}
+          <PopoverHostContext.Provider value={panelRef}>{children}</PopoverHostContext.Provider>
 
           {/* Footer wrapper — only when the consumer provides one. Sheet-mode
             bottom padding adds the device safe area so the controls are never
