@@ -2,6 +2,16 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## Share hub (2026-07-21)
+
+### SHAREHUB-ROW-ANATOMY-1 — [P1] the two destructive rows inside the hub had different shapes — ✅ RESOLVED
+
+From the impeccable critique of `share-hub` (Assessment A, heuristic 4 "Consistency and standards", scored 2/4). Inside one 308px popover, the two irreversible controls rendered with different anatomies: `RotateShareTokenButton` in `compact` mode was label-left / button-right (`RotateShareTokenButton.tsx:281-284`), while `PickerResetControl` was a heading over a full-width button (`PickerResetControl.tsx:212-270`). The user-approved mock drew both as the same icon + title + subtitle row (`ActionBarMenu-1d.dc.html:111,123`).
+
+Deferred, not accepted as correct: the fix was a new compact row variant on `PickerResetControl`, which is NOT hub-local — `components/admin/wizard/step3ReviewSections.tsx` renders the same component in the onboarding wizard, where the full-width anatomy is right for a wider column. Both rows individually satisfied the §15 tier-2 guard ladder (two-tap, 4s auto-revert, safe-control focus, busy-gated dismissal), so this was a visual-consistency defect, not a safety one.
+
+**Resolution:** shipped by `share-hub-fidelity-fixes`. Both `RotateShareTokenButton` (compact) and `PickerResetControl` now render as the same borderless full-width menu row (icon + label + description), matching the mock. `step3ReviewSections.tsx` was confirmed NOT to consume `PickerResetControl` (it carries its own parallel implementation), so no opt-out was needed.
+
 ## Review-modal close (2026-07-19)
 
 Source: MODAL-SKELETON-CLOSE-1 ship (`fix/modal-skeleton-close`, spec `docs/superpowers/specs/2026-07-19-modal-skeleton-close.md`, plan `docs/superpowers/plans/2026-07-19-modal-skeleton-close.md`). The already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved here from the working queue in the same pass (queue policy: resolved entries live in the archive).
