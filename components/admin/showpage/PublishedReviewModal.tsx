@@ -707,9 +707,13 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 Alerts unavailable
               </span>
             ) : clearingCount > 0 ? (
-              /* §5.1 clearing state: auto-recovering items visible, never dark. */
+              /* §5.1 clearing state: auto-recovering items visible, never dark.
+                 The visible "N clearing" is terse; an aria-label/title spells out
+                 what "clearing" means so the count is not a bare, opaque number. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
+                aria-label={`${clearingCount} clearing on their own, no action needed`}
+                title={`${clearingCount} clearing on their own, no action needed`}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold tabular-nums text-text-subtle"
               >
                 <span
