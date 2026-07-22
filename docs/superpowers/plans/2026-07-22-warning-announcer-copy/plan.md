@@ -371,7 +371,7 @@ const announceCtx = useMemo(() => ({ announce }), [announce]);
 - [ ] **Step 2: Graduate the four DEFERRED entries** (DEFERRED.md:69-91) to `DEFERRED-archive.md` under a "Warning announcer + elsewhere copy (2026-07-22)" heading, each annotated with its resolution (§1.1 items 1-4, including the item-8 tuple-retirement amendment); update the reconciliation line at DEFERRED.md:7.
 - [ ] **Step 3: Add the VoiceOver owner action to DEFERRED.md** (plan-review R1 F11): an autonomous pipeline cannot truthfully perform a manual VoiceOver pass, so the spec §8 F10 mitigation's manual half becomes a tracked owner action — new entry "VOICEOVER-ANNOUNCER-SPOTCHECK: owner runs VoiceOver over ignore / bulk-ignore / reveal on the published panel; un-defer trigger: owner performs and records the pass." Update the spec §8 F10 line's mitigation wording from "part of the implementation plan's verification step" to "tracked as a DEFERRED.md owner action" in the same commit (post-APPROVE amendment, recorded here and in handoff.md §12; the automated halves — impeccable audit a11y dimension + the structural role/mutation tests — remain pre-merge gates).
 - [ ] **Step 4: Create `docs/superpowers/plans/2026-07-22-warning-announcer-copy/handoff.md`** (plan-review R1 F10) with: task→commit table, transition-audit sweep output (Step 1), Task 6 e2e run record, and an EMPTY §12 "Impeccable findings + dispositions" section that Task 8 fills — the invariant-8 evidence destination.
-- [ ] **Step 5: Commit.** `git commit -am "docs: graduate four warning-panel-polish deferrals; transition-audit sweep; handoff scaffold"`
+- [ ] **Step 5: Commit.** `git add DEFERRED.md DEFERRED-archive.md docs/superpowers/specs/2026-07-22-warning-announcer-copy-design.md docs/superpowers/plans/2026-07-22-warning-announcer-copy/handoff.md && git commit -m "docs: graduate four warning-panel-polish deferrals; transition-audit sweep; handoff scaffold"` (explicit paths — handoff.md is a NEW file, `-am` would leave it untracked; plan-review R2 F1).
 
 ### Task 8: Verification gates (pre-push)
 
@@ -379,7 +379,8 @@ const announceCtx = useMemo(() => ({ announce }), [announce]);
 - [ ] Local e2e already green (Task 6); re-run if any later commit touched components
 - [ ] Impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) on the diff — UI surface touched (invariant 8); P0/P1 fixed or DEFERRED.md-logged; findings + dispositions recorded in handoff.md §12 (Task 7 Step 4 scaffold)
 - [ ] VoiceOver spot-check: tracked as DEFERRED.md owner action (Task 7 Step 3) — NOT performed by the agent, NOT merge-blocking
-- [ ] Whole-diff Codex review (split tight-scope briefs if needed) → APPROVE
+- [ ] Record impeccable findings + dispositions in handoff.md §12; any fix follows the full loop (failing test where applicable → fix → suite green) and is committed with its §12 row: `git add -A && git commit -m "fix(admin): impeccable dual-gate repairs + handoff section 12"` (plan-review R2 F1)
+- [ ] Whole-diff Codex review (split tight-scope briefs if needed) → APPROVE; any repair commits follow the same loop; final `git status --short` MUST be empty before push (plan-review R2 F1 — no dirty-tree merges)
 - [ ] Push, PR, real CI green, `gh pr merge --merge`, ff-sync main
 
 ## Reconciliation sweeps (run at plan time)
