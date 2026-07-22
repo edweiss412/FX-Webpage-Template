@@ -58,11 +58,7 @@ import {
   renderCrewUnderRowCards,
 } from "@/components/admin/showpage/sectionWarningExtras";
 import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
-import {
-  CREW_CAP,
-  RawUnrecognizedCallout,
-  dateSummarySegments,
-} from "@/components/admin/wizard/step3ReviewSections";
+import { CREW_CAP, dateSummarySegments } from "@/components/admin/wizard/step3ReviewSections";
 import { StatusStrip } from "@/components/admin/showpage/StatusStrip";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
 import { OverviewSection } from "@/components/admin/showpage/OverviewSection";
@@ -244,10 +240,9 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
 
   // §6.3 subline: identity's second line, derived ENTIRELY from `data` — no new
   // props (§F2). `dateSummarySegments` is imported from the wizard module in
-  // place; the helper does NOT move (§6.3, Watchpoint 6) — `PublishedReviewModal`
-  // already imports `RawUnrecognizedCallout` from that same module, so the
-  // cross-domain import is established, and moving the helper would drag its
-  // ten-caller `arr` dependency with it.
+  // place; the helper does NOT move (§6.3, Watchpoint 6) — the cross-domain
+  // import is already established (`CREW_CAP` from that same module), and moving
+  // the helper would drag its ten-caller `arr` dependency with it.
   const client = data.clientLabel;
   const segs = dateSummarySegments(data.dates ?? undefined);
 
@@ -776,7 +771,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         extraSectionsAfter={[changesExtra]}
         renderSectionExtras={renderSectionExtras}
         routedWarnings={routedWarnings}
-        bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
         attentionSections={attentionSections}
         attentionJump={jump}
         sectionAttention={sectionAttention}

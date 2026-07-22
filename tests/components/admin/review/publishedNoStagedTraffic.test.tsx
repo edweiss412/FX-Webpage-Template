@@ -5,9 +5,9 @@
  * Structural pin for the published-mode section forks. Renders EVERY section
  * def emitted by `step3Sections(publishedFixture)` (filesystem-of-the-registry:
  * a NEW section added later is covered automatically — the test iterates the
- * registry, it does not name a subset) PLUS the modal-level RawUnrecognizedCallout,
- * from a PublishedSectionData built through the canonical `buildPublishedSectionData`
- * adapter entry path (never a hand-rolled shape).
+ * registry, it does not name a subset), from a PublishedSectionData built through
+ * the canonical `buildPublishedSectionData` adapter entry path (never a
+ * hand-rolled shape).
  *
  * The invariants it pins (spec §3.5, plan meta-test inventory row):
  *   - ZERO `/api/admin/onboarding/*` traffic in published mode: no rendered
@@ -34,10 +34,7 @@ import { act, cleanup, render, within } from "@testing-library/react";
 // them mutate, but keep RTL from throwing on the hook.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
-import {
-  RawUnrecognizedCallout,
-  step3Sections,
-} from "@/components/admin/wizard/step3ReviewSections";
+import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 
@@ -140,7 +137,7 @@ function snapshot(): ShowReviewSnapshot {
   };
 }
 
-/** Render every registry section + the modal-level callout for one published fixture. */
+/** Render every registry section for one published fixture. */
 function renderPublished() {
   const data = buildPublishedSectionData(snapshot(), { slug: SLUG });
   const defs = step3Sections(data);
@@ -151,9 +148,6 @@ function renderPublished() {
           {def.render(data)}
         </section>
       ))}
-      <div data-testid="modal-callout">
-        <RawUnrecognizedCallout raw={data.rawUnrecognized} />
-      </div>
     </div>,
   );
   return { data, defs, ...utils };
