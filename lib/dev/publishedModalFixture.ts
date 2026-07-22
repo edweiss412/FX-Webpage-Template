@@ -98,7 +98,12 @@ export function buildGallerySnapshot(
         role: "TD",
         email: "avery@example.test",
       },
-      { id: "cccccccc-0000-4000-8000-000000000003", name: "Blake Osei", role: "A1", phone: "555-0102" },
+      {
+        id: "cccccccc-0000-4000-8000-000000000003",
+        name: "Blake Osei",
+        role: "A1",
+        phone: "555-0102",
+      },
       { id: "cccccccc-0000-4000-8000-000000000004", name: "Casey Ruiz", role: "V1" },
       { id: "cccccccc-0000-4000-8000-000000000005", name: "Devon Park", role: "LD" },
       { id: "cccccccc-0000-4000-8000-000000000006", name: "Emerson Doyle", role: "Carp" },

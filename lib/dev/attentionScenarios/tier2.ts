@@ -216,7 +216,10 @@ function hold(entityKey: string): ScenarioHoldRow {
  */
 function manyAlerts(): ScenarioAlertRow[] {
   const used = new Set<string>();
-  const pick = (code: string, over: Partial<Omit<ScenarioAlertRow, "code">> = {}): ScenarioAlertRow => {
+  const pick = (
+    code: string,
+    over: Partial<Omit<ScenarioAlertRow, "code">> = {},
+  ): ScenarioAlertRow => {
     used.add(code);
     return alert(code, over);
   };

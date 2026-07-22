@@ -42,7 +42,6 @@ function codesFor(s: AttentionScenario): string[] {
   return [...new Set([...s.alerts.map((a) => a.code), ...(s.warnings?.map((w) => w.code) ?? [])])];
 }
 
-
 /** Landing group from the REAL routers (spec §3.5): derived item sections ∪ warning sections. */
 export function scenarioGroup(s: AttentionScenario): ScenarioGroupId {
   const sections = new Set<string>();

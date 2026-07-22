@@ -51,7 +51,13 @@ describe("deriveScenarioAttention", () => {
       base_modified_time: "2026-07-01T12:00:00.000Z",
       kind: "mi11_pending",
     };
-    const base: AttentionScenario = { id: "probe-ft2", tier: 2, label: "p", alerts: [], holds: [HOLD] };
+    const base: AttentionScenario = {
+      id: "probe-ft2",
+      tier: 2,
+      label: "p",
+      alerts: [],
+      holds: [HOLD],
+    };
     expect(buildScenarioFeed(base)?.truncated).toBe(false);
     expect(buildScenarioFeed({ ...base, feedTruncated: true })?.truncated).toBe(true);
     expect(buildScenarioFeed({ ...base, holds: [], feedTruncated: true })).toBeNull();

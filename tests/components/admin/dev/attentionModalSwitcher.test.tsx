@@ -33,7 +33,11 @@ vi.mock("@/components/admin/showpage/PublishedReviewModal", () => ({
 
 import { AttentionModalSwitcher, indexOfId } from "@/components/admin/dev/AttentionModalSwitcher";
 
-function scenario(id: string, title: string, group: GallerySwitcherScenario["group"] = "overview"): GallerySwitcherScenario {
+function scenario(
+  id: string,
+  title: string,
+  group: GallerySwitcherScenario["group"] = "overview",
+): GallerySwitcherScenario {
   return {
     id,
     tier: 1,

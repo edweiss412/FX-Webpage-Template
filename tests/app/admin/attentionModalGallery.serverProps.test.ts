@@ -148,8 +148,14 @@ describe("partitionScenarios", () => {
 
   test("renders every tier-3 composite", () => {
     for (const id of T3_IDS) {
-      expect(rendered.some((s) => s.id === id), id).toBe(true);
-      expect(excluded.some((e) => e.id === id), id).toBe(false);
+      expect(
+        rendered.some((s) => s.id === id),
+        id,
+      ).toBe(true);
+      expect(
+        excluded.some((e) => e.id === id),
+        id,
+      ).toBe(false);
     }
   });
 

@@ -51,6 +51,8 @@ import { buildScenarioModalData } from "@/lib/dev/buildScenarioModalData";
 import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { ALL_SCENARIOS } from "@/lib/dev/attentionScenarios/index";
+import { T3_CREW_COLLISION } from "@/lib/dev/attentionScenarios/tier3";
+import { T2_FEED_TRUNCATED, T2_MULTI_HOLD } from "@/lib/dev/attentionScenarios/tier2";
 
 // The developer fixture is admin+developer via the JWT arm (test-auth route
 // allowlist entry `fxav-developer@example.com`). No admin_emails seed needed —
@@ -426,5 +428,37 @@ test.describe("attention modal switcher gallery", () => {
       "true",
     );
     await expect(page.getByTestId("attention-switcher-excluded-panel")).toBeVisible();
+  });
+
+  test("tier-3 composite deep-links render in the switcher (gap-fill §3.1)", async ({ page }) => {
+    await gotoScenario(page, T3_CREW_COLLISION);
+    await expect(page.locator(`${CONTROLS}[data-codes*="AMBIGUOUS_EMAIL_BINDING"]`)).toHaveCount(1);
+  });
+
+  test("feed truncation notice renders only on the flagged scenario (gap-fill §3.2)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, T2_FEED_TRUNCATED);
+    await expect(
+      page.locator(DIALOG).locator('[data-testid="change-feed-truncation"]'),
+    ).toBeVisible();
+    await gotoScenario(page, T2_MULTI_HOLD);
+    await expect(
+      page.locator(DIALOG).locator('[data-testid="change-feed-truncation"]'),
+    ).toHaveCount(0);
+  });
+
+  test("group select jumps to a section's first scenario and tracks stepping (gap-fill §3.5)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, RENDERED_IDS[0]!);
+    const select = page.locator('[data-testid="attention-switcher-group-select"]');
+    const targetGroup = rendered.find((s) => s.group !== rendered[0]!.group)!.group;
+    const firstIndex = rendered.findIndex((s) => s.group === targetGroup);
+    await select.selectOption(targetGroup);
+    const live = page.locator(`${CONTROLS} [aria-live="polite"]`);
+    await expect(live).toHaveText(new RegExp(`^\\s*${firstIndex + 1}\\s*/`));
+    await expect(select).toHaveValue(targetGroup);
+    await expect(page.locator(DIALOG)).toHaveCount(1);
   });
 });
