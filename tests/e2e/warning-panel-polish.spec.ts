@@ -257,4 +257,116 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
       )
       .toBe("all-hit");
   });
+
+  // LAST in the serial describe by design (announcer spec 2026-07-22 §5.5,
+  // plan Task 0): the real Ignore round trip below mutates the seeded warning
+  // population; running last means no later test observes the mutation, and
+  // afterAll's seed deletion is the restoration.
+  test("announcer region: empty on load, speaks the pinned clause after Ignore", async ({
+    page,
+  }) => {
+    await openModal(page);
+    const region = page.locator(`[data-testid="warnings-panel-status"]`);
+    await expect(region).toHaveText("");
+    const ignoreBtn = page.locator(`[data-testid^="dq-ignore-"]`).first();
+    await expect(ignoreBtn).toBeVisible();
+    await ignoreBtn.click();
+    await expect(region).toHaveText("Warning ignored.", { timeout: 15_000 });
+  });
+});
+
+// Reveal e2e (announcer spec 2026-07-22 §4.2-4.3, plan Task 0): own seeded
+// show routing FOUR sections so the pointer sentence overflows the cap with
+// zero label misses (the only reveal-eligible shape).
+const POINTER_NAME_CAP = 3; // pinned by tests/components/admin/wizard/pointerSentence.test.tsx
+const REVEAL_SEED_TITLE = "Warning Announcer Reveal E2E Show";
+const REVEAL_WARNINGS = [
+  ...ROUTED_WARNINGS,
+  {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "unknown transport field e2e",
+    rawSnippet: "Transport | e2e-transport",
+    blockRef: { kind: "transport", name: "e2e-transport" },
+  },
+];
+// Section count derived from the fixture's distinct blockRef kinds (crew,
+// rooms, contacts, transport), never hardcoded (plan-review R1 F7).
+const REVEAL_SECTION_COUNT = new Set(REVEAL_WARNINGS.map((w) => w.blockRef.kind)).size;
+
+test.describe("pointer overflow reveal (announcer spec §4.2-4.3)", () => {
+  let revealShow: SeededShow;
+  let restoreReveal: (() => Promise<void>) | null = null;
+
+  test.beforeAll(async () => {
+    restoreReveal = await settleDashboardAdminState();
+    revealShow = await seedShowWithCrew({
+      title: REVEAL_SEED_TITLE,
+      crew: [{ name: "Riley Fox", role: "A2", email: "riley@fxav.test" }],
+    });
+    const { error } = await admin
+      .from("shows_internal")
+      .upsert(
+        { show_id: revealShow.showId, parse_warnings: REVEAL_WARNINGS },
+        { onConflict: "show_id" },
+      );
+    if (error) throw new Error(`reveal spec parse_warnings seed failed: ${error.message}`);
+  });
+
+  test.afterAll(async () => {
+    try {
+      if (revealShow) await deleteSeededShow(revealShow.driveFileId);
+    } finally {
+      if (restoreReveal) await restoreReveal();
+    }
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  test("reveal button expands the list; a revealed name scrolls its section", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(`/admin?show=${revealShow.slug}`);
+    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    const dfid = revealShow.driveFileId;
+    const SENTENCE = `[data-testid="wizard-step3-card-${dfid}-warnings-elsewhere"]`;
+    const SCROLLER = `[data-testid="wizard-step3-card-${dfid}-review-content"]`;
+    const SECTION_ROOMS = `[data-testid="wizard-step3-card-${dfid}-review-section-rooms"]`;
+    await expect(page.locator(SENTENCE)).toBeVisible();
+    const extraCount = REVEAL_SECTION_COUNT - POINTER_NAME_CAP;
+    const revealName =
+      extraCount === 1 ? "Show 1 more section" : `Show ${extraCount} more sections`;
+    // Collapsed: the over-cap name is folded, not rendered as a button.
+    await expect(page.locator(`${SENTENCE} button`, { hasText: "Rooms & scope" })).toHaveCount(0);
+    await page.getByRole("button", { name: revealName }).click();
+    // Re-query after the expansion re-render (detach-safety).
+    const revealed = page.locator(`${SENTENCE} button`, { hasText: "Rooms & scope" }).first();
+    await expect(revealed).toBeVisible();
+    const align = async () =>
+      page.evaluate(
+        ([sec, scr]) => {
+          const t = document.querySelector(sec!)!.getBoundingClientRect().top;
+          const s = document.querySelector(scr!)!.getBoundingClientRect().top;
+          return Math.abs(t - s - 8);
+        },
+        [SECTION_ROOMS, SCROLLER] as const,
+      );
+    // Pre-click guard (shipped §8.6 shape): not already aligned, else vacuous.
+    expect(await align()).toBeGreaterThan(24);
+    let aligned = false;
+    for (let attempt = 0; attempt < 3 && !aligned; attempt++) {
+      await page.locator(`${SENTENCE} button`, { hasText: "Rooms & scope" }).first().click();
+      try {
+        await expect.poll(align, { timeout: 4_000 }).toBeLessThanOrEqual(24);
+        aligned = true;
+      } catch {
+        // node swapped mid-click; re-resolve and retry
+      }
+    }
+    expect(aligned, "revealed section aligned after at most 3 click attempts").toBe(true);
+  });
 });
