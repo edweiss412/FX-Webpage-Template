@@ -265,6 +265,9 @@ function CaseView() {
 
 function App() {
   const [ready, setReady] = useState(false);
+  // Harness-ready sentinel must flip AFTER the first commit (Playwright waits
+  // on it before interacting) - the effect-flip is the point.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing post-commit signal
   useEffect(() => setReady(true), []);
   return (
     <div>
