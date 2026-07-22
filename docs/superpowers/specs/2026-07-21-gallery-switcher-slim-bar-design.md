@@ -65,9 +65,11 @@ state `const [showExcluded, setShowExcluded] = useState(false)`.
   ONLY shrinkable row child); inside it the count span stays `shrink-0` and the
   label keeps `min-w-0 truncate`, so all width deficit lands on the label. Every
   other direct row child (both buttons, chip, toggle) is `shrink-0`.
-- Width budget at 390px (px-4 container = 32px): Prev ~54 + Next ~54 + count ~34 +
-  chip ~44 + toggle ~80 + 5 gaps × 8 = 40 → ~306px fixed, leaving ≥50px for the
-  truncating label.
+- Width budget at 390px (px-4 container = 32px): five direct row children (Prev,
+  Next, live-region wrapper, chip, toggle) make FOUR `gap-x-2` gaps. Fixed widths:
+  Prev ~54 + Next ~54 + chip ~44 + toggle ~80 + 4 gaps × 8 = 32 → ~264px, leaving
+  ~94px for the wrapper; inside it the count (~34) + its internal `gap-2` (8)
+  leave ≥50px for the truncating label.
 - Budget bounds: the supported minimum viewport is 390px (project mobile-primary,
   `playwright.config.ts:40`). Counts are catalog-pinned two-digit values — the e2e
   pins 3 structural + a cut count derived from `DOUG_EXCLUDED_CODES`
@@ -91,9 +93,17 @@ is avoided by construction). The ≤64px collapsed cap in §2.4/§2.5 is defined
 EXCLUSIVE of that inset: collapsed height ≤ 64px + `env(safe-area-inset-top)`. Both
 e2e viewports (Chromium 1280×800 and 390×844) report a 0px inset, so the e2e's
 numeric assertion of ≤64px is exact there; a notched device adds only the inset the
-OS reserves anyway. The modal panel is bottom-anchored on mobile
-(`items-end`, `ReviewModalShell.tsx:582`), so the inset cannot push the bar into the
-panel at 390×844.
+OS reserves anyway.
+
+Nonzero-inset bound (not e2e-tested; proven by arithmetic): the collapsed bar is
+≤64px + inset. On mobile the sheet is bottom-anchored at `max-h-[85vh]`
+(`items-end`, `ReviewModalShell.tsx:582`; `max-h-[85vh]` at `ReviewModalShell.tsx:618`), so its top edge is ≥15vh from
+the viewport top — ≥126.6px at 844px height. The largest shipped iOS top inset is
+59pt, giving a worst-case bar of 123px < 126.6px: the collapsed bar clears the
+sheet on every current device. Desktop viewports have a 0px inset, where the
+64px bar sits inside the ≥80px scrim band (§2.4). If a future device ships an
+inset > 62px, the collapsed-state invariant degrades to header overlap only —
+acceptable for a dev instrument and recorded here rather than engineered around.
 
 ### 2.2 Disclosure toggle
 
@@ -139,8 +149,11 @@ header (`data-testid="published-show-review-header"`,
 every protected surface sits at or below the modal panel's top edge, and the e2e
 asserts the collapsed bar clears the panel's topmost box, the header). The ratified
 expanded-state exception (§1.1) permits modal overlap within the panel's 40vh cap;
-the panel is top-centered, so it cannot reach the nav rail (left) or the footer
-(bottom, below the 64px + 40vh maximum extent at both e2e viewports). Geometry headroom: the panel is `max-h-[85vh]` mobile /
+the panel is top-centered, so it cannot reach the nav rail (left) or the footer:
+the expanded maximum extent is 64px + `env(safe-area-inset-top)` + 4px (`gap-1`
+between row and panel) + 40vh — at the e2e viewports (inset 0) that is 388px of
+800 (desktop) and 405.6px of 844 (mobile), and the bottom-anchored footer sits in
+the bottom ~56px of the viewport in both cases, far below. Geometry headroom: the panel is `max-h-[85vh]` mobile /
 `sm:max-h-[80vh]` desktop (`ReviewModalShell.tsx:618`), so the scrim band above the
 panel is ≥120px at 390×844 (bottom sheet) and ≥80px at 1280×800 (centered), vs the
 ≤64px collapsed bar.
@@ -154,7 +167,7 @@ not stretch-based, and each is guaranteed by an explicit class:
 
 | Relationship | Guarantee |
 | --- | --- |
-| Collapsed bar height ≤64px | Single row (`flex-nowrap` — no second line possible); row content is single-line text in 44px-MINIMUM (`min-h-tap-min`) content-sized buttons that render at 44px (one text line ≈17px + padding never exceeds the minimum), + 8px `pb-2` + 8px base of the split top padding (§2.1.1) + 1px bottom border (`border border-t-0`) ≈ 62px observed. The ≤64px UPPER bound is enforced by the e2e assertion (§5), not by any max-height class. |
+| Collapsed bar height ≤64px | Single row (`flex-nowrap` — no second line possible); row content is single-line text in 44px-MINIMUM (`min-h-tap-min`) content-sized buttons that render at 44px (one text line ≈17px + padding never exceeds the minimum), + 8px `pb-2` + 8px base of the split top padding (§2.1.1) + 1px bottom border (`border border-t-0`) = 61px computed (observed within 1px). The ≤64px UPPER bound is enforced by the e2e assertion (§5), not by any max-height class. |
 | Row children never push the bar wider than the viewport | Every non-label child `shrink-0`; label `min-w-0 truncate` absorbs all deficit. |
 | Bar never intersects modal header/close/footer (collapsed) | `fixed top-0` bar ≤64px vs scrim band ≥80px above the panel (§2.4 math); pinned by the real-browser `getBoundingClientRect`/`boundingBox` e2e (§5), not jsdom. |
 
