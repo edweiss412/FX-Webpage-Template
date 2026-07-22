@@ -107,5 +107,16 @@ describe("t3-full-attention-split renders the full taught state", () => {
     )) {
       expect(row.contains(summary)).toBe(false);
     }
+    // Membership proof (whole-diff R3): the NEAREST COMMON ANCESTOR of the
+    // summary and the Monitoring heading must contain NO other group's
+    // heading. In-group placement makes the NCA the group wrapper (other
+    // headings absent); ANY misplacement — another group, a footer after all
+    // groups — widens the NCA to a container that also holds the other
+    // headings, and the assertion fails. No structural nesting assumed beyond
+    // groups being disjoint subtrees, which is what "grouped" means.
+    let scope: HTMLElement = summary.parentElement as HTMLElement;
+    while (!scope.contains(monHeading)) scope = scope.parentElement as HTMLElement;
+    expect(within(scope).queryByText("Needs your confirmation")).toBeNull();
+    expect(within(scope).queryByText("Needs a look")).toBeNull();
   });
 });
