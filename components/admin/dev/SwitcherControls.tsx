@@ -20,10 +20,8 @@ type Props = {
   tier: 1 | 2;
   codes: string[];
   excluded: ExcludedScenario[];
-  closed: boolean;
   onPrev: () => void;
   onNext: () => void;
-  onReopen: () => void;
 };
 
 const STEP_BTN =
@@ -36,10 +34,8 @@ export function SwitcherControls({
   tier,
   codes,
   excluded,
-  closed,
   onPrev,
   onNext,
-  onReopen,
 }: Props) {
   const structural = excluded.filter((e) => e.reason === "structural");
   const cut = excluded.filter((e) => e.reason === "cut");
@@ -52,30 +48,12 @@ export function SwitcherControls({
       className="fixed inset-x-0 top-0 z-60 mx-auto flex max-w-3xl flex-col gap-1 rounded-b-xl border border-t-0 border-border bg-surface/95 px-4 py-2 shadow-lg backdrop-blur"
     >
       <div className="flex items-center gap-3">
-        {closed ? (
-          <button
-            type="button"
-            className={STEP_BTN}
-            onClick={onReopen}
-            aria-label="Reopen scenario"
-          >
-            Reopen
-          </button>
-        ) : (
-          <>
-            <button
-              type="button"
-              className={STEP_BTN}
-              onClick={onPrev}
-              aria-label="Previous scenario"
-            >
-              Prev
-            </button>
-            <button type="button" className={STEP_BTN} onClick={onNext} aria-label="Next scenario">
-              Next
-            </button>
-          </>
-        )}
+        <button type="button" className={STEP_BTN} onClick={onPrev} aria-label="Previous scenario">
+          Prev
+        </button>
+        <button type="button" className={STEP_BTN} onClick={onNext} aria-label="Next scenario">
+          Next
+        </button>
         <span aria-live="polite" className="text-xs tabular-nums text-text-subtle">
           {index + 1} / {total}
         </span>

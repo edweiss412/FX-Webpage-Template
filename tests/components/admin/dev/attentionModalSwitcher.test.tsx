@@ -20,30 +20,16 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 
-// The mock modal consumes the real ReviewModalCloseContext (the switcher
-// provides `galleryClose` as its value) and renders a close button, mirroring
-// how the production modal's own X reaches the close API. An async factory lets
-// us import the context without the vi.mock hoisting hazard.
-vi.mock("@/components/admin/showpage/PublishedReviewModal", async () => {
-  const React = await import("react");
-  const { useReviewModalClose } = await import("@/components/admin/review/ReviewModalShell");
-  return {
-    PublishedReviewModal: (props: Record<string, unknown>) => {
-      capturedProps = props;
-      const close = useReviewModalClose();
-      return React.createElement("div", {
-        "data-testid": "mock-modal",
-        "data-title": String(props.title ?? ""),
-        children: React.createElement("button", {
-          type: "button",
-          "data-testid": "modal-close",
-          onClick: close,
-          children: "close",
-        }),
-      });
-    },
-  };
-});
+// The mock modal captures the props the real modal would have received. The
+// gallery leaves the real modal's native close intact (it navigates to /admin),
+// so the switcher no longer overrides ReviewModalCloseContext — the mock does
+// not need to consume it.
+vi.mock("@/components/admin/showpage/PublishedReviewModal", () => ({
+  PublishedReviewModal: (props: Record<string, unknown>) => {
+    capturedProps = props;
+    return <div data-testid="mock-modal" data-title={String(props.title ?? "")} />;
+  },
+}));
 
 import { AttentionModalSwitcher, indexOfId } from "@/components/admin/dev/AttentionModalSwitcher";
 
@@ -148,27 +134,12 @@ describe("AttentionModalSwitcher", () => {
     });
   });
 
-  test("galleryClose unmounts the modal; Reopen restores it and arrows advance again (closingRef reset)", () => {
+  test("Escape is swallowed so the modal's navigate-to-/admin close never fires", () => {
     render(<AttentionModalSwitcher scenarios={THREE} excluded={[]} initialId="a" />);
-    // Close via the ReviewModalCloseContext value the switcher handed the modal
-    // (the mock modal's close button invokes it).
-    fireEvent.click(screen.getByTestId("modal-close"));
-    expect(screen.queryByTestId("mock-modal")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /reopen/i }));
-    expect(screen.getByTestId("mock-modal")).toBeTruthy();
-    // Arrows work after reopen (closingRef was reset).
-    expect(pressKey("ArrowRight")).toBe(true);
-    expect(screen.getByTestId("mock-modal").getAttribute("data-title")).toBe("B");
-  });
-
-  test("Escape while OPEN is swallowed; Escape while CLOSED is NOT intercepted", () => {
-    render(<AttentionModalSwitcher scenarios={THREE} excluded={[]} initialId="a" />);
-    // Open: Escape swallowed.
+    // preventDefault + stopPropagation keep Escape from reaching the modal shell,
+    // whose close navigates to /admin (see the switcher's close-semantics note).
     expect(pressKey("Escape")).toBe(true);
-    expect(screen.getByTestId("mock-modal")).toBeTruthy();
-    // Close, then Escape must NOT be intercepted.
-    fireEvent.click(screen.getByTestId("modal-close"));
-    expect(screen.queryByTestId("mock-modal")).toBeNull();
-    expect(pressKey("Escape")).toBe(false);
+    // The modal stays mounted on the current scenario.
+    expect(screen.getByTestId("mock-modal").getAttribute("data-title")).toBe("A");
   });
 });

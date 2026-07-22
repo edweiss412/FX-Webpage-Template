@@ -6,28 +6,34 @@
  *
  * The client half of the gallery: one real `PublishedReviewModal` whose data is
  * swapped as the operator steps through every rendered scenario. The switcher
- * owns the three things the server cannot hand across the Flight boundary:
+ * owns the two things the server cannot hand across the Flight boundary:
  *
  *   1. The action closures. The modal's eight action props are functions, so the
  *      server passes only `GalleryModalData`; the switcher supplies no-op closures
  *      (`NOOP_ACTIONS`) that resolve to each action's contracted result WITHOUT
  *      writing. `satisfies Pick<…, ActionKeys>` makes a wrong shape a compile error.
- *   2. The close API. `ReviewModalCloseContext` is provided as `galleryClose`, so
- *      the modal's own X unmounts the modal here instead of navigating.
- *   3. Keyboard stepping. `←`/`→` advance the index (functional wrap). Escape is
- *      swallowed ONLY while the modal is open — closed mode has no shell listener
- *      to race, so Escape is left alone (plan-R2 §11).
+ *   2. Keyboard stepping. `←`/`→` advance the index (functional wrap).
+ *
+ * ── Close semantics (empirical, discovered at implementation) ────────────────
+ * The real modal's every close affordance (X, scrim, Escape, drag) funnels
+ * through `PublishedReviewModal`'s `handleClose`, which calls
+ * `useShowModalNav().close` → `router.push('/admin', …)`. It is hardwired to the
+ * dashboard and does NOT consult `ReviewModalCloseContext`, so a gallery-local
+ * "close then reopen" is not reproducible without editing the shared modal.
+ * Rather than fight it, the gallery leaves the modal's native close intact (the X
+ * exits to `/admin`, the modal's real behavior) and SWALLOWS Escape so an
+ * operator mid-sweep does not accidentally navigate away — Escape stays on the
+ * current scenario instead of dumping to the dashboard.
  *
  * The control bar is portaled to `document.body` so it escapes the admin
  * `[data-inert-root]` the open modal inerts (spec §3.4) and stays operable.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   PublishedReviewModal,
   type PublishedReviewModalProps,
 } from "@/components/admin/showpage/PublishedReviewModal";
-import { ReviewModalCloseContext } from "@/components/admin/review/ReviewModalShell";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { useHasMounted } from "@/lib/a11y/useHasMounted";
@@ -73,46 +79,29 @@ type Props = {
 
 export function AttentionModalSwitcher({ scenarios, excluded, initialId }: Props) {
   const [index, setIndex] = useState(() => indexOfId(scenarios, initialId));
-  const [closed, setClosed] = useState(false);
-  // Synchronous close latch: set BEFORE the re-render so an arrow keypress fired
-  // in the same tick as a close cannot step a modal that is unmounting.
-  const closingRef = useRef(false);
   const mounted = useHasMounted();
-
-  const galleryClose = useCallback(() => {
-    closingRef.current = true;
-    setClosed(true);
-  }, []);
-
-  const reopen = useCallback(() => {
-    closingRef.current = false;
-    setClosed(false);
-  }, []);
-
   const total = scenarios.length;
 
   useEffect(() => {
     if (total === 0) return;
     function onKeyDown(e: KeyboardEvent) {
-      // Arrows never step a closing/closed modal.
       if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-        if (closingRef.current || closed) return;
         e.preventDefault();
         const delta = e.key === "ArrowRight" ? 1 : -1;
         setIndex((i) => (i + delta + total) % total);
         return;
       }
-      // Escape is swallowed ONLY while the modal is open — otherwise the modal's
-      // own shell listener owns it, and while closed there is no listener to
-      // race, so we must leave Escape alone (plan-R2 §11).
-      if (e.key === "Escape" && !closed) {
+      // Swallow Escape so it does not reach the modal's shell listener, whose
+      // close navigates to /admin and would drop the operator off the gallery
+      // mid-sweep (see the close-semantics note in the file header).
+      if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
       }
     }
     document.addEventListener("keydown", onKeyDown, { capture: true });
     return () => document.removeEventListener("keydown", onKeyDown, { capture: true });
-  }, [total, closed]);
+  }, [total]);
 
   if (total === 0) {
     return <EmptyState label="No scenarios to show." />;
@@ -128,10 +117,8 @@ export function AttentionModalSwitcher({ scenarios, excluded, initialId }: Props
           tier={current.tier}
           codes={current.codes}
           excluded={excluded}
-          closed={closed}
           onPrev={() => setIndex((i) => (i - 1 + total) % total)}
           onNext={() => setIndex((i) => (i + 1) % total)}
-          onReopen={reopen}
         />,
         document.body,
       )
@@ -139,15 +126,11 @@ export function AttentionModalSwitcher({ scenarios, excluded, initialId }: Props
 
   return (
     <>
-      {!closed && (
-        <ReviewModalCloseContext.Provider value={galleryClose}>
-          <ShareTokenProvider initialToken={null} initialEpoch={0}>
-            {/* key={current.id}: a fresh modal per scenario, so no client state
-                (open holds, expanded sections) bleeds across a scenario switch. */}
-            <PublishedReviewModal key={current.id} {...current.data} {...NOOP_ACTIONS} />
-          </ShareTokenProvider>
-        </ReviewModalCloseContext.Provider>
-      )}
+      <ShareTokenProvider initialToken={null} initialEpoch={0}>
+        {/* key={current.id}: a fresh modal per scenario, so no client state
+            (open holds, expanded sections) bleeds across a scenario switch. */}
+        <PublishedReviewModal key={current.id} {...current.data} {...NOOP_ACTIONS} />
+      </ShareTokenProvider>
       {controls}
     </>
   );

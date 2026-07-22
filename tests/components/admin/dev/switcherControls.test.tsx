@@ -17,10 +17,8 @@ const base = {
   tier: 1 as const,
   codes: ["DIAGRAM_SIGNAL_MISSING"],
   excluded: [] as ExcludedScenario[],
-  closed: false,
   onPrev: vi.fn(),
   onNext: vi.fn(),
-  onReopen: vi.fn(),
 };
 
 describe("SwitcherControls", () => {
@@ -65,13 +63,6 @@ describe("SwitcherControls", () => {
     expect(within(bar).getByText(/structural probes/i)).toBeTruthy();
     expect(within(bar).getByText(/Section absent/)).toBeTruthy();
     expect(within(bar).getByText(/published attention surface/i)).toBeTruthy();
-  });
-
-  test("closed mode shows Reopen wired to onReopen", () => {
-    render(<SwitcherControls {...base} closed />);
-    const reopen = screen.getByRole("button", { name: /reopen/i });
-    fireEvent.click(reopen);
-    expect(base.onReopen).toHaveBeenCalled();
   });
 
   test("no em-dash in rendered copy", () => {
