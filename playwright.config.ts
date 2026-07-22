@@ -396,7 +396,10 @@ export default defineConfig({
     // any job that needs ONLY the :3000 app server and none of the
     // :3001-:3004 build-gate servers.
     if (process.env.CREW_E2E_ONLY || process.env.BASELINE_SERVER_ONLY) {
-      return server.url === "http://127.0.0.1:3000";
+      // E2E_PORT-aware: the baseline server's url moves with E2E_PORT (sibling
+      // escape hatch above); comparing a hardcoded :3000 here would filter out
+      // EVERY server and the run would ECONNREFUSED.
+      return server.url === `http://127.0.0.1:${E2E_PORT}`;
     }
     // Boot ONLY the three dev-gate webServers (:3001 dev-build, :3002 prod-build,
     // :3003 prod-runtime-flip) for the B1-D4 dev-gate CI workflow. The baseline

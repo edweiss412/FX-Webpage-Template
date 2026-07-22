@@ -86,14 +86,14 @@ describe("pointer sentence render (spec §8.6)", () => {
   it("1 section: exact sentence, no comma, no and", () => {
     renderElsewhere(["Crew"]);
     expect(sentence()).toBe(
-      "Nothing else to note here. The warnings that need a look are in Crew.",
+      "The warnings that need a look are in Crew. Nothing else to note here.",
     );
   });
 
   it("2 sections: exact sentence with and", () => {
     renderElsewhere(["Crew", "Rooms & scope"]);
     expect(sentence()).toBe(
-      "Nothing else to note here. The warnings that need a look are in Crew and Rooms & scope.",
+      "The warnings that need a look are in Crew and Rooms & scope. Nothing else to note here.",
     );
   });
 
@@ -102,7 +102,7 @@ describe("pointer sentence render (spec §8.6)", () => {
     // registry's visual order (Crew, Contacts, Rooms & scope).
     renderElsewhere(["Rooms & scope", "Crew", "Contacts"]);
     expect(sentence()).toBe(
-      "Nothing else to note here. The warnings that need a look are in Crew, Contacts, and Rooms & scope.",
+      "The warnings that need a look are in Crew, Contacts, and Rooms & scope. Nothing else to note here.",
     );
   });
 
@@ -112,14 +112,14 @@ describe("pointer sentence render (spec §8.6)", () => {
     // defensive guard pinned at the chrome level below).
     renderElsewhere(["Crew", "Contacts", "Hotels", "Rooms & scope"]);
     expect(sentence()).toBe(
-      "Nothing else to note here. The warnings that need a look are in Crew, Contacts, Hotels, and 1 more.",
+      "The warnings that need a look are in Crew, Contacts, Hotels, and 1 more. Nothing else to note here.",
     );
   });
 
   it("5 sections: plural overflow clause, full string", () => {
     renderElsewhere(["Crew", "Contacts", "Hotels", "Transport", "Rooms & scope"]);
     expect(sentence()).toBe(
-      "Nothing else to note here. The warnings that need a look are in Crew, Contacts, Hotels, and 2 more.",
+      "The warnings that need a look are in Crew, Contacts, Hotels, and 2 more. Nothing else to note here.",
     );
   });
 
@@ -128,7 +128,7 @@ describe("pointer sentence render (spec §8.6)", () => {
       pointerTargets: { targets: [], totalSections: 2 },
     });
     expect(screen.getByTestId(/warnings-elsewhere/).textContent).toBe(
-      "Nothing else to note here. The warnings that need a look are in their own sections.",
+      "The warnings that need a look are in their own sections. Nothing else to note here.",
     );
   });
 
@@ -151,7 +151,7 @@ describe("pointer sentence render (spec §8.6)", () => {
     expect(screen.queryByRole("button", { name: "Crew" })).toBeNull();
     const el = screen.getByTestId(/warnings-elsewhere/);
     expect(el.textContent).toBe(
-      "Nothing else to note here. The warnings that need a look are in Crew.",
+      "The warnings that need a look are in Crew. Nothing else to note here.",
     );
     expect(el.querySelector("strong")?.textContent).toBe("Crew");
   });
@@ -159,7 +159,7 @@ describe("pointer sentence render (spec §8.6)", () => {
   it("no pointer targets at all: today's exact fallback sentence", () => {
     renderWarningsBreakdownWithChrome({});
     expect(screen.getByTestId(/warnings-elsewhere/).textContent).toBe(
-      "Nothing else to note here. The warnings that need a look are in their own sections.",
+      "The warnings that need a look are in their own sections. Nothing else to note here.",
     );
   });
 });

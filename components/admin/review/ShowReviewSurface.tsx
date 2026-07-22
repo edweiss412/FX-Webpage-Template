@@ -329,7 +329,7 @@ export function ShowReviewSurface({
       // " — needs review" describe the WARNINGS row specifically, and after the
       // trim that row's live content is just its own bucket. Counting
       // `elsewhere` made a screen reader announce "Parse warnings (0) — needs
-      // review" immediately before the body says "Nothing else to note here",
+      // review" right next to the body's "Nothing else to note here." clause,
       // and those warnings already light their own sections' dots via `flagged`.
       return routedWarnings.here > 0;
     }

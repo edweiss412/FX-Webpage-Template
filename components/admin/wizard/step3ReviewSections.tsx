@@ -2601,7 +2601,7 @@ export function WarningsBreakdown({
                   : { named: [], moreCount: 0 };
                 if (named.length === 0) {
                   // All labels missed or no chrome data: today's exact fallback.
-                  return "Nothing else to note here. The warnings that need a look are in their own sections.";
+                  return "The warnings that need a look are in their own sections. Nothing else to note here.";
                 }
                 const jump = chrome?.onJumpToSection;
                 const nameNode = (t: { id: SectionId; label: string }) =>
@@ -2632,7 +2632,7 @@ export function WarningsBreakdown({
                   );
                 const withMore = moreCount > 0;
                 const parts: React.ReactNode[] = [
-                  "Nothing else to note here. The warnings that need a look are in ",
+                  "The warnings that need a look are in ",
                 ];
                 named.forEach((t, i) => {
                   if (i > 0) {
@@ -2645,6 +2645,7 @@ export function WarningsBreakdown({
                 });
                 if (withMore) parts.push(`, and ${moreCount} more`);
                 parts.push(".");
+                parts.push(" Nothing else to note here.");
                 return parts;
               })()}
             </p>
