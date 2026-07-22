@@ -57,6 +57,8 @@ it("enumerates one read-only row per self-heal item: title + note, derivation or
   const n1 = within(rows[0]!).getByText(autoResolveNote("WATCH_CHANNEL_ORPHANED"));
   expect(t1.className).toContain("block");
   expect(n1.className).toContain("block");
+  // title precedes note in DOM order (line-order contract)
+  expect(t1.compareDocumentPosition(n1) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(within(rows[1]!).getByText(i2.menuTitle)).toBeInTheDocument();
   expect(within(rows[1]!).getByText(autoResolveNote("SYNC_STALLED"))).toBeInTheDocument();
   // summary copy retired MENU-WIDE, not just inside the group
@@ -207,11 +209,11 @@ with `const selfHeal = items.filter((i) => !i.actionable && i.clearingKind === "
 
 **Files:**
 - Modify: `components/admin/showpage/PublishedReviewModal.tsx` (`components/admin/showpage/PublishedReviewModal.tsx:319` gate; `components/admin/showpage/PublishedReviewModal.tsx:726-821` button; delete `components/admin/showpage/PublishedReviewModal.tsx:831-856` span; middot `components/admin/showpage/PublishedReviewModal.tsx:776-801`)
-- Test: `tests/components/admin/showpage/publishedPill.test.tsx`, `tests/components/admin/showpage/clearingPillLabel.test.tsx`, `tests/components/admin/showpage/publishedReviewModal.test.tsx`
+- Test: `tests/components/admin/showpage/publishedPill.test.tsx`, `tests/components/admin/showpage/clearingPillLabel.test.tsx`, `tests/components/admin/showpage/publishedReviewModal.test.tsx`, `tests/components/admin/showpage/pillFocusReconcile.test.tsx` (Task 2b), `tests/components/admin/showpage/pageTransitions.test.tsx` (pill-side tripwires)
 
 **Interfaces:**
 - Consumes: existing `actionable`/`needsLook`/`selfHeal` derivations.
-- Produces: `monitoringOnly` boolean (`actionable.length === 0 && needsLook.length === 0 && selfHeal.length > 0`) reused by Task 3.
+- Produces: `monitoringOnly` boolean (`actionable.length === 0 && needsLook.length === 0 && selfHeal.length > 0`) — component-local; consumed by Task 2b's rescue-effect reasoning in the same file.
 
 - [ ] **Step 1: Failing tests** (spec §5 items 1, 2, 9a/9b/9c):
   - Flip `publishedPill.test.tsx:75` row: `[0, 0, 1, "1 monitoring", true]`.
@@ -269,7 +271,7 @@ className={`relative inline-flex shrink-0 items-center gap-1.5 rounded-pill px-2
 Leading dot: `monitoringOnly` renders the hollow positive dot in place of the solid review dot. Monitoring segment: middot renders only when `actionable.length > 0 || needsLook.length > 0`; segment span + chevron tone classes become `monitoringOnly ? "text-text-subtle" : ...existing warning classes`; give the monitoring segment span `data-testid="attention-pill-monitoring-segment"` (consumed by tests + e2e). Add `title` attribute + trailing sr-only exact-count/`title` parity when `monitoringOnly` (copy the span branch's contract verbatim), then DELETE the `components/admin/showpage/PublishedReviewModal.tsx:831-856` span branch (degraded branch `components/admin/showpage/PublishedReviewModal.tsx:822-830` untouched).
 
 - [ ] **Step 3.5: Implement Task 2b's rescue-effect extension** (its section below) in the same edit pass.
-- [ ] **Step 4: Green** (the Step 2 four-suite command, `$?`).
+- [ ] **Step 4: Green** (the Step 2 five-suite command, `$?`).
 - [ ] **Step 5: Commit** (Tasks 2+2b together) `feat(admin): monitoring pill interactive; stays-open reconciliation + focus rescue`
 
 ### Task 2b: Reconciliation — stays-open matrices, rescue effect (SAME COMMIT as Task 2)
@@ -319,7 +321,7 @@ if (menuEffectivelyOpen) {
 - Test: `tests/dev/fullSplitCompositeRender.test.tsx` (`tests/dev/fullSplitCompositeRender.test.tsx:58-121`), `tests/dev/fullSplitComposite.test.ts`
 
 - [ ] **Step 0: Class sweep (spec-mandated)**: run `rg -n "clearing on their own" tests/ components/ lib/` and disposition EVERY hit — expected surviving hits after this plan: the pill sr-only tail + `title` (`PublishedReviewModal.tsx`, kept by spec §3.1) and their pins in `publishedPill.test.tsx`/`clearingPillLabel.test.tsx`; every menu-side hit must be flipped by Tasks 1/1c. Record the command output + dispositions in the TASK 1 commit message body (single disposition location — R2 P2).
-- [ ] **Step 1: Failing tests**: RENDERED pin flips from "Monitoring summary `2 clearing on their own…`" to: exactly 2 `attention-monitoring-row-*` rows inside `attention-monitoring-group`, EXPECTED TITLES resolved INDEPENDENTLY of the rendered props via `messageFor(code).title` (`@/lib/messages/lookup`) on the scenario's SELF codes — never via the scenario/fixture `menuTitle`, which feeds the render and would be tautological (R1 disposition); notes via `autoResolveNote(code)`. Reconcile any summary-copy pin in the derive-layer test (counts-only pins stay).
+- [ ] **Step 1: Failing tests**: RENDERED pin flips from "Monitoring summary `2 clearing on their own…`" to: exactly 2 `attention-monitoring-row-*` rows inside `attention-monitoring-group`, EXPECTED TITLES resolved INDEPENDENTLY of the rendered props via `messageFor(code).title` (`@/lib/messages/lookup`) on the scenario's SELF codes — never via the scenario/fixture `menuTitle`, which feeds the render and would be tautological (R1 disposition); notes via `autoResolveNote(code)`; per row, assert the title element PRECEDES the note element in DOM order (`compareDocumentPosition` — the reversed layout must fail). Reconcile any summary-copy pin in the derive-layer test (counts-only pins stay).
 - [ ] **Step 2: Run** — `pnpm vitest run tests/dev/fullSplitCompositeRender.test.tsx tests/dev/fullSplitComposite.test.ts`. The REPLACED summary assertions fail against the new DOM until flipped (red comes from the flip being required); the replacement row pins are regression pins over Task-1 behavior — expected green once written (declared).
 - [ ] **Step 3: Green** — covered by Task 1 Step 4. No separate commit; the class-sweep dispositions go in the Task 1 commit body.
 
@@ -370,7 +372,7 @@ scenario(T2_MONITORING_ONLY, "Monitoring only: expandable quiet pill", {
 
 ### Task 6: Adversarial review (cross-model)
 
-- [ ] Whole-diff Codex review (fresh-eyes, REVIEWER ONLY, split tight-scope briefs if the diff is large), iterate to APPROVE per the ship-feature pipeline. Findings triaged land-now / DEFERRED.md / BACKLOG.md. Every land-now repair commit follows TDD (pin first). If any repair touches a UI file, RE-RUN the impeccable critique+audit pair on the updated diff (invariant 8 binds the SHIPPED diff, not a snapshot).
+- [ ] Whole-diff Codex review (fresh-eyes, REVIEWER ONLY, split tight-scope briefs if the diff is large), iterate to APPROVE per the ship-feature pipeline. Findings triaged land-now / DEFERRED.md / BACKLOG.md. Every land-now repair commit follows TDD (pin first). If any repair touches a UI file, RE-RUN the impeccable critique+audit pair on the updated diff (invariant 8 binds the SHIPPED diff, not a snapshot), and APPEND the post-repair findings + dispositions to this plan doc's Close-out notes in a further `docs(plan): close-out notes (post-review)` commit — Task 5's earlier notes commit does not cover the shipped diff.
 
 ### Task 7: Execution handoff
 
