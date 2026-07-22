@@ -22,12 +22,25 @@ const base = {
 };
 
 describe("SwitcherControls", () => {
-  test("renders position, label, tier, and codes", () => {
+  test("renders position + human label; raw codes are NOT visible text (invariant 5)", () => {
     render(<SwitcherControls {...base} />);
     const bar = screen.getByTestId("attention-switcher-controls");
     expect(within(bar).getByText(/3 \/ 10/)).toBeTruthy(); // 1-indexed
     expect(within(bar).getByText("Diagram signal missing")).toBeTruthy();
-    expect(within(bar).getByText(/DIAGRAM_SIGNAL_MISSING/)).toBeTruthy();
+    // The raw code is inspectable via a non-visible data attribute, never copy.
+    expect(within(bar).queryByText(/DIAGRAM_SIGNAL_MISSING/)).toBeNull();
+    expect(bar.getAttribute("data-codes")).toBe("DIAGRAM_SIGNAL_MISSING");
+  });
+
+  test("aria-live region announces the scenario label, not just the number", () => {
+    render(<SwitcherControls {...base} />);
+    const bar = screen.getByTestId("attention-switcher-controls");
+    const live = within(bar)
+      .getByText(/3 \/ 10/)
+      .closest("[aria-live='polite']");
+    expect(live).not.toBeNull();
+    // The changing scenario identity is INSIDE the live region.
+    expect(live!.textContent).toContain("Diagram signal missing");
   });
 
   test("prev/next wired; buttons carry the 44px tap-target class", () => {

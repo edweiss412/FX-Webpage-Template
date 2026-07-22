@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { buildScenarioModalData } from "@/lib/dev/buildScenarioModalData";
 import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
 import { tier1WarningScenarios } from "@/lib/dev/attentionScenarios/tier1";
-import { T2_ANCHOR_ABSENT } from "@/lib/dev/attentionScenarios/tier2";
+import { T2_ANCHOR_ABSENT, T2_HOLD_ONLY, tier2Scenarios } from "@/lib/dev/attentionScenarios/tier2";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 
 // Server-boundary guard: buildScenarioModalData runs inside the server route
@@ -48,6 +48,22 @@ function alertScenario(id: string, code: string): AttentionScenario {
 }
 
 describe("buildScenarioModalData", () => {
+  test("hold scenario: the Changes feed carries the holds (badge and feed agree)", () => {
+    // Codex R1 P1: a hold-bearing scenario used to show a changes-rail badge over
+    // an EMPTY feed, because the derived items came from the scenario's holds but
+    // the modal `feed` prop stayed at the fixture default `{ entries: [] }`.
+    const holdScenario = tier2Scenarios().find((s) => s.id === T2_HOLD_ONLY)!;
+    expect(holdScenario.holds.length).toBeGreaterThan(0);
+    const d = buildScenarioModalData(holdScenario);
+    expect(d.feed).not.toBeNull();
+    expect(d.feed!.entries.length).toBe(holdScenario.holds.length);
+    // A no-hold scenario leaves the feed empty (no phantom badge).
+    const noHolds = buildScenarioModalData(
+      alertScenario("no-holds", "ASSET_RECOVERY_BYTES_EXCEEDED"),
+    );
+    expect(noHolds.feed?.entries.length ?? 0).toBe(0);
+  });
+
   test("produces serializable data (no function leak)", () => {
     const warning = tier1WarningScenarios()[0]!;
     const anchored = alertScenario("probe-rooms", "ASSET_RECOVERY_BYTES_EXCEEDED");

@@ -9,7 +9,13 @@
  * above the modal overlay (z-60 > z-50). It is deliberately OUTSIDE the modal's
  * aria-modal tree (the ratified dev-instrument a11y carve-out, spec §1.1);
  * keyboard navigation is handled by the switcher's document listener, and this
- * bar carries aria-labels + an aria-live count for the pointer user.
+ * bar carries aria-labels + an aria-live region (position + human label) for the
+ * pointer and screen-reader user.
+ *
+ * Raw catalog codes are NOT rendered as visible copy (invariant 5: user-visible
+ * UI reads codes through the catalog, not verbatim). The scenario's human
+ * `label` is the visible identity; the codes ride a non-visible `data-codes`
+ * attribute for devtools/e2e inspection.
  */
 import type { ExcludedScenario } from "@/lib/dev/galleryModalTypes";
 
@@ -43,29 +49,29 @@ export function SwitcherControls({
   return (
     <div
       data-testid="attention-switcher-controls"
+      data-codes={codes.join(",")}
       role="group"
       aria-label="Scenario switcher"
       className="fixed inset-x-0 top-0 z-60 mx-auto flex max-w-3xl flex-col gap-1 rounded-b-xl border border-t-0 border-border bg-surface/95 px-4 py-2 shadow-lg backdrop-blur"
     >
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <button type="button" className={STEP_BTN} onClick={onPrev} aria-label="Previous scenario">
           Prev
         </button>
         <button type="button" className={STEP_BTN} onClick={onNext} aria-label="Next scenario">
           Next
         </button>
-        <span aria-live="polite" className="text-xs tabular-nums text-text-subtle">
-          {index + 1} / {total}
-        </span>
-        <span className="text-sm font-medium text-text-strong">{label}</span>
-        <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-xs text-text-subtle">
+        {/* Position + label share one live region so a screen reader announces
+            WHICH scenario became active, not just the number (Codex R1 P2). */}
+        <div aria-live="polite" className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="shrink-0 text-xs tabular-nums text-text-subtle">
+            {index + 1} / {total}
+          </span>
+          <span className="min-w-0 truncate text-sm font-medium text-text-strong">{label}</span>
+        </div>
+        <span className="shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-xs text-text-subtle">
           tier {tier}
         </span>
-        {codes.length > 0 && (
-          <span className="truncate font-mono text-xs text-text-subtle" title={codes.join(", ")}>
-            {codes.join(", ")}
-          </span>
-        )}
       </div>
       {structural.length > 0 && (
         <p className="text-xs text-text-subtle">

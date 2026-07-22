@@ -57,8 +57,10 @@ export function indexOfId(
 /**
  * Eight no-op action closures. Each resolves to its action's contracted result
  * so the modal's `useActionState` reducers stay consistent, and NONE writes.
- * `satisfies` pins every shape to the real prop types (a drift is a compile
- * error) while keeping the concrete literal types for callers.
+ * `unarchiveAction` is typed `(showId) => Promise<void>`, so its contracted
+ * result IS `undefined` — that is correct, not an omission. `satisfies` pins
+ * every shape to the real prop types (a drift is a compile error) while keeping
+ * the concrete literal types for callers.
  */
 const NOOP_ACTIONS = {
   setPublished: async () => ({ ok: true }) as const,
@@ -86,6 +88,20 @@ export function AttentionModalSwitcher({ scenarios, excluded, initialId }: Props
     if (total === 0) return;
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+        // Don't hijack modified arrows (Alt+Arrow browser nav, AT/OS combos) or
+        // arrows aimed at an editable/where-arrows-mean-something control inside
+        // the modal — only bare arrows step scenarios (Codex R1 P2).
+        if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+        const t = e.target as HTMLElement | null;
+        const tag = t?.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          t?.isContentEditable === true
+        ) {
+          return;
+        }
         e.preventDefault();
         const delta = e.key === "ArrowRight" ? 1 : -1;
         setIndex((i) => (i + delta + total) % total);

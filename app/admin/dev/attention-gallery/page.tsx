@@ -49,9 +49,9 @@ export default async function AttentionGalleryPage(props: {
     <>
       {/* Total containment for imperative writes; see the component header. */}
       <GalleryWriteGuard />
-      {/* Background chrome, mostly behind the fixed modal — it is the only
-          content when the operator closes the modal (Reopen lives in the
-          portaled control bar), and it gives the route its heading landmark. */}
+      {/* Background chrome, mostly behind the fixed modal. The modal is always
+          mounted (its native close navigates to /admin), so this is the route's
+          heading landmark rather than a fallback surface. */}
       <main className="mx-auto flex min-h-dvh max-w-prose flex-col justify-center px-4 py-8 text-center">
         <h1 className="text-2xl font-bold text-text-strong">Attention modal gallery</h1>
         <p className="mt-2 text-xs/relaxed text-text-subtle">

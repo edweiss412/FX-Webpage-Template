@@ -47,13 +47,22 @@ function scenario(id: string, title: string): GallerySwitcherScenario {
 
 const THREE = [scenario("a", "A"), scenario("b", "B"), scenario("c", "C")];
 
-function pressKey(key: string): boolean {
-  const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+function pressKey(key: string, init: KeyboardEventInit = {}): boolean {
+  const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
   // Dispatch inside act(): the switcher's listener is a NATIVE document handler,
-  // so its setIndex/setClosed updates land outside React's batching unless we
-  // flush them here. `defaultPrevented` is set synchronously during dispatch.
+  // so its setIndex updates land outside React's batching unless we flush them
+  // here. `defaultPrevented` is set synchronously during dispatch.
   act(() => {
     document.dispatchEvent(ev);
+  });
+  return ev.defaultPrevented;
+}
+
+/** Dispatch a bubbling keydown whose target is a given element. */
+function pressKeyOn(el: Element, key: string): boolean {
+  const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+  act(() => {
+    el.dispatchEvent(ev);
   });
   return ev.defaultPrevented;
 }
@@ -97,6 +106,20 @@ describe("AttentionModalSwitcher", () => {
     // wrap above last -> first
     expect(pressKey("ArrowRight")).toBe(true);
     expect(screen.getByTestId("mock-modal").getAttribute("data-title")).toBe("A");
+  });
+
+  test("modified arrows and arrows on editable targets do NOT step scenarios", () => {
+    render(<AttentionModalSwitcher scenarios={THREE} excluded={[]} initialId="a" />);
+    // Alt+Arrow (browser nav) / other modifier combos are left alone.
+    expect(pressKey("ArrowRight", { altKey: true })).toBe(false);
+    expect(pressKey("ArrowRight", { metaKey: true })).toBe(false);
+    expect(screen.getByTestId("mock-modal").getAttribute("data-title")).toBe("A");
+    // An arrow whose target is an input/textarea (cursor movement) is left alone.
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    expect(pressKeyOn(input, "ArrowRight")).toBe(false);
+    expect(screen.getByTestId("mock-modal").getAttribute("data-title")).toBe("A");
+    input.remove();
   });
 
   test("all eight action closures are no-ops with the contracted return shapes", async () => {

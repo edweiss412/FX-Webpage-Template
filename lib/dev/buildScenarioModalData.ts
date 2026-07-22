@@ -22,7 +22,7 @@ import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 import { T2_ANCHOR_ABSENT } from "@/lib/dev/attentionScenarios/tier2";
-import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
+import { deriveScenarioAttention, buildScenarioFeed } from "@/lib/dev/deriveScenarioAttention";
 import {
   buildGallerySnapshot,
   buildGalleryModalData,
@@ -57,10 +57,14 @@ export function buildScenarioModalData(s: AttentionScenario): GalleryModalData {
     renderedSectionIds: new Set(renderedSectionIds(data)),
   });
   const attentionItems = deriveScenarioAttention(s);
+  const feed = buildScenarioFeed(s);
   return buildGalleryModalData({
     data,
     bySection,
     attentionItems,
     alertsDegraded: s.degraded ?? false,
+    // The Changes feed must carry the same holds the changes-rail badge counts,
+    // or a hold-bearing scenario shows a badge over an empty feed (Codex R1 P1).
+    ...(feed !== null ? { feed } : {}),
   });
 }
