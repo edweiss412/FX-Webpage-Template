@@ -45,13 +45,15 @@ are recorded here with dispositions; none is a P0 and none blocks merge. (One re
 finding — "Careful rows carry no visual weight" — is not a deferral and lives in
 [DEFERRED-archive.md](./DEFERRED-archive.md) under Share hub.)
 
-- **[P1] Caret is anchored to the kebab, not the trigger that opened the popover.** Spec §5
-  ratifies `right-[17px]` at the kebab (the group's rightmost element, against a `right-0`
-  panel). Opening via the primary "Share link" button points the caret at the adjacent kebab
-  ~8px away. Real nit, but binding the offset to `openerRef` means measuring per-trigger
-  positions and recomputing on every open — non-trivial for an 8px difference between two
-  tightly-grouped triggers. **Deferred.** Un-defer trigger: user feedback that the caret
-  looks misaimed when the hub is opened from the primary button.
+- **[P1] Caret is anchored to the kebab, not the trigger that opened the popover.** ~~Deferred.~~
+  **RESOLVED (fix/sharehub-caret-anchor).** A `useLayoutEffect` in `ShareHub.tsx` now measures
+  the opening trigger's centre against the group's right edge and sets the caret's `right`
+  inline (`caretRightPx`), so the caret anchors under whichever trigger opened the popover;
+  `right-[17px]` remains the kebab-centred fallback (SSR/jsdom, and the correct value when the
+  kebab is the opener). Recomputed on resize while open. Spec §5's `right-[17px]` is preserved
+  as that fallback, not removed. Proof: `T-HUB-CARET` (inverted — opened from primary, caret
+  centres on primary, explicitly NOT the kebab) + new `T-HUB-CARET-KEBAB` in
+  `published-review-modal.interactions.spec.ts`.
 
 - **[P2] Focus-ring inconsistency within the popover** (reset carries `ring-offset-2`, rotate
   and the mailto rows do not). Spec §4.1 RATIFIES retaining reset's offset pair verbatim,
