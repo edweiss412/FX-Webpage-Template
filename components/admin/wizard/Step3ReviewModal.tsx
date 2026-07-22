@@ -46,7 +46,6 @@ import { sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus
 import {
   dateSummarySegments,
   NotPublishableNote,
-  RawUnrecognizedCallout,
   step3Sections,
 } from "@/components/admin/wizard/step3ReviewSections";
 import type { StagedSectionData } from "@/components/admin/review/sectionData";
@@ -612,7 +611,6 @@ export function Step3ReviewModal({
         isPublishRunActive={isPublishRunActive}
         scrollerRef={scrollerRef}
         layout="modal"
-        bottomSlot={<RawUnrecognizedCallout raw={data.rawUnrecognized} />}
       >
         {/* Re-apply resolution body (spec §4.4): rendered ABOVE the section
               panels when this is a blocked re-apply row. Tier-1/2 items are

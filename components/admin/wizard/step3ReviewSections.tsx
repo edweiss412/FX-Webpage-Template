@@ -104,7 +104,6 @@ import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStat
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
-import { buildRawUnrecognizedView } from "@/lib/admin/rawUnrecognized";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import {
   hasStagedPreviewSource,
@@ -676,6 +675,24 @@ function SectionFlagCallout({
  */
 const COUNT_SECTIONS = new Set<SectionId>(["crew", "contacts", "rooms", "warnings"]);
 
+/**
+ * Whether the section heading shows its `(count)` chip. The chip appears only for
+ * the counted subset (COUNT_SECTIONS) with a non-null count and a real sectionId
+ * (a sub-block like Diagrams has none). The `count === 0 && flagged` carve-out
+ * suppresses the self-contradicting "(0)" beside a "Needs a look" badge: a section
+ * whose only content is warn rows routed to its own cards has zero body rows but
+ * is still flagged, and "(0) Needs a look" reads as a broken empty tile. Suppressing
+ * the chip leaves the amber flag as the sole, coherent signal.
+ */
+export function shouldShowSectionCount(
+  count: number | null,
+  sectionId: SectionId | undefined,
+  flagged: boolean,
+): boolean {
+  if (count === null || sectionId === undefined || !COUNT_SECTIONS.has(sectionId)) return false;
+  return !(count === 0 && flagged);
+}
+
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
 function ModalSectionChrome({
   chrome,
@@ -704,9 +721,9 @@ function ModalSectionChrome({
   const sub = headingLevel === 4;
   const Heading = sub ? "h4" : "h3";
   // Count shows only for the counted subset (COUNT_SECTIONS). A sub-block
-  // (Diagrams, no sectionId) never shows one.
-  const showCount =
-    count !== null && chrome.sectionId !== undefined && COUNT_SECTIONS.has(chrome.sectionId);
+  // (Diagrams, no sectionId) never shows one; a flagged zero-count section
+  // suppresses the self-contradicting "(0)" (see shouldShowSectionCount).
+  const showCount = shouldShowSectionCount(count, chrome.sectionId, flagged);
   // Per-section "In sheet" deep link (bug #316 item 3): resolve the section's
   // parser region via SECTION_REGION_MAP and pass its persisted source_anchors
   // range to buildSheetDeepLink, so the link opens the sheet AT that section's
@@ -3577,75 +3594,6 @@ function reportErrorCopy(code: string | null): string {
  * the draft, the last status line, and any in-flight POST (fire-and-forget —
  * same posture as modal unmount above).
  */
-/**
- * "Content we couldn't read" callout (spec 2026-07-07 §C). Surfaces the parser's
- * `raw_unrecognized` rows — content that was in the sheet but matched no known
- * field — so Doug can see it in the wizard instead of only on /admin/dev. All
- * dynamic text is a React child (auto-escaped); never dangerouslySetInnerHTML.
- * Collapsed by default; instant disclosure (matches ReportIssueSection §D2).
- * Reset-to-collapsed on modal reopen is inherited from the modal remounting.
- */
-export function RawUnrecognizedCallout({ raw }: { raw: unknown }) {
-  const view = buildRawUnrecognizedView(raw);
-  const [expanded, setExpanded] = useState(false);
-  // Collapse whenever the underlying content changes, so a modal that swaps rows
-  // WITHOUT remounting never opens the next sheet's callout already-expanded.
-  // React's adjust-state-during-render pattern (not an effect) avoids a stale
-  // open frame and the set-state-in-effect lint.
-  const [prevRaw, setPrevRaw] = useState(raw);
-  if (raw !== prevRaw) {
-    setPrevRaw(raw);
-    setExpanded(false);
-  }
-  if (view.total === 0) return null;
-  return (
-    // Neutral/informational treatment, NOT warning: this content is not
-    // published and needs no urgent action, so it must not compete visually with
-    // the blocking "needs your attention" signal (impeccable critique MEDIUM).
-    <section className="flex flex-col gap-1 rounded-md border border-border bg-surface-sunken px-3 py-2">
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
-        className="flex min-h-tap-min items-center justify-between gap-2 text-left text-sm font-semibold text-text-strong"
-      >
-        <span>{`Content we couldn't read (${view.total})`}</span>
-        <ChevronRight
-          aria-hidden
-          className={`size-4 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
-        />
-      </button>
-      <p className="text-xs text-text-subtle">
-        These rows were in your sheet but didn&rsquo;t match anything we know how to read. They
-        aren&rsquo;t published, so check whether they matter.
-      </p>
-      {/* Instant disclosure, deliberate (collapsed to expanded), matches §D2. */}
-      {expanded ? (
-        <div className="mt-1 flex flex-col gap-2">
-          {view.groups.map((g) => (
-            <div key={g.block} className="flex flex-col gap-0.5">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-text-subtle">
-                {g.block}
-              </h4>
-              <ul className="flex flex-col gap-0.5">
-                {g.rows.map((r, i) => (
-                  <li key={i} className="font-mono text-xs wrap-break-word text-text-subtle">
-                    {r.key}
-                    {" | "}
-                    {r.value === "" ? "(blank)" : r.value}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-          {view.hiddenCount > 0 ? (
-            <p className="text-xs text-text-subtle">{`+${view.hiddenCount} more not shown`}</p>
-          ) : null}
-        </div>
-      ) : null}
-    </section>
-  );
-}
 
 export function ReportIssueSection({ data }: { data: StagedSectionData }) {
   const { dfid, wizardSessionId, row, warnings } = data;
