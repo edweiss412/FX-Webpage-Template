@@ -86,7 +86,7 @@ The component has exactly two props, both optional
 (`components/admin/settings/DevToolsRow.tsx:15-29`): `icon?: ReactNode` and
 `isDeveloper?: boolean`. Neither is added, removed, or retyped by this change.
 
-- `isDeveloper?: boolean` — any non-`true` value (undefined/absent, `null`,
+- `isDeveloper?: boolean` — any falsy value (undefined/absent, `null`,
   `false`, or any other falsy value an untyped caller could pass — `0`, `NaN`,
   `""`) fails the `!isDeveloper` early return and the whole row renders
   `null` (existing behavior, `DevToolsRow.tsx:30`; unchanged). Truthy
