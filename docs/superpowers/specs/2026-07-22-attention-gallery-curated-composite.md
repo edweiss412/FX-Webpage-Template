@@ -46,13 +46,13 @@ Materializable like every tier-3: all inputs storable; materialize writes the co
 
 ## §4 Tests (TDD)
 
-Create a NEW test file, tests/dev/fullSplitComposite.test.ts (does not exist yet; the plan's first task creates it), with behavioral pins derived through the REAL `deriveScenarioAttention`:
+Two NEW test files: `tests/dev/fullSplitComposite.test.ts` (pins 1-4, derivation-level) and `tests/dev/fullSplitCompositeRender.test.tsx` (pin 5, rendered). Both derive through the REAL `deriveScenarioAttention`:
 
 1. Composition: `scenarioById(T3_FULL_SPLIT)` exists, tier 3, 4 alerts + 1 hold, warnings absent.
 2. Derived split: exactly 1 actionable item (the hold), 2 `clearingKind === "needs_look"`, 2 `"self_heal"`.
 3. Action links: the SHEET_UNAVAILABLE item's `alert.action` equals `{ label: "Open in Sheet", href: "https://docs.google.com/spreadsheets/d/gallery-fixture-file/edit#gid=0", external: true }`; the RESYNC_QUALITY_REGRESSED item's action equals `{ label: "Go to Overview", href: "/admin?show=<GALLERY_SLUG>#overview", external: false }` (href built from the exported gallery slug, never a hardcoded literal).
 4. Composition is pinned EXACTLY (review R1 P2): the alert-code sequence `["SHEET_UNAVAILABLE","RESYNC_QUALITY_REGRESSED","SYNC_STALLED","DRIVE_FETCH_FAILED"]`, the sheet context `{drive_file_id:"gallery-fixture-file"}`, empty `{}` contexts on the other three, the label copy, and the hold's `kind`/`domain`/`entity_key`.
-5. RENDERED pin (review R1 P1): a jsdom test mounts the REAL `PublishedReviewModal` (the #546 harness fixture) with `attentionItems = deriveScenarioAttention(scenario)` and asserts the taught state itself: pill visible text exactly `1 to confirm · 2 to review · 2 monitoring` on a BUTTON; after opening the menu, the "Needs your confirmation" header + 1 actionable row, the "Needs a look" heading with the external `Open in Sheet` link (`target="_blank"`, ↗) and the internal `Go to Overview` link, and the "Monitoring" summary `2 clearing on their own, no action needed`.
+5. RENDERED pin (review R1 P1; in `tests/dev/fullSplitCompositeRender.test.tsx`): a jsdom test mounts the REAL `PublishedReviewModal` (the #546 harness fixture) with `attentionItems = deriveScenarioAttention(scenario)` and asserts the taught state itself: pill visible text exactly `1 to confirm · 2 to review · 2 monitoring` on a BUTTON; after opening the menu, the "Needs your confirmation" header + 1 actionable row, the "Needs a look" heading with the external `Open in Sheet` link (`target="_blank"`, ↗) and the internal `Go to Overview` link — each asserted INSIDE its own needs-look row (`attention-needslook-row-<id>`), with exactly 2 such rows — and the "Monitoring" summary `2 clearing on their own, no action needed` scoped to the Monitoring heading's group container (whole-diff R1 P2).
 
 Existing self-deriving suites (index totals, e2e markers, materialize plan/run) pick the scenario up with no edits; the plan runs them to prove it.
 

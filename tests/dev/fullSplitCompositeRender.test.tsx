@@ -67,21 +67,36 @@ describe("t3-full-attention-split renders the full taught state", () => {
     expect(within(menu).getByText("Needs your confirmation")).toBeInTheDocument();
     expect(menu.querySelectorAll('[data-testid^="attention-menu-row-"]')).toHaveLength(1);
 
-    // needs-a-look group: heading + external sheet link + internal overview link
+    // needs-a-look group: heading present, and each link asserted INSIDE its
+    // OWN row (whole-diff R1 P2: a menu-wide query would pass with the links
+    // rendered under a different group).
     expect(within(menu).getByText("Needs a look")).toBeInTheDocument();
-    const sheetLink = within(menu).getByRole("link", { name: /Open in Sheet/ });
+    const sheetRow = within(menu).getByTestId(
+      "attention-needslook-row-alert:t3-full-attention-split-alert-0",
+    );
+    const sheetLink = within(sheetRow).getByRole("link", { name: /Open in Sheet/ });
     expect(sheetLink).toHaveAttribute(
       "href",
       "https://docs.google.com/spreadsheets/d/gallery-fixture-file/edit#gid=0",
     );
     expect(sheetLink).toHaveAttribute("target", "_blank");
     expect(sheetLink.textContent).toContain("↗");
-    const overviewLink = within(menu).getByRole("link", { name: /Go to Overview/ });
+    const overviewRow = within(menu).getByTestId(
+      "attention-needslook-row-alert:t3-full-attention-split-alert-1",
+    );
+    const overviewLink = within(overviewRow).getByRole("link", { name: /Go to Overview/ });
     expect(overviewLink).not.toHaveAttribute("target");
     expect(overviewLink.getAttribute("href")).toMatch(/#overview$/);
+    // the two self-heal items must NOT get needs-look rows
+    expect(menu.querySelectorAll('[data-testid^="attention-needslook-row-"]')).toHaveLength(2);
 
-    // monitoring group: heading + exact summary copy, items NOT enumerated
-    expect(within(menu).getByText("Monitoring")).toBeInTheDocument();
-    expect(within(menu).getByText("2 clearing on their own, no action needed")).toBeInTheDocument();
+    // monitoring group: summary scoped to the SAME group container as the
+    // "Monitoring" heading (not merely anywhere in the menu)
+    const monHeading = within(menu).getByText("Monitoring");
+    const monGroup = monHeading.closest("div")?.parentElement;
+    if (!monGroup) throw new Error("Monitoring group container missing");
+    expect(
+      within(monGroup as HTMLElement).getByText("2 clearing on their own, no action needed"),
+    ).toBeInTheDocument();
   });
 });

@@ -4,7 +4,7 @@
 
 **Goal:** one tier-3 scenario rendering the full attention split (confirm · review · monitoring, all menu groups, external + internal action links).
 
-**Architecture:** catalog-only change (`lib/dev/attentionScenarios/tier3.ts`) + one new behavioral test file. Registries self-derive.
+**Architecture:** catalog-only change (`lib/dev/attentionScenarios/tier3.ts`) + two new test files — `tests/dev/fullSplitComposite.test.ts` (derivation pins) and `tests/dev/fullSplitCompositeRender.test.tsx` (rendered pin through the real `PublishedReviewModal`). Registries self-derive.
 
 **Tech stack:** existing scenario catalog, vitest, existing gallery e2e (build-gated).
 
@@ -20,7 +20,7 @@ None created or extended. The governing structural suites are self-deriving from
 
 ### Task 1: failing behavioral pins
 
-**Files:** Create `tests/dev/fullSplitComposite.test.ts`.
+**Files:** Create `tests/dev/fullSplitComposite.test.ts` and `tests/dev/fullSplitCompositeRender.test.tsx`.
 
 - [ ] Step 1: write the test file:
 
@@ -149,3 +149,10 @@ append `T3_FULL_SPLIT` to `T3_IDS`, and append to the `tier3Scenarios()` array:
 ### Task 3: ship
 
 Whole-diff codex review (inlined; small diff) → push → PR → CI green → `gh pr merge --merge` → ff main → verify `0 0` → CronDelete `131a9b9b` → marker done.
+
+
+## Execution record (2026-07-22)
+
+- Spec review R1 (inlined codex): NEEDS-ATTENTION — repaired: sweep-table corrections (11-of-12 LOOK singles with the USE_RAW producer-less disposition; internal-anchor coverage row), EXACT composition pin (code sequence, contexts, label, hold shape), and a NEW rendered pin file `tests/dev/fullSplitCompositeRender.test.tsx` (the plan's original Task 1 described only the derivation file and a loose count pin; superseded by the spec's §4 as repaired).
+- Whole-diff review R1 (inlined codex): NEEDS-ATTENTION, 2 P2 — (1) docs lagged the implemented suite: this section + Architecture/Task-1 file lists updated; (2) rendered pins were menu-scoped: links now asserted inside their OWN `attention-needslook-row-<id>` rows (and exactly 2 such rows), monitoring summary scoped to the Monitoring heading's group container. Reviewer confirmed classification, action resolutions, validator fit, materializability, and sweep-table consistency.
+- Gallery e2e ran via the `dev-build` Playwright project (port 3001 was initially held by a sibling worktree's server; waited for release rather than killing it).
