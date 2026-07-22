@@ -1626,6 +1626,34 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         // also no hover-open/toggle parity race - one click opens.
         await trigger.evaluate((el) => (el as HTMLElement).click());
         await expect(trigger).toHaveAttribute("aria-expanded", "true");
+        // The popover must be PLACED at 300px - CI trace evidence showed a
+        // silent data-popover-hidden here while local runs place. Assert with
+        // the full gate-input dump so a CI-only hidden state is diagnosable
+        // from the log alone.
+        const dbg = await page.evaluate((aid) => {
+          const cardEl = document.querySelector(`[data-testid="attention-banner-${aid}"]`)!;
+          const t = cardEl.querySelector("button[aria-expanded]")!.getBoundingClientRect();
+          const bid = cardEl.querySelector("[aria-owns]")!.getAttribute("aria-owns")!;
+          const b = document.getElementById(bid)!;
+          const panel = document
+            .querySelector("[data-review-modal-panel]")!
+            .getBoundingClientRect();
+          return {
+            side: b.dataset["popoverSide"] ?? null,
+            hidden: b.dataset["popoverHidden"] ?? null,
+            trigger: { l: t.left, t: t.top, w: t.width, h: t.height, r: t.right, b: t.bottom },
+            panel: { l: panel.left, t: panel.top, w: panel.width, h: panel.height },
+            body: (() => {
+              const r = b.getBoundingClientRect();
+              return { w: r.width, h: r.height };
+            })(),
+            vw: window.innerWidth,
+            vh: window.innerHeight,
+          };
+        }, alertId);
+        expect(dbg.side, `popover not placed; gate inputs: ${JSON.stringify(dbg)}`).toMatch(
+          /top|bottom/,
+        );
         const ownsId = await card.locator("[aria-owns]").first().getAttribute("aria-owns");
         if (!ownsId) throw new Error("affordance root missing aria-owns");
         const body = page.locator(`[id=${JSON.stringify(ownsId)}]`);
