@@ -25,7 +25,7 @@ In scope:
 | New scenario fields are **tier-2-only, gallery-render-only** — materialize is untouched. Precedent: `degraded` and `feedTruncated` (`lib/dev/attentionScenarios/types.ts:62-67`) are already declared "not reproducible from stored rows", tier-2-only. | Scenario-catalog spec §3.3 storable-inputs contract, amended for tier-2 read-model fields by the 2026-07-20 spec itself (`types.ts:62-67`); this spec extends the same class |
 | Tier-3 renders in switcher; nav grouped by landing section; rich base fixture for all scenarios | Gap-fill spec (PR #552) §1.1 — carried forward unchanged |
 | `feedTruncated` stays a flag (not derived from row count vs limit) | Gap-fill spec §3.2 — carried forward |
-| Class-4 pill-cap scenario uses ~110 synthetic alert rows of catalog codes; the menu caps at `MENU_CAP` while the pill counts all items — both behaviors are the point of the scenario | This spec §3.6 (T2_PILL_OVERFLOW) |
+| Class-4 pill-cap scenario uses ~110 synthetic alert rows of catalog codes; the pill displays "99+" while the attention menu renders ALL items uncapped in its scroll area (`components/admin/showpage/AttentionMenu.tsx` has no list cap — `MENU_CAP` at `lib/dev/attentionScenarios/tier2.ts:15` is a gallery scenario-composition constant, not a modal cap) — both behaviors are the point of the scenario | This spec §3.6 (T2_PILL_OVERFLOW) |
 | Base-fixture enrichment (dress code, event booleans, loading dock, transport loadout/route/notes, room floor pill) applies to ALL scenarios, same "rich base for all" rationale ratified for PR #552 | Gap-fill spec §1.1 "Rich base for all" |
 
 ## 2. Sweep inventory (what is unreachable and why)
@@ -175,7 +175,7 @@ Pill/menu overflow needs no schema: a tier-2 scenario with ~110 alert rows (cata
 | `t2-overflow-volumes` | "+N more" people/rooms/hotels + schedule overflow | `fixture: { volumes: { crew: 31, rooms: 21, hotels: 13, schedule: "overflow" } }`; `landing: "mixed"` |
 | `t2-solo-hotel` | flat-solo hotel card | `fixture: { volumes: { hotels: 1 } }`; `landing: "mixed"` |
 | `t2-diagram-images` | thumbnail grid + "+1 more" images | diagrams-anchored alert + `fixture: { volumes: { diagramImages: 13 } }` |
-| `t2-pill-overflow` | 99+ pill cap, menu at `MENU_CAP`, failed-keys "+N more", >2 under-row stack | ~110 alert rows + 7-key `TILE_PROJECTION_FETCH_FAILED` + 3 same-member crew warnings |
+| `t2-pill-overflow` | 99+ pill cap, uncapped scrolling menu, failed-keys "+N more", >2 under-row stack | ~110 alert rows + 7-key `TILE_PROJECTION_FETCH_FAILED` + 3 same-member crew warnings |
 | `t2-ignored-warnings` | "Ignored (2)" disclosure, muted cards, Un-ignore | 2 active + 2 ignored warnings (with rawSnippet); `ignoreWarningIndexes: [2, 3]` |
 
 Base-fixture enrichment (all scenarios): `event_details` gains `dress_code` and one boolean field when the event anchor is active; venue gains a loading dock; transport row 1 gains loadout/notes/schedule legs; room 1 gains `floor`. Verified against adapter render branches in `components/admin/wizard/step3ReviewSections.tsx` (event details fields near line 2043, transport spec cells near line 1191, room floor pill near line 1799) at plan time — each enrichment must actually flip its branch.
