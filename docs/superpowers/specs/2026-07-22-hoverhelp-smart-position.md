@@ -1,7 +1,7 @@
 # HoverHelp smart positioning — portal + collision-aware placement
 
-**Date:** 2026-07-22 (round 3 — pure-function positioning core + corrected coordinate formulas after Codex round-2 BLOCKING; round-2 redesigned §4/§6 to the host-portal model)
-**Status:** Draft for adversarial review R3
+**Date:** 2026-07-22 (round 5 — rounds: R1 BLOCKING host/fixed redesign → R2 BLOCKING pure-core extraction → R4 split-scope a11y dispositions + metric/boundary/lifecycle precision → R5 minor closures)
+**Status:** Round-5 artifact under split-scope adversarial review (A: host/a11y, B: positioning/tests)
 **Closes:** `BL-HOVERHELP-PORTAL` (BACKLOG.md:29), `WARNCARD-POPOVER-OVERLAP-1` (DEFERRED.md:23)
 **Autonomy:** user approved autonomous ship-through-to-merged-PR (2026-07-22, brainstorming gate); spec + plan user-review gates waived.
 
@@ -141,7 +141,7 @@ Changed, enumerated (R1 F4 + F9 — each with disposition):
 |---|---|---|
 | Body's DOM location | child of panel (modal) / body (elsewhere), no longer a descendant of the root wrapper | Tests that scope body queries under the wrapper are updated (§6 T2 blast-radius list); `screen.*` queries unaffected |
 | `rootTestId` subtree contract | body/link no longer under `[data-testid=rootTestId]` | deep-link-walker HoverHelp arm (:182-199) updated to find the link by `aria-controls`/body testid at document scope after clicking the trigger |
-| Native DOM bubbling from body | no longer traverses consumer ancestors | Swept with `grep -n "addEventListener" <all 9 consumer files>` (run 2026-07-22): sole hit is `ShowsTable.tsx:342` `window.addEventListener("popstate", …)` — window-level, cannot depend on popover DOM ancestry. React-tree bubbling (the only channel consumer REACT handlers can observe) is preserved by portals by design. Residual: listeners registered by NON-consumer ancestors on their own subtrees would no longer see popover events — no such coupling is known, and any would be a smell; accepted |
+| Native DOM bubbling from body | no longer traverses consumer ancestors | Swept 2026-07-22 with `grep -n addEventListener app/admin/settings/page.tsx app/admin/needs-attention/page.tsx components/admin/RecentAutoAppliedStrip.tsx components/admin/Dashboard.tsx components/admin/ShowsTable.tsx components/admin/compactAlertHelp.tsx components/admin/settings/DriveConnectionPanel.tsx components/admin/wizard/Step2Verify.tsx components/admin/settings/AdministratorsSection.tsx`: sole hit is `ShowsTable.tsx:342` `window.addEventListener("popstate", …)` — window-level, cannot depend on popover DOM ancestry. React-tree bubbling (the only channel consumer REACT handlers can observe) is preserved by portals by design. Residual: listeners registered by NON-consumer ancestors on their own subtrees would no longer see popover events — no such coupling is known, and any would be a smell; accepted |
 | Ancestor CSS hover-state/descendant selectors | popover no longer inside consumer subtrees | Repo styling is utility-class Tailwind; the only ancestor-state dependency is `group-hover` INSIDE the trigger skin (compactAlertHelp.tsx:137), which targets the trigger, not the body. No stylesheet selector reaches `hover-help`-body through a consumer subtree (grep: no descendant selectors naming it) |
 | Inherited styles / `dir` | body inherits from panel/body element, not the card | Popover already carries its own full text/color classes (:248); admin surface is LTR-only. Accepted |
 | Print | an open popover prints at its absolute host offset instead of in-flow | Accepted — matches every other portaled overlay in the app (HelpSheet, modals) |
