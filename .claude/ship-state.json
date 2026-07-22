@@ -1,8 +1,0 @@
-{
-  "branch": "feat/warning-surface-trim",
-  "stage": "ci",
-  "tasksRemaining": 0,
-  "next": "MERGED origin/main (PR #532 warning-surface-trim) into the branch. CRITICAL INTERACTION: main now filters DOUG_EXCLUDED_CODES (info-severity UNION health) out of deriveAttentionItems - 27 of 45 routed codes no longer render. That is why CI failed on the two crew axes (ROLE_FLAGS_NOTICE is excluded) while local passed at the old base. RECONCILING: tier1 labels cut codes instead of showing blank blocks; tier2 crewAlert switches to AMBIGUOUS_EMAIL_BINDING (the only surviving crew code) with a galleryIdentity for crewName; pickCode must skip cut codes. THEN: re-run suite, push, CI, merge. Also outstanding: screenshots-drift fail.",
-  "blockedOn": "",
-  "cronJobId": "5d291551"
-}
