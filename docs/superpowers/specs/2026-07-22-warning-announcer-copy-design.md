@@ -189,6 +189,12 @@ all visible panel copy are untouched — only the sr-only sentence retires.
   no-op context; nothing renders, nothing throws.
 - Modal unmount → the message log is discarded; the region remounts empty. No
   announcement leaks across mounts.
+- Action in flight at modal close (R5 finding 2) → the success continuation's
+  `announce` lands after unmount and is deliberately dropped (a React state
+  update on an unmounted provider is a silent no-op). Announcements are scoped
+  to the panel's lifetime BY DESIGN: a message describing a panel the admin
+  has already dismissed is noise, and the sighted experience is identical —
+  the row's disappearance is equally invisible once the modal is closed.
 - The always-mounted contract carries over to the container: same testid,
   node survives Silent-state chrome suppression
   (`ShowReviewSurface.tsx:1109-1114` comment block still holds — a live region
@@ -615,3 +621,24 @@ NEEDS-ATTENTION — zero P1; 5 P2 + 1 P3, all spec/test-tightening. All FIXED:
 - **F5 (P2, real published-surface bulk wiring unexercised)** — composed-tree
   integration test through the actual `sectionWarningExtras` renderer (§5.2).
 - **F6 (P3, whitespace guard + remount leak untested)** — §5.1 additions.
+
+## 8.4 Adversarial round 5 triage log
+
+Inlined no-tools Codex review of the R4-revised spec, 2026-07-22, VERDICT:
+NEEDS-ATTENTION — 2 P2 findings, both ACCEPTED with rationale (no spec-body
+change beyond the §2.5 lifetime clause):
+
+- **F1 (P2, 51 announces in one React batch can skip the oldest entry's DOM
+  commit) — ACCEPTED, not producible.** Reaching it requires 51 success
+  continuations resolving inside a single React batch — i.e. 51 concurrent
+  in-flight mutations from one admin's discrete manual taps (bulk ignore
+  announces exactly once per confirm). Each tap is a separate event-loop task
+  and each fetch resolution a separate microtask chain; sequential actions
+  commit long before the 51st arrives. The cap-removal path (§5.1) covers the
+  reachable sequential case. Un-defer trigger: any producer that can emit
+  dozens of announcements from one gesture.
+- **F2 (P2, in-flight action stranded by modal close) — ACCEPTED as designed
+  behavior.** Recorded in §2.5: announcements are scoped to the panel's
+  lifetime; dropping a completion message for a dismissed panel is the
+  intended parity with the sighted experience, not a missed contract. No
+  "announce after unmount" test is added because the no-op IS the contract.
