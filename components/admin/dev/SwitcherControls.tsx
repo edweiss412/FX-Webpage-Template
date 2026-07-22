@@ -86,7 +86,7 @@ export function SwitcherControls({
         {/* Position + label share one live region so a screen reader announces
             WHICH scenario became active, not just the number (Codex R1 P2). */}
         <div aria-live="polite" className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 text-xs tabular-nums text-text-subtle">
+          <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-text-subtle">
             {index + 1} / {total}
           </span>
           <span className="min-w-0 truncate text-sm font-medium text-text-strong">{label}</span>
@@ -96,7 +96,7 @@ export function SwitcherControls({
         <select
           data-testid="attention-switcher-group-select"
           aria-label="Jump to section"
-          className="min-h-tap-min min-w-0 max-w-36 shrink rounded-md border border-border bg-surface px-2 text-xs text-text-subtle hover:border-accent focus-visible:outline-2 focus-visible:outline-accent"
+          className="min-h-tap-min min-w-tap-min max-w-28 shrink rounded-md border border-border bg-surface px-2 text-xs text-text-strong hover:border-accent focus-visible:outline-2 focus-visible:outline-accent"
           value={group}
           onChange={(e) => {
             const g = groups.find((x) => x.id === e.target.value);
