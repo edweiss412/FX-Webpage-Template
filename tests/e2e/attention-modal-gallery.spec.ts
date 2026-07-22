@@ -49,7 +49,6 @@ import { partitionScenarios } from "@/app/admin/dev/attention-gallery/buildSwitc
 import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import { buildScenarioModalData } from "@/lib/dev/buildScenarioModalData";
 import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
-import { messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { ALL_SCENARIOS } from "@/lib/dev/attentionScenarios/index";
 
@@ -75,13 +74,11 @@ const CONTROLS = '[data-testid="attention-switcher-controls"]';
  *   - degraded              -> `attention-degraded-notice`
  *   - warnings              -> `section-warning-active-<sec>`
  *   - a hold                -> `changes-rail-badge`
- *   - a NON-overview alert (routed to warnings/rooms/event/crew) renders as a
- *     note / anchor card / crew banner with NO stable per-item testid — its
- *     catalog TITLE text is the reliable, section-agnostic, scenario-specific
- *     signal (every path renders the catalog copy; all sections are in the
- *     scroll DOM). The clean baseline shows the empty-attention copy.
- * Every entry here was validated against the built server's rendered DOM
- * (72/72 scenarios) before this suite was finalized.
+ *   - rooms / event / crew alerts ALSO render via AttentionBanner (same
+ *     `attention-banner-<alertId>` testid), while a warnings-routed alert
+ *     renders as `parse-attention-note-<CODE>`. The clean baseline shows the
+ *     empty-attention copy.
+ * The alert testids were validated against the built server's rendered DOM.
  */
 type Marker = { testids: string[]; texts: string[] };
 
@@ -99,19 +96,18 @@ function markerFor(id: string): Marker {
   const testids: string[] = [];
   const texts: string[] = [];
 
-  // Overview-routed alert -> the overview banner (unique per alert).
-  const overviewAlert = alerts.find((i) => i.kind === "alert" && i.sectionId === "overview");
-  if (overviewAlert && overviewAlert.kind === "alert") {
-    testids.push(`attention-banner-${overviewAlert.alert.alertId}`);
+  // Alerts render via AttentionBanner for EVERY non-warnings routing
+  // (overview / rooms / event / crew all emit `attention-banner-<alertId>`,
+  // verified against the built server's rendered DOM), while a warnings-routed
+  // alert renders as `parse-attention-note-<CODE>`. Add both candidates per
+  // alert; the OR-match catches whichever the modal actually rendered.
+  for (const a of alerts) {
+    if (a.kind !== "alert") continue;
+    testids.push(`attention-banner-${a.alert.alertId}`);
+    const code = alertCode(s, a.alert.alertId);
+    if (code) testids.push(`parse-attention-note-${code}`);
   }
   if (d.alertsDegraded) testids.push("attention-degraded-notice");
-  // Non-overview alert -> its catalog title text (section-agnostic).
-  const firstAlert = alerts[0];
-  if (!overviewAlert && firstAlert && firstAlert.kind === "alert") {
-    const code = alertCode(s, firstAlert.alert.alertId);
-    const title = code ? messageFor(code).title : null;
-    if (title) texts.push(title);
-  }
   // Warnings -> the warned section's active-warnings block.
   for (const sec of Object.keys(deriveRoutedWarnings(d.bySection).activeWarningsBySection)) {
     testids.push(`section-warning-active-${sec}`);
