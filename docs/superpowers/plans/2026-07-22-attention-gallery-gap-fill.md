@@ -86,6 +86,7 @@ validate.ts after the `degraded` arm (mirror shape):
 `buildScenarioFeed`: `return { entries: toHoldRows(s).map(shapeHoldEntry), truncated: s.feedTruncated === true };`
 
 - [ ] **Step 4:** re-run both files → PASS.
+- [ ] **Step 4b:** extend the tier-3 field pin in `tests/dev/attentionScenariosIndex.test.ts` (L61-66 block, "no tier-3 bucket/degraded") to also assert no tier-3 scenario carries `feedTruncated` — the field is DB-irreproducible, so a tier-3 carrier would teach a state materialize cannot write. Run the file → PASS (no tier-3 scenario carries it).
 - [ ] **Step 5:** `git add -A && git commit --no-verify -m "feat(admin): feedTruncated tier-2 scenario field drives gallery feed truncation"`
 
 ### Task 2: four compound tier-2 scenarios
@@ -529,3 +530,7 @@ AttentionModalSwitcher:
 - Spec coverage: §3.1→Task 5; §3.2→Tasks 1-2; §3.3→Task 3; §3.4→Task 4; §3.5→Tasks 6-7; §5 tests→Tasks 1-8; §7→Task 9. No gaps.
 - Type consistency: `ScenarioGroupId`/`GROUP_ORDER`/`GROUP_LABELS` defined Task 6, consumed Task 7; `pickByDerivedClass` defined Task 2, consumed Task 3; `feedTruncated` defined Task 1, consumed Tasks 2 (scenario) and 1 (feed).
 - Anti-tautology: every new test asserts against `deriveScenarioAttention` output or validator returns (data sources), never the rendered container that also draws them; T2_MANY expected values derive from MENU_CAP, not hardcoded 11/12 twice.
+
+## Review record
+
+Plan R1 (2026-07-22): codex-guard dispatch returned `no_verdict` / `attempts_exhausted` (same silent-death class as the spec's six dead dispatches earlier today — session total 9). Per the no_verdict ladder, plan R1 is SELF-CERTIFIED: the brief's six focus vectors were audited by the implementer (task dependencies; strict-TS snippet validity incl. noUncheckedIndexedAccess index access and the `props.onJumpTo` builder-shape nit; test-update fanout incl. EXPECTED_CUT_IDS invariance, index-length derivation, e2e count updates; manyAlerts underflow/duplicate posture — runtime throw guards; scenarioGroup misclassification sweep incl. warnings-routed alert codes and event-routed class picks landing class-mix in "mixed" (unasserted, harmless); spec-task coverage). One repair landed with this certification: Task 1 Step 4b adds the missing index-test tier-3 `feedTruncated` pin step. The Stage-4 whole-diff cross-model review remains mandatory and re-covers the plan's output.
