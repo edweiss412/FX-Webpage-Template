@@ -110,13 +110,13 @@ Harness readiness (already satisfied by the existing file — no new wiring): se
 
 - [ ] **Step 3: Verify unit tests RED**
 
-Run: `cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link && pnpm vitest run tests/components/admin/settings/ 2>&1 | tail -15`
-Expected: new test FAILS with `Unable to find an element by: [data-testid="admin-dev-tools-gallery"]`; all pre-existing tests still pass.
+Run: `cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link && set -o pipefail && pnpm vitest run tests/components/admin/settings/ 2>&1 | tee /tmp/unit-red.log | tail -15; echo "exit=$?"`
+Expected: `exit=1` (pipefail preserves vitest's status through tee/tail), and `/tmp/unit-red.log` contains `Unable to find an element by: [data-testid="admin-dev-tools-gallery"]` — grep for that exact string to distinguish the expected missing-gallery RED from an unrelated harness failure. All pre-existing tests still pass (failed count = 1).
 
 - [ ] **Step 4: Verify e2e RED (dev-build project)**
 
-Run: `cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link && DEV_GATE_ONLY=1 pnpm exec playwright test tests/e2e/admin-dev.spec.ts --project=dev-build 2>&1 | tail -8`
-Expected: the dev-build settings test FAILS on the `admin-dev-tools-gallery` visibility assertion (element absent — implementation not yet written). The prod-build/prod-runtime-flip projects are skipped in this run; their not-visible assertions are vacuously green pre-implementation, so RED is only demonstrable on dev-build (that is the meaningful red: it proves the new assertion exercises the missing element).
+Run: `cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link && set -o pipefail && DEV_GATE_ONLY=1 pnpm exec playwright test tests/e2e/admin-dev.spec.ts --project=dev-build 2>&1 | tee /tmp/e2e-red.log | tail -8; echo "exit=$?"`
+Expected: `exit=1`, and `/tmp/e2e-red.log` names the settings test with a timeout/visibility failure on the `[data-testid=admin-dev-tools-gallery]` locator (grep the log for `admin-dev-tools-gallery` to confirm the RED is the expected missing element, not a harness fault — a harness fault fails on navigation/auth instead and lacks that locator string). The prod-build/prod-runtime-flip projects are skipped in this run; their not-visible assertions are vacuously green pre-implementation, so RED is only demonstrable on dev-build (that is the meaningful red: it proves the new assertion exercises the missing element).
 
 - [ ] **Step 5: Minimal implementation**
 
@@ -146,13 +146,13 @@ Everything else in the file — header comment gate description, props, early re
 
 - [ ] **Step 6: Verify unit GREEN + typecheck**
 
-Run: `cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link && pnpm vitest run tests/components/admin/settings/ tests/app/admin/settings-developer-visibility.test.tsx 2>&1 | tail -6 && pnpm typecheck`
-Expected: all pass (both DevToolsRow suites + settings visibility suite); typecheck clean.
+Run: `cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link && set -o pipefail && pnpm vitest run tests/components/admin/settings/ tests/app/admin/settings-developer-visibility.test.tsx 2>&1 | tail -6 && pnpm typecheck && echo ALL-GREEN`
+Expected: prints `ALL-GREEN` (pipefail makes a vitest failure abort the chain before typecheck can mask it); both DevToolsRow suites + settings visibility suite pass; typecheck clean.
 
 - [ ] **Step 7: Verify e2e GREEN (all three projects)**
 
-Run: `cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link && DEV_GATE_ONLY=1 pnpm exec playwright test tests/e2e/admin-dev.spec.ts 2>&1 | tail -8`
-Expected: all admin-dev spec tests pass across dev-build, prod-build, prod-runtime-flip (env-bound — needs `.env.local` symlink + local Supabase, both preflighted at Stage 0; three serialized prod builds, allow ~10-15 min). If the local harness cannot boot the builds, record the exact failure output and rely on the Task 3 branch-ref `dev-gate-e2e` workflow dispatch — do NOT claim local green without the output.
+Run: `cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link && set -o pipefail && DEV_GATE_ONLY=1 pnpm exec playwright test tests/e2e/admin-dev.spec.ts 2>&1 | tail -8 && echo E2E-GREEN`
+Expected: prints `E2E-GREEN`; all admin-dev spec tests pass across dev-build, prod-build, prod-runtime-flip (env-bound — needs `.env.local` symlink + local Supabase, both preflighted at Stage 0; three serialized prod builds, allow ~10-15 min). If the local harness cannot boot the builds, record the exact failure output and rely on the Task 3 branch-ref `dev-gate-e2e` workflow dispatch — do NOT claim local green without the output.
 
 - [ ] **Step 8: Commit (one task, one commit — full test cycle included)**
 
@@ -174,17 +174,22 @@ Run in the worktree, each must be green (fix-forward if not):
 
 ```bash
 cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link
-pnpm test 2>&1 | tail -4
-pnpm typecheck
-pnpm lint 2>&1 | tail -4
-pnpm format:check 2>&1 | tail -4
+set -o pipefail
+pnpm test 2>&1 | tail -4 && echo TEST-OK
+pnpm typecheck && echo TYPECHECK-OK
+pnpm lint 2>&1 | tail -4 && echo LINT-OK
+pnpm format:check 2>&1 | tail -4 && echo FORMAT-OK
 ```
 
-Expected: full unit suite green (registry suites included — `tests/styles`, `tests/help` run under `pnpm test`), typecheck clean, eslint clean, prettier clean.
+Each command must print its `-OK` marker (pipefail preserves the tool's exit status through tail; a missing marker = that gate failed). Also check vitest's third summary line: `Errors: N` can report uncaught errors while every test passes and the exit code is 1 — the `-OK` marker (exit-status-driven) is the authority, not the `Tests` line. Expected: full unit suite green (registry suites included — `tests/styles`, `tests/help` run under `pnpm test`), typecheck clean, eslint clean, prettier clean.
 
 - [ ] **Step 2: impeccable dual gate (invariant 8 — UI surface touched)**
 
-Run `/impeccable critique` then `/impeccable audit` on the diff (canonical v3 setup gates: `context.mjs` context load with PRODUCT.md + DESIGN.md, register reference read). P0/P1 findings fixed or deferred via `DEFERRED.md` entry BEFORE cross-model review. Findings + dispositions recorded for the PR body.
+Run `/impeccable critique` then `/impeccable audit` on the diff (canonical v3 setup gates: `context.mjs` context load with PRODUCT.md + DESIGN.md, register reference read). P0/P1 findings fixed or deferred via `DEFERRED.md` entry BEFORE cross-model review.
+
+- [ ] **Step 3: Record findings + dispositions in the close-out doc (invariant 8's §12 destination)**
+
+This standalone feature has no milestone handoff doc; its equivalent is `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md`. Create it with a `## 12. Impeccable findings & dispositions` section listing every critique/audit finding (or "none"), each with tier + disposition (fixed @ commit / deferred @ DEFERRED.md entry), and commit it (`docs(handoff): ...`) BEFORE the Task 3 cross-model review dispatch. Summarize the same table in the PR body (secondary copy, not the record).
 
 ---
 
@@ -194,7 +199,7 @@ Run `/impeccable critique` then `/impeccable audit` on the diff (canonical v3 se
 
 - [ ] **Step 1: Whole-diff Codex adversarial review**
 
-Fresh-eyes posture, REVIEWER ONLY, via `codex-guard` with the full branch diff scope inlined in the brief. Iterate to APPROVE.
+Fresh-eyes posture, REVIEWER ONLY, via `codex-guard` with the full branch diff scope inlined in the brief. Iterate to APPROVE. **Post-repair gate re-run rule (plan R2 F5):** any repair commit made during review iteration re-runs the affected unit/e2e tests AND, if it touches any UI file (`app/` non-api, `components/`, tokens), re-runs the impeccable critique+audit pair on the NEW diff and updates closeout.md §12 — impeccable evidence must cover the final merged diff, not an earlier one. The next review round's brief states which gates were re-run.
 
 - [ ] **Step 2: Push + PR**
 
@@ -208,15 +213,21 @@ PR body: spec/plan paths, review round counts, impeccable dispositions, e2e evid
 
 - [ ] **Step 3: Real CI green + dev-gate dispatch**
 
-- Watch required checks: `gh pr checks <PR#> --watch` (confirm `mergeStateStatus: CLEAN`, not DIRTY/behind).
-- The dev-gate e2e workflow does NOT auto-run (workflow_dispatch-only). Dispatch it on the branch and watch:
+- Watch required checks: `gh pr checks <PR#> --watch` — must end all green.
+- Then query merge state EXPLICITLY (checks-watch does not report it): `gh pr view <PR#> --json mergeStateStatus -q .mergeStateStatus` — must print `CLEAN` (DIRTY/BEHIND = rebase/reconcile first; GITHUB_TOKEN pushes don't re-trigger checks).
+- The dev-gate e2e workflow does NOT auto-run (workflow_dispatch-only). Dispatch it, associate the run with THIS dispatch by timestamp, and watch with failure propagation:
 
 ```bash
+DISPATCH_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 gh workflow run dev-gate-e2e.yml --ref feat/settings-attention-gallery-link
-gh run watch $(gh run list --workflow=dev-gate-e2e.yml --branch feat/settings-attention-gallery-link --limit 1 --json databaseId -q '.[0].databaseId')
+RUN_ID=""; for i in $(seq 1 12); do
+  RUN_ID=$(gh run list --workflow=dev-gate-e2e.yml --branch feat/settings-attention-gallery-link     --created ">$DISPATCH_TS" --limit 1 --json databaseId -q '.[0].databaseId');   [ -n "$RUN_ID" ] && break; sleep 10;
+done
+[ -n "$RUN_ID" ] || { echo "dispatch never registered"; exit 1; }
+gh run watch "$RUN_ID" --exit-status
 ```
 
-Expected: required PR checks all green AND the dispatched dev-gate-e2e run concludes success.
+Expected: required PR checks all green, `mergeStateStatus` prints `CLEAN`, and `gh run watch --exit-status` exits 0 for the timestamp-associated dev-gate run (nonzero exit = the gate failed; stop and fix, do not merge).
 
 - [ ] **Step 4: Merge + sync (same turn as CI green)**
 
