@@ -1063,7 +1063,6 @@ describe("pointerSentenceParts (pure, spec §3.5)", () => {
 
 describe("pointer sentence render (spec §8.6)", () => {
   function renderElsewhere(labels: string[], opts: { totalSections?: number } = {}) {
-    const onJump = vi.fn();
     const props = buildPublishedSurfaceProps({
       listed: 0,
       here: 0,
@@ -1071,7 +1070,6 @@ describe("pointer sentence render (spec §8.6)", () => {
       ...(opts.totalSections !== undefined ? { elsewhereTotalSections: opts.totalSections } : {}),
     });
     render(<ShowReviewSurface {...props} />);
-    return { onJump };
   }
 
   function sentence(): string {
@@ -1323,7 +1321,7 @@ test("pointer button scrolls its section to the aligned position", async ({ page
 });
 
 test("pointer buttons: 44x44 effective hit area, adjacent overlays disjoint", async ({ page }) => {
-  // ...boot into the 2-section elsewhere state...
+  // ...boot into the seeded 3-section elsewhere state (mobile viewport set above)...
   const buttons = page.locator(`${SENTENCE} button`);
   const n = await buttons.count();
   expect(n).toBe(3); // the seeded cap-count; disjointness must not pass vacuously
