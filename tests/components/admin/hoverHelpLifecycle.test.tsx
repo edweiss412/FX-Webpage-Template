@@ -268,6 +268,90 @@ describe("measure-and-apply with stubbed rects", () => {
   });
 });
 
+describe("dismissal focus + tab-order lifecycle (codex R1 F1/F2)", () => {
+  function mountWithLinkOpen() {
+    render(
+      <HoverHelp label="Help: dismissal" testId="dm" learnMore={{ href: "/help/x" }}>
+        <p>body</p>
+      </HoverHelp>,
+    );
+    const trigger = screen.getByTestId("dm-trigger");
+    fireEvent.click(trigger);
+    const body = screen.getByTestId("dm-body");
+    const link = body.querySelector("a");
+    if (!link) throw new Error("learn-more link missing");
+    return { trigger, body, link: link as HTMLElement };
+  }
+
+  test("F1: hover-close is not scheduled while focus is inside the body", () => {
+    vi.useFakeTimers();
+    const { trigger, link } = mountWithLinkOpen();
+    link.focus();
+    const root = trigger.closest("div");
+    if (!root) throw new Error("no root");
+    fireEvent.pointerLeave(root, { pointerType: "mouse" }); // would schedule close
+    vi.advanceTimersByTime(300); // past CLOSE_DELAY_MS
+    expect(trigger.getAttribute("aria-expanded")).toBe("true"); // still open
+    vi.useRealTimers();
+  });
+
+  test("F1: a pending hover-close does not fire if focus arrives during the window", () => {
+    vi.useFakeTimers();
+    const { trigger, link } = mountWithLinkOpen();
+    const root = trigger.closest("div");
+    if (!root) throw new Error("no root");
+    fireEvent.pointerLeave(root, { pointerType: "mouse" }); // schedules close (no focus yet)
+    link.focus(); // focus arrives inside the 120ms window
+    vi.advanceTimersByTime(300);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    vi.useRealTimers();
+  });
+
+  test("F1: Escape with focus inside the body restores focus to the trigger", () => {
+    const { trigger, link } = mountWithLinkOpen();
+    link.focus();
+    fireEvent.keyDown(link, { key: "Escape" }); // containment path (root handler)
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  test("F2: learn-more link is out of tab order while closed, in while open", () => {
+    // Real rects so the open measure lands VISIBLE (jsdom's default all-zero
+    // rects read as a degenerate anchor -> hidden -> tabindex stays -1, which
+    // is itself correct but not what this test pins).
+    const stub = (el: Element, r: { left: number; top: number; width: number; height: number }) =>
+      Object.defineProperty(el, "getBoundingClientRect", {
+        configurable: true,
+        value: () => ({
+          ...r,
+          right: r.left + r.width,
+          bottom: r.top + r.height,
+          x: r.left,
+          y: r.top,
+          toJSON: () => "",
+        }),
+      });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1000 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    render(
+      <HoverHelp label="Help: taborder" testId="to" learnMore={{ href: "/help/x" }}>
+        <p>body</p>
+      </HoverHelp>,
+    );
+    const trigger = screen.getByTestId("to-trigger");
+    const body = screen.getByTestId("to-body");
+    stub(trigger, { left: 500, top: 300, width: 20, height: 20 });
+    stub(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    stub(body, { left: 0, top: 0, width: 288, height: 200 });
+    const link = body.querySelector("a") as HTMLElement;
+    expect(link.getAttribute("tabindex")).toBe("-1"); // closed
+    fireEvent.click(trigger);
+    expect(link.getAttribute("tabindex")).toBe("0"); // open + visible
+    fireEvent.click(trigger);
+    expect(link.getAttribute("tabindex")).toBe("-1"); // closed again
+  });
+});
+
 describe("tab bridge (body host only, learnMore set — spec §4.5)", () => {
   function mountWithLink() {
     render(

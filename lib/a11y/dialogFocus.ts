@@ -34,7 +34,12 @@ const FOCUSABLE_SELECTOR = [
 
 function focusableDescendants(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-    (el) => el.offsetParent !== null || el === document.activeElement,
+    // tabIndex >= 0 mirrors native sequential order: `a[href]` (etc.) with an
+    // explicit tabindex="-1" is click/programmatically focusable but NOT
+    // Tab-reachable, so the trap must not treat it as a boundary element
+    // (e.g. HoverHelp's learn-more link while its popover is closed or
+    // collision-hidden - visibility:hidden keeps offsetParent non-null).
+    (el) => (el.offsetParent !== null && el.tabIndex >= 0) || el === document.activeElement,
   );
 }
 

@@ -157,9 +157,33 @@ export function HoverHelp({
     clearCloseTimer();
     setOpen(true);
   };
+  /** Focus INSIDE the body keeps the popover open (spec §4.5 "focus arriving
+   * in the body by ANY route keeps the popover open") - so a hover-close is
+   * neither scheduled nor fired while the learn-more link (or anything else
+   * in the body) holds focus. Checked at schedule time AND at timer fire
+   * (focus can arrive during the 120ms window). */
+  const focusInsideBody = () => {
+    const b = bodyRef.current;
+    return !!(
+      b &&
+      document.activeElement instanceof HTMLElement &&
+      b.contains(document.activeElement)
+    );
+  };
   const scheduleClose = () => {
     clearCloseTimer();
-    closeTimer.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS);
+    if (focusInsideBody()) return;
+    closeTimer.current = setTimeout(() => {
+      if (focusInsideBody()) return;
+      setOpen(false);
+    }, CLOSE_DELAY_MS);
+  };
+  /** Dismissal close (Escape, etc.): never strand focus on a node about to
+   * display:none - if the body held focus, hand it back to the trigger. */
+  const closeAndRestoreFocus = () => {
+    clearCloseTimer();
+    if (focusInsideBody()) triggerRef.current?.focus({ preventScroll: true });
+    setOpen(false);
   };
   useEffect(() => clearCloseTimer, []);
 
@@ -227,10 +251,12 @@ export function HoverHelp({
       body.style.visibility = "hidden";
       body.dataset["popoverHidden"] = "true";
       delete body.dataset["popoverSide"]; // no stale side while hidden
+      linkRef.current?.setAttribute("tabindex", "-1"); // invisible ≠ tabbable
       return;
     }
     body.style.visibility = "";
     delete body.dataset["popoverHidden"];
+    if (open) linkRef.current?.setAttribute("tabindex", "0"); // visible again
     body.dataset["popoverSide"] = placement.side;
     // (d) convert viewport point to host offsets (spec §4.2 host formulas)
     const isBodyHostEl = host === document.body;
@@ -295,10 +321,19 @@ export function HoverHelp({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        clearCloseTimer();
-        setOpen(false);
+      if (e.key !== "Escape") return;
+      // Inline closeAndRestoreFocus (refs + stable setters only, so the
+      // [open]-dep closure can never be stale; keeps exhaustive-deps clean).
+      clearCloseTimer();
+      const b = bodyRef.current;
+      if (
+        b &&
+        document.activeElement instanceof HTMLElement &&
+        b.contains(document.activeElement)
+      ) {
+        triggerRef.current?.focus({ preventScroll: true });
       }
+      setOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -325,8 +360,7 @@ export function HoverHelp({
     if (!open || e.key !== "Escape") return;
     e.preventDefault();
     e.stopPropagation();
-    clearCloseTimer();
-    setOpen(false);
+    closeAndRestoreFocus();
   };
 
   /**
@@ -473,6 +507,14 @@ export function HoverHelp({
                 <a
                   ref={linkRef}
                   href={learnMore.href}
+                  // Out of tab order whenever the popover is not interactively
+                  // open: while CLOSED (incl. the discrete-display exit interval,
+                  // where the node is still rendered for ~duration-fast) and
+                  // while collision-HIDDEN (visibility:hidden keeps offsetParent
+                  // non-null, so a trap enumerating by offsetParent would treat
+                  // the invisible link as its last focusable). Paired with the
+                  // tabIndex>=0 filter in lib/a11y/dialogFocus.ts.
+                  tabIndex={open ? 0 : -1}
                   aria-label={`Learn more about ${(() => {
                     const topic = label.startsWith("Help: ") ? label.slice("Help: ".length) : label;
                     return topic.charAt(0).toLowerCase() + topic.slice(1);

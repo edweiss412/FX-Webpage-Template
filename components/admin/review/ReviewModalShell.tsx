@@ -622,40 +622,41 @@ function OpenReviewModalShell({
           {...entranceAttr}
           className="relative flex max-h-[85vh] w-full flex-col items-stretch overflow-clip rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
         >
-          {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
+          <PopoverHostContext.Provider value={panelRef}>
+            {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
             visual affordance is the small inner pill. A plain tap (travel ≤
             DRAG_SLOP_PX) closes via the click; a real drag consumes the
             synthesized click (§10). `touch-none` keeps the browser from
             claiming the gesture for scrolling (§11 C5). */}
-          <button
-            ref={grabRef}
-            type="button"
-            data-testid={`${testIdBase}-grab`}
-            aria-label="Drag down or tap to close"
-            onClick={() => {
-              if (dragConsumedClickRef.current) return; // the drag ate this click
-              requestClose();
-            }}
-            onPointerDown={handleGrabPointerDown}
-            onPointerMove={handleGrabPointerMove}
-            onPointerUp={handleGrabPointerEnd}
-            onPointerCancel={handleGrabPointerEnd}
-            className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
-          >
-            <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
-          </button>
+            <button
+              ref={grabRef}
+              type="button"
+              data-testid={`${testIdBase}-grab`}
+              aria-label="Drag down or tap to close"
+              onClick={() => {
+                if (dragConsumedClickRef.current) return; // the drag ate this click
+                requestClose();
+              }}
+              onPointerDown={handleGrabPointerDown}
+              onPointerMove={handleGrabPointerMove}
+              onPointerUp={handleGrabPointerEnd}
+              onPointerCancel={handleGrabPointerEnd}
+              className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
+            >
+              <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
+            </button>
 
-          {/* Header wrapper (consumer content: min-w-0 flex-1 text block +
+            {/* Header wrapper (consumer content: min-w-0 flex-1 text block +
             shrink-0 actions, so a long unbroken title wraps and never pushes
             the chip/close off-screen). */}
-          <header
-            data-testid={`${testIdBase}-header`}
-            className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
-          >
-            {header}
-          </header>
+            <header
+              data-testid={`${testIdBase}-header`}
+              className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
+            >
+              {header}
+            </header>
 
-          {/* Optional sub-header band (modal-header-reconciliation §6.1): a
+            {/* Optional sub-header band (modal-header-reconciliation §6.1): a
             separate control strip below the identity header, with its own
             bottom seam.
 
@@ -675,24 +676,26 @@ function OpenReviewModalShell({
             Omitting it does not fail loudly — `absolute inset-x-0 top-full`
             would silently resolve against the panel (itself `relative`) and
             the overlay would land below the entire modal. */}
-          {subHeader ? (
-            <div
-              data-testid={`${testIdBase}-subheader`}
-              className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
-            >
-              {subHeader}
-            </div>
-          ) : null}
+            {subHeader ? (
+              <div
+                data-testid={`${testIdBase}-subheader`}
+                className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
+              >
+                {subHeader}
+              </div>
+            ) : null}
 
-          {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
+            {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
             wrapper (spec §5). The consumer's surface root IS the body element.
             PopoverHostContext (hoverhelp-smart-position §4.1): the shell is the
-            ONE provider site — HoverHelp popovers inside any shell consumer
-            portal into the PANEL, staying inside the focus trap / aria-modal /
-            inert subtree while escaping the inner scroll pane's clipping. */}
-          <PopoverHostContext.Provider value={panelRef}>{children}</PopoverHostContext.Provider>
+            ONE provider site, wrapping the ENTIRE panel interior (grab strip
+            through footer, not just `children` — codex R1 F3) — HoverHelp
+            popovers anywhere in the panel portal into the PANEL, staying
+            inside the focus trap / aria-modal / inert subtree while escaping
+            the inner scroll pane's clipping. */}
+            {children}
 
-          {/* Footer wrapper — only when the consumer provides one. Sheet-mode
+            {/* Footer wrapper — only when the consumer provides one. Sheet-mode
             bottom padding adds the device safe area so the controls are never
             covered by the iOS home indicator; ≥sm restores the plain token
             padding. `relative` is load-bearing: below sm the RescanSheetButton
@@ -700,14 +703,15 @@ function OpenReviewModalShell({
             `sm:relative` only) so a coded result spans from the footer's left
             edge instead of clipping off-screen at 390px (impeccable audit P1 —
             see RescanSheetButton.tsx). */}
-          {footer != null ? (
-            <footer
-              data-testid={`${testIdBase}-footer`}
-              className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
-            >
-              {footer}
-            </footer>
-          ) : null}
+            {footer != null ? (
+              <footer
+                data-testid={`${testIdBase}-footer`}
+                className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
+              >
+                {footer}
+              </footer>
+            ) : null}
+          </PopoverHostContext.Provider>
         </div>
       </div>
     </ReviewModalCloseContext.Provider>

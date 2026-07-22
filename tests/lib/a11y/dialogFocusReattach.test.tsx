@@ -80,6 +80,35 @@ describe("useDialogFocus reattach on container recreation", () => {
     expect(document.activeElement).toBe(getByTestId("b-first"));
   });
 
+  test("tabindex=-1 focusables are not trap boundaries (codex R1 F2 - mirrors native order)", () => {
+    function LinkHarness() {
+      const containerRef = useRef<HTMLDivElement | null>(null);
+      useDialogFocus(containerRef, undefined);
+      return (
+        <div ref={containerRef}>
+          <button type="button" data-testid="first">
+            first
+          </button>
+          <button type="button" data-testid="real-last">
+            real last
+          </button>
+          {/* e.g. HoverHelp's learn-more link while the popover is closed or
+              collision-hidden: matches `a[href]` and keeps a non-null
+              offsetParent, but is NOT in native sequential order. */}
+          <a href="/x" tabIndex={-1} data-testid="untabbable">
+            untabbable
+          </a>
+        </div>
+      );
+    }
+    const { getByTestId } = render(<LinkHarness />);
+    const realLast = getByTestId("real-last");
+    realLast.focus();
+    const evt = fireEvent.keyDown(realLast, { key: "Tab" });
+    expect(evt).toBe(false); // trap intercepted: real-last IS the boundary
+    expect(document.activeElement).toBe(getByTestId("first")); // wrapped, not the -1 link
+  });
+
   test("initial focus is re-applied to the new container after the swap", () => {
     const { getByTestId, rerender } = render(<Harness remounted={false} />);
     expect(document.activeElement).toBe(getByTestId("a-first"));

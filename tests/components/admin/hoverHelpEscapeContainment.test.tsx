@@ -144,6 +144,42 @@ describe("HoverHelp Escape containment inside ReviewModalShell (§3.2)", () => {
     expect(panel!.contains(body)).toBe(true);
   });
 
+  test("provider covers the WHOLE panel: a footer-slot HoverHelp portals into the panel (codex R1 F3)", async () => {
+    function FooterHarness() {
+      const closeRef = useRef<HTMLButtonElement | null>(null);
+      return (
+        <ReviewModalShell
+          open
+          onClose={() => {}}
+          labelledBy="fh-heading"
+          dataAttrPrefix="review-modal"
+          testIdBase="fharness"
+          initialFocusRef={closeRef}
+          header={
+            <h2 id="fh-heading">
+              Harness
+              <button type="button" ref={closeRef}>
+                Close
+              </button>
+            </h2>
+          }
+          footer={
+            <HoverHelp label="Footer help" testId="footer-help">
+              Footer popover body.
+            </HoverHelp>
+          }
+        >
+          <p>content</p>
+        </ReviewModalShell>
+      );
+    }
+    render(<FooterHarness />);
+    const body = await screen.findByTestId("footer-help-body");
+    const panel = document.querySelector('[role="dialog"]');
+    expect(panel).not.toBeNull();
+    expect(panel!.contains(body)).toBe(true); // NOT document.body host
+  });
+
   test("root wrapper aria-owns re-adopts the portaled body in the a11y tree (spec §4.4)", async () => {
     render(
       <HoverHelp label="Help: owns" testId="owns-help" rootTestId="owns-root">
