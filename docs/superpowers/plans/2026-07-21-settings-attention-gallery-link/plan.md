@@ -25,7 +25,7 @@ Any defect found by a later gate is its own mini-task and follows the same disci
 
 1. **TDD per repair (invariant 1).** Write a test reproducing the defect, observe it RED (`set -o pipefail`, exit-status checked), implement the minimal fix, observe GREEN, commit (`fix(admin): ...` / `test(admin): ...`). Sole exemption: defects with no behavioral surface a test can express — prettier formatting, eslint mechanical autofixes, copy-string tier fixes flagged by impeccable, comment/doc edits. Those commit directly, with the exemption named in the commit body (e.g. `no-test: formatting-only`).
 2. **Gate re-entry, not gate-skip.** After the repair commit, re-run every gate whose input changed, in order: affected unit/e2e suites; the FULL local gate set (Task 2 Step 1) if any source file changed, and at minimum `pnpm format:check` + `pnpm lint` (pipefail, `-OK` markers) if ANY tracked file changed — docs included, prettier scans `.md` (plan R4 F1: a docs-only commit can fail `format:check` after the gates already ran); BOTH `/impeccable critique` AND `/impeccable audit` on the NEW cumulative diff if the repair touched any UI file (`app/` non-api, `components/`, token/theme files) — regardless of which stage surfaced the defect (a Task 2 impeccable repair re-runs both gates just like a Task 3 review repair); closeout.md §12 updated with the new findings/dispositions.
-3. **Downstream gates re-close.** If the repair lands after a downstream gate already passed, that gate re-runs: cross-model review gets a new round (brief states which gates re-ran and why); after any post-push repair, push again, re-watch required checks, re-query `mergeStateStatus` (CLEAN), and re-dispatch + re-watch the dev-gate e2e workflow via the Task 3 Step 3 block. Merge only when the FINAL diff has, in this order, impeccable evidence, cross-model APPROVE, green required checks, CLEAN merge state, and a successful dev-gate run — all against that final diff.
+3. **Downstream gates re-close.** If the repair lands after a downstream gate already passed, that gate re-runs: cross-model review gets a new round (brief states which gates re-ran and why); after any post-push repair, push again, re-watch required checks, re-query `mergeStateStatus` (CLEAN), re-dispatch + re-watch the dev-gate e2e workflow via the Task 3 Step 3 block, and refresh the PR body (`gh pr edit <PR#> --body-file <regenerated-body>`) so its round counts, impeccable dispositions, and e2e evidence match the final diff before merge (plan R5 F2). Merge only when the FINAL diff has, in this order, impeccable evidence, cross-model APPROVE, green required checks, CLEAN merge state, and a successful dev-gate run — all against that final diff.
 
 ---
 
@@ -54,9 +54,9 @@ In `tests/components/admin/settings/DevToolsRow.test.tsx`, inside the existing `
 
     // href + label (spec §3; wrong href = 404 class)
     expect(gallery).toHaveAttribute("href", "/admin/dev/attention-gallery");
-    expect(gallery).toHaveTextContent("Attention gallery");
+    expect(gallery).toHaveTextContent(/^Attention gallery$/);
     expect(open).toHaveAttribute("href", "/admin/dev");
-    expect(open).toHaveTextContent("Open");
+    expect(open).toHaveTextContent(/^Open$/);
 
     // styling parity (spec §4, R1 F1): identical class attribute, and the
     // shared string keeps the tap-target + focus-ring classes so parity
@@ -175,7 +175,7 @@ git commit --no-verify -m "feat(admin): add Attention gallery link to settings D
 ### Task 2: Local gates (full suite + impeccable dual gate)
 
 **Files:**
-- Create: `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md` (Step 3)
+- Create: `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md` (Step 2)
 - Otherwise verification only; fixes follow the Repair-loop contract.
 
 - [ ] **Step 1: Pre-push local gates**
