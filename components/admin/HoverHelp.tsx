@@ -328,6 +328,7 @@ export function HoverHelp({
     const host = hostRef?.current ?? document.body;
     const trigger = triggerRef.current;
     const body = bodyRef.current;
+    const caretEl = caretRef.current;
     window.addEventListener("scroll", schedule, { capture: true, passive: true }); // (b)
     window.addEventListener("resize", schedule); // (c)
     const ro = new ResizeObserver(schedule); // (d): trigger + body + host
@@ -351,7 +352,6 @@ export function HoverHelp({
         delete body.dataset["popoverHidden"];
         body.style.visibility = "";
       }
-      const caretEl = caretRef.current;
       if (caretEl) {
         delete caretEl.dataset["popoverSide"];
         caretEl.style.visibility = "";
@@ -558,68 +558,70 @@ export function HoverHelp({
       {mounted
         ? createPortal(
             <>
-            <div
-              id={bodyId}
-              ref={bodyRef}
-              role={narrowed ? undefined : "tooltip"}
-              data-testid={`${testId}-body`}
-              onPointerEnter={openNow}
-              onPointerLeave={scheduleClose}
-              onKeyDown={onBodyKeyDown}
-              onFocus={onBodyFocus}
-              className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
-                open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
-              }`}
-            >
-              <div id={descId}>{children}</div>
-              {afterBody !== null ? <p className="mt-2">{afterBody}</p> : null}
-              {learnMore ? (
-                // M12.12 follow-up: aria-label keeps the decorative "→" out of the
-                // accessible name. An aria-hidden <span> around the glyph was tried
-                // first but splitting the text run shifts text-decoration paint
-                // (byte-level screenshot drift, PR #25 R1/R2) — aria-label changes
-                // no rendered pixel. Context-specific per WCAG 2.4.4, derived from
-                // the trigger label ("Help: Active shows" → "Learn more about
-                // active shows") — the HelpAffordance "Learn more: <title>" pattern.
-                <a
-                  ref={linkRef}
-                  href={learnMore.href}
-                  // Out of tab order whenever the popover is not interactively
-                  // open: while CLOSED (incl. the discrete-display exit interval,
-                  // where the node is still rendered for ~duration-fast) and
-                  // while collision-HIDDEN (visibility:hidden keeps offsetParent
-                  // non-null, so a trap enumerating by offsetParent would treat
-                  // the invisible link as its last focusable). Paired with the
-                  // tabIndex>=0 filter in lib/a11y/dialogFocus.ts.
-                  tabIndex={open ? 0 : -1}
-                  aria-label={`Learn more about ${(() => {
-                    const topic = label.startsWith("Help: ") ? label.slice("Help: ".length) : label;
-                    return topic.charAt(0).toLowerCase() + topic.slice(1);
-                  })()}`}
-                  className="mt-2 inline-block text-xs font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
-                >
-                  Learn more →
-                </a>
-              ) : null}
-            </div>
-            <div
-              ref={caretRef}
-              aria-hidden="true"
-              data-testid={`${testId}-caret`}
-              /* top-[1.5px]/bottom-[1.5px] literals = CARET_INNER_OFFSET
+              <div
+                id={bodyId}
+                ref={bodyRef}
+                role={narrowed ? undefined : "tooltip"}
+                data-testid={`${testId}-body`}
+                onPointerEnter={openNow}
+                onPointerLeave={scheduleClose}
+                onKeyDown={onBodyKeyDown}
+                onFocus={onBodyFocus}
+                className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
+                  open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
+                }`}
+              >
+                <div id={descId}>{children}</div>
+                {afterBody !== null ? <p className="mt-2">{afterBody}</p> : null}
+                {learnMore ? (
+                  // M12.12 follow-up: aria-label keeps the decorative "→" out of the
+                  // accessible name. An aria-hidden <span> around the glyph was tried
+                  // first but splitting the text run shifts text-decoration paint
+                  // (byte-level screenshot drift, PR #25 R1/R2) — aria-label changes
+                  // no rendered pixel. Context-specific per WCAG 2.4.4, derived from
+                  // the trigger label ("Help: Active shows" → "Learn more about
+                  // active shows") — the HelpAffordance "Learn more: <title>" pattern.
+                  <a
+                    ref={linkRef}
+                    href={learnMore.href}
+                    // Out of tab order whenever the popover is not interactively
+                    // open: while CLOSED (incl. the discrete-display exit interval,
+                    // where the node is still rendered for ~duration-fast) and
+                    // while collision-HIDDEN (visibility:hidden keeps offsetParent
+                    // non-null, so a trap enumerating by offsetParent would treat
+                    // the invisible link as its last focusable). Paired with the
+                    // tabIndex>=0 filter in lib/a11y/dialogFocus.ts.
+                    tabIndex={open ? 0 : -1}
+                    aria-label={`Learn more about ${(() => {
+                      const topic = label.startsWith("Help: ")
+                        ? label.slice("Help: ".length)
+                        : label;
+                      return topic.charAt(0).toLowerCase() + topic.slice(1);
+                    })()}`}
+                    className="mt-2 inline-block text-xs font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+                  >
+                    Learn more →
+                  </a>
+                ) : null}
+              </div>
+              <div
+                ref={caretRef}
+                aria-hidden="true"
+                data-testid={`${testId}-caret`}
+                /* top-[1.5px]/bottom-[1.5px] literals = CARET_INNER_OFFSET
                  (lib/popover/position.ts); locked by the lifecycle suite -
                  Tailwind cannot extract dynamic class strings. Orientation
                  flips on the imperative data-popover-side write via
                  data-attribute variants; `group` lets the inner follow. */
-              className={`group pointer-events-none absolute z-50 h-0 w-0 border-x-[6px] border-x-transparent transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 data-[popover-side=bottom]:border-t-0 data-[popover-side=bottom]:border-b-[6px] data-[popover-side=bottom]:border-b-border-strong data-[popover-side=top]:border-t-[6px] data-[popover-side=top]:border-b-0 data-[popover-side=top]:border-t-border-strong ${
-                open ? "block opacity-100" : "hidden opacity-0"
-              }`}
-            >
-              <div
-                aria-hidden="true"
-                className="absolute left-[-6px] h-0 w-0 border-x-[6px] border-x-transparent group-data-[popover-side=bottom]:top-[1.5px] group-data-[popover-side=bottom]:border-t-0 group-data-[popover-side=bottom]:border-b-[6px] group-data-[popover-side=bottom]:border-b-surface-raised group-data-[popover-side=top]:bottom-[1.5px] group-data-[popover-side=top]:border-t-[6px] group-data-[popover-side=top]:border-b-0 group-data-[popover-side=top]:border-t-surface-raised"
-              />
-            </div>
+                className={`group pointer-events-none absolute z-50 size-0 border-x-[6px] border-x-transparent transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 data-[popover-side=bottom]:border-t-0 data-[popover-side=bottom]:border-b-[6px] data-[popover-side=bottom]:border-b-border-strong data-[popover-side=top]:border-t-[6px] data-[popover-side=top]:border-b-0 data-[popover-side=top]:border-t-border-strong ${
+                  open ? "block opacity-100" : "hidden opacity-0"
+                }`}
+              >
+                <div
+                  aria-hidden="true"
+                  className="absolute left-[-6px] size-0 border-x-[6px] border-x-transparent group-data-[popover-side=bottom]:top-[1.5px] group-data-[popover-side=bottom]:border-t-0 group-data-[popover-side=bottom]:border-b-[6px] group-data-[popover-side=bottom]:border-b-surface-raised group-data-[popover-side=top]:bottom-[1.5px] group-data-[popover-side=top]:border-t-[6px] group-data-[popover-side=top]:border-b-0 group-data-[popover-side=top]:border-t-surface-raised"
+                />
+              </div>
             </>,
             // Portal CONTAINER choice, not render data: only read once `mounted`
             // is true (post-first-commit, provider's panelRef is populated); same

@@ -502,10 +502,7 @@ test.describe("T8 keyboard (body host)", () => {
 /** §3.3 clamp formula re-applied to LIVE rects - shared by all caret cases. */
 function caretExpectedLeft(t: Box, b: Box): number {
   const center0 = (t.left + t.right) / 2;
-  const center = Math.min(
-    Math.max(center0, b.left + CARET_EDGE_INSET),
-    b.right - CARET_EDGE_INSET,
-  );
+  const center = Math.min(Math.max(center0, b.left + CARET_EDGE_INSET), b.right - CARET_EDGE_INSET);
   return center - CARET_WIDTH / 2;
 }
 
@@ -692,9 +689,7 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
     expect(active).toBe("after-btn"); // blur-close never moves focus
   });
 
-  test("T-E4b: real blur from the PORTALED link to an outside control closes", async ({
-    page,
-  }) => {
+  test("T-E4b: real blur from the PORTALED link to an outside control closes", async ({ page }) => {
     await open(page, "caret", "caret-lm"); // body-host learnMore: blur-close ACTIVE
     const trigger = page.getByTestId("caret-lm-trigger");
     await trigger.focus();
