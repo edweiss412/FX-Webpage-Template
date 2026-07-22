@@ -2610,9 +2610,11 @@ export function WarningsBreakdown({
                       key={t.id}
                       type="button"
                       onClick={() => jump(t.id)}
-                      // §3.5: text-sized inline button; 44x44 floor via the
-                      // centered before-overlay, zero line-box inflation (the
-                      // HoverHelp compactTrigger pattern).
+                      // §3.5: text-sized inline button; 44x44 floor via a
+                      // CENTERED before-overlay (translate + min-w/h-tap-min,
+                      // width = max(text, 44px)) — zero line-box inflation.
+                      // Same intent as HoverHelp's compactTrigger tap floor,
+                      // different geometry (that one is a fixed inset box).
                       // z-10: the overlay must WIN hit-testing against the
                       // card's own padding box (elementFromPoint returns the
                       // topmost paint; without it the ±21px zone belongs to

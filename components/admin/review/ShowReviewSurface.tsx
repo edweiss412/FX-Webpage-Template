@@ -1059,12 +1059,9 @@ export function ShowReviewSurface({
                   ...(s.id === "warnings" && warningsNotes && warningsNotes.length > 0
                     ? { parseNotes: warningsNotes }
                     : {}),
-                  // Spec 2026-07-22-warning-panel-polish §3.5: the pointer
-                  // sentence's ordered, label-resolved jump targets + the
-                  // total elsewhere-section count (unresolved ids fold into
-                  // "and N more"). `sections` is registry-ordered, so the
-                  // targets inherit visual order. Warnings section only,
-                  // spread-inserted (exactOptional discipline).
+                  // §3.5 pointer targets: derived in the pointerTargets
+                  // useMemo above. Warnings section only, spread-inserted
+                  // (exactOptional discipline).
                   ...(s.id === "warnings" && pointerTargets !== null
                     ? {
                         pointerTargets,

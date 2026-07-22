@@ -142,10 +142,10 @@ export function PerShowActionableWarnings({
         // into the body. Guard boundary (§3.1): with a null trigger context the
         // follow-up IS the body — the only content of a producer-less defensive
         // case — so the card keeps a described popover instead of losing its
-        // trigger entirely.
-        const contextOrNull: string | null = context ?? null; // one sentinel, exactOptional-safe
-        const popoverBody = contextOrNull ?? followUp;
-        const afterBodyText: string | null = contextOrNull !== null ? followUp : null;
+        // trigger entirely. `context` is already `string | null` (the
+        // warningCardCopyFields ternary above), the one nullable sentinel.
+        const popoverBody = context ?? followUp;
+        const afterBodyText: string | null = context !== null ? followUp : null;
 
         // Branch on the RESULT, never on `sourceCell` alone: a non-null cell with a
         // null driveFileId still yields no link (spec §5.2).
