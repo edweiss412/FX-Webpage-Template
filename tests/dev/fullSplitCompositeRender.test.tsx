@@ -65,9 +65,7 @@ describe("t3-full-attention-split renders the full taught state", () => {
 
     // confirmation group: header + exactly one actionable row (the hold)
     expect(within(menu).getByText("Needs your confirmation")).toBeInTheDocument();
-    expect(
-      menu.querySelectorAll('[data-testid^="attention-menu-row-"]'),
-    ).toHaveLength(1);
+    expect(menu.querySelectorAll('[data-testid^="attention-menu-row-"]')).toHaveLength(1);
 
     // needs-a-look group: heading + external sheet link + internal overview link
     expect(within(menu).getByText("Needs a look")).toBeInTheDocument();
@@ -84,8 +82,6 @@ describe("t3-full-attention-split renders the full taught state", () => {
 
     // monitoring group: heading + exact summary copy, items NOT enumerated
     expect(within(menu).getByText("Monitoring")).toBeInTheDocument();
-    expect(
-      within(menu).getByText("2 clearing on their own, no action needed"),
-    ).toBeInTheDocument();
+    expect(within(menu).getByText("2 clearing on their own, no action needed")).toBeInTheDocument();
   });
 });
