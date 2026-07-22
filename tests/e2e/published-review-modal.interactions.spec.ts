@@ -1617,10 +1617,34 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         await openModal(page, { width: 300, height: 844 });
         const card = page.locator(`[data-testid="attention-banner-${alertId}"]`);
         const trigger = card.locator("button[aria-expanded]").first();
-        // Center the TRIGGER (not the card): CI's content heights differ
-        // enough that card-center can leave the trigger below the panel
-        // bounds, where the placement gate correctly reports hidden.
-        await trigger.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        // Center the TRIGGER (not the card) via MANUAL pane-scroll math:
+        // CI's content heights differ enough that card-center leaves the
+        // trigger below the panel bounds (gate correctly hides), and
+        // Element.scrollIntoView itself no-oped on CI headless while working
+        // locally (attempt-6 gate dump: trigger y=1093 after the call).
+        // Direct scrollTop arithmetic depends on nothing but rects.
+        await trigger.evaluate((el) => {
+          const pane = el.closest(".overflow-y-auto");
+          if (!pane) throw new Error("trigger has no scrolling ancestor pane");
+          const tr = el.getBoundingClientRect();
+          const pr = pane.getBoundingClientRect();
+          pane.scrollTop += tr.top - pr.top - pr.height / 2;
+        });
+        // Anchor must be inside the panel before opening (the placement gate
+        // would legitimately hide an out-of-bounds anchor).
+        await expect
+          .poll(
+            () =>
+              trigger.evaluate((el) => {
+                const t = el.getBoundingClientRect();
+                const p = document
+                  .querySelector("[data-review-modal-panel]")!
+                  .getBoundingClientRect();
+                return t.top > p.top && t.bottom < p.bottom;
+              }),
+            { timeout: 3_000 },
+          )
+          .toBe(true);
         // Programmatic DOM click, not a pointer click: at 300px on CI's
         // classic-scrollbar Linux the trigger's box can sit outside
         // Playwright's actionability viewport (mac overlay scrollbars hide
