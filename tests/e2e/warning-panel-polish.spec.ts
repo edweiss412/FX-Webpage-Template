@@ -287,7 +287,11 @@ const REVEAL_WARNINGS = [
     code: "UNKNOWN_FIELD",
     message: "unknown transport field e2e",
     rawSnippet: "Transport | e2e-transport",
-    blockRef: { kind: "transport", name: "e2e-transport" },
+    // NOTE: the emitter kind is "transportation" (KIND_TO_SECTION,
+    // lib/admin/step3SectionStatus.ts:35) even though the SectionId is
+    // "transport" - the "transport" kind does not exist and would leave this
+    // row unrouted (List state, no elsewhere sentence).
+    blockRef: { kind: "transportation", name: "e2e-transport" },
   },
 ];
 // Section count derived from the fixture's distinct blockRef kinds (crew,
