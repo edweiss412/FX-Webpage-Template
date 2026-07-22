@@ -1,7 +1,7 @@
 # Spec — Monitoring badge expands: enumerate monitoring items in the attention menu
 
 Date: 2026-07-22
-Status: Draft
+Status: Approved (Codex adversarial review R13 APPROVE, 2026-07-22)
 Amends:
 
 - `docs/superpowers/specs/2026-07-21-attention-needs-attention-split.md`: §3.2 (pill state B non-interactive; state count), §3.4 "Monitoring group" (items not enumerated; summary row), §5 (summary-row copy surface), §6/§6a (menu-open reconciliation now excludes the monitoring-only target), §8 (transition inventory: B merges into A), §11 items 4 and 6, §11.5/§11.5a (exit matrix loses B, gains the monitoring-only ENTRY shape), §11.6-§11.8 (menu group assertions).
