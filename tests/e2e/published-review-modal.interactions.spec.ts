@@ -1616,8 +1616,11 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         // < the 288px natural body → the §4.2 width-first shrink engages.
         await openModal(page, { width: 300, height: 844 });
         const card = page.locator(`[data-testid="attention-banner-${alertId}"]`);
-        await card.evaluate((el) => el.scrollIntoView({ block: "center" }));
         const trigger = card.locator("button[aria-expanded]").first();
+        // Center the TRIGGER (not the card): CI's content heights differ
+        // enough that card-center can leave the trigger below the panel
+        // bounds, where the placement gate correctly reports hidden.
+        await trigger.evaluate((el) => el.scrollIntoView({ block: "center" }));
         // Programmatic DOM click, not a pointer click: at 300px on CI's
         // classic-scrollbar Linux the trigger's box can sit outside
         // Playwright's actionability viewport (mac overlay scrollbars hide
@@ -1651,9 +1654,8 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
             vh: window.innerHeight,
           };
         }, alertId);
-        expect(dbg.side, `popover not placed; gate inputs: ${JSON.stringify(dbg)}`).toMatch(
-          /top|bottom/,
-        );
+        console.log("T7 gate inputs:", JSON.stringify(dbg));
+        expect(JSON.stringify(dbg)).toMatch(/"side":"(top|bottom)"/);
         const ownsId = await card.locator("[aria-owns]").first().getAttribute("aria-owns");
         if (!ownsId) throw new Error("affordance root missing aria-owns");
         const body = page.locator(`[id=${JSON.stringify(ownsId)}]`);
