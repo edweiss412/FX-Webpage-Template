@@ -394,7 +394,7 @@ test.describe("attention modal switcher gallery", () => {
         clientWidth: el.clientWidth,
       }));
       expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
-      // The bar must not intersect the modal panel or its header/close/footer.
+      // The bar must not intersect the modal panel or its header/close boxes.
       // Every other protected surface is a descendant clipped by the panel's
       // overflow-clip, so clearing the panel box clears them (containment).
       for (const sel of MODAL_BOXES) {

@@ -158,7 +158,7 @@ box itself (`[data-review-modal-panel]`, the `max-h-[85vh]` node at
 `ReviewModalShell.tsx:618`; NOT `published-show-review-modal`, which is the
 full-viewport `fixed inset-0` overlay wrapper at `ReviewModalShell.tsx:582` and
 intersects everything by construction) plus the
-header, close, and footer boxes. The nav rail, section controls, and banners are
+header and close boxes. The nav rail, section controls, and banners are
 all DESCENDANTS of the panel (they render inside the modal's DOM subtree, so their
 boxes are clipped to the panel by its `overflow-clip`, `ReviewModalShell.tsx:618`);
 clearing the panel box therefore clears every one of them — a containment argument,
@@ -183,7 +183,7 @@ not stretch-based, and each is guaranteed by an explicit class:
 | --- | --- |
 | Collapsed bar height ≤64px | Single row (`flex-nowrap` — no second line possible); row content is single-line text in 44px-MINIMUM (`min-h-tap-min`) content-sized buttons that render at 44px (one text line ≈17px + padding never exceeds the minimum), + 8px `pb-2` + 8px base of the split top padding (§2.1.1) + 1px bottom border (`border border-t-0`) = 61px computed (observed within 1px). The ≤64px UPPER bound is enforced by the e2e assertion (§5), not by any max-height class. |
 | Row content never overflows the bar at supported viewports (≥390px) with catalog-derived inputs (§2.1 budget bounds) | Fixed children `shrink-0`; wrapper `min-w-0 flex-1`; label `min-w-0 truncate` absorbs all deficit. Sub-390 clipping and degenerate numeric props (§3) are outside this invariant by design. |
-| Bar never intersects modal header/close/footer (collapsed) | `fixed top-0` bar ≤64px vs scrim band ≥80px above the panel (§2.4 math); pinned by the real-browser `getBoundingClientRect`/`boundingBox` e2e (§5), not jsdom. |
+| Bar never intersects the modal panel/header/close (collapsed; no footer renders) | `fixed top-0` bar ≤64px vs scrim band ≥80px above the panel (§2.4 math); pinned by the real-browser `getBoundingClientRect`/`boundingBox` e2e (§5), not jsdom. |
 
 ## 3. Guard conditions
 
@@ -243,8 +243,8 @@ subtrees, no interaction; panel visibility is purely `showExcluded`.
   port 3001 — `playwright.config.ts:84-92`):**
   - New geometry test: for viewports 1280×800 and 390×844 (`page.setViewportSize`),
     read `boundingBox()` of the collapsed bar and of the modal PANEL
-    (`published-show-review-modal`), header, close, and
-    footer testids; assert (a) no intersection of the bar box with each of those,
+    (`[data-review-modal-panel]`) plus the header and close testids (no footer
+    renders, §2.4); assert (a) no intersection of the bar box with each of those,
     (b) `bar.height <= 64` (both e2e viewports report a 0px safe-area inset, §2.1.1,
     so the numeric bound is exact), and (c) no horizontal content overflow:
     `bar.scrollWidth <= bar.clientWidth` (via `locator.evaluate`) — the `inset-x-0`
