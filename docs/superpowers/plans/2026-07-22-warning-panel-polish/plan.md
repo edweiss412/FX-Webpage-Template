@@ -90,12 +90,13 @@ function scanSource(src: ts.SourceFile, path: string, scan: Scan): void {
     // "severity" as a property name in ANY syntactic form: identifier key,
     // string-literal key, computed key, shorthand, method/accessor. Shorthand,
     // computed, and method forms are unanalyzable BY CONSTRUCTION -> fail.
-    const namedSeverity = (name: ts.PropertyName): boolean =>
-      (ts.isIdentifier(name) && name.text === "severity") ||
-      (ts.isStringLiteral(name) && name.text === "severity") ||
+    const named = (name: ts.PropertyName, key: string): boolean =>
+      (ts.isIdentifier(name) && name.text === key) ||
+      (ts.isStringLiteral(name) && name.text === key) ||
       (ts.isComputedPropertyName(name) &&
         ts.isStringLiteral(name.expression) &&
-        name.expression.text === "severity");
+        name.expression.text === key);
+    const namedSeverity = (name: ts.PropertyName): boolean => named(name, "severity");
     if (ts.isShorthandPropertyAssignment(node) && node.name.text === "severity") {
       scan.violations.push(`${path}: unanalyzable severity: extend the scanner or register the code`);
     }
@@ -117,7 +118,7 @@ function scanSource(src: ts.SourceFile, path: string, scan: Scan): void {
         const codeProp = ts.isObjectLiteralExpression(parent)
           ? parent.properties.find(
               (p): p is ts.PropertyAssignment =>
-                ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "code",
+                ts.isPropertyAssignment(p) && named(p.name, "code"),
             )
           : undefined;
         const code =
@@ -151,7 +152,7 @@ describe("INFO_CODE_ACTIONABILITY registry (spec §3.4)", () => {
       const sc: Scan = { infoCodes: new Set(), violations: [] };
       const path = "/synthetic/probe.ts";
       const src = ts.createSourceFile(path, code, ts.ScriptTarget.Latest, true);
-      // reuse the same visitor via scanFileSource seam (see scanFile refactor below)
+      // reuse the same visitor via the scanSource seam
       scanSource(src, path, sc);
       return sc;
     };
@@ -172,6 +173,19 @@ describe("INFO_CODE_ACTIONABILITY registry (spec §3.4)", () => {
     // string-literal key -> analyzed like identifier key
     r = probe(`const w = { "severity": "info", code: "Q" };`);
     expect([...r.infoCodes]).toEqual(["Q"]);
+    // computed string key -> analyzed like identifier key
+    r = probe(`const w = { ["severity"]: "info", ["code"]: "R" };`);
+    expect([...r.infoCodes]).toEqual(["R"]);
+    // string-literal code key -> attributable
+    r = probe(`const w = { severity: "info", "code": "S" };`);
+    expect([...r.infoCodes]).toEqual(["S"]);
+    // method / getter / setter named severity -> unanalyzable
+    r = probe(`const w = { severity() { return "info"; }, code: "Z" };`);
+    expect(r.violations).toHaveLength(1);
+    r = probe(`const w = { get severity() { return "info"; }, code: "Z" };`);
+    expect(r.violations).toHaveLength(1);
+    r = probe(`const w = { set severity(v: string) {}, code: "Z" };`);
+    expect(r.violations).toHaveLength(1);
     // info without attributable code -> violation
     r = probe(`const w = { severity: "info", message: "m" };`);
     expect(r.violations).toHaveLength(1);
@@ -217,7 +231,7 @@ export function infoRowInvitesCorrection(w: Pick<ParseWarning, "code">): boolean
 - [ ] **Step 4: Run to verify pass**
 
 Run: `pnpm vitest run tests/admin/_metaInfoCodeActionability.test.ts`
-Expected: PASS (3 tests). If Layer 2 reports violations, those are REAL findings: inspect each reported site; a false positive means the scanner needs a narrower attribution rule, not a suppression.
+Expected: PASS (4 tests). If Layer 2 reports violations, those are REAL findings: inspect each reported site; a false positive means the scanner needs a narrower attribution rule, not a suppression.
 
 - [ ] **Step 5: Commit**
 
@@ -486,6 +500,9 @@ describe("per-card follow-up placement (spec §3.1)", () => {
     render(<PerShowActionableWarnings items={[noCell]} driveFileId="d1" followUpCopy={FOLLOW_UP} />);
     const item = screen.getAllByTestId("per-show-actionable-item")[0]!;
     expect(item.querySelector("p.mt-2")).toBeNull();
+    // The sentence must be absent from the ENTIRE card, not just the extra
+    // paragraph slot — catches a regression to the old joined-into-body form.
+    expect(item.textContent ?? "").not.toContain("Fixed it in the sheet?");
   });
 });
 ```
@@ -528,8 +545,12 @@ Destructure `afterBodyText` in the component and forward on `HoverHelp` (spread 
         // case — so the card keeps a described popover instead of losing its
         // trigger entirely.
         const contextOrNull: string | null = context ?? null; // one sentinel, exactOptional-safe
+        // followUp is the EXISTING :136-139 derivation whose else-branch is
+        // null — annotate it `const followUp: string | null` so undefined is
+        // unrepresentable and the spread below can never pass explicit
+        // undefined to the optional prop.
         const popoverBody = contextOrNull ?? followUp;
-        const afterBodyText = contextOrNull !== null ? followUp : null;
+        const afterBodyText: string | null = contextOrNull !== null ? followUp : null;
 ```
 
 and pass to `CompactAlertHelp` (`:240-252`), spread-style:
@@ -595,6 +616,15 @@ describe("warningsPanelStatusSentence (spec §3.2)", () => {
     );
   });
 
+  it("invalid inputs normalize to zero, never render literally", () => {
+    expect(warningsPanelStatusSentence(Number.NaN, 0, 0)).toBe("Nothing needs a look on this sheet.");
+    expect(warningsPanelStatusSentence(-2, 0, 0)).toBe("Nothing needs a look on this sheet.");
+    expect(warningsPanelStatusSentence(Number.POSITIVE_INFINITY, 0, 0)).toBe(
+      "Nothing needs a look on this sheet.",
+    );
+    expect(warningsPanelStatusSentence(2.7, 0, 0)).toBe("2 warnings listed.");
+  });
+
   it("single-bucket changes always change the text (production ignore transitions)", () => {
     const base = warningsPanelStatusSentence(2, 2, 2);
     expect(warningsPanelStatusSentence(1, 2, 2)).not.toBe(base);
@@ -623,6 +653,14 @@ export function warningsPanelStatusSentence(
   here: number,
   elsewhere: number,
 ): string {
+  // Input contract: counts are lengths, so nonnegative finite integers.
+  // Defensive normalization: anything else (NaN, negative, Infinity, float)
+  // collapses to the floor of a nonnegative finite value, else 0 — the
+  // sentence must never render "NaN warnings".
+  const norm = (n: number): number => (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+  listed = norm(listed);
+  here = norm(here);
+  elsewhere = norm(elsewhere);
   const parts: string[] = [];
   if (listed > 0) parts.push(listed === 1 ? "1 warning listed." : `${listed} warnings listed.`);
   if (here > 0) {
@@ -665,6 +703,23 @@ describe("warnings panel live region (spec §3.2)", () => {
     rerender(<ShowReviewSurface {...clean} />);
     expect(screen.getByTestId("warnings-panel-status")).toBe(span); // same instance
     expect(span.textContent).toBe("Nothing needs a look on this sheet.");
+  });
+
+  it("production wiring feeds each bucket: listed, elsewhere, and the mixed tuple", () => {
+    // Catches: wiring that always passes zero for listed, swaps here/elsewhere,
+    // or derives elsewhere from the wrong model. Counts differ pairwise so a
+    // swapped pair cannot produce the same sentence.
+    const { rerender } = render(
+      <ShowReviewSurface {...buildPublishedSurfaceProps({ listed: 2, here: 0, elsewhere: 0 })} />,
+    );
+    const span = screen.getByTestId("warnings-panel-status");
+    expect(span.textContent).toBe("2 warnings listed.");
+    rerender(<ShowReviewSurface {...buildPublishedSurfaceProps({ listed: 0, here: 0, elsewhere: 3 })} />);
+    expect(span.textContent).toBe("3 warnings need a look in their own sections.");
+    rerender(<ShowReviewSurface {...buildPublishedSurfaceProps({ listed: 2, here: 1, elsewhere: 3 })} />);
+    expect(span.textContent).toBe(
+      "2 warnings listed. 1 warning needs a look below. 3 warnings need a look in their own sections.",
+    );
   });
 
   it("gate OFF (staged shape): span absent", () => {
