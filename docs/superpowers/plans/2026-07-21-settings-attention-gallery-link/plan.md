@@ -24,7 +24,7 @@
 Any defect found by a later gate is its own mini-task and follows the same discipline as Task 1:
 
 1. **TDD per repair (invariant 1).** Write a test reproducing the defect, observe it RED (`set -o pipefail`, exit-status checked), implement the minimal fix, observe GREEN, commit (`fix(admin): ...` / `test(admin): ...`). Sole exemption: defects with no behavioral surface a test can express — prettier formatting, eslint mechanical autofixes, copy-string tier fixes flagged by impeccable, comment/doc edits. Those commit directly, with the exemption named in the commit body (e.g. `no-test: formatting-only`).
-2. **Gate re-entry, not gate-skip.** After the repair commit, re-run every gate whose input changed, in order: affected unit/e2e suites; the FULL local gate set (Task 2 Step 1) if any source file changed; BOTH `/impeccable critique` AND `/impeccable audit` on the NEW cumulative diff if the repair touched any UI file (`app/` non-api, `components/`, token/theme files) — regardless of which stage surfaced the defect (a Task 2 impeccable repair re-runs both gates just like a Task 3 review repair); closeout.md §12 updated with the new findings/dispositions.
+2. **Gate re-entry, not gate-skip.** After the repair commit, re-run every gate whose input changed, in order: affected unit/e2e suites; the FULL local gate set (Task 2 Step 1) if any source file changed, and at minimum `pnpm format:check` + `pnpm lint` (pipefail, `-OK` markers) if ANY tracked file changed — docs included, prettier scans `.md` (plan R4 F1: a docs-only commit can fail `format:check` after the gates already ran); BOTH `/impeccable critique` AND `/impeccable audit` on the NEW cumulative diff if the repair touched any UI file (`app/` non-api, `components/`, token/theme files) — regardless of which stage surfaced the defect (a Task 2 impeccable repair re-runs both gates just like a Task 3 review repair); closeout.md §12 updated with the new findings/dispositions.
 3. **Downstream gates re-close.** If the repair lands after a downstream gate already passed, that gate re-runs: cross-model review gets a new round (brief states which gates re-ran and why); after any post-push repair, push again, re-watch required checks, re-query `mergeStateStatus` (CLEAN), and re-dispatch + re-watch the dev-gate e2e workflow via the Task 3 Step 3 block. Merge only when the FINAL diff has, in this order, impeccable evidence, cross-model APPROVE, green required checks, CLEAN merge state, and a successful dev-gate run — all against that final diff.
 
 ---
@@ -193,13 +193,26 @@ pnpm format:check 2>&1 | tail -4 && echo FORMAT-OK
 
 Each command must print its `-OK` marker (pipefail preserves the tool's exit status through tail; a missing marker = that gate failed). Also check vitest's third summary line: `Errors: N` can report uncaught errors while every test passes and the exit code is 1 — the `-OK` marker (exit-status-driven) is the authority, not the `Tests` line. Expected: full unit suite green (registry suites included — `tests/styles`, `tests/help` run under `pnpm test`), typecheck clean, eslint clean, prettier clean.
 
-- [ ] **Step 2: impeccable dual gate (invariant 8 — UI surface touched)**
+- [ ] **Step 2: Create the close-out doc skeleton (before impeccable — plan R4 F2)**
 
-Run `/impeccable critique` then `/impeccable audit` on the diff (canonical v3 setup gates: `context.mjs` context load with PRODUCT.md + DESIGN.md, register reference read). P0/P1 findings fixed or deferred via `DEFERRED.md` entry BEFORE cross-model review.
+This standalone feature has no milestone handoff doc; its equivalent is `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md`. Create it NOW — before the impeccable gates run — with a `## 12. Impeccable findings & dispositions` section (initially `Pending — populated by Task 2 Step 3.`), so any impeccable-triggered repair has an existing artifact to record into. Commit: `docs(handoff): closeout skeleton for settings attention-gallery link`.
 
-- [ ] **Step 3: Record findings + dispositions in the close-out doc (invariant 8's §12 destination)**
+- [ ] **Step 3: impeccable dual gate (invariant 8 — UI surface touched)**
 
-This standalone feature has no milestone handoff doc; its equivalent is `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md`. Create it with a `## 12. Impeccable findings & dispositions` section listing every critique/audit finding (or "none"), each with tier + disposition (fixed @ commit / deferred @ DEFERRED.md entry), and commit it (`docs(handoff): ...`) BEFORE the Task 3 cross-model review dispatch. Summarize the same table in the PR body (secondary copy, not the record).
+Run `/impeccable critique` then `/impeccable audit` on the diff (canonical v3 setup gates: `context.mjs` context load with PRODUCT.md + DESIGN.md, register reference read). P0/P1 findings fixed (Repair-loop contract) or deferred via `DEFERRED.md` entry BEFORE cross-model review. Record every finding (or "none") in closeout.md §12 with tier + disposition (fixed @ commit / deferred @ DEFERRED.md entry); commit the update (`docs(handoff): ...`). Summarize the same table later in the PR body (secondary copy, not the record).
+
+- [ ] **Step 4: Docs-gate re-close (plan R4 F1)**
+
+After the closeout.md/DEFERRED.md commits (and any other post-Step-1 tracked-file change), re-run the formatting/lint gates so the final diff's local evidence is not stale:
+
+```bash
+cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link
+set -o pipefail
+pnpm format:check 2>&1 | tail -4 && echo FORMAT-OK
+pnpm lint 2>&1 | tail -4 && echo LINT-OK
+```
+
+Expected: both `-OK` markers print. Failures follow the Repair-loop contract (formatting fixes use its no-behavioral-surface exemption).
 
 ---
 
