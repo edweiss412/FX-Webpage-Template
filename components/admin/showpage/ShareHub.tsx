@@ -64,6 +64,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -151,11 +152,55 @@ export function ShareHub({
     };
   }, [inFlight]);
 
+  const containerRef = useRef<HTMLDivElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
   const kebabRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  /** Which trigger opened it — Escape restores focus there specifically. */
+  /** Which trigger opened it — Escape restores focus there specifically, and
+      the caret is anchored under it. */
   const openerRef = useRef<HTMLButtonElement | null>(null);
+
+  // Caret offset from the group's right edge, in px. The panel is `right-0`
+  // against the group, whose right edge is the kebab's right edge (kebab is the
+  // last child, `gap-2` sits BETWEEN children, not after). So the caret's right
+  // inset = (group right edge − opener centre) − half the 10px caret. Measured
+  // per-open because the primary trigger's width is label-dependent
+  // ("Share link" vs "Share link · paused" vs "Show actions") and the opener
+  // may be either trigger. `null` until measured / when layout is unavailable
+  // (SSR, jsdom): the `right-[17px]` class is the kebab-centred fallback, which
+  // is also the correct value when the kebab is the opener.
+  const [caretRightPx, setCaretRightPx] = useState<number | null>(null);
+
+  // Anchor the caret under whichever trigger opened the popover, not always the
+  // kebab (impeccable critique: opening from the primary button pointed the
+  // caret ~8px off, at the adjacent kebab). Layout-effect so the offset lands
+  // before the browser paints the caret — no flash at the fallback position.
+  // Reset to null on close so a reopen from the OTHER trigger paints the
+  // kebab-centred fallback first rather than the previous opener's offset.
+  useLayoutEffect(() => {
+    if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCaretRightPx(null);
+      return;
+    }
+    const measure = () => {
+      const container = containerRef.current;
+      const opener = openerRef.current;
+      if (!container || !opener) return;
+      const c = container.getBoundingClientRect();
+      const o = opener.getBoundingClientRect();
+      // No layout yet (SSR / jsdom report zero-size rects): keep the
+      // `right-[17px]` fallback class rather than compute a garbage offset.
+      if (c.width === 0 || o.width === 0) return;
+      const openerCentre = o.left + o.width / 2;
+      // 5 = half the 10px caret (`size-2.5`); matches the fallback's 22 − 5.
+      setCaretRightPx(c.right - openerCentre - 5);
+    };
+    measure();
+    // A viewport change can reflow the modal and shift the group's right edge.
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [open, published, archived]);
 
   const onRotateBusy = useCallback((b: boolean) => setRotateBusy(b), []);
   const onResetBusy = useCallback((b: boolean) => setResetBusy(b), []);
@@ -286,7 +331,7 @@ export function ShareHub({
   };
 
   return (
-    <div className={`relative flex items-center gap-2 ${open ? "z-30" : ""}`}>
+    <div ref={containerRef} className={`relative flex items-center gap-2 ${open ? "z-30" : ""}`}>
       {open && (
         <button
           type="button"
@@ -532,15 +577,19 @@ export function ShareHub({
           NOT disable hit-testing: painted above the panel and overlapping it, the caret
           would otherwise swallow clicks there, and `panelRef.current.contains(target)`
           would classify them as OUTSIDE the dialog.
-          Geometry: the kebab is `size-tap-min` (44px) and rightmost in the group, and the
-          panel is `right-0` against that same group, so the kebab's centre sits 22px from
-          the right edge; a 10px square centred there needs 22 − 5 = 17px. `mt-1` (4px) vs
+          Geometry: the panel is `right-0` against the group, whose right edge is the kebab's
+          right edge. `right-[17px]` is the kebab-centred fallback (kebab is `size-tap-min`
+          44px, its centre 22px from the right edge; a 10px square needs 22 − 5 = 17px) used
+          until the layout effect measures the actual opener. `caretRightPx` (measured above)
+          overrides it so the caret sits under whichever trigger opened the popover — the
+          primary button is wider and to the left, so its offset is larger. `mt-1` (4px) vs
           the panel's `mt-1.5` (6px) makes the rotated diamond straddle the panel edge. */}
       {open && (
         <span
           aria-hidden="true"
           data-testid="share-hub-caret"
           className="pointer-events-none absolute top-full right-[17px] z-40 mt-1 size-2.5 rotate-45 border-t border-l border-border bg-surface"
+          style={caretRightPx != null ? { right: `${caretRightPx}px` } : undefined}
         />
       )}
     </div>

@@ -1001,7 +1001,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     expect(geo.overflowsX, "the panel never scrolls horizontally").toBe(false);
   });
 
-  test("T-HUB-CARET: the caret centres on the kebab, straddles the panel edge, and is unclipped", async ({
+  test("T-HUB-CARET: the caret centres on the trigger that opened it, straddles the panel edge, and is unclipped", async ({
     page,
   }) => {
     await openModal(page, POPUP);
@@ -1009,16 +1009,24 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     await expect(page.locator('[data-testid="share-hub-popover"]')).toBeVisible();
 
     const caret = await page.locator('[data-testid="share-hub-caret"]').boundingBox();
+    const primary = await page.locator('[data-testid="share-hub-primary"]').boundingBox();
     const kebab = await page.locator('[data-testid="share-hub-kebab"]').boundingBox();
     const panel = await page.locator('[data-testid="share-hub-popover"]').boundingBox();
-    if (!caret || !kebab || !panel) throw new Error("caret, kebab and panel must all be laid out");
+    if (!caret || !primary || !kebab || !panel)
+      throw new Error("caret, primary, kebab and panel must all be laid out");
 
-    // Derived from the MEASURED kebab, never hardcoded to 22px: a future kebab
-    // resize then fails here instead of drifting silently.
+    // Opened from the PRIMARY button: the caret anchors under it, not the kebab
+    // (impeccable critique — the caret must point at the trigger the operator
+    // actually used). Derived from the MEASURED trigger, never hardcoded.
+    expect(
+      Math.abs(caret.x + caret.width / 2 - (primary.x + primary.width / 2)),
+      "the caret centres on the primary trigger that opened it",
+    ).toBeLessThan(0.5);
+    // ...and specifically NOT on the kebab, ~8px to its right.
     expect(
       Math.abs(caret.x + caret.width / 2 - (kebab.x + kebab.width / 2)),
-      "the caret centres on the kebab",
-    ).toBeLessThan(0.5);
+      "the caret does not centre on the (unused) kebab",
+    ).toBeGreaterThan(2);
 
     // The rotated 10px square: bounding box ~14.1px on the diagonal.
     expect(caret.width, "caret is a 10px square (rotated)").toBeCloseTo(caret.height, 1);
@@ -1047,6 +1055,26 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
       [caret.x + caret.width / 2, caret.y + caret.height - 1] as [number, number],
     );
     expect(overCaret, "the caret is inert to pointer events").toBe(false);
+  });
+
+  test("T-HUB-CARET-KEBAB: opening from the kebab centres the caret on the kebab", async ({
+    page,
+  }) => {
+    await openModal(page, POPUP);
+    await page.locator('[data-testid="share-hub-kebab"]').click();
+    await expect(page.locator('[data-testid="share-hub-popover"]')).toBeVisible();
+
+    const caret = await page.locator('[data-testid="share-hub-caret"]').boundingBox();
+    const kebab = await page.locator('[data-testid="share-hub-kebab"]').boundingBox();
+    if (!caret || !kebab) throw new Error("caret and kebab must be laid out");
+
+    // Kebab is the group's rightmost element, so its anchor equals the
+    // `right-[17px]` fallback — but this asserts the MEASURED path lands there
+    // too, so the two openers are proven distinct (primary case above).
+    expect(
+      Math.abs(caret.x + caret.width / 2 - (kebab.x + kebab.width / 2)),
+      "the caret centres on the kebab that opened it",
+    ).toBeLessThan(0.5);
   });
 
   test("T-RESYNC-FOCUS-ORDER (closed): toggle → Re-sync → share hub, in DOM order", async ({
