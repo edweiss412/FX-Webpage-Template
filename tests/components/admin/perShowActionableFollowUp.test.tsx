@@ -29,7 +29,10 @@ const warnWithCell: ParseWarning = {
 function bodyFor(i: number) {
   const item = screen.getAllByTestId("per-show-actionable-item")[i]!;
   const trigger = item.querySelector("[data-testid$='-trigger']")!;
-  const body = item.querySelector("[data-testid$='-body']")!;
+  // hoverhelp-smart-position (#549) portals the popover body out of the card
+  // subtree, so resolve it document-wide from the trigger's own testid.
+  const bodyTestId = trigger.getAttribute("data-testid")!.replace(/-trigger$/, "-body");
+  const body = document.querySelector(`[data-testid="${bodyTestId}"]`)!;
   const describedEl = document.getElementById(trigger.getAttribute("aria-describedby") ?? "");
   return { trigger, body, describedEl };
 }
@@ -87,10 +90,8 @@ describe("per-card follow-up placement (spec §3.1)", () => {
     render(
       <PerShowActionableWarnings items={[noCell]} driveFileId="d1" followUpCopy={FOLLOW_UP} />,
     );
-    const item = screen.getAllByTestId("per-show-actionable-item")[0]!;
-    expect(item.querySelector("p.mt-2")).toBeNull();
-    // The sentence must be absent from the ENTIRE card, not just the extra
-    // paragraph slot — catches a regression to the old joined-into-body form.
-    expect(item.textContent ?? "").not.toContain("Fixed it in the sheet?");
+    // Body is portaled (#549): scan the whole document — the sentence must not
+    // render anywhere for a cell-less card, in any slot.
+    expect(document.body.textContent ?? "").not.toContain("Fixed it in the sheet?");
   });
 });
