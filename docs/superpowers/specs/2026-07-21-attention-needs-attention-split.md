@@ -19,7 +19,7 @@ Also, the "{n} clearing" pill state is an **else-branch** of the "{n} to confirm
 
 ### Goal
 
-Split the auto-clearing bucket into two honest groups, surface the "needs a look" items as read-only rows in the menu, and — where a direct target exists — give each row a one-click button to where the fix happens. Drive operator effort toward zero: 11 of 12 "needs a look" codes get a direct link; the 1 remainder gets inline context. The pill shows both counts, and the second count stops disappearing when action items exist.
+Split the auto-clearing bucket into two honest groups, surface the "needs a look" items as read-only rows in the menu, and — where a direct target exists — give each row a one-click button to where the fix happens. Drive operator effort toward zero: 10 of 12 "needs a look" codes get a direct link; ASSET_RECOVERY_BYTES_EXCEEDED gets inline context, and USE_RAW_DECISION_STALE is classified but has NO admin_alerts producer today (it is a change-log write), so no row for it ever renders. The pill shows both counts, and the second count stops disappearing when action items exist.
 
 ---
 
@@ -54,13 +54,13 @@ Each decision below is ratified. A reviewer verifies the contract; does not re-d
 | 8 | `RESYNC_QUALITY_REGRESSED` | needs-a-look | Go to Overview | `showAnchor("overview")` |
 | 9 | `RESYNC_SHRINK_HELD` | needs-a-look | Review & re-sync (existing `#overview`) | already registered (`alertActions.ts:109-117`) |
 | 10 | `SHOW_UNPUBLISHED` | needs-a-look | Go to Overview | `showAnchor("overview")` |
-| 11 | `USE_RAW_DECISION_STALE` | needs-a-look | Go to Overview | `showAnchor("overview")` |
+| 11 | `USE_RAW_DECISION_STALE` | needs-a-look | none: NO admin_alerts producer (change-log write only, lib/sync/changeLog/writeUseRawStaleChanges.ts); classified for catalog totality; register an action only if a producer lands | (none) |
 | 12 | `ASSET_RECOVERY_BYTES_EXCEEDED` | needs-a-look | none — context-only | inline limits copy (60 images / 50MB / 3GB) |
 | 13 | `DRIVE_FETCH_FAILED` | monitoring | none | — |
 | 14 | `SYNC_STALLED` | monitoring | none | — |
 | 15 | `WATCH_CHANNEL_ORPHANED` | monitoring | none | — |
 
-- **needs-a-look: 12** (11 with a direct link, 1 context-only).
+- **needs-a-look: 12** (10 with a direct link, 1 context-only, 1 producer-less: USE_RAW_DECISION_STALE never reaches the menu today).
 - **monitoring: 3** (transient/self-heal — the system is on it, nobody acts).
 
 **Classification storage:** TWO explicit sets in `lib/adminAlerts/audience.ts` — `SELF_HEALING_CODES = { DRIVE_FETCH_FAILED, SYNC_STALLED, WATCH_CHANNEL_ORPHANED }` and `NEEDS_LOOK_CODES` (the other 12, enumerated). Runtime bucketing (`clearingKind`) is fail-safe: `SELF_HEALING_CODES.has(code) ? "self_heal" : "needs_look"` — an unknown code renders as needs-a-look, visible not hidden. **Correctness is NOT left to that default.** The meta-test (§10) asserts every doug-audience `resolution:"auto"` code is a member of EXACTLY ONE of the two sets; a code in NEITHER (or BOTH) fails CI. A NEW such code is in neither set by construction, so it fails by default until explicitly classified. Two positive sets exist precisely because a single-set-plus-complement guard is tautological (a code can never be "unclassified" against a complement), which is the failure the exhaustiveness test must avoid.
@@ -124,7 +124,7 @@ Retire the old bottom footer (`AttentionMenu.tsx:141-151`) — its role is repla
 - **Extend `AlertActionBuilder` opts** from `{ slug }` to `{ slug, driveFileId }` (line 31-34). `resolveAlertAction` (line 131-138) and its `toAlertItem` call site (`attentionItems.ts:272`) thread `driveFileId` through.
 - **`openSheet`** (existing, line 58): select the **first NON-EMPTY** id from `[opts.driveFileId, str(context,"drive_file_id")]` — an empty string `""` is treated as absent (NOT via `??`, which would select `""`; use a `firstNonEmpty` helper or `opts.driveFileId?.trim() || contextId?.trim() || null`). This matches `buildSheetDeepLink`'s own null-or-empty omission (`buildSheetDeepLink.ts:12`) and makes it robust for `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` (context lacks the id → uses show-level) AND for a show modal where `opts.driveFileId` is `""` but `context.drive_file_id` is valid (→ uses context). Only when BOTH are empty/absent does it return null.
 - **New `showAnchor(hash, label)` builder:** returns `/admin?show={slug}#{hash}` (internal). Mirrors `shareAccess` (line 45-55).
-- **Register 10 new codes** in `ALERT_ACTION_CODES` / `ALERT_ACTIONS` (line 13-25, 81-127): the 6 sheet codes (`SHEET_UNAVAILABLE`, `OPENING_REEL_NOT_VIDEO`, `OPENING_REEL_PERMISSION_DENIED`, `REEL_DRIFTED`, `EMBEDDED_ASSET_DRIFTED`, `EMBEDDED_RECOVERY_REQUIRES_RESTAGE`) → `openSheet`; the 4 codes `PARSE_ERROR_LAST_GOOD`, `RESYNC_QUALITY_REGRESSED`, `SHOW_UNPUBLISHED`, `USE_RAW_DECISION_STALE` → `showAnchor("overview", "Go to Overview")`. That is 6 + 4 = 10 new. (`RESYNC_SHRINK_HELD` is the 11th linked code but is ALREADY registered → `#overview`, so it is not re-added.)
+- **Register 9 new codes** in `ALERT_ACTION_CODES` / `ALERT_ACTIONS` (line 13-25, 81-127): the 6 sheet codes (`SHEET_UNAVAILABLE`, `OPENING_REEL_NOT_VIDEO`, `OPENING_REEL_PERMISSION_DENIED`, `REEL_DRIFTED`, `EMBEDDED_ASSET_DRIFTED`, `EMBEDDED_RECOVERY_REQUIRES_RESTAGE`) → `openSheet`; the 3 codes `PARSE_ERROR_LAST_GOOD`, `RESYNC_QUALITY_REGRESSED`, `SHOW_UNPUBLISHED` → `showAnchor("overview", "Go to Overview")`. That is 6 + 3 = 9 new. USE_RAW_DECISION_STALE is NOT registered (no admin_alerts producer; dead code, caught by the _metaAlertActionsContract universe check). (`RESYNC_SHRINK_HELD` completes the 10 linked codes but is ALREADY registered → `#overview`, so it is not re-added.)
 - **`AttentionMenu` now renders `item.action`** (previously only the banner did). Same `AlertActionLink` shape; no new type.
 
 ---
@@ -234,7 +234,7 @@ Anti-tautology: assert against the derived data (`deriveAttentionItems` output, 
 
 1. `deriveAttentionItems` tags `clearingKind` correctly: a `SYNC_STALLED` alert → `self_heal`; a `SHEET_UNAVAILABLE` alert → `needs_look`; an actionable alert → no `clearingKind`. (extends `attentionItems.test.ts`)
 2. Ordering: within clearing, `needs_look` sorts before `self_heal`.
-3. **Action resolution — exhaustive, table-driven over ALL 11 linked codes.** For each code in §2 rows 1-11, assert the exact resolved `{label, href, external}`:
+3. **Action resolution — exhaustive, table-driven over ALL 10 linked codes.** For each linked code in §2 (rows 1-10), assert the exact resolved `{label, href, external}`:
    - 6 sheet codes → `openSheet`: `href === https://docs.google.com/spreadsheets/d/{driveFileId}/edit#gid=0`, `external: true`, label "Open in Sheet". Run each with EMPTY alert context + show-level `driveFileId` — this specifically catches `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` (context lacks `drive_file_id`; must still build from the threaded show id) and would fail if any code were left unregistered (null action).
    - 4 `showAnchor` codes + `RESYNC_SHRINK_HELD` → `href === /admin?show={slug}#overview` (assert a SINGLE `#`, catching the `##overview` regression), `external: false`.
    - `ASSET_RECOVERY_BYTES_EXCEEDED` → resolves to NO action (null) AND its fix-hint copy contains the literal limits "60", "50MB", "3GB".

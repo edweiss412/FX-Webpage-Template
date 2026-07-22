@@ -688,3 +688,14 @@ Gallery FIRST so its diff is covered by the suite and evaluated by impeccable (a
 - **Coverage:** §2 universe → Task 1; §3.1 bucketing/driveFileId → Task 2; §3.2 pill → Task 4; §3.4 menu → Task 5; §4 actions → Task 3; §5 hints → Task 3; §6/§6a focus → Task 6; §7 dims N/A; §8 transitions → Task 7; §10 meta-tests → Tasks 1,8; §11 tests → distributed; §12 sequencing → Task 10. No gap.
 - **Placeholder scan:** none — every code step has real code; Task 6 mechanism is intentionally probe-driven (spec-ratified), not a placeholder.
 - **Type consistency:** `clearingKind`, `driveFileId`, `NeedsLookCode`, `NEEDS_LOOK_HINTS`, `resolveAlertAction({slug,driveFileId})`, `interactive` — consistent across tasks.
+
+---
+
+## Execution deviations (recorded during implementation, 2026-07-22)
+
+1. **USE_RAW_DECISION_STALE has no admin_alerts producer** (change-log write only, `lib/sync/changeLog/writeUseRawStaleChanges.ts`) — caught by `_metaAlertActionsContract`'s ADMIN_ALERTS_CODES universe check. Its action registration was removed as dead code: **9** new registrations (6 sheet + 3 overview), 10 linked codes total with RESYNC_SHRINK_HELD. It stays in NEEDS_LOOK_CODE_LIST + the hint map (catalog totality; harmless, ready if a producer lands). Spec §1/§2/§4/§11.3 corrected.
+2. **Caller topology is TWO callers, not one:** `app/admin/_showReviewModal.tsx` AND `lib/dev/deriveScenarioAttention.ts` (the gallery routes through the REAL `deriveAttentionItems` — the earlier single-caller conclusion came from a silently-failed grep). `driveFileId` is an OPTIONAL arg for exactly this reason; the gallery passes nothing and renders fail-visible needs-look rows.
+3. **Focus mechanism (§6a probe verdict):** the rAF-deferred close FAILED 3/9 probe cells; the ratified mechanism is a DERIVED open state (`menuOpen && interactive` — same-render unmount, no setState) + synchronous focus rescue in the effect + next-frame flag cleanup. Lint contract (no sync setState in effects) and probe both satisfied; 11/11 cells + §11.9 nav green in Chromium.
+4. **Task 7/8 landed as registry extensions**, not new files: `pageTransitions.test.tsx` re-pinned (PublishedReviewModal 4→8; AttentionMenu enters at 6, red-proved via a deliberate 0 pin); topology/exclusion meta-tests confirmed green with the new field.
+5. **Gallery (T9.1 disposition):** `T2_AUTO_RESOLVING` (runtime-classified) already previews the new clearing states through the real modal + real derivation path; a curated all-three-segments scenario would fan out across the tier registries/validators and is DEFERRED per the task's own scope guard.
+6. **jsdom reconcile suite** (`pillFocusReconcile.test.tsx`) added as the fast tier of §11.5a alongside the Playwright probe (same generated 9-cell product).
