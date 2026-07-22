@@ -32,7 +32,7 @@ type Props = {
   index: number;
   total: number;
   label: string;
-  tier: 1 | 2;
+  tier: 1 | 2 | 3;
   codes: string[];
   excluded: ExcludedScenario[];
   onPrev: () => void;

@@ -26,6 +26,7 @@ import {
   tier2Scenarios,
 } from "@/lib/dev/attentionScenarios/tier2";
 import { tier1AlertScenarios, tier1WarningScenarios } from "@/lib/dev/attentionScenarios/tier1";
+import { T3_IDS } from "@/lib/dev/attentionScenarios/tier3";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 
 const EXPECTED_STRUCTURAL = [T2_SECTION_ABSENT, T2_OVERVIEW_ABSENT, T2_CREW_ROW_ABSENT].sort();
@@ -133,10 +134,17 @@ describe("partitionScenarios", () => {
     expect(cut.map((e) => e.id).sort()).toEqual(EXPECTED_CUT_IDS);
   });
 
-  test("no tier-3 id renders; T2_ANCHOR_ABSENT and T2_EMPTY do render", () => {
-    expect(rendered.every((s) => s.tier === 1 || s.tier === 2)).toBe(true);
+  test("tiers 1-3 all render; T2_ANCHOR_ABSENT and T2_EMPTY do render", () => {
+    expect(rendered.every((s) => s.tier === 1 || s.tier === 2 || s.tier === 3)).toBe(true);
     expect(rendered.some((s) => s.id === T2_ANCHOR_ABSENT)).toBe(true);
     expect(rendered.some((s) => s.id === T2_EMPTY)).toBe(true);
+  });
+
+  test("renders every tier-3 composite", () => {
+    for (const id of T3_IDS) {
+      expect(rendered.some((s) => s.id === id), id).toBe(true);
+      expect(excluded.some((e) => e.id === id), id).toBe(false);
+    }
   });
 
   test("integration visibility: every rendered scenario shows something (no blank modal)", () => {

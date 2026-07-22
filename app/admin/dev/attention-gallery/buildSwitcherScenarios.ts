@@ -47,7 +47,6 @@ export function partitionScenarios(): {
   const rendered: GallerySwitcherScenario[] = [];
   const excluded: ExcludedScenario[] = [];
   for (const s of ALL_SCENARIOS) {
-    if (s.tier === 3) continue;
     if (!isModalExpressible(s)) {
       excluded.push({ id: s.id, label: s.label, reason: "structural" });
       continue;
@@ -58,7 +57,7 @@ export function partitionScenarios(): {
     }
     rendered.push({
       id: s.id,
-      tier: s.tier as 1 | 2,
+      tier: s.tier,
       label: s.label,
       codes: codesFor(s),
       data: buildScenarioModalData(s),

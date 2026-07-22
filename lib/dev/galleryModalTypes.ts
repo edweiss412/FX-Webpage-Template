@@ -32,7 +32,7 @@ export type GalleryModalData = Omit<PublishedReviewModalProps, ActionKeys>;
 /** One rendered scenario: serializable data + display metadata. */
 export type GallerySwitcherScenario = {
   id: string;
-  tier: 1 | 2;
+  tier: 1 | 2 | 3;
   label: string;
   codes: string[];
   data: GalleryModalData;
