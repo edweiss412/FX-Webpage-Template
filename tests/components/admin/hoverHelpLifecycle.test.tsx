@@ -242,3 +242,71 @@ describe("measure-and-apply with stubbed rects", () => {
     expect(body.hasAttribute("data-popover-hidden")).toBe(false);
   });
 });
+
+describe("tab bridge (body host only, learnMore set — spec §4.5)", () => {
+  function mountWithLink() {
+    render(
+      <HoverHelp label="Help: bridge" testId="br" learnMore={{ href: "/help/x" }}>
+        <p>body</p>
+      </HoverHelp>,
+    );
+    const trigger = screen.getByTestId("br-trigger");
+    fireEvent.click(trigger);
+    const body = screen.getByTestId("br-body");
+    const link = body.querySelector("a");
+    if (!link) throw new Error("learn-more link missing");
+    return { trigger, link: link as HTMLElement };
+  }
+
+  test("Tab on trigger moves focus to the link and clears a pending close timer", () => {
+    vi.useFakeTimers();
+    const { trigger, link } = mountWithLink();
+    const root = trigger.closest("div");
+    if (!root) throw new Error("no root");
+    fireEvent.pointerLeave(root, { pointerType: "mouse" }); // stage pending close
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Tab" });
+    expect(document.activeElement).toBe(link);
+    vi.advanceTimersByTime(300); // past CLOSE_DELAY_MS
+    expect(trigger.getAttribute("aria-expanded")).toBe("true"); // timer was cleared
+    vi.useRealTimers();
+  });
+
+  test("Tab on link closes popover and returns focus to trigger (declared double-visit)", () => {
+    const { trigger, link } = mountWithLink();
+    link.focus();
+    fireEvent.keyDown(link, { key: "Tab" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  test("Shift+Tab on link returns focus to trigger, popover stays open", () => {
+    const { trigger, link } = mountWithLink();
+    link.focus();
+    fireEvent.keyDown(link, { key: "Tab", shiftKey: true });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  test("focusin on the body clears a pending close timer", () => {
+    vi.useFakeTimers();
+    const { trigger, link } = mountWithLink();
+    const root = trigger.closest("div");
+    if (!root) throw new Error("no root");
+    fireEvent.pointerLeave(root, { pointerType: "mouse" });
+    fireEvent.focusIn(link);
+    vi.advanceTimersByTime(300);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    vi.useRealTimers();
+  });
+
+  test("bridge is OFF inside a provided host (dialog owns Tab)", () => {
+    render(<PaneHarness />);
+    const trigger = screen.getByTestId("ph-trigger");
+    fireEvent.click(trigger);
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Tab" });
+    // no preventDefault path: focus NOT programmatically moved to the link
+    expect(document.activeElement).toBe(trigger);
+  });
+});

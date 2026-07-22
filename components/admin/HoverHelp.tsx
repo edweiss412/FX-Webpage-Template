@@ -310,6 +310,41 @@ export function HoverHelp({
     setOpen(false);
   };
 
+  /**
+   * Body-host Tab bridge (spec §4.5). Active ONLY when no host provider
+   * exists (hostRef === null means body host by contract; a provider whose
+   * current is transiently null is a DIALOG whose trap owns Tab once its
+   * panel mounts) AND the popover is open AND a learnMore link exists.
+   * Restores the shipped "link is reachable via Tab" adjacency that the
+   * portal-to-document-end would otherwise break. Declared double-visit:
+   * forward Tab from the link closes the popover and returns to the trigger.
+   */
+  const linkRef = useRef<HTMLAnchorElement | null>(null);
+  const bridgeActive = () => hostRef === null && open && learnMore !== undefined;
+
+  const onTriggerKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== "Tab" || e.shiftKey || !bridgeActive()) return;
+    e.preventDefault();
+    clearCloseTimer(); // a pending hover-close must not hide the newly focused link
+    linkRef.current?.focus();
+  };
+
+  const onBodyKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || hostRef !== null || !learnMore) return;
+    if (document.activeElement !== linkRef.current) return;
+    e.preventDefault();
+    if (e.shiftKey) {
+      triggerRef.current?.focus(); // popover stays open
+    } else {
+      clearCloseTimer();
+      setOpen(false); // declared double-visit semantics (§4.5)
+      triggerRef.current?.focus();
+    }
+  };
+
+  /** Focus arriving in the body by ANY route keeps the popover open (§4.5). */
+  const onBodyFocus = () => clearCloseTimer();
+
   // Hover is MOUSE-ONLY: a synthetic-mouse tap on a touch device fires pointer
   // events with pointerType="touch"/"pen" — ignore those so the click toggle is
   // the sole touch interaction (no open-then-toggle net-closed race).
@@ -333,6 +368,7 @@ export function HoverHelp({
       clearCloseTimer();
       setOpen((o) => !o);
     },
+    onKeyDown: onTriggerKeyDown,
   };
 
   return (
@@ -400,6 +436,8 @@ export function HoverHelp({
               data-testid={`${testId}-body`}
               onPointerEnter={openNow}
               onPointerLeave={scheduleClose}
+              onKeyDown={onBodyKeyDown}
+              onFocus={onBodyFocus}
               className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
                 open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
               }`}
@@ -414,6 +452,7 @@ export function HoverHelp({
           // the trigger label ("Help: Active shows" → "Learn more about
           // active shows") — the HelpAffordance "Learn more: <title>" pattern.
           <a
+            ref={linkRef}
             href={learnMore.href}
             aria-label={`Learn more about ${(() => {
               const topic = label.startsWith("Help: ") ? label.slice("Help: ".length) : label;
