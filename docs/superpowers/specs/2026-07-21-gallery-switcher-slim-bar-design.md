@@ -56,7 +56,8 @@ state `const [showExcluded, setShowExcluded] = useState(false)`.
 
 - Row container: `flex flex-nowrap items-center gap-x-2` (was
   `flex flex-wrap items-center gap-x-3 gap-y-1`, `SwitcherControls.tsx:57`).
-  No wrapping at any width; the label is the only flexible child and truncates
+  No wrapping at any width; the live-region wrapper is the only shrinkable DIRECT
+  row child, and within it the label truncates
   (existing `min-w-0 truncate`, `SwitcherControls.tsx:70`).
 - Children, in order: Prev button, Next button, live-region wrapper (count + label,
   unchanged), tier chip (`shrink-0`, unchanged), and — only when
@@ -144,10 +145,13 @@ header (`data-testid="published-show-review-header"`,
 `ReviewModalShell.tsx:647` via `TESTID_BASE = "published-show-review"`,
 `components/admin/showpage/PublishedReviewModal.tsx:72`), close button
 (`published-show-review-close`), or footer (`published-show-review-footer`,
-`ReviewModalShell.tsx:696`). Header, close, and footer are the e2e-asserted boxes
-(they are the only stable testids; the rest of the list is satisfied a fortiori —
-every protected surface sits at or below the modal panel's top edge, and the e2e
-asserts the collapsed bar clears the panel's topmost box, the header). The ratified
+`ReviewModalShell.tsx:696`). The e2e asserts non-intersection with the modal PANEL
+box itself (`published-show-review-modal`, `ReviewModalShell.tsx:578`) plus the
+header, close, and footer boxes. The nav rail, section controls, and banners are
+all DESCENDANTS of the panel (they render inside the modal's DOM subtree, so their
+boxes are clipped to the panel by its `overflow-clip`, `ReviewModalShell.tsx:618`);
+clearing the panel box therefore clears every one of them — a containment argument,
+not a vertical-ordering guess. The ratified
 expanded-state exception (§1.1) permits modal overlap within the panel's 40vh cap;
 the panel is top-centered, so it cannot reach the nav rail (left) or the footer:
 the expanded maximum extent is 64px + `env(safe-area-inset-top)` + 4px (`gap-1`
@@ -176,7 +180,10 @@ not stretch-based, and each is guaranteed by an explicit class:
 | Input / state | Edge | Behavior |
 | --- | --- | --- |
 | `excluded` empty | | No toggle, no panel; row otherwise identical. |
-| `index`/`total` zero, negative, NaN | out-of-catalog values | Rendered verbatim in the count (display-only; no arithmetic beyond `index + 1`). Props are catalog-derived and pinned valid by catalog unit tests (parent spec §5); the component never gates on them. |
+| `index` zero | valid (zero-based) | Count renders `index + 1` — `0` renders as `1 / total`. |
+| `index` negative or NaN | out-of-catalog | Count renders the shifted value verbatim (`-1` renders `0`; NaN renders `NaN`) — display-only, no gating. Props are catalog-derived and pinned valid by catalog unit tests (parent spec §5). |
+| `total` zero, negative, NaN | out-of-catalog | Rendered verbatim after the `/` (display-only, no arithmetic, no gating). |
+| any prop nullish | | Compile-time excluded: every prop in `Props` (`SwitcherControls.tsx:22`) is required and non-optional under strict TS (`strictNullChecks`); no runtime nullish path exists. |
 | `label` empty | | Empty truncating span; row layout intact (label is the only flexible child). |
 | `codes` empty | | `data-codes=""`; no visible change (codes are never visible copy). |
 | `tier` outside 1\|2 | type-impossible (`1 \| 2`) | Compile-time excluded; no runtime guard. |
@@ -212,15 +219,20 @@ subtrees, no interaction; panel visibility is purely `showExcluded`.
     line; cut-only: the inverse. (Guard rows in §3.)
   - Compound transition (§4): toggling the panel is independent of scenario
     stepping — pinned by the e2e persistence step (§5 e2e), not jsdom.
-  - Toggle carries `min-h-tap-min`; row element carries `flex-nowrap` (class
-    assertion — jsdom computes no layout; real geometry is e2e's job).
+  - Static class pins (jsdom `className` assertions — these contracts are invisible
+    to a zero-inset e2e and to the short current catalog, so the classes ARE the
+    testable surface): row carries `flex-nowrap`; toggle carries `min-h-tap-min`
+    and `shrink-0`; the bar container carries `pb-2` and the
+    `pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]` literal (and NOT `py-2`);
+    the open panel carries `max-h-[40vh]` and `overflow-y-auto`.
   - Existing tests (invariant 5 data-codes, aria-live label, em-dash) updated to
     expand the panel first where they assert footnote copy.
 - **E2E, `tests/e2e/attention-modal-gallery.spec.ts` (dev-build project, 1280×800,
   port 3001 — `playwright.config.ts:84-92`):**
   - New geometry test: for viewports 1280×800 and 390×844 (`page.setViewportSize`),
-    read `boundingBox()` of the collapsed bar and of the modal header, close, and
-    footer testids; assert (a) no intersection of the bar box with each modal box,
+    read `boundingBox()` of the collapsed bar and of the modal PANEL
+    (`published-show-review-modal`), header, close, and
+    footer testids; assert (a) no intersection of the bar box with each of those,
     (b) `bar.height <= 64` (both e2e viewports report a 0px safe-area inset, §2.1.1,
     so the numeric bound is exact), and (c) no horizontal content overflow:
     `bar.scrollWidth <= bar.clientWidth` (via `locator.evaluate`) — the `inset-x-0`
