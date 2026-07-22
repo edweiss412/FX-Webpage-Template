@@ -182,6 +182,7 @@ Compound transitions:
 | Collision suppression while the open fade is mid-flight | `visibility:hidden` wins instantly over the animating opacity — node vanishes; same behavior the body already has |
 | Suppression (or side flip) while a coalesced reposition frame is pending | the pending frame runs `measureAndApply` once; body and caret are written in the same call — no torn frame where one updated and the other did not |
 | Blur-close mid-open-fade | `setOpen(false)` flips both nodes' classes in the same commit |
+| Blur-close while the 120ms pointer-leave close timer is pending | handler runs `clearCloseTimer()` before `setOpen(false)` — the stale timer cannot fire into a later re-open (T-B10) |
 
 Popover open/close states themselves are unchanged from the parent spec's inventory (`2026-07-22-hoverhelp-smart-position.md` §4.6).
 
@@ -191,7 +192,7 @@ No fixed-dimension parent with flex/grid children is introduced (the caret is ab
 
 ## §8 Test plan
 
-Every e2e/unit expectation derives from fixture rects + IMPORTED constants (`GAP`, `VIEWPORT_INSET`, `CARET_WIDTH`, `CARET_HEIGHT`, `CARET_EDGE_INSET`) — no numeric literals in assertions (the constants' own values are pinned once, in T-C6).
+Every e2e/unit expectation derives from fixture rects + IMPORTED constants (`GAP`, `VIEWPORT_INSET`, `CARET_WIDTH`, `CARET_HEIGHT`, `CARET_EDGE_INSET`). Permitted literal forms in assertions: constant-derived strings (e.g. `` `${CARET_HEIGHT}px` ``), the structural zero (`0` / `"0px"`), and CSS keyword/token strings (`"transparent"`, computed color equality against the body's own computed value). Raw numeric pins live ONLY in T-C6.
 
 Unit — `tests/lib/popover/position.test.ts` (extend):
 
@@ -202,6 +203,8 @@ Unit — `tests/lib/popover/position.test.ts` (extend):
 - **T-C4** side "top": `caret.y = trigger.top - GAP`.
 - **T-C5** degenerate width (`bounds.width < 36`, so `effectiveWidth < 36`): `caret: null`, body still placed.
 - **T-C5b** boundary `effectiveWidth === 36`: caret placed, center = `x + CARET_EDGE_INSET` (= the single valid point). Catches: `<` vs `<=` guard drift.
+- **T-C5c** `naturalSize.width < 36` with WIDE bounds (`effectiveWidth` = natural width): `caret: null`. Catches: a guard reading `bounds.width` instead of `effectiveWidth`.
+- **T-C8** hidden placement (non-overlapping trigger fixture): result is `{kind:"hidden"}` and carries no `caret` key. Catches: caret emitted for hidden placements (the §8 failure-mode claim now has its explicit assertion).
 - **T-C6** constants pinned: `CARET_WIDTH === 12`, `CARET_HEIGHT === GAP`, `CARET_EDGE_INSET === 12 + CARET_WIDTH / 2`.
 - **T-C7** `maxWidth` active: caret formulas use `effectiveWidth` (caret stays inside the clamped body span).
 - Failure modes caught: caret math drifting out of the core, inset regressions letting the caret ride a rounded corner, caret emitted for hidden placements, boundary drift.
@@ -215,6 +218,9 @@ Component (jsdom) — a NEW blur-close test file under `tests/components/admin/`
 - **T-B5** hover-open (pointer, focus elsewhere), then move focus between two outside buttons → stays open. Catches: document-scoped listener creep.
 - **T-B6** modal-host (`PopoverHostContext` provider) + `learnMore`: focusout with outside `relatedTarget` → **stays open** (carve-out). Catches: reachability regression on the parent-ratified quadrant.
 - **T-B7** body-host + `learnMore`: same dispatch → closes. Catches: carve-out over-applied to the wrong quadrant.
+- **T-B8** modal-host (provider), NO `learnMore`: same dispatch → **closes**. Catches: carve-out over-broadened to every modal popover.
+- **T-B9** modal-host + `afterBodyText` set, NO `learnMore`: same dispatch → **closes**. Catches: carve-out keyed on `narrowed` (HoverHelp.tsx:429) instead of `learnMore` — `afterBody` narrows the description but adds no focusable content.
+- **T-B10** stale-timer clearance (fake timers): open, fire `pointerleave` (schedules the 120ms close), then blur-close via focusout, then immediately re-open via click and advance timers past `CLOSE_DELAY_MS` → popover STAYS open. Catches: `clearCloseTimer()` omitted from the blur handler letting the stale hover timer close a reopened popover.
 - jsdom is legitimate here: these assert event-handler logic with synthesized `FocusEvent`s, not real focus traversal — that lives in T-E4 and probe §4.0.
 
 Component (jsdom) — `hoverHelpLifecycle.test.tsx` (extend; the stubbed-rect geometry suite):
@@ -224,14 +230,16 @@ Component (jsdom) — `hoverHelpLifecycle.test.tsx` (extend; the stubbed-rect ge
 - **T-J3** stubbed placed-with-`caret:null` result: caret alone hidden while body stays visible.
 - **T-J4** panel-host stubbed-rect case: caret `left`/`top` reflect host-offset conversion (host rect ≠ viewport), matching the body's conversion. Catches: caret positioned in viewport coords inside a panel host.
 - **T-J5** effect cleanup on close: caret `data-popover-side` stripped, `visibility` reset (mirrors body attribute lifecycle).
+- **T-J6** structural visual-contract pins (class-string + DOM level, jsdom-legitimate): (a) portal child order is body div THEN caret div (paint order for the seam); (b) the caret has exactly ONE element child (the inner triangle div) and no other children; (c) on a stubbed placed result the caret's `data-popover-side` equals the body's; (d) the caret's `className` contains the same open/close + transition tokens as the body (`transition-[opacity,display]`, `duration-fast`, `transition-discrete`, `starting:opacity-0`, and the `hidden`/`block` toggle) and `z-50` + `pointer-events-none`. Catches: missing inner triangle, divergent fade classes, wrong stacking/order — the R1-F7 permeability class.
 
 Real-engine e2e — `tests/e2e/hoverhelp-geometry.spec.ts` (extend; standalone config):
 
 - **T-E1** unclamped popover: caret center x = trigger center x ± 0.5px; caret bottom = body top ± 0.5px (side bottom); caret top = trigger bottom ± 0.5px (fills the gap).
 - **T-E2** clamped fixture: expected caret center computed by applying the §3.3 clamp formula to the LIVE trigger/body rects with imported `CARET_EDGE_INSET` — asserting the formula result, which equals the raw trigger center only when unpinned. If the existing near-edge fixture produces a deep clamp (trigger center outside the valid span), this doubles as the deep-pin integration case; otherwise add a fixture variant that does. Both branches (tracking + pinned) must be exercised across T-E1/T-E2.
 - **T-E3** side "top" fixture: caret top = body bottom ± 0.5px; orientation asserted via COMPUTED STYLE — for apex-down, outer caret has `border-top-width: 6px` and `border-bottom-width: 0px` (and the inverse for apex-up in T-E1). Catches: unflipped triangle passing on attribute alone.
-- **T-E4** real Tab-away blur-close: focus the trigger, open with Enter, press Tab → popover closes (real-engine confirmation of probe P1 through the shipped component).
+- **T-E4** real Tab-away blur-close, on a fixture WITHOUT `learnMore` (blur-close active; a body-host `learnMore` fixture would instead route Tab through the bridge and stay open by design): focus the trigger, open with Enter, press Tab → popover closes (real-engine confirmation of probe P1 through the shipped component).
 - **T-E5** caret regression on scroll reflow: scroll the page, caret tracks the trigger within tolerance after a frame.
+- **T-E6** computed-style visual contract (both orientations across the T-E1/T-E3 fixtures): outer caret `border-left-width` = `border-right-width` = `` `${CARET_WIDTH / 2}px` `` with both side colors computed transparent; apex border (`border-bottom` for apex-up, `border-top` for apex-down) width `` `${CARET_HEIGHT}px` `` with computed color equal to the body's computed `border-color`; inner triangle `top` offset computed `1.5px` (apex-up) / `-1.5px` (apex-down) and apex border color equal to the body's computed `background-color`; caret computed `z-index` equals the body's. Catches: missing/uncolored inner fill, zero or wrong seam offset, token drift, stacking divergence.
 
 Meta-test inventory: none of the candidate registries (Supabase boundaries, sentinel hiding, alert catalog, advisory locks, inline email) applies — pure client geometry + focus behavior; declared here per plan-writing rule.
 
