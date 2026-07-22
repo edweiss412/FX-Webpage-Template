@@ -103,6 +103,7 @@ import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeCo
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
+import { infoRowInvitesCorrection } from "@/lib/admin/infoCodeActionability";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import {
@@ -434,6 +435,16 @@ const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow
 export type RailCountOpts = { routedWarningsRenderElsewhere: boolean };
 
 export type Step3SectionChrome = {
+  /** Spec 2026-07-22-warning-panel-polish §3.5: ordered, label-resolved
+   *  sections holding the elsewhere warn cards, plus the TOTAL count of such
+   *  sections (resolved + unresolved) so the sentence can fold misses into
+   *  the terminal "and N more." clause. Warnings section only. */
+  pointerTargets?: {
+    targets: ReadonlyArray<{ id: SectionId; label: string }>;
+    totalSections: number;
+  };
+  /** §3.5: scroll-to-section, supplied from ShowReviewSurface.handleNavClick. */
+  onJumpToSection?: (id: SectionId) => void;
   /** Registry glyph (§6.1) — the rail, chips, and heading row share it. */
   Icon: LucideIcon;
   /** Registry label (§6.1) — ditto (NOT the body's legacy h4 label). */
@@ -691,6 +702,19 @@ export function shouldShowSectionCount(
 ): boolean {
   if (count === null || sectionId === undefined || !COUNT_SECTIONS.has(sectionId)) return false;
   return !(count === 0 && flagged);
+}
+
+/** Spec 2026-07-22-warning-panel-polish §3.5: pointer-sentence name cap. */
+export const POINTER_NAME_CAP = 3;
+
+/** Spec §3.5 unified overflow rule: named = first cap-many resolved targets;
+ *  moreCount = every other elsewhere section (over-cap AND label-unresolved). */
+export function pointerSentenceParts(
+  targets: ReadonlyArray<{ id: SectionId; label: string }>,
+  totalSections: number,
+): { named: ReadonlyArray<{ id: SectionId; label: string }>; moreCount: number } {
+  const named = targets.slice(0, POINTER_NAME_CAP);
+  return { named, moreCount: Math.max(0, totalSections - named.length) };
 }
 
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
@@ -2566,7 +2590,63 @@ export function WarningsBreakdown({
               data-testid={`wizard-step3-card-${dfid}-warnings-elsewhere`}
               className="text-sm text-text-subtle"
             >
-              Nothing else to note here. The warnings that need a look are in their own sections.
+              {(() => {
+                // Spec 2026-07-22-warning-panel-polish §3.5: name the sections,
+                // bolded and (with a jump callback) tappable. Pinned strings
+                // (§8.6): "…in A." / "…in A and B." / "…in A, B, and C." /
+                // "…in A[, B[, C]], and N more."
+                const pt = chrome?.pointerTargets;
+                const { named, moreCount } = pt
+                  ? pointerSentenceParts(pt.targets, pt.totalSections)
+                  : { named: [], moreCount: 0 };
+                if (named.length === 0) {
+                  // All labels missed or no chrome data: today's exact fallback.
+                  return "Nothing else to note here. The warnings that need a look are in their own sections.";
+                }
+                const jump = chrome?.onJumpToSection;
+                const nameNode = (t: { id: SectionId; label: string }) =>
+                  jump ? (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => jump(t.id)}
+                      // §3.5: text-sized inline button; 44x44 floor via a
+                      // CENTERED before-overlay (translate + min-w/h-tap-min,
+                      // width = max(text, 44px)) — zero line-box inflation.
+                      // Same intent as HoverHelp's compactTrigger tap floor,
+                      // different geometry (that one is a fixed inset box).
+                      // z-10: the overlay must WIN hit-testing against the
+                      // card's own padding box (elementFromPoint returns the
+                      // topmost paint; without it the ±21px zone belongs to
+                      // the card div). In the elsewhere state the sentence is
+                      // the panel's only body content, so nothing interactive
+                      // sits inside the raised zone (e2e disjointness proof).
+                      className="relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+                    >
+                      {t.label}
+                    </button>
+                  ) : (
+                    <strong key={t.id} className="font-semibold text-text-strong">
+                      {t.label}
+                    </strong>
+                  );
+                const withMore = moreCount > 0;
+                const parts: React.ReactNode[] = [
+                  "Nothing else to note here. The warnings that need a look are in ",
+                ];
+                named.forEach((t, i) => {
+                  if (i > 0) {
+                    const last = i === named.length - 1;
+                    parts.push(
+                      withMore ? ", " : named.length === 2 ? " and " : last ? ", and " : ", ",
+                    );
+                  }
+                  parts.push(nameNode(t));
+                });
+                if (withMore) parts.push(`, and ${moreCount} more`);
+                parts.push(".");
+                return parts;
+              })()}
             </p>
           ) : (
             // True in BOTH the no-warnings and the all-ignored cases, which is
@@ -2617,7 +2697,18 @@ export function WarningsBreakdown({
               The wizard keeps rendering it unconditionally: its panel lists
               every warning including the cell-bearing warn rows, and that
               surface's render is contractually unchanged. */}
-          {routedWarningsRenderElsewhere && !rows.some((w) => w.sourceCell) ? null : (
+          {/* Spec 2026-07-22-warning-panel-polish §3.4: on the published
+              branch the sourceCell conjunct is RETIRED — published rows are
+              info-only (visibleWarningRows), no info code is anchored
+              (dataGaps.ts OPERATOR_ACTIONABLE_ANCHORED), so that gate could
+              never fire. The callout now renders exactly when a listed info
+              row invites a correction (actionability registry). The wizard
+              branch stays unconditional (staged contract). */}
+          {routedWarningsRenderElsewhere ? (
+            rows.some((w) => infoRowInvitesCorrection(w)) ? (
+              <CorrectionLoopCallout mode={mode} />
+            ) : null
+          ) : (
             <CorrectionLoopCallout mode={mode} />
           )}
           {routedWarningsRenderElsewhere ? null : (
@@ -2640,8 +2731,11 @@ export function WarningsBreakdown({
                 <li
                   key={keys[i]}
                   data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
-                  // §E4 jump-target key: same FULL-array index as the testid —
-                  // the modal's container-scoped query hook (no `id`s, §9.4).
+                  // §E4 jump-target key: index into the RENDERED (trimmed) rows
+                  // — same index as the testid. Only consumer is the staged
+                  // jump path, which is never gated, so staged index == full
+                  // index there (published anchors jump by section, not row).
+                  // Container-scoped query hook (no `id`s, §9.4).
                   data-warning-index={i}
                   className="flex gap-3"
                 >

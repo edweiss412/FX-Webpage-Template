@@ -42,17 +42,23 @@ import {
   fixtureSnapshot,
 } from "@/tests/helpers/warningSurfaceFixture";
 
-/** Info rows only, each ANCHORED TO A CELL: the panel lists them (List state),
- *  nothing becomes a card, and the correction sentence applies because there is
- *  a cell to edit. */
-const INFO_ONLY: readonly ParseWarning[] = INFO_WARNINGS.map((w) => ({
-  ...w,
-  sourceCell: { title: "INFO", gid: 0, a1: "B7" },
-}));
+/** Spec 2026-07-22-warning-panel-polish §3.4: the published callout's axis is
+ *  ACTIONABILITY (INFO_CODE_ACTIONABILITY), not cell presence — no real info
+ *  emitter ever carries a sourceCell (OPERATOR_ACTIONABLE_ANCHORED excludes
+ *  both, lib/parser/dataGaps.ts:370-391), so the old sourceCell gate could
+ *  never fire on this surface. Fixtures below mirror the REAL emitter shapes.
+ */
+const INFO_NON_ACTIONABLE: readonly ParseWarning[] = INFO_WARNINGS;
 
-/** The same rows with NO cell — the shape `lib/sync/enrichWithDrivePins.ts:162`
- *  produces for asset and Drive codes. */
-const INFO_ONLY_CELLLESS: readonly ParseWarning[] = INFO_WARNINGS;
+/** The one actionable info code (its catalog copy asks the operator to remove
+ *  a duplicate — a sheet edit), real emitter shape: no sourceCell
+ *  (lib/parser/personalization.ts:71-77). */
+const DOUBLE_LOCATION: ParseWarning = {
+  severity: "info",
+  code: "DAY_RESTRICTION_DOUBLE_LOCATION",
+  message: "Day restriction paren+ONLY found in both name and role cells; preferring role cell.",
+  rawSnippet: "name: A (SAT ONLY) | role: Tech (SAT ONLY)",
+} as ParseWarning;
 
 afterEach(cleanup);
 
@@ -137,18 +143,16 @@ describe("the published panel retires its panel-level guidance", () => {
     expect(text).not.toContain(LOOP_SENTENCE);
   });
 
-  it("KEEPS it when the published panel still lists rows of its own", () => {
-    // Whole-diff review C1. §3.5 retired the callout on the premise that every
-    // row the panel used to list acquires a card carrying the sentence in its
-    // popover. Info rows break that premise: they are never routed, never
-    // become cards, and still render here. DAY_RESTRICTION_DOUBLE_LOCATION is
-    // info-severity and its copy asks the operator to remove a duplicate
-    // (lib/messages/catalog.ts:1194), so with the callout gone the loop
-    // rendered NOWHERE for a sheet whose only warnings are info.
+  it("KEEPS it when the panel lists an ACTIONABLE info row (spec §3.4)", () => {
+    // Whole-diff review C1 lineage: info rows never become cards, so this
+    // panel is the only home for the correction advice. The 2026-07-22 polish
+    // replaced the dead sourceCell conjunct (no info emitter is anchored) with
+    // the actionability registry: DAY_RESTRICTION_DOUBLE_LOCATION's copy asks
+    // the operator to remove a duplicate, so its presence invites the loop.
     //
     // The fixture is info-ONLY, so nothing on this render has a popover and the
     // sentence cannot be found in one.
-    render(<Harness warnings={INFO_ONLY} />);
+    render(<Harness warnings={[DOUBLE_LOCATION]} />);
     const { text, removedCount } = modalTextWithoutPopovers();
     expect(removedCount, "an info-only sheet mounts no warning-card popovers").toBe(0);
     expect(text).toContain(LOOP_SENTENCE);
@@ -157,25 +161,22 @@ describe("the published panel retires its panel-level guidance", () => {
     expect(text).not.toContain(NON_BLOCKING_SENTENCE);
   });
 
-  it("drops it when no listed row has a cell, because the sentence names one", () => {
-    // Round 2 of the whole-diff review: the CARD copy was gated on `sourceCell`
-    // while this PANEL copy — the same sentence, the same "Edit the cell"
-    // referent — was not, so a cell-less info row was still told to edit a cell.
-    // Same class as the card defect, on the surface the first repair missed.
-    render(<Harness warnings={INFO_ONLY_CELLLESS} />);
+  it("drops it when every listed info row is non-actionable (spec §3.4 - the owner's ask)", () => {
+    // A sheet whose only notes need no operator action (auto-corrected /
+    // FYI-only rows) must not prompt "Fixed it in the sheet?".
+    render(<Harness warnings={INFO_NON_ACTIONABLE} />);
     const { text } = modalTextWithoutPopovers();
     expect(text).not.toContain(LOOP_SENTENCE);
     // The rows themselves still render: this gates the guidance, not the list.
     // Without this the assertion above passes for the wrong reason on any build
     // that renders an empty panel.
-    expect(screen.queryAllByTestId(/-warning-\d+$/).length).toBe(INFO_ONLY_CELLLESS.length);
+    expect(screen.queryAllByTestId(/-warning-\d+$/).length).toBe(INFO_NON_ACTIONABLE.length);
   });
 
-  it("keeps it when only SOME listed rows have a cell", () => {
-    // The boundary: `some`, not `every`. One fixable row makes the advice
-    // applicable, and suppressing it there would lose the guidance the previous
-    // repair restored.
-    render(<Harness warnings={[INFO_ONLY_CELLLESS[0]!, INFO_ONLY[1]!]} />);
+  it("keeps it when only SOME listed rows are actionable", () => {
+    // The boundary: `some`, not `every`. One actionable row makes the advice
+    // applicable regardless of its non-actionable neighbors.
+    render(<Harness warnings={[INFO_NON_ACTIONABLE[0]!, DOUBLE_LOCATION]} />);
     expect(modalTextWithoutPopovers().text).toContain(LOOP_SENTENCE);
   });
 

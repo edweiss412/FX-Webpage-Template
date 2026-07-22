@@ -89,6 +89,7 @@ export function HoverHelp({
   testId = "hover-help",
   rootTestId,
   learnMore,
+  afterBodyText,
   compactTrigger = false,
 }: {
   /** Accessible name for the trigger (e.g., "Help: Active shows"). */
@@ -126,6 +127,16 @@ export function HoverHelp({
    * children-only wrapper so the link text is excluded from the SR description.
    */
   learnMore?: { href: string };
+  /**
+   * Optional second paragraph rendered AFTER the described children and before
+   * the learnMore link (spec 2026-07-22-warning-panel-polish §3.1). A string,
+   * not ReactNode, so interactive content cannot enter a popover that may
+   * carry role="tooltip". Non-empty ⇒ the same attribute shift learnMore
+   * causes: describedby narrows to the children wrapper, the trigger gains
+   * aria-controls, and the tooltip role drops (content outside the
+   * description makes this a disclosure).
+   */
+  afterBodyText?: string;
 }) {
   const [open, setOpen] = useState(false);
   // Mounted gate (ReviewModalShell.tsx:710 pattern): the portal target does
@@ -408,15 +419,24 @@ export function HoverHelp({
     if (e.pointerType === "mouse") scheduleClose();
   };
 
+  // afterBodyText normalized once: empty/whitespace behaves as absent.
+  const afterBody =
+    typeof afterBodyText === "string" && afterBodyText.trim().length > 0
+      ? afterBodyText.trim()
+      : null;
+  // Supplementary content outside the description (learnMore link OR the
+  // after-body paragraph) narrows the description and makes this a disclosure.
+  const narrowed = learnMore !== undefined || afterBody !== null;
+
   const triggerProps = {
     type: "button" as const,
     "data-testid": `${testId}-trigger`,
     "aria-label": label,
     "aria-expanded": open,
-    // With learnMore the description narrows to the children-only wrapper so
-    // the interactive link is excluded; no-learnMore instances are unchanged.
-    "aria-describedby": learnMore ? descId : bodyId,
-    "aria-controls": learnMore ? bodyId : undefined,
+    // With supplementary content the description narrows to the children-only
+    // wrapper so that content is excluded; plain instances are unchanged.
+    "aria-describedby": narrowed ? descId : bodyId,
+    "aria-controls": narrowed ? bodyId : undefined,
     onClick: () => {
       clearCloseTimer();
       setOpen((o) => !o);
@@ -485,7 +505,7 @@ export function HoverHelp({
             <div
               id={bodyId}
               ref={bodyRef}
-              role={learnMore ? undefined : "tooltip"}
+              role={narrowed ? undefined : "tooltip"}
               data-testid={`${testId}-body`}
               onPointerEnter={openNow}
               onPointerLeave={scheduleClose}
@@ -496,6 +516,7 @@ export function HoverHelp({
               }`}
             >
               <div id={descId}>{children}</div>
+              {afterBody !== null ? <p className="mt-2">{afterBody}</p> : null}
               {learnMore ? (
                 // M12.12 follow-up: aria-label keeps the decorative "→" out of the
                 // accessible name. An aria-hidden <span> around the glyph was tried

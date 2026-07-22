@@ -42,6 +42,7 @@ import type { LucideIcon } from "lucide-react";
 import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
+import { warningsPanelStatusSentence } from "@/lib/admin/warningsPanelStatus";
 import {
   findUseRawDecision,
   ROOMS_CAP,
@@ -189,7 +190,7 @@ export function ShowReviewSurface({
   // byte-identical); the published review modal passes `syncHash` explicitly.
   extraSectionsBefore?: ExtraSection[]; // Phase 2: [Overview] — full rail items: scroll-spy + hash + chips participate
   extraSectionsAfter?: ExtraSection[]; // Phase 2: [Changes]
-  renderSectionExtras?: (id: SectionId, d: SectionData) => ReactNode; // Phase 2 hook: per-section warning controls
+  renderSectionExtras?: (id: SectionId, d: SectionData, opts?: { seamless?: boolean }) => ReactNode; // Phase 2 hook: per-section warning controls
   // warning-surface-trim §3.2: ACTIVE warn counts, split into the fallback
   // bucket rendering below the Parse warnings panel (`here`) and every other
   // section (`elsewhere`). Passed by the published modal alongside
@@ -454,6 +455,23 @@ export function ShowReviewSurface({
     const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
     scroller.scrollTo({ top });
   }
+
+  // Spec 2026-07-22-warning-panel-polish §3.5: the pointer sentence's ordered,
+  // label-resolved jump targets + the total elsewhere-section count (unresolved
+  // ids fold into "and N more"). `sections` is registry-ordered, so the targets
+  // inherit visual order. Hoisted (not inline in the provider value) so the
+  // JSX stays analyzable and the derivation memoizes with its inputs.
+  const pointerTargets = useMemo(() => {
+    if (!routedWarningsRenderElsewhere || routedWarnings === undefined) return null;
+    const elsewhereIds = Object.keys(routedWarnings.activeWarningsBySection).filter(
+      (id) => id !== "warnings",
+    );
+    if (elsewhereIds.length === 0) return null;
+    const targets = sections
+      .filter((sec) => elsewhereIds.includes(sec.id))
+      .map((sec) => ({ id: sec.id, label: sec.label }));
+    return { targets, totalSections: elsewhereIds.length };
+  }, [routedWarningsRenderElsewhere, routedWarnings, sections]);
 
   // ── §E4 warning jump + one-shot highlight (§H N3) ──────────────────────────
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1041,6 +1059,15 @@ export function ShowReviewSurface({
                   ...(s.id === "warnings" && warningsNotes && warningsNotes.length > 0
                     ? { parseNotes: warningsNotes }
                     : {}),
+                  // §3.5 pointer targets: derived in the pointerTargets
+                  // useMemo above. Warnings section only, spread-inserted
+                  // (exactOptional discipline).
+                  ...(s.id === "warnings" && pointerTargets !== null
+                    ? {
+                        pointerTargets,
+                        onJumpToSection: (id: SectionId) => handleNavClick(id),
+                      }
+                    : {}),
                   // attention-alert-routing §3.3: anchored cards thread into the
                   // section that OWNS the anchor — rooms hosts diagrams, event hosts
                   // opening_reel. ABSENT on every other section (exactOptional).
@@ -1072,8 +1099,28 @@ export function ShowReviewSurface({
                 {s.render(data)}
               </Step3SectionChromeContext.Provider>
               {/* Phase 2 hook: per-section warning controls under the panel.
-                Phase 1 passes no `renderSectionExtras` → renders nothing. */}
-              {renderSectionExtras?.(s.id, data)}
+                Phase 1 passes no `renderSectionExtras` → renders nothing.
+                seamless (spec 2026-07-22 §3.3): exactly when this section's
+                body card is suppressed, so the extras' border-t cannot read
+                as a heading underline. */}
+              {renderSectionExtras?.(s.id, data, {
+                seamless: s.id === "warnings" && suppressWarningsPanelCard,
+              })}
+              {/* Spec 2026-07-22-warning-panel-polish §3.2: always-mounted
+                  published live region. OUTSIDE the chrome-suppressible card
+                  subtree (Silent unmounts panel children,
+                  step3ReviewSections.tsx:792-815) so the node survives every
+                  state and role="status" announces each text change. */}
+              {/* §11: instant — deliberate (sr-only text swap; no visual transition) */}
+              {s.id === "warnings" && routedWarningsRenderElsewhere ? (
+                <span role="status" className="sr-only" data-testid="warnings-panel-status">
+                  {warningsPanelStatusSentence(
+                    visibleWarningRows(data.warnings, true).length,
+                    routedWarnings?.here ?? 0,
+                    routedWarnings?.elsewhere ?? 0,
+                  )}
+                </span>
+              ) : null}
             </section>
           ))}
           {/* Extra rail sections mounted after the registry (Phase 2: Changes).

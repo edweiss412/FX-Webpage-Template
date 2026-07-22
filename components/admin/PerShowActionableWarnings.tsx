@@ -137,15 +137,15 @@ export function PerShowActionableWarnings({
           w.sourceCell && typeof followUpCopy === "string" && followUpCopy.trim().length > 0
             ? followUpCopy.trim()
             : null;
-        // Joined with a SPACE, not "\n\n" (impeccable critique P1b): `HoverHelp`
-        // renders its body in a plain `<div>` (components/admin/HoverHelp.tsx:254)
-        // with no `whitespace-pre-line`, so a newline pair collapses and the
-        // intended paragraph break never appears. Two complete sentences with one
-        // space is honest prose; producing a real visual break would mean adding
-        // `whitespace-pre-line` to the SHARED popover body, which changes every
-        // other popover on the surface and is out of scope here.
-        const popoverBody =
-          [context, followUp].filter((v): v is string => v !== null).join(" ") || null;
+        // Spec 2026-07-22-warning-panel-polish §3.1: the follow-up is a second
+        // popover paragraph OUTSIDE the aria-describedby text run, not joined
+        // into the body. Guard boundary (§3.1): with a null trigger context the
+        // follow-up IS the body — the only content of a producer-less defensive
+        // case — so the card keeps a described popover instead of losing its
+        // trigger entirely. `context` is already `string | null` (the
+        // warningCardCopyFields ternary above), the one nullable sentinel.
+        const popoverBody = context ?? followUp;
+        const afterBodyText: string | null = context !== null ? followUp : null;
 
         // Branch on the RESULT, never on `sourceCell` alone: a non-null cell with a
         // null driveFileId still yields no link (spec §5.2).
@@ -242,6 +242,7 @@ export function PerShowActionableWarnings({
                   <CompactAlertHelp
                     subject={typeof title === "string" ? title : null}
                     popoverCopy={popoverBody}
+                    {...(afterBodyText !== null ? { afterBodyText } : {})}
                     // No helpHref on this surface, so the Learn-more route gate
                     // is never consulted; the constant keeps this a server component.
                     helpHref={null}
