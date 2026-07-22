@@ -13,7 +13,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -72,7 +72,7 @@ describe("composite attention pill (spec §3.2 / §11.5 matrix, exact visible te
     [3, 0, 2, "3 to confirm · 2 monitoring", true],
     [0, 4, 0, "4 to review", true],
     [0, 4, 2, "4 to review · 2 monitoring", true],
-    [0, 0, 1, "1 monitoring", false],
+    [0, 0, 1, "1 monitoring", true],
     [0, 0, 0, "In sync", false],
   ];
 
@@ -148,4 +148,83 @@ describe("mistagged actionable item (spec §3.3 boundary guard)", () => {
     const pill = screen.getByTestId("published-show-review-alert-pill");
     expect(visibleText(pill)).toBe("1 to confirm");
   });
+});
+
+describe("monitoring-only quiet interactive pill (monitoring-badge-expand §3.1)", () => {
+  it("(0,0,2) quiet button: opens menu, positive root pins, zero warning classes root-inclusive, positive subtle descendants, no leading middot", () => {
+    const pill = renderPill(0, 0, 2);
+    expect(pill.tagName).toBe("BUTTON");
+    expect(pill).toHaveAttribute("aria-expanded", "false");
+    for (const cls of ["bg-surface-sunken", "text-text-subtle", "hover:bg-surface-sunken/80"]) {
+      expect(pill.className.split(/\s+/)).toContain(cls);
+    }
+    // getAttribute("class") - SVG className is SVGAnimatedString, .className would miss it
+    expect(
+      [pill, ...pill.querySelectorAll("*")].filter((el) =>
+        /warning/.test(el.getAttribute("class") ?? ""),
+      ),
+    ).toHaveLength(0);
+    // positive descendant tone pins (spec §5.1): segment wrapper + chevron carry text-text-subtle
+    const seg = pill.querySelector('[data-testid="attention-pill-monitoring-segment"]');
+    expect(seg?.getAttribute("class") ?? "").toContain("text-text-subtle");
+    const chev = pill.querySelector("svg");
+    expect(chev?.getAttribute("class") ?? "").toContain("text-text-subtle");
+    expect(visibleText(pill)).toBe("2 monitoring"); // no leading middot
+    fireEvent.click(pill);
+    expect(pill).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+  });
+
+  it("(0,0,1) keeps the title attribute and the hit-band classes (§10 T-TAP inheritance)", () => {
+    const pill = renderPill(0, 0, 1);
+    expect(pill).toHaveAttribute("title", "1 monitoring, clearing on their own, no action needed");
+    for (const cls of ["before:absolute", "before:inset-x-0", "before:-inset-y-3"]) {
+      expect(pill.className.split(/\s+/)).toContain(cls);
+    }
+  });
+
+  it("composite pill keeps the amber positive pins (root warning trio present)", () => {
+    const pill = renderPill(1, 0, 1);
+    for (const cls of ["bg-warning-bg", "text-warning-text", "hover:bg-warning-bg/80"]) {
+      expect(pill.className.split(/\s+/)).toContain(cls);
+    }
+    expect(pill.className.split(/\s+/)).not.toContain("bg-surface-sunken");
+  });
+});
+
+describe("pill-side treatment tripwires (monitoring-badge-expand §3.4, both palettes)", () => {
+  for (const [a, n, s2, label] of [
+    [1, 0, 1, "composite/amber"],
+    [0, 0, 1, "monitoring-only/quiet"],
+  ] as const) {
+    it(`(${a},${n},${s2}) ${label}: root cross-fades, descendants transition-free, chevron transform-only`, () => {
+      const pill = renderPill(a, n, s2);
+      const rootClasses = pill.className.split(/\s+/);
+      expect(rootClasses).toContain("transition-colors");
+      expect(rootClasses).toContain("duration-fast");
+      const seg = pill.querySelector('[data-testid="attention-pill-monitoring-segment"]');
+      expect(seg).not.toBeNull();
+      const dots = [...pill.querySelectorAll('[class*="rounded-pill"]')].filter((el) => el !== pill);
+      const middots = [...pill.querySelectorAll("span")].filter((el) =>
+        (el.textContent ?? "").trim() === "·",
+      );
+      for (const el of [seg!, ...dots, ...middots]) {
+        const cls = el.getAttribute("class") ?? "";
+        expect(cls, `transition class on ${cls}`).not.toMatch(/transition/);
+        expect(cls, `animate class on ${cls}`).not.toMatch(/animate/);
+        const st = (el as HTMLElement).style;
+        expect(st.transition ?? "").toBe("");
+        expect(st.transitionProperty ?? "").toBe("");
+        expect(st.transitionDuration ?? "").toBe("");
+        expect(st.animation ?? "").toBe("");
+      }
+      const chev = pill.querySelector("svg");
+      // allowed set: the rotation transition + its motion-reduce DISABLER —
+      // any other transition spelling (colors, all, arbitrary) fails.
+      const chevTransitions = (chev?.getAttribute("class") ?? "")
+        .split(/\s+/)
+        .filter((c) => c.includes("transition") && c !== "motion-reduce:transition-none");
+      expect(chevTransitions).toEqual(["transition-transform"]);
+    });
+  }
 });

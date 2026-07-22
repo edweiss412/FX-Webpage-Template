@@ -575,6 +575,38 @@ describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)"
     expect(anchor.hasAttribute("data-step3-warning-flash")).toBe(true);
   });
 
+  it("resolve: last actionable closes the menu DESPITE a remaining monitoring item (monitoring-badge-expand §1.1 doctrine pin)", async () => {
+    // §1.1: onResolved close-on-last-actionable is UNCHANGED — the stays-open
+    // contract applies only to passive live-data reconciliation, never the
+    // user's own resolve action.
+    renderModal({
+      attentionItems: [
+        alertItem({ id: "alert:r1" }),
+        alertItem({ id: "alert:mon1", actionable: false, clearingKind: "self_heal" }),
+      ],
+    });
+    await screen.findByTestId(`${TB}-attention-menu`); // auto-open committed
+    fireEvent.click(screen.getByTestId("per-show-alert-resolve-r1"));
+    await waitFor(() =>
+      expect(screen.getByTestId("attention-banner-confirmed-r1")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+    // pill remains (monitoring-only quiet button), not In sync
+    expect(screen.getByTestId(`${TB}-alert-pill`).textContent).toContain("1 monitoring");
+  });
+
+  it("auto-open pin: alertId equal to a monitoring item's SOURCE-ALERT id never auto-opens (spec §5.9b)", async () => {
+    // The deep-link id is the underlying alert's own id (item.alert.alertId),
+    // NOT the derived row id — an unrelated id would pass vacuously.
+    const monitoring = alertItem({ id: "alert:mon2", actionable: false, clearingKind: "self_heal" });
+    expect(monitoring.kind).toBe("alert");
+    const sourceAlertId = monitoring.kind === "alert" ? monitoring.alert.alertId : "";
+    expect(sourceAlertId).toBe("mon2");
+    renderModal({ attentionItems: [monitoring], alertId: sourceAlertId });
+    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+  });
+
   it("resolve: banner button → pill decrements optimistically; last one → menu closes, pill flips to In sync", async () => {
     renderModal({ attentionItems: [alertItem({ id: "alert:r1" })] });
     // Menu auto-opened; the overview banner carries the resolve button.
