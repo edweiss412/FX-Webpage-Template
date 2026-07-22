@@ -357,6 +357,16 @@ test("body is a DESCENDANT of the dialog panel when the host context is provided
   expect(panel!.contains(body)).toBe(true);
 });
 
+test("root wrapper aria-owns re-adopts the portaled body in the a11y tree (spec §4.4)", async () => {
+  render(
+    <HoverHelp label="Help: owns" testId="owns-help" rootTestId="owns-root">
+      <p>owned body</p>
+    </HoverHelp>,
+  );
+  const body = await screen.findByTestId("owns-help-body");
+  expect(screen.getByTestId("owns-root")).toHaveAttribute("aria-owns", body.id);
+});
+
 test("body portals to document.body when NO host context is provided", async () => {
   render(
     <HoverHelp label="Help: solo" testId="solo-help">
@@ -441,7 +451,7 @@ expect(root).toHaveAttribute("aria-owns", body.id);
 
 Sweep the rest of the suite for any other wrapper-scoped body queries in the same pass (class-sweep rule) and convert identically. All 12 green.
 
-- [ ] **Step 6: Typecheck + commit** — `pnpm exec tsc --noEmit`; `git add -A && git commit --no-verify -m "feat(admin): portal HoverHelp body into PopoverHostContext host with mounted gate"`
+- [ ] **Step 6: Typecheck + commit** — `pnpm exec tsc --noEmit`; `git add components/admin/HoverHelp.tsx components/admin/review/ReviewModalShell.tsx tests/components/admin/hoverHelpEscapeContainment.test.tsx tests/components/admin/HoverHelp.test.tsx && git commit --no-verify -m "feat(admin): portal HoverHelp body into PopoverHostContext host with mounted gate"`
 
 ---
 
@@ -467,7 +477,8 @@ Sweep the rest of the suite for any other wrapper-scoped body queries in the sam
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { HoverHelp } from "@/components/admin/HoverHelp";
+import { useRef } from "react";
+import { HoverHelp, PopoverHostContext } from "@/components/admin/HoverHelp";
 
 type FrameCb = (t: number) => void;
 let frames: Map<number, FrameCb>;
@@ -518,6 +529,20 @@ function mount() {
     </HoverHelp>,
   );
   return screen.getByTestId("lc-trigger");
+}
+
+/** Non-body-host fixture for the scrolled-host conversion test. */
+function PaneHarness() {
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  return (
+    <div ref={paneRef} data-testid="pane-host" style={{ overflowY: "auto", height: 300 }}>
+      <PopoverHostContext.Provider value={paneRef}>
+        <HoverHelp label="Help: pane" testId="ph">
+          <p>body</p>
+        </HoverHelp>
+      </PopoverHostContext.Provider>
+    </div>
+  );
 }
 
 test("u3: open measures synchronously - no frame requested by the open path", () => {
@@ -636,6 +661,26 @@ describe("measure-and-apply with stubbed rects", () => {
     expect(body.getAttribute("data-popover-side")).toBe("bottom");
   });
 
+  test("SCROLLING non-body host adds its scroll offsets to the conversion", () => {
+    stubViewport(1000, 800);
+    render(
+      <PaneHarness /> /* helper below: provider around HoverHelp with a pane div ref */,
+    );
+    const trigger = screen.getByTestId("ph-trigger");
+    const pane = screen.getByTestId("pane-host");
+    Object.defineProperty(pane, "scrollTop", { configurable: true, value: 120 });
+    Object.defineProperty(pane, "scrollLeft", { configurable: true, value: 0 });
+    Object.defineProperty(pane, "clientTop", { configurable: true, value: 0 });
+    Object.defineProperty(pane, "clientLeft", { configurable: true, value: 0 });
+    stubRect(pane, { left: 100, top: 100, width: 400, height: 300 });
+    stubRect(trigger, { left: 150, top: 150, width: 20, height: 20 });
+    const body = screen.getByTestId("ph-body");
+    stubRect(body, { left: 0, top: 0, width: 288, height: 100 });
+    fireEvent.click(trigger);
+    // vy = trigger.bottom + GAP = 176; top = 176 - 100(host top) - 0(border) + 120(scrollTop) = 196
+    expect(body.style.top).toBe("196px");
+  });
+
   test("close clears BOTH placement attributes", () => {
     stubViewport(1000, 800);
     const trigger = mount();
@@ -721,10 +766,10 @@ const measureAndApply = () => {
   const isBodyHost = host === document.body;
   const left = isBodyHost
     ? placement.viewport.x + window.scrollX
-    : placement.viewport.x - hostRect.left - host.clientLeft;
+    : placement.viewport.x - hostRect.left - host.clientLeft + host.scrollLeft;
   const top = isBodyHost
     ? placement.viewport.y + window.scrollY
-    : placement.viewport.y - hostRect.top - host.clientTop;
+    : placement.viewport.y - hostRect.top - host.clientTop + host.scrollTop;
   body.style.left = `${left}px`;
   body.style.top = `${top}px`;
   if (placement.maxHeight !== null) body.style.maxHeight = `${placement.maxHeight}px`;
@@ -905,7 +950,7 @@ Wire: `onKeyDown={onTriggerKeyDown}` merged into `triggerProps`; body div gets `
 - [ ] **Step 2: Fix each failing query** to document scope (`screen.findByTestId(...)`), asserting portal location where the old assertion was structural. Do NOT weaken assertions: where a suite asserted body CONTENT under the wrapper, keep the content assertion at document scope.
 - [ ] **Step 3: Regenerate the outerHTML snapshot** — `pnpm vitest run tests/components/admin/stagedCardBaseline.test.tsx -u`; inspect the diff: the deltas must be EXACTLY (a) the popover body div's departure from the card subtree and (b) the `aria-owns` attribute appearing on each HoverHelp root wrapper (Task 2 adds it deliberately). Any OTHER delta = Task 2/3 regression; stop and fix there.
 - [ ] **Step 4: deep-link-walker HoverHelp arm** — FIRST run the walker to observe the red (`pnpm exec playwright test tests/e2e/deep-link-walker.spec.ts` per its header's project/boot requirements; expected failure: nested-link search finds nothing under the wrapper). Then edit: (`tests/e2e/deep-link-walker.spec.ts:182-199`): after clicking the trigger, locate the link via the body testid at DOCUMENT scope — replace the nested-descendant search with: read the trigger's `aria-controls` id, locate the body with the attribute-selector form `page.locator(`[id=${JSON.stringify(id)}]`)` (no `CSS.escape` — that is a browser API, unavailable in the Node runner), then find the link inside THAT node. Re-run the walker → green. (If the walker's boot requirements make a local run infeasible on this machine, record that explicitly in the commit body and rely on the Task 9 real-CI gate — do NOT silently skip the red/green.)
-- [ ] **Step 5: Full unit suite** — `pnpm vitest run` → green. Typecheck. Commit — `git add -A tests/ && git commit --no-verify -m "test(admin): document-scope popover queries across consumer suites for portaled body"`
+- [ ] **Step 5: Full unit suite** — `pnpm vitest run` → green. Typecheck. Commit — stage the EXACT files this task touched (the seven consumer suites, `hoverHelpCompactTrigger.test.tsx`, the regenerated `__snapshots__` file, `tests/e2e/deep-link-walker.spec.ts`) by name with `git add <each path>` (`git status --porcelain` first; every listed path must appear, nothing else), then `git commit --no-verify -m "test(admin): document-scope popover queries across consumer suites for portaled body"`
 
 ---
 
@@ -931,6 +976,7 @@ Wire: `onKeyDown={onTriggerKeyDown}` merged into `triggerProps`; body div gets `
 - `edges`: `align="right"` trigger at x≈10 and `align="left"` trigger at right edge
 - `scrolly`: page 3000px tall, trigger at y≈1500 (body-host coordinate probe under scroll)
 - `pane`: a 300px `overflow-y-auto` container hosting a card list, and the entry WRAPS this case in `<PopoverHostContext.Provider value={paneRef}>` so the pane IS the positioning host — bounds = pane∩viewport, so a trigger scrolled out of the pane leaves bounds and MUST hide (with a body host it could still overlap the viewport and legitimately stay placed). This also exercises the non-body host path inside the standalone harness (panel-arm bonus for T3g)
+- `grow`: trigger mid-page; popover content starts at 150px tall (below every cap); the page renders a `data-testid="grow-content"` button OUTSIDE the popover whose click appends a fixed 400px-tall div into the popover body content (state-driven in the entry, deterministic)
 - `learnmore`: body-host learnMore instance (T8 body-host keyboard)
 
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
@@ -969,7 +1015,7 @@ Wire: `onKeyDown={onTriggerKeyDown}` merged into `triggerProps`; body div gets `
   - T7 panel-host: shrink viewport width so the panel narrows below 288px content → popover `maxWidth` engages, body within panel bounds (T3g's panel arm); pane scroll tracking ±1px.
   - T8 panel-host: with popover open, repeatedly Tab and per press record `{tag: el.tagName, name: el.getAttribute("aria-label") ?? el.textContent}` for a full cycle — assert some entry satisfies `tag === "A"` with the Learn-more accessible name (`Learn more about …`, HoverHelp derives it from the trigger label — the link has NO testid by contract), AND wrap occurs (the first recorded element repeats).
 - [ ] **Step 2: Run** — `pnpm exec playwright test tests/e2e/published-review-modal.interactions.spec.ts --project=desktop-chromium` (needs the port-3000 webServer per the spec's harness; if the suite's own boot docs differ, follow the file header). A failing case here is a PRODUCER bug surfaced by an integration test: keep the e2e red as the failing test, write/extend the closest UNIT red reproducing it (position table row or lifecycle case), fix the production file in THIS task's repair scope, unit green, e2e green, then commit the pair as `fix(admin): <defect> caught by panel-host e2e` — production + test files staged explicitly.
-- [ ] **Step 3: Commit** — `git commit --no-verify -am "test(admin): panel-host clipping, inert, and keyboard e2e in review-modal family"`
+- [ ] **Step 3: Commit** — `git add tests/e2e/published-review-modal.interactions.spec.ts && git commit --no-verify -m "test(admin): panel-host clipping, inert, and keyboard e2e in review-modal family"` (repair-scope files, if touched, were already committed by the Step-2 repair procedure)
 
 ---
 
@@ -979,10 +1025,10 @@ Wire: `onKeyDown={onTriggerKeyDown}` merged into `triggerProps`; body div gets `
 - Modify: `DEFERRED.md` (remove WARNCARD-POPOVER-OVERLAP-1 → move full entry to `DEFERRED-archive.md`), `BACKLOG.md` (mark `BL-HOVERHELP-PORTAL` resolved; add `BL-HOVERHELP-VISUAL-VIEWPORT` per spec R8)
 
 - [ ] **Step 1: Bookkeeping edits** (archive entry gets a "SHIPPED via 2026-07-22-hoverhelp-smart-position" line; backlog addition cites spec §1.1 R8).
-- [ ] **Step 2: Implementation-time class-sweep** (spec §4.1): `grep -rln 'role="dialog"' components/ | xargs grep -ln "ShowReviewSurface\|HoverHelp\|CompactAlertHelp\|PerShowActionableWarnings\|AttentionBanner"` → every hit must be a ReviewModalShell consumer or carry the provider; paste output into the PR body.
+- [ ] **Step 2: Implementation-time class-sweep** (spec §4.1), two-sided so silent drops are impossible: `for f in $(grep -rln 'role="dialog"' components/); do printf '%s\tsubtree=%s\tprovider=%s\tshell=%s\n' "$f" "$(grep -cE 'ShowReviewSurface|HoverHelp|CompactAlertHelp|PerShowActionableWarnings|AttentionBanner' "$f")" "$(grep -c 'PopoverHostContext.Provider' "$f")" "$(grep -c 'ReviewModalShell' "$f")"; done` — EVERY dialog file appears as a row; any row with `subtree>0` must have `provider>0` OR `shell>0`, and rows with `subtree=0` are listed as verified-clear. Paste the full table into the PR body.
 - [ ] **Step 3: Pre-push gates** (memories: full suite, typecheck, eslint, format): `pnpm vitest run && pnpm exec tsc --noEmit && pnpm lint && pnpm format:check` → all green.
-- [ ] **Step 4: Impeccable dual-gate** (invariant 8): `/impeccable critique` + `/impeccable audit` on the diff (UI files: HoverHelp.tsx, ReviewModalShell.tsx). Each P0/P1 fix follows its own mini-cycle: add/extend the closest failing check where the class is testable (copy literal, class-string, contrast token → unit/registry test; geometry → e2e case), fix, re-run BOTH impeccable commands on the amended diff, commit per finding (`fix(admin): impeccable <finding-id>`). Non-testable judgment findings: fix + re-run the gate, note "no red feasible" in the commit body. P2/P3 → DEFERRED.md with un-defer triggers. Record findings + dispositions in the PR body.
-- [ ] **Step 5: Commit** — `git commit --no-verify -am "docs: close WARNCARD-POPOVER-OVERLAP-1 and BL-HOVERHELP-PORTAL; file visual-viewport backlog"`
+- [ ] **Step 4: Impeccable dual-gate** (invariant 8): `/impeccable critique` + `/impeccable audit` on the diff (UI files: HoverHelp.tsx, ReviewModalShell.tsx). Each P0/P1 fix follows its own mini-cycle: add/extend the closest failing check where the class is testable (copy literal, class-string, contrast token → unit/registry test; geometry → e2e case), fix, re-run BOTH impeccable commands on the amended diff, commit per finding with explicit staging of the touched files by name (`git add <files> && git commit --no-verify -m "fix(admin): impeccable <finding-id>"`). Non-testable judgment findings: fix + re-run the gate, note "no red feasible" in the commit body. P2/P3 → DEFERRED.md with un-defer triggers. Record findings + dispositions in the PR body.
+- [ ] **Step 5: Commit** — `git add DEFERRED.md DEFERRED-archive.md BACKLOG.md && git commit --no-verify -m "docs: close WARNCARD-POPOVER-OVERLAP-1 and BL-HOVERHELP-PORTAL; file visual-viewport backlog"`
 
 ---
 
