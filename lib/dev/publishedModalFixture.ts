@@ -21,11 +21,17 @@ import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import { GALLERY_NOW, GALLERY_SLUG, type GalleryModalData } from "@/lib/dev/galleryModalTypes";
+import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
+import type { ScenarioFixture } from "@/lib/dev/attentionScenarios/types";
+import type { PersistedEmbeddedImage, RunOfShow, AgendaEntry } from "@/lib/parser/types";
+import type { AgendaExtraction } from "@/lib/agenda/types";
 
 const GALLERY_SHOW_ID = "99999999-9999-4999-8999-999999999999";
 const GALLERY_DRIVE_FILE_ID = "DRIVE_GALLERY";
 const GALLERY_TITLE = "Gallery Preview Show";
-const GALLERY_SHEET_HREF = `https://docs.google.com/spreadsheets/d/${GALLERY_DRIVE_FILE_ID}/edit`;
+// Production parity: the loader derives openSheetHref via buildSheetDeepLink
+// (app/admin/_showReviewModal.tsx:386), which pins #gid=0.
+const GALLERY_SHEET_HREF = buildSheetDeepLink(GALLERY_DRIVE_FILE_ID);
 
 export type AnchorFlags = { diagrams?: boolean; openingReel?: boolean };
 
@@ -71,8 +77,14 @@ export function buildGallerySnapshot(
         showDays: ["2026-05-02"],
         travelOut: "2026-05-03",
       },
-      venue: { name: "Gallery Hall", address: "1 Preview St" },
-      event_details: anchors.openingReel ? { opening_reel: "Gallery opening reel content" } : null,
+      venue: { name: "Gallery Hall", address: "1 Preview St", loadingDock: "Dock B, rear alley" },
+      event_details: anchors.openingReel
+        ? {
+            opening_reel: "Gallery opening reel content",
+            dress_code: "Business casual",
+            polling: "Yes",
+          }
+        : null,
       agenda_links: [{ label: "Show agenda", url: "https://example.test/gallery-agenda" }],
       coi_status: "received",
       diagrams: anchors.diagrams ? diagramsWithSignal() : null,
@@ -113,6 +125,7 @@ export function buildGallerySnapshot(
         id: "dddddddd-0000-4000-8000-000000000001",
         kind: "gs",
         name: "Grand Ballroom",
+        floor: "2nd floor",
         dimensions: "80x120",
         power: "200A 3-phase",
         set_time: "07:00",
@@ -161,7 +174,11 @@ export function buildGallerySnapshot(
         driver_phone: "555-0110",
         vehicle: "26ft box truck",
         parking: "Dock B",
-        schedule: [],
+        loadout_name: "Sam Porter",
+        notes: "Staging via the rear alley only",
+        schedule: [
+          { stage: "Load in", date: "2026-05-01", time: "7:00 AM", assigned_names: ["Morgan Lee"] },
+        ],
       },
       {
         id: "ffffffff-0000-4000-8000-000000000002",
@@ -230,4 +247,329 @@ export function buildGalleryModalData(over: Partial<GalleryModalData> = {}): Gal
     alertId: null,
     ...over,
   };
+}
+
+// ── applyFixture: the single ScenarioFixture mapping (modal-state-coverage §3.2) ──
+//
+// Every GalleryModalData field production DERIVES from the snapshot is derived
+// the same way here (the spec's derivation-parity table) — never independently
+// injected. Deterministic throughout: index-derived values, no Date.now.
+
+import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
+
+/** app/admin/_showReviewModal.tsx CREW_ROSTER_READ_CAP mirror (parity-tested). */
+const ROSTER_READ_CAP = 500;
+
+export type AppliedFixture = {
+  snapshot: ShowReviewSnapshot;
+  dataOverrides: Partial<GalleryModalData>;
+};
+
+function pad3(i: number): string {
+  return String(i).padStart(3, "0");
+}
+
+function genCrewRow(i: number): Record<string, unknown> {
+  return {
+    id: `cccccccc-0000-4000-8000-${pad3(i)}000000000`.slice(0, 36),
+    name: `Crew Member ${pad3(i)}`,
+    role: i % 2 === 0 ? "Tech" : "Hand",
+  };
+}
+
+function genRoomRow(i: number): Record<string, unknown> {
+  return {
+    id: `dddddddd-0000-4000-8000-${pad3(i)}000000000`.slice(0, 36),
+    kind: "breakout",
+    name: `Breakout ${pad3(i)}`,
+  };
+}
+
+function genHotelRow(i: number): Record<string, unknown> {
+  return {
+    id: `eeeeeeee-0000-4000-8000-${pad3(i)}000000000`.slice(0, 36),
+    ordinal: i,
+    hotel_name: `Hotel Annex ${pad3(i)}`,
+    names: [`Crew Member ${pad3(i)}`],
+  };
+}
+
+/** Fixed-length (~63-char) emails so mailto batching overflows deterministically. */
+function genEmail(i: number): string {
+  return `crew.member.${pad3(i)}.${"x".repeat(24)}@example-long-domain.test`;
+}
+
+function scheduleOverflowRos(): RunOfShow {
+  const ros: RunOfShow = {};
+  const agendaEntry = (d: number, e: number): AgendaEntry => ({
+    start: `${String(8 + (e % 8)).padStart(2, "0")}:00 AM`,
+    title: `Session ${d}-${e}`,
+  });
+  for (let d = 1; d <= 15; d++) {
+    const iso = `2026-08-${String(d).padStart(2, "0")}`;
+    ros[iso] = {
+      entries: Array.from({ length: 8 }, (_, e) => agendaEntry(d, e)),
+      showStart: null,
+      showEnd: null,
+      window: null,
+    };
+  }
+  ros["2026-08-16"] = {
+    entries: [
+      { start: "8:00 AM", title: "Strike", kind: "strike" },
+      { start: "11:00 AM", title: "Load out", kind: "loadout" },
+    ],
+    showStart: null,
+    showEnd: null,
+    window: null,
+  };
+  return ros;
+}
+
+function genDiagramImages(n: number): PersistedEmbeddedImage[] {
+  return Array.from({ length: n }, (_, i) => ({
+    sheetTab: "Diagrams",
+    objectId: `gallery-img-${pad3(i)}`,
+    mimeType: "image/png",
+    sheetsRevisionId: "gallery-rev-1",
+    embeddedFingerprint: `fp-${pad3(i)}`,
+    recovery_disposition: "normal" as const,
+    snapshotPath: `diagrams/gallery-img-${pad3(i)}.png`,
+  }));
+}
+
+/**
+ * A high-confidence extraction overflowing every admin preview cap: 3 days × 5
+ * sessions (15 > AGENDA_ADMIN_SESSIONS_CAP 8 → droppedSessions and droppedDays)
+ * with one 8-track session (> tracks-per-session cap 6 → droppedTracks).
+ */
+function agendaOverflowExtraction(): AgendaExtraction {
+  const session = (d: number, i: number) => ({
+    time: `${9 + i}:00 AM – ${9 + i}:40 AM`,
+    title: `Day ${d} Session ${i + 1}`,
+    room: null,
+    tracks:
+      d === 1 && i === 0
+        ? Array.from({ length: 8 }, (_, t) => ({
+            label: `T${t + 1}`,
+            title: `Track ${t + 1}`,
+            room: null,
+          }))
+        : [],
+    drift: null,
+  });
+  return {
+    confidence: "high",
+    corrections: 0,
+    days: [1, 2, 3].map((d) => ({
+      dayLabel: `Day ${d}`,
+      date: `2026-05-0${d}`,
+      sessions: Array.from({ length: 5 }, (_, i) => session(d, i)),
+    })),
+    extractorVersion: 1,
+  };
+}
+
+function genAgendaLinks(n: number): Array<Record<string, unknown>> {
+  return Array.from({ length: n }, (_, i) => ({
+    label: `AGENDA ${i + 1} - Breakout ${i + 1}`,
+    fileId: `gallery-agenda-${pad3(i)}`,
+    url: `https://drive.google.com/file/d/gallery-agenda-${pad3(i)}/view`,
+  }));
+}
+
+function genPackCases(cases: number, itemsPerCase: number): Array<Record<string, unknown>> {
+  return Array.from({ length: cases }, (_, c) => ({
+    caseLabel: `Case ${pad3(c + 1)}`,
+    items: Array.from({ length: itemsPerCase }, (_, i) => ({
+      qty: 1,
+      cat: "AV",
+      subCat: null,
+      item: `Item ${pad3(c + 1)}-${pad3(i + 1)}`,
+    })),
+  }));
+}
+
+function str(v: unknown): string | null {
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+/**
+ * Apply a validated ScenarioFixture to the base snapshot and derive the
+ * data-half overrides. `opts.firstSurvivingAlertId` is required by the
+ * alertFlash knob (validateScenario guarantees a survivor exists; the modal
+ * builder passes the id it derived).
+ */
+export function applyFixture(
+  base: ShowReviewSnapshot,
+  fixture: ScenarioFixture | undefined,
+  opts: { firstSurvivingAlertId?: string } = {},
+): AppliedFixture {
+  const snapshot: ShowReviewSnapshot = {
+    ...base,
+    show: { ...base.show },
+    internal: base.internal === null ? null : { ...base.internal },
+    crew_members: [...base.crew_members],
+    rooms: [...base.rooms],
+    hotel_reservations: [...base.hotel_reservations],
+    transportation: [...base.transportation],
+    contacts: [...base.contacts],
+  };
+  const dataOverrides: Partial<GalleryModalData> = {};
+  const fx = fixture ?? {};
+
+  // ── Lifecycle (both halves from this one mapping) ──────────────────────────
+  const archived = fx.archived === true;
+  if (fx.archived !== undefined || fx.published !== undefined) {
+    const published = archived ? false : (fx.published ?? true);
+    snapshot.show.archived = archived;
+    snapshot.show.published = published;
+    dataOverrides.archived = archived;
+    dataOverrides.published = published;
+    // Loader parity: finalizeOwned is forced false when archived.
+    if (archived) dataOverrides.finalizeOwned = false;
+  }
+  if (fx.finalizeOwned === true && !archived) dataOverrides.finalizeOwned = true;
+  if (fx.isLive === true) {
+    // Production derives isLive as published && isShowLiveOnDate(dates, today);
+    // the knob reshapes dates around GALLERY_NOW so the badge is date-consistent.
+    snapshot.show.dates = {
+      travelIn: "2026-06-30",
+      set: null,
+      showDays: ["2026-07-01"],
+      travelOut: "2026-07-02",
+    };
+    dataOverrides.isLive = true;
+  }
+  if (fx.neverSynced === true) {
+    dataOverrides.lastSyncedAt = null;
+    dataOverrides.lastCheckedAt = null;
+  }
+  if (fx.checkedAbsent === true) dataOverrides.lastCheckedAt = null;
+  if (fx.lastSyncStatus !== undefined) dataOverrides.lastSyncStatus = fx.lastSyncStatus;
+  if (fx.titleAbsent === true) {
+    // Production converts the adapter's empty title to null (title || null);
+    // the snapshot keeps the storable empty string.
+    snapshot.show.title = "";
+    dataOverrides.title = null;
+  }
+  if (fx.datesAbsent === true) {
+    snapshot.show.dates = { travelIn: null, set: null, showDays: [], travelOut: null };
+  }
+  if (fx.clientAbsent === true) snapshot.show.client_label = "";
+
+  // ── Empty sections ─────────────────────────────────────────────────────────
+  for (const key of fx.empty ?? []) {
+    if (key === "crew") snapshot.crew_members = [];
+    if (key === "venue") snapshot.show.venue = null;
+    if (key === "rooms") snapshot.rooms = [];
+    if (key === "hotels") snapshot.hotel_reservations = [];
+    if (key === "transport") snapshot.transportation = [];
+    if (key === "contacts") snapshot.contacts = [];
+    if (key === "billing") snapshot.show.coi_status = null;
+    if (key === "agenda") snapshot.show.agenda_links = [];
+  }
+
+  // ── Volumes ────────────────────────────────────────────────────────────────
+  const vol = fx.volumes ?? {};
+  if (vol.crew !== undefined) {
+    const rows = snapshot.crew_members.slice(0, vol.crew);
+    for (let i = rows.length; i < vol.crew; i++) rows.push(genCrewRow(i + 1));
+    snapshot.crew_members = rows;
+  }
+  if (vol.rooms !== undefined) {
+    const rows = snapshot.rooms.slice(0, vol.rooms);
+    for (let i = rows.length; i < vol.rooms; i++) rows.push(genRoomRow(i + 1));
+    snapshot.rooms = rows;
+  }
+  if (vol.hotels !== undefined) {
+    const rows = snapshot.hotel_reservations.slice(0, vol.hotels);
+    for (let i = rows.length; i < vol.hotels; i++) rows.push(genHotelRow(i + 1));
+    snapshot.hotel_reservations = rows;
+  }
+  if (vol.hotelGuests !== undefined) {
+    const first = snapshot.hotel_reservations[0];
+    if (first !== undefined) {
+      snapshot.hotel_reservations = [
+        {
+          ...(first as Record<string, unknown>),
+          names: Array.from({ length: vol.hotelGuests }, (_, i) => `Guest ${pad3(i + 1)}`),
+        },
+        ...snapshot.hotel_reservations.slice(1),
+      ];
+    }
+  }
+  if (vol.schedule === "overflow" && snapshot.internal !== null) {
+    snapshot.internal = { ...snapshot.internal, run_of_show: scheduleOverflowRos() };
+  }
+  if (vol.diagramImages !== undefined) {
+    snapshot.show.diagrams = {
+      current: {
+        snapshot_revision_id: "gallery-diagrams-rev",
+        snapshot_status: "complete" as const,
+        linkedFolder: null,
+        embeddedImages: genDiagramImages(vol.diagramImages),
+        linkedFolderItems: [],
+      },
+    };
+  }
+  if (vol.packlist !== undefined) {
+    snapshot.show.pull_sheet = genPackCases(vol.packlist.cases, vol.packlist.itemsPerCase);
+  }
+  if (vol.agenda === "overflow") {
+    const links = Array.isArray(snapshot.show.agenda_links)
+      ? [...(snapshot.show.agenda_links as Array<Record<string, unknown>>)]
+      : [];
+    const first = links[0];
+    if (first !== undefined) {
+      links[0] = { ...first, fileId: "gallery-agenda-000", extracted: agendaOverflowExtraction() };
+      snapshot.show.agenda_links = links;
+    }
+  }
+  if (vol.agendaLinks !== undefined) {
+    snapshot.show.agenda_links = genAgendaLinks(vol.agendaLinks);
+  }
+
+  // ── Share roster reshape ───────────────────────────────────────────────────
+  if (fx.share !== undefined) {
+    const n = fx.share.crewEmails;
+    // Grow the roster when the requested email count exceeds it (validation
+    // forbids exceeding an EXPLICIT volumes.crew).
+    const rows = [...snapshot.crew_members];
+    for (let i = rows.length; i < n; i++) rows.push(genCrewRow(i + 1));
+    snapshot.crew_members = rows.map((r, i) =>
+      i < n
+        ? { ...(r as Record<string, unknown>), email: genEmail(i + 1) }
+        : (r as Record<string, unknown>),
+    );
+  }
+
+  // ── Derived data-half fields (production parity) ───────────────────────────
+  const rosterOverCap = snapshot.crew_members.length > ROSTER_READ_CAP;
+  // crewEmails: loader parity (app/admin/_showReviewModal.tsx:347-362).
+  const derivedEmails = rosterOverCap
+    ? []
+    : snapshot.crew_members
+        .map((r) => (r as Record<string, unknown>).email)
+        .filter((e): e is string => typeof e === "string" && e.includes("@"));
+  if (fx.share !== undefined || rosterOverCap) dataOverrides.crewEmails = derivedEmails;
+  // pickerCrew: loader parity (archived ? [] : every snapshot row).
+  const pickerCrew: PickerResetCrewRow[] = archived
+    ? []
+    : snapshot.crew_members.map((r) => {
+        const row = (r ?? {}) as Record<string, unknown>;
+        return { id: str(row.id) ?? "", name: str(row.name) ?? "", role: str(row.role) };
+      });
+  if (fixture !== undefined) dataOverrides.pickerCrew = pickerCrew;
+  if (rosterOverCap) {
+    // Loader parity: over the cap the actionable roster affordances are blanked
+    // (previewRoster: []) while the crew SECTION still renders every row.
+    const data = buildPublishedSectionData(snapshot, { slug: GALLERY_SLUG });
+    dataOverrides.data = { ...data, previewRoster: [] };
+  }
+  if (fx.alertFlash === true && opts.firstSurvivingAlertId !== undefined) {
+    dataOverrides.alertId = opts.firstSurvivingAlertId;
+  }
+
+  return { snapshot, dataOverrides };
 }
