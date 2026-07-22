@@ -6,9 +6,13 @@ import { PROTECTED_ROUTES, classifyTrustDomain } from "@/lib/audit/trustDomains"
 describe("X.3 trust-domain auth-chain audit", () => {
   // Full-tree walk + per-file reads: ~5.0s on CI runners as of 2026-07-22,
   // exactly at vitest's 5000ms default. Explicit headroom, not a perf gate.
-  test("live project routes are classified and protected access is ordered", { timeout: 30_000 }, () => {
-    expect(auditProjectAuthChains()).toEqual([]);
-  });
+  test(
+    "live project routes are classified and protected access is ordered",
+    { timeout: 30_000 },
+    () => {
+      expect(auditProjectAuthChains()).toEqual([]);
+    },
+  );
 
   test("protected route registry covers post-pivot picker and API surfaces", () => {
     expect(auditProjectAuthChains({ mode: "classification-only" })).toEqual([]);
