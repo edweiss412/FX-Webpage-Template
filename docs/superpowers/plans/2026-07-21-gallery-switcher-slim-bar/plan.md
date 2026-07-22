@@ -33,100 +33,118 @@ across the ArrowRight remount (re-query after stepping).
 
 ## Tasks
 
-### Task 1 — failing tests first (unit + e2e), then implementation (red → green)
+### Task 1 — the feature, TDD (all tests red, then the component, then green; ONE commit)
 
-Rewrite `tests/components/admin/dev/switcherControls.test.tsx`:
+This is a single-component change; splitting tests and implementation into separate
+commits would leave a non-green intermediate commit (the old e2e footnote test
+fails once footnotes hide by default). So Task 1 is one TDD cycle and ONE commit
+carrying: the unit-test rewrite, the e2e edits, the source-scan audit test, and the
+component change. Red-first is demonstrated by running BOTH layers after the test
+edits and BEFORE the component edit, and quoting both failing summaries in the
+commit body.
+
+Step 1a — test edits (all of them):
+
+Unit (`tests/components/admin/dev/switcherControls.test.tsx`):
 
 - KEEP (unchanged behavior): invariant-5 data-codes test; aria-live label test;
   prev/next + tap-target test; group-role test.
-- REWRITE "footnotes grouped by reason" → disclosure contract:
+- REWRITE "footnotes grouped by reason" as the disclosure contract:
   - mixed `excluded`: footnote copy ABSENT initially (`queryByText(/structural probes/i)` null,
     `queryByText(/published attention surface/i)` null); toggle visible with
     accessible name `/2 excluded/`, `aria-expanded="false"`, no `aria-controls`;
-    click → both lines visible, `aria-expanded="true"`,
-    `aria-controls === "switcher-excluded-panel"` and the panel element has that id
-    and `data-testid="attention-switcher-excluded-panel"`; click again → panel gone,
+    click: both lines visible, `aria-expanded="true"`,
+    `aria-controls === "switcher-excluded-panel"`, panel has that id and
+    `data-testid="attention-switcher-excluded-panel"`; click again: panel gone,
     `aria-expanded="false"`, `aria-controls` absent.
   - structural-only: panel shows structural line, NOT cut line; cut-only: inverse.
-  - `excluded: []`: no toggle (`queryByTestId('attention-switcher-excluded-toggle')` null), no panel.
+  - `excluded: []`: no toggle, no panel.
 - Static class pins (spec §5): row `flex-nowrap`; Prev, Next, chip, toggle each
   `shrink-0`; toggle `min-h-tap-min` + `min-w-tap-min`; wrapper `min-w-0` + `flex-1`;
   bar container className contains `pb-2` and
   `pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]` and NOT `py-2`; open panel
   `max-h-[40vh]` + `overflow-y-auto`.
-  Concrete failure mode caught: silent class drop that a zero-inset browser and the
-  short current catalog cannot surface (spec §5 rationale).
-- em-dash test: extend to expanded state (open panel, then assert textContent has no U+2014).
-- Guard rows: `index: 0` renders `1 /`; degenerate numbers render verbatim-shifted
-  (one case: `index: -1, total: 0` → text matches `0 / 0`).
+  Failure mode caught: silent class drop invisible to a zero-inset browser and the
+  short current catalog.
+- em-dash test: extend to expanded state (open panel, assert textContent has no U+2014).
+- Guard rows (complete §3 runtime set): `index: 0` renders `1 /`; `index: NaN`
+  renders `NaN /`; `index: -1, total: 0` renders `0 / 0`; `total: -3` renders
+  `/ -3`; `total: NaN` renders `/ NaN`; `label: ""` leaves the row intact (empty
+  truncating span still present with `min-w-0 truncate`); long `label`
+  (200 chars) keeps the `truncate` class on the span (jsdom cannot measure
+  clipping; the class IS the contract); `codes: []` yields `data-codes=""`.
+  (Nullish props and out-of-range `tier` are compile-time exclusions; the
+  typecheck gate is their proof.)
+- Source-scan transition audit (spec §4): the unit file reads the component source
+  (`readFileSync`) and asserts NO match for
+  `/AnimatePresence|motion\.|animate-|transition/`. Conditional-render inventory,
+  each dispositioned instant mount/unmount (no exit animation):
+  (1) toggle when `excluded.length > 0` — instant; (2) panel when `showExcluded` —
+  instant; (3) structural line when `structural.length > 0` — instant;
+  (4) cut line when `cut.length > 0` — instant. The compound case (toggle panel
+  while scenario steps) is the e2e persistence step.
 
-Then implement `components/admin/dev/SwitcherControls.tsx` per spec §2 (single
-component; `useState`; row `flex flex-nowrap items-center gap-x-2`; toggle +
-conditional panel; container `pb-2 pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]`
-replacing `py-2`; footnote `<p>` copy moved verbatim into the panel).
+E2E (`tests/e2e/attention-modal-gallery.spec.ts`):
 
-Verify: `npx vitest run tests/components/admin/dev/switcherControls.test.tsx`
-red first (new assertions fail against old component), then green.
-Commit: `fix(admin): slim single-row switcher bar with excluded-scenarios disclosure`.
-
-### Task 2 — e2e geometry + persistence + footnote update (red → green)
-
-`tests/e2e/attention-modal-gallery.spec.ts`:
-
-- NEW test "collapsed bar clears the modal at both viewports" (spec §5): for
-  1280×800 then 390×844 (`page.setViewportSize`), after the dialog gate:
+- NEW test "collapsed bar clears the modal at both viewports" (spec §5), ORDER
+  FIXED to avoid state leakage: FIRST 390×844 (`page.setViewportSize` before
+  `gotoScenario`) with the disclosure never touched — collapsed-state geometry:
   bar `boundingBox()` vs boxes of `DIALOG` (panel), header
   (`published-show-review-header`), close (`published-show-review-close`), footer
-  (`published-show-review-footer`): assert no intersection with each (strict
-  rect-overlap helper, no tolerance); `bar.height <= 64`;
-  `bar.scrollWidth <= bar.clientWidth` via `locator.evaluate`.
+  (`published-show-review-footer`): no intersection with each (strict rect-overlap
+  helper, no tolerance); `bar.height <= 64`; `bar.scrollWidth <= bar.clientWidth`
+  via one-shot `locator.evaluate`. THEN resize to 1280×800, fresh `gotoScenario`
+  (re-navigation resets any state), repeat the same collapsed assertions; ONLY
+  AFTER desktop collapsed geometry passes, run the persistence steps (desktop
+  only, spec §5): expand panel, ArrowRight, re-query, panel still open
+  (`aria-expanded="true"`); close X, Reopen, panel state survived. Nothing runs
+  after persistence, so expanded state leaks nowhere.
   Anti-tautology: expected boxes come from the real shell testids; failure mode
-  caught = bar wrapping (height > 64) or covering the panel (intersection) even
-  when e2e operability tests still pass.
-- Persistence steps ride the same test at 1280×800 ONLY (spec §5): expand panel →
-  ArrowRight → re-query, panel still open; close X → Reopen → panel state survived.
-- UPDATE footnote test (line 332 block): after `gotoScenario`, footnote copy absent;
-  click `attention-switcher-excluded-toggle`; existing STRUCTURAL/CUT assertions
-  unchanged (still catalog-derived).
+  caught = bar wrapping (height > 64) or covering the panel while operability
+  tests still pass.
+- UPDATE footnote test (attention-modal-gallery.spec.ts:332 block): after
+  `gotoScenario`, footnote copy absent; click
+  `attention-switcher-excluded-toggle`; existing STRUCTURAL/CUT assertions
+  unchanged (catalog-derived).
 
-Ordering makes red-first honest: ALL of Task 1/2's test edits (unit rewrite + new
-e2e geometry test + footnote-test update) are written and RUN before the component
-changes — the unit disclosure/class assertions fail against the old component, and
-the e2e geometry test fails against the old ~90px wrapping bar (the deferral's own
-defect). Then the component change lands and both layers go green.
-e2e command: `pnpm exec playwright test attention-modal-gallery --project=dev-build`.
-Task 2's commit: `test(admin): pin collapsed switcher bar geometry against the modal boxes`
-(tests land WITH the implementation commit of Task 1 in the same PR; Task 2's commit
-carries the e2e file, Task 1's the unit file + component — both commits only after
-both layers are green locally, red runs referenced in the commit bodies).
+Step 1b — RED: run
+`npx vitest run tests/components/admin/dev/switcherControls.test.tsx` (new
+assertions fail against the old component) and
+`pnpm exec playwright test attention-modal-gallery --project=dev-build`
+(geometry test fails against the old ~90px wrapping bar; footnote test fails
+because copy is visible without a toggle). Record both failing summaries.
 
-### Task 3 — transition audit (spec §4)
+Step 1c — GREEN: implement `components/admin/dev/SwitcherControls.tsx` per spec §2
+(single component; `useState`; row `flex flex-nowrap items-center gap-x-2`; toggle
++ conditional panel; container
+`pb-2 pt-[calc(--spacing(2)+env(safe-area-inset-top,0px))]` replacing `py-2`;
+footnote `<p>` copy moved verbatim into the panel). Re-run both layers to green.
 
-Component has 2 states, 1 pair, declared instant. Audit = grep the component for
-`AnimatePresence|motion\.|transition` → expect none; assert in the unit test file
-as a source-scan (read the component source in the test, expect no match).
-Concrete failure mode: someone adds a half-animated exit later without an inventory
-entry. (Cheap, jsdom-free, deterministic.)
-Folded into Task 1's commit if trivial; otherwise
-`test(admin): pin switcher disclosure as animation-free`.
+Commit (one): `fix(admin): slim single-row switcher bar with excluded-scenarios disclosure`
+— body quotes the red summaries from step 1b.
 
-### Task 4 — docs close-out
+### Task 2 — docs close-out (docs task; validation = mechanical checks, not TDD)
 
 - DEFERRED.md: remove the `ATTN-GALLERY-CONTROLBAR-OVERLAP-1` entry (lines 11-15).
 - DEFERRED-archive.md: add resolved entry citing this spec + PR.
 - Parent spec §3.4 layout-invariant line 118: append one sentence pointing to this
   spec as the ratified amendment (do NOT rewrite the parent bullet).
+- Validation (stated because docs tasks have no red/green): `rg -c
+  "ATTN-GALLERY-CONTROLBAR-OVERLAP-1" DEFERRED.md` returns 0 matches (exit 1);
+  the archive gains exactly one entry; `pnpm spec:lint` on the touched parent spec
+  stays at its pre-change hard-finding count (0).
+
 Commit: `docs(handoff): close ATTN-GALLERY-CONTROLBAR-OVERLAP-1 via slim switcher bar`.
 
-### Task 5 — gates
+### Task 3 — gates (no commit unless fixes emerge)
 
 1. Full local: `pnpm test` + `npx tsc --noEmit` + `pnpm lint` + `pnpm format:check`
    (pre-push gates; `--no-verify` commits bypass hooks so run them explicitly).
-2. Playwright dev-build project run (Task 2 command).
+2. Playwright dev-build project run (Task 1 command).
 3. Impeccable dual-gate (invariant 8): `/impeccable critique` + `/impeccable audit`
    on the diff; P0/P1 fixed or DEFERRED.md.
-4. Whole-diff Codex review (fresh eyes, inline-all brief) → APPROVE.
-5. Push, PR, real CI green, `gh pr merge --merge`, sync main `0 0`.
+4. Whole-diff Codex review (fresh eyes, inline-all brief), iterate to APPROVE.
+5. Push, PR, real CI green, `gh pr merge --merge`, sync main `0  0`.
 
 ## Fix-round regression budget
 
