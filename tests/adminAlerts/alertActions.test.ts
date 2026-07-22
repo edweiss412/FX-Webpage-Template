@@ -227,7 +227,9 @@ describe("ONBOARDING_SHEET_UNREADABLE (setup-scan hard-fail folder alert)", () =
 
 describe("resolveAlertAction dispatch", () => {
   it("unregistered codes → null", () => {
-    expect(resolveAlertAction("SHOW_UNPUBLISHED", { drive_file_id: "x" }, slugOpts)).toBeNull();
+    // SHOW_UNPUBLISHED gained a registration (attention split §4); SYNC_STALLED
+    // is monitoring/self-heal and deliberately has NO action registration.
+    expect(resolveAlertAction("SYNC_STALLED", { drive_file_id: "x" }, slugOpts)).toBeNull();
     expect(resolveAlertAction("", null, noSlug)).toBeNull();
     expect(resolveAlertAction("not_a_code", null, noSlug)).toBeNull();
   });
@@ -258,5 +260,67 @@ describe("resolveAlertActions (spec 2026-07-18 §4.1 — ROLE_FLAGS_NOTICE speci
     const single = resolveAlertActions("PICKER_EPOCH_RESET", {}, { slug: "ria-forum" });
     expect(single).toHaveLength(1);
     expect(resolveAlertActions("ROLE_FLAGS_NOTICE", null, { slug: "ria-forum" })).toEqual([]);
+  });
+});
+
+// --- needs-a-look action links (spec 2026-07-21-attention-needs-attention-split §4, §11.3) ---
+// Table-driven over ALL 11 linked codes; hrefs derived from fixture ids, never constants.
+describe("needs-a-look action links (attention split §4)", () => {
+  const SHEET_CODES = [
+    "SHEET_UNAVAILABLE",
+    "OPENING_REEL_NOT_VIDEO",
+    "OPENING_REEL_PERMISSION_DENIED",
+    "REEL_DRIFTED",
+    "EMBEDDED_ASSET_DRIFTED",
+    "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+  ] as const;
+  const ANCHOR_CODES = [
+    "PARSE_ERROR_LAST_GOOD",
+    "RESYNC_QUALITY_REGRESSED",
+    "SHOW_UNPUBLISHED",
+    "USE_RAW_DECISION_STALE",
+  ] as const;
+  const FILE = "FILE123";
+  const sheetHref = `https://docs.google.com/spreadsheets/d/${FILE}/edit#gid=0`;
+
+  it.each(SHEET_CODES)("%s builds Open in Sheet from show-level driveFileId with EMPTY context", (code) => {
+    // empty context specifically covers EMBEDDED_RECOVERY_REQUIRES_RESTAGE (context lacks drive_file_id)
+    const a = resolveAlertAction(code, {}, { slug: "demo", driveFileId: FILE });
+    expect(a).toEqual({ label: "Open in Sheet", href: sheetHref, external: true });
+  });
+
+  it.each(ANCHOR_CODES)("%s builds a single-# internal Overview link", (code) => {
+    const a = resolveAlertAction(code, {}, { slug: "demo", driveFileId: FILE });
+    expect(a).toEqual({ label: "Go to Overview", href: "/admin?show=demo#overview", external: false });
+    expect((a?.href.match(/#/g) ?? []).length).toBe(1); // no ##overview
+  });
+
+  it("RESYNC_SHRINK_HELD keeps its exact existing registration", () => {
+    const a = resolveAlertAction("RESYNC_SHRINK_HELD", {}, { slug: "demo", driveFileId: FILE });
+    expect(a).toEqual({ label: "Review & re-sync", href: "/admin?show=demo#overview", external: false });
+  });
+
+  it("ASSET_RECOVERY_BYTES_EXCEEDED resolves to NO action (context-only)", () => {
+    expect(resolveAlertAction("ASSET_RECOVERY_BYTES_EXCEEDED", {}, { slug: "demo", driveFileId: FILE })).toBeNull();
+  });
+
+  it("empty-string driveFileId falls back to context.drive_file_id (?? would wrongly pick '')", () => {
+    const a = resolveAlertAction("SHEET_UNAVAILABLE", { drive_file_id: "CTX9" }, { slug: "demo", driveFileId: "" });
+    expect(a?.href).toBe("https://docs.google.com/spreadsheets/d/CTX9/edit#gid=0");
+  });
+
+  it("null show-level id with valid context id still builds the link", () => {
+    const a = resolveAlertAction("REEL_DRIFTED", { drive_file_id: "CTX9" }, { slug: "demo", driveFileId: null });
+    expect(a?.href).toBe("https://docs.google.com/spreadsheets/d/CTX9/edit#gid=0");
+  });
+
+  it("BOTH ids absent-or-empty -> null (read-only row)", () => {
+    expect(resolveAlertAction("SHEET_UNAVAILABLE", {}, { slug: "demo", driveFileId: null })).toBeNull();
+    expect(resolveAlertAction("SHEET_UNAVAILABLE", { drive_file_id: "" }, { slug: "demo", driveFileId: "" })).toBeNull();
+  });
+
+  it("null or empty slug -> showAnchor null", () => {
+    expect(resolveAlertAction("SHOW_UNPUBLISHED", {}, { slug: null, driveFileId: "F" })).toBeNull();
+    expect(resolveAlertAction("SHOW_UNPUBLISHED", {}, { slug: "  ", driveFileId: "F" })).toBeNull();
   });
 });

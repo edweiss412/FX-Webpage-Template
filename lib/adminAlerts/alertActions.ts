@@ -22,6 +22,17 @@ export const ALERT_ACTION_CODES = [
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
   "RESYNC_SHRINK_HELD",
   "ONBOARDING_SHEET_UNREADABLE",
+  // needs-a-look direct-fix links (spec 2026-07-21-attention-needs-attention-split §2/§4)
+  "SHEET_UNAVAILABLE",
+  "OPENING_REEL_NOT_VIDEO",
+  "OPENING_REEL_PERMISSION_DENIED",
+  "REEL_DRIFTED",
+  "EMBEDDED_ASSET_DRIFTED",
+  "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+  "PARSE_ERROR_LAST_GOOD",
+  "RESYNC_QUALITY_REGRESSED",
+  "SHOW_UNPUBLISHED",
+  "USE_RAW_DECISION_STALE",
 ] as const;
 
 export type AlertActionCode = (typeof ALERT_ACTION_CODES)[number];
@@ -54,10 +65,32 @@ function shareAccess(label: string): AlertActionBuilder {
   };
 }
 
-const openSheet: AlertActionBuilder = (context) => {
-  const href = buildSheetDeepLink(str(context, "drive_file_id"));
+// First NON-EMPTY id wins; `??` would select an empty string over a valid
+// context id (spec 2026-07-21-attention-needs-attention-split §4). Empty/blank
+// is absent, matching buildSheetDeepLink's own null-or-empty omission.
+function firstNonEmpty(...candidates: Array<string | null | undefined>): string | null {
+  for (const c of candidates) {
+    const t = c?.trim();
+    if (t) return t;
+  }
+  return null;
+}
+
+const openSheet: AlertActionBuilder = (context, opts) => {
+  const id = firstNonEmpty(opts.driveFileId, str(context, "drive_file_id"));
+  const href = buildSheetDeepLink(id);
   return href ? { label: "Open in Sheet", href, external: true } : null;
 };
+
+// Internal show-page anchor link (spec 2026-07-21 §4). The helper inserts the
+// single `#`; callers pass a bare hash ("overview"), never "#overview".
+function showAnchor(hash: string, label: string): AlertActionBuilder {
+  return (_context, opts) => {
+    const slug = typeof opts.slug === "string" ? opts.slug.trim() : "";
+    if (!slug) return null; // fail-quiet when slug missing (registry contract)
+    return { label, href: `/admin?show=${encodeURIComponent(slug)}#${hash}`, external: false };
+  };
+}
 
 // GitHub owner: alphanumerics + hyphen only. Repo name: adds _ and ., but a
 // pure dot segment (`.`/`..`) URL-normalizes away from the intended path, and
@@ -124,6 +157,20 @@ export const ALERT_ACTIONS: Record<AlertActionCode, AlertActionBuilder> = {
     const folder = driveFolderUrl(str(context, "folder_id"));
     return folder ? { label: "Open Drive folder", href: folder, external: true } : null;
   },
+  // needs-a-look direct-fix links (spec 2026-07-21 §4): the fix lives in the show's
+  // Google Sheet (openSheet prefers the threaded show-level driveFileId, so codes
+  // whose alert context lacks drive_file_id — EMBEDDED_RECOVERY_REQUIRES_RESTAGE —
+  // still link) or in the show modal's Overview section.
+  SHEET_UNAVAILABLE: openSheet,
+  OPENING_REEL_NOT_VIDEO: openSheet,
+  OPENING_REEL_PERMISSION_DENIED: openSheet,
+  REEL_DRIFTED: openSheet,
+  EMBEDDED_ASSET_DRIFTED: openSheet,
+  EMBEDDED_RECOVERY_REQUIRES_RESTAGE: openSheet,
+  PARSE_ERROR_LAST_GOOD: showAnchor("overview", "Go to Overview"),
+  RESYNC_QUALITY_REGRESSED: showAnchor("overview", "Go to Overview"),
+  SHOW_UNPUBLISHED: showAnchor("overview", "Go to Overview"),
+  USE_RAW_DECISION_STALE: showAnchor("overview", "Go to Overview"),
 };
 
 const REGISTERED = new Set<string>(ALERT_ACTION_CODES);
