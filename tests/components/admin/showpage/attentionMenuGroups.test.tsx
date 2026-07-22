@@ -109,6 +109,14 @@ describe("needs-a-look group", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
+  it("row carries sr-only tone text beside the aria-hidden dot (spec §3.4.2)", () => {
+    renderMenu([needsLook("n7", "SHEET_UNAVAILABLE", null)]);
+    const row = screen.getByTestId("attention-needslook-row-alert:n7");
+    const srOnly = row.querySelector<HTMLElement>(".sr-only");
+    expect(srOnly).not.toBeNull();
+    expect(srOnly!.textContent).toContain("needs review");
+  });
+
   it("row shows the code's fix hint and is read-only apart from its single anchor", () => {
     renderMenu([
       needsLook("n5", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),

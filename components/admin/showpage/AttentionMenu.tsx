@@ -179,6 +179,9 @@ function AttentionMenuPanel({
                   aria-hidden="true"
                   className="mt-1.5 size-2 shrink-0 rounded-pill border-[1.5px] border-status-review bg-transparent"
                 />
+                {/* sr-only tone text mirrors the dot (spec §3.4.2), same string
+                    the actionable rows use for the notice tone. */}
+                <span className="sr-only">{TONE_DOT.notice.srText}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-text-strong">
                     {item.menuTitle}
