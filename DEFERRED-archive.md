@@ -2,6 +2,24 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## Attention gallery switcher bar (2026-07-22)
+
+### ATTN-GALLERY-CONTROLBAR-OVERLAP-1 — [P2] switcher control bar overlapped the modal's constant header — ✅ RESOLVED
+
+Shipped via spec `docs/superpowers/specs/2026-07-21-gallery-switcher-slim-bar-design.md`
+(branch `fix/gallery-switcher-bar-slim`): the bar is a single non-wrapping row
+(collapsed height ≤64px, e2e-pinned) and the structural/cut footnotes live behind a
+collapsed-by-default "N excluded" disclosure (aria-expanded/aria-controls, 40vh
+capped panel). The collapsed bar clears the modal panel, header, and close boxes at
+1280×844 and 390×844 (`tests/e2e/attention-modal-gallery.spec.ts` geometry test).
+Original deferral text follows.
+
+### ATTN-GALLERY-CONTROLBAR-OVERLAP-1 — [P2] switcher control bar overlaps the modal's constant header
+
+From the impeccable critique of `attention-modal-switcher-gallery` (2026-07-21). The switcher's control bar (`components/admin/dev/SwitcherControls.tsx`, `fixed top-0 z-60`) sits above the real modal (`z-50`) by design (spec §3.4, so it escapes the inert root), and on desktop covers the modal's top ~90px; on a 390px viewport the wrapped bar covers more. What it covers is the modal's CONSTANT fake-show header ("Gallery Preview Show" title + subline) — the modal's close X (top-right) and all scenario-specific attention content stay fully visible and operable (e2e-verified: `tests/e2e/attention-modal-gallery.spec.ts` operability + close tests). Deferred: this is a dev-only instrument (`app/admin/dev/`, build-gated), the obscured content carries no scenario information, and the impeccable tier is P2 (the dual-gate mandates P0/P1 only).
+
+**Un-defer trigger:** if the gallery gains a per-scenario modal header (non-constant title), or a real operator reports losing the modal's close affordance — then offset the modal below the bar or make the bar a single collapsible row.
+
 ## Share hub (2026-07-21)
 
 ### SHAREHUB-ROW-ANATOMY-1 — [P1] the two destructive rows inside the hub had different shapes — ✅ RESOLVED
