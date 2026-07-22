@@ -346,4 +346,17 @@ describe("validateScenario - warnings", () => {
       ),
     ).toEqual([]);
   });
+
+  test("feedTruncated is tier-2-only and boolean", () => {
+    expect(
+      validateScenario(base({ tier: 1, feedTruncated: true } as Partial<AttentionScenario>)),
+    ).toContainEqual(expect.stringContaining("feedTruncated"));
+    expect(
+      validateScenario(base({ tier: 3, feedTruncated: true } as Partial<AttentionScenario>)),
+    ).toContainEqual(expect.stringContaining("feedTruncated"));
+    expect(
+      validateScenario(base({ tier: 2, feedTruncated: "yes" as unknown as boolean })),
+    ).toContainEqual(expect.stringContaining("feedTruncated"));
+    expect(validateScenario(base({ tier: 2, feedTruncated: true }))).toEqual([]);
+  });
 });

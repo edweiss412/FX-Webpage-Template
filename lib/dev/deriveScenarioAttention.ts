@@ -57,7 +57,7 @@ function toHoldRows(s: AttentionScenario): HoldRow[] {
  */
 export function buildScenarioFeed(s: AttentionScenario): ScenarioFeed {
   if (s.holds.length === 0) return null;
-  return { entries: toHoldRows(s).map(shapeHoldEntry), truncated: false };
+  return { entries: toHoldRows(s).map(shapeHoldEntry), truncated: s.feedTruncated === true };
 }
 
 /** The real derived attention list for one scenario. */

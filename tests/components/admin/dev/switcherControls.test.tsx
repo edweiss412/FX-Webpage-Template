@@ -20,6 +20,12 @@ const base = {
   tier: 1 as const,
   codes: ["DIAGRAM_SIGNAL_MISSING"],
   excluded: [] as ExcludedScenario[],
+  group: "overview" as const,
+  groups: [
+    { id: "overview" as const, label: "Overview", count: 2, firstIndex: 0 },
+    { id: "crew" as const, label: "Crew", count: 1, firstIndex: 2 },
+  ],
+  onJumpTo: vi.fn(),
   onPrev: vi.fn(),
   onNext: vi.fn(),
 };
@@ -236,5 +242,23 @@ describe("SwitcherControls", () => {
       "utf8",
     );
     expect(src).not.toMatch(/AnimatePresence|motion\.|animate-|transition/);
+  });
+
+  test("renders the group select with counts and jumps to a group's first scenario", () => {
+    const onJumpTo = vi.fn();
+    render(<SwitcherControls {...base} onJumpTo={onJumpTo} />);
+    const select = screen.getByTestId("attention-switcher-group-select") as HTMLSelectElement;
+    expect(select.getAttribute("aria-label")).toBe("Jump to section");
+    expect(select.value).toBe("overview");
+    expect(within(select).getByRole("option", { name: "Crew (1)" })).toBeTruthy();
+    fireEvent.change(select, { target: { value: "crew" } });
+    expect(onJumpTo).toHaveBeenCalledWith(2);
+  });
+
+  test("select tracks the current scenario's group and meets the tap-target floor", () => {
+    render(<SwitcherControls {...base} group="crew" />);
+    const select = screen.getByTestId("attention-switcher-group-select") as HTMLSelectElement;
+    expect(select.value).toBe("crew");
+    expect(hasClass(select, "min-h-tap-min")).toBe(true);
   });
 });

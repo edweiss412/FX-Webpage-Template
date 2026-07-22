@@ -63,4 +63,6 @@ export type AttentionScenario = {
   bucket?: Partial<BucketOpts>;
   /** Tier 2 only - a loader fault, not reproducible from stored rows. */
   degraded?: boolean;
+  /** Tier 2 only - a read-model condition (feed page cap), not reproducible from stored rows. */
+  feedTruncated?: boolean;
 };

@@ -176,6 +176,10 @@ export function validateScenario(s: AttentionScenario): string[] {
     if (s.tier !== 2) out.push("degraded: tier 2 only");
     else if (typeof s.degraded !== "boolean") out.push("degraded: must be a boolean");
   }
+  if (s.feedTruncated !== undefined) {
+    if (s.tier !== 2) out.push("feedTruncated: tier 2 only");
+    else if (typeof s.feedTruncated !== "boolean") out.push("feedTruncated: must be boolean");
+  }
 
   if (!Array.isArray(s.alerts)) out.push("alerts: must be an array");
   else {

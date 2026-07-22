@@ -24,8 +24,15 @@ import {
   T2_EMPTY,
   T2_DEGRADED,
   tier2Scenarios,
+  T2_HOLD_ONLY,
+  T2_MANY,
+  T2_DEGRADED_WITH_HOLDS,
 } from "@/lib/dev/attentionScenarios/tier2";
 import { tier1AlertScenarios, tier1WarningScenarios } from "@/lib/dev/attentionScenarios/tier1";
+import { T3_IDS, T3_CREW_COLLISION } from "@/lib/dev/attentionScenarios/tier3";
+import { scenarioGroup } from "@/app/admin/dev/attention-gallery/buildSwitcherScenarios";
+import { GROUP_ORDER } from "@/lib/dev/galleryModalTypes";
+import { scenarioById } from "@/lib/dev/attentionScenarios/index";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 
 const EXPECTED_STRUCTURAL = [T2_SECTION_ABSENT, T2_OVERVIEW_ABSENT, T2_CREW_ROW_ABSENT].sort();
@@ -133,10 +140,23 @@ describe("partitionScenarios", () => {
     expect(cut.map((e) => e.id).sort()).toEqual(EXPECTED_CUT_IDS);
   });
 
-  test("no tier-3 id renders; T2_ANCHOR_ABSENT and T2_EMPTY do render", () => {
-    expect(rendered.every((s) => s.tier === 1 || s.tier === 2)).toBe(true);
+  test("tiers 1-3 all render; T2_ANCHOR_ABSENT and T2_EMPTY do render", () => {
+    expect(rendered.every((s) => s.tier === 1 || s.tier === 2 || s.tier === 3)).toBe(true);
     expect(rendered.some((s) => s.id === T2_ANCHOR_ABSENT)).toBe(true);
     expect(rendered.some((s) => s.id === T2_EMPTY)).toBe(true);
+  });
+
+  test("renders every tier-3 composite", () => {
+    for (const id of T3_IDS) {
+      expect(
+        rendered.some((s) => s.id === id),
+        id,
+      ).toBe(true);
+      expect(
+        excluded.some((e) => e.id === id),
+        id,
+      ).toBe(false);
+    }
   });
 
   test("integration visibility: every rendered scenario shows something (no blank modal)", () => {
@@ -157,6 +177,22 @@ describe("partitionScenarios", () => {
   test("codes are carried server-side", () => {
     const withAlert = rendered.find((s) => s.codes.length > 0)!;
     expect(withAlert.codes.length).toBeGreaterThan(0);
+  });
+
+  test("groups derive from the real routers", () => {
+    expect(scenarioGroup(scenarioById(T2_EMPTY)!)).toBe("baseline");
+    expect(scenarioGroup(scenarioById(T2_DEGRADED)!)).toBe("baseline");
+    expect(scenarioGroup(scenarioById(T2_HOLD_ONLY)!)).toBe("changes");
+    expect(scenarioGroup(scenarioById(T2_DEGRADED_WITH_HOLDS)!)).toBe("changes");
+    expect(scenarioGroup(scenarioById(T2_MANY)!)).toBe("mixed");
+    expect(scenarioGroup(scenarioById("alert-sync-stalled")!)).toBe("overview");
+    expect(scenarioGroup(scenarioById(T3_CREW_COLLISION)!)).toBe("mixed");
+  });
+
+  test("rendered list is group-sorted, stable within groups, every scenario stamped", () => {
+    const orders = rendered.map((s) => GROUP_ORDER.indexOf(s.group));
+    expect(orders).toEqual([...orders].sort((a, b) => a - b));
+    expect(orders.every((o) => o >= 0)).toBe(true);
   });
 });
 

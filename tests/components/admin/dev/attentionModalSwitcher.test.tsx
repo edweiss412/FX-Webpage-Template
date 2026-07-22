@@ -10,7 +10,7 @@
  */
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent } from "@testing-library/react";
 import type { GallerySwitcherScenario, GalleryModalData } from "@/lib/dev/galleryModalTypes";
 
 // Capture the props the real modal would have received.
@@ -33,11 +33,16 @@ vi.mock("@/components/admin/showpage/PublishedReviewModal", () => ({
 
 import { AttentionModalSwitcher, indexOfId } from "@/components/admin/dev/AttentionModalSwitcher";
 
-function scenario(id: string, title: string): GallerySwitcherScenario {
+function scenario(
+  id: string,
+  title: string,
+  group: GallerySwitcherScenario["group"] = "overview",
+): GallerySwitcherScenario {
   return {
     id,
     tier: 1,
     label: id,
+    group,
     codes: [id.toUpperCase()],
     // The mocked modal ignores all but `title`; a lightweight cast keeps the
     // fixture from having to construct all ~20 real data props.
@@ -45,7 +50,7 @@ function scenario(id: string, title: string): GallerySwitcherScenario {
   };
 }
 
-const THREE = [scenario("a", "A"), scenario("b", "B"), scenario("c", "C")];
+const THREE = [scenario("a", "A"), scenario("b", "B"), scenario("c", "C", "crew")];
 
 function pressKey(key: string, init: KeyboardEventInit = {}): boolean {
   const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
@@ -164,5 +169,13 @@ describe("AttentionModalSwitcher", () => {
     expect(pressKey("Escape")).toBe(true);
     // The modal stays mounted on the current scenario.
     expect(screen.getByTestId("mock-modal").getAttribute("data-title")).toBe("A");
+  });
+
+  test("jumping via the group select re-renders the target scenario", () => {
+    render(<AttentionModalSwitcher scenarios={THREE} excluded={[]} initialId={null} />);
+    const select = screen.getByTestId("attention-switcher-group-select") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "crew" } });
+    expect(screen.getByTestId("mock-modal").getAttribute("data-title")).toBe("C");
+    expect(select.value).toBe("crew");
   });
 });

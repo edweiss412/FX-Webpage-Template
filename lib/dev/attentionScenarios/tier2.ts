@@ -7,6 +7,8 @@
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { isAutoResolving, DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
+import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
+import { ALERT_ROW_OVERRIDES } from "@/lib/dev/attentionScenarios/tier1";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import type { AttentionScenario, ScenarioAlertRow, ScenarioHoldRow } from "./types";
 
@@ -28,6 +30,10 @@ export const T2_EMPTY = "t2-empty";
 export const T2_SINGLE = "t2-single";
 export const T2_MANY = "t2-many";
 export const T2_DEGRADED = "t2-degraded";
+export const T2_CLASS_MIX = "t2-class-mix";
+export const T2_DEGRADED_WITH_HOLDS = "t2-degraded-with-holds";
+export const T2_MULTI_HOLD = "t2-multi-hold";
+export const T2_FEED_TRUNCATED = "t2-feed-truncated";
 
 export const T2_REQUIRED_IDS: readonly string[] = [
   T2_SECTION_ABSENT,
@@ -45,6 +51,10 @@ export const T2_REQUIRED_IDS: readonly string[] = [
   T2_SINGLE,
   T2_MANY,
   T2_DEGRADED,
+  T2_CLASS_MIX,
+  T2_DEGRADED_WITH_HOLDS,
+  T2_MULTI_HOLD,
+  T2_FEED_TRUNCATED,
 ];
 
 /**
@@ -92,6 +102,36 @@ function pickCode(kind: "inbox" | "auto" | "actionable"): string {
   return found;
 }
 
+/**
+ * Classify a candidate by the DERIVED item's pill class (spec §3.2): probe one
+ * alert through the real derivation. Zero items = cut from the surface. This is
+ * the pill's own actionable/clearingKind split, so isAutoResolving vs
+ * isSelfHealing divergence cannot skew a pick.
+ */
+export function pickByDerivedClass(
+  kind: "actionable" | "needs_look" | "self_heal",
+  exclude: ReadonlySet<string> = new Set(),
+): string {
+  const codes = Object.keys(ATTENTION_ROUTES)
+    .filter((c) => !CONTEXT_REQUIRED.has(c) && !exclude.has(c))
+    .sort();
+  const found = codes.find((c) => {
+    const items = deriveScenarioAttention({
+      id: "t2-probe",
+      tier: 2,
+      label: "probe",
+      alerts: [alert(c)],
+      holds: [],
+    });
+    const it = items[0];
+    if (items.length !== 1 || it === undefined) return false;
+    if (kind === "actionable") return it.actionable;
+    return !it.actionable && it.clearingKind === kind;
+  });
+  if (found === undefined) throw new Error(`tier2: no ATTENTION_ROUTES code derives class ${kind}`);
+  return found;
+}
+
 /** An anchored (rooms) code, read from the routing table so it cannot disagree. */
 function anchoredCode(): string {
   const found = Object.keys(ATTENTION_ROUTES).find(
@@ -101,6 +141,18 @@ function anchoredCode(): string {
       !isCutFromSurface(c),
   );
   if (found === undefined) throw new Error("tier2: no context-free rooms-anchored code");
+  return found;
+}
+
+/** An event-anchored code, read from the routing table so it cannot disagree. */
+function eventCode(): string {
+  const found = Object.keys(ATTENTION_ROUTES).find(
+    (c) =>
+      ATTENTION_ROUTES[c]?.sectionId === "event" &&
+      !CONTEXT_REQUIRED.has(c) &&
+      !isCutFromSurface(c),
+  );
+  if (found === undefined) throw new Error("tier2: no context-free event-anchored code");
   return found;
 }
 
@@ -153,6 +205,48 @@ function hold(entityKey: string): ScenarioHoldRow {
     base_modified_time: AT,
     kind: "mi11_pending",
   };
+}
+
+/**
+ * The realistic many-state (spec §3.3): MENU_CAP-1 DISTINCT real alerts spanning
+ * rooms/event/crew plus all three pill classes, one repeat-count carrier, filled
+ * from surviving context-free codes then context-required codes WITH their
+ * tier-1 context fixtures. Throws if the catalog cannot field enough codes -
+ * the matrix must be updated, never silently thinned.
+ */
+function manyAlerts(): ScenarioAlertRow[] {
+  const used = new Set<string>();
+  const pick = (
+    code: string,
+    over: Partial<Omit<ScenarioAlertRow, "code">> = {},
+  ): ScenarioAlertRow => {
+    used.add(code);
+    return alert(code, over);
+  };
+  const crew = crewAlert();
+  used.add(crew.code);
+  const rows: ScenarioAlertRow[] = [pick(anchoredCode()), pick(eventCode()), crew];
+  rows.push(pick(pickByDerivedClass("actionable", used), { occurrence_count: 7 }));
+  rows.push(pick(pickByDerivedClass("needs_look", used)));
+  rows.push(pick(pickByDerivedClass("self_heal", used)));
+  const contextFree = Object.keys(ATTENTION_ROUTES)
+    .filter((c) => !isCutFromSurface(c) && !CONTEXT_REQUIRED.has(c) && !used.has(c))
+    .sort();
+  for (const c of contextFree) {
+    if (rows.length >= MENU_CAP - 1) break;
+    rows.push(pick(c));
+  }
+  const backfill = Object.keys(ALERT_ROW_OVERRIDES)
+    .filter((c) => !isCutFromSurface(c) && !used.has(c))
+    .sort();
+  for (const c of backfill) {
+    if (rows.length >= MENU_CAP - 1) break;
+    rows.push(pick(c, ALERT_ROW_OVERRIDES[c] ?? {}));
+  }
+  if (rows.length !== MENU_CAP - 1) {
+    throw new Error(`tier2: only ${rows.length} surviving codes for t2-many`);
+  }
+  return rows;
 }
 
 function scenario(
@@ -219,12 +313,33 @@ export function tier2Scenarios(): AttentionScenario[] {
     }),
     scenario(T2_EMPTY, "No attention at all", { alerts: [], holds: [] }),
     scenario(T2_SINGLE, "Exactly one item", { alerts: [alert(pickCode("actionable"))], holds: [] }),
-    scenario(T2_MANY, `${MENU_CAP} items, the menu crosses its scroll threshold`, {
-      alerts: Array.from({ length: MENU_CAP }, (_, i) =>
-        alert(`GALLERY_FILLER_${String(i).padStart(2, "0")}`),
-      ),
-      holds: [],
+    scenario(T2_MANY, "12 real items across sections and classes", {
+      alerts: manyAlerts(),
+      holds: [hold("dana-reed")],
     }),
     scenario(T2_DEGRADED, "Alert read degraded", { alerts: [], holds: [], degraded: true }),
+    scenario(T2_CLASS_MIX, "One of each pill class: confirm, review, monitoring", {
+      alerts: (() => {
+        const a = pickByDerivedClass("actionable");
+        const n = pickByDerivedClass("needs_look", new Set([a]));
+        const h = pickByDerivedClass("self_heal", new Set([a, n]));
+        return [alert(a), alert(n), alert(h)];
+      })(),
+      holds: [],
+    }),
+    scenario(T2_DEGRADED_WITH_HOLDS, "Alert read degraded while a hold still flows", {
+      alerts: [],
+      holds: [hold("dana-reed")],
+      degraded: true,
+    }),
+    scenario(T2_MULTI_HOLD, "Three pending holds", {
+      alerts: [],
+      holds: [hold("dana-reed"), hold("sam-ito"), hold("kim-cho")],
+    }),
+    scenario(T2_FEED_TRUNCATED, "Changes feed truncated at its cap", {
+      alerts: [],
+      holds: [hold("dana-reed")],
+      feedTruncated: true,
+    }),
   ];
 }

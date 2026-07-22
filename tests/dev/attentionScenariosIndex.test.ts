@@ -58,10 +58,11 @@ describe("catalog index", () => {
     for (const id of nonT3) expect(materializable.has(id), id).toBe(false);
   });
 
-  test("no tier-3 scenario carries bucket or degraded, which DB state cannot reproduce", () => {
+  test("no tier-3 scenario carries bucket, degraded, or feedTruncated, which DB state cannot reproduce", () => {
     for (const s of materializableScenarios()) {
       expect(s.bucket, s.id).toBeUndefined();
       expect(s.degraded ?? false, s.id).toBe(false);
+      expect(s.feedTruncated ?? false, s.id).toBe(false);
     }
   });
 

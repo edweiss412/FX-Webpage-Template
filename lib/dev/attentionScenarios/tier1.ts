@@ -34,41 +34,42 @@ export function scenarioIdForCode(namespace: "alert" | "warn", code: string): st
  * `validateScenario` rejects it - that coupling is deliberate, and it is what
  * stops a context-dependent code from silently shipping its degenerate form.
  */
-const ALERT_ROW_OVERRIDES: Partial<Record<string, Partial<Omit<ScenarioAlertRow, "code">>>> = {
-  // readFailedKeys returns null for any other code or a non-array.
-  TILE_PROJECTION_FETCH_FAILED: {
-    context: { failedKeys: ["tile:agenda", "tile:rooms"] },
-  },
-  // readDataGapsDigest requires an object data_gaps with a positive total; the
-  // per-class counts are keyed by GAP_CLASSES codes and missing ones coerce to 0.
-  SHOW_FIRST_PUBLISHED: {
-    context: { data_gaps: { total: 3, classes: { missing_dims: 2, missing_hotel: 1 } } },
-  },
-  // readErrorCode drops anything outside PARSE_FAILURE_ALLOWLIST.
-  PARSE_ERROR_LAST_GOOD: {
-    context: { error_code: "MI-5_NO_ROOMS" },
-  },
-  // crewNameFor reads the PROJECTED context, which derives both the names and the
-  // count from ctx.changes[].crew_name - not from top-level role_change_* keys.
-  ROLE_FLAGS_NOTICE: {
-    context: { changes: [{ crew_name: "Dana Reed" }] },
-  },
-  // The two identity-dependent codes: the resolver needs a UUID target, and the
-  // gallery needs a declared identity because it cannot resolve one for a
-  // synthetic row (§3.3). Materialize resolves the real thing instead.
-  AMBIGUOUS_EMAIL_BINDING: {
-    context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
-    galleryIdentity: {
-      segments: [{ label: "Crew", value: "Dana Reed" }],
-    } as unknown as AlertIdentity,
-  },
-  OAUTH_IDENTITY_CLAIMED: {
-    context: { crew_member_id: "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d" },
-    galleryIdentity: {
-      segments: [{ label: "Crew", value: "Sam Ito" }],
-    } as unknown as AlertIdentity,
-  },
-};
+export const ALERT_ROW_OVERRIDES: Partial<Record<string, Partial<Omit<ScenarioAlertRow, "code">>>> =
+  {
+    // readFailedKeys returns null for any other code or a non-array.
+    TILE_PROJECTION_FETCH_FAILED: {
+      context: { failedKeys: ["tile:agenda", "tile:rooms"] },
+    },
+    // readDataGapsDigest requires an object data_gaps with a positive total; the
+    // per-class counts are keyed by GAP_CLASSES codes and missing ones coerce to 0.
+    SHOW_FIRST_PUBLISHED: {
+      context: { data_gaps: { total: 3, classes: { missing_dims: 2, missing_hotel: 1 } } },
+    },
+    // readErrorCode drops anything outside PARSE_FAILURE_ALLOWLIST.
+    PARSE_ERROR_LAST_GOOD: {
+      context: { error_code: "MI-5_NO_ROOMS" },
+    },
+    // crewNameFor reads the PROJECTED context, which derives both the names and the
+    // count from ctx.changes[].crew_name - not from top-level role_change_* keys.
+    ROLE_FLAGS_NOTICE: {
+      context: { changes: [{ crew_name: "Dana Reed" }] },
+    },
+    // The two identity-dependent codes: the resolver needs a UUID target, and the
+    // gallery needs a declared identity because it cannot resolve one for a
+    // synthetic row (§3.3). Materialize resolves the real thing instead.
+    AMBIGUOUS_EMAIL_BINDING: {
+      context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
+      galleryIdentity: {
+        segments: [{ label: "Crew", value: "Dana Reed" }],
+      } as unknown as AlertIdentity,
+    },
+    OAUTH_IDENTITY_CLAIMED: {
+      context: { crew_member_id: "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d" },
+      galleryIdentity: {
+        segments: [{ label: "Crew", value: "Sam Ito" }],
+      } as unknown as AlertIdentity,
+    },
+  };
 
 export function tier1AlertScenarios(): AttentionScenario[] {
   return Object.keys(ATTENTION_ROUTES).map((code) => {

@@ -28,7 +28,7 @@
  * The control bar is portaled to `document.body` so it escapes the admin
  * `[data-inert-root]` the open modal inerts (spec §3.4) and stays operable.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   PublishedReviewModal,
@@ -37,7 +37,8 @@ import {
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { useHasMounted } from "@/lib/a11y/useHasMounted";
-import { SwitcherControls } from "@/components/admin/dev/SwitcherControls";
+import { SwitcherControls, type SwitcherGroupEntry } from "@/components/admin/dev/SwitcherControls";
+import { GROUP_LABELS } from "@/lib/dev/galleryModalTypes";
 import type {
   ActionKeys,
   ExcludedScenario,
@@ -119,6 +120,16 @@ export function AttentionModalSwitcher({ scenarios, excluded, initialId }: Props
     return () => document.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [total]);
 
+  const groups = useMemo<SwitcherGroupEntry[]>(() => {
+    const out: SwitcherGroupEntry[] = [];
+    scenarios.forEach((s, i) => {
+      const last = out[out.length - 1];
+      if (last && last.id === s.group) last.count += 1;
+      else out.push({ id: s.group, label: GROUP_LABELS[s.group], count: 1, firstIndex: i });
+    });
+    return out;
+  }, [scenarios]);
+
   if (total === 0) {
     return <EmptyState label="No scenarios to show." />;
   }
@@ -133,6 +144,9 @@ export function AttentionModalSwitcher({ scenarios, excluded, initialId }: Props
           tier={current.tier}
           codes={current.codes}
           excluded={excluded}
+          group={current.group}
+          groups={groups}
+          onJumpTo={setIndex}
           onPrev={() => setIndex((i) => (i - 1 + total) % total)}
           onNext={() => setIndex((i) => (i + 1) % total)}
         />,
