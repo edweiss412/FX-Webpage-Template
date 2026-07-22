@@ -19,6 +19,14 @@
 - Local e2e for this surface MUST set `DEV_GATE_ONLY=1` (boots ONLY the three dev-gate webServers on ports 3001-3003, `playwright.config.ts:402`; without it Playwright boots every configured webServer and the serialized cold builds contend — `.github/workflows/dev-gate-e2e.yml:14-16`).
 - The dev-gate e2e workflow is `workflow_dispatch`-only (`.github/workflows/dev-gate-e2e.yml:26-30`); PR/push does NOT trigger it. Task 3 dispatches it on the branch explicitly.
 
+## Repair-loop contract (binds every fix after Task 1 — local gates, impeccable, cross-model review, CI; plan R3 F1-F3)
+
+Any defect found by a later gate is its own mini-task and follows the same discipline as Task 1:
+
+1. **TDD per repair (invariant 1).** Write a test reproducing the defect, observe it RED (`set -o pipefail`, exit-status checked), implement the minimal fix, observe GREEN, commit (`fix(admin): ...` / `test(admin): ...`). Sole exemption: defects with no behavioral surface a test can express — prettier formatting, eslint mechanical autofixes, copy-string tier fixes flagged by impeccable, comment/doc edits. Those commit directly, with the exemption named in the commit body (e.g. `no-test: formatting-only`).
+2. **Gate re-entry, not gate-skip.** After the repair commit, re-run every gate whose input changed, in order: affected unit/e2e suites; the FULL local gate set (Task 2 Step 1) if any source file changed; BOTH `/impeccable critique` AND `/impeccable audit` on the NEW cumulative diff if the repair touched any UI file (`app/` non-api, `components/`, token/theme files) — regardless of which stage surfaced the defect (a Task 2 impeccable repair re-runs both gates just like a Task 3 review repair); closeout.md §12 updated with the new findings/dispositions.
+3. **Downstream gates re-close.** If the repair lands after a downstream gate already passed, that gate re-runs: cross-model review gets a new round (brief states which gates re-ran and why); after any post-push repair, push again, re-watch required checks, re-query `mergeStateStatus` (CLEAN), and re-dispatch + re-watch the dev-gate e2e workflow via the Task 3 Step 3 block. Merge only when the FINAL diff has, in this order, impeccable evidence, cross-model APPROVE, green required checks, CLEAN merge state, and a successful dev-gate run — all against that final diff.
+
 ---
 
 ### Task 1: Feature TDD — unit + e2e tests RED, then implementation, one commit
@@ -166,11 +174,13 @@ git commit --no-verify -m "feat(admin): add Attention gallery link to settings D
 
 ### Task 2: Local gates (full suite + impeccable dual gate)
 
-**Files:** none new (verification only; any fixes land as their own `fix(admin):`/`style(admin):` commits).
+**Files:**
+- Create: `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md` (Step 3)
+- Otherwise verification only; fixes follow the Repair-loop contract.
 
 - [ ] **Step 1: Pre-push local gates**
 
-Run in the worktree, each must be green (fix-forward if not):
+Run in the worktree, each must be green (failures follow the Repair-loop contract):
 
 ```bash
 cd /Users/ericweiss/FX-worktrees/settings-attention-gallery-link
@@ -199,7 +209,7 @@ This standalone feature has no milestone handoff doc; its equivalent is `docs/su
 
 - [ ] **Step 1: Whole-diff Codex adversarial review**
 
-Fresh-eyes posture, REVIEWER ONLY, via `codex-guard` with the full branch diff scope inlined in the brief. Iterate to APPROVE. **Post-repair gate re-run rule (plan R2 F5):** any repair commit made during review iteration re-runs the affected unit/e2e tests AND, if it touches any UI file (`app/` non-api, `components/`, tokens), re-runs the impeccable critique+audit pair on the NEW diff and updates closeout.md §12 — impeccable evidence must cover the final merged diff, not an earlier one. The next review round's brief states which gates were re-run.
+Fresh-eyes posture, REVIEWER ONLY, via `codex-guard` with the full branch diff scope inlined in the brief. Iterate to APPROVE. Repairs during review iteration follow the Repair-loop contract (TDD per repair, both impeccable gates on the new diff for UI-touching repairs, closeout.md §12 update, downstream gate re-close); the next review round's brief states which gates re-ran.
 
 - [ ] **Step 2: Push + PR**
 
@@ -227,7 +237,7 @@ done
 gh run watch "$RUN_ID" --exit-status
 ```
 
-Expected: required PR checks all green, `mergeStateStatus` prints `CLEAN`, and `gh run watch --exit-status` exits 0 for the timestamp-associated dev-gate run (nonzero exit = the gate failed; stop and fix, do not merge).
+Expected: required PR checks all green, `mergeStateStatus` prints `CLEAN`, and `gh run watch --exit-status` exits 0 for the timestamp-associated dev-gate run. Nonzero exit or non-CLEAN = do not merge; enter the Repair-loop contract (reproducing test first, gate re-entry, downstream re-close: new cross-model round if the diff changed, re-push, re-watch checks, re-query CLEAN, re-dispatch dev-gate) until this step's full expectation holds on the final diff.
 
 - [ ] **Step 4: Merge + sync (same turn as CI green)**
 
