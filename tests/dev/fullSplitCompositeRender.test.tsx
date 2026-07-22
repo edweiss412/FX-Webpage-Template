@@ -90,13 +90,22 @@ describe("t3-full-attention-split renders the full taught state", () => {
     // the two self-heal items must NOT get needs-look rows
     expect(menu.querySelectorAll('[data-testid^="attention-needslook-row-"]')).toHaveLength(2);
 
-    // monitoring group: summary scoped to the SAME group container as the
-    // "Monitoring" heading (not merely anywhere in the menu)
+    // monitoring group, scoped WITHOUT structural assumptions (whole-diff R2:
+    // closest/parentElement depends on incidental nesting). Conclusive form:
+    // (a) "Monitoring" is the LAST group heading in document order, (b) the
+    // summary FOLLOWS it, and (c) the summary is inside no other group's row —
+    // together the summary can only live in the Monitoring section.
     const monHeading = within(menu).getByText("Monitoring");
-    const monGroup = monHeading.closest("div")?.parentElement;
-    if (!monGroup) throw new Error("Monitoring group container missing");
-    expect(
-      within(monGroup as HTMLElement).getByText("2 clearing on their own, no action needed"),
-    ).toBeInTheDocument();
+    const summary = within(menu).getByText("2 clearing on their own, no action needed");
+    const follows = (a: Node, b: Node) =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(follows(within(menu).getByText("Needs your confirmation"), monHeading)).toBe(true);
+    expect(follows(within(menu).getByText("Needs a look"), monHeading)).toBe(true);
+    expect(follows(monHeading, summary)).toBe(true);
+    for (const row of menu.querySelectorAll(
+      '[data-testid^="attention-menu-row-"], [data-testid^="attention-needslook-row-"]',
+    )) {
+      expect(row.contains(summary)).toBe(false);
+    }
   });
 });
