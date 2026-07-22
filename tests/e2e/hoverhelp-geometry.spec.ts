@@ -392,13 +392,21 @@ test.describe("T7 reposition lifecycle (e2e arm)", () => {
     await open(page, "grow", "grow-help");
     const before = await box(page, "grow-help-body");
     await page.evaluate(() => window.__growPopoverContent());
-    await expect
-      .poll(async () => (await box(page, "grow-help-body")).height, { timeout: 3_000 })
-      .toBeGreaterThan(before.height + 100);
-    const after = await box(page, "grow-help-body");
     const vp = page.viewportSize();
     if (!vp) throw new Error("no viewport");
-    expect(after.bottom).toBeLessThanOrEqual(vp.height - VIEWPORT_INSET + TOL);
+    // Poll the REPOSITIONED invariant, not just the (synchronous) layout
+    // growth: height alone can be observed before the ResizeObserver/rAF
+    // reposition runs (codex R3). Converged means BOTH grown and back in
+    // bounds at its new position.
+    await expect
+      .poll(
+        async () => {
+          const b = await box(page, "grow-help-body");
+          return b.height > before.height + 100 && b.bottom <= vp.height - VIEWPORT_INSET + TOL;
+        },
+        { timeout: 3_000 },
+      )
+      .toBe(true);
     await page.waitForTimeout(300); // past CLOSE_DELAY — the hook must not close it
     await expect(page.getByTestId("grow-help-trigger")).toHaveAttribute("aria-expanded", "true");
   });
