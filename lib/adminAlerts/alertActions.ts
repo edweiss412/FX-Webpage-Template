@@ -30,7 +30,7 @@ export type AlertActionLink = { label: string; href: string; external: boolean }
 
 export type AlertActionBuilder = (
   context: Record<string, unknown> | null,
-  opts: { slug: string | null },
+  opts: { slug: string | null; driveFileId?: string | null },
 ) => AlertActionLink | null;
 
 // context is untyped JSON — a field is usable only as a non-empty string.
@@ -131,7 +131,7 @@ const REGISTERED = new Set<string>(ALERT_ACTION_CODES);
 export function resolveAlertAction(
   code: string,
   context: Record<string, unknown> | null,
-  opts: { slug: string | null },
+  opts: { slug: string | null; driveFileId?: string | null },
 ): AlertActionLink | null {
   if (!REGISTERED.has(code)) return null;
   return ALERT_ACTIONS[code as AlertActionCode](context, opts);
@@ -149,7 +149,7 @@ export function resolveAlertAction(
 export function resolveAlertActions(
   code: string,
   context: Record<string, unknown> | null,
-  opts: { slug: string | null },
+  opts: { slug: string | null; driveFileId?: string | null },
 ): AlertActionLink[] {
   const single = resolveAlertAction(code, context, opts);
   return single ? [single] : [];
