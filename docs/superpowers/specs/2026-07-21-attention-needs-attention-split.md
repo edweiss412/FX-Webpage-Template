@@ -171,7 +171,13 @@ Working copy (final wording is refinable in the impeccable copy pass; user-visib
 
 This one vector (menu open while the pill loses interactivity) is a React/DOM lifecycle-race surface. Across review rounds, every prose mechanism proposed for it either raced (`useEffect` vs the menu's own focus-restore) or contradicted the steady-state span design. Per the project rule "never design a race state machine in prose; build the probe first," the mechanism is declared **UNRATIFIED** and resolved empirically:
 
-- **First implementation task (before the pill/menu changes):** build a real-browser probe harness that renders the published modal with an open menu, drives `attentionItems` live from `(actionable=1, needsLook=0, selfHeal=1|0)` and degraded, and measures `document.activeElement`, `menuOpen`, and `aria-expanded` across the A(open)→B, →C, →D transitions under BOTH `useEffect` and `useLayoutEffect` close-and-refocus, and with the menu's built-in close-focus-restore both active and suppressed. The observed matrix picks the mechanism.
+- **The close-effect MUST key on the composite interactivity predicate `interactive = actionable.length > 0 || needsLookCount > 0`, NOT on `actionable` alone.** The pill is interactive whenever EITHER count is positive (§3.2), so the menu can be opened at a needs-look-only state `(0, ≥1, *)`. An effect keyed on `actionable` dropping to 0 would miss the `(0,1,0)→(0,0,*)` case (last needs-look clears) and orphan the menu. The spec contract is: close + refocus fire on `interactive` going false, from ANY interactive entry state.
+- **First implementation task (before the pill/menu changes):** build a real-browser probe harness that renders the published modal with an open menu and drives `attentionItems` live across EVERY interactive→non-interactive transition, enumerated exhaustively over the distinct interactive entry states, NOT just actionable-led ones:
+  - entry `(1,0,s)` → `(0,0,s)` [actionable-led]
+  - entry `(0,1,s)` → `(0,0,s)` [**needs-look-led** — the R5 gap]
+  - entry `(1,1,s)` → `(0,0,s)` [both-led]
+  - each with `s = 1` (→ B monitoring-only), `s = 0` (→ D in-sync), and with `alertsDegraded` (→ C)
+  It measures `document.activeElement`, `menuOpen`, and `aria-expanded` under BOTH `useEffect` and `useLayoutEffect` close-and-refocus, and with the menu's built-in close-focus-restore both active and suppressed. The observed matrix picks the mechanism.
 - The mechanism that satisfies the §6 outcome contract (menu closed, focus on dialog root, never body, no stale `aria-expanded`) for all three paths is the one implemented; §11.5a is that probe, promoted to a regression test.
 - If NO mechanism satisfies all three paths cleanly, the fallback (ratified here as acceptable) is: on losing interactivity while open, close the menu and let focus fall to the dialog root via the modal's existing focus trap, accepting a single–animation-frame flash — documented, not silently shipped. The probe decides; this section is the authority that the decision is empirical, not prose.
 
@@ -246,9 +252,11 @@ Anti-tautology: assert against the derived data (`deriveAttentionItems` output, 
    - `(0,0,0)` not degraded → "In sync".
    - degraded (all 0, `alertsDegraded`) → "Alerts unavailable".
 5a. **Menu open → trigger loses interactivity (compound correctness — real-browser, all three paths B/C/D).** In a real browser (jsdom cannot verify focus/`activeElement`), open the menu, move focus into it, then drive live data across each path and assert for EACH: `menuOpen` is false, the trigger carries no `aria-expanded=true`, and `document.activeElement === ` the dialog root (NOT `<body>`, NOT the now-disabled trigger):
-   - **A→B:** `(actionable=1, needsLook=0, selfHeal=1)` → `(0,0,1)` (monitoring-only remains).
-   - **A→C:** `(1,0,0)` → `alertsDegraded` ("Alerts unavailable").
-   - **A→D:** `(1,0,0)` → `(0,0,0)` ("In sync") — the no-monitoring case; without this path a B/C-only test would miss an orphaned menu when nothing remains.
+   Enumerate over ALL distinct interactive ENTRY states (actionable-led, needs-look-led, both-led — the pill is interactive on `actionable>0 || needsLook>0`, so a menu can open at `(0,≥1,*)`; keying only on `actionable` is the R5 gap):
+   - **actionable-led:** `(1,0,1)`→`(0,0,1)` [→B], `(1,0,0)`→`(0,0,0)` [→D], `(1,0,0)`→degraded [→C].
+   - **needs-look-led (R5 gap):** `(0,1,1)`→`(0,0,1)` [→B], `(0,1,0)`→`(0,0,0)` [→D], `(0,1,0)`→degraded [→C].
+   - **both-led:** `(1,1,1)`→`(0,0,1)` [→B], `(1,1,0)`→`(0,0,0)` [→D].
+   Also assert the close-effect keys on the composite `interactive` predicate (a test that fabricates an effect keyed on `actionable` alone FAILS the `(0,1,0)→(0,0,0)` path), so an `actionable`-only implementation cannot pass.
    Catches the R2 P1 (orphaned menu + focus drop) and the R3 P1 (A→D omission). This test asserts the §6 OUTCOME only (menu closed, focus on dialog root, never body); it does NOT assert any particular node-identity or effect mechanism — the mechanism is chosen by the §6a probe. Non-interactive steady state remains a `<span>` (no button), consistent with §3.2 / §11.5 — there is no stable-button requirement.
 6. Menu render: needs-a-look rows are read-only (no row-level `onNavigate`); the `<a>` is the only interactive descendant; external sheet links carry `target="_blank"` AND the full `rel="noopener noreferrer"` (assert the exact string, both tokens — an impl dropping `noreferrer` must fail). Internal links carry neither. Monitoring group is a single summary row, not enumerated. (Clone-and-strip the actionable rows before scanning, per anti-tautology rule.)
 7. **Menu-close on action activation:** clicking a needs-a-look row's `<a>` calls `onClose` (assert the menu closes) for BOTH an internal `#overview` link and an external Sheet link. Catches finding-6 (target scrolled behind an open dropdown).
