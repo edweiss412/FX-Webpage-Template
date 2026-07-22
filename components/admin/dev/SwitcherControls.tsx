@@ -24,7 +24,7 @@ import { useState } from "react";
 import type { ExcludedScenario } from "@/lib/dev/galleryModalTypes";
 
 const STEP_BTN =
-  "min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-3 text-text-strong hover:border-accent focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-3 text-text-strong hover:border-accent active:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-accent";
 
 const EXCLUDED_PANEL_ID = "switcher-excluded-panel";
 
@@ -84,7 +84,7 @@ export function SwitcherControls({
           <button
             type="button"
             data-testid="attention-switcher-excluded-toggle"
-            className="min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-2 text-xs text-text-subtle hover:border-accent focus-visible:outline-2 focus-visible:outline-accent"
+            className="min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-2 text-xs text-text-subtle hover:border-accent active:bg-surface-sunken aria-expanded:border-accent aria-expanded:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-accent"
             aria-expanded={panelOpen}
             {...(panelOpen ? { "aria-controls": EXCLUDED_PANEL_ID } : {})}
             onClick={() => setShowExcluded((v) => !v)}
@@ -97,7 +97,7 @@ export function SwitcherControls({
         <div
           id={EXCLUDED_PANEL_ID}
           data-testid="attention-switcher-excluded-panel"
-          className="max-h-[40vh] overflow-y-auto"
+          className="max-h-[40vh] overflow-y-auto border-t border-border pt-1"
         >
           {structural.length > 0 && (
             <p className="text-xs text-text-subtle">
