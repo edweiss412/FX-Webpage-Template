@@ -707,14 +707,23 @@ export function shouldShowSectionCount(
 /** Spec 2026-07-22-warning-panel-polish §3.5: pointer-sentence name cap. */
 export const POINTER_NAME_CAP = 3;
 
-/** Spec §3.5 unified overflow rule: named = first cap-many resolved targets;
- *  moreCount = every other elsewhere section (over-cap AND label-unresolved). */
+/** Announcer spec 2026-07-22 §4.1: named = first cap-many resolved targets;
+ *  extra = resolved targets beyond the cap (revealable when missCount is 0);
+ *  missCount = label-unresolved sections only. Collapsed overflow N =
+ *  extra.length + missCount (numerically the polish spec's old moreCount). */
 export function pointerSentenceParts(
   targets: ReadonlyArray<{ id: SectionId; label: string }>,
   totalSections: number,
-): { named: ReadonlyArray<{ id: SectionId; label: string }>; moreCount: number } {
-  const named = targets.slice(0, POINTER_NAME_CAP);
-  return { named, moreCount: Math.max(0, totalSections - named.length) };
+): {
+  named: ReadonlyArray<{ id: SectionId; label: string }>;
+  extra: ReadonlyArray<{ id: SectionId; label: string }>;
+  missCount: number;
+} {
+  return {
+    named: targets.slice(0, POINTER_NAME_CAP),
+    extra: targets.slice(POINTER_NAME_CAP),
+    missCount: Math.max(0, totalSections - targets.length),
+  };
 }
 
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
@@ -2596,9 +2605,10 @@ export function WarningsBreakdown({
                 // (§8.6): "…in A." / "…in A and B." / "…in A, B, and C." /
                 // "…in A[, B[, C]], and N more."
                 const pt = chrome?.pointerTargets;
-                const { named, moreCount } = pt
+                const { named, extra, missCount } = pt
                   ? pointerSentenceParts(pt.targets, pt.totalSections)
-                  : { named: [], moreCount: 0 };
+                  : { named: [], extra: [], missCount: 0 };
+                const moreCount = extra.length + missCount;
                 if (named.length === 0) {
                   // All labels missed or no chrome data: today's exact fallback.
                   return "The warnings that need a look are in their own sections. Nothing else to note here.";

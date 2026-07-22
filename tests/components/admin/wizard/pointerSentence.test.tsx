@@ -28,18 +28,29 @@ afterEach(cleanup);
 const T = (id: string, label: string) => ({ id: id as SectionId, label });
 
 describe("pointerSentenceParts (pure, spec §3.5)", () => {
-  it("cap boundary and unified overflow", () => {
+  it("cap boundary, extra split, unified miss count", () => {
     expect(POINTER_NAME_CAP).toBe(3);
     expect(pointerSentenceParts([T("crew", "Crew")], 1)).toEqual({
       named: [T("crew", "Crew")],
-      moreCount: 0,
+      extra: [],
+      missCount: 0,
     });
     expect(pointerSentenceParts([T("crew", "Crew"), T("rooms", "Rooms & scope")], 3)).toEqual({
       named: [T("crew", "Crew"), T("rooms", "Rooms & scope")],
-      moreCount: 1, // 1 unresolved section folds into the same clause (spec §3.5)
+      extra: [],
+      missCount: 1, // 1 unresolved section folds into the same clause (spec §3.5)
     });
-    const four = [T("a", "A"), T("b", "B"), T("c", "C"), T("d", "D")];
-    expect(pointerSentenceParts(four, 4)).toEqual({ named: four.slice(0, 3), moreCount: 1 });
+    const five = [T("a", "A"), T("b", "B"), T("c", "C"), T("d", "D"), T("e", "E")];
+    expect(pointerSentenceParts(five, 5)).toEqual({
+      named: five.slice(0, POINTER_NAME_CAP),
+      extra: five.slice(POINTER_NAME_CAP),
+      missCount: 0,
+    });
+    expect(pointerSentenceParts(five.slice(0, 4), 5)).toEqual({
+      named: five.slice(0, POINTER_NAME_CAP),
+      extra: [five[POINTER_NAME_CAP]!],
+      missCount: 1,
+    });
   });
 });
 
