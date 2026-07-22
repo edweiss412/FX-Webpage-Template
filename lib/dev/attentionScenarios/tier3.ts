@@ -14,9 +14,15 @@ const AT = "2026-07-01T12:00:00.000Z";
 export const T3_SHEET_MISSING = "t3-sheet-missing-mid-parse";
 export const T3_CREW_COLLISION = "t3-crew-collision-with-warnings";
 export const T3_HOLD_AND_DRIFT = "t3-hold-pending-with-asset-drift";
+export const T3_FULL_SPLIT = "t3-full-attention-split";
 
 /** The canonical composite list. The index test asserts set-equality against it. */
-export const T3_IDS: readonly string[] = [T3_SHEET_MISSING, T3_CREW_COLLISION, T3_HOLD_AND_DRIFT];
+export const T3_IDS: readonly string[] = [
+  T3_SHEET_MISSING,
+  T3_CREW_COLLISION,
+  T3_HOLD_AND_DRIFT,
+  T3_FULL_SPLIT,
+];
 
 export function tier3Scenarios(): AttentionScenario[] {
   return [
@@ -87,6 +93,43 @@ export function tier3Scenarios(): AttentionScenario[] {
       // deliberately materializes zero warnings, which is a distinct state from
       // "does not control warnings" (§3.4).
       warnings: [],
+    },
+    {
+      id: T3_FULL_SPLIT,
+      tier: 3,
+      label: "Everything at once: confirm, review, and monitoring",
+      alerts: [
+        {
+          // needs-look WITH an external link: openSheet resolves the sheet id
+          // from context.drive_file_id (the gallery passes no show-level id,
+          // so this exercises the fallback in a rendered surface).
+          code: "SHEET_UNAVAILABLE",
+          context: { drive_file_id: "gallery-fixture-file" },
+          raised_at: AT,
+          occurrence_count: 1,
+        },
+        // needs-look with the internal Overview anchor.
+        { code: "RESYNC_QUALITY_REGRESSED", context: {}, raised_at: AT, occurrence_count: 1 },
+        // two genuinely self-healing codes -> the Monitoring summary reads "2".
+        { code: "SYNC_STALLED", context: {}, raised_at: AT, occurrence_count: 3 },
+        { code: "DRIVE_FETCH_FAILED", context: {}, raised_at: AT, occurrence_count: 1 },
+      ],
+      holds: [
+        {
+          drive_file_id: "gallery-fixture-file",
+          domain: "crew_email",
+          entity_key: "ren-park",
+          held_value: { email: "ren.old@example.test", name: "Ren Park" },
+          proposed_value: {
+            disposition: "email_change",
+            name: "Ren Park",
+            email: "ren.new@example.test",
+          },
+          base_modified_time: AT,
+          kind: "mi11_pending",
+        },
+      ],
+      // warnings deliberately ABSENT (tri-state "do not touch", like T3_SHEET_MISSING).
     },
   ];
 }

@@ -230,6 +230,18 @@ test.describe("attention modal switcher gallery", () => {
         }
 
         // (2) Exercise the publish toggle where present (a form-action write path).
+        // Scenarios with actionable items AUTO-OPEN the attention dropdown
+        // (§5.2), and a tall menu (needs-look + monitoring groups, e.g.
+        // t3-full-attention-split) overlays the strip and intercepts the click.
+        // First Escape closes only the menu (capture-phase handler), never the
+        // modal.
+        const attentionMenu = dialog.locator(
+          '[data-testid="published-show-review-attention-menu"]',
+        );
+        if ((await attentionMenu.count()) > 0) {
+          await page.keyboard.press("Escape");
+          await expect(attentionMenu).toHaveCount(0);
+        }
         const publish = dialog.locator('[data-testid="strip-publish-toggle"] button').first();
         if ((await publish.count()) > 0) {
           await publish.click();
