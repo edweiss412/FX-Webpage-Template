@@ -1,0 +1,181 @@
+/**
+ * tests/app/admin/attentionModalGallery.serverProps.test.ts
+ * (plan 2026-07-21-attention-modal-switcher-gallery Task 4)
+ *
+ * The server-side partition: which scenarios render in the switcher, which are
+ * excluded and why. Two orthogonal axes — EXPRESSIBLE (the modal can reproduce
+ * the placement) and VISIBLE (the modal shows something). Both the structural
+ * and cut exclusion sets are PINNED to exact id lists so a catalog/derivation
+ * drift fails loudly instead of silently adapting.
+ */
+import { describe, expect, test } from "vitest";
+import {
+  partitionScenarios,
+  isModalExpressible,
+  isModalVisible,
+  resolveInitialScenario,
+} from "@/app/admin/dev/attention-gallery/buildSwitcherScenarios";
+import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
+import {
+  T2_SECTION_ABSENT,
+  T2_OVERVIEW_ABSENT,
+  T2_CREW_ROW_ABSENT,
+  T2_ANCHOR_ABSENT,
+  T2_EMPTY,
+  T2_DEGRADED,
+  tier2Scenarios,
+} from "@/lib/dev/attentionScenarios/tier2";
+import { tier1AlertScenarios, tier1WarningScenarios } from "@/lib/dev/attentionScenarios/tier1";
+import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
+
+const EXPECTED_STRUCTURAL = [T2_SECTION_ABSENT, T2_OVERVIEW_ABSENT, T2_CREW_ROW_ABSENT].sort();
+
+// The exact cut set today (checked-in). A new/removed cut scenario must fail
+// this pin, not silently adapt (cut-axis review finding 1).
+const EXPECTED_CUT_IDS = [
+  "alert-asset-recovery-drift-cooldown",
+  "alert-asset-recovery-revision-drift",
+  "alert-branch-protection-drift",
+  "alert-branch-protection-monitor-auth-failed",
+  "alert-callback-claim-threw",
+  "alert-email-delivery-failed",
+  "alert-email-not-configured",
+  "alert-github-bot-login-missing",
+  "alert-oauth-identity-claimed",
+  "alert-pending-snapshot-delete-stuck",
+  "alert-pending-snapshot-promote-stuck",
+  "alert-pending-snapshot-rollback-stuck",
+  "alert-picker-bootstrap-resolve-show-failed",
+  "alert-picker-bootstrap-rpc-failed",
+  "alert-picker-epoch-reset",
+  "alert-picker-selection-race",
+  "alert-report-duplicate-live-matches",
+  "alert-report-lease-thrashing",
+  "alert-report-lookup-inconclusive",
+  "alert-report-open-orphan-label",
+  "alert-report-orphaned-lost-lease",
+  "alert-role-flags-notice",
+  "alert-show-first-published",
+  "alert-stale-orphan-report",
+  "alert-tile-projection-fetch-failed",
+  "alert-tile-server-render-failed",
+  "alert-webhook-token-invalid",
+  "alert-wizard-session-superseded-race",
+].sort();
+
+function minimal(id: string, over: Partial<AttentionScenario> = {}): AttentionScenario {
+  return { id, tier: 1, label: id, alerts: [], holds: [], ...over };
+}
+
+describe("isModalExpressible (synthetic truth table)", () => {
+  test("a sectionAvailable override is not expressible", () => {
+    expect(isModalExpressible(minimal("x", { bucket: { sectionAvailable: () => false } }))).toBe(
+      false,
+    );
+  });
+  test("a crewKeyRendered override is not expressible", () => {
+    expect(isModalExpressible(minimal("x", { bucket: { crewKeyRendered: () => false } }))).toBe(
+      false,
+    );
+  });
+  test("both overrides is not expressible", () => {
+    expect(
+      isModalExpressible(
+        minimal("x", { bucket: { sectionAvailable: () => false, crewKeyRendered: () => true } }),
+      ),
+    ).toBe(false);
+  });
+  test("no override (or only anchorAvailable) is expressible", () => {
+    expect(isModalExpressible(minimal("x"))).toBe(true);
+    expect(isModalExpressible(minimal("x", { bucket: { anchorAvailable: () => false } }))).toBe(
+      true,
+    );
+  });
+});
+
+describe("isModalVisible", () => {
+  test("a surfacing alert scenario is visible", () => {
+    const surfacing = tier1AlertScenarios().find((s) => deriveScenarioAttention(s).length > 0)!;
+    expect(isModalVisible(surfacing)).toBe(true);
+  });
+  test("a cut alert scenario (declares an alert, derives nothing) is NOT visible", () => {
+    const cut = tier1AlertScenarios().find(
+      (s) => s.alerts.length > 0 && deriveScenarioAttention(s).length === 0,
+    )!;
+    expect(isModalVisible(cut)).toBe(false);
+  });
+  test("a warnings-only scenario is visible", () => {
+    const warned = tier1WarningScenarios().find((s) => (s.warnings?.length ?? 0) > 0)!;
+    expect(isModalVisible(warned)).toBe(true);
+  });
+  test("the intentional-empty baseline (declares no attention) is visible", () => {
+    expect(isModalVisible(tier2Scenarios().find((s) => s.id === T2_EMPTY)!)).toBe(true);
+  });
+  test("a degraded scenario is visible", () => {
+    expect(isModalVisible(tier2Scenarios().find((s) => s.id === T2_DEGRADED)!)).toBe(true);
+  });
+});
+
+describe("partitionScenarios", () => {
+  const { rendered, excluded } = partitionScenarios();
+
+  test("structural excluded set is EXACTLY the three predicate-override ids, and all are visible", () => {
+    const structural = excluded.filter((e) => e.reason === "structural");
+    expect(structural.map((e) => e.id).sort()).toEqual(EXPECTED_STRUCTURAL);
+    for (const id of EXPECTED_STRUCTURAL) {
+      const s = tier2Scenarios().find((x) => x.id === id)!;
+      expect(isModalVisible(s), `${id} should be structural-only (visible)`).toBe(true);
+    }
+  });
+
+  test("cut excluded set is EXACTLY the checked-in id list (drift fails the pin)", () => {
+    const cut = excluded.filter((e) => e.reason === "cut");
+    expect(cut.map((e) => e.id).sort()).toEqual(EXPECTED_CUT_IDS);
+  });
+
+  test("no tier-3 id renders; T2_ANCHOR_ABSENT and T2_EMPTY do render", () => {
+    expect(rendered.every((s) => s.tier === 1 || s.tier === 2)).toBe(true);
+    expect(rendered.some((s) => s.id === T2_ANCHOR_ABSENT)).toBe(true);
+    expect(rendered.some((s) => s.id === T2_EMPTY)).toBe(true);
+  });
+
+  test("integration visibility: every rendered scenario shows something (no blank modal)", () => {
+    for (const s of rendered) {
+      const d = s.data;
+      const hasItem = d.attentionItems.length > 0;
+      const hasWarning = Object.keys(d.bySection ?? {}).length > 0;
+      const isDegraded = d.alertsDegraded === true;
+      const isCleanBaseline = d.attentionItems.length === 0; // T2_EMPTY-class clean modal
+      expect(hasItem || hasWarning || isDegraded || isCleanBaseline, `${s.id} blank`).toBe(true);
+    }
+  });
+
+  test("every rendered scenario's data is serializable", () => {
+    for (const s of rendered) expect(() => structuredClone(s.data)).not.toThrow();
+  });
+
+  test("codes are carried server-side", () => {
+    const withAlert = rendered.find((s) => s.codes.length > 0)!;
+    expect(withAlert.codes.length).toBeGreaterThan(0);
+  });
+});
+
+describe("resolveInitialScenario", () => {
+  const { rendered } = partitionScenarios();
+  const validId = rendered[0]!.id;
+
+  test("valid scalar resolves; unknown/excluded/tier3/empty/undefined -> null", () => {
+    expect(resolveInitialScenario(validId, rendered)).toBe(validId);
+    expect(resolveInitialScenario("nope", rendered)).toBeNull();
+    expect(resolveInitialScenario(T2_SECTION_ABSENT, rendered)).toBeNull(); // structural excluded
+    expect(resolveInitialScenario("alert-email-delivery-failed", rendered)).toBeNull(); // cut excluded
+    expect(resolveInitialScenario("", rendered)).toBeNull();
+    expect(resolveInitialScenario(undefined, rendered)).toBeNull();
+  });
+
+  test("array normalization: first wins; unknown-first does NOT fall through; empty -> null", () => {
+    expect(resolveInitialScenario([validId, "x"], rendered)).toBe(validId);
+    expect(resolveInitialScenario(["nope", validId], rendered)).toBeNull();
+    expect(resolveInitialScenario([], rendered)).toBeNull();
+  });
+});

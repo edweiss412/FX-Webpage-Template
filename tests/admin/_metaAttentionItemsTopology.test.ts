@@ -74,7 +74,7 @@ describe("attention-items call topology", () => {
     // Any THIRD caller still fails here.
     expect(callSites("deriveAttentionItems")).toEqual([
       { file: "app/admin/_showReviewModal.tsx", count: 1 },
-      { file: "app/admin/dev/attention-gallery/buildBlockProps.ts", count: 1 },
+      { file: "lib/dev/deriveScenarioAttention.ts", count: 1 },
     ]);
   });
 
