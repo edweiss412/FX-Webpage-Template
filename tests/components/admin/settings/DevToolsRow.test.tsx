@@ -70,9 +70,7 @@ describe("DevToolsRow — DEV_PANEL_PRESENT true", () => {
     }
 
     // DOM order (spec §4, R1 F2): Open precedes Attention gallery.
-    expect(
-      open.compareDocumentPosition(gallery) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(open.compareDocumentPosition(gallery) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("isDeveloper={false} → renders nothing (normal admin never sees dev tools)", () => {
