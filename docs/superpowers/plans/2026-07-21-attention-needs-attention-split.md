@@ -699,6 +699,7 @@ Gallery FIRST so its diff is covered by the suite and evaluated by impeccable (a
 4. **Task 7/8 landed as registry extensions**, not new files: `pageTransitions.test.tsx` re-pinned (PublishedReviewModal 4→8; AttentionMenu enters at 6, red-proved via a deliberate 0 pin); topology/exclusion meta-tests confirmed green with the new field.
 5. **Gallery (T9.1 disposition):** `T2_AUTO_RESOLVING` (runtime-classified) already previews the new clearing states through the real modal + real derivation path; a curated all-three-segments scenario would fan out across the tier registries/validators and is DEFERRED per the task's own scope guard.
 6. **jsdom reconcile suite** (`pillFocusReconcile.test.tsx`) added as the fast tier of §11.5a alongside the Playwright probe (same generated 9-cell product).
+7. **Pill "to review" segment class:** spec §3.2 originally said `text-text-subtle`; shipped as `text-warning-text/90` (alpha of the pill's own ink). Rationale: gray text on the amber ground reads washed out (design-system rule), and `text-text-subtle` over `warning-bg` is a marginal 4.72:1 in dark theme; `/90` computes 6.73:1 light / 8.13:1 dark. Spec §3.2 corrected. The monitoring segment's `/70 -> /80` fix is in the §12 dual-gate record.
 
 ## §12 Impeccable dual-gate record (2026-07-22)
 

@@ -82,7 +82,7 @@ Replace the four mutually-exclusive states with a composed pill that always show
 - Derive `needsLookCount` and `selfHealCount` from `live` (§3.3), alongside the existing `actionable`.
 - **Interactive pill** renders when `actionable.length > 0 OR needsLookCount > 0` (i.e. anything a human might act on). Segments, in order, each rendered only when its count > 0:
   - `{actionable.length} to confirm` (warning tone dot, existing `bg-status-review`)
-  - `{needsLookCount} to review` (muted, `text-text-subtle`)
+  - `{needsLookCount} to review` (muted, `text-warning-text/90` — an alpha of the pill's own ink, not `text-text-subtle`: gray on the amber ground reads washed out and sits at a marginal 4.72:1 in dark theme; corrected during execution, plan deviation 7)
   - **Separator rule:** a `·` middot separator is rendered BETWEEN two present segments only. It is never the first visible glyph. So `actionable=0, needsLook=3` shows "3 to review" (no leading middot); `actionable=2, needsLook=3` shows "2 to confirm · 3 to review". Same rule applies before the `monitoring` segment.
 - **Non-interactive `{selfHealCount} monitoring`** pill segment appended (hollow dot) — shown when `selfHealCount > 0`. Never the sole reason the pill is interactive.
 - **Degraded** (`alertsDegraded && everything === 0`): "Alerts unavailable" (unchanged, line 712).
