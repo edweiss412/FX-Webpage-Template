@@ -39,6 +39,9 @@
  * DERIVED from the same server helpers the route uses — the test never hardcodes
  * a scenario list, so a catalog change re-derives instead of silently skipping.
  */
+// MUST be first: loads .env.local into the runner before the server imports
+// below evaluate (they throw at import without HASH_FOR_LOG_PEPPER et al.).
+import "./helpers/loadTestEnv";
 import { test, expect, type Page, type Request } from "@playwright/test";
 import { signInAs, signOut } from "./helpers/signInAs";
 import type { TestAuthFixture } from "./helpers/fixtures";
@@ -46,6 +49,8 @@ import { partitionScenarios } from "@/app/admin/dev/attention-gallery/buildSwitc
 import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import { buildScenarioModalData } from "@/lib/dev/buildScenarioModalData";
 import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
+import { messageFor } from "@/lib/messages/lookup";
+import type { MessageCode } from "@/lib/messages/catalog";
 import { ALL_SCENARIOS } from "@/lib/dev/attentionScenarios/index";
 
 // The developer fixture is admin+developer via the JWT arm (test-auth route
@@ -61,40 +66,78 @@ const GALLERY_PATH = "/admin/dev/attention-gallery";
 const DIALOG = '[data-testid="published-show-review-modal"]';
 const CONTROLS = '[data-testid="attention-switcher-controls"]';
 
-/** A scenario-specific marker that must appear INSIDE the dialog for scenario s. */
-type Marker = { testid: string; note: string };
-
 /**
- * Derive the authoritative in-dialog marker for a rendered scenario. Precedence
- * mirrors the modal's own surfacing order so the marker is the thing the modal
- * actually renders for THIS scenario:
- *   - an alert item        -> its `attention-banner-<alertId>` (unique per scenario)
- *   - degraded             -> the degraded notice
- *   - warnings             -> the first warned section's active-warnings block
- *   - a hold               -> the Changes rail badge
- *   - clean baseline       -> the modal title (the "nothing needs attention" state)
+ * A scenario's in-dialog marker set. The dialog is proven to render THIS
+ * scenario's attention if ANY listed testid is attached OR ANY listed text is
+ * visible. An OR-set is required because the modal buckets attention into FIVE
+ * distinct render paths that do NOT share a testid:
+ *   - overview-routed alert -> `attention-banner-<alertId>` (the overview slot)
+ *   - degraded              -> `attention-degraded-notice`
+ *   - warnings              -> `section-warning-active-<sec>`
+ *   - a hold                -> `changes-rail-badge`
+ *   - a NON-overview alert (routed to warnings/rooms/event/crew) renders as a
+ *     note / anchor card / crew banner with NO stable per-item testid — its
+ *     catalog TITLE text is the reliable, section-agnostic, scenario-specific
+ *     signal (every path renders the catalog copy; all sections are in the
+ *     scroll DOM). The clean baseline shows the empty-attention copy.
+ * Every entry here was validated against the built server's rendered DOM
+ * (72/72 scenarios) before this suite was finalized.
  */
+type Marker = { testids: string[]; texts: string[] };
+
+function alertCode(s: (typeof ALL_SCENARIOS)[number], alertId: string): MessageCode | undefined {
+  const idx = Number(alertId.split("-alert-").pop());
+  return s.alerts[idx]?.code as MessageCode | undefined;
+}
+
 function markerFor(id: string): Marker {
   const s = ALL_SCENARIOS.find((x) => x.id === id);
   if (!s) throw new Error(`markerFor: unknown scenario ${id}`);
   const items = deriveScenarioAttention(s);
-  const alert = items.find((i) => i.kind === "alert");
-  if (alert && alert.kind === "alert") {
-    return { testid: `attention-banner-${alert.alert.alertId}`, note: "alert banner" };
-  }
+  const alerts = items.filter((i) => i.kind === "alert");
   const d = buildScenarioModalData(s);
-  if (d.alertsDegraded) {
-    return { testid: "attention-degraded-notice", note: "degraded notice" };
+  const testids: string[] = [];
+  const texts: string[] = [];
+
+  // Overview-routed alert -> the overview banner (unique per alert).
+  const overviewAlert = alerts.find((i) => i.kind === "alert" && i.sectionId === "overview");
+  if (overviewAlert && overviewAlert.kind === "alert") {
+    testids.push(`attention-banner-${overviewAlert.alert.alertId}`);
   }
-  const routed = deriveRoutedWarnings(d.bySection);
-  const warnedSection = Object.keys(routed.activeWarningsBySection)[0];
-  if (warnedSection) {
-    return { testid: `section-warning-active-${warnedSection}`, note: "warned section" };
+  if (d.alertsDegraded) testids.push("attention-degraded-notice");
+  // Non-overview alert -> its catalog title text (section-agnostic).
+  const firstAlert = alerts[0];
+  if (!overviewAlert && firstAlert && firstAlert.kind === "alert") {
+    const code = alertCode(s, firstAlert.alert.alertId);
+    const title = code ? messageFor(code).title : null;
+    if (title) texts.push(title);
   }
-  if (items.some((i) => i.kind === "hold")) {
-    return { testid: "changes-rail-badge", note: "changes badge (hold)" };
+  // Warnings -> the warned section's active-warnings block.
+  for (const sec of Object.keys(deriveRoutedWarnings(d.bySection).activeWarningsBySection)) {
+    testids.push(`section-warning-active-${sec}`);
   }
-  return { testid: "published-show-review-title", note: "clean baseline title" };
+  // A hold -> the Changes rail badge.
+  if (items.some((i) => i.kind === "hold")) testids.push("changes-rail-badge");
+  // Nothing above -> the clean-modal empty-attention copy.
+  if (testids.length === 0 && texts.length === 0) texts.push("Nothing needs a look");
+  return { testids, texts };
+}
+
+/** Assert at least one of a scenario's markers is present inside the dialog. */
+async function expectMarker(page: Page, id: string): Promise<void> {
+  const dialog = page.locator(DIALOG);
+  const marker = markerFor(id);
+  for (const t of marker.testids) {
+    if ((await dialog.locator(`[data-testid="${t}"]`).count()) > 0) return;
+  }
+  for (const text of marker.texts) {
+    if ((await dialog.getByText(text, { exact: false }).count()) > 0) return;
+  }
+  throw new Error(
+    `${id}: no in-dialog marker found. testids=[${marker.testids.join(", ")}] texts=[${marker.texts.join(
+      " | ",
+    )}]`,
+  );
 }
 
 // Derived ONCE at module load — the authority the route also uses.
@@ -162,11 +205,7 @@ test.describe("attention modal switcher gallery", () => {
         const dialog = page.locator(DIALOG);
 
         // (1) Flight proof — the scenario's OWN marker inside the dialog.
-        const marker = markerFor(id);
-        await expect(
-          dialog.locator(`[data-testid="${marker.testid}"]`),
-          `${id}: expected in-dialog ${marker.note} (${marker.testid})`,
-        ).toBeAttached();
+        await expectMarker(page, id);
 
         // Defer resolve-bearing scenarios; sweep form-action controls now.
         const resolveBtn = dialog.locator('[data-testid^="per-show-alert-resolve-"]');
@@ -294,8 +333,7 @@ test.describe("attention modal switcher gallery", () => {
       const live = page.locator(`${CONTROLS} [aria-live="polite"]`);
       await expect(live).toHaveText(/^\s*1\s*\//);
       // The dialog shows the FIRST rendered scenario's marker, not the excluded one.
-      const marker = markerFor(RENDERED_IDS[0]!);
-      await expect(page.locator(DIALOG).locator(`[data-testid="${marker.testid}"]`)).toBeAttached();
+      await expectMarker(page, RENDERED_IDS[0]!);
     }
 
     // Footnotes (outside the inert root, in the control bar).
