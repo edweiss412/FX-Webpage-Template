@@ -131,6 +131,13 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // AnimatePresence, no enter/exit (spec §8 declares every pill pair instant).
   // Verified by RUNNING the scanner over the source, not by reasoning.
   "components/admin/showpage/PublishedReviewModal.tsx": 8,
+  // attention split 2026-07-21 §8: AttentionMenu enters the audit registry with
+  // its new clearing groups (needs-a-look rows: subtitle, hint, action anchor,
+  // external arrow; monitoring summary; group wrappers). Every site is an
+  // instant omit/mount that follows data — no AnimatePresence, no enter/exit
+  // (menu open/close motion is the panel's own mount transition, unchanged).
+  // Pinned by RUNNING the scanner over the source, not by reasoning.
+  "components/admin/showpage/AttentionMenu.tsx": 6,
   // modal-header-reconciliation §9: 8 → 7 (Task 2, the `renderTitle` head site —
   // which covered the h1 AND its adjacent title divider — deleted with the prop)
   // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7
