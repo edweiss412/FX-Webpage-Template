@@ -4,6 +4,7 @@ import { deriveAttentionItems, ATTENTION_FALLBACK_TITLE } from "@/lib/admin/atte
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { isAutoResolving } from "@/lib/adminAlerts/audience";
 import { validateScenario } from "@/lib/dev/attentionScenarios/validate";
+import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import { tier1AlertScenarios } from "@/lib/dev/attentionScenarios/tier1";
 import {
   MENU_CAP,
@@ -24,6 +25,10 @@ import {
   T2_SINGLE,
   T2_MANY,
   T2_DEGRADED,
+  T2_CLASS_MIX,
+  T2_DEGRADED_WITH_HOLDS,
+  T2_MULTI_HOLD,
+  T2_FEED_TRUNCATED,
 } from "@/lib/dev/attentionScenarios/tier2";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 
@@ -204,12 +209,13 @@ describe("tier 2 structural matrix", () => {
     expect(itemsFor(byId(T2_MANY))).toHaveLength(MENU_CAP);
   });
 
-  test("degraded is set on exactly one tier-2 scenario and on no tier-1 scenario", () => {
+  test("degraded is set on exactly two tier-2 scenarios and on no tier-1 scenario", () => {
     expect(
       tier2Scenarios()
         .filter((s) => s.degraded === true)
-        .map((s) => s.id),
-    ).toEqual([T2_DEGRADED]);
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual([T2_DEGRADED, T2_DEGRADED_WITH_HOLDS].sort());
     for (const s of tier1AlertScenarios()) expect(s.degraded ?? false, s.id).toBe(false);
   });
 
@@ -221,5 +227,40 @@ describe("tier 2 structural matrix", () => {
         .sort(),
     ).toEqual([T2_SECTION_ABSENT, T2_OVERVIEW_ABSENT, T2_ANCHOR_ABSENT, T2_CREW_ROW_ABSENT].sort());
     for (const s of tier1AlertScenarios()) expect(s.bucket, s.id).toBeUndefined();
+  });
+
+  test("t2-class-mix derives all three pill classes", () => {
+    const items = deriveScenarioAttention(byId(T2_CLASS_MIX));
+    expect(items.some((i) => i.actionable)).toBe(true);
+    expect(items.some((i) => !i.actionable && i.clearingKind === "needs_look")).toBe(true);
+    expect(items.some((i) => !i.actionable && i.clearingKind === "self_heal")).toBe(true);
+  });
+
+  test("t2-degraded-with-holds pairs the degraded flag with a flowing hold item", () => {
+    const s = byId(T2_DEGRADED_WITH_HOLDS);
+    expect(s.degraded).toBe(true);
+    expect(s.alerts).toEqual([]);
+    const items = deriveScenarioAttention(s);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("hold");
+  });
+
+  test("t2-multi-hold derives three distinct hold items", () => {
+    const items = deriveScenarioAttention(byId(T2_MULTI_HOLD));
+    expect(items.filter((i) => i.kind === "hold")).toHaveLength(3);
+  });
+
+  test("t2-feed-truncated flags the feed and carries a hold", () => {
+    const s = byId(T2_FEED_TRUNCATED);
+    expect(s.feedTruncated).toBe(true);
+    expect(s.holds.length).toBeGreaterThan(0);
+  });
+
+  test("feedTruncated appears on exactly one tier-2 scenario", () => {
+    expect(
+      tier2Scenarios()
+        .filter((s) => s.feedTruncated === true)
+        .map((s) => s.id),
+    ).toEqual([T2_FEED_TRUNCATED]);
   });
 });

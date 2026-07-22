@@ -7,6 +7,7 @@
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { isAutoResolving, DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
+import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import type { AttentionScenario, ScenarioAlertRow, ScenarioHoldRow } from "./types";
 
@@ -28,6 +29,10 @@ export const T2_EMPTY = "t2-empty";
 export const T2_SINGLE = "t2-single";
 export const T2_MANY = "t2-many";
 export const T2_DEGRADED = "t2-degraded";
+export const T2_CLASS_MIX = "t2-class-mix";
+export const T2_DEGRADED_WITH_HOLDS = "t2-degraded-with-holds";
+export const T2_MULTI_HOLD = "t2-multi-hold";
+export const T2_FEED_TRUNCATED = "t2-feed-truncated";
 
 export const T2_REQUIRED_IDS: readonly string[] = [
   T2_SECTION_ABSENT,
@@ -45,6 +50,10 @@ export const T2_REQUIRED_IDS: readonly string[] = [
   T2_SINGLE,
   T2_MANY,
   T2_DEGRADED,
+  T2_CLASS_MIX,
+  T2_DEGRADED_WITH_HOLDS,
+  T2_MULTI_HOLD,
+  T2_FEED_TRUNCATED,
 ];
 
 /**
@@ -89,6 +98,36 @@ function pickCode(kind: "inbox" | "auto" | "actionable"): string {
     return !inbox && !auto;
   });
   if (found === undefined) throw new Error(`tier2: no ATTENTION_ROUTES code is ${kind}`);
+  return found;
+}
+
+/**
+ * Classify a candidate by the DERIVED item's pill class (spec §3.2): probe one
+ * alert through the real derivation. Zero items = cut from the surface. This is
+ * the pill's own actionable/clearingKind split, so isAutoResolving vs
+ * isSelfHealing divergence cannot skew a pick.
+ */
+export function pickByDerivedClass(
+  kind: "actionable" | "needs_look" | "self_heal",
+  exclude: ReadonlySet<string> = new Set(),
+): string {
+  const codes = Object.keys(ATTENTION_ROUTES)
+    .filter((c) => !CONTEXT_REQUIRED.has(c) && !exclude.has(c))
+    .sort();
+  const found = codes.find((c) => {
+    const items = deriveScenarioAttention({
+      id: "t2-probe",
+      tier: 2,
+      label: "probe",
+      alerts: [alert(c)],
+      holds: [],
+    });
+    const it = items[0];
+    if (items.length !== 1 || it === undefined) return false;
+    if (kind === "actionable") return it.actionable;
+    return !it.actionable && it.clearingKind === kind;
+  });
+  if (found === undefined) throw new Error(`tier2: no ATTENTION_ROUTES code derives class ${kind}`);
   return found;
 }
 
@@ -226,5 +265,28 @@ export function tier2Scenarios(): AttentionScenario[] {
       holds: [],
     }),
     scenario(T2_DEGRADED, "Alert read degraded", { alerts: [], holds: [], degraded: true }),
+    scenario(T2_CLASS_MIX, "One of each pill class: confirm, review, monitoring", {
+      alerts: (() => {
+        const a = pickByDerivedClass("actionable");
+        const n = pickByDerivedClass("needs_look", new Set([a]));
+        const h = pickByDerivedClass("self_heal", new Set([a, n]));
+        return [alert(a), alert(n), alert(h)];
+      })(),
+      holds: [],
+    }),
+    scenario(T2_DEGRADED_WITH_HOLDS, "Alert read degraded while a hold still flows", {
+      alerts: [],
+      holds: [hold("dana-reed")],
+      degraded: true,
+    }),
+    scenario(T2_MULTI_HOLD, "Three pending holds", {
+      alerts: [],
+      holds: [hold("dana-reed"), hold("sam-ito"), hold("kim-cho")],
+    }),
+    scenario(T2_FEED_TRUNCATED, "Changes feed truncated at its cap", {
+      alerts: [],
+      holds: [hold("dana-reed")],
+      feedTruncated: true,
+    }),
   ];
 }
