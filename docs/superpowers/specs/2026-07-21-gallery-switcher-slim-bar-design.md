@@ -145,9 +145,15 @@ nav rail, section controls, banners, modal body — nor the modal's
 header (`data-testid="published-show-review-header"`,
 `ReviewModalShell.tsx:647` via `TESTID_BASE = "published-show-review"`,
 `components/admin/showpage/PublishedReviewModal.tsx:72`), close button
-(`published-show-review-close`), or footer (`published-show-review-footer`,
-`ReviewModalShell.tsx:696`). The e2e asserts non-intersection with the modal PANEL
-box itself (`published-show-review-modal`, `ReviewModalShell.tsx:578`) plus the
+(`published-show-review-close`), or footer where one exists — the published modal
+passes no footer prop, so the shell renders none (`ReviewModalShell.tsx:695`
+renders `-footer` only when `footer != null`; `PublishedReviewModal.tsx:19`
+documents the omission), and the footer box is therefore absent from the e2e
+assertion list. The e2e asserts non-intersection with the modal PANEL
+box itself (`[data-review-modal-panel]`, the `max-h-[85vh]` node at
+`ReviewModalShell.tsx:618`; NOT `published-show-review-modal`, which is the
+full-viewport `fixed inset-0` overlay wrapper at `ReviewModalShell.tsx:582` and
+intersects everything by construction) plus the
 header, close, and footer boxes. The nav rail, section controls, and banners are
 all DESCENDANTS of the panel (they render inside the modal's DOM subtree, so their
 boxes are clipped to the panel by its `overflow-clip`, `ReviewModalShell.tsx:618`);

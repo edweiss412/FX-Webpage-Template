@@ -89,7 +89,8 @@ E2E (`tests/e2e/attention-modal-gallery.spec.ts`):
 - NEW test "collapsed bar clears the modal at both viewports" (spec §5), ORDER
   FIXED to avoid state leakage: FIRST 390×844 (`page.setViewportSize` before
   `gotoScenario`) with the disclosure never touched — collapsed-state geometry:
-  bar `boundingBox()` vs boxes of `DIALOG` (panel), header
+  bar `boundingBox()` vs boxes of `[data-review-modal-panel]` (the panel; DIALOG
+  is the full-viewport overlay wrapper), header
   (`published-show-review-header`), close (`published-show-review-close`), footer
   (`published-show-review-footer`): no intersection with each (strict rect-overlap
   helper, no tolerance); `bar.height <= 64`; `bar.scrollWidth <= bar.clientWidth`

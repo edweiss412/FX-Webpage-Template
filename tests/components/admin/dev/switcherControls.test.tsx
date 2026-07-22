@@ -144,7 +144,9 @@ describe("SwitcherControls", () => {
     for (const el of [prev, next, toggle]) {
       expect(el.className).toContain("shrink-0");
     }
-    const chip = within(bar).getByText(/tier 1/).closest("span")!;
+    const chip = within(bar)
+      .getByText(/tier 1/)
+      .closest("span")!;
     expect(chip.className).toContain("shrink-0");
     const wrapper = within(bar)
       .getByText(/3 \/ 10/)
