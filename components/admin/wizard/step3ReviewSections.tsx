@@ -103,6 +103,7 @@ import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeCo
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
+import { infoRowInvitesCorrection } from "@/lib/admin/infoCodeActionability";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import {
@@ -2617,7 +2618,18 @@ export function WarningsBreakdown({
               The wizard keeps rendering it unconditionally: its panel lists
               every warning including the cell-bearing warn rows, and that
               surface's render is contractually unchanged. */}
-          {routedWarningsRenderElsewhere && !rows.some((w) => w.sourceCell) ? null : (
+          {/* Spec 2026-07-22-warning-panel-polish §3.4: on the published
+              branch the sourceCell conjunct is RETIRED — published rows are
+              info-only (visibleWarningRows), no info code is anchored
+              (dataGaps.ts OPERATOR_ACTIONABLE_ANCHORED), so that gate could
+              never fire. The callout now renders exactly when a listed info
+              row invites a correction (actionability registry). The wizard
+              branch stays unconditional (staged contract). */}
+          {routedWarningsRenderElsewhere ? (
+            rows.some((w) => infoRowInvitesCorrection(w)) ? (
+              <CorrectionLoopCallout mode={mode} />
+            ) : null
+          ) : (
             <CorrectionLoopCallout mode={mode} />
           )}
           {routedWarningsRenderElsewhere ? null : (
