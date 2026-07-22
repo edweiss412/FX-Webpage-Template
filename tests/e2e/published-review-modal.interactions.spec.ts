@@ -1662,20 +1662,26 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
           if (!pane) throw new Error("card has no scrolling ancestor pane");
           pane.scrollTop += 30;
         });
-        await page.waitForTimeout(60);
-        const after = await page.evaluate(
-          (args) => {
-            const b = document.getElementById(args.id)!.getBoundingClientRect();
-            const t = document
-              .querySelector(
-                `[data-testid="attention-banner-${args.alertId}"] button[aria-expanded="true"]`,
-              )!
-              .getBoundingClientRect();
-            return b.top - t.bottom;
-          },
-          { id: ownsId, alertId },
-        );
-        expect(Math.abs(after - before)).toBeLessThanOrEqual(1);
+        // Poll to convergence (codex R2 F4): a loaded runner can take more
+        // than one frame to run the coalesced rAF reposition.
+        await expect
+          .poll(
+            () =>
+              page.evaluate(
+                (args) => {
+                  const b = document.getElementById(args.id)!.getBoundingClientRect();
+                  const t = document
+                    .querySelector(
+                      `[data-testid="attention-banner-${args.alertId}"] button[aria-expanded="true"]`,
+                    )!
+                    .getBoundingClientRect();
+                  return Math.abs(b.top - t.bottom - args.before);
+                },
+                { id: ownsId, alertId, before },
+              ),
+            { timeout: 3_000 },
+          )
+          .toBeLessThanOrEqual(1);
       });
     });
 
@@ -1738,6 +1744,28 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
           `Tab from the link escaped the trap (landed on ${wrapped.id})`,
         ).toBe(true);
         expect(wrapped.id).not.toMatch(/^A:Learn more about /); // it moved
+        // Trap-LIVENESS discriminator (codex R2 F1): with the background inert
+        // and the modal at the end of document.body, NATIVE tab-wrap can mimic
+        // a working trap for the insidePanel assertion above. A synthetic
+        // cancelable Tab gets NO native default action from the browser, so
+        // defaultPrevented===true can ONLY come from the trap's own keydown
+        // listener on the LIVE panel node (i.e. the useDialogFocus reattachKey
+        // wiring survived the mounted portal move). The wrap above landed
+        // focus on the trap's FIRST focusable, so probe the Shift+Tab
+        // boundary branch (active===first -> preventDefault + last.focus()).
+        const trapActed = await page.evaluate(() => {
+          const active = document.activeElement;
+          if (!active) return false;
+          const ev = new KeyboardEvent("keydown", {
+            key: "Tab",
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+          });
+          active.dispatchEvent(ev);
+          return ev.defaultPrevented;
+        });
+        expect(trapActed, "trap keydown listener is attached to the live panel").toBe(true);
       });
     });
   });

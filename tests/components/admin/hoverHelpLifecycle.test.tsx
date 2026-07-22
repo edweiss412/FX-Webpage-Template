@@ -51,6 +51,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // Codex R2 F8: a fake-timer test failing BEFORE its own vi.useRealTimers()
+  // must not leave later tests under fake timers.
+  vi.useRealTimers();
 });
 
 const runPendingFrames = () => {

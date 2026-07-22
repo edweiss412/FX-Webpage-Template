@@ -89,6 +89,10 @@ export function computePopoverPlacement(input: PopoverPlacementInput): PopoverPl
   // ---- step 1: degenerate/hidden gate (spec §4.2 step 1) ----
   if (!finiteRect(trigger) || !finiteRect(bounds)) return HIDDEN;
   if (!Number.isFinite(naturalSize.width) || !Number.isFinite(naturalSize.height)) return HIDDEN;
+  // Zero/negative measured body = the node was not laid out when measured
+  // (mid-toggle display:none, detached, etc.) - nothing placeable; recover on
+  // the next frame like every other hidden cause (codex R2 F7).
+  if (naturalSize.width <= 0 || naturalSize.height <= 0) return HIDDEN;
   if (bounds.width <= 0 || bounds.height <= 0) return HIDDEN;
   if (trigger.width <= 0 || trigger.height <= 0) return HIDDEN; // zero-area trigger
   if (!overlapsPositively(trigger, bounds)) return HIDDEN;
@@ -100,7 +104,7 @@ export function computePopoverPlacement(input: PopoverPlacementInput): PopoverPl
   const maxWidth = naturalSize.width > bounds.width ? bounds.width : null;
   const effectiveWidth = Math.min(naturalSize.width, bounds.width);
   const height0 = maxWidth === null ? naturalSize.height : input.wrappedHeightAt(effectiveWidth);
-  if (!Number.isFinite(height0)) return HIDDEN; // non-finite wrappedHeightAt result
+  if (!Number.isFinite(height0) || height0 <= 0) return HIDDEN; // unmeasured/degenerate wrap result
 
   // ---- step 3: vertical side (spec §4.2 step 3; ties → preferredSide) ----
   const space = (side: "top" | "bottom"): number => (side === "top" ? spaceAbove : spaceBelow);

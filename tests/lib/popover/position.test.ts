@@ -150,6 +150,24 @@ describe("computePopoverPlacement decision table", () => {
         "non-finite wrappedHeightAt result",
         input({ bounds: rect(8, 8, 200, 784), wrappedHeightAt: () => NaN }),
       ],
+      // Finite-degenerate classes (codex R2 F7): a zero/negative measured body
+      // means the node was not laid out when measured - place nothing, recover
+      // on the next frame like every other hidden cause.
+      ["zero natural width", input({ naturalSize: { width: 0, height: 200 } })],
+      ["zero natural height", input({ naturalSize: { width: 288, height: 0 } })],
+      ["negative natural height", input({ naturalSize: { width: 288, height: -4 } })],
+      [
+        "zero wrappedHeightAt result",
+        input({ bounds: rect(8, 8, 200, 784), wrappedHeightAt: () => 0 }),
+      ],
+      [
+        "negative wrappedHeightAt result",
+        input({ bounds: rect(8, 8, 200, 784), wrappedHeightAt: () => -12 }),
+      ],
+      ["negative trigger width", input({ trigger: rect(500, 300, -20, 20) })],
+      ["negative trigger height", input({ trigger: rect(500, 300, 20, -20) })],
+      ["negative bounds width", input({ bounds: rect(8, 8, -10, 784) })],
+      ["zero bounds height", input({ bounds: rect(8, 8, 984, 0) })],
     ])("%s → hidden", (_name, inp) => {
       expect(computePopoverPlacement(inp)).toEqual({ kind: "hidden" });
     });
@@ -172,6 +190,16 @@ describe("rect helpers", () => {
     expect(intersectRects(rect(0, 0, 100, 100), rect(50, 50, 100, 100))).toEqual(
       rect(50, 50, 50, 50),
     );
+  });
+  it("intersectRects on DISJOINT rects yields a non-positive-area rect (codex R2 F7)", () => {
+    const i = intersectRects(rect(0, 0, 100, 100), rect(200, 200, 50, 50));
+    expect(i.width).toBeLessThanOrEqual(0);
+    expect(i.height).toBeLessThanOrEqual(0);
+  });
+  it("intersectRects on EDGE-TOUCHING rects yields zero width (no positive overlap)", () => {
+    const i = intersectRects(rect(0, 0, 100, 100), rect(100, 0, 50, 100));
+    expect(i.width).toBe(0);
+    expect(i.height).toBe(100);
   });
   it("insetRect shrinks on all four sides", () => {
     expect(insetRect(rect(0, 0, 100, 100), 8)).toEqual(rect(8, 8, 84, 84));

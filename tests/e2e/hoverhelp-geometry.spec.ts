@@ -22,7 +22,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
@@ -106,6 +106,8 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (server) await new Promise<void>((r) => server.close(() => r()));
+  // Codex R2 F10: don't leak a hoverhelp-geometry-* tmp dir per run.
+  if (workDir) rmSync(workDir, { recursive: true, force: true });
 });
 
 type Box = {
@@ -131,11 +133,17 @@ async function open(page: Page, kase: string, triggerId: string): Promise<void> 
  */
 async function clickOpen(page: Page, triggerId: string): Promise<void> {
   const trigger = page.getByTestId(`${triggerId}-trigger`);
-  await trigger.click();
-  try {
-    await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
-  } catch {
+  // Converge-by-loop (mirrors the modal suite's clickOpenTrigger): the
+  // hover-open/click-toggle parity is not stable under CPU contention, so
+  // each attempt just toggles again until the open state sticks.
+  for (let attempt = 0; attempt < 5; attempt++) {
     await trigger.click();
+    try {
+      await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+      return;
+    } catch {
+      // toggled closed again — loop
+    }
   }
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
 }
@@ -260,15 +268,26 @@ test.describe("T3 geometry", () => {
     expect(Math.abs(bPin.top - (tPin.bottom + GAP))).toBeLessThanOrEqual(TOL);
   });
 
-  test("T3g align branches clamped at both edges", async ({ page }) => {
+  test("T3g align branches clamped at both edges (SATURATED, not merely inside)", async ({
+    page,
+  }) => {
+    // Discriminative form (codex R2 F5): the fixtures are pinned close enough
+    // to each edge that the requested alignment CANNOT fit, so the clamp must
+    // land EXACTLY on the inset boundary. An implementation that centered the
+    // body (or ignored the align prop) would sit strictly inside the bound
+    // and fail the equality.
     await open(page, "edges", "edge-right-align");
+    const t1 = await box(page, "edge-right-align-trigger");
     const b1 = await box(page, "edge-right-align-body");
-    expect(b1.left).toBeGreaterThanOrEqual(VIEWPORT_INSET - TOL);
+    expect(t1.right - b1.width).toBeLessThan(VIEWPORT_INSET); // precondition: align=right cannot fit
+    expect(Math.abs(b1.left - VIEWPORT_INSET)).toBeLessThanOrEqual(TOL); // saturated at left inset
     await clickOpen(page, "edge-left-align");
     const vp = page.viewportSize();
     if (!vp) throw new Error("no viewport");
+    const t2 = await box(page, "edge-left-align-trigger");
     const b2 = await box(page, "edge-left-align-body");
-    expect(b2.right).toBeLessThanOrEqual(vp.width - VIEWPORT_INSET + TOL);
+    expect(t2.left + b2.width).toBeGreaterThan(vp.width - VIEWPORT_INSET); // precondition: align=left cannot fit
+    expect(Math.abs(b2.right - (vp.width - VIEWPORT_INSET))).toBeLessThanOrEqual(TOL); // saturated at right inset
   });
 
   test("T3h discriminative metric: capped border-box fits below although scrollHeight would not", async ({
@@ -353,10 +372,18 @@ test.describe("T7 reposition lifecycle (e2e arm)", () => {
       el.scrollTop = 40;
       el.dispatchEvent(new Event("scroll", { bubbles: false }));
     });
-    await page.waitForTimeout(50);
-    const t2 = await box(page, "pane-help-trigger");
-    const b2 = await box(page, "pane-help-body");
-    expect(Math.abs(b2.top - t2.bottom - offset1)).toBeLessThanOrEqual(1);
+    // Poll to convergence (codex R2 F4): a loaded runner can take more than
+    // one frame to run the coalesced rAF reposition.
+    await expect
+      .poll(
+        async () => {
+          const t2 = await box(page, "pane-help-trigger");
+          const b2 = await box(page, "pane-help-body");
+          return Math.abs(b2.top - t2.bottom - offset1);
+        },
+        { timeout: 3_000 },
+      )
+      .toBeLessThanOrEqual(1);
   });
 
   test("content growth repositions via ResizeObserver and stays in bounds; popover stays open", async ({
@@ -365,9 +392,10 @@ test.describe("T7 reposition lifecycle (e2e arm)", () => {
     await open(page, "grow", "grow-help");
     const before = await box(page, "grow-help-body");
     await page.evaluate(() => window.__growPopoverContent());
-    await page.waitForTimeout(80);
+    await expect
+      .poll(async () => (await box(page, "grow-help-body")).height, { timeout: 3_000 })
+      .toBeGreaterThan(before.height + 100);
     const after = await box(page, "grow-help-body");
-    expect(after.height).toBeGreaterThan(before.height + 100);
     const vp = page.viewportSize();
     if (!vp) throw new Error("no viewport");
     expect(after.bottom).toBeLessThanOrEqual(vp.height - VIEWPORT_INSET + TOL);
@@ -387,11 +415,12 @@ test.describe("T7 reposition lifecycle (e2e arm)", () => {
       .evaluate((el) => (el as HTMLElement).style.maxWidth);
     expect(narrow).not.toBe(""); // pane bounds 160-16=144 < 288 natural
     await page.evaluate(() => window.__widenPane());
-    await page.waitForTimeout(80);
-    const restored = await page
-      .getByTestId("np-help-body")
-      .evaluate((el) => (el as HTMLElement).style.maxWidth);
-    expect(restored).toBe("");
+    await expect
+      .poll(
+        () => page.getByTestId("np-help-body").evaluate((el) => (el as HTMLElement).style.maxWidth),
+        { timeout: 3_000 },
+      )
+      .toBe("");
   });
 
   test("maxHeight engages on a short viewport and is CLEARED after restore", async ({ page }) => {
@@ -403,11 +432,13 @@ test.describe("T7 reposition lifecycle (e2e arm)", () => {
     expect(short).not.toBe("");
     // taller than the content ever needs: no side is too small any more
     await page.setViewportSize({ width: 1280, height: 3000 });
-    await page.waitForTimeout(80);
-    const restored = await page
-      .getByTestId("tall-help-body")
-      .evaluate((el) => (el as HTMLElement).style.maxHeight);
-    expect(restored).toBe("");
+    await expect
+      .poll(
+        () =>
+          page.getByTestId("tall-help-body").evaluate((el) => (el as HTMLElement).style.maxHeight),
+        { timeout: 3_000 },
+      )
+      .toBe("");
   });
 });
 
