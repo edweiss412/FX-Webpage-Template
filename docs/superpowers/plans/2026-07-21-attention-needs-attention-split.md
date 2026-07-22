@@ -699,3 +699,21 @@ Gallery FIRST so its diff is covered by the suite and evaluated by impeccable (a
 4. **Task 7/8 landed as registry extensions**, not new files: `pageTransitions.test.tsx` re-pinned (PublishedReviewModal 4→8; AttentionMenu enters at 6, red-proved via a deliberate 0 pin); topology/exclusion meta-tests confirmed green with the new field.
 5. **Gallery (T9.1 disposition):** `T2_AUTO_RESOLVING` (runtime-classified) already previews the new clearing states through the real modal + real derivation path; a curated all-three-segments scenario would fan out across the tier registries/validators and is DEFERRED per the task's own scope guard.
 6. **jsdom reconcile suite** (`pillFocusReconcile.test.tsx`) added as the fast tier of §11.5a alongside the Playwright probe (same generated 9-cell product).
+
+## §12 Impeccable dual-gate record (2026-07-22)
+
+Canonical v3 setup gates ran (context.mjs PRODUCT.md load; product register). Critique = design-director assessment (isolated subagent) + detector/contrast assessment (isolated subagent, `detect.mjs --json` returned zero findings on both files). Audit = 5-dimension technical pass, score 18/20.
+
+**Fixed (P0/P1):**
+
+1. **P1 contrast** — `text-warning-text/70` monitoring pill segment computed 4.01:1 over `--color-warning-bg` in light theme (below AA 4.5:1 at text-xs; dark passed at 5.58:1). Fixed to `/80` (~5.35:1 light). Commit `8278d1a96`.
+2. **P1 empty-section eyebrow** — "Needs your confirmation" header + panel aria-label rendered even with zero actionable rows, putting an empty section header over a needs-look-only open. Header now conditional on `hasActionable`; aria-label follows the first group present. Commit `8278d1a96`.
+3. **P1 (audit) missing sr-only tone text** — spec §3.4.2 ratifies dot + sr-only tone text on needs-look rows; the dot shipped alone. Restored (reuses the notice-tone string). Commit `562d25979`.
+4. **Spec conformance (surfaced by critique review)** — the ratified "Monitoring" subheading (§3.4.3, plan Task 5 step 3) had been dropped; restored. Commit `8278d1a96`.
+
+**Dispositions (no change):**
+
+- **P1 terminology "drift"** (pill "to review" vs menu "Needs a look"): spec-ratified copy pairing (§5 copy table, §3.2/§3.4). Critique is not authoritative vs spec.
+- **P2 pill three-segment width at 390px**: 99+ caps digits; worst case (three segments) truncates the title, not the pill. DEFER — revisit if real data shows all three segments co-occurring routinely.
+- **P2 hint jargon** ("re-stage", "service account"): terms are the product's own operational vocabulary (Doug-facing admin); hints name the exact fix object. No change.
+- **P3s** (hollow-dot third meaning, anchor hover state, monitoring inside amber pill): recorded, not blocking; anchor has underline + focus ring per AttentionBanner precedent.
