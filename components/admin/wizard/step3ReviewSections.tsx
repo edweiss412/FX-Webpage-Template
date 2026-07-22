@@ -675,6 +675,24 @@ function SectionFlagCallout({
  */
 const COUNT_SECTIONS = new Set<SectionId>(["crew", "contacts", "rooms", "warnings"]);
 
+/**
+ * Whether the section heading shows its `(count)` chip. The chip appears only for
+ * the counted subset (COUNT_SECTIONS) with a non-null count and a real sectionId
+ * (a sub-block like Diagrams has none). The `count === 0 && flagged` carve-out
+ * suppresses the self-contradicting "(0)" beside a "Needs a look" badge: a section
+ * whose only content is warn rows routed to its own cards has zero body rows but
+ * is still flagged, and "(0) Needs a look" reads as a broken empty tile. Suppressing
+ * the chip leaves the amber flag as the sole, coherent signal.
+ */
+export function shouldShowSectionCount(
+  count: number | null,
+  sectionId: SectionId | undefined,
+  flagged: boolean,
+): boolean {
+  if (count === null || sectionId === undefined || !COUNT_SECTIONS.has(sectionId)) return false;
+  return !(count === 0 && flagged);
+}
+
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
 function ModalSectionChrome({
   chrome,
@@ -703,9 +721,9 @@ function ModalSectionChrome({
   const sub = headingLevel === 4;
   const Heading = sub ? "h4" : "h3";
   // Count shows only for the counted subset (COUNT_SECTIONS). A sub-block
-  // (Diagrams, no sectionId) never shows one.
-  const showCount =
-    count !== null && chrome.sectionId !== undefined && COUNT_SECTIONS.has(chrome.sectionId);
+  // (Diagrams, no sectionId) never shows one; a flagged zero-count section
+  // suppresses the self-contradicting "(0)" (see shouldShowSectionCount).
+  const showCount = shouldShowSectionCount(count, chrome.sectionId, flagged);
   // Per-section "In sheet" deep link (bug #316 item 3): resolve the section's
   // parser region via SECTION_REGION_MAP and pass its persisted source_anchors
   // range to buildSheetDeepLink, so the link opens the sheet AT that section's
