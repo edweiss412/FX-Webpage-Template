@@ -116,6 +116,7 @@ describe("t3-full-attention-split renders the full taught state", () => {
     // groups being disjoint subtrees, which is what "grouped" means.
     let scope: HTMLElement = summary.parentElement as HTMLElement;
     while (!scope.contains(monHeading)) scope = scope.parentElement as HTMLElement;
+    expect(scope).not.toBe(menu); // a PROPER subtree, never the whole panel
     expect(within(scope).queryByText("Needs your confirmation")).toBeNull();
     expect(within(scope).queryByText("Needs a look")).toBeNull();
   });
