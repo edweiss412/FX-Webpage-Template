@@ -161,6 +161,7 @@ Working copy (final wording is refinable in the impeccable copy pass; user-visib
 - **`selfHealCount === 0`:** the "Monitoring" group and its pill segment do not render.
 - **All counts 0:** "In sync" (unchanged).
 - **`alertsDegraded`:** alerts array is empty (`_showReviewModal.tsx:306` passes `[]`), so all counts 0 → "Alerts unavailable" pill (unchanged). No group renders.
+- **Menu open when the pill loses interactivity (trigger disappears mid-open):** if live data updates while `menuOpen` such that the pill would no longer be interactive (`actionable.length === 0 && needsLookCount === 0` — i.e. it collapses to monitoring-only / in-sync / degraded), the interactive trigger `<button>` unmounts and is replaced by a non-interactive `<span>`, orphaning the open dropdown and dropping keyboard focus to `<body>` (breaking the modal focus trap). Guard: a `useEffect` keyed on the interactivity predicate force-closes the menu (`setMenuOpen(false)`) the moment it goes false, and restores focus to a stable in-modal target (the modal dialog root / its existing on-open focus target — the same element the modal focuses when it opens; exact ref confirmed at plan time). No stale `aria-expanded`, no focus on a removed node. This is the compound case enumerated in §8.
 - **`clearingKind` undefined on an actionable/hold item:** groups filter on `!i.actionable && clearingKind === X`, so holds/actionables never leak into a clearing group.
 - **A code that is auto-resolving, doug-audience, but NOT yet classified** (new code added later): runtime bucketing defaults it to `needs_look` (fails safe visible, not hidden); AND, because it is a member of NEITHER `SELF_HEALING_CODES` nor `NEEDS_LOOK_CODES`, the exhaustiveness meta-test (§10) fails in CI until it is explicitly added to one set. The two-set design is what makes this failure real (see §2).
 
@@ -187,7 +188,12 @@ Four pill states: **A** = composite (`to confirm`/`to review`, interactive), **B
 | menu closed ↔ open | existing `AttentionMenu` open/close transition (unchanged) |
 | chevron rotate (menu open) | existing `rotate-180 transition-transform` (unchanged) |
 
-The pill has always been instant on count/state change; this spec keeps that (no `AnimatePresence`, no enter/exit). **Compound transition (enumerated, not dismissed):** a count change WHILE the menu is open — a "Needs a look" or "Monitoring" group (or an individual needs-look row) appearing or disappearing mid-open as live data updates. Treatment: instant insert/remove of the row/group in the open menu, no animation; the pill segment updates in lockstep. No layout-shift guard beyond the menu's existing scroll container. This is the only compound case; it is acceptable because the menu is a transient dropdown and instant updates match its current behavior.
+The pill has always been instant on count/state change; this spec keeps that (no `AnimatePresence`, no enter/exit). **Compound transitions (all enumerated, none dismissed):**
+
+1. **Group/row change while menu open (trigger stays interactive):** a "Needs a look" or "Monitoring" group (or an individual needs-look row) appears/disappears mid-open as live data updates, while `actionable+needsLook` stays > 0. Treatment: instant insert/remove of the row/group in the open menu, no animation; the pill segment updates in lockstep. No layout-shift guard beyond the menu's existing scroll container.
+2. **Interactive → non-interactive while menu open (trigger disappears): A(open) → B / C / D.** The last actionable+needs-look item clears, or alerts degrade, while the menu is open — the pill drops to monitoring-only (B), in-sync (D), or degraded (C), and its trigger `<button>` unmounts. Treatment: NOT a visual transition — a state-reconciliation. The effect in §6 force-closes the menu and restores focus to a stable in-modal target the same tick the trigger goes non-interactive. Instant, no animation. This is a correctness case (focus + open-state), not an aesthetic one; it is TESTED (§11.5a), not merely declared instant.
+
+No `AnimatePresence` is added for any of the above.
 
 ---
 
@@ -229,6 +235,7 @@ Anti-tautology: assert against the derived data (`deriveAttentionItems` output, 
    - `(0,0,1)` → "1 monitoring"; NON-interactive (no pill button, no menu).
    - `(0,0,0)` not degraded → "In sync".
    - degraded (all 0, `alertsDegraded`) → "Alerts unavailable".
+5a. **Menu open → trigger loses interactivity (compound correctness).** Open the menu with `(actionable=1, needsLook=0, selfHeal=1)`; move focus into the menu; update live data to `(0,0,1)` (last actionable clears → pill becomes monitoring-only, non-interactive). Assert: the menu force-closes (`menuOpen` false, no `aria-expanded=true` on a removed node), and focus lands on a stable in-modal element (NOT `document.body`). Repeat for the degrade path: `(1,0,0)` open → `alertsDegraded` → "Alerts unavailable", menu closes, focus safe. Catches the R2 P1 finding (orphaned open menu + focus drop).
 6. Menu render: needs-a-look rows are read-only (no row-level `onNavigate`); the `<a>` is the only interactive descendant; external sheet links carry `target=_blank rel=noopener`. Monitoring group is a single summary row, not enumerated. (Clone-and-strip the actionable rows before scanning, per anti-tautology rule.)
 7. **Menu-close on action activation:** clicking a needs-a-look row's `<a>` calls `onClose` (assert the menu closes) for BOTH an internal `#overview` link and an external Sheet link. Catches finding-6 (target scrolled behind an open dropdown).
 8. Fail-open: a needs-a-look item with null `driveFileId` (and, for internal, null `slug`) renders its fix hint and NO anchor (no dead link); the row is still present and read-only.
