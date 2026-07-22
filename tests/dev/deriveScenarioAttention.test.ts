@@ -9,8 +9,9 @@
  *    tier-1 scenario that derived nothing would be a silently-empty modal.
  */
 import { describe, expect, test } from "vitest";
-import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
+import { buildScenarioFeed, deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import { tier1AlertScenarios } from "@/lib/dev/attentionScenarios/tier1";
+import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 
 describe("deriveScenarioAttention", () => {
   test("a declared alert code surfaces as an attention item", () => {
@@ -38,5 +39,21 @@ describe("deriveScenarioAttention", () => {
     const cut = scenarios.filter((s) => deriveScenarioAttention(s).length === 0);
     expect(surfacing.length).toBeGreaterThan(0); // some codes DO surface
     expect(cut.length).toBeGreaterThan(0); // and some are legitimately cut
+  });
+
+  test("buildScenarioFeed carries truncated only when the scenario flags it", () => {
+    const HOLD: AttentionScenario["holds"][number] = {
+      drive_file_id: "f",
+      domain: "crew_email",
+      entity_key: "k",
+      held_value: { email: "a@example.test" },
+      proposed_value: { disposition: "email_change", name: "N", email: "b@example.test" },
+      base_modified_time: "2026-07-01T12:00:00.000Z",
+      kind: "mi11_pending",
+    };
+    const base: AttentionScenario = { id: "probe-ft2", tier: 2, label: "p", alerts: [], holds: [HOLD] };
+    expect(buildScenarioFeed(base)?.truncated).toBe(false);
+    expect(buildScenarioFeed({ ...base, feedTruncated: true })?.truncated).toBe(true);
+    expect(buildScenarioFeed({ ...base, holds: [], feedTruncated: true })).toBeNull();
   });
 });
