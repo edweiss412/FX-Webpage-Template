@@ -4,7 +4,7 @@ Open deferral queue — work intentionally deferred with a concrete un-defer tri
 
 **Resolved / stale / N/A entries live in [DEFERRED-archive.md](./DEFERRED-archive.md)** — full provenance kept there, NOT in this working queue. When an item below ships, move its full entry to the archive.
 
-Last reconciled: 2026-07-19 (MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
+Last reconciled: 2026-07-21 (SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
 
 ---
 
@@ -42,37 +42,14 @@ Direct consequence of `STRIP-MOBILE-WRAP-1`, surfaced by Task 9's band-parity sp
 
 **Un-defer trigger:** resolving `STRIP-MOBILE-WRAP-1` (a deliberate mobile reflow makes the loaded mobile band deterministic, at which point exact parity becomes assertable again), or user reports of a visible header jump on mobile loads.
 
-### ~~SHAREHUB-ROW-ANATOMY-1~~ — RESOLVED by share-hub-fidelity-fixes (this PR)
-
-The un-defer trigger below ("a `compact` variant matching the rotate row, applied in the hub only") is exactly what this PR shipped: both `RotateShareTokenButton` (compact) and `PickerResetControl` now render as the same borderless full-width menu row (icon + label + description), matching the mock. `step3ReviewSections.tsx` was confirmed NOT to consume `PickerResetControl` (it carries its own parallel implementation), so no opt-out was needed. Kept below for history.
-
-### SHAREHUB-ROW-ANATOMY-1 — [P1] the two destructive rows inside the hub have different shapes
-
-From the impeccable critique of `share-hub` (Assessment A, heuristic 4 "Consistency and standards", scored 2/4). Inside one 308px popover, the two irreversible controls render with different anatomies: `RotateShareTokenButton` in `compact` mode is label-left / button-right (`RotateShareTokenButton.tsx:281-284`), while `PickerResetControl` is a heading over a full-width button (`PickerResetControl.tsx:212-270`). The user-approved mock drew both as the same icon + title + subtitle row (`ActionBarMenu-1d.dc.html:111,123).
-
-**Deferred, not accepted as correct.** The fix is a new compact row variant on `PickerResetControl`, which is NOT hub-local: `components/admin/wizard/step3ReviewSections.tsx` renders the same component in the onboarding wizard, where the current full-width anatomy is right for a wider column. Doing it properly means a variant axis plus its own tests on both surfaces — a larger change than this PR's remaining scope, and one that touches a shipped surface the share-hub work otherwise does not.
-
-Both rows individually satisfy the §15 tier-2 guard ladder (two-tap, 4s auto-revert, safe-control focus, busy-gated dismissal), so this is a visual-consistency defect, not a safety one.
-
-**Un-defer trigger:** the next change that touches `PickerResetControl`'s presentation for any reason, or user feedback that the hub's Careful section reads as two unrelated controls. The fix is a `compact` variant matching the rotate row, applied in the hub only, with `step3ReviewSections` explicitly opting out.
-
----
-
 ### SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE — [P1/P2/P3] impeccable critique of the fidelity-fix diff
 
 From the invariant-8 dual-gate on the share-hub-fidelity-fixes diff (Assessment A, 31/40).
-`SHAREHUB-ROW-ANATOMY-1` (the run's primary P1) is RESOLVED above. The remaining findings
-are recorded here with dispositions; none is a P0 and none blocks merge.
-
-- **[P1] "Careful rows carry no visual weight" — REFUTED against the ratified mock, not deferred.**
-  Assessment A wanted a warning tone on the two idle rows. The user-approved mock
-  (`ActionBarMenu-1d.dc.html`) draws the IDLE rotate/reset icons in subtle gray
-  (`color:#5a5b62` on a `currentColor` stroke), identical to the mailto row; the amber
-  `#5c3f00` is the CONFIRM-state warning card only. Warm-toning the idle rows would contradict
-  the mock AND the reserved-accent contract (the band's orange means "this matters now"; a
-  standing warning tint on an always-present control dilutes it). The two-tap confirm + 4s
-  auto-revert is the ratified safety net for these controls (§15 tier-2), and the confirm
-  state carries all the warning weight. Recorded so a future reviewer does not re-derive it.
+`SHAREHUB-ROW-ANATOMY-1` (the run's primary P1) is RESOLVED (archived in
+[DEFERRED-archive.md](./DEFERRED-archive.md)). The remaining findings
+are recorded here with dispositions; none is a P0 and none blocks merge. (One refuted
+finding — "Careful rows carry no visual weight" — is not a deferral and lives in
+[DEFERRED-archive.md](./DEFERRED-archive.md) under Share hub.)
 
 - **[P1] Caret is anchored to the kebab, not the trigger that opened the popover.** Spec §5
   ratifies `right-[17px]` at the kebab (the group's rightmost element, against a `right-0`
