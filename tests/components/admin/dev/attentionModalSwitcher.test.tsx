@@ -10,7 +10,7 @@
  */
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import type { GallerySwitcherScenario, GalleryModalData } from "@/lib/dev/galleryModalTypes";
 
 // Capture the props the real modal would have received.

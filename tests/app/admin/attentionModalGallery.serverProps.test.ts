@@ -15,7 +15,6 @@ import {
   isModalVisible,
   resolveInitialScenario,
 } from "@/app/admin/dev/attention-gallery/buildSwitcherScenarios";
-import { buildScenarioModalData } from "@/lib/dev/buildScenarioModalData";
 import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import {
   T2_SECTION_ABSENT,
