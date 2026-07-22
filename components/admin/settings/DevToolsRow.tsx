@@ -13,6 +13,9 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { DEV_PANEL_PRESENT } from "@/lib/admin/__generated__/devPanelPresent";
 
+const devLinkClass =
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+
 export function DevToolsRow({
   icon,
   isDeveloper,
@@ -46,13 +49,18 @@ export function DevToolsRow({
           </p>
         </div>
       </div>
-      <Link
-        href="/admin/dev"
-        data-testid="admin-dev-tools-open"
-        className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-      >
-        Open
-      </Link>
+      <div className="flex flex-wrap items-center gap-2">
+        <Link href="/admin/dev" data-testid="admin-dev-tools-open" className={devLinkClass}>
+          Open
+        </Link>
+        <Link
+          href="/admin/dev/attention-gallery"
+          data-testid="admin-dev-tools-gallery"
+          className={devLinkClass}
+        >
+          Attention gallery
+        </Link>
+      </div>
     </div>
   );
 }
