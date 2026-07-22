@@ -70,19 +70,27 @@ function minimal(id: string, over: Partial<AttentionScenario> = {}): AttentionSc
 
 describe("isModalExpressible (synthetic truth table)", () => {
   test("a sectionAvailable override is not expressible", () => {
-    expect(isModalExpressible(minimal("x", { bucket: { sectionAvailable: () => false } }))).toBe(false);
+    expect(isModalExpressible(minimal("x", { bucket: { sectionAvailable: () => false } }))).toBe(
+      false,
+    );
   });
   test("a crewKeyRendered override is not expressible", () => {
-    expect(isModalExpressible(minimal("x", { bucket: { crewKeyRendered: () => false } }))).toBe(false);
+    expect(isModalExpressible(minimal("x", { bucket: { crewKeyRendered: () => false } }))).toBe(
+      false,
+    );
   });
   test("both overrides is not expressible", () => {
     expect(
-      isModalExpressible(minimal("x", { bucket: { sectionAvailable: () => false, crewKeyRendered: () => true } })),
+      isModalExpressible(
+        minimal("x", { bucket: { sectionAvailable: () => false, crewKeyRendered: () => true } }),
+      ),
     ).toBe(false);
   });
   test("no override (or only anchorAvailable) is expressible", () => {
     expect(isModalExpressible(minimal("x"))).toBe(true);
-    expect(isModalExpressible(minimal("x", { bucket: { anchorAvailable: () => false } }))).toBe(true);
+    expect(isModalExpressible(minimal("x", { bucket: { anchorAvailable: () => false } }))).toBe(
+      true,
+    );
   });
 });
 

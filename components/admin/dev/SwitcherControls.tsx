@@ -53,12 +53,22 @@ export function SwitcherControls({
     >
       <div className="flex items-center gap-3">
         {closed ? (
-          <button type="button" className={STEP_BTN} onClick={onReopen} aria-label="Reopen scenario">
+          <button
+            type="button"
+            className={STEP_BTN}
+            onClick={onReopen}
+            aria-label="Reopen scenario"
+          >
             Reopen
           </button>
         ) : (
           <>
-            <button type="button" className={STEP_BTN} onClick={onPrev} aria-label="Previous scenario">
+            <button
+              type="button"
+              className={STEP_BTN}
+              onClick={onPrev}
+              aria-label="Previous scenario"
+            >
               Prev
             </button>
             <button type="button" className={STEP_BTN} onClick={onNext} aria-label="Next scenario">

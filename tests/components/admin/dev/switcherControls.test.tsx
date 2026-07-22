@@ -48,7 +48,11 @@ describe("SwitcherControls", () => {
     render(<SwitcherControls {...base} />);
     const bar = screen.getByRole("group", { name: /scenario switcher/i });
     expect(bar).toBeTruthy();
-    expect(within(bar).getByText(/3 \/ 10/).closest("[aria-live='polite']")).toBeTruthy();
+    expect(
+      within(bar)
+        .getByText(/3 \/ 10/)
+        .closest("[aria-live='polite']"),
+    ).toBeTruthy();
   });
 
   test("footnotes grouped by reason", () => {

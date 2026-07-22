@@ -38,7 +38,9 @@ describe("buildScenarioModalData", () => {
     expect(warningScenario, "expected a warning scenario with warnings").toBeDefined();
     const withWarning = buildScenarioModalData(warningScenario);
     // A no-warning baseline for contrast: its bySection must differ.
-    const baseline = buildScenarioModalData(alertScenario("no-warn", "ASSET_RECOVERY_BYTES_EXCEEDED"));
+    const baseline = buildScenarioModalData(
+      alertScenario("no-warn", "ASSET_RECOVERY_BYTES_EXCEEDED"),
+    );
     const warnedKeys = Object.keys(withWarning.bySection ?? {});
     const baseKeys = Object.keys(baseline.bySection ?? {});
     // The warned scenario's model reflects its warnings — it is not the baseline.
@@ -66,7 +68,12 @@ describe("buildScenarioModalData", () => {
       tier: 2,
       label: T2_ANCHOR_ABSENT,
       alerts: [
-        { code: "ASSET_RECOVERY_BYTES_EXCEEDED", context: {}, raised_at: "2026-07-01T12:00:00.000Z", occurrence_count: 1 },
+        {
+          code: "ASSET_RECOVERY_BYTES_EXCEEDED",
+          context: {},
+          raised_at: "2026-07-01T12:00:00.000Z",
+          occurrence_count: 1,
+        },
       ],
       holds: [],
     };

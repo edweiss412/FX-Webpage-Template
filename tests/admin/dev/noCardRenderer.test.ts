@@ -58,7 +58,11 @@ describe("no card renderer", () => {
       const src = readFileSync(f, "utf8");
       for (const spec of FORBIDDEN_SPECIFIERS) {
         // Match an import/from referencing the specifier (quote-delimited).
-        if (new RegExp(`from\\s+["'][^"']*${spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`).test(src)) {
+        if (
+          new RegExp(`from\\s+["'][^"']*${spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`).test(
+            src,
+          )
+        ) {
           offenders.push(`${f.replace(ROOT + "/", "")} -> ${spec}`);
         }
       }

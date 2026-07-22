@@ -25,7 +25,9 @@ import {
 
 // A leaked function key must flip [FnKeys] extends [never] to false → Assert<false> errors.
 // @ts-expect-error a leaked function key must be rejected by the no-fn guard
-type _RejectsLeakedFn = Assert<[FnKeys<{ a: string; cb: () => void }>] extends [never] ? true : false>;
+type _RejectsLeakedFn = Assert<
+  [FnKeys<{ a: string; cb: () => void }>] extends [never] ? true : false
+>;
 
 // An `undefined`-only prop must NOT be classified as a function (the never-vacuity fix).
 type _UndefinedIsNotFn = Assert<IsFn<undefined> extends false ? true : false>;
