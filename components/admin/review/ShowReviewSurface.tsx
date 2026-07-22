@@ -42,7 +42,10 @@ import type { LucideIcon } from "lucide-react";
 import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
-import { warningsPanelStatusSentence } from "@/lib/admin/warningsPanelStatus";
+import {
+  NOOP_WARNING_ANNOUNCE,
+  WarningAnnounceContext,
+} from "@/components/admin/review/warningAnnounceContext";
 import {
   findUseRawDecision,
   ROOMS_CAP,
@@ -60,6 +63,10 @@ import { isStaged, type SectionData } from "@/components/admin/review/sectionDat
 // is call-time only (used inside a handler, never at module-eval), so the
 // modal↔surface cycle never touches an uninitialized binding.
 import { WARNING_HIGHLIGHT_MS } from "@/components/admin/wizard/Step3ReviewModal";
+
+/** Announcer spec 2026-07-22 §2.2 cap: the append-only log keeps at most 50
+ *  entries so an unbounded admin session cannot grow the DOM without bound. */
+const ANNOUNCE_CAP = 50;
 
 // ── Interaction constants (spec §6.3a; DESIGN.md §5 note) ───────────────────
 // Behavioral thresholds, not rendered visual values — they never paint a px.
@@ -371,6 +378,24 @@ export function ShowReviewSurface({
   // always a registry SectionId (no extras), and published mode omits the report
   // section, so the cast is sound at every call site.
   const getActiveSection = useCallback((): SectionId => activeRef.current as SectionId, []);
+
+  // Announcer spec 2026-07-22 §2.2: actions-only, append-only message log.
+  // Entry ids come from a per-mount monotonic ref counter (unique even for
+  // calls batched into one commit; never timestamp-derived — spec R3 F5).
+  // Cap 50 (spec §2.2): appending the 51st removes the oldest; an entry is
+  // removed only when it is 50 announcements old, far beyond any plausible
+  // AT delivery-queue residence (spec R3 F2 / R4 F1).
+  const announceIdRef = useRef(0);
+  const [announceLog, setAnnounceLog] = useState<ReadonlyArray<{ id: number; text: string }>>([]);
+  const announce = useCallback((message: string) => {
+    if (message.trim() === "") return; // spec §2.5: empty/whitespace no-op
+    const id = announceIdRef.current++;
+    setAnnounceLog((log) => {
+      const next = [...log, { id, text: message }];
+      return next.length > ANNOUNCE_CAP ? next.slice(next.length - ANNOUNCE_CAP) : next;
+    });
+  }, []);
+  const announceCtx = useMemo(() => ({ announce }), [announce]);
 
   /** Rail/chip status-dot appearance (§6.2/§6.3; §S3C-1 WCAG 1.4.1). Carries
    *  BOTH hue and fill/shape so "needs review" is never signalled by color
@@ -829,6 +854,12 @@ export function ShowReviewSurface({
 
   return (
     <Step3RunStateContext.Provider value={{ isPublishRunActive }}>
+      {/* Announcer spec 2026-07-22 §2.2: real announce only on the published
+          surface (same gate as the region); the wizard keeps the no-op
+          default so producers mounted there announce nothing. */}
+      <WarningAnnounceContext.Provider
+        value={routedWarningsRenderElsewhere ? announceCtx : NOOP_WARNING_ANNOUNCE}
+      >
       <div
         data-testid={`wizard-step3-card-${dfid}-review-main`}
         className="flex min-h-0 flex-1 flex-col items-stretch lg:flex-row"
@@ -1106,19 +1137,24 @@ export function ShowReviewSurface({
               {renderSectionExtras?.(s.id, data, {
                 seamless: s.id === "warnings" && suppressWarningsPanelCard,
               })}
-              {/* Spec 2026-07-22-warning-panel-polish §3.2: always-mounted
-                  published live region. OUTSIDE the chrome-suppressible card
+              {/* Announcer spec 2026-07-22 §2.2: always-mounted published
+                  announce-log region. OUTSIDE the chrome-suppressible card
                   subtree (Silent unmounts panel children,
-                  step3ReviewSections.tsx:792-815) so the node survives every
-                  state and role="status" announces each text change. */}
-              {/* §11: instant — deliberate (sr-only text swap; no visual transition) */}
+                  step3ReviewSections.tsx:792-815) so the container exists
+                  before any content change — a live region must pre-exist
+                  its additions to speak. role="log": implicit polite,
+                  atomic=false (only the ADDED node is presented, never the
+                  whole container), additions announced, removals not.
+                  Children are append-only; existing entry text NEVER
+                  mutates (spec §2.6). */}
+              {/* §2.6: instant — deliberate (sr-only additions; no visual transition) */}
               {s.id === "warnings" && routedWarningsRenderElsewhere ? (
-                <span role="status" className="sr-only" data-testid="warnings-panel-status">
-                  {warningsPanelStatusSentence(
-                    visibleWarningRows(data.warnings, true).length,
-                    routedWarnings?.here ?? 0,
-                    routedWarnings?.elsewhere ?? 0,
-                  )}
+                <span role="log" className="sr-only" data-testid="warnings-panel-status">
+                  {announceLog.map((e) => (
+                    <span key={e.id} data-announce-id={e.id}>
+                      {e.text}
+                    </span>
+                  ))}
                 </span>
               ) : null}
             </section>
@@ -1128,6 +1164,7 @@ export function ShowReviewSurface({
           {extraSectionsAfter?.map(renderExtraPanel)}
         </div>
       </div>
+      </WarningAnnounceContext.Provider>
     </Step3RunStateContext.Provider>
   );
 }
