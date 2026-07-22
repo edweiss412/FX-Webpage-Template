@@ -182,20 +182,35 @@ describe("alert-action internal link targets exist", () => {
 });
 
 describe("alert-action registry parity (spec §6.3)", () => {
+  // 11 original (2026-07-04 alert-action-links §6.3) + 9 needs-a-look direct-fix
+  // links ratified by 2026-07-21-attention-needs-attention-split §4: 6 sheet
+  // codes -> openSheet (show-level driveFileId first, context fallback) and 3
+  // Overview anchors. USE_RAW_DECISION_STALE is deliberately NOT here: it is a
+  // change-log write (lib/sync/changeLog/writeUseRawStaleChanges.ts), not an
+  // admin_alerts producer, so an action registration would be dead code.
   const SPEC_CODES = [
     "BRANCH_PROTECTION_DRIFT",
     "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+    "EMBEDDED_ASSET_DRIFTED",
+    "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     "LIVE_ROW_CONFLICT",
     "ONBOARDING_SHEET_UNREADABLE",
+    "OPENING_REEL_NOT_VIDEO",
+    "OPENING_REEL_PERMISSION_DENIED",
+    "PARSE_ERROR_LAST_GOOD",
     "PICKER_EPOCH_RESET",
     "PICKER_SELECTION_RACE",
+    "REEL_DRIFTED",
     "REPORT_ORPHANED_LOST_LEASE",
+    "RESYNC_QUALITY_REGRESSED",
     "RESYNC_SHRINK_HELD",
     "ROLE_FLAGS_NOTICE",
+    "SHEET_UNAVAILABLE",
     "SHOW_FIRST_PUBLISHED",
+    "SHOW_UNPUBLISHED",
     "WIZARD_SESSION_SUPERSEDED_RACE",
   ];
-  test("registry keys equal exactly the spec's 11 codes", () => {
+  test("registry keys equal exactly the spec's 20 codes", () => {
     expect(Object.keys(ALERT_ACTIONS).sort()).toEqual(SPEC_CODES);
     expect([...ALERT_ACTION_CODES].sort()).toEqual(SPEC_CODES);
   });

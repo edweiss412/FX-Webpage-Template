@@ -458,12 +458,15 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
     expect(el.getAttribute("aria-controls")).toBeTruthy();
   });
 
-  it("Clearing: zero actionable + clearing>0 renders the non-interactive '1 clearing' pill", () => {
+  it("Needs-look: zero actionable + needs-look>0 renders the INTERACTIVE '1 to review' pill (attention split §3.2)", () => {
+    // SUPERSEDED old contract: "N clearing" non-interactive. A non-actionable
+    // item without clearingKind defaults FAIL-VISIBLE into needs-look, which is
+    // interactive (menu carries its fix hint/link). Monitoring-only remains
+    // non-interactive and is pinned by clearingPillLabel.test.tsx + the matrix.
     renderModal({ attentionItems: [clearingItem()] });
     const el = pill();
-    expect(el.tagName).not.toBe("BUTTON");
-    expect(visibleText(el)).toBe("1 clearing");
-    expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull();
+    expect(el.tagName).toBe("BUTTON");
+    expect(visibleText(el)).toBe("1 to review");
   });
 
   it("In sync: zero items renders the teal ring pill, non-interactive", () => {

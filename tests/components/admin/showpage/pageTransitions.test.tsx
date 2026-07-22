@@ -124,8 +124,27 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // entry) → 4 (Task 5, the §6.6 alert pill AND its capped sr-only suffix —
   // `{alertCount > 99 ? (` is its own mounted conditional, which is why the
   // target is 4 and not 3). All four are instant omit/mounts that follow data.
+  // attention split 2026-07-21 §8: 4 → 8. The composite pill's segments are
+  // each their own conditional mount: the confirm segment, the confirm·review
+  // middot, the review segment, and the monitoring fragment. All four new
+  // sites are instant text/segment swaps that follow the derived counts — no
+  // AnimatePresence, no enter/exit (spec §8 declares every pill pair instant).
   // Verified by RUNNING the scanner over the source, not by reasoning.
-  "components/admin/showpage/PublishedReviewModal.tsx": 4,
+  // 8 → 11 (whole-diff review repairs, 2026-07-22): three new instant sr-only
+  // cap conditionals — exact-count expansions past 99+ on the review segment,
+  // the composite monitoring segment, and the monitoring-only pill. All are
+  // text swaps that follow derived counts; no animation.
+  "components/admin/showpage/PublishedReviewModal.tsx": 11,
+  // attention split 2026-07-21 §8: AttentionMenu enters the audit registry with
+  // its new clearing groups (needs-a-look rows: subtitle, hint, action anchor,
+  // external arrow; monitoring summary; group wrappers). Every site is an
+  // instant omit/mount that follows data — no AnimatePresence, no enter/exit
+  // (menu open/close motion is the panel's own mount transition, unchanged).
+  // Pinned by RUNNING the scanner over the source, not by reasoning.
+  // 6 → 7 (impeccable critique P1, 2026-07-22): the "Needs your confirmation"
+  // eyebrow is now conditional on hasActionable so a needs-look-only open
+  // never shows an empty section header. Instant omit/mount like its peers.
+  "components/admin/showpage/AttentionMenu.tsx": 7,
   // modal-header-reconciliation §9: 8 → 7 (Task 2, the `renderTitle` head site —
   // which covered the h1 AND its adjacent title divider — deleted with the prop)
   // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7

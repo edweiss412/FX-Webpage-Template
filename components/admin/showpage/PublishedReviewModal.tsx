@@ -301,7 +301,68 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     [attentionItems, doneIds],
   );
   const actionable = useMemo(() => live.filter((i) => i.actionable), [live]);
-  const clearingCount = live.length - actionable.length;
+  // Attention split (spec 2026-07-21 §3.2/§3.3): the old single clearingCount is
+  // split. needs-look defaults FAIL-VISIBLE — a non-actionable item without a
+  // clearingKind counts as needs_look (visible), never dropped (spec §2).
+  const needsLook = useMemo(
+    () => live.filter((i) => !i.actionable && i.clearingKind !== "self_heal"),
+    [live],
+  );
+  // `!i.actionable` guard (spec §3.3): an inconsistently tagged actionable item
+  // must count as confirmation ONLY, never double as monitoring.
+  const selfHeal = useMemo(
+    () => live.filter((i) => !i.actionable && i.clearingKind === "self_heal"),
+    [live],
+  );
+  // Interactive whenever a human might act — composite predicate, NEVER
+  // `actionable` alone (spec §6/§6a: the menu can open at a needs-look-only state).
+  const interactive = actionable.length > 0 || needsLook.length > 0;
+
+  // Compound reconciliation (spec §6 outcome contract, §8 case 2): if live data
+  // updates while the menu is open such that the pill is no longer interactive,
+  // the trigger <button> re-renders as a <span> — without this the open
+  // dropdown is orphaned and keyboard focus drops to <body>, breaking the modal
+  // focus trap. Mechanism (§6a probe-ratified — the rAF-deferred close variant
+  // FAILED 3 of 9 probe cells, so the unmount must be same-render):
+  //   1. The menu's open state is DERIVED: it renders only while
+  //      `menuOpen && interactive`, so the panel unmounts in the same render
+  //      that removes the trigger — no orphan frame, no setState needed.
+  //   2. The post-commit effect below then rescues focus (focus() is not
+  //      setState — lint-allowed) onto the dialog root — ONE named target,
+  //      never <body>; tabindex is ensured so focus() cannot silently no-op.
+  //   3. Rebound safety (whole-diff review 2026-07-22): the stale flag is
+  //      reconciled DURING RENDER via React's sanctioned derived-state
+  //      adjustment (react.dev "adjusting state when props change") — when
+  //      interactivity is lost while the flag is up, setMenuOpen(false) runs
+  //      in the same render pass and React re-renders before commit. No
+  //      frame ever holds a stale open flag, so a 1-frame interactivity
+  //      rebound (1 → 0 → 1) has nothing to resurrect. (The earlier rAF
+  //      cleanup variant left the flag up for a frame; its dep-change
+  //      cleanup cancelled the pending close and the rebound remounted the
+  //      menu. A ref-latch guard fixed that but read the ref during render,
+  //      which the lint contract bans.)
+  // State contract pinned by pillFocusReconcile + the e2e probe.
+  const menuEffectivelyOpen = menuOpen && interactive;
+  if (menuOpen && !interactive) {
+    // Sanctioned setState-during-render: strictly narrowing (immediately
+    // re-renders with menuOpen=false, making the condition false), not an
+    // effect, so the set-state-in-effect lint contract does not apply.
+    setMenuOpen(false);
+  }
+  const menuWasEffectivelyOpenRef = useRef(false);
+  useEffect(() => {
+    const was = menuWasEffectivelyOpenRef.current;
+    menuWasEffectivelyOpenRef.current = menuEffectivelyOpen;
+    if (!was || menuEffectivelyOpen || interactive) return;
+    // The menu just force-closed because interactivity was lost (NOT a user
+    // close — those keep interactive=true and manage their own focus): rescue
+    // focus onto the dialog root so it never drops to <body>.
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    if (dialog) {
+      if (!dialog.hasAttribute("tabindex")) dialog.setAttribute("tabindex", "-1");
+      dialog.focus();
+    }
+  });
 
   // §3.3 anchor availability drives BOTH the bucketing (below) and the section an
   // item's banner ACTUALLY renders in. An asset/reel item whose anchor content
@@ -369,6 +430,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       autoOpenFiredRef.current = true; // deep link wins for the whole mount (§6.4)
       return;
     }
+    if (menuOpen) {
+      // The menu is already open (user click, or a prior auto-open) — the
+      // reveal is moot, so consume the one-shot NOW. Without this, an
+      // actionable-count blip (1 → 0 → 1) cancels the unconsumed rAF and the
+      // rebound re-schedules it, force-REOPENING a menu the reconciliation
+      // effect just closed (whole-diff review 2026-07-22, rebound race).
+      autoOpenFiredRef.current = true;
+      return;
+    }
     if (actionable.length === 0) return;
     // rAF wrapper: the open is a paint-time reveal, and the lint contract
     // (react-hooks/set-state-in-effect) forbids the sync form. The guard is
@@ -380,7 +450,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       setMenuOpen(true);
     });
     return () => cancelAnimationFrame(raf);
-  }, [alertId, actionable.length]);
+  }, [alertId, actionable.length, menuOpen]);
 
   // §6.4 one-shot alert_id deep link: a matching item jumps to its banner
   // anchor (aria-current + flash via the surface's attentionJump machinery);
@@ -648,7 +718,11 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 COPIED from the prior pill: text-xs (~16px line box) + py-1
                 (8px) ≈ a 24px visible pill; -inset-y-3 (12px per side) ≈ 48px
                 ≥ the 44px tap floor. T-TAP probes the resolved band (§10). */}
-            {actionable.length > 0 ? (
+            {interactive ? (
+              /* Composite pill (attention split §3.2): segments render only when
+                 their count > 0; the middot separator renders only BETWEEN two
+                 present segments, never as the first glyph. The old else-branch
+                 that hid the clearing count whenever action items existed is gone. */
               <div className="relative">
                 <button
                   ref={pillRef}
@@ -665,16 +739,64 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                     aria-hidden="true"
                     className="size-2 shrink-0 rounded-pill bg-status-review"
                   />
-                  {/* Capped at 99+ (§11): unbounded count in a shrink-0 group
-                      beside Close squeezes the title at 375px. The UNIT stays
-                      VISIBLE; the exact count is preserved for assistive tech
-                      past the cap only. */}
-                  {actionable.length > 99 ? "99+" : actionable.length} to confirm
-                  {actionable.length > 99 ? (
+                  {actionable.length > 0 ? (
                     <>
-                      {/* Separator is its OWN visible text node (accName trim
-                          class, memory #470). */}{" "}
-                      <span className="sr-only">({actionable.length} to confirm)</span>
+                      {/* Capped at 99+ (§11): unbounded count in a shrink-0 group
+                          beside Close squeezes the title at 375px. Exact count is
+                          preserved for assistive tech past the cap only. */}
+                      {actionable.length > 99 ? "99+" : actionable.length} to confirm
+                      {actionable.length > 99 ? (
+                        <>
+                          {/* Separator is its OWN visible text node (accName trim
+                              class, memory #470). */}{" "}
+                          <span className="sr-only">({actionable.length} to confirm)</span>
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {/* Middot separators are REAL " · " text nodes (visible AND in
+                      the announced string — aria-hidden middots glue segments
+                      into "confirm4 to review" for AT; #537 space-node rule). */}
+                  {actionable.length > 0 && needsLook.length > 0 ? (
+                    <span className="opacity-50">{" · "}</span>
+                  ) : null}
+                  {needsLook.length > 0 ? (
+                    <span className="text-warning-text/90">
+                      {needsLook.length > 99 ? "99+" : needsLook.length} to review
+                      {/* exact count for AT past the visible cap (parity with
+                          the confirm segment — whole-diff review 2026-07-22) */}
+                      {needsLook.length > 99 ? (
+                        <>
+                          {" "}
+                          <span className="sr-only">({needsLook.length} to review)</span>
+                        </>
+                      ) : null}
+                    </span>
+                  ) : null}
+                  {selfHeal.length > 0 ? (
+                    <>
+                      <span className="opacity-50">{" · "}</span>
+                      {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
+                          light theme (below AA 4.5:1 at text-xs); /80 is ~5.35:1
+                          light, higher dark. Impeccable critique P1, 2026-07-22. */}
+                      <span className="inline-flex items-center gap-1 font-medium text-warning-text/80">
+                        {/* hollow positive-tone dot (spec §3.2) — same cue as the
+                            monitoring-only pill, distinct from the solid review dot */}
+                        <span
+                          aria-hidden="true"
+                          className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+                        />
+                        {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
+                      </span>
+                      {selfHeal.length > 99 ? (
+                        <>
+                          {" "}
+                          <span className="sr-only">({selfHeal.length} monitoring)</span>
+                        </>
+                      ) : null}
+                      {/* Inherited sr-only expansion (#537 mechanism): visible terse,
+                          full sentence for AT; space is a real text node. */}{" "}
+                      <span className="sr-only">clearing on their own, no action needed</span>
                     </>
                   ) : null}
                   {/* Lucide chevron (codebase icon idiom), not the ⌃/⌄ text
@@ -690,14 +812,14 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 <div id={menuId}>
                   <AttentionMenu
                     items={live}
-                    open={menuOpen}
+                    open={menuEffectivelyOpen}
                     onClose={() => setMenuOpen(false)}
                     onNavigate={navigateTo}
                     pillRef={pillRef}
                   />
                 </div>
               </div>
-            ) : alertsDegraded && clearingCount === 0 ? (
+            ) : alertsDegraded && selfHeal.length === 0 ? (
               /* §5.1 degraded row: only when no hold carried the pill into the
                  To-confirm state; the Overview notice card is the detail. */
               <span
@@ -706,28 +828,31 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               >
                 Alerts unavailable
               </span>
-            ) : clearingCount > 0 ? (
-              /* §5.1 clearing state: auto-recovering items visible, never dark.
-                 The visible "N clearing" is terse; an sr-only tail spells out what
-                 "clearing" means so the accessible name is a full sentence, not a
-                 bare count. The name comes from TEXT CONTENT (not aria-label — a
-                 bare <span> has the generic role, which does not support naming),
-                 so every AT honors it. `title` adds the same phrasing as a
-                 desktop hover tooltip. The `{" "}` is a real space text node
-                 between the visible text and the sr-only tail; without it the
-                 accessible-name algorithm trims the sr-only's leading space and
-                 renders "clearingon their own". */
+            ) : selfHeal.length > 0 ? (
+              /* Monitoring-only state (attention split §3.2): genuinely self-healing
+                 items, non-interactive. Visible "N monitoring" is terse; the sr-only
+                 tail spells out the meaning so the announced text is a full sentence
+                 (mechanism inherited from #537 — name comes from TEXT CONTENT, the
+                 `{" "}` is a real space node so the accName space survives). */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                title={`${clearingCount} clearing on their own, no action needed`}
+                title={`${selfHeal.length} monitoring, clearing on their own, no action needed`}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold tabular-nums text-text-subtle"
               >
                 <span
                   aria-hidden="true"
                   className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
                 />
-                {clearingCount} clearing{" "}
-                <span className="sr-only">on their own, no action needed</span>
+                {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
+                {/* exact count for AT past the visible cap (parity with every
+                    other pill count path — whole-diff review 2026-07-22) */}
+                {selfHeal.length > 99 ? (
+                  <>
+                    {" "}
+                    <span className="sr-only">({selfHeal.length} monitoring)</span>
+                  </>
+                ) : null}{" "}
+                <span className="sr-only">clearing on their own, no action needed</span>
               </span>
             ) : (
               /* §5.1 in-sync state (S3C-1 clean-dot recipe, DESIGN.md §92). */

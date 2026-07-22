@@ -25,6 +25,8 @@
  */
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
+import { NEEDS_LOOK_CODES, type NeedsLookCode } from "@/lib/adminAlerts/audience";
+import { NEEDS_LOOK_HINTS } from "@/lib/admin/needsLookHints";
 
 export type AttentionMenuProps = {
   items: AttentionItem[];
@@ -88,23 +90,35 @@ function AttentionMenuPanel({
   }, [onClose, pillRef]);
 
   const actionable = items.filter((i) => i.actionable);
-  const clearingCount = items.length - actionable.length;
+  // Attention split (spec 2026-07-21 §3.4): needs-look defaults FAIL-VISIBLE —
+  // a non-actionable item without clearingKind renders as needs-a-look, never
+  // silently dark. Only explicit self_heal items collapse to the summary row.
+  const needsLook = items.filter((i) => !i.actionable && i.clearingKind !== "self_heal");
+  // `!i.actionable` guard (spec §3.3): a mistagged actionable item renders as an
+  // actionable row only — never double-counted into the monitoring summary.
+  const selfHealCount = items.filter((i) => !i.actionable && i.clearingKind === "self_heal").length;
+  // A needs-look-only open (interactive pill without actionable rows) must not
+  // render an empty "Needs your confirmation" section; the panel takes its
+  // accessible name from the first group actually present.
+  const hasActionable = actionable.length > 0;
 
   return (
     <div
       ref={panelRef}
       data-testid="published-show-review-attention-menu"
       role="group"
-      aria-label="Needs your confirmation"
+      aria-label={hasActionable ? "Needs your confirmation" : "Needs a look"}
       className={`absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-lg transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}
     >
-      <div className="border-b border-border px-4 pt-3 pb-2">
-        <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-          Needs your confirmation
-        </span>
-      </div>
+      {hasActionable ? (
+        <div className="border-b border-border px-4 pt-3 pb-2">
+          <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+            Needs your confirmation
+          </span>
+        </div>
+      ) : null}
       <div className="max-h-96 overflow-y-auto">
         {actionable.map((item) => {
           const tone = TONE_DOT[item.tone];
@@ -137,18 +151,92 @@ function AttentionMenuPanel({
             </button>
           );
         })}
+        {/* The scroll boundary wraps ALL groups (whole-diff review 2026-07-22):
+            12 needs-look rows are producible; links below the fold must scroll
+            into reach, not extend past the viewport. */}
+        {needsLook.length > 0 ? (
+          /* Needs-a-look group (spec §3.4.2): read-only rows — the ONLY interactive
+           descendant is the action <a> (when the action resolved). No row-level
+           onNavigate, no nested popover (the menu is itself a floating layer). */
+          <div className={hasActionable ? "border-t border-border" : undefined}>
+            {/* rounded-t when this group leads the panel (no confirmation section
+              above): the sunken header must not bleed past the rounded border. */}
+            <div
+              className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasActionable ? "" : "rounded-t-md"}`}
+            >
+              <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                Needs a look
+              </span>
+            </div>
+            {needsLook.map((item) => {
+              const code = item.kind === "alert" ? item.alert.code : null;
+              const hint =
+                code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
+              const action = item.kind === "alert" ? item.alert.action : null;
+              return (
+                <div
+                  key={item.id}
+                  data-testid={`attention-needslook-row-${item.id}`}
+                  className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="mt-1.5 size-2 shrink-0 rounded-pill border-[1.5px] border-status-review bg-transparent"
+                  />
+                  {/* sr-only tone text mirrors the dot (spec §3.4.2), same string
+                    the actionable rows use for the notice tone. */}
+                  <span className="sr-only">{TONE_DOT.notice.srText}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-text-strong">
+                      {item.menuTitle}
+                    </span>
+                    {hint ? (
+                      <span className="block text-xs/relaxed text-text-subtle">{hint}</span>
+                    ) : null}
+                    {action ? (
+                      /* Menu-close on activation (spec §3.4): a same-route hash link
+                       activated inside the open dropdown would scroll its target
+                       behind the menu; external links close too, for consistency. */
+                      <a
+                        href={action.href}
+                        onClick={() => onClose()}
+                        {...(action.external
+                          ? { target: "_blank", rel: "noopener noreferrer" }
+                          : {})}
+                        className="mt-1 inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised focus-visible:outline-none"
+                      >
+                        {action.label}
+                        {action.external ? <span aria-hidden="true"> ↗</span> : null}
+                      </a>
+                    ) : null}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+        {selfHealCount > 0 ? (
+          /* Monitoring group (spec §3.4.3): quiet subheading + one summary row,
+           items not enumerated — genuinely self-healing, nothing to act on.
+           Copy is TRUE for this subset. */
+          <div className="border-t border-border">
+            <div className="bg-surface-sunken px-4 pt-2.5 pb-1.5">
+              <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                Monitoring
+              </span>
+            </div>
+            <div className="flex items-center gap-2 rounded-b-md bg-surface-sunken px-4 pb-2.5">
+              <span
+                aria-hidden="true"
+                className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+              />
+              <span className="text-xs text-text-subtle">
+                {selfHealCount} clearing on their own, no action needed
+              </span>
+            </div>
+          </div>
+        ) : null}
       </div>
-      {clearingCount > 0 ? (
-        <div className="flex items-center gap-2 border-t border-border bg-surface-sunken px-4 py-2.5">
-          <span
-            aria-hidden="true"
-            className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-          />
-          <span className="text-xs text-text-subtle">
-            {clearingCount} more clearing on their own — no action needed
-          </span>
-        </div>
-      ) : null}
     </div>
   );
 }

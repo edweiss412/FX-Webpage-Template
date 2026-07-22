@@ -93,6 +93,7 @@ function renderedSectionIds(d: PublishedSectionData): Set<SectionId> {
 export type HarnessOpts = {
   ignoredFingerprints?: ReadonlySet<string>;
   attentionItems?: PublishedReviewModalProps["attentionItems"];
+  alertsDegraded?: boolean;
 };
 
 function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): PublishedReviewModalProps {
@@ -119,7 +120,7 @@ function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): Publishe
     lastSyncStatus: "ok",
     now: NOW,
     attentionItems: opts.attentionItems ?? [],
-    alertsDegraded: false,
+    alertsDegraded: opts.alertsDegraded ?? false,
     openSheetHref: "https://docs.google.com/spreadsheets/d/DRIVE_PUB/edit",
     archiveAction: vi.fn(async () => ({ ok: true }) as const),
     unarchiveAction: vi.fn(async () => {}),
@@ -135,12 +136,18 @@ function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): Publishe
   };
 }
 
-export function renderPublishedModal(rawRows: readonly RawRow[], opts: HarnessOpts = {}) {
-  return render(
+/** The element form — lets tests drive LIVE transitions via RTL `rerender`
+ *  (attention split §11.5a: menu-open state reconciliation). */
+export function publishedModalElement(rawRows: readonly RawRow[], opts: HarnessOpts = {}) {
+  return (
     <ShareTokenProvider initialToken="TOK" initialEpoch={5}>
       <PublishedReviewModal {...baseProps(rawRows, opts)} />
-    </ShareTokenProvider>,
+    </ShareTokenProvider>
   );
+}
+
+export function renderPublishedModal(rawRows: readonly RawRow[], opts: HarnessOpts = {}) {
+  return render(publishedModalElement(rawRows, opts));
 }
 
 /** A non-actionable attention item → the header pill enters its "N clearing" state
@@ -170,6 +177,51 @@ export function clearingAlertItem(id: string): PublishedReviewModalProps["attent
       dataGaps: null,
       errorCode: null,
     },
+  };
+}
+
+type AlertItem = Extract<PublishedReviewModalProps["attentionItems"][number], { kind: "alert" }>;
+
+// clearingAlertItem returns the AttentionItem UNION; narrow to the alert variant
+// so `base.alert` is defined (the hold variant's `alert?: never` otherwise makes
+// every spread field optional under exactOptionalPropertyTypes).
+function alertBase(id: string): AlertItem {
+  return clearingAlertItem(id) as AlertItem;
+}
+
+/** Needs-a-look clearing item (attention split §2): non-actionable, external fix. */
+export function needsLookAlertItem(
+  id: string,
+  action: { label: string; href: string; external: boolean } | null = null,
+): AlertItem {
+  const base = alertBase(id);
+  return {
+    ...base,
+    clearingKind: "needs_look",
+    menuTitle: "Sheet no longer in folder",
+    alert: { ...base.alert, code: "SHEET_UNAVAILABLE", action },
+  };
+}
+
+/** Monitoring clearing item (attention split §2): non-actionable, self-heals. */
+export function selfHealAlertItem(id: string, menuTitle = "Syncing stalled"): AlertItem {
+  const base = alertBase(id);
+  return {
+    ...base,
+    clearingKind: "self_heal",
+    menuTitle,
+    alert: { ...base.alert, code: "SYNC_STALLED" },
+  };
+}
+
+/** Actionable item (needs in-app confirmation). */
+export function actionableAlertItem(id: string): AlertItem {
+  const base = alertBase(id);
+  return {
+    ...base,
+    actionable: true,
+    menuTitle: "Two people matched this crew email",
+    alert: { ...base.alert, code: "AMBIGUOUS_EMAIL_BINDING", autoClearNote: null },
   };
 }
 
