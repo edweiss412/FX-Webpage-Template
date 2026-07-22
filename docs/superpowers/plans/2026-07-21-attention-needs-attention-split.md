@@ -31,13 +31,13 @@
 - `lib/admin/needsLookHints.ts` — CREATE: typed-total `Record<NeedsLookCode, string>` fix-hint map.
 - `components/admin/showpage/PublishedReviewModal.tsx` — MODIFY: composite pill; `needsLook`/`selfHeal` derivation; focus close-effect.
 - `components/admin/showpage/AttentionMenu.tsx` — MODIFY: needs-a-look group + monitoring group + action links + menu-close onClick; retire footer.
-- `app/admin/dev/attention-gallery/buildBlockProps.ts` — MODIFY: pass `driveFileId` to `deriveAttentionItems`.
+- (No gallery change: after PR #538 the dev gallery no longer calls `deriveAttentionItems` — `buildBlockProps.ts` was deleted, replaced by `buildSwitcherScenarios.ts`. The modal is the sole caller.)
 - Tests: `tests/adminAlerts/selfHealingClassification.test.ts` (CREATE), `tests/admin/attentionItems.test.ts` (EXTEND), `tests/adminAlerts/alertActions.test.ts` (EXTEND/CREATE), `tests/admin/needsLookHints.test.ts` (CREATE), `tests/components/admin/showpage/publishedPill.test.tsx` (CREATE), `tests/components/admin/showpage/attentionMenuGroups.test.tsx` (CREATE), `tests/e2e/attention-pill-focus.spec.ts` (CREATE, real-browser probe), `tests/admin/_metaAttentionItemsTopology.test.ts` (EXTEND).
 
 ## Meta-test inventory (spec §10)
 
 - CREATE `tests/adminAlerts/selfHealingClassification.test.ts` (exhaustiveness, dual-set XOR).
-- EXTEND `tests/admin/_metaAttentionItemsTopology.test.ts` (driveFileId arg + gallery call site).
+- EXTEND `tests/admin/_metaAttentionItemsTopology.test.ts` (driveFileId arg keeps the SINGLE modal caller; gallery no longer calls deriveAttentionItems post-#538).
 - EXTEND `tests/admin/attentionExclusionSet.test.ts` (confirm 15-code RENDERS set unaffected — assertion-only, no new file).
 
 ## Pre-draft reconciliation sweep (run at plan time)
@@ -241,15 +241,14 @@ Import `isSelfHealing` from `@/lib/adminAlerts/audience`.
 
 - [ ] **Step 4: Run test to verify it passes** — `pnpm vitest run tests/admin/attentionItems.test.ts` → PASS (existing + 3 new). Fix any existing call sites in this test file that now need `driveFileId` (add `driveFileId: null`).
 
-- [ ] **Step 5: Typecheck** — `pnpm typecheck` → will FAIL at the two `deriveAttentionItems` call sites (`_showReviewModal.tsx:306`, `buildBlockProps.ts:163`) missing `driveFileId`. Fix both:
+- [ ] **Step 5: Typecheck** — `pnpm typecheck` → will FAIL at the SOLE `deriveAttentionItems` call site (`app/admin/_showReviewModal.tsx:306`) missing `driveFileId`. (Post-#538 the gallery no longer calls it — no second site.) Fix:
   - `app/admin/_showReviewModal.tsx:306` — add `driveFileId` (already destructured at `_showReviewModal.tsx:257`): `{ alerts: ..., feed: ..., slug, driveFileId }`.
-  - `app/admin/dev/attention-gallery/buildBlockProps.ts:163` — add `driveFileId: s.driveFileId ?? null` (or a gallery mock constant if the scenario type lacks it; use `null`).
   Re-run `pnpm typecheck` → clean.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/admin/attentionItems.ts app/admin/_showReviewModal.tsx app/admin/dev/attention-gallery/buildBlockProps.ts tests/admin/attentionItems.test.ts
+git add lib/admin/attentionItems.ts app/admin/_showReviewModal.tsx tests/admin/attentionItems.test.ts
 git commit --no-verify -m "$(printf 'feat(admin): clearingKind bucketing + driveFileId thread into deriveAttentionItems\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01JeHy3EJkCEFSxMwjnDeFa8')"
 ```
 
@@ -561,7 +560,7 @@ Harness-readiness (spec §11.9): boot the existing published-modal e2e app (prod
 
 **Files:** Modify `tests/admin/_metaAttentionItemsTopology.test.ts`, `tests/admin/attentionExclusionSet.test.ts`.
 
-- [ ] **Step 1: Update** — the topology test already admits both callers; confirm the `driveFileId` arg addition did not add a third caller (grep count stays 2). In `attentionExclusionSet.test.ts`, add an assertion that the 15-code RENDERS set (doug-audience auto-resolving) is unchanged by the new `clearingKind` field.
+- [ ] **Step 1: Update** — the topology test admits ONE caller (`app/admin/_showReviewModal.tsx`, count 1) after #538; confirm the `driveFileId` arg addition did not add a caller (grep count stays 1). In `attentionExclusionSet.test.ts`, add an assertion that the 15-code RENDERS set (doug-audience auto-resolving) is unchanged by the new `clearingKind` field.
 
 - [ ] **Step 2: Run** — `pnpm vitest run tests/admin/_metaAttentionItemsTopology.test.ts tests/admin/attentionExclusionSet.test.ts` → PASS.
 
@@ -577,7 +576,7 @@ Harness-readiness (spec §11.9): boot the existing published-modal e2e app (prod
 
 - [ ] **Step 3: impeccable audit** — `/impeccable audit` on the diff. Fix/defer P0/P1; record findings + dispositions in the handoff doc §12.
 
-- [ ] **Step 4: Gallery preview (if `attention-modal-gallery` landed)** — add scenario fixtures for the composite pill + needs-a-look rows + monitoring-only + in-sync to its `AttentionModalSwitcher`. If not landed, skip and note in the handoff (spec §12).
+- [ ] **Step 4: Gallery preview** — the switcher gallery landed (#538) at `app/admin/dev/attention-gallery/` (`buildSwitcherScenarios.ts`, `page.tsx`). Add scenario fixtures for the composite pill + needs-a-look rows (with/without link) + monitoring-only + in-sync via the new `buildSwitcherScenarios` / `partitionScenarios` API (grep the current file for the scenario shape at execution — the API replaced the deleted `buildBlockProps.ts`). This is a preview aid; if the switcher's scenario type does not accommodate the new pill states without a larger change, note it in the handoff and defer rather than expand scope.
 
 - [ ] **Step 5: Commit** — any impeccable fixes as `fix(admin): impeccable P0/P1 (attention split)`.
 

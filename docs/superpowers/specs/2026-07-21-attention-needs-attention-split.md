@@ -221,7 +221,7 @@ No `AnimatePresence` is added for any of the above.
 ## 10. Meta-test inventory
 
 - **CREATE** a new exhaustiveness test `selfHealingClassification` in `tests/adminAlerts/` — guard: every doug-audience `resolution:"auto"` code (the 15) is a member of EXACTLY ONE of the two positive sets `SELF_HEALING_CODES` and `NEEDS_LOOK_CODES` (asserts membership in neither → fail, in both → fail, and that the union has no extra members). Because both sets are explicit (not set-plus-complement), a NEW auto-resolving doug code is in neither and the test fails by default — NOT tautological. Pins §2 as the single source of truth. (Test is derived from the catalog's `resolution:"auto"` ∩ doug-audience membership, not a hardcoded list, so it tracks catalog changes.)
-- **EXTEND** `tests/admin/_metaAttentionItemsTopology.test.ts` — the new `driveFileId` arg + gallery call site must keep `deriveAttentionItems` reachable from exactly the two admitted callers (`app/admin/_showReviewModal.tsx:306`, `app/admin/dev/attention-gallery/buildBlockProps.ts:163`). Update the gallery call site to pass `driveFileId` (mock).
+- **EXTEND** `tests/admin/_metaAttentionItemsTopology.test.ts` — after PR #538 the dev gallery no longer calls `deriveAttentionItems` (it was refactored to `buildSwitcherScenarios.ts`), so the meta-test admits exactly ONE caller: `app/admin/_showReviewModal.tsx`. The new `driveFileId` arg must keep `deriveAttentionItems` reachable from that single caller (count stays 1); there is NO gallery call site to update.
 - **EXTEND** `tests/admin/attentionExclusionSet.test.ts` — unchanged behavior (health codes still excluded), confirm the 15-code RENDERS set is unaffected by the new field.
 - No admin-mutation observability registry change (invariant 10): this feature adds NO mutation surface (read/render only, no new route or server action). Declared N/A.
 - No `admin_alerts.upsert` catalog change; no advisory-lock surface. Declared N/A.
@@ -285,7 +285,7 @@ Anti-tautology: assert against the derived data (`deriveAttentionItems` output, 
 - Menu rows/footer/props: `AttentionMenu.tsx:112-138 / 141-151 / 29-35`; copy `:105, :148`.
 - Actions: `alertActions.ts:13-25 (codes), 31-34 (builder), 45-55 (shareAccess), 58 (openSheet), 81-127 (registry), 131-138 (resolve)`; `buildSheetDeepLink.ts:9-26`.
 - Banner (unchanged surface): `AttentionBanner.tsx:160-174 (action), 185-191 (autoClearNote), 208-220 (help popover), 224 (anchor)`.
-- Call sites: `app/admin/_showReviewModal.tsx:257 (driveFileId available), 306 (derive call)`; `app/admin/dev/attention-gallery/buildBlockProps.ts:163`.
+- Call sites: `app/admin/_showReviewModal.tsx:257 (driveFileId available), 306 (derive call)` — the SOLE caller after PR #538 removed the gallery's `deriveAttentionItems` usage (gallery now uses `app/admin/dev/attention-gallery/buildSwitcherScenarios.ts`).
 - Anchors: `OverviewSection.tsx:52 (#overview)`, `ChangesSection.tsx:55 (#changes)`; no `#parse` in published modal.
 - drive_file_id in context: `runManualSyncForShow.ts`, `runScheduledCronSync.ts`, `applyStaged.ts:1960-1966` (5 of the 6 sheet-link codes carry it in context); `assetRecovery.ts:590-592` shows `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` does NOT, so it uses the threaded show-level `driveFileId`.
 - Topology meta-test: `tests/admin/_metaAttentionItemsTopology.test.ts:2-14, 57-113`.
