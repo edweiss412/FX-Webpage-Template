@@ -36,14 +36,16 @@ target viewports. The modal and shell are untouched.
   (parent spec §1.1/§3.4).
 - **Height cap amendment: ≤56px becomes ≤64px collapsed.** The [R1-12] cap of 56px
   was never achievable with 44px tap targets + `py-2` (8+44+8+2px border = 62px) and
-  the shipped bar never met it. The amended invariant: collapsed height ≤64px,
-  expanded height unbounded (transient).
+  the shipped bar never met it. The amended invariant: collapsed height ≤64px
+  (exclusive of safe-area inset, §2.1.1); expanded state is transient and bounded
+  only by the panel's own `max-h-[40vh]` cap (§2.3).
 - **Visible copy of the two footnote lines is unchanged** (only their placement moves
   behind the disclosure). "Prev"/"Next" button text unchanged.
 
 ## 2. Design — `SwitcherControls` only
 
-Single file change: `components/admin/dev/SwitcherControls.tsx`. New component-local
+Single production-component change: `components/admin/dev/SwitcherControls.tsx` (tests,
+DEFERRED.md, and this spec also change; no other production file). New component-local
 state `const [showExcluded, setShowExcluded] = useState(false)`.
 
 ### 2.1 Control row (always rendered)
@@ -52,13 +54,34 @@ state `const [showExcluded, setShowExcluded] = useState(false)`.
   `flex flex-wrap items-center gap-x-3 gap-y-1`, `SwitcherControls.tsx:57`).
   No wrapping at any width; the label is the only flexible child and truncates
   (existing `min-w-0 truncate`, `SwitcherControls.tsx:70`).
-- Children, in order: Prev button, Next button, live region (count + label,
+- Children, in order: Prev button, Next button, live-region wrapper (count + label,
   unchanged), tier chip (`shrink-0`, unchanged), and — only when
   `excluded.length > 0` — the disclosure toggle.
-- All non-label children `shrink-0` so truncation is absorbed solely by the label.
+- Shrink topology: the live-region wrapper keeps `flex min-w-0 flex-1` (it is the
+  ONLY shrinkable row child); inside it the count span stays `shrink-0` and the
+  label keeps `min-w-0 truncate`, so all width deficit lands on the label. Every
+  other direct row child (both buttons, chip, toggle) is `shrink-0`.
 - Width budget at 390px (px-4 container = 32px): Prev ~54 + Next ~54 + count ~34 +
   chip ~44 + toggle ~80 + 5 gaps × 8 = 40 → ~306px fixed, leaving ≥50px for the
-  truncating label. No wrap.
+  truncating label.
+- Budget bounds: the supported minimum viewport is 390px (project mobile-primary,
+  `playwright.config.ts:40`). Counts are catalog-pinned two-digit values — the e2e
+  pins 3 structural + a cut count derived from `DOUG_EXCLUDED_CODES`
+  (`tests/e2e/attention-modal-gallery.spec.ts:335`, `lib/dev/attentionScenarios/tier2.ts:73`)
+  and the rendered total is ≤ the catalog size (currently 41) — so the fixed-width
+  sum cannot grow past the budget. Below 390px the bar clips at the viewport edge
+  (dev instrument; no supported sub-390 viewport).
+
+### 2.1.1 Safe-area handling
+
+The bar container adds `pt-[env(safe-area-inset-top)]` on top of its `py-2` (or the
+equivalent `style` fallback). The ≤64px collapsed cap in §2.4/§2.5 is defined
+EXCLUSIVE of that inset: collapsed height ≤ 64px + `env(safe-area-inset-top)`. Both
+e2e viewports (Chromium 1280×800 and 390×844) report a 0px inset, so the e2e's
+numeric assertion of ≤64px is exact there; a notched device adds only the inset the
+OS reserves anyway. The modal panel is bottom-anchored on mobile
+(`items-end`, `ReviewModalShell.tsx:582`), so the inset cannot push the bar into the
+panel at 390×844.
 
 ### 2.2 Disclosure toggle
 
@@ -79,6 +102,10 @@ state `const [showExcluded, setShowExcluded] = useState(false)`.
 - Content: the two existing grouped lines verbatim (structural line when
   `structural.length > 0`, cut line when `cut.length > 0` —
   `SwitcherControls.tsx:76-86` copy unchanged).
+- Cap/truncation: the panel gets `max-h-[40vh] overflow-y-auto` and its `<p>` lines
+  keep normal word wrap (labels are catalog-authored short strings; the cut line is
+  a count, not a list). Content beyond 40vh scrolls inside the panel; the panel
+  never escapes the viewport.
 - Bar container keeps `flex-col gap-1` (`SwitcherControls.tsx:55`): row on top,
   panel (when open) below; the bar grows downward.
 - State is component-local and persists across scenario steps (the bar is not keyed
@@ -87,13 +114,20 @@ state `const [showExcluded, setShowExcluded] = useState(false)`.
 
 ### 2.4 Amended layout invariant (supersedes parent [R1-12] wording)
 
-The bar is `fixed`, `z-60`, top-center, respects `env(safe-area-inset-top)` on
-mobile, and in its COLLAPSED state: height ≤64px and MUST NOT intersect the modal's
+The bar is `fixed`, `z-60`, top-center, respects `env(safe-area-inset-top)` (§2.1.1),
+and in its COLLAPSED state: height ≤64px (exclusive of safe-area inset, §2.1.1) and
+MUST NOT intersect ANY of the surfaces the parent [R1-12] invariant protects — the
+nav rail, section controls, banners, modal body — nor the modal's
 header (`data-testid="published-show-review-header"`,
 `ReviewModalShell.tsx:647` via `TESTID_BASE = "published-show-review"`,
 `components/admin/showpage/PublishedReviewModal.tsx:72`), close button
 (`published-show-review-close`), or footer (`published-show-review-footer`,
-`ReviewModalShell.tsx:696`). Geometry headroom: the panel is `max-h-[85vh]` mobile /
+`ReviewModalShell.tsx:696`). Header, close, and footer are the e2e-asserted boxes
+(they are the only stable testids; the rest of the list is satisfied a fortiori —
+every protected surface sits at or below the modal panel's top edge, and the e2e
+asserts the collapsed bar clears the panel's topmost box, the header). The ratified
+expanded-state exception (§1.1) permits header overlap ONLY; the expanded panel is
+capped (§2.3) and top-centered, so it cannot reach the nav rail (left) or footer. Geometry headroom: the panel is `max-h-[85vh]` mobile /
 `sm:max-h-[80vh]` desktop (`ReviewModalShell.tsx:618`), so the scrim band above the
 panel is ≥120px at 390×844 (bottom sheet) and ≥80px at 1280×800 (centered), vs the
 ≤64px collapsed bar.
@@ -116,6 +150,10 @@ not stretch-based, and each is guaranteed by an explicit class:
 | Input / state | Edge | Behavior |
 | --- | --- | --- |
 | `excluded` empty | | No toggle, no panel; row otherwise identical. |
+| `index`/`total` zero, negative, NaN | out-of-catalog values | Rendered verbatim in the count (display-only; no arithmetic beyond `index + 1`). Props are catalog-derived and pinned valid by catalog unit tests (parent spec §5); the component never gates on them. |
+| `label` empty | | Empty truncating span; row layout intact (label is the only flexible child). |
+| `codes` empty | | `data-codes=""`; no visible change (codes are never visible copy). |
+| `tier` outside 1\|2 | type-impossible (`1 \| 2`) | Compile-time excluded; no runtime guard. |
 | `excluded` only structural | `cut.length === 0` | Toggle shows total; panel shows only the structural line. |
 | `excluded` only cut | `structural.length === 0` | Toggle shows total; panel shows only the cut line. |
 | `label` long / viewport 390px | | Label truncates (`min-w-0 truncate`); row never wraps (`flex-nowrap`); all siblings `shrink-0`. |
@@ -141,6 +179,13 @@ subtrees, no interaction; panel visibility is purely `showExcluded`.
     initially (`queryByText` null), toggle has `aria-expanded="false"`; after click,
     both lines visible, `aria-expanded="true"`, panel id matches `aria-controls`.
   - Toggle absent when `excluded` is empty.
+  - Expanded → collapsed: click toggle twice; after the second click the panel is
+    gone from the DOM, `aria-expanded="false"`, and the `aria-controls` attribute is
+    absent (it is set only while the panel is rendered, §2.2).
+  - Structural-only `excluded`: panel shows the structural line and NOT the cut
+    line; cut-only: the inverse. (Guard rows in §3.)
+  - Compound transition (§4): toggling the panel is independent of scenario
+    stepping — pinned by the e2e persistence step (§5 e2e), not jsdom.
   - Toggle carries `min-h-tap-min`; row element carries `flex-nowrap` (class
     assertion — jsdom computes no layout; real geometry is e2e's job).
   - Existing tests (invariant 5 data-codes, aria-live label, em-dash) updated to
@@ -149,9 +194,19 @@ subtrees, no interaction; panel visibility is purely `showExcluded`.
   port 3001 — `playwright.config.ts:84-92`):**
   - New geometry test: for viewports 1280×800 and 390×844 (`page.setViewportSize`),
     read `boundingBox()` of the collapsed bar and of the modal header, close, and
-    footer testids; assert no intersection with each. Anti-tautology: boxes come
+    footer testids; assert (a) no intersection of the bar box with each modal box,
+    (b) `bar.height <= 64` (both e2e viewports report a 0px safe-area inset, §2.1.1,
+    so the numeric bound is exact), and (c) horizontal containment:
+    `bar.x >= 0 && bar.x + bar.width <= viewport.width`. (b) is what makes (a)
+    non-vacuous — a wrapped 80px bar fails (b) even if the modal happens to sit
+    lower — and (b)+(c) together pin non-wrapping and no-overflow, the real-layout
+    facts jsdom cannot see. Anti-tautology: boxes come
     from the real modal testids, not from any gallery-authored wrapper; the bar box
     from `attention-switcher-controls` (`tests/e2e/attention-modal-gallery.spec.ts:66`).
+  - Persistence rides the same test: open the panel, press ArrowRight (scenario
+    remount), assert the panel is still open (`aria-expanded="true"`); then close
+    the modal via its X, click "Reopen", and assert the panel state survived — the
+    bar is outside the keyed modal subtree (parent spec §3.3), and this pins it.
   - Footnote test (`tests/e2e/attention-modal-gallery.spec.ts:332`) updated: assert
     footnote copy hidden by default, click the toggle, then keep the existing
     structural-label + cut-count assertions (they derive from catalog exports
