@@ -134,6 +134,11 @@ export function HoverHelp({
   // for the component's lifetime — open/close only toggles display.
   const hostRef = useContext(PopoverHostContext);
   const [mounted, setMounted] = useState(false);
+  // NOT useHasMounted: that reports true from the FIRST client commit, when a
+  // provider's panelRef.current is still null - the portal would fall back to
+  // document.body and never re-parent. The effect-flip guarantees one render
+  // AFTER refs populate, so the panel host is read when it exists.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing second render; see above
   useEffect(() => setMounted(true), []);
   const bodyId = useId();
   const descId = useId();
@@ -209,6 +214,16 @@ export function HoverHelp({
       align,
     });
     if (placement.kind === "hidden") {
+      // Never strand keyboard focus on an invisible node (WCAG 2.4.7): if the
+      // user had tabbed into the body (learn-more link) and scrolling took the
+      // anchor out of bounds, close and hand focus back to the trigger instead
+      // of hiding around them.
+      if (document.activeElement instanceof HTMLElement && body.contains(document.activeElement)) {
+        clearCloseTimer();
+        setOpen(false);
+        triggerRef.current?.focus({ preventScroll: true });
+        return;
+      }
       body.style.visibility = "hidden";
       body.dataset["popoverHidden"] = "true";
       delete body.dataset["popoverSide"]; // no stale side while hidden
@@ -442,7 +457,7 @@ export function HoverHelp({
               onPointerLeave={scheduleClose}
               onKeyDown={onBodyKeyDown}
               onFocus={onBodyFocus}
-              className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
+              className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
                 open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
               }`}
             >
@@ -468,6 +483,10 @@ export function HoverHelp({
                 </a>
               ) : null}
             </div>,
+            // Portal CONTAINER choice, not render data: only read once `mounted`
+            // is true (post-first-commit, provider's panelRef is populated); same
+            // escape PageTransition.tsx:62 uses.
+            // eslint-disable-next-line react-hooks/refs -- see above
             hostRef?.current ?? document.body,
           )
         : null}

@@ -9,7 +9,7 @@
  * beyond these stubs lives in the real-browser suites.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { HoverHelp, PopoverHostContext } from "@/components/admin/HoverHelp";
 
@@ -205,6 +205,31 @@ describe("measure-and-apply with stubbed rects", () => {
     // align left (default): vx = trigger.left = 150 -> clamp into [108, 492-288=204] -> 150
     // left = 150 - 100(host left) - 0(border) + 40(scrollLeft) = 90
     expect(body.style.left).toBe("90px");
+  });
+
+  test("anchor-gone with focus INSIDE the body closes and refocuses the trigger (WCAG 2.4.7)", () => {
+    stubViewport(1000, 800);
+    render(
+      <HoverHelp label="Help: rescue" testId="fr" learnMore={{ href: "/help/x" }}>
+        <p>body</p>
+      </HoverHelp>,
+    );
+    const trigger = screen.getByTestId("fr-trigger");
+    stubRect(trigger, { left: 500, top: 300, width: 20, height: 20 });
+    stubRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    const body = screen.getByTestId("fr-body");
+    stubRect(body, { left: 0, top: 0, width: 288, height: 200 });
+    fireEvent.click(trigger);
+    const link = body.querySelector("a");
+    if (!link) throw new Error("learn-more link missing");
+    (link as HTMLElement).focus();
+    stubRect(trigger, { left: 500, top: -900, width: 20, height: 20 }); // scrolled out
+    fireEvent.scroll(window);
+    act(() => runPendingFrames()); // the rescue path calls setOpen(false) inside the frame
+    // NOT hidden-around-the-user: popover closed, focus handed back.
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+    expect(body.hasAttribute("data-popover-hidden")).toBe(false);
   });
 
   test("anchor-gone hides, clears side attribute, and recovers", () => {
