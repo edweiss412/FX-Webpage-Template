@@ -12,6 +12,12 @@
 //
 // NOTE: suites importing this must run under jsdom and mock next/navigation
 // (see the pragma + vi.mock in each consuming suite).
+//
+// Typing posture (review IIa-4): every fixture WE construct uses `satisfies`
+// (emitter drift fails to compile). The two `as never` casts below are the
+// canonical scaffold's own pattern (routedWarningsGate.test.tsx:92,101) for
+// the snapshot/inclusion inputs whose full row types are server-side; the
+// NoteItem double-cast models only the two fields the note channel reads.
 import type { ComponentProps } from "react";
 import type { RefObject } from "react";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
@@ -41,7 +47,7 @@ const SECTION_WARN: Record<string, { id: SectionId; make: (n: number) => ParseWa
         message: `unknown role ${n}`,
         rawSnippet: `Role | crew-${n}`,
         blockRef: { kind: "crew", name: `crew-${n}` },
-      }) as ParseWarning,
+      }) satisfies ParseWarning,
   },
   "Rooms & scope": {
     id: "rooms",
@@ -52,7 +58,7 @@ const SECTION_WARN: Record<string, { id: SectionId; make: (n: number) => ParseWa
         message: `ambiguous room ${n}`,
         rawSnippet: `Room | room-${n}`,
         blockRef: { kind: "rooms", name: `room-${n}` },
-      }) as ParseWarning,
+      }) satisfies ParseWarning,
   },
   Hotels: {
     id: "hotels",
@@ -65,6 +71,17 @@ const SECTION_WARN: Record<string, { id: SectionId; make: (n: number) => ParseWa
         blockRef: { kind: "hotels", name: `hotel-${n}` },
       }) as ParseWarning,
   },
+  Transport: {
+    id: "transport",
+    make: (n) =>
+      ({
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: `unknown transport field ${n}`,
+        rawSnippet: `Transport | t-${n}`,
+        blockRef: { kind: "transportation", name: `transport-${n}` },
+      }) satisfies ParseWarning,
+  },
   Contacts: {
     id: "contacts",
     make: (n) =>
@@ -74,7 +91,7 @@ const SECTION_WARN: Record<string, { id: SectionId; make: (n: number) => ParseWa
         message: `unknown contact field ${n}`,
         rawSnippet: `Contact | c-${n}`,
         blockRef: { kind: "contacts", name: `contact-${n}` },
-      }) as ParseWarning,
+      }) satisfies ParseWarning,
   },
 };
 
@@ -84,7 +101,7 @@ function unroutedWarn(n: number): ParseWarning {
     code: "UNKNOWN_FIELD",
     message: `unrecognized row ${n}`,
     rawSnippet: `Mystery Row ${n} | value ${n}`,
-  } as ParseWarning;
+  } satisfies ParseWarning;
 }
 
 function infoTypo(n: number): ParseWarning {
@@ -94,7 +111,7 @@ function infoTypo(n: number): ParseWarning {
     message: `Typo alias 'venu${n}' normalized to canonical 'venue'`,
     blockRef: { kind: "venue" },
     rawSnippet: `venu${n}`,
-  } as ParseWarning;
+  } satisfies ParseWarning;
 }
 
 export type PublishedSurfaceOpts = {
@@ -110,10 +127,6 @@ export type PublishedSurfaceOpts = {
   elsewhereInCrew?: number;
   /** Elsewhere sections BY LABEL (pointer tests): one warn per named section. */
   elsewhereSections?: readonly string[];
-  /** Pointer overflow: pretend this many TOTAL elsewhere sections exist (the
-   *  unresolved remainder folds into "and N more"). Implemented by adding
-   *  warns routed to section ids NOT in the rendered registry. */
-  elsewhereTotalSections?: number;
   /** Omit renderSectionExtras + routedWarnings: the staged-shaped gate-off mount. */
   gateOff?: boolean;
   /** Attach a parse note to the warnings section (suppression stays off). */
@@ -176,26 +189,16 @@ export function buildPublishedSurfaceProps(
   for (let i = 0; i < (opts.here ?? 0); i++) warnings.push(unroutedWarn(i));
   const crewCount = (opts.elsewhere ?? 0) + (opts.elsewhereInCrew ?? 0);
   for (let i = 0; i < crewCount; i++) warnings.push(SECTION_WARN.Crew!.make(i));
+  // Production pointer overflow is CAP overflow — every elsewhere section is a
+  // rendered registry section, so the helper models overflow with REAL distinct
+  // sections only (review IIa-3: a synthetic unresolved-section mechanism
+  // collapsed to one section and misled).
   const labels = opts.elsewhereSections ?? [];
   labels.forEach((label, i) => {
     const def = SECTION_WARN[label];
     if (!def) throw new Error(`no warn emitter for section label '${label}'`);
     warnings.push(def.make(100 + i));
   });
-  // Unresolved-section overflow: warns whose blockRef kind routes to a section
-  // id absent from the rendered registry (hotels is rendered only with data,
-  // so `hotels`-routed warns on an empty show are "elsewhere" in the model but
-  // label-unresolvable in the pointer registry).
-  const totalWanted = opts.elsewhereTotalSections ?? labels.length;
-  for (let i = labels.length; i < totalWanted; i++) {
-    warnings.push({
-      severity: "warn",
-      code: "UNKNOWN_FIELD",
-      message: `hotel warn ${i}`,
-      rawSnippet: `Hotel | h-${i}`,
-      blockRef: { kind: "hotels", name: `h-${i}` },
-    } as ParseWarning);
-  }
 
   const data = buildData(warnings);
   const scrollerRef: RefObject<HTMLElement | null> = { current: null };

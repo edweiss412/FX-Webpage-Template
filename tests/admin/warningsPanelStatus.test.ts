@@ -29,6 +29,17 @@ describe("warningsPanelStatusSentence (spec §3.2)", () => {
       "Nothing needs a look on this sheet.",
     );
     expect(warningsPanelStatusSentence(2.7, 0, 0)).toBe("2 warnings listed.");
+    // Same four failure classes for the OTHER two arguments (review IIa-2).
+    expect(warningsPanelStatusSentence(0, Number.NaN, -1)).toBe(
+      "Nothing needs a look on this sheet.",
+    );
+    expect(warningsPanelStatusSentence(0, Number.POSITIVE_INFINITY, Number.NaN)).toBe(
+      "Nothing needs a look on this sheet.",
+    );
+    expect(warningsPanelStatusSentence(0, 1.9, 0)).toBe("1 warning needs a look below.");
+    expect(warningsPanelStatusSentence(0, 0, 2.2)).toBe(
+      "2 warnings need a look in their own sections.",
+    );
   });
 
   it("single-bucket changes always change the text (production ignore transitions)", () => {

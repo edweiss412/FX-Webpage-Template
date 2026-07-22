@@ -69,8 +69,13 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
   });
 
   test.afterAll(async () => {
-    if (show) await deleteSeededShow(show.driveFileId);
-    if (restoreDashboardState) await restoreDashboardState();
+    // Failure-safe order: a rejected seed delete must not skip the dashboard
+    // state restore (shared state leak into later suites).
+    try {
+      if (show) await deleteSeededShow(show.driveFileId);
+    } finally {
+      if (restoreDashboardState) await restoreDashboardState();
+    }
   });
 
   test.beforeEach(async ({ page }) => {
@@ -95,24 +100,29 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
   test("pointer button scrolls its section to the aligned position", async ({ page }) => {
     await openModal(page);
     const { SCROLLER, SENTENCE, SECTION_CREW } = selectors(show.driveFileId);
-    await expect(page.locator(SENTENCE)).toBeVisible();
+    try {
+      await expect(page.locator(SENTENCE)).toBeVisible();
+    } catch (e) {
+      const panel = await page
+        .locator(`[data-testid$="-breakdown-warnings"]`)
+        .first()
+        .textContent()
+        .catch(() => "(panel not found)");
+      const status = await page
+        .locator(`[data-testid="warnings-panel-status"]`)
+        .textContent()
+        .catch(() => "(status not found)");
+      console.log("DIAG panel:", panel, "| status:", status);
+      throw e;
+    }
     const btn = page.locator(`${SENTENCE} button`, { hasText: "Crew" }).first();
     await expect(btn).toBeVisible();
     // The modal re-renders once after open (post-open refresh) and swaps the
     // first-mounted nodes; a click dispatched into that swap lands on a
-    // detached node and scrolls nothing. Settle gate: poll until the button's
-    // geometry is stable across two frames before clicking.
-    await expect
-      .poll(
-        async () => {
-          const a = await btn.evaluate((el) => el.getBoundingClientRect().top).catch(() => -1);
-          await page.evaluate(() => new Promise(requestAnimationFrame));
-          const b = await btn.evaluate((el) => el.getBoundingClientRect().top).catch(() => -2);
-          return a >= 0 && a === b ? "stable" : "settling";
-        },
-        { timeout: 15_000 },
-      )
-      .toBe("stable");
+    // detached node and scrolls nothing. No frame-count settle gate can prove
+    // the refresh already happened, so the click itself retries: re-resolve a
+    // FRESH locator each attempt and accept only an observed alignment.
+    // Clicking twice is idempotent (same scroll target).
     const align = async () =>
       page.evaluate(
         ([sec, scr]) => {
@@ -124,8 +134,17 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
       );
     // Pre-click guard (spec §8.6): target NOT already aligned, else vacuous.
     expect(await align()).toBeGreaterThan(24);
-    await btn.click();
-    await expect.poll(align, { timeout: 10_000 }).toBeLessThanOrEqual(24);
+    let aligned = false;
+    for (let attempt = 0; attempt < 3 && !aligned; attempt++) {
+      await page.locator(`${SENTENCE} button`, { hasText: "Crew" }).first().click();
+      try {
+        await expect.poll(align, { timeout: 4_000 }).toBeLessThanOrEqual(24);
+        aligned = true;
+      } catch {
+        // node swapped mid-click; re-resolve and retry
+      }
+    }
+    expect(aligned, "section aligned after at most 3 click attempts").toBe(true);
   });
 
   test("pointer buttons: 44x44 effective hit area, adjacent overlays disjoint", async ({
@@ -193,32 +212,48 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
       }
     }
     // +/-21px offset clicks resolve to the intended button (behavioral floor
-    // probe). ATOMIC: center derivation and all four probes run in ONE
-    // evaluate, so a late re-render cannot shift layout between measure and
-    // probe (the flake mode two prior runs hit).
-    const probeResult = await page.evaluate((sel) => {
-      const btn = document.querySelector(`${sel} button`);
-      if (!btn) return { label: null, hits: [] as Array<string | null> };
-      const box = btn.getBoundingClientRect();
-      const cx = box.left + box.width / 2;
-      const cy = box.top + box.height / 2;
-      const offsets: Array<[number, number]> = [
-        [0, -21],
-        [0, 21],
-        [-21, 0],
-        [21, 0],
-      ];
-      return {
-        label: btn.textContent,
-        hits: offsets.map(
-          ([dx, dy]) =>
-            document.elementFromPoint(cx + dx, cy + dy)?.closest("button")?.textContent ?? null,
-        ),
-      };
-    }, SENTENCE);
-    expect(probeResult.label).not.toBeNull();
-    for (const hit of probeResult.hits) {
-      expect(hit).toBe(probeResult.label);
-    }
+    // probe). ATOMIC (center derived and probed in ONE evaluate, so layout
+    // cannot shift between measure and probe) AND POLLED (a late re-render
+    // between iterations self-heals on the next sample).
+    await expect
+      .poll(
+        async () =>
+          page.evaluate((sel) => {
+            const btn = document.querySelector(`${sel} button`);
+            if (!btn) return "no-button";
+            const label = btn.textContent;
+            let box = btn.getBoundingClientRect();
+            if (box.width === 0) return "zero-box";
+            // Self-heal: the modal's post-open refresh can reset scroll after
+            // our earlier scrollIntoView, leaving the button outside the
+            // viewport where elementFromPoint sees nothing. Re-center and
+            // retry on the next poll sample.
+            if (box.top < 0 || box.bottom > window.innerHeight) {
+              btn.scrollIntoView({ block: "center" });
+              return "re-scrolled";
+            }
+            box = btn.getBoundingClientRect();
+            const cx = box.left + box.width / 2;
+            const cy = box.top + box.height / 2;
+            const offsets: Array<[number, number]> = [
+              [0, -21],
+              [0, 21],
+              [-21, 0],
+              [21, 0],
+            ];
+            const hits = offsets.map(([dx, dy]) => {
+              const el = document.elementFromPoint(cx + dx, cy + dy);
+              return `${dx},${dy}=>${el?.tagName}.${
+                (el as HTMLElement | null)?.className?.toString().split(" ")[0]
+              }#${el?.closest("button")?.textContent ?? "-"}`;
+            });
+            const ok = hits.every((h) => h.endsWith(`#${label}`));
+            return ok
+              ? "all-hit"
+              : `miss:${hits.join(" | ")} box=${box.width}x${box.height}@${cx},${cy}`;
+          }, SENTENCE),
+        { timeout: 10_000 },
+      )
+      .toBe("all-hit");
   });
 });

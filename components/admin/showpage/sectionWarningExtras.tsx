@@ -140,7 +140,7 @@ export function buildSectionWarningExtras(args: {
    *  under rows, so they are EXCLUDED from the section group here (conservation — a card
    *  never renders twice). Absent → no crew filtering (byte-identical to today). */
   renderedCrewKeys?: ReadonlySet<string>;
-}): (id: SectionId, d: SectionData) => ReactNode {
+}): (id: SectionId, d: SectionData, opts?: { seamless?: boolean }) => ReactNode {
   const { bySection, renderedCrewKeys } = args;
   // Lowercase-named (not a component): the surface calls it as a render callback per section.
   function renderSectionExtras(

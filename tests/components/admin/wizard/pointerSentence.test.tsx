@@ -118,6 +118,22 @@ describe("pointer sentence render (spec §8.6)", () => {
     );
   });
 
+  it("5 sections: plural overflow clause, full string", () => {
+    renderElsewhere(["Crew", "Contacts", "Hotels", "Transport", "Rooms & scope"]);
+    expect(sentence()).toBe(
+      "Nothing else to note here. The warnings that need a look are in Crew, Contacts, Hotels, and 2 more.",
+    );
+  });
+
+  it("zero resolved labels with positive total: fallback sentence (chrome-level guard)", () => {
+    renderWarningsBreakdownWithChrome({
+      pointerTargets: { targets: [], totalSections: 2 },
+    });
+    expect(screen.getByTestId(/warnings-elsewhere/).textContent).toBe(
+      "Nothing else to note here. The warnings that need a look are in their own sections.",
+    );
+  });
+
   it("tap fires onJumpToSection with the section id (chrome-level contract)", () => {
     const onJump = vi.fn();
     renderWarningsBreakdownWithChrome({

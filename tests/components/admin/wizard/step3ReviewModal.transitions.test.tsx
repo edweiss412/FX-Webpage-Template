@@ -1127,9 +1127,10 @@ function isClassified(
 
 describe("§11 source-marker audit — every conditional-render site in Step3ReviewModal.tsx is classified", () => {
   test("exactly 15 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
-    // 10 pre-consolidation + 4 added by the Step-3 re-apply resolution fold
-    // (spec §4.4): resolution body head, corrupt-vs-items branch, resolution
-    // footer head, error note, approve-vs-corrupt. Plus 1 from
+    // 14 sites before this bundle (the pre-consolidation set plus the Step-3
+    // re-apply resolution fold's additions — resolution body head,
+    // corrupt-vs-items branch, resolution footer head, error note,
+    // approve-vs-corrupt; see git history for the per-era split) + 1 from
     // warning-panel-polish §3.2: the warnings-section live-region span in
     // ShowReviewSurface (sr-only text swap, deliberate-instant).
     const hits = findConditionalLines(MARKER_AUDIT_SRC);

@@ -52,6 +52,23 @@ describe("warnings panel live region (spec §3.2)", () => {
     );
   });
 
+  it("dependency isolation: only routedWarnings swaps between rerenders; text still updates", () => {
+    // Review IIa-1: rebuilding EVERY prop each rerender cannot catch a wrong
+    // memo dependency list. Here data/renderSectionExtras keep reference
+    // identity; ONLY the routedWarnings object is replaced.
+    const props = buildPublishedSurfaceProps({ listed: 0, here: 2, elsewhere: 0 });
+    const { rerender } = render(<ShowReviewSurface {...props} />);
+    const span = screen.getByTestId("warnings-panel-status");
+    expect(span.textContent).toBe("2 warnings need a look below.");
+    const swapped = {
+      ...props,
+      routedWarnings: { here: 1, elsewhere: 0, activeWarningsBySection: {} },
+    };
+    rerender(<ShowReviewSurface {...swapped} />);
+    expect(screen.getByTestId("warnings-panel-status")).toBe(span);
+    expect(span.textContent).toBe("1 warning needs a look below.");
+  });
+
   it("gate OFF (staged shape): span absent", () => {
     const staged = buildPublishedSurfaceProps({ listed: 1, gateOff: true });
     render(<ShowReviewSurface {...staged} />);

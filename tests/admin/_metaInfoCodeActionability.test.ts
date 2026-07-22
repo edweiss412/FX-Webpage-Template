@@ -40,12 +40,20 @@ function scanSource(src: ts.SourceFile, path: string, scan: Scan): void {
     // "severity" as a property name in ANY syntactic form: identifier key,
     // string-literal key, computed key, shorthand, method/accessor. Shorthand,
     // computed-non-literal, and method forms are unanalyzable BY CONSTRUCTION -> fail.
-    const named = (name: ts.PropertyName, key: string): boolean =>
-      (ts.isIdentifier(name) && name.text === key) ||
-      (ts.isStringLiteral(name) && name.text === key) ||
-      (ts.isComputedPropertyName(name) &&
-        ts.isStringLiteral(name.expression) &&
-        name.expression.text === key);
+    // Statically resolvable key text: identifier, string literal, or a
+    // computed key whose expression unwraps (parens / as-casts) to a string or
+    // no-substitution template literal (review IIb-3 — `[\`severity\`]`,
+    // `[("severity")]`, `["severity" as const]` are not dynamic residuals).
+    const staticKeyText = (name: ts.PropertyName): string | null => {
+      if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
+      if (ts.isComputedPropertyName(name)) {
+        let e: ts.Expression = name.expression;
+        while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e)) e = e.expression;
+        if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
+      }
+      return null;
+    };
+    const named = (name: ts.PropertyName, key: string): boolean => staticKeyText(name) === key;
     const namedSeverity = (name: ts.PropertyName): boolean => named(name, "severity");
     if (ts.isShorthandPropertyAssignment(node) && node.name.text === "severity") {
       scan.violations.push(
@@ -146,6 +154,19 @@ describe("INFO_CODE_ACTIONABILITY registry (spec §3.4)", () => {
     r = probe(`const w = { ["severity"]: "info", ["code"]: "R" };`);
     expect([...r.infoCodes]).toEqual(["R"]);
     expect(r.violations).toEqual([]);
+    // statically resolvable computed variants (review IIb-3): template literal,
+    // parenthesized, and as-const keys all analyze, none slip through silently
+    r = probe('const w = { [`severity`]: "info", code: "R2" };');
+    expect([...r.infoCodes]).toEqual(["R2"]);
+    expect(r.violations).toEqual([]);
+    r = probe(`const w = { [("severity")]: "info", code: "R3" };`);
+    expect([...r.infoCodes]).toEqual(["R3"]);
+    expect(r.violations).toEqual([]);
+    r = probe(`const w = { ["severity" as const]: "info", code: "R4" };`);
+    expect([...r.infoCodes]).toEqual(["R4"]);
+    expect(r.violations).toEqual([]);
+    r = probe('const w = { [`severity`]: someVar, code: "R5" };');
+    expect(r.violations).toHaveLength(1); // resolvable key, unanalyzable value -> loud
     // string-literal code key -> attributable, no violation
     r = probe(`const w = { severity: "info", "code": "S" };`);
     expect([...r.infoCodes]).toEqual(["S"]);
