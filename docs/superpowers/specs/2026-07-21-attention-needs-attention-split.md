@@ -50,11 +50,11 @@ Each decision below is ratified. A reviewer verifies the contract; does not re-d
 | 4 | `REEL_DRIFTED` | needs-a-look | Open in Sheet | `openSheet` |
 | 5 | `EMBEDDED_ASSET_DRIFTED` | needs-a-look | Open in Sheet | `openSheet` |
 | 6 | `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` | needs-a-look | Open in Sheet | `openSheet` (show-level `driveFileId`; alert context lacks it) |
-| 7 | `PARSE_ERROR_LAST_GOOD` | needs-a-look | Go to Overview | `showAnchor("#overview")` |
-| 8 | `RESYNC_QUALITY_REGRESSED` | needs-a-look | Go to Overview | `showAnchor("#overview")` |
+| 7 | `PARSE_ERROR_LAST_GOOD` | needs-a-look | Go to Overview | `showAnchor("overview")` |
+| 8 | `RESYNC_QUALITY_REGRESSED` | needs-a-look | Go to Overview | `showAnchor("overview")` |
 | 9 | `RESYNC_SHRINK_HELD` | needs-a-look | Review & re-sync (existing `#overview`) | already registered (`alertActions.ts:109-117`) |
-| 10 | `SHOW_UNPUBLISHED` | needs-a-look | Go to Overview | `showAnchor("#overview")` |
-| 11 | `USE_RAW_DECISION_STALE` | needs-a-look | Go to Overview | `showAnchor("#overview")` |
+| 10 | `SHOW_UNPUBLISHED` | needs-a-look | Go to Overview | `showAnchor("overview")` |
+| 11 | `USE_RAW_DECISION_STALE` | needs-a-look | Go to Overview | `showAnchor("overview")` |
 | 12 | `ASSET_RECOVERY_BYTES_EXCEEDED` | needs-a-look | none — context-only | inline limits copy (60 images / 50MB / 3GB) |
 | 13 | `DRIVE_FETCH_FAILED` | monitoring | none | — |
 | 14 | `SYNC_STALLED` | monitoring | none | — |
@@ -63,7 +63,7 @@ Each decision below is ratified. A reviewer verifies the contract; does not re-d
 - **needs-a-look: 12** (11 with a direct link, 1 context-only).
 - **monitoring: 3** (transient/self-heal — the system is on it, nobody acts).
 
-**Classification storage:** a new explicit set `SELF_HEALING_CODES = { DRIVE_FETCH_FAILED, SYNC_STALLED, WATCH_CHANNEL_ORPHANED }` in `lib/adminAlerts/audience.ts`. An auto-resolving code is "monitoring" iff it is in `SELF_HEALING_CODES`; otherwise "needs-a-look". A meta-test (§10) pins exhaustiveness so any NEW auto-resolving doug-audience code must be explicitly classified or the test fails.
+**Classification storage:** TWO explicit sets in `lib/adminAlerts/audience.ts` — `SELF_HEALING_CODES = { DRIVE_FETCH_FAILED, SYNC_STALLED, WATCH_CHANNEL_ORPHANED }` and `NEEDS_LOOK_CODES` (the other 12, enumerated). Runtime bucketing (`clearingKind`) is fail-safe: `SELF_HEALING_CODES.has(code) ? "self_heal" : "needs_look"` — an unknown code renders as needs-a-look, visible not hidden. **Correctness is NOT left to that default.** The meta-test (§10) asserts every doug-audience `resolution:"auto"` code is a member of EXACTLY ONE of the two sets; a code in NEITHER (or BOTH) fails CI. A NEW such code is in neither set by construction, so it fails by default until explicitly classified. Two positive sets exist precisely because a single-set-plus-complement guard is tautological (a code can never be "unclassified" against a complement), which is the failure the exhaustiveness test must avoid.
 
 ---
 
@@ -82,7 +82,8 @@ Replace the four mutually-exclusive states with a composed pill that always show
 - Derive `needsLookCount` and `selfHealCount` from `live` (§3.3), alongside the existing `actionable`.
 - **Interactive pill** renders when `actionable.length > 0 OR needsLookCount > 0` (i.e. anything a human might act on). Segments, in order, each rendered only when its count > 0:
   - `{actionable.length} to confirm` (warning tone dot, existing `bg-status-review`)
-  - `· {needsLookCount} to review` (muted, `text-text-subtle`)
+  - `{needsLookCount} to review` (muted, `text-text-subtle`)
+  - **Separator rule:** a `·` middot separator is rendered BETWEEN two present segments only. It is never the first visible glyph. So `actionable=0, needsLook=3` shows "3 to review" (no leading middot); `actionable=2, needsLook=3` shows "2 to confirm · 3 to review". Same rule applies before the `monitoring` segment.
 - **Non-interactive `{selfHealCount} monitoring`** pill segment appended (hollow dot) — shown when `selfHealCount > 0`. Never the sole reason the pill is interactive.
 - **Degraded** (`alertsDegraded && everything === 0`): "Alerts unavailable" (unchanged, line 712).
 - **In sync** (all counts 0, not degraded): "In sync" (unchanged, line 736).
@@ -110,6 +111,7 @@ Menu body, top to bottom:
    - `menuTitle` (strong) + a one-line fix hint (see §5) in `text-xs text-text-subtle`
    - if the item's `action` link resolves: an inline `<a>` (label from the builder, e.g. "Open in Sheet ↗" / "Go to Overview"), `min-h-tap-min`, external links get `target=_blank rel=noopener noreferrer` + "↗". Reuses the exact anchor pattern from `AttentionBanner.tsx:160-174`.
    - the row itself is NOT a navigate button (no `onNavigate`); only the `<a>` is interactive.
+   - **Menu-close on activation:** the `<a>` carries an `onClick` that calls the menu's `onClose` before navigation. This matters for the internal `#overview` links (the `showAnchor` codes): activating a same-route hash link while the dropdown is open would otherwise scroll the target behind the still-open menu. External Sheet links (open in a new tab, `target=_blank`) also close the menu on click, for consistency. `onClose` is already passed to `AttentionMenu` (`AttentionMenu.tsx:29-35`).
    - `ASSET_RECOVERY_BYTES_EXCEEDED` (context-only): fix hint carries the limits inline; no `<a>`.
 3. **"Monitoring" group** — new. A quiet subheading ("Monitoring") + a single summary row: hollow dot + "{selfHealCount} clearing on their own, no action needed" (the same shape as the old copy, and now it is TRUE because it only covers the 3 genuinely self-healing codes). No em-dash in the string (project rule). Individual self-heal items are not enumerated (nothing to act on).
 
@@ -160,7 +162,7 @@ Working copy (final wording is refinable in the impeccable copy pass; user-visib
 - **All counts 0:** "In sync" (unchanged).
 - **`alertsDegraded`:** alerts array is empty (`_showReviewModal.tsx:306` passes `[]`), so all counts 0 → "Alerts unavailable" pill (unchanged). No group renders.
 - **`clearingKind` undefined on an actionable/hold item:** groups filter on `!i.actionable && clearingKind === X`, so holds/actionables never leak into a clearing group.
-- **A code that is auto-resolving, doug-audience, but NOT yet classified** (new code added later): `isSelfHealing` returns false → defaults to `needs_look` (fails safe visible, not hidden), and the exhaustiveness meta-test (§10) fails in CI until it is explicitly classified.
+- **A code that is auto-resolving, doug-audience, but NOT yet classified** (new code added later): runtime bucketing defaults it to `needs_look` (fails safe visible, not hidden); AND, because it is a member of NEITHER `SELF_HEALING_CODES` nor `NEEDS_LOOK_CODES`, the exhaustiveness meta-test (§10) fails in CI until it is explicitly added to one set. The two-set design is what makes this failure real (see §2).
 
 ---
 
@@ -172,16 +174,20 @@ The menu rows and groups are flow-layout (`flex` with `gap`, no fixed-height par
 
 ## 8. Transition inventory
 
-Pill visual states: `to-confirm/review composite`, `monitoring-only`, `degraded`, `in-sync`. Menu: `closed`, `open`.
+Four pill states: **A** = composite (`to confirm`/`to review`, interactive), **B** = monitoring-only (non-interactive), **C** = degraded ("Alerts unavailable"), **D** = in-sync. Menu: `closed`, `open`. All 4·3/2 = 6 pill-state pairs enumerated:
 
-| From → To | Treatment |
-|-----------|-----------|
-| pill state → pill state (count changes) | instant — text/segment swap, no animation (matches current pill, which is instant) |
-| menu closed → open | existing `AttentionMenu` open transition (unchanged) |
-| menu open → closed | existing (unchanged) |
-| chevron rotate (menu open) | existing `rotate-180 transition-transform` (`PublishedReviewModal.tsx` chevron, unchanged) |
+| Pair | Treatment |
+|------|-----------|
+| A ↔ B | instant — text/segment swap (count crossed the actionable/needs-look threshold). No animation. |
+| A ↔ C | instant — swap (alerts became degraded / recovered). No animation. |
+| A ↔ D | instant — swap (last actionable/needs-look item cleared, or first arrived). No animation. |
+| B ↔ C | instant — swap. No animation. |
+| B ↔ D | instant — swap (last self-heal item cleared, or first arrived with nothing else). No animation. |
+| C ↔ D | instant — swap (degraded recovered to fully in-sync). No animation. |
+| menu closed ↔ open | existing `AttentionMenu` open/close transition (unchanged) |
+| chevron rotate (menu open) | existing `rotate-180 transition-transform` (unchanged) |
 
-No new animated states. Groups appear/disappear with the menu (no independent enter/exit). No `AnimatePresence` added. Compound transitions: none introduced.
+The pill has always been instant on count/state change; this spec keeps that (no `AnimatePresence`, no enter/exit). **Compound transition (enumerated, not dismissed):** a count change WHILE the menu is open — a "Needs a look" or "Monitoring" group (or an individual needs-look row) appearing or disappearing mid-open as live data updates. Treatment: instant insert/remove of the row/group in the open menu, no animation; the pill segment updates in lockstep. No layout-shift guard beyond the menu's existing scroll container. This is the only compound case; it is acceptable because the menu is a transient dropdown and instant updates match its current behavior.
 
 ---
 
@@ -193,7 +199,7 @@ No new animated states. Groups appear/disappear with the menu (no independent en
 
 ## 10. Meta-test inventory
 
-- **CREATE** a new exhaustiveness test `selfHealingClassification` in `tests/adminAlerts/` — guard: every doug-audience `resolution:"auto"` code (the 15) is classified as exactly one of `SELF_HEALING_CODES` (monitoring) or its complement (needs-a-look); a NEW such code that is unclassified fails the test. Pins §2 as the single source of truth.
+- **CREATE** a new exhaustiveness test `selfHealingClassification` in `tests/adminAlerts/` — guard: every doug-audience `resolution:"auto"` code (the 15) is a member of EXACTLY ONE of the two positive sets `SELF_HEALING_CODES` and `NEEDS_LOOK_CODES` (asserts membership in neither → fail, in both → fail, and that the union has no extra members). Because both sets are explicit (not set-plus-complement), a NEW auto-resolving doug code is in neither and the test fails by default — NOT tautological. Pins §2 as the single source of truth. (Test is derived from the catalog's `resolution:"auto"` ∩ doug-audience membership, not a hardcoded list, so it tracks catalog changes.)
 - **EXTEND** `tests/admin/_metaAttentionItemsTopology.test.ts` — the new `driveFileId` arg + gallery call site must keep `deriveAttentionItems` reachable from exactly the two admitted callers (`app/admin/_showReviewModal.tsx:306`, `app/admin/dev/attention-gallery/buildBlockProps.ts:163`). Update the gallery call site to pass `driveFileId` (mock).
 - **EXTEND** `tests/admin/attentionExclusionSet.test.ts` — unchanged behavior (health codes still excluded), confirm the 15-code RENDERS set is unaffected by the new field.
 - No admin-mutation observability registry change (invariant 10): this feature adds NO mutation surface (read/render only, no new route or server action). Declared N/A.
@@ -207,12 +213,26 @@ Anti-tautology: assert against the derived data (`deriveAttentionItems` output, 
 
 1. `deriveAttentionItems` tags `clearingKind` correctly: a `SYNC_STALLED` alert → `self_heal`; a `SHEET_UNAVAILABLE` alert → `needs_look`; an actionable alert → no `clearingKind`. (extends `attentionItems.test.ts`)
 2. Ordering: within clearing, `needs_look` sorts before `self_heal`.
-3. Action resolution: `SHEET_UNAVAILABLE` with show `driveFileId` (and empty context) → `openSheet` link built from show-level id (failure mode caught: the EMBEDDED_RECOVERY context-less case). `SHOW_UNPUBLISHED` → `/admin?show={slug}#overview`. Missing `driveFileId` → null action (read-only row).
-4. Exhaustiveness meta-test (§10) — a synthetic unclassified auto-resolving doug code fails.
-5. Pill (real-browser or RTL): with `actionable=3, needsLook=4, selfHeal=2` the pill shows all three segments and the `to review` count does NOT vanish (the core bug). With `actionable=0, needsLook=0, selfHeal=1` → "monitoring" only, non-interactive. With all 0 → "In sync".
+3. **Action resolution — exhaustive, table-driven over ALL 11 linked codes.** For each code in §2 rows 1-11, assert the exact resolved `{label, href, external}`:
+   - 6 sheet codes → `openSheet`: `href === https://docs.google.com/spreadsheets/d/{driveFileId}/edit#gid=0`, `external: true`, label "Open in Sheet". Run each with EMPTY alert context + show-level `driveFileId` — this specifically catches `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` (context lacks `drive_file_id`; must still build from the threaded show id) and would fail if any code were left unregistered (null action).
+   - 4 `showAnchor` codes + `RESYNC_SHRINK_HELD` → `href === /admin?show={slug}#overview` (assert a SINGLE `#`, catching the `##overview` regression), `external: false`.
+   - `ASSET_RECOVERY_BYTES_EXCEEDED` → resolves to NO action (null) AND its fix-hint copy contains the literal limits "60", "50MB", "3GB".
+   - Failure mode caught: a code silently shipping as a read-only row because its registration was omitted; a double-`#` href; a context-less sheet code producing a null link.
+4. **Exhaustiveness meta-test (§10):** inject a synthetic doug-audience auto-resolving code present in NEITHER `SELF_HEALING_CODES` nor `NEEDS_LOOK_CODES` → the test FAILS. Also inject one in BOTH → FAILS. Proves the guard is not tautological (a passing complement-based guard would not fail either injection).
+5. **Pill presence matrix — all combinations (real-browser or RTL).** Enumerate `(actionable, needsLook, selfHeal)` presence: assert visible text AND accessibility name for each:
+   - `(3,4,2)` → "3 to confirm · 4 to review · 2 monitoring"; the `to review` and `monitoring` counts do NOT vanish (the core bug). Interactive.
+   - `(3,0,0)` → "3 to confirm"; interactive.
+   - `(3,4,0)` → "3 to confirm · 4 to review"; interactive.
+   - `(3,0,2)` → "3 to confirm · 2 monitoring"; monitoring does NOT vanish beside actionable (regression guard).
+   - `(0,4,0)` → "4 to review" with NO leading middot (finding-4 guard); interactive.
+   - `(0,4,2)` → "4 to review · 2 monitoring", no leading middot; interactive.
+   - `(0,0,1)` → "1 monitoring"; NON-interactive (no pill button, no menu).
+   - `(0,0,0)` not degraded → "In sync".
+   - degraded (all 0, `alertsDegraded`) → "Alerts unavailable".
 6. Menu render: needs-a-look rows are read-only (no row-level `onNavigate`); the `<a>` is the only interactive descendant; external sheet links carry `target=_blank rel=noopener`. Monitoring group is a single summary row, not enumerated. (Clone-and-strip the actionable rows before scanning, per anti-tautology rule.)
-7. Fail-open: a needs-a-look item with null `driveFileId` renders its fix hint and NO anchor (no dead link).
-8. e2e (if attaching Playwright): pill → open menu → sheet link has correct `href`. Harness-readiness: reuse existing published-modal e2e boot; gate on row hydration.
+7. **Menu-close on action activation:** clicking a needs-a-look row's `<a>` calls `onClose` (assert the menu closes) for BOTH an internal `#overview` link and an external Sheet link. Catches finding-6 (target scrolled behind an open dropdown).
+8. Fail-open: a needs-a-look item with null `driveFileId` (and, for internal, null `slug`) renders its fix hint and NO anchor (no dead link); the row is still present and read-only.
+9. e2e (if attaching Playwright): pill → open menu → sheet link has correct `href` and clicking it closes the menu. Harness-readiness: reuse existing published-modal e2e boot; gate on row hydration.
 
 ---
 
