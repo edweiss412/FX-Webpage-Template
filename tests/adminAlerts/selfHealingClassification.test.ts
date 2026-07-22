@@ -41,7 +41,9 @@ describe("self-healing vs needs-look classification", () => {
     expect(classifiedOk(true, true)).toBe(false);
     expect(classifiedOk(true, false)).toBe(true);
     const synthetic = "SYNTHETIC_NEW_AUTO_CODE";
-    expect(classifiedOk(SELF_HEALING_CODES.has(synthetic), NEEDS_LOOK_CODES.has(synthetic))).toBe(false);
+    expect(classifiedOk(SELF_HEALING_CODES.has(synthetic), NEEDS_LOOK_CODES.has(synthetic))).toBe(
+      false,
+    );
   });
 
   it("isSelfHealing matches the set", () => {

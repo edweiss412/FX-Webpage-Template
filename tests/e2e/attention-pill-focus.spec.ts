@@ -83,11 +83,7 @@ test.beforeAll(async () => {
       const body = readFileSync(join(workDir, file));
       res.setHeader(
         "content-type",
-        file.endsWith(".css")
-          ? "text/css"
-          : file.endsWith(".js")
-            ? "text/javascript"
-            : "text/html",
+        file.endsWith(".css") ? "text/css" : file.endsWith(".js") ? "text/javascript" : "text/html",
       );
       res.end(body);
     } catch {
@@ -109,15 +105,14 @@ const MENU = '[data-testid="published-show-review-attention-menu"]';
 
 async function boot(page: Page, a: number, n: number, s: number) {
   await page.goto(baseUrl);
-  await page.waitForFunction(() => (window as unknown as { __hydrated?: boolean }).__hydrated === true);
+  await page.waitForFunction(
+    () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
+  );
   await page.evaluate(
     ([aa, nn, ss]) =>
-      (window as unknown as { __setItems: (a: number, n: number, s: number, d: boolean) => void }).__setItems(
-        aa!,
-        nn!,
-        ss!,
-        false,
-      ),
+      (
+        window as unknown as { __setItems: (a: number, n: number, s: number, d: boolean) => void }
+      ).__setItems(aa!, nn!, ss!, false),
     [a, n, s],
   );
   // §5.2 auto-open: when actionable items exist the menu opens once per mount,
@@ -156,12 +151,9 @@ for (const { a, n, x } of cells) {
     await boot(page, a, n, 1);
     await page.evaluate(
       ([ss, dd]) =>
-        (window as unknown as { __setItems: (a: number, n: number, s: number, d: boolean) => void }).__setItems(
-          0,
-          0,
-          ss as number,
-          dd as boolean,
-        ),
+        (
+          window as unknown as { __setItems: (a: number, n: number, s: number, d: boolean) => void }
+        ).__setItems(0, 0, ss as number, dd as boolean),
       [x.selfHeal, x.degraded],
     );
     await expect(page.locator(MENU)).toHaveCount(0);
@@ -178,7 +170,10 @@ for (const { a, n, x } of cells) {
   });
 }
 
-test("§11.9 nav: sheet link exact href + target, click closes the menu", async ({ page, context }) => {
+test("§11.9 nav: sheet link exact href + target, click closes the menu", async ({
+  page,
+  context,
+}) => {
   await boot(page, 0, 1, 0);
   const link = page.locator(`${MENU} a`).first();
   await expect(link).toHaveAttribute(

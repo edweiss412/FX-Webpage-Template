@@ -64,9 +64,6 @@ describe("PublishedReviewModal - monitoring pill accessible label (Fix C mechani
     expect(pill.tagName).not.toBe("BUTTON");
     // No aria-label (ignored on a generic role); title mirrors the phrasing.
     expect(pill.getAttribute("aria-label")).toBeNull();
-    expect(pill).toHaveAttribute(
-      "title",
-      "2 monitoring, clearing on their own, no action needed",
-    );
+    expect(pill).toHaveAttribute("title", "2 monitoring, clearing on their own, no action needed");
   });
 });

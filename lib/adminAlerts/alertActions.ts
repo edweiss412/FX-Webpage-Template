@@ -32,7 +32,6 @@ export const ALERT_ACTION_CODES = [
   "PARSE_ERROR_LAST_GOOD",
   "RESYNC_QUALITY_REGRESSED",
   "SHOW_UNPUBLISHED",
-  "USE_RAW_DECISION_STALE",
 ] as const;
 
 export type AlertActionCode = (typeof ALERT_ACTION_CODES)[number];
@@ -170,7 +169,6 @@ export const ALERT_ACTIONS: Record<AlertActionCode, AlertActionBuilder> = {
   PARSE_ERROR_LAST_GOOD: showAnchor("overview", "Go to Overview"),
   RESYNC_QUALITY_REGRESSED: showAnchor("overview", "Go to Overview"),
   SHOW_UNPUBLISHED: showAnchor("overview", "Go to Overview"),
-  USE_RAW_DECISION_STALE: showAnchor("overview", "Go to Overview"),
 };
 
 const REGISTERED = new Set<string>(ALERT_ACTION_CODES);

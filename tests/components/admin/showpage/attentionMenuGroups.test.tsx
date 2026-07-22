@@ -72,7 +72,9 @@ function renderMenu(items: AttentionItem[], onClose = vi.fn()) {
 
 describe("needs-a-look group", () => {
   it("external sheet link carries exact target + full rel, and label", () => {
-    renderMenu([needsLook("n1", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true })]);
+    renderMenu([
+      needsLook("n1", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
+    ]);
     const a = screen.getByRole("link", { name: /Open in Sheet/ });
     expect(a).toHaveAttribute("href", SHEET);
     expect(a).toHaveAttribute("target", "_blank");
@@ -108,9 +110,13 @@ describe("needs-a-look group", () => {
   });
 
   it("row shows the code's fix hint and is read-only apart from its single anchor", () => {
-    renderMenu([needsLook("n5", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true })]);
+    renderMenu([
+      needsLook("n5", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
+    ]);
     const row = screen.getByTestId("attention-needslook-row-alert:n5");
-    expect(within(row).getByText(/Re-share the sheet with the service account\./)).toBeInTheDocument();
+    expect(
+      within(row).getByText(/Re-share the sheet with the service account\./),
+    ).toBeInTheDocument();
     expect(within(row).getAllByRole("link")).toHaveLength(1);
     expect(within(row).queryAllByRole("button")).toHaveLength(0);
   });

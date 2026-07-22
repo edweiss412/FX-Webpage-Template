@@ -183,9 +183,7 @@ function AttentionMenuPanel({
                     <a
                       href={action.href}
                       onClick={() => onClose()}
-                      {...(action.external
-                        ? { target: "_blank", rel: "noopener noreferrer" }
-                        : {})}
+                      {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                       className="mt-1 inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised focus-visible:outline-none"
                     >
                       {action.label}

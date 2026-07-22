@@ -15,7 +15,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -67,7 +67,7 @@ describe("menu-open → non-interactive reconciliation (§11.5a, generated produ
   });
 
   for (const { a, n, x } of cells) {
-    it(`open [a=${a},n=${n}] → ${x.label}: menu closes, no stale aria-expanded, focus not on body`, () => {
+    it(`open [a=${a},n=${n}] → ${x.label}: menu closes, no stale aria-expanded, focus not on body`, async () => {
       const { rerender } = renderPublishedModal([], {
         attentionItems: items(a, n, 1),
       });
@@ -89,8 +89,11 @@ describe("menu-open → non-interactive reconciliation (§11.5a, generated produ
         }),
       );
 
-      // §6 outcome contract
-      expect(screen.queryByTestId("published-show-review-attention-menu")).toBeNull();
+      // §6 outcome contract — the close runs in a rAF callback (lint contract
+      // forbids sync setState in effects), so await the frame.
+      await waitFor(() => {
+        expect(screen.queryByTestId("published-show-review-attention-menu")).toBeNull();
+      });
       expect(document.querySelector('[aria-expanded="true"]')).toBeNull();
       expect(document.activeElement, "focus dropped to <body>").not.toBe(document.body);
     });

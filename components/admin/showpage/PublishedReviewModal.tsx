@@ -31,16 +31,7 @@
  * the URL up in the background.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { ChevronDown, ExternalLink, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
@@ -324,20 +315,29 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
 
   // Compound reconciliation (spec §6 outcome contract, §8 case 2): if live data
   // updates while the menu is open such that the pill is no longer interactive,
-  // the trigger <button> re-renders as a <span> — without this effect the open
+  // the trigger <button> re-renders as a <span> — without this the open
   // dropdown is orphaned and keyboard focus drops to <body>, breaking the modal
-  // focus trap. useLayoutEffect (before paint) closes the menu and lands focus
-  // on the dialog root — ONE named target, never <body>. tabindex is ensured
-  // programmatically so focus() cannot silently no-op. Mechanism selection is
-  // probe-ratified (§6a); the state contract is pinned by pillFocusReconcile.
-  useLayoutEffect(() => {
+  // focus trap. Mechanism (§6a probe-ratified — the rAF-deferred close variant
+  // FAILED 3 of 9 probe cells, so the unmount must be same-render):
+  //   1. The menu's open state is DERIVED: it renders only while
+  //      `menuOpen && interactive`, so the panel unmounts in the same render
+  //      that removes the trigger — no orphan frame, no setState needed.
+  //   2. This effect then rescues focus synchronously (focus() is not setState —
+  //      lint-allowed) onto the dialog root — ONE named target, never <body>;
+  //      tabindex is ensured so focus() cannot silently no-op. The stale
+  //      `menuOpen` flag is cleaned up next frame (rAF, the auto-open idiom, so
+  //      no sync setState in an effect).
+  // State contract pinned by pillFocusReconcile + the e2e probe.
+  const menuEffectivelyOpen = menuOpen && interactive;
+  useEffect(() => {
     if (interactive || !menuOpen) return;
-    setMenuOpen(false);
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     if (dialog) {
       if (!dialog.hasAttribute("tabindex")) dialog.setAttribute("tabindex", "-1");
       dialog.focus();
     }
+    const raf = requestAnimationFrame(() => setMenuOpen(false));
+    return () => cancelAnimationFrame(raf);
   }, [interactive, menuOpen]);
 
   // §3.3 anchor availability drives BOTH the bucketing (below) and the section an
@@ -757,7 +757,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 <div id={menuId}>
                   <AttentionMenu
                     items={live}
-                    open={menuOpen}
+                    open={menuEffectivelyOpen}
                     onClose={() => setMenuOpen(false)}
                     onNavigate={navigateTo}
                     pillRef={pillRef}
