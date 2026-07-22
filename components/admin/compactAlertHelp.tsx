@@ -91,6 +91,13 @@ export type CompactAlertHelpProps = {
    * leaf renders whatever copy its host surface routes here.
    */
   popoverCopy: string | null | undefined;
+  /**
+   * Second popover paragraph (the correction follow-up), forwarded verbatim to
+   * HoverHelp.afterBodyText. Same name at both hops (spec
+   * 2026-07-22-warning-panel-polish §3.1) — deliberately NOT `followUpCopy`,
+   * which is PerShowActionableWarnings' external input.
+   */
+  afterBodyText?: string | null;
   helpHref: string | null | undefined;
   /**
    * Route the Learn-more gate is evaluated against. Supplied by the caller
@@ -107,6 +114,7 @@ export type CompactAlertHelpProps = {
 export function CompactAlertHelp({
   subject,
   popoverCopy,
+  afterBodyText,
   helpHref,
   route,
   testId,
@@ -128,6 +136,9 @@ export function CompactAlertHelp({
       // placement deliberately omitted: inherit HoverHelp's shipped default
       // rather than invent a geometry policy (spec amendment A6).
       {...(content.learnMore ? { learnMore: content.learnMore } : {})}
+      {...(typeof afterBodyText === "string" && afterBodyText.trim().length > 0
+        ? { afterBodyText }
+        : {})}
       trigger={
         // The BUTTON owns the 22px box + centering (compactTrigger); this span
         // is the full-size skin, and the inner glyph span is the independently
