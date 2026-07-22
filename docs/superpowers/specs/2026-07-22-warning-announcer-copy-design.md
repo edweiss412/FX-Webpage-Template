@@ -117,27 +117,32 @@ to R1 finding 1 — there is no ordering to get wrong.
   `PublishedReviewModal.tsx:258` and `PublishedReviewModal.tsx:908`). Provided
   only on the published surface (same `routedWarningsRenderElsewhere` gate as
   the region itself); on the wizard the default no-op context is in effect.
-- **Alternating dual-slot region.** The current single span becomes a container
-  span (keeping `data-testid="warnings-panel-status"`) holding TWO sr-only
-  `role="status"` child spans (slot 0, slot 1), both always mounted. State is
-  `{ seq: number, message: string }` (initial `{ seq: -1, message: "" }`; both
-  slots render empty). `announce(message)` increments `seq` and stores the
-  message; slot `seq % 2` renders the message, the other slot renders `""`.
-  - Why two slots: `role="status"` speaks on text CHANGE, and a screen reader
-    is not required to re-announce identical text (R1 finding 2). Two
-    successive identical clauses ("Warning ignored." twice) land in alternating
-    slots, so the written slot always transitions empty → message — a real text
-    change every time. The slot being cleared transitions message → empty,
-    which announces nothing (same empty-clear silence the shipped bulk chip
-    already relies on, `BulkIgnoreControls.tsx:173-177`).
-  - No timers, no `requestAnimationFrame`, no double-render tricks — one state
-    write per announcement, jsdom-safe.
-- **Background refresh:** props change, counts change, but the slot state is
+- **Append-only message log region** (the react-aria LiveAnnouncer shape). The
+  current single span becomes an sr-only container span with `role="status"`
+  (keeping `data-testid="warnings-panel-status"`), always mounted. State is an
+  append-only list of `{ id, text }` entries; `announce(message)` appends one
+  entry and trims the list to the most recent 3. Each entry renders as a child
+  span (keyed by id) inside the region.
+  - Why appends: `role="status"` has default `aria-relevant="additions text"`,
+    so INSERTING a message node is always announced — including when its text
+    is identical to a previous announcement (R1 finding 2: identical TEXT
+    CHANGES may not re-announce; identical ADDITIONS do). Two mutations that
+    land in one React commit (two fetch successes batched — R2 finding 1)
+    append two nodes in that commit and both are announced; nothing is
+    overwritten, so no announcement can be lost to batching.
+  - Why no clearing: spoken text is never mutated or emptied near its own
+    announcement, so there is no window where clearing could cancel a queued
+    utterance (R2 finding 3). The only removals are trim-driven — a node
+    leaves the DOM only when it is 3 announcements old — and removals are not
+    in `role="status"`'s default relevant set, so they announce nothing.
+  - No timers, no `requestAnimationFrame` — one state write per announcement,
+    jsdom-safe.
+- **Background refresh:** props change, counts change, but the message log is
   untouched — the region's text nodes are not a function of props. Silence, by
   construction rather than by suppression.
-- **Overlapping actions:** each success branch announces its own clause in
-  order; alternation guarantees each is a fresh text change. Two actions =
-  two announcements, each accurate for its own action.
+- **Overlapping actions:** each success branch appends its own clause in
+  resolution order; both survive batching (see above). Two actions = two
+  announcements, each accurate for its own action.
 - **Failure paths:** never announce — errors already surface assertively
   (`role="alert"`: `BulkIgnoreControls.tsx:183`; error state copy in
   `DataQualityWarningControls.tsx:39-41` and `DataQualityWarningControls.tsx:57`).
@@ -168,25 +173,26 @@ all visible panel copy are untouched — only the sr-only sentence retires.
   non-empty strings).
 - Controls mounted with no provider (wizard, standalone harnesses) → default
   no-op context; nothing renders, nothing throws.
-- Modal unmount → slot state discarded; region remounts empty. No announcement
-  leaks across mounts.
-- The always-mounted contract carries over to the container AND both slots:
-  same testid on the container, nodes survive Silent-state chrome suppression
+- Modal unmount → the message log is discarded; the region remounts empty. No
+  announcement leaks across mounts.
+- The always-mounted contract carries over to the container: same testid,
+  node survives Silent-state chrome suppression
   (`ShowReviewSurface.tsx:1109-1114` comment block still holds — a live region
   must exist before its content changes for `role="status"` to speak).
 
-### 2.6 Transition inventory (per slot)
+### 2.6 Transition inventory (message log)
 
 | Transition | Treatment |
 | --- | --- |
-| empty → message (written slot) | instant sr-only text swap — deliberate, no visual (polish spec §11 precedent) |
-| message → empty (cleared slot) | instant; announces nothing (empty text) |
-| message → different message (same slot, two announcements apart) | instant; ordinary text change |
-| message → identical message (same slot) | cannot occur: consecutive announcements always target alternate slots |
+| append message node (any text, including identical to a prior node) | instant sr-only addition — announced (default `aria-relevant` includes additions); no visual (polish spec §11 precedent) |
+| trim-removal of a 3-announcements-old node | instant; announces nothing (removals outside default `aria-relevant`) |
+| append + trim in the same commit | both apply in one commit; only the addition is announced |
+| two appends in one commit (batched successes) | both nodes added; both announced (R2 F1) |
 
-Compound: announcement during a background refresh commit — independent state,
-both apply cleanly in one commit; the slot text change is the only live-region
-mutation. No animation anywhere — sr-only.
+Existing node text NEVER mutates — there is no text-change transition at all.
+Compound: append during a background refresh commit — independent state, both
+apply cleanly in one commit; the addition is the only live-region mutation. No
+animation anywhere — sr-only.
 
 ---
 
@@ -242,10 +248,10 @@ The `"N more"` clause renders as a tappable reveal button IFF ALL of:
 In that case the button carries the same inline text-button treatment and
 centered tap-floor overlay class string as the section-name buttons
 (`step3ReviewSections.tsx:2624-2630` — the `before:` overlay with
-`min-w/h-tap-min`, `z-10`), plus `aria-label` `"Show N more sections"` where N
-is the visible count (equal to `extra.length`, since `missCount === 0` here —
-the accessible name never promises more than the reveal delivers; R1 findings
-3–4). Collapsed example (5 resolved sections):
+`min-w/h-tap-min`, `z-10`), plus `aria-label` `"Show 1 more section"` when N is 1
+and `"Show N more sections"` otherwise, where N is the visible count (equal to
+`extra.length`, since `missCount === 0` here — the accessible name never
+promises more than the reveal delivers; R1 findings 3–4, R2 finding 4). Collapsed example (5 resolved sections):
 `The warnings that need a look are in Hotels, Rooms & scope, Crew, and 2 more.
 Nothing else to note here.` — only "2 more" is tappable.
 
@@ -266,9 +272,30 @@ Tapping the reveal button replaces it in place:
   `The warnings that need a look are in Hotels, Rooms & scope, Crew, Contacts,
   and Schedule. Nothing else to note here.` — every name tappable. No residual
   "more" clause can occur (the button exists only when `missCount === 0`).
-- Focus moves to the first revealed name button (the reveal button unmounts;
-  without an explicit move, focus would drop to `<body>`).
+- Focus moves to the first revealed name button — ON THE ACTIVATION TRANSITION
+  ONLY (inside the tap handler's state update). Data-driven re-renders of an
+  already-expanded list NEVER move focus (R2 finding 2d).
 - One-way per mount: no collapse control. Local `useState`; resets on remount.
+
+**Expanded-state semantics under data changes (R2 finding 2).** `expanded` is a
+sticky per-mount PREFERENCE ("show every name while overflow exists"), and
+rendering is ALWAYS derived from the preference plus CURRENT data — never from
+the data that existed at tap time:
+
+| current data | `expanded` false | `expanded` true |
+| --- | --- | --- |
+| `extra > 0, missCount === 0`, callback | collapsed + reveal button | full resolved list |
+| `extra > 0, missCount === 0`, no callback | plain collapsed clause | plain collapsed clause (preference inapplicable without interactivity) |
+| `missCount > 0` (any extra) | plain collapsed clause | plain collapsed clause (§4.2 miss rule wins over the preference) |
+| no overflow (`extra === 0, missCount === 0`) | plain ≤cap sentence | plain ≤cap sentence (nothing to expand) |
+
+Consequences, stated deliberately: a refresh that removes overflow renders the
+plain sentence even if `expanded` is set; a later refresh that restores
+overflow re-renders the full list WITHOUT another tap (the user already asked
+for all names this session); a refresh that introduces a label miss collapses
+back to the plain folded clause. A refresh that unmounts a focused reveal or
+name button drops focus to `<body>` — accepted as exact parity with the
+already-shipped name buttons, which a refresh can equally remove today.
 
 ### 4.4 Dimensional Invariants
 
@@ -290,32 +317,56 @@ handoff table row 4). `router.refresh()` in jsdom follows the existing mocked
 
 1. **Announcer unit** (rewrite of
    `tests/components/admin/review/warningsPanelStatusMount.test.tsx`):
-   - Mount published surface → container and both slots present, all empty.
-     *Catches: mount-time announcement; missing always-mounted nodes.*
-   - Rerender with changed count props, no announce → every slot still empty.
-     *Catches: regression to derived text — a derived implementation cannot
-     pass.*
-   - `announce("Warning ignored.")` → exactly one slot contains exactly that
-     string; the write happens in a single commit (assert immediately after
-     the announcing `act()`, then assert unchanged across a subsequent
-     changed-props rerender). *Catches: refresh-coupled announcement (R1 F1);
-     multi-commit intermediate writes (R1 F8).*
-   - `announce` twice with the IDENTICAL string → the two writes land in
-     ALTERNATE slots (slot A then slot B), the previously-written slot now
-     empty. *Catches: identical-text non-announcement (R1 F2).*
-   - Empty-string announce → no slot changes.
+   - Mount published surface → container present with zero message children.
+     *Catches: mount-time announcement; missing always-mounted region.*
+   - Rerender with changed count props, no announce → still zero children and
+     a `MutationObserver` attached to the container (childList + subtree +
+     characterData) recorded ZERO mutations across the rerender. *Catches:
+     regression to derived text — a derived implementation cannot pass (R2
+     F6a: observer sees every DOM mutation inside `act()`, not just the final
+     state).*
+   - `announce("Warning ignored.")` → one child with exactly that text; the
+     observer recorded exactly one childList addition and no text mutations of
+     existing nodes; unchanged across a subsequent changed-props rerender.
+     *Catches: refresh-coupled announcement (R1 F1); clear-then-write or other
+     intermediate mutations (R1 F8, R2 F6a).*
+   - `announce` twice with the IDENTICAL string, in separate `act()`s → two
+     children, both with that text; observer recorded two additions and no
+     removals or text mutations. *Catches: identical-text non-announcement
+     (R1 F2); slot-style clearing (R2 F3).*
+   - Two `announce` calls scheduled inside ONE `act()` (both promises resolve
+     before the commit, simulating React batching of two fetch successes) →
+     BOTH messages present as children. *Catches: last-write-wins message loss
+     (R2 F1).*
+   - Four announces → oldest node trimmed: exactly 3 children remain, observer
+     shows the removal happened in the same commit as the newest addition.
+   - Empty-string announce → no mutations recorded.
    - Wizard-mode mount (no `routedWarnings`/`renderSectionExtras`) → container
      absent (contract carried over from the current
      `warningsPanelStatusMount.test.tsx:75` assertion).
 2. **Producer integration** (controls-level RTL, mocked fetch + router,
    provider wrapping the control under test with a recording `announce` spy):
    - `DataQualityWarningControls` success (each mode) announces the pinned
-     clause exactly once; failure and thrown-fetch paths announce nothing.
+     clause exactly once; non-ok response and thrown-fetch paths announce
+     nothing.
    - `BulkIgnoreControls` success announces `"${n} ignored."` with n derived
-     from the fixture group's item count (not hardcoded); the chip's own status
-     region contains `""` on the success path both before and after refresh
-     (assert its textContent never becomes non-empty across the flow).
-     *Catches: the original double-announcement.*
+     from the fixture group's item count (not hardcoded), exactly once;
+     non-ok response and thrown-fetch paths announce nothing (R2 F7 — same
+     negative pair as the single-row control, not only the success case).
+   - Chip-region contract, stated precisely (R2 F5): while ARMED (between the
+     first and second taps) the chip's own status region contains exactly
+     "Tap again to confirm." — the ratified §1.1 item 2 behavior, asserted
+     positively. From the moment the confirming tap's success branch runs,
+     through the refresh rerender, a `MutationObserver` on that region records
+     no mutation that sets non-empty text (the armed→empty clearing is the
+     only permitted mutation). *Catches: the original double-announcement,
+     including a transient completion message cleared before the final
+     assertion (R2 F6b).*
+   - No-provider mount (R2 F8): render `DataQualityWarningControls` with NO
+     provider, drive the full success flow → no throw, and no
+     `role="status"` node anywhere in the document ever contains the clause
+     (assert via observer on `document.body`). *Catches: a throwing context
+     default; announcements leaking through module state.*
 3. **Copy reorder** (`tests/components/admin/wizard/pointerSentence.test.tsx`):
    every pinned string in the §8.6 matrix updated to pointer-first with
    trailing reassurance, still asserted as FULL textContent equality
@@ -326,12 +377,18 @@ handoff table row 4). `router.refresh()` in jsdom follows the existing mocked
    | extra | missCount | callback | expected |
    | --- | --- | --- | --- |
    | 2 | 0 | yes | button, aria-label "Show 2 more sections" |
+   | 1 | 0 | yes | button, aria-label "Show 1 more section" (singular — R2 F4) |
    | 2 | 0 | no | plain clause, no button |
    | 0 | 1 | yes | plain clause, no button |
    | 1 | 1 | yes | plain clause ("and 2 more."), no button |
    - Tap (row 1) → expanded pinned sentence; every revealed name fires the
      jump callback with its `SectionId`; focus is on the first revealed button
      (async assertion wrapped in `waitFor` — jsdom focus timing).
+   - Expanded then data change (R2 F2): with `expanded` set, rerender the same
+     mount with (a) overflow removed → plain ≤cap sentence; (b) overflow
+     restored → full list WITHOUT another tap; (c) a label miss introduced →
+     plain folded clause; in (b)/(c) document.activeElement is unchanged
+     (focus moves on activation only).
 5. **e2e** (existing published-modal harness,
    `tests/e2e/warning-panel-polish.spec.ts` — the file already reads the
    region at line 112):
@@ -352,7 +409,7 @@ tile sentinel copy. The mutation-surface observability walker
 
 - new module `warningAnnounceContext` (TypeScript file) in
   `components/admin/review/`
-- `components/admin/review/ShowReviewSurface.tsx` (provider + dual-slot region)
+- `components/admin/review/ShowReviewSurface.tsx` (provider + message-log region)
 - `components/admin/DataQualityWarningControls.tsx` (announce on success)
 - `components/admin/BulkIgnoreControls.tsx` (announce on success)
 - `components/admin/wizard/step3ReviewSections.tsx` (§3 word order, §4 reveal,
@@ -360,7 +417,7 @@ tile sentinel copy. The mutation-surface observability walker
 - DELETED: `lib/admin/warningsPanelStatus.ts`,
   `tests/admin/warningsPanelStatus.test.ts` (§2.4)
 - `tests/components/admin/review/warningsPanelStatusMount.test.tsx` (rewrite to
-  slot contract)
+  message-log contract)
 - `tests/components/admin/wizard/pointerSentence.test.tsx` (pinned-string
   updates + reveal matrix)
 - controls tests (producer integration)
@@ -389,8 +446,10 @@ re-derive them.
   empirical-spike rule names), §2.2 removes the machine: announce-at-arm,
   clause-only, no refresh observation. Every enumerated ordering is moot —
   message content and timing no longer depend on any refresh.
-- **F2 (P1, identical text) — FIXED STRUCTURALLY.** Alternating dual slots
-  (§2.2): every announcement is an empty→message transition.
+- **F2 (P1, identical text) — FIXED STRUCTURALLY.** Append-only message log
+  (§2.2): every announcement is a node ADDITION, announced regardless of text
+  equality with prior messages. (R1's interim dual-slot fix was itself replaced
+  in R2 — see §8 R2 F1/F3.)
 - **F3/F4 (P1, dead/misleading reveal button) — FIXED.** §4.2: button only
   when `extra.length > 0 && missCount === 0`; any miss keeps the clause plain.
 - **F5 (P2, expanded grammar punctuation) — FIXED / MOOT.** The mixed
@@ -404,9 +463,9 @@ re-derive them.
   which is the ratified standard of §1.1 item 1. Un-defer trigger: the API
   response gaining a mutation-count field.
 - **F7 (P1, tests omit races) — MOOT + STRENGTHENED.** The race surface is
-  gone (F1); §5.1 now pins the properties that make it gone: single-commit
-  announcement independent of refresh, slot alternation, derived-text
-  regression guard.
+  gone (F1); §5.1 now pins the properties that make it gone: announcement
+  independent of refresh, addition-per-announce, derived-text regression
+  guard.
 - **F8 (P2, final-state assertions) — FIXED.** §5.1/§5.2 assert at each commit
   boundary (immediately post-announce, then across a subsequent refresh
   rerender), and the chip region is asserted empty across the whole success
@@ -421,3 +480,37 @@ re-derive them.
   impeccable audit's a11y dimension covers the surface pre-merge, and a manual
   VoiceOver spot-check of ignore/bulk-ignore/reveal is part of the
   implementation plan's verification step.
+
+## 8.1 Adversarial round 2 triage log
+
+Inlined no-tools Codex review of the R1-revised spec, 2026-07-22, VERDICT:
+NEEDS-ATTENTION, 8 findings.
+
+- **F1 (P1, batched successes lose a message) — FIXED STRUCTURALLY.** The
+  dual-slot `{seq, message}` state was last-write-wins under React batching.
+  Replaced (§2.2) by the append-only message log: batched successes append two
+  nodes in one commit; nothing is overwritten. Test pinned in §5.1.
+- **F2 (P1, reveal state undefined across refresh) — FIXED.** §4.3 now derives
+  rendering from preference + CURRENT data with a full four-row matrix, pins
+  focus movement to the activation transition only, and accepts focus-drop on
+  refresh-unmounted buttons as parity with the shipped name buttons. Tests
+  pinned in §5.4.
+- **F3 (P2, clearing one region while populating another can cancel a queued
+  utterance) — FIXED STRUCTURALLY.** The append-only log never mutates or
+  clears spoken text near its announcement; the only removals are
+  3-announcements-old trims, outside the default `aria-relevant` set (§2.2,
+  §2.6).
+- **F4 (P2, "Show 1 more sections") — FIXED.** Singular/plural pinned in §4.2;
+  N=1 boundary row added to the §5.4 matrix.
+- **F5 (P2, chip-region test contradicts the armed prompt) — FIXED.** §5.2 now
+  asserts the armed prompt positively and scopes the never-non-empty
+  observation to the post-confirmation window.
+- **F6 (P2, final-state assertions cannot prove mutation sequences) — FIXED.**
+  §5.1/§5.2 assertions are now `MutationObserver`-based (jsdom implements
+  MutationObserver; observers see every mutation flushed inside `act()`),
+  pinning addition counts and forbidding text mutations of existing nodes.
+- **F7 (P2, bulk negative coverage) — FIXED.** §5.2 adds the non-ok and
+  thrown-fetch announce-nothing pair for `BulkIgnoreControls`.
+- **F8 (P3, no-provider guard unexercised) — FIXED.** §5.2 adds the
+  provider-less success-flow test asserting no throw and no leaked
+  announcement.
