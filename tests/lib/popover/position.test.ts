@@ -117,13 +117,17 @@ describe("computePopoverPlacement decision table", () => {
     const left = computePopoverPlacement(input({ align: "right", trigger: rect(10, 300, 20, 20) }));
     if (left.kind !== "placed") throw new Error("expected placed");
     expect(left.viewport.x).toBe(8); // clamped to bounds.left
-    const right = computePopoverPlacement(input({ align: "left", trigger: rect(970, 300, 20, 20) }));
+    const right = computePopoverPlacement(
+      input({ align: "left", trigger: rect(970, 300, 20, 20) }),
+    );
     if (right.kind !== "placed") throw new Error("expected placed");
     expect(right.viewport.x).toBe(992 - 288); // bounds.right − width
   });
 
   it("width === bounds.width boundary places with no maxWidth", () => {
-    const p = computePopoverPlacement(input({ bounds: rect(8, 8, 288, 784), trigger: rect(60, 300, 20, 20) }));
+    const p = computePopoverPlacement(
+      input({ bounds: rect(8, 8, 288, 784), trigger: rect(60, 300, 20, 20) }),
+    );
     if (p.kind !== "placed") throw new Error("expected placed");
     expect(p.maxWidth).toBeNull();
   });
@@ -134,18 +138,29 @@ describe("computePopoverPlacement decision table", () => {
       ["zero-area trigger (zero height)", input({ trigger: rect(500, 300, 20, 0) })],
       ["trigger fully outside bounds", input({ trigger: rect(2000, 300, 20, 20) })],
       ["trigger touching edge, zero overlap area", input({ trigger: rect(992, 300, 20, 20) })],
-      ["trigger spanning bounds vertically (both spaces 0)", input({ trigger: rect(500, 8, 20, 784) })],
+      [
+        "trigger spanning bounds vertically (both spaces 0)",
+        input({ trigger: rect(500, 8, 20, 784) }),
+      ],
       ["degenerate bounds (zero width)", input({ bounds: rect(8, 8, 0, 784) })],
       ["degenerate bounds (negative height)", input({ bounds: rect(8, 8, 984, -4) })],
       ["non-finite trigger", input({ trigger: rect(NaN, 300, 20, 20) })],
       ["non-finite natural size", input({ naturalSize: { width: 288, height: Infinity } })],
-      ["non-finite wrappedHeightAt result", input({ bounds: rect(8, 8, 200, 784), wrappedHeightAt: () => NaN })],
+      [
+        "non-finite wrappedHeightAt result",
+        input({ bounds: rect(8, 8, 200, 784), wrappedHeightAt: () => NaN }),
+      ],
     ])("%s → hidden", (_name, inp) => {
       expect(computePopoverPlacement(inp)).toEqual({ kind: "hidden" });
     });
 
     it("partial overlap on each edge still places (positive-area rule)", () => {
-      for (const t of [rect(0, 300, 20, 20), rect(984, 300, 20, 20), rect(500, 0, 20, 20), rect(500, 784, 20, 20)]) {
+      for (const t of [
+        rect(0, 300, 20, 20),
+        rect(984, 300, 20, 20),
+        rect(500, 0, 20, 20),
+        rect(500, 784, 20, 20),
+      ]) {
         expect(computePopoverPlacement(input({ trigger: t })).kind).toBe("placed");
       }
     });
@@ -154,7 +169,9 @@ describe("computePopoverPlacement decision table", () => {
 
 describe("rect helpers", () => {
   it("intersectRects clamps to overlap", () => {
-    expect(intersectRects(rect(0, 0, 100, 100), rect(50, 50, 100, 100))).toEqual(rect(50, 50, 50, 50));
+    expect(intersectRects(rect(0, 0, 100, 100), rect(50, 50, 100, 100))).toEqual(
+      rect(50, 50, 50, 50),
+    );
   });
   it("insetRect shrinks on all four sides", () => {
     expect(insetRect(rect(0, 0, 100, 100), 8)).toEqual(rect(8, 8, 84, 84));

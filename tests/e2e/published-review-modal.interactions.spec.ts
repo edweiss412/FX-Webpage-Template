@@ -1464,13 +1464,19 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
   });
 
   test.describe("hoverhelp panel host (spec 2026-07-22-hoverhelp-smart-position §6 T4/T7/T8)", () => {
-    /** Seed one unresolved show-scoped alert whose catalog row carries
+    /** ONE unresolved show-scoped alert whose catalog row carries
      * helpfulContext + helpHref (SYNC_DELAYED_SEVERE — the same code the
      * deeplink suite uses), so the attention card renders a HoverHelp
-     * trigger with a Learn-more link. Seeded per test and cleaned in a
-     * finally, mirroring T-HUB-ZORDER (an actionable alert auto-opens the
-     * attention menu and would perturb the rest of the file). */
-    async function withSeededAlert(fn: (alertId: string) => Promise<void>) {
+     * trigger with a Learn-more link. Seeded ONCE for the whole describe:
+     * per-test seed/delete flaked — the previous test's DELETE fires an
+     * admin realtime refresh that re-renders the NEXT test's freshly-opened
+     * modal mid-assertion (a hover popover legitimately closes on that
+     * re-render). All four tests want the alert present, and this describe
+     * is the last block in the file, so the T-HUB-ZORDER perturbation
+     * concern (an actionable alert auto-opens the attention menu for OTHER
+     * tests) does not apply; afterAll removes it. */
+    let seededAlertId = "";
+    test.beforeAll(async () => {
       const { data, error } = await admin
         .from("admin_alerts")
         .insert({
@@ -1482,15 +1488,16 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         .select("id")
         .single();
       if (error || !data) throw new Error(`hoverhelp alert seed failed: ${error?.message}`);
-      const alertId = data.id as string;
-      try {
-        await fn(alertId);
-      } finally {
-        const { error: cleanupError } = await admin.from("admin_alerts").delete().eq("id", alertId);
-        if (cleanupError) {
-          throw new Error(`hoverhelp alert cleanup failed (would leak): ${cleanupError.message}`);
-        }
-      }
+      seededAlertId = data.id as string;
+    });
+    test.afterAll(async () => {
+      if (!seededAlertId) return;
+      const { error } = await admin.from("admin_alerts").delete().eq("id", seededAlertId);
+      if (error) throw new Error(`hoverhelp alert cleanup failed (would leak): ${error.message}`);
+    });
+    /** Compatibility shim over the old per-test wrapper shape. */
+    async function withSeededAlert(fn: (alertId: string) => Promise<void>) {
+      await fn(seededAlertId);
     }
 
     /** HoverHelp's mouse-only pointerenter hover-opens before the click
@@ -1516,12 +1523,9 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         // Scroll the pane so the card sits at its BOTTOM edge — the exact
         // geometry BL-HOVERHELP-PORTAL documents as clipped pre-portal.
         await card.evaluate((el) => el.scrollIntoView({ block: "end" }));
-        const trigger = card.locator('button[aria-expanded]').first();
+        const trigger = card.locator("button[aria-expanded]").first();
         await clickOpenTrigger(page, trigger);
-        const ownsId = await card
-          .locator('[aria-owns]')
-          .first()
-          .getAttribute("aria-owns");
+        const ownsId = await card.locator("[aria-owns]").first().getAttribute("aria-owns");
         if (!ownsId) throw new Error("affordance root missing aria-owns");
         const body = page.locator(`[id=${JSON.stringify(ownsId)}]`);
         await expect(body).toHaveAttribute("data-popover-side", /top|bottom/);
@@ -1560,31 +1564,36 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         // inerts the dialog subtree (an Escape would be swallowed by the
         // popover's containment and never reach the modal). Sampling starts
         // in the same evaluate so frame 0 lands inside the inert window.
-        const samples = await page.evaluate(async (args) => {
-          const panel = document.querySelector("[data-review-modal-panel]");
-          const cardEl = document.querySelector(`[data-testid="attention-banner-${args.alertId}"]`);
-          const bid = cardEl?.querySelector("[aria-owns]")?.getAttribute("aria-owns");
-          const body = bid ? document.getElementById(bid) : null;
-          if (!panel || !body) throw new Error("panel or portaled popover body missing");
-          const closeBtn = document.querySelector<HTMLElement>(args.closeSel);
-          if (!closeBtn) throw new Error("close button missing");
-          const out: { panelInert: boolean; bodyInert: boolean }[] = [];
-          closeBtn.click();
-          for (let i = 0; i < 30; i++) {
-            // Only frames where the panel is still CONNECTED are meaningful:
-            // after the exit completes React removes the dialog tree, and the
-            // detached dialog root keeps its `inert` attribute while the
-            // portal child is detached separately — a post-unmount artifact,
-            // not an accessibility state a user can reach.
-            if (!panel.isConnected) break;
-            out.push({
-              panelInert: !!panel.closest("[inert]"),
-              bodyInert: !!body.closest("[inert]"),
-            });
-            await new Promise((r) => requestAnimationFrame(() => r(null)));
-          }
-          return out;
-        }, { alertId, closeSel: CLOSE });
+        const samples = await page.evaluate(
+          async (args) => {
+            const panel = document.querySelector("[data-review-modal-panel]");
+            const cardEl = document.querySelector(
+              `[data-testid="attention-banner-${args.alertId}"]`,
+            );
+            const bid = cardEl?.querySelector("[aria-owns]")?.getAttribute("aria-owns");
+            const body = bid ? document.getElementById(bid) : null;
+            if (!panel || !body) throw new Error("panel or portaled popover body missing");
+            const closeBtn = document.querySelector<HTMLElement>(args.closeSel);
+            if (!closeBtn) throw new Error("close button missing");
+            const out: { panelInert: boolean; bodyInert: boolean }[] = [];
+            closeBtn.click();
+            for (let i = 0; i < 30; i++) {
+              // Only frames where the panel is still CONNECTED are meaningful:
+              // after the exit completes React removes the dialog tree, and the
+              // detached dialog root keeps its `inert` attribute while the
+              // portal child is detached separately — a post-unmount artifact,
+              // not an accessibility state a user can reach.
+              if (!panel.isConnected) break;
+              out.push({
+                panelInert: !!panel.closest("[inert]"),
+                bodyInert: !!body.closest("[inert]"),
+              });
+              await new Promise((r) => requestAnimationFrame(() => r(null)));
+            }
+            return out;
+          },
+          { alertId, closeSel: CLOSE },
+        );
         const inertFrames = samples.filter((s) => s.panelInert);
         // Non-vacuity: the exit transition must actually produce inert frames.
         expect(inertFrames.length).toBeGreaterThan(0);
@@ -1601,7 +1610,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         await openModal(page, { width: 300, height: 844 });
         const card = page.locator(`[data-testid="attention-banner-${alertId}"]`);
         await card.evaluate((el) => el.scrollIntoView({ block: "center" }));
-        const trigger = card.locator('button[aria-expanded]').first();
+        const trigger = card.locator("button[aria-expanded]").first();
         await clickOpenTrigger(page, trigger);
         const ownsId = await card.locator("[aria-owns]").first().getAttribute("aria-owns");
         if (!ownsId) throw new Error("affordance root missing aria-owns");
@@ -1617,7 +1626,11 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         const containment = await page.evaluate((id) => {
           const b = document.getElementById(id)!.getBoundingClientRect();
           const p = document.querySelector("[data-review-modal-panel]")!.getBoundingClientRect();
-          return { fitsLeft: b.left >= p.left - 0.5, fitsRight: b.right <= p.right + 0.5, w: b.width };
+          return {
+            fitsLeft: b.left >= p.left - 0.5,
+            fitsRight: b.right <= p.right + 0.5,
+            w: b.width,
+          };
         }, ownsId);
         expect(containment.fitsLeft).toBe(true);
         expect(containment.fitsRight).toBe(true);
@@ -1625,26 +1638,36 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         // pane scroll tracking (±1px against the trigger). The scroller is
         // the card's own clipping ancestor — NOT `.overflow-y-auto:first`,
         // which at 300px matches the display:none `lg:flex` rail.
-        const before = await page.evaluate((args) => {
-          const b = document.getElementById(args.id)!.getBoundingClientRect();
-          const t = document
-            .querySelector(`[data-testid="attention-banner-${args.alertId}"] button[aria-expanded="true"]`)!
-            .getBoundingClientRect();
-          return b.top - t.bottom;
-        }, { id: ownsId, alertId });
+        const before = await page.evaluate(
+          (args) => {
+            const b = document.getElementById(args.id)!.getBoundingClientRect();
+            const t = document
+              .querySelector(
+                `[data-testid="attention-banner-${args.alertId}"] button[aria-expanded="true"]`,
+              )!
+              .getBoundingClientRect();
+            return b.top - t.bottom;
+          },
+          { id: ownsId, alertId },
+        );
         await card.evaluate((el) => {
           const pane = el.closest(".overflow-y-auto");
           if (!pane) throw new Error("card has no scrolling ancestor pane");
           pane.scrollTop += 30;
         });
         await page.waitForTimeout(60);
-        const after = await page.evaluate((args) => {
-          const b = document.getElementById(args.id)!.getBoundingClientRect();
-          const t = document
-            .querySelector(`[data-testid="attention-banner-${args.alertId}"] button[aria-expanded="true"]`)!
-            .getBoundingClientRect();
-          return b.top - t.bottom;
-        }, { id: ownsId, alertId });
+        const after = await page.evaluate(
+          (args) => {
+            const b = document.getElementById(args.id)!.getBoundingClientRect();
+            const t = document
+              .querySelector(
+                `[data-testid="attention-banner-${args.alertId}"] button[aria-expanded="true"]`,
+              )!
+              .getBoundingClientRect();
+            return b.top - t.bottom;
+          },
+          { id: ownsId, alertId },
+        );
         expect(Math.abs(after - before)).toBeLessThanOrEqual(1);
       });
     });
@@ -1656,7 +1679,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         await openModal(page, POPUP);
         const card = page.locator(`[data-testid="attention-banner-${alertId}"]`);
         await card.evaluate((el) => el.scrollIntoView({ block: "center" }));
-        const trigger = card.locator('button[aria-expanded]').first();
+        const trigger = card.locator("button[aria-expanded]").first();
         await clickOpenTrigger(page, trigger);
         // A full-cycle Tab walk is NOT viable here: focus-driven pane
         // auto-scroll shifts the card away from the resting mouse pointer,
@@ -1692,7 +1715,9 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
             const el = document.activeElement;
             const panel = document.querySelector("[data-review-modal-panel]");
             return {
-              id: el ? `${el.tagName}:${el.getAttribute("aria-label") ?? el.getAttribute("data-testid") ?? el.tagName}` : "none",
+              id: el
+                ? `${el.tagName}:${el.getAttribute("aria-label") ?? el.getAttribute("data-testid") ?? el.tagName}`
+                : "none",
               insidePanel: !!(el && panel && panel.contains(el)),
             };
           });
@@ -1701,10 +1726,12 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         expect(onLink.id).toMatch(/^A:Learn more about /);
         await page.keyboard.press("Tab"); // link is trap-last → wraps inside the dialog
         const wrapped = await activeIdentity();
-        expect(wrapped.insidePanel, `Tab from the link escaped the trap (landed on ${wrapped.id})`).toBe(true);
+        expect(
+          wrapped.insidePanel,
+          `Tab from the link escaped the trap (landed on ${wrapped.id})`,
+        ).toBe(true);
         expect(wrapped.id).not.toMatch(/^A:Learn more about /); // it moved
       });
     });
   });
-
 });

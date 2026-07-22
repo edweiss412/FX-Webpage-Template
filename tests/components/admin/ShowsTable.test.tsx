@@ -63,7 +63,6 @@ function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
 // caught: click produces no pending UI and the screen sits inert for the
 // whole server round-trip.
 
-
 /** Portaled popover body (hoverhelp-smart-position §4.1): resolve via the
  * root wrapper's aria-owns — the body is no longer a wrapper descendant. */
 function ownedBody(root: HTMLElement): HTMLElement {

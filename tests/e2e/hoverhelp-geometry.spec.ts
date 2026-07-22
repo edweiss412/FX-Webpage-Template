@@ -90,11 +90,7 @@ test.beforeAll(async () => {
       const body = readFileSync(join(workDir, file));
       res.setHeader(
         "content-type",
-        file.endsWith(".css")
-          ? "text/css"
-          : file.endsWith(".js")
-            ? "text/javascript"
-            : "text/html",
+        file.endsWith(".css") ? "text/css" : file.endsWith(".js") ? "text/javascript" : "text/html",
       );
       res.end(body);
     } catch {
@@ -112,7 +108,14 @@ test.afterAll(async () => {
   if (server) await new Promise<void>((r) => server.close(() => r()));
 });
 
-type Box = { left: number; top: number; right: number; bottom: number; width: number; height: number };
+type Box = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+};
 
 async function open(page: Page, kase: string, triggerId: string): Promise<void> {
   await page.goto(`${baseUrl}/live.html?case=${kase}`);
@@ -142,7 +145,14 @@ async function box(page: Page, testid: string): Promise<Box> {
     const el = document.querySelector(`[data-testid="${id}"]`);
     if (!el) throw new Error(`no element ${id}`);
     const r = el.getBoundingClientRect();
-    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+    return {
+      left: r.left,
+      top: r.top,
+      right: r.right,
+      bottom: r.bottom,
+      width: r.width,
+      height: r.height,
+    };
   }, testid);
 }
 
@@ -155,7 +165,9 @@ test.describe("T3 geometry", () => {
     await expect(page.getByTestId("top-help-body")).toHaveAttribute("data-popover-side", "bottom");
   });
 
-  test("T3b flip-up + bounds: body bottom = trigger top − GAP; body within inset viewport", async ({ page }) => {
+  test("T3b flip-up + bounds: body bottom = trigger top − GAP; body within inset viewport", async ({
+    page,
+  }) => {
     await open(page, "bottom", "bottom-help");
     const t = await box(page, "bottom-help-trigger");
     const b = await box(page, "bottom-help-body");
@@ -168,7 +180,9 @@ test.describe("T3 geometry", () => {
     expect(b.bottom).toBeLessThanOrEqual(vp.height - VIEWPORT_INSET + TOL);
   });
 
-  test("T3c neither-side shrink: maxHeight === larger space; overflow engaged", async ({ page }) => {
+  test("T3c neither-side shrink: maxHeight === larger space; overflow engaged", async ({
+    page,
+  }) => {
     await open(page, "center-tall", "tall-help");
     const t = await box(page, "tall-help-trigger");
     const b = await box(page, "tall-help-body");
@@ -212,7 +226,9 @@ test.describe("T3 geometry", () => {
     expect(Math.abs(b.height - 0.6 * 500)).toBeLessThanOrEqual(TOL); // 300 < 384 → 60vh arm
   });
 
-  test("T3e anchor-gone: scrolled out of the pane host hides; back restores, open preserved", async ({ page }) => {
+  test("T3e anchor-gone: scrolled out of the pane host hides; back restores, open preserved", async ({
+    page,
+  }) => {
     await open(page, "pane", "pane-help");
     const body = page.getByTestId("pane-help-body");
     await expect(body).toHaveAttribute("data-popover-side", "bottom");
@@ -230,7 +246,9 @@ test.describe("T3 geometry", () => {
     await expect(page.getByTestId("pane-help-trigger")).toHaveAttribute("aria-expanded", "true");
   });
 
-  test("T3f placement=top honored mid-page; flips down when pinned to the top edge", async ({ page }) => {
+  test("T3f placement=top honored mid-page; flips down when pinned to the top edge", async ({
+    page,
+  }) => {
     await open(page, "preferred-top", "pref-mid");
     const tMid = await box(page, "pref-mid-trigger");
     const bMid = await box(page, "pref-mid-body");
@@ -253,7 +271,9 @@ test.describe("T3 geometry", () => {
     expect(b2.right).toBeLessThanOrEqual(vp.width - VIEWPORT_INSET + TOL);
   });
 
-  test("T3h discriminative metric: capped border-box fits below although scrollHeight would not", async ({ page }) => {
+  test("T3h discriminative metric: capped border-box fits below although scrollHeight would not", async ({
+    page,
+  }) => {
     await open(page, "capped-fit", "capped-help");
     const t = await box(page, "capped-help-trigger");
     const vp = page.viewportSize();
@@ -268,17 +288,28 @@ test.describe("T3 geometry", () => {
     expect(m.scrollHeight).toBeGreaterThan(spaceBelow);
     expect(m.borderBox).toBeLessThanOrEqual(spaceBelow + TOL);
     // the verdict: correct metric keeps the preferred side, no shrink
-    await expect(page.getByTestId("capped-help-body")).toHaveAttribute("data-popover-side", "bottom");
+    await expect(page.getByTestId("capped-help-body")).toHaveAttribute(
+      "data-popover-side",
+      "bottom",
+    );
     expect(m.inlineMaxHeight).toBe("");
   });
 });
 
-test("T5 overlap kill-shot: popover never intersects the guidance band it contextualizes", async ({ page }) => {
+test("T5 overlap kill-shot: popover never intersects the guidance band it contextualizes", async ({
+  page,
+}) => {
   await open(page, "overlap", "overlap-help");
   // Non-vacuity: the popover must be genuinely PLACED and visible — a hidden
   // or unpositioned body trivially "doesn't intersect" anything.
-  await expect(page.getByTestId("overlap-help-body")).toHaveAttribute("data-popover-side", /top|bottom/);
-  await expect(page.getByTestId("overlap-help-body")).not.toHaveAttribute("data-popover-hidden", "true");
+  await expect(page.getByTestId("overlap-help-body")).toHaveAttribute(
+    "data-popover-side",
+    /top|bottom/,
+  );
+  await expect(page.getByTestId("overlap-help-body")).not.toHaveAttribute(
+    "data-popover-hidden",
+    "true",
+  );
   const band = await box(page, "guidance-band");
   const b = await box(page, "overlap-help-body");
   const intersects =
@@ -296,7 +327,9 @@ test.describe("T6 document integrity + coordinates", () => {
     expect(overflow).toBe(0);
   });
 
-  test("body-host coordinates hold under nonzero window scroll (T3a equation end-to-end)", async ({ page }) => {
+  test("body-host coordinates hold under nonzero window scroll (T3a equation end-to-end)", async ({
+    page,
+  }) => {
     await page.goto(`${baseUrl}/live.html?case=scrolly`);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
     await page.evaluate(() => window.scrollTo(0, 1200));
@@ -309,7 +342,9 @@ test.describe("T6 document integrity + coordinates", () => {
 });
 
 test.describe("T7 reposition lifecycle (e2e arm)", () => {
-  test("pane scroll preserves the trigger offset within 1px on the next frame", async ({ page }) => {
+  test("pane scroll preserves the trigger offset within 1px on the next frame", async ({
+    page,
+  }) => {
     await open(page, "pane", "pane-help");
     const t1 = await box(page, "pane-help-trigger");
     const b1 = await box(page, "pane-help-body");
@@ -324,7 +359,9 @@ test.describe("T7 reposition lifecycle (e2e arm)", () => {
     expect(Math.abs(b2.top - t2.bottom - offset1)).toBeLessThanOrEqual(1);
   });
 
-  test("content growth repositions via ResizeObserver and stays in bounds; popover stays open", async ({ page }) => {
+  test("content growth repositions via ResizeObserver and stays in bounds; popover stays open", async ({
+    page,
+  }) => {
     await open(page, "grow", "grow-help");
     const before = await box(page, "grow-help-body");
     await page.evaluate(() => window.__growPopoverContent());
@@ -338,7 +375,9 @@ test.describe("T7 reposition lifecycle (e2e arm)", () => {
     await expect(page.getByTestId("grow-help-trigger")).toHaveAttribute("aria-expanded", "true");
   });
 
-  test("maxWidth engages inside a NARROW pane host and is CLEARED when the host widens", async ({ page }) => {
+  test("maxWidth engages inside a NARROW pane host and is CLEARED when the host widens", async ({
+    page,
+  }) => {
     // Body hosts can never need inline maxWidth (80vw class cap ≤ viewport
     // bounds for any viewport ≥ 80px wide); the narrow-HOST branch is the
     // pane case (spec §4.2 step 2 / §4.8 "panel narrower than body").
@@ -373,7 +412,9 @@ test.describe("T7 reposition lifecycle (e2e arm)", () => {
 });
 
 test.describe("T8 keyboard (body host)", () => {
-  test("Tab bridges trigger→link with a staged pending close; link survives past CLOSE_DELAY", async ({ page }) => {
+  test("Tab bridges trigger→link with a staged pending close; link survives past CLOSE_DELAY", async ({
+    page,
+  }) => {
     // Deterministic timer staging: freeze the page clock so the 120ms close
     // timer cannot fire between the pointer leave and the Tab press.
     await page.clock.install();
@@ -385,13 +426,17 @@ test.describe("T8 keyboard (body host)", () => {
     await page.mouse.move(5, 5); // leave: schedules the 120ms close timer (frozen)
     await trigger.focus();
     await page.keyboard.press("Tab"); // bridge fires, MUST clear the pending timer
-    const focusedHref = await page.evaluate(() => (document.activeElement as HTMLAnchorElement)?.href ?? "");
+    const focusedHref = await page.evaluate(
+      () => (document.activeElement as HTMLAnchorElement)?.href ?? "",
+    );
     expect(focusedHref).toContain("/help/admin");
     await page.clock.runFor(500); // well past CLOSE_DELAY_MS — cleared timer never fires
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
   });
 
-  test("forward Tab from link closes and returns focus to trigger; Shift+Tab keeps it open", async ({ page }) => {
+  test("forward Tab from link closes and returns focus to trigger; Shift+Tab keeps it open", async ({
+    page,
+  }) => {
     await page.goto(`${baseUrl}/live.html?case=learnmore`);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
     await clickOpen(page, "lm-help");
@@ -407,4 +452,3 @@ test.describe("T8 keyboard (body host)", () => {
     await expect(trigger).toBeFocused();
   });
 });
-

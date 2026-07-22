@@ -24,10 +24,7 @@ import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 // jsdom computes no layout, so `offsetParent` is always null and the hook's
 // visibility filter would see zero focusables. Approximate the browser: any
 // attached element "has layout" (its offsetParent is its parent element).
-const originalOffsetParent = Object.getOwnPropertyDescriptor(
-  HTMLElement.prototype,
-  "offsetParent",
-);
+const originalOffsetParent = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetParent");
 beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, "offsetParent", {
     configurable: true,

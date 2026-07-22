@@ -94,7 +94,6 @@ afterEach(() => {
   cleanup();
 });
 
-
 /** Portaled popover body (hoverhelp-smart-position §4.1): resolve via the
  * root wrapper's aria-owns — the body is no longer a wrapper descendant. */
 function ownedBody(root: HTMLElement): HTMLElement {

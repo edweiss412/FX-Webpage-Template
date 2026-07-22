@@ -38,15 +38,7 @@ function harnessCase(): string {
 }
 
 /** Fixed-position wrapper so each case pins its trigger deterministically. */
-function At({
-  x,
-  y,
-  children,
-}: {
-  x: number;
-  y: number;
-  children: React.ReactNode;
-}) {
+function At({ x, y, children }: { x: number; y: number; children: React.ReactNode }) {
   return <div style={{ position: "absolute", left: x, top: y }}>{children}</div>;
 }
 
@@ -98,7 +90,15 @@ function NarrowPaneCase() {
     <div
       ref={paneRef}
       data-testid="narrow-pane"
-      style={{ position: "absolute", left: 20, top: 120, width: wide ? 420 : 160, height: 300, overflowY: "auto", border: "1px solid #999" }}
+      style={{
+        position: "absolute",
+        left: 20,
+        top: 120,
+        width: wide ? 420 : 160,
+        height: 300,
+        overflowY: "auto",
+        border: "1px solid #999",
+      }}
     >
       <PopoverHostContext.Provider value={paneRef}>
         <div style={{ height: 40 }} />
@@ -115,7 +115,15 @@ function PaneCase() {
     <div
       ref={paneRef}
       data-testid="pane"
-      style={{ position: "absolute", left: 40, top: 120, width: 420, height: 300, overflowY: "auto", border: "1px solid #999" }}
+      style={{
+        position: "absolute",
+        left: 40,
+        top: 120,
+        width: 420,
+        height: 300,
+        overflowY: "auto",
+        border: "1px solid #999",
+      }}
     >
       <PopoverHostContext.Provider value={paneRef}>
         <div style={{ height: 90 }} />

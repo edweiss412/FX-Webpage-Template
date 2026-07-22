@@ -180,7 +180,6 @@ export function HoverHelp({
     // (a) clear previous inline constraints so measurement is natural
     body.style.maxHeight = "";
     body.style.maxWidth = "";
-    const hostRect = toRect(host.getBoundingClientRect());
     const viewportRect: Rect = {
       left: 0,
       top: 0,
@@ -189,6 +188,11 @@ export function HoverHelp({
       right: window.innerWidth,
       bottom: window.innerHeight,
     };
+    // Body-host bounds degenerate to the viewport (spec §4.2): the body
+    // element's own CONTENT box is irrelevant to where a viewport-anchored
+    // popover may go (an all-absolute page gives document.body a zero-height
+    // rect, which would wrongly collapse the bounds).
+    const hostRect = host === document.body ? viewportRect : toRect(host.getBoundingClientRect());
     const bounds = insetRect(intersectRects(hostRect, viewportRect), VIEWPORT_INSET);
     const naturalRect = body.getBoundingClientRect();
     const placement = computePopoverPlacement({
@@ -442,26 +446,26 @@ export function HoverHelp({
                 open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
               }`}
             >
-        <div id={descId}>{children}</div>
-        {learnMore ? (
-          // M12.12 follow-up: aria-label keeps the decorative "→" out of the
-          // accessible name. An aria-hidden <span> around the glyph was tried
-          // first but splitting the text run shifts text-decoration paint
-          // (byte-level screenshot drift, PR #25 R1/R2) — aria-label changes
-          // no rendered pixel. Context-specific per WCAG 2.4.4, derived from
-          // the trigger label ("Help: Active shows" → "Learn more about
-          // active shows") — the HelpAffordance "Learn more: <title>" pattern.
-          <a
-            ref={linkRef}
-            href={learnMore.href}
-            aria-label={`Learn more about ${(() => {
-              const topic = label.startsWith("Help: ") ? label.slice("Help: ".length) : label;
-              return topic.charAt(0).toLowerCase() + topic.slice(1);
-            })()}`}
-            className="mt-2 inline-block text-xs font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
-          >
-            Learn more →
-          </a>
+              <div id={descId}>{children}</div>
+              {learnMore ? (
+                // M12.12 follow-up: aria-label keeps the decorative "→" out of the
+                // accessible name. An aria-hidden <span> around the glyph was tried
+                // first but splitting the text run shifts text-decoration paint
+                // (byte-level screenshot drift, PR #25 R1/R2) — aria-label changes
+                // no rendered pixel. Context-specific per WCAG 2.4.4, derived from
+                // the trigger label ("Help: Active shows" → "Learn more about
+                // active shows") — the HelpAffordance "Learn more: <title>" pattern.
+                <a
+                  ref={linkRef}
+                  href={learnMore.href}
+                  aria-label={`Learn more about ${(() => {
+                    const topic = label.startsWith("Help: ") ? label.slice("Help: ".length) : label;
+                    return topic.charAt(0).toLowerCase() + topic.slice(1);
+                  })()}`}
+                  className="mt-2 inline-block text-xs font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+                >
+                  Learn more →
+                </a>
               ) : null}
             </div>,
             hostRef?.current ?? document.body,

@@ -1061,7 +1061,6 @@ function ownedBody(root: HTMLElement): HTMLElement {
   return body;
 }
 
-
 // admin-show-modal Task 11: ShowsTable/StagedReviewCard are client islands that
 // read the current search params (param-preserving modal hrefs) — stub the
 // app-router hooks jsdom has no router for.
