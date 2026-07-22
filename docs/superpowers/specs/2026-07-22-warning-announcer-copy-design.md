@@ -140,12 +140,15 @@ to R1 finding 1 — there is no ordering to get wrong.
     itself is static from mount (a dynamically INSERTED live region is the
     classic not-announced pitfall; inserting children into a pre-existing
     region is the supported path).
-  - Why nothing is ever removed while mounted: a trimmed node could still be
-    queued, unspoken, in the assistive technology's delivery pipeline —
-    removal can strand it (R3 finding 2). The log grows only by one entry per
-    manual admin action and is discarded wholesale on modal unmount, so
-    per-mount growth is bounded by Doug's own tap count; the sr-only spans
-    have no visual cost.
+  - Why recent entries are never removed: a freshly trimmed node could still
+    be queued, unspoken, in the assistive technology's delivery pipeline —
+    removal can strand it (R3 finding 2). Cap (R4 finding 1, project
+    cap/truncation rule): the log keeps at most 50 entries; appending the
+    51st removes the oldest. An entry is removed only when it is 50
+    announcements old — 50 manual admin actions later, far beyond any
+    plausible delivery-queue residence — so the R3 F2 strand window is not
+    reopened. Removals stay outside `role="log"`'s announced set. The whole
+    log is discarded on modal unmount.
   - No timers, no `requestAnimationFrame` — one state write per announcement,
     jsdom-safe.
 - **Background refresh:** props change, counts change, but the message log is
@@ -197,10 +200,11 @@ all visible panel copy are untouched — only the sr-only sentence retires.
 | --- | --- |
 | append message node (any text, including identical to a prior node) | instant sr-only addition — announced (default `aria-relevant` includes additions; `role="log"` atomic=false presents only the new node); no visual (polish spec §11 precedent) |
 | two appends in one commit (batched successes) | both nodes added; both announced (R2 F1) |
+| cap-removal of a 50-announcements-old node (same commit as the newest append) | instant; announces nothing (removal outside announced set; entry long since delivered — R4 F1) |
 | unmount of the whole region (modal close) | log discarded with the component; nothing announced |
 
-Existing node text NEVER mutates and no node is ever removed while mounted —
-there is no text-change and no removal transition at all (R3 F2).
+Existing node text NEVER mutates, and no node younger than 50 announcements is
+ever removed (R3 F2, R4 F1).
 Compound: append during a background refresh commit — independent state, both
 apply cleanly in one commit; the addition is the only live-region mutation. No
 animation anywhere — sr-only.
@@ -285,12 +289,16 @@ Tapping the reveal button replaces it in place:
   "more" clause can occur (the button exists only when `missCount === 0`).
 - Focus moves to the first revealed name button via a ONE-SHOT pending-focus
   flag: the tap handler sets a ref flag alongside the `expanded` state update;
-  a layout effect after the expanded render focuses the first revealed button
-  IFF the flag is set, then clears it (the button does not exist until that
-  render, so the handler cannot focus it directly — R3 finding 3). Data-driven
-  re-renders of an already-expanded list — including a refresh that replaces
-  or reorders extra sections while staying over-cap — NEVER move focus: the
-  flag is set only in the tap handler (R2 finding 2d, R3 finding 3).
+  a layout effect on the NEXT commit consumes the flag — clears it
+  UNCONDITIONALLY, and focuses the first revealed button only if one rendered
+  in that commit (the button does not exist until that render, so the handler
+  cannot focus it directly — R3 finding 3). If the activation commit renders
+  no revealed button (overflow simultaneously vanished, a miss appeared, the
+  callback dropped), the flag is still consumed and NO later data-driven
+  render can inherit it (R4 finding 2). Data-driven re-renders of an
+  already-expanded list — including a refresh that replaces or reorders extra
+  sections while staying over-cap — NEVER move focus: the flag is set only in
+  the tap handler (R2 finding 2d, R3 finding 3).
 - One-way per mount: no collapse control. Local `useState`; resets on remount.
 
 **Expanded-state semantics under data changes (R2 finding 2).** `expanded` is a
@@ -358,9 +366,17 @@ handoff table row 4). `router.refresh()` in jsdom follows the existing mocked
      additions and ZERO removals (R3 F2: nothing is trimmed while mounted).
    - Region role is `log` (atomic-false append semantics — R3 F1), asserted
      directly on the container.
-   - Ids: the four children have distinct React-rendered DOM identities (assert
-     via captured element references remaining the same nodes across appends —
-     no remount of earlier entries; R3 F5).
+   - Ids: each entry span carries `data-announce-id={id}`; after four announces
+     (two with identical text) assert all four `data-announce-id` values are
+     DISTINCT (R3 F5, R4 F4 — DOM-reference stability alone cannot prove key
+     uniqueness), and earlier captured element references are still the same
+     nodes (no remount of prior entries).
+   - Cap: drive 51 announces (loop) → exactly 50 children; the removed entry
+     is the oldest (`data-announce-id` of the first announce absent); observer
+     shows the single removal in the same commit as the 51st addition (R4 F1).
+   - Whitespace-only announce (`"   "`) → no mutations recorded (R4 F6a).
+   - Unmount then remount the published surface → zero children on the new
+     mount (R4 F6b: no module-level leakage).
    - Empty-string announce → no mutations recorded.
    - Wizard-mode mount (no `routedWarnings`/`renderSectionExtras`) → container
      absent (contract carried over from the current
@@ -390,6 +406,13 @@ handoff table row 4). `router.refresh()` in jsdom follows the existing mocked
      document ever contains the clause
      (assert via observer on `document.body`). *Catches: a throwing context
      default; announcements leaking through module state.*
+   - Published-surface wiring (R4 F5): mount the REAL composed tree —
+     `ShowReviewSurface` with the actual `sectionWarningExtras` renderer (as
+     `PublishedReviewModal` wires it), not a hand-rolled provider wrapper —
+     drive a bulk confirm round trip (mocked fetch + router) and assert the
+     panel region gains the `"${n} ignored."` entry, and separately a single
+     ignore round trip gains `"Warning ignored."`. *Catches: a provider placed
+     so one producer sits outside it — manual wrappers cannot see that.*
 3. **Copy reorder** (`tests/components/admin/wizard/pointerSentence.test.tsx`):
    every pinned string in the §8.6 matrix updated to pointer-first with
    trailing reassurance, still asserted as FULL textContent equality
@@ -411,9 +434,15 @@ handoff table row 4). `router.refresh()` in jsdom follows the existing mocked
      mount with (a) overflow removed → plain ≤cap sentence; (b) overflow
      restored → full list WITHOUT another tap; (c) a label miss introduced →
      plain folded clause; (d) one extra section replaced by another while
-     staying over-cap (R3 F3) → full list re-renders with the new name; in
-     (b)/(c)/(d) document.activeElement is unchanged (focus moves only via the
-     one-shot activation flag).
+     staying over-cap (R3 F3) → full list re-renders with the new name;
+     (e) callback removed → plain collapsed clause even though `expanded` is
+     set (R4 F3); in (b)-(e) document.activeElement is unchanged (focus moves
+     only via the one-shot activation flag).
+   - Consumed-flag boundary (R4 F2): tap the reveal button while the SAME
+     commit's data drops the overflow (rerender with new props inside the
+     activation act) → no focus move; then restore overflow → full list
+     renders and document.activeElement is STILL unchanged (the flag was
+     consumed by the empty activation commit).
 5. **e2e** (existing published-modal harness,
    `tests/e2e/warning-panel-polish.spec.ts` — the file already reads the
    region at line 112):
@@ -568,3 +597,21 @@ single instances.
 - **F5 (P2, entry-id uniqueness unspecified) — FIXED.** Per-mount monotonic
   `useRef` counter, never timestamps; §5.1 asserts node identity stability
   across appends.
+
+## 8.3 Adversarial round 4 triage log
+
+Inlined no-tools Codex review of the R3-revised spec, 2026-07-22, VERDICT:
+NEEDS-ATTENTION — zero P1; 5 P2 + 1 P3, all spec/test-tightening. All FIXED:
+
+- **F1 (P2, unbounded log vs the mandatory cap rule)** — cap 50 with
+  oldest-entry removal; a 50-announcements-old entry cannot still be queued,
+  so the R3 F2 strand window stays closed (§2.2, §2.6; cap test §5.1).
+- **F2 (P2, pending-focus flag survives an empty activation)** — flag consumed
+  unconditionally on the next commit (§4.3); consumed-flag boundary test
+  (§5.4).
+- **F3 (P2, expanded-without-callback untested)** — §5.4 row (e).
+- **F4 (P2, DOM-reference stability cannot prove key uniqueness)** —
+  `data-announce-id` distinctness assertion (§5.1).
+- **F5 (P2, real published-surface bulk wiring unexercised)** — composed-tree
+  integration test through the actual `sectionWarningExtras` renderer (§5.2).
+- **F6 (P3, whitespace guard + remount leak untested)** — §5.1 additions.
