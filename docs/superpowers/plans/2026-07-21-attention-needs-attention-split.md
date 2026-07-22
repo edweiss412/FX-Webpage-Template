@@ -43,10 +43,12 @@
 ## Pre-draft reconciliation sweep (run at plan time)
 
 Command run in worktree `origin/main`:
-`grep -rn "clearingCount\|clearing on their own" components/admin/showpage/ lib/admin/` →
-- `AttentionMenu.tsx:141-151` (footer) — retired in Task 5.
-- `PublishedReviewModal.tsx:304-309` (`clearingCount` derivation), `PublishedReviewModal.tsx:714-725` (pill "clearing" state) — replaced in Task 4.
+`grep -rn "clearingCount\|clearing on their own" components/admin/showpage/ lib/admin/` (against the post-#537 base) →
+- `AttentionMenu.tsx:141-148` (footer, em-dash string) — retired in Task 5.
+- `PublishedReviewModal.tsx:299-304` (`clearingCount` derivation), `PublishedReviewModal.tsx:709-730` (pill "clearing" state, now with #537's sr-only accessible-name tail) — replaced in Task 4.
 Disposition: all three hits are handled by Tasks 4–5; no orphan references remain (Task 5 Step "grep confirms zero `clearingCount`").
+
+**Post-#537 inheritance (spec §12):** PR #537 (unread-callout-dedup) added an sr-only accessible-name mechanism to the "N clearing" pill (`PublishedReviewModal.tsx:709-730` — visible terse text + a leading-` ` sr-only tail that survives the accessible-name space-trim), plus `tests/**/clearingPillLabel*` pinning it. Task 4 MUST carry this mechanism forward to the new `to review` and `monitoring` segments (each gets a visible short label + sr-only expansion where terse); Task 10 updates the inherited `clearingPillLabel` test to the new copy. Do not drop the a11y tail.
 
 ---
 
@@ -396,8 +398,8 @@ git commit --no-verify -m "$(printf 'feat(admin): action links for needs-a-look 
 ### Task 4: Composite header pill
 
 **Files:**
-- Modify: `components/admin/showpage/PublishedReviewModal.tsx` (derivation ~304-309, pill ~656-738)
-- Test: `tests/components/admin/showpage/publishedPill.test.tsx` (create — RTL)
+- Modify: `components/admin/showpage/PublishedReviewModal.tsx` (derivation ~299-304, pill ~665-745 on the post-#537 base; re-grep exact lines at execution)
+- Test: `tests/components/admin/showpage/publishedPill.test.tsx` (create — RTL); update the inherited `clearingPillLabel` test (from #537) to the new segments — see the post-#537 inheritance note above (preserve the sr-only accessible-name tail).
 
 **Interfaces:**
 - Consumes: `AttentionItem.clearingKind` (Task 2).
