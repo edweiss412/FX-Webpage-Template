@@ -127,17 +127,23 @@ export async function seedStagedRow(): Promise<string> {
   // Step3 rows derive from onboarding_scan_manifest (status staged/applied)
   // joined to the session's pending_syncs rows — without the manifest row the
   // wizard renders no card (OnboardingWizard fetchStep3Data contract).
-  const { error: maniErr } = await admin.from("onboarding_scan_manifest").insert({
-    folder_id: "seed-fixture-folder",
-    wizard_session_id: sessionId,
-    drive_file_id: driveFileId,
-    mime_type: "application/vnd.google-apps.spreadsheet",
-    name: "Dev Capture Staged Show",
-    status: "staged",
-  });
-  if (maniErr) {
+  let maniErrMsg: string | null = null;
+  try {
+    const { error: maniErr } = await admin.from("onboarding_scan_manifest").insert({
+      folder_id: "seed-fixture-folder",
+      wizard_session_id: sessionId,
+      drive_file_id: driveFileId,
+      mime_type: "application/vnd.google-apps.spreadsheet",
+      name: "Dev Capture Staged Show",
+      status: "staged",
+    });
+    maniErrMsg = maniErr?.message ?? null;
+  } catch (err) {
+    maniErrMsg = String(err);
+  }
+  if (maniErrMsg !== null) {
     await cleanupStagedRow(driveFileId).catch(() => undefined);
-    throw new Error(`devCaptureStaged manifest insert failed: ${maniErr.message}`);
+    throw new Error(`devCaptureStaged manifest insert failed: ${maniErrMsg}`);
   }
 
   try {

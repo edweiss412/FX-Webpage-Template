@@ -54,9 +54,16 @@ function parseRequest(input: unknown): CaptureTelemetryRequest | null {
   } catch {
     return null;
   }
-  if (Object.getOwnPropertySymbols(snap).length > 0) return null;
+  // Shape is enforced on the ORIGINAL as well: structuredClone silently drops
+  // symbol-keyed and non-enumerable properties, so an exotic-but-cloneable
+  // input could otherwise pass the clone check while carrying extra own keys.
+  if (Object.getOwnPropertySymbols(input).length > 0) return null;
+  const originalNames = Object.getOwnPropertyNames(input).sort();
+  const keys = Object.getOwnPropertyNames(snap).sort();
+  if (originalNames.length !== keys.length || originalNames.some((n, i) => n !== keys[i])) {
+    return null;
+  }
   const r = snap;
-  const keys = Object.getOwnPropertyNames(r).sort();
   const kind = r["kind"];
   const showId = r["showId"];
   const driveFileId = r["driveFileId"];
