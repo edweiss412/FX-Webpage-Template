@@ -59,7 +59,7 @@
  * the review modal open.
  */
 
-import { Link2, Mail, MoreHorizontal, MoreVertical } from "lucide-react";
+import { Camera, Link2, Mail, MoreHorizontal, MoreVertical } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -79,6 +79,8 @@ import { resolveOrigin } from "@/app/admin/show/[slug]/resolveOrigin";
 import { RotateShareTokenButton } from "@/app/admin/show/[slug]/RotateShareTokenButton";
 import { ShareLinkCopyButton } from "@/app/admin/show/[slug]/ShareLinkCopyButton";
 import { useShareToken } from "@/app/admin/show/[slug]/ShareTokenContext";
+import { useViewerIsDeveloper } from "@/components/admin/dev/DeveloperFlagContext";
+import { useDevCapture } from "@/components/admin/dev/DevCaptureControl";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
 
 /** How long dismissal stays gated on an in-flight action before the operator
@@ -106,6 +108,11 @@ export type ShareHubProps = {
   archiveAction: () => Promise<LifecycleResult>;
   /** Show-scoped Unarchive server action (called with `showId`). */
   unarchiveAction: (showId: string) => Promise<void>;
+  /** Dev-capture (spec 2026-07-22 §4.3): snapshot thunk threaded from
+   *  PublishedReviewModal via StatusStrip. Optional — absent outside the
+   *  published modal composition; the capture row then bundles a null
+   *  snapshot. Same name at every hop. */
+  devCaptureSnapshot?: () => unknown;
 };
 
 export function ShareHub({
@@ -119,6 +126,7 @@ export function ShareHub({
   pickerCrew,
   archiveAction,
   unarchiveAction,
+  devCaptureSnapshot,
 }: ShareHubProps) {
   const { token, applyRotated } = useShareToken();
   const [open, setOpen] = useState(false);
@@ -221,7 +229,33 @@ export function ShareHub({
     [open, linkActive, crewEmails, url, showTitle],
   );
 
+  // ── Dev capture (spec 2026-07-22 §2.2) ────────────────────────────────
+  // Developer-only bundle capture. `busyRef` is the SYNCHRONOUS lockout: both
+  // toggle handlers gate on it (rendered `capture.state` lags a commit and
+  // cannot close the same-tick race — spec §2.4 amendment #3). The popover
+  // close + two settle frames run INSIDE the busy window via `preCapture`
+  // (amendment #2), so the share URL can never re-enter the frame.
+  const viewerIsDeveloper = useViewerIsDeveloper();
+  const capture = useDevCapture({
+    target: () => document.querySelector<HTMLElement>("[data-review-modal-panel]"),
+    request: { kind: "published", showId },
+    clientSnapshot: devCaptureSnapshot ?? (() => null),
+    filenameSeed: slug,
+    preCapture: () => {
+      setOpen(false);
+      // Focus rescue (impeccable critique P3): the clicked capture row unmounts
+      // with the popover; without this, keyboard focus drops to body.
+      kebabRef.current?.focus();
+      return new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    },
+  });
+  const captureBusy = capture.state === "busy";
+
   const toggle = (which: "primary" | "kebab") => {
+    // Dev-capture lockout FIRST (synchronous ref, not rendered state).
+    if (capture.busyRef.current) return;
     // §6: every dismissal path is inert while a child is mid-flight. Closing
     // here would unmount the child — the mutation still lands (rotate would
     // kill the crew's current link) but its outcome banner would never render.
@@ -360,6 +394,7 @@ export function ShareHub({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={popoverId}
+        aria-disabled={captureBusy ? "true" : undefined}
         onClick={() => toggle("primary")}
         // NOT bg-accent, deliberately. DESIGN.md reserves the FXAV orange for
         // "this matters now" — and the band's accent set is contractually
@@ -390,6 +425,7 @@ export function ShareHub({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={popoverId}
+        aria-disabled={captureBusy ? "true" : undefined}
         // Not "More SHARE actions" any more: the popover also owns the archive
         // lifecycle control, and on an archived show that is ALL it owns.
         aria-label="More show actions"
@@ -400,6 +436,29 @@ export function ShareHub({
       >
         <MoreVertical aria-hidden="true" size={18} />
       </button>
+
+      {/* Dev-capture status (spec §2.2/§7.1): inline transient line after the
+          kebab in the same strip row. Busy while in flight; error copy for 6 s
+          on failure (the hook auto-clears). Dev-only surface, dev-only copy. */}
+      {viewerIsDeveloper && capture.state !== "idle" ? (
+        <span
+          role="status"
+          data-testid="share-hub-dev-capture-status"
+          // max-w + truncate (impeccable critique P2): the strip row is no-wrap;
+          // unbounded error copy collides with band content at 390px. Full text
+          // is in the console by contract.
+          className="ml-2 max-w-48 truncate text-xs text-text-subtle"
+          title={
+            capture.state === "busy"
+              ? undefined
+              : "Capture failed. Details are in the browser console."
+          }
+        >
+          {capture.state === "busy"
+            ? "Capturing the modal…"
+            : "Capture failed. Details are in the browser console."}
+        </span>
+      ) : null}
 
       {open && (
         <div
@@ -563,6 +622,28 @@ export function ShareHub({
                   />
                 )}
               </div>
+            </>
+          ) : null}
+
+          {/* Developer section (spec §2.2, plan-review amendment #1):
+              lifecycle-INDEPENDENT — outside the archived/finalize-owned
+              branches above, gated on the developer flag alone (§7.3: the only
+              visibility gate). Captures the modal + telemetry bundle. */}
+          {viewerIsDeveloper ? (
+            <>
+              <div className="h-px bg-border" />
+              <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                Developer
+              </h3>
+              <button
+                type="button"
+                data-testid="share-hub-dev-capture"
+                onClick={() => capture.run()}
+                className="flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              >
+                <Camera aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
+                Capture debug bundle
+              </button>
             </>
           ) : null}
         </div>

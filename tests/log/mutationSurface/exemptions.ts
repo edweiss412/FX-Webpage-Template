@@ -73,6 +73,10 @@ export const ADMIN_SURFACE_EXEMPTIONS: readonly AdminSurfaceExemption[] = [
     delegatesTo: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
   },
   { file: "app/admin/dev/actions.ts", fn: "getStagedResult", kind: "read-only" },
+  // Dev-capture telemetry pull (spec 2026-07-22 §5): requireDeveloper-gated,
+  // read-only by construction — all DB access via the lib/observe/query
+  // read-core (select-only, pinned by tests/observe/_metaReadOnlyQueryCore).
+  { file: "app/admin/_devCaptureAction.ts", fn: "captureShowTelemetry", kind: "read-only" },
   { file: "app/admin/dev/actions.ts", fn: "listFixtures", kind: "read-only" },
   // Bell notification center Task 12: mints a short-lived Realtime JWT and
   // writes no state (no write-builder, no `.rpc(`, no `logAdminOutcome`) —

@@ -19,6 +19,10 @@ export type AlertFilters = {
   code?: string;
   limit?: number;
   includePii?: boolean;
+  /** Dev-capture (spec 2026-07-22 §4.2): server-side "this show OR global"
+   * page — `.or(show_id.eq.<id>,show_id.is.null)` — so the newest-N page is
+   * of MATCHING rows (no post-cap starvation). */
+  showIdOrGlobal?: string;
 };
 export type AlertRow = {
   id: string;
@@ -85,6 +89,8 @@ export type FailureFilters = {
   sinceHours?: number | null;
   limit?: number;
   includePii?: boolean;
+  /** Dev-capture (spec 2026-07-22 §4.2): server-side drive-file scope. */
+  driveFileId?: string;
 };
 export type FailureRow = {
   id: string;

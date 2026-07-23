@@ -38,8 +38,11 @@
  * "Interaction constants" per spec §6.3a's token-contract disposition).
  */
 import { useId, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, ExternalLink } from "lucide-react";
+import { AlertTriangle, Camera, Check, ExternalLink, Loader2 } from "lucide-react";
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
+import { useViewerIsDeveloper } from "@/components/admin/dev/DeveloperFlagContext";
+import { useDevCapture } from "@/components/admin/dev/DevCaptureControl";
+import { buildStagedSnapshot } from "@/components/admin/dev/snapshots";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { sectionStatus, warningsBySection } from "@/lib/admin/step3SectionStatus";
@@ -142,6 +145,19 @@ export function Step3ReviewModal({
   isPublishRunActive?: boolean;
 }) {
   const { dfid, wizardSessionId } = data;
+  // ── Dev capture (spec 2026-07-22 §2.3) ────────────────────────────────
+  const viewerIsDeveloper = useViewerIsDeveloper();
+  const devCapture = useDevCapture({
+    target: () => document.querySelector<HTMLElement>("[data-step3-review-panel]"),
+    request: { kind: "staged", driveFileId: dfid },
+    clientSnapshot: () =>
+      buildStagedSnapshot(
+        resolution !== undefined
+          ? { data, checked, isDirtyRescan, isPublishRunActive, resolution }
+          : { data, checked, isDirtyRescan, isPublishRunActive },
+      ),
+    filenameSeed: dfid,
+  });
   // Archived-tab pending offers (spec §4.2/§4.3) — the box appears for these even
   // when there is no blocked re-apply resolution. Same shared derivation as
   // Pack-list (parity invariant), incl. PSAT-1's durable-snapshot + S5 gating:
@@ -444,6 +460,47 @@ export function Step3ReviewModal({
                 All clean
               </span>
             )}
+            {/* Dev-capture icon (spec §2.3): developer-only, size-tap-min,
+                between the status chip and close — same idiom as the header
+                sheet-link anchor. Busy state disables + spins; the adjacent
+                status node carries busy/error copy (§7.1). */}
+            {/* §11: instant — deliberate (developer flag is session truth, not a state transition) */}
+            {viewerIsDeveloper ? (
+              <>
+                <button
+                  type="button"
+                  data-testid={`wizard-step3-card-${dfid}-dev-capture`}
+                  aria-label="Capture debug bundle"
+                  disabled={devCapture.state === "busy"}
+                  aria-disabled={devCapture.state === "busy" ? "true" : undefined}
+                  onClick={() => devCapture.run()}
+                  className="inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60"
+                >
+                  {/* §11: instant — deliberate (busy glyph swap; spec 2026-07-22 §7.4 all-instant) */}
+                  {devCapture.state === "busy" ? (
+                    <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                  ) : (
+                    <Camera aria-hidden="true" className="size-4" />
+                  )}
+                </button>
+                {/* §11: instant — deliberate (status text presence; spec 2026-07-22 §7.4 all-instant) */}
+                {devCapture.state !== "idle" ? (
+                  <span
+                    role="status"
+                    data-testid={`wizard-step3-card-${dfid}-dev-capture-status`}
+                    // max-w + truncate (impeccable critique P2): shrink-0 actions
+                    // row would otherwise squeeze the title at 390px for the 6 s
+                    // error window. Full text is in the console by contract.
+                    className="max-w-40 truncate text-xs text-text-subtle"
+                  >
+                    {/* §11: instant — deliberate (copy swap; spec 2026-07-22 §7.4 all-instant) */}
+                    {devCapture.state === "busy"
+                      ? "Capturing the modal…"
+                      : "Capture failed. Details are in the browser console."}
+                  </span>
+                ) : null}
+              </>
+            ) : null}
             <ModalCloseButton ref={closeRef} testId={`wizard-step3-card-${dfid}-review-close`} />
           </div>
         </>

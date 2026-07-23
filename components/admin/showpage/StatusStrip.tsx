@@ -99,6 +99,8 @@ export type StatusStripProps = {
   pickerCrew: PickerResetCrewRow[];
   /** Pre-bound (to this show's slug) Archive server action — the hub's Show section. */
   archiveAction: () => Promise<LifecycleResult>;
+  /** Dev-capture snapshot thunk (spec 2026-07-22 §4.3) — threaded verbatim to ShareHub. */
+  devCaptureSnapshot?: () => unknown;
   /** Show-scoped Unarchive server action (called with `showId`) — same section, archived arm. */
   unarchiveAction: (showId: string) => Promise<void>;
 };
@@ -120,6 +122,7 @@ export function StatusStrip({
   pickerCrew,
   archiveAction,
   unarchiveAction,
+  devCaptureSnapshot,
 }: StatusStripProps) {
   // Sync age: guard null BEFORE formatRelative so the "never" sentinel never renders
   // (spec §11 omit contract). Element existence is gated on lastSyncedAt (a show that
@@ -320,6 +323,7 @@ export function StatusStrip({
           pickerCrew={pickerCrew}
           archiveAction={archiveAction}
           unarchiveAction={unarchiveAction}
+          {...(devCaptureSnapshot !== undefined ? { devCaptureSnapshot } : {})}
         />
       </div>
     </div>

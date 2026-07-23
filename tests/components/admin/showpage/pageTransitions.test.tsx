@@ -174,7 +174,7 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // the Show section's `{archived || !finalizeOwned ? (`, and its inner
   // `{archived ? (` lifecycle arm. All instant omit/mounts that follow
   // lifecycle data. Count captured by RUNNING the scanner, not by reasoning.
-  "components/admin/showpage/ShareHub.tsx": 5, // linkActive + 2 archived heads + show-section head + lifecycle arm
+  "components/admin/showpage/ShareHub.tsx": 7, // linkActive + 2 archived heads + show-section head + lifecycle arm + dev-capture status line + Developer section (dev-modal-capture §7.4: both INSTANT, deliberate)
   "components/admin/showpage/ChangesSection.tsx": 1, // feed===null infra notice vs feed
   "components/admin/showpage/sectionWarningExtras.tsx": 1, // ignored-disclosure
 };
