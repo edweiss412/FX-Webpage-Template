@@ -66,7 +66,23 @@ export function buildPublishedSnapshot(p: PublishedSnapshotInput): Record<string
     data: p.data,
   };
   capped(out, "attentionItems", p.attentionItems);
-  capped(out, "feed", Array.isArray(p.feed) ? (p.feed as readonly unknown[]) : undefined);
+  // feed is ChangesSectionProps["feed"] — an { entries, truncated } object,
+  // not a bare array: cap its entries (spec §4.3 cap 50) and surface the
+  // marker at the snapshot top level alongside attentionItemsTruncated.
+  if (p.feed !== null && typeof p.feed === "object") {
+    const feed = p.feed as { entries?: unknown };
+    if (Array.isArray(feed.entries)) {
+      const entries = feed.entries as readonly unknown[];
+      if (entries.length > ARRAY_CAP) {
+        out["feed"] = { ...feed, entries: entries.slice(0, ARRAY_CAP) };
+        out["feedTruncated"] = true;
+      } else {
+        out["feed"] = feed;
+      }
+    } else {
+      out["feed"] = feed;
+    }
+  }
   return out;
 }
 

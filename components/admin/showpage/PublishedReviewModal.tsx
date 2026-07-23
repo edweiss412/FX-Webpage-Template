@@ -60,6 +60,7 @@ import {
 import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
 import { CREW_CAP, dateSummarySegments } from "@/components/admin/wizard/step3ReviewSections";
 import { StatusStrip } from "@/components/admin/showpage/StatusStrip";
+import { buildPublishedSnapshot } from "@/components/admin/dev/snapshots";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
 import { OverviewSection } from "@/components/admin/showpage/OverviewSection";
 import { ChangesSection } from "@/components/admin/showpage/ChangesSection";
@@ -912,6 +913,30 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           pickerCrew={pickerCrew}
           archiveAction={archiveAction}
           unarchiveAction={unarchiveAction}
+          // Dev-capture snapshot (spec 2026-07-22 §4.3): the allowlist runs at
+          // capture time over this modal's own data props; crewEmails/pickerCrew
+          // and every callback never enter it.
+          devCaptureSnapshot={() =>
+            buildPublishedSnapshot({
+              slug,
+              showId,
+              title,
+              archived,
+              published,
+              finalizeOwned,
+              isLive,
+              lastSyncedAt,
+              lastCheckedAt,
+              lastSyncStatus,
+              alertsDegraded,
+              alertId,
+              openSheetHref,
+              attentionItems,
+              feed,
+              bySection,
+              data,
+            })
+          }
         />
       }
     >

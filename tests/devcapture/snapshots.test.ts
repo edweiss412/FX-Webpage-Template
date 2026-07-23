@@ -23,7 +23,7 @@ function publishedFixture(overrides: Record<string, unknown> = {}) {
     alertId: null,
     openSheetHref: "https://docs.google.com/x",
     attentionItems: Array.from({ length: 3 }, (_, i) => ({ id: `att${i}` })),
-    feed: Array.from({ length: 3 }, (_, i) => ({ id: `feed${i}` })),
+    feed: { entries: Array.from({ length: 3 }, (_, i) => ({ id: `feed${i}` })), truncated: false },
     bySection: { hotels: { level: "warn" } },
     data: { deep: { note: "content" } },
     // Must never serialize:
@@ -53,18 +53,18 @@ describe("buildPublishedSnapshot", () => {
     const over = buildPublishedSnapshot(
       publishedFixture({
         attentionItems: Array.from({ length: 51 }, (_, i) => ({ id: i })),
-        feed: Array.from({ length: 51 }, (_, i) => ({ id: i })),
+        feed: { entries: Array.from({ length: 51 }, (_, i) => ({ id: i })), truncated: false },
       }),
     ) as Record<string, unknown>;
     expect(over["attentionItems"]).toHaveLength(50);
     expect(over["attentionItemsTruncated"]).toBe(true);
-    expect(over["feed"]).toHaveLength(50);
+    expect((over["feed"] as { entries: unknown[] }).entries).toHaveLength(50);
     expect(over["feedTruncated"]).toBe(true);
 
     const exact = buildPublishedSnapshot(
       publishedFixture({
         attentionItems: Array.from({ length: 50 }, (_, i) => ({ id: i })),
-        feed: Array.from({ length: 50 }, (_, i) => ({ id: i })),
+        feed: { entries: Array.from({ length: 50 }, (_, i) => ({ id: i })), truncated: false },
       }),
     ) as Record<string, unknown>;
     expect(exact["attentionItems"]).toHaveLength(50);
