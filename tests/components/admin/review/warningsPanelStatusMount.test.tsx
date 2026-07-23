@@ -7,7 +7,7 @@
  *  SEQUENCE (every mutation flushed inside act(), not just final state), so a
  *  derived-text, clear-then-write, or slot-clearing implementation cannot
  *  pass (spec R1 F8, R2 F6a, R2 F3). */
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useContext } from "react";
 
@@ -212,5 +212,37 @@ describe("warnings panel announce log (announcer spec §2)", () => {
     const staged = buildPublishedSurfaceProps({ listed: 1, gateOff: true });
     render(<ShowReviewSurface {...staged} />);
     expect(screen.queryByTestId("warnings-panel-status")).toBeNull();
+  });
+
+  describe("REAL composed-tree wiring (spec R4 F5): provider covers every producer", () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    beforeEach(() => {
+      fetchMock.mockReset();
+      global.fetch = fetchMock as unknown as typeof fetch;
+    });
+    const ok = (status: string) =>
+      ({ ok: true, json: async () => ({ status }) }) as unknown as Response;
+
+    it("a real here-card Ignore announces through the real extras", async () => {
+      fetchMock.mockResolvedValue(ok("ignored"));
+      // REAL buildSectionWarningExtras renderer (the helper wires it), NOT the
+      // probe override — a provider placed so a producer sits outside it fails
+      // here and nowhere else.
+      render(<ShowReviewSurface {...buildPublishedSurfaceProps({ here: 1 })} />);
+      fireEvent.click(screen.getAllByRole("button", { name: /^ignore$/i })[0]!);
+      await waitFor(() => expect(children()).toHaveLength(1));
+      expect(children()[0]!.textContent).toBe("Warning ignored.");
+    });
+
+    it("a real bulk confirm announces the derived count clause", async () => {
+      fetchMock.mockResolvedValue(ok("ignored"));
+      const HERE = 2;
+      render(<ShowReviewSurface {...buildPublishedSurfaceProps({ here: HERE })} />);
+      const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+      fireEvent.click(chip);
+      fireEvent.click(chip);
+      await waitFor(() => expect(children()).toHaveLength(1));
+      expect(children()[0]!.textContent).toBe(`${HERE} ignored.`);
+    });
   });
 });
