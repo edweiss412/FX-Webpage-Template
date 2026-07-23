@@ -116,6 +116,12 @@ function markerFor(id: string): Marker {
   }
   // A hold -> the Changes rail badge.
   if (items.some((i) => i.kind === "hold")) testids.push("changes-rail-badge");
+  // Monitoring-only items (non-actionable self_heal, e.g. t2-monitoring-only
+  // from the monitoring-badge-expand work) render in the quiet pill segment,
+  // not as AttentionBanner cards (PublishedReviewModal.tsx:821).
+  if (items.some((i) => i.kind === "alert" && !i.actionable && i.clearingKind === "self_heal")) {
+    testids.push("attention-pill-monitoring-segment");
+  }
   // Nothing above -> the clean-modal empty-attention copy.
   if (testids.length === 0 && texts.length === 0) texts.push("Nothing needs a look");
   return { testids, texts };
