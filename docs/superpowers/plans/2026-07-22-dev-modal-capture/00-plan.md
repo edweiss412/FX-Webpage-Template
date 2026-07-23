@@ -57,7 +57,7 @@
 
 - [ ] **Step 1:** `pnpm add -D html-to-image modern-screenshot html2canvas` (all three as devDeps; winner promoted to `dependencies` in Task 7, losers removed).
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
-- [ ] **Step 2:** Write `scripts/devcapture-spike.mjs` — Playwright chromium script that (a) boots `pnpm dev` (reuse the port/readiness pattern from `playwright.config.ts` webServer), (b) signs in via `tests/e2e/helpers/signInAs.ts` flow (POST `/api/test-auth/set-session`, `ENABLE_TEST_AUTH=true`), (c) seeds a published show via the existing e2e seed helper (`tests/e2e/helpers/seedShowWithCrew.ts`), (d) opens the published review modal, (e) for each candidate library: `page.addScriptTag` its IIFE/dist build, evaluate a capture of `[data-review-modal-panel]` twice — once as-is, once with clone-side overrides lifting `max-height`/`overflow` on the panel and the two inner panes (`ShowReviewSurface` rail + main pane) — and save PNGs to `scratch/spike/<lib>-{plain,expanded}.png`.
+- [ ] **Step 2:** Write `scripts/devcapture-spike.mjs` — Playwright chromium script that (a) boots `pnpm dev` (reuse the port/readiness pattern from `playwright.config.ts` webServer), (b) signs in via `tests/e2e/helpers/signInAs.ts` flow (POST `/api/test-auth/set-session`, `ENABLE_TEST_AUTH=true`), (c) seeds a published show via the existing e2e seed helper (`tests/e2e/helpers/seedShowWithCrew.ts`), (d) opens the published review modal, (e) for each candidate library: `page.addScriptTag` its IIFE/dist build — and when a candidate ships no injectable browser artifact (ESM-only), bundle one first with `pnpm exec esbuild node_modules/<lib>/dist/index.js --bundle --format=iife --global-name=<libGlobal> --outfile=scratch/spike/<lib>.iife.js` (precedent: `tests/e2e/_step3ReviewModalBundle.mjs`) — evaluate a capture of `[data-review-modal-panel]` twice — once as-is, once with clone-side overrides lifting `max-height`/`overflow` on the panel and the two inner panes (`ShowReviewSurface` rail + main pane) — and save PNGs to `scratch/spike/<lib>-{plain,expanded}.png`.
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] **Step 3:** Evaluate per §3.3: (a) full-height expansion achievable, (b) CSS fidelity (`shadow-(--shadow-tile)`, `overflow-clip`, rounded corners, tokens — visual inspection of PNGs), (c) bundle cost (`npm view <lib> dist.unpackedSize` + minified size). Record a decision table + the exact clone-override list in `SPIKE.md`.
 - [ ] **Step 4:** Commit: `git add docs/superpowers/plans/2026-07-22-dev-modal-capture/SPIKE.md scripts/devcapture-spike.mjs package.json pnpm-lock.yaml && git commit --no-verify -m "chore(admin): dev-modal-capture library spike findings"`
@@ -534,16 +534,18 @@ export type CaptureTelemetryRequest =
   | { kind: "published"; showId: string }
   | { kind: "staged"; driveFileId: string };
 export type CaptureList<T> = { rows: T[]; truncated: boolean };
+export type CaptureInfraError = { kind: "infra_error"; message: string };
+export type CaptureSection<T> = CaptureList<T> | CaptureInfraError;
 export type CaptureTelemetryResult =
   | { kind: "bad_request" }
   | {
       kind: "ok";
       commitSha: string | null;
-      events?: unknown;
-      alerts?: CaptureList<unknown>;
-      syncLog?: CaptureList<unknown>;
-      staged?: CaptureList<unknown>;
-      failures?: CaptureList<unknown>;
+      events?: CaptureSection<unknown>;
+      alerts?: CaptureSection<unknown>;
+      syncLog?: CaptureSection<unknown>;
+      staged?: CaptureSection<unknown>;
+      failures?: CaptureSection<unknown>;
     };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -727,7 +729,7 @@ Layout edit: wrap the layout's returned children subtree with `<DeveloperFlagPro
 - `captureElementPng(el: HTMLElement): Promise<Blob>` (§3.1; clone-based, expands panel + inner panes per SPIKE.md override list; DPR cap 2).
 - `buildPublishedSnapshot(p: PublishedSnapshotInput): Record<string, unknown>` — allowlist §4.3 published (caps 50 + `attentionItemsTruncated`/`feedTruncated`); input type mirrors the data props of `PublishedReviewModalProps` (`PublishedReviewModal.tsx:77-123`), NEVER `crewEmails`/`pickerCrew`/functions/`now`.
 - `buildStagedSnapshot(p: StagedSnapshotInput): Record<string, unknown>` — §4.3 staged; `resolution` omitted when absent, else `{ stagedId, reviewItemsCorrupt, isPublishRunActive, triggeredReviewItemCount }`.
-- `useDevCapture(opts: { target: () => HTMLElement | null; request: CaptureTelemetryRequest; clientSnapshot: () => unknown; filenameSeed: string }): { state: "idle" | "busy" | "error"; run: () => void }` — §7 machine: concurrent capture+action, §4.5 reason classification, screenshot-reject ⇒ error, telemetry-reject ⇒ proceed, mounted-ref guard, 6 s error auto-clear with cleanup, busy no-reentry.
+- `useDevCapture(opts: { target: () => HTMLElement | null; request: CaptureTelemetryRequest; clientSnapshot: () => unknown; filenameSeed: string; preCapture?: () => Promise<void> }): { state: "idle" | "busy" | "error"; run: () => void }` — `run()` enters `busy` SYNCHRONOUSLY (inFlight ref + setState before any await; spec §2.2 amendment #2), then awaits `preCapture` (ShareHub passes popover-close + two-rAF here) INSIDE the busy window, then captures — §7 machine: concurrent capture+action, §4.5 reason classification, screenshot-reject ⇒ error, telemetry-reject ⇒ proceed, mounted-ref guard, 6 s error auto-clear with cleanup, busy no-reentry.
 
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] **Step 1: Failing tests.** `snapshots.test.ts`: published fixture with `crewEmails`, `pickerCrew`, a function prop, 51 attentionItems + 51 feed entries → output lacks excluded keys, arrays len 50, both `*Truncated: true`; 50 exactly → no marker key. Staged fixture without `resolution` → key absent; with resolution (2 triggered items + callbacks) → the exact 4-field projection. `useDevCapture.test.tsx` (mock `captureElementPng` and the ACTION module; use the REAL `bundle.ts` with spies on `URL.createObjectURL`/`revokeObjectURL` and `HTMLAnchorElement.prototype.click` so download/revocation are proven at hook level, not mocked away) — full §7 matrix:
@@ -735,7 +737,8 @@ Layout edit: wrap the layout's returned children subtree with `<DeveloperFlagPro
   - concurrency: deferred capture + deferred action; assert BOTH were invoked before either resolves;
   - screenshot-reject ⇒ error even when telemetry resolved ok;
   - telemetry rejection ⇒ success, `server: { kind: "unavailable", reason: "network_error" }`, `meta.commitSha` null;
-  - resolved `{ kind: "bad_request" }` ⇒ reason `"bad_request"`; resolved `null` and resolved `{ junk: 1 }` ⇒ reason `"action_failed"` (no throw);
+  - resolved `{ kind: "bad_request" }` ⇒ reason `"bad_request"`; resolved `null`, resolved `undefined`, and resolved `{ junk: 1 }` ⇒ reason `"action_failed"` (no throw);
+  - resolved `{ kind: "ok" }` WITHOUT `commitSha` ⇒ success, `meta.commitSha` null (guarded access — malformed ok tolerated as diagnostic passthrough, documented);
   - `clientSnapshot()` throwing ⇒ run still SUCCEEDS with `clientSnapshot: { kind: "unserializable", reason: "serialize_threw" }`;
   - `target()` null ⇒ error state, `captureElementPng` never called;
   - published request ⇒ `meta.driveFileId === null`; staged request ⇒ `meta.showId === null`;
@@ -744,6 +747,8 @@ Layout edit: wrap the layout's returned children subtree with `<DeveloperFlagPro
   - error → rerun before the 6 s timer fires ⇒ old timer cleared (advance timers past 6 s mid-second-run; state stays `busy`);
   - unmount while `error` timer active ⇒ timer cleared, no late setState (fake timers + act warnings clean);
   - unmount mid-busy ⇒ anchor click NOT called, `revokeObjectURL` STILL called with the created URL;
+  - error auto-clear: error state transitions to idle after exactly 6 s untouched (fake timers);
+  - Strict Mode: render the host under `<StrictMode>`, run a happy-path capture ⇒ download fires (mounted-ref survives the setup→cleanup→setup replay);
   - happy path ⇒ click called, revoke called;
   - redaction integration: fixture email in snapshot ⇒ absent from the JSON string handed to the zip (assert via the blob bytes passed to `createObjectURL`'s Blob or by spying `zipBundle`) — data-source assertion.
 - [ ] **Step 2:** Run — FAIL.
@@ -795,13 +800,13 @@ export function useDevCapture(opts: {
   const inFlight = useRef(false); // SYNCHRONOUS single-flight guard (state alone races two same-tick runs)
   const mounted = useRef(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true; // Strict Mode replays setup after cleanup; without this the ref stays false forever
+    return () => {
       mounted.current = false;
       if (timer.current !== null) clearTimeout(timer.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   const run = useCallback(() => {
     if (inFlight.current) return;
@@ -812,6 +817,7 @@ export function useDevCapture(opts: {
     }
     setState("busy");
     void (async () => {
+      await opts.preCapture?.(); // popover close + settle frames, INSIDE the busy lockout (spec §2.2 amendment #2)
       const el = opts.target();
       if (el === null) throw new Error("capture target unmounted");
       const rect = el.getBoundingClientRect();
@@ -896,11 +902,13 @@ export function useDevCapture(opts: {
 - [ ] **Step 1b: Failing jsdom tests** (queries by testid only; §9.8):
   - dev flag false/absent → `share-hub-dev-capture` and `wizard-step3-card-<dfid>-dev-capture` absent; true → present with tap-token classes;
   - threading proof: render `PublishedReviewModal` itself (minimal props fixture) inside `DeveloperFlagProvider true` → the row exists (proves PublishedReviewModal → StatusStrip → ShareHub threading, not just a direct ShareHub render);
-  - lifecycle matrix: row present with `archived: true`, with `finalizeOwned: true`, and with both false (the §2.2 amendment's point);
-  - busy (mock hook state): both ShareHub toggles `aria-disabled="true"`, clicking kebab does NOT render `share-hub-popover`, status line shows `Capturing the modal…`;
-  - error: §7.2 error copy in `share-hub-dev-capture-status`, gone after 6 s (fake timers); after settle → `aria-disabled` removed;
+  - lifecycle matrix: row present with `archived: true`, with `finalizeOwned: true`, with `published: false` (paused), and with all false (the §2.2 amendment's point);
+  - busy — REAL hook with a deferred `captureElementPng` mock (never a mocked hook state, so the 6 s machinery is executable): while the deferral is pending, BOTH ShareHub toggles are `aria-disabled="true"`, clicking the kebab does NOT render `share-hub-popover`, clicking the SHARE-LINK toggle does not either (behavioral click on both toggles), status line shows `Capturing the modal…`;
+  - activation-interval attack (the R2 P0): click the capture row, then in the SAME tick and again after one `requestAnimationFrame`, click the kebab — popover never appears (busy-first lockout covers the pre-rasterize window);
+  - snapshot threading canary: fixture props carry `title: "SNAPSHOT-CANARY"`; with real bundle + spied `createObjectURL`, run a full capture and assert the zipped telemetry JSON contains the canary at `clientSnapshot.title` AND contains no `crewEmails` — proves PublishedReviewModal → StatusStrip → ShareHub → useDevCapture end-to-end, not mere visibility; equivalent staged canary via `data` fixture through `buildStagedSnapshot`;
+  - error: reject the deferred capture — §7.2 error copy in `share-hub-dev-capture-status`, gone after 6 s (fake timers); after settle → `aria-disabled` removed;
   - staged icon while busy: `disabled` AND `aria-disabled="true"` AND spinner glyph present; staged adjacent `role="status"` node shows busy copy, then error copy on error, clearing after 6 s (fake timers).
-- [ ] **Step 2:** Run — FAIL. **Step 3:** Implement all four files (row markup mirrors the mailto-row classes `ShareHub.tsx:455`; kebab activate handler: `setOpen(false)`, two `requestAnimationFrame`s, then `run()`).
+- [ ] **Step 2:** Run — FAIL. **Step 3:** Implement all four files (row markup mirrors the mailto-row classes `ShareHub.tsx:455`; activation is BUSY-FIRST per spec §2.2 amendment #2: the row's onClick calls `run()` directly; ShareHub supplies `preCapture: () => { setOpen(false); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))); }` so the popover close + two settle frames happen inside the busy lockout).
 - [ ] **Step 4:** Run + full `pnpm vitest run tests/devcapture tests/components tests/admin` — PASS; re-run the e2e visibility cases — GREEN.
 - [ ] **Step 5:** Commit `feat(admin): dev capture mounts in ShareHub kebab and Step3 header`.
 
@@ -908,7 +916,7 @@ export function useDevCapture(opts: {
 
 **Files:**
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
-- Create: `tests/e2e/dev-capture.spec.ts` (AUTHORED in Task 8 Step 1 as the failing integration test — see ordering note)
+- Modify: `tests/e2e/dev-capture.spec.ts` (skeleton created in Task 8; this task adds the sentinel/download/redaction cases)
 - Modify: `package.json` + `pnpm-lock.yaml` (add `pngjs` devDep for PNG pixel decode)
 
 **Ordering note (TDD):** this spec file is WRITTEN during Task 8 Step 1 (before the host mounts exist) and run once to observe the red state (capture testids absent → spec fails); Tasks 8's implementation turns the visibility cases green; the sentinel/download cases go green once Task 7's `captureElementPng` (already implemented per SPIKE.md) is wired through the mounts. `captureElementPng` itself has no earlier executable unit proof — jsdom cannot render — its red state is the SPIKE's plain-capture PNGs (clipped content visibly absent) and its green state is this spec. Declared honestly; do not reorder commits to fake unit-level TDD for a layout-bound util.
@@ -939,7 +947,7 @@ export function useDevCapture(opts: {
 - [ ] Whole-diff cross-model adversarial review (Codex, fresh-eyes, REVIEWER ONLY) — split tight-scope briefs if the diff is large (AGENTS.md split-review default); iterate to APPROVE or exhaust the documented dispatch ladder (retry → self-certify with recorded evidence, per the spec §12 precedent).
 - [ ] Push branch; `gh pr create`; verify REAL GitHub Actions CI green (`gh pr checks <PR#> --watch`; reconcile DIRTY/behind-base before claiming green).
 - [ ] `gh pr merge --merge` in the same turn CI goes green.
-- [ ] Fast-forward local main: `git pull --ff-only && git rev-list --left-right --count main...origin/main` → `0  0`.
+- [ ] Fast-forward local main IN THE MAIN CHECKOUT (this worktree has the feature branch checked out; a bare `git pull --ff-only` here pulls the wrong branch): `git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only && git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main` → `0  0`.
 - [ ] Set ship-state marker `stage: "done"`; `CronDelete` the marker's `cronJobId`.
 
 ## Self-review record
