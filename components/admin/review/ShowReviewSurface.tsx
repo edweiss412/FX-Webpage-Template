@@ -939,6 +939,7 @@ export function ShowReviewSurface({
                           ) : null}
                           {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). After
                             the count so the accessible name reads "Rooms 2 — needs review". */}
+                          {/* §11: instant — deliberate (rail count follows the static registry definition) */}
                           {!s.hideDot ? (
                             <span className="sr-only">{dotStatusText(s.id)}</span>
                           ) : null}
@@ -1149,7 +1150,7 @@ export function ShowReviewSurface({
                   whole container), additions announced, removals not.
                   Children are append-only; existing entry text NEVER
                   mutates (spec §2.6). */}
-                {/* §2.6: instant — deliberate (sr-only additions; no visual transition) */}
+                {/* §11: instant — deliberate (sr-only additions; no visual transition; spec §2.6) */}
                 {s.id === "warnings" && routedWarningsRenderElsewhere ? (
                   <span role="log" className="sr-only" data-testid="warnings-panel-status">
                     {announceLog.map((e) => (
