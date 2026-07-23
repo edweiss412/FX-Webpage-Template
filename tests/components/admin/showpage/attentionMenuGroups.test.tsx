@@ -229,17 +229,22 @@ describe("monitoring group (monitoring-badge-expand §3.2: enumerated rows)", ()
     const row = screen.getByTestId("attention-monitoring-row-alert:s1");
     // count ALL decorative dots first — an extra wrongly-styled indicator
     // lacking the positive class would evade a positive-only count (review R1).
-    const allDots = [...row.querySelectorAll('span[aria-hidden="true"][class*="rounded-pill"]')];
+    // exact-token selectors ([class~=] = whitespace-separated whole token) so a
+    // modifier/longer utility can't satisfy the base (review R2 finding 4)
+    const allDots = [...row.querySelectorAll('span[aria-hidden="true"][class~="rounded-pill"]')];
     expect(allDots).toHaveLength(1);
-    const dots = [...row.querySelectorAll('[class*="border-status-positive"]')];
+    const dots = [...row.querySelectorAll('[class~="border-status-positive"]')];
     expect(dots).toHaveLength(1);
     expect(dots[0]!).toBe(allDots[0]!);
-    expect(dots[0]!.className).toContain("bg-transparent");
+    const dotTokens = dots[0]!.className.split(/\s+/);
+    expect(dotTokens).toContain("bg-transparent");
+    // hollow = a real border WIDTH token, not merely a border-color utility
+    expect(dotTokens).toContain("border-[1.5px]");
     expect(
       row.querySelector('[class*="bg-status-review"], [class*="bg-status-degraded"]'),
     ).toBeNull();
     const title = within(row).getByText(fixture.menuTitle);
-    expect(title.className).toContain("truncate");
+    expect(title.className.split(/\s+/)).toContain("truncate");
     const note = within(row).getByText(autoResolveNote("WATCH_CHANNEL_ORPHANED"));
     expect(title.contains(note)).toBe(false);
   });

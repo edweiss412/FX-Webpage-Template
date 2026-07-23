@@ -97,13 +97,13 @@ describe("composite attention pill (spec §3.2 / §11.5 matrix, exact visible te
     const pill = renderPill(3, 0, 2);
     // solid review dot leads the pill; the appended monitoring segment gets its
     // own HOLLOW positive-tone dot, matching the monitoring-only pill's cue.
-    expect(pill.querySelector('[class*="border-status-positive"]')).not.toBeNull();
+    expect(pill.querySelector('[class~="border-status-positive"]')).not.toBeNull();
   });
 
   it("monitoring-only pill keeps its hollow dot and no solid review dot", () => {
     const pill = renderPill(0, 0, 1);
-    expect(pill.querySelector('[class*="border-status-positive"]')).not.toBeNull();
-    expect(pill.querySelector('[class*="bg-status-review"]')).toBeNull();
+    expect(pill.querySelector('[class~="border-status-positive"]')).not.toBeNull();
+    expect(pill.querySelector('[class~="bg-status-review"]')).toBeNull();
   });
 
   it("monitoring segment carries the inherited sr-only expansion (visible terse)", () => {
@@ -177,9 +177,9 @@ describe("monitoring-only quiet interactive pill (monitoring-badge-expand §3.1)
     ).toHaveLength(0);
     // positive descendant tone pins (spec §5.1): segment wrapper + chevron carry text-text-subtle
     const seg = pill.querySelector('[data-testid="attention-pill-monitoring-segment"]');
-    expect(seg?.getAttribute("class") ?? "").toContain("text-text-subtle");
+    expect((seg?.getAttribute("class") ?? "").split(/\s+/)).toContain("text-text-subtle");
     const chev = pill.querySelector("svg");
-    expect(chev?.getAttribute("class") ?? "").toContain("text-text-subtle");
+    expect((chev?.getAttribute("class") ?? "").split(/\s+/)).toContain("text-text-subtle");
     expect(visibleText(pill)).toBe("2 monitoring"); // no leading middot
     fireEvent.click(pill);
     expect(pill).toHaveAttribute("aria-expanded", "true");

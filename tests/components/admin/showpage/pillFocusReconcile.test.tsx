@@ -174,39 +174,36 @@ describe("interactive → monitoring-only STAYS OPEN (forward matrix, 6 origins)
     expect(FORWARD.length).toBe(6);
     expect(new Set(FORWARD.map((c) => `${c.a}-${c.n}-${c.s0}`)).size).toBe(6);
   });
-  for (const [a, n] of [
-    [1, 0],
-    [0, 1],
-    [1, 1],
-  ] as const) {
-    for (const s0 of [0, 1] as const) {
-      it(`open [a=${a},n=${n},s=${s0}] → (0,0,1): menu open, monitoring rows ${s0 === 0 ? "INSERTED" : "visible"}, quiet pill, focus rescued`, async () => {
-        const { rerender } = renderPublishedModal([], { attentionItems: itemsWithLink(a, n, s0) });
-        const pill = screen.getByTestId("published-show-review-alert-pill");
-        fireEvent.click(pill);
-        const menu = screen.getByTestId("published-show-review-attention-menu");
-        // pre-focus a to-be-removed element: needs-look <a> for [0,1], the
-        // actionable row button otherwise (removal makes rescue non-vacuous)
-        const target =
-          a === 0
-            ? menu.querySelector<HTMLElement>("a")
-            : menu.querySelector<HTMLElement>('[data-testid^="attention-menu-row-"]');
-        expect(target).not.toBeNull();
-        target!.focus();
+  for (const { a, n, s0 } of FORWARD) {
+    it(`open [a=${a},n=${n},s=${s0}] → (0,0,1): menu open, monitoring rows ${s0 === 0 ? "INSERTED" : "visible"}, quiet pill, focus rescued`, async () => {
+      const { rerender } = renderPublishedModal([], { attentionItems: itemsWithLink(a, n, s0) });
+      const pill = screen.getByTestId("published-show-review-alert-pill");
+      fireEvent.click(pill);
+      const menu = screen.getByTestId("published-show-review-attention-menu");
+      // pre-focus a to-be-removed element: needs-look <a> for [0,1], the
+      // actionable row button otherwise (removal makes rescue non-vacuous)
+      const target =
+        a === 0
+          ? menu.querySelector<HTMLElement>("a")
+          : menu.querySelector<HTMLElement>('[data-testid^="attention-menu-row-"]');
+      expect(target).not.toBeNull();
+      target!.focus();
 
-        rerender(publishedModalElement([], { attentionItems: itemsWithLink(0, 0, 1) }));
+      rerender(publishedModalElement([], { attentionItems: itemsWithLink(0, 0, 1) }));
 
-        expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
-        expect(screen.getAllByTestId(/attention-monitoring-row-/).length).toBeGreaterThan(0);
-        const pillAfter = screen.getByTestId("published-show-review-alert-pill");
-        expect(pillAfter.getAttribute("aria-expanded")).toBe("true");
-        expect(pillAfter.className.split(/\s+/)).toContain("bg-surface-sunken");
-        expect(WARNING_SWEEP(pillAfter)).toHaveLength(0);
-        // settled focus: rescued to the pill (dep-less post-commit effect)
-        await waitFor(() => expect(document.activeElement).toBe(pillAfter));
-        expect(document.activeElement).not.toBe(document.body);
-      });
-    }
+      // the focused node ACTUALLY left the DOM — otherwise the rescue is vacuous
+      // (stale-row rendering + unconditional pill focus would pass; review R2 f1)
+      expect(target!.isConnected).toBe(false);
+      expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+      expect(screen.getAllByTestId(/attention-monitoring-row-/).length).toBeGreaterThan(0);
+      const pillAfter = screen.getByTestId("published-show-review-alert-pill");
+      expect(pillAfter.getAttribute("aria-expanded")).toBe("true");
+      expect(pillAfter.className.split(/\s+/)).toContain("bg-surface-sunken");
+      expect(WARNING_SWEEP(pillAfter)).toHaveLength(0);
+      // settled focus: rescued to the pill (dep-less post-commit effect)
+      await waitFor(() => expect(document.activeElement).toBe(pillAfter));
+      expect(document.activeElement).not.toBe(document.body);
+    });
   }
 
   it("monitoring-only entry: clicking the quiet pill opens the menu", () => {
@@ -248,8 +245,10 @@ describe("rescue generality (b2): removed-focused-row rescue at NON-monitoring d
     const { rerender } = renderPublishedModal([], { attentionItems: itemsWithLink(1, 1, 0) });
     const pill = screen.getByTestId("published-show-review-alert-pill");
     fireEvent.click(pill);
-    screen.getByTestId("attention-menu-row-alert:a0").focus();
+    const focusedRow = screen.getByTestId("attention-menu-row-alert:a0");
+    focusedRow.focus();
     rerender(publishedModalElement([], { attentionItems: itemsWithLink(0, 1, 0) }));
+    expect(focusedRow.isConnected).toBe(false); // focused actionable row detached
     expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
     const pillAfter = screen.getByTestId("published-show-review-alert-pill");
     await waitFor(() => expect(document.activeElement).toBe(pillAfter));
@@ -265,6 +264,7 @@ describe("rescue generality (b2): removed-focused-row rescue at NON-monitoring d
     expect(link).not.toBeNull();
     link!.focus();
     rerender(publishedModalElement([], { attentionItems: itemsWithLink(1, 0, 0) }));
+    expect(link!.isConnected).toBe(false); // focused needs-look link detached
     expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
     const pillAfter = screen.getByTestId("published-show-review-alert-pill");
     await waitFor(() => expect(document.activeElement).toBe(pillAfter));
@@ -300,34 +300,28 @@ describe("quiet → warning REVERSE matrix (6 cells): menu stays open, amber pos
     expect(REVERSE.length).toBe(6);
     expect(new Set(REVERSE.map((c) => `${c.a}-${c.n}-${c.s1}`)).size).toBe(6);
   });
-  for (const [a, n] of [
-    [1, 0],
-    [0, 1],
-    [1, 1],
-  ] as const) {
-    for (const s1 of [0, 1] as const) {
-      it(`(0,0,1) open → [a=${a},n=${n},s=${s1}]: groups reconcile, aria-expanded retained, amber root`, () => {
-        const { rerender } = renderPublishedModal([], { attentionItems: items(0, 0, 1) });
-        const pill = screen.getByTestId("published-show-review-alert-pill");
-        fireEvent.click(pill);
-        expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+  for (const { a, n, s1 } of REVERSE) {
+    it(`(0,0,1) open → [a=${a},n=${n},s=${s1}]: groups reconcile, aria-expanded retained, amber root`, () => {
+      const { rerender } = renderPublishedModal([], { attentionItems: items(0, 0, 1) });
+      const pill = screen.getByTestId("published-show-review-alert-pill");
+      fireEvent.click(pill);
+      expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
 
-        rerender(publishedModalElement([], { attentionItems: itemsWithLink(a, n, s1) }));
+      rerender(publishedModalElement([], { attentionItems: itemsWithLink(a, n, s1) }));
 
-        expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
-        if (a > 0) expect(screen.getAllByTestId(/^attention-menu-row-/).length).toBeGreaterThan(0);
-        if (n > 0)
-          expect(screen.getAllByTestId(/attention-needslook-row-/).length).toBeGreaterThan(0);
-        if (s1 === 1) expect(screen.getAllByTestId(/attention-monitoring-row-/).length).toBe(1);
-        else expect(screen.queryByTestId(/attention-monitoring-row-/)).toBeNull();
-        const pillAfter = screen.getByTestId("published-show-review-alert-pill");
-        expect(pillAfter.getAttribute("aria-expanded")).toBe("true");
-        const classes = pillAfter.className.split(/\s+/);
-        expect(classes).toContain("bg-warning-bg");
-        expect(classes).toContain("text-warning-text");
-        expect(classes).toContain("hover:bg-warning-bg/80");
-        expect(classes).not.toContain("bg-surface-sunken");
-      });
-    }
+      expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+      if (a > 0) expect(screen.getAllByTestId(/^attention-menu-row-/).length).toBeGreaterThan(0);
+      if (n > 0)
+        expect(screen.getAllByTestId(/attention-needslook-row-/).length).toBeGreaterThan(0);
+      if (s1 === 1) expect(screen.getAllByTestId(/attention-monitoring-row-/).length).toBe(1);
+      else expect(screen.queryByTestId(/attention-monitoring-row-/)).toBeNull();
+      const pillAfter = screen.getByTestId("published-show-review-alert-pill");
+      expect(pillAfter.getAttribute("aria-expanded")).toBe("true");
+      const classes = pillAfter.className.split(/\s+/);
+      expect(classes).toContain("bg-warning-bg");
+      expect(classes).toContain("text-warning-text");
+      expect(classes).toContain("hover:bg-warning-bg/80");
+      expect(classes).not.toContain("bg-surface-sunken");
+    });
   }
 });

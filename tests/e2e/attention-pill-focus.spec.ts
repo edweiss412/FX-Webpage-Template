@@ -230,12 +230,26 @@ async function settledFocusIsPill(page: Page) {
   expect(onBody, "settled focus must not be <body>").toBe(false);
 }
 
+async function stampFocused(page: Page, sel: string) {
+  await page.locator(sel).first().focus();
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement)
+      document.activeElement.dataset.wasFocused = "1";
+  });
+}
+// The stamped node must have LEFT the DOM — otherwise stale-row rendering plus an
+// unconditional pill focus would pass the settled-focus check vacuously (R2 f1).
+async function focusedNodeDetached(page: Page) {
+  return page.evaluate(() => document.querySelector('[data-was-focused="1"]') === null);
+}
+
 test("rescue probe (a): focused actionable row removed → menu open, aria-expanded, settled focus = pill", async ({
   page,
 }) => {
   await boot(page, 1, 0, 1);
-  await page.locator(`${MENU} [data-testid^="attention-menu-row-"]`).first().focus();
+  await stampFocused(page, `${MENU} [data-testid^="attention-menu-row-"]`);
   await setItems(page, 0, 0, 1);
+  expect(await focusedNodeDetached(page)).toBe(true);
   await expect(page.locator(MENU)).toBeVisible();
   await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
   await settledFocusIsPill(page);
@@ -245,8 +259,9 @@ test("rescue probe (b): focused needs-look LINK removed → menu open, aria-expa
   page,
 }) => {
   await boot(page, 0, 1, 1);
-  await page.locator(`${MENU} a`).first().focus();
+  await stampFocused(page, `${MENU} a`);
   await setItems(page, 0, 0, 1);
+  expect(await focusedNodeDetached(page)).toBe(true);
   await expect(page.locator(MENU)).toBeVisible();
   await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
   await settledFocusIsPill(page);
@@ -290,7 +305,12 @@ for (const cell of [
       cell.focus === "link" ? `${MENU} a` : `${MENU} [data-testid^="attention-menu-row-"]`;
     const locator = cell.pick === "last" ? page.locator(sel).last() : page.locator(sel).first();
     await locator.focus();
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement)
+        document.activeElement.dataset.wasFocused = "1";
+    });
     await setItems(page, cell.to[0], cell.to[1], cell.to[2]);
+    expect(await focusedNodeDetached(page)).toBe(true);
     await expect(page.locator(MENU)).toBeVisible();
     await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
     await settledFocusIsPill(page);
@@ -402,6 +422,14 @@ for (const [a, n, s0, label] of [
     await boot(page, a, n, s0);
     const report = await page.evaluate(() => {
       const pill = document.querySelector('[data-testid="published-show-review-alert-pill"]')!;
+      // CSS repeats the shorter transition-* list cyclically over the property
+      // list — so property i's duration is duration[i % durationCount], NOT
+      // duration[i] ?? 0 (review R2 finding 3).
+      const effectiveDurations = (cs: CSSStyleDeclaration) => {
+        const props = cs.transitionProperty.split(",").map((t) => t.trim());
+        const durs = cs.transitionDuration.split(",").map((t) => parseFloat(t.trim()) || 0);
+        return props.map((prop, i) => ({ prop, dur: durs[i % durs.length] ?? 0 }));
+      };
       const instant = (el: Element) => {
         const cs = getComputedStyle(el);
         const noTransition =
@@ -411,7 +439,7 @@ for (const [a, n, s0, label] of [
       };
       const rootCs = getComputedStyle(pill);
       const rootProps = rootCs.transitionProperty;
-      const rootDur = parseFloat(rootCs.transitionDuration.split(",")[0] ?? "0");
+      const rootPairs = effectiveDurations(rootCs);
       const seg = pill.querySelector('[data-testid="attention-pill-monitoring-segment"]');
       const dots = [...pill.querySelectorAll('[class*="rounded-pill"]')].filter(
         (el) => el !== pill,
@@ -426,18 +454,13 @@ for (const [a, n, s0, label] of [
       const groupDescendants = group ? [...group.querySelectorAll("*")] : [];
       const chev = pill.querySelector("svg");
       const chevCs = chev ? getComputedStyle(chev) : null;
-      const chevPairs = chevCs
-        ? chevCs.transitionProperty.split(",").map((prop, i) => ({
-            prop: prop.trim(),
-            dur: parseFloat((chevCs.transitionDuration.split(",")[i] ?? "0").trim()),
-          }))
-        : [];
+      const chevPairs = chevCs ? effectiveDurations(chevCs) : [];
       const groupAnimations = [group, ...rows, ...groupDescendants]
         .filter((el): el is Element => !!el)
         .flatMap((el) => (el as HTMLElement).getAnimations?.() ?? []).length;
       return {
         rootProps,
-        rootDur,
+        rootPairs,
         instantTargets: [seg, ...dots, ...middots, group, ...rows, ...groupDescendants]
           .filter((el): el is Element => !!el)
           .map((el) => instant(el)),
@@ -451,14 +474,15 @@ for (const [a, n, s0, label] of [
     expect(report.segPresent).toBe(true);
     expect(report.groupPresent).toBe(true);
     expect(report.rowCount).toBeGreaterThan(0);
-    // root: color cross-fade with real duration
-    const rootPropList = report.rootProps.split(",").map((t) => t.trim());
-    const coversBg = report.rootProps === "all" || rootPropList.includes("background-color");
-    // standalone "color" token — NOT satisfied by the substring in "background-color"
-    const coversColor = report.rootProps === "all" || rootPropList.includes("color");
-    expect(coversBg, report.rootProps).toBe(true);
-    expect(coversColor, report.rootProps).toBe(true);
-    expect(report.rootDur).toBeGreaterThan(0);
+    // root: BOTH background-color AND standalone color cross-fade with a positive
+    // EFFECTIVE duration (CSS list repetition applied). "all" satisfies both.
+    const isAll = report.rootPairs.some((pr) => pr.prop === "all" && pr.dur > 0);
+    const bgAnimated =
+      isAll || report.rootPairs.some((pr) => pr.prop === "background-color" && pr.dur > 0);
+    // standalone "color" token — NOT the substring inside "background-color"
+    const colorAnimated = isAll || report.rootPairs.some((pr) => pr.prop === "color" && pr.dur > 0);
+    expect(bgAnimated, JSON.stringify(report.rootPairs)).toBe(true);
+    expect(colorAnimated, JSON.stringify(report.rootPairs)).toBe(true);
     // instant targets: no transition, no animation
     for (const t of report.instantTargets) {
       expect(t.noTransition, JSON.stringify(t)).toBe(true);
