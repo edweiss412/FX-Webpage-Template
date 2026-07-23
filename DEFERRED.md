@@ -8,12 +8,6 @@ Last reconciled: 2026-07-22 (four warning-panel-polish critique deferrals RESOLV
 
 ---
 
-### HOVERHELP-CLAMP-CARET-1 — [P3] no caret under horizontal clamp; no blur-close while focus wanders
-
-From the impeccable critique of `hoverhelp-smart-position` (2026-07-22, Assessment A 34/40). Two folded P3s: (1) when the §4.2 horizontal clamp slides the popover body away from its trigger there is no caret/pointer affordance tying body to trigger — precisely in the collision cases the feature serves; (2) the popover stays open while keyboard focus wanders elsewhere (no blur-close) — pre-existing behavior, unchanged by the portal work, slightly amplified in modals where the body is no longer visually adjacent. Both cosmetic-tier; the dual-gate mandates P0/P1 only. The critique's P1 (modal Tab adjacency) was refuted by spec ratification (spec 2026-07-22-hoverhelp-smart-position:149) and is recorded in the critique snapshot, not here.
-
-**Un-defer trigger:** user reports losing track of which trigger an open popover belongs to (caret), or confusion from a popover lingering after tabbing away (blur-close).
-
 ### STRIP-MOBILE-WRAP-1 — [P2] the control strip wraps to a second row at 390px (44px → 80px)
 
 From the impeccable close-out of `modal-header-reconciliation`. §4.5 collapses the sync/edited stack to one line, trading height for WIDTH; §4.3 simultaneously adds a Re-sync trigger to the same row. Below `sm` the strip's `flex-wrap` is live and the row breaks: **44px → 80px** at 390px (`sm:flex-nowrap` leaves ≥sm untouched, so desktop is unaffected). Spec and plan both costed the height saving and neither anticipated the width cost.
