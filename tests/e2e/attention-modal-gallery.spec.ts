@@ -473,4 +473,73 @@ test.describe("attention modal switcher gallery", () => {
     await expect(select).toHaveValue(targetGroup);
     await expect(page.locator(DIALOG)).toHaveCount(1);
   });
+  test("modal-state: changelog history renders every badge, accept, undo, and gate composition (§3.6)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-changelog-history");
+    const dialog = page.locator(DIALOG);
+    const feedEntries = dialog.locator('[data-testid="change-feed-summary"]');
+    await expect(feedEntries).toHaveCount(12);
+    for (const badge of ["Applied", "Rejected", "Undone", "Superseded", "Pending review"]) {
+      await expect(dialog.getByText(badge).first()).toBeVisible();
+    }
+    await expect(dialog.getByRole("button", { name: /accept all \(3\)/i })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /^undo this change$/i })).toHaveCount(2);
+    await expect(dialog.getByText("Accepted", { exact: true })).toHaveCount(3);
+  });
+
+  test("modal-state: archived show hides the publish toggle and re-sync (§3.6)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-archived");
+    const dialog = page.locator(DIALOG);
+    await expect(dialog.getByText(/archived/i).first()).toBeVisible();
+    await expect(dialog.getByRole("switch")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: /re-sync/i })).toHaveCount(0);
+  });
+
+  test("modal-state: nothing-parsed shows the empty-section copy (§3.6)", async ({ page }) => {
+    await gotoScenario(page, "t2-nothing-parsed");
+    const dialog = page.locator(DIALOG);
+    await expect(dialog.getByText("No crew parsed.")).toBeVisible();
+    await expect(dialog.getByText("No rooms parsed.")).toBeVisible();
+  });
+
+  test("modal-state: overflow volumes render the crew cap note (§3.6)", async ({ page }) => {
+    await gotoScenario(page, "t2-overflow-volumes");
+    await expect(page.locator(DIALOG).getByText(/and 1 more people/)).toBeVisible();
+  });
+
+  test("modal-state: ignored warnings disclosure opens to muted cards (§3.6)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-ignored-warnings");
+    const dialog = page.locator(DIALOG);
+    // Native <details>/<summary> disclosure (sectionWarningExtras.tsx:242-252) —
+    // the summary has no button role, so target its testid prefix directly.
+    const disclosure = dialog.locator('[data-testid^="section-ignored-summary-"]');
+    await disclosure.click();
+    await expect(dialog.getByRole("button", { name: /un-ignore/i }).first()).toBeVisible();
+  });
+
+  test("modal-state: share batches show the multi-email note (§3.6)", async ({ page }) => {
+    await gotoScenario(page, "t2-share-batches");
+    const dialog = page.locator(DIALOG);
+    await dialog.getByRole("button", { name: /share link/i }).click();
+    await expect(page.getByText(/needs \d+ separate emails/i)).toBeVisible();
+  });
+
+  test("modal-state: diagram sub-block renders 12 capped thumbnails plus the overflow note (§3.6)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-diagram-images");
+    const dialog = page.locator(DIALOG);
+    await expect(dialog.getByText(/\+1 more/)).toBeVisible();
+    // The review modal's Diagrams sub-block renders link+img thumbnails (not the
+    // crew-page Gallery tile grid): a "13 embedded images" count line, 12 capped
+    // thumbnail links, and the "+1 more" note asserted above.
+    await expect(dialog.getByText("13 embedded images")).toBeVisible();
+    await expect(dialog.getByRole("link", { name: "Diagram from Diagrams" })).toHaveCount(12);
+  });
 });
+

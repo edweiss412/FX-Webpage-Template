@@ -20,8 +20,8 @@ import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import { sectionForWarning } from "@/lib/admin/step3SectionStatus";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
-import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
+import { anchorsWantedFor } from "@/lib/dev/buildScenarioModalData";
 import { GROUP_ORDER, type ScenarioGroupId } from "@/lib/dev/galleryModalTypes";
 import { buildScenarioModalData } from "@/lib/dev/buildScenarioModalData";
 import type {
@@ -73,13 +73,24 @@ function codesFor(s: AttentionScenario): string[] {
 export function scenarioGroup(s: AttentionScenario, prebuilt?: GalleryModalData): ScenarioGroupId {
   const built = prebuilt ?? buildScenarioModalData(s);
   const rendered = new Set<string>(renderedSectionIds(built.data));
-  const anchors = anchorsForData(built.data);
+  // SERVER-SAFE anchor availability: the modal's own anchorsForData chain calls
+  // "use client" helpers (hasDiagramSignal) and cannot run in this server
+  // module. The gallery equivalent is exact by construction: the fixture
+  // provides an anchor IFF anchorsWantedFor(s) sets its flag, and
+  // T2_ANCHOR_ABSENT deliberately returns {} — so "wanted flag absent while the
+  // route declares an anchor" IS the unavailable-anchor redirect condition.
+  const flags = anchorsWantedFor(s);
   const sections = new Set<string>();
   for (const item of deriveScenarioAttention(s)) {
     if (item.kind === "alert") {
       const anchor = ATTENTION_ROUTES[item.alert.code]?.anchor;
-      const host = item.sectionId === "rooms" || item.sectionId === "event" ? item.sectionId : null;
-      if (anchor !== undefined && host !== null && !(anchors.get(host)?.has(anchor) ?? false)) {
+      const available =
+        anchor === "diagrams"
+          ? flags.diagrams === true
+          : anchor === "opening_reel"
+            ? flags.openingReel === true
+            : true;
+      if (anchor !== undefined && !available) {
         sections.add("overview");
         continue;
       }
