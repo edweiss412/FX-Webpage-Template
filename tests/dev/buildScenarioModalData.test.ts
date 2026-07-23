@@ -122,7 +122,6 @@ describe("buildScenarioModalData", () => {
 });
 
 // ── Modal-state-coverage wiring (plan Task 4) ────────────────────────────────
-import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 
 describe("buildScenarioModalData modal-state wiring", () => {
   test("feedNull renders the infra state: modal feed is null", () => {
