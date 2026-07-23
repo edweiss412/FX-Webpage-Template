@@ -184,8 +184,12 @@ describe("monitoring group (monitoring-badge-expand §3.2: enumerated rows)", ()
     // exact token (inline-block must NOT satisfy a block-level pin)
     expect(t1.className.split(/\s+/)).toContain("block");
     expect(n1.className.split(/\s+/)).toContain("block");
-    expect(within(rows[1]!).getByText(FIXTURE_ITEMS[1]!.menuTitle)).toBeInTheDocument();
-    expect(within(rows[1]!).getByText(autoResolveNote("SYNC_STALLED"))).toBeInTheDocument();
+    const t2 = within(rows[1]!).getByText(FIXTURE_ITEMS[1]!.menuTitle);
+    const n2 = within(rows[1]!).getByText(autoResolveNote("SYNC_STALLED"));
+    // block-level pinned on the SECOND row too (R3 f5: a second-row inline
+    // regression would pass a presence-only check)
+    expect(t2.className.split(/\s+/)).toContain("block");
+    expect(n2.className.split(/\s+/)).toContain("block");
     // summary copy retired MENU-WIDE, not just inside the group
     const menu = screen.getByTestId("published-show-review-attention-menu");
     expect(within(menu).queryByText(/clearing on their own, no action needed/)).toBeNull();

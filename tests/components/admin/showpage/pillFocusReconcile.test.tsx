@@ -17,7 +17,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -195,7 +195,12 @@ describe("interactive → monitoring-only STAYS OPEN (forward matrix, 6 origins)
       // (stale-row rendering + unconditional pill focus would pass; review R2 f1)
       expect(target!.isConnected).toBe(false);
       expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
-      expect(screen.getAllByTestId(/attention-monitoring-row-/).length).toBeGreaterThan(0);
+      // the removed row SET is gone (not merely the focused node — a stale row
+      // recreated as a NEW node would evade an isConnected-only check; R3 f2):
+      // (0,0,1) has zero actionable and zero needs-look rows, exactly one monitoring row.
+      expect(screen.queryByTestId(/^attention-menu-row-/)).toBeNull();
+      expect(screen.queryByTestId(/attention-needslook-row-/)).toBeNull();
+      expect(screen.getAllByTestId(/attention-monitoring-row-/)).toHaveLength(1);
       const pillAfter = screen.getByTestId("published-show-review-alert-pill");
       expect(pillAfter.getAttribute("aria-expanded")).toBe("true");
       expect(pillAfter.className.split(/\s+/)).toContain("bg-surface-sunken");
@@ -234,8 +239,10 @@ describe("rescue generality (b2): removed-focused-row rescue at NON-monitoring d
     const rowA1 = screen.getByTestId("attention-menu-row-alert:a1");
     rowA1.focus();
     rerender(publishedModalElement([], { attentionItems: [actionableAlertItem("a0")] }));
-    expect(screen.queryByTestId("attention-menu-row-alert:a1")).toBeNull();
+    expect(rowA1.isConnected).toBe(false); // the focused node itself detached
     expect(screen.getByTestId("attention-menu-row-alert:a0")).toBeInTheDocument();
+    // exactly the surviving row set (no stale-row recreation, review R3 f2)
+    expect(screen.getAllByTestId(/^attention-menu-row-/)).toHaveLength(1);
     expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
     const pillAfter = screen.getByTestId("published-show-review-alert-pill");
     await waitFor(() => expect(document.activeElement).toBe(pillAfter));
@@ -249,6 +256,8 @@ describe("rescue generality (b2): removed-focused-row rescue at NON-monitoring d
     focusedRow.focus();
     rerender(publishedModalElement([], { attentionItems: itemsWithLink(0, 1, 0) }));
     expect(focusedRow.isConnected).toBe(false); // focused actionable row detached
+    expect(screen.queryByTestId(/^attention-menu-row-/)).toBeNull(); // no actionable rows
+    expect(screen.getAllByTestId(/attention-needslook-row-/)).toHaveLength(1);
     expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
     const pillAfter = screen.getByTestId("published-show-review-alert-pill");
     await waitFor(() => expect(document.activeElement).toBe(pillAfter));
@@ -265,6 +274,8 @@ describe("rescue generality (b2): removed-focused-row rescue at NON-monitoring d
     link!.focus();
     rerender(publishedModalElement([], { attentionItems: itemsWithLink(1, 0, 0) }));
     expect(link!.isConnected).toBe(false); // focused needs-look link detached
+    expect(screen.queryByTestId(/attention-needslook-row-/)).toBeNull(); // needs-look gone
+    expect(screen.getAllByTestId(/^attention-menu-row-/)).toHaveLength(1);
     expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
     const pillAfter = screen.getByTestId("published-show-review-alert-pill");
     await waitFor(() => expect(document.activeElement).toBe(pillAfter));
@@ -283,8 +294,14 @@ describe("rescue generality (b2): removed-focused-row rescue at NON-monitoring d
     );
     const rowAfter = screen.getByTestId("attention-menu-row-alert:a0");
     expect(rowAfter).toBe(rowA0);
-    // give the dep-less effect a beat; focus must remain on the row
-    await waitFor(() => expect(document.activeElement).toBe(rowAfter));
+    // let a macrotask + a frame elapse — a steal scheduled on microtask/timer/rAF
+    // would have fired by now; a bare waitFor could resolve on its first (already
+    // true) attempt and miss a deferred steal (review R3 f6).
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    });
+    expect(document.activeElement).toBe(rowAfter);
   });
 });
 

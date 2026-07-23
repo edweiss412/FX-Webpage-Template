@@ -122,11 +122,13 @@ describe("tier 2 structural matrix", () => {
   test("T2_MONITORING_ONLY derives a pure monitoring state (monitoring-badge-expand §5.8)", () => {
     const s = byId(T2_MONITORING_ONLY);
     const derived = deriveScenarioAttention(s);
-    expect(derived.filter((i) => i.actionable)).toHaveLength(0);
-    expect(derived.filter((i) => !i.actionable && i.clearingKind === "needs_look")).toHaveLength(0);
+    expect(derived.length).toBeGreaterThan(0);
+    // PURE monitoring: EVERY derived item is a non-actionable self_heal — no
+    // actionable, no needs_look, and no other clearingKind slipping in (R3 f7)
     expect(
-      derived.filter((i) => !i.actionable && i.clearingKind === "self_heal").length,
-    ).toBeGreaterThan(0);
+      derived.every((i) => !i.actionable && i.clearingKind === "self_heal"),
+      JSON.stringify(derived.map((i) => ({ a: i.actionable, k: i.clearingKind }))),
+    ).toBe(true);
   });
 
   test("an unavailable routed section falls back to Overview's section top", () => {

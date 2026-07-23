@@ -441,7 +441,7 @@ for (const [a, n, s0, label] of [
       const rootProps = rootCs.transitionProperty;
       const rootPairs = effectiveDurations(rootCs);
       const seg = pill.querySelector('[data-testid="attention-pill-monitoring-segment"]');
-      const dots = [...pill.querySelectorAll('[class*="rounded-pill"]')].filter(
+      const dots = [...pill.querySelectorAll('[class~="rounded-pill"]')].filter(
         (el) => el !== pill,
       );
       const middots = [...pill.querySelectorAll("span")].filter(
@@ -491,8 +491,10 @@ for (const [a, n, s0, label] of [
     // chevron: transform present; NO color-related property carries duration > 0
     // (each property paired with ITS OWN duration — a later animated color
     // transition can't hide behind the first duration slot)
+    // transform must be present AND carry a positive effective duration — a
+    // 0s transform transition would satisfy a presence-only check (R3 f4)
     expect(
-      report.chevPairs.some((pr) => pr.prop === "transform"),
+      report.chevPairs.some((pr) => pr.prop === "transform" && pr.dur > 0),
       JSON.stringify(report.chevPairs),
     ).toBe(true);
     for (const pr of report.chevPairs) {
