@@ -443,7 +443,7 @@ describe("measure-and-apply with stubbed rects", () => {
     expect(caret.style.top).toBe(`${caretViewportY - PANE.top + SCROLL.top}px`);
   });
 
-  test("T-J5/T-A4: closing FROM the suppressed state resets the caret's visibility + side attr", () => {
+  test("T-J5/T-A4: closing FROM the suppressed state resets the caret's visibility; side already cleared by the caret:null branch", () => {
     stubViewport(1000, 800);
     const trigger = mount();
     stubRect(trigger, { left: 100, top: 300, width: 20, height: 20 });
@@ -456,7 +456,10 @@ describe("measure-and-apply with stubbed rects", () => {
     expect(caret.style.visibility).toBe("hidden"); // precondition: suppressed
     fireEvent.click(trigger); // close from suppressed
     // cleanup must RESET the inline visibility (a lingering "hidden" would
-    // survive into the next open) and strip the side attribute
+    // survive into the next open). The side attribute is already absent here
+    // because the caret:null branch cleared it on open - cleanup deliberately
+    // does NOT strip it (that would break the exit fade from a placed-visible
+    // state; T-A1 pins the retention).
     expect(caret.style.visibility).toBe("");
     expect(caret.hasAttribute("data-popover-side")).toBe(false);
   });
