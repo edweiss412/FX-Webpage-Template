@@ -61,23 +61,23 @@ Two defects:
 - **`ResetPickerEpochButton` (`app/admin/show/[slug]/ResetPickerEpochButton.tsx`) is a
   different component** (developer maintenance surface, not the popover) and is untouched;
   its test's `ring-offset-2` assertions are out of scope.
-- **DESIGN.md token-table prose** (`DESIGN.md:40`: "3px ring + 2px offset") describes the
-  focus-ring COLOR token, not a binding per-control recipe; the codebase ships `ring-2`
-  everywhere (zero `ring-3` matches). This spec does not edit DESIGN.md's table; the
-  two-tier recipe is recorded in §2 below and in the DEFERRED archive disposition.
-
-## 2. The two-tier rule
-
-Within the share-hub popover (and the touched components wherever they render):
-
+- **DESIGN.md focus prose is updated IN-BRANCH** (superseding this spec's earlier
+  "does not edit DESIGN.md" stance, per the impeccable-critique P2 finding): the token-table
+  focus-ring cell now states the 2px ring, the no-bare-offset rule, and points at this
+  spec's §2; the §15 confirm-go paragraph records the popover two-tier scoping. Commit
+  `c53bb8e75`.
 - **Tier 1 — every ordinary control:** `focus-visible:ring-2 focus-visible:ring-focus-ring`
   with NO offset. Applies to: menu rows (rotate, reset, archive, mailto), triggers, cancel
   buttons, the copy button, the unarchive button.
 - **Tier 2 — armed destructive confirm buttons only:** tier 1 PLUS
   `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`. Applies to: rotate armed
-  confirm, reset armed confirm, archive armed confirm. The offset gap gives the
-  point-of-no-return commit extra focus weight, preserving the intent behind §4.1's original
-  ratification (destructive controls keep a distinct treatment) while making it systematic.
+  confirm, reset armed confirm, archive armed confirm. Primary justification: DESIGN.md §15
+  already mandates a container-matched focus offset for confirm-go buttons ("Focus-ring
+  offset matches the surrounding container"), so tier 2 is that existing rule applied
+  consistently — preserving §4.1's intent (destructive confirms keep a distinct treatment).
+  Secondarily the gap adds visual weight at the point of no return for sighted keyboard
+  users — a nicety, not a load-bearing danger cue (danger is carried by the armed copy +
+  `aria-describedby`, never by the ring).
 
 Rationale for the tier boundary: "armed confirm" = the button whose activation irreversibly
 commits the destructive action (rotate = old link dies, reset = every pick cleared, archive =
@@ -210,6 +210,8 @@ never HOW any state transitions — but per the inventory rule every pair is dec
 | idle → armed (row swapped for confirm + cancel) | Pre-existing DOM replacement + programmatic focus move; unchanged by this diff. The newly mounted confirm's tier-2 ring appears instantly (new node, no transition from a prior value). |
 | armed → idle (cancel tap or 4s auto-revert) | Pre-existing DOM replacement + focus restore to the trigger ref; unchanged. Tier-1 ring on the restored trigger appears instantly. |
 | armed → resolving (confirm tapped, `disabled`/`aria-busy`) | Pre-existing `disabled:opacity-60` styling via `transition-opacity`/`transition-colors`; ring tokens unchanged during resolving; no ring animation. |
+| idle → resolving (single-tap controls: unarchive, copy — no armed state) | Pre-existing `disabled`/`aria-busy` styling via `transition-colors`/`transition-opacity`; ring tokens unchanged (tier 1 throughout); no ring animation. |
+| resolving → idle (action settles or errors) | Pre-existing re-render; ring tokens unchanged, instant. (The armed family reaches resolving only via armed; unarchive is the live idle→resolving producer.) |
 | Compound: auto-revert fires WHILE the confirm is focus-visible | Confirm unmounts, focus restores to the trigger; tier-2 ring is replaced by the tier-1 ring in one paint (both instant). No crossfade — two different nodes. |
 | Compound: focus-visible held WHILE armed → resolving | Ring persists with identical tokens; only fill/opacity animates (pre-existing). |
 
