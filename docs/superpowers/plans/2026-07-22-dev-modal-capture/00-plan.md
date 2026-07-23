@@ -50,16 +50,17 @@
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create: `docs/superpowers/plans/2026-07-22-dev-modal-capture/SPIKE.md`
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
-- Create (temporary, committed with SPIKE.md, deleted in Task 7 if unused): `scripts/devcapture-spike.mjs`
+- Create (temporary, committed with SPIKE.md, deleted in Task 7): `scripts/devcapture-spike.mts` (TypeScript; run with `pnpm exec tsx scripts/devcapture-spike.mts` — tsx is the repo's script runner, same as `pnpm observe`'s `scripts/observe.ts`, so the TS helpers `signInAs.ts` / `seedShowWithCrew.ts` import directly with no separate transpilation step)
+- Modify: `package.json` + `pnpm-lock.yaml` (three candidate devDeps)
 
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 **Interfaces:** Produces the library decision + exact clone-override list consumed by Task 7's `captureElement.ts`.
 
 - [ ] **Step 1:** `pnpm add -D html-to-image modern-screenshot html2canvas` (all three as devDeps; winner promoted to `dependencies` in Task 7, losers removed).
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
-- [ ] **Step 2:** Write `scripts/devcapture-spike.mjs` — Playwright chromium script that (a) boots `pnpm dev` (reuse the port/readiness pattern from `playwright.config.ts` webServer), (b) signs in via `tests/e2e/helpers/signInAs.ts` flow (POST `/api/test-auth/set-session`, `ENABLE_TEST_AUTH=true`), (c) seeds a published show via the existing e2e seed helper (`tests/e2e/helpers/seedShowWithCrew.ts`), (d) opens the published review modal, (e) for each candidate library: `page.addScriptTag` its IIFE/dist build — and when a candidate ships no injectable browser artifact (ESM-only), bundle one first with `pnpm exec esbuild node_modules/<lib>/dist/index.js --bundle --format=iife --global-name=<libGlobal> --outfile=scratch/spike/<lib>.iife.js` (precedent: `tests/e2e/_step3ReviewModalBundle.mjs`) — evaluate a capture of `[data-review-modal-panel]` twice — once as-is, once with clone-side overrides lifting `max-height`/`overflow` on the panel and the two inner panes (`ShowReviewSurface` rail + main pane) — and save PNGs to `scratch/spike/<lib>-{plain,expanded}.png`.
+- [ ] **Step 2:** Write `scripts/devcapture-spike.mts` — Playwright chromium script that (a) boots `pnpm dev` (reuse the port/readiness pattern from `playwright.config.ts` webServer), (b) calls `deleteFixtureUsers()` FIRST (the set-session endpoint is create-only — `signInAs.ts:12` requires the wipe before each sign-in) then signs in via the `signInAs` helper (POST `/api/test-auth/set-session`, `ENABLE_TEST_AUTH=true`), (c) seeds a published show via the existing e2e seed helper (`tests/e2e/helpers/seedShowWithCrew.ts`), (d) opens the published review modal, (e) for each candidate library: `page.addScriptTag` its IIFE/dist build — and when a candidate ships no injectable browser artifact (ESM-only), bundle one first with `pnpm exec esbuild node_modules/<lib>/dist/index.js --bundle --format=iife --global-name=<libGlobal> --outfile=scratch/spike/<lib>.iife.js` (precedent: `tests/e2e/_step3ReviewModalBundle.mjs`) — evaluate a capture of `[data-review-modal-panel]` twice — once as-is, once with clone-side overrides lifting `max-height`/`overflow` on the panel and the two inner panes (`ShowReviewSurface` rail + main pane) — and save PNGs to `scratch/spike/<lib>-{plain,expanded}.png`.
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
-- [ ] **Step 3:** Evaluate per §3.3: (a) full-height expansion achievable, (b) CSS fidelity (`shadow-(--shadow-tile)`, `overflow-clip`, rounded corners, tokens — visual inspection of PNGs), (c) bundle cost (`npm view <lib> dist.unpackedSize` + minified size). Record a decision table + the exact clone-override list in `SPIKE.md`.
+- [ ] **Step 3:** Execute: `pnpm exec tsx scripts/devcapture-spike.mts` (expected: six PNGs written under `scratch/spike/`). Evaluate per §3.3 FROM THAT RUN'S OUTPUT (SPIKE.md records the exact command and pastes the run's stdout summary alongside the decision table): (a) full-height expansion achievable, (b) CSS fidelity (`shadow-(--shadow-tile)`, `overflow-clip`, rounded corners, tokens — visual inspection of PNGs), (c) bundle cost (`npm view <lib> dist.unpackedSize` + minified size). Record a decision table + the exact clone-override list in `SPIKE.md`.
 - [ ] **Step 4:** Commit: `git add docs/superpowers/plans/2026-07-22-dev-modal-capture/SPIKE.md scripts/devcapture-spike.mjs package.json pnpm-lock.yaml && git commit --no-verify -m "chore(admin): dev-modal-capture library spike findings"`
 
 ### Task 2: Redaction core (§4.5)
@@ -502,13 +503,13 @@ Runtime validation is fail-closed via an explicit shape guard (`parseRequest`), 
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] **Step 1: Failing test** — `tests/admin/devCaptureAction.test.ts`. Mock `@/lib/auth/requireDeveloper` (spy `requireDeveloper`), mock the five read-core modules. Full matrix:
   - (a) **Gate-first, both directions:** gate mock REJECTS (forbidden) → action rejects AND zero read-core calls; gate resolves + invalid request → `bad_request` with zero read-core calls (gate still called exactly once, asserted via call order: gate spy invoked before any read-core spy).
-  - (b) **Fail-closed shape guard** (each returns `bad_request`, zero read-core calls): `null`, `undefined`, `42`, `{}`, `{ kind: "published" }` (missing showId), `{ kind: "published", showId: "not-a-uuid" }`, `{ kind: "staged" }`, `{ kind: "staged", driveFileId: 7 }`, `{ kind: "staged", driveFileId: "" }`, `{ kind: "staged", driveFileId: "x".repeat(129) }`, `{ kind: "other" }`. (Cast through `unknown` to bypass TS.)
+  - (b) **Fail-closed shape guard** (each returns `bad_request`, zero read-core calls): `null`, `undefined`, `42`, `{}`, `{ kind: "published" }` (missing showId), `{ kind: "published", showId: "not-a-uuid" }`, `{ kind: "staged" }`, `{ kind: "staged", driveFileId: 7 }`, `{ kind: "staged", driveFileId: "" }`, `{ kind: "staged", driveFileId: "x".repeat(129) }`, `{ kind: "other" }`, `{ kind: "published", showId: <valid-uuid>, extra: 1 }` (extra key), `{ kind: "published", showId: <valid-uuid>, driveFileId: "x" }` (hybrid), `Object.create({ kind: "published", showId: <valid-uuid> })` (inherited-only props → no own keys → rejected). (Cast through `unknown` to bypass TS.)
   - (c) **Probe-row truncation, all four lists × three cases:** cap+1 rows → embedded length == cap AND `truncated: true`; exactly cap → `truncated: false`; fewer → `truncated: false`. Caps: alerts 100, syncLog 50, staged 10, failures 100.
   - (d) **Events mapping:** read-core `{ kind: "ok", events: [...], hasMore: true }` → embedded `{ rows, truncated: true }`; `hasMore: false` → `truncated: false`.
   - (e) **infra_error embedding, all five:** each of events/alerts/syncLog/staged/failures independently returning `{ kind: "infra_error", message }` is embedded verbatim while siblings stay `ok`.
   - (f) **Nested warnings caps, exact spec surface:** staged row `warnings` of 201 → capped 200 + sibling `warningsTruncated: true`; failures row `lastWarnings` of 201 → capped 200 + sibling `warningsTruncated: true` (marker name IS `warningsTruncated` for both, spec §4.2); syncLog rows pass through UNTRANSFORMED (no cap, no marker — §4.2 enumerates only the two arrays).
   - (g) **commitSha env gate:** 64-hex env → `null`; 40-hex → passed through; unset → `null` (`vi.stubEnv`).
-  - (h) **Filter plumbing:** staged called with `{ driveFileId, sinceHours: 168, limit: 11 }`; failures with `driveFileId` + `limit: 101`; alerts with `showIdOrGlobal` + `limit: 101`; syncLog with `limit: 51`.
+  - (h) **Filter plumbing (every argument pinned):** events called with `{ showId, sinceHours: 168 }`; alerts with `{ openOnly: true, limit: 101, showIdOrGlobal: showId }`; syncLog with `{ showId, sinceHours: 168, limit: 51 }`; staged with `{ driveFileId, sinceHours: 168, limit: 11 }`; failures with `{ sinceHours: 168, limit: 101, driveFileId }`. Assert the exact object per call (drift in show scoping or time bound fails the test).
 - [ ] **Step 2:** Run — FAIL (module not found). (The invariant-10 meta-test sequencing lives in Step 4/5: the moment Step 3 creates the `"use server"` file, `tests/log/_metaMutationSurfaceObservability.test.ts` goes red — run it then to OBSERVE the red — and Step 4's registry row turns it green. That red-then-green pair is the invariant-10 proof; it cannot precede file creation and the plan does not pretend otherwise.)
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] **Step 3: Implementation** — `app/admin/_devCaptureAction.ts`:
@@ -554,12 +555,26 @@ const SINCE_HOURS = 168; // §10
 const WARNINGS_CAP = 200; // §10
 
 function parseRequest(input: unknown): CaptureTelemetryRequest | null {
+  // Exact-shape guard: OWN keys must be exactly the union variant's keys (§5
+  // fail-closed - extra keys, hybrid objects, and prototype-inherited matches
+  // are all rejected).
   if (input === null || typeof input !== "object") return null;
   const r = input as Record<string, unknown>;
-  if (r["kind"] === "published" && typeof r["showId"] === "string" && UUID_RE.test(r["showId"])) {
+  const keys = Object.keys(r).sort();
+  if (
+    keys.length === 2 &&
+    keys[0] === "kind" &&
+    keys[1] === "showId" &&
+    r["kind"] === "published" &&
+    typeof r["showId"] === "string" &&
+    UUID_RE.test(r["showId"])
+  ) {
     return { kind: "published", showId: r["showId"] };
   }
   if (
+    keys.length === 2 &&
+    keys[0] === "driveFileId" &&
+    keys[1] === "kind" &&
     r["kind"] === "staged" &&
     typeof r["driveFileId"] === "string" &&
     r["driveFileId"].length > 0 &&
@@ -717,7 +732,10 @@ Layout edit: wrap the layout's returned children subtree with `<DeveloperFlagPro
 
 **Files:**
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
-- Create: `lib/devcapture/captureElement.ts` (library per SPIKE.md; promote winner to `dependencies`, `pnpm remove` the losers; delete `scripts/devcapture-spike.mjs`)
+- Create: `lib/devcapture/captureElement.ts` (library per SPIKE.md)
+- Modify: `package.json` + `pnpm-lock.yaml` (promote winner to `dependencies`, `pnpm remove` losing devDeps)
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+- Delete: `scripts/devcapture-spike.mts`
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create: `components/admin/dev/snapshots.ts`
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
@@ -795,6 +813,7 @@ export function useDevCapture(opts: {
   request: CaptureTelemetryRequest;
   clientSnapshot: () => unknown;
   filenameSeed: string;
+  preCapture?: () => Promise<void>;
 }): { state: DevCaptureState; run: () => void } {
   const [state, setState] = useState<DevCaptureState>("idle");
   const inFlight = useRef(false); // SYNCHRONOUS single-flight guard (state alone races two same-tick runs)
@@ -882,7 +901,7 @@ export function useDevCapture(opts: {
 ```
 
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
-  (`captureElementPng` implementation follows SPIKE.md exactly — chosen library call with the recorded clone-override list, `pixelRatio: Math.min(devicePixelRatio, 2)`.) `snapshots.ts` is two pure allowlist functions per the Interfaces block.
+  (`captureElementPng` implementation follows SPIKE.md exactly — chosen library call with the recorded clone-override list; pixel ratio is `Math.min(Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1, 2)` so a non-finite DPR reaches the raster library as 1, never NaN — the meta-level 0-normalization protects only `meta.viewport.dpr`, this guard protects the capture path itself; unit-test the exported ratio helper with NaN/Infinity/3/1.5 inputs.) `snapshots.ts` is two pure allowlist functions per the Interfaces block.
 - [ ] **Step 4:** Run — PASS. **Step 5:** Commit `feat(admin): dev-capture element wrapper, snapshots, and orchestration hook`.
 
 ### Task 8: Host mounts — ShareHub row + lockout + status line; Step3 icon (§2.2, §2.3, §7)
@@ -892,6 +911,9 @@ export function useDevCapture(opts: {
 - Modify: `components/admin/showpage/StatusStrip.tsx` (thread the new optional prop through to `<ShareHub` at `StatusStrip.tsx:312`)
 - Modify: `components/admin/showpage/PublishedReviewModal.tsx` (build the snapshot thunk with `buildPublishedSnapshot` from its own props; pass to StatusStrip)
 - Modify: `components/admin/wizard/Step3ReviewModal.tsx:417-448` (icon button between chip and close)
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+- Create: `tests/e2e/dev-capture.spec.ts` (SKELETON in Step 1a — visibility cases only; Task 9 MODIFIES it)
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Test: `tests/devcapture/hostMounts.test.tsx` (jsdom)
 
@@ -924,11 +946,16 @@ export function useDevCapture(opts: {
 **Interfaces:** Consumes everything. Uses `signInAs` (developer fixture = `ADMIN_FIXTURE`, non-dev = normal-admin fixture, `tests/e2e/helpers/fixtures.ts:38-48`), `seedShowWithCrew`.
 
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
-- [ ] **Step 1:** Flesh out the spec authored in Task 8 Step 1: (a) developer session (`ADMIN_FIXTURE` via `signInAs` — developer per `fixtures.ts:38-48`), published modal open (copy the open flow from `tests/e2e/published-review-modal.layout.spec.ts`), seed content so both inner panes overflow, inject two sentinel divs (distinct colors, `page.evaluate` appending to the rail + main pane located by their `-review-rail` / `-review-main` testids from `ShowReviewSurface.tsx:841/833`), click kebab → `share-hub-dev-capture`, await Playwright `download` event, unzip in-test (fflate), decode PNG with `pngjs`, assert ≥1 pixel of EACH sentinel color, assert `telemetry.json` parses with the three top-level keys and `modalKind: "published"`; (b) same for the staged modal — copy the staged-modal open flow from `tests/e2e/step3-review-modal.interactions.spec.ts` (existing precedent), `modalKind: "staged"`; (c) non-developer session (normal-admin fixture) → capture testids absent on both surfaces; (d) telemetry JSON string contains neither the seeded crew email nor the show's REAL 64-hex share token (`seedShowWithCrew` returns `shareToken` — `seedShowWithCrew.ts:86`).
+- [ ] **Step 1:** Flesh out the spec authored in Task 8 Step 1. Every session-establishing case calls `deleteFixtureUsers()` before `signInAs` (create-only endpoint, `signInAs.ts:12`) — spike, developer cases, and the non-developer case alike. (a) developer session (`ADMIN_FIXTURE` — exported at `fixtures.ts:25` — via `signInAs`), published modal open (copy the open flow from `tests/e2e/published-review-modal.layout.spec.ts`), seed content so both inner panes overflow, inject two sentinel divs (distinct colors, `page.evaluate` appending to the rail + main pane located by their `-review-rail` / `-review-main` testids from `ShowReviewSurface.tsx:841/833`), click kebab → `share-hub-dev-capture`, await Playwright `download` event, unzip in-test (fflate), decode PNG with `pngjs`, assert ≥1 pixel of EACH sentinel color, assert `telemetry.json` parses with the three top-level keys and `modalKind: "published"`; (b) same for the staged modal — copy the staged-modal open flow from `tests/e2e/step3-review-modal.interactions.spec.ts` (existing precedent), `modalKind: "staged"`; (c) non-developer session (normal-admin fixture) → capture testids absent on both surfaces; (d) telemetry JSON string contains neither the seeded crew email nor the show's REAL 64-hex share token (`seedShowWithCrew` returns `shareToken` — `seedShowWithCrew.ts:86`).
 - [ ] **Step 2:** Run at ≥lg viewport (`page.setViewportSize({ width: 1280, height: 800 })`); gate env-bound like sibling admin specs. Expected: FAIL before Tasks 7-8 wiring nits are fixed, PASS after.
 - [ ] **Step 3:** Commit `test(admin): dev-capture sentinel and download e2e`.
 
 ### Task 10: Impeccable dual-gate (invariant 8)
+
+**Files:**
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+- Create: `docs/superpowers/plans/2026-07-22-dev-modal-capture/HANDOFF.md` (§12 findings/dispositions)
+- Modify (only if deferrals): `DEFERRED.md`
 
 <!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] Run `/impeccable critique` AND `/impeccable audit` on the UI diff (ShareHub, StatusStrip, PublishedReviewModal, Step3ReviewModal, layout, DeveloperFlagContext, DevCaptureControl) with the canonical v3 setup gates: `context.mjs` context load (PRODUCT.md + DESIGN.md) then the reference-register read, per AGENTS.md invariant 8.
