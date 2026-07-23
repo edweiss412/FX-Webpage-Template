@@ -2413,7 +2413,8 @@ function PublishedArchivedTabAffordance({
       ))}
       {overflow > 0 ? (
         <p className="text-xs text-text-subtle">
-          {`and ${overflow} more archived ${overflow === 1 ? "tab" : "tabs"}. Resolve these in the sheet.`}
+          {/* Spec §2.3 mechanical literal — always "tabs" (no singularization). */}
+          {`and ${overflow} more archived tabs. Resolve these in the sheet.`}
         </p>
       ) : null}
     </>

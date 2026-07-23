@@ -33,7 +33,13 @@ d("set_published_pull_sheet_override", () => {
       values (gen_random_uuid(), ${DFID}, 'test-pso-slug-1', 'PSO Test', 'PSO Client', 'v4', true, false)`;
   });
 
-  test("accept with null snapshot writes the 4-field override", async () => {
+  async function storedOverride(): Promise<Record<string, unknown> | null> {
+    const [r] =
+      await sql`select pull_sheet_override as o from public.shows where drive_file_id = ${DFID}`;
+    return (r!.o as Record<string, unknown> | null) ?? null;
+  }
+
+  test("accept with null snapshot writes the 4-field override to shows.pull_sheet_override", async () => {
     const [row] = await sql`
       select public.set_published_pull_sheet_override(${DFID}, 'OLD PULL SHEET', 'fp1', 'a@b.com', null) as out`;
     const out = row!.out as { override: Record<string, unknown> };
@@ -41,6 +47,13 @@ d("set_published_pull_sheet_override", () => {
     expect(out.override.fingerprint).toBe("fp1");
     expect(out.override.acceptedBy).toBe("a@b.com");
     expect(typeof out.override.acceptedAt).toBe("string");
+    // Verify the STORED column, not just the RPC return echo.
+    const stored = await storedOverride();
+    expect(stored).toMatchObject({
+      tabName: "OLD PULL SHEET",
+      fingerprint: "fp1",
+      acceptedBy: "a@b.com",
+    });
   });
 
   test("CAS: stale null snapshot after an accept raises 40001", async () => {
@@ -58,6 +71,7 @@ d("set_published_pull_sheet_override", () => {
       select public.set_published_pull_sheet_override(${DFID}, null, null, 'a@b.com',
         ${sql.json({ tabName: "OLD PULL SHEET", fingerprint: "fp1" })}) as out`;
     expect((row!.out as { override: unknown }).override).toBeNull();
+    expect(await storedOverride()).toBeNull(); // stored column cleared, not just the return
   });
 
   test("well-formed row with a missing field: absent key projects to JSON null, revoke matches", async () => {

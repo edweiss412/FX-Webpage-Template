@@ -20,22 +20,32 @@ import {
  * keeps its own copy and does NOT take the auto-refresh path.
  */
 
-// §7 copy table. Keyed by wire status; the generic bucket is total over anything unrecognized.
-const COPY = {
+// §7 copy table. Null-prototype so an unrecognized status like "__proto__"/"constructor" can
+// never resolve an inherited value (would put a function/object in React state). Lookups use
+// Object.hasOwn before indexing; the generic bucket is total over anything unrecognized.
+const COPY: Record<string, string> = Object.assign(Object.create(null), {
   stale_review: "This changed elsewhere. Refreshing to the latest state.",
   no_pull_sheet_region: "That tab is no longer in the sheet. Re-check the sheet, then try again.",
   lifecycle_conflict: "This show is no longer editable here. Refresh to see its current state.",
-  generic: "Something went wrong on our side. Try again in a moment.",
-} as const;
+});
+const GENERIC_COPY = "Something went wrong on our side. Try again in a moment.";
 
+/** Safe status → copy: own-key only, else the generic bucket. */
+function copyFor(status: string | undefined): string {
+  return status !== undefined && Object.hasOwn(COPY, status) ? COPY[status]! : GENERIC_COPY;
+}
+
+// §7 partial-success lines, distinct per mutation. Non-stage `set` says "gear appears"; `cleared`
+// says "the change shows" (the exact spec §7 wording for each).
 function syncLine(kind: "set" | "cleared", syncKind: string): string {
-  const verb = kind === "set" ? "Saved" : "Undone";
   if (syncKind === "stage") {
     return kind === "set"
       ? "Saved. This change is held for review, so gear appears after that review is applied."
       : "Undone. This change is held for review, so it shows after that review is applied.";
   }
-  return `${verb}. The sync did not finish, so the change shows after the next sync, or use Re-sync.`;
+  return kind === "set"
+    ? "Saved. The sync did not finish, so gear appears after the next sync, or use Re-sync."
+    : "Undone. The sync did not finish, so the change shows after the next sync, or use Re-sync.";
 }
 
 type PostResult = { ok: boolean; status?: string; sync?: { ok: boolean; kind: string } };
@@ -97,13 +107,13 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
         return;
       }
       if (json.status === "stale_review") {
-        setError(COPY.stale_review);
+        setError(copyFor("stale_review"));
         router.refresh();
         return;
       }
-      setError(COPY[json.status as keyof typeof COPY] ?? COPY.generic);
+      setError(copyFor(json.status));
     } catch {
-      setError(COPY.generic);
+      setError(GENERIC_COPY);
     } finally {
       setPending(false);
     }
@@ -119,7 +129,11 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
         <span className="font-medium text-text-strong">{tabName}</span>. We left it out to avoid
         mixing in old gear.
       </p>
-      {transient ? <p className="text-xs text-text-subtle">{transient}</p> : null}
+      {transient ? (
+        <p role="status" aria-live="polite" className="text-xs text-text-subtle">
+          {transient}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="text-xs text-warning-text">
           {error}
@@ -132,6 +146,7 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
             className={ARCHIVED_TAB_BTN}
             disabled={pending}
             aria-busy={pending}
+            aria-label={`Include gear from ${tabName}`}
             onClick={include}
           >
             {pending ? "Including…" : "Include this gear"}
@@ -140,6 +155,7 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
             type="button"
             className={ARCHIVED_TAB_GHOST_BTN}
             disabled={pending}
+            aria-label={`Skip gear from ${tabName}`}
             onClick={() => {
               setDismissed(true);
               onDismissFocus?.();
@@ -184,13 +200,13 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
         return;
       }
       if (json.status === "stale_review") {
-        setError(COPY.stale_review);
+        setError(copyFor("stale_review"));
         router.refresh();
         return;
       }
-      setError(COPY[json.status as keyof typeof COPY] ?? COPY.generic);
+      setError(copyFor(json.status));
     } catch {
-      setError(COPY.generic);
+      setError(GENERIC_COPY);
     } finally {
       setPending(false);
     }
@@ -205,7 +221,11 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
         Gear from tab <span className="font-medium text-text-strong">{label}</span> is included when
         this show syncs.
       </p>
-      {transient ? <p className="text-xs text-text-subtle">{transient}</p> : null}
+      {transient ? (
+        <p role="status" aria-live="polite" className="text-xs text-text-subtle">
+          {transient}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="text-xs text-warning-text">
           {error}

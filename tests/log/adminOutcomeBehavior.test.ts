@@ -4528,6 +4528,22 @@ describe("published pull-sheet override route observes SET/CLEARED across both s
     );
     expect(codes).not.toContain("PULL_SHEET_OVERRIDE_SET");
   });
+
+  test("a THROWING log sink is swallowed — the committed 200 response is unaffected", async () => {
+    // Real logAdminOutcome (not mocked) + a sink that throws: the route awaits the emit, so a
+    // non-swallowed throw would escape over the already-committed override. Proves the audit-sink
+    // isolation end-to-end (the route's own mocked-logAdminOutcome test cannot exercise this).
+    setLogSink(() => {
+      throw new Error("sink down");
+    });
+    try {
+      const res = await handlePublishedPullSheetOverride(acceptBody, pubDeps());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ok: true, status: "override_set" });
+    } finally {
+      resetLogSink();
+    }
+  });
 });
 
 // AUDITABLE_MUTATIONS surface must have driven its committed-success branch and been

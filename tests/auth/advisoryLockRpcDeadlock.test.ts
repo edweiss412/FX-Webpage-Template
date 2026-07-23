@@ -130,6 +130,10 @@ describe("advisory-lock RPC deadlock guard", () => {
     // a single-holder admin lock-taker; the JS route awaits it via the service-role client
     // and never wraps it in withShowAdvisoryLock (nesting would deadlock, M5 R20 class).
     expect(lockTakingNames).toContain("set_pull_sheet_override");
+    // Published-show archived-tab override (spec 2026-07-23) — set_published_pull_sheet_override
+    // acquires pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id)) FIRST in its own body;
+    // the JS route awaits it via the service-role client and never wraps it (single-holder).
+    expect(lockTakingNames).toContain("set_published_pull_sheet_override");
 
     const sourceFiles = [
       // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
@@ -193,6 +197,20 @@ describe("advisory-lock RPC deadlock guard", () => {
       feedActions,
       "_actions/feed.ts must NOT wrap delegation in withShowAdvisoryLock (single-holder rule)",
     ).not.toMatch(/withShowAdvisoryLock/);
+
+    // Published archived-tab override (spec 2026-07-23): the RPC is the SOLE show: lock holder;
+    // neither the JS route nor its RPC-caller helper may take a JS-side show lock (nesting would
+    // deadlock, M5 R20 class). Negative-regression: wrap the setRpc call in withShowAdvisoryLock
+    // and this fails.
+    for (const f of [
+      "app/api/admin/show/pull-sheet-override/route.ts",
+      "lib/admin/setPublishedPullSheetOverrideRpc.ts",
+    ]) {
+      const src = stripComments(readFileSync(join(ROOT, f), "utf8"));
+      expect(src, `${f} must NOT take a JS-side show lock (single-holder rule)`).not.toMatch(
+        /withShowAdvisoryLock|pg_advisory_xact_lock/,
+      );
+    }
   });
 
   test("lock-order: no lock-taking RPC row-locks (FOR UPDATE) before its first pg_advisory_xact_lock (PF11)", () => {
@@ -222,6 +240,9 @@ describe("advisory-lock RPC deadlock guard", () => {
       // Pull-sheet-on-archived-tab override (spec §5.4, Task 8) — set_pull_sheet_override
       // takes its show: advisory lock FIRST and issues no FOR UPDATE (plain SELECT/UPDATE).
       "supabase/migrations/20260706000000_pull_sheet_override.sql",
+      // Published-show archived-tab override (spec 2026-07-23) — set_published_pull_sheet_override
+      // takes its show: advisory lock FIRST and issues no FOR UPDATE (plain SELECT/UPDATE).
+      "supabase/migrations/20260723090000_published_pull_sheet_override.sql",
       // NOTE: reset_validation_data is NOT scanned from a hardcoded file here — it is
       // `create or replace`d by hotfix migrations, so a pinned path validates a
       // superseded body (audit idx78). It is checked below from the SHIPPED body via

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
@@ -52,10 +52,10 @@ describe("PackListBreakdown — published archived-tab gear (spec 2026-07-23 §2
     ).toBeInTheDocument();
   });
 
-  it("singular overflow copy for exactly one extra tab", () => {
+  it("overflow copy is the spec §2.3 literal (always plural, no singularization)", () => {
     renderPub(gear({ offer: { tabNames: ["t1", "t2", "t3", "t4"] } }));
     expect(
-      screen.getByText("and 1 more archived tab. Resolve these in the sheet."),
+      screen.getByText("and 1 more archived tabs. Resolve these in the sheet."),
     ).toBeInTheDocument();
   });
 
@@ -77,5 +77,14 @@ describe("PackListBreakdown — published archived-tab gear (spec 2026-07-23 §2
     renderPub(gear());
     expect(screen.getByText("No pack list parsed.")).toBeInTheDocument();
     expect(screen.queryByTestId("published-archived-tab-offer")).not.toBeInTheDocument();
+  });
+
+  it("Skip moves real focus to the section fallback (not just calls a callback)", () => {
+    renderPub(gear({ offer: { tabNames: ["OLD A"] } }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip gear from OLD A" }));
+    // The card unmounts; focus must land on the tabIndex={-1} section wrapper the real
+    // PackListBreakdown threads as onDismissFocus (WCAG 2.4.3 — never stranded on <body>).
+    const section = document.querySelector('[data-section="pack-list"]');
+    expect(document.activeElement).toBe(section);
   });
 });

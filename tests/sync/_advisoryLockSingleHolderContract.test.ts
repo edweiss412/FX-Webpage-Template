@@ -406,6 +406,11 @@ describe("M6 advisory-lock single-holder contract", () => {
           key: "hashtext('show:' || drive_file_id)",
         }),
         expect.objectContaining({
+          holder: "set_published_pull_sheet_override",
+          layer: expect.stringContaining("SOLE show: lock holder"),
+          key: "hashtext('show:' || drive_file_id)",
+        }),
+        expect.objectContaining({
           holder: "withPromoteLock",
           key: "hashtext('promote:' || show_id)",
         }),

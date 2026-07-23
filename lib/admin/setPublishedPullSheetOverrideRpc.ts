@@ -29,6 +29,11 @@ export async function setPublishedPullSheetOverrideRpc(
   deps?: { createClient?: typeof createSupabaseServiceRoleClient },
 ): Promise<SetPublishedPullSheetOverrideResult> {
   const client = (deps?.createClient ?? createSupabaseServiceRoleClient)();
+  // not-subject-to-meta: _metaInfraContract's registry scope is the auth helpers
+  // (tests/auth/_metaInfraContract.test.ts), not RPC callers. This is the sole Supabase call
+  // boundary for the published override; it destructures { data, error } (invariant 9) and the
+  // route's typed-result tests assert every §3.4 path (returned-error → mapped status; thrown →
+  // 502). Mirrors lib/onboarding/setPullSheetOverrideRpc.ts, which carries no registry row.
   const { data, error } = await client.rpc("set_published_pull_sheet_override", params);
   return { data, error };
 }

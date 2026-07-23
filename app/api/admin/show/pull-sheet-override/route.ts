@@ -34,9 +34,6 @@ export const dynamic = "force-dynamic";
  *  - Every non-200 path is a discriminable typed status; no raw code/status token reaches copy
  *    (invariant 5 is enforced client-side; the wire status is a machine token).
  */
-// not-subject-to-meta: auth-helper registry scope (tests/auth/_metaInfraContract.test.ts:69-78)
-// does not cover API routes; this route's typed-result tests assert every §3.4 row (precedent:
-// app/api/admin/onboarding/pull-sheet-override/route.ts carries no registry row either).
 const ROUTE_SOURCE = "api.admin.show.pull-sheet-override";
 
 export type PublishedPullSheetOverrideRouteDeps = {
@@ -82,6 +79,9 @@ function parseBody(raw: unknown): ParsedBody | null {
   const b = raw as Record<string, unknown>;
   if (!isNonBlank(b.driveFileId)) return null;
   const driveFileId = b.driveFileId;
+  // expectedOverrideSnapshot is REQUIRED (the CAS token; §2.3). An ABSENT key is malformed —
+  // distinct from an explicit `null` (which is the "no prior override" snapshot).
+  if (!("expectedOverrideSnapshot" in b)) return null;
   const wire = coerceWire(b.expectedOverrideSnapshot);
   if (!wire.ok) return null;
   // tabName key is REQUIRED. null = revoke; a non-blank string = accept; anything else = 400.

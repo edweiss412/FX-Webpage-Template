@@ -86,16 +86,9 @@ describe("handlePublishedPullSheetOverride", () => {
     expect(arg.extra.fingerprintPrefix.length).toBeLessThanOrEqual(12);
   });
 
-  test("audit-sink failure never changes the 200 response", async () => {
-    (logAdminOutcome as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      throw new Error("sink down");
-    });
-    // logAdminOutcome swallows internally; but even if it rejected, the route awaits it — assert
-    // the production helper contract by using a resolving mock that the route trusts.
-    (logAdminOutcome as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => {});
-    const res = await handlePublishedPullSheetOverride(ACCEPT, baseDeps());
-    expect(res.status).toBe(200);
-  });
+  // NOTE: audit-sink-failure isolation is proven end-to-end in
+  // tests/log/adminOutcomeBehavior.test.ts against the REAL logAdminOutcome with a throwing
+  // sink (a mocked logAdminOutcome here could not exercise the swallow contract).
 
   test("tab not in scan → 422 no_pull_sheet_region, no rpc", async () => {
     const setRpc = vi.fn(async () => ({ data: {}, error: null }));
@@ -231,7 +224,10 @@ describe("handlePublishedPullSheetOverride", () => {
         ),
       }),
     );
-    expect((await bodyOf(res)).json).toMatchObject({ sync: { ok: false, kind: "finalize_owned" } });
+    expect(await bodyOf(res)).toEqual({
+      status: 200,
+      json: { ok: true, status: "override_set", sync: { ok: false, kind: "finalize_owned" } },
+    });
   });
 
   test("sync classifier: SHOW_ARCHIVED_IMMUTABLE blocked → archived_immutable", async () => {
@@ -243,8 +239,9 @@ describe("handlePublishedPullSheetOverride", () => {
         ),
       }),
     );
-    expect((await bodyOf(res)).json).toMatchObject({
-      sync: { ok: false, kind: "archived_immutable" },
+    expect(await bodyOf(res)).toEqual({
+      status: 200,
+      json: { ok: true, status: "override_set", sync: { ok: false, kind: "archived_immutable" } },
     });
   });
 
@@ -255,8 +252,9 @@ describe("handlePublishedPullSheetOverride", () => {
         runManualSyncForShow: vi.fn(async () => ({ skipped: "CONCURRENT_SYNC_SKIPPED" }) as never),
       }),
     );
-    expect((await bodyOf(res)).json).toMatchObject({
-      sync: { ok: false, kind: "concurrent_skip" },
+    expect(await bodyOf(res)).toEqual({
+      status: 200,
+      json: { ok: true, status: "override_set", sync: { ok: false, kind: "concurrent_skip" } },
     });
   });
 
@@ -278,6 +276,7 @@ describe("handlePublishedPullSheetOverride", () => {
   test.each([
     ["missing driveFileId", { tabName: null, expectedOverrideSnapshot: null }],
     ["empty driveFileId", { driveFileId: "  ", tabName: null, expectedOverrideSnapshot: null }],
+    ["absent expectedOverrideSnapshot key", { driveFileId: "d1", tabName: null }],
     ["missing tabName key", { driveFileId: "d1", expectedOverrideSnapshot: null }],
     ["whitespace tabName", { driveFileId: "d1", tabName: "   ", expectedOverrideSnapshot: null }],
     ["non-string tabName", { driveFileId: "d1", tabName: 5, expectedOverrideSnapshot: null }],

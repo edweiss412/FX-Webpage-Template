@@ -45,6 +45,7 @@ import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { readShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
+import { deriveActiveArchivedTabNames } from "@/lib/admin/deriveActiveArchivedTabNames";
 import { loadIgnoredWarnings } from "@/lib/admin/loadIgnoredWarnings";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
@@ -359,15 +360,7 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
   // Names come from the ACTIVE partition only (durable Ignore removes a record, hiding the
   // offer); raw `blockRef.name`, blanks dropped, exact-string deduped (no trim — RPC identity is
   // exact). Attached only when published && !archived && driveFileId present with ≥1 name.
-  const activeArchivedTabNames = Array.from(
-    new Set(
-      Object.values(bySection)
-        .flatMap((m) => m?.active ?? [])
-        .filter((item) => item.warning.code === "PULL_SHEET_ON_ARCHIVED_TAB")
-        .map((item) => item.warning.blockRef?.name)
-        .filter((n): n is string => typeof n === "string" && n.trim().length > 0),
-    ),
-  );
+  const activeArchivedTabNames = deriveActiveArchivedTabNames(bySection);
   const archivedTabOffer =
     published && !archived && driveFileId != null && activeArchivedTabNames.length > 0
       ? { tabNames: activeArchivedTabNames, slug }
