@@ -2,8 +2,12 @@
  * lib/devcapture/captureElement.ts — §3.1 capture contract. Library and the
  * exact clone-override list per the Task 1 spike (SPIKE.md): html2canvas won
  * the sentinel scan; both foreignObject engines rendered blank on this app's
- * CSS. Client-only; html2canvas loads via dynamic import so the 360 kB dep
- * never enters the admin bundle until a developer actually captures.
+ * CSS. Shipped as html2canvas-pro (same engine, maintained fork) because
+ * upstream 1.4.1 threw `unsupported color function "oklab"` on the
+ * oklab-serialized color-mix() values Tailwind v4 opacity modifiers produce
+ * (validation capture failure, 2026-07-23). Client-only; the library loads via
+ * dynamic import so the ~360 kB dep never enters the admin bundle until a
+ * developer actually captures.
  *
  * Clone-based: the live DOM's geometry, scroll positions, and styles are
  * never mutated. The offscreen clone lifts the panel's height cap AND its
@@ -25,7 +29,7 @@ const PANE_SELECTORS = [
 ];
 
 export async function captureElementPng(el: HTMLElement): Promise<Blob> {
-  const { default: html2canvas } = await import("html2canvas");
+  const { default: html2canvas } = await import("html2canvas-pro");
   const clone = el.cloneNode(true) as HTMLElement;
   const width = el.getBoundingClientRect().width;
   clone.style.maxHeight = "none";
@@ -33,6 +37,13 @@ export async function captureElementPng(el: HTMLElement): Promise<Blob> {
   // The panel ships overflow-clip; without lifting it, spilled inner-pane
   // content clips at the panel box (SPIKE.md operational finding).
   clone.style.overflow = "visible";
+  // Entrance suppression: the clone keeps the panel's data attribute, so the
+  // globals.css entrance keyframes (step3-details-pop-in starts at opacity 0)
+  // replay on the fresh node — and replay AGAIN inside the raster library's
+  // internal document copy, where computed opacity reads 0 at parse time and
+  // the whole subtree rasterizes blank. Inline style outranks every entrance
+  // rule (staged panels never stamp data-*-entrance="none"; published ones do).
+  clone.style.animation = "none";
   clone.style.width = `${width}px`;
   clone.style.position = "fixed";
   clone.style.left = "-100000px";

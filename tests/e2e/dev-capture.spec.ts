@@ -80,7 +80,13 @@ async function injectSentinels(page: Page): Promise<void> {
         d.style.flexShrink = "0";
         if (color) {
           d.style.width = "120px";
-          d.style.backgroundColor = color;
+          // color-mix(in oklab, ...) — Chromium serializes the resolved
+          // computed value as oklab(...), which html2canvas 1.4.1 could not
+          // parse (validation capture failure, 2026-07-23: any Tailwind v4
+          // opacity-modifier class in the clone killed the capture). Painting
+          // the sentinels through oklab guarantees every capture run exercises
+          // the modern-color parse path regardless of fixture content.
+          d.style.backgroundColor = `color-mix(in oklab, ${color} 100%, transparent)`;
         }
         return d;
       };
