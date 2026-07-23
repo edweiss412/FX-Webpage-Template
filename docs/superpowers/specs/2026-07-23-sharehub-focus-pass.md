@@ -94,7 +94,7 @@ panel's `bg-surface` (`components/admin/showpage/ShareHub.tsx:420`).
 
 ## 3. Changes
 
-### 3.1 Code (9 class-string line edits, 4 files)
+### 3.1 Code (10 class-string line edits, 4 files)
 
 1. `app/admin/show/[slug]/PickerResetControl.tsx:276` (reset row): REMOVE
    `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`.
@@ -105,13 +105,19 @@ panel's `bg-surface` (`components/admin/showpage/ShareHub.tsx:420`).
    `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`.
 5. `components/admin/ArchiveShowButton.tsx:396` (archive armed confirm, row variant): ADD
    the pair.
-6. `components/admin/ArchiveShowButton.tsx:321`, `components/admin/ArchiveShowButton.tsx:322`, `components/admin/ArchiveShowButton.tsx:398`, `components/admin/ArchiveShowButton.tsx:399` (non-row variants): ADD
-   `focus-visible:ring-offset-surface` next to the existing bare `ring-offset-2` (dark-halo
-   fix). These branches are currently unreachable — the component's only render site is the
-   popover row variant (`components/admin/showpage/ShareHub.tsx:557`) — but they are kept
-   consistent so future reuse does not resurrect the halo. The non-row backdrop is also
-   `bg-surface` per the component's own class strings.
-7. `components/admin/UnarchiveShowButton.tsx:72`: REMOVE bare `focus-visible:ring-offset-2`
+6. `components/admin/ArchiveShowButton.tsx:321`, `components/admin/ArchiveShowButton.tsx:322`
+   (non-row ARMING triggers, compact + full): REMOVE the bare
+   `focus-visible:ring-offset-2` — an arming trigger is tier 1 wherever it renders, and the
+   bare offset is the dark-halo defect.
+7. `components/admin/ArchiveShowButton.tsx:398`, `components/admin/ArchiveShowButton.tsx:399`
+   (non-row ARMED CONFIRMS, compact + full): ADD `focus-visible:ring-offset-surface` next to
+   the existing `ring-offset-2` — an armed destructive confirm is tier 2 wherever it renders.
+   These non-row branches are currently unreachable — the component's only render site is the
+   popover row variant (`components/admin/showpage/ShareHub.tsx:557`) — but the tier rule is
+   applied by control ROLE, not render site, so future reuse cannot resurrect the halo or the
+   tier mismatch. The non-row backdrop is also `bg-surface` per the component's own class
+   strings.
+8. `components/admin/UnarchiveShowButton.tsx:72`: REMOVE bare `focus-visible:ring-offset-2`
    (tier 1; also removes the halo).
 
 No DOM structure, copy, color-token, spacing, or behavior changes. No new tokens. No DB.
@@ -125,16 +131,33 @@ layout surface changes; the diff is focus-ring utility classes only.
   `forbids`, not `exactly`), renamed accordingly.
 - New/extended assertions pinning the two-tier contract, each stating its concrete failure
   mode:
-  - Reset row + reset cancel: `className` DOES NOT contain `ring-offset` (catches: pass
-    reverted / partial application).
-  - Rotate armed confirm, reset armed confirm, archive armed confirm (row variant): contain
-    BOTH `focus-visible:ring-offset-2` AND `focus-visible:ring-offset-surface` (catches:
-    tier-2 dropped, and the bare-offset halo class reappearing without its color).
-  - Unarchive button: does NOT contain `ring-offset` (catches: halo regression).
-  - Anti-tautology: assertions target the specific `data-testid` buttons
-    (`picker-reset-all-button`, `admin-rotate-share-token-button` confirm,
-    `archive-show-confirm-button`, `` `unarchive-show-button-${showId}` `` — dynamic suffix,
-    `components/admin/UnarchiveShowButton.tsx:69`), not a container scan.
+  - Tier-1 inventory (positive AND negative): every ordinary popover control asserts the
+    plain-ring tokens present AND forbids any `focus-visible:ring-offset-*` token — primary
+    trigger (`share-hub-primary`), kebab (`share-hub-kebab`), mailto row
+    (`admin-current-share-link-email-button`), copy button
+    (`admin-current-share-link-copy-button`), rotate row + cancel
+    (`admin-rotate-share-token-button`, `admin-rotate-share-token-cancel-button`), reset row
+    + cancel (`picker-reset-all-button`, `picker-reset-cancel-button`), archive row trigger +
+    cancel (`archive-show-button`, `archive-show-cancel-button`), unarchive
+    (`` `unarchive-show-button-${showId}` `` — dynamic suffix,
+    `components/admin/UnarchiveShowButton.tsx:69`). Catches: pass reverted, base ring token
+    lost, bare offset (white halo) sneaking onto a tier-1 control.
+  - Tier-2: the three armed destructive confirms (`picker-reset-confirm-button`
+    `app/admin/show/[slug]/PickerResetControl.tsx:239`,
+    `admin-rotate-share-token-confirm-button`
+    `app/admin/show/[slug]/RotateShareTokenButton.tsx:335`,
+    `archive-show-confirm-button` `components/admin/ArchiveShowButton.tsx:387`) contain BOTH
+    `focus-visible:ring-offset-2` AND `focus-visible:ring-offset-surface` plus the base ring
+    tokens. Catches: tier-2 dropped, and the bare-offset halo class reappearing without its
+    color.
+  - Non-row Archive variants (`tests/components/admin/ArchiveShowButton.test.tsx`, which
+    already renders the full + compact variants directly): trigger forbids any offset token;
+    armed confirm has the full pair — in BOTH variants. Catches: the four non-row edits
+    (§3.1 items 6-7) being silently omitted, which the popover-only suite cannot see.
+  - Anti-tautology: every assertion targets a specific `data-testid` element, never a
+    container scan, via the token-set `expectClasses` helper
+    (`tests/components/admin/showpage/_rowAssertions.ts:56` — substring matches cannot fake
+    a token).
 - Existing suites for these components must stay green (`tests/components/admin/showpage/shareHub.test.tsx`,
   `tests/components/ResetPickerEpochButton.test.tsx` untouched).
 
