@@ -77,6 +77,8 @@ Each decision below is ratified. A reviewer verifies the contract; does not re-d
 
 ### 3.2 Header pill (`PublishedReviewModal.tsx:656-738`)
 
+> **Superseded by `docs/superpowers/specs/2026-07-22-monitoring-badge-expand.md`** — monitoring-only pill state B is now INTERACTIVE (quiet button); state count changed.
+
 Replace the four mutually-exclusive states with a composed pill that always shows what is present:
 
 - Derive `needsLookCount` and `selfHealCount` from `live` (§3.3), alongside the existing `actionable`.
@@ -102,6 +104,8 @@ const selfHeal  = live.filter(i => !i.actionable && i.clearingKind === "self_hea
 `clearingCount` (old) is retired in favor of `needsLook.length + selfHeal.length`.
 
 ### 3.4 `AttentionMenu` (`AttentionMenu.tsx`)
+
+> **Superseded by `docs/superpowers/specs/2026-07-22-monitoring-badge-expand.md`** — the Monitoring group now ENUMERATES per-item rows (title + auto-resolve note); the summary row is retired.
 
 Menu body, top to bottom:
 
@@ -131,6 +135,8 @@ Retire the old bottom footer (`AttentionMenu.tsx:141-151`) — its role is repla
 
 ## 5. Copy
 
+> **Superseded by `docs/superpowers/specs/2026-07-22-monitoring-badge-expand.md`** — the menu summary-row copy surface is retired (pill sr-only tail + title remain).
+
 Working copy (final wording is refinable in the impeccable copy pass; user-visible strings carry no em-dash per project rule, only a period or middot):
 
 - Pill: `{n} to confirm`, `{n} to review`, `{n} monitoring`.
@@ -154,6 +160,8 @@ Working copy (final wording is refinable in the impeccable copy pass; user-visib
 ---
 
 ## 6. Guard conditions / edge cases
+
+> **Superseded by `docs/superpowers/specs/2026-07-22-monitoring-badge-expand.md`** — reconciliation targets exclude monitoring-only (stays open); exit set is C/D only.
 
 - **Sheet link resolves to null (read-only):** `openSheet` selects the first NON-EMPTY of `[opts.driveFileId, context.drive_file_id]` (empty string treated as absent — §4) — it yields a link if EITHER source has a non-empty id, and null only when BOTH are absent-or-empty (`buildSheetDeepLink` returns null, `buildSheetDeepLink.ts:12`). Only in that both-empty case does the row render read-only (fix hint, no `<a>`). In the show modal `opts.driveFileId` is show-level and normally present, so this null case is the rare fallback, not the common path. (Reconciles §4's fallback with the fail-open contract: the guard is BOTH-empty, not show-level-empty, and `""` is not a valid id.)
 - **`slug` null/empty:** `showAnchor` returns null (mirrors `shareAccess:47-49`) → read-only row, no `<a>`.
@@ -189,6 +197,8 @@ The menu rows and groups are flow-layout (`flex` with `gap`, no fixed-height par
 ---
 
 ## 8. Transition inventory
+
+> **Superseded by `docs/superpowers/specs/2026-07-22-monitoring-badge-expand.md`** — transition inventory: state B merges into A; palette flip animates via the button's transition-colors.
 
 Four pill states: **A** = composite (`to confirm`/`to review`, interactive), **B** = monitoring-only (non-interactive), **C** = degraded ("Alerts unavailable"), **D** = in-sync. Menu: `closed`, `open`. All 4·3/2 = 6 pill-state pairs enumerated:
 
@@ -229,6 +239,8 @@ No `AnimatePresence` is added for any of the above.
 ---
 
 ## 11. Tests (TDD per task)
+
+> **Superseded by `docs/superpowers/specs/2026-07-22-monitoring-badge-expand.md`** — items 4 and 6, §11.5/§11.5a (matrix 9→8 cells, monitoring-only ENTRY added), and §11.6-§11.8 menu-group assertions are amended.
 
 Anti-tautology: assert against the derived data (`deriveAttentionItems` output, the classification set), not a container that renders both groups. Derive expected counts from fixtures, not hardcoded.
 

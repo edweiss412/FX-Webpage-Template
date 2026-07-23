@@ -4,6 +4,7 @@
 
 ## §1 Resolved scope — do not relitigate
 
+> **Superseded by `docs/superpowers/specs/2026-07-22-monitoring-badge-expand.md`** — the 'No tier-1/tier-2 changes' claim: tier-2 gains T2_MONITORING_ONLY.
 - **One new tier-3 composite** closes every coverage gap the class sweep found (§2). No tier-1/tier-2 changes; no UI component changes; no validator rule changes (sheet codes have no context contract — `drive_file_id` is optional storable context, matching `openSheet`'s `str(context,"drive_file_id")` fallback at `lib/adminAlerts/alertActions.ts:119`).
 - **No impeccable dual-gate:** the diff touches only `lib/dev/**` + `tests/**` — no file under `components/` or `app/` (invariant-8 UI-surface definition not triggered). The composite renders through PR #546's already-gated components.
 - **Deliberate omissions** (sweep dispositions, §2): 99+ cap states and per-code row variants are NOT given scenarios.
@@ -16,6 +17,7 @@ Every #546 UI state × existing scenario coverage:
 | State | Coverage | Disposition |
 |---|---|---|
 | Review-only pill + needs-look group | `t3-sheet-missing-mid-parse` (2 LOOK), `t2-auto-resolving`, tier-1 LOOK singles | covered |
+> **Superseded by `docs/superpowers/specs/2026-07-22-monitoring-badge-expand.md`** — the monitoring-only pill is now an interactive quiet button.
 | Monitoring-only pill (non-interactive span) | tier-1 SELF singles (`alert-sync-stalled`, `alert-drive-fetch-failed`, `alert-watch-channel-orphaned`) | covered |
 | Composite `confirm · review` | `t3-hold-pending-with-asset-drift` (1 hold + 1 LOOK) | covered |
 | Composite with monitoring segment (incl. all three) | none | **GAP → new composite** |
@@ -40,6 +42,7 @@ Every #546 UI state × existing scenario coverage:
 - `holds`: one `mi11_pending` `crew_email` hold (shape cloned from `T3_HOLD_AND_DRIFT`, distinct `entity_key`) → the actionable item
 - `warnings` ABSENT (tri-state "do not touch" branch, like `T3_SHEET_MISSING`)
 
+> **Superseded by `docs/superpowers/specs/2026-07-22-monitoring-badge-expand.md`** — the 'Monitoring summary' expectation: the menu now enumerates 2 monitoring rows (title + note), no summary line.
 **Expected derived state (pinned by test):** pill `1 to confirm · 2 to review · 2 monitoring` (interactive BUTTON); menu = confirmation header + 1 actionable row, "Needs a look" group with 2 rows (one `Open in Sheet` external — `href` ends `gallery-fixture-file/edit#gid=0`, `external: true`; one `Go to Overview` internal `/admin?show=<GALLERY_SLUG>#overview`), "Monitoring" summary "2 clearing on their own, no action needed".
 
 Materializable like every tier-3: all inputs storable; materialize writes the context verbatim, so the real modal's sheet link points at the fixture id (a dead Google URL — acceptable dev behavior, same class as `gallery-fixture-file` in the existing hold).
@@ -52,6 +55,7 @@ Two NEW test files: `tests/dev/fullSplitComposite.test.ts` (pins 1-4, derivation
 2. Derived split: exactly 1 actionable item (the hold), 2 `clearingKind === "needs_look"`, 2 `"self_heal"`.
 3. Action links: the SHEET_UNAVAILABLE item's `alert.action` equals `{ label: "Open in Sheet", href: "https://docs.google.com/spreadsheets/d/gallery-fixture-file/edit#gid=0", external: true }`; the RESYNC_QUALITY_REGRESSED item's action equals `{ label: "Go to Overview", href: "/admin?show=<GALLERY_SLUG>#overview", external: false }` (href built from the exported gallery slug, never a hardcoded literal).
 4. Composition is pinned EXACTLY (review R1 P2): the alert-code sequence `["SHEET_UNAVAILABLE","RESYNC_QUALITY_REGRESSED","SYNC_STALLED","DRIVE_FETCH_FAILED"]`, the sheet context `{drive_file_id:"gallery-fixture-file"}`, empty `{}` contexts on the other three, the label copy, and the hold's `kind`/`domain`/`entity_key`.
+> **Superseded by `docs/superpowers/specs/2026-07-22-monitoring-badge-expand.md`** — the RENDERED pin's Monitoring-summary assertion: replaced by enumerated-row assertions.
 5. RENDERED pin (review R1 P1; in `tests/dev/fullSplitCompositeRender.test.tsx`): a jsdom test mounts the REAL `PublishedReviewModal` (the #546 harness fixture) with `attentionItems = deriveScenarioAttention(scenario)` and asserts the taught state itself: pill visible text exactly `1 to confirm · 2 to review · 2 monitoring` on a BUTTON; after opening the menu, the "Needs your confirmation" header + 1 actionable row, the "Needs a look" heading with the external `Open in Sheet` link (`target="_blank"`, ↗) and the internal `Go to Overview` link — each asserted INSIDE its own needs-look row (`attention-needslook-row-<id>`), with exactly 2 such rows — and the "Monitoring" summary `2 clearing on their own, no action needed` scoped to the Monitoring heading's group container (whole-diff R1 P2).
 
 Existing self-deriving suites (index totals, e2e markers, materialize plan/run) pick the scenario up with no edits; the plan runs them to prove it.
