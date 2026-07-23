@@ -336,6 +336,9 @@ describe("ArchiveShowButton — two-tier focus contract on the non-row variants 
   const TIER1 = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
   const OFFSET_PAIR = ["focus-visible:ring-offset-2", "focus-visible:ring-offset-surface"] as const;
   const ANY_OFFSET = /^focus-visible:ring-offset-/;
+  // Tier 2 allows EXACTLY the ratified pair; a stray extra offset token would
+  // override the surface color and restore the halo.
+  const NON_PAIR_OFFSET = /^focus-visible:ring-offset-(?!2$|surface$)/;
   const tokensOf = (el: Element) =>
     new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
   const expectTier = (el: Element, tier: 1 | 2) => {
@@ -343,6 +346,10 @@ describe("ArchiveShowButton — two-tier focus contract on the non-row variants 
     for (const c of TIER1) expect([...t], `missing token ${c}`).toContain(c);
     if (tier === 2) {
       for (const c of OFFSET_PAIR) expect([...t], `missing token ${c}`).toContain(c);
+      expect(
+        [...t].filter((x) => NON_PAIR_OFFSET.test(x)),
+        "tier-2 control must carry no offset token beyond the ratified pair",
+      ).toEqual([]);
     } else {
       expect(
         [...t].filter((x) => ANY_OFFSET.test(x)),

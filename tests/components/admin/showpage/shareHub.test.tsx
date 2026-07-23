@@ -987,6 +987,10 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
   // regaining an offset, and a future bare `ring-offset-2` (white-halo bug)
   // sneaking in without its color companion on a tier-1 control.
   const ANY_OFFSET = /^focus-visible:ring-offset-/;
+  // Tier 2 allows EXACTLY the ratified pair. A stray extra offset token
+  // (e.g. `focus-visible:ring-offset-white`) would override the surface color
+  // and restore the halo while every positive assertion stayed green.
+  const NON_PAIR_OFFSET = /^focus-visible:ring-offset-(?!2$|surface$)/;
 
   it("tier 1: reset row + reset cancel carry the plain ring and NO offset", () => {
     renderHub();
@@ -1006,6 +1010,7 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
     fireEvent.click(screen.getByTestId("picker-reset-all-button"));
     expectClasses(screen.getByTestId("picker-reset-confirm-button"), {
       has: [...TIER1, ...OFFSET_PAIR],
+      forbids: [NON_PAIR_OFFSET],
     });
   });
 
@@ -1017,6 +1022,7 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
     fireEvent.click(row);
     expectClasses(screen.getByTestId("admin-rotate-share-token-confirm-button"), {
       has: [...TIER1, ...OFFSET_PAIR],
+      forbids: [NON_PAIR_OFFSET],
     });
     expectClasses(screen.getByTestId("admin-rotate-share-token-cancel-button"), {
       has: TIER1,
@@ -1032,6 +1038,7 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
     fireEvent.click(row);
     expectClasses(screen.getByTestId("archive-show-confirm-button"), {
       has: [...TIER1, ...OFFSET_PAIR],
+      forbids: [NON_PAIR_OFFSET],
     });
     expectClasses(screen.getByTestId("archive-show-cancel-button"), {
       has: TIER1,

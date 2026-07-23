@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-23
 **Status:** Ratified (autonomous-ship run; user approved 2026-07-22, spec/plan review gates waived)
-**Owner surface:** ShareHub popover (`components/admin/showpage/ShareHub.tsx`) and the four control components it renders.
+**Owner surface:** ShareHub popover (`components/admin/showpage/ShareHub.tsx`) and the five control components it renders (`ShareLinkCopyButton`, `RotateShareTokenButton`, `PickerResetControl`, `ArchiveShowButton`, `UnarchiveShowButton`).
 
 ## 1. Problem
 
@@ -86,15 +86,21 @@ navigation/arming steps — a focus ring differentiating them buys nothing and c
 in a 308px panel.
 
 Unarchive is deliberately tier 1: it is a single-tap, non-destructive, recoverable lifecycle
-action (`components/admin/UnarchiveShowButton.tsx:10` — "a single tap dispatches"); it has no
-armed state and restores access rather than revoking it.
+action with no armed state (`components/admin/UnarchiveShowButton.tsx:8-10` — "Unarchive is
+SAFE (it exposes nothing — the show lands in Held, which is crew-unreachable via the
+`!published` gate) … a single tap dispatches").
 
-`ring-offset-surface` is correct (not `-bg`/`-raised`): every tier-2 button renders on the
-panel's `bg-surface` (`components/admin/showpage/ShareHub.tsx:420`).
+`ring-offset-surface` is correct for every LIVE tier-2 render: the only render site is the
+popover, whose panel is `bg-surface` (`components/admin/showpage/ShareHub.tsx:420`). For the
+unreachable non-row archive confirms, `ring-offset-surface` is the component-family DEFAULT,
+not a proven backdrop match — the non-row wrapper and armed `<form>` carry no background
+class of their own (`components/admin/ArchiveShowButton.tsx:312-345`), so the actual backdrop
+is whatever a future host provides. A future non-surface host must restyle the offset color;
+what this pass guarantees is only that the offset gap is never the un-themed default white.
 
 ## 3. Changes
 
-### 3.1 Code (10 class-string line edits, 4 files)
+### 3.1 Code (9 changed class-string lines across 4 files; 1 further line confirmed already-correct)
 
 1. `app/admin/show/[slug]/PickerResetControl.tsx:276` (reset row): REMOVE
    `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`.
@@ -114,9 +120,9 @@ panel's `bg-surface` (`components/admin/showpage/ShareHub.tsx:420`).
    the existing `ring-offset-2` — an armed destructive confirm is tier 2 wherever it renders.
    These non-row branches are currently unreachable — the component's only render site is the
    popover row variant (`components/admin/showpage/ShareHub.tsx:557`) — but the tier rule is
-   applied by control ROLE, not render site, so future reuse cannot resurrect the halo or the
-   tier mismatch. The non-row backdrop is also `bg-surface` per the component's own class
-   strings.
+   applied by control ROLE, not render site, so future reuse cannot resurrect the un-themed
+   white halo or the tier mismatch. (See §2's caveat: for these branches `ring-offset-surface`
+   is the family default, not a proven backdrop match.)
 8. `components/admin/UnarchiveShowButton.tsx:72`: REMOVE bare `focus-visible:ring-offset-2`
    (tier 1; also removes the halo).
 
@@ -148,8 +154,12 @@ layout surface changes; the diff is focus-ring utility classes only.
     `app/admin/show/[slug]/RotateShareTokenButton.tsx:335`,
     `archive-show-confirm-button` `components/admin/ArchiveShowButton.tsx:387`) contain BOTH
     `focus-visible:ring-offset-2` AND `focus-visible:ring-offset-surface` plus the base ring
-    tokens. Catches: tier-2 dropped, and the bare-offset halo class reappearing without its
-    color.
+    tokens, AND forbid any other `focus-visible:ring-offset-*` token
+    (`/^focus-visible:ring-offset-(?!2$|surface$)/`). Catches: tier-2 dropped, the
+    bare-offset halo class reappearing without its color, and a stray extra offset token
+    (e.g. `ring-offset-white`) overriding the surface color while every positive assertion
+    stays green. The non-row `ArchiveShowButton` assertions apply the same exact-pair
+    negative.
   - Non-row Archive variants (`tests/components/admin/ArchiveShowButton.test.tsx`, which
     already renders the full + compact variants directly): trigger forbids any offset token;
     armed confirm has the full pair — in BOTH variants. Catches: the four non-row edits
@@ -174,8 +184,8 @@ layout surface changes; the diff is focus-ring utility classes only.
 - AC-1: every interactive control inside the popover carries `focus-visible:ring-2
   focus-visible:ring-focus-ring`; ONLY the three armed destructive confirms additionally
   carry `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`.
-- AC-2: zero bare `ring-offset-2` (offset without explicit offset color) remains in the five
-  touched files.
+- AC-2: zero bare `ring-offset-2` (offset without explicit offset color) remains in the four
+  edited source files.
 - AC-3: full local gates green (scoped suites + `pnpm test` + typecheck + eslint +
   format:check), impeccable dual-gate P0/P1-clean on the diff, real CI green.
 - AC-4: DEFERRED entry graduated to archive.
@@ -188,9 +198,25 @@ paint via `box-shadow`, which does not participate in layout.)
 
 ## 6. Transition Inventory
 
-N/A — no visual state, mode, or conditional render is added or removed. Focus rings are
-`--duration-instant` by design-system rule (`DESIGN.md:238`: focus rings intentionally not
-animated); this diff does not change that.
+The touched controls have two orthogonal state axes: focus (`unfocused` / `focus-visible`)
+and control lifecycle (`idle` / `armed` / `resolving`, where the destructive controls swap
+DOM between idle row and armed confirm+cancel). This diff changes WHICH ring tokens render,
+never HOW any state transitions — but per the inventory rule every pair is declared:
+
+| Transition | Treatment |
+| --- | --- |
+| unfocused → focus-visible (any control, either tier) | Instant. Rings are `box-shadow`; every touched control declares only `transition-colors` or `transition-opacity` (grep over the six files: 17× `transition-colors`, 5× `transition-opacity`, zero `transition-all`/`transition-shadow`), so box-shadow is not an animated property. Matches `DESIGN.md:238` (`--duration-instant`: focus rings intentionally not animated). |
+| focus-visible → unfocused | Instant — same mechanism. |
+| idle → armed (row swapped for confirm + cancel) | Pre-existing DOM replacement + programmatic focus move; unchanged by this diff. The newly mounted confirm's tier-2 ring appears instantly (new node, no transition from a prior value). |
+| armed → idle (cancel tap or 4s auto-revert) | Pre-existing DOM replacement + focus restore to the trigger ref; unchanged. Tier-1 ring on the restored trigger appears instantly. |
+| armed → resolving (confirm tapped, `disabled`/`aria-busy`) | Pre-existing `disabled:opacity-60` styling via `transition-opacity`/`transition-colors`; ring tokens unchanged during resolving; no ring animation. |
+| Compound: auto-revert fires WHILE the confirm is focus-visible | Confirm unmounts, focus restores to the trigger; tier-2 ring is replaced by the tier-1 ring in one paint (both instant). No crossfade — two different nodes. |
+| Compound: focus-visible held WHILE armed → resolving | Ring persists with identical tokens; only fill/opacity animates (pre-existing). |
+
+On the `DESIGN.md:239` "ring-show" entry under `--duration-fast`: that names ring
+micro-interactions on OTHER surfaces (hover/press); no touched control declares a
+box-shadow-animating transition class, so nothing in this diff participates in `ring-show`.
+No new transition classes are added anywhere in the diff.
 
 ## 7. Meta-test inventory
 
