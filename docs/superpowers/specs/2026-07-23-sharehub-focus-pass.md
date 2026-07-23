@@ -18,7 +18,7 @@ Current state (all cites at branch point `8e70ab0e4`):
 | --- | --- | --- |
 | Primary trigger + kebab | plain `ring-2 ring-focus-ring` | `components/admin/showpage/ShareHub.tsx:374`, `components/admin/showpage/ShareHub.tsx:375`, `components/admin/showpage/ShareHub.tsx:397` |
 | Mailto rows | plain | `components/admin/showpage/ShareHub.tsx:456` |
-| Copy button (3 variants; popover renders ONLY `variant="accent"`, the `:98` branch — `components/admin/showpage/ShareHub.tsx:440` render site; `:96`/`:106` render on non-popover surfaces and are UNTOUCHED by this diff) | plain | `app/admin/show/[slug]/ShareLinkCopyButton.tsx:96`, `app/admin/show/[slug]/ShareLinkCopyButton.tsx:98`, `app/admin/show/[slug]/ShareLinkCopyButton.tsx:106` |
+| Copy button (3 variants; popover renders ONLY `variant="accent"`, the `app/admin/show/[slug]/ShareLinkCopyButton.tsx:98` branch — `components/admin/showpage/ShareHub.tsx:440` render site; `app/admin/show/[slug]/ShareLinkCopyButton.tsx:96` / `app/admin/show/[slug]/ShareLinkCopyButton.tsx:106` render on non-popover surfaces and are UNTOUCHED by this diff) | plain | `app/admin/show/[slug]/ShareLinkCopyButton.tsx:96`, `app/admin/show/[slug]/ShareLinkCopyButton.tsx:98`, `app/admin/show/[slug]/ShareLinkCopyButton.tsx:106` |
 | Rotate row | plain | `app/admin/show/[slug]/RotateShareTokenButton.tsx:251` |
 | Rotate armed confirm / cancel | plain / plain | `app/admin/show/[slug]/RotateShareTokenButton.tsx:336`, `app/admin/show/[slug]/RotateShareTokenButton.tsx:346` |
 | Reset row | `ring-offset-2 ring-offset-surface` | `app/admin/show/[slug]/PickerResetControl.tsx:276` |
