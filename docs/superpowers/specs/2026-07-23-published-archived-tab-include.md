@@ -43,11 +43,23 @@ The offer consumes ONLY the **active** partition's records with code
 partition, which hides the offer without touching the warning card itself. Concrete plumbing
 (new, named): `_showReviewModal` computes `activeArchivedTabNames: string[]` from the model's
 active records for this code (raw `blockRef.name` values, blanks dropped, exact-string deduped)
-and passes it into `buildPublishedSectionData`'s existing options argument; the adapter builds a
-new `PublishedSectionData.archivedTabOffer: { tabNames: string[]; slug: string } | null` field
-(null unless `published && !archived && driveFileId != null && tabNames.length > 0`), and the
-Pack-list render callsite (`components/admin/wizard/step3ReviewSections.tsx:4086-4093`) forwards
-it to `PackListBreakdown` as an optional prop. The raw `internal.parse_warnings` array
+and passes it into `buildPublishedSectionData`'s existing options argument. Derivation ORDER
+in `_showReviewModal` is restated explicitly: the warning model derives from the SNAPSHOT
+(`buildSectionWarningModel`, `app/admin/_showReviewModal.tsx:328`), so the modal computes the
+model FIRST, then calls the adapter — a pure reordering of two snapshot-derived computations
+(the model does not consume `publishedData`; the plan pins the exact argument list). The
+adapter builds TWO new published-only fields (the shared strict
+`SectionCore.pullSheetOverride: OverrideSnapshot` at
+`components/admin/review/sectionData.ts:25` stays null and untouched — wizard machinery keeps
+its exact type):
+`PublishedSectionData.archivedTabOffer: { tabNames: string[]; slug: string } | null`
+(null unless `published && !archived && driveFileId != null && tabNames.length > 0`) and
+`PublishedSectionData.pullSheetOverrideWire` (§4 null-tolerant shape). The Pack-list render
+callsite (`components/admin/wizard/step3ReviewSections.tsx:4086-4093`) forwards both to
+`PackListBreakdown` via one new optional prop:
+`publishedGear?: { offer: { tabNames: string[]; slug: string } | null; wire: PullSheetOverrideWire; slug: string; driveFileId: string | null }`
+— present only in published mode; its presence (not `wizardSessionId` absence) gates the
+published card rendering, and the P3 note + Undo read `wire` exclusively. The raw `internal.parse_warnings` array
 (`components/admin/review/publishedAdapter.ts:92`) is NOT used directly.
 
 States (P-states; full transition inventory in §2.4):
@@ -94,7 +106,7 @@ resurfaces this decision.
 | `pullSheetOverride` | non-null | P3, regardless of warning presence. |
 | `pullSheetOverride` stored non-null JSON with missing/null/empty fields | — | P3-degraded: note renders with generic label "an archived tab" and a working Undo. Projection preserves the stored values verbatim (nulls included, §4) so the round-tripped `expectedOverrideSnapshot` still CAS-matches and the row is recoverable via Undo. Never collapsed to absent. |
 | Show lifecycle | `archived = true` OR `published = false` | No offer, no note actions (P3 note still renders read-only if override set, minus Undo). `archived` and `published` are independent booleans; legacy `archived && published` rows exist (`supabase/migrations/20260602000000_b2_r4_unarchive_held_and_finalize_admin_guard.sql:5-8`). |
-| `driveFileId` | null | No offer (route and RPC key on it). |
+| `driveFileId` | null | No offer AND the P3 note renders read-only (no Undo — the route body requires `driveFileId`, so the action is removed exactly like the lifecycle-disabled rows). |
 | Multiple active archived-tab records | >1 | One offer card per distinct RAW `blockRef.name` (exact string identity; NO trimming anywhere on the wire — the name originated from the exporter's exact sheet name, `lib/drive/exportSheetToMarkdown.ts:331`, and reconcile also matches exactly), deduped, counted AFTER the active-partition filter and the blank-name drop; capped at 3; beyond cap, one line: "and N more archived tabs. Resolve these in the sheet." Display may trim for layout; the posted value is always raw. |
 | Pull sheet cases | empty + P2 active | Offer replaces the bare empty-state line (mirrors wizard S1-vs-S2 rule at `components/admin/wizard/step3ReviewSections.tsx:2297`). |
 | Route body: `driveFileId` | absent, non-string, empty, or whitespace-only | 400 `bad_request`; no write. |
@@ -107,34 +119,39 @@ resurfaces this decision.
 
 ### 2.4 Transition inventory
 
-States: P1, P2, P3, P-busy, P-err (5 states, 10 unordered pairs).
+States: P1, P2, P3, P-busy, P-err (5 states, 10 unordered pairs — one row each; direction
+noted per cell). All transitions instant; no `AnimatePresence`.
 
-| Pair | Treatment |
+| Pair | Reachable directions + treatment |
 | --- | --- |
-| P1↔P2 | Instant — data-driven mount/unmount (warning becomes active/ignored). |
-| P1↔P3 | Instant — override appears/clears via external refresh (another session, auto-clear). |
-| P1↔P-busy | Unreachable (busy only originates from P2/P3 actions). |
-| P1↔P-err | Unreachable directly; P-err collapses to P1/P2/P3 on refresh. |
-| P2↔P3 | Unreachable directly (always via P-busy). |
-| P2→P-busy | Include click: instant disable + syncing line. |
-| P-busy→P3 | Include success: instant swap on `router.refresh()` landing. |
-| P3→P-busy | Undo click: instant disable. |
-| P-busy→P2 | Undo success: instant swap on refresh. |
-| P-busy→P-err | Failure: instant; error line appears, labeled by origin ("Include failed…" vs "Undo failed…"). |
-| P-err→P-busy | Retry click: instant. |
-| P-err→P1/P2/P3 | External refresh reconciles to data-derived state; transient error line does not survive refresh (accepted — §7). |
-| P2→P1 (Skip) | Instant collapse of that card only. Focus moves to the section wrapper `tabIndex={-1}` fallback (existing pattern, `components/admin/wizard/step3ReviewSections.tsx:2298-2301` comment) so the focus-trapped modal never strands focus on `<body>`. |
+| P1↔P2 | Both ways, data-driven: warning becomes active/ignored on refresh. Instant mount/unmount. Skip is a local P2→P1 collapse of that card only; focus moves to the section wrapper `tabIndex={-1}` fallback (`components/admin/wizard/step3ReviewSections.tsx:2298-2301` comment). |
+| P1↔P3 | Both ways, data-driven via external refresh (another session's include, cron auto-clear). Instant swap. |
+| P1↔P-busy | P-busy→P1 only (Undo resolves and the refreshed data carries no active warning, §7). P1→P-busy unreachable (no action exists in P1). Instant swap on refresh landing. |
+| P1↔P-err | Neither direction as a direct action edge; P-err clears to the data-derived state (which may be P1) via the §7 refresh semantics. Instant. |
+| P2↔P3 | Unreachable directly — always via P-busy. |
+| P2↔P-busy | P2→P-busy on Include click (own card disables, syncing line). P-busy→P2 on: Undo success (offer re-derives), OR Include-then-drift (chained sync auto-cleared; warning re-raised). Instant. |
+| P2↔P-err | P-busy is always interposed on the way in (P2→P-busy→P-err); P-err→P2 via §7 refresh semantics when the refreshed data still derives P2. Instant. |
+| P3↔P-busy | P3→P-busy on Undo click. P-busy→P3 on Include success. Instant. |
+| P3↔P-err | Via P-busy on the way in (P3→P-busy→P-err on failed Undo); P-err→P3 via refresh when override still set (e.g. failed revoke). Instant. |
+| P-busy↔P-err | P-busy→P-err on any non-200 or classifier-generic failure, line labeled by origin ("Include failed…" vs "Undo failed…"). P-err→P-busy on retry click. Instant. |
+
+P-err lifetime (single rule, referenced above): every P-err render also triggers exactly one
+automatic `router.refresh()` when the response was 409 `stale_review` (mirroring the wizard's
+refresh-on-409, `components/admin/wizard/archivedTabOffer.tsx:67`); all other P-err variants
+wait for user retry or external refresh. When refreshed data re-renders the section, the
+resulting state is purely data-derived (P1/P2/P3); an error line lives in the card instance's
+client state and does not outlive its unmount.
 
 Compound transitions:
 
 | Compound | Treatment |
 | --- | --- |
-| Modal closes mid P-busy | No special handling; request completes server-side; next open reflects DB state. |
+| Modal closes mid P-busy | No client handling. Server-side fact (not a lifecycle claim): the route handler runs to completion independent of the client connection, so the RPC/audit/sync all finish; next open reflects DB state. |
 | One of several offer cards busy, another clicked | Cards are independent; second click allowed. Server serializes via CAS — the loser gets 409 → its card shows P-err (stale) and refresh reconciles. |
 | One card busy, another Skipped | Skip is local collapse; unaffected. |
 | Durable Ignore lands (other admin) while Include busy | Include response still applies (server-side); refresh reconciles to P3. |
 | Lifecycle change (archive/unpublish) while busy, pre-RPC-commit | RPC guard rejects (§3.2) → P-err with typed copy; refresh hides actions per §2.3. Post-commit window: see row below. |
-| Realtime/modal refresh while busy | Busy card keeps local state until its request resolves (existing form-action pattern; same as Re-sync button behavior, `components/admin/ReSyncButton.tsx:269`). |
+| Realtime/modal refresh while busy | NO survival guarantee is claimed or needed: if the card instance survives, it resolves normally; if the refresh remounts it, the in-flight request still completes server-side and the remounted card renders the data-derived state (busy/error lines are instance-local and disposable). No behavior in this spec depends on client state surviving a refresh, so no lifecycle probe is required (empirical-spike rule satisfied by descope). |
 | Include succeeds but sheet drifted; chained sync auto-clears the override | Refresh lands in P2 (offer again) with the drift warning re-raised by cron — data-derived, no special client handling. |
 | Undo succeeds; current published parse carried no archived-tab warning | Refresh lands in P1 (no active warning) or P2 (warning re-raised by the chained sync) — both legal data-derived endpoints. |
 | Archive/unpublish AFTER RPC commit, before/during chained sync | Override is committed; sync path applies its own gates. Card resolves per §3.4 `sync` sub-object; refresh then hides actions per §2.3 lifecycle row. (§2.3's RPC rejection covers only the pre-commit window.) |
@@ -228,7 +245,7 @@ cron reader and reconcile/auto-clear consume it with zero changes.
 - Sheet content changing between the route's scan and the RPC commit is NOT bounded by the CAS
   (the CAS guards the override row, not the sheet); it is caught by the next sync's fingerprint
   reconcile → auto-clear + warn. Fail-safe direction: never force-include changed gear.
-- Two admins / double-click: second CAS fails `40001` → 409 `stale_review` → UI refreshes.
+- Two admins / double-click: second CAS fails `40001` → 409 `stale_review` → the losing card shows the §7 stale line and auto-triggers one `router.refresh()` (§2.4 P-err lifetime rule).
 - No new race machinery is introduced; all four mechanisms above are shipped code.
 
 ### 3.4 Response contract
@@ -274,14 +291,17 @@ used (no server-side refresh step in this route).
   `readShowReviewSnapshot` (`lib/admin/readShowReviewSnapshot.ts:40`).
 - **Projection contract:** `publishedAdapter` maps the stored value to
   `pullSheetOverrideWire: null | { tabName: string | null, fingerprint: string | null }`:
-  stored null → null; stored non-null (any shape) →
-  `{ tabName: str(raw.tabName) ?? null, fingerprint: str(raw.fingerprint) ?? null }` —
-  values preserved VERBATIM (no trim, no empty-collapse), `acceptedBy`/`acceptedAt` dropped
+  stored null → null; stored non-null (any shape) → per-field projection that REPRODUCES
+  PostgreSQL `->>` semantics exactly: absent or JSON null → null; string → verbatim (no trim,
+  no empty-collapse); number/boolean → its JSON text (`String(v)`); object/array → its compact
+  JSON serialization (`JSON.stringify(v)`). `acceptedBy`/`acceptedAt` dropped
   (`components/admin/review/publishedAdapter.ts:82` replaces its hard-coded null). This matches
-  the RPC's own projection semantics exactly (`jsonb_build_object` with `->>` extraction yields
-  JSON nulls for missing fields, `supabase/migrations/20260706000000_pull_sheet_override.sql:66-67`),
-  so ANY stored value — including malformed rows — round-trips through the UI's
-  `expectedOverrideSnapshot` and CAS-matches. Malformed rows therefore render P3-degraded with a
+  the RPC's projection (`jsonb_build_object` over `->>`,
+  `supabase/migrations/20260706000000_pull_sheet_override.sql:66-67`) for EVERY JSON value
+  class — absent, null, string, number, boolean, object, array — so ANY stored value,
+  including malformed rows like `{tabName:123,fingerprint:false}`, round-trips through the
+  UI's `expectedOverrideSnapshot` and CAS-matches (the adapter's generic `str()` helper at
+  `components/admin/review/publishedAdapter.ts:241` is NOT used for these fields). Malformed rows therefore render P3-degraded with a
   working Undo (§2.3), never a stuck 40001. The strict two-string `OverrideSnapshot` type
   (`lib/sync/pullSheetOverride.ts:22`) is not reused for this wire field; the published variant
   carries the null-tolerant shape.
@@ -327,10 +347,10 @@ catalog codes — statuses are not error codes and no raw status token reaches t
 
 | Status | Inline copy (component-level, exact) |
 | --- | --- |
-| `stale_review` | "This changed elsewhere. Refreshing the page picks up the latest state." |
+| `stale_review` | "This changed elsewhere. Refreshing to the latest state." (The card ALSO auto-triggers exactly one `router.refresh()` — §2.4 P-err lifetime rule; no user action required.) |
 | `no_pull_sheet_region` | "That tab is no longer in the sheet. Re-check the sheet, then try again." |
 | `lifecycle_conflict` | "This show is no longer editable here. Refresh to see its current state." |
-| `sync_infra` / network / thrown | "Something went wrong on our side. Try again in a moment." |
+| `sync_infra` / `bad_request` / 401 / 403 / non-JSON body / unrecognized status / network / thrown | "Something went wrong on our side. Try again in a moment." (TOTAL generic bucket: any response not matching another row lands here; no status token, HTTP code, or raw error ever reaches the DOM.) |
 | `override_set`, `sync.kind: "stage"` | "Saved. This change is held for review, so gear appears after that review is applied." |
 | `override_cleared`, `sync.kind: "stage"` | "Undone. This change is held for review, so it shows after that review is applied." |
 | `override_set`, any other `sync.ok: false` kind | "Saved. The sync did not finish, so gear appears after the next sync, or use Re-sync." |
@@ -409,8 +429,9 @@ Lifecycles: published-normal, archived, unpublished, held-live-staged, wizard, f
 ## 11. Out of scope
 
 - Gear preview before include (Option B) — rejected this brainstorm.
-- Offer on StagedReviewCard surfaces or the first-seen page (they get the §2.2 guidance
-  override only) — rejected ("both views" option).
+- Any change on StagedReviewCard surfaces or the first-seen page (the warning never renders
+  there, §2.2; the earlier pointer/guidance-override idea is DELETED) — rejected ("both
+  views" option).
 - Persisted archived-tab metadata on `shows` — rejected (scan-at-click chosen).
 - An "applied vs pending" indicator beyond the §2.1 P3 intent phrasing (would require a durable
   applied-snapshot column — new schema, rejected with the previous line).
