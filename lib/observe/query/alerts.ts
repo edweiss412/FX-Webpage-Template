@@ -59,6 +59,8 @@ export async function queryAlerts(filters: AlertFilters): Promise<QueryAlertsRes
     // returned count is intentionally ignored.
     let query = supabase.from("admin_alerts").select(SELECT, { count: "exact" });
     if (filters.openOnly) query = query.is("resolved_at", null);
+    if (filters.showIdOrGlobal)
+      query = query.or(`show_id.eq.${filters.showIdOrGlobal},show_id.is.null`);
     const code = filters.code?.trim();
     if (code) query = query.eq("code", code);
     const { data, error } = await query
