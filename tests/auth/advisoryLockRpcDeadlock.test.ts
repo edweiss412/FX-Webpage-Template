@@ -70,6 +70,10 @@ function lockTakingRpcNames(): string[] {
     // acquires pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id)) FIRST in its own
     // body (sole show: holder; the JS route never locks). Advisory-then-row (no FOR UPDATE).
     "supabase/migrations/20260706000000_pull_sheet_override.sql",
+    // Published-show archived-tab override (spec 2026-07-23 §3.2) — set_published_pull_sheet_override
+    // acquires pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id)) FIRST in its own body
+    // (sole show: holder; the JS route app/api/admin/show/pull-sheet-override never locks).
+    "supabase/migrations/20260723090000_published_pull_sheet_override.sql",
   ];
 
   const names = new Set<string>();

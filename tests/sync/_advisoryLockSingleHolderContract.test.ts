@@ -131,6 +131,13 @@ const lockHolderRegistry = [
     key: "hashtext('show:' || drive_file_id)",
   },
   {
+    path: "supabase/migrations/20260723090000_published_pull_sheet_override.sql",
+    holder: "set_published_pull_sheet_override",
+    layer:
+      "SECURITY DEFINER published-show accept/revoke writer is the SOLE show: lock holder (pg_advisory_xact_lock IN-RPC); the JS route app/api/admin/show/pull-sheet-override/route.ts never locks",
+    key: "hashtext('show:' || drive_file_id)",
+  },
+  {
     path: "lib/sync/lockedPromoteTx.ts",
     holder: "withPromoteLock",
     layer: "JS-side transaction wrapper for post-commit storage promotion",
