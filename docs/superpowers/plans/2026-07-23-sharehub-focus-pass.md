@@ -13,7 +13,7 @@
 - Two-tier rule (spec §2): tier 1 = `focus-visible:ring-2 focus-visible:ring-focus-ring`, NO offset; tier 2 (armed destructive confirms only) = tier 1 + `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`.
 - Zero bare `ring-offset-2` (offset without explicit color) in touched files (spec AC-2).
 - No DOM, copy, color-token, spacing, or behavior changes. Focus rings stay `--duration-instant` (no animation).
-- Commit per task, conventional commits (invariant 6). TDD per task (invariant 1): EVERY change — including gate fixes and review-round repairs — lands failing-test-first wherever a test can express it; prose/docs repairs are exempt.
+- Commit per task, conventional commits (invariant 6). Autonomous runs: EVERY task closes by advancing `<worktree>/.claude/ship-state.json` (`stage` = the next task's id, `tasksRemaining` shrunk, `next` = the next concrete action) in the same turn as the task's commit — the hourly nudge and Stop gate read this file, and a stale marker resumes the wrong action. TDD per task (invariant 1): EVERY change — including gate fixes and review-round repairs — lands failing-test-first wherever a test can express it; prose/docs repairs are exempt.
 - UI files touched: impeccable dual-gate (critique + audit) required before whole-diff review (invariant 8).
 - Meta-test inventory (spec §7): none applies — no Supabase boundary, no sentinel text, no admin-alert code, no advisory lock, no email path, no mutation surface.
 - Advisory-lock topology: N/A — no `pg_advisory*` surface touched.
@@ -213,7 +213,7 @@ describe("ArchiveShowButton — two-tier focus contract on the non-row variants 
 });
 ```
 
-Concrete failure modes: each tier-1 assertion fails if the pass is reverted or a bare offset reappears (white halo); each tier-2 `has` fails if the offset pair is dropped OR ships bare (`ring-offset-2` without `ring-offset-surface` — the exact dark-mode defect). `has`+`exactly` go through `expectClasses` token sets, so `sm:focus-visible:ring-offset-2` variants cannot ride along unnoticed on the `exactly` path, and substring matches cannot fake a token.
+Concrete failure modes (the oracle is `ringTokens(el)` SET EQUALITY, not `expectClasses` forbids — only the rewritten reset-row guard still goes through `expectClasses`): a tier-1 control failing means it lost a base ring token, gained any offset token (bare-offset white halo included), or gained a competing ring width/color; a tier-2 control failing means the pair is incomplete OR any extra ring-family token (variant-prefixed riders like `sm:focus-visible:ring-offset-2` included) rode along. Diagnostics print the full sorted token-set diff.
 
 - [ ] **Step 3: Run the suite to verify the new assertions FAIL against current code**
 
@@ -269,7 +269,7 @@ In `DEFERRED-archive.md`, append to the Share hub section the original three bul
 Run all three, each must hit:
 - `rg -n "SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE graduated" DEFERRED.md` — exactly 1 hit, on the `Last reconciled:` line (the reconciliation note).
 - `rg -c "^### SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE" DEFERRED.md || true` — 0 (the entry block itself is gone).
-- `rg -n "P1 caret|P2.*[Ff]ocus-ring|P3.*[Cc]aret" DEFERRED-archive.md | rg -c "SHAREHUB|caret|focus"` — the archive section carries all three disposition bullets (spot-check the three bullets exist under the "Share hub focus pass (2026-07-23)" heading).
+- `sed -n '/^## Share hub focus pass (2026-07-23)/,/^## /p' DEFERRED-archive.md | rg -c '^- \*\*\[P[123]\]'` — MUST print exactly `3`: the three disposition bullets ([P1] caret anchor, [P2] focus-ring, [P3] caret shadow) inside that section and no other.
 
 ```bash
 git add DEFERRED.md DEFERRED-archive.md
@@ -297,6 +297,10 @@ Run `/impeccable critique` and `/impeccable audit` on the diff (canonical v3 set
 - [ ] **Step 3: Commit any gate fixes**
 
 One commit per fix class, conventional format (`fix(admin): …` / `test(admin): …`).
+
+- [ ] **Step 4: Revalidate after any gate fix (loop until clean)**
+
+If Step 2/3 changed ANY file: re-run the affected test suites AND the full Step 1 gate set, then re-run `/impeccable critique` + `/impeccable audit` scoped to the post-fix diff. Loop Steps 2-4 until a pass produces zero new P0/P1 and zero code mutations. Only then proceed to Task 4.
 
 ### Task 4: Whole-diff review + ship
 
