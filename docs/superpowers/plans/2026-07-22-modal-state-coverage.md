@@ -283,6 +283,15 @@ gh run watch "$run_id" --exit-status
 
 **Plan R1 (Codex via codex-guard, 2026-07-22): BLOCKING, 7 findings — all repaired.** F1: e2e specs now authored red in Task 6 Step 1 (TDD); Task 7 is the green run. F2: parity walker completed (openSheetHref, archived/published mirroring, sync trio, feed row) and `AppliedFixture` owns the previewRoster blanking. F3: provider-remount test exercises the two key-only transitions (active→null; epoch-advanced switch). F4: changelog pin corrected to applied×6 / 12 entries. F5: explicit 12-tile + "+1 more" grid assertion added. F6: close-out explicitly dispatches `dev-gate-e2e.yml` via workflow_dispatch and waits. F7: agenda assertion rewritten strict-safe.
 
+## Whole-diff review record (Stage 4.1)
+
+Split tight-scope reviews per the large-diff default (26 files, +3400): scope A = production feed extraction + fixture/parity layer; scope B = scenario schema/roster + switcher UI + e2e. Tool-using codex-guard dispatches died (no_o_file x3 both scopes — the documented class); the inlined-artifact rung (full diff embedded, tools forbidden) produced real reviews every round.
+
+- **R1 (both scopes): NEEDS-ATTENTION, 11 findings — all repaired in c2e4b8b19.** A-P1: crewEmails only re-derived on share/over-cap fixtures (base emails leaked through crew mutations) — now re-derived for EVERY fixture. A-P1: isLive asserted true instead of derived — now runs production's published && isShowLiveOnDate over the reshaped snapshot. B-P1: unknown fixture/volume keys validated as silent no-ops — FIXTURE_KEYS/VOLUME_KEYS allowlists added. B-P1: empty hotels x volumes.hotelGuests shadow guard missing — added. B-P1 + A/B-P2: missing/weak pins (feedNull x holds arm, archived-without-explicit-published, specific-message assertions, ignored-fingerprint identity, alert-flash first-raw-cut probe, exact-500 boundary, crew_added/crew_removed undo, all four overflow cap notes, seven empty-section copies, share note vs rendered batch rows) — all added.
+- **A R2: APPROVE.**
+- **B R2: NEEDS-ATTENTION, 3 findings — 2 repaired in d1002c93b, 1 refuted.** Venue empty-copy assertion added; per-row changelog matrix pins added (stable entry ids, per-row status/acceptable/action/acknowledged). REFUTED: "first-raw-alert-cut flash probe absent" — the probe lives in tests/dev/buildScenarioModalData.test.ts, which is scope A's file set (A had already APPROVED it); it was absent from B's inlined diff, not from the branch. R3 confirmed the refutation with the file inlined.
+- **B R3: APPROVE, no findings.**
+
 ## Impeccable gate record (Task 8, invariant 8)
 
 **Method:** dual-agent critique (Assessment A: design-review subagent with live-browser sampling of 8 new scenarios on the built :3001 artifact, mobile 390x844 + desktop 1280x800; Assessment B: detect.mjs + mechanical checks subagent) followed by the technical audit synthesis over the same evidence. Both halves ran on the branch diff vs origin/main.
