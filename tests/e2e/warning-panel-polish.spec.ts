@@ -330,9 +330,7 @@ test.describe("pointer overflow reveal (announcer spec §4.2-4.3)", () => {
     await signInAs(page, ADMIN_FIXTURE);
   });
 
-  test("reveal button expands the list; a revealed name scrolls its section", async ({
-    page,
-  }) => {
+  test("reveal button expands the list; a revealed name scrolls its section", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(`/admin?show=${revealShow.slug}`);
     await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });

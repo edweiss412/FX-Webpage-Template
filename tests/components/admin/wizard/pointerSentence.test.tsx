@@ -185,8 +185,7 @@ describe("overflow reveal (announcer spec 2026-07-22 §4.2-4.3)", () => {
   ];
   // Derived, never hardcoded (plan-review R1 F7).
   const EXTRA_N = T5.length - POINTER_NAME_CAP;
-  const revealLabel = (n: number) =>
-    n === 1 ? "Show 1 more section" : `Show ${n} more sections`;
+  const revealLabel = (n: number) => (n === 1 ? "Show 1 more section" : `Show ${n} more sections`);
   const FULL_SENTENCE =
     "The warnings that need a look are in Crew, Contacts, Hotels, Transport, and Rooms & scope. Nothing else to note here.";
 
@@ -240,7 +239,10 @@ describe("overflow reveal (announcer spec 2026-07-22 §4.2-4.3)", () => {
     cleanup();
     // extra=1, miss=0, callback: SINGULAR accessible name (R2 F4 boundary).
     renderChrome({
-      pointerTargets: { targets: T5.slice(0, POINTER_NAME_CAP + 1), totalSections: POINTER_NAME_CAP + 1 },
+      pointerTargets: {
+        targets: T5.slice(0, POINTER_NAME_CAP + 1),
+        totalSections: POINTER_NAME_CAP + 1,
+      },
       onJumpToSection: vi.fn(),
     });
     expect(screen.getByRole("button", { name: "Show 1 more section" }).textContent).toBe("1 more");
@@ -254,7 +256,10 @@ describe("overflow reveal (announcer spec 2026-07-22 §4.2-4.3)", () => {
     cleanup();
     // extra=0, miss>0, callback: plain clause (R1 F9 dead-button boundary).
     renderChrome({
-      pointerTargets: { targets: T5.slice(0, POINTER_NAME_CAP), totalSections: POINTER_NAME_CAP + 1 },
+      pointerTargets: {
+        targets: T5.slice(0, POINTER_NAME_CAP),
+        totalSections: POINTER_NAME_CAP + 1,
+      },
       onJumpToSection: vi.fn(),
     });
     expect(screen.queryByRole("button", { name: /Show/ })).toBeNull();
@@ -262,7 +267,10 @@ describe("overflow reveal (announcer spec 2026-07-22 §4.2-4.3)", () => {
     cleanup();
     // extra>0 AND miss>0, callback: plain unified clause, no reveal button.
     renderChrome({
-      pointerTargets: { targets: T5.slice(0, POINTER_NAME_CAP + 1), totalSections: POINTER_NAME_CAP + 2 },
+      pointerTargets: {
+        targets: T5.slice(0, POINTER_NAME_CAP + 1),
+        totalSections: POINTER_NAME_CAP + 2,
+      },
       onJumpToSection: vi.fn(),
     });
     expect(screen.queryByRole("button", { name: /Show/ })).toBeNull();
@@ -283,9 +291,7 @@ describe("overflow reveal (announcer spec 2026-07-22 §4.2-4.3)", () => {
     for (const t of T5.slice(POINTER_NAME_CAP)) {
       fireEvent.click(screen.getByRole("button", { name: t.label }));
     }
-    expect(onJump.mock.calls.map((c) => c[0])).toEqual(
-      T5.slice(POINTER_NAME_CAP).map((t) => t.id),
-    );
+    expect(onJump.mock.calls.map((c) => c[0])).toEqual(T5.slice(POINTER_NAME_CAP).map((t) => t.id));
   });
 
   it("expanded is a sticky preference derived against CURRENT data (R2 F2, R3 F3, R4 F3)", async () => {
