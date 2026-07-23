@@ -51,4 +51,22 @@ drop) are covered by the Task 4/3 test suites.
 
 ## §12 Impeccable findings + dispositions
 
-(Filled by the Task 8 dual-gate run.)
+**Critique: 32/40, dual-agent (A: design review, B: detector), zero P0/P1.**
+Detector: 0 in-diff findings (1 pre-existing false positive: `<img>` token in a
+doc comment at step3ReviewSections.tsx:3440). AI-slop verdict clean.
+
+| Finding | Sev | Disposition |
+| --- | --- | --- |
+| Adjacent inline name buttons' 44px overlays can overlap for short labels | P2 | Accepted — the shipped §8.8 e2e (mobile wrap, full 2D pairwise rect-intersection) runs against the real registry labels including short "Crew" and passes; the reveal reuses the same recipe and label set. Monitored, not changed. |
+| Sighted single-ignore has no visible confirmation (row vanishes post-refresh) | P2 | Noted, not changed — visible-parity is the ratified §1.1 item 1 standard (sighted users already experience silent row removal); a visible confirmation is a new feature beyond this bundle's scope. |
+| Reveal is one-way per mount (no collapse) | P3 | Ratified in spec §4.3 (owner decision). |
+| focus-visible ring-offset halo on inline buttons may mismatch card bg | P3 | Accepted parity — recipe is the shipped name-button class, unchanged by this diff. |
+| Announce-before-refresh could drop if the surface remounted on refresh | P3 | Refuted for the live tree: `router.refresh()` is a soft refresh preserving client component state (the modal remounts only on `key={showId}` change); unmount-drop is the spec §2.5 designed behavior. |
+| Log region had no accessible name | minor | FIXED in-branch (`aria-label="Warning updates"`, commit 54dfcae18) with test pin. |
+| Reveal aria-label uses `extra.length`, visible text uses `overflowN` | minor | Correct by construction (`revealEligible` requires `missCount === 0`, making them equal); invariant carried by the §5.4 boundary tests. |
+
+**Audit: 20/20 (A11y 4, Performance 4, Responsive 4, Theming 4,
+Anti-patterns 4), zero P0/P1/P2.** Scoped diagnostic over the diff: token-only
+classes, capped append-only log (no timers/rAF), stable memoized context
+value, inline-wrap responsive sentence re-verified by the Task 6 e2e run,
+detector clean in-diff.
