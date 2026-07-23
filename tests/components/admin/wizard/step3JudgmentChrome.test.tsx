@@ -119,7 +119,7 @@ const PREEXISTING_TRANSITION_COUNTS: Record<string, number> = {
   // spec §9, so this bump is an acknowledged, spec-sanctioned rail affordance —
   // NOT a new state-swap animation (all pairs stay instant; the sole animated
   // element remains the sliding rail indicator).
-  "Step3ReviewModal.tsx": 10,
+  "Step3ReviewModal.tsx": 11, // +1 dev-capture icon transition-colors (dev-modal-capture, instant states)
 };
 
 describe("§7.4 transition audit — 2a static guard (all pairs instant)", () => {

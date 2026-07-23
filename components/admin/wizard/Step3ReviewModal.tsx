@@ -464,6 +464,7 @@ export function Step3ReviewModal({
                 between the status chip and close — same idiom as the header
                 sheet-link anchor. Busy state disables + spins; the adjacent
                 status node carries busy/error copy (§7.1). */}
+            {/* §11: instant — deliberate (developer flag is session truth, not a state transition) */}
             {viewerIsDeveloper ? (
               <>
                 <button
@@ -475,18 +476,21 @@ export function Step3ReviewModal({
                   onClick={() => devCapture.run()}
                   className="inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60"
                 >
+                  {/* §11: instant — deliberate (busy glyph swap; spec 2026-07-22 §7.4 all-instant) */}
                   {devCapture.state === "busy" ? (
                     <Loader2 aria-hidden="true" className="size-4 animate-spin" />
                   ) : (
                     <Camera aria-hidden="true" className="size-4" />
                   )}
                 </button>
+                {/* §11: instant — deliberate (status text presence; spec 2026-07-22 §7.4 all-instant) */}
                 {devCapture.state !== "idle" ? (
                   <span
                     role="status"
                     data-testid={`wizard-step3-card-${dfid}-dev-capture-status`}
                     className="text-xs text-text-subtle"
                   >
+                    {/* §11: instant — deliberate (copy swap; spec 2026-07-22 §7.4 all-instant) */}
                     {devCapture.state === "busy"
                       ? "Capturing the modal…"
                       : "Capture failed. Details are in the browser console."}
