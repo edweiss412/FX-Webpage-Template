@@ -360,6 +360,37 @@ describe("modal-state roster (spec §3.6)", () => {
     expect(mscDerive(s)).toHaveLength(1);
   });
 
+  test("t2-changelog-history: PER-ROW composition, localized to each matrix row (review B R2)", () => {
+    // Aggregate multisets cannot catch an acknowledgement migrating between
+    // rows or Accept/Undo splitting across rows while totals hold. Pin each
+    // §3.6 matrix row by its stable feed-entry id (`<scenario>-log-<index>`).
+    const feed = mscFeed(mscById("t2-changelog-history"));
+    const byId = new Map(feed!.entries.map((e) => [e.id, e]));
+    const rows: Array<[number, string, boolean, string, boolean]> = [
+      // [index, status, acceptable, action, acknowledged]
+      [0, "applied", false, "undo", false], // (1) undo-only mi11_approve rename
+      [1, "applied", true, "none", false], // (2) accept
+      [2, "applied", true, "none", false], // (3) accept
+      [3, "applied", true, "undo", false], // (4) accept AND undo co-rendered
+      [4, "applied", false, "none", true], // (5) acknowledged -> Accepted tag
+      [5, "rejected", false, "none", false], // (6) rejected badge
+      [6, "undone", false, "none", false], // (7) undone, never acknowledged
+      [7, "undone", false, "none", true], // (8) undone + Accepted together
+      [8, "superseded", false, "none", false], // (9) superseded
+      [9, "applied", false, "none", false], // (10) PLAIN applied: no action, no tag
+      [10, "superseded", false, "none", true], // (11) superseded + Accepted together
+    ];
+    for (const [i, status, acceptable, action, acked] of rows) {
+      const e = byId.get(`t2-changelog-history-log-${i}`);
+      expect(e, `log-${i} present`).toBeDefined();
+      expect(e?.status, `log-${i} status`).toBe(status);
+      expect(e?.acceptable, `log-${i} acceptable`).toBe(acceptable);
+      expect(e?.action, `log-${i} action`).toBe(action);
+      expect(e?.acknowledgedAt !== null, `log-${i} acknowledged`).toBe(acked);
+    }
+    expect(byId.has("t2-changelog-history-hold-0")).toBe(true);
+  });
+
   test("t2-hold-dispositions: all four hold renderings, folded rename distinct from plain", () => {
     const feed = mscFeed(mscById("t2-hold-dispositions"));
     expect(feed).not.toBeNull();

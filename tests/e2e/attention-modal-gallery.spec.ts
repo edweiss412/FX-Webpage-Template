@@ -518,6 +518,7 @@ test.describe("attention modal switcher gallery", () => {
     // the scenario empties crew, venue, rooms, hotels, transport, contacts,
     // billing, agenda AND absents dates.
     await expect(dialog.getByText("No crew parsed.")).toBeVisible();
+    await expect(dialog.getByText("No venue details parsed.")).toBeVisible();
     await expect(dialog.getByText("No rooms parsed.")).toBeVisible();
     await expect(dialog.getByText("No hotels parsed.")).toBeVisible();
     await expect(dialog.getByText("No transportation parsed.")).toBeVisible();
