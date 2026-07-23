@@ -70,3 +70,17 @@ Anti-patterns 4), zero P0/P1/P2.** Scoped diagnostic over the diff: token-only
 classes, capped append-only log (no timers/rAF), stable memoized context
 value, inline-wrap responsive sentence re-verified by the Task 6 e2e run,
 detector clean in-diff.
+
+## Whole-diff review record
+
+Split tight-scope inlined briefs (announcer / pointer-sentence). Announcer:
+R1 NEEDS-ATTENTION (5 findings: 3 repaired - same-node asserts, monotonic-id
+assert, import dedupe; 1 accepted - layout-effect trim is pre-paint
+equivalent; 1 REFUTED - "unused visibleWarningRows import" has a live use at
+ShowReviewSurface.tsx:275, a diff-only confabulation) then R2 APPROVE.
+Pointer: R1 NEEDS-ATTENTION (joiner grammar fixed + 1+1/2+1 pins; component
+branch-position audit added; e2e count comment scoped; line-scanner
+formatting-sensitivity accepted pre-existing) then R2's sole finding (pinned
+branch counts "will fail") REFUTED by the executing 12/12 suite - hand-count
+from the diff missed the eligibility conjuncts - then R3 APPROVE. Recorded so
+later reviewers do not re-derive either refuted claim.
