@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import type { BulkIgnoreGroup } from "@/lib/dataQuality/bulkIgnoreGroups";
+import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
 
 export type BulkIgnoreGroupWithLabel = BulkIgnoreGroup & {
   /** Plain-language type label (catalog title / data-gap label), or null. Never the raw code. */
@@ -50,6 +51,7 @@ const ARM_REVERT_MS = 4_000;
  */
 export function BulkIgnoreControls({ slug, groups }: Props) {
   const router = useRouter();
+  const { announce } = useContext(WarningAnnounceContext);
   const [state, setState] = useState<State>({ kind: "idle" });
   const [armedCode, setArmedCode] = useState<string | null>(null);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -103,6 +105,11 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
         // permanently disabled until a full reload (DQIGNORE audit P1). Idle re-enables them;
         // the ignored group drops out of the refreshed server props.
         setState({ kind: "idle" });
+        // Announcer spec 2026-07-22 §2.3: all-ok completion clause, announced
+        // BEFORE the refresh (a refresh-first ordering can lose the message
+        // to a surface replacement). Partial and total failures never
+        // announce — they surface via the role="alert" notice below.
+        announce(results.length === 1 ? "1 ignored." : `${results.length} ignored.`);
         router.refresh();
         return;
       }

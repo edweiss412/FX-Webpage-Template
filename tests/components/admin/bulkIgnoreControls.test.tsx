@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { BulkIgnoreControls, type ActiveWarningGroup } from "@/components/admin/BulkIgnoreControls";
+import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }));
@@ -321,6 +322,129 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       expect(vi.getTimerCount()).toBe(1);
       unmount();
       expect(vi.getTimerCount()).toBe(0);
+    });
+  });
+
+  describe("announce producer (announcer spec 2026-07-22 §2.3)", () => {
+    function renderWithAnnounce(groups: ActiveWarningGroup[]) {
+      const announce = vi.fn();
+      render(
+        <WarningAnnounceContext.Provider value={{ announce }}>
+          <BulkIgnoreControls slug="rpas" groups={groups} />
+        </WarningAnnounceContext.Provider>,
+      );
+      return announce;
+    }
+
+    test("all-ok bulk announces the derived count clause exactly once, BEFORE refresh", async () => {
+      fetchMock.mockResolvedValue(okResponse());
+      const g = bulkGroup();
+      const announce = renderWithAnnounce([g]);
+      const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+      fireEvent.click(chip);
+      fireEvent.click(chip);
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+      const n = g.bulk!.items.length; // derived from the fixture, not hardcoded
+      expect(announce).toHaveBeenCalledTimes(1);
+      expect(announce).toHaveBeenCalledWith(n === 1 ? "1 ignored." : `${n} ignored.`);
+      // Announce-before-refresh ordering (plan-review R1 F4): a refresh-first
+      // implementation can lose the announcement to a surface replacement.
+      expect(announce.mock.invocationCallOrder[0]!).toBeLessThan(
+        refresh.mock.invocationCallOrder[0]!,
+      );
+    });
+
+    test("singular clause for a 1-item group", async () => {
+      fetchMock.mockResolvedValue(okResponse());
+      const g: ActiveWarningGroup = {
+        code: "UNKNOWN_FIELD",
+        label: "Unrecognized row in sheet",
+        bulk: {
+          code: "UNKNOWN_FIELD",
+          label: "Unrecognized row in sheet",
+          items: [{ code: "UNKNOWN_FIELD", rawSnippet: "Storage | dock" }],
+        },
+        cards: <ul data-testid="cards-UNKNOWN_FIELD" />,
+      };
+      const announce = renderWithAnnounce([g]);
+      const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+      fireEvent.click(chip);
+      fireEvent.click(chip);
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+      expect(announce).toHaveBeenCalledTimes(1);
+      expect(announce).toHaveBeenCalledWith("1 ignored.");
+    });
+
+    test("partial fan-out failure announces nothing (R2 F7)", async () => {
+      fetchMock
+        .mockResolvedValueOnce(okResponse())
+        .mockResolvedValueOnce({ ok: false, json: async () => ({}) } as unknown as Response);
+      const announce = renderWithAnnounce([bulkGroup()]);
+      const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+      fireEvent.click(chip);
+      fireEvent.click(chip);
+      await screen.findByRole("alert");
+      expect(announce).not.toHaveBeenCalled();
+    });
+
+    test("total failure and thrown fetch announce nothing (R2 F7)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) } as unknown as Response);
+      let announce = renderWithAnnounce([bulkGroup()]);
+      let chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+      fireEvent.click(chip);
+      fireEvent.click(chip);
+      await screen.findByRole("alert");
+      expect(announce).not.toHaveBeenCalled();
+      cleanup();
+      fetchMock.mockReset();
+      fetchMock.mockRejectedValue(new Error("network down"));
+      announce = renderWithAnnounce([bulkGroup()]);
+      chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+      fireEvent.click(chip);
+      fireEvent.click(chip);
+      await screen.findByRole("alert");
+      expect(announce).not.toHaveBeenCalled();
+    });
+
+    test("chip status region text only ever holds the armed prompt or empty, whole flow (R2 F5, R3 F4, R2 F6b)", async () => {
+      fetchMock.mockResolvedValue(okResponse());
+      const announce = renderWithAnnounce([bulkGroup()]);
+      const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+      const region = chip.nextElementSibling as HTMLElement;
+      // Observer attached at INITIAL render, before any tap. Every value the
+      // region's text EVER held is reconstructible from: the initial value,
+      // every characterData oldValue, every inserted/removed Text node's data,
+      // and the final value (a transient write leaves its trace as the next
+      // mutation's oldValue).
+      const observed = new Set<string>([region.textContent ?? ""]);
+      const ingest = (rs: MutationRecord[]) => {
+        for (const r of rs) {
+          if (r.type === "characterData" && r.oldValue !== null) observed.add(r.oldValue);
+          for (const n of [...Array.from(r.addedNodes), ...Array.from(r.removedNodes)]) {
+            observed.add(n.textContent ?? "");
+          }
+        }
+      };
+      const mo = new MutationObserver(ingest);
+      mo.observe(region, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        characterDataOldValue: true,
+      });
+      fireEvent.click(chip); // arm
+      // Armed prompt asserted POSITIVELY (the ratified §1.1 item 2 behavior).
+      expect(region.textContent).toBe("Tap again to confirm.");
+      fireEvent.click(chip); // confirm
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+      ingest(mo.takeRecords());
+      mo.disconnect();
+      observed.add(region.textContent ?? "");
+      for (const v of observed) {
+        expect(["", "Tap again to confirm."]).toContain(v);
+      }
+      expect(region.textContent).toBe("");
+      expect(announce).toHaveBeenCalledTimes(1);
     });
   });
 });

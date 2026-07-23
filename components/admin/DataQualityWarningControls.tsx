@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { useRouter } from "next/navigation";
+import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
 import { ReportButton } from "@/components/shared/ReportButton";
 import { hasIgnorableSnippet } from "@/lib/dataQuality/ignorableSnippet";
 import type { ParseWarning } from "@/lib/parser/types";
@@ -32,6 +33,7 @@ export function DataQualityWarningControls({
   reportSurfaceId,
 }: Props) {
   const router = useRouter();
+  const { announce } = useContext(WarningAnnounceContext);
   const [state, setState] = useState<State>({ kind: "idle" });
   const ignorable = hasIgnorableSnippet(warning);
   const action = mode === "active" ? "ignore" : "unignore";
@@ -53,6 +55,9 @@ export function DataQualityWarningControls({
       );
       const json = (await res.json().catch(() => ({}))) as { status?: string };
       if (res.ok && (json.status === "ignored" || json.status === "unignored")) {
+        // Announcer spec 2026-07-22 §2.3: completion clause BEFORE the refresh
+        // (ordering pinned by the producer tests); failures never announce.
+        announce(json.status === "ignored" ? "Warning ignored." : "Warning restored.");
         router.refresh();
         return;
       }
