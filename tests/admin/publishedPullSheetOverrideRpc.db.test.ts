@@ -81,6 +81,7 @@ d("set_published_pull_sheet_override", () => {
       select public.set_published_pull_sheet_override(${DFID}, null, null, 'a@b.com',
         ${sql.json({ tabName: "x", fingerprint: null })}) as out`;
     expect((row!.out as { override: unknown }).override).toBeNull();
+    expect(await storedOverride()).toBeNull(); // stored column cleared, not just the return
   });
 
   test("malformed row (non-string field types): revoke skips CAS and succeeds", async () => {
@@ -90,6 +91,7 @@ d("set_published_pull_sheet_override", () => {
       select public.set_published_pull_sheet_override(${DFID}, null, null, 'a@b.com',
         ${sql.json({ tabName: null, fingerprint: null })}) as out`;
     expect((row!.out as { override: unknown }).override).toBeNull();
+    expect(await storedOverride()).toBeNull(); // stored column cleared, not just the return
   });
 
   test("malformed row: accept raises 40001 (belt-and-suspenders)", async () => {

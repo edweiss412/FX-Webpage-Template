@@ -302,9 +302,17 @@ describe("handlePublishedPullSheetOverride", () => {
         expectedOverrideSnapshot: { tabName: 1, fingerprint: "b" },
       },
     ],
-  ])("body validation: %s → 400 bad_request", async (_label, body) => {
-    const res = await handlePublishedPullSheetOverride(body, baseDeps());
+  ])("body validation: %s → 400 bad_request AND no write", async (_label, body) => {
+    const setRpc = vi.fn(async () => ({ data: { override: {} }, error: null }));
+    const detect = vi.fn(async () => []);
+    const res = await handlePublishedPullSheetOverride(
+      body,
+      baseDeps({ setRpc, detectArchivedTabs: detect }),
+    );
     expect(await bodyOf(res)).toEqual({ status: 400, json: { ok: false, status: "bad_request" } });
+    // 400 boundary is fail-closed: neither the scan nor the RPC write runs.
+    expect(setRpc).not.toHaveBeenCalled();
+    expect(detect).not.toHaveBeenCalled();
   });
 
   test("revoke accepts a well-formed two-field snapshot with null fields", async () => {

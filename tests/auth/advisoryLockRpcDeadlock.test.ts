@@ -208,9 +208,28 @@ describe("advisory-lock RPC deadlock guard", () => {
     ]) {
       const src = stripComments(readFileSync(join(ROOT, f), "utf8"));
       expect(src, `${f} must NOT take a JS-side show lock (single-holder rule)`).not.toMatch(
-        /withShowAdvisoryLock|pg_advisory_xact_lock/,
+        /withShowAdvisoryLock|withPostgresSyncPipelineLock|withShowLock|pg_advisory_xact_lock/,
       );
     }
+
+    // Targeted lock-order pin for the published override RPC: its own advisory lock must precede
+    // the first row touch (the advisory-before-row list's FOR-UPDATE scan is vacuous here — the
+    // RPC uses plain SELECT/UPDATE, so pin the ordering explicitly).
+    const pubMig = stripComments(
+      readFileSync(
+        join(ROOT, "supabase/migrations/20260723090000_published_pull_sheet_override.sql"),
+        "utf8",
+      ),
+    );
+    const advisoryAt = pubMig.search(/pg_advisory_xact_lock\(/);
+    const firstShowTouch = pubMig.search(/\b(select|update)\b[^;]*\bpublic\.shows\b/i);
+    expect(advisoryAt, "published override RPC must call pg_advisory_xact_lock").toBeGreaterThan(
+      -1,
+    );
+    expect(
+      advisoryAt,
+      "published override RPC must take its advisory lock BEFORE any public.shows read/write (advisory-before-row)",
+    ).toBeLessThan(firstShowTouch);
   });
 
   test("lock-order: no lock-taking RPC row-locks (FOR UPDATE) before its first pg_advisory_xact_lock (PF11)", () => {
