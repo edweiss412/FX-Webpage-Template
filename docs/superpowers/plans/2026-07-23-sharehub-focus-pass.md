@@ -292,7 +292,7 @@ pnpm format:check
 
 - [ ] **Step 2: Impeccable dual-gate (invariant 8)**
 
-Run `/impeccable critique` and `/impeccable audit` on the diff (canonical v3 setup gates: `context.mjs` context load → register reference read). P0/P1 findings fixed in-branch or DEFERRED.md-entried; record findings + dispositions for the PR body / close-out.
+Run `/impeccable critique` and `/impeccable audit` on the diff (canonical v3 setup gates: `context.mjs` context load → register reference read). P0/P1 findings fixed in-branch or DEFERRED.md-entried. Record findings + dispositions DURABLY in §12 of `docs/superpowers/plans/2026-07-23-sharehub-focus-pass/handoff.md` (create if absent) and commit it BEFORE dispatching whole-diff review (invariant 8's handoff-doc requirement); the PR body cites that section.
 
 - [ ] **Step 3: Commit any gate fixes**
 
@@ -304,7 +304,7 @@ If Step 2/3 changed ANY file: re-run the affected test suites AND the full Step 
 
 ### Task 4: Whole-diff review + ship
 
-- [ ] **Step 1: Whole-diff Codex review** via `codex-guard review` (fresh-eyes brief; REVIEWER ONLY; verdict marker; do-not-relitigate list from spec §1.1). Iterate to APPROVE; class-sweep before patching any finding.
+- [ ] **Step 1: Whole-diff Codex review** via `codex-guard review` (fresh-eyes brief; REVIEWER ONLY; verdict marker; do-not-relitigate list from spec §1.1). Iterate to APPROVE; class-sweep before patching any finding. EVERY repair made during this iteration re-enters the Task 3 revalidation loop (affected suites + full local gates + critique/audit re-run when the repair touches UI files) and updates the handoff §12 record, BEFORE the next review round or push. No mutation may reach Step 2 without a post-mutation clean pass.
 - [ ] **Step 2: Push + PR** (`git push -u origin feat/sharehub-focus-pass`; `gh pr create`), PR body cites spec + review outcomes.
 - [ ] **Step 3: Real CI green** (`gh pr checks --watch` with PR number; confirm `mergeStateStatus` CLEAN).
 - [ ] **Step 4: `gh pr merge --merge`**, then in the MAIN checkout: `git pull --ff-only` and verify `git rev-list --left-right --count main...origin/main` == `0  0`. Update ship-state marker to `done`, CronDelete nudge job.
