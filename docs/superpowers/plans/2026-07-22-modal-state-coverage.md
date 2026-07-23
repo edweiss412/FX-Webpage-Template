@@ -283,6 +283,25 @@ gh run watch "$run_id" --exit-status
 
 **Plan R1 (Codex via codex-guard, 2026-07-22): BLOCKING, 7 findings — all repaired.** F1: e2e specs now authored red in Task 6 Step 1 (TDD); Task 7 is the green run. F2: parity walker completed (openSheetHref, archived/published mirroring, sync trio, feed row) and `AppliedFixture` owns the previewRoster blanking. F3: provider-remount test exercises the two key-only transitions (active→null; epoch-advanced switch). F4: changelog pin corrected to applied×6 / 12 entries. F5: explicit 12-tile + "+1 more" grid assertion added. F6: close-out explicitly dispatches `dev-gate-e2e.yml` via workflow_dispatch and waits. F7: agenda assertion rewritten strict-safe.
 
+## Impeccable gate record (Task 8, invariant 8)
+
+**Method:** dual-agent critique (Assessment A: design-review subagent with live-browser sampling of 8 new scenarios on the built :3001 artifact, mobile 390x844 + desktop 1280x800; Assessment B: detect.mjs + mechanical checks subagent) followed by the technical audit synthesis over the same evidence. Both halves ran on the branch diff vs origin/main.
+
+**Critique findings and dispositions:**
+
+- P2a (this diff) — hold entity-key slugs leaked into user-visible hold/change copy ("Email change pending for msc-email-change", "pending for msc-rename-folded", "Removal pending for msc-removal"): production shapeChangeFeed fills the catalog {name} placeholder with pending_syncs.entity_key, and production entity keys ARE crew names (lib/sync/holds/holdAwareApply.ts:79 parseByName.get(hold.entity_key)). FIXED: every fixture hold entity key in lib/dev/attentionScenarios/tier2.ts and tier3.ts is now a person name (Dana Reed, Sam Ito, Kim Cho, Priya Natarajan, Alex Kim, Casey Ruiz), with held/proposed names made coherent per hold. Class-swept the whole scenario catalog, including pre-existing gap-fill holds.
+- P2b (pre-existing) — switcher-bar counter + description block measures clientWidth 0 at 390px, so the current-scenario identity is unreadable on mobile. Confirmed NOT introduced by this diff (zero layout-class hunks touch the bar; markup predates the branch at origin/main 76288ca62). Logged in BACKLOG.md as BL-DEV-SWITCHER-BAR-MOBILE-WIDTH.
+- P3a (pre-existing) — auto-opened attention menu first-paints clipped off the left viewport edge on mobile before smart-position settles; same popover first-paint class as the open BACKLOG entry from the HoverHelp smart-position work (PR #549). No new entry; noted here.
+- P3b (this diff) — t2-ignored-warnings declared landing: "warnings" while the computed group is "rooms" (landing is fallback-only and dead when sections exist). FIXED: dead declaration removed.
+- False alarms recorded by the assessments (not issues): 12 benign console 404s on t2-diagram-images (synthetic snapshot keys; UI renders the designed unavailable fallback); the synthetic "gallery-share-token" URL token (deliberate, never a live credential); warnings being the largest nav group (expected: per-code tier-1 catalog).
+- Editor-hook broken-image flag on tests/e2e/attention-modal-gallery.spec.ts:538 — false positive: the line is an e2e assertion about the deliberate unavailable-tile fallback, not shipped markup.
+
+**Assessment B (deterministic):** detect.mjs over all five scoped paths (11 files) = exit 0, zero findings. Mechanical checks: 0 hardcoded hex, 0 arbitrary Tailwind values, 0 em-dash in rendered copy (the two candidate hits are a fixture time-range en-dash and a dev-only validator error string — both explained false positives).
+
+**Audit synthesis (technical, diff-scoped):** A11y 4 — the diff adds no interactive elements or markup; all rendered UI is unchanged production components whose dialog/aria-live behavior the e2e suite asserts. Performance 4 — partitionScenarios now builds each scenario's modal data once and reuses it for grouping (previously derived twice); module-load derivation on a build-gated dev route. Theming 4 — zero color/token surface in the diff (Assessment B). Responsive 3 — nothing introduced; score capped by the pre-existing P2b bar defect recorded above. Anti-patterns 4 — detector clean, slop verdict LOW.
+
+**Gate outcome:** no P0/P1 findings; both P2s resolved (one fixed, one confirmed pre-existing and backlogged); dual-command pass complete before the whole-diff cross-model review.
+
 ## Self-review record
 
 Self-review (2026-07-22): spec-coverage walk — §3.0→Task 2, §3.1→Tasks 1+4, §3.2/3.3/3.4/3.5→Task 3, §3.6→Task 6, §3.7→Task 5, §4→Task 2 (18 guard groups enumerated), §5→Tasks 1-7, invariant 8→Task 8; no gaps found. Placeholder scan: Task 6 deliberately sources scenario literals from the APPROVED spec's §3.6 matrix (full row-by-row content lives there; duplicating 36 definitions verbatim would drift). Type-consistency: `applyFixture` signature consistent across Tasks 3/4; `shareToken` consistent across Tasks 5/6. Noted risk: Task 2 guard 17's `validate → deriveScenarioAttention` import — checked imports, no cycle (`deriveScenarioAttention` does not import `validate`); decision recorded inline.
