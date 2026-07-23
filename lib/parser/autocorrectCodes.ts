@@ -1,9 +1,12 @@
 // lib/parser/autocorrectCodes.ts
 //
-// The two autocorrect codes whose correction is scoped to a crew member, so their
-// cards render under that member's row (spec 2026-07-21-warning-card-identity-placement
-// §5.1). The other three *_AUTOCORRECTED codes (SECTION_HEADER / COLUMN_HEADER /
-// FIELD_LABEL) are document/column/field scoped and keep their section-group placement.
+// The two autocorrect codes whose under-row placement keys off `autocorrect.subject`
+// (spec 2026-07-21-warning-card-identity-placement §5.1; narrowed by spec
+// 2026-07-23-crew-warning-attachment §2A — OTHER codes with a crew blockRef now also
+// place under rows, keyed via lib/admin/crewRowKey.ts, so membership here means
+// "subject-keyed", not "the only under-row codes"). The other three *_AUTOCORRECTED
+// codes (SECTION_HEADER / COLUMN_HEADER / FIELD_LABEL) are document/column/field
+// scoped and keep their section-group placement.
 //
 // Declared parser-layer so both the section model (lib/admin/**) and the tests read one
 // list. Pinned equal to exactly these two by tests/parser/_metaAutocorrectProducers.test.ts.
