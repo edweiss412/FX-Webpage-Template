@@ -1152,7 +1152,12 @@ export function ShowReviewSurface({
                   mutates (spec §2.6). */}
                 {/* §11: instant — deliberate (sr-only additions; no visual transition; spec §2.6) */}
                 {s.id === "warnings" && routedWarningsRenderElsewhere ? (
-                  <span role="log" className="sr-only" data-testid="warnings-panel-status">
+                  <span
+                    role="log"
+                    aria-label="Warning updates"
+                    className="sr-only"
+                    data-testid="warnings-panel-status"
+                  >
                     {announceLog.map((e) => (
                       <span key={e.id} data-announce-id={e.id}>
                         {e.text}

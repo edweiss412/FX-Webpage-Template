@@ -91,6 +91,9 @@ describe("warnings panel announce log (announcer spec §2)", () => {
   it("mounts an empty role=log container; props changes never mutate it", () => {
     const { rerender } = render(<ShowReviewSurface {...probeProps({ listed: 0, here: 2 })} />);
     expect(region().getAttribute("role")).toBe("log");
+    // Impeccable critique minor: the log region carries an accessible name so
+    // AT users navigating BY region know what stream this is.
+    expect(region().getAttribute("aria-label")).toBe("Warning updates");
     expect(children()).toHaveLength(0);
     const { records, disconnect } = observeRegion();
     // Background refresh shape: counts change, no announce (spec §2.2).
