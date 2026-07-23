@@ -307,7 +307,7 @@ import { describe, it, expect, vi } from "vitest";
 
 ### Task 8: Validation project apply
 
-- [ ] Apply migration surgically: `psql "$VALIDATION_DB_URL" -f supabase/migrations/20260723090000_published_pull_sheet_override.sql` (resolve creds per AGENTS.md validation triple; then `notify pgrst, 'reload schema';`)
+- [ ] Apply migration surgically: `psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260723090000_published_pull_sheet_override.sql` (resolve creds per AGENTS.md validation triple; then `notify pgrst, 'reload schema';`)
 - [ ] `pnpm vitest run tests/db/validation-schema-parity.test.ts` (or its documented invocation) → PASS
 
 ### Task 9: Impeccable dual-gate (UI invariant 8)
