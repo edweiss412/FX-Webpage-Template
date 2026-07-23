@@ -49,12 +49,18 @@ gains the archived-tab offer in published mode:
 The warning card itself is unchanged (Report/Ignore stay;
 `components/admin/PerShowActionableWarnings.tsx`).
 
-### 2.2 Held-changes review (mode `staged`, live parse, no wizard session)
+### 2.2 Held-changes review (StagedReviewCard surfaces, live parse)
 
-No offer. When the staged surface renders this warning without a wizard session, the Pack list
-section shows one pointer sentence: "Finish this review first, then include it from the show
-page." Plain component copy (not catalog). Wizard surfaces (wizard session present) are
-unchanged.
+No offer. The held-review surface (`components/admin/StagedReviewCard.tsx:521` rendering
+`PerShowActionableWarnings`) has no Pack list section, so the pointer rides the warning card:
+`PerShowActionableWarnings` gains an optional `guidanceOverrides?: Partial<Record<string,
+string>>` prop (keyed by warning code) that replaces the catalog `helpfulContext` guidance line
+for that code on that surface only. `StagedReviewCard` passes, for `PULL_SHEET_ON_ARCHIVED_TAB`:
+"We left this tab out of the parse. To include this gear, finish this review, then use the Gear
+section on the show page." Plain component copy (not catalog); catalog untouched. Wizard and
+published surfaces pass no override and are unchanged. Guard: an override entry that is
+empty/whitespace collapses to absent (reuses the `warningCardCopyFields` trim rule,
+`components/admin/PerShowActionableWarnings.tsx:40-46`).
 
 ### 2.3 Guard conditions
 
@@ -166,7 +172,8 @@ Published modal needs the real `shows.pull_sheet_override`:
 ## 5. Explicitly unchanged
 
 - Wizard Step-3 offer flow, onboarding route, `set_pull_sheet_override` RPC, `pending_syncs.*`
-  columns and their comments.
+  columns and their comments. (`PerShowActionableWarnings` gains the optional §2.2 prop; its
+  behavior with the prop absent is bit-identical, pinned by test.)
 - Cron read + drift auto-clear (`runScheduledCronSync.ts:684-713`).
 - Warning production (`lib/sync/pullSheetOverride.ts:229-232`).
 - Crew-facing pages: none of this renders outside `/admin`.
