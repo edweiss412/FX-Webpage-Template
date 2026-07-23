@@ -15,8 +15,7 @@ import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary"
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { BulkIgnoreControls, type ActiveWarningGroup } from "@/components/admin/BulkIgnoreControls";
 import { findUseRawDecision } from "@/components/admin/wizard/step3ReviewSections";
-import { CREW_SCOPED_WARNING_CODES } from "@/lib/parser/autocorrectCodes";
-import { canonicalCrewKey } from "@/lib/admin/attentionItems";
+import { crewRowKeyForWarning } from "@/lib/admin/crewRowKey";
 import type { SectionWarningItem } from "@/lib/admin/sectionWarningModel";
 
 /** Render crew-scoped active warnings for the RENDERED crew rows as under-row cards,
@@ -169,16 +168,23 @@ export function buildSectionWarningExtras(args: {
       renderedCrewKeys && id === "crew" ? underRowKeys(model, renderedCrewKeys) : null;
     const activeGroups: ActiveWarningGroup[] = model.activeGroups
       .map((g) => {
-        const groupItems =
-          excludedKeys && CREW_SCOPED_WARNING_CODES.has(g.code)
-            ? g.items.filter(
-                (it) => !excludedKeys.has(canonicalCrewKey(it.warning.autocorrect?.subject ?? "")),
-              )
-            : g.items;
-        // §6.2 emission: a crew-scoped code whose cards all moved under rows and has no
-        // bulk chip (N<2) emits NO group — otherwise an orphan eyebrow. The chip (bulk,
-        // counts ALL active N) stays whenever N>=2, even with an empty fallback cards slot.
-        if (CREW_SCOPED_WARNING_CODES.has(g.code) && groupItems.length === 0 && !g.bulk) {
+        // crew-warning-attachment §2A: per-ITEM exclusion via the shared keying
+        // helper (autocorrect codes by subject; other codes by stripped crew
+        // blockRef name) — the same expression the model used to build
+        // warningsByCrewKey, so conservation is exact.
+        const groupItems = excludedKeys
+          ? g.items.filter((it) => {
+              const k = crewRowKeyForWarning(it.warning);
+              return !(k !== null && excludedKeys.has(k));
+            })
+          : g.items;
+        // §6.2 emission (generalized, crew-warning-attachment R1): a group whose
+        // cards ALL moved under rows and has no bulk chip (N<2) emits NO group —
+        // otherwise an orphan eyebrow. A group can only be emptied by the filter
+        // above, so this is exactly the legacy crew-scoped rule for every code.
+        // The chip (bulk, counts ALL active N) stays whenever N>=2, even with an
+        // empty fallback cards slot.
+        if (groupItems.length === 0 && !g.bulk) {
           return null;
         }
         return {
@@ -193,28 +199,44 @@ export function buildSectionWarningExtras(args: {
         code: g.code,
         label: g.label,
         bulk: g.bulk,
-        cards: (
-          <PerShowActionableWarnings
-            items={g.items.map((it) => it.warning)}
-            driveFileId={driveFileId}
-            // warning-surface-trim §4.2: the SAME sentence the panel used to show
-            // once, now per card and on demand. Sourced from the single exported
-            // helper, never re-authored, so the two cannot drift.
-            followUpCopy={correctionLoopCopy("resync")}
-            renderItemControls={(w, i) => (
-              <SectionWarningItemControls
-                warning={w}
-                reportSurfaceId={g.items[i]!.reportSurfaceId}
-                mode="active"
-                slug={slug}
-                showId={showId}
-                driveFileId={driveFileId}
-                useRawDecisions={useRawDecisions}
-              />
-            )}
-          />
-        ),
+        // Impeccable P1b (2026-07-23 critique): a surviving bulk chip whose cards
+        // ALL moved under crew rows would otherwise sit over an empty slot — a
+        // bulk action on objects invisible at its location. The slot names where
+        // they went instead. Partial moves keep the normal card list.
+        cards:
+          g.items.length === 0 ? (
+            <p className="text-xs/relaxed text-text-subtle">
+              These appear under their crew members above.
+            </p>
+          ) : (
+            <PerShowActionableWarnings
+              items={g.items.map((it) => it.warning)}
+              driveFileId={driveFileId}
+              // warning-surface-trim §4.2: the SAME sentence the panel used to show
+              // once, now per card and on demand. Sourced from the single exported
+              // helper, never re-authored, so the two cannot drift.
+              followUpCopy={correctionLoopCopy("resync")}
+              renderItemControls={(w, i) => (
+                <SectionWarningItemControls
+                  warning={w}
+                  reportSurfaceId={g.items[i]!.reportSurfaceId}
+                  mode="active"
+                  slug={slug}
+                  showId={showId}
+                  driveFileId={driveFileId}
+                  useRawDecisions={useRawDecisions}
+                />
+              )}
+            />
+          ),
       }));
+
+    // Empty-seam guard (crew-warning-attachment R1-F3): every active card moved
+    // under a row, no bulk chip survived, and nothing is ignored — the bordered
+    // wrapper would render with zero children and read as a stray seam inside
+    // the panel card. Evaluated on the POST-FILTER groups, not the pre-filter
+    // model (which is non-empty by hypothesis here).
+    if (activeGroups.length === 0 && ignoredWarnings.length === 0) return null;
 
     return (
       <div

@@ -82,6 +82,72 @@ const SECTION_WARN: Record<string, { id: SectionId; make: (n: number) => ParseWa
         blockRef: { kind: "transportation", name: `transport-${n}` },
       }) satisfies ParseWarning,
   },
+  Venue: {
+    id: "venue",
+    make: (n) =>
+      ({
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: `unknown venue field ${n}`,
+        rawSnippet: `Venue | v-${n}`,
+        blockRef: { kind: "venue", name: `venue-${n}` },
+      }) satisfies ParseWarning,
+  },
+  "Event details": {
+    id: "event",
+    make: (n) =>
+      ({
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: `unknown event field ${n}`,
+        rawSnippet: `Event | e-${n}`,
+        blockRef: { kind: "details", name: `event-${n}` },
+      }) satisfies ParseWarning,
+  },
+  "Crew schedule": {
+    id: "schedule",
+    make: (n) =>
+      ({
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: `unknown schedule field ${n}`,
+        rawSnippet: `Schedule | s-${n}`,
+        blockRef: { kind: "schedule", name: `sched-${n}` },
+      }) satisfies ParseWarning,
+  },
+  Agenda: {
+    id: "agenda",
+    make: (n) =>
+      ({
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: `unknown agenda field ${n}`,
+        rawSnippet: `Agenda | a-${n}`,
+        blockRef: { kind: "agenda", name: `agenda-${n}` },
+      }) satisfies ParseWarning,
+  },
+  "Pack list": {
+    id: "packlist",
+    make: (n) =>
+      ({
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: `unknown packlist field ${n}`,
+        rawSnippet: `Packlist | p-${n}`,
+        blockRef: { kind: "pull_sheet", name: `pack-${n}` },
+      }) satisfies ParseWarning,
+  },
+  "Billing & docs": {
+    id: "billing",
+    make: (n) =>
+      ({
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: `unknown billing field ${n}`,
+        rawSnippet: `Billing | b-${n}`,
+        blockRef: { kind: "financials", name: `bill-${n}` },
+      }) satisfies ParseWarning,
+  },
   Contacts: {
     id: "contacts",
     make: (n) =>
@@ -131,9 +197,15 @@ export type PublishedSurfaceOpts = {
   gateOff?: boolean;
   /** Attach a parse note to the warnings section (suppression stays off). */
   withParseNotes?: boolean;
+  /** crew-warning-attachment T4b: non-empty agenda_links so the conditional
+   *  agenda section MOUNTS and can receive its routed model entry. */
+  agendaLinks?: readonly { label: string; url: string }[];
 };
 
-function buildData(warnings: ParseWarning[]): PublishedSectionData {
+function buildData(
+  warnings: ParseWarning[],
+  agendaLinks: readonly { label: string; url: string }[] = [],
+): PublishedSectionData {
   return buildPublishedSectionData(
     {
       show: {
@@ -149,7 +221,7 @@ function buildData(warnings: ParseWarning[]): PublishedSectionData {
         },
         venue: { name: "Hall A", address: "1 Main St" },
         event_details: null,
-        agenda_links: [],
+        agenda_links: agendaLinks as never,
         coi_status: "received",
         diagrams: null,
         pull_sheet: [],
@@ -176,9 +248,17 @@ function buildData(warnings: ParseWarning[]): PublishedSectionData {
   );
 }
 
-const PUBLISHED_SECTION_IDS = new Set<SectionId>(
-  renderedSectionIds({ mode: "published", agendaBaseline: [] } as never) as SectionId[],
-);
+/** Section-id set derived from the SAME agenda baseline the data carries
+ *  (crew-warning-attachment T4b: a pinned-empty baseline would keep agenda out
+ *  of the model even when the fixture mounts it). */
+function publishedSectionIds(data: PublishedSectionData): Set<SectionId> {
+  return new Set<SectionId>(
+    renderedSectionIds({
+      mode: "published",
+      agendaBaseline: data.agendaBaseline ?? [],
+    } as never) as SectionId[],
+  );
+}
 
 export function buildPublishedSurfaceProps(
   opts: PublishedSurfaceOpts = {},
@@ -200,7 +280,7 @@ export function buildPublishedSurfaceProps(
     warnings.push(def.make(100 + i));
   });
 
-  const data = buildData(warnings);
+  const data = buildData(warnings, opts.agendaLinks ?? []);
   const scrollerRef: RefObject<HTMLElement | null> = { current: null };
 
   const base = {
@@ -214,7 +294,7 @@ export function buildPublishedSurfaceProps(
     slug: SLUG,
     warnings,
     ignoredFingerprints: new Set<string>(),
-    renderedSectionIds: PUBLISHED_SECTION_IDS,
+    renderedSectionIds: publishedSectionIds(data),
   });
   const routedWarnings = deriveRoutedWarnings(bySection);
   const renderSectionExtras = buildSectionWarningExtras({ bySection });

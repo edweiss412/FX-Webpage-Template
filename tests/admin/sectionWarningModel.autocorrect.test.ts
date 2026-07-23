@@ -83,3 +83,50 @@ describe("buildSectionWarningModel — warningsByCrewKey", () => {
     expect(Object.keys(rec.venue!.warningsByCrewKey)).toEqual([]);
   });
 });
+
+// crew-warning-attachment T2 (spec 2026-07-23 §2A/§5.2): blockRef-crew warnings
+// (FIELD_UNREADABLE etc.) now key into warningsByCrewKey via crewRowKeyForWarning —
+// raw names pass through stripDayRestrictionParen so the key matches the rendered
+// displayName (spec R3-F1/R4-F1). Failure modes: model still gated to the 2
+// autocorrect codes, or keyed on the RAW name.
+describe("buildSectionWarningModel — blockRef-crew keying (crew-warning-attachment)", () => {
+  const fieldWarn = (name: string | undefined): ParseWarning =>
+    ({
+      severity: "warn",
+      code: "FIELD_UNREADABLE",
+      message: "internal",
+      rawSnippet: "N/A",
+      ...(name !== undefined
+        ? { blockRef: { kind: "crew", index: 0, name } }
+        : { blockRef: { kind: "crew", index: 0 } }),
+    }) as ParseWarning;
+
+  const record = buildSectionWarningModel({
+    slug: "s",
+    warnings: [
+      fieldWarn("John Redcorn"),
+      fieldWarn("Calvin Saller (6/24 and 6/26 ONLY)"), // raw day-restriction form
+      fieldWarn("   "), // blank → excluded
+      fieldWarn(undefined), // no name → excluded
+    ],
+    ignoredFingerprints: new Set(),
+    renderedSectionIds: new Set(["crew"]),
+  });
+
+  it("keys FIELD_UNREADABLE crew warnings by canonical name", () => {
+    expect(record.crew!.warningsByCrewKey["john redcorn"]!).toHaveLength(1);
+  });
+
+  it("keys a raw day-restriction name under the STRIPPED key (R4-F1: production key expression)", () => {
+    const keys = Object.keys(record.crew!.warningsByCrewKey).sort();
+    expect(keys).toEqual(["calvin saller", "john redcorn"]);
+    // The raw form must NOT be a key — keying on the raw name would silently
+    // disable under-row placement for every day-restricted row.
+    expect(record.crew!.warningsByCrewKey["calvin saller (6/24 and 6/26 only)"]).toBeUndefined();
+  });
+
+  it("excludes blank-name and nameless blockRef items (they fall back to the group)", () => {
+    expect(record.crew!.active).toHaveLength(4);
+    expect(Object.values(record.crew!.warningsByCrewKey).flat()).toHaveLength(2);
+  });
+});

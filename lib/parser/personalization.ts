@@ -27,6 +27,15 @@ export const FULL_STAGE_ONLY_PATTERN =
 
 // ── Day restriction patterns ──────────────────────────────────────────────────
 const PAREN_ONLY_PATTERN = /\(([^)]*\bONLY\b[^)]*)\)/i;
+
+/** Strip a paren+ONLY day-restriction marker from a cell and trim — the SAME
+ *  transform extractDayRestriction applies to produce the rendered displayName.
+ *  Exported (spec 2026-07-23-crew-warning-attachment §2A) so under-row warning
+ *  keying passes raw blockRef names through the identical strip; single source,
+ *  the two cannot drift. */
+export function stripDayRestrictionParen(cell: string): string {
+  return cell.replace(PAREN_ONLY_PATTERN, "").trim();
+}
 const DATE_TOKEN_PATTERN = /\d{1,2}\/\d{1,2}/g;
 // Bare ONLY at end of role cell (no parens): "3/24 & 3/26 ONLY"
 const BARE_DATES_ONLY_PATTERN =
@@ -76,19 +85,19 @@ export function extractDayRestriction(params: {
       rawSnippet: `name: ${nameCell} | role: ${roleCell}`,
     });
     const days = extractDateTokens(roleParenMatch[1] ?? "");
-    cleanedRoleCell = roleCell.replace(PAREN_ONLY_PATTERN, "").trim();
+    cleanedRoleCell = stripDayRestrictionParen(roleCell);
     return { restriction: { kind: "explicit", days }, cleanedNameCell, cleanedRoleCell, warnings };
   }
 
   if (nameParenMatch) {
     const days = extractDateTokens(nameParenMatch[1] ?? "");
-    cleanedNameCell = nameCell.replace(PAREN_ONLY_PATTERN, "").trim();
+    cleanedNameCell = stripDayRestrictionParen(nameCell);
     return { restriction: { kind: "explicit", days }, cleanedNameCell, cleanedRoleCell, warnings };
   }
 
   if (roleParenMatch) {
     const days = extractDateTokens(roleParenMatch[1] ?? "");
-    cleanedRoleCell = roleCell.replace(PAREN_ONLY_PATTERN, "").trim();
+    cleanedRoleCell = stripDayRestrictionParen(roleCell);
     return { restriction: { kind: "explicit", days }, cleanedNameCell, cleanedRoleCell, warnings };
   }
 

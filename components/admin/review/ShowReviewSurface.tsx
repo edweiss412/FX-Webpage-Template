@@ -1038,109 +1038,127 @@ export function ShowReviewSurface({
             Wrapped in a ref-carrying box so the scroll-spy can measure the
             section top by rail id. Phase 1 (the modal) passes none → nothing. */}
             {extraSectionsBefore?.map(renderExtraPanel)}
-            {sections.map((s) => (
-              <section
-                key={s.id}
-                data-testid={`wizard-step3-card-${dfid}-review-section-${s.id}`}
-                ref={(el) => {
-                  if (el) sectionElsRef.current.set(s.id, el);
-                  else sectionElsRef.current.delete(s.id);
-                }}
-                className="flex min-w-0 flex-col"
-              >
-                {/* The provider makes the body render the §6.4 heading row +
+            {sections.map((s) => {
+              // crew-warning-attachment §2B: extras computed ONCE per section.
+              // Non-warnings sections thread it INTO the chrome (rendered as
+              // the panel card's last child); the warnings section keeps the
+              // sibling render in BOTH suppression states (§1.1 R1-F1 — a
+              // state-conditional reparent would remount the extras subtree
+              // across Silent transitions and discard control state).
+              const extrasNode =
+                renderSectionExtras?.(s.id, data, {
+                  seamless: s.id === "warnings" && suppressWarningsPanelCard,
+                }) ?? null;
+              return (
+                <section
+                  key={s.id}
+                  data-testid={`wizard-step3-card-${dfid}-review-section-${s.id}`}
+                  ref={(el) => {
+                    if (el) sectionElsRef.current.set(s.id, el);
+                    else sectionElsRef.current.delete(s.id);
+                  }}
+                  className="flex min-w-0 flex-col"
+                >
+                  {/* The provider makes the body render the §6.4 heading row +
                 §5.2 panel card (see step3ReviewSections.tsx) — the body's
                 own count can never drift from the heading. */}
-                <Step3SectionChromeContext.Provider
-                  value={{
-                    Icon: s.Icon,
-                    label: s.label,
-                    // warning-surface-trim §3.2/§3.4. exactOptionalPropertyTypes:
-                    // insert the optional pair by SPREAD, never as an explicit
-                    // `undefined` value.
-                    routedWarningsRenderElsewhere,
-                    ...(routedWarnings !== undefined ? { routedWarnings } : {}),
-                    ...(s.id === "warnings" && suppressWarningsPanelCard
-                      ? { suppressPanelCard: true }
-                      : {}),
-                    flagged: flagged.has(s.id),
-                    judgment: judgment.has(s.id),
-                    getActiveSection,
-                    dfid,
-                    sectionId: s.id,
-                    // Bug #316 item 3: the staged row's per-region source-sheet anchors,
-                    // so each section's "In sheet" heading link opens at its cell range.
-                    sourceAnchors: data.sourceAnchors ?? {},
-                    // §E3: callout entries for every flagged section EXCEPT
-                    // `warnings` (its body IS the warning list — circular).
-                    // exactOptional discipline: ABSENT, never undefined.
-                    // STAGED ONLY (spec §5.3, Task 13 amendment 2): in published mode
-                    // the per-section `renderSectionExtras` list IS the warning
-                    // surface, so the §E3 SectionFlagCallout preview would be a
-                    // duplicate affordance. Gating on `isStaged` keeps the modal
-                    // byte-identical and hides the callout on the page.
-                    // (spec 2026-07-17 USE-RAW-FULL-LIST-1: the callout is a PREVIEW —
-                    // it mounts no use-raw/recognize-role controls, so no staged
-                    // decisions/session need thread here; WarningsBreakdown reads
-                    // them from SectionData as the sole actionable site.)
-                    // published-show-alerts §5.4: pre-rendered crew banners thread
-                    // through the crew section's chrome value only (ABSENT
-                    // elsewhere and in staged mode — exactOptional discipline).
-                    ...(s.id === "crew" && crewAttention ? { crewAttention } : {}),
-                    // attention-alert-routing §3.2: the two parse notices render as
-                    // banner LINES atop the Parse-warnings panel; they travel as
-                    // domain items so WarningsBreakdown composes them with warnings.length.
-                    ...(s.id === "warnings" && warningsNotes && warningsNotes.length > 0
-                      ? { parseNotes: warningsNotes }
-                      : {}),
-                    // §3.5 pointer targets: derived in the pointerTargets
-                    // useMemo above. Warnings section only, spread-inserted
-                    // (exactOptional discipline).
-                    ...(s.id === "warnings" && pointerTargets !== null
-                      ? {
-                          pointerTargets,
-                          onJumpToSection: (id: SectionId) => handleNavClick(id),
-                        }
-                      : {}),
-                    // attention-alert-routing §3.3: anchored cards thread into the
-                    // section that OWNS the anchor — rooms hosts diagrams, event hosts
-                    // opening_reel. ABSENT on every other section (exactOptional).
-                    ...(s.id === "rooms" && diagramAnchorCards && diagramAnchorCards.length > 0
-                      ? { diagramAttention: diagramAnchorCards }
-                      : {}),
-                    ...(s.id === "event" && reelAnchorCards && reelAnchorCards.length > 0
-                      ? { reelAttention: reelAnchorCards }
-                      : {}),
-                    ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
-                      ? {
-                          // CALLOUT-PREVIEW-ACTION-CUE-1: tag each preview entry with
-                          // whether the sole actionable site (WarningsBreakdown) would
-                          // render a fix control for it, so the jump label reads "Fix"
-                          // only where a fix exists. Decisions are present here because
-                          // the callout only mounts under isStaged(data).
-                          calloutEntries: bySection.get(s.id)!.map((e) => ({
-                            ...e,
-                            offersFix: warningOffersFix(
-                              e.warning,
-                              findUseRawDecision(e.warning, data.useRawDecisions),
-                            ),
-                          })),
-                          onJumpToWarning: jumpToWarning,
-                        }
-                      : {}),
-                  }}
-                >
-                  {s.render(data)}
-                </Step3SectionChromeContext.Provider>
-                {/* Phase 2 hook: per-section warning controls under the panel.
-                Phase 1 passes no `renderSectionExtras` → renders nothing.
-                seamless (spec 2026-07-22 §3.3): exactly when this section's
-                body card is suppressed, so the extras' border-t cannot read
-                as a heading underline. */}
-                {renderSectionExtras?.(s.id, data, {
-                  seamless: s.id === "warnings" && suppressWarningsPanelCard,
-                })}
-                {/* Announcer spec 2026-07-22 §2.2: always-mounted published
+                  <Step3SectionChromeContext.Provider
+                    value={{
+                      Icon: s.Icon,
+                      label: s.label,
+                      // warning-surface-trim §3.2/§3.4. exactOptionalPropertyTypes:
+                      // insert the optional pair by SPREAD, never as an explicit
+                      // `undefined` value.
+                      routedWarningsRenderElsewhere,
+                      ...(routedWarnings !== undefined ? { routedWarnings } : {}),
+                      ...(s.id === "warnings" && suppressWarningsPanelCard
+                        ? { suppressPanelCard: true }
+                        : {}),
+                      flagged: flagged.has(s.id),
+                      judgment: judgment.has(s.id),
+                      getActiveSection,
+                      dfid,
+                      sectionId: s.id,
+                      // Bug #316 item 3: the staged row's per-region source-sheet anchors,
+                      // so each section's "In sheet" heading link opens at its cell range.
+                      sourceAnchors: data.sourceAnchors ?? {},
+                      // §E3: callout entries for every flagged section EXCEPT
+                      // `warnings` (its body IS the warning list — circular).
+                      // exactOptional discipline: ABSENT, never undefined.
+                      // STAGED ONLY (spec §5.3, Task 13 amendment 2): in published mode
+                      // the per-section `renderSectionExtras` list IS the warning
+                      // surface, so the §E3 SectionFlagCallout preview would be a
+                      // duplicate affordance. Gating on `isStaged` keeps the modal
+                      // byte-identical and hides the callout on the page.
+                      // (spec 2026-07-17 USE-RAW-FULL-LIST-1: the callout is a PREVIEW —
+                      // it mounts no use-raw/recognize-role controls, so no staged
+                      // decisions/session need thread here; WarningsBreakdown reads
+                      // them from SectionData as the sole actionable site.)
+                      // published-show-alerts §5.4: pre-rendered crew banners thread
+                      // through the crew section's chrome value only (ABSENT
+                      // elsewhere and in staged mode — exactOptional discipline).
+                      ...(s.id === "crew" && crewAttention ? { crewAttention } : {}),
+                      // crew-warning-attachment §2B: NULLISH guard (R2-F3) —
+                      // null/undefined stay ABSENT (exactOptional); the factory
+                      // returns element-or-null so falsy-renderables cannot occur.
+                      ...(s.id !== "warnings" && extrasNode != null
+                        ? { sectionExtras: extrasNode }
+                        : {}),
+                      // attention-alert-routing §3.2: the two parse notices render as
+                      // banner LINES atop the Parse-warnings panel; they travel as
+                      // domain items so WarningsBreakdown composes them with warnings.length.
+                      ...(s.id === "warnings" && warningsNotes && warningsNotes.length > 0
+                        ? { parseNotes: warningsNotes }
+                        : {}),
+                      // §3.5 pointer targets: derived in the pointerTargets
+                      // useMemo above. Warnings section only, spread-inserted
+                      // (exactOptional discipline).
+                      ...(s.id === "warnings" && pointerTargets !== null
+                        ? {
+                            pointerTargets,
+                            onJumpToSection: (id: SectionId) => handleNavClick(id),
+                          }
+                        : {}),
+                      // attention-alert-routing §3.3: anchored cards thread into the
+                      // section that OWNS the anchor — rooms hosts diagrams, event hosts
+                      // opening_reel. ABSENT on every other section (exactOptional).
+                      ...(s.id === "rooms" && diagramAnchorCards && diagramAnchorCards.length > 0
+                        ? { diagramAttention: diagramAnchorCards }
+                        : {}),
+                      ...(s.id === "event" && reelAnchorCards && reelAnchorCards.length > 0
+                        ? { reelAttention: reelAnchorCards }
+                        : {}),
+                      ...(s.id !== "warnings" && bySection.has(s.id) && isStaged(data)
+                        ? {
+                            // CALLOUT-PREVIEW-ACTION-CUE-1: tag each preview entry with
+                            // whether the sole actionable site (WarningsBreakdown) would
+                            // render a fix control for it, so the jump label reads "Fix"
+                            // only where a fix exists. Decisions are present here because
+                            // the callout only mounts under isStaged(data).
+                            calloutEntries: bySection.get(s.id)!.map((e) => ({
+                              ...e,
+                              offersFix: warningOffersFix(
+                                e.warning,
+                                findUseRawDecision(e.warning, data.useRawDecisions),
+                              ),
+                            })),
+                            onJumpToWarning: jumpToWarning,
+                          }
+                        : {}),
+                    }}
+                  >
+                    {s.render(data)}
+                  </Step3SectionChromeContext.Provider>
+                  {/* Warnings section ONLY (crew-warning-attachment §1.1 R1-F1):
+                sibling placement in BOTH suppression states — never through the
+                chrome, so the extras subtree never reparents across Silent
+                transitions. Other sections' extras render inside their panel
+                card via the chrome's sectionExtras (threaded above). seamless
+                (spec 2026-07-22 §3.3): exactly when the warnings body card is
+                suppressed, so the extras' border-t cannot read as a heading
+                underline. */}
+                  {s.id === "warnings" ? extrasNode : null}
+                  {/* Announcer spec 2026-07-22 §2.2: always-mounted published
                   announce-log region. OUTSIDE the chrome-suppressible card
                   subtree (Silent unmounts panel children,
                   step3ReviewSections.tsx:792-815) so the container exists
@@ -1150,23 +1168,24 @@ export function ShowReviewSurface({
                   whole container), additions announced, removals not.
                   Children are append-only; existing entry text NEVER
                   mutates (spec §2.6). */}
-                {/* §11: instant — deliberate (sr-only additions; no visual transition; spec §2.6) */}
-                {s.id === "warnings" && routedWarningsRenderElsewhere ? (
-                  <span
-                    role="log"
-                    aria-label="Warning updates"
-                    className="sr-only"
-                    data-testid="warnings-panel-status"
-                  >
-                    {announceLog.map((e) => (
-                      <span key={e.id} data-announce-id={e.id}>
-                        {e.text}
-                      </span>
-                    ))}
-                  </span>
-                ) : null}
-              </section>
-            ))}
+                  {/* §11: instant — deliberate (sr-only additions; no visual transition; spec §2.6) */}
+                  {s.id === "warnings" && routedWarningsRenderElsewhere ? (
+                    <span
+                      role="log"
+                      aria-label="Warning updates"
+                      className="sr-only"
+                      data-testid="warnings-panel-status"
+                    >
+                      {announceLog.map((e) => (
+                        <span key={e.id} data-announce-id={e.id}>
+                          {e.text}
+                        </span>
+                      ))}
+                    </span>
+                  ) : null}
+                </section>
+              );
+            })}
             {/* Extra rail sections mounted after the registry (Phase 2: Changes).
             Ref-wrapped for scroll-spy measurement. Phase 1 passes none. */}
             {extraSectionsAfter?.map(renderExtraPanel)}
