@@ -254,15 +254,20 @@ describe("buildPublishedSectionData — agenda baseline", () => {
 
 describe("buildPublishedSectionData — pull_sheet_override wire projection (spec 2026-07-23 §4)", () => {
   const wireOf = (pso: unknown) =>
-    buildPublishedSectionData(baseSnapshot({ show: { drive_file_id: "D", pull_sheet_override: pso } as never }), {
-      slug: SLUG,
-    }).pullSheetOverrideWire;
+    buildPublishedSectionData(
+      baseSnapshot({ show: { drive_file_id: "D", pull_sheet_override: pso } as never }),
+      {
+        slug: SLUG,
+      },
+    ).pullSheetOverrideWire;
 
   it("null → null", () => {
     expect(wireOf(null)).toBeNull();
   });
   it("full 4-field object → two string fields, acceptedBy/At dropped", () => {
-    expect(wireOf({ tabName: "OLD", fingerprint: "fp1", acceptedBy: "a@b", acceptedAt: "t" })).toEqual({
+    expect(
+      wireOf({ tabName: "OLD", fingerprint: "fp1", acceptedBy: "a@b", acceptedAt: "t" }),
+    ).toEqual({
       tabName: "OLD",
       fingerprint: "fp1",
     });
@@ -274,13 +279,22 @@ describe("buildPublishedSectionData — pull_sheet_override wire projection (spe
     expect(wireOf("garbage")).toEqual({ tabName: null, fingerprint: null });
   });
   it("whitespace/empty strings preserved verbatim (no trim, no empty-collapse)", () => {
-    expect(wireOf({ tabName: "  x ", fingerprint: "" })).toEqual({ tabName: "  x ", fingerprint: "" });
+    expect(wireOf({ tabName: "  x ", fingerprint: "" })).toEqual({
+      tabName: "  x ",
+      fingerprint: "",
+    });
   });
   it("non-string field values (number/boolean) → null (representation stays DB-owned)", () => {
-    expect(wireOf({ tabName: 123, fingerprint: false })).toEqual({ tabName: null, fingerprint: null });
+    expect(wireOf({ tabName: 123, fingerprint: false })).toEqual({
+      tabName: null,
+      fingerprint: null,
+    });
   });
   it("object/array field values → null", () => {
-    expect(wireOf({ tabName: { a: 1 }, fingerprint: [1, 2] })).toEqual({ tabName: null, fingerprint: null });
+    expect(wireOf({ tabName: { a: 1 }, fingerprint: [1, 2] })).toEqual({
+      tabName: null,
+      fingerprint: null,
+    });
   });
   it("adapter always emits archivedTabOffer null (modal attaches)", () => {
     expect(buildPublishedSectionData(baseSnapshot(), { slug: SLUG }).archivedTabOffer).toBeNull();

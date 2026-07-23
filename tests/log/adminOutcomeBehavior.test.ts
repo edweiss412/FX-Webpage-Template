@@ -4472,20 +4472,34 @@ describe("published pull-sheet override route observes SET/CLEARED across both s
     runManualSyncForShow: async () => ({ outcome: "applied" }) as never,
     ...over,
   });
-  const acceptBody = { driveFileId: "d1", tabName: "OLD PULL SHEET", expectedOverrideSnapshot: null };
-  const revokeBody = { driveFileId: "d1", tabName: null, expectedOverrideSnapshot: { tabName: "OLD PULL SHEET", fingerprint: "ff" } };
+  const acceptBody = {
+    driveFileId: "d1",
+    tabName: "OLD PULL SHEET",
+    expectedOverrideSnapshot: null,
+  };
+  const revokeBody = {
+    driveFileId: "d1",
+    tabName: null,
+    expectedOverrideSnapshot: { tabName: "OLD PULL SHEET", fingerprint: "ff" },
+  };
 
   test("accept emits SET on sync-ok AND sync-fail (audit before sync)", async () => {
     for (const runManualSyncForShow of [
       async () => ({ outcome: "applied" }) as never,
-      async () => { throw new Error("sync down"); },
+      async () => {
+        throw new Error("sync down");
+      },
     ]) {
       const codes = await observeSuccessCodes(() =>
         handlePublishedPullSheetOverride(acceptBody, pubDeps({ runManualSyncForShow })),
       );
       expect(codes).toContain("PULL_SHEET_OVERRIDE_SET");
     }
-    recordAdminOutcomeBehavior({ file: PUB_PSO_ROUTE, fn: "POST", code: "PULL_SHEET_OVERRIDE_SET" });
+    recordAdminOutcomeBehavior({
+      file: PUB_PSO_ROUTE,
+      fn: "POST",
+      code: "PULL_SHEET_OVERRIDE_SET",
+    });
   });
 
   test("revoke emits CLEARED on sync-ok AND sync-fail", async () => {
@@ -4498,12 +4512,19 @@ describe("published pull-sheet override route observes SET/CLEARED across both s
       );
       expect(codes).toContain("PULL_SHEET_OVERRIDE_CLEARED");
     }
-    recordAdminOutcomeBehavior({ file: PUB_PSO_ROUTE, fn: "POST", code: "PULL_SHEET_OVERRIDE_CLEARED" });
+    recordAdminOutcomeBehavior({
+      file: PUB_PSO_ROUTE,
+      fn: "POST",
+      code: "PULL_SHEET_OVERRIDE_CLEARED",
+    });
   });
 
   test("rpc error emits neither code", async () => {
     const codes = await observeCodes(() =>
-      handlePublishedPullSheetOverride(acceptBody, pubDeps({ setRpc: async () => ({ data: null, error: { code: "40001" } }) })),
+      handlePublishedPullSheetOverride(
+        acceptBody,
+        pubDeps({ setRpc: async () => ({ data: null, error: { code: "40001" } }) }),
+      ),
     );
     expect(codes).not.toContain("PULL_SHEET_OVERRIDE_SET");
   });

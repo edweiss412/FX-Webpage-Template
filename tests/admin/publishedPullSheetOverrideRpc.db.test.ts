@@ -125,8 +125,11 @@ d("set_published_pull_sheet_override", () => {
   test("edge-whitespace tab name is stored VERBATIM (no trim)", async () => {
     const [row] = await sql`
       select public.set_published_pull_sheet_override(${DFID}, ${" OLD PULL SHEET "}, 'fpw', 'a@b.com', null) as out`;
-    expect((row!.out as { override: { tabName: string } }).override.tabName).toBe(" OLD PULL SHEET ");
-    const [db] = await sql`select pull_sheet_override->>'tabName' as t from public.shows where drive_file_id = ${DFID}`;
+    expect((row!.out as { override: { tabName: string } }).override.tabName).toBe(
+      " OLD PULL SHEET ",
+    );
+    const [db] =
+      await sql`select pull_sheet_override->>'tabName' as t from public.shows where drive_file_id = ${DFID}`;
     expect(db!.t).toBe(" OLD PULL SHEET ");
   });
 

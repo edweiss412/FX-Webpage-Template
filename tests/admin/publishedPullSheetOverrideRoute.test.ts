@@ -10,11 +10,19 @@ import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 const ORDER: string[] = [];
 
-function baseDeps(over: Partial<PublishedPullSheetOverrideRouteDeps> = {}): PublishedPullSheetOverrideRouteDeps {
+function baseDeps(
+  over: Partial<PublishedPullSheetOverrideRouteDeps> = {},
+): PublishedPullSheetOverrideRouteDeps {
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "admin@fxav.test" })),
     detectArchivedTabs: vi.fn(async () => [
-      { tabName: "OLD PULL SHEET", headerPreviews: [], fingerprint: "fp-abcdef0123456789", included: false, contentChangedSinceAccept: false },
+      {
+        tabName: "OLD PULL SHEET",
+        headerPreviews: [],
+        fingerprint: "fp-abcdef0123456789",
+        included: false,
+        contentChangedSinceAccept: false,
+      },
     ]),
     setRpc: vi.fn(async () => {
       ORDER.push("rpc");
@@ -33,24 +41,36 @@ async function bodyOf(res: Response) {
 }
 
 const ACCEPT = { driveFileId: "d1", tabName: "OLD PULL SHEET", expectedOverrideSnapshot: null };
-const REVOKE = { driveFileId: "d1", tabName: null, expectedOverrideSnapshot: { tabName: "OLD PULL SHEET", fingerprint: "fp" } };
+const REVOKE = {
+  driveFileId: "d1",
+  tabName: null,
+  expectedOverrideSnapshot: { tabName: "OLD PULL SHEET", fingerprint: "fp" },
+};
 
 describe("handlePublishedPullSheetOverride", () => {
   test("accept + applied sync → 200 override_set with sync applied", async () => {
     const res = await handlePublishedPullSheetOverride(ACCEPT, baseDeps());
-    expect(await bodyOf(res)).toEqual({ status: 200, json: { ok: true, status: "override_set", sync: { ok: true, kind: "applied" } } });
+    expect(await bodyOf(res)).toEqual({
+      status: 200,
+      json: { ok: true, status: "override_set", sync: { ok: true, kind: "applied" } },
+    });
   });
 
   test("revoke path skips the scan entirely", async () => {
     const detect = vi.fn(async () => []);
-    const res = await handlePublishedPullSheetOverride(REVOKE, baseDeps({ detectArchivedTabs: detect }));
+    const res = await handlePublishedPullSheetOverride(
+      REVOKE,
+      baseDeps({ detectArchivedTabs: detect }),
+    );
     expect(detect).not.toHaveBeenCalled();
     expect((await bodyOf(res)).json).toMatchObject({ ok: true, status: "override_cleared" });
   });
 
   test("audit fires AFTER rpc commit and BEFORE the chained sync", async () => {
     ORDER.length = 0;
-    (logAdminOutcome as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => { ORDER.push("audit"); });
+    (logAdminOutcome as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      ORDER.push("audit");
+    });
     await handlePublishedPullSheetOverride(ACCEPT, baseDeps());
     expect(ORDER).toEqual(["rpc", "audit", "sync"]);
   });
@@ -67,7 +87,9 @@ describe("handlePublishedPullSheetOverride", () => {
   });
 
   test("audit-sink failure never changes the 200 response", async () => {
-    (logAdminOutcome as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => { throw new Error("sink down"); });
+    (logAdminOutcome as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      throw new Error("sink down");
+    });
     // logAdminOutcome swallows internally; but even if it rejected, the route awaits it — assert
     // the production helper contract by using a resolving mock that the route trusts.
     (logAdminOutcome as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => {});
@@ -78,16 +100,26 @@ describe("handlePublishedPullSheetOverride", () => {
   test("tab not in scan → 422 no_pull_sheet_region, no rpc", async () => {
     const setRpc = vi.fn(async () => ({ data: {}, error: null }));
     const res = await handlePublishedPullSheetOverride(
-      { ...ACCEPT, tabName: "GHOST TAB" }, baseDeps({ setRpc }),
+      { ...ACCEPT, tabName: "GHOST TAB" },
+      baseDeps({ setRpc }),
     );
     expect(setRpc).not.toHaveBeenCalled();
-    expect(await bodyOf(res)).toEqual({ status: 422, json: { ok: false, status: "no_pull_sheet_region" } });
+    expect(await bodyOf(res)).toEqual({
+      status: 422,
+      json: { ok: false, status: "no_pull_sheet_region" },
+    });
   });
 
   test("scan throws → 502 sync_infra, no rpc", async () => {
     const setRpc = vi.fn(async () => ({ data: {}, error: null }));
     const res = await handlePublishedPullSheetOverride(
-      ACCEPT, baseDeps({ detectArchivedTabs: vi.fn(async () => { throw new Error("drive down"); }), setRpc }),
+      ACCEPT,
+      baseDeps({
+        detectArchivedTabs: vi.fn(async () => {
+          throw new Error("drive down");
+        }),
+        setRpc,
+      }),
     );
     expect(setRpc).not.toHaveBeenCalled();
     expect(await bodyOf(res)).toEqual({ status: 502, json: { ok: false, status: "sync_infra" } });
@@ -96,9 +128,17 @@ describe("handlePublishedPullSheetOverride", () => {
   test("exact raw-name match: edge-whitespace tab is NOT matched by a trimmed request", async () => {
     const res = await handlePublishedPullSheetOverride(
       { ...ACCEPT, tabName: "OLD PULL SHEET" },
-      baseDeps({ detectArchivedTabs: vi.fn(async () => [
-        { tabName: " OLD PULL SHEET ", headerPreviews: [], fingerprint: "fp", included: false, contentChangedSinceAccept: false },
-      ]) }),
+      baseDeps({
+        detectArchivedTabs: vi.fn(async () => [
+          {
+            tabName: " OLD PULL SHEET ",
+            headerPreviews: [],
+            fingerprint: "fp",
+            included: false,
+            contentChangedSinceAccept: false,
+          },
+        ]),
+      }),
     );
     expect((await bodyOf(res)).json).toEqual({ ok: false, status: "no_pull_sheet_region" });
   });
@@ -109,12 +149,22 @@ describe("handlePublishedPullSheetOverride", () => {
       { ...ACCEPT, tabName: " OLD PULL SHEET " },
       baseDeps({
         detectArchivedTabs: vi.fn(async () => [
-          { tabName: " OLD PULL SHEET ", headerPreviews: [], fingerprint: "fpx", included: false, contentChangedSinceAccept: false },
+          {
+            tabName: " OLD PULL SHEET ",
+            headerPreviews: [],
+            fingerprint: "fpx",
+            included: false,
+            contentChangedSinceAccept: false,
+          },
         ]),
         setRpc,
       }),
     );
-    const call = (setRpc.mock.calls as unknown as Array<[{ p_tab_name: string | null; p_fingerprint: string | null }]>)[0]![0];
+    const call = (
+      setRpc.mock.calls as unknown as Array<
+        [{ p_tab_name: string | null; p_fingerprint: string | null }]
+      >
+    )[0]![0];
     expect(call.p_tab_name).toBe(" OLD PULL SHEET ");
     expect(call.p_fingerprint).toBe("fpx");
   });
@@ -126,21 +176,28 @@ describe("handlePublishedPullSheetOverride", () => {
     ["23505", 502, "sync_infra"],
   ])("rpc error %s → %i %s", async (rpcCode, httpStatus, status) => {
     const res = await handlePublishedPullSheetOverride(
-      ACCEPT, baseDeps({ setRpc: vi.fn(async () => ({ data: null, error: { code: rpcCode } })) }),
+      ACCEPT,
+      baseDeps({ setRpc: vi.fn(async () => ({ data: null, error: { code: rpcCode } })) }),
     );
     expect(await bodyOf(res)).toEqual({ status: httpStatus, json: { ok: false, status } });
   });
 
   test("rpc thrown (transport) → 502 sync_infra", async () => {
     const res = await handlePublishedPullSheetOverride(
-      ACCEPT, baseDeps({ setRpc: vi.fn(async () => { throw new Error("net"); }) }),
+      ACCEPT,
+      baseDeps({
+        setRpc: vi.fn(async () => {
+          throw new Error("net");
+        }),
+      }),
     );
     expect(await bodyOf(res)).toEqual({ status: 502, json: { ok: false, status: "sync_infra" } });
   });
 
   test("rpc null payload with no error → 502 sync_infra", async () => {
     const res = await handlePublishedPullSheetOverride(
-      ACCEPT, baseDeps({ setRpc: vi.fn(async () => ({ data: null, error: null })) }),
+      ACCEPT,
+      baseDeps({ setRpc: vi.fn(async () => ({ data: null, error: null })) }),
     );
     expect(await bodyOf(res)).toEqual({ status: 502, json: { ok: false, status: "sync_infra" } });
   });
@@ -159,37 +216,63 @@ describe("handlePublishedPullSheetOverride", () => {
     ["parse_error", { ok: false, kind: "parse_error" }],
   ])("sync classifier: outcome %s", async (outcome, expected) => {
     const res = await handlePublishedPullSheetOverride(
-      ACCEPT, baseDeps({ runManualSyncForShow: vi.fn(async () => ({ outcome }) as never) }),
+      ACCEPT,
+      baseDeps({ runManualSyncForShow: vi.fn(async () => ({ outcome }) as never) }),
     );
     expect((await bodyOf(res)).json).toEqual({ ok: true, status: "override_set", sync: expected });
   });
 
   test("sync classifier: FINALIZE_OWNED_SHOW blocked → finalize_owned", async () => {
     const res = await handlePublishedPullSheetOverride(
-      ACCEPT, baseDeps({ runManualSyncForShow: vi.fn(async () => ({ outcome: "blocked", code: "FINALIZE_OWNED_SHOW" }) as never) }),
+      ACCEPT,
+      baseDeps({
+        runManualSyncForShow: vi.fn(
+          async () => ({ outcome: "blocked", code: "FINALIZE_OWNED_SHOW" }) as never,
+        ),
+      }),
     );
     expect((await bodyOf(res)).json).toMatchObject({ sync: { ok: false, kind: "finalize_owned" } });
   });
 
   test("sync classifier: SHOW_ARCHIVED_IMMUTABLE blocked → archived_immutable", async () => {
     const res = await handlePublishedPullSheetOverride(
-      ACCEPT, baseDeps({ runManualSyncForShow: vi.fn(async () => ({ outcome: "blocked", code: "SHOW_ARCHIVED_IMMUTABLE" }) as never) }),
+      ACCEPT,
+      baseDeps({
+        runManualSyncForShow: vi.fn(
+          async () => ({ outcome: "blocked", code: "SHOW_ARCHIVED_IMMUTABLE" }) as never,
+        ),
+      }),
     );
-    expect((await bodyOf(res)).json).toMatchObject({ sync: { ok: false, kind: "archived_immutable" } });
+    expect((await bodyOf(res)).json).toMatchObject({
+      sync: { ok: false, kind: "archived_immutable" },
+    });
   });
 
   test("sync classifier: ConcurrentSyncSkipped → concurrent_skip", async () => {
     const res = await handlePublishedPullSheetOverride(
-      ACCEPT, baseDeps({ runManualSyncForShow: vi.fn(async () => ({ skipped: "CONCURRENT_SYNC_SKIPPED" }) as never) }),
+      ACCEPT,
+      baseDeps({
+        runManualSyncForShow: vi.fn(async () => ({ skipped: "CONCURRENT_SYNC_SKIPPED" }) as never),
+      }),
     );
-    expect((await bodyOf(res)).json).toMatchObject({ sync: { ok: false, kind: "concurrent_skip" } });
+    expect((await bodyOf(res)).json).toMatchObject({
+      sync: { ok: false, kind: "concurrent_skip" },
+    });
   });
 
   test("sync classifier: thrown → threw, override still committed (200)", async () => {
     const res = await handlePublishedPullSheetOverride(
-      ACCEPT, baseDeps({ runManualSyncForShow: vi.fn(async () => { throw new Error("boom"); }) }),
+      ACCEPT,
+      baseDeps({
+        runManualSyncForShow: vi.fn(async () => {
+          throw new Error("boom");
+        }),
+      }),
     );
-    expect(await bodyOf(res)).toEqual({ status: 200, json: { ok: true, status: "override_set", sync: { ok: false, kind: "threw" } } });
+    expect(await bodyOf(res)).toEqual({
+      status: 200,
+      json: { ok: true, status: "override_set", sync: { ok: false, kind: "threw" } },
+    });
   });
 
   test.each([
@@ -200,9 +283,26 @@ describe("handlePublishedPullSheetOverride", () => {
     ["non-string tabName", { driveFileId: "d1", tabName: 5, expectedOverrideSnapshot: null }],
     ["snapshot scalar", { driveFileId: "d1", tabName: null, expectedOverrideSnapshot: 3 }],
     ["snapshot array", { driveFileId: "d1", tabName: null, expectedOverrideSnapshot: [] }],
-    ["snapshot extra keys", { driveFileId: "d1", tabName: null, expectedOverrideSnapshot: { tabName: "a", fingerprint: "b", x: 1 } }],
-    ["snapshot missing key", { driveFileId: "d1", tabName: null, expectedOverrideSnapshot: { tabName: "a" } }],
-    ["snapshot non-string field", { driveFileId: "d1", tabName: null, expectedOverrideSnapshot: { tabName: 1, fingerprint: "b" } }],
+    [
+      "snapshot extra keys",
+      {
+        driveFileId: "d1",
+        tabName: null,
+        expectedOverrideSnapshot: { tabName: "a", fingerprint: "b", x: 1 },
+      },
+    ],
+    [
+      "snapshot missing key",
+      { driveFileId: "d1", tabName: null, expectedOverrideSnapshot: { tabName: "a" } },
+    ],
+    [
+      "snapshot non-string field",
+      {
+        driveFileId: "d1",
+        tabName: null,
+        expectedOverrideSnapshot: { tabName: 1, fingerprint: "b" },
+      },
+    ],
   ])("body validation: %s → 400 bad_request", async (_label, body) => {
     const res = await handlePublishedPullSheetOverride(body, baseDeps());
     expect(await bodyOf(res)).toEqual({ status: 400, json: { ok: false, status: "bad_request" } });
@@ -210,7 +310,11 @@ describe("handlePublishedPullSheetOverride", () => {
 
   test("revoke accepts a well-formed two-field snapshot with null fields", async () => {
     const res = await handlePublishedPullSheetOverride(
-      { driveFileId: "d1", tabName: null, expectedOverrideSnapshot: { tabName: null, fingerprint: null } },
+      {
+        driveFileId: "d1",
+        tabName: null,
+        expectedOverrideSnapshot: { tabName: null, fingerprint: null },
+      },
       baseDeps(),
     );
     expect((await bodyOf(res)).json).toMatchObject({ ok: true, status: "override_cleared" });

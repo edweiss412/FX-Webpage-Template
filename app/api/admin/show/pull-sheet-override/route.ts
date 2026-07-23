@@ -115,7 +115,10 @@ function classifySync(result: unknown): SyncClassification {
     if (outcome === "applied") return { ok: true, kind: "applied" };
     if (outcome === "blocked") {
       const code = (result as { code?: unknown }).code;
-      return { ok: false, kind: code === FINALIZE_OWNED_SHOW ? "finalize_owned" : "archived_immutable" };
+      return {
+        ok: false,
+        kind: code === FINALIZE_OWNED_SHOW ? "finalize_owned" : "archived_immutable",
+      };
     }
     if (typeof outcome === "string") return { ok: false, kind: outcome };
   }
