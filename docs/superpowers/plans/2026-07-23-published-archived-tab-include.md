@@ -31,7 +31,7 @@
 - Regen: `supabase/__generated__/schema-manifest.json` (via `pnpm gen:schema-manifest`)
 
 **Interfaces:**
-- Produces: RPC `set_published_pull_sheet_override(p_drive_file_id text, p_tab_name text, p_fingerprint text, p_accepted_by text, p_expected_override_snapshot jsonb) returns jsonb` — returns `jsonb_build_object('override', v_override)`. Raises: `40001` CAS mismatch; `P0002` row missing; `22023` lifecycle/arg guard.
+- Produces: RPC `set_published_pull_sheet_override(p_drive_file_id text, p_tab_name text, p_fingerprint text, p_accepted_by text, p_expected_override_snapshot jsonb) returns jsonb` — returns `jsonb_build_object('override', v_override)`. Raises: `40001` CAS mismatch; `P0002` row missing; `55000` lifecycle guard (unpublished/archived); `22023` arg guard (empty drive_file_id/fingerprint/actor). Route mapping: `P0002`+`55000` → 409 `lifecycle_conflict`; `40001` → 409 `stale_review`; `22023`/other → 502 `sync_infra`.
 - Consumes: existing `shows.pull_sheet_override` column (`supabase/migrations/20260706000000_pull_sheet_override.sql:8-9`).
 
 - [ ] **Step 1: Write the failing db test** (loopback-guarded like sibling `*.db.test.ts` suites; runs as service role via `TEST_DATABASE_URL`):
@@ -80,18 +80,18 @@ d("set_published_pull_sheet_override", () => {
     expect(out.override).toBeNull(); // revoke succeeded against 2-field snapshot
   });
 
-  it("rejects archived rows (legacy archived && published) with 22023", async () => {
+  it("rejects archived rows (legacy archived && published) with 55000", async () => {
     await sql`update shows set archived = true where drive_file_id = ${DFID}`;
     await expect(sql`
       select set_published_pull_sheet_override(${DFID}, 'T', 'fp', 'a@b.com', null)`)
-      .rejects.toMatchObject({ code: "22023" });
+      .rejects.toMatchObject({ code: "55000" });
     await sql`update shows set archived = false where drive_file_id = ${DFID}`;
   });
 
-  it("rejects unpublished rows with 22023 and missing rows with P0002", async () => {
+  it("rejects unpublished rows with 55000 and missing rows with P0002", async () => {
     await sql`update shows set published = false where drive_file_id = ${DFID}`;
     await expect(sql`select set_published_pull_sheet_override(${DFID}, 'T', 'fp', 'a@b.com', null)`)
-      .rejects.toMatchObject({ code: "22023" });
+      .rejects.toMatchObject({ code: "55000" });
     await sql`update shows set published = true where drive_file_id = ${DFID}`;
     await expect(sql`select set_published_pull_sheet_override('no-such-dfid', 'T', 'fp', 'a@b.com', null)`)
       .rejects.toMatchObject({ code: "P0002" });
@@ -141,6 +141,9 @@ declare
   v_current_snapshot jsonb;
   v_override jsonb;
 begin
+  if coalesce(p_drive_file_id, '') = '' then
+    raise exception 'drive_file_id required' using errcode = '22023';
+  end if;
   perform pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id));
 
   select published, archived, pull_sheet_override
@@ -150,7 +153,7 @@ begin
     raise exception 'no shows row for drive_file_id' using errcode = 'P0002';
   end if;
   if v_published is distinct from true or v_archived is distinct from false then
-    raise exception 'show is not published-active (lifecycle guard)' using errcode = '22023';
+    raise exception 'show is not published-active (lifecycle guard)' using errcode = '55000';
   end if;
   if p_tab_name is not null
      and (coalesce(p_fingerprint, '') = '' or coalesce(p_accepted_by, '') = '') then
@@ -189,7 +192,7 @@ grant execute on function public.set_published_pull_sheet_override(text, text, t
 
 - [ ] **Step 4: Apply locally + run test.** `supabase db query --local "$(cat supabase/migrations/20260723090000_published_pull_sheet_override.sql)"` (or the repo's standard local apply); rerun test → PASS. (Test connects as superuser via TEST_DATABASE_URL; grant-posture assertions use `has_function_privilege`.)
 
-- [ ] **Step 5: Register lock topology.** Add to `tests/auth/advisoryLockRpcDeadlock.test.ts` (mirroring the `set_pull_sheet_override` entry at `tests/auth/advisoryLockRpcDeadlock.test.ts:69-72`): migration file supabase/migrations/20260723090000_published_pull_sheet_override.sql, key `show:` + drive_file_id, holder = in-RPC, JS callers never lock. Run: `pnpm vitest run tests/auth/advisoryLockRpcDeadlock.test.ts` → PASS.
+- [ ] **Step 5: Register lock topology in BOTH meta-tests.** (a) `tests/auth/advisoryLockRpcDeadlock.test.ts` (mirroring the `set_pull_sheet_override` entry at `tests/auth/advisoryLockRpcDeadlock.test.ts:69-72`); (b) `tests/sync/_advisoryLockSingleHolderContract.test.ts` — add the RPC holder row to the hard-coded registry (`tests/sync/_advisoryLockSingleHolderContract.test.ts:127`) AND a route negative check that app/api/admin/show/pull-sheet-override/route.ts never JS-locks (pattern at `tests/sync/_advisoryLockSingleHolderContract.test.ts:611`; add in Task 2 once the route exists if the meta requires the file present). Run both suites → PASS.
 
 - [ ] **Step 6: Manifest regen.** `pnpm gen:schema-manifest`; commit regenerated `supabase/__generated__/schema-manifest.json` with this task.
 
@@ -203,9 +206,9 @@ grant execute on function public.set_published_pull_sheet_override(text, text, t
 
 **Interfaces:**
 - Consumes: RPC from Task 1 (via service client `.rpc("set_published_pull_sheet_override", {...})`); `requireAdminIdentity` (`lib/auth/requireAdmin.ts:279`); `fetchCurrentSheetXlsxBytes` (`lib/drive/fetch.ts:536`); `synthesizeMarkdownFromXlsx` (`lib/drive/exportSheetToMarkdown.ts:301-304`); `runManualSyncForShow` (`lib/sync/runManualSyncForShow.ts:297`); `logAdminOutcome` (same helper the onboarding route uses at `app/api/admin/onboarding/pull-sheet-override/route.ts:242-249`).
-- Produces: POST contract exactly per §3.4 table: 200 `{ok:true,status:"override_set"|"override_cleared",sync:{ok:boolean,outcome?:string,code?:string}}`; 409 `stale_review` | `lifecycle_conflict`; 422 `no_pull_sheet_region`; 502 `sync_infra`; 400 `bad_request`. Exported for tests: `POST` plus `__testDeps` injection following the onboarding route's dependency-injection pattern (read that file first and mirror its DI mechanism; if it has none, export a `handlePullSheetOverride(body, deps)` core called by `POST` with production deps).
+- Produces: POST contract exactly per §3.4: 200 `{ok:true,status:"override_set"|"override_cleared",sync:{ok:boolean,kind:string}}` with the TOTAL sync classifier (`applied` → ok:true; every other ProcessOneFileResult outcome verbatim, plus `finalize_owned` | `archived_immutable` | `concurrent_skip` | `threw` → ok:false); 409 `stale_review` (40001) | `lifecycle_conflict` (P0002/55000); 422 `no_pull_sheet_region`; 502 `sync_infra` (22023/transport/null-payload/scan failure); 400 `bad_request` per §2.3 body-validation rows (exact-shape snapshot with null-tolerant string fields; whitespace-only strings rejected; tabName key REQUIRED, null = revoke). Exported for tests: `POST` plus `__testDeps` injection following the onboarding route's dependency-injection pattern (read that file first and mirror its DI mechanism; if it has none, export a `handlePullSheetOverride(body, deps)` core called by `POST` with production deps).
 
-- [ ] **Step 1: Failing tests** — one `it` per §3.4 row plus each §10 boundary. Mock deps (no DB): identity ok/reject; scan returns tabs / throws; RPC resolves `{data:{override:{...}},error:null}` / returns error code 40001 / returns error P0002/22023 / returns other error / resolves `{data:null,error:null}` (null payload → 502) / throws (transport) ; sync resolves applied / resolves typed-fail / throws; audit sink throws (response unchanged). Assert exact status+body rows and that: audit called AFTER rpc success and BEFORE sync (call-order via a shared array the mocks push into); no audit on non-commit paths; fingerprint in audit payload truncated to 12 chars; revoke path skips scan entirely.
+- [ ] **Step 1: Failing tests** — one `it` per §3.4 row plus each §10 boundary. Mock deps (no DB): identity ok/reject; scan returns tabs (incl. a tab with edge-whitespace name asserting EXACT raw-string match + verbatim storage per §2.3) / throws; RPC resolves `{data:{override:{...}},error:null}` / error 40001 / error P0002 / error 55000 / error 22023 / other error / `{data:null,error:null}` (502) / throws; sync: one case per classifier kind (`applied`, `stage`, `shrink_held`, `skipped`, `hard_fail`, `finalize_owned`, `archived_immutable`, `concurrent_skip`, `threw` — assert exact `{ok,kind}`); audit sink throws (response unchanged); body-validation: every §2.3 route-body row (absent/non-string/empty/whitespace driveFileId; tabName key missing vs null vs whitespace; snapshot scalar/array/extra-keys/missing-keys/non-string values). Assert exact status+body rows and that: audit called AFTER rpc success and BEFORE sync (call-order via a shared array the mocks push into); no audit on non-commit paths; fingerprint in audit payload truncated to 12 chars; revoke path skips scan entirely.
 
 ```ts
 // Failure modes caught: wrong status mapping, audit ordering violation (invariant 10),
@@ -218,7 +221,7 @@ import { describe, it, expect, vi } from "vitest";
 (Write the full suite in-task following `tests/admin/` sibling patterns; every case's expected body copied verbatim from §3.4.)
 
 - [ ] **Step 2: Run → FAIL (module not found).**
-- [ ] **Step 3: Implement route** per §3.1 flow 1-6 (accept) and revoke variant; `export const dynamic = "force-dynamic"`. Body validation: `driveFileId` non-empty string; `tabName` string|null; `expectedOverrideSnapshot` null or `{tabName:string,fingerprint:string}` — anything else 400. Trimmed exact-match tab lookup. All Supabase calls destructure `{data,error}`.
+- [ ] **Step 3: Implement route** per §3.1 flow 1-6 (accept) and revoke variant; `export const dynamic = "force-dynamic"`. Body validation: `driveFileId` non-empty string; `tabName` string|null; `expectedOverrideSnapshot` null or `{tabName:string,fingerprint:string}` — anything else 400. Trimmed exact-match tab lookup. All Supabase calls destructure `{data,error}`; the RPC callsite carries the §10 inline annotation `// not-subject-to-meta: auth-helper registry scope does not cover API routes (tests/auth/_metaInfraContract.test.ts:69-78); this route's typed-result tests assert every §3.4 row (precedent: app/api/admin/onboarding/pull-sheet-override/route.ts)`.
 - [ ] **Step 4: Run → PASS.** Also run `pnpm typecheck`.
 - [ ] **Step 5: Commit.** `feat(admin): published pull-sheet-override route with scan-at-click and chained sync`
 
@@ -232,7 +235,7 @@ import { describe, it, expect, vi } from "vitest";
 - Produces: registry rows `{file:"app/api/admin/show/pull-sheet-override/route.ts", fn:"POST", code:"PULL_SHEET_OVERRIDE_SET"}` and `..._CLEARED`; behavioral cases proving the sink records the code on the committed-success branch for BOTH sync-ok and sync-failed sub-branches (§6).
 
 - [ ] **Step 1:** Run `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts` → expect FAIL (new surface discovered, unregistered). This is the failing test.
-- [ ] **Step 2:** Add the two registry rows; extend `adminOutcomeBehavior.test.ts` with the new surface following an existing case's mechanism (sink-spy via `setLogSink`), including a case where `runManualSyncForShow` mock rejects yet the sink already saw `PULL_SHEET_OVERRIDE_SET`.
+- [ ] **Step 2:** Add the two registry rows; extend `adminOutcomeBehavior.test.ts` with FOUR cases (per-tuple completeness, `tests/log/adminOutcomeBehavior.test.ts:4462`): `PULL_SHEET_OVERRIDE_SET` × (sync-ok, sync-rejects) and `PULL_SHEET_OVERRIDE_CLEARED` × (sync-ok, sync-rejects); the sync-rejects cases assert the sink already saw the code BEFORE the sync mock ran (push-order array).
 - [ ] **Step 3:** `pnpm vitest run tests/log` → PASS.
 - [ ] **Step 4: Commit.** `test(log): register published pull-sheet-override surface with partial-success behavioral proof`
 
@@ -243,39 +246,39 @@ import { describe, it, expect, vi } from "vitest";
 - Test: extend `tests/components/admin/review/publishedAdapter.test.ts`
 
 **Interfaces:**
-- Produces: `PublishedSectionData.pullSheetOverride: OverrideSnapshot` = two-field projection of `snapshot.show.pull_sheet_override`; malformed (non-object, missing/empty `tabName` or `fingerprint`) → null. Type `OverrideSnapshot` from `lib/sync/pullSheetOverride.ts:22`.
+- Produces: `PublishedSectionData.pullSheetOverrideWire: null | { tabName: string | null, fingerprint: string | null }` — stored null → null; stored non-null (ANY shape incl. malformed) → `{ tabName: str(raw.tabName) ?? null, fingerprint: str(raw.fingerprint) ?? null }` VERBATIM (no trim, no empty-collapse) so the value round-trips the RPC's `->>`-projection CAS (§4). Do NOT reuse the strict `OverrideSnapshot` type for this field.
 
-- [ ] **Step 1: Failing tests:** stored 4-field object → `{tabName,fingerprint}` only (acceptedBy/At dropped); null → null; `{tabName:"x"}` (no fingerprint) → null; `"garbage"` string → null; `{tabName:"", fingerprint:"f"}` → null. Derive expectations from fixture values, not literals repeated in the assertion path.
+- [ ] **Step 1: Failing tests:** stored 4-field object → `{tabName,fingerprint}` (acceptedBy/At dropped); null → null; `{tabName:"x"}` → `{tabName:"x", fingerprint:null}`; `"garbage"` string → `{tabName:null, fingerprint:null}`; `{tabName:"  x ", fingerprint:""}` → preserved verbatim `{tabName:"  x ", fingerprint:""}`. Derive expectations from fixture values.
 - [ ] **Step 2: Run → FAIL** (adapter returns hard-coded null; the 4-field case fails).
-- [ ] **Step 3: Implement** small `projectOverrideSnapshot(raw: unknown): OverrideSnapshot` in the adapter file; replace line 82.
+- [ ] **Step 3: Implement** small `projectOverrideWire(raw: unknown)` in the adapter file returning the null-tolerant wire shape; replace line 82.
 - [ ] **Step 4: Run → PASS.**
 - [ ] **Step 5: Commit.** `feat(admin): published adapter projects pull_sheet_override snapshot`
 
-### Task 5: `guidanceOverrides` pointer (StagedReviewCard surfaces)
+### Task 5: StagedReviewCard filter-fact pin (spec §2.2)
 
 **Files:**
-- Modify: `components/admin/PerShowActionableWarnings.tsx` (new optional prop), `components/admin/StagedReviewCard.tsx:521` (pass override)
-- Test: extend `tests/components/` suite covering PerShowActionableWarnings (locate via `rg -l "PerShowActionableWarnings" tests/`)
+- Test: extend the suite covering `lib/parser/dataGaps.ts` exports (locate via `rg -l "OPERATOR_ACTIONABLE_ANCHORED" tests/`)
 
 **Interfaces:**
-- Produces: `guidanceOverrides?: Partial<Record<string, string>>`; when a non-blank entry matches the warning code, it replaces the catalog guidance line (rendered as plain text, `kind:"instance"` path of `GuidanceResult`); blank/whitespace entry = absent (reuse `warningCardCopyFields` trim rule `components/admin/PerShowActionableWarnings.tsx:40-46`). Absent prop = bit-identical output.
+- Consumes: `OPERATOR_ACTIONABLE_ANCHORED` (`lib/parser/dataGaps.ts:370`).
+- Produces: a pin test asserting `PULL_SHEET_ON_ARCHIVED_TAB` is NOT in `OPERATOR_ACTIONABLE_ANCHORED`, with a comment citing spec §2.2 (the published-offer surface decision depends on StagedReviewCard never rendering this warning; a future filter change must resurface that decision).
 
-- [ ] **Step 1: Failing tests:** (a) override replaces catalog helpfulContext for `PULL_SHEET_ON_ARCHIVED_TAB`; (b) whitespace override falls back to catalog; (c) snapshot-equality: render with prop absent === render without prop (pin bit-identical claim); (d) StagedReviewCard passes the exact §2.2 sentence (assert on rendered text).
-- [ ] **Step 2: FAIL → implement → PASS.** Copy string verbatim from §2.2 (no em-dash; sentence uses commas/periods only).
-- [ ] **Step 3: Commit.** `feat(admin): staged review warning card points archived-tab include at the show page`
+- [ ] **Step 1:** Write the pin test (it PASSES against current code by design — this is a decision pin, not TDD red/green; state that in the test comment). Concrete failure mode caught: someone adds the code to the anchored filter, silently making the catalog helpfulContext sentence render (and lie) on StagedReviewCard surfaces.
+- [ ] **Step 2:** Run the suite → PASS.
+- [ ] **Step 3: Commit.** `test(admin): pin PULL_SHEET_ON_ARCHIVED_TAB out of staged actionable filter`
 
 ### Task 6: Published offer UI (Opus-owned)
 
 **Files:**
 - Create: components/admin/review/publishedArchivedTabOffer.tsx (client component: offer card P2, override note P3, busy/err lines)
-- Modify: `components/admin/wizard/archivedTabOffer.tsx` (export `ARCHIVED_TAB_BTN`, `ARCHIVED_TAB_GHOST_BTN`, `ARCHIVED_TAB_ERROR`), `components/admin/review/sectionData.ts` (published variant gains `archivedTabOffer` input field), `components/admin/review/publishedAdapter.ts` (accept `activeArchivedTabNames` via its options arg; build `archivedTabOffer: { tabNames: string[], slug: string } | null` honoring §2.3 guards: published && !archived && driveFileId non-null; dedupe trimmed names; drop blanks), `app/admin/_showReviewModal.tsx:328` area (compute active names from `buildSectionWarningModel` output; pass into adapter), `components/admin/wizard/step3ReviewSections.tsx:4086-4093` (pass new props to `PackListBreakdown` in published mode), `components/admin/wizard/step3ReviewSections.tsx:2267` (`PackListBreakdown` renders the published offer/note when the new prop present; cap 3 + overflow line; S1 empty-state suppression per §2.3)
+- Modify: `components/admin/wizard/archivedTabOffer.tsx` (export `ARCHIVED_TAB_BTN`, `ARCHIVED_TAB_GHOST_BTN`, `ARCHIVED_TAB_ERROR`), `components/admin/review/sectionData.ts` (published variant gains `archivedTabOffer` input field), `components/admin/review/publishedAdapter.ts` (accept `activeArchivedTabNames` via its options arg; build `archivedTabOffer: { tabNames: string[], slug: string } | null` honoring §2.3 guards: published && !archived && driveFileId non-null; raw-name exact dedupe; drop blank/whitespace-only names), `app/admin/_showReviewModal.tsx:328` area (compute `activeArchivedTabNames` (raw `blockRef.name` values, blanks dropped, exact-string dedupe — NO trimming per §2.3) from `buildSectionWarningModel` active partition; pass into adapter options), `components/admin/wizard/step3ReviewSections.tsx:4086-4093` (pass new props to `PackListBreakdown` in published mode), `components/admin/wizard/step3ReviewSections.tsx:2267` (`PackListBreakdown` renders the published offer/note when the new prop present; cap 3 + overflow line; S1 empty-state suppression per §2.3)
 - Test: tests/components/admin/review/publishedArchivedTabOffer.test.tsx + extend `tests/components/admin/review/sectionData.test.ts`
 
 **Interfaces:**
 - Consumes: Task 2 route (`POST /api/admin/show/pull-sheet-override`), Task 4 projection, exported button classes.
-- Produces: `<PublishedArchivedTabOffer tabName slug driveFileId expectedOverrideSnapshot mode>` where mode `"offer" | "note"`; POSTs accept `{driveFileId, tabName, expectedOverrideSnapshot}` / revoke `{driveFileId, tabName: null, expectedOverrideSnapshot}`; on `ok || status === 409` → `router.refresh()` (mirror `postPullSheetOverride` semantics at `archivedTabOffer.tsx:67`); inline copy exactly per §7 table; busy disables only own card.
+- Produces: `<PublishedArchivedTabOffer tabName slug driveFileId expectedOverrideSnapshot mode>` where mode `"offer" | "note"`; POSTs accept `{driveFileId, tabName, expectedOverrideSnapshot}` / revoke `{driveFileId, tabName: null, expectedOverrideSnapshot}` with tabName RAW; on `ok || status === 409` → `router.refresh()` (mirror `postPullSheetOverride` semantics at `archivedTabOffer.tsx:67`); inline copy exactly per §7 table (incl. `sync.kind === "stage"` held lines for both set and cleared); busy disables only own card; transient partial-success line lives in card state per §7 lifetime note.
 
-- [ ] **Step 1: Failing component tests.** Cover: P2 renders offer with tab name; Include click POSTs exact body + disables own buttons only; success → router.refresh called (mock `next/navigation` `useRouter`); each §7 status → its verbatim copy line (assert full string equality against a constants export, and assert constants match §7 by literal in-test copies); P3 note + Undo POSTs revoke body; Skip collapses card and moves focus to section fallback; cap: 4 active names → 3 cards + overflow line "and 1 more archived tabs. Resolve these in the sheet."; guards: archived/unpublished/driveFileId-null → adapter builds null offer (sectionData test); dedupe + blank-drop (sectionData test). jsdom limits respected: assert `disabled` attributes and text, never `toBeVisible`.
+- [ ] **Step 1: Failing component tests.** Cover: P2 renders offer with tab name; Include click POSTs exact body + disables own buttons only; success → router.refresh called (mock `next/navigation` `useRouter`); each §7 status → its verbatim copy line (assert full string equality against a constants export, and assert constants match §7 by literal in-test copies); P3 note + Undo POSTs revoke body; Skip collapses card and moves focus to section fallback; cap: 4 active names → 3 cards + overflow line "and 1 more archived tabs. Resolve these in the sheet."; POST body carries the RAW name verbatim (fixture name with edge whitespace, assert exact); guards: archived/unpublished/driveFileId-null → adapter builds null offer (sectionData test); raw-name dedupe + blank-drop (sectionData test); P3-degraded: wire override `{tabName:null,fingerprint:null}` renders note with "an archived tab" label and Undo posts that snapshot verbatim; per-kind copy: one assertion per §7 row incl. both stage-held lines. jsdom limits respected: assert `disabled` attributes and text, never `toBeVisible`.
 - [ ] **Step 2: FAIL → implement → PASS.** Run scoped: `pnpm vitest run tests/components/admin/review`.
 - [ ] **Step 3: Registry fan-out check.** Run `pnpm vitest run tests/components tests/styles tests/log tests/messages` — source-scanning registries (sentinel-hiding, copy scanners) walk component trees; new files must satisfy them.
 - [ ] **Step 4: Commit.** `feat(admin): published pack-list archived-tab include offer and override note`
