@@ -69,7 +69,7 @@ function SubmitButton({
       data-testid={`unarchive-show-button-${showId}`}
       disabled={pending}
       aria-busy={pending}
-      className="inline-flex min-h-tap-min items-center justify-center self-center rounded-sm border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-strong transition-colors duration-fast hover:border-border-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface"
+      className="inline-flex min-h-tap-min items-center justify-center self-center rounded-sm border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-strong transition-colors duration-fast hover:border-border-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface"
     >
       {pending ? "Unarchiving…" : "Unarchive"}
     </button>

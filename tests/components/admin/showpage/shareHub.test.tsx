@@ -482,7 +482,7 @@ describe("ShareHub — Careful section wiring", () => {
     );
   });
 
-  it("reset idle state is ONE menu row, contributes no heading, keeps its ring offset", () => {
+  it("reset idle state is ONE menu row, contributes no heading, tier-1 focus (no offset)", () => {
     renderHub();
     fireEvent.click(primary());
 
@@ -491,16 +491,17 @@ describe("ShareHub — Careful section wiring", () => {
     expectClasses(reset, {
       exactly: [
         ...ROW_TOKENS,
-        // reset-ONLY: the guard against silently homogenizing the two rows'
-        // focus treatment, and against a disabled row lighting up on hover
+        // Disabled-state guard: a disabled row must not light up on hover
         // (a disabled button still matches :hover).
-        "focus-visible:ring-offset-2",
-        "focus-visible:ring-offset-surface",
         "disabled:cursor-not-allowed",
         "disabled:opacity-60",
         "disabled:hover:bg-transparent",
       ],
-      forbids: [NO_BORDER, NO_REST_BACKGROUND],
+      // Tier 1 (spec 2026-07-23-sharehub-focus-pass §2): the offset pair that
+      // used to ride on this row is now reserved for armed destructive
+      // confirms. A reappearing `focus-visible:ring-offset-*` here is the pass
+      // reverting.
+      forbids: [NO_BORDER, NO_REST_BACKGROUND, /(?:^|:)focus-visible:ring-offset-/],
     });
 
     expectRowText(reset, popover(), {
@@ -976,5 +977,85 @@ describe("ShareHub — lifecycle close (spec §4)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-pass §2)", () => {
+  const TIER1_RING = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
+  const OFFSET_PAIR = ["focus-visible:ring-offset-2", "focus-visible:ring-offset-surface"] as const;
+  // SET EQUALITY over every focus-visible ring-family token (ring width, ring
+  // color, offset width, offset color — variant prefixes included). Forbid
+  // lists cannot close this class: a lookahead forbid lets
+  // `sm:focus-visible:ring-offset-2` coexist with the ratified pair, and no
+  // forbid stops a competing `focus-visible:ring-4` or a second ring color
+  // from overriding the treatment while every positive assertion stays green.
+  const ringTokens = (el: Element) =>
+    (el.getAttribute("class") ?? "")
+      .split(/\s+/)
+      .filter((t) => t.includes("focus-visible:ring"))
+      .sort();
+  const expectTier1 = (el: Element) => {
+    expect(ringTokens(el)).toEqual([...TIER1_RING].sort());
+  };
+  const expectTier2 = (el: Element) => {
+    expect(ringTokens(el)).toEqual([...TIER1_RING, ...OFFSET_PAIR].sort());
+  };
+
+  it("tier 1: reset row + reset cancel carry exactly the plain ring set", () => {
+    renderHub();
+    fireEvent.click(primary());
+    const row = screen.getByTestId("picker-reset-all-button");
+    expectTier1(row);
+    fireEvent.click(row);
+    expectTier1(screen.getByTestId("picker-reset-cancel-button"));
+  });
+
+  it("tier 2: reset armed confirm carries exactly ring set + offset pair", () => {
+    renderHub();
+    fireEvent.click(primary());
+    fireEvent.click(screen.getByTestId("picker-reset-all-button"));
+    expectTier2(screen.getByTestId("picker-reset-confirm-button"));
+  });
+
+  it("tier 2: rotate armed confirm exact; its row and cancel stay tier 1", () => {
+    renderHub({ published: true });
+    fireEvent.click(primary());
+    const row = screen.getByTestId("admin-rotate-share-token-button");
+    expectTier1(row);
+    fireEvent.click(row);
+    expectTier2(screen.getByTestId("admin-rotate-share-token-confirm-button"));
+    expectTier1(screen.getByTestId("admin-rotate-share-token-cancel-button"));
+  });
+
+  it("tier 2: archive armed confirm exact; its row and cancel stay tier 1", () => {
+    renderHub();
+    fireEvent.click(primary());
+    const row = screen.getByTestId("archive-show-button");
+    expectTier1(row);
+    fireEvent.click(row);
+    expectTier2(screen.getByTestId("archive-show-confirm-button"));
+    expectTier1(screen.getByTestId("archive-show-cancel-button"));
+  });
+
+  it("tier 1 inventory: primary, kebab, mailto row and copy button carry exactly the plain ring set", () => {
+    // Set equality: losing the base ring token (unfocusable-looking control),
+    // gaining a bare offset (white halo), or a competing ring width/color all
+    // fail the same assertion.
+    renderHub({ published: true });
+    fireEvent.click(primary());
+    for (const el of [
+      primary(),
+      kebab(),
+      screen.getByTestId("admin-current-share-link-email-button"),
+      screen.getByTestId("admin-current-share-link-copy-button"),
+    ]) {
+      expectTier1(el);
+    }
+  });
+
+  it("tier 1: unarchive is a single-tap non-destructive action - exact plain ring set (dark-halo regression)", () => {
+    renderHub({ archived: true });
+    fireEvent.click(kebab());
+    expectTier1(screen.getByTestId(`unarchive-show-button-${SHOW_ID}`));
   });
 });
