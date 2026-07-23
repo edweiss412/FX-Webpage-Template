@@ -114,7 +114,7 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
       data-testid="published-archived-tab-offer"
       className="flex flex-col gap-2 rounded-sm border border-border-strong bg-surface-sunken p-3 text-sm"
     >
-      <p className="text-text">
+      <p className="wrap-break-word text-text">
         Gear list found on the archived tab{" "}
         <span className="font-medium text-text-strong">{tabName}</span>. We left it out to avoid
         mixing in old gear.
@@ -201,7 +201,7 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
       data-testid="published-archived-tab-note"
       className="flex flex-col gap-2 rounded-sm border border-border-strong bg-surface-sunken p-3 text-sm"
     >
-      <p className="text-text">
+      <p className="wrap-break-word text-text">
         Gear from tab <span className="font-medium text-text-strong">{label}</span> is included when
         this show syncs.
       </p>
