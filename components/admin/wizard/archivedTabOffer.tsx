@@ -45,11 +45,11 @@ export function deriveArchivedOffers(
 // bordered button that mirrors RescanSheetButton; the dismiss ("Keep skipped") is
 // a quieter ghost so a glancing operator reads the primary action first (impeccable
 // critique P2 — hierarchy WITHIN the neutral palette, never spending the ≤10% orange).
-const ARCHIVED_TAB_BTN =
+export const ARCHIVED_TAB_BTN =
   "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 // Resting color is text-text (NOT text-subtle — DESIGN.md:27 bars subtle on action
 // targets); the border-transparent + no-fill is what makes it read as secondary.
-const ARCHIVED_TAB_GHOST_BTN =
+export const ARCHIVED_TAB_GHOST_BTN =
   "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent px-4 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 
 export async function postPullSheetOverride(

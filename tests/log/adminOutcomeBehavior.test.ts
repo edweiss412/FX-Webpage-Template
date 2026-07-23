@@ -306,6 +306,7 @@ import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 
 // ── Task 8 (pull-sheet-on-archived-tab override): accept/revoke route ──────
 import { handlePullSheetOverride } from "@/app/api/admin/onboarding/pull-sheet-override/route";
+import { handlePublishedPullSheetOverride } from "@/app/api/admin/show/pull-sheet-override/route";
 import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
 
 // ── Flow-4 Task 4: dashboard auto-applied strip accept/undo server actions ──
@@ -4452,6 +4453,99 @@ describe("Task 10 — finalize-cas rebuildExhausted + once-only escalation telem
 // within this one module scope (spec R11 F2 — no cross-file recorder). The grandfather
 // mechanism is fully retired (BL-ADMIN-OUTCOME-BEHAVIOR closed, Batch 3) — this is now
 // a STRICT completeness assertion with no escape hatch: EVERY registered admin
+// Published-show archived-tab override (spec 2026-07-23): SET/CLEARED × sync-ok/sync-fail.
+// The audit fires post-commit BEFORE the chained sync, so a failing sync must NOT suppress the
+// code — proven by the sync-fail branches below.
+const PUB_PSO_ROUTE = "app/api/admin/show/pull-sheet-override/route.ts";
+describe("published pull-sheet override route observes SET/CLEARED across both sync branches", () => {
+  const pubTab: ArchivedPullSheetTab = {
+    tabName: "OLD PULL SHEET",
+    headerPreviews: ["p"],
+    fingerprint: "ff-000000000000",
+    included: false,
+    contentChangedSinceAccept: false,
+  };
+  const pubDeps = (over: Record<string, unknown> = {}) => ({
+    requireAdminIdentity: async () => ({ email: "admin@fxav.test" }),
+    detectArchivedTabs: async () => [pubTab],
+    setRpc: async () => ({ data: { override: {} }, error: null }),
+    runManualSyncForShow: async () => ({ outcome: "applied" }) as never,
+    ...over,
+  });
+  const acceptBody = {
+    driveFileId: "d1",
+    tabName: "OLD PULL SHEET",
+    expectedOverrideSnapshot: null,
+  };
+  const revokeBody = {
+    driveFileId: "d1",
+    tabName: null,
+    expectedOverrideSnapshot: { tabName: "OLD PULL SHEET", fingerprint: "ff" },
+  };
+
+  test("accept emits SET on sync-ok AND sync-fail (audit before sync)", async () => {
+    for (const runManualSyncForShow of [
+      async () => ({ outcome: "applied" }) as never,
+      async () => {
+        throw new Error("sync down");
+      },
+    ]) {
+      const codes = await observeSuccessCodes(() =>
+        handlePublishedPullSheetOverride(acceptBody, pubDeps({ runManualSyncForShow })),
+      );
+      expect(codes).toContain("PULL_SHEET_OVERRIDE_SET");
+    }
+    recordAdminOutcomeBehavior({
+      file: PUB_PSO_ROUTE,
+      fn: "POST",
+      code: "PULL_SHEET_OVERRIDE_SET",
+    });
+  });
+
+  test("revoke emits CLEARED on sync-ok AND sync-fail", async () => {
+    for (const runManualSyncForShow of [
+      async () => ({ outcome: "applied" }) as never,
+      async () => ({ outcome: "hard_fail", code: "X" }) as never,
+    ]) {
+      const codes = await observeSuccessCodes(() =>
+        handlePublishedPullSheetOverride(revokeBody, pubDeps({ runManualSyncForShow })),
+      );
+      expect(codes).toContain("PULL_SHEET_OVERRIDE_CLEARED");
+    }
+    recordAdminOutcomeBehavior({
+      file: PUB_PSO_ROUTE,
+      fn: "POST",
+      code: "PULL_SHEET_OVERRIDE_CLEARED",
+    });
+  });
+
+  test("rpc error emits neither code", async () => {
+    const codes = await observeCodes(() =>
+      handlePublishedPullSheetOverride(
+        acceptBody,
+        pubDeps({ setRpc: async () => ({ data: null, error: { code: "40001" } }) }),
+      ),
+    );
+    expect(codes).not.toContain("PULL_SHEET_OVERRIDE_SET");
+  });
+
+  test("a THROWING log sink is swallowed — the committed 200 response is unaffected", async () => {
+    // Real logAdminOutcome (not mocked) + a sink that throws: the route awaits the emit, so a
+    // non-swallowed throw would escape over the already-committed override. Proves the audit-sink
+    // isolation end-to-end (the route's own mocked-logAdminOutcome test cannot exercise this).
+    setLogSink(() => {
+      throw new Error("sink down");
+    });
+    try {
+      const res = await handlePublishedPullSheetOverride(acceptBody, pubDeps());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ok: true, status: "override_set" });
+    } finally {
+      resetLogSink();
+    }
+  });
+});
+
 // AUDITABLE_MUTATIONS surface must have driven its committed-success branch and been
 // observed emitting its code in this file. A new admin surface fails-by-default until
 // it carries a real proof.

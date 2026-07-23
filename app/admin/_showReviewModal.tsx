@@ -45,6 +45,7 @@ import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { readShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
+import { deriveActiveArchivedTabNames } from "@/lib/admin/deriveActiveArchivedTabNames";
 import { loadIgnoredWarnings } from "@/lib/admin/loadIgnoredWarnings";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
@@ -354,7 +355,18 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
       error: `roster > CREW_ROSTER_READ_CAP (${CREW_ROSTER_READ_CAP})`,
     });
   }
-  const surfaceData = rosterOverCap ? { ...publishedData, previewRoster: [] } : publishedData;
+  // §2.1 published archived-tab include offer: POST-AUGMENTATION after the warning model exists
+  // (the model derives from `publishedData`, so this cannot move earlier — it attaches here).
+  // Names come from the ACTIVE partition only (durable Ignore removes a record, hiding the
+  // offer); raw `blockRef.name`, blanks dropped, exact-string deduped (no trim — RPC identity is
+  // exact). Attached only when published && !archived && driveFileId present with ≥1 name.
+  const activeArchivedTabNames = deriveActiveArchivedTabNames(bySection);
+  const archivedTabOffer =
+    published && !archived && driveFileId != null && activeArchivedTabNames.length > 0
+      ? { tabNames: activeArchivedTabNames, slug }
+      : null;
+  const withOffer = { ...publishedData, archivedTabOffer };
+  const surfaceData = rosterOverCap ? { ...withOffer, previewRoster: [] } : withOffer;
   const crewEmails = rosterOverCap
     ? []
     : publishedData.crewMembers

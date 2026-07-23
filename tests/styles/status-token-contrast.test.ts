@@ -258,6 +258,9 @@ describe("warning-card guidance contrast (AA 4.5:1, both themes)", () => {
   const PAIRS = [
     ["--color-text-subtle-runtime", "--color-surface-sunken-runtime"],
     ["--color-warning-text-runtime", "--color-warning-bg-runtime"],
+    // Published archived-tab offer/note error line (spec 2026-07-23 §2.1): the P-err line
+    // renders text-warning-text on the surface-sunken card (not warning-bg). Pin both themes.
+    ["--color-warning-text-runtime", "--color-surface-sunken-runtime"],
   ] as const;
   for (const mode of MODES) {
     for (const [fg, bg] of PAIRS) {

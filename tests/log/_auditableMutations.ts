@@ -331,6 +331,19 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "POST",
     code: "PULL_SHEET_OVERRIDE_CLEARED",
   },
+  // Published-show archived-tab override accept/revoke (spec 2026-07-23). Same two forensic
+  // codes as the onboarding route; emitted post-commit BEFORE the chained manual sync so a
+  // failing sync never leaves the committed override dark (invariant 10).
+  {
+    file: "app/api/admin/show/pull-sheet-override/route.ts",
+    fn: "POST",
+    code: "PULL_SHEET_OVERRIDE_SET",
+  },
+  {
+    file: "app/api/admin/show/pull-sheet-override/route.ts",
+    fn: "POST",
+    code: "PULL_SHEET_OVERRIDE_CLEARED",
+  },
   // Flow-4 auto-applied strip (Task 4): admin dashboard accept/undo server actions.
   // Both accept actions emit the NEW forensic CHANGES_ACKNOWLEDGED; undo REUSES
   // CHANGE_UNDONE (already sanctioned — the per-show feed undoChangeAction stamps it).

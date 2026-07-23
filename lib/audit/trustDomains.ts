@@ -188,6 +188,12 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
     path: "app/api/admin/onboarding/pull-sheet-override/route.ts",
     chain: ["requireAdmin"],
   },
+  // Published-show archived OLD-tab pull-sheet override (accept/revoke). Admin-gated via
+  // requireAdminIdentity() inside the handler (spec 2026-07-23).
+  {
+    path: "app/api/admin/show/pull-sheet-override/route.ts",
+    chain: ["requireAdmin"],
+  },
   {
     path: "app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts",
     chain: ["requireAdmin"],
