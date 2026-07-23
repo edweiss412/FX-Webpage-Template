@@ -19,7 +19,7 @@ On the published show modal, the `FIELD_UNREADABLE` warning for John Redcorn's p
 - **No copy changes.** Warning `message` text, group label ("Phone or email we couldn't use"), and §12.4 catalog rows are untouched. The B-option mockup's "John Redcorn's phone…" rewording is NOT in scope (mockup shorthand only).
 - **No DB, no RPC, no advisory locks, no telemetry-surface changes.** Pure client render placement. Invariants 2/3/9/10 have no new surface here.
 - **Backward-compat keying for the 2 autocorrect codes:** they keep keying off `autocorrect.subject` ONLY (never `blockRef`), byte-identical to today (§4.1). Ratified here to preempt "why not blockRef everywhere" relitigation.
-- **Warnings-section Silent/seamless path unchanged:** when `suppressPanelCard` is set there is no card to tuck into; extras keep today's placement + seamless styling (`ShowReviewSurface.tsx:1140-1142`, `sectionWarningExtras.tsx:226-230`).
+- **Warnings section keeps sibling placement in BOTH states (R1-F1).** The warnings section's extras NEVER thread through the chrome — they keep today's sibling render (suppressed→seamless and non-suppressed alike, `ShowReviewSurface.tsx:1140-1142`, `sectionWarningExtras.tsx:226-230`). Rationale: threading only the non-suppressed state would reparent the extras subtree across Silent↔non-Silent transitions, remounting it and violating the pinned same-node contract on the Ignored `<details>` (`tests/components/admin/showpage/warningsPanelTransitions.test.tsx:315`) plus losing BulkIgnoreControls armed/error state and open Report modals. Only NON-warnings sections move inside the card, and those cards are never suppressed (`suppressPanelCard` is set only for `warnings`, `ShowReviewSurface.tsx:1063-1065`), so no element ever changes parent across states.
 - **Staged wizard unchanged:** it passes no `renderSectionExtras` (`ShowReviewSurface.tsx:204`, "the staged wizard passes neither"), so the chrome change is inert there by construction.
 
 ## 2. Design
@@ -70,14 +70,17 @@ Everything downstream is reused untouched: `renderCrewUnderRowCards` (`sectionWa
 /** Crew-warning-attachment spec §2B: the section's warning extras node,
  *  rendered as the LAST child inside the §5.2 panel card (border-t seam)
  *  so warning groups sit within the card they describe. ABSENT when the
- *  section has no extras or its panel card is suppressed
+ *  section has no extras or is the warnings section (sibling path, §1.1)
  *  (exactOptionalPropertyTypes: present or ABSENT, never undefined). */
 sectionExtras?: ReactNode;
 ```
 
-- `ShowReviewSurface.tsx` (~1040-1142): compute `extrasNode = renderSectionExtras?.(s.id, data, …)` before the provider. When the section's panel card is NOT suppressed, spread `...(extrasNode ? { sectionExtras: extrasNode } : {})` into the chrome value and render nothing at the old sibling position. When suppressed (`s.id === "warnings" && suppressWarningsPanelCard`), keep today's sibling render with `seamless: true` — unchanged.
+(R1-F4: `step3ReviewSections.tsx` does not currently import the `ReactNode` type — the implementation adds `import type { ReactNode } from "react"` or uses `React.ReactNode`.)
+
+- `ShowReviewSurface.tsx` (~1040-1142): compute `extrasNode = renderSectionExtras?.(s.id, data, …)` before the provider. For every section EXCEPT `warnings`, spread `...(extrasNode ? { sectionExtras: extrasNode } : {})` into the chrome value and render nothing at the old sibling position. For `s.id === "warnings"`, keep today's sibling render in BOTH suppression states (§1.1 R1-F1 — no state-conditional reparenting).
 - `ModalSectionChrome` (`step3ReviewSections.tsx:935-957`): render `chrome.sectionExtras` after `{children}` inside the `hasBody` div. The extras root already carries `mt-3 … border-t border-border pt-3` (`sectionWarningExtras.tsx:226-230`) which now reads as an in-card seam — no styling change required to the extras themselves.
-- **Consumption guarantee:** every SectionId that can carry routed warnings renders its body through `ModalSectionChrome` (all parsed sections use `BreakdownSection`/chrome per `step3ReviewSections.tsx:963-965`; the `warnings` section is the suppress-path exception handled above). The plan's test task pins this with a containment assertion (§5) so a future chrome-less section cannot silently drop its extras.
+- **Consumption guarantee (R1-F2):** every SectionId that can carry routed warnings renders its body through `ModalSectionChrome` (all parsed sections use `BreakdownSection`/chrome per `step3ReviewSections.tsx:963-965`; `warnings` is the sibling-path exception above; `report` receives no routed warnings). Pinned by an ALL-SECTIONS presence test (§5.4b): the full published surface renders with a warning routed to EVERY non-warnings SectionId, asserting each `section-warning-controls-<id>` node exists AND is a descendant of that section's panel card — a chrome-less host that drops its `sectionExtras` fails the presence assertion.
+- **Empty-seam guard (R1-F3):** when the generalized filter empties EVERY active group of a section (all items moved under rows, no bulk chips) AND there are no ignored warnings, `buildSectionWarningExtras`'s callback returns `null` instead of the bordered `mt-3 border-t pt-3` wrapper — the seam block never renders with zero children. Condition evaluated on the POST-FILTER `activeGroups` array plus `ignoredWarnings.length`, not on the pre-filter model (which is non-empty by hypothesis). An ignored-only section still renders the wrapper (Ignored disclosure is real content).
 
 ### Guard conditions
 
@@ -85,11 +88,15 @@ sectionExtras?: ReactNode;
 - Crew name present but row not rendered (over-`CREW_CAP` slice or no roster match, `PublishedReviewModal.tsx:255-258`) → key not in `renderedKeys` → `renderCrewUnderRowCards` omits it (`sectionWarningExtras.tsx:42`) and the group filter keeps it (excludedKeys only contains rendered keys, `sectionWarningExtras.tsx:73-78`). Fallback B.
 - `sectionExtras` ABSENT (no warnings, or staged mode) → chrome renders exactly today's markup — zero-diff.
 - Duplicate crew names collapsing to one `canonicalCrewKey` → items bucket together under the FIRST rendered matching row (existing `consumedAttentionKeys` behavior, `step3ReviewSections.tsx:1571-1576`) — unchanged semantics.
-- `warnings`/`report` sections: `warnings` is the suppress path; `report` gets no routed warnings (not a parser region) — extras factory returns null for empty models (`sectionWarningExtras.tsx:155`).
+- `warnings`/`report` sections: `warnings` always takes the sibling path (§1.1 R1-F1); `report` gets no routed warnings (not a parser region) — extras factory returns null for empty models (`sectionWarningExtras.tsx:155`).
+
+### Producer sweep (R1, recorded so later rounds do not re-derive)
+
+Complete production set of warnings carrying `blockRef.kind === "crew"` + `name`: the 2 subject-keyed autocorrect codes, plus `FIELD_UNREADABLE`, `UNKNOWN_STAGE_RESTRICTION`, `UNKNOWN_ROLE_TOKEN`, `UNKNOWN_DAY_RESTRICTION`. All four blockRef-keyed producers describe a specific crew row — under-row placement is correct for each; none uses the shape for a section-level summary. `UNKNOWN_ROLE_TOKEN` keeps its recognize-role control under the row (`renderCrewUnderRowCards` mounts the same `SectionWarningItemControls`).
 
 ### Transition inventory
 
-No new visual states. Extras placement is static with the section render — instant, no animation (same posture as the existing extras: the `ShowReviewSurface.tsx:1153` instant-deliberate posture). Under-row cards inherit the existing row-host mount behavior (no new transitions). N(N−1)/2 = 0 new pairs.
+No new visual states. Extras placement is static with the section render — instant, no animation (same posture as the existing extras: the `ShowReviewSurface.tsx:1153` instant-deliberate posture). Under-row cards inherit the existing row-host mount behavior (no new transitions). No element changes parent across any state transition: non-warnings extras are ALWAYS in-card, warnings extras are ALWAYS sibling (§1.1 R1-F1), so the Silent↔List/Elsewhere/Clean pairs and the compound parseNotes transitions are untouched — the pinned same-node `<details>` contract (`warningsPanelTransitions.test.tsx:315`) keeps passing unmodified. N(N−1)/2 = 0 new pairs.
 
 ### Dimensional invariants
 
@@ -107,8 +114,9 @@ No DB layer touched. All cells N/A — change is confined to: a NEW `crewRowKey`
 
 1. **Helper unit tests** (a NEW crewRowKey test under `tests/admin/`): autocorrect code + subject → subject key; autocorrect code + blank/missing subject + crew blockRef → null (backward-compat pin); non-autocorrect code + crew blockRef name → key; kind ≠ crew → null; blank name → null; no blockRef → null.
 2. **Model test** (extend existing sectionWarningModel coverage): a `FIELD_UNREADABLE` warning with crew blockRef lands in `warningsByCrewKey` under `canonicalCrewKey(name)`; conservation — the same item filtered from `activeGroups` render path only when its key is rendered.
-3. **Extras conservation/emission tests** (extend existing extras tests): group emptied by under-row placement with no bulk → no group emitted (generalized §6.2); group with bulk (≥2 distinct snippets, `lib/dataQuality/bulkIgnoreGroups.ts:20-40`) keeps its chip with empty cards slot; unrendered-key item stays in group.
-4. **Chrome containment** (jsdom structural): `sectionExtras` node renders inside the panel-card div when `hasBody`; ABSENT chrome field → byte-identical markup (snapshot or DOM-shape assertion); suppressed-card warnings section keeps sibling placement.
+3. **Extras conservation/emission tests** (extend existing extras tests): group emptied by under-row placement with no bulk → no group emitted (generalized §6.2); group with bulk (≥2 distinct snippets, `lib/dataQuality/bulkIgnoreGroups.ts:20-40`) keeps its chip with empty cards slot; unrendered-key item stays in group; **empty-seam guard (R1-F3)** — all groups emptied + no bulk + no ignored → callback returns null (no bordered wrapper); ignored-only → wrapper renders.
+4. **Chrome containment** (jsdom structural): `sectionExtras` node renders inside the panel-card div when `hasBody`; ABSENT chrome field → byte-identical markup (snapshot or DOM-shape assertion); warnings section keeps sibling placement in BOTH suppression states (R1-F1).
+4b. **All-sections presence test (R1-F2):** render the full published surface with a routed warning for EVERY non-warnings SectionId (helpers: `tests/helpers/publishedSurfaceProps.tsx`); assert each `section-warning-controls-<id>` exists and `panelCard.contains(extras)` per section — pins that every host consumes the chrome field; a chrome-less host fails presence.
 5. **Real-browser layout assertion** (Playwright, per Dimensional invariants): rect containment of extras within the crew panel card on a published fixture with an unmatched-name warning (forces fallback B), and an under-row card beneath the matching row for a matched-name `FIELD_UNREADABLE` fixture.
 6. **Meta-test inventory:** no structural registries touched — no new Supabase calls, mutations, §12.4 codes, or advisory locks. `tests/parser/_metaAutocorrectProducers.test.ts` pins `CREW_SCOPED_WARNING_CODES` equal to the 2 codes — untouched (the set's meaning narrows to "codes keyed by autocorrect.subject"; comment updated, membership unchanged).
 7. **Impeccable dual-gate** (invariant 8): `/impeccable critique` + `/impeccable audit` on the affected diff (UI surface under `components/`).
