@@ -161,12 +161,14 @@ layout surface changes; the diff is focus-ring utility classes only.
     `app/admin/show/[slug]/RotateShareTokenButton.tsx:335`,
     `archive-show-confirm-button` `components/admin/ArchiveShowButton.tsx:387`) contain BOTH
     `focus-visible:ring-offset-2` AND `focus-visible:ring-offset-surface` plus the base ring
-    tokens, AND forbid any other `focus-visible:ring-offset-*` token
-    (`/^focus-visible:ring-offset-(?!2$|surface$)/`). Catches: tier-2 dropped, the
-    bare-offset halo class reappearing without its color, and a stray extra offset token
-    (e.g. `ring-offset-white`) overriding the surface color while every positive assertion
-    stays green. The non-row `ArchiveShowButton` assertions apply the same exact-pair
-    negative.
+    tokens — enforced as SET EQUALITY over every class token containing
+    `focus-visible:ring` (ring width, ring color, offset width, offset color, any variant
+    prefix): tier 1 must equal exactly the two base tokens; tier 2 exactly base + pair.
+    Catches: tier-2 dropped; bare-offset halo; a stray extra offset token
+    (`ring-offset-white`); a variant-prefixed rider (`sm:focus-visible:ring-offset-2`, which
+    defeats lookahead-style forbids); and a competing width/color
+    (`focus-visible:ring-4`, a second ring color) silently overriding the treatment. The
+    non-row `ArchiveShowButton` assertions use the same set-equality helper.
   - Non-row Archive variants (`tests/components/admin/ArchiveShowButton.test.tsx`, which
     already renders the full + compact variants directly): trigger forbids any offset token;
     armed confirm has the full pair — in BOTH variants. Catches: the four non-row edits
@@ -188,9 +190,11 @@ layout surface changes; the diff is focus-ring utility classes only.
 
 ## 4. Acceptance criteria
 
-- AC-1: every interactive control inside the popover carries `focus-visible:ring-2
-  focus-visible:ring-focus-ring`; ONLY the three armed destructive confirms additionally
-  carry `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`.
+- AC-1: every interactive control inside the popover AND its two opener triggers (primary,
+  kebab) carries the tier-1 ring set `focus-visible:ring-2 focus-visible:ring-focus-ring`
+  and nothing else from the focus-visible ring family; ONLY the three armed destructive
+  confirms additionally carry `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`
+  (and nothing else).
 - AC-2: zero bare `ring-offset-2` (offset without explicit offset color) remains in the four
   edited source files.
 - AC-3: full local gates green (scoped suites + `pnpm test` + typecheck + eslint +

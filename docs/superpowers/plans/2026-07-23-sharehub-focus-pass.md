@@ -22,8 +22,10 @@
 
 ### Task 0: Worktree setup (invariant 11)
 
-- [ ] **Step 1:** `git worktree add -b feat/sharehub-focus-pass ../FX-worktrees/sharehub-focus-pass origin/main` (starting revision: `origin/main` at `8e70ab0e4` or later).
+- [ ] **Step 1:** `git worktree add -b feat/sharehub-focus-pass ../FX-worktrees/sharehub-focus-pass origin/main` (verified starting revision: `8e70ab0e4`; see Step 4 for drift handling).
 - [ ] **Step 2:** In the worktree: `pnpm install`, then `pnpm worktree:link-env` (symlinks `.env.local` from the main checkout), then `pnpm preflight` — must print `env ✓  local DB ✓`; stop and fix env on any failure.
+- [ ] **Step 3 (autonomous runs only):** Register the hourly off-minute nudge cron (AGENTS.md autonomous-ship gate) and write `<worktree>/.claude/ship-state.json` (`{branch, stage, tasksRemaining, next, blockedOn, cronJobId}`). Task 4's marker-update + CronDelete steps operate on exactly these; an interactive run skips this step AND Task 4's marker/CronDelete steps.
+- [ ] **Step 4:** Revision check: this plan's names/lines/fixtures were live-verified at `8e70ab0e4`. If `git rev-parse origin/main` differs, re-run the pre-draft verification greps (spec §1 table cites) before editing; any drift is a plan-update, not an improvisation.
 
 ### Task 1: Two-tier focus contract (tests first, then class edits)
 
@@ -82,75 +84,69 @@ The COMPLETE two-tier describe block for `shareHub.test.tsx` (append after the c
 
 ```tsx
 describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-pass §2)", () => {
-  const TIER1 = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
-  const OFFSET_PAIR = ["focus-visible:ring-offset-2", "focus-visible:ring-offset-surface"] as const;
-  // Any focus-visible offset token. Catches BOTH failure modes: tier 1
-  // regaining an offset, and a future bare `ring-offset-2` (white-halo bug)
-  // sneaking in without its color companion on a tier-1 control.
-  const ANY_OFFSET = /(?:^|:)focus-visible:ring-offset-/;
-  // Tier 2 allows EXACTLY the ratified pair. A stray extra offset token
-  // (e.g. `focus-visible:ring-offset-white`) would override the surface color
-  // and restore the halo while every positive assertion stayed green.
-  const NON_PAIR_OFFSET = /(?:^|:)focus-visible:ring-offset-(?!2$|surface$)/;
+  const TIER1_RING = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
+  const OFFSET_PAIR = [
+    "focus-visible:ring-offset-2",
+    "focus-visible:ring-offset-surface",
+  ] as const;
+  // SET EQUALITY over every focus-visible ring-family token (ring width, ring
+  // color, offset width, offset color — variant prefixes included). Forbid
+  // lists cannot close this class: a lookahead forbid lets
+  // `sm:focus-visible:ring-offset-2` coexist with the ratified pair, and no
+  // forbid stops a competing `focus-visible:ring-4` or a second ring color
+  // from overriding the treatment while every positive assertion stays green.
+  const ringTokens = (el: Element) =>
+    (el.getAttribute("class") ?? "")
+      .split(/\s+/)
+      .filter((t) => t.includes("focus-visible:ring"))
+      .sort();
+  const expectTier1 = (el: Element) => {
+    expect(ringTokens(el)).toEqual([...TIER1_RING].sort());
+  };
+  const expectTier2 = (el: Element) => {
+    expect(ringTokens(el)).toEqual([...TIER1_RING, ...OFFSET_PAIR].sort());
+  };
 
-  it("tier 1: reset row + reset cancel carry the plain ring and NO offset", () => {
+  it("tier 1: reset row + reset cancel carry exactly the plain ring set", () => {
     renderHub();
     fireEvent.click(primary());
     const row = screen.getByTestId("picker-reset-all-button");
-    expectClasses(row, { has: TIER1, forbids: [ANY_OFFSET] });
+    expectTier1(row);
     fireEvent.click(row);
-    expectClasses(screen.getByTestId("picker-reset-cancel-button"), {
-      has: TIER1,
-      forbids: [ANY_OFFSET],
-    });
+    expectTier1(screen.getByTestId("picker-reset-cancel-button"));
   });
 
-  it("tier 2: reset armed confirm carries the FULL offset pair", () => {
+  it("tier 2: reset armed confirm carries exactly ring set + offset pair", () => {
     renderHub();
     fireEvent.click(primary());
     fireEvent.click(screen.getByTestId("picker-reset-all-button"));
-    expectClasses(screen.getByTestId("picker-reset-confirm-button"), {
-      has: [...TIER1, ...OFFSET_PAIR],
-      forbids: [NON_PAIR_OFFSET],
-    });
+    expectTier2(screen.getByTestId("picker-reset-confirm-button"));
   });
 
-  it("tier 2: rotate armed confirm carries the FULL offset pair; its row and cancel stay tier 1", () => {
+  it("tier 2: rotate armed confirm exact; its row and cancel stay tier 1", () => {
     renderHub({ published: true });
     fireEvent.click(primary());
     const row = screen.getByTestId("admin-rotate-share-token-button");
-    expectClasses(row, { has: TIER1, forbids: [ANY_OFFSET] });
+    expectTier1(row);
     fireEvent.click(row);
-    expectClasses(screen.getByTestId("admin-rotate-share-token-confirm-button"), {
-      has: [...TIER1, ...OFFSET_PAIR],
-      forbids: [NON_PAIR_OFFSET],
-    });
-    expectClasses(screen.getByTestId("admin-rotate-share-token-cancel-button"), {
-      has: TIER1,
-      forbids: [ANY_OFFSET],
-    });
+    expectTier2(screen.getByTestId("admin-rotate-share-token-confirm-button"));
+    expectTier1(screen.getByTestId("admin-rotate-share-token-cancel-button"));
   });
 
-  it("tier 2: archive armed confirm carries the FULL offset pair; its row and cancel stay tier 1", () => {
+  it("tier 2: archive armed confirm exact; its row and cancel stay tier 1", () => {
     renderHub();
     fireEvent.click(primary());
     const row = screen.getByTestId("archive-show-button");
-    expectClasses(row, { has: TIER1, forbids: [ANY_OFFSET] });
+    expectTier1(row);
     fireEvent.click(row);
-    expectClasses(screen.getByTestId("archive-show-confirm-button"), {
-      has: [...TIER1, ...OFFSET_PAIR],
-      forbids: [NON_PAIR_OFFSET],
-    });
-    expectClasses(screen.getByTestId("archive-show-cancel-button"), {
-      has: TIER1,
-      forbids: [ANY_OFFSET],
-    });
+    expectTier2(screen.getByTestId("archive-show-confirm-button"));
+    expectTier1(screen.getByTestId("archive-show-cancel-button"));
   });
 
-  it("tier 1 inventory: primary, kebab, mailto row and copy button carry the plain ring, no offset", () => {
-    // Positive AND negative: losing the base ring token (an unfocusable-looking
-    // control) fails just as loudly as a bare `ring-offset-2` (white halo on
-    // the dark theme) riding onto an ordinary control.
+  it("tier 1 inventory: primary, kebab, mailto row and copy button carry exactly the plain ring set", () => {
+    // Set equality: losing the base ring token (unfocusable-looking control),
+    // gaining a bare offset (white halo), or a competing ring width/color all
+    // fail the same assertion.
     renderHub({ published: true });
     fireEvent.click(primary());
     for (const el of [
@@ -159,17 +155,14 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
       screen.getByTestId("admin-current-share-link-email-button"),
       screen.getByTestId("admin-current-share-link-copy-button"),
     ]) {
-      expectClasses(el, { has: TIER1, forbids: [ANY_OFFSET] });
+      expectTier1(el);
     }
   });
 
-  it("tier 1: unarchive is a single-tap non-destructive action - plain ring, no offset (dark-halo regression)", () => {
+  it("tier 1: unarchive is a single-tap non-destructive action - exact plain ring set (dark-halo regression)", () => {
     renderHub({ archived: true });
     fireEvent.click(kebab());
-    expectClasses(screen.getByTestId(`unarchive-show-button-${SHOW_ID}`), {
-      has: TIER1,
-      forbids: [ANY_OFFSET],
-    });
+    expectTier1(screen.getByTestId(`unarchive-show-button-${SHOW_ID}`));
   });
 });
 ```
@@ -182,30 +175,22 @@ describe("ArchiveShowButton — two-tier focus contract on the non-row variants 
   // variant), so the popover suite cannot see them. Without these assertions
   // the four non-row class edits could be silently omitted — or the bare
   // `ring-offset-2` white-halo defect could return — with every other gate
-  // green.
-  const TIER1 = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
-  const OFFSET_PAIR = ["focus-visible:ring-offset-2", "focus-visible:ring-offset-surface"] as const;
-  const ANY_OFFSET = /(?:^|:)focus-visible:ring-offset-/;
-  // Tier 2 allows EXACTLY the ratified pair; a stray extra offset token would
-  // override the surface color and restore the halo.
-  const NON_PAIR_OFFSET = /(?:^|:)focus-visible:ring-offset-(?!2$|surface$)/;
-  const tokensOf = (el: Element) =>
-    new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
+  // green. SET EQUALITY over the focus-visible ring-family token set: forbid
+  // lists cannot stop variant-prefixed offset riders or a competing ring
+  // width/color from overriding the ratified treatment.
+  const TIER1_RING = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
+  const OFFSET_PAIR = [
+    "focus-visible:ring-offset-2",
+    "focus-visible:ring-offset-surface",
+  ] as const;
+  const ringTokens = (el: Element) =>
+    (el.getAttribute("class") ?? "")
+      .split(/\s+/)
+      .filter((t) => t.includes("focus-visible:ring"))
+      .sort();
   const expectTier = (el: Element, tier: 1 | 2) => {
-    const t = tokensOf(el);
-    for (const c of TIER1) expect([...t], `missing token ${c}`).toContain(c);
-    if (tier === 2) {
-      for (const c of OFFSET_PAIR) expect([...t], `missing token ${c}`).toContain(c);
-      expect(
-        [...t].filter((x) => NON_PAIR_OFFSET.test(x)),
-        "tier-2 control must carry no offset token beyond the ratified pair",
-      ).toEqual([]);
-    } else {
-      expect(
-        [...t].filter((x) => ANY_OFFSET.test(x)),
-        "tier-1 control must carry no focus offset token",
-      ).toEqual([]);
-    }
+    const expected = tier === 2 ? [...TIER1_RING, ...OFFSET_PAIR] : [...TIER1_RING];
+    expect(ringTokens(el)).toEqual(expected.sort());
   };
 
   for (const compact of [false, true]) {

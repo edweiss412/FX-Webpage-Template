@@ -332,30 +332,19 @@ describe("ArchiveShowButton — two-tier focus contract on the non-row variants 
   // variant), so the popover suite cannot see them. Without these assertions
   // the four non-row class edits could be silently omitted — or the bare
   // `ring-offset-2` white-halo defect could return — with every other gate
-  // green.
-  const TIER1 = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
+  // green. SET EQUALITY over the focus-visible ring-family token set: forbid
+  // lists cannot stop variant-prefixed offset riders or a competing ring
+  // width/color from overriding the ratified treatment.
+  const TIER1_RING = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
   const OFFSET_PAIR = ["focus-visible:ring-offset-2", "focus-visible:ring-offset-surface"] as const;
-  const ANY_OFFSET = /(?:^|:)focus-visible:ring-offset-/;
-  // Tier 2 allows EXACTLY the ratified pair; a stray extra offset token would
-  // override the surface color and restore the halo.
-  const NON_PAIR_OFFSET = /(?:^|:)focus-visible:ring-offset-(?!2$|surface$)/;
-  const tokensOf = (el: Element) =>
-    new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
+  const ringTokens = (el: Element) =>
+    (el.getAttribute("class") ?? "")
+      .split(/\s+/)
+      .filter((t) => t.includes("focus-visible:ring"))
+      .sort();
   const expectTier = (el: Element, tier: 1 | 2) => {
-    const t = tokensOf(el);
-    for (const c of TIER1) expect([...t], `missing token ${c}`).toContain(c);
-    if (tier === 2) {
-      for (const c of OFFSET_PAIR) expect([...t], `missing token ${c}`).toContain(c);
-      expect(
-        [...t].filter((x) => NON_PAIR_OFFSET.test(x)),
-        "tier-2 control must carry no offset token beyond the ratified pair",
-      ).toEqual([]);
-    } else {
-      expect(
-        [...t].filter((x) => ANY_OFFSET.test(x)),
-        "tier-1 control must carry no focus offset token",
-      ).toEqual([]);
-    }
+    const expected = tier === 2 ? [...TIER1_RING, ...OFFSET_PAIR] : [...TIER1_RING];
+    expect(ringTokens(el)).toEqual(expected.sort());
   };
 
   for (const compact of [false, true]) {
