@@ -78,7 +78,7 @@ export function tier3Scenarios(): AttentionScenario[] {
         {
           drive_file_id: "gallery-fixture-file",
           domain: "crew_email",
-          entity_key: "sam-ito",
+          entity_key: "Sam Ito",
           held_value: { email: "sam.old@example.test", name: "Sam Ito" },
           proposed_value: {
             disposition: "email_change",

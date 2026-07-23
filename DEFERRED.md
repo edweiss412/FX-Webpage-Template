@@ -119,3 +119,17 @@ ratifications).
   contract that un-skips the moment a crew-routed, non-health, actionable code carrying a
   `crewName` exists. Sharpening fact: role-flag deltas already reach the modal via the Sheet
   changes feed, so banner dormancy loses event visibility on no surface. **Noted, not changed.**
+
+## modal-state-coverage (2026-07-22) — class 6 deferral
+
+- **[MEDIUM] Action-outcome states (pending/error/success on modal controls) are not
+  demonstrable in the dev attention-gallery.** The 2026-07-22 modal-state sweep's class 6:
+  re-sync overlays (error / shrink-hold confirm / success), publish-toggle refusal popover,
+  Mi11 gate errors, resolve-button errors, bulk-ignore partial/fail alerts, crew-row reset
+  outcome banners. These mount only from server action responses, so demonstrating them needs
+  outcome-stubbing infrastructure (a gallery action layer returning scripted results), a
+  different mechanism from the static scenario fields shipped by
+  `docs/superpowers/specs/2026-07-22-modal-state-coverage-design.md` (classes 1-5). Owner
+  deferred on 2026-07-22 ("1-5: all static states, 6 to deferred.md"). Un-defer trigger: an
+  owner ask to review action-outcome UX in the gallery, at which point the gallery's client
+  action closures gain a scripted-outcome mode per control.

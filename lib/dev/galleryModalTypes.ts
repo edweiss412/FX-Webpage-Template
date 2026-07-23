@@ -37,6 +37,10 @@ export type GallerySwitcherScenario = {
   label: string;
   codes: string[];
   data: GalleryModalData;
+  /** Per-scenario ShareTokenProvider seed (share-link scenarios); null keeps the
+   *  crew link inactive. The PROVIDER (not just the modal) is keyed per scenario
+   *  because it preserves its token across same-epoch initialToken changes. */
+  shareToken: string | null;
 };
 
 /**

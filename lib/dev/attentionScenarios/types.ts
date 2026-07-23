@@ -10,6 +10,102 @@ import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import type { Disposition } from "@/lib/sync/holds/types";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { BucketOpts } from "@/lib/admin/sectionAttention";
+import type { ScenarioGroupId } from "@/lib/dev/galleryModalTypes";
+
+/**
+ * The base gallery fixture's collection sizes (lib/dev/publishedModalFixture.ts).
+ * validate.ts rejects `volumes` equal to these as no-ops; the fixture-knobs test
+ * pins the real fixture lengths against this constant so drift is loud.
+ */
+export const GALLERY_BASE_COUNTS = { crew: 6, rooms: 3, hotels: 2 } as const;
+
+/**
+ * Storable show_change_log columns as `readShowChangeFeed` selects them
+ * (ChangeLogRow at lib/sync/feed/shapeChangeFeed.ts), minus `id` (synthesized
+ * like alert/hold ids). `change_kind` is deliberately an open string: the DB
+ * carries no CHECK and production also writes e.g. "use_raw_stale"; undo gating
+ * keys only off the crew-domain set inside the shaper.
+ */
+export type ScenarioChangeLogRow = {
+  occurred_at: string;
+  status: "applied" | "pending" | "rejected" | "undone" | "superseded";
+  summary: string;
+  entity_ref: string | null;
+  change_kind: string;
+  individually_undoable: boolean;
+  source: "auto_apply" | "mi11_approve" | "mi11_reject" | "undo";
+  acknowledged_at: string | null;
+};
+
+/**
+ * Gallery-render-only fixture shaping (spec 2026-07-22 modal-state-coverage
+ * §3.0/§3.2). Tier 2 only. Every knob must be semantically effective — explicit
+ * base-default values, empty containers, and volumes equal to
+ * GALLERY_BASE_COUNTS are validation errors, so "fixture present" always means
+ * "renders something the base does not".
+ */
+export type ScenarioFixture = {
+  /** archived: true FORCES published false + finalizeOwned false in the applied
+   *  output (archive is atomically archived+unpublished; the loader forces
+   *  finalize ownership false when archived, app/admin/_showReviewModal.tsx:300).
+   *  Explicit contradictions are validation errors. */
+  archived?: boolean;
+  published?: boolean;
+  finalizeOwned?: boolean;
+  /** Requires published not false, archived not true, datesAbsent not true; the
+   *  applied output reshapes snapshot dates to span GALLERY_NOW so the badge is
+   *  date-consistent with production's published && isShowLiveOnDate derivation. */
+  isLive?: boolean;
+  /** null = "Not synced yet" posture (with a non-null sync timestamp). */
+  lastSyncStatus?: string | null;
+  /** true → lastSyncedAt AND lastCheckedAt null → the sync element is absent.
+   *  Shadow guards: contradicts any explicit lastSyncStatus and checkedAbsent. */
+  neverSynced?: boolean;
+  /** true → lastCheckedAt null while lastSyncedAt is kept (the sync-age badge
+   *  falls back). Contradicts any explicit lastSyncStatus other than "ok". */
+  checkedAbsent?: boolean;
+  /** true → modal title override null (production converts empty adapter title
+   *  to null); snapshot show.title "". Header AND StatusStrip fall back to slug. */
+  titleAbsent?: boolean;
+  /** true → snapshot dates all null/empty → "Dates not detected" + empty
+   *  run-of-show. */
+  datesAbsent?: boolean;
+  /** true → snapshot client_label "" (NOT null — the DDL is NOT NULL; the
+   *  adapter maps the stored empty string to the absent UI state). */
+  clientAbsent?: boolean;
+  /** true → data.alertId = the synthetic id of the first alert whose DERIVED
+   *  item survives the modal cut (validated via derivation probe). */
+  alertFlash?: boolean;
+  /** Snapshot collections emptied. `agenda` removes the Agenda SECTION
+   *  (includesAgenda keys off agenda_links); `billing` nulls coi_status. */
+  empty?: Array<
+    "crew" | "venue" | "rooms" | "hotels" | "transport" | "contacts" | "billing" | "agenda"
+  >;
+  /** Deterministic synthetic rows generated past the render caps. */
+  volumes?: {
+    crew?: number;
+    rooms?: number;
+    hotels?: number;
+    /** 15 pure-agenda ros days × 8 agenda-kind entries + 1 synthetic-only day. */
+    schedule?: "overflow";
+    /** Full PersistedEmbeddedImage rows on the diagrams anchor; requires a
+     *  diagrams-anchored alert. */
+    diagramImages?: number;
+    packlist?: { cases: number; itemsPerCase: number };
+    /** Base agenda link gains an extraction overflowing the preview caps. */
+    agenda?: "overflow";
+    /** N grammar-conforming agenda links ("AGENDA <n> - <suffix>"). */
+    agendaLinks?: number;
+    /** Names on hotel 1 (the avatar-stack cap is 5). */
+    hotelGuests?: number;
+  };
+  /** Active crew link: threads a synthetic share token to the switcher's
+   *  ShareTokenProvider and reshapes the snapshot roster so exactly
+   *  `crewEmails` members carry an email; the modal's crewEmails prop is
+   *  DERIVED from the reshaped snapshot the way the production loader derives
+   *  it (app/admin/_showReviewModal.tsx:358-362). */
+  share?: { linkActive: true; crewEmails: number };
+};
 
 /**
  * Exactly the columns `fetchPerShowAlerts` selects
@@ -65,4 +161,22 @@ export type AttentionScenario = {
   degraded?: boolean;
   /** Tier 2 only - a read-model condition (feed page cap), not reproducible from stored rows. */
   feedTruncated?: boolean;
+  /** Tier 2 only - storable show_change_log rows shaped by the REAL feed shaper
+   *  (shapeChangeFeed). Max 50 rows (the production reader's page limit). */
+  changeLog?: ScenarioChangeLogRow[];
+  /** Tier 2 only - renders the ChangesSection feed-infra-error notice: the
+   *  modal-data builder passes an explicit `feed: null` override. Exclusive with
+   *  ENTRIES (holds, non-empty changeLog, feedTruncated: true); empty arrays and
+   *  absent flags are legal beside it (emptiness equals absence). */
+  feedNull?: boolean;
+  /** Tier 2 only - gallery-render-only fixture shaping. */
+  fixture?: ScenarioFixture;
+  /** Tier 2 only - indexes into `warnings` marked as ignored (content-keyed).
+   *  Each target needs a non-blank rawSnippet, and its fingerprint must not
+   *  collide with an ACTIVE warning's fingerprint. */
+  ignoreWarningIndexes?: number[];
+  /** Tier 2 only - nav group used when the scenario derives no attention items
+   *  and no warning sections (fixture/feed-only states). Ignored when real
+   *  sections exist. */
+  landing?: ScenarioGroupId;
 };

@@ -6,6 +6,10 @@
 // consumer. That is why §4 specifies rendering behavior rather than per-field
 // malformed-input behavior - the malformed cases are unreachable by construction.
 import { PARSE_FAILURE_ALLOWLIST } from "@/lib/messages/parseFailureReason";
+import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
+import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import { GROUP_ORDER } from "@/lib/dev/galleryModalTypes";
+import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import type { AttentionScenario, ScenarioAlertRow, ScenarioHoldRow } from "./types";
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{2,47}$/;
@@ -219,5 +223,395 @@ export function validateScenario(s: AttentionScenario): string[] {
     }
   }
 
+  validateModalStateFields(s, out);
+
   return out;
+}
+
+// ── Modal-state-coverage fields (spec 2026-07-22 §3.0/§4) ────────────────────
+
+const CHANGE_LOG_STATUSES = new Set(["applied", "pending", "rejected", "undone", "superseded"]);
+const CHANGE_LOG_SOURCES = new Set(["auto_apply", "mi11_approve", "mi11_reject", "undo"]);
+/** The production reader's page limit (readShowChangeFeed DEFAULT_LIMIT). */
+const CHANGE_LOG_MAX_ROWS = 50;
+const EMPTY_KEYS = new Set([
+  "crew",
+  "venue",
+  "rooms",
+  "hotels",
+  "transport",
+  "contacts",
+  "billing",
+  "agenda",
+]);
+/** app/admin/_showReviewModal.tsx roster cap (CREW_ROSTER_READ_CAP). */
+const SHARE_EMAILS_MAX = 500;
+
+function isPositiveInt(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v > 0;
+}
+
+function validateChangeLogRow(row: unknown, i: number, out: string[]): void {
+  const where = `changeLog[${i}]`;
+  if (!isPlainObject(row)) {
+    out.push(`${where}: must be a plain object`);
+    return;
+  }
+  if (!parsesAsDate(row.occurred_at)) out.push(`${where}: occurred_at must parse as a date`);
+  if (typeof row.status !== "string" || !CHANGE_LOG_STATUSES.has(row.status)) {
+    out.push(`${where}: status outside the catalog set`);
+  }
+  if (isBlank(row.summary)) out.push(`${where}: summary must be non-blank`);
+  if (!(typeof row.entity_ref === "string" || row.entity_ref === null)) {
+    out.push(`${where}: entity_ref must be string or null`);
+  }
+  // Open-ended by design: no CHECK on change_kind and production also writes
+  // e.g. "use_raw_stale" — only blankness is rejected.
+  if (isBlank(row.change_kind)) out.push(`${where}: change_kind must be non-blank`);
+  if (typeof row.individually_undoable !== "boolean") {
+    out.push(`${where}: individually_undoable must be boolean`);
+  }
+  if (typeof row.source !== "string" || !CHANGE_LOG_SOURCES.has(row.source)) {
+    out.push(`${where}: source outside the catalog set`);
+  }
+  if (row.acknowledged_at !== null && !parsesAsDate(row.acknowledged_at)) {
+    out.push(`${where}: acknowledged_at must be null or parse as a date`);
+  }
+}
+
+function validateFixtureLifecycle(fx: Record<string, unknown>, out: string[]): void {
+  for (const key of [
+    "archived",
+    "published",
+    "finalizeOwned",
+    "isLive",
+    "neverSynced",
+    "checkedAbsent",
+    "titleAbsent",
+    "datesAbsent",
+    "clientAbsent",
+    "alertFlash",
+  ]) {
+    if (fx[key] !== undefined && typeof fx[key] !== "boolean") {
+      out.push(`fixture.${key}: must be boolean`);
+    }
+  }
+  if (
+    fx.lastSyncStatus !== undefined &&
+    fx.lastSyncStatus !== null &&
+    typeof fx.lastSyncStatus !== "string"
+  ) {
+    out.push("fixture.lastSyncStatus: must be string or null");
+  }
+  // No-op knobs: base-default explicit values are rejected so "fixture present"
+  // is always semantically effective (the isModalVisible carrier arm relies on it).
+  const defaults: Record<string, unknown> = {
+    archived: false,
+    published: true,
+    finalizeOwned: false,
+    isLive: false,
+    neverSynced: false,
+    checkedAbsent: false,
+    titleAbsent: false,
+    datesAbsent: false,
+    clientAbsent: false,
+    alertFlash: false,
+    lastSyncStatus: "ok",
+  };
+  for (const [key, def] of Object.entries(defaults)) {
+    if (fx[key] !== undefined && fx[key] === def) {
+      out.push(`fixture.${key}: explicit base-default value is a no-op`);
+    }
+  }
+  // Lifecycle contradictions (production derivations, spec §4).
+  if (fx.archived === true && fx.published === true) {
+    out.push("fixture: archived is atomically unpublished — published: true contradicts it");
+  }
+  if (fx.archived === true && fx.published === undefined) {
+    out.push("fixture: archived: true requires explicit published: false");
+  }
+  if (fx.archived === true && fx.finalizeOwned === true) {
+    out.push("fixture: archived forces finalizeOwned false");
+  }
+  if (fx.isLive === true && (fx.published === false || fx.archived === true)) {
+    out.push("fixture: isLive requires published and not archived");
+  }
+  if (fx.isLive === true && fx.datesAbsent === true) {
+    out.push("fixture: isLive requires dates (absent dates cannot be live)");
+  }
+  // Sync shadow guards: a null lastSyncedAt suppresses the sync element before
+  // status or check stamp is read; lastCheckedAt is consulted only on "ok".
+  if (fx.neverSynced === true && fx.lastSyncStatus !== undefined) {
+    out.push("fixture: neverSynced shadows lastSyncStatus (element suppressed)");
+  }
+  if (fx.neverSynced === true && fx.checkedAbsent === true) {
+    out.push("fixture: neverSynced shadows checkedAbsent");
+  }
+  if (fx.checkedAbsent === true && fx.lastSyncStatus !== undefined && fx.lastSyncStatus !== "ok") {
+    out.push("fixture: checkedAbsent is consulted only on the ok bucket");
+  }
+}
+
+function validateFixtureVolumes(fx: Record<string, unknown>, out: string[]): void {
+  const volumes = fx.volumes;
+  if (volumes === undefined) return;
+  if (!isPlainObject(volumes)) {
+    out.push("fixture.volumes: must be an object");
+    return;
+  }
+  if (Object.keys(volumes).length === 0) out.push("fixture.volumes: empty object is a no-op");
+  // Unknown volume keys are hard errors: a typoed key ({ crews: 9 }) would be a
+  // silent no-op that still counts as "fixture present" for isModalVisible
+  // (whole-diff review B P1).
+  const VOLUME_KEYS = new Set([
+    "crew",
+    "rooms",
+    "hotels",
+    "schedule",
+    "diagramImages",
+    "packlist",
+    "agenda",
+    "agendaLinks",
+    "hotelGuests",
+  ]);
+  for (const key of Object.keys(volumes)) {
+    if (!VOLUME_KEYS.has(key)) out.push(`fixture.volumes: unknown key ${key}`);
+  }
+  for (const key of ["crew", "rooms", "hotels", "diagramImages", "agendaLinks", "hotelGuests"]) {
+    if (volumes[key] !== undefined && !isPositiveInt(volumes[key])) {
+      out.push(`fixture.volumes.${key}: must be a positive integer`);
+    }
+  }
+  // Volumes equal to the base fixture counts are no-ops (GALLERY_BASE_COUNTS;
+  // the fixture-knobs test pins the real fixture lengths against the constant).
+  const baseCounts: Record<string, number> = { crew: 6, rooms: 3, hotels: 2 };
+  for (const [key, base] of Object.entries(baseCounts)) {
+    if (volumes[key] === base) out.push(`fixture.volumes.${key}: equals the base count (no-op)`);
+  }
+  if (volumes.schedule !== undefined && volumes.schedule !== "overflow") {
+    out.push('fixture.volumes.schedule: must be "overflow"');
+  }
+  if (volumes.agenda !== undefined && volumes.agenda !== "overflow") {
+    out.push('fixture.volumes.agenda: must be "overflow"');
+  }
+  if (volumes.packlist !== undefined) {
+    const p = volumes.packlist;
+    if (!isPlainObject(p) || !isPositiveInt(p.cases) || !isPositiveInt(p.itemsPerCase)) {
+      out.push("fixture.volumes.packlist: must carry positive integer cases and itemsPerCase");
+    }
+  }
+  if (volumes.agenda !== undefined && volumes.agendaLinks !== undefined) {
+    out.push("fixture.volumes: agenda and agendaLinks reshape the same array (contradictory)");
+  }
+}
+
+function validateModalStateFields(s: AttentionScenario, out: string[]): void {
+  const tier2Only = (present: boolean, name: string): boolean => {
+    if (!present) return false;
+    if (s.tier !== 2) {
+      out.push(`${name}: tier 2 only`);
+      return false;
+    }
+    return true;
+  };
+
+  if (tier2Only(s.changeLog !== undefined, "changeLog")) {
+    if (!Array.isArray(s.changeLog)) out.push("changeLog: must be an array");
+    else {
+      s.changeLog.forEach((row, i) => validateChangeLogRow(row, i, out));
+      if (s.changeLog.length > CHANGE_LOG_MAX_ROWS) {
+        out.push(`changeLog: longer than the production page limit (${CHANGE_LOG_MAX_ROWS})`);
+      }
+    }
+  }
+
+  if (tier2Only(s.feedNull !== undefined, "feedNull")) {
+    if (typeof s.feedNull !== "boolean") out.push("feedNull: must be boolean");
+    else if (s.feedNull) {
+      // Emptiness equals absence: only actual ENTRIES (or the truncation flag)
+      // contradict a null feed.
+      if (Array.isArray(s.holds) && s.holds.length > 0) {
+        out.push("feedNull: holds would desync the changes-rail badge from a null feed");
+      }
+      if (Array.isArray(s.changeLog) && s.changeLog.length > 0) {
+        out.push("feedNull: changeLog entries cannot render in a null feed");
+      }
+      if (s.feedTruncated === true) out.push("feedNull: feedTruncated contradicts a null feed");
+    }
+  }
+
+  if (tier2Only(s.ignoreWarningIndexes !== undefined, "ignoreWarningIndexes")) {
+    validateIgnoreIndexes(s, out);
+  }
+
+  if (tier2Only(s.landing !== undefined, "landing")) {
+    if (typeof s.landing !== "string" || !GROUP_ORDER.includes(s.landing)) {
+      out.push("landing: must be a GROUP_ORDER member");
+    }
+  }
+
+  if (tier2Only(s.fixture !== undefined, "fixture")) {
+    const fx = s.fixture;
+    if (!isPlainObject(fx)) {
+      out.push("fixture: must be a plain object");
+      return;
+    }
+    if (Object.keys(fx).length === 0) out.push("fixture: empty object is a no-op");
+    // Unknown fixture keys are hard errors: { typo: true } is non-empty yet
+    // changes nothing, breaking the "fixture present implies effective"
+    // contract isModalVisible relies on (whole-diff review B P1).
+    const FIXTURE_KEYS = new Set([
+      "archived",
+      "published",
+      "finalizeOwned",
+      "isLive",
+      "lastSyncStatus",
+      "neverSynced",
+      "checkedAbsent",
+      "titleAbsent",
+      "datesAbsent",
+      "clientAbsent",
+      "alertFlash",
+      "empty",
+      "volumes",
+      "share",
+    ]);
+    for (const key of Object.keys(fx as Record<string, unknown>)) {
+      if (!FIXTURE_KEYS.has(key)) out.push(`fixture: unknown key ${key}`);
+    }
+    validateFixtureLifecycle(fx as Record<string, unknown>, out);
+
+    const empty = (fx as Record<string, unknown>).empty;
+    if (empty !== undefined) {
+      if (!Array.isArray(empty)) out.push("fixture.empty: must be an array");
+      else {
+        if (empty.length === 0) out.push("fixture.empty: empty array is a no-op");
+        for (const key of empty) {
+          if (typeof key !== "string" || !EMPTY_KEYS.has(key)) {
+            out.push(`fixture.empty: unknown key ${String(key)}`);
+          }
+        }
+        if (new Set(empty).size !== empty.length) out.push("fixture.empty: duplicate keys");
+      }
+    }
+
+    validateFixtureVolumes(fx as Record<string, unknown>, out);
+
+    const volumes = isPlainObject((fx as Record<string, unknown>).volumes)
+      ? ((fx as Record<string, unknown>).volumes as Record<string, unknown>)
+      : {};
+    if (Array.isArray(empty)) {
+      const volumeKeyBySection: Record<string, string> = {
+        crew: "crew",
+        rooms: "rooms",
+        hotels: "hotels",
+        agenda: "agenda",
+      };
+      for (const [section, volKey] of Object.entries(volumeKeyBySection)) {
+        if (empty.includes(section) && volumes[volKey] !== undefined) {
+          out.push(`fixture: empty ${section} contradicts volumes.${volKey}`);
+        }
+      }
+      if (empty.includes("agenda") && volumes.agendaLinks !== undefined) {
+        out.push("fixture: empty agenda contradicts volumes.agendaLinks");
+      }
+      // hotelGuests reshapes hotel 1's guest list, which cannot exist once the
+      // hotels collection is emptied (whole-diff review B P1).
+      if (empty.includes("hotels") && volumes.hotelGuests !== undefined) {
+        out.push("fixture: empty hotels contradicts volumes.hotelGuests");
+      }
+    }
+
+    if (volumes.diagramImages !== undefined) {
+      const hasDiagramsAnchor =
+        Array.isArray(s.alerts) &&
+        s.alerts.some((a) => ATTENTION_ROUTES[a.code]?.anchor === "diagrams");
+      if (!hasDiagramsAnchor) {
+        out.push("fixture.volumes.diagramImages: requires a diagrams-anchored alert");
+      }
+    }
+
+    const share = (fx as Record<string, unknown>).share;
+    if (share !== undefined) {
+      if (!isPlainObject(share) || share.linkActive !== true) {
+        out.push("fixture.share: must be an object with linkActive: true");
+      } else {
+        const n = share.crewEmails;
+        if (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > SHARE_EMAILS_MAX) {
+          out.push(`fixture.share.crewEmails: must be an integer in [0, ${SHARE_EMAILS_MAX}]`);
+        } else {
+          if (n >= 1 && Array.isArray(empty) && empty.includes("crew")) {
+            out.push("fixture.share: emails cannot come from an empty roster");
+          }
+          const crewVol = volumes.crew;
+          if (typeof crewVol === "number") {
+            if (n > crewVol) {
+              out.push("fixture.share.crewEmails: exceeds the declared crew volume");
+            }
+            if (n >= 1 && crewVol > SHARE_EMAILS_MAX) {
+              out.push(
+                "fixture.share: production blanks all crew emails past the 500-row roster cap",
+              );
+            }
+          }
+        }
+        if ((fx as Record<string, unknown>).published === false) {
+          out.push("fixture.share: linkActive requires published");
+        }
+        if ((fx as Record<string, unknown>).archived === true) {
+          out.push("fixture.share: linkActive requires a non-archived show");
+        }
+      }
+    }
+
+    if ((fx as Record<string, unknown>).datesAbsent === true && volumes.schedule !== undefined) {
+      out.push("fixture: datesAbsent contradicts volumes.schedule (ros days render regardless)");
+    }
+
+    if ((fx as Record<string, unknown>).alertFlash === true) {
+      // The flash must target a rendered banner: probe the REAL derivation.
+      const items = deriveScenarioAttention(s);
+      if (!items.some((i) => i.kind === "alert")) {
+        out.push("fixture.alertFlash: no derived alert item survives the modal cut");
+      }
+    }
+  }
+}
+
+function validateIgnoreIndexes(s: AttentionScenario, out: string[]): void {
+  const idx = s.ignoreWarningIndexes;
+  if (!Array.isArray(idx)) {
+    out.push("ignoreWarningIndexes: must be an array");
+    return;
+  }
+  const warnings = Array.isArray(s.warnings) ? s.warnings : [];
+  if (new Set(idx).size !== idx.length) out.push("ignoreWarningIndexes: duplicate indexes");
+  const ignored = new Set<number>();
+  for (const i of idx) {
+    if (!Number.isInteger(i) || i < 0 || i >= warnings.length) {
+      out.push(`ignoreWarningIndexes: index ${String(i)} out of range`);
+      continue;
+    }
+    ignored.add(i);
+    const w = warnings[i];
+    if (w === undefined || warningFingerprint(w) === null) {
+      out.push(
+        `ignoreWarningIndexes: warnings[${i}] needs a non-blank rawSnippet for a fingerprint`,
+      );
+    }
+  }
+  // An ignored fingerprint colliding with an ACTIVE warning's fingerprint would
+  // make partitionByIgnored ignore both.
+  const ignoredPrints = new Set(
+    [...ignored]
+      .map((i) => (warnings[i] !== undefined ? warningFingerprint(warnings[i]!) : null))
+      .filter((f): f is string => f !== null),
+  );
+  warnings.forEach((w, i) => {
+    if (ignored.has(i)) return;
+    const f = warningFingerprint(w);
+    if (f !== null && ignoredPrints.has(f)) {
+      out.push(`ignoreWarningIndexes: active warnings[${i}] shares an ignored fingerprint`);
+    }
+  });
 }

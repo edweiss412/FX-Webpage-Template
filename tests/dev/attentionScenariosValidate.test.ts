@@ -360,3 +360,268 @@ describe("validateScenario - warnings", () => {
     expect(validateScenario(base({ tier: 2, feedTruncated: true }))).toEqual([]);
   });
 });
+
+// ── Modal-state-coverage fields (plan Task 2; spec §3.0/§4) ──────────────────
+import { validateScenario as vs } from "@/lib/dev/attentionScenarios/validate";
+import type {
+  AttentionScenario as MSCScenario,
+  ScenarioChangeLogRow,
+} from "@/lib/dev/attentionScenarios/types";
+
+const mscBase = (over: Partial<MSCScenario>): MSCScenario => ({
+  id: "t2-guard-x",
+  tier: 2,
+  label: "guard",
+  alerts: [],
+  holds: [],
+  ...over,
+});
+
+const logRow = (over: Partial<ScenarioChangeLogRow> = {}): ScenarioChangeLogRow => ({
+  occurred_at: "2026-07-01T11:00:00.000Z",
+  status: "applied",
+  summary: "A change",
+  entity_ref: null,
+  change_kind: "field_changed",
+  individually_undoable: false,
+  source: "auto_apply",
+  acknowledged_at: null,
+  ...over,
+});
+
+describe("validateScenario - modal-state fields: shape checks", () => {
+  test("changeLog container and row shapes", () => {
+    expect(vs(mscBase({ changeLog: "nope" as never }))).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: ["nope" as never] }))).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: [logRow({ summary: "  " })] }))).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: [logRow({ entity_ref: 7 as never })] }))).not.toEqual([]);
+    expect(
+      vs(mscBase({ changeLog: [logRow({ individually_undoable: "yes" as never })] })),
+    ).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: [logRow({ status: "exploded" as never })] }))).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: [logRow({ source: "gremlin" as never })] }))).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: [logRow({ change_kind: "  " })] }))).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: [logRow({ occurred_at: "not-a-date" })] }))).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: [logRow({ acknowledged_at: "not-a-date" })] }))).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: [logRow({ change_kind: "use_raw_stale" })] }))).toEqual([]);
+  });
+  test("changeLog longer than the production page limit (50) is rejected", () => {
+    const rows = Array.from({ length: 51 }, () => logRow());
+    expect(vs(mscBase({ changeLog: rows }))).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: rows.slice(0, 50) }))).toEqual([]);
+  });
+  test("feedNull must be boolean; fixture/empty/volumes/share container shapes", () => {
+    expect(vs(mscBase({ feedNull: "yes" as never }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: "nope" as never }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { empty: "crew" as never } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: "big" as never } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: "yes" as never } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { archived: "yes" as never } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { lastSyncStatus: 7 as never } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { empty: ["basement" as never] } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: { schedule: "big" as never } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: { agenda: "big" as never } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: { packlist: { cases: 13 } as never } } }))).not.toEqual(
+      [],
+    );
+    expect(
+      vs(mscBase({ fixture: { share: { linkActive: false as never, crewEmails: 3 } } })),
+    ).not.toEqual([]);
+    expect(vs(mscBase({ ignoreWarningIndexes: 1 as never }))).not.toEqual([]);
+    expect(vs(mscBase({ ignoreWarningIndexes: [0.5] }))).not.toEqual([]);
+  });
+});
+
+describe("validateScenario - modal-state fields: tier and cross-field guards", () => {
+  test("all five fields are tier-2 only", () => {
+    for (const [over, name] of [
+      [{ changeLog: [logRow()] }, "changeLog"],
+      [{ feedNull: true }, "feedNull"],
+      [{ fixture: { archived: true, published: false } }, "fixture"],
+      [{ ignoreWarningIndexes: [0] }, "ignoreWarningIndexes"],
+      [{ landing: "overview" as const }, "landing"],
+    ] as const) {
+      // Assert the SPECIFIC tier-2-only message: any unrelated tier/ID error
+      // would satisfy a bare non-empty assertion (review B P1).
+      expect(vs({ ...mscBase(over as Partial<MSCScenario>), tier: 1 })).toContainEqual(
+        expect.stringContaining(`${name}: tier 2 only`),
+      );
+      expect(vs({ ...mscBase(over as Partial<MSCScenario>), tier: 3 })).toContainEqual(
+        expect.stringContaining(`${name}: tier 2 only`),
+      );
+    }
+  });
+  test("feedNull entry-exclusivity: emptiness equals absence", () => {
+    expect(vs(mscBase({ feedNull: true, changeLog: [logRow()] }))).not.toEqual([]);
+    expect(vs(mscBase({ feedNull: true, feedTruncated: true }))).not.toEqual([]);
+    // The third exclusivity arm — HOLDS also contradict a null feed (review B P1
+    // pinned each arm independently).
+    expect(vs(mscBase({ feedNull: true, holds: [holdRow()] }))).toContainEqual(
+      expect.stringContaining("feedNull: holds"),
+    );
+    expect(vs(mscBase({ feedNull: true, changeLog: [] }))).toEqual([]);
+    expect(vs(mscBase({ feedNull: true }))).toEqual([]);
+  });
+  test("unknown fixture and volume keys are hard errors, never silent no-ops (review B P1)", () => {
+    expect(vs(mscBase({ fixture: { typo: true } as never }))).toContainEqual(
+      expect.stringContaining("fixture: unknown key typo"),
+    );
+    expect(vs(mscBase({ fixture: { volumes: { typo: 1 } } as never }))).toContainEqual(
+      expect.stringContaining("fixture.volumes: unknown key typo"),
+    );
+  });
+  test("empty hotels contradicts volumes.hotelGuests (review B P1)", () => {
+    expect(
+      vs(mscBase({ fixture: { empty: ["hotels"], volumes: { hotelGuests: 7 } } })),
+    ).toContainEqual(expect.stringContaining("empty hotels contradicts volumes.hotelGuests"));
+  });
+  test("no-op knobs are rejected", () => {
+    expect(vs(mscBase({ fixture: {} }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { empty: [] } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: {} } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { archived: false } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { published: true } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { lastSyncStatus: "ok" } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { neverSynced: false } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { alertFlash: false } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: { crew: 6 } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: { rooms: 3 } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: { hotels: 2 } } }))).not.toEqual([]);
+  });
+  test("volumes must be positive integers; empty×volumes contradictions", () => {
+    expect(vs(mscBase({ fixture: { volumes: { crew: 0 } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: { rooms: -2 } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: { hotels: 1.5 } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { empty: ["crew"], volumes: { crew: 31 } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { empty: ["crew", "crew"] } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: { crew: 31 } } }))).toEqual([]);
+  });
+  test("lifecycle contradictions", () => {
+    // Assert the SPECIFIC contradiction message: archived+published:true also
+    // fails the base-default no-op guard, so a bare non-empty assertion would
+    // survive deletion of the lifecycle guard (review B P1 tautology note).
+    expect(vs(mscBase({ fixture: { archived: true, published: true } }))).toContainEqual(
+      expect.stringContaining("atomically unpublished"),
+    );
+    // archived without an explicit published is its own error arm.
+    expect(vs(mscBase({ fixture: { archived: true } }))).toContainEqual(
+      expect.stringContaining("requires explicit published: false"),
+    );
+    expect(
+      vs(mscBase({ fixture: { archived: true, published: false, finalizeOwned: true } })),
+    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { isLive: true, published: false } }))).not.toEqual([]);
+    expect(
+      vs(mscBase({ fixture: { isLive: true, archived: true, published: false } })),
+    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { isLive: true, datesAbsent: true } }))).not.toEqual([]);
+    expect(
+      vs(mscBase({ fixture: { datesAbsent: true, volumes: { schedule: "overflow" } } })),
+    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { archived: true, published: false } }))).toEqual([]);
+    expect(vs(mscBase({ fixture: { isLive: true } }))).toEqual([]);
+  });
+  test("sync shadow guards", () => {
+    expect(vs(mscBase({ fixture: { neverSynced: true, lastSyncStatus: null } }))).not.toEqual([]);
+    expect(
+      vs(mscBase({ fixture: { neverSynced: true, lastSyncStatus: "drive_error" } })),
+    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { neverSynced: true, checkedAbsent: true } }))).not.toEqual([]);
+    expect(
+      vs(mscBase({ fixture: { checkedAbsent: true, lastSyncStatus: "drive_error" } })),
+    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { checkedAbsent: true, lastSyncStatus: null } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { neverSynced: true } }))).toEqual([]);
+    expect(vs(mscBase({ fixture: { checkedAbsent: true } }))).toEqual([]);
+  });
+  test("agenda knob exclusivity", () => {
+    expect(
+      vs(mscBase({ fixture: { empty: ["agenda"], volumes: { agenda: "overflow" } } })),
+    ).not.toEqual([]);
+    expect(
+      vs(mscBase({ fixture: { empty: ["agenda"], volumes: { agendaLinks: 7 } } })),
+    ).not.toEqual([]);
+    expect(
+      vs(mscBase({ fixture: { volumes: { agenda: "overflow", agendaLinks: 7 } } })),
+    ).not.toEqual([]);
+  });
+  test("diagramImages requires a diagrams-anchored alert", () => {
+    expect(vs(mscBase({ fixture: { volumes: { diagramImages: 13 } } }))).not.toEqual([]);
+    const anchored = mscBase({
+      alerts: [
+        {
+          code: "EMBEDDED_ASSET_DRIFTED",
+          context: {},
+          raised_at: "2026-07-01T11:00:00.000Z",
+          occurrence_count: 1,
+        },
+      ],
+      fixture: { volumes: { diagramImages: 13 } },
+    });
+    expect(vs(anchored)).toEqual([]);
+  });
+  test("ignoreWarningIndexes guards", () => {
+    const warn = (rawSnippet: string, code = "TYPO_NORMALIZED") => ({
+      severity: "warn" as const,
+      code,
+      message: "m",
+      rawSnippet,
+    });
+    expect(vs(mscBase({ warnings: [warn("a")], ignoreWarningIndexes: [1] }))).not.toEqual([]);
+    expect(vs(mscBase({ warnings: [warn("a")], ignoreWarningIndexes: [0, 0] }))).not.toEqual([]);
+    expect(vs(mscBase({ warnings: [warn("   ")], ignoreWarningIndexes: [0] }))).not.toEqual([]);
+    // fingerprint collision: ignored and active share code + normalized snippet
+    expect(
+      vs(mscBase({ warnings: [warn("same"), warn("same")], ignoreWarningIndexes: [1] })),
+    ).not.toEqual([]);
+    expect(
+      vs(mscBase({ warnings: [warn("aaa"), warn("bbb")], ignoreWarningIndexes: [1] })),
+    ).toEqual([]);
+  });
+  test("share guards", () => {
+    const share = (crewEmails: number) => ({ linkActive: true as const, crewEmails });
+    expect(vs(mscBase({ fixture: { share: share(-1) } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(1.5) } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(501) } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(1), empty: ["crew"] } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(0), empty: ["crew"] } }))).toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(40), volumes: { crew: 31 } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(1), volumes: { crew: 501 } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(1), published: false } }))).not.toEqual([]);
+    expect(
+      vs(mscBase({ fixture: { share: share(1), archived: true, published: false } })),
+    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(60) } }))).toEqual([]);
+  });
+  test("alertFlash requires a surviving derived alert item", () => {
+    expect(vs(mscBase({ fixture: { alertFlash: true } }))).not.toEqual([]);
+    const cutOnly = mscBase({
+      alerts: [
+        {
+          code: "PICKER_EPOCH_RESET",
+          context: {},
+          raised_at: "2026-07-01T11:00:00.000Z",
+          occurrence_count: 1,
+        },
+      ],
+      fixture: { alertFlash: true },
+    });
+    expect(vs(cutOnly)).not.toEqual([]);
+    const surviving = mscBase({
+      alerts: [
+        {
+          code: "SHEET_UNAVAILABLE",
+          context: {},
+          raised_at: "2026-07-01T11:00:00.000Z",
+          occurrence_count: 1,
+        },
+      ],
+      fixture: { alertFlash: true },
+    });
+    expect(vs(surviving)).toEqual([]);
+  });
+  test("landing must be a GROUP_ORDER member", () => {
+    expect(vs(mscBase({ landing: "attic" as never }))).not.toEqual([]);
+    expect(vs(mscBase({ landing: "changes", changeLog: [logRow()] }))).toEqual([]);
+  });
+});

@@ -294,3 +294,186 @@ describe("tier 2 structural matrix", () => {
     ).toEqual([T2_FEED_TRUNCATED]);
   });
 });
+
+// ── Modal-state-coverage roster (plan Task 6; spec §3.6) ─────────────────────
+import { validateScenario as mscValidate } from "@/lib/dev/attentionScenarios/validate";
+import { buildScenarioModalData as mscBuild } from "@/lib/dev/buildScenarioModalData";
+import { buildScenarioFeed as mscFeed } from "@/lib/dev/deriveScenarioAttention";
+import { deriveScenarioAttention as mscDerive } from "@/lib/dev/deriveScenarioAttention";
+
+const MSC_IDS = [
+  "t2-changelog-history",
+  "t2-hold-dispositions",
+  "t2-feed-infra-error",
+  "t2-archived",
+  "t2-unpublished",
+  "t2-finalizing",
+  "t2-publishing",
+  "t2-live-now",
+  "t2-share-link",
+  "t2-share-single",
+  "t2-share-batches",
+  "t2-sync-drive-error",
+  "t2-sync-sheet-unavailable",
+  "t2-sync-parse-error",
+  "t2-sync-shrink-held",
+  "t2-sync-pending-review",
+  "t2-sync-pending",
+  "t2-sync-not-yet",
+  "t2-sync-unknown",
+  "t2-never-synced",
+  "t2-sync-no-check",
+  "t2-minimal-header",
+  "t2-nothing-parsed",
+  "t2-overflow-volumes",
+  "t2-roster-over-cap",
+  "t2-solo-hotel",
+  "t2-hotel-guest-stack",
+  "t2-packlist-overflow",
+  "t2-agenda-overflow",
+  "t2-multi-agenda",
+  "t2-warning-spread",
+  "t2-alert-deep-link",
+  "t2-diagram-images",
+  "t2-attention-extras",
+  "t2-ignored-warnings",
+  "t2-all-ignored",
+] as const;
+
+function mscById(id: string) {
+  const s = tier2Scenarios().find((x) => x.id === id);
+  if (s === undefined) throw new Error(`missing roster scenario ${id}`);
+  return s;
+}
+
+describe("modal-state roster (spec §3.6)", () => {
+  test("all 36 scenarios exist and validate clean", () => {
+    for (const id of MSC_IDS) {
+      expect(mscValidate(mscById(id)), id).toEqual([]);
+    }
+  });
+
+  test("t2-changelog-history: 12 feed entries with the exact matrix multiset", () => {
+    const s = mscById("t2-changelog-history");
+    const feed = mscFeed(s);
+    expect(feed).not.toBeNull();
+    const entries = feed!.entries;
+    expect(entries).toHaveLength(12);
+    const byStatus = (st: string) => entries.filter((e) => e.status === st).length;
+    expect(byStatus("applied")).toBe(6);
+    expect(byStatus("rejected")).toBe(1);
+    expect(byStatus("undone")).toBe(2);
+    expect(byStatus("superseded")).toBe(2);
+    expect(byStatus("pending")).toBe(1);
+    expect(entries.filter((e) => e.acceptable).length).toBe(3);
+    expect(entries.filter((e) => e.action === "undo").length).toBe(2);
+    expect(entries.filter((e) => e.acknowledgedAt !== null).length).toBe(3);
+    expect(entries.some((e) => e.acceptable && e.action === "undo")).toBe(true);
+    // The hold is the only attention item (log rows never become items).
+    expect(mscDerive(s)).toHaveLength(1);
+  });
+
+  test("t2-changelog-history: PER-ROW composition, localized to each matrix row (review B R2)", () => {
+    // Aggregate multisets cannot catch an acknowledgement migrating between
+    // rows or Accept/Undo splitting across rows while totals hold. Pin each
+    // §3.6 matrix row by its stable feed-entry id (`<scenario>-log-<index>`).
+    const feed = mscFeed(mscById("t2-changelog-history"));
+    const byId = new Map(feed!.entries.map((e) => [e.id, e]));
+    const rows: Array<[number, string, boolean, string, boolean]> = [
+      // [index, status, acceptable, action, acknowledged]
+      [0, "applied", false, "undo", false], // (1) undo-only mi11_approve rename
+      [1, "applied", true, "none", false], // (2) accept
+      [2, "applied", true, "none", false], // (3) accept
+      [3, "applied", true, "undo", false], // (4) accept AND undo co-rendered
+      [4, "applied", false, "none", true], // (5) acknowledged -> Accepted tag
+      [5, "rejected", false, "none", false], // (6) rejected badge
+      [6, "undone", false, "none", false], // (7) undone, never acknowledged
+      [7, "undone", false, "none", true], // (8) undone + Accepted together
+      [8, "superseded", false, "none", false], // (9) superseded
+      [9, "applied", false, "none", false], // (10) PLAIN applied: no action, no tag
+      [10, "superseded", false, "none", true], // (11) superseded + Accepted together
+    ];
+    for (const [i, status, acceptable, action, acked] of rows) {
+      const e = byId.get(`t2-changelog-history-log-${i}`);
+      expect(e, `log-${i} present`).toBeDefined();
+      expect(e?.status, `log-${i} status`).toBe(status);
+      expect(e?.acceptable, `log-${i} acceptable`).toBe(acceptable);
+      expect(e?.action, `log-${i} action`).toBe(action);
+      expect(e?.acknowledgedAt !== null, `log-${i} acknowledged`).toBe(acked);
+    }
+    expect(byId.has("t2-changelog-history-hold-0")).toBe(true);
+  });
+
+  test("t2-hold-dispositions: all four hold renderings, folded rename distinct from plain", () => {
+    const feed = mscFeed(mscById("t2-hold-dispositions"));
+    expect(feed).not.toBeNull();
+    expect(feed!.entries).toHaveLength(4);
+    const summaries = feed!.entries.map((e) => e.summary);
+    expect(new Set(summaries).size).toBe(4);
+    const dispositions = feed!.entries
+      .map((e) => (e.gate?.disposition as { disposition?: string } | undefined)?.disposition)
+      .sort();
+    expect(dispositions).toEqual(["email_change", "removal", "rename", "rename"]);
+  });
+
+  test("t2-roster-over-cap: 501 crew rows with blanked previewRoster and crewEmails", () => {
+    const data = mscBuild(mscById("t2-roster-over-cap"));
+    expect(data.data.crewMembers).toHaveLength(501);
+    expect(data.data.previewRoster).toEqual([]);
+    expect(data.crewEmails).toEqual([]);
+  });
+
+  test("t2-attention-extras: 2 crew-scoped warnings index under the member and 1 crew alert names them", () => {
+    const s = mscById("t2-attention-extras");
+    const data = mscBuild(s);
+    const crewModel = data.bySection.crew;
+    expect(crewModel).toBeDefined();
+    const keys = Object.keys(crewModel!.warningsByCrewKey);
+    expect(keys).toHaveLength(1);
+    expect(crewModel!.warningsByCrewKey[keys[0]!]).toHaveLength(2);
+    const crewItems = data.attentionItems.filter(
+      (i) => i.kind === "alert" && i.sectionId === "crew",
+    );
+    expect(crewItems).toHaveLength(1);
+  });
+
+  test("t2-multi-agenda: six visible grammar-labeled links, all badged", () => {
+    const data = mscBuild(mscById("t2-multi-agenda"));
+    expect(data.data.agendaBaseline).toHaveLength(6);
+    expect(data.data.agendaBaseline.every((i) => i.badge !== null)).toBe(true);
+  });
+
+  test("t2-alert-deep-link: alertId targets the surviving derived alert", () => {
+    const s = mscById("t2-alert-deep-link");
+    const data = mscBuild(s);
+    const item = data.attentionItems.find((i) => i.kind === "alert");
+    expect(item).toBeDefined();
+    expect(data.alertId).not.toBeNull();
+    expect(`alert:${data.alertId}`).toBe(item!.id);
+  });
+
+  test("t2-ignored-warnings: two active (bulk pair) + two ignored in one section", () => {
+    const data = mscBuild(mscById("t2-ignored-warnings"));
+    const models = Object.values(data.bySection);
+    expect(models.reduce((n, m) => n + m.active.length, 0)).toBe(2);
+    expect(models.reduce((n, m) => n + m.ignored.length, 0)).toBe(2);
+    const withBulk = models.find((m) => m.bulkGroups.length > 0);
+    expect(withBulk).toBeDefined();
+  });
+
+  test("t2-all-ignored: zero active, two ignored", () => {
+    const data = mscBuild(mscById("t2-all-ignored"));
+    const models = Object.values(data.bySection);
+    expect(models.reduce((n, m) => n + m.active.length, 0)).toBe(0);
+    expect(models.reduce((n, m) => n + m.ignored.length, 0)).toBe(2);
+  });
+
+  test("t2-feed-infra-error renders the null feed; t2-nothing-parsed empties every section", () => {
+    expect(mscBuild(mscById("t2-feed-infra-error")).feed).toBeNull();
+    const data = mscBuild(mscById("t2-nothing-parsed")).data;
+    expect(data.crewMembers).toHaveLength(0);
+    expect(data.rooms).toHaveLength(0);
+    expect(data.hotels).toHaveLength(0);
+    expect(data.venue).toBeNull();
+  });
+});

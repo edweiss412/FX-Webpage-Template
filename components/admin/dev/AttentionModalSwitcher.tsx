@@ -156,7 +156,15 @@ export function AttentionModalSwitcher({ scenarios, excluded, initialId }: Props
 
   return (
     <>
-      <ShareTokenProvider initialToken={null} initialEpoch={0}>
+      {/* key on the PROVIDER, not just the modal: it preserves its current token
+          across same-epoch initialToken changes (ShareTokenContext.tsx:44-69),
+          so an un-keyed provider would leak scenario A's token into scenario B
+          and keep an active token on null-token scenarios. */}
+      <ShareTokenProvider
+        key={current.id}
+        initialToken={current.shareToken ?? null}
+        initialEpoch={0}
+      >
         {/* key={current.id}: a fresh modal per scenario, so no client state
             (open holds, expanded sections) bleeds across a scenario switch. */}
         <PublishedReviewModal key={current.id} {...current.data} {...NOOP_ACTIONS} />
