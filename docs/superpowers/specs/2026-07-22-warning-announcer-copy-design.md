@@ -537,9 +537,10 @@ re-derive them.
   on AT edge behavior where it can (alternation removes the identical-text
   assumption entirely; the only remaining assumption is empty-clear silence,
   which the shipped bulk chip has relied on since the polish bundle). The
-  impeccable audit's a11y dimension covers the surface pre-merge, and a manual
-  VoiceOver spot-check of ignore/bulk-ignore/reveal is part of the
-  implementation plan's verification step.
+  impeccable audit's a11y dimension covers the surface pre-merge, and the
+  manual VoiceOver spot-check of ignore/bulk-ignore/reveal is tracked as a
+  DEFERRED.md owner action (an autonomous pipeline cannot truthfully perform
+  a manual assistive-technology pass; plan-review R1 F11 amendment).
 
 ## 8.1 Adversarial round 2 triage log
 
