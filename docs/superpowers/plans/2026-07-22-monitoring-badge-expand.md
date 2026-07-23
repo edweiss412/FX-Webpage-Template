@@ -388,3 +388,13 @@ scenario(T2_MONITORING_ONLY, "Monitoring only: expandable quiet pill", {
 - Sequencing audit (R1 P0 repair): commit boundaries = {T1+1b+1c}, {T2+2b}, {T3}, {T4}, {T5 sub-commits}. Each boundary's full suite set enumerated in its Step 2/4; no sibling suite left red at any commit. ✓
 - No placeholders; types/names cross-checked (`monitoringOnly`, testids consistent across T1/T4/T5/T7). ✓
 - Transition-audit + anti-tautology + layout-dimensions: no fixed-dimension parent introduced (spec §7: none); transition treatment carried by T1b (tripwires) + T4 (computed-style). ✓
+
+## Close-out notes (Task 5 — impeccable dual-gate + registry sweep dispositions)
+
+**Impeccable critique (Assessment A + detector B, subagent-isolated, product register, canonical context.mjs setup):** verdict SHIP after repair. P1 affordance collision (quiet button styled like passive gray spans) — FIXED: `border border-border` + `hover:border-border-strong` on the quiet button (commit "fix(admin): quiet pill affordance"); pair re-run confirmed resolved, no new P0/P1. P2 hover-fade — fixed by the same change. Deferred (non-blocking, no DEFERRED.md needed — none is P0/P1): P2 residual border contrast (~1.15:1 resting light theme; chevron + focus ring are co-cues), P2 tooltip copy tension ("no action needed" on a clickable control — spec-pinned copy), P3 truncated row titles without recovery, P3 generic fallback-note vagueness.
+
+**Impeccable audit:** A11y 3, Performance 4, Theming 4, Responsive 4, Anti-patterns 4. No P0/P1. P2 border-contrast (same as above). P3 `querySelector('[role="dialog"]')` first-match scoping (pre-existing pattern at the close-path rescue, mitigated — HoverHelp popovers stay dialog-descendants). P3 title/accName double-announcement on some SR combos (spec-pinned `title` contract). Contrast computed both themes: all text pairs AA-clean (worst 5.16:1 warning-text/80).
+
+**Registry sweep (§5 item 10):** `tests/styles` + `tests/help` — 694 tests green, no reconciliation needed. `_metaAttentionItemsTopology.test.ts` — DOES NOT EXIST in the repo (stale name inherited from memory-era docs); the tier2 exact-set registry (`attentionScenariosTier2.test.ts`) is the live equivalent and was extended in Task 3.
+
+**e2e negative control (plan R3 F2):** 4 inverted probe cells all FAILED before restore — probes non-vacuous.
