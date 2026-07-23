@@ -43,18 +43,20 @@ The offer consumes ONLY the **active** partition's records with code
 partition, which hides the offer without touching the warning card itself. Concrete plumbing
 (new, named): `_showReviewModal` computes `activeArchivedTabNames: string[]` from the model's
 active records for this code (raw `blockRef.name` values, blanks dropped, exact-string deduped)
-and passes it into `buildPublishedSectionData`'s existing options argument. Derivation ORDER
-in `_showReviewModal` is restated explicitly: the warning model derives from the SNAPSHOT
-(`buildSectionWarningModel`, `app/admin/_showReviewModal.tsx:328`), so the modal computes the
-model FIRST, then calls the adapter — a pure reordering of two snapshot-derived computations
-(the model does not consume `publishedData`; the plan pins the exact argument list). The
-adapter builds TWO new published-only fields (the shared strict
-`SectionCore.pullSheetOverride: OverrideSnapshot` at
-`components/admin/review/sectionData.ts:25` stays null and untouched — wizard machinery keeps
-its exact type):
-`PublishedSectionData.archivedTabOffer: { tabNames: string[]; slug: string } | null`
-(null unless `published && !archived && driveFileId != null && tabNames.length > 0`) and
-`PublishedSectionData.pullSheetOverrideWire` (§4 null-tolerant shape). The Pack-list render
+— WITHOUT reordering the existing derivation. Live order is adapter-then-model
+(`publishedData` built at `app/admin/_showReviewModal.tsx:286`; `renderedSectionIds(publishedData)`
+feeds `buildSectionWarningModel` at `app/admin/_showReviewModal.tsx:327-333`), and the offer
+names come from the model — a cycle if forced into one pass. Resolution: POST-AUGMENTATION.
+The adapter itself computes only the snapshot-derived field
+`PublishedSectionData.pullSheetOverrideWire` (§4). After the model exists, the modal computes
+`activeArchivedTabNames` and attaches the offer by shallow spread:
+`const dataForSurface = { ...publishedData, archivedTabOffer }` — the type declares
+`archivedTabOffer: { tabNames: string[]; slug: string } | null` (adapter always emits `null`;
+the modal is the sole attach site, documented on the field). Guards for the attach: null
+unless `published && !archived && driveFileId != null && tabNames.length > 0`. The shared
+strict `SectionCore.pullSheetOverride: OverrideSnapshot`
+(`components/admin/review/sectionData.ts:25`) stays null and untouched — wizard machinery
+keeps its exact type. The Pack-list render
 callsite (`components/admin/wizard/step3ReviewSections.tsx:4086-4093`) forwards both to
 `PackListBreakdown` via one new optional prop:
 `publishedGear?: { offer: { tabNames: string[]; slug: string } | null; wire: PullSheetOverrideWire; slug: string; driveFileId: string | null }`
@@ -104,7 +106,7 @@ resurfaces this decision.
 | `blockRef.name` on an active record | null/empty/whitespace | That record produces no offer card (cannot name the tab); others unaffected. |
 | `pullSheetOverride` (§4 projection) | null | P2 eligible (subject to remaining P2 conditions). |
 | `pullSheetOverride` | non-null | P3, regardless of warning presence. |
-| `pullSheetOverride` stored non-null JSON with missing/null/empty fields | — | P3-degraded: note renders with generic label "an archived tab" and a working Undo. Projection preserves the stored values verbatim (nulls included, §4) so the round-tripped `expectedOverrideSnapshot` still CAS-matches and the row is recoverable via Undo. Never collapsed to absent. |
+| `pullSheetOverride` stored non-null JSON with missing/null/empty/non-string fields | — | P3-degraded: note renders (generic label "an archived tab" when `tabName` unusable) with a working Undo. Well-formed rows CAS structurally; malformed rows revoke via the §3.2 carve-out. Never collapsed to absent. |
 | Show lifecycle | `archived = true` OR `published = false` | No offer, no note actions (P3 note still renders read-only if override set, minus Undo). `archived` and `published` are independent booleans; legacy `archived && published` rows exist (`supabase/migrations/20260602000000_b2_r4_unarchive_held_and_finalize_admin_guard.sql:5-8`). |
 | `driveFileId` | null | No offer AND the P3 note renders read-only (no Undo — the route body requires `driveFileId`, so the action is removed exactly like the lifecycle-disabled rows). |
 | Multiple active archived-tab records | >1 | One offer card per distinct RAW `blockRef.name` (exact string identity; NO trimming anywhere on the wire — the name originated from the exporter's exact sheet name, `lib/drive/exportSheetToMarkdown.ts:331`, and reconcile also matches exactly), deduped, counted AFTER the active-partition filter and the blank-name drop; capped at 3; beyond cap, one line: "and N more archived tabs. Resolve these in the sheet." Display may trim for layout; the posted value is always raw. |
@@ -114,7 +116,7 @@ resurfaces this decision.
 | Route body: `expectedOverrideSnapshot` | absent, scalar, array, extra keys, missing keys, or keys with non-string-non-null values | 400 `bad_request`. Legal shapes: `null`, or exactly `{ tabName: string|null, fingerprint: string|null }` (nulls legal — §4 projection round-trip). |
 | RPC direct: `p_drive_file_id` | null or empty | raises 22023. |
 | RPC direct: `p_tab_name` | whitespace-only or edge-whitespace string | stored VERBATIM (identity is exact; no trim). |
-| RPC direct: `p_expected_override_snapshot` | any jsonb | compared verbatim against the two-field projection; distinct → 40001. |
+| RPC direct: `p_expected_override_snapshot` | any jsonb | structural `IS DISTINCT FROM` against the single-arrow projection (well-formed rows); malformed stored rows: revoke skips CAS, accept raises 40001 (§3.2). |
 | RPC direct: accept with null/empty `p_fingerprint` or `p_accepted_by` | — | raises 22023. Unreachable via the route — belt-and-suspenders. |
 
 ### 2.4 Transition inventory
@@ -221,9 +223,21 @@ in a new function-only migration. Mirrors `set_pull_sheet_override`
   the RPC**; the JS route never locks (invariant 2). New topology entry registered in
   `tests/auth/advisoryLockRpcDeadlock.test.ts` (pattern at
   `tests/auth/advisoryLockRpcDeadlock.test.ts:69-72`).
-- Same two-field CAS projection as the wizard RPC (`v_current_snapshot` built from
-  `tabName`/`fingerprint` only, `supabase/migrations/20260706000000_pull_sheet_override.sql:66-67`);
-  mismatch → `40001`; route maps to 409 `stale_review` (mapping precedent:
+- CAS is STRUCTURAL and database-owned (supersedes the wizard's `->>` text projection to close
+  the malformed-value class): `v_current_snapshot := jsonb_build_object('tabName',
+  v_current->'tabName', 'fingerprint', v_current->'fingerprint')` — single-arrow `->` keeps
+  jsonb values as jsonb, so comparison via `IS DISTINCT FROM` is structural (no text
+  canonicalization, no numeric-scale loss). Well-formedness: a stored row is well-formed when
+  each of the two fields is absent, JSON null, or a JSON string. For well-formed rows the CAS
+  compares against `p_expected_override_snapshot` (client sends `{tabName: string|null,
+  fingerprint: string|null}`; absent stored key and JSON null both project to JSON null, so the
+  round trip matches). For a MALFORMED stored row (either field a number/boolean/object/array),
+  the client cannot faithfully represent the value; the RPC therefore SKIPS the CAS for the
+  REVOKE path only (`p_tab_name IS NULL`) — the sole possible transition for such a row is to
+  null, the advisory lock still serializes writers, and a concurrent double-revoke is
+  idempotent. An ACCEPT over a malformed row is impossible by construction (P2 requires
+  override null) and the RPC rejects it with `40001` as a belt-and-suspenders. Mismatch →
+  `40001`; route maps to 409 `stale_review` (mapping precedent:
   `app/api/admin/onboarding/pull-sheet-override/route.ts:16-18` and `app/api/admin/onboarding/pull-sheet-override/route.ts:71`).
 - Belt-and-suspenders arg guard: accept path (`p_tab_name` non-null) requires non-empty
   `p_fingerprint` and `p_accepted_by`, else raise 22023.
@@ -291,17 +305,17 @@ used (no server-side refresh step in this route).
   `readShowReviewSnapshot` (`lib/admin/readShowReviewSnapshot.ts:40`).
 - **Projection contract:** `publishedAdapter` maps the stored value to
   `pullSheetOverrideWire: null | { tabName: string | null, fingerprint: string | null }`:
-  stored null → null; stored non-null (any shape) → per-field projection that REPRODUCES
-  PostgreSQL `->>` semantics exactly: absent or JSON null → null; string → verbatim (no trim,
-  no empty-collapse); number/boolean → its JSON text (`String(v)`); object/array → its compact
-  JSON serialization (`JSON.stringify(v)`). `acceptedBy`/`acceptedAt` dropped
+  stored null → null; stored non-null → per field: absent or JSON null → null; JSON string →
+  verbatim (no trim, no empty-collapse); any NON-STRING value (number/boolean/object/array) →
+  null (the client never attempts to reproduce jsonb text — representation stays
+  database-owned, and the RPC's malformed-row revoke carve-out (§3.2) makes the null-bearing
+  round trip safe). `acceptedBy`/`acceptedAt` dropped
   (`components/admin/review/publishedAdapter.ts:82` replaces its hard-coded null). This matches
-  the RPC's projection (`jsonb_build_object` over `->>`,
-  `supabase/migrations/20260706000000_pull_sheet_override.sql:66-67`) for EVERY JSON value
-  class — absent, null, string, number, boolean, object, array — so ANY stored value,
-  including malformed rows like `{tabName:123,fingerprint:false}`, round-trips through the
-  UI's `expectedOverrideSnapshot` and CAS-matches (the adapter's generic `str()` helper at
-  `components/admin/review/publishedAdapter.ts:241` is NOT used for these fields). Malformed rows therefore render P3-degraded with a
+  the RPC's structural CAS (§3.2) for every well-formed value, and malformed rows
+  (`{tabName:123,fingerprint:false}` and kin) are covered by the §3.2 revoke carve-out — so
+  every stored value has a working Undo, with zero client-side jsonb-text emulation (the
+  adapter's generic `str()` helper at `components/admin/review/publishedAdapter.ts:241` is NOT
+  used for these fields). Malformed rows therefore render P3-degraded with a
   working Undo (§2.3), never a stuck 40001. The strict two-string `OverrideSnapshot` type
   (`lib/sync/pullSheetOverride.ts:22`) is not reused for this wire field; the published variant
   carries the null-tolerant shape.

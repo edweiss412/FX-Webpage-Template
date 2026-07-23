@@ -4,7 +4,7 @@
 
 **Goal:** One-click include/undo of an archived-tab pull sheet on the published show review modal, per spec `docs/superpowers/specs/2026-07-23-published-archived-tab-include.md` (all § refs below are that spec).
 
-**Architecture:** New SECURITY DEFINER RPC `set_published_pull_sheet_override` writes `shows.pull_sheet_override` (in-RPC advisory lock, two-field CAS). New admin route scans the sheet at click time for the fingerprint, calls the RPC, audits, then chains `runManualSyncForShow`. Published modal derives offer state from the active-warning partition + the adapter-projected override snapshot; a new client card renders P2/P3/busy/err. StagedReviewCard surfaces get a guidance-override pointer line.
+**Architecture:** New SECURITY DEFINER RPC `set_published_pull_sheet_override` writes `shows.pull_sheet_override` (in-RPC advisory lock, two-field CAS). New admin route scans the sheet at click time for the fingerprint, calls the RPC, audits, then chains `runManualSyncForShow`. Published modal derives offer state from the active-warning partition + the adapter-projected override snapshot; a new client card renders P2/P3/busy/err. StagedReviewCard surfaces are untouched (the warning never renders there; a pin test guards the filter fact).
 
 **Tech Stack:** Next.js 16 route handlers, Supabase (postgres-js for db tests), Vitest + Testing Library, existing Tailwind v4 token classes.
 
@@ -160,9 +160,20 @@ begin
     raise exception 'accept requires fingerprint and actor' using errcode = '22023';
   end if;
 
+  -- Structural CAS (spec §3.2): single-arrow keeps jsonb values as jsonb; no text projection.
   v_current_snapshot := case when v_current is null then null
-    else jsonb_build_object('tabName', v_current->>'tabName', 'fingerprint', v_current->>'fingerprint') end;
-  if v_current_snapshot is distinct from p_expected_override_snapshot then
+    else jsonb_build_object('tabName', v_current->'tabName', 'fingerprint', v_current->'fingerprint') end;
+  -- Well-formed: each field absent, JSON null, or JSON string.
+  if v_current is not null and (
+       (v_current->'tabName' is not null and jsonb_typeof(v_current->'tabName') not in ('null','string'))
+    or (v_current->'fingerprint' is not null and jsonb_typeof(v_current->'fingerprint') not in ('null','string'))
+  ) then
+    -- Malformed stored row: client cannot represent it. Revoke skips CAS (only possible
+    -- transition is to null; advisory lock serializes; double-revoke idempotent).
+    if p_tab_name is not null then
+      raise exception 'stale override snapshot (malformed row accepts nothing)' using errcode = '40001';
+    end if;
+  elsif v_current_snapshot is distinct from p_expected_override_snapshot then
     raise exception 'stale override snapshot (row changed since review)' using errcode = '40001';
   end if;
 
@@ -194,7 +205,7 @@ grant execute on function public.set_published_pull_sheet_override(text, text, t
 
 - [ ] **Step 5: Register lock topology in BOTH meta-tests.** (a) `tests/auth/advisoryLockRpcDeadlock.test.ts` (mirroring the `set_pull_sheet_override` entry at `tests/auth/advisoryLockRpcDeadlock.test.ts:69-72`); (b) `tests/sync/_advisoryLockSingleHolderContract.test.ts` — add the RPC holder row to the hard-coded registry (`tests/sync/_advisoryLockSingleHolderContract.test.ts:127`) AND a route negative check that app/api/admin/show/pull-sheet-override/route.ts never JS-locks (pattern at `tests/sync/_advisoryLockSingleHolderContract.test.ts:611`; add in Task 2 once the route exists if the meta requires the file present). Run both suites → PASS.
 
-- [ ] **Step 6: `->>` oracle case.** Add one db test: insert `{"tabName":123,"fingerprint":false}` and `{"tabName":{"a":1},"fingerprint":[1,2]}` as `pull_sheet_override`, select `pull_sheet_override->>'tabName'`/`->>'fingerprint'`, assert the text equals `String(123)`, `String(false)`, `JSON.stringify({a:1})` with jsonb spacing normalized (`'{"a": 1}'` — assert BOTH the raw text and that the route-side normalizer matches it; if spacing differs, the adapter uses the oracle's exact format via a tiny `jsonbText()` helper mirroring jsonb canonical text). This pins the §4 equivalence executably.
+- [ ] **Step 6: Malformed-row carve-out db tests.** (a) UPDATE the row's `pull_sheet_override` to `{"tabName":123,"fingerprint":false}` directly via SQL, then call the RPC with `p_tab_name = null` and `p_expected_override_snapshot = '{"tabName": null, "fingerprint": null}'::jsonb` → succeeds, override null (revoke skips CAS on malformed). (b) Same malformed row, ACCEPT call → 40001. (c) Well-formed row `{"tabName":"x"}` (missing fingerprint): revoke with expected `{"tabName":"x","fingerprint":null}` → succeeds (structural match: absent key projects to JSON null via single-arrow build). Failure mode caught: permanent 40001 lock-out on malformed rows.
 
 - [ ] **Step 7: Manifest regen.** `pnpm gen:schema-manifest`; commit regenerated `supabase/__generated__/schema-manifest.json` with this task.
 
@@ -248,9 +259,9 @@ import { describe, it, expect, vi } from "vitest";
 - Test: extend `tests/components/admin/review/publishedAdapter.test.ts`
 
 **Interfaces:**
-- Produces: `PublishedSectionData.pullSheetOverrideWire: null | { tabName: string | null, fingerprint: string | null }` via per-field `->>`-equivalent projection (absent/null → null; string verbatim; number/boolean → `String(v)`; object/array → `JSON.stringify(v)`); adapter's generic `str()` helper (`publishedAdapter.ts:241`) NOT used for these fields. Do NOT reuse the strict `OverrideSnapshot` type. Also produces `PublishedSectionData.archivedTabOffer` (Task 6 consumes both).
+- Produces: `PublishedSectionData.pullSheetOverrideWire: null | { tabName: string | null, fingerprint: string | null }` — per field: absent/JSON-null → null; string verbatim; ANY non-string → null (representation stays database-owned; §3.2 malformed revoke carve-out makes the round trip safe). Adapter's generic `str()` helper (`publishedAdapter.ts:241`) NOT used. Do NOT reuse strict `OverrideSnapshot`. Type also declares `archivedTabOffer: {tabNames,slug}|null`, adapter ALWAYS emits null (modal attaches — Task 6).
 
-- [ ] **Step 1: Failing tests** (per-field `->>` semantics, spec §4): stored 4-field object → `{tabName,fingerprint}` (acceptedBy/At dropped); null → null; `{tabName:"x"}` → `{tabName:"x", fingerprint:null}`; `"garbage"` string root → `{tabName:null, fingerprint:null}`; `{tabName:"  x ", fingerprint:""}` → verbatim; `{tabName:123, fingerprint:false}` → `{tabName:"123", fingerprint:"false"}`; `{tabName:{a:1}, fingerprint:[1,2]}` → `{tabName:'{"a": 1}'.replace(...)—use the exact ->> text: assert against a live-DB oracle case in the Task 1 db test instead of hand-writing jsonb text}` — simpler: object/array cases assert `JSON.stringify` output AND Task 1 gains one db-oracle test proving `->>` text equals `JSON.stringify` for the same fixtures (closing the equivalence claim executably). Derive expectations from fixture values.
+- [ ] **Step 1: Failing tests** (spec §4 strings-only wire): stored 4-field object → `{tabName,fingerprint}` (acceptedBy/At dropped); null → null; `{tabName:"x"}` → `{tabName:"x", fingerprint:null}`; `"garbage"` string root → `{tabName:null, fingerprint:null}`; `{tabName:"  x ", fingerprint:""}` → verbatim; `{tabName:123, fingerprint:false}` → `{tabName:null, fingerprint:null}`; `{tabName:{a:1}, fingerprint:[1,2]}` → `{tabName:null, fingerprint:null}`. Derive expectations from fixture values.
 - [ ] **Step 2: Run → FAIL** (adapter returns hard-coded null; the 4-field case fails).
 - [ ] **Step 3: Implement** small `projectOverrideWire(raw: unknown)` in the adapter file returning the null-tolerant wire shape; replace line 82.
 - [ ] **Step 4: Run → PASS.**
@@ -273,7 +284,7 @@ import { describe, it, expect, vi } from "vitest";
 
 **Files:**
 - Create: components/admin/review/publishedArchivedTabOffer.tsx (client component: offer card P2, override note P3, busy/err lines)
-- Modify: `components/admin/wizard/archivedTabOffer.tsx` (export `ARCHIVED_TAB_BTN`, `ARCHIVED_TAB_GHOST_BTN`, `ARCHIVED_TAB_ERROR`), `components/admin/review/sectionData.ts` (published variant gains `archivedTabOffer` input field), `components/admin/review/publishedAdapter.ts` (accept `activeArchivedTabNames` via its options arg; build `archivedTabOffer: { tabNames: string[], slug: string } | null` honoring §2.3 guards: published && !archived && driveFileId non-null; raw-name exact dedupe; drop blank/whitespace-only names), `app/admin/_showReviewModal.tsx:328` area (REORDER derivation: build the warning model FIRST (it derives from the snapshot, not from publishedData — verify current arg list at app/admin/_showReviewModal.tsx:328 and pin it), compute `activeArchivedTabNames` (raw `blockRef.name`, blanks dropped, exact-string dedupe, NO trimming) from the active partition, then call `buildPublishedSectionData(snapshot, { slug, activeArchivedTabNames })`), `components/admin/wizard/step3ReviewSections.tsx:4086-4093` (pass new props to `PackListBreakdown` in published mode), `components/admin/wizard/step3ReviewSections.tsx:2267` (`PackListBreakdown` renders the published offer/note when the new prop present; cap 3 + overflow line; S1 empty-state suppression per §2.3)
+- Modify: `components/admin/wizard/archivedTabOffer.tsx` (export `ARCHIVED_TAB_BTN`, `ARCHIVED_TAB_GHOST_BTN`, `ARCHIVED_TAB_ERROR`), `components/admin/review/sectionData.ts` (published variant gains `archivedTabOffer` input field), `components/admin/review/publishedAdapter.ts` (accept `activeArchivedTabNames` via its options arg; build `archivedTabOffer: { tabNames: string[], slug: string } | null` honoring §2.3 guards: published && !archived && driveFileId non-null; raw-name exact dedupe; drop blank/whitespace-only names), `app/admin/_showReviewModal.tsx:328` area (POST-AUGMENT (NO reorder — live order is adapter→renderedSectionIds→model, app/admin/_showReviewModal.tsx:286,327-333): keep `buildPublishedSectionData(snapshot, {slug})` where it is; after `buildSectionWarningModel`, compute `activeArchivedTabNames` (raw `blockRef.name`, blanks dropped, exact-string dedupe, NO trimming) from the active partition and attach via `const dataForSurface = { ...publishedData, archivedTabOffer }` (guards: null unless published && !archived && driveFileId != null && names.length > 0); pass `dataForSurface` everywhere `publishedData` was passed to the surface), `components/admin/wizard/step3ReviewSections.tsx:4086-4093` (pass new props to `PackListBreakdown` in published mode), `components/admin/wizard/step3ReviewSections.tsx:2267` (`PackListBreakdown` renders the published offer/note when the new prop present; cap 3 + overflow line; S1 empty-state suppression per §2.3)
 - Test: tests/components/admin/review/publishedArchivedTabOffer.test.tsx + extend `tests/components/admin/review/sectionData.test.ts`
 
 **Interfaces:**
