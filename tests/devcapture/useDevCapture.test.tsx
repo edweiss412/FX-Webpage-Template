@@ -146,7 +146,6 @@ describe("useDevCapture", () => {
     let actionStarted = false;
     captureElementPng.mockImplementation(() => {
       captureStarted = true;
-      expect(actionStarted || !actionStarted).toBe(true);
       return new Promise<Blob>(() => undefined); // never resolves
     });
     actionMock.mockImplementation(() => {
@@ -340,7 +339,7 @@ describe("useDevCapture", () => {
     act(() => resolveSecond(new Blob([PNG_BYTES])));
   });
 
-  it("unmount while error timer active: timer cleared, no late setState", async () => {
+  it("unmount while error timer active: the pending timer is actually cleared", async () => {
     vi.useFakeTimers();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     captureElementPng.mockRejectedValue(new Error("x"));
@@ -348,11 +347,9 @@ describe("useDevCapture", () => {
     act(() => h.run());
     await settle();
     expect(h.state()).toBe("error");
+    expect(vi.getTimerCount()).toBeGreaterThan(0); // the 6 s auto-clear is armed
     h.unmount();
-    await act(async () => {
-      vi.advanceTimersByTime(7000);
-    });
-    // no act warnings / throws = pass; nothing to assert beyond survival
+    expect(vi.getTimerCount()).toBe(0); // unmount cleanup cleared it
   });
 
   it("unmount mid-busy: click NOT called, created URL still revoked", async () => {

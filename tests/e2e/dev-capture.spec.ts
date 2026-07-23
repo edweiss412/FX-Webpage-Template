@@ -7,9 +7,10 @@
  * colors, telemetry JSON shape-checked and redaction-checked against the REAL
  * seeded crew email and the REAL 64-hex share token.
  *
- * Sentinels are injected in the SAME evaluate tick as the capture click —
- * React reconciliation wipes foreign pane children injected earlier
- * (SPIKE.md operational finding 1).
+ * Sentinels are injected immediately before the capture click (one evaluate,
+ * then the click; React reconciliation wipes foreign pane children injected
+ * earlier — SPIKE.md operational finding 1) and the capture helper re-injects
+ * and re-captures when a scan misses.
  *
  * Runs in the desktop-chromium project (playwright.config.ts testMatch) at
  * ≥ lg viewport — the section rail is `hidden lg:flex`.
@@ -34,8 +35,12 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  await deleteSeededShow(show.driveFileId);
-  await restoreDashboardState?.();
+  // Failure-safe: restore the dashboard state even if the show delete throws.
+  try {
+    await deleteSeededShow(show.driveFileId);
+  } finally {
+    await restoreDashboardState?.();
+  }
 });
 
 /** Effect-flush hydration gate (published-review-modal.interactions:104-120
@@ -159,6 +164,12 @@ test.describe("dev-capture full-content proof + redaction (spec §3.4/§4.4)", (
     await page.getByTestId("share-hub-kebab").click();
     await expect(page.getByTestId("share-hub-dev-capture")).toBeVisible();
     const { png, telemetry, rawJson } = await captureAndUnzip(page, async () => {
+      // Re-open the kebab if a prior attempt's preCapture closed it (the
+      // capture row unmounts with the popover, so retries must re-mount it).
+      if ((await page.getByTestId("share-hub-dev-capture").count()) === 0) {
+        await page.getByTestId("share-hub-kebab").click();
+        await expect(page.getByTestId("share-hub-dev-capture")).toBeVisible();
+      }
       await page.getByTestId("share-hub-dev-capture").click();
     });
     expect(countPixels(png, RAIL_RGB)).toBeGreaterThanOrEqual(1);

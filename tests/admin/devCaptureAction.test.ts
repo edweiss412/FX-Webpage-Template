@@ -6,7 +6,7 @@
  * failures `lastWarnings`, marker literally `warningsTruncated`; syncLog
  * untransformed), commitSha env gate, exact filter plumbing.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   gate,
@@ -270,7 +270,13 @@ describe("nested warnings caps (§4.2 — exactly the two enumerated arrays)", (
 });
 
 describe("commitSha env gate (§5)", () => {
-  it("64-hex env -> null; 40-hex -> passed through; unset -> null", async () => {
+  // Stub hygiene: restore in afterEach so an assertion failure never leaks the
+  // stub into later tests, and never hard-delete a pre-existing runner value.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("64-hex env -> null; 40-hex -> passed through; empty -> null", async () => {
     armPublishedHappy();
     vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "a".repeat(64));
     let res = await captureShowTelemetry({ kind: "published", showId: UUID });
@@ -283,8 +289,7 @@ describe("commitSha env gate (§5)", () => {
     if (res.kind !== "ok") throw new Error("expected ok");
     expect(res.commitSha).toBe(sha);
 
-    vi.unstubAllEnvs();
-    delete process.env.VERCEL_GIT_COMMIT_SHA;
+    vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "");
     res = await captureShowTelemetry({ kind: "published", showId: UUID });
     if (res.kind !== "ok") throw new Error("expected ok");
     expect(res.commitSha).toBeNull();

@@ -39,3 +39,16 @@ No P0/P1 in either gate; both P2s fixed in-run. Gate PASSED.
 - **Run the dev-capture e2e locally with `TEST_DATABASE_URL` overridden to loopback** (`TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres" pnpm exec playwright test tests/e2e/dev-capture.spec.ts --project=desktop-chromium`). This machine's `.env.local` points `TEST_DATABASE_URL` at the remote validation pooler (deliberate — validation creds live in the main env), and the app's postgres.js paths (`lib/onboarding/sessionLifecycle.ts:95` `TEST_DATABASE_URL ?? DATABASE_URL`) then read the REMOTE `app_settings` while the e2e helpers seed the LOCAL one — the wizard branch renders the remote dashboard and the staged case can never mount. CI sets a loopback `TEST_DATABASE_URL` and is unaffected.
 - Shared-DB singleton contention: sibling worktree sessions running onboarding e2e (Start Over/finalize) mutate `app_settings` mid-test; the staged helper re-asserts + retries ×10 to ride out bursts.
 - Sentinel pixel scan tolerance is ±30/channel: html2canvas renders through the window color profile (observed drift `255,0,254 → 255,25,254`).
+
+## Whole-diff review record (Stage 4.1)
+
+Two scoped Codex reviews (split-review default): CORE (capture pipeline) NEEDS-ATTENTION, 5 findings — all repaired (fail-closed read-core filters incl. `.or()` injection guard, TOCTOU-safe exact-shape request guard, `__proto__`-safe redaction rebuild, allSettled single-flight, explicit null feed). HOSTS+TESTS BLOCKING, 8 findings — triage:
+- F3 "deleted focus suites" REFUTED: origin/main had moved (PR #558 added those suites post-branch); rebase restored them, all 67 pass with this diff's ShareHub changes. Recorded so later reviewers do not re-derive.
+- F1 call-boundary: 5 claimed sites — 4 already destructured `{ error }` (confabulated from diff-only view); the 1 real diagnostic-read gap fixed.
+- F2 published sentinel-retry re-mounts the kebab row per attempt; comment corrected.
+- F4 teardown failure-safety: collect-errors-throw-at-end cleanup, rows-before-settings seeding, afterAll try/finally, maps cleared.
+- F5 dummy-panel leak: tagged + torn down per test; threading test drops it and asserts the raster target is not the dummy.
+- F6 exact published-allowlist key-set pin added.
+- F7 concurrency tautology removed; timer proof now `vi.getTimerCount()` before/after unmount.
+- F8 env-stub hygiene: afterEach unstub, no hard delete of runner env.
+Verification round: re-dispatch of both scopes → see below.

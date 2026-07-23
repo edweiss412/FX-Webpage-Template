@@ -36,6 +36,29 @@ function publishedFixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe("buildPublishedSnapshot", () => {
+  it("pins the EXACT top-level key set (a newly copied prop must fail here)", () => {
+    const snap = buildPublishedSnapshot(publishedFixture()) as Record<string, unknown>;
+    expect(Object.keys(snap).sort()).toEqual([
+      "alertId",
+      "alertsDegraded",
+      "archived",
+      "attentionItems",
+      "bySection",
+      "data",
+      "feed",
+      "finalizeOwned",
+      "isLive",
+      "lastCheckedAt",
+      "lastSyncStatus",
+      "lastSyncedAt",
+      "openSheetHref",
+      "published",
+      "showId",
+      "slug",
+      "title",
+    ]);
+  });
+
   it("projects the allowlist and excludes crewEmails/pickerCrew/functions/now", () => {
     const snap = buildPublishedSnapshot(publishedFixture()) as Record<string, unknown>;
     expect(snap["title"]).toBe("SNAPSHOT-CANARY");

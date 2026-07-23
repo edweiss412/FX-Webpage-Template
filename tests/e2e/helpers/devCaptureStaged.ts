@@ -104,8 +104,8 @@ export async function seedStagedRow(): Promise<string> {
   priorBySession.set(sessionId, (data ?? null) as Record<string, unknown> | null);
   sessionByDfid.set(driveFileId, sessionId);
 
-  await assertWizardSettings(sessionId);
-
+  // Rows first, settings LAST: if either insert throws, app_settings is still
+  // settled (no half-seeded wizard-pending state to strand).
   runLockedSql(
     driveFileId,
     `insert into public.pending_syncs
@@ -129,23 +129,34 @@ export async function seedStagedRow(): Promise<string> {
     name: "Dev Capture Staged Show",
     status: "staged",
   });
-  if (maniErr) throw new Error(`devCaptureStaged manifest insert failed: ${maniErr.message}`);
+  if (maniErr) {
+    await cleanupStagedRow(driveFileId).catch(() => undefined);
+    throw new Error(`devCaptureStaged manifest insert failed: ${maniErr.message}`);
+  }
+
+  await assertWizardSettings(sessionId);
 
   return driveFileId;
 }
 
 export async function cleanupStagedRow(driveFileId: string): Promise<void> {
-  runLockedSql(
-    driveFileId,
-    `delete from public.pending_syncs where drive_file_id = ${sqlString(driveFileId)};`,
-    "pending_syncs cleanup",
-  );
+  // Failure-safe teardown: run EVERY step, collect failures, throw at the end -
+  // an early throw must not strand the settings row in wizard-pending state.
+  const errors: string[] = [];
+  try {
+    runLockedSql(
+      driveFileId,
+      `delete from public.pending_syncs where drive_file_id = ${sqlString(driveFileId)};`,
+      "pending_syncs cleanup",
+    );
+  } catch (err) {
+    errors.push(String(err));
+  }
   const { error: maniDelErr } = await admin
     .from("onboarding_scan_manifest")
     .delete()
     .eq("drive_file_id", driveFileId);
-  if (maniDelErr)
-    throw new Error(`devCaptureStaged manifest cleanup failed: ${maniDelErr.message}`);
+  if (maniDelErr) errors.push(`manifest cleanup failed: ${maniDelErr.message}`);
 
   // Restore the SETTLED dashboard state rather than the captured prior: under
   // sibling-worktree pollution the prior snapshot may itself be a foreign
@@ -166,8 +177,11 @@ export async function cleanupStagedRow(driveFileId: string): Promise<void> {
       pending_wizard_session_at: null,
     })
     .eq("id", "default");
-  if (restoreErr)
-    throw new Error(`devCaptureStaged settings restore failed: ${restoreErr.message}`);
+  if (restoreErr) errors.push(`settings restore failed: ${restoreErr.message}`);
+  const sessionId = sessionByDfid.get(driveFileId);
+  if (sessionId !== undefined) priorBySession.delete(sessionId);
+  sessionByDfid.delete(driveFileId);
+  if (errors.length > 0) throw new Error(`devCaptureStaged cleanup: ${errors.join("; ")}`);
 }
 
 export async function openStep3Modal(page: Page, driveFileId: string): Promise<void> {
@@ -188,13 +202,13 @@ export async function openStep3Modal(page: Page, driveFileId: string): Promise<v
       return;
     } catch (err) {
       lastErr = err;
-      const { data: w } = await admin
+      const { data: w, error: wErr } = await admin
         .from("app_settings")
         .select("pending_wizard_session_id, watched_folder_id")
         .eq("id", "default")
         .maybeSingle();
       console.error(
-        `attempt ${attempt}: settings=${JSON.stringify(w)} body0=${(await page.innerText("body")).slice(0, 60).replace(/\n/g, "|")}`,
+        `attempt ${attempt}: settings=${JSON.stringify(w)} settingsErr=${wErr?.message ?? "none"} body0=${(await page.innerText("body")).slice(0, 60).replace(/\n/g, "|")}`,
       );
     }
   }

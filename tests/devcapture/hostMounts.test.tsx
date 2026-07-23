@@ -142,12 +142,13 @@ beforeEach(() => {
     return id as unknown as number;
   });
   // ShareHub-direct renders have no modal shell: give the capture target a
-  // panel node so target() resolves (the threading test uses the real shell's).
-  if (!document.querySelector("[data-review-modal-panel]")) {
-    const panel = document.createElement("div");
-    panel.setAttribute("data-review-modal-panel", "");
-    document.body.appendChild(panel);
-  }
+  // panel node so target() resolves. Tagged + torn down in afterEach so it
+  // never shadows the REAL shell panel in the threading tests (querySelector
+  // returns the first match in document order).
+  const dummy = document.createElement("div");
+  dummy.setAttribute("data-review-modal-panel", "");
+  dummy.setAttribute("data-dummy-panel", "");
+  document.body.appendChild(dummy);
   captureElementPng.mockReset();
   captureElementPng.mockResolvedValue(new Blob([PNG_BYTES]));
   actionMock.mockReset();
@@ -165,6 +166,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const n of document.querySelectorAll("[data-dummy-panel]")) n.remove();
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -213,6 +215,13 @@ describe("lifecycle matrix — §2.2 amendment: dev row in every mode", () => {
 
 describe("snapshot threading canaries (§4.3 — real modules end-to-end)", () => {
   it("published: PublishedReviewModal -> StatusStrip -> ShareHub -> hook -> zipped JSON", async () => {
+    // The REAL shell panel must be the capture target - drop the dummy.
+    for (const n of document.querySelectorAll("[data-dummy-panel]")) n.remove();
+    captureElementPng.mockImplementation(async (el: unknown) => {
+      // Prove the target is the real shell panel, not a leaked dummy.
+      expect((el as HTMLElement).hasAttribute("data-dummy-panel")).toBe(false);
+      return new Blob([PNG_BYTES]);
+    });
     render(
       <DeveloperFlagProvider viewerIsDeveloper={true}>
         {publishedModalElement([])}
