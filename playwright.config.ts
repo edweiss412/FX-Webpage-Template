@@ -1,6 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 import { CAPTURE_LAUNCH_ARGS } from "./scripts/capture-launch-args";
 
+// Local sibling-worktree escape hatch: a LIVE sibling session's dev server on
+// :3000 would be silently reused (reuseExistingServer) and serve the WRONG
+// code. E2E_PORT relocates the baseline server + its baseURLs for THIS run
+// only; unset (and in CI) everything stays on 3000 exactly as before.
+const E2E_PORT = process.env.E2E_PORT ?? "3000";
+
 /**
  * Playwright config — three test surfaces:
  *
@@ -35,7 +41,7 @@ export default defineConfig({
   workers: 1,
   retries: process.env.CI ? 2 : 0,
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${E2E_PORT}`,
     trace: "on-first-retry",
     viewport: { width: 390, height: 844 }, // mobile-primary per §8.4
   },
@@ -62,7 +68,7 @@ export default defineConfig({
         // explicit `-H 127.0.0.1` binding on the port-3000 webServer
         // and the auth-chain spec's TEST_BASE_URL. Avoids dual-stack
         // ::1 vs 127.0.0.1 mismatch on macOS / Linux.
-        baseURL: "http://127.0.0.1:3000",
+        baseURL: `http://127.0.0.1:${E2E_PORT}`,
       },
     },
     {
@@ -73,7 +79,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
         // M5 §B Task 5.7 I2: see mobile-safari baseURL comment.
-        baseURL: "http://127.0.0.1:3000",
+        baseURL: `http://127.0.0.1:${E2E_PORT}`,
       },
     },
     {
@@ -235,9 +241,11 @@ export default defineConfig({
       // admin-dev project hits it), so the wider gate doesn't affect any
       // other test surface.
       command: process.env.CI
-        ? "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm build && JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm start -H 127.0.0.1"
-        : "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm dev -H 127.0.0.1",
-      url: "http://127.0.0.1:3000",
+        ? "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm build && JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm start -H 127.0.0.1 -p " +
+          E2E_PORT
+        : "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm dev -H 127.0.0.1 -p " +
+          E2E_PORT,
+      url: `http://127.0.0.1:${E2E_PORT}`,
       reuseExistingServer: !process.env.CI,
       // 300s in CI: the crew-e2e job (CREW_E2E_ONLY) boots ONLY this server and it
       // cold-`pnpm build`s before `start` — the prior 120s never ran in CI (no job
@@ -390,7 +398,10 @@ export default defineConfig({
     // any job that needs ONLY the :3000 app server and none of the
     // :3001-:3004 build-gate servers.
     if (process.env.CREW_E2E_ONLY || process.env.BASELINE_SERVER_ONLY) {
-      return server.url === "http://127.0.0.1:3000";
+      // E2E_PORT-aware: the baseline server's url moves with E2E_PORT (sibling
+      // escape hatch above); comparing a hardcoded :3000 here would filter out
+      // EVERY server and the run would ECONNREFUSED.
+      return server.url === `http://127.0.0.1:${E2E_PORT}`;
     }
     // Boot ONLY the three dev-gate webServers (:3001 dev-build, :3002 prod-build,
     // :3003 prod-runtime-flip) for the B1-D4 dev-gate CI workflow. The baseline

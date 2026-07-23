@@ -316,7 +316,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   );
   // Interactive whenever a human might act — composite predicate, NEVER
   // `actionable` alone (spec §6/§6a: the menu can open at a needs-look-only state).
-  const interactive = actionable.length > 0 || needsLook.length > 0;
+  // monitoring-badge-expand §3.1: self-heal items make the pill interactive too
+  // (quiet palette); monitoring-only selects the quiet visual + copy contract.
+  const interactive = actionable.length > 0 || needsLook.length > 0 || selfHeal.length > 0;
+  const monitoringOnly = actionable.length === 0 && needsLook.length === 0 && selfHeal.length > 0;
 
   // Compound reconciliation (spec §6 outcome contract, §8 case 2): if live data
   // updates while the menu is open such that the pill is no longer interactive,
@@ -353,7 +356,20 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   useEffect(() => {
     const was = menuWasEffectivelyOpenRef.current;
     menuWasEffectivelyOpenRef.current = menuEffectivelyOpen;
-    if (!was || menuEffectivelyOpen || interactive) return;
+    if (menuEffectivelyOpen) {
+      const dialog = document.querySelector('[role="dialog"]');
+      const active = document.activeElement;
+      // monitoring-badge-expand §3.3: a focused row/link unmounted while the
+      // menu stayed open drops focus to <body> (probe-ratified, Chromium 147)
+      // - refocus the pill trigger. Dep-less effect: runs after EVERY commit,
+      // so no dependency wiring can go stale. Never steals focus that is
+      // still inside the dialog.
+      if (active === document.body || (dialog && !dialog.contains(active))) {
+        pillRef.current?.focus();
+      }
+      return;
+    }
+    if (!was || interactive) return;
     // The menu just force-closed because interactivity was lost (NOT a user
     // close — those keep interactive=true and manage their own focus): rescue
     // focus onto the dialog root so it never drops to <body>.
@@ -731,13 +747,31 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   aria-expanded={menuOpen}
                   aria-controls={menuId}
                   onClick={() => setMenuOpen((v) => !v)}
-                  className="relative inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-1 text-xs font-semibold tabular-nums text-warning-text transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] hover:bg-warning-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                  {...(monitoringOnly
+                    ? {
+                        title: `${selfHeal.length} monitoring, clearing on their own, no action needed`,
+                      }
+                    : {})}
+                  className={`relative inline-flex shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                    monitoringOnly
+                      ? /* border separates button-gray from the passive label-gray
+                           spans; hover moves the border, never fades toward the
+                           page bg (impeccable critique P1+P2, 2026-07-22) */
+                        "border border-border bg-surface-sunken text-text-subtle hover:border-border-strong"
+                      : "bg-warning-bg text-warning-text hover:bg-warning-bg/80"
+                  }`}
                 >
                   {/* Decorative dot — the count text carries the meaning; live
-                      token (--color-status-review), never the mock hex. */}
+                      token (--color-status-review), never the mock hex. The
+                      quiet monitoring-only pill leads with the hollow
+                      positive-tone dot instead (spec §3.1). */}
                   <span
                     aria-hidden="true"
-                    className="size-2 shrink-0 rounded-pill bg-status-review"
+                    className={`size-2 shrink-0 rounded-pill ${
+                      monitoringOnly
+                        ? "border-[1.5px] border-status-positive bg-transparent"
+                        : "bg-status-review"
+                    }`}
                   />
                   {actionable.length > 0 ? (
                     <>
@@ -775,17 +809,30 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   ) : null}
                   {selfHeal.length > 0 ? (
                     <>
-                      <span className="opacity-50">{" · "}</span>
+                      {/* Separator only BETWEEN segments — never a leading
+                          glyph on the monitoring-only pill (spec §3.1). */}
+                      {actionable.length > 0 || needsLook.length > 0 ? (
+                        <span className="opacity-50">{" · "}</span>
+                      ) : null}
                       {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
                           light theme (below AA 4.5:1 at text-xs); /80 is ~5.35:1
                           light, higher dark. Impeccable critique P1, 2026-07-22. */}
-                      <span className="inline-flex items-center gap-1 font-medium text-warning-text/80">
+                      <span
+                        data-testid="attention-pill-monitoring-segment"
+                        className={`inline-flex items-center gap-1 font-medium ${
+                          monitoringOnly ? "text-text-subtle" : "text-warning-text/80"
+                        }`}
+                      >
                         {/* hollow positive-tone dot (spec §3.2) — same cue as the
-                            monitoring-only pill, distinct from the solid review dot */}
-                        <span
-                          aria-hidden="true"
-                          className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-                        />
+                            monitoring-only pill, distinct from the solid review
+                            dot. Omitted on the monitoring-only pill, whose
+                            LEADING dot is already the hollow cue (no double dot). */}
+                        {monitoringOnly ? null : (
+                          <span
+                            aria-hidden="true"
+                            className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+                          />
+                        )}
                         {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
                       </span>
                       {selfHeal.length > 99 ? (
@@ -804,9 +851,9 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                       drifts across platform fonts. */}
                   <ChevronDown
                     aria-hidden="true"
-                    className={`size-3 shrink-0 text-warning-text transition-transform duration-fast ease-out-quart motion-reduce:transition-none ${
-                      menuOpen ? "rotate-180" : ""
-                    }`}
+                    className={`size-3 shrink-0 transition-transform duration-fast ease-out-quart motion-reduce:transition-none ${
+                      monitoringOnly ? "text-text-subtle" : "text-warning-text"
+                    } ${menuOpen ? "rotate-180" : ""}`}
                   />
                 </button>
                 <div id={menuId}>
@@ -827,32 +874,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-text-subtle"
               >
                 Alerts unavailable
-              </span>
-            ) : selfHeal.length > 0 ? (
-              /* Monitoring-only state (attention split §3.2): genuinely self-healing
-                 items, non-interactive. Visible "N monitoring" is terse; the sr-only
-                 tail spells out the meaning so the announced text is a full sentence
-                 (mechanism inherited from #537 — name comes from TEXT CONTENT, the
-                 `{" "}` is a real space node so the accName space survives). */
-              <span
-                data-testid={`${TESTID_BASE}-alert-pill`}
-                title={`${selfHeal.length} monitoring, clearing on their own, no action needed`}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold tabular-nums text-text-subtle"
-              >
-                <span
-                  aria-hidden="true"
-                  className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-                />
-                {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
-                {/* exact count for AT past the visible cap (parity with every
-                    other pill count path — whole-diff review 2026-07-22) */}
-                {selfHeal.length > 99 ? (
-                  <>
-                    {" "}
-                    <span className="sr-only">({selfHeal.length} monitoring)</span>
-                  </>
-                ) : null}{" "}
-                <span className="sr-only">clearing on their own, no action needed</span>
               </span>
             ) : (
               /* §5.1 in-sync state (S3C-1 clean-dot recipe, DESIGN.md §92). */

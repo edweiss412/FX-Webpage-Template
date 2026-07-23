@@ -10,9 +10,10 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRef } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
+import { autoResolveNote } from "@/lib/adminAlerts/audience";
 
 function mk(over: Partial<AttentionItem>): AttentionItem {
   return {
@@ -114,18 +115,28 @@ describe("AttentionMenu", () => {
   });
 
   test("clearing item without clearingKind renders as a needs-look row (fail-visible); footer copy retired", () => {
-    // SUPERSEDED (attention split §3.4): the old aggregate footer is replaced by
-    // the needs-a-look group (per-item rows) + a monitoring summary. A clearing
-    // item with NO clearingKind defaults into needs-look, never silently dark.
+    // SUPERSEDED (attention split §3.4; monitoring-badge-expand §3.2): the old
+    // aggregate footer is replaced by the needs-a-look group (per-item rows) +
+    // enumerated monitoring rows. A clearing item with NO clearingKind defaults
+    // into needs-look, never silently dark.
     renderMenu();
     expect(screen.getByTestId("attention-needslook-row-alert:c1")).toBeInTheDocument();
     expect(screen.queryByText(/more clearing on their own/)).toBeNull();
     cleanup();
-    // Monitoring summary appears only for explicit self_heal items.
-    renderMenu({
-      items: [HOLD, ALERT, mk({ id: "alert:s1", actionable: false, clearingKind: "self_heal" })],
+    // Explicit self_heal items render enumerated monitoring rows: title + note.
+    const alertPayload = (ALERT as Extract<AttentionItem, { kind: "alert" }>).alert;
+    const selfHealItem = mk({
+      id: "alert:s1",
+      actionable: false,
+      clearingKind: "self_heal",
+      menuTitle: "Syncing has stalled",
+      alert: { ...alertPayload, alertId: "s1", code: "SYNC_STALLED" },
     });
-    expect(screen.getByText("1 clearing on their own, no action needed")).toBeInTheDocument();
+    renderMenu({ items: [HOLD, ALERT, selfHealItem] });
+    const row = screen.getByTestId("attention-monitoring-row-alert:s1");
+    expect(within(row).getByText(selfHealItem.menuTitle)).toBeInTheDocument();
+    expect(within(row).getByText(autoResolveNote("SYNC_STALLED"))).toBeInTheDocument();
+    expect(screen.queryByText(/clearing on their own, no action needed/)).toBeNull();
     expect(screen.queryByTestId(/attention-needslook-row/)).toBeNull();
   });
 

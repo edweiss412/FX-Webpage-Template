@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  CARET_EDGE_INSET,
+  CARET_HEIGHT,
+  CARET_INNER_OFFSET,
+  CARET_WIDTH,
   GAP,
   VIEWPORT_INSET,
   computePopoverPlacement,
@@ -203,5 +207,128 @@ describe("rect helpers", () => {
   });
   it("insetRect shrinks on all four sides", () => {
     expect(insetRect(rect(0, 0, 100, 100), 8)).toEqual(rect(8, 8, 84, 84));
+  });
+});
+
+describe("caret placement (spec 2026-07-22-hoverhelp-caret-blur-close §3.3)", () => {
+  /** Named fixture values every expectation derives from. */
+  const BOUNDS = rect(8, 8, 984, 784); // = input() default
+  const NATURAL_W = 288; // = input() default naturalSize.width
+
+  // T-C6 - the ONLY place raw caret numbers are pinned.
+  it("T-C6: constants pinned", () => {
+    expect(CARET_WIDTH).toBe(12);
+    expect(CARET_HEIGHT).toBe(GAP);
+    expect(CARET_EDGE_INSET).toBe(12 + CARET_WIDTH / 2);
+    expect(CARET_INNER_OFFSET).toBe(1.5);
+  });
+
+  it("T-C1: unclamped wide trigger - caret center = trigger center; y = trigger.bottom", () => {
+    const TRK = rect(500, 300, 60, 20); // wide: half-width 30 > CARET_EDGE_INSET
+    const p = computePopoverPlacement(input({ trigger: TRK, align: "left" }));
+    if (p.kind !== "placed") throw new Error("expected placed");
+    if (p.caret === null) throw new Error("expected caret");
+    const center0 = TRK.left + TRK.width / 2;
+    // precondition: tracking branch (raw center inside the valid span)
+    expect(center0).toBeGreaterThanOrEqual(p.viewport.x + CARET_EDGE_INSET);
+    expect(center0).toBeLessThanOrEqual(p.viewport.x + NATURAL_W - CARET_EDGE_INSET);
+    expect(p.caret.x).toBe(center0 - CARET_WIDTH / 2);
+    expect(p.caret.y).toBe(TRK.bottom);
+  });
+
+  it("T-C2: shallow clamp - body slid but raw center still in span tracks exactly", () => {
+    const TRK = rect(760, 300, 60, 20);
+    const p = computePopoverPlacement(input({ trigger: TRK, align: "left" }));
+    if (p.kind !== "placed" || p.caret === null) throw new Error("expected placed caret");
+    // body slid: align-left x0 would be TRK.left, but bounds clamp it
+    expect(p.viewport.x).toBe(BOUNDS.right - NATURAL_W);
+    expect(p.viewport.x).not.toBe(TRK.left);
+    const center0 = TRK.left + TRK.width / 2;
+    // precondition: still the tracking branch
+    expect(center0).toBeLessThanOrEqual(p.viewport.x + NATURAL_W - CARET_EDGE_INSET);
+    expect(p.caret.x).toBe(center0 - CARET_WIDTH / 2);
+  });
+
+  it("T-C2b: deep right-edge clamp pins caret at the far inset", () => {
+    const TRK = rect(962, 300, 30, 20);
+    const p = computePopoverPlacement(input({ trigger: TRK, align: "left" }));
+    if (p.kind !== "placed" || p.caret === null) throw new Error("expected placed caret");
+    expect(p.viewport.x).toBe(BOUNDS.right - NATURAL_W);
+    const center0 = TRK.left + TRK.width / 2;
+    // precondition: raw center OUTSIDE the span -> pinned branch
+    expect(center0).toBeGreaterThan(p.viewport.x + NATURAL_W - CARET_EDGE_INSET);
+    expect(p.caret.x).toBe(p.viewport.x + NATURAL_W - CARET_EDGE_INSET - CARET_WIDTH / 2);
+  });
+
+  it("T-C3: deep left-edge clamp (align right) pins caret at the near inset", () => {
+    const TRK = rect(10, 300, 30, 20);
+    const p = computePopoverPlacement(input({ trigger: TRK })); // align "right" default
+    if (p.kind !== "placed" || p.caret === null) throw new Error("expected placed caret");
+    expect(p.viewport.x).toBe(BOUNDS.left);
+    const center0 = TRK.left + TRK.width / 2;
+    expect(center0).toBeLessThan(p.viewport.x + CARET_EDGE_INSET); // pinned branch
+    expect(p.caret.x).toBe(p.viewport.x + CARET_EDGE_INSET - CARET_WIDTH / 2);
+  });
+
+  it("T-C4: side top - caret.y = trigger.top - GAP", () => {
+    const TRK = rect(500, 700, 60, 20);
+    const p = computePopoverPlacement(input({ trigger: TRK, align: "left" }));
+    if (p.kind !== "placed" || p.caret === null) throw new Error("expected placed caret");
+    expect(p.side).toBe("top");
+    expect(p.caret.y).toBe(TRK.top - GAP);
+  });
+
+  it("T-C5: degenerate bounds width -> caret null, body still placed", () => {
+    const NARROW = rect(490, 8, 2 * CARET_EDGE_INSET - 1, 784); // width 35 < 36
+    const p = computePopoverPlacement(
+      input({ trigger: rect(500, 300, 20, 20), bounds: NARROW, wrappedHeightAt: () => 200 }),
+    );
+    if (p.kind !== "placed") throw new Error("expected placed");
+    expect(p.caret).toBeNull();
+  });
+
+  it("T-C5b: boundary effectiveWidth === 2*CARET_EDGE_INSET places the single-point caret", () => {
+    const EXACT = rect(490, 8, 2 * CARET_EDGE_INSET, 784); // width 36
+    const p = computePopoverPlacement(
+      input({ trigger: rect(500, 300, 20, 20), bounds: EXACT, wrappedHeightAt: () => 200 }),
+    );
+    if (p.kind !== "placed" || p.caret === null) throw new Error("expected placed caret");
+    expect(p.caret.x).toBe(p.viewport.x + CARET_EDGE_INSET - CARET_WIDTH / 2);
+  });
+
+  it("T-C5c: natural width < 2*CARET_EDGE_INSET with WIDE bounds -> caret null (guard reads effectiveWidth)", () => {
+    const p = computePopoverPlacement(
+      input({
+        naturalSize: { width: 2 * CARET_EDGE_INSET - 6, height: 200 },
+        wrappedHeightAt: () => 200,
+      }),
+    );
+    if (p.kind !== "placed") throw new Error("expected placed");
+    expect(p.caret).toBeNull();
+  });
+
+  it("T-C7: maxWidth active - caret span uses the clamped effectiveWidth, not natural", () => {
+    const NARROW = rect(400, 8, 200, 784); // narrower than NATURAL_W -> maxWidth set
+    const TRK = rect(580, 300, 20, 20); // center 590: INSIDE the natural-width span, OUTSIDE the effective one
+    const p = computePopoverPlacement(
+      input({ trigger: TRK, bounds: NARROW, align: "left", wrappedHeightAt: () => 300 }),
+    );
+    if (p.kind !== "placed" || p.caret === null) throw new Error("expected placed caret");
+    expect(p.maxWidth).toBe(NARROW.width);
+    const center0 = TRK.left + TRK.width / 2;
+    // preconditions: a wrong implementation using NATURAL_W would TRACK here;
+    // the correct effectiveWidth span pins. Both bounds asserted so the
+    // fixture cannot drift into a non-discriminating position.
+    expect(center0).toBeGreaterThan(p.viewport.x + NARROW.width - CARET_EDGE_INSET);
+    expect(center0).toBeLessThanOrEqual(p.viewport.x + NATURAL_W - CARET_EDGE_INSET);
+    expect(p.caret.x).toBe(p.viewport.x + NARROW.width - CARET_EDGE_INSET - CARET_WIDTH / 2);
+  });
+
+  it("T-C8: hidden placement carries no caret key", () => {
+    const p = computePopoverPlacement(
+      input({ trigger: rect(-500, -500, 20, 20) }), // no positive overlap with bounds
+    );
+    expect(p.kind).toBe("hidden");
+    expect("caret" in p).toBe(false);
   });
 });

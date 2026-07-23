@@ -4,15 +4,9 @@ Open deferral queue — work intentionally deferred with a concrete un-defer tri
 
 **Resolved / stale / N/A entries live in [DEFERRED-archive.md](./DEFERRED-archive.md)** — full provenance kept there, NOT in this working queue. When an item below ships, move its full entry to the archive.
 
-Last reconciled: 2026-07-22 (seven warning-surface-trim items RESOLVED by the warning-panel-polish bundle and graduated to the archive; the six stay-parked items re-confirmed by 2026-07-21 owner decisions. Same day: WARNCARD-POPOVER-OVERLAP-1 graduated to the archive — resolved by `feat/hoverhelp-smart-position` collision-aware placement; and ATTN-GALLERY-CONTROLBAR-OVERLAP-1 SHIPPED via `2026-07-21-gallery-switcher-slim-bar` — slim single-row switcher bar, footnotes behind a collapsed disclosure; entry graduated to the archive. Earlier: 2026-07-21 SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
+Last reconciled: 2026-07-22 (four warning-panel-polish critique deferrals RESOLVED by the warning-announcer-copy bundle and graduated to the archive, replaced by the VOICEOVER-ANNOUNCER-SPOTCHECK owner action. Earlier same day: seven warning-surface-trim items RESOLVED by the warning-panel-polish bundle and graduated to the archive; the six stay-parked items re-confirmed by 2026-07-21 owner decisions. Same day: WARNCARD-POPOVER-OVERLAP-1 graduated to the archive — resolved by `feat/hoverhelp-smart-position` collision-aware placement; and ATTN-GALLERY-CONTROLBAR-OVERLAP-1 SHIPPED via `2026-07-21-gallery-switcher-slim-bar` — slim single-row switcher bar, footnotes behind a collapsed disclosure; entry graduated to the archive. Earlier: 2026-07-21 SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
 
 ---
-
-### HOVERHELP-CLAMP-CARET-1 — [P3] no caret under horizontal clamp; no blur-close while focus wanders
-
-From the impeccable critique of `hoverhelp-smart-position` (2026-07-22, Assessment A 34/40). Two folded P3s: (1) when the §4.2 horizontal clamp slides the popover body away from its trigger there is no caret/pointer affordance tying body to trigger — precisely in the collision cases the feature serves; (2) the popover stays open while keyboard focus wanders elsewhere (no blur-close) — pre-existing behavior, unchanged by the portal work, slightly amplified in modals where the body is no longer visually adjacent. Both cosmetic-tier; the dual-gate mandates P0/P1 only. The critique's P1 (modal Tab adjacency) was refuted by spec ratification (spec 2026-07-22-hoverhelp-smart-position:149) and is recorded in the critique snapshot, not here.
-
-**Un-defer trigger:** user reports losing track of which trigger an open popover belongs to (caret), or confusion from a popover lingering after tabbing away (blur-close).
 
 ### STRIP-MOBILE-WRAP-1 — [P2] the control strip wraps to a second row at 390px (44px → 80px)
 
@@ -62,33 +56,23 @@ finding — "Careful rows carry no visual weight" — is not a deferral and live
 
 ### warning-panel-polish (2026-07-22) — impeccable critique deferrals
 
-Dual-gate run on the polish diff: critique 34/40, audit 20/20, zero P0/P1 (dispositions in
-`docs/superpowers/plans/2026-07-22-warning-panel-polish/handoff.md` §12). Audit's three
-comment-accuracy P3s were fixed in-branch; these four critique findings stay open:
+All four critique deferrals recorded here on 2026-07-22 (bulk double
+announcement; state-vs-action live region; apology-first elsewhere copy;
+dead-end "and N more.") were RESOLVED by the warning-announcer-copy bundle
+(spec `docs/superpowers/specs/2026-07-22-warning-announcer-copy-design.md`,
+owner decisions ratified 2026-07-22) — full entries archived in
+[DEFERRED-archive.md](./DEFERRED-archive.md) under "Warning announcer +
+elsewhere copy (2026-07-22)".
 
-- **[P2] Bulk ignore produces two polite announcements in one refresh.** The bulk chip's own
-  `role="status"` (`components/admin/BulkIgnoreControls.tsx:175`) and the panel's new
-  count-tuple live region both change on the same server round trip, so a screen reader queues
-  two status messages for one action. Polite regions queue rather than clobber, so nothing is
-  lost — but the pairing is chatty. **Noted, not changed.** Un-defer trigger: an accessibility
-  pass composing the modal's live regions (same trigger family as the original live-region
-  deferral this bundle resolved).
+### VOICEOVER-ANNOUNCER-SPOTCHECK — owner action (2026-07-22)
 
-- **[P2] The live region announces background count changes.** `role="status"` speaks on ANY
-  text change, including a realtime refresh (#505) altering counts mid-task. This gives
-  screen-reader users parity with sighted users (who see counts change silently) — but the
-  state-vs-action choice was inherited, not ratified. **Noted, not changed.** Un-defer trigger:
-  an owner decision on whether the panel's live region reports STATE (current behavior) or only
-  Doug-initiated ACTIONS.
-
-- **[P3] The elsewhere sentence opens with an apology before the action.** "Nothing else to
-  note here." precedes the tappable pointer; the actionable half should arguably lead.
-  Re-opens spec-authored copy (§3.5 kept the ratified frame). **Noted, not changed.**
-
-- **[P3] "and N more." is a dead end.** Non-interactive, and a label-resolution miss silently
-  folds into N (the defensive guard has no live producer today — every elsewhere section is a
-  rendered registry section). **Noted, not changed.** Un-defer trigger: a section registry
-  change that makes label misses producible.
+The warning-announcer-copy bundle's manual assistive-technology half (spec §8
+F10 mitigation): owner runs VoiceOver over ignore / bulk-ignore / pointer
+reveal on the published Parse-warnings panel and confirms one polite utterance
+per action, silence on background refreshes, and the reveal focus move. The
+automated halves (impeccable audit a11y dimension; role/mutation structural
+tests) shipped pre-merge. Un-defer trigger: owner performs and records the
+pass.
 
 ## warning-surface-trim (2026-07-21) — remaining deferrals after the 2026-07-22 polish bundle
 

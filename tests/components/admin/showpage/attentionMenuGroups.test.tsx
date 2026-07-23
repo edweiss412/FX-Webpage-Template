@@ -13,7 +13,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createRef } from "react";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
-import type { AttentionItem } from "@/lib/admin/attentionItems";
+import { ATTENTION_FALLBACK_TITLE, type AttentionItem } from "@/lib/admin/attentionItems";
+import { autoResolveNote } from "@/lib/adminAlerts/audience";
 
 afterEach(cleanup);
 
@@ -160,24 +161,185 @@ describe("group headers (impeccable critique P1: no empty-section eyebrow)", () 
   });
 });
 
-describe("monitoring group", () => {
-  it("is one summary row under a 'Monitoring' subheading (spec §3.4.3); individual titles NOT rendered", () => {
-    renderMenu([selfHeal("s1", "Syncing stalled"), selfHeal("s2", "Drive fetch failed")]);
-    expect(screen.getByText("Monitoring")).toBeInTheDocument();
-    expect(screen.getByText(/2 clearing on their own, no action needed/)).toBeInTheDocument();
-    expect(screen.queryByText("Syncing stalled")).toBeNull();
-    expect(screen.queryByText("Drive fetch failed")).toBeNull();
+describe("monitoring group (monitoring-badge-expand §3.2: enumerated rows)", () => {
+  it("enumerates one row per self-heal item: fixture-derived block-level title + note, derivation order; summary retired MENU-WIDE", () => {
+    const FIXTURE_ITEMS = [
+      item("s1", "WATCH_CHANNEL_ORPHANED", {
+        clearingKind: "self_heal",
+        menuTitle: "Live updates need attention",
+      }),
+      item("s2", "SYNC_STALLED", { clearingKind: "self_heal", menuTitle: "Syncing has stalled" }),
+    ];
+    renderMenu(FIXTURE_ITEMS);
+    const group = screen.getByTestId("attention-monitoring-group");
+    expect(within(group).getByText("Monitoring")).toBeInTheDocument();
+    const rows = within(group).getAllByTestId(/attention-monitoring-row-/);
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
+      "attention-monitoring-row-alert:s1",
+      "attention-monitoring-row-alert:s2",
+    ]);
+    // titles derived from the fixture objects (anti-tautology), block-level pins:
+    const t1 = within(rows[0]!).getByText(FIXTURE_ITEMS[0]!.menuTitle);
+    const n1 = within(rows[0]!).getByText(autoResolveNote("WATCH_CHANNEL_ORPHANED"));
+    // exact token (inline-block must NOT satisfy a block-level pin)
+    expect(t1.className.split(/\s+/)).toContain("block");
+    expect(n1.className.split(/\s+/)).toContain("block");
+    const t2 = within(rows[1]!).getByText(FIXTURE_ITEMS[1]!.menuTitle);
+    const n2 = within(rows[1]!).getByText(autoResolveNote("SYNC_STALLED"));
+    // block-level pinned on the SECOND row too (R3 f5: a second-row inline
+    // regression would pass a presence-only check)
+    expect(t2.className.split(/\s+/)).toContain("block");
+    expect(n2.className.split(/\s+/)).toContain("block");
+    // summary copy retired MENU-WIDE, not just inside the group
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(within(menu).queryByText(/clearing on their own, no action needed/)).toBeNull();
   });
 
-  it("the retired em-dash footer is gone", () => {
-    renderMenu([selfHeal("s3", "Syncing stalled")]);
-    expect(screen.queryByText(/more clearing on their own/)).toBeNull();
+  it("rows are inert: structural + behavioral (spec §5.3 inertness pins)", () => {
+    const onClose = vi.fn();
+    const onNavigate = vi.fn();
+    const pillRef = createRef<HTMLButtonElement>();
+    render(
+      <AttentionMenu
+        items={[item("s1", "SYNC_STALLED", { clearingKind: "self_heal" })]}
+        open
+        onClose={onClose}
+        onNavigate={onNavigate}
+        pillRef={pillRef}
+      />,
+    );
+    const row = screen.getByTestId("attention-monitoring-row-alert:s1");
+    expect(row.tagName).toBe("DIV");
+    expect(row.hasAttribute("tabindex")).toBe(false);
+    expect(row.hasAttribute("role")).toBe(false);
+    expect(
+      [row, ...row.querySelectorAll<HTMLElement>("*")].filter((el) => el.tabIndex >= 0),
+    ).toHaveLength(0);
+    expect(row.querySelectorAll("button, a")).toHaveLength(0);
+    fireEvent.click(row);
+    fireEvent.keyDown(row, { key: "Enter" });
+    fireEvent.keyDown(row, { key: " " });
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+  });
+
+  it("row visuals: single hollow positive dot, truncate title, separate note line (spec §5.3)", () => {
+    const fixture = item("s1", "WATCH_CHANNEL_ORPHANED", {
+      clearingKind: "self_heal",
+      menuTitle: "Live updates need attention",
+    });
+    renderMenu([fixture]);
+    const row = screen.getByTestId("attention-monitoring-row-alert:s1");
+    // count ALL decorative dots first — an extra wrongly-styled indicator
+    // lacking the positive class would evade a positive-only count (review R1).
+    // exact-token selectors ([class~=] = whitespace-separated whole token) so a
+    // modifier/longer utility can't satisfy the base (review R2 finding 4)
+    const allDots = [...row.querySelectorAll('span[aria-hidden="true"][class~="rounded-pill"]')];
+    expect(allDots).toHaveLength(1);
+    const dots = [...row.querySelectorAll('[class~="border-status-positive"]')];
+    expect(dots).toHaveLength(1);
+    expect(dots[0]!).toBe(allDots[0]!);
+    const dotTokens = dots[0]!.className.split(/\s+/);
+    expect(dotTokens).toContain("bg-transparent");
+    // hollow = a real border WIDTH token, not merely a border-color utility
+    expect(dotTokens).toContain("border-[1.5px]");
+    expect(
+      row.querySelector('[class*="bg-status-review"], [class*="bg-status-degraded"]'),
+    ).toBeNull();
+    const title = within(row).getByText(fixture.menuTitle);
+    expect(title.className.split(/\s+/)).toContain("truncate");
+    const note = within(row).getByText(autoResolveNote("WATCH_CHANNEL_ORPHANED"));
+    expect(title.contains(note)).toBe(false);
+  });
+
+  it("sr-only prefix: exactly ONE 'monitoring, ' node per row, preceding the title (spec §5.3)", () => {
+    const fixture = item("s1", "SYNC_STALLED", {
+      clearingKind: "self_heal",
+      menuTitle: "Syncing has stalled",
+    });
+    renderMenu([fixture]);
+    const row = screen.getByTestId("attention-monitoring-row-alert:s1");
+    const srs = [...row.querySelectorAll(".sr-only")].filter(
+      (el) => el.textContent === "monitoring, ",
+    );
+    expect(srs).toHaveLength(1);
+    const title = within(row).getByText(fixture.menuTitle);
+    expect(srs[0]!.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("fallbacks: no-note code renders generic line; uncataloged code renders fallback title; raw code never in textContent (spec §3.5)", () => {
+    renderMenu([
+      item("f1", "DRIVE_FETCH_FAILED", {
+        clearingKind: "self_heal",
+        menuTitle: "Drive fetch failed",
+      }),
+      item("f2", "TOTALLY_UNKNOWN_CODE", {
+        clearingKind: "self_heal",
+        menuTitle: ATTENTION_FALLBACK_TITLE,
+      }),
+    ]);
+    const r1 = screen.getByTestId("attention-monitoring-row-alert:f1");
+    expect(within(r1).getByText(autoResolveNote("DRIVE_FETCH_FAILED"))).toBeInTheDocument();
+    expect(r1.textContent).not.toContain("DRIVE_FETCH_FAILED");
+    const r2 = screen.getByTestId("attention-monitoring-row-alert:f2");
+    expect(within(r2).getByText(ATTENTION_FALLBACK_TITLE)).toBeInTheDocument();
+    expect(within(r2).getByText(autoResolveNote("TOTALLY_UNKNOWN_CODE"))).toBeInTheDocument();
+    expect(r2.textContent).not.toContain("TOTALLY_UNKNOWN_CODE");
+    // NOTE (anti-tautology disposition, plan R2 F4): this pins the MENU's
+    // rendering only; the derivation-level fallback-title proof is the existing
+    // T2_UNCATALOGED pin (tests/dev/attentionScenariosTier2.test.ts) and
+    // alertTitle's own suite (lib/admin/attentionItems.ts:235-239).
+  });
+
+  it("defensive non-alert self-heal item renders menuTitle + generic note (spec §3.2)", () => {
+    // Synthetic - the derivation layer cannot produce this (attentionItems.ts:262-266)
+    const synthetic = {
+      id: "hold:x",
+      kind: "hold",
+      tone: "notice",
+      sectionId: "crew",
+      crewKey: "dana-reed",
+      actionable: false,
+      clearingKind: "self_heal",
+      menuTitle: "Synthetic hold",
+      menuSubtitle: null,
+    } as unknown as AttentionItem;
+    renderMenu([synthetic]);
+    const row = screen.getByTestId("attention-monitoring-row-hold:x");
+    // derived from the fixture, not a mirrored literal (anti-tautology)
+    expect(within(row).getByText(synthetic.menuTitle)).toBeInTheDocument();
+    expect(within(row).getByText(autoResolveNote("__none__"))).toBeInTheDocument();
+  });
+
+  it("accessible name falls back to 'Monitoring' when only self-heal items exist (spec §3.2)", () => {
+    renderMenu([item("s1", "SYNC_STALLED", { clearingKind: "self_heal" })]);
+    expect(screen.getByTestId("published-show-review-attention-menu")).toHaveAttribute(
+      "aria-label",
+      "Monitoring",
+    );
+  });
+
+  it("leading group: rounded-t-md header, no border-t; after a preceding group: border-t, no rounding (spec §3.2)", () => {
+    renderMenu([item("s1", "SYNC_STALLED", { clearingKind: "self_heal" })]);
+    const groupAlone = screen.getByTestId("attention-monitoring-group");
+    expect(groupAlone.className.split(/\s+/)).not.toContain("border-t");
+    expect(groupAlone.querySelector('[class~="rounded-t-md"]')).not.toBeNull();
+    cleanup();
+    renderMenu([
+      item("a1", "PARSE_ERROR", { actionable: true }),
+      item("s1", "SYNC_STALLED", { clearingKind: "self_heal" }),
+    ]);
+    const groupAfter = screen.getByTestId("attention-monitoring-group");
+    expect(groupAfter.className.split(/\s+/)).toContain("border-t");
+    expect(groupAfter.querySelector('[class~="rounded-t-md"]')).toBeNull();
   });
 
   it("an actionable item wrongly tagged self_heal is NOT counted as monitoring (§3.3 guard)", () => {
     renderMenu([item("rogue", "PARSE_ERROR", { actionable: true, clearingKind: "self_heal" })]);
-    // renders as an actionable row; no monitoring summary appears for it
+    // renders as an actionable row; no monitoring row appears for it
     expect(screen.getByTestId("attention-menu-row-alert:rogue")).toBeInTheDocument();
+    expect(screen.queryByTestId(/attention-monitoring-row-/)).toBeNull();
     expect(screen.queryByText(/clearing on their own/)).toBeNull();
   });
 });
@@ -200,6 +362,7 @@ describe("scroll boundary (whole-diff review 2026-07-22)", () => {
     expect(scroller).not.toBeNull();
     expect(scroller!.contains(screen.getByTestId("attention-menu-row-alert:a1"))).toBe(true);
     expect(scroller!.contains(screen.getByTestId("attention-needslook-row-alert:nl1"))).toBe(true);
-    expect(scroller!.contains(screen.getByText(/1 clearing on their own/))).toBe(true);
+    // re-anchored on a monitoring ROW (summary retired — monitoring-badge-expand §3.2)
+    expect(scroller!.contains(screen.getByTestId("attention-monitoring-row-alert:sh1"))).toBe(true);
   });
 });

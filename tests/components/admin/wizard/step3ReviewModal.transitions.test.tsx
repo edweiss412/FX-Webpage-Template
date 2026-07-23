@@ -1126,15 +1126,16 @@ function isClassified(
 }
 
 describe("§11 source-marker audit — every conditional-render site in Step3ReviewModal.tsx is classified", () => {
-  test("exactly 15 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
-    // 14 sites before this bundle (the pre-consolidation set plus the Step-3
-    // re-apply resolution fold's additions — resolution body head,
-    // corrupt-vs-items branch, resolution footer head, error note,
-    // approve-vs-corrupt; see git history for the per-era split) + 1 from
-    // warning-panel-polish §3.2: the warnings-section live-region span in
-    // ShowReviewSurface (sr-only text swap, deliberate-instant).
+  test("exactly 16 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
+    // 14 sites before the polish bundle (see git history for the per-era
+    // split) + 1 from warning-panel-polish §3.2 (now the announcer log region
+    // of 2026-07-22-warning-announcer-copy §2.2 — same conditional site,
+    // sr-only additions, deliberate-instant) + 1 from the announcer bundle:
+    // the rail sr-only dot equivalent, whose one-line form (`{!s.hideDot ?
+    // <span`) the scan never matched — the announcer provider's indent shift
+    // rewrapped it to the counted multi-line form. Instant (§11 marker).
     const hits = findConditionalLines(MARKER_AUDIT_SRC);
-    expect(hits.length).toBe(15);
+    expect(hits.length).toBe(16);
   });
 
   test("every conditional-render site carries either the §11 instant marker or an animation/transition class on the line above it", () => {
@@ -1148,7 +1149,7 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
     expect(unclassified).toEqual([]);
   });
 
-  test("exactly ONE site — the shared rail-indicator ternary — classifies as ANIMATED (T6′); the other 14 are INSTANT (§11 'deliberate instant' rows)", () => {
+  test("exactly ONE site — the shared rail-indicator ternary — classifies as ANIMATED (T6′); the other 15 are INSTANT (§11 'deliberate instant' rows)", () => {
     const lines = MARKER_AUDIT_SRC.split("\n");
     const hits = findConditionalLines(MARKER_AUDIT_SRC);
     const animated = hits.filter((idx) => {

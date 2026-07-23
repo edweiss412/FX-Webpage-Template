@@ -507,3 +507,94 @@ describe("§9-A: the rail highlight swap is instant (a plain aria-current move),
     ).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// monitoring-badge-expand §3.4 / §5 item 7 — MENU-SIDE treatment tripwires.
+// The monitoring group and its rows are INSTANT: no transition/animate classes,
+// no inline transition styles, no entrance-state classes at first render, and
+// the source block carries no JS animation mechanism. Computed-style ground
+// truth lives in tests/e2e/attention-pill-focus.spec.ts; these are the cheap
+// jsdom/source tripwires. (Pill-side twins live in publishedPill.test.tsx —
+// they need the quiet button.)
+// ---------------------------------------------------------------------------
+import { createRef } from "react";
+import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
+
+function monitoringItem(id: string): AttentionItem {
+  return {
+    id: `alert:${id}`,
+    kind: "alert",
+    tone: "notice",
+    sectionId: "overview",
+    crewKey: null,
+    actionable: false,
+    clearingKind: "self_heal",
+    menuTitle: `Title ${id}`,
+    menuSubtitle: null,
+    alert: {
+      alertId: id,
+      code: "SYNC_STALLED",
+      template: null,
+      params: {},
+      action: null,
+      helpHref: null,
+      raisedAt: "2026-07-21T09:00:00.000Z",
+      occurrenceCount: 1,
+      autoClearNote: null,
+      failedKeys: null,
+      dataGaps: null,
+      errorCode: null,
+    },
+  } as AttentionItem;
+}
+
+describe("monitoring group treatment tripwires (monitoring-badge-expand §3.4)", () => {
+  function renderMonitoringMenu() {
+    const pillRef = createRef<HTMLButtonElement>();
+    render(
+      <AttentionMenu
+        items={[monitoringItem("m1"), monitoringItem("m2")]}
+        open
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+        pillRef={pillRef}
+      />,
+    );
+  }
+
+  it("group + rows + dots carry no transition/animate classes, no inline animation styles, no entrance-state classes at first render", () => {
+    renderMonitoringMenu();
+    const group = screen.getByTestId("attention-monitoring-group");
+    const targets = [group, ...group.querySelectorAll<HTMLElement>("*")];
+    for (const el of targets) {
+      const cls = el.getAttribute("class") ?? "";
+      expect(cls, `transition class on ${el.tagName}`).not.toMatch(/transition/);
+      expect(cls, `animate class on ${el.tagName}`).not.toMatch(/animate/);
+      expect(cls, `entrance-state class on ${el.tagName}`).not.toMatch(/opacity-0|scale-/);
+      const style = (el as HTMLElement).style;
+      expect(style.transition ?? "").toBe("");
+      expect(style.transitionProperty ?? "").toBe("");
+      expect(style.transitionDuration ?? "").toBe("");
+      expect(style.animation ?? "").toBe("");
+    }
+  });
+
+  it("source scan: the monitoring block contains no JS animation mechanism (hooks/timers/motion)", () => {
+    const s = src("components/admin/showpage/AttentionMenu.tsx");
+    const start = s.indexOf("attention-monitoring-group");
+    expect(start, "monitoring block marker present").toBeGreaterThan(-1);
+    const block = s.slice(start);
+    for (const banned of [
+      "AnimatePresence",
+      "motion.",
+      "requestAnimationFrame",
+      "setTimeout",
+      "setInterval",
+      "useState",
+      "useEffect",
+    ]) {
+      expect(block, `banned mechanism in monitoring block: ${banned}`).not.toContain(banned);
+    }
+  });
+});

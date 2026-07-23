@@ -35,6 +35,7 @@ export const T2_CLASS_MIX = "t2-class-mix";
 export const T2_DEGRADED_WITH_HOLDS = "t2-degraded-with-holds";
 export const T2_MULTI_HOLD = "t2-multi-hold";
 export const T2_FEED_TRUNCATED = "t2-feed-truncated";
+export const T2_MONITORING_ONLY = "t2-monitoring-only";
 
 export const T2_REQUIRED_IDS: readonly string[] = [
   T2_SECTION_ABSENT,
@@ -56,6 +57,7 @@ export const T2_REQUIRED_IDS: readonly string[] = [
   T2_DEGRADED_WITH_HOLDS,
   T2_MULTI_HOLD,
   T2_FEED_TRUNCATED,
+  T2_MONITORING_ONLY,
   // Modal-state-coverage roster (spec 2026-07-22 §3.6).
   "t2-changelog-history",
   "t2-hold-dispositions",
@@ -356,6 +358,16 @@ export function tier2Scenarios(): AttentionScenario[] {
       holds: [hold("Dana Reed")],
     }),
     scenario(T2_DEGRADED, "Alert read degraded", { alerts: [], holds: [], degraded: true }),
+    scenario(T2_MONITORING_ONLY, "Monitoring only: expandable quiet pill", {
+      // monitoring-badge-expand §5.8: two self-heal codes so the quiet pill
+      // reads "2 monitoring" and the menu enumerates two rows.
+      alerts: (() => {
+        const a = pickByDerivedClass("self_heal");
+        const b = pickByDerivedClass("self_heal", new Set([a]));
+        return [alert(a), alert(b)];
+      })(),
+      holds: [],
+    }),
     scenario(T2_CLASS_MIX, "One of each pill class: confirm, review, monitoring", {
       alerts: (() => {
         const a = pickByDerivedClass("actionable");

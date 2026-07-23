@@ -150,17 +150,42 @@ describe("transition audit: nothing in the four-state path animates", () => {
     const guards = (code.match(/&&/g) ?? []).length;
 
     // 5 original ternaries (the gate read, the parse-notes guard,
-    // List-vs-empty, Silent, Elsewhere) + 5 from the warning-panel-polish §3.5
-    // pointer-sentence builder inside the Elsewhere branch (targets-present,
-    // jump-callback nameNode, withMore separator, last-name separator, the
-    // more-clause) — all content facts of one server render, instant by polish
-    // spec §5. 3 `if`s: the builder's early-fallback, the i>0 separator guard,
-    // and the withMore push. 1 `&&`: the parse-notes null check.
+    // List-vs-empty, Silent, Elsewhere). The polish-era pointer-sentence
+    // builder's 5 ternaries + 3 ifs moved OUT of this region when the
+    // announcer spec §4 extracted `ElsewherePointerSentence` (its branch
+    // behavior — collapsed/expanded/miss/no-callback — is pinned by
+    // pointerSentence.test.tsx and the spec §4.3 matrix tests; its render is
+    // still instant, §11 precedent). 1 `&&`: the parse-notes null check.
     expect({ ternaries, ifs, guards }, "the region's branch positions").toEqual({
-      ternaries: 10,
-      ifs: 3,
+      ternaries: 5,
+      ifs: 0,
       guards: 1,
     });
+
+    // WD2 P2: the extracted `ElsewherePointerSentence` carries the relocated
+    // branches — audit ITS body too so a future animation or conditional
+    // added there cannot bypass the inventory guard. All its branches are
+    // content facts of one render (instant; announcer spec §4.3 matrix +
+    // §2.6 precedent): eligibility derivation, button-vs-strong nameNode,
+    // capped-vs-expanded names, reveal-button-vs-plain clause, joiner and
+    // separator grammar, the early fallback, and the one-shot focus-flag
+    // consumption in the layout effect.
+    const compMatch = src.match(/function ElsewherePointerSentence\([\s\S]*?\n\}\n/);
+    expect(compMatch, "ElsewherePointerSentence body located").not.toBeNull();
+    const comp = compMatch![0].replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    const compTernaries = (comp.match(/(?<!\?)\?(?![.?])/g) ?? []).length;
+    const compIfs = (comp.match(/\bif\s*\(/g) ?? []).length;
+    const compGuards = (comp.match(/&&/g) ?? []).length;
+    // 9 ternaries: nameNode button-vs-strong, ref-index pick, singular/plural
+    // aria-label, reveal-vs-plain clause, joiner pick, separator grammar
+    // chain, capped-vs-expanded names, eligibility reads. 5 ifs: flag-consume
+    // guard, empty-fallback, i>0 separator, withMore, reveal-vs-plain.
+    // 5 &&s: eligibility conjuncts, showFull, ref condition.
+    expect(
+      { compTernaries, compIfs, compGuards },
+      "ElsewherePointerSentence branch positions",
+    ).toEqual({ compTernaries: 9, compIfs: 5, compGuards: 5 });
+    expect(comp).not.toMatch(/animate-|transition-|AnimatePresence|motion\./);
 
     // And the two lines those branches select, so a branch that survives while
     // its outcome is deleted also fails.

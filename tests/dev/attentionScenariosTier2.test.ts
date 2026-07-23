@@ -29,6 +29,7 @@ import {
   T2_DEGRADED_WITH_HOLDS,
   T2_MULTI_HOLD,
   T2_FEED_TRUNCATED,
+  T2_MONITORING_ONLY,
 } from "@/lib/dev/attentionScenarios/tier2";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 
@@ -116,6 +117,18 @@ describe("tier 2 structural matrix", () => {
       expect(validateScenario(s), `${s.id}: ${validateScenario(s).join("; ")}`).toEqual([]);
       expect(s.tier, s.id).toBe(2);
     }
+  });
+
+  test("T2_MONITORING_ONLY derives a pure monitoring state (monitoring-badge-expand §5.8)", () => {
+    const s = byId(T2_MONITORING_ONLY);
+    const derived = deriveScenarioAttention(s);
+    expect(derived.length).toBeGreaterThan(0);
+    // PURE monitoring: EVERY derived item is a non-actionable self_heal — no
+    // actionable, no needs_look, and no other clearingKind slipping in (R3 f7)
+    expect(
+      derived.every((i) => !i.actionable && i.clearingKind === "self_heal"),
+      JSON.stringify(derived.map((i) => ({ a: i.actionable, k: i.clearingKind }))),
+    ).toBe(true);
   });
 
   test("an unavailable routed section falls back to Overview's section top", () => {

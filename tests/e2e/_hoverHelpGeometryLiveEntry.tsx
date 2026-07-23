@@ -258,6 +258,58 @@ function CaseView() {
       );
     case "overlap":
       return <OverlapCard />;
+    case "caret":
+      return (
+        <>
+          {/* Wide custom trigger: half-width > CARET_EDGE_INSET so the caret
+              TRACKS the raw center (unpinned branch). */}
+          <At x={safeX(300)} y={200}>
+            <HoverHelp
+              label="Help: caret track"
+              testId="caret-track"
+              align="left"
+              trigger={
+                <span style={{ width: 60, display: "inline-block", textAlign: "center" }}>
+                  badge
+                </span>
+              }
+            >
+              <p>Short body copy for caret-track.</p>
+            </HoverHelp>
+          </At>
+          {/* Right-edge: align-left body clamps left; the 20px default trigger
+              center lands past the far inset (deep-pin branch). */}
+          <At x={window.innerWidth - 30} y={200}>
+            <ShortHelp testId="caret-clamp" align="left" />
+          </At>
+          {/* Bottom-pinned: side "top" placement (apex-down caret). */}
+          <At x={safeX(500)} y={window.innerHeight - 60}>
+            <ShortHelp testId="caret-top" />
+          </At>
+          {/* Body-host learnMore for the link->outside blur case (T-E4b). */}
+          <At x={safeX(200)} y={480}>
+            <HoverHelp
+              label="Help: caret lm"
+              testId="caret-lm"
+              align="left"
+              learnMore={{ href: "/help/admin" }}
+            >
+              <p>Body with a learn-more link.</p>
+            </HoverHelp>
+          </At>
+          {/* Plain popover + focusable neighbor for the Tab-away case (T-E4). */}
+          <At x={safeX(200)} y={400}>
+            <span>
+              <HoverHelp label="Help: caret blur" testId="caret-blur" align="left">
+                <p>Short body copy for caret-blur.</p>
+              </HoverHelp>
+              <button type="button" data-testid="after-btn">
+                next
+              </button>
+            </span>
+          </At>
+        </>
+      );
     default:
       throw new Error(`unknown case: ${c}`);
   }

@@ -2,6 +2,47 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## Warning announcer + elsewhere copy (2026-07-22)
+
+Four warning-panel-polish impeccable-critique deferrals (recorded 2026-07-22,
+dispositions in `docs/superpowers/plans/2026-07-22-warning-panel-polish/handoff.md`
+§12), all resolved by the warning-announcer-copy bundle
+(spec `docs/superpowers/specs/2026-07-22-warning-announcer-copy-design.md`,
+owner decisions ratified 2026-07-22 via mockup-backed A/B choice; six-round
+adversarial spec review to APPROVE).
+
+### [P2] Bulk ignore produced two polite announcements in one refresh — ✅ RESOLVED
+
+The bulk chip's own `role="status"` and the panel's count-tuple live region
+both changed on one server round trip. Resolved: completion announcements are
+now a single clause in the panel's append-only `role="log"` region
+(`"${n} ignored."`), announced on the success branch before `router.refresh()`;
+the chip's region carries ONLY the armed prompt ("Tap again to confirm.",
+ratified retained). Pinned by producer tests asserting the chip region's text
+never leaves {"", "Tap again to confirm."} across the whole flow.
+
+### [P2] The live region announced background count changes — ✅ RESOLVED
+
+Owner decision (the recorded un-defer trigger): ACTIONS-only. The derived
+count-tuple sentence (`warningsPanelStatusSentence`) is RETIRED (spec §1.1
+item 8 ratified amendment); the region's children are an append-only message
+log written only by producer `announce()` calls, so background realtime
+refreshes are silent by construction.
+
+### [P3] The elsewhere sentence opened with an apology — ✅ RESOLVED
+
+Pointer clause now leads; "Nothing else to note here." trails (owner
+re-ratified §3.5 copy). Both named and fallback branches; pinned strings
+updated in `tests/components/admin/wizard/pointerSentence.test.tsx`.
+
+### [P3] "and N more." was a dead end — ✅ RESOLVED
+
+Tap-to-reveal in the pure over-cap case only (callback present, extra
+resolved names, zero label misses): "N more" is a tappable button
+(aria-label "Show N more section(s)") that expands in place to the full
+tappable name list with a one-shot focus move. The defensive label-miss fold
+is unchanged and never interactive (its un-defer trigger has not fired).
+
 ## HoverHelp smart position (2026-07-22)
 
 ### WARNCARD-POPOVER-OVERLAP-1 — [P3] right-aligned help popover opens over the guidance line it contextualizes — ✅ RESOLVED
