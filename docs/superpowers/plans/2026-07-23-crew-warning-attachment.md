@@ -36,8 +36,8 @@ All file:line claims verified by direct read at HEAD:
 
 ### T1 — `crewRowKeyForWarning` helper
 
-- **Test first** (`tests/admin/crewRowKey.test.ts`, node env, no jsdom): cases per spec §5.1 — autocorrect code + subject → `canonicalCrewKey(subject)`; autocorrect code + blank subject + crew blockRef → **null** (backward-compat pin; concrete failure mode: helper silently widens legacy-code keying to blockRef and changes shipped placement); `FIELD_UNREADABLE` + `{kind:"crew", name:"John Redcorn"}` → `"john redcorn"`; `kind:"hotel"` → null; blank/whitespace name → null; no blockRef → null; name with surrounding spaces trims.
-- **Impl:** new `lib/admin/crewRowKey.ts` exactly as spec §2A code block.
+- **Test first** (`tests/admin/crewRowKey.test.ts`, node env, no jsdom): cases per spec §5.1 — autocorrect code + subject → `canonicalCrewKey(subject)`; autocorrect code + blank subject + crew blockRef → **null** (backward-compat pin; concrete failure mode: helper silently widens legacy-code keying to blockRef and changes shipped placement); `FIELD_UNREADABLE` + `{kind:"crew", name:"John Redcorn"}` → `"john redcorn"`; **raw day-restriction name (spec R3-F1):** `"Calvin Saller (6/24 and 6/26 ONLY)"` → `"calvin saller"` (failure mode: raw blockRef name never matches the stripped rendered name, silently disabling under-row placement for every day-restricted row); paren-only name strips to empty → null; `kind:"hotel"` → null; blank/whitespace name → null; no blockRef → null; trims. Parity pin: `extractDayRestriction({nameCell, roleCell:""}).cleanedNameCell === stripDayRestrictionParen(nameCell)` over corpus name forms.
+- **Impl:** export `stripDayRestrictionParen` from `lib/parser/personalization.ts` (`cell.replace(PAREN_ONLY_PATTERN, "").trim()`, pattern at `personalization.ts:29`) and refactor the three existing strip sites (`:79`, `:85`, `:91`) to call it (pure refactor — existing personalization/crew parser tests pin behavior); new `lib/admin/crewRowKey.ts` exactly as spec §2A code block (keys blockRef names through the strip).
 - Commit `feat(admin): crewRowKeyForWarning helper for under-row warning placement`.
 
 ### T2 — model keying via helper
