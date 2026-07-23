@@ -778,7 +778,7 @@ Layout edit: wrap the layout's returned children subtree with `<DeveloperFlagPro
  * components/admin/dev/DevCaptureControl.tsx - §2.4/§7 shared orchestration.
  * State machine idle -> busy -> idle|error; all transitions instant (§7.4).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { captureShowTelemetry, type CaptureTelemetryRequest } from "@/app/admin/_devCaptureAction";
 import { captureElementPng } from "@/lib/devcapture/captureElement";
 import {
@@ -814,7 +814,7 @@ export function useDevCapture(opts: {
   clientSnapshot: () => unknown;
   filenameSeed: string;
   preCapture?: () => Promise<void>;
-}): { state: DevCaptureState; run: () => void } {
+}): { state: DevCaptureState; run: () => void; busyRef: RefObject<boolean> } {
   const [state, setState] = useState<DevCaptureState>("idle");
   const inFlight = useRef(false); // SYNCHRONOUS single-flight guard (state alone races two same-tick runs)
   const mounted = useRef(true);
