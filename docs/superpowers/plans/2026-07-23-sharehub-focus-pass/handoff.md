@@ -33,7 +33,11 @@ Responsive 4 (tap targets untouched), Theming 4 (dark-mode bare-offset halo FIXE
   lifecycle; revision pin) → R3 NA (marker-advance; gate revalidation loop; oracle sync;
   executable archive check) → R4 NA (Task-4 loop-back; this handoff doc) → (R5 pending at
   time of writing; final verdict recorded in PR body).
-- Whole-diff: dispatched fresh-eyes inlined (result in PR body).
+- Whole-diff: **R1 APPROVE** (fresh-eyes inlined) with two NOTE micro-corrections, both
+  applied docs-only in the same pass: WCAG citation fixed to 2.2 SC 2.4.13 Focus Appearance
+  (was mislabeled 2.4.11) in BACKLOG.md; DEFERRED-archive entry now cites BOTH pinning test
+  blocks (shareHub + ArchiveShowButton non-row). No code mutation — no gate re-run required
+  beyond format check.
 
 ## Verification (all at `1e36080a8` or later)
 

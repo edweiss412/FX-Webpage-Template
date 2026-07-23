@@ -150,8 +150,10 @@ focus-visible:ring-offset-surface`. Supersedes fidelity-fixes spec §4.1's verba
   retention per that ratification's own terms. Also fixed in the same pass: bare
   `ring-offset-2` without an offset color (Tailwind defaults the gap to `#fff` — a white
   halo on the dark theme) on the archive non-row variants and the unarchive button.
-  Contract pinned by the "two-tier focus contract" describe block in
-  `tests/components/admin/showpage/shareHub.test.tsx`.
+  Contract pinned by the "two-tier focus contract" describe blocks in
+  `tests/components/admin/showpage/shareHub.test.tsx` (popover surface) and
+  `tests/components/admin/ArchiveShowButton.test.tsx` (the unreachable compact/full non-row
+  branches, which only that block covers).
 - **[P3] Caret lacks `shadow-popover` — RATIFIED no-shadow (final).** A drop shadow on the
   rotated 10px diamond casts a smudge rather than continuing the panel's elevation; the
   caret reads as continuous with the panel via matching `bg-surface` + border + same `z-40`,
