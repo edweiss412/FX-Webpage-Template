@@ -598,7 +598,11 @@ describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)"
   it("auto-open pin: alertId equal to a monitoring item's SOURCE-ALERT id never auto-opens (spec §5.9b)", async () => {
     // The deep-link id is the underlying alert's own id (item.alert.alertId),
     // NOT the derived row id — an unrelated id would pass vacuously.
-    const monitoring = alertItem({ id: "alert:mon2", actionable: false, clearingKind: "self_heal" });
+    const monitoring = alertItem({
+      id: "alert:mon2",
+      actionable: false,
+      clearingKind: "self_heal",
+    });
     expect(monitoring.kind).toBe("alert");
     const sourceAlertId = monitoring.kind === "alert" ? monitoring.alert.alertId : "";
     expect(sourceAlertId).toBe("mon2");

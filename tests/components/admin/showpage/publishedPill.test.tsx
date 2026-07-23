@@ -215,9 +215,11 @@ describe("pill-side treatment tripwires (monitoring-badge-expand §3.4, both pal
       expect(rootClasses).toContain("duration-fast");
       const seg = pill.querySelector('[data-testid="attention-pill-monitoring-segment"]');
       expect(seg).not.toBeNull();
-      const dots = [...pill.querySelectorAll('[class*="rounded-pill"]')].filter((el) => el !== pill);
-      const middots = [...pill.querySelectorAll("span")].filter((el) =>
-        (el.textContent ?? "").trim() === "·",
+      const dots = [...pill.querySelectorAll('[class*="rounded-pill"]')].filter(
+        (el) => el !== pill,
+      );
+      const middots = [...pill.querySelectorAll("span")].filter(
+        (el) => (el.textContent ?? "").trim() === "·",
       );
       for (const el of [seg!, ...dots, ...middots]) {
         const cls = el.getAttribute("class") ?? "";

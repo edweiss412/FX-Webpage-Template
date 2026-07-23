@@ -124,12 +124,13 @@ describe("AttentionMenu", () => {
     expect(screen.queryByText(/more clearing on their own/)).toBeNull();
     cleanup();
     // Explicit self_heal items render enumerated monitoring rows: title + note.
+    const alertPayload = (ALERT as Extract<AttentionItem, { kind: "alert" }>).alert;
     const selfHealItem = mk({
       id: "alert:s1",
       actionable: false,
       clearingKind: "self_heal",
       menuTitle: "Syncing has stalled",
-      alert: { ...ALERT.alert, alertId: "s1", code: "SYNC_STALLED" },
+      alert: { ...alertPayload, alertId: "s1", code: "SYNC_STALLED" },
     });
     renderMenu({ items: [HOLD, ALERT, selfHealItem] });
     const row = screen.getByTestId("attention-monitoring-row-alert:s1");

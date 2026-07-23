@@ -229,7 +229,9 @@ describe("monitoring group (monitoring-badge-expand §3.2: enumerated rows)", ()
     const dots = [...row.querySelectorAll('[class*="border-status-positive"]')];
     expect(dots).toHaveLength(1);
     expect(dots[0]!.className).toContain("bg-transparent");
-    expect(row.querySelector('[class*="bg-status-review"], [class*="bg-status-degraded"]')).toBeNull();
+    expect(
+      row.querySelector('[class*="bg-status-review"], [class*="bg-status-degraded"]'),
+    ).toBeNull();
     const title = within(row).getByText(fixture.menuTitle);
     expect(title.className).toContain("truncate");
     const note = within(row).getByText(autoResolveNote("WATCH_CHANNEL_ORPHANED"));

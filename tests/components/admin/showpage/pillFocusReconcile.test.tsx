@@ -157,7 +157,9 @@ function itemsWithLink(nA: number, nNeed: number, nSelf: number) {
 }
 
 const WARNING_SWEEP = (pill: HTMLElement) =>
-  [pill, ...pill.querySelectorAll("*")].filter((el) => /warning/.test(el.getAttribute("class") ?? ""));
+  [pill, ...pill.querySelectorAll("*")].filter((el) =>
+    /warning/.test(el.getAttribute("class") ?? ""),
+  );
 
 describe("interactive → monitoring-only STAYS OPEN (forward matrix, 6 origins)", () => {
   for (const [a, n] of [
@@ -183,9 +185,7 @@ describe("interactive → monitoring-only STAYS OPEN (forward matrix, 6 origins)
         rerender(publishedModalElement([], { attentionItems: itemsWithLink(0, 0, 1) }));
 
         expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
-        expect(
-          screen.getAllByTestId(/attention-monitoring-row-/).length,
-        ).toBeGreaterThan(0);
+        expect(screen.getAllByTestId(/attention-monitoring-row-/).length).toBeGreaterThan(0);
         const pillAfter = screen.getByTestId("published-show-review-alert-pill");
         expect(pillAfter.getAttribute("aria-expanded")).toBe("true");
         expect(pillAfter.className.split(/\s+/)).toContain("bg-surface-sunken");
@@ -292,8 +292,7 @@ describe("quiet → warning REVERSE matrix (6 cells): menu stays open, amber pos
         rerender(publishedModalElement([], { attentionItems: itemsWithLink(a, n, s1) }));
 
         expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
-        if (a > 0)
-          expect(screen.getAllByTestId(/^attention-menu-row-/).length).toBeGreaterThan(0);
+        if (a > 0) expect(screen.getAllByTestId(/^attention-menu-row-/).length).toBeGreaterThan(0);
         if (n > 0)
           expect(screen.getAllByTestId(/attention-needslook-row-/).length).toBeGreaterThan(0);
         if (s1 === 1) expect(screen.getAllByTestId(/attention-monitoring-row-/).length).toBe(1);
