@@ -96,9 +96,13 @@ describe("warnings panel announce log (announcer spec §2)", () => {
     expect(region().getAttribute("aria-label")).toBe("Warning updates");
     expect(children()).toHaveLength(0);
     const { records, disconnect } = observeRegion();
+    const node = region();
     // Background refresh shape: counts change, no announce (spec §2.2).
     rerender(<ShowReviewSurface {...probeProps({ listed: 3, here: 0, elsewhere: 1 })} />);
     disconnect();
+    // Always-mounted contract: the SAME container node survives the rerender
+    // (an observer on a replaced node would not see its own removal — WD1 P2).
+    expect(region()).toBe(node);
     expect(children()).toHaveLength(0);
     expect(records.added).toHaveLength(0);
     expect(records.removed).toHaveLength(0);
@@ -117,8 +121,10 @@ describe("warnings panel announce log (announcer spec §2)", () => {
     expect(afterAnnounce.added.filter((n) => n.nodeType === 1)).toHaveLength(1);
     expect(afterAnnounce.removed).toHaveLength(0);
     expect(afterAnnounce.charData).toBe(0);
+    const node = region();
     rerender(<ShowReviewSurface {...probeProps({ listed: 0, elsewhere: 2 })} />);
     disconnect();
+    expect(region()).toBe(node); // same container node (WD1 P2)
     expect(children()).toHaveLength(1);
     expect(children()[0]!.textContent).toBe("Warning ignored.");
   });
@@ -173,8 +179,12 @@ describe("warnings panel announce log (announcer spec §2)", () => {
       "2 ignored.",
       "Warning restored.",
     ]);
-    const ids = all.map((c) => c.getAttribute("data-announce-id"));
+    const ids = all.map((c) => Number(c.getAttribute("data-announce-id")));
     expect(new Set(ids).size).toBe(4);
+    // Per-mount MONOTONIC counter (spec §2.2, WD1 P3): strictly ascending in
+    // announce order — random or timestamp-derived ids cannot guarantee this
+    // for batched calls.
+    for (let i = 1; i < ids.length; i++) expect(ids[i]!).toBeGreaterThan(ids[i - 1]!);
     // Reference stability: the first two nodes are the SAME DOM nodes.
     expect(all[0]).toBe(firstTwo[0]);
     expect(all[1]).toBe(firstTwo[1]);

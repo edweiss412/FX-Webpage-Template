@@ -294,8 +294,13 @@ const REVEAL_WARNINGS = [
     blockRef: { kind: "transportation", name: "e2e-transport" },
   },
 ];
-// Section count derived from the fixture's distinct blockRef kinds (crew,
-// rooms, contacts, transport), never hardcoded (plan-review R1 F7).
+// Section count derived from the fixture's distinct blockRef kinds. Honest
+// scope (WD2 P2): kinds map 1:1 onto distinct SectionIds FOR THIS FIXTURE
+// (crew/rooms/contacts/transportation are four different KIND_TO_SECTION
+// targets, lib/admin/step3SectionStatus.ts:22); a fixture mixing aliases of
+// one section (e.g. travel+flights) would need the mapped-id set instead.
+// Registry order puts "Rooms & scope" over-cap for this seed - asserted, not
+// assumed: the collapsed state check below fails if it were named.
 const REVEAL_SECTION_COUNT = new Set(REVEAL_WARNINGS.map((w) => w.blockRef.kind)).size;
 
 test.describe("pointer overflow reveal (announcer spec §4.2-4.3)", () => {

@@ -805,8 +805,12 @@ function ElsewherePointerSentence({
     parts.push(nameNode(t, i));
   });
   if (withMore) {
+    // Polish spec §8.6 pinned grammar: a single resolved name takes NO comma
+    // before the overflow clause ("Crew and 1 more."), two-plus names keep the
+    // serial comma ("Crew, Contacts, and 1 more.") — WD2 P1.
+    const joiner = names.length === 1 ? " and " : ", and ";
     if (revealEligible && !expanded) {
-      parts.push(", and ");
+      parts.push(joiner);
       parts.push(
         <button
           key="pointer-reveal"
@@ -824,7 +828,7 @@ function ElsewherePointerSentence({
         </button>,
       );
     } else {
-      parts.push(`, and ${overflowN} more`);
+      parts.push(`${joiner}${overflowN} more`);
     }
   }
   parts.push(".");

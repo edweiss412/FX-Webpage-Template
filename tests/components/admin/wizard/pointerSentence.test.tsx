@@ -167,6 +167,27 @@ describe("pointer sentence render (spec §8.6)", () => {
     expect(el.querySelector("strong")?.textContent).toBe("Crew");
   });
 
+  it("miss-fold joiner grammar: 1 and 2 resolved names (polish spec §8.6 pinned strings)", () => {
+    // 1 resolved + 1 miss: NO comma before the clause (WD2 P1).
+    renderWarningsBreakdownWithChrome({
+      pointerTargets: { targets: [T("crew", "Crew")], totalSections: 2 },
+    });
+    expect(screen.getByTestId(/warnings-elsewhere/).textContent).toBe(
+      "The warnings that need a look are in Crew and 1 more. Nothing else to note here.",
+    );
+    cleanup();
+    // 2 resolved + 1 miss: comma-separated names, serial comma before clause.
+    renderWarningsBreakdownWithChrome({
+      pointerTargets: {
+        targets: [T("crew", "Crew"), T("rooms", "Rooms & scope")],
+        totalSections: 3,
+      },
+    });
+    expect(screen.getByTestId(/warnings-elsewhere/).textContent).toBe(
+      "The warnings that need a look are in Crew, Rooms & scope, and 1 more. Nothing else to note here.",
+    );
+  });
+
   it("no pointer targets at all: today's exact fallback sentence", () => {
     renderWarningsBreakdownWithChrome({});
     expect(screen.getByTestId(/warnings-elsewhere/).textContent).toBe(

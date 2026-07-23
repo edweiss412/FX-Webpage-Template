@@ -162,6 +162,31 @@ describe("transition audit: nothing in the four-state path animates", () => {
       guards: 1,
     });
 
+    // WD2 P2: the extracted `ElsewherePointerSentence` carries the relocated
+    // branches — audit ITS body too so a future animation or conditional
+    // added there cannot bypass the inventory guard. All its branches are
+    // content facts of one render (instant; announcer spec §4.3 matrix +
+    // §2.6 precedent): eligibility derivation, button-vs-strong nameNode,
+    // capped-vs-expanded names, reveal-button-vs-plain clause, joiner and
+    // separator grammar, the early fallback, and the one-shot focus-flag
+    // consumption in the layout effect.
+    const compMatch = src.match(/function ElsewherePointerSentence\([\s\S]*?\n\}\n/);
+    expect(compMatch, "ElsewherePointerSentence body located").not.toBeNull();
+    const comp = compMatch![0].replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    const compTernaries = (comp.match(/(?<!\?)\?(?![.?])/g) ?? []).length;
+    const compIfs = (comp.match(/\bif\s*\(/g) ?? []).length;
+    const compGuards = (comp.match(/&&/g) ?? []).length;
+    // 9 ternaries: nameNode button-vs-strong, ref-index pick, singular/plural
+    // aria-label, reveal-vs-plain clause, joiner pick, separator grammar
+    // chain, capped-vs-expanded names, eligibility reads. 5 ifs: flag-consume
+    // guard, empty-fallback, i>0 separator, withMore, reveal-vs-plain.
+    // 5 &&s: eligibility conjuncts, showFull, ref condition.
+    expect(
+      { compTernaries, compIfs, compGuards },
+      "ElsewherePointerSentence branch positions",
+    ).toEqual({ compTernaries: 9, compIfs: 5, compGuards: 5 });
+    expect(comp).not.toMatch(/animate-|transition-|AnimatePresence|motion\./);
+
     // And the two lines those branches select, so a branch that survives while
     // its outcome is deleted also fails.
     expect(region).toContain("warnings-elsewhere");
