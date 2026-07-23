@@ -4,7 +4,7 @@ Open deferral queue — work intentionally deferred with a concrete un-defer tri
 
 **Resolved / stale / N/A entries live in [DEFERRED-archive.md](./DEFERRED-archive.md)** — full provenance kept there, NOT in this working queue. When an item below ships, move its full entry to the archive.
 
-Last reconciled: 2026-07-22 (four warning-panel-polish critique deferrals RESOLVED by the warning-announcer-copy bundle and graduated to the archive, replaced by the VOICEOVER-ANNOUNCER-SPOTCHECK owner action. Earlier same day: seven warning-surface-trim items RESOLVED by the warning-panel-polish bundle and graduated to the archive; the six stay-parked items re-confirmed by 2026-07-21 owner decisions. Same day: WARNCARD-POPOVER-OVERLAP-1 graduated to the archive — resolved by `feat/hoverhelp-smart-position` collision-aware placement; and ATTN-GALLERY-CONTROLBAR-OVERLAP-1 SHIPPED via `2026-07-21-gallery-switcher-slim-bar` — slim single-row switcher bar, footnotes behind a collapsed disclosure; entry graduated to the archive. Earlier: 2026-07-21 SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
+Last reconciled: 2026-07-23 (SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE graduated to the archive — P2 focus-ring inconsistency RESOLVED by `feat/sharehub-focus-pass` (two-tier recipe, spec `2026-07-23-sharehub-focus-pass` §2: rows/cancels/triggers plain ring, armed destructive confirms carry the surface-offset pair); P3 caret shadow RATIFIED no-shadow. Earlier: 2026-07-22 four warning-panel-polish critique deferrals RESOLVED by the warning-announcer-copy bundle and graduated to the archive, replaced by the VOICEOVER-ANNOUNCER-SPOTCHECK owner action. Earlier same day: seven warning-surface-trim items RESOLVED by the warning-panel-polish bundle and graduated to the archive; the six stay-parked items re-confirmed by 2026-07-21 owner decisions. Same day: WARNCARD-POPOVER-OVERLAP-1 graduated to the archive — resolved by `feat/hoverhelp-smart-position` collision-aware placement; and ATTN-GALLERY-CONTROLBAR-OVERLAP-1 SHIPPED via `2026-07-21-gallery-switcher-slim-bar` — slim single-row switcher bar, footnotes behind a collapsed disclosure; entry graduated to the archive. Earlier: 2026-07-21 SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
 
 ---
 
@@ -23,36 +23,6 @@ Direct consequence of `STRIP-MOBILE-WRAP-1`, surfaced by Task 9's band-parity sp
 **Accepted, not fixed, and the tolerance was NOT widened** (the plan explicitly forbids that). The plan nominated skeleton bar heights as the lever, but they cannot close this: the wrap point is a function of rendered DATA, since the status line's width depends on its relative-time strings. Sizing placeholders to reproduce one fixture's 3-row wrap was rejected as overfitting — it would go green while asserting nothing about any real show. The 390px case therefore asserts an honest weaker clause (band reserves ≥ one tap row + `py-2`, never exceeds the loaded band) and the ≤4px strictness is kept at ≥sm where its "single control row" premise actually holds.
 
 **Un-defer trigger:** resolving `STRIP-MOBILE-WRAP-1` (a deliberate mobile reflow makes the loaded mobile band deterministic, at which point exact parity becomes assertable again), or user reports of a visible header jump on mobile loads.
-
-### SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE — [P1/P2/P3] impeccable critique of the fidelity-fix diff
-
-From the invariant-8 dual-gate on the share-hub-fidelity-fixes diff (Assessment A, 31/40).
-`SHAREHUB-ROW-ANATOMY-1` (the run's primary P1) is RESOLVED (archived in
-[DEFERRED-archive.md](./DEFERRED-archive.md)). The remaining findings
-are recorded here with dispositions; none is a P0 and none blocks merge. (One refuted
-finding — "Careful rows carry no visual weight" — is not a deferral and lives in
-[DEFERRED-archive.md](./DEFERRED-archive.md) under Share hub.)
-
-- **[P1] Caret is anchored to the kebab, not the trigger that opened the popover.** ~~Deferred.~~
-  **RESOLVED (fix/sharehub-caret-anchor).** A `useLayoutEffect` in `ShareHub.tsx` now measures
-  the opening trigger's centre against the group's right edge and sets the caret's `right`
-  inline (`caretRightPx`), so the caret anchors under whichever trigger opened the popover;
-  `right-[17px]` remains the kebab-centred fallback (SSR/jsdom, and the correct value when the
-  kebab is the opener). Recomputed on resize while open. Spec §5's `right-[17px]` is preserved
-  as that fallback, not removed. Proof: `T-HUB-CARET` (inverted — opened from primary, caret
-  centres on primary, explicitly NOT the kebab) + new `T-HUB-CARET-KEBAB` in
-  `published-review-modal.interactions.spec.ts`.
-
-- **[P2] Focus-ring inconsistency within the popover** (reset carries `ring-offset-2`, rotate
-  and the mailto rows do not). Spec §4.1 RATIFIES retaining reset's offset pair verbatim,
-  precisely so a destructive control's focus treatment is not silently changed by this diff.
-  The tension (three focus renders in one group) is real but the spec chose retention; the
-  spec wins over the critique (impeccable is not authoritative vs a ratified spec). **Noted,
-  not changed.** Un-defer trigger: a deliberate focus-treatment pass across the whole popover.
-
-- **[P3] Caret lacks `shadow-popover`.** A drop shadow on a rotated 10px diamond casts an odd
-  smudge rather than continuing the panel's elevation; the caret reads as continuous with the
-  panel via matching `bg-surface` + border + same `z-40`. **Noted, not changed.**
 
 ### warning-panel-polish (2026-07-22) — impeccable critique deferrals
 

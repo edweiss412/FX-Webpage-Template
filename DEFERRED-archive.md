@@ -129,6 +129,38 @@ Deferred, not accepted as correct: the fix was a new compact row variant on `Pic
 
 From the invariant-8 dual-gate on the `share-hub-fidelity-fixes` diff (Assessment A). The critique wanted a warning tone on the two idle rows. Refuted against the ratified mock: the user-approved mock (`ActionBarMenu-1d.dc.html`) draws the IDLE rotate/reset icons in subtle gray (`color:#5a5b62` on a `currentColor` stroke), identical to the mailto row; the amber `#5c3f00` is the CONFIRM-state warning card only. Warm-toning the idle rows would contradict the mock AND the reserved-accent contract (the band's orange means "this matters now"; a standing warning tint on an always-present control dilutes it). The two-tap confirm + 4s auto-revert is the ratified safety net for these controls (§15 tier-2), and the confirm state carries all the warning weight. Recorded so a future reviewer does not re-derive it. No un-defer trigger — this was never a deferral.
 
+## Share hub focus pass (2026-07-23)
+
+### SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE — [P1/P2/P3] impeccable critique of the fidelity-fix diff — ✅ RESOLVED / RATIFIED
+
+From the invariant-8 dual-gate on the `share-hub-fidelity-fixes` diff (Assessment A, 31/40).
+Final dispositions (graduated by `feat/sharehub-focus-pass`, spec `2026-07-23-sharehub-focus-pass`):
+
+- **[P1] Caret anchored to the kebab, not the opening trigger — RESOLVED** earlier by
+  `fix/sharehub-caret-anchor` (commit `cdf3a1012`): a `useLayoutEffect` measures the opening
+  trigger's centre and sets `caretRightPx`; `right-[17px]` remains the kebab-centred
+  SSR/jsdom fallback. Proof: `T-HUB-CARET` + `T-HUB-CARET-KEBAB` in
+  `tests/e2e/published-review-modal.interactions.spec.ts`.
+- **[P2] Focus-ring inconsistency within the popover — RESOLVED** by the deliberate
+  focus-treatment pass its deferral named as the un-defer trigger. Two-tier recipe (spec §2):
+  every ordinary control (rows, triggers, cancels, mailto, copy, unarchive) is plain
+  `focus-visible:ring-2 focus-visible:ring-focus-ring`; ONLY the three armed destructive
+  confirms (rotate / reset / archive) add `focus-visible:ring-offset-2
+focus-visible:ring-offset-surface`. Supersedes fidelity-fixes spec §4.1's verbatim
+  retention per that ratification's own terms. Also fixed in the same pass: bare
+  `ring-offset-2` without an offset color (Tailwind defaults the gap to `#fff` — a white
+  halo on the dark theme) on the archive non-row variants and the unarchive button.
+  Contract pinned by the "two-tier focus contract" describe block in
+  `tests/components/admin/showpage/shareHub.test.tsx`.
+- **[P3] Caret lacks `shadow-popover` — RATIFIED no-shadow (final).** A drop shadow on the
+  rotated 10px diamond casts a smudge rather than continuing the panel's elevation; the
+  caret reads as continuous with the panel via matching `bg-surface` + border + same `z-40`,
+  and the HoverHelp caret (border-triangle, `components/admin/HoverHelp.tsx:622`) is
+  likewise shadowless. Recorded so a future critique does not re-raise it.
+
+(The refuted "Careful rows carry no visual weight" finding from the same run was never a
+deferral and is recorded under Share hub (2026-07-21) above.)
+
 ## Warning-card guidance length (2026-07-21)
 
 Source: WARNCARD-GUIDANCE-LENGTH-1 ship (`fix/warncard-guidance-length`). Copy-only tighten under the §12.4 lockstep; no behavioral change.
