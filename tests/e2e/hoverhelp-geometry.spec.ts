@@ -357,7 +357,6 @@ test.describe("T6 document integrity + coordinates", () => {
     page,
   }) => {
     const INITIAL_SCROLL_Y = 1200; // matches the existing scrolly-case scroll depth
-    const SCROLL_DELTA = 60;
     await page.goto(`${baseUrl}/live.html?case=scrolly`);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
     await page.evaluate((y) => window.scrollTo(0, y), INITIAL_SCROLL_Y);
