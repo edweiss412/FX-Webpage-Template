@@ -52,3 +52,5 @@ Two scoped Codex reviews (split-review default): CORE (capture pipeline) NEEDS-A
 - F7 concurrency tautology removed; timer proof now `vi.getTimerCount()` before/after unmount.
 - F8 env-stub hygiene: afterEach unstub, no hard delete of runner env.
 Verification round: re-dispatch of both scopes → see below.
+
+Verification rounds: R2 NEEDS-ATTENTION (4 -> repaired), R3 NEEDS-ATTENTION (2 -> repaired), R4 **APPROVE**.
