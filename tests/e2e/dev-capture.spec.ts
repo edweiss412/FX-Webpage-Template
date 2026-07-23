@@ -109,7 +109,7 @@ function countPixels(png: PNG, rgb: string): number {
   return hits;
 }
 
-async function captureAndUnzip(
+async function captureOnce(
   page: Page,
   clickCapture: () => Promise<void>,
 ): Promise<{ png: PNG; telemetry: Record<string, unknown>; rawJson: string }> {
@@ -127,6 +127,24 @@ async function captureAndUnzip(
     telemetry: JSON.parse(rawJson) as Record<string, unknown>,
     rawJson,
   };
+}
+
+/** Capture with sentinel-retry: React reconciliation can wipe the injected
+ *  sentinel nodes between injection and the clone (SPIKE.md finding 1), so a
+ *  scan miss re-injects and re-captures rather than failing the §3.4 proof.
+ *  A pass is always a genuine capture of live injected content. */
+async function captureAndUnzip(
+  page: Page,
+  clickCapture: () => Promise<void>,
+): Promise<{ png: PNG; telemetry: Record<string, unknown>; rawJson: string }> {
+  let last: Awaited<ReturnType<typeof captureOnce>> | null = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    last = await captureOnce(page, clickCapture);
+    if (countPixels(last.png, RAIL_RGB) >= 1 && countPixels(last.png, CONTENT_RGB) >= 1) {
+      return last;
+    }
+  }
+  return last!;
 }
 
 test.describe("dev-capture full-content proof + redaction (spec §3.4/§4.4)", () => {

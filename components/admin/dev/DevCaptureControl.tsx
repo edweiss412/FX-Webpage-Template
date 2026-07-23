@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { captureShowTelemetry, type CaptureTelemetryRequest } from "@/app/admin/_devCaptureAction";
+import { clientLog } from "@/lib/observe/clientLog";
 import { captureElementPng } from "@/lib/devcapture/captureElement";
 import {
   buildTelemetryDoc,
@@ -110,8 +111,10 @@ export function useDevCapture(opts: {
       if (mounted.current) setState("idle");
     })()
       .catch((err: unknown) => {
-        // eslint-disable-next-line no-console -- spec §7.2: the full error object goes to the browser console; the UI shows fixed copy only
-        console.error("dev capture failed", err);
+        // spec §7.2: the full error object goes to the browser console; the UI
+        // shows fixed copy only. clientLog is the sanctioned console wrapper
+        // (no-console registry, tests/cross-cutting/no-console-exemptions).
+        clientLog("error", "admin.devcapture", "dev capture failed", err);
         if (!mounted.current) return;
         setState("error");
         timer.current = setTimeout(() => {

@@ -11,9 +11,42 @@
  * writers). AGENTS invariant 9: every call destructures { data, error }.
  */
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import type { Page } from "@playwright/test";
 import { expect } from "@playwright/test";
 import { admin } from "./supabaseAdmin";
+
+// Locked-fixture transport (helpers/lockedCrewRestriction.ts pattern): every
+// pending_syncs mutation runs in a psql transaction holding the per-show
+// advisory lock — tests/help/walker-routes.test.ts forbids unlocked PostgREST
+// DML on locked tables under tests/e2e/.
+const databaseUrl =
+  process.env.TEST_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+
+function sqlString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function runLockedSql(driveFileId: string, body: string, label: string): void {
+  const sql = `
+    begin;
+    select pg_advisory_xact_lock(hashtext('show:' || ${sqlString(driveFileId)}));
+    ${body}
+    commit;
+  `;
+  try {
+    execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
+      input: sql,
+      encoding: "utf8",
+    });
+  } catch (err) {
+    throw new Error(
+      `devCaptureStaged ${label} failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
 
 const SETTINGS_FIELDS = [
   "watched_folder_id",
@@ -73,17 +106,17 @@ export async function seedStagedRow(): Promise<string> {
 
   await assertWizardSettings(sessionId);
 
-  const { error: insErr } = await admin.from("pending_syncs").insert({
-    drive_file_id: driveFileId,
-    source_kind: "manual",
-    base_modified_time: null,
-    staged_modified_time: new Date().toISOString(),
-    parse_result: PARSE_RESULT,
-    triggered_review_items: [],
-    warning_summary: "",
-    wizard_session_id: sessionId,
-  });
-  if (insErr) throw new Error(`devCaptureStaged pending_syncs insert failed: ${insErr.message}`);
+  runLockedSql(
+    driveFileId,
+    `insert into public.pending_syncs
+       (drive_file_id, source_kind, base_modified_time, staged_modified_time,
+        parse_result, triggered_review_items, warning_summary, wizard_session_id)
+     values
+       (${sqlString(driveFileId)}, 'manual', null, now(),
+        ${sqlString(JSON.stringify(PARSE_RESULT))}::jsonb, '[]'::jsonb, '',
+        ${sqlString(sessionId)}::uuid);`,
+    "pending_syncs insert",
+  );
 
   // Step3 rows derive from onboarding_scan_manifest (status staged/applied)
   // joined to the session's pending_syncs rows — without the manifest row the
@@ -102,8 +135,11 @@ export async function seedStagedRow(): Promise<string> {
 }
 
 export async function cleanupStagedRow(driveFileId: string): Promise<void> {
-  const { error } = await admin.from("pending_syncs").delete().eq("drive_file_id", driveFileId);
-  if (error) throw new Error(`devCaptureStaged cleanup delete failed: ${error.message}`);
+  runLockedSql(
+    driveFileId,
+    `delete from public.pending_syncs where drive_file_id = ${sqlString(driveFileId)};`,
+    "pending_syncs cleanup",
+  );
   const { error: maniDelErr } = await admin
     .from("onboarding_scan_manifest")
     .delete()
