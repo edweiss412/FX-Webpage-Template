@@ -26,12 +26,19 @@
 
 ## File structure
 
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - `lib/devcapture/redact.ts` — pure value+key walk (email/hex/JWT, commitSha shape-gated exemption).
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - `lib/devcapture/bundle.ts` — telemetry assembly + redaction + fflate zip + filename + download (objectURL lifecycle).
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - `lib/devcapture/captureElement.ts` — DOM-to-image wrapper (library per spike).
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - `components/admin/dev/DeveloperFlagContext.tsx` — provider + `useViewerIsDeveloper`.
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - `components/admin/dev/snapshots.ts` — `buildPublishedSnapshot` / `buildStagedSnapshot` allowlists.
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - `components/admin/dev/DevCaptureControl.tsx` — `useDevCapture` hook.
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - `app/admin/_devCaptureAction.ts` — `"use server"` telemetry action.
 - Modified: `lib/observe/query/types.ts`, `lib/observe/query/alerts.ts`, `lib/observe/query/failures.ts`, `app/admin/layout.tsx`, `components/admin/showpage/ShareHub.tsx`, `components/admin/wizard/Step3ReviewModal.tsx`, `tests/log/mutationSurface/exemptions.ts`.
 
@@ -40,24 +47,32 @@
 ### Task 1: Capture-library spike (§3.3)
 
 **Files:**
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create: `docs/superpowers/plans/2026-07-22-dev-modal-capture/SPIKE.md`
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create (temporary, committed with SPIKE.md, deleted in Task 7 if unused): `scripts/devcapture-spike.mjs`
 
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 **Interfaces:** Produces the library decision + exact clone-override list consumed by Task 7's `captureElement.ts`.
 
 - [ ] **Step 1:** `pnpm add -D html-to-image modern-screenshot html2canvas` (all three as devDeps; winner promoted to `dependencies` in Task 7, losers removed).
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] **Step 2:** Write `scripts/devcapture-spike.mjs` — Playwright chromium script that (a) boots `pnpm dev` (reuse the port/readiness pattern from `playwright.config.ts` webServer), (b) signs in via `tests/e2e/helpers/signInAs.ts` flow (POST `/api/test-auth/set-session`, `ENABLE_TEST_AUTH=true`), (c) seeds a published show via the existing e2e seed helper (`tests/e2e/helpers/seedShowWithCrew.ts`), (d) opens the published review modal, (e) for each candidate library: `page.addScriptTag` its IIFE/dist build, evaluate a capture of `[data-review-modal-panel]` twice — once as-is, once with clone-side overrides lifting `max-height`/`overflow` on the panel and the two inner panes (`ShowReviewSurface` rail + main pane) — and save PNGs to `scratch/spike/<lib>-{plain,expanded}.png`.
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] **Step 3:** Evaluate per §3.3: (a) full-height expansion achievable, (b) CSS fidelity (`shadow-(--shadow-tile)`, `overflow-clip`, rounded corners, tokens — visual inspection of PNGs), (c) bundle cost (`npm view <lib> dist.unpackedSize` + minified size). Record a decision table + the exact clone-override list in `SPIKE.md`.
 - [ ] **Step 4:** Commit: `git add docs/superpowers/plans/2026-07-22-dev-modal-capture/SPIKE.md scripts/devcapture-spike.mjs package.json pnpm-lock.yaml && git commit --no-verify -m "chore(admin): dev-modal-capture library spike findings"`
 
 ### Task 2: Redaction core (§4.5)
 
 **Files:**
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create: `lib/devcapture/redact.ts`
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Test: `tests/devcapture/redact.test.ts`
 
 **Interfaces:** Produces `redactTelemetry(doc: unknown): unknown` (deep-copies; applies rules to every string value AND key; exempts `meta.commitSha`/`server.commitSha` from the hex rule only when exactly 40 hex). Consumed by Task 3.
 
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] **Step 1: Failing test** — `tests/devcapture/redact.test.ts`:
 
 ```ts
@@ -90,6 +105,17 @@ describe("redactTelemetry", () => {
     expect(snap["boundary"]).toBe("[redacted]");
     expect(snap["under"]).toBe(HEX31);
     expect(snap["jwt"]).toBe("prefix [redacted] suffix");
+  });
+
+  it("applies rules in spec order (email, hex, JWT) on overlapping shapes", () => {
+    // A JWT whose middle segment is a 32-hex run: hex rule (2) fires inside it
+    // before the JWT rule (3) sees the whole; the final string must contain no
+    // hex run and no JWT shape either way - order pinned by exact output.
+    const overlap = `eyJhead.${"a".repeat(32)}.tail0`;
+    const out = redactTelemetry({ meta: {}, clientSnapshot: { overlap }, server: {} }) as {
+      clientSnapshot: { overlap: string };
+    };
+    expect(out.clientSnapshot.overlap).toBe("eyJhead.[redacted].tail0");
   });
 
   it("applies the same rules to keys; legit identifiers survive", () => {
@@ -127,11 +153,12 @@ describe("redactTelemetry", () => {
 ```
 
 - [ ] **Step 2:** `pnpm vitest run tests/devcapture/redact.test.ts` — FAIL (module not found).
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] **Step 3: Implementation** — `lib/devcapture/redact.ts`:
 
 ```ts
 /**
- * lib/devcapture/redact.ts — §4.5 value-walk redaction for the dev capture
+ * lib/devcapture/redact.ts - §4.5 value-walk redaction for the dev capture
  * bundle. Pure; no imports. Applies three rules to every string VALUE and
  * every object KEY in the tree:
  *   1. email grammar        -> "[email redacted]"
@@ -146,9 +173,10 @@ const JWT_RE = /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
 const SHA40_RE = /^[0-9a-f]{40}$/i;
 
 function redactString(s: string, hexExempt: boolean): string {
-  let out = s.replace(EMAIL_RE, "[email redacted]").replace(JWT_RE, "[redacted]");
+  // §4.5 rule order is fixed: email (1), hex (2), JWT (3).
+  let out = s.replace(EMAIL_RE, "[email redacted]");
   if (!(hexExempt && SHA40_RE.test(s))) out = out.replace(HEX_RE, "[redacted]");
-  return out;
+  return out.replace(JWT_RE, "[redacted]");
 }
 
 function walk(node: unknown, path: readonly string[]): unknown {
@@ -181,16 +209,19 @@ export function redactTelemetry(doc: unknown): unknown {
 ### Task 3: Bundle + filename + download core (§4, §4.3 pipeline steps 2-3, §4.5 order, §6)
 
 **Files:**
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create: `lib/devcapture/bundle.ts`
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Test: `tests/devcapture/bundle.test.ts` (jsdom for the download part — pragma `// @vitest-environment jsdom`)
 
 **Interfaces:**
 - Consumes `redactTelemetry` (Task 2).
 - Produces:
   - `buildTelemetryDoc(input: { meta: TelemetryMeta; clientSnapshot: unknown; server: unknown }): unknown` — snapshot stringify→parse (drop functions), 1,000,000-char bound → `{ kind: "too_large", chars }`, throw → `{ kind: "unserializable", reason: "serialize_threw" }`, then `redactTelemetry` over the whole doc.
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
   - `zipBundle(png: Uint8Array, telemetryJson: string): Uint8Array` — fflate `zipSync`, entries exactly `screenshot.png` (level 0) + `telemetry.json`.
   - `bundleFilename(seed: string, now: Date): string` — sanitize `[^a-z0-9-]`, truncate 64, empty→`show`, stamp `YYYYMMDD-HHmmss` local.
-  - `downloadBlob(bytes: Uint8Array, filename: string): void` — objectURL + anchor click; revoke in `finally`.
+  - `downloadBlob(bytes: Uint8Array, filename: string, shouldClick?: () => boolean): void` — creates the objectURL, clicks ONLY if `shouldClick?.() !== false` (the hook passes `() => mounted.current`, implementing §6's unmount-between-create-and-click path), revokes in `finally` on every path (success, click-throw, skipped click).
   - `type TelemetryMeta = { capturedAt: string; commitSha: string | null; url: string; userAgent: string; viewport: { w: number; h: number; dpr: number }; modalKind: "published" | "staged"; showId: string | null; driveFileId: string | null; panelRect: { w: number; h: number } }`.
 
 - [ ] **Step 1: Failing tests** (complete file):
@@ -271,7 +302,7 @@ describe("bundleFilename", () => {
 
 describe("downloadBlob", () => {
   afterEach(() => vi.restoreAllMocks());
-  it("revokes the created URL on success AND when the click throws", () => {
+  it("revokes on success, on click-throw, and on skipped click (shouldClick false)", () => {
     const create = vi.fn(() => "blob:u1");
     const revoke = vi.fn();
     vi.stubGlobal("URL", { ...URL, createObjectURL: create, revokeObjectURL: revoke });
@@ -279,22 +310,28 @@ describe("downloadBlob", () => {
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => undefined);
     downloadBlob(new Uint8Array([1]), "f.zip");
+    expect(click).toHaveBeenCalledTimes(1);
     expect(revoke).toHaveBeenCalledWith("blob:u1");
     click.mockImplementation(() => {
       throw new Error("boom");
     });
     expect(() => downloadBlob(new Uint8Array([1]), "f.zip")).toThrow("boom");
     expect(revoke).toHaveBeenCalledTimes(2);
+    click.mockImplementation(() => undefined);
+    downloadBlob(new Uint8Array([1]), "f.zip", () => false); // owner unmounted
+    expect(click).toHaveBeenCalledTimes(2); // NOT called a third time
+    expect(revoke).toHaveBeenCalledTimes(3); // still revoked
   });
 });
 ```
 
 - [ ] **Step 2:** Run — FAIL (module not found).
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] **Step 3: Implementation** — `lib/devcapture/bundle.ts`:
 
 ```ts
 /**
- * lib/devcapture/bundle.ts — telemetry assembly (§4), snapshot bounds (§4.3),
+ * lib/devcapture/bundle.ts - telemetry assembly (§4), snapshot bounds (§4.3),
  * document-wide redaction ordering (§4.5), zip + filename + download (§6).
  * Client-only. No lib/log import (reading telemetry never writes it).
  */
@@ -357,9 +394,14 @@ export function bundleFilename(seed: string, now: Date): string {
   return `dev-capture-${clean}-${stamp}.zip`;
 }
 
-export function downloadBlob(bytes: Uint8Array, filename: string): void {
+export function downloadBlob(
+  bytes: Uint8Array,
+  filename: string,
+  shouldClick?: () => boolean,
+): void {
   const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/zip" }));
   try {
+    if (shouldClick?.() === false) return; // owner unmounted between create and click (§6)
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
@@ -379,6 +421,7 @@ export function downloadBlob(bytes: Uint8Array, filename: string): void {
 - Modify: `lib/observe/query/types.ts:17-22` (`AlertFilters` + `showIdOrGlobal?: string`), `lib/observe/query/types.ts:82-88` (`FailureFilters` + `driveFileId?: string`)
 - Modify: `lib/observe/query/alerts.ts` (inside `queryAlerts`, after the existing filter chain, before `.limit`): `if (filters.showIdOrGlobal) query = query.or(\`show_id.eq.${filters.showIdOrGlobal},show_id.is.null\`);`
 - Modify: `lib/observe/query/failures.ts` (same position): `if (filters.driveFileId) query = query.eq("drive_file_id", filters.driveFileId);`
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Test: `tests/devcapture/readCoreFilters.test.ts`
 
 **Interfaces:** Produces the two optional filter fields consumed by Task 5. NOTE: match each file's existing builder-variable naming convention exactly (`alerts.ts` chains on its local builder; see the `_metaInfraContract` comment in `events.ts:64-79` about builder-name tracking before renaming anything).
@@ -391,7 +434,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const calls: Array<[string, ...unknown[]]> = [];
 function makeBuilder(): Record<string, unknown> {
   const b: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "gte", "in", "or", "ilike", "order", "limit"]) {
+  for (const m of ["select", "eq", "gte", "in", "or", "ilike", "is", "order", "limit"]) {
     b[m] = (...args: unknown[]) => {
       calls.push([m, ...args]);
       return m === "limit" ? Promise.resolve({ data: [], error: null, count: 0 }) : b;
@@ -419,7 +462,7 @@ describe("read-core capture filters", () => {
 });
 ```
 
-(Executor: adjust the terminal-await shape to each file's real chain — `alerts.ts` ends `.order(...).limit(...)`; make the LAST chained method return the resolved `{ data, error }` promise. Verify against the live file first; the assertion targets `calls`, the data source, not the result.)
+(Builder method list includes `is` — `queryAlerts({ openOnly: true })` chains `.is("resolved_at", null)`. Executor: verify each file's real chain FIRST (`rg '\.(is|or|eq|order|limit)\(' lib/observe/query/alerts.ts lib/observe/query/failures.ts`) and make the file's LAST chained method return the resolved `{ data, error, count }` promise; if a chain method is missing from the mock the test dies on TypeError instead of proving the filter — that is a mock bug, fix the mock. The assertion targets `calls`, the data source, not the result.)
 
 - [ ] **Step 2:** Run — FAIL (`or` never called / type error: unknown field).
 - [ ] **Step 3:** Implement the two type fields + two filter branches.
@@ -429,8 +472,10 @@ describe("read-core capture filters", () => {
 ### Task 5: Telemetry server action (§5, §4.2) + exemption row (invariant 10)
 
 **Files:**
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create: `app/admin/_devCaptureAction.ts`
 - Modify: `tests/log/mutationSurface/exemptions.ts:75` area (add row to `ADMIN_SURFACE_EXEMPTIONS`)
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Test: `tests/admin/devCaptureAction.test.ts`
 
 **Interfaces:**
@@ -442,23 +487,39 @@ export type CaptureTelemetryRequest =
   | { kind: "published"; showId: string }
   | { kind: "staged"; driveFileId: string };
 export type CaptureList<T> = { rows: T[]; truncated: boolean };
+export type CaptureInfraError = { kind: "infra_error"; message: string };
+export type CaptureSection<T> = CaptureList<T> | CaptureInfraError; // §4.2 verbatim infra_error embedding
 export type CaptureTelemetryResult =
   | { kind: "bad_request" }
-  | { kind: "ok"; commitSha: string | null; events?: unknown; alerts?: CaptureList<unknown>;
-      syncLog?: CaptureList<unknown>; staged?: CaptureList<unknown>; failures?: CaptureList<unknown> };
+  | { kind: "ok"; commitSha: string | null;
+      events?: CaptureSection<unknown>;  // events truncated = read-core hasMore
+      alerts?: CaptureSection<unknown>; syncLog?: CaptureSection<unknown>;
+      staged?: CaptureSection<unknown>; failures?: CaptureSection<unknown> };
 ```
 
-- [ ] **Step 1: Failing test** — `tests/admin/devCaptureAction.test.ts`. Mock `@/lib/auth/requireDeveloper` (spy `requireDeveloper`), mock the five read-core modules. Cases: (a) gate called first — read-core NOT called when request invalid (`{ kind: "published", showId: "not-a-uuid" }` → `bad_request`, zero read-core invocations); (b) published happy path — mocks return 101/51 rows → embedded 100/50 + `truncated: true`; exactly 100 → `truncated: false`; (c) `infra_error` sub-result embedded verbatim; (d) nested `warnings` array of 201 entries → capped 200 + `warningsTruncated: true`; (e) `VERCEL_GIT_COMMIT_SHA` env of 64-hex → `commitSha: null`; 40-hex → passed through (use `vi.stubEnv`); (f) staged path: `queryStagedParses` called with `{ driveFileId, sinceHours: 168, limit: 11 }`, failures with `driveFileId`.
-- [ ] **Step 2:** Run — FAIL. Also run `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts` — FAIL (new unregistered `"use server"` surface) once the file exists in Step 3; that failure is the invariant-10 TDD signal.
+Runtime validation is fail-closed via an explicit shape guard (`parseRequest`), never the TS union alone.
+
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+- [ ] **Step 1: Failing test** — `tests/admin/devCaptureAction.test.ts`. Mock `@/lib/auth/requireDeveloper` (spy `requireDeveloper`), mock the five read-core modules. Full matrix:
+  - (a) **Gate-first, both directions:** gate mock REJECTS (forbidden) → action rejects AND zero read-core calls; gate resolves + invalid request → `bad_request` with zero read-core calls (gate still called exactly once, asserted via call order: gate spy invoked before any read-core spy).
+  - (b) **Fail-closed shape guard** (each returns `bad_request`, zero read-core calls): `null`, `undefined`, `42`, `{}`, `{ kind: "published" }` (missing showId), `{ kind: "published", showId: "not-a-uuid" }`, `{ kind: "staged" }`, `{ kind: "staged", driveFileId: 7 }`, `{ kind: "staged", driveFileId: "" }`, `{ kind: "staged", driveFileId: "x".repeat(129) }`, `{ kind: "other" }`. (Cast through `unknown` to bypass TS.)
+  - (c) **Probe-row truncation, all four lists × three cases:** cap+1 rows → embedded length == cap AND `truncated: true`; exactly cap → `truncated: false`; fewer → `truncated: false`. Caps: alerts 100, syncLog 50, staged 10, failures 100.
+  - (d) **Events mapping:** read-core `{ kind: "ok", events: [...], hasMore: true }` → embedded `{ rows, truncated: true }`; `hasMore: false` → `truncated: false`.
+  - (e) **infra_error embedding, all five:** each of events/alerts/syncLog/staged/failures independently returning `{ kind: "infra_error", message }` is embedded verbatim while siblings stay `ok`.
+  - (f) **Nested warnings caps, exact spec surface:** staged row `warnings` of 201 → capped 200 + sibling `warningsTruncated: true`; failures row `lastWarnings` of 201 → capped 200 + sibling `warningsTruncated: true` (marker name IS `warningsTruncated` for both, spec §4.2); syncLog rows pass through UNTRANSFORMED (no cap, no marker — §4.2 enumerates only the two arrays).
+  - (g) **commitSha env gate:** 64-hex env → `null`; 40-hex → passed through; unset → `null` (`vi.stubEnv`).
+  - (h) **Filter plumbing:** staged called with `{ driveFileId, sinceHours: 168, limit: 11 }`; failures with `driveFileId` + `limit: 101`; alerts with `showIdOrGlobal` + `limit: 101`; syncLog with `limit: 51`.
+- [ ] **Step 2:** Run — FAIL (module not found). (The invariant-10 meta-test sequencing lives in Step 4/5: the moment Step 3 creates the `"use server"` file, `tests/log/_metaMutationSurfaceObservability.test.ts` goes red — run it then to OBSERVE the red — and Step 4's registry row turns it green. That red-then-green pair is the invariant-10 proof; it cannot precede file creation and the plan does not pretend otherwise.)
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - [ ] **Step 3: Implementation** — `app/admin/_devCaptureAction.ts`:
 
 ```ts
 "use server";
 /**
- * app/admin/_devCaptureAction.ts — §5 of the dev-modal-capture spec.
+ * app/admin/_devCaptureAction.ts - §5 of the dev-modal-capture spec.
  * Developer-gated READ-ONLY telemetry pull for the capture bundle. Deliberately
  * NOT under app/admin/dev/ (that tree is build-gated aside in prod;
- * scripts/with-admin-dev-flag.mjs FILES list) — this surface ships to prod
+ * scripts/with-admin-dev-flag.mjs FILES list) - this surface ships to prod
  * for developer users. No lib/log import; no direct Supabase calls (read-core
  * only). Registered read-only in ADMIN_SURFACE_EXEMPTIONS (invariant 10).
  */
@@ -490,19 +551,36 @@ const SHA40_RE = /^[0-9a-f]{40}$/i;
 const SINCE_HOURS = 168; // §10
 const WARNINGS_CAP = 200; // §10
 
+function parseRequest(input: unknown): CaptureTelemetryRequest | null {
+  if (input === null || typeof input !== "object") return null;
+  const r = input as Record<string, unknown>;
+  if (r["kind"] === "published" && typeof r["showId"] === "string" && UUID_RE.test(r["showId"])) {
+    return { kind: "published", showId: r["showId"] };
+  }
+  if (
+    r["kind"] === "staged" &&
+    typeof r["driveFileId"] === "string" &&
+    r["driveFileId"].length > 0 &&
+    r["driveFileId"].length <= 128
+  ) {
+    return { kind: "staged", driveFileId: r["driveFileId"] };
+  }
+  return null;
+}
+
 function probeList<T>(rows: readonly T[], cap: number): CaptureList<T> {
   return { rows: rows.slice(0, cap) as T[], truncated: rows.length > cap };
 }
 
-function capNestedWarnings(row: unknown): unknown {
+/** §4.2: cap EXACTLY the enumerated nested arrays; the sibling marker is
+ * `warningsTruncated` for both (staged `warnings`, failure `lastWarnings`). */
+function capNestedWarnings(row: unknown, key: "warnings" | "lastWarnings"): unknown {
   if (row === null || typeof row !== "object") return row;
   const r = { ...(row as Record<string, unknown>) };
-  for (const key of ["warnings", "lastWarnings"]) {
-    const v = r[key];
-    if (Array.isArray(v) && v.length > WARNINGS_CAP) {
-      r[key] = v.slice(0, WARNINGS_CAP);
-      r[`${key}Truncated`] = true;
-    }
+  const v = r[key];
+  if (Array.isArray(v) && v.length > WARNINGS_CAP) {
+    r[key] = v.slice(0, WARNINGS_CAP);
+    r["warningsTruncated"] = true;
   }
   return r;
 }
@@ -516,49 +594,39 @@ export async function captureShowTelemetry(
   request: CaptureTelemetryRequest,
 ): Promise<CaptureTelemetryResult> {
   await requireDeveloper();
-  if (request.kind === "published") {
-    if (!UUID_RE.test(request.showId)) return { kind: "bad_request" };
+  const parsed = parseRequest(request);
+  if (parsed === null) return { kind: "bad_request" };
+  if (parsed.kind === "published") {
     const [events, alerts, syncLog] = await Promise.all([
-      queryEvents({ showId: request.showId, sinceHours: SINCE_HOURS }),
-      queryAlerts({ openOnly: true, limit: 101, showIdOrGlobal: request.showId }),
-      querySyncLog({ showId: request.showId, sinceHours: SINCE_HOURS, limit: 51 }),
+      queryEvents({ showId: parsed.showId, sinceHours: SINCE_HOURS }),
+      queryAlerts({ openOnly: true, limit: 101, showIdOrGlobal: parsed.showId }),
+      querySyncLog({ showId: parsed.showId, sinceHours: SINCE_HOURS, limit: 51 }),
     ]);
     return {
       kind: "ok",
       commitSha: envCommitSha(),
       events:
-        events.kind === "ok"
-          ? { rows: events.events, truncated: events.hasMore }
-          : events,
-      alerts:
-        alerts.kind === "ok" ? probeList(alerts.alerts, 100) : (alerts as never),
-      syncLog:
-        syncLog.kind === "ok"
-          ? probeList(syncLog.rows.map(capNestedWarnings), 50)
-          : (syncLog as never),
+        events.kind === "ok" ? { rows: events.events, truncated: events.hasMore } : events,
+      alerts: alerts.kind === "ok" ? probeList(alerts.alerts, 100) : alerts,
+      syncLog: syncLog.kind === "ok" ? probeList(syncLog.rows, 50) : syncLog,
     };
   }
-  if (request.kind === "staged") {
-    const id = request.driveFileId;
-    if (id.length === 0 || id.length > 128) return { kind: "bad_request" };
-    const [staged, failures] = await Promise.all([
-      queryStagedParses({ driveFileId: id, sinceHours: SINCE_HOURS, limit: 11 }),
-      queryIngestFailures({ sinceHours: SINCE_HOURS, limit: 101, driveFileId: id }),
-    ]);
-    return {
-      kind: "ok",
-      commitSha: envCommitSha(),
-      staged:
-        staged.kind === "ok"
-          ? probeList(staged.rows.map(capNestedWarnings), 10)
-          : (staged as never),
-      failures:
-        failures.kind === "ok"
-          ? probeList(failures.rows.map(capNestedWarnings), 100)
-          : (failures as never),
-    };
-  }
-  return { kind: "bad_request" };
+  const [staged, failures] = await Promise.all([
+    queryStagedParses({ driveFileId: parsed.driveFileId, sinceHours: SINCE_HOURS, limit: 11 }),
+    queryIngestFailures({ sinceHours: SINCE_HOURS, limit: 101, driveFileId: parsed.driveFileId }),
+  ]);
+  return {
+    kind: "ok",
+    commitSha: envCommitSha(),
+    staged:
+      staged.kind === "ok"
+        ? probeList(staged.rows.map((r) => capNestedWarnings(r, "warnings")), 10)
+        : staged,
+    failures:
+      failures.kind === "ok"
+        ? probeList(failures.rows.map((r) => capNestedWarnings(r, "lastWarnings")), 100)
+        : failures,
+  };
 }
 ```
 
@@ -570,8 +638,10 @@ export async function captureShowTelemetry(
 ### Task 6: DeveloperFlagContext + layout wiring (§2.1)
 
 **Files:**
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create: `components/admin/dev/DeveloperFlagContext.tsx`
-- Modify: `app/admin/layout.tsx` (wrap children with the provider; `viewerIsDeveloper` already resolved at `:77`)
+- Modify: `app/admin/layout.tsx` (wrap children with the provider; `viewerIsDeveloper` already resolved at `app/admin/layout.tsx:77`)
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Test: `tests/devcapture/developerFlagContext.test.tsx` (jsdom)
 
 **Interfaces:** Produces `DeveloperFlagProvider` + `useViewerIsDeveloper(): boolean` (no provider → `false`). Consumed by Tasks 7-8.
@@ -612,11 +682,11 @@ describe("DeveloperFlagContext", () => {
 ```tsx
 "use client";
 /**
- * components/admin/dev/DeveloperFlagContext.tsx — §2.1. Visibility-only
+ * components/admin/dev/DeveloperFlagContext.tsx - §2.1. Visibility-only
  * developer flag, resolved server-side in app/admin/layout.tsx via
  * isCurrentUserDeveloper() (fail-to-false) and provided panel-wide so deep
  * mounts (ShareHub kebab, Step3 header) need no prop drilling. NOT a
- * security gate — the capture action enforces requireDeveloper() itself.
+ * security gate - the capture action enforces requireDeveloper() itself.
  */
 import { createContext, useContext, type ReactNode } from "react";
 
@@ -639,14 +709,18 @@ export function useViewerIsDeveloper(): boolean {
 ```
 
 Layout edit: wrap the layout's returned children subtree with `<DeveloperFlagProvider viewerIsDeveloper={viewerIsDeveloper}>` (executor: locate the single return of the children region in `app/admin/layout.tsx` — wrap at the outermost point common to BOTH the full-nav branch and the slim onboarding branch so the wizard chain gets the flag too).
-- [ ] **Step 4:** Run test + `pnpm build` sanity (client component imported from a server layout is a legal boundary). **Step 5:** Commit `feat(admin): developer flag context provided from admin layout`.
+- [ ] **Step 4:** Run test + `pnpm build` sanity (client component imported from a server layout is a legal boundary). TDD honesty note: the unit test proves the CONTEXT only; the layout WIRING has no jsdom-reachable proof (server layout) — its executable proof is Task 9's dev/non-dev e2e, which flows through the real layout, plus the build. Declared here, not pretended otherwise. **Step 5:** Commit `feat(admin): developer flag context provided from admin layout`.
 
 ### Task 7: Capture element + snapshots + useDevCapture hook (§3, §4.3, §7)
 
 **Files:**
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create: `lib/devcapture/captureElement.ts` (library per SPIKE.md; promote winner to `dependencies`, `pnpm remove` the losers; delete `scripts/devcapture-spike.mjs`)
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create: `components/admin/dev/snapshots.ts`
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Create: `components/admin/dev/DevCaptureControl.tsx`
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Test: `tests/devcapture/snapshots.test.ts`, `tests/devcapture/useDevCapture.test.tsx` (jsdom)
 
 **Interfaces:**
@@ -655,14 +729,30 @@ Layout edit: wrap the layout's returned children subtree with `<DeveloperFlagPro
 - `buildStagedSnapshot(p: StagedSnapshotInput): Record<string, unknown>` — §4.3 staged; `resolution` omitted when absent, else `{ stagedId, reviewItemsCorrupt, isPublishRunActive, triggeredReviewItemCount }`.
 - `useDevCapture(opts: { target: () => HTMLElement | null; request: CaptureTelemetryRequest; clientSnapshot: () => unknown; filenameSeed: string }): { state: "idle" | "busy" | "error"; run: () => void }` — §7 machine: concurrent capture+action, §4.5 reason classification, screenshot-reject ⇒ error, telemetry-reject ⇒ proceed, mounted-ref guard, 6 s error auto-clear with cleanup, busy no-reentry.
 
-- [ ] **Step 1: Failing tests.** `snapshots.test.ts`: published fixture with `crewEmails`, `pickerCrew`, a function prop, 51 attentionItems + 51 feed entries → output lacks excluded keys, arrays len 50, both `*Truncated: true`; 50 exactly → no marker key. Staged fixture without `resolution` → key absent; with resolution (2 triggered items + callbacks) → the exact 4-field projection. `useDevCapture.test.tsx`: mock `captureElementPng`, mock action module, spy `downloadBlob`; assert the §7 matrix rows: no-reentry, screenshot-reject error + telemetry-success, telemetry-reject success with `server:{kind:"unavailable",reason:"network_error"}` and `meta.commitSha` null, `target()` null → error with capture util never called, unmount mid-busy → no download + timer cleared (fake timers) — the download spy also lets us assert the doc actually passed through `buildTelemetryDoc` (feed a fixture email in snapshot, assert redacted in the JSON handed to `zipBundle`). Write the assertions against the JSON string given to `zipBundle` (data-source, not UI).
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+- [ ] **Step 1: Failing tests.** `snapshots.test.ts`: published fixture with `crewEmails`, `pickerCrew`, a function prop, 51 attentionItems + 51 feed entries → output lacks excluded keys, arrays len 50, both `*Truncated: true`; 50 exactly → no marker key. Staged fixture without `resolution` → key absent; with resolution (2 triggered items + callbacks) → the exact 4-field projection. `useDevCapture.test.tsx` (mock `captureElementPng` and the ACTION module; use the REAL `bundle.ts` with spies on `URL.createObjectURL`/`revokeObjectURL` and `HTMLAnchorElement.prototype.click` so download/revocation are proven at hook level, not mocked away) — full §7 matrix:
+  - single-flight: two synchronous `run()` calls in one tick → `captureElementPng` invoked once (inFlight-ref proof, not state-closure);
+  - concurrency: deferred capture + deferred action; assert BOTH were invoked before either resolves;
+  - screenshot-reject ⇒ error even when telemetry resolved ok;
+  - telemetry rejection ⇒ success, `server: { kind: "unavailable", reason: "network_error" }`, `meta.commitSha` null;
+  - resolved `{ kind: "bad_request" }` ⇒ reason `"bad_request"`; resolved `null` and resolved `{ junk: 1 }` ⇒ reason `"action_failed"` (no throw);
+  - `clientSnapshot()` throwing ⇒ run still SUCCEEDS with `clientSnapshot: { kind: "unserializable", reason: "serialize_threw" }`;
+  - `target()` null ⇒ error state, `captureElementPng` never called;
+  - published request ⇒ `meta.driveFileId === null`; staged request ⇒ `meta.showId === null`;
+  - `meta.url` from a stubbed `location` with query+hash contains neither;
+  - NaN/Infinity stubs for `innerWidth`/`devicePixelRatio`/rect ⇒ 0 in `meta`;
+  - error → rerun before the 6 s timer fires ⇒ old timer cleared (advance timers past 6 s mid-second-run; state stays `busy`);
+  - unmount while `error` timer active ⇒ timer cleared, no late setState (fake timers + act warnings clean);
+  - unmount mid-busy ⇒ anchor click NOT called, `revokeObjectURL` STILL called with the created URL;
+  - happy path ⇒ click called, revoke called;
+  - redaction integration: fixture email in snapshot ⇒ absent from the JSON string handed to the zip (assert via the blob bytes passed to `createObjectURL`'s Blob or by spying `zipBundle`) — data-source assertion.
 - [ ] **Step 2:** Run — FAIL.
 - [ ] **Step 3:** Implement the three files. `useDevCapture` core shape:
 
 ```tsx
 "use client";
 /**
- * components/admin/dev/DevCaptureControl.tsx — §2.4/§7 shared orchestration.
+ * components/admin/dev/DevCaptureControl.tsx - §2.4/§7 shared orchestration.
  * State machine idle -> busy -> idle|error; all transitions instant (§7.4).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -683,6 +773,18 @@ function finite(n: number): number {
   return Number.isFinite(n) ? n : 0; // §7.3 non-finite normalization
 }
 
+/** §4.5 deterministic reason classification for a RESOLVED action result. */
+function classifyResolved(
+  r: unknown,
+): { kind: "ok"; [k: string]: unknown } | { kind: "unavailable"; reason: "bad_request" | "action_failed" } {
+  if (r !== null && typeof r === "object" && "kind" in r) {
+    const k = (r as { kind: unknown }).kind;
+    if (k === "ok") return r as { kind: "ok" };
+    if (k === "bad_request") return { kind: "unavailable", reason: "bad_request" };
+  }
+  return { kind: "unavailable", reason: "action_failed" }; // null/undefined/junk resolved shapes
+}
+
 export function useDevCapture(opts: {
   target: () => HTMLElement | null;
   request: CaptureTelemetryRequest;
@@ -690,6 +792,7 @@ export function useDevCapture(opts: {
   filenameSeed: string;
 }): { state: DevCaptureState; run: () => void } {
   const [state, setState] = useState<DevCaptureState>("idle");
+  const inFlight = useRef(false); // SYNCHRONOUS single-flight guard (state alone races two same-tick runs)
   const mounted = useRef(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -701,23 +804,29 @@ export function useDevCapture(opts: {
   );
 
   const run = useCallback(() => {
-    if (state === "busy") return;
+    if (inFlight.current) return;
+    inFlight.current = true;
+    if (timer.current !== null) {
+      clearTimeout(timer.current); // error -> busy rerun: stale auto-clear must not fire mid-run
+      timer.current = null;
+    }
     setState("busy");
     void (async () => {
       const el = opts.target();
       if (el === null) throw new Error("capture target unmounted");
       const rect = el.getBoundingClientRect();
+      // Concurrent by construction: both promises created before either await.
       const [png, server] = await Promise.all([
         captureElementPng(el).then((b) => b.arrayBuffer()),
-        captureShowTelemetry(opts.request).then(
-          (r) =>
-            r.kind === "ok"
-              ? r
-              : ({ kind: "unavailable", reason: r.kind === "bad_request" ? "bad_request" : "action_failed" } as const),
-          () => ({ kind: "unavailable", reason: "network_error" }) as const,
-        ),
+        captureShowTelemetry(opts.request).then(classifyResolved, () => ({
+          kind: "unavailable" as const,
+          reason: "network_error" as const,
+        })),
       ]);
-      const commitSha = "commitSha" in server ? server.commitSha : null;
+      const commitSha =
+        server.kind === "ok" && typeof server["commitSha"] === "string"
+          ? (server["commitSha"] as string)
+          : null;
       const meta: TelemetryMeta = {
         capturedAt: new Date().toISOString(),
         commitSha,
@@ -733,58 +842,91 @@ export function useDevCapture(opts: {
         driveFileId: opts.request.kind === "staged" ? opts.request.driveFileId : null,
         panelRect: { w: finite(rect.width), h: finite(rect.height) },
       };
-      const doc = buildTelemetryDoc({ meta, clientSnapshot: opts.clientSnapshot(), server });
-      if (!mounted.current) return;
+      // clientSnapshot() may throw (§7.3): degrade, never fail the run.
+      let snapshot: unknown;
+      try {
+        snapshot = opts.clientSnapshot();
+      } catch {
+        snapshot = { kind: "unserializable", reason: "serialize_threw" };
+      }
+      const doc = buildTelemetryDoc({ meta, clientSnapshot: snapshot, server });
       downloadBlob(
         zipBundle(new Uint8Array(png), JSON.stringify(doc)),
         bundleFilename(opts.filenameSeed, new Date()),
+        () => mounted.current, // §6: unmount between URL creation and click
       );
       if (mounted.current) setState("idle");
-    })().catch((err: unknown) => {
-      console.error("dev capture failed", err);
-      if (!mounted.current) return;
-      setState("error");
-      timer.current = setTimeout(() => {
-        if (mounted.current) setState("idle");
-      }, ERROR_AUTO_CLEAR_MS);
-    });
-  }, [state, opts]);
+    })()
+      .catch((err: unknown) => {
+        console.error("dev capture failed", err);
+        if (!mounted.current) return;
+        setState("error");
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          if (mounted.current) setState("idle");
+        }, ERROR_AUTO_CLEAR_MS);
+      })
+      .finally(() => {
+        inFlight.current = false;
+      });
+  }, [opts]);
 
   return { state, run };
 }
 ```
 
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
   (`captureElementPng` implementation follows SPIKE.md exactly — chosen library call with the recorded clone-override list, `pixelRatio: Math.min(devicePixelRatio, 2)`.) `snapshots.ts` is two pure allowlist functions per the Interfaces block.
 - [ ] **Step 4:** Run — PASS. **Step 5:** Commit `feat(admin): dev-capture element wrapper, snapshots, and orchestration hook`.
 
 ### Task 8: Host mounts — ShareHub row + lockout + status line; Step3 icon (§2.2, §2.3, §7)
 
 **Files:**
-- Modify: `components/admin/showpage/ShareHub.tsx` (dev row in the Show section of the popover; busy lockout on both `toggle` calls + `aria-disabled`; status line `share-hub-dev-capture-status` after the kebab button)
+- Modify: `components/admin/showpage/ShareHub.tsx` (dev row as the popover's own final "Developer" section — lifecycle-independent per the §2.2 amendment: renders under the dev flag alone, in archived, paused, AND finalize-owned modes, OUTSIDE the `archived || !finalizeOwned` Show-section branch at `ShareHub.tsx:514`; busy lockout on BOTH toggle calls + `aria-disabled`; status line `share-hub-dev-capture-status` immediately after the kebab button)
+- Modify: `components/admin/showpage/StatusStrip.tsx` (thread the new optional prop through to `<ShareHub` at `StatusStrip.tsx:312`)
+- Modify: `components/admin/showpage/PublishedReviewModal.tsx` (build the snapshot thunk with `buildPublishedSnapshot` from its own props; pass to StatusStrip)
 - Modify: `components/admin/wizard/Step3ReviewModal.tsx:417-448` (icon button between chip and close)
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Test: `tests/devcapture/hostMounts.test.tsx` (jsdom)
 
-**Interfaces:** Consumes Tasks 6-7. ShareHub needs `slug`/`showId` (already props, `ShareHub.tsx:92-93`) for request+seed; snapshot inputs come from props already in scope at each mount — ShareHub's capture row receives its `clientSnapshot` and `target` via new OPTIONAL props `devCapture?: { snapshot: () => unknown }` threaded from `StatusStrip` (which PublishedReviewModal already feeds — executor: thread one optional prop `devCaptureSnapshot` PublishedReviewModal → StatusStrip → ShareHub, built with `buildPublishedSnapshot`; target resolves `document.querySelector('[data-review-modal-panel]')`). Step3 mount builds request `{ kind: "staged", driveFileId: dfid }`, seed `dfid`, snapshot `buildStagedSnapshot`, target `[data-step3-review-panel]`.
+**Interfaces:** Consumes Tasks 6-7. The threaded prop is named `devCaptureSnapshot?: () => unknown` — SAME name at every hop (PublishedReviewModal → StatusStrip → ShareHub). ShareHub builds the request from its existing `showId` prop (`ShareHub.tsx:93`), seed from `slug` (`ShareHub.tsx:92`), target `() => document.querySelector('[data-review-modal-panel]')`. Step3 mount: request `{ kind: "staged", driveFileId: dfid }`, seed `dfid`, snapshot `buildStagedSnapshot` from its own props, target `[data-step3-review-panel]`.
 
-- [ ] **Step 1: Failing tests** (queries by testid only; §9.8): dev flag false/absent → `share-hub-dev-capture` and `wizard-step3-card-<dfid>-dev-capture` absent; true → present with 44px-token classes; busy (mock hook state) → both ShareHub toggles `aria-disabled="true"`, clicking kebab does NOT render `share-hub-popover`, status line shows `Capturing the modal…`; error → §7.2 error copy, gone after 6 s (fake timers); after settle → `aria-disabled` removed; staged icon `disabled` while busy.
-- [ ] **Step 2:** Run — FAIL. **Step 3:** Implement both mounts (row markup mirrors the mailto-row classes `ShareHub.tsx:455`; kebab activate handler: `setOpen(false)`, two `requestAnimationFrame`s, then `run()`).
-- [ ] **Step 4:** Run + full `pnpm vitest run tests/devcapture tests/components tests/admin` — PASS.
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+- [ ] **Step 1a: Author the failing e2e spec** `tests/e2e/dev-capture.spec.ts` (skeleton: dev/non-dev visibility cases; sentinel/download cases filled in Task 9) and run its visibility cases once — RED (testids absent). This is the integration-level failing test for the whole mount surface.
+- [ ] **Step 1b: Failing jsdom tests** (queries by testid only; §9.8):
+  - dev flag false/absent → `share-hub-dev-capture` and `wizard-step3-card-<dfid>-dev-capture` absent; true → present with tap-token classes;
+  - threading proof: render `PublishedReviewModal` itself (minimal props fixture) inside `DeveloperFlagProvider true` → the row exists (proves PublishedReviewModal → StatusStrip → ShareHub threading, not just a direct ShareHub render);
+  - lifecycle matrix: row present with `archived: true`, with `finalizeOwned: true`, and with both false (the §2.2 amendment's point);
+  - busy (mock hook state): both ShareHub toggles `aria-disabled="true"`, clicking kebab does NOT render `share-hub-popover`, status line shows `Capturing the modal…`;
+  - error: §7.2 error copy in `share-hub-dev-capture-status`, gone after 6 s (fake timers); after settle → `aria-disabled` removed;
+  - staged icon while busy: `disabled` AND `aria-disabled="true"` AND spinner glyph present; staged adjacent `role="status"` node shows busy copy, then error copy on error, clearing after 6 s (fake timers).
+- [ ] **Step 2:** Run — FAIL. **Step 3:** Implement all four files (row markup mirrors the mailto-row classes `ShareHub.tsx:455`; kebab activate handler: `setOpen(false)`, two `requestAnimationFrame`s, then `run()`).
+- [ ] **Step 4:** Run + full `pnpm vitest run tests/devcapture tests/components tests/admin` — PASS; re-run the e2e visibility cases — GREEN.
 - [ ] **Step 5:** Commit `feat(admin): dev capture mounts in ShareHub kebab and Step3 header`.
 
 ### Task 9: Real-browser sentinel proof + download e2e (§3.4, §9 e2e)
 
 **Files:**
-- Create: `tests/e2e/dev-capture.spec.ts`
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+- Create: `tests/e2e/dev-capture.spec.ts` (AUTHORED in Task 8 Step 1 as the failing integration test — see ordering note)
+- Modify: `package.json` + `pnpm-lock.yaml` (add `pngjs` devDep for PNG pixel decode)
+
+**Ordering note (TDD):** this spec file is WRITTEN during Task 8 Step 1 (before the host mounts exist) and run once to observe the red state (capture testids absent → spec fails); Tasks 8's implementation turns the visibility cases green; the sentinel/download cases go green once Task 7's `captureElementPng` (already implemented per SPIKE.md) is wired through the mounts. `captureElementPng` itself has no earlier executable unit proof — jsdom cannot render — its red state is the SPIKE's plain-capture PNGs (clipped content visibly absent) and its green state is this spec. Declared honestly; do not reorder commits to fake unit-level TDD for a layout-bound util.
 
 **Interfaces:** Consumes everything. Uses `signInAs` (developer fixture = `ADMIN_FIXTURE`, non-dev = normal-admin fixture, `tests/e2e/helpers/fixtures.ts:38-48`), `seedShowWithCrew`.
 
-- [ ] **Step 1:** Write spec: (a) developer session, published modal open, seed content so both inner panes overflow, inject two sentinel divs (distinct colors, via `page.evaluate` appending to rail + main pane ends), click kebab → `share-hub-dev-capture`, await Playwright `download` event, unzip in-test (fflate), decode PNG (`pngjs` devDep or raw-pixel via canvas in `page.evaluate` on an `<img>` of the blob), assert ≥1 pixel of EACH sentinel color, assert `telemetry.json` parses with the three top-level keys and `modalKind: "published"`; (b) same for staged modal via wizard route, `modalKind: "staged"`; (c) non-developer session → capture testids absent on both surfaces; (d) telemetry JSON string contains neither the seeded crew email nor the show's 64-hex share token (fetch the token via the seed helper's return, assert absent — the REAL token, not a fixture).
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+- [ ] **Step 1:** Flesh out the spec authored in Task 8 Step 1: (a) developer session (`ADMIN_FIXTURE` via `signInAs` — developer per `fixtures.ts:38-48`), published modal open (copy the open flow from `tests/e2e/published-review-modal.layout.spec.ts`), seed content so both inner panes overflow, inject two sentinel divs (distinct colors, `page.evaluate` appending to the rail + main pane located by their `-review-rail` / `-review-main` testids from `ShowReviewSurface.tsx:841/833`), click kebab → `share-hub-dev-capture`, await Playwright `download` event, unzip in-test (fflate), decode PNG with `pngjs`, assert ≥1 pixel of EACH sentinel color, assert `telemetry.json` parses with the three top-level keys and `modalKind: "published"`; (b) same for the staged modal — copy the staged-modal open flow from `tests/e2e/step3-review-modal.interactions.spec.ts` (existing precedent), `modalKind: "staged"`; (c) non-developer session (normal-admin fixture) → capture testids absent on both surfaces; (d) telemetry JSON string contains neither the seeded crew email nor the show's REAL 64-hex share token (`seedShowWithCrew` returns `shareToken` — `seedShowWithCrew.ts:86`).
 - [ ] **Step 2:** Run at ≥lg viewport (`page.setViewportSize({ width: 1280, height: 800 })`); gate env-bound like sibling admin specs. Expected: FAIL before Tasks 7-8 wiring nits are fixed, PASS after.
 - [ ] **Step 3:** Commit `test(admin): dev-capture sentinel and download e2e`.
 
 ### Task 10: Impeccable dual-gate (invariant 8)
 
-- [ ] Run `/impeccable critique` then `/impeccable audit` on the UI diff (ShareHub, Step3ReviewModal, layout, DeveloperFlagContext, DevCaptureControl). Fix P0/P1 or defer via `DEFERRED.md` entry. Commit fixes as `fix(admin): impeccable findings on dev capture surfaces`.
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+- [ ] Run `/impeccable critique` AND `/impeccable audit` on the UI diff (ShareHub, StatusStrip, PublishedReviewModal, Step3ReviewModal, layout, DeveloperFlagContext, DevCaptureControl) with the canonical v3 setup gates: `context.mjs` context load (PRODUCT.md + DESIGN.md) then the reference-register read, per AGENTS.md invariant 8.
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
+- [ ] Record findings + dispositions in `docs/superpowers/plans/2026-07-22-dev-modal-capture/HANDOFF.md` §12 (create the file with just that section if nothing else needs recording). Fix P0/P1 or defer via `DEFERRED.md` entry.
+- [ ] Commit `fix(admin): impeccable findings on dev capture surfaces` (or `docs(plan): impeccable clean record` if zero findings).
 
 ### Task 11: Full local gates + transition audit
 
@@ -792,9 +934,18 @@ export function useDevCapture(opts: {
 - [ ] Transition audit (§7.4): `rg "AnimatePresence|motion\." lib/devcapture components/admin/dev` → zero hits; grep the ShareHub/Step3 diff hunks for conditional renders and confirm each is in the §7.4 inventory (all instant).
 - [ ] Commit any residue `chore(admin): dev-capture close-out gates`.
 
+### Task 12: Ship (pipeline Stage 4 — encoded here so the plan is self-contained)
+
+- [ ] Whole-diff cross-model adversarial review (Codex, fresh-eyes, REVIEWER ONLY) — split tight-scope briefs if the diff is large (AGENTS.md split-review default); iterate to APPROVE or exhaust the documented dispatch ladder (retry → self-certify with recorded evidence, per the spec §12 precedent).
+- [ ] Push branch; `gh pr create`; verify REAL GitHub Actions CI green (`gh pr checks <PR#> --watch`; reconcile DIRTY/behind-base before claiming green).
+- [ ] `gh pr merge --merge` in the same turn CI goes green.
+- [ ] Fast-forward local main: `git pull --ff-only && git rev-list --left-right --count main...origin/main` → `0  0`.
+- [ ] Set ship-state marker `stage: "done"`; `CronDelete` the marker's `cronJobId`.
+
 ## Self-review record
 
 - Spec coverage: §2.1→T6; §2.2/§2.3/§7→T8; §2.4/§3/§4.3-hook→T7; §3.3→T1; §3.4/e2e→T9; §4.5→T2; §4/§6→T3; §4.2→T4+T5; §5/inv-10→T5; inv-8→T10; §9 gates→per-task + T11. No uncovered section.
 - Type consistency: `CaptureTelemetryRequest`/`CaptureList`/`TelemetryMeta` defined once (T3/T5), consumed by name in T7; `useDevCapture` signature identical in T7 interface and code.
+<!-- spec-lint: ignore — file created by this plan; not yet tracked -->
 - Snippet typecheck: `redact.ts` and `bundle.ts` snippets typechecked standalone against the repo tsconfig during plan drafting (see plan commit); action snippet carries an executor verification note for read-core result property names (deliberate — verify-not-invent).
 - Known risk: T4's mocked-builder test shape must match each file's real chain; the executor instruction to verify first is explicit.
