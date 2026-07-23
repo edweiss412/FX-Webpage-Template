@@ -74,6 +74,11 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
   const [transient, setTransient] = useState<string | null>(null);
 
   if (dismissed) return null;
+  // A read-only surface (archived / unpublished / no drive id) has no acceptable action, so the
+  // offer would dangle a descriptive line with no button. Suppress it entirely (the P3 note
+  // still renders read-only as status; only the actionable offer is hidden). In practice the
+  // modal never attaches an offer for a non-mutable show — this is a defensive guard.
+  if (!canMutate) return null;
 
   async function include() {
     if (pending || !canMutate) return;
@@ -107,7 +112,7 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
   return (
     <div
       data-testid="published-archived-tab-offer"
-      className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-3 text-sm"
+      className="flex flex-col gap-2 rounded-sm border border-border-strong bg-surface-sunken p-3 text-sm"
     >
       <p className="text-text">
         Gear list found on the archived tab{" "}
@@ -122,7 +127,13 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
       ) : null}
       {canMutate ? (
         <div className="flex flex-wrap gap-2">
-          <button type="button" className={ARCHIVED_TAB_BTN} disabled={pending} onClick={include}>
+          <button
+            type="button"
+            className={ARCHIVED_TAB_BTN}
+            disabled={pending}
+            aria-busy={pending}
+            onClick={include}
+          >
             {pending ? "Including…" : "Include this gear"}
           </button>
           <button
@@ -188,7 +199,7 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
   return (
     <div
       data-testid="published-archived-tab-note"
-      className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-3 text-sm"
+      className="flex flex-col gap-2 rounded-sm border border-border-strong bg-surface-sunken p-3 text-sm"
     >
       <p className="text-text">
         Gear from tab <span className="font-medium text-text-strong">{label}</span> is included when
@@ -202,10 +213,13 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
       ) : null}
       {canMutate ? (
         <div className="flex flex-wrap gap-2">
+          {/* Lone action → bordered button (not ghost): with nothing to contrast against, a
+              ghost reads as a text link. Mirrors the wizard S3 Revoke's bordered treatment. */}
           <button
             type="button"
-            className={ARCHIVED_TAB_GHOST_BTN}
+            className={ARCHIVED_TAB_BTN}
             disabled={pending}
+            aria-busy={pending}
             onClick={undo}
           >
             {pending ? "Undoing…" : "Undo"}
