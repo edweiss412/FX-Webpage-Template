@@ -13,12 +13,17 @@
 - Two-tier rule (spec §2): tier 1 = `focus-visible:ring-2 focus-visible:ring-focus-ring`, NO offset; tier 2 (armed destructive confirms only) = tier 1 + `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`.
 - Zero bare `ring-offset-2` (offset without explicit color) in touched files (spec AC-2).
 - No DOM, copy, color-token, spacing, or behavior changes. Focus rings stay `--duration-instant` (no animation).
-- Commit per task, conventional commits (invariant 6).
+- Commit per task, conventional commits (invariant 6). TDD per task (invariant 1): EVERY change — including gate fixes and review-round repairs — lands failing-test-first wherever a test can express it; prose/docs repairs are exempt.
 - UI files touched: impeccable dual-gate (critique + audit) required before whole-diff review (invariant 8).
 - Meta-test inventory (spec §7): none applies — no Supabase boundary, no sentinel text, no admin-alert code, no advisory lock, no email path, no mutation surface.
 - Advisory-lock topology: N/A — no `pg_advisory*` surface touched.
 
 ---
+
+### Task 0: Worktree setup (invariant 11)
+
+- [ ] **Step 1:** `git worktree add -b feat/sharehub-focus-pass ../FX-worktrees/sharehub-focus-pass origin/main` (starting revision: `origin/main` at `8e70ab0e4` or later).
+- [ ] **Step 2:** In the worktree: `pnpm install`, then `pnpm worktree:link-env` (symlinks `.env.local` from the main checkout), then `pnpm preflight` — must print `env ✓  local DB ✓`; stop and fix env on any failure.
 
 ### Task 1: Two-tier focus contract (tests first, then class edits)
 
@@ -71,17 +76,22 @@ Replace the test titled `"reset idle state is ONE menu row, contributes no headi
 
 Add after the closing `});` of the `describe("ShareHub — the row wrappers are inert (spec §7.0)")` block:
 
+(The complete describe block is inlined below — single source, no sketch.)
+
+The COMPLETE two-tier describe block for `shareHub.test.tsx` (append after the closing `});` of the "row wrappers are inert" describe):
+
 ```tsx
 describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-pass §2)", () => {
   const TIER1 = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
-  const OFFSET_PAIR = [
-    "focus-visible:ring-offset-2",
-    "focus-visible:ring-offset-surface",
-  ] as const;
+  const OFFSET_PAIR = ["focus-visible:ring-offset-2", "focus-visible:ring-offset-surface"] as const;
   // Any focus-visible offset token. Catches BOTH failure modes: tier 1
   // regaining an offset, and a future bare `ring-offset-2` (white-halo bug)
   // sneaking in without its color companion on a tier-1 control.
-  const ANY_OFFSET = /^focus-visible:ring-offset-/;
+  const ANY_OFFSET = /(?:^|:)focus-visible:ring-offset-/;
+  // Tier 2 allows EXACTLY the ratified pair. A stray extra offset token
+  // (e.g. `focus-visible:ring-offset-white`) would override the surface color
+  // and restore the halo while every positive assertion stayed green.
+  const NON_PAIR_OFFSET = /(?:^|:)focus-visible:ring-offset-(?!2$|surface$)/;
 
   it("tier 1: reset row + reset cancel carry the plain ring and NO offset", () => {
     renderHub();
@@ -101,6 +111,7 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
     fireEvent.click(screen.getByTestId("picker-reset-all-button"));
     expectClasses(screen.getByTestId("picker-reset-confirm-button"), {
       has: [...TIER1, ...OFFSET_PAIR],
+      forbids: [NON_PAIR_OFFSET],
     });
   });
 
@@ -112,6 +123,7 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
     fireEvent.click(row);
     expectClasses(screen.getByTestId("admin-rotate-share-token-confirm-button"), {
       has: [...TIER1, ...OFFSET_PAIR],
+      forbids: [NON_PAIR_OFFSET],
     });
     expectClasses(screen.getByTestId("admin-rotate-share-token-cancel-button"), {
       has: TIER1,
@@ -127,11 +139,28 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
     fireEvent.click(row);
     expectClasses(screen.getByTestId("archive-show-confirm-button"), {
       has: [...TIER1, ...OFFSET_PAIR],
+      forbids: [NON_PAIR_OFFSET],
     });
     expectClasses(screen.getByTestId("archive-show-cancel-button"), {
       has: TIER1,
       forbids: [ANY_OFFSET],
     });
+  });
+
+  it("tier 1 inventory: primary, kebab, mailto row and copy button carry the plain ring, no offset", () => {
+    // Positive AND negative: losing the base ring token (an unfocusable-looking
+    // control) fails just as loudly as a bare `ring-offset-2` (white halo on
+    // the dark theme) riding onto an ordinary control.
+    renderHub({ published: true });
+    fireEvent.click(primary());
+    for (const el of [
+      primary(),
+      kebab(),
+      screen.getByTestId("admin-current-share-link-email-button"),
+      screen.getByTestId("admin-current-share-link-copy-button"),
+    ]) {
+      expectClasses(el, { has: TIER1, forbids: [ANY_OFFSET] });
+    }
   });
 
   it("tier 1: unarchive is a single-tap non-destructive action - plain ring, no offset (dark-halo regression)", () => {
@@ -145,13 +174,65 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
 });
 ```
 
-Additionally append to the SAME two-tier describe block a tier-1 inventory test (primary, kebab, mailto row, copy button — positive base-ring tokens AND negative no-offset), and append to `tests/components/admin/ArchiveShowButton.test.tsx` a "two-tier focus contract on the non-row variants" describe rendering the full and compact variants directly (trigger tier 1, armed confirm tier 2, both variants) — those branches have no live render site, so the popover suite cannot cover the four non-row edits. (Both blocks are in the working tree; see the committed test file for the exact code.)
+And append to `tests/components/admin/ArchiveShowButton.test.tsx` (inside the existing file, after the last describe — those non-row branches have no live render site, so the popover suite cannot cover the four non-row edits):
+
+```tsx
+describe("ArchiveShowButton — two-tier focus contract on the non-row variants (spec 2026-07-23-sharehub-focus-pass §3.1 items 6-7)", () => {
+  // These branches have no live render site (the hub popover uses the row
+  // variant), so the popover suite cannot see them. Without these assertions
+  // the four non-row class edits could be silently omitted — or the bare
+  // `ring-offset-2` white-halo defect could return — with every other gate
+  // green.
+  const TIER1 = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
+  const OFFSET_PAIR = ["focus-visible:ring-offset-2", "focus-visible:ring-offset-surface"] as const;
+  const ANY_OFFSET = /(?:^|:)focus-visible:ring-offset-/;
+  // Tier 2 allows EXACTLY the ratified pair; a stray extra offset token would
+  // override the surface color and restore the halo.
+  const NON_PAIR_OFFSET = /(?:^|:)focus-visible:ring-offset-(?!2$|surface$)/;
+  const tokensOf = (el: Element) =>
+    new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
+  const expectTier = (el: Element, tier: 1 | 2) => {
+    const t = tokensOf(el);
+    for (const c of TIER1) expect([...t], `missing token ${c}`).toContain(c);
+    if (tier === 2) {
+      for (const c of OFFSET_PAIR) expect([...t], `missing token ${c}`).toContain(c);
+      expect(
+        [...t].filter((x) => NON_PAIR_OFFSET.test(x)),
+        "tier-2 control must carry no offset token beyond the ratified pair",
+      ).toEqual([]);
+    } else {
+      expect(
+        [...t].filter((x) => ANY_OFFSET.test(x)),
+        "tier-1 control must carry no focus offset token",
+      ).toEqual([]);
+    }
+  };
+
+  for (const compact of [false, true]) {
+    const label = compact ? "compact" : "full";
+    it(`${label} variant: arming trigger is tier 1; armed confirm is tier 2`, () => {
+      const action = vi.fn(async () => ({ ok: true }) as const);
+      const { getByTestId } = render(
+        compact ? (
+          <ArchiveShowButton archiveAction={action} compact />
+        ) : (
+          <ArchiveShowButton archiveAction={action} />
+        ),
+      );
+      const trigger = getByTestId("archive-show-button");
+      expectTier(trigger, 1);
+      fireEvent.click(trigger);
+      expectTier(getByTestId("archive-show-confirm-button"), 2);
+    });
+  }
+});
+```
 
 Concrete failure modes: each tier-1 assertion fails if the pass is reverted or a bare offset reappears (white halo); each tier-2 `has` fails if the offset pair is dropped OR ships bare (`ring-offset-2` without `ring-offset-surface` — the exact dark-mode defect). `has`+`exactly` go through `expectClasses` token sets, so `sm:focus-visible:ring-offset-2` variants cannot ride along unnoticed on the `exactly` path, and substring matches cannot fake a token.
 
 - [ ] **Step 3: Run the suite to verify the new assertions FAIL against current code**
 
-Run: `pnpm vitest run tests/components/admin/showpage/shareHub.test.tsx`
+Run: `pnpm vitest run tests/components/admin/showpage/shareHub.test.tsx tests/components/admin/ArchiveShowButton.test.tsx`
 Expected: FAIL — at minimum: rewritten reset-row test (row still has the offset pair), rotate armed confirm (`missing token focus-visible:ring-offset-2`), archive armed confirm (same), unarchive (`forbidden token focus-visible:ring-offset-2`). Reset armed confirm + reset cancel tier assertions: confirm passes (already tier 2), cancel FAILS (still has pair).
 
 - [ ] **Step 4: Apply the class edits**
@@ -166,18 +247,18 @@ Expected: FAIL — at minimum: rewritten reset-row test (row still has the offse
 
 - [ ] **Step 5: Run the suite to verify green**
 
-Run: `pnpm vitest run tests/components/admin/showpage/shareHub.test.tsx`
-Expected: PASS, `$?` = 0 and no `Errors` summary line (vitest exits 1 on uncaught errors even with all tests passing).
+Run: `pnpm vitest run tests/components/admin/showpage/shareHub.test.tsx tests/components/admin/ArchiveShowButton.test.tsx`
+Expected: PASS (both files), `$?` = 0 and no `Errors` summary line (vitest exits 1 on uncaught errors even with all tests passing).
 
 - [ ] **Step 6: Bare-offset sweep of the touched files (AC-2)**
 
-Run: `rg -n 'ring-offset-2(?!\S)' app/admin/show/\[slug\]/PickerResetControl.tsx app/admin/show/\[slug\]/RotateShareTokenButton.tsx components/admin/ArchiveShowButton.tsx components/admin/UnarchiveShowButton.tsx -P | grep -v 'ring-offset-surface' || echo CLEAN`
-Expected: `CLEAN` (every remaining `ring-offset-2` line also carries `ring-offset-surface`).
+Run: `rg -oP 'focus-visible:ring-offset-2(?!\s+focus-visible:ring-offset-surface)' "app/admin/show/[slug]/PickerResetControl.tsx" "app/admin/show/[slug]/RotateShareTokenButton.tsx" components/admin/ArchiveShowButton.tsx components/admin/UnarchiveShowButton.tsx || echo CLEAN`
+Expected: `CLEAN`. Token-anchored: a match means an offset token NOT immediately followed by its surface companion — catching end-of-string bare offsets (`…ring-offset-2"`) and multiple tokens per line, which a line-level `grep -v` misses. (Assumes the codebase's invariant ordering `ring-offset-2` then `ring-offset-surface`; the exact-pair test negatives are the authoritative guard.)
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add tests/components/admin/showpage/shareHub.test.tsx "app/admin/show/[slug]/PickerResetControl.tsx" "app/admin/show/[slug]/RotateShareTokenButton.tsx" components/admin/ArchiveShowButton.tsx components/admin/UnarchiveShowButton.tsx
+git add tests/components/admin/showpage/shareHub.test.tsx tests/components/admin/ArchiveShowButton.test.tsx "app/admin/show/[slug]/PickerResetControl.tsx" "app/admin/show/[slug]/RotateShareTokenButton.tsx" components/admin/ArchiveShowButton.tsx components/admin/UnarchiveShowButton.tsx
 git commit -m "feat(admin): two-tier focus rings in the share-hub popover"
 ```
 
@@ -200,8 +281,10 @@ In `DEFERRED-archive.md`, append to the Share hub section the original three bul
 
 - [ ] **Step 2: Verify + commit**
 
-Run: `rg -c "SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE" DEFERRED.md DEFERRED-archive.md`
-Expected: `DEFERRED.md` 1 (the Last-reconciled note only) or 0; `DEFERRED-archive.md` ≥ 1.
+Run all three, each must hit:
+- `rg -n "SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE graduated" DEFERRED.md` — exactly 1 hit, on the `Last reconciled:` line (the reconciliation note).
+- `rg -c "^### SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE" DEFERRED.md || true` — 0 (the entry block itself is gone).
+- `rg -n "P1 caret|P2.*[Ff]ocus-ring|P3.*[Cc]aret" DEFERRED-archive.md | rg -c "SHAREHUB|caret|focus"` — the archive section carries all three disposition bullets (spot-check the three bullets exist under the "Share hub focus pass (2026-07-23)" heading).
 
 ```bash
 git add DEFERRED.md DEFERRED-archive.md

@@ -335,10 +335,10 @@ describe("ArchiveShowButton — two-tier focus contract on the non-row variants 
   // green.
   const TIER1 = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
   const OFFSET_PAIR = ["focus-visible:ring-offset-2", "focus-visible:ring-offset-surface"] as const;
-  const ANY_OFFSET = /^focus-visible:ring-offset-/;
+  const ANY_OFFSET = /(?:^|:)focus-visible:ring-offset-/;
   // Tier 2 allows EXACTLY the ratified pair; a stray extra offset token would
   // override the surface color and restore the halo.
-  const NON_PAIR_OFFSET = /^focus-visible:ring-offset-(?!2$|surface$)/;
+  const NON_PAIR_OFFSET = /(?:^|:)focus-visible:ring-offset-(?!2$|surface$)/;
   const tokensOf = (el: Element) =>
     new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
   const expectTier = (el: Element, tier: 1 | 2) => {

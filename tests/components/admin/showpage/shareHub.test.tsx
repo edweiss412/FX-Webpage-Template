@@ -501,7 +501,7 @@ describe("ShareHub — Careful section wiring", () => {
       // used to ride on this row is now reserved for armed destructive
       // confirms. A reappearing `focus-visible:ring-offset-*` here is the pass
       // reverting.
-      forbids: [NO_BORDER, NO_REST_BACKGROUND, /^focus-visible:ring-offset-/],
+      forbids: [NO_BORDER, NO_REST_BACKGROUND, /(?:^|:)focus-visible:ring-offset-/],
     });
 
     expectRowText(reset, popover(), {
@@ -986,11 +986,11 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
   // Any focus-visible offset token. Catches BOTH failure modes: tier 1
   // regaining an offset, and a future bare `ring-offset-2` (white-halo bug)
   // sneaking in without its color companion on a tier-1 control.
-  const ANY_OFFSET = /^focus-visible:ring-offset-/;
+  const ANY_OFFSET = /(?:^|:)focus-visible:ring-offset-/;
   // Tier 2 allows EXACTLY the ratified pair. A stray extra offset token
   // (e.g. `focus-visible:ring-offset-white`) would override the surface color
   // and restore the halo while every positive assertion stayed green.
-  const NON_PAIR_OFFSET = /^focus-visible:ring-offset-(?!2$|surface$)/;
+  const NON_PAIR_OFFSET = /(?:^|:)focus-visible:ring-offset-(?!2$|surface$)/;
 
   it("tier 1: reset row + reset cancel carry the plain ring and NO offset", () => {
     renderHub();

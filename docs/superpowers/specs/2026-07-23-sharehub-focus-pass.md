@@ -18,7 +18,7 @@ Current state (all cites at branch point `8e70ab0e4`):
 | --- | --- | --- |
 | Primary trigger + kebab | plain `ring-2 ring-focus-ring` | `components/admin/showpage/ShareHub.tsx:374`, `components/admin/showpage/ShareHub.tsx:375`, `components/admin/showpage/ShareHub.tsx:397` |
 | Mailto rows | plain | `components/admin/showpage/ShareHub.tsx:456` |
-| Copy button (all 3 variants) | plain | `app/admin/show/[slug]/ShareLinkCopyButton.tsx:96`, `app/admin/show/[slug]/ShareLinkCopyButton.tsx:98`, `app/admin/show/[slug]/ShareLinkCopyButton.tsx:106` |
+| Copy button (3 variants; popover renders ONLY `variant="accent"`, the `:98` branch — `components/admin/showpage/ShareHub.tsx:440` render site; `:96`/`:106` render on non-popover surfaces and are UNTOUCHED by this diff) | plain | `app/admin/show/[slug]/ShareLinkCopyButton.tsx:96`, `app/admin/show/[slug]/ShareLinkCopyButton.tsx:98`, `app/admin/show/[slug]/ShareLinkCopyButton.tsx:106` |
 | Rotate row | plain | `app/admin/show/[slug]/RotateShareTokenButton.tsx:251` |
 | Rotate armed confirm / cancel | plain / plain | `app/admin/show/[slug]/RotateShareTokenButton.tsx:336`, `app/admin/show/[slug]/RotateShareTokenButton.tsx:346` |
 | Reset row | `ring-offset-2 ring-offset-surface` | `app/admin/show/[slug]/PickerResetControl.tsx:276` |
@@ -66,6 +66,11 @@ Two defects:
   focus-ring cell now states the 2px ring, the no-bare-offset rule, and points at this
   spec's §2; the §15 confirm-go paragraph records the popover two-tier scoping. Commit
   `c53bb8e75`.
+
+## 2. The two-tier rule
+
+Within the share-hub popover (and the touched components wherever they render):
+
 - **Tier 1 — every ordinary control:** `focus-visible:ring-2 focus-visible:ring-focus-ring`
   with NO offset. Applies to: menu rows (rotate, reset, archive, mailto), triggers, cancel
   buttons, the copy button, the unarchive button.
@@ -141,7 +146,9 @@ layout surface changes; the diff is focus-ring utility classes only.
     plain-ring tokens present AND forbids any `focus-visible:ring-offset-*` token — primary
     trigger (`share-hub-primary`), kebab (`share-hub-kebab`), mailto row
     (`admin-current-share-link-email-button`), copy button
-    (`admin-current-share-link-copy-button`), rotate row + cancel
+    (`admin-current-share-link-copy-button` — the popover-rendered `variant="accent"` branch,
+    the only copy variant inside the popover; the other two variants are unchanged code on
+    non-popover surfaces, outside AC-1's "inside the popover" scope), rotate row + cancel
     (`admin-rotate-share-token-button`, `admin-rotate-share-token-cancel-button`), reset row
     + cancel (`picker-reset-all-button`, `picker-reset-cancel-button`), archive row trigger +
     cancel (`archive-show-button`, `archive-show-cancel-button`), unarchive
