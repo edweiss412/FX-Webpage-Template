@@ -326,3 +326,46 @@ describe("ArchiveShowButton — two-tap, isPending-safe (Task 7.2)", () => {
     expect(confirm.className).toContain("min-w-tap-min");
   });
 });
+
+describe("ArchiveShowButton — two-tier focus contract on the non-row variants (spec 2026-07-23-sharehub-focus-pass §3.1 items 6-7)", () => {
+  // These branches have no live render site (the hub popover uses the row
+  // variant), so the popover suite cannot see them. Without these assertions
+  // the four non-row class edits could be silently omitted — or the bare
+  // `ring-offset-2` white-halo defect could return — with every other gate
+  // green.
+  const TIER1 = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
+  const OFFSET_PAIR = ["focus-visible:ring-offset-2", "focus-visible:ring-offset-surface"] as const;
+  const ANY_OFFSET = /^focus-visible:ring-offset-/;
+  const tokensOf = (el: Element) =>
+    new Set(el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? []);
+  const expectTier = (el: Element, tier: 1 | 2) => {
+    const t = tokensOf(el);
+    for (const c of TIER1) expect([...t], `missing token ${c}`).toContain(c);
+    if (tier === 2) {
+      for (const c of OFFSET_PAIR) expect([...t], `missing token ${c}`).toContain(c);
+    } else {
+      expect(
+        [...t].filter((x) => ANY_OFFSET.test(x)),
+        "tier-1 control must carry no focus offset token",
+      ).toEqual([]);
+    }
+  };
+
+  for (const compact of [false, true]) {
+    const label = compact ? "compact" : "full";
+    it(`${label} variant: arming trigger is tier 1; armed confirm is tier 2`, () => {
+      const action = vi.fn(async () => ({ ok: true }) as const);
+      const { getByTestId } = render(
+        compact ? (
+          <ArchiveShowButton archiveAction={action} compact />
+        ) : (
+          <ArchiveShowButton archiveAction={action} />
+        ),
+      );
+      const trigger = getByTestId("archive-show-button");
+      expectTier(trigger, 1);
+      fireEvent.click(trigger);
+      expectTier(getByTestId("archive-show-confirm-button"), 2);
+    });
+  }
+});

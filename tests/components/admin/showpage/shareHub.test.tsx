@@ -482,7 +482,7 @@ describe("ShareHub — Careful section wiring", () => {
     );
   });
 
-  it("reset idle state is ONE menu row, contributes no heading, keeps its ring offset", () => {
+  it("reset idle state is ONE menu row, contributes no heading, tier-1 focus (no offset)", () => {
     renderHub();
     fireEvent.click(primary());
 
@@ -491,16 +491,17 @@ describe("ShareHub — Careful section wiring", () => {
     expectClasses(reset, {
       exactly: [
         ...ROW_TOKENS,
-        // reset-ONLY: the guard against silently homogenizing the two rows'
-        // focus treatment, and against a disabled row lighting up on hover
+        // Disabled-state guard: a disabled row must not light up on hover
         // (a disabled button still matches :hover).
-        "focus-visible:ring-offset-2",
-        "focus-visible:ring-offset-surface",
         "disabled:cursor-not-allowed",
         "disabled:opacity-60",
         "disabled:hover:bg-transparent",
       ],
-      forbids: [NO_BORDER, NO_REST_BACKGROUND],
+      // Tier 1 (spec 2026-07-23-sharehub-focus-pass §2): the offset pair that
+      // used to ride on this row is now reserved for armed destructive
+      // confirms. A reappearing `focus-visible:ring-offset-*` here is the pass
+      // reverting.
+      forbids: [NO_BORDER, NO_REST_BACKGROUND, /^focus-visible:ring-offset-/],
     });
 
     expectRowText(reset, popover(), {
@@ -976,5 +977,90 @@ describe("ShareHub — lifecycle close (spec §4)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-pass §2)", () => {
+  const TIER1 = ["focus-visible:ring-2", "focus-visible:ring-focus-ring"] as const;
+  const OFFSET_PAIR = ["focus-visible:ring-offset-2", "focus-visible:ring-offset-surface"] as const;
+  // Any focus-visible offset token. Catches BOTH failure modes: tier 1
+  // regaining an offset, and a future bare `ring-offset-2` (white-halo bug)
+  // sneaking in without its color companion on a tier-1 control.
+  const ANY_OFFSET = /^focus-visible:ring-offset-/;
+
+  it("tier 1: reset row + reset cancel carry the plain ring and NO offset", () => {
+    renderHub();
+    fireEvent.click(primary());
+    const row = screen.getByTestId("picker-reset-all-button");
+    expectClasses(row, { has: TIER1, forbids: [ANY_OFFSET] });
+    fireEvent.click(row);
+    expectClasses(screen.getByTestId("picker-reset-cancel-button"), {
+      has: TIER1,
+      forbids: [ANY_OFFSET],
+    });
+  });
+
+  it("tier 2: reset armed confirm carries the FULL offset pair", () => {
+    renderHub();
+    fireEvent.click(primary());
+    fireEvent.click(screen.getByTestId("picker-reset-all-button"));
+    expectClasses(screen.getByTestId("picker-reset-confirm-button"), {
+      has: [...TIER1, ...OFFSET_PAIR],
+    });
+  });
+
+  it("tier 2: rotate armed confirm carries the FULL offset pair; its row and cancel stay tier 1", () => {
+    renderHub({ published: true });
+    fireEvent.click(primary());
+    const row = screen.getByTestId("admin-rotate-share-token-button");
+    expectClasses(row, { has: TIER1, forbids: [ANY_OFFSET] });
+    fireEvent.click(row);
+    expectClasses(screen.getByTestId("admin-rotate-share-token-confirm-button"), {
+      has: [...TIER1, ...OFFSET_PAIR],
+    });
+    expectClasses(screen.getByTestId("admin-rotate-share-token-cancel-button"), {
+      has: TIER1,
+      forbids: [ANY_OFFSET],
+    });
+  });
+
+  it("tier 2: archive armed confirm carries the FULL offset pair; its row and cancel stay tier 1", () => {
+    renderHub();
+    fireEvent.click(primary());
+    const row = screen.getByTestId("archive-show-button");
+    expectClasses(row, { has: TIER1, forbids: [ANY_OFFSET] });
+    fireEvent.click(row);
+    expectClasses(screen.getByTestId("archive-show-confirm-button"), {
+      has: [...TIER1, ...OFFSET_PAIR],
+    });
+    expectClasses(screen.getByTestId("archive-show-cancel-button"), {
+      has: TIER1,
+      forbids: [ANY_OFFSET],
+    });
+  });
+
+  it("tier 1 inventory: primary, kebab, mailto row and copy button carry the plain ring, no offset", () => {
+    // Positive AND negative: losing the base ring token (an unfocusable-looking
+    // control) fails just as loudly as a bare `ring-offset-2` (white halo on
+    // the dark theme) riding onto an ordinary control.
+    renderHub({ published: true });
+    fireEvent.click(primary());
+    for (const el of [
+      primary(),
+      kebab(),
+      screen.getByTestId("admin-current-share-link-email-button"),
+      screen.getByTestId("admin-current-share-link-copy-button"),
+    ]) {
+      expectClasses(el, { has: TIER1, forbids: [ANY_OFFSET] });
+    }
+  });
+
+  it("tier 1: unarchive is a single-tap non-destructive action - plain ring, no offset (dark-halo regression)", () => {
+    renderHub({ archived: true });
+    fireEvent.click(kebab());
+    expectClasses(screen.getByTestId(`unarchive-show-button-${SHOW_ID}`), {
+      has: TIER1,
+      forbids: [ANY_OFFSET],
+    });
   });
 });
