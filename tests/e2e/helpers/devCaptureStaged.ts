@@ -139,16 +139,27 @@ export async function openStep3Modal(page: Page, driveFileId: string): Promise<v
   if (sessionId === undefined) throw new Error("openStep3Modal: unknown driveFileId");
   const more = page.getByTestId(`wizard-step3-card-${driveFileId}-more`);
   let lastErr: unknown = null;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  // 10 short attempts beat 4 long ones: the observed local wipe cadence is
+  // ~30-60 s (external admin actors on the shared DB), so each assert+goto
+  // must land inside a wipe-free window. CI is isolated and passes first try.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     await assertWizardSettings(sessionId); // re-assert against sibling wipes
     await page.goto("/admin?step=3");
     try {
-      await expect(more).toBeVisible({ timeout: 8_000 });
+      await expect(more).toBeVisible({ timeout: 3_000 });
       await more.click();
       await page.waitForSelector("[data-step3-review-panel]");
       return;
     } catch (err) {
       lastErr = err;
+      const { data: w } = await admin
+        .from("app_settings")
+        .select("pending_wizard_session_id, watched_folder_id")
+        .eq("id", "default")
+        .maybeSingle();
+      console.error(
+        `attempt ${attempt}: settings=${JSON.stringify(w)} body0=${(await page.innerText("body")).slice(0, 60).replace(/\n/g, "|")}`,
+      );
     }
   }
   console.error("openStep3Modal final-fail body:", (await page.innerText("body")).slice(0, 700));

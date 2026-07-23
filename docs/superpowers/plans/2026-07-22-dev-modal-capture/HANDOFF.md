@@ -34,6 +34,8 @@ Heuristic scores (A): H1 3, H2 4, H3 3, H4 2, H5 4, H6 3, H7 3, H8 3, H9 3, H10 
 
 No P0/P1 in either gate; both P2s fixed in-run. Gate PASSED.
 
-## Known local-environment caveat
+## Known local-environment caveats
 
-`tests/e2e/dev-capture.spec.ts` staged case exercises the wizard Step3 modal via `app_settings` wizard-pending state — a shared-DB singleton. A concurrently running sibling worktree session (observed: `modal-state-coverage`, active onboarding e2e incl. Start Over) wipes that state mid-test; the helper re-asserts + retries ×4 but cannot win against continuous contention. CI is isolated and unaffected. Local reruns: wait for the sibling to go quiet.
+- **Run the dev-capture e2e locally with `TEST_DATABASE_URL` overridden to loopback** (`TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres" pnpm exec playwright test tests/e2e/dev-capture.spec.ts --project=desktop-chromium`). This machine's `.env.local` points `TEST_DATABASE_URL` at the remote validation pooler (deliberate — validation creds live in the main env), and the app's postgres.js paths (`lib/onboarding/sessionLifecycle.ts:95` `TEST_DATABASE_URL ?? DATABASE_URL`) then read the REMOTE `app_settings` while the e2e helpers seed the LOCAL one — the wizard branch renders the remote dashboard and the staged case can never mount. CI sets a loopback `TEST_DATABASE_URL` and is unaffected.
+- Shared-DB singleton contention: sibling worktree sessions running onboarding e2e (Start Over/finalize) mutate `app_settings` mid-test; the staged helper re-asserts + retries ×10 to ride out bursts.
+- Sentinel pixel scan tolerance is ±30/channel: html2canvas renders through the window color profile (observed drift `255,0,254 → 255,25,254`).

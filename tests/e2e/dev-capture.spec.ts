@@ -93,11 +93,15 @@ function countPixels(png: PNG, rgb: string): number {
   if (!m) throw new Error("bad rgb");
   const [r, g, b] = [Number(m[1]), Number(m[2]), Number(m[3])];
   let hits = 0;
+  // Tolerance ±30: html2canvas renders through the window's color profile and
+  // the sentinel channels drift up to ~25 (observed 255,0,254 -> 255,25,254).
+  // Both sentinel hues stay unique in this band - no design token is
+  // near-magenta or pure-green.
   for (let i = 0; i < png.data.length; i += 4) {
     if (
-      Math.abs((png.data[i] ?? 0) - r) <= 2 &&
-      Math.abs((png.data[i + 1] ?? 0) - g) <= 2 &&
-      Math.abs((png.data[i + 2] ?? 0) - b) <= 2
+      Math.abs((png.data[i] ?? 0) - r) <= 30 &&
+      Math.abs((png.data[i + 1] ?? 0) - g) <= 30 &&
+      Math.abs((png.data[i + 2] ?? 0) - b) <= 30
     ) {
       hits += 1;
     }
