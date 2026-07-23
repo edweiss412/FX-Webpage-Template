@@ -199,27 +199,36 @@ export function buildSectionWarningExtras(args: {
         code: g.code,
         label: g.label,
         bulk: g.bulk,
-        cards: (
-          <PerShowActionableWarnings
-            items={g.items.map((it) => it.warning)}
-            driveFileId={driveFileId}
-            // warning-surface-trim §4.2: the SAME sentence the panel used to show
-            // once, now per card and on demand. Sourced from the single exported
-            // helper, never re-authored, so the two cannot drift.
-            followUpCopy={correctionLoopCopy("resync")}
-            renderItemControls={(w, i) => (
-              <SectionWarningItemControls
-                warning={w}
-                reportSurfaceId={g.items[i]!.reportSurfaceId}
-                mode="active"
-                slug={slug}
-                showId={showId}
-                driveFileId={driveFileId}
-                useRawDecisions={useRawDecisions}
-              />
-            )}
-          />
-        ),
+        // Impeccable P1b (2026-07-23 critique): a surviving bulk chip whose cards
+        // ALL moved under crew rows would otherwise sit over an empty slot — a
+        // bulk action on objects invisible at its location. The slot names where
+        // they went instead. Partial moves keep the normal card list.
+        cards:
+          g.items.length === 0 ? (
+            <p className="text-xs/relaxed text-text-subtle">
+              These appear under their crew members above.
+            </p>
+          ) : (
+            <PerShowActionableWarnings
+              items={g.items.map((it) => it.warning)}
+              driveFileId={driveFileId}
+              // warning-surface-trim §4.2: the SAME sentence the panel used to show
+              // once, now per card and on demand. Sourced from the single exported
+              // helper, never re-authored, so the two cannot drift.
+              followUpCopy={correctionLoopCopy("resync")}
+              renderItemControls={(w, i) => (
+                <SectionWarningItemControls
+                  warning={w}
+                  reportSurfaceId={g.items[i]!.reportSurfaceId}
+                  mode="active"
+                  slug={slug}
+                  showId={showId}
+                  driveFileId={driveFileId}
+                  useRawDecisions={useRawDecisions}
+                />
+              )}
+            />
+          ),
       }));
 
     // Empty-seam guard (crew-warning-attachment R1-F3): every active card moved

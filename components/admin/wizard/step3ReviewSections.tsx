@@ -864,6 +864,10 @@ function ModalSectionChrome({
   // reads as a failed fetch rather than as deliberate quiet. When there is no
   // body, the heading sits directly on the cards; the extras block already
   // supplies its own `border-t` seam.
+  // NOTE: chrome.sectionExtras renders ONLY under hasBody (below) — a section
+  // that suppresses its panel card drops any threaded extras. Safe by contract:
+  // only `warnings` ever suppresses, and ShowReviewSurface never threads
+  // sectionExtras for `warnings` (always sibling, crew-warning-attachment §1.1).
   const hasBody = chrome.suppressPanelCard !== true;
   // §7.1 judgment status (spec 2026-07-07): mutually exclusive with flagged. Drives
   // a calm info-tone icon chip + pill + callout variant, never the amber flag tone.
@@ -1656,7 +1660,10 @@ export function CrewBreakdown({
                      original flex row nests inside a column <li> so the banner
                      block sits under it (mock's card-with-attached-banner
                      shape). */
-                  <li className="py-1">
+                  /* pb-2 (impeccable P1a, 2026-07-23): the stack's above-gap
+                     (mt-2) must be visibly smaller than the gap to the NEXT
+                     row, or proximity stops binding the card to ITS member. */
+                  <li className="pt-1 pb-2">
                     <div className="flex items-center gap-3">{rowInner}</div>
                     <CrewUnderRowStack nodes={rowBanners} ckey={attentionKey} />
                   </li>

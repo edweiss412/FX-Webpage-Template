@@ -210,8 +210,11 @@ describe("conservation — under-row vs section group (spec §5.3)", () => {
     within(section).getByTestId("crew-warn-stack-bob barker");
     const group = within(section).getByTestId("section-warning-controls-crew");
     expect(within(group).getByText(/Ignore all 2/)).toBeTruthy();
-    // both cards moved — the group carries ZERO cards (empty cards slot)
+    // both cards moved — the group carries ZERO cards (empty cards slot)…
     expect(within(group).queryAllByTestId("per-show-actionable-item")).toHaveLength(0);
+    // …and the slot explains where they went (impeccable P1b: a bulk chip whose
+    // objects are invisible at its location invites over-ignoring).
+    expect(within(group).getByText("These appear under their crew members above.")).toBeTruthy();
   });
 
   it("ignored-only section still renders the wrapper (Ignored disclosure is real content)", () => {

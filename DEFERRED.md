@@ -8,6 +8,30 @@ Last reconciled: 2026-07-23 (SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE graduated to t
 
 ---
 
+### CREWWARN-UNDERROW-INDENT-1 — [P1, partially fixed] under-row warning card binds to its member by spacing only, not indent
+
+From the impeccable critique of `feat/crew-warning-attachment` (Assessment A P1a, 2026-07-23). Measured: the under-row card sat 8px below its member's row but only ~10px above the NEXT row, full card width, zero left indent — proximity alone is a weak binding. **Fixed in the branch:** spacing asymmetry (hosting `<li>` now `pt-1 pb-2`, so the below-gap is visibly larger than the `mt-2` above-gap). **Deferred:** the indent-to-name-column half (`pl-13` = avatar 40px + gap 12px). `CrewUnderRowStack` is SHARED with attention alert banners whose full-card-width "card-with-attached-banner" shape is the ratified published-show-alerts §5.4 mock — indenting warning cards means either indenting ratified alert banners too or splitting the stack's layout per node kind. Spec beats critique (standing rule).
+
+**Un-defer trigger:** any milestone touching `CrewUnderRowStack` layout or the published-show-alerts banner design; decide indent-for-both vs per-kind layout there.
+
+### CREWWARN-UNDERROW-COPY-CONDENSE-1 — [P2] under-row card repeats the group card's full generic copy
+
+Assessment A P2a, same critique. The under-row card and the fallback group card render the identical heading+body; when both appear in one panel it scans like a render bug, and under a member's row the who/where is already carried by placement. Condensing the under-row variant (title + controls, explainer behind the existing "?" HoverHelp) touches the warning-card copy layer (warning-card-copy-restore §4.2 lockstep) — a copy-layer change out of scope for a placement diff.
+
+**Un-defer trigger:** next milestone touching warning-card copy or WARNING_CARD_COPY_CODES.
+
+### CREWWARN-INCARD-MOBILE-EYEBROW-1 — [P2] in-card group eyebrow truncates at 390px
+
+Assessment A P2b, same critique. Inside the padded panel card the group loses ~2x `p-tile-pad` of width; at 390px the eyebrow ellipsizes ("PHONE OR EMAIL WE COUL...") and the "Ignore all 2" chip wraps to two lines (no overlap, still legible). Fix lands in shared `BulkIgnoreControls` (eyebrow wrap instead of truncate, or shorter chip copy) whose other call sites (wizard step3 groups) would also reflow — beyond this diff's blast radius.
+
+**Un-defer trigger:** any BulkIgnoreControls change, or user feedback on the truncated eyebrow.
+
+### CREWWARN-CAP-FIXTURE-1 — [P3] no visual fixture for the 3-warnings-one-member cap state
+
+Assessment A P3, same critique. The 2-visible + "N more" cap state has unit coverage (crewUnderRowCards node granularity) but no harness page, so the capped stack has never been LOOKED at with warning cards in it. Add a `crewWarningsCapped` harness variant when next touching the e2e harness.
+
+**Un-defer trigger:** next change to `_publishedReviewModalHarness.tsx` or `CrewUnderRowStack`.
+
 ### STRIP-MOBILE-WRAP-1 — [P2] the control strip wraps to a second row at 390px (44px → 80px)
 
 From the impeccable close-out of `modal-header-reconciliation`. §4.5 collapses the sync/edited stack to one line, trading height for WIDTH; §4.3 simultaneously adds a Re-sync trigger to the same row. Below `sm` the strip's `flex-wrap` is live and the row breaks: **44px → 80px** at 390px (`sm:flex-nowrap` leaves ≥sm untouched, so desktop is unaffected). Spec and plan both costed the height saving and neither anticipated the width cost.
