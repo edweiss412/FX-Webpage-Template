@@ -6,8 +6,10 @@
  *
  * The "N to confirm" dropdown anchored to the header attention pill. Disclosure
  * pattern, NOT role="menu" (rows are plain buttons; no arrow-key contract).
- * One row per ACTIONABLE item in derivation order; footer names the
- * auto-clearing count so nothing is silently dark. Row click closes FIRST,
+ * One row per ACTIONABLE item in derivation order; the needs-a-look and
+ * Monitoring groups enumerate their items as read-only rows (monitoring rows:
+ * title + auto-resolve note - monitoring-badge-expand §3.2), so nothing is
+ * silently dark. Row click closes FIRST,
  * then navigates (the jump owns the scroll; no exit animation competes with
  * the glide — spec §9).
  *
@@ -25,7 +27,7 @@
  */
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
-import { NEEDS_LOOK_CODES, type NeedsLookCode } from "@/lib/adminAlerts/audience";
+import { autoResolveNote, NEEDS_LOOK_CODES, type NeedsLookCode } from "@/lib/adminAlerts/audience";
 import { NEEDS_LOOK_HINTS } from "@/lib/admin/needsLookHints";
 
 export type AttentionMenuProps = {
@@ -95,8 +97,8 @@ function AttentionMenuPanel({
   // silently dark. Only explicit self_heal items collapse to the summary row.
   const needsLook = items.filter((i) => !i.actionable && i.clearingKind !== "self_heal");
   // `!i.actionable` guard (spec §3.3): a mistagged actionable item renders as an
-  // actionable row only — never double-counted into the monitoring summary.
-  const selfHealCount = items.filter((i) => !i.actionable && i.clearingKind === "self_heal").length;
+  // actionable row only — never double-counted into the monitoring group.
+  const selfHeal = items.filter((i) => !i.actionable && i.clearingKind === "self_heal");
   // A needs-look-only open (interactive pill without actionable rows) must not
   // render an empty "Needs your confirmation" section; the panel takes its
   // accessible name from the first group actually present.
@@ -107,7 +109,13 @@ function AttentionMenuPanel({
       ref={panelRef}
       data-testid="published-show-review-attention-menu"
       role="group"
-      aria-label={hasActionable ? "Needs your confirmation" : "Needs a look"}
+      aria-label={
+        hasActionable
+          ? "Needs your confirmation"
+          : needsLook.length > 0
+            ? "Needs a look"
+            : "Monitoring"
+      }
       className={`absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-lg transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}
@@ -215,25 +223,42 @@ function AttentionMenuPanel({
             })}
           </div>
         ) : null}
-        {selfHealCount > 0 ? (
-          /* Monitoring group (spec §3.4.3): quiet subheading + one summary row,
-           items not enumerated — genuinely self-healing, nothing to act on.
-           Copy is TRUE for this subset. */
-          <div className="border-t border-border">
-            <div className="bg-surface-sunken px-4 pt-2.5 pb-1.5">
+        {selfHeal.length > 0 ? (
+          /* Monitoring group (monitoring-badge-expand §3.2): one read-only row
+             per item - title + auto-resolve note. No interactive descendants,
+             no transitions (§3.4: instant; computed-style pinned in e2e). */
+          <div
+            data-testid="attention-monitoring-group"
+            className={hasActionable || needsLook.length > 0 ? "border-t border-border" : undefined}
+          >
+            <div
+              className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasActionable || needsLook.length > 0 ? "" : "rounded-t-md"}`}
+            >
               <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
                 Monitoring
               </span>
             </div>
-            <div className="flex items-center gap-2 rounded-b-md bg-surface-sunken px-4 pb-2.5">
-              <span
-                aria-hidden="true"
-                className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-              />
-              <span className="text-xs text-text-subtle">
-                {selfHealCount} clearing on their own, no action needed
-              </span>
-            </div>
+            {selfHeal.map((item) => (
+              <div
+                key={item.id}
+                data-testid={`attention-monitoring-row-${item.id}`}
+                className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0"
+              >
+                <span
+                  aria-hidden="true"
+                  className="mt-1.5 size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+                />
+                <span className="sr-only">monitoring, </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-text-strong">
+                    {item.menuTitle}
+                  </span>
+                  <span className="block text-xs/relaxed text-text-subtle">
+                    {autoResolveNote(item.kind === "alert" ? item.alert.code : "__none__")}
+                  </span>
+                </span>
+              </div>
+            ))}
           </div>
         ) : null}
       </div>

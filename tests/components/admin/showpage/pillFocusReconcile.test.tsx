@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 /**
  * Menu-open → pill-non-interactive state reconciliation
- * (spec 2026-07-21-attention-needs-attention-split §6, §6a, §8 compound case 2, §11.5a).
+ * (split spec §6/§6a/§8 case 2/§11.5a, amended by monitoring-badge-expand §3.3:
+ * monitoring-only is now a fourth INTERACTIVE entry shape; the exit set is C/D
+ * only, and interactive→monitoring-only STAYS OPEN).
  *
  * The transition set is the GENERATED cartesian ENTRY × EXIT product — never a
  * hand-listed table (hand lists dropped cells in review rounds R5/R6). For each
@@ -15,7 +17,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -47,23 +49,25 @@ function items(nA: number, nNeed: number, nSelf: number) {
   ];
 }
 
-// ENTRY: every interactive [actionable, needsLook] shape. EXIT: every
-// non-interactive target (B monitoring-only, C degraded, D in-sync).
+// ENTRY: every interactive shape incl. monitoring-only [0,0] (selfHeal=1 boot).
+// EXIT: every non-interactive target (C degraded, D in-sync) — B monitoring-only
+// left the exit set (monitoring-badge-expand §3.3: it is interactive now).
 const ENTRY: Array<[number, number]> = [
   [1, 0],
   [0, 1],
   [1, 1],
+  [0, 0],
 ];
 const EXIT = [
-  { label: "B monitoring-only", selfHeal: 1, degraded: false },
   { label: "C degraded", selfHeal: 0, degraded: true },
   { label: "D in-sync", selfHeal: 0, degraded: false },
 ] as const;
 const cells = ENTRY.flatMap(([a, n]) => EXIT.map((x) => ({ a, n, x })));
 
 describe("menu-open → non-interactive reconciliation (§11.5a, generated product)", () => {
-  it("covers exactly 9 cells (a shrunk product fails here)", () => {
-    expect(cells.length).toBe(9);
+  it("covers exactly 8 UNIQUE cells (a shrunk OR duplicated product fails here)", () => {
+    expect(cells.length).toBe(8);
+    expect(new Set(cells.map((c) => `${c.a}-${c.n}-${c.x.label}`)).size).toBe(8);
   });
 
   for (const { a, n, x } of cells) {
@@ -115,8 +119,9 @@ describe("menu-open → non-interactive reconciliation (§11.5a, generated produ
     fireEvent.click(pill);
     expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
 
-    // non-interactive blip... (menu unmounts, close scheduled)
-    rerender(publishedModalElement([], { attentionItems: items(0, 0, 1) }));
+    // non-interactive blip (monitoring-badge-expand: (0,0,1) is interactive
+    // now, so the blip target is D in-sync)... (menu unmounts, close scheduled)
+    rerender(publishedModalElement([], { attentionItems: items(0, 0, 0) }));
     // ...and the rebound BEFORE any frame elapses
     rerender(publishedModalElement([], { attentionItems: items(1, 0, 1) }));
 
@@ -134,4 +139,206 @@ describe("menu-open → non-interactive reconciliation (§11.5a, generated produ
     fireEvent.click(screen.getByTestId("published-show-review-alert-pill"));
     expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
   });
+});
+
+// ---------------------------------------------------------------------------
+// monitoring-badge-expand §3.3 / §5 item 5: stays-open matrices, rescue
+// generality, node identity. jsdom tier — the e2e probes are authoritative for
+// browser removal-focus semantics; these pin the mechanism's generality.
+// ---------------------------------------------------------------------------
+
+const NL_ACTION = { label: "Open in Sheet", href: "https://example.com/sheet", external: true };
+
+function itemsWithLink(nA: number, nNeed: number, nSelf: number) {
+  return [
+    ...Array.from({ length: nA }, (_, i) => actionableAlertItem(`a${i}`)),
+    ...Array.from({ length: nNeed }, (_, i) => needsLookAlertItem(`n${i}`, NL_ACTION)),
+    ...Array.from({ length: nSelf }, (_, i) => selfHealAlertItem(`s${i}`)),
+  ];
+}
+
+const WARNING_SWEEP = (pill: HTMLElement) =>
+  [pill, ...pill.querySelectorAll("*")].filter((el) =>
+    /warning/.test(el.getAttribute("class") ?? ""),
+  );
+
+describe("interactive → monitoring-only STAYS OPEN (forward matrix, 6 origins)", () => {
+  const FORWARD = (
+    [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ] as const
+  ).flatMap(([a, n]) => ([0, 1] as const).map((s0) => ({ a, n, s0 })));
+  it("covers exactly 6 UNIQUE forward origins (a shrunk or duplicated product fails)", () => {
+    expect(FORWARD.length).toBe(6);
+    expect(new Set(FORWARD.map((c) => `${c.a}-${c.n}-${c.s0}`)).size).toBe(6);
+  });
+  for (const { a, n, s0 } of FORWARD) {
+    it(`open [a=${a},n=${n},s=${s0}] → (0,0,1): menu open, monitoring rows ${s0 === 0 ? "INSERTED" : "visible"}, quiet pill, focus rescued`, async () => {
+      const { rerender } = renderPublishedModal([], { attentionItems: itemsWithLink(a, n, s0) });
+      const pill = screen.getByTestId("published-show-review-alert-pill");
+      fireEvent.click(pill);
+      const menu = screen.getByTestId("published-show-review-attention-menu");
+      // pre-focus a to-be-removed element: needs-look <a> for [0,1], the
+      // actionable row button otherwise (removal makes rescue non-vacuous)
+      const target =
+        a === 0
+          ? menu.querySelector<HTMLElement>("a")
+          : menu.querySelector<HTMLElement>('[data-testid^="attention-menu-row-"]');
+      expect(target).not.toBeNull();
+      target!.focus();
+
+      rerender(publishedModalElement([], { attentionItems: itemsWithLink(0, 0, 1) }));
+
+      // the focused node ACTUALLY left the DOM — otherwise the rescue is vacuous
+      // (stale-row rendering + unconditional pill focus would pass; review R2 f1)
+      expect(target!.isConnected).toBe(false);
+      expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+      // the removed row SET is gone (not merely the focused node — a stale row
+      // recreated as a NEW node would evade an isConnected-only check; R3 f2):
+      // (0,0,1) has zero actionable and zero needs-look rows, exactly one monitoring row.
+      expect(screen.queryByTestId(/^attention-menu-row-/)).toBeNull();
+      expect(screen.queryByTestId(/attention-needslook-row-/)).toBeNull();
+      expect(screen.getAllByTestId(/attention-monitoring-row-/)).toHaveLength(1);
+      const pillAfter = screen.getByTestId("published-show-review-alert-pill");
+      expect(pillAfter.getAttribute("aria-expanded")).toBe("true");
+      expect(pillAfter.className.split(/\s+/)).toContain("bg-surface-sunken");
+      expect(WARNING_SWEEP(pillAfter)).toHaveLength(0);
+      // settled focus: rescued to the pill (dep-less post-commit effect)
+      await waitFor(() => expect(document.activeElement).toBe(pillAfter));
+      expect(document.activeElement).not.toBe(document.body);
+    });
+  }
+
+  it("monitoring-only entry: clicking the quiet pill opens the menu", () => {
+    renderPublishedModal([], { attentionItems: items(0, 0, 1) });
+    const pill = screen.getByTestId("published-show-review-alert-pill");
+    expect(pill.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(pill);
+    expect(pill.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+  });
+
+  it("jsdom node identity: the SAME pill button survives forward and reverse palette flips", () => {
+    const { rerender } = renderPublishedModal([], { attentionItems: itemsWithLink(1, 0, 0) });
+    const before = screen.getByTestId("published-show-review-alert-pill");
+    fireEvent.click(before);
+    rerender(publishedModalElement([], { attentionItems: itemsWithLink(0, 0, 1) }));
+    expect(screen.getByTestId("published-show-review-alert-pill")).toBe(before);
+    rerender(publishedModalElement([], { attentionItems: itemsWithLink(1, 0, 0) }));
+    expect(screen.getByTestId("published-show-review-alert-pill")).toBe(before);
+  });
+});
+
+describe("rescue generality (b2): removed-focused-row rescue at NON-monitoring destinations", () => {
+  it("(2,0,0) → (1,0,0): focused a1 row removed, a0 remains — menu open, focus on pill", async () => {
+    const { rerender } = renderPublishedModal([], { attentionItems: items(2, 0, 0) });
+    const pill = screen.getByTestId("published-show-review-alert-pill");
+    fireEvent.click(pill);
+    const rowA1 = screen.getByTestId("attention-menu-row-alert:a1");
+    rowA1.focus();
+    rerender(publishedModalElement([], { attentionItems: [actionableAlertItem("a0")] }));
+    expect(rowA1.isConnected).toBe(false); // the focused node itself detached
+    expect(screen.getByTestId("attention-menu-row-alert:a0")).toBeInTheDocument();
+    // exactly the surviving row set (no stale-row recreation, review R3 f2)
+    expect(screen.getAllByTestId(/^attention-menu-row-/)).toHaveLength(1);
+    expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+    const pillAfter = screen.getByTestId("published-show-review-alert-pill");
+    await waitFor(() => expect(document.activeElement).toBe(pillAfter));
+  });
+
+  it("(1,1,0) → (0,1,0): focused actionable row removed, needs-look remains — menu open, focus on pill", async () => {
+    const { rerender } = renderPublishedModal([], { attentionItems: itemsWithLink(1, 1, 0) });
+    const pill = screen.getByTestId("published-show-review-alert-pill");
+    fireEvent.click(pill);
+    const focusedRow = screen.getByTestId("attention-menu-row-alert:a0");
+    focusedRow.focus();
+    rerender(publishedModalElement([], { attentionItems: itemsWithLink(0, 1, 0) }));
+    expect(focusedRow.isConnected).toBe(false); // focused actionable row detached
+    expect(screen.queryByTestId(/^attention-menu-row-/)).toBeNull(); // no actionable rows
+    expect(screen.getAllByTestId(/attention-needslook-row-/)).toHaveLength(1);
+    expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+    const pillAfter = screen.getByTestId("published-show-review-alert-pill");
+    await waitFor(() => expect(document.activeElement).toBe(pillAfter));
+  });
+
+  it("(1,1,0) → (1,0,0): focused needs-look link removed, actionable remains — menu open, focus on pill", async () => {
+    const { rerender } = renderPublishedModal([], { attentionItems: itemsWithLink(1, 1, 0) });
+    const pill = screen.getByTestId("published-show-review-alert-pill");
+    fireEvent.click(pill);
+    const link = screen
+      .getByTestId("published-show-review-attention-menu")
+      .querySelector<HTMLElement>("a");
+    expect(link).not.toBeNull();
+    link!.focus();
+    rerender(publishedModalElement([], { attentionItems: itemsWithLink(1, 0, 0) }));
+    expect(link!.isConnected).toBe(false); // focused needs-look link detached
+    expect(screen.queryByTestId(/attention-needslook-row-/)).toBeNull(); // needs-look gone
+    expect(screen.getAllByTestId(/^attention-menu-row-/)).toHaveLength(1);
+    expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+    const pillAfter = screen.getByTestId("published-show-review-alert-pill");
+    await waitFor(() => expect(document.activeElement).toBe(pillAfter));
+  });
+
+  it("(e2) FOCUS-STEAL CONSTRAINT: a rerender that keeps the focused row mounted must NOT move focus", async () => {
+    const { rerender } = renderPublishedModal([], { attentionItems: itemsWithLink(2, 0, 1) });
+    fireEvent.click(screen.getByTestId("published-show-review-alert-pill"));
+    const rowA0 = screen.getByTestId("attention-menu-row-alert:a0");
+    rowA0.focus();
+    // a1 leaves; a0 (focused) stays mounted
+    rerender(
+      publishedModalElement([], {
+        attentionItems: [actionableAlertItem("a0"), selfHealAlertItem("s0")],
+      }),
+    );
+    const rowAfter = screen.getByTestId("attention-menu-row-alert:a0");
+    expect(rowAfter).toBe(rowA0);
+    // let a macrotask + a frame elapse — a steal scheduled on microtask/timer/rAF
+    // would have fired by now; a bare waitFor could resolve on its first (already
+    // true) attempt and miss a deferred steal (review R3 f6).
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    });
+    expect(document.activeElement).toBe(rowAfter);
+  });
+});
+
+describe("quiet → warning REVERSE matrix (6 cells): menu stays open, amber positive pins", () => {
+  const REVERSE = (
+    [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ] as const
+  ).flatMap(([a, n]) => ([0, 1] as const).map((s1) => ({ a, n, s1 })));
+  it("covers exactly 6 UNIQUE reverse cells (a shrunk or duplicated product fails)", () => {
+    expect(REVERSE.length).toBe(6);
+    expect(new Set(REVERSE.map((c) => `${c.a}-${c.n}-${c.s1}`)).size).toBe(6);
+  });
+  for (const { a, n, s1 } of REVERSE) {
+    it(`(0,0,1) open → [a=${a},n=${n},s=${s1}]: groups reconcile, aria-expanded retained, amber root`, () => {
+      const { rerender } = renderPublishedModal([], { attentionItems: items(0, 0, 1) });
+      const pill = screen.getByTestId("published-show-review-alert-pill");
+      fireEvent.click(pill);
+      expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+
+      rerender(publishedModalElement([], { attentionItems: itemsWithLink(a, n, s1) }));
+
+      expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
+      if (a > 0) expect(screen.getAllByTestId(/^attention-menu-row-/).length).toBeGreaterThan(0);
+      if (n > 0)
+        expect(screen.getAllByTestId(/attention-needslook-row-/).length).toBeGreaterThan(0);
+      if (s1 === 1) expect(screen.getAllByTestId(/attention-monitoring-row-/).length).toBe(1);
+      else expect(screen.queryByTestId(/attention-monitoring-row-/)).toBeNull();
+      const pillAfter = screen.getByTestId("published-show-review-alert-pill");
+      expect(pillAfter.getAttribute("aria-expanded")).toBe("true");
+      const classes = pillAfter.className.split(/\s+/);
+      expect(classes).toContain("bg-warning-bg");
+      expect(classes).toContain("text-warning-text");
+      expect(classes).toContain("hover:bg-warning-bg/80");
+      expect(classes).not.toContain("bg-surface-sunken");
+    });
+  }
 });
