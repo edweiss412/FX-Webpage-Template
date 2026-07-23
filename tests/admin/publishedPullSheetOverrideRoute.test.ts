@@ -151,6 +151,12 @@ describe("handlePublishedPullSheetOverride", () => {
     ["shrink_held", { ok: false, kind: "shrink_held" }],
     ["hard_fail", { ok: false, kind: "hard_fail" }],
     ["skipped", { ok: false, kind: "skipped" }],
+    ["asset_recovery", { ok: false, kind: "asset_recovery" }],
+    ["stale", { ok: false, kind: "stale" }],
+    ["revision_race", { ok: false, kind: "revision_race" }],
+    ["revision_race_cooldown", { ok: false, kind: "revision_race_cooldown" }],
+    ["source_gone", { ok: false, kind: "source_gone" }],
+    ["parse_error", { ok: false, kind: "parse_error" }],
   ])("sync classifier: outcome %s", async (outcome, expected) => {
     const res = await handlePublishedPullSheetOverride(
       ACCEPT, baseDeps({ runManualSyncForShow: vi.fn(async () => ({ outcome }) as never) }),

@@ -116,10 +116,25 @@ d("set_published_pull_sheet_override", () => {
     ).rejects.toMatchObject({ code: "22023" });
   });
 
-  test("EXECUTE is revoked from authenticated and anon", async () => {
+  test("empty p_drive_file_id raises 22023 (before any row read)", async () => {
+    await expect(
+      sql`select public.set_published_pull_sheet_override('', null, null, 'a@b.com', null)`,
+    ).rejects.toMatchObject({ code: "22023" });
+  });
+
+  test("edge-whitespace tab name is stored VERBATIM (no trim)", async () => {
+    const [row] = await sql`
+      select public.set_published_pull_sheet_override(${DFID}, ${" OLD PULL SHEET "}, 'fpw', 'a@b.com', null) as out`;
+    expect((row!.out as { override: { tabName: string } }).override.tabName).toBe(" OLD PULL SHEET ");
+    const [db] = await sql`select pull_sheet_override->>'tabName' as t from public.shows where drive_file_id = ${DFID}`;
+    expect(db!.t).toBe(" OLD PULL SHEET ");
+  });
+
+  test("EXECUTE is revoked from authenticated and anon but granted to service_role", async () => {
     const [row] = await sql`
       select has_function_privilege('authenticated', ${SIG}, 'EXECUTE') as a,
-             has_function_privilege('anon', ${SIG}, 'EXECUTE') as b`;
-    expect(row).toEqual({ a: false, b: false });
+             has_function_privilege('anon', ${SIG}, 'EXECUTE') as b,
+             has_function_privilege('service_role', ${SIG}, 'EXECUTE') as c`;
+    expect(row).toEqual({ a: false, b: false, c: true });
   });
 });

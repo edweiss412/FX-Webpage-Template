@@ -158,3 +158,14 @@ describe("operatorActionableWarnings — UNKNOWN_FIELD per-row anchors (Part B)"
     expect(operatorActionableWarnings(ws)).toHaveLength(2);
   });
 });
+
+describe("PULL_SHEET_ON_ARCHIVED_TAB decision pin (spec 2026-07-23 §2.2)", () => {
+  // DECISION PIN (not TDD red/green): the published-show archived-tab include offer relies on
+  // StagedReviewCard surfaces NEVER rendering this warning (they show only anchored actionable
+  // items). If someone adds the code here, the catalog helpfulContext sentence ("the Gear
+  // section on this page offers to include it") would render — and lie — on staged surfaces.
+  // Resurfacing that would re-open the §2.2 no-change scope decision.
+  it("is deliberately NOT in the operator-actionable anchored set", () => {
+    expect(OPERATOR_ACTIONABLE_ANCHORED.has("PULL_SHEET_ON_ARCHIVED_TAB")).toBe(false);
+  });
+});
