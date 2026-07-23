@@ -28,6 +28,8 @@ const COPY: Record<string, string> = Object.assign(Object.create(null), {
   no_pull_sheet_region: "That tab is no longer in the sheet. Re-check the sheet, then try again.",
   lifecycle_conflict: "This show is no longer editable here. Refresh to see its current state.",
 });
+// not-subject:M5-D8 — friendly inline fallback copy, not a §12.4-coded message (mirrors the
+// wizard ARCHIVED_TAB_ERROR pattern). The wire status is a machine token, never rendered.
 const GENERIC_COPY = "Something went wrong on our side. Try again in a moment.";
 
 /** Safe status → copy: own-key only, else the generic bucket. */
