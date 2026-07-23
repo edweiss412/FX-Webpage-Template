@@ -181,8 +181,9 @@ describe("monitoring group (monitoring-badge-expand §3.2: enumerated rows)", ()
     // titles derived from the fixture objects (anti-tautology), block-level pins:
     const t1 = within(rows[0]!).getByText(FIXTURE_ITEMS[0]!.menuTitle);
     const n1 = within(rows[0]!).getByText(autoResolveNote("WATCH_CHANNEL_ORPHANED"));
-    expect(t1.className).toContain("block");
-    expect(n1.className).toContain("block");
+    // exact token (inline-block must NOT satisfy a block-level pin)
+    expect(t1.className.split(/\s+/)).toContain("block");
+    expect(n1.className.split(/\s+/)).toContain("block");
     expect(within(rows[1]!).getByText(FIXTURE_ITEMS[1]!.menuTitle)).toBeInTheDocument();
     expect(within(rows[1]!).getByText(autoResolveNote("SYNC_STALLED"))).toBeInTheDocument();
     // summary copy retired MENU-WIDE, not just inside the group
@@ -226,8 +227,13 @@ describe("monitoring group (monitoring-badge-expand §3.2: enumerated rows)", ()
     });
     renderMenu([fixture]);
     const row = screen.getByTestId("attention-monitoring-row-alert:s1");
+    // count ALL decorative dots first — an extra wrongly-styled indicator
+    // lacking the positive class would evade a positive-only count (review R1).
+    const allDots = [...row.querySelectorAll('span[aria-hidden="true"][class*="rounded-pill"]')];
+    expect(allDots).toHaveLength(1);
     const dots = [...row.querySelectorAll('[class*="border-status-positive"]')];
     expect(dots).toHaveLength(1);
+    expect(dots[0]!).toBe(allDots[0]!);
     expect(dots[0]!.className).toContain("bg-transparent");
     expect(
       row.querySelector('[class*="bg-status-review"], [class*="bg-status-degraded"]'),
@@ -292,7 +298,8 @@ describe("monitoring group (monitoring-badge-expand §3.2: enumerated rows)", ()
     } as unknown as AttentionItem;
     renderMenu([synthetic]);
     const row = screen.getByTestId("attention-monitoring-row-hold:x");
-    expect(within(row).getByText("Synthetic hold")).toBeInTheDocument();
+    // derived from the fixture, not a mirrored literal (anti-tautology)
+    expect(within(row).getByText(synthetic.menuTitle)).toBeInTheDocument();
     expect(within(row).getByText(autoResolveNote("__none__"))).toBeInTheDocument();
   });
 
@@ -307,16 +314,16 @@ describe("monitoring group (monitoring-badge-expand §3.2: enumerated rows)", ()
   it("leading group: rounded-t-md header, no border-t; after a preceding group: border-t, no rounding (spec §3.2)", () => {
     renderMenu([item("s1", "SYNC_STALLED", { clearingKind: "self_heal" })]);
     const groupAlone = screen.getByTestId("attention-monitoring-group");
-    expect(groupAlone.className ?? "").not.toContain("border-t");
-    expect(groupAlone.querySelector('[class*="rounded-t-md"]')).not.toBeNull();
+    expect(groupAlone.className.split(/\s+/)).not.toContain("border-t");
+    expect(groupAlone.querySelector('[class~="rounded-t-md"]')).not.toBeNull();
     cleanup();
     renderMenu([
       item("a1", "PARSE_ERROR", { actionable: true }),
       item("s1", "SYNC_STALLED", { clearingKind: "self_heal" }),
     ]);
     const groupAfter = screen.getByTestId("attention-monitoring-group");
-    expect(groupAfter.className).toContain("border-t");
-    expect(groupAfter.querySelector('[class*="rounded-t-md"]')).toBeNull();
+    expect(groupAfter.className.split(/\s+/)).toContain("border-t");
+    expect(groupAfter.querySelector('[class~="rounded-t-md"]')).toBeNull();
   });
 
   it("an actionable item wrongly tagged self_heal is NOT counted as monitoring (§3.3 guard)", () => {

@@ -141,8 +141,10 @@ const EXIT = [
 ] as const;
 const cells = ENTRY.flatMap(([a, n]) => EXIT.map((x) => ({ a, n, x })));
 
-test("exactly 8 transition cells (a shrunk product fails)", () => {
+test("exactly 8 transition cells, all unique (a shrunk OR duplicated product fails)", () => {
   expect(cells.length).toBe(8);
+  const keys = new Set(cells.map((c) => `${c.a}-${c.n}-${c.x.label}`));
+  expect(keys.size).toBe(8);
 });
 
 for (const { a, n, x } of cells) {
@@ -250,6 +252,51 @@ test("rescue probe (b): focused needs-look LINK removed → menu open, aria-expa
   await settledFocusIsPill(page);
 });
 
+// Finding 1 (review R1): the rescue contract is destination-INDEPENDENT.
+// Browser-authoritative cells whose removal ends at a NON-monitoring state —
+// a destination-dependent browser focus bug would slip past monitoring-only
+// coverage. jsdom corroborates in pillFocusReconcile; the browser settles it.
+for (const cell of [
+  // buildItems keeps the FIRST n of each class, so a shrink drops the LAST.
+  // Each cell focuses the element that WILL be removed (rescue is non-vacuous
+  // only if the focused node actually leaves the DOM).
+  {
+    boot: [2, 0, 0],
+    to: [1, 0, 0],
+    focus: "row",
+    pick: "last",
+    label: "(2,0,0)->(1,0,0) sibling remains",
+  },
+  {
+    boot: [1, 1, 0],
+    to: [0, 1, 0],
+    focus: "row",
+    pick: "first",
+    label: "(1,1,0)->(0,1,0) needs-look remains",
+  },
+  {
+    boot: [1, 1, 0],
+    to: [1, 0, 0],
+    focus: "link",
+    pick: "first",
+    label: "(1,1,0)->(1,0,0) actionable remains",
+  },
+] as const) {
+  test(`rescue generality ${cell.label}: focused element removed → menu open, settled focus = pill`, async ({
+    page,
+  }) => {
+    await boot(page, cell.boot[0], cell.boot[1], cell.boot[2]);
+    const sel =
+      cell.focus === "link" ? `${MENU} a` : `${MENU} [data-testid^="attention-menu-row-"]`;
+    const locator = cell.pick === "last" ? page.locator(sel).last() : page.locator(sel).first();
+    await locator.focus();
+    await setItems(page, cell.to[0], cell.to[1], cell.to[2]);
+    await expect(page.locator(MENU)).toBeVisible();
+    await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
+    await settledFocusIsPill(page);
+  });
+}
+
 test("insertion cell (c): (1,0,0)→(0,0,1) stays open, monitoring rows inserted, quiet root, same node", async ({
   page,
 }) => {
@@ -320,6 +367,30 @@ test("reverse cell (d): (0,0,1)→(1,0,0) stays open, group swap, amber root, sa
   expect(pinSurvived, "same pill node must survive the flip").toBe(true);
 });
 
+// Finding 3 (review R1): harness self-ratification. The close matrix asserts
+// the menu is ABSENT on a real close; the stays-open cells assert it VISIBLE.
+// This cell proves the SAME oracle distinguishes both on the SAME surface — if
+// `toBeVisible`/`toHaveCount(0)` could not observe menu state, one direction
+// would silently pass wrong. (The manual assertion-inversion negative control
+// was additionally run at authoring time: 4 inverted probe cells all FAILED
+// before restore — recorded in the plan's Task 4 commit.)
+test("oracle discriminates: a real close hides the menu; a stays-open transition keeps it", async ({
+  page,
+}) => {
+  await boot(page, 1, 0, 1);
+  await expect(page.locator(MENU)).toBeVisible();
+  // real close: drive to in-sync (D) — menu MUST disappear
+  await setItems(page, 0, 0, 0);
+  await expect(page.locator(MENU)).toHaveCount(0);
+  // drive to monitoring-only (interactive, does NOT auto-open), click to reopen
+  await setItems(page, 0, 0, 1);
+  await page.locator(PILL).click();
+  await expect(page.locator(MENU)).toBeVisible();
+  // a stays-open transition (add an actionable) MUST keep it visible
+  await setItems(page, 1, 0, 1);
+  await expect(page.locator(MENU)).toBeVisible();
+});
+
 // Computed-style treatment probe (§3.4 ground truth), both palette states.
 for (const [a, n, s0, label] of [
   [1, 0, 1, "composite/amber"],
@@ -350,19 +421,27 @@ for (const [a, n, s0, label] of [
       );
       const group = document.querySelector('[data-testid="attention-monitoring-group"]');
       const rows = [...document.querySelectorAll('[data-testid^="attention-monitoring-row-"]')];
+      // descendants of the group carry the dots, titles, notes — CSS animation
+      // on THOSE would pass a roots-only sweep (review R1 finding 2c)
+      const groupDescendants = group ? [...group.querySelectorAll("*")] : [];
       const chev = pill.querySelector("svg");
       const chevCs = chev ? getComputedStyle(chev) : null;
-      const groupAnimations = [group, ...rows]
+      const chevPairs = chevCs
+        ? chevCs.transitionProperty.split(",").map((prop, i) => ({
+            prop: prop.trim(),
+            dur: parseFloat((chevCs.transitionDuration.split(",")[i] ?? "0").trim()),
+          }))
+        : [];
+      const groupAnimations = [group, ...rows, ...groupDescendants]
         .filter((el): el is Element => !!el)
         .flatMap((el) => (el as HTMLElement).getAnimations?.() ?? []).length;
       return {
         rootProps,
         rootDur,
-        instantTargets: [seg, ...dots, ...middots, group, ...rows]
+        instantTargets: [seg, ...dots, ...middots, group, ...rows, ...groupDescendants]
           .filter((el): el is Element => !!el)
           .map((el) => instant(el)),
-        chevProps: chevCs?.transitionProperty ?? "",
-        chevDur: parseFloat(chevCs?.transitionDuration.split(",")[0] ?? "0"),
+        chevPairs,
         groupAnimations,
         segPresent: !!seg,
         groupPresent: !!group,
@@ -373,18 +452,29 @@ for (const [a, n, s0, label] of [
     expect(report.groupPresent).toBe(true);
     expect(report.rowCount).toBeGreaterThan(0);
     // root: color cross-fade with real duration
-    expect(report.rootProps === "all" || /background-color/.test(report.rootProps)).toBe(true);
-    expect(/color/.test(report.rootProps) || report.rootProps === "all").toBe(true);
+    const rootPropList = report.rootProps.split(",").map((t) => t.trim());
+    const coversBg = report.rootProps === "all" || rootPropList.includes("background-color");
+    // standalone "color" token — NOT satisfied by the substring in "background-color"
+    const coversColor = report.rootProps === "all" || rootPropList.includes("color");
+    expect(coversBg, report.rootProps).toBe(true);
+    expect(coversColor, report.rootProps).toBe(true);
     expect(report.rootDur).toBeGreaterThan(0);
     // instant targets: no transition, no animation
     for (const t of report.instantTargets) {
       expect(t.noTransition, JSON.stringify(t)).toBe(true);
       expect(t.animationName).toBe("none");
     }
-    // chevron: transform present, no color-related property with duration > 0
-    expect(/transform/.test(report.chevProps), report.chevProps).toBe(true);
-    if (report.chevDur > 0) {
-      expect(/color/.test(report.chevProps)).toBe(false);
+    // chevron: transform present; NO color-related property carries duration > 0
+    // (each property paired with ITS OWN duration — a later animated color
+    // transition can't hide behind the first duration slot)
+    expect(
+      report.chevPairs.some((pr) => pr.prop === "transform"),
+      JSON.stringify(report.chevPairs),
+    ).toBe(true);
+    for (const pr of report.chevPairs) {
+      if (pr.dur > 0) {
+        expect(/color/.test(pr.prop) || pr.prop === "all", pr.prop).toBe(false);
+      }
     }
     expect(report.groupAnimations).toBe(0);
   });

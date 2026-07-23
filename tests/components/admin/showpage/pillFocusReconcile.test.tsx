@@ -65,8 +65,9 @@ const EXIT = [
 const cells = ENTRY.flatMap(([a, n]) => EXIT.map((x) => ({ a, n, x })));
 
 describe("menu-open → non-interactive reconciliation (§11.5a, generated product)", () => {
-  it("covers exactly 8 cells (a shrunk product fails here)", () => {
+  it("covers exactly 8 UNIQUE cells (a shrunk OR duplicated product fails here)", () => {
     expect(cells.length).toBe(8);
+    expect(new Set(cells.map((c) => `${c.a}-${c.n}-${c.x.label}`)).size).toBe(8);
   });
 
   for (const { a, n, x } of cells) {
@@ -162,6 +163,17 @@ const WARNING_SWEEP = (pill: HTMLElement) =>
   );
 
 describe("interactive → monitoring-only STAYS OPEN (forward matrix, 6 origins)", () => {
+  const FORWARD = (
+    [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ] as const
+  ).flatMap(([a, n]) => ([0, 1] as const).map((s0) => ({ a, n, s0 })));
+  it("covers exactly 6 UNIQUE forward origins (a shrunk or duplicated product fails)", () => {
+    expect(FORWARD.length).toBe(6);
+    expect(new Set(FORWARD.map((c) => `${c.a}-${c.n}-${c.s0}`)).size).toBe(6);
+  });
   for (const [a, n] of [
     [1, 0],
     [0, 1],
@@ -277,6 +289,17 @@ describe("rescue generality (b2): removed-focused-row rescue at NON-monitoring d
 });
 
 describe("quiet → warning REVERSE matrix (6 cells): menu stays open, amber positive pins", () => {
+  const REVERSE = (
+    [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ] as const
+  ).flatMap(([a, n]) => ([0, 1] as const).map((s1) => ({ a, n, s1 })));
+  it("covers exactly 6 UNIQUE reverse cells (a shrunk or duplicated product fails)", () => {
+    expect(REVERSE.length).toBe(6);
+    expect(new Set(REVERSE.map((c) => `${c.a}-${c.n}-${c.s1}`)).size).toBe(6);
+  });
   for (const [a, n] of [
     [1, 0],
     [0, 1],
