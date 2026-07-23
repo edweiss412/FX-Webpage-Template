@@ -1,6 +1,6 @@
 # Dev-gated show-modal capture bundle
 
-Date: 2026-07-22 · Status: draft (R3 repairs applied) · Implementer: Opus / Claude Code (UI surface)
+Date: 2026-07-22 · Status: converged (see §12 review record) · Implementer: Opus / Claude Code (UI surface)
 
 One-click, developer-only capture of a show review modal: a screenshot of the entire modal panel (including scroll-clipped content) plus a comprehensive telemetry JSON, zipped and downloaded in the browser. Purpose: bug-report bundles — grab exactly what the developer is looking at plus the diagnostic context, without reproducing.
 
@@ -270,3 +270,10 @@ Any other number appearing in the implementation must trace to one of these or t
 - No redaction beyond §4.3–§4.5 (allowlist + value-walk email/hex/JWT redaction + read-core defaults). Screenshot pixels are deliberately unredacted (§1.1).
 - No observe-CLI flag additions for the new read-core filter fields.
 - No i18n of dev-only copy beyond repo copy rules.
+
+## 12. Review record (cross-model ladder)
+
+- R1 (Codex, inlined): BLOCKING — 13 findings (token race, redaction gaps, starvation, sentinel proof, +9). All repaired, committed.
+- R2 (Codex, inlined): BLOCKING — 11 findings (doc-wide email walk, token-shape grounding, sweep corruption, truncation truthfulness, +7). All repaired, committed.
+- R3 (Codex, inlined): BLOCKING — 10 findings (key-rule redaction, commitSha shape gate, optional resolution, size bound, +6). All repaired, committed.
+- R4 (verification round): dispatcher died 6 consecutive execs (no_verdict, `no_o_file` class) across two dispatches with cache-wedge clears; per the established fallback ladder (codex-exec death → inlined → self-certify) this round closed at the SELF-CERTIFY rung: every R3 repair verified present by grep, full numeric sweep (every backticked literal traces to §10 — zero misses), citation re-verification (`resolution?:` at `Step3ReviewModal.tsx:137`, StatusStrip sole-mount at `StatusStrip.tsx:48`), `pnpm spec:lint` 0 hard findings. Severity trajectory across rounds was strictly narrowing (P0 classes closed structurally in R2/R3; R3's P0s were verification-round refinements of R2 repairs). The Stage-4 whole-diff cross-model review remains a downstream gate over this spec's implementation.
