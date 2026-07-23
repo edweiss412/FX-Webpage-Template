@@ -121,6 +121,7 @@ test.beforeAll(async () => {
     capped: string;
     notLive: string;
     archived: string;
+    crewWarnings: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
 
@@ -130,6 +131,8 @@ test.beforeAll(async () => {
   // §4.2 orange-budget pages (T-NO-ORANGE) — the other two rows of the table.
   writeFileSync(join(workDir, "notlive.html"), pageHtml("out.css", pages.notLive));
   writeFileSync(join(workDir, "archived.html"), pageHtml("out.css", pages.archived));
+  // crew-warning-attachment T5: matched (under-row) + unmatched (in-card group).
+  writeFileSync(join(workDir, "crewwarnings.html"), pageHtml("out.css", pages.crewWarnings));
 
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
@@ -138,7 +141,7 @@ test.beforeAll(async () => {
   // that page's assertion would measure unstyled markup.
   writeFileSync(
     entryCss,
-    ["harness.html", "capped.html", "notlive.html", "archived.html"]
+    ["harness.html", "capped.html", "notlive.html", "archived.html", "crewwarnings.html"]
       .map((f) => `@source "${join(workDir, f)}";\n`)
       .join("") + globals,
   );
@@ -1013,4 +1016,109 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       ).toBeGreaterThanOrEqual(4.5);
     });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// crew-warning-attachment T5 (spec 2026-07-23 §2 Dimensional invariants):
+// real-browser containment for crew warning placement. jsdom computes no
+// layout, so "inside the panel card" and "between the rows" are measured here.
+//
+// Dimensional invariants under test (from the spec):
+//   - the under-row stack ([data-testid="crew-warn-stack-<key>"]) sits INSIDE
+//     the crew section's panel-card border box, below its member's row and
+//     above the next row;
+//   - the fallback group block ([data-testid="section-warning-controls-crew"])
+//     is fully contained in the crew panel card rect (left/right/top/bottom);
+//   - card bottom >= extras bottom (no overflow out of the border).
+//
+// Fixture (crewwarnings.html): "Crew Member A (5/3 ONLY)" raw blockRef name →
+// strips to the rendered "Crew Member A" row (under-row); "Ghost Crew" matches
+// no roster row (fallback into the in-card group).
+test.describe("crew warning placement — containment (crew-warning-attachment T5)", () => {
+  const CREW_SECTION = `[data-testid="wizard-step3-card-${HARNESS_DFID}-review-section-crew"]`;
+  const STACK = '[data-testid="crew-warn-stack-crew member a"]';
+  const GROUP = '[data-testid="section-warning-controls-crew"]';
+
+  /** The crew section's §5.2 panel card, anchored from the ROSTER (anti-tautology:
+   *  never matched by border+list shape alone — the extras block also has a border-t
+   *  and its cards render lists, so a shape probe can select the very element under
+   *  test). Walk UP from a roster row to the first bordered ancestor div inside the
+   *  section: the extras block is never an ancestor of a roster row, before OR after
+   *  the in-card move. */
+  async function cardRect(page: Page): Promise<{ x: number; y: number; w: number; h: number }> {
+    return page.locator(CREW_SECTION).evaluate((section) => {
+      const rows = [...section.querySelectorAll("li")];
+      const rosterRow = rows.find((li) => li.textContent?.includes("Crew Member A"));
+      if (!rosterRow) throw new Error("roster row 'Crew Member A' not found in crew section");
+      let el: HTMLElement | null = rosterRow.parentElement as HTMLElement | null;
+      while (el && el !== section) {
+        if (el instanceof HTMLDivElement && Number.parseFloat(getComputedStyle(el).borderTopWidth) > 0) {
+          const r = el.getBoundingClientRect();
+          return { x: r.x, y: r.y, w: r.width, h: r.height };
+        }
+        el = el.parentElement as HTMLElement | null;
+      }
+      throw new Error("no bordered ancestor div (panel card) between the roster row and the section");
+    });
+  }
+
+  test("T-WARN-UNDERROW @1280: matched warning's stack sits inside the card, between its row and the next", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 1280, height: 900 }, "crewwarnings.html");
+    await expect(page.locator(STACK), "under-row stack present for the stripped key").toHaveCount(1);
+
+    const card = await cardRect(page);
+    const stack = (await page.locator(STACK).boundingBox())!;
+    const rowA = (await page
+      .locator(`${CREW_SECTION} li`, { hasText: "Crew Member A" })
+      .first()
+      .boundingBox())!;
+    const rowB = (await page
+      .locator(`${CREW_SECTION} li`, { hasText: "Crew Member B" })
+      .first()
+      .boundingBox())!;
+
+    expect(stack.x, "stack left inside card").toBeGreaterThanOrEqual(card.x - TOL);
+    expect(stack.x + stack.width, "stack right inside card").toBeLessThanOrEqual(
+      card.x + card.w + TOL,
+    );
+    expect(stack.y, "stack top inside card").toBeGreaterThanOrEqual(card.y - TOL);
+    expect(stack.y + stack.height, "stack bottom inside card").toBeLessThanOrEqual(
+      card.y + card.h + TOL,
+    );
+    // Between its member's row and the next member's row (the hosting <li>
+    // wraps both the row content and the stack, so rowA CONTAINS the stack).
+    expect(stack.y, "stack starts inside its member's li").toBeGreaterThanOrEqual(rowA.y - TOL);
+    expect(stack.y + stack.height, "stack ends before the next row begins").toBeLessThanOrEqual(
+      rowB.y + TOL,
+    );
+  });
+
+  test("T-WARN-INCARD @1280: unmatched warning's fallback group is contained in the crew panel card", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 1280, height: 900 }, "crewwarnings.html");
+    await expect(
+      page.locator(GROUP),
+      "fallback group present (Ghost Crew matches no rendered row)",
+    ).toHaveCount(1);
+    // Conservation guard: the matched warning renders ONLY under its row — the
+    // group must not also carry a card for it (scoped text probe on the group).
+    await expect(
+      page.locator(GROUP),
+      "matched warning's card does not double-render in the group",
+    ).not.toContainText("Crew phone for row 1");
+
+    const card = await cardRect(page);
+    const group = (await page.locator(GROUP).boundingBox())!;
+    expect(group.x, "group left inside card").toBeGreaterThanOrEqual(card.x - TOL);
+    expect(group.x + group.width, "group right inside card").toBeLessThanOrEqual(
+      card.x + card.w + TOL,
+    );
+    expect(group.y, "group top inside card").toBeGreaterThanOrEqual(card.y - TOL);
+    expect(group.y + group.height, "group bottom inside card (no overflow)").toBeLessThanOrEqual(
+      card.y + card.h + TOL,
+    );
+  });
 });

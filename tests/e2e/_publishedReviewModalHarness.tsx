@@ -41,7 +41,13 @@ import { PublishedReviewModal } from "@/components/admin/showpage/PublishedRevie
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
-import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
+import {
+  buildSectionWarningModel,
+  type SectionWarningRecord,
+} from "@/lib/admin/sectionWarningModel";
+import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
+import type { SectionId } from "@/lib/admin/step3SectionStatus";
+import type { ParseWarning } from "@/lib/parser/types";
 import type { ChangesSectionProps } from "@/components/admin/showpage/ChangesSection";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 
@@ -240,7 +246,33 @@ export type HarnessStateOverrides = {
   /** attention split §6a probe: drive the pill/menu with explicit items. */
   attentionItems?: AttentionItem[];
   alertsDegraded?: boolean;
+  /** crew-warning-attachment T5: seed two FIELD_UNREADABLE crew warnings — one
+   *  whose raw day-restriction name strips to a RENDERED roster name (under-row
+   *  placement) and one unmatched (fallback into the in-card section group). */
+  withCrewWarnings?: boolean;
 };
+
+/** T5 fixture warnings (spec 2026-07-23-crew-warning-attachment §5.5): the
+ *  matched name is the RAW cell form — the paren-ONLY strip must key it to the
+ *  rendered "Crew Member A" row; "Ghost Crew" matches no roster row. */
+function crewWarningFixtures(): ParseWarning[] {
+  return [
+    {
+      severity: "warn",
+      code: "FIELD_UNREADABLE",
+      message: 'Crew phone for row 1 couldn\'t be read as a phone number ("N/A") — check the sheet.',
+      rawSnippet: "N/A",
+      blockRef: { kind: "crew", index: 0, name: "Crew Member A (5/3 ONLY)" },
+    },
+    {
+      severity: "warn",
+      code: "FIELD_UNREADABLE",
+      message: 'Crew email for row 9 couldn\'t be read as an address ("nope") — check the sheet.',
+      rawSnippet: "nope",
+      blockRef: { kind: "crew", index: 8, name: "Ghost Crew" },
+    },
+  ];
+}
 
 export function modalElement(
   alertCount: number = HARNESS_ALERT_COUNT,
@@ -250,7 +282,19 @@ export function modalElement(
   const published = state.published ?? true;
   const isLive = state.isLive ?? true;
   const data = buildPublishedSectionData(snapshot(), { slug: MODAL_SLUG });
-  const bySection: SectionWarningRecord = {};
+  // T5: build the REAL section model over the fixture warnings (subprocess only —
+  // buildSectionWarningModel touches node:crypto via report surface ids; the
+  // HASH_FOR_LOG_PEPPER env in the spec's beforeAll satisfies its guard).
+  const bySection: SectionWarningRecord = state.withCrewWarnings
+    ? buildSectionWarningModel({
+        slug: MODAL_SLUG,
+        warnings: crewWarningFixtures(),
+        ignoredFingerprints: new Set(),
+        renderedSectionIds: new Set(
+          renderedSectionIds({ mode: "published", agendaBaseline: [] } as never) as SectionId[],
+        ),
+      })
+    : {};
   const modal = React.createElement(PublishedReviewModal, {
     alertId: null,
     data,
@@ -329,6 +373,9 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
         isLive: false,
         published: false,
       }),
+      // crew-warning-attachment T5: matched (under-row) + unmatched (in-card
+      // group fallback) FIELD_UNREADABLE fixtures.
+      crewWarnings: renderModalHtml(HARNESS_ALERT_COUNT, { withCrewWarnings: true }),
     }),
   );
 }
