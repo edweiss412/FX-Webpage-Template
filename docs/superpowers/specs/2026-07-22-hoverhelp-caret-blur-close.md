@@ -89,7 +89,7 @@ The portal renders `<>bodyDiv, caretDiv</>`. The caret div:
 - `z-50` (same layer as the body, HoverHelp.tsx:514); DOM-after the body so it paints over the body's border seam.
 - Open/close: the caret carries the SAME open/close class toggle as the body (`block opacity-100` vs `pointer-events-none hidden opacity-0` plus `transition-[opacity,display] duration-fast transition-discrete starting:opacity-0`) so both fade as one unit.
 - Collision-hidden: when the placed→hidden branch runs (HoverHelp.tsx:251-266), the shell sets the caret's `visibility:hidden` alongside the body's, and clears it on the placed branch — the caret must never be visible while the body is hidden. When `placement.caret === null` on a placed result, the caret alone gets `visibility:hidden`.
-- Effect cleanup (HoverHelp.tsx:310-327) resets the caret's `visibility` and strips its `data-popover-side` the same way it resets the body's.
+- Effect cleanup (HoverHelp.tsx:310-327) resets the caret's `visibility`. It DIVERGES from the body on `data-popover-side`: the body strips it on close (parent §4.6 "a closed body never claims a side"), but the caret's vertical borders come from the `data-[popover-side]` variant, so the caret RETAINS the attribute through the exit opacity/display fade and it is overwritten on the next open (or when the body next goes collision-hidden). Stripping it on close would collapse both triangles mid-fade (the caret would vanish instantly instead of fading).
 
 ### §3.5 Guard conditions (caret)
 
@@ -169,7 +169,7 @@ Caret visual states: **closed**, **placed-visible@bottom**, **placed-visible@top
 | From → To | Treatment |
 | --- | --- |
 | closed → placed-visible (either side) | fades with body (`transition-discrete` + `starting:opacity-0`, same classes) |
-| placed-visible → closed | fades with body (display transition; degrades to instant where unsupported — same degradation as body, HoverHelp.tsx:499-502) |
+| placed-visible → closed | fades with body (display transition; degrades to instant where unsupported). The caret KEEPS its `data-popover-side` through the fade so its triangles render while opacity animates (unlike the body, which strips its side on close); T-A1 pins this. |
 | placed-visible@bottom ↔ placed-visible@top (side flip on reflow) | instant — position AND triangle orientation change in the same `measureAndApply` call (`data-popover-side` attribute flip selects the mirrored class branch); no animation, matching the body's instant reposition |
 | placed-visible → suppressed | instant (`visibility:hidden`) — collision hiding is already instant for the body |
 | suppressed → placed-visible | instant — symmetric |

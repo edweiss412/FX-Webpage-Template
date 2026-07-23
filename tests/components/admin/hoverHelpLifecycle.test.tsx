@@ -327,11 +327,17 @@ describe("measure-and-apply with stubbed rects", () => {
       expect(el.className).toContain("opacity-100");
       expect(el.className).not.toContain("hidden");
     }
+    expect(caret.getAttribute("data-popover-side")).toBe("bottom");
     fireEvent.click(trigger); // close
     for (const el of [body, caret]) {
       expect(el.className).toContain("hidden");
       expect(el.className).not.toContain("block");
     }
+    // Fade preservation (closeout R1 P2): closing from a PLACED-VISIBLE state
+    // must RETAIN the caret's data-popover-side so its border triangles still
+    // render through the exit opacity/display fade (the attribute supplies the
+    // vertical borders). Stripping it on close collapsed the caret instantly.
+    expect(caret.getAttribute("data-popover-side")).toBe("bottom");
   });
 
   test("T-J6c: placed caret mirrors data-popover-side and positions from core output", () => {

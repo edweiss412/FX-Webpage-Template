@@ -352,8 +352,14 @@ export function HoverHelp({
         delete body.dataset["popoverHidden"];
         body.style.visibility = "";
       }
+      // The caret DIVERGES from the body here: its vertical borders come from
+      // the data-[popover-side] variant, so stripping the attribute now would
+      // collapse both triangles WHILE the exit opacity/display fade is still
+      // running (closeout R1 P2). Keep the side through the fade - it is
+      // overwritten on the next open (measureAndApply) or when the body next
+      // goes hidden. Only clear a collision-hidden visibility so a reopen is
+      // not stuck hidden before its first measure.
       if (caretEl) {
-        delete caretEl.dataset["popoverSide"];
         caretEl.style.visibility = "";
       }
     };
