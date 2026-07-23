@@ -213,7 +213,7 @@ describe("conservation — under-row vs section group (spec §5.3)", () => {
         data={data}
         renderedCrewKeys={RENDERED}
         // derive via the live fingerprint helper — never hardcode
-        ignoredFingerprints={new Set([warningFingerprint(w)])}
+        ignoredFingerprints={new Set([warningFingerprint(w)!])}
       />,
     );
     const section = crewSection();
@@ -293,5 +293,20 @@ describe("sectionExtras renders inside the panel card (spec §2B, T4)", () => {
       }
       expect(crossedBorderedDiv, "warnings extras must not move inside a card").toBe(false);
     }
+  });
+});
+
+describe("nullish threading guard — shape pin (spec R2-F3, plan-R1 F4b)", () => {
+  it("ShowReviewSurface threads sectionExtras through an `extrasNode != null` conditional spread", () => {
+    // Source-scan pin (project registry-guard pattern): the guard must be
+    // NULLISH — not truthiness (which would drop falsy-renderable values) and
+    // not unconditional (which would violate exactOptionalPropertyTypes by
+    // threading undefined). Behavioral proof of the null case lives above
+    // (null factory → no extras node anywhere); this pins the guard's shape.
+    const src = require("node:fs").readFileSync(
+      require("node:path").join(process.cwd(), "components/admin/review/ShowReviewSurface.tsx"),
+      "utf8",
+    ) as string;
+    expect(src).toMatch(/extrasNode != null \? \{ sectionExtras: extrasNode \} : \{\}/);
   });
 });

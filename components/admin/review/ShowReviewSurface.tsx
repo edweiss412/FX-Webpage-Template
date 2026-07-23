@@ -1038,7 +1038,18 @@ export function ShowReviewSurface({
             Wrapped in a ref-carrying box so the scroll-spy can measure the
             section top by rail id. Phase 1 (the modal) passes none → nothing. */}
             {extraSectionsBefore?.map(renderExtraPanel)}
-            {sections.map((s) => (
+            {sections.map((s) => {
+              // crew-warning-attachment §2B: extras computed ONCE per section.
+              // Non-warnings sections thread it INTO the chrome (rendered as
+              // the panel card's last child); the warnings section keeps the
+              // sibling render in BOTH suppression states (§1.1 R1-F1 — a
+              // state-conditional reparent would remount the extras subtree
+              // across Silent transitions and discard control state).
+              const extrasNode =
+                renderSectionExtras?.(s.id, data, {
+                  seamless: s.id === "warnings" && suppressWarningsPanelCard,
+                }) ?? null;
+              return (
               <section
                 key={s.id}
                 data-testid={`wizard-step3-card-${dfid}-review-section-${s.id}`}
@@ -1087,6 +1098,10 @@ export function ShowReviewSurface({
                     // through the crew section's chrome value only (ABSENT
                     // elsewhere and in staged mode — exactOptional discipline).
                     ...(s.id === "crew" && crewAttention ? { crewAttention } : {}),
+                    // crew-warning-attachment §2B: NULLISH guard (R2-F3) —
+                    // null/undefined stay ABSENT (exactOptional); the factory
+                    // returns element-or-null so falsy-renderables cannot occur.
+                    ...(s.id !== "warnings" && extrasNode != null ? { sectionExtras: extrasNode } : {}),
                     // attention-alert-routing §3.2: the two parse notices render as
                     // banner LINES atop the Parse-warnings panel; they travel as
                     // domain items so WarningsBreakdown composes them with warnings.length.
@@ -1132,14 +1147,15 @@ export function ShowReviewSurface({
                 >
                   {s.render(data)}
                 </Step3SectionChromeContext.Provider>
-                {/* Phase 2 hook: per-section warning controls under the panel.
-                Phase 1 passes no `renderSectionExtras` → renders nothing.
-                seamless (spec 2026-07-22 §3.3): exactly when this section's
-                body card is suppressed, so the extras' border-t cannot read
-                as a heading underline. */}
-                {renderSectionExtras?.(s.id, data, {
-                  seamless: s.id === "warnings" && suppressWarningsPanelCard,
-                })}
+                {/* Warnings section ONLY (crew-warning-attachment §1.1 R1-F1):
+                sibling placement in BOTH suppression states — never through the
+                chrome, so the extras subtree never reparents across Silent
+                transitions. Other sections' extras render inside their panel
+                card via the chrome's sectionExtras (threaded above). seamless
+                (spec 2026-07-22 §3.3): exactly when the warnings body card is
+                suppressed, so the extras' border-t cannot read as a heading
+                underline. */}
+                {s.id === "warnings" ? extrasNode : null}
                 {/* Announcer spec 2026-07-22 §2.2: always-mounted published
                   announce-log region. OUTSIDE the chrome-suppressible card
                   subtree (Silent unmounts panel children,
@@ -1166,7 +1182,8 @@ export function ShowReviewSurface({
                   </span>
                 ) : null}
               </section>
-            ))}
+              );
+            })}
             {/* Extra rail sections mounted after the registry (Phase 2: Changes).
             Ref-wrapped for scroll-spy measurement. Phase 1 passes none. */}
             {extraSectionsAfter?.map(renderExtraPanel)}

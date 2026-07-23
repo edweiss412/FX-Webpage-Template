@@ -32,6 +32,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import {
   AlertTriangle,
@@ -445,6 +446,14 @@ export type Step3SectionChrome = {
   };
   /** §3.5: scroll-to-section, supplied from ShowReviewSurface.handleNavClick. */
   onJumpToSection?: (id: SectionId) => void;
+  /** Crew-warning-attachment spec §2B: the section's warning extras node,
+   *  rendered as the LAST child inside the §5.2 panel card (its own border-t
+   *  reads as an in-card seam) so warning groups sit within the card they
+   *  describe. ABSENT when the section has no extras or is the warnings
+   *  section (always sibling-placed, §1.1 R1-F1 — no reparenting across
+   *  Silent transitions). exactOptionalPropertyTypes: present or ABSENT,
+   *  never undefined. */
+  sectionExtras?: ReactNode;
   /** Registry glyph (§6.1) — the rail, chips, and heading row share it. */
   Icon: LucideIcon;
   /** Registry label (§6.1) — ditto (NOT the body's legacy h4 label). */
@@ -954,6 +963,13 @@ function ModalSectionChrome({
             />
           ) : null}
           {children}
+          {/* crew-warning-attachment §2B: per-section warning extras as the
+              card's LAST child — inside the border they describe. Nullish
+              threading is the provider's job (ShowReviewSurface); this renders
+              whatever was threaded. §11: instant — deliberate (placement is
+              static with the section render; the extras subtree carries no
+              transition classes). */}
+          {chrome.sectionExtras}
         </div>
       ) : null}
     </>
