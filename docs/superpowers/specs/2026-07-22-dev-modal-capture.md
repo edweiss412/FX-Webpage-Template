@@ -46,7 +46,7 @@ Ratified during the in-session brainstorm (user-approved design, 2026-07-22):
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 Both mounts delegate to one client module `components/admin/dev/DevCaptureControl.tsx` exporting:
 
-- `useDevCapture(opts): { state, run }` — the state machine (§7) and orchestration (capture → telemetry action → zip → download). `opts` carries `{ target: () => HTMLElement | null, request: CaptureTelemetryRequest, clientSnapshot: () => unknown, filenameSeed: string }`.
+- `useDevCapture(opts): { state, run }` — the state machine (§7) and orchestration (capture → telemetry action → zip → download). `opts` carries `{ target: () => HTMLElement | null, request: CaptureTelemetryRequest, clientSnapshot: () => unknown, filenameSeed: string, preCapture?: () => Promise<void> }` — `preCapture` runs INSIDE the busy window before rasterizing (amendment #2: ShareHub passes popover-close + two settle frames here).
 - The two mount-specific buttons live with their host components (ShareHub row, Step3 header icon) and call `run()`; presentation stays host-owned so each surface keeps its own idiom.
 
 ## 3. Screenshot capture contract
