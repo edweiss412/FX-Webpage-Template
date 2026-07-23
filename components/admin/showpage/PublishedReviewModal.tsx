@@ -754,7 +754,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                     : {})}
                   className={`relative inline-flex shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                     monitoringOnly
-                      ? "bg-surface-sunken text-text-subtle hover:bg-surface-sunken/80"
+                      ? /* border separates button-gray from the passive label-gray
+                           spans; hover moves the border, never fades toward the
+                           page bg (impeccable critique P1+P2, 2026-07-22) */
+                        "border border-border bg-surface-sunken text-text-subtle hover:border-border-strong"
                       : "bg-warning-bg text-warning-text hover:bg-warning-bg/80"
                   }`}
                 >

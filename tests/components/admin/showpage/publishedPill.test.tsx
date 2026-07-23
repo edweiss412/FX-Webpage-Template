@@ -155,9 +155,20 @@ describe("monitoring-only quiet interactive pill (monitoring-badge-expand §3.1)
     const pill = renderPill(0, 0, 2);
     expect(pill.tagName).toBe("BUTTON");
     expect(pill).toHaveAttribute("aria-expanded", "false");
-    for (const cls of ["bg-surface-sunken", "text-text-subtle", "hover:bg-surface-sunken/80"]) {
+    // impeccable critique P1 (2026-07-22): the quiet BUTTON must be visually
+    // separable from the non-interactive gray spans (In sync / Alerts
+    // unavailable) - it carries a border the spans lack, and hover feedback
+    // moves the border (not a fade toward the page bg).
+    for (const cls of [
+      "bg-surface-sunken",
+      "text-text-subtle",
+      "border",
+      "border-border",
+      "hover:border-border-strong",
+    ]) {
       expect(pill.className.split(/\s+/)).toContain(cls);
     }
+    expect(pill.className.split(/\s+/)).not.toContain("hover:bg-surface-sunken/80");
     // getAttribute("class") - SVG className is SVGAnimatedString, .className would miss it
     expect(
       [pill, ...pill.querySelectorAll("*")].filter((el) =>
