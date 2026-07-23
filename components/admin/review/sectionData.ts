@@ -67,12 +67,27 @@ export type StagedSectionData = SectionCore & {
   wizardSessionId: string;
 };
 
+/** Null-tolerant wire projection of `shows.pull_sheet_override` (spec 2026-07-23 §4). Mirrors
+ *  PostgreSQL `->>` per field (absent/JSON-null → null; string verbatim; any non-string → null),
+ *  so the strict two-string `OverrideSnapshot` type is deliberately NOT reused. Round-trips the
+ *  RPC's structural CAS; malformed rows are recoverable via the RPC's revoke carve-out. */
+export type PullSheetOverrideWire = { tabName: string | null; fingerprint: string | null } | null;
+
+/** The published Gear-section archived-tab include offer (spec 2026-07-23 §2.1). The adapter
+ *  ALWAYS emits `null`; `_showReviewModal` is the sole attach site (post-augmentation after the
+ *  warning model exists), gating on `published && !archived && driveFileId != null && names > 0`. */
+export type PublishedArchivedTabOffer = { tabNames: string[]; slug: string } | null;
+
 export type PublishedSectionData = SectionCore & {
   mode: "published";
   showId: string;
   slug: string;
   archived: boolean;
   published: boolean;
+  /** §4 wire projection of the durable override (null-tolerant). */
+  pullSheetOverrideWire: PullSheetOverrideWire;
+  /** §2.1 include offer. Adapter emits null; modal attaches. Absent in staged (exactOptional). */
+  archivedTabOffer?: PublishedArchivedTabOffer;
   // §5.5 Preview-As roster: the `crew_members` DB ids (with display name), index-aligned
   // with `crewMembers` — both derive from the adapter's single crew display sort, so
   // `previewRoster[i]` is the persisted id of `crewMembers[i]`. `CrewMemberRow` is a pure

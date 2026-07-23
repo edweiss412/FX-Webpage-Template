@@ -127,6 +127,7 @@ describe("sectionData mode guards", () => {
       slug: "x",
       archived: false,
       published: true,
+      pullSheetOverrideWire: null,
     } as SectionData;
     expect(isPublished(d)).toBe(true);
     expect(isStaged(d)).toBe(false);

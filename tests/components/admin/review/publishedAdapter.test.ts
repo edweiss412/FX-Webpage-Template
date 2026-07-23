@@ -251,3 +251,38 @@ describe("buildPublishedSectionData — agenda baseline", () => {
     expect(d.agendaBaseline.find((it) => it.label === `L${overCap - 1}`)).toBeUndefined();
   });
 });
+
+describe("buildPublishedSectionData — pull_sheet_override wire projection (spec 2026-07-23 §4)", () => {
+  const wireOf = (pso: unknown) =>
+    buildPublishedSectionData(baseSnapshot({ show: { drive_file_id: "D", pull_sheet_override: pso } as never }), {
+      slug: SLUG,
+    }).pullSheetOverrideWire;
+
+  it("null → null", () => {
+    expect(wireOf(null)).toBeNull();
+  });
+  it("full 4-field object → two string fields, acceptedBy/At dropped", () => {
+    expect(wireOf({ tabName: "OLD", fingerprint: "fp1", acceptedBy: "a@b", acceptedAt: "t" })).toEqual({
+      tabName: "OLD",
+      fingerprint: "fp1",
+    });
+  });
+  it("missing fingerprint → fingerprint null (verbatim string tabName)", () => {
+    expect(wireOf({ tabName: "x" })).toEqual({ tabName: "x", fingerprint: null });
+  });
+  it("string root (garbage) → both fields null", () => {
+    expect(wireOf("garbage")).toEqual({ tabName: null, fingerprint: null });
+  });
+  it("whitespace/empty strings preserved verbatim (no trim, no empty-collapse)", () => {
+    expect(wireOf({ tabName: "  x ", fingerprint: "" })).toEqual({ tabName: "  x ", fingerprint: "" });
+  });
+  it("non-string field values (number/boolean) → null (representation stays DB-owned)", () => {
+    expect(wireOf({ tabName: 123, fingerprint: false })).toEqual({ tabName: null, fingerprint: null });
+  });
+  it("object/array field values → null", () => {
+    expect(wireOf({ tabName: { a: 1 }, fingerprint: [1, 2] })).toEqual({ tabName: null, fingerprint: null });
+  });
+  it("adapter always emits archivedTabOffer null (modal attaches)", () => {
+    expect(buildPublishedSectionData(baseSnapshot(), { slug: SLUG }).archivedTabOffer).toBeNull();
+  });
+});

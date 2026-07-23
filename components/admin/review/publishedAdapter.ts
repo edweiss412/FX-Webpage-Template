@@ -21,7 +21,10 @@ import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { buildAdminAgendaPreview, type AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { AGENDA_MAX_PDFS_PER_SHEET } from "@/lib/agenda/constants";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
-import type { PublishedSectionData } from "@/components/admin/review/sectionData";
+import type {
+  PublishedSectionData,
+  PullSheetOverrideWire,
+} from "@/components/admin/review/sectionData";
 
 /**
  * Published-mode adapter (spec §3.2 / §3.3). Pure function — NO Supabase calls,
@@ -80,6 +83,9 @@ export function buildPublishedSectionData(
     // rows carry the final pull sheet only (spec §3.2).
     archivedPullSheetTabs: [],
     pullSheetOverride: null,
+    // §4 null-tolerant wire projection of the durable override; §2.1 offer attached by the modal.
+    pullSheetOverrideWire: projectOverrideWire(show.pull_sheet_override),
+    archivedTabOffer: null,
     billing: {
       coiStatus: str(show.coi_status) ?? null,
       proposal: str(financials?.proposal) ?? null,
@@ -240,6 +246,20 @@ function asRecord(v: unknown): Record<string, unknown> {
 
 function str(v: unknown): string | null {
   return typeof v === "string" ? v : null;
+}
+
+/**
+ * §4 wire projection of `shows.pull_sheet_override`. Per field, reproduce PostgreSQL `->>`
+ * WITHOUT emulating jsonb text: absent or JSON null → null; JSON string → verbatim (no trim, no
+ * empty-collapse); ANY non-string value (number/boolean/object/array) → null. Representation of
+ * malformed rows stays database-owned; the RPC's revoke carve-out (§3.2) keeps them recoverable.
+ */
+function projectOverrideWire(raw: unknown): PullSheetOverrideWire {
+  if (raw === null || raw === undefined) return null;
+  // Any non-null stored value round-trips (spec §4). A non-object root (string/number/array)
+  // has no fields — `->>` yields null for both, exactly like `str()` on `undefined`.
+  const r = typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  return { tabName: str(r.tabName), fingerprint: str(r.fingerprint) };
 }
 
 // Stable ordering over nullable strings — nulls sort last.
