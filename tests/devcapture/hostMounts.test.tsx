@@ -244,9 +244,7 @@ describe("snapshot threading canaries (§4.3 — real modules end-to-end)", () =
 describe("busy lockout — real hook, deferred capture (§2.2/§7)", () => {
   let resolveCapture: (b: Blob) => void = () => undefined;
   beforeEach(() => {
-    captureElementPng.mockImplementation(
-      () => new Promise<Blob>((r) => (resolveCapture = r)),
-    );
+    captureElementPng.mockImplementation(() => new Promise<Blob>((r) => (resolveCapture = r)));
   });
 
   it("while busy: both toggles aria-disabled and neither opens the popover; busy copy shows", async () => {

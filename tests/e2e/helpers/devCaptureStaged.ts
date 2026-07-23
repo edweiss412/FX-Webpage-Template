@@ -108,7 +108,8 @@ export async function cleanupStagedRow(driveFileId: string): Promise<void> {
     .from("onboarding_scan_manifest")
     .delete()
     .eq("drive_file_id", driveFileId);
-  if (maniDelErr) throw new Error(`devCaptureStaged manifest cleanup failed: ${maniDelErr.message}`);
+  if (maniDelErr)
+    throw new Error(`devCaptureStaged manifest cleanup failed: ${maniDelErr.message}`);
 
   // Restore the SETTLED dashboard state rather than the captured prior: under
   // sibling-worktree pollution the prior snapshot may itself be a foreign
@@ -129,7 +130,8 @@ export async function cleanupStagedRow(driveFileId: string): Promise<void> {
       pending_wizard_session_at: null,
     })
     .eq("id", "default");
-  if (restoreErr) throw new Error(`devCaptureStaged settings restore failed: ${restoreErr.message}`);
+  if (restoreErr)
+    throw new Error(`devCaptureStaged settings restore failed: ${restoreErr.message}`);
 }
 
 export async function openStep3Modal(page: Page, driveFileId: string): Promise<void> {

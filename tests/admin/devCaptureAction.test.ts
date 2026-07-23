@@ -8,27 +8,40 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { gate, gateCalls, queryEvents, queryAlerts, querySyncLog, queryStagedParses, queryIngestFailures } =
-  vi.hoisted(() => {
-    const gateCalls: string[] = [];
-    return {
-      gateCalls,
-      gate: vi.fn(async () => {
-        gateCalls.push("gate");
-      }),
-      queryEvents: vi.fn(),
-      queryAlerts: vi.fn(),
-      querySyncLog: vi.fn(),
-      queryStagedParses: vi.fn(),
-      queryIngestFailures: vi.fn(),
-    };
-  });
+const {
+  gate,
+  gateCalls,
+  queryEvents,
+  queryAlerts,
+  querySyncLog,
+  queryStagedParses,
+  queryIngestFailures,
+} = vi.hoisted(() => {
+  const gateCalls: string[] = [];
+  return {
+    gateCalls,
+    gate: vi.fn(async () => {
+      gateCalls.push("gate");
+    }),
+    queryEvents: vi.fn(),
+    queryAlerts: vi.fn(),
+    querySyncLog: vi.fn(),
+    queryStagedParses: vi.fn(),
+    queryIngestFailures: vi.fn(),
+  };
+});
 vi.mock("@/lib/auth/requireDeveloper", () => ({
   requireDeveloper: gate,
 }));
-vi.mock("@/lib/observe/query/events", () => ({ queryEvents: (...a: unknown[]) => queryEvents(...a) }));
-vi.mock("@/lib/observe/query/alerts", () => ({ queryAlerts: (...a: unknown[]) => queryAlerts(...a) }));
-vi.mock("@/lib/observe/query/syncLog", () => ({ querySyncLog: (...a: unknown[]) => querySyncLog(...a) }));
+vi.mock("@/lib/observe/query/events", () => ({
+  queryEvents: (...a: unknown[]) => queryEvents(...a),
+}));
+vi.mock("@/lib/observe/query/alerts", () => ({
+  queryAlerts: (...a: unknown[]) => queryAlerts(...a),
+}));
+vi.mock("@/lib/observe/query/syncLog", () => ({
+  querySyncLog: (...a: unknown[]) => querySyncLog(...a),
+}));
 vi.mock("@/lib/observe/query/staged", () => ({
   queryStagedParses: (...a: unknown[]) => queryStagedParses(...a),
 }));
@@ -39,7 +52,13 @@ vi.mock("@/lib/observe/query/failures", () => ({
 import { captureShowTelemetry, type CaptureTelemetryRequest } from "@/app/admin/_devCaptureAction";
 
 const UUID = "11111111-2222-4333-8444-555555555555";
-const readCoreMocks = [queryEvents, queryAlerts, querySyncLog, queryStagedParses, queryIngestFailures];
+const readCoreMocks = [
+  queryEvents,
+  queryAlerts,
+  querySyncLog,
+  queryStagedParses,
+  queryIngestFailures,
+];
 
 function okEvents(n: number, hasMore = false) {
   return { kind: "ok", events: Array.from({ length: n }, (_, i) => ({ id: `e${i}` })), hasMore };
@@ -76,9 +95,9 @@ beforeEach(() => {
 describe("gate-first (spec §5 execution order)", () => {
   it("rejected gate propagates and no read-core call happens", async () => {
     gate.mockRejectedValueOnce(new Error("forbidden"));
-    await expect(
-      captureShowTelemetry({ kind: "published", showId: UUID }),
-    ).rejects.toThrow("forbidden");
+    await expect(captureShowTelemetry({ kind: "published", showId: UUID })).rejects.toThrow(
+      "forbidden",
+    );
     for (const m of readCoreMocks) expect(m).not.toHaveBeenCalled();
   });
 
@@ -208,7 +227,9 @@ describe("infra_error embedding — each of the five, verbatim, siblings ok", ()
 describe("nested warnings caps (§4.2 — exactly the two enumerated arrays)", () => {
   it("staged rows: warnings capped at 200 with warningsTruncated marker", async () => {
     armStagedHappy();
-    queryStagedParses.mockResolvedValue(okRows(1, { warnings: Array.from({ length: 201 }, (_, i) => i) }));
+    queryStagedParses.mockResolvedValue(
+      okRows(1, { warnings: Array.from({ length: 201 }, (_, i) => i) }),
+    );
     const res = await captureShowTelemetry({ kind: "staged", driveFileId: "drive-1" });
     if (res.kind !== "ok") throw new Error("expected ok");
     const row = (res.staged as { rows: Array<Record<string, unknown>> }).rows[0]!;
@@ -237,7 +258,9 @@ describe("nested warnings caps (§4.2 — exactly the two enumerated arrays)", (
   });
   it("syncLog rows pass through untransformed (no cap, no marker)", async () => {
     armPublishedHappy();
-    querySyncLog.mockResolvedValue(okRows(1, { warnings: Array.from({ length: 201 }, (_, i) => i) }));
+    querySyncLog.mockResolvedValue(
+      okRows(1, { warnings: Array.from({ length: 201 }, (_, i) => i) }),
+    );
     const res = await captureShowTelemetry({ kind: "published", showId: UUID });
     if (res.kind !== "ok") throw new Error("expected ok");
     const row = (res.syncLog as { rows: Array<Record<string, unknown>> }).rows[0]!;

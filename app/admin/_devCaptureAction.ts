@@ -105,8 +105,7 @@ export async function captureShowTelemetry(
     return {
       kind: "ok",
       commitSha: envCommitSha(),
-      events:
-        events.kind === "ok" ? { rows: events.events, truncated: events.hasMore } : events,
+      events: events.kind === "ok" ? { rows: events.events, truncated: events.hasMore } : events,
       alerts: alerts.kind === "ok" ? probeList(alerts.alerts, 100) : alerts,
       syncLog: syncLog.kind === "ok" ? probeList(syncLog.rows, 50) : syncLog,
     };
@@ -120,11 +119,17 @@ export async function captureShowTelemetry(
     commitSha: envCommitSha(),
     staged:
       staged.kind === "ok"
-        ? probeList(staged.rows.map((r) => capNestedWarnings(r, "warnings")), 10)
+        ? probeList(
+            staged.rows.map((r) => capNestedWarnings(r, "warnings")),
+            10,
+          )
         : staged,
     failures:
       failures.kind === "ok"
-        ? probeList(failures.rows.map((r) => capNestedWarnings(r, "lastWarnings")), 100)
+        ? probeList(
+            failures.rows.map((r) => capNestedWarnings(r, "lastWarnings")),
+            100,
+          )
         : failures,
   };
 }

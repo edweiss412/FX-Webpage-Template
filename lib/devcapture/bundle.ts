@@ -53,7 +53,11 @@ export function zipBundle(png: Uint8Array, telemetryJson: string): Uint8Array {
 }
 
 export function bundleFilename(seed: string, now: Date): string {
-  const clean = seed.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 64) || "show";
+  const clean =
+    seed
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "")
+      .slice(0, 64) || "show";
   const p = (n: number, w: number) => String(n).padStart(w, "0");
   const stamp = `${now.getFullYear()}${p(now.getMonth() + 1, 2)}${p(now.getDate(), 2)}-${p(
     now.getHours(),

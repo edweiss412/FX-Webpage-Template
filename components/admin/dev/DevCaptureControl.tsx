@@ -24,7 +24,9 @@ function finite(n: number): number {
 /** §4.5 deterministic reason classification for a RESOLVED action result. */
 function classifyResolved(
   r: unknown,
-): { kind: "ok"; [k: string]: unknown } | { kind: "unavailable"; reason: "bad_request" | "action_failed" } {
+):
+  | { kind: "ok"; [k: string]: unknown }
+  | { kind: "unavailable"; reason: "bad_request" | "action_failed" } {
   if (r !== null && typeof r === "object" && "kind" in r) {
     const k = (r as { kind: unknown }).kind;
     if (k === "ok") return r as { kind: "ok" };
@@ -108,6 +110,7 @@ export function useDevCapture(opts: {
       if (mounted.current) setState("idle");
     })()
       .catch((err: unknown) => {
+        // eslint-disable-next-line no-console -- spec §7.2: the full error object goes to the browser console; the UI shows fixed copy only
         console.error("dev capture failed", err);
         if (!mounted.current) return;
         setState("error");

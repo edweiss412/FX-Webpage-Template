@@ -10,10 +10,7 @@ import { createContext, useContext, type ReactNode } from "react";
 
 const DeveloperFlagContext = createContext<boolean>(false);
 
-export function DeveloperFlagProvider(props: {
-  viewerIsDeveloper: boolean;
-  children: ReactNode;
-}) {
+export function DeveloperFlagProvider(props: { viewerIsDeveloper: boolean; children: ReactNode }) {
   return (
     <DeveloperFlagContext.Provider value={props.viewerIsDeveloper}>
       {props.children}

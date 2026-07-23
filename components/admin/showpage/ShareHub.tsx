@@ -448,7 +448,11 @@ export function ShareHub({
           // unbounded error copy collides with band content at 390px. Full text
           // is in the console by contract.
           className="ml-2 max-w-48 truncate text-xs text-text-subtle"
-          title={capture.state === "busy" ? undefined : "Capture failed. Details are in the browser console."}
+          title={
+            capture.state === "busy"
+              ? undefined
+              : "Capture failed. Details are in the browser console."
+          }
         >
           {capture.state === "busy"
             ? "Capturing the modal…"

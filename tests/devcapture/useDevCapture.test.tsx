@@ -132,9 +132,7 @@ describe("useDevCapture", () => {
 
   it("busyRef is synchronously true from run() entry", () => {
     let resolveCapture: (b: Blob) => void = () => undefined;
-    captureElementPng.mockImplementation(
-      () => new Promise<Blob>((r) => (resolveCapture = r)),
-    );
+    captureElementPng.mockImplementation(() => new Promise<Blob>((r) => (resolveCapture = r)));
     const h = mountHook();
     act(() => {
       h.run();
@@ -329,9 +327,7 @@ describe("useDevCapture", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     captureElementPng.mockRejectedValueOnce(new Error("first"));
     let resolveSecond: (b: Blob) => void = () => undefined;
-    captureElementPng.mockImplementationOnce(
-      () => new Promise<Blob>((r) => (resolveSecond = r)),
-    );
+    captureElementPng.mockImplementationOnce(() => new Promise<Blob>((r) => (resolveSecond = r)));
     const h = mountHook();
     act(() => h.run());
     await settle();
@@ -361,9 +357,7 @@ describe("useDevCapture", () => {
 
   it("unmount mid-busy: click NOT called, created URL still revoked", async () => {
     let resolveCapture: (b: Blob) => void = () => undefined;
-    captureElementPng.mockImplementation(
-      () => new Promise<Blob>((r) => (resolveCapture = r)),
-    );
+    captureElementPng.mockImplementation(() => new Promise<Blob>((r) => (resolveCapture = r)));
     const h = mountHook();
     act(() => h.run());
     await act(async () => {

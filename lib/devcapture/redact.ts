@@ -23,9 +23,7 @@ function redactString(s: string, hexExempt: boolean): string {
 function walk(node: unknown, path: readonly string[]): unknown {
   if (typeof node === "string") {
     const hexExempt =
-      path.length === 2 &&
-      (path[0] === "meta" || path[0] === "server") &&
-      path[1] === "commitSha";
+      path.length === 2 && (path[0] === "meta" || path[0] === "server") && path[1] === "commitSha";
     return redactString(node, hexExempt);
   }
   if (Array.isArray(node)) return node.map((v, i) => walk(v, [...path, String(i)]));
