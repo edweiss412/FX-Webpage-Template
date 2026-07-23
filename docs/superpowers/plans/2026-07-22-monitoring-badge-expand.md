@@ -398,3 +398,9 @@ scenario(T2_MONITORING_ONLY, "Monitoring only: expandable quiet pill", {
 **Registry sweep (§5 item 10):** `tests/styles` + `tests/help` — 694 tests green, no reconciliation needed. `_metaAttentionItemsTopology.test.ts` — DOES NOT EXIST in the repo (stale name inherited from memory-era docs); the tier2 exact-set registry (`attentionScenariosTier2.test.ts`) is the live equivalent and was extended in Task 3.
 
 **e2e negative control (plan R3 F2):** 4 inverted probe cells all FAILED before restore — probes non-vacuous.
+
+## Whole-diff review triage (Task 6)
+
+**Code-scope review R1 — NEEDS-ATTENTION, 1 finding, REFUTED (recorded so later rounds/reviewers do not re-derive):**
+- Claim: widening `interactive` to include `selfHeal` makes the "Alerts unavailable" (state C) branch unreachable when `degraded && selfHeal>0`, a precedence change.
+- Refutation: at origin/main the degraded branch was ALREADY gated `alertsDegraded && selfHeal.length === 0` (PublishedReviewModal.tsx:822) and the `selfHeal.length > 0` monitoring branch (:831) preceded in-sync. So degraded+selfHeal>0 routed to the monitoring **span** at origin/main too — "Alerts unavailable" was never reachable with monitoring items present. This diff swaps that span for the interactive quiet button; precedence is IDENTICAL. Spec §3.1 ratifies it verbatim: "When `alertsDegraded && selfHeal.length > 0`, the monitoring-only INTERACTIVE pill wins (same precedence as today, where the monitoring span won)." The stays-open sub-claim is the intended §3.3 contract. Diff-only reasoning (reviewer saw `interactive` widen without checking the old branch gate). No code change.
