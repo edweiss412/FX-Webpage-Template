@@ -354,7 +354,26 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
       error: `roster > CREW_ROSTER_READ_CAP (${CREW_ROSTER_READ_CAP})`,
     });
   }
-  const surfaceData = rosterOverCap ? { ...publishedData, previewRoster: [] } : publishedData;
+  // §2.1 published archived-tab include offer: POST-AUGMENTATION after the warning model exists
+  // (the model derives from `publishedData`, so this cannot move earlier — it attaches here).
+  // Names come from the ACTIVE partition only (durable Ignore removes a record, hiding the
+  // offer); raw `blockRef.name`, blanks dropped, exact-string deduped (no trim — RPC identity is
+  // exact). Attached only when published && !archived && driveFileId present with ≥1 name.
+  const activeArchivedTabNames = Array.from(
+    new Set(
+      Object.values(bySection)
+        .flatMap((m) => m?.active ?? [])
+        .filter((item) => item.warning.code === "PULL_SHEET_ON_ARCHIVED_TAB")
+        .map((item) => item.warning.blockRef?.name)
+        .filter((n): n is string => typeof n === "string" && n.trim().length > 0),
+    ),
+  );
+  const archivedTabOffer =
+    published && !archived && driveFileId != null && activeArchivedTabNames.length > 0
+      ? { tabNames: activeArchivedTabNames, slug }
+      : null;
+  const withOffer = { ...publishedData, archivedTabOffer };
+  const surfaceData = rosterOverCap ? { ...withOffer, previewRoster: [] } : withOffer;
   const crewEmails = rosterOverCap
     ? []
     : publishedData.crewMembers

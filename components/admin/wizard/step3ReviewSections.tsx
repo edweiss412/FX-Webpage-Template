@@ -141,6 +141,11 @@ import {
   ArchivedTabIncludedNote,
   deriveArchivedOffers,
 } from "@/components/admin/wizard/archivedTabOffer";
+import {
+  PublishedArchivedTabOffer,
+  PublishedArchivedTabIncludedNote,
+} from "@/components/admin/review/PublishedArchivedTabOffer";
+import type { PullSheetOverrideWire } from "@/components/admin/review/sectionData";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
 import {
   AGENDA_CLIENT_CONCURRENCY,
@@ -2263,12 +2268,26 @@ function PackCountPill({ count }: { count: number }) {
 // (which date-gates pack-list visibility via isPackListVisibleToday), a review
 // surface always shows what parsed. A case with zero items renders as a plain
 // non-expandable line.
+
+/** Published-mode archived-tab include payload (spec 2026-07-23 §2.1). Built by
+ *  `_showReviewModal` (post-augmentation after the warning model), never by the adapter.
+ *  `canMutate` = published && !archived && driveFileId != null; when false the P3 note renders
+ *  read-only (no Undo) and no P2 offer is shown. */
+export type PublishedGear = {
+  offer: { tabNames: string[] } | null;
+  wire: PullSheetOverrideWire;
+  slug: string;
+  driveFileId: string | null;
+  canMutate: boolean;
+};
+
 export function PackListBreakdown({
   dfid,
   wizardSessionId,
   cases,
   archivedPullSheetTabs,
   pullSheetOverride,
+  publishedGear,
 }: {
   dfid: string | null;
   // Staged-only: the archived-tab accept/skip affordance posts against the wizard
@@ -2278,6 +2297,9 @@ export function PackListBreakdown({
   cases: PullSheetCase[];
   archivedPullSheetTabs: ArchivedPullSheetTab[];
   pullSheetOverride: OverrideSnapshot;
+  // Published-only (spec 2026-07-23 §2.1): the archived-tab include offer/note. Present only in
+  // published mode; its presence (not wizardSessionId absence) gates the published affordance.
+  publishedGear?: PublishedGear;
 }) {
   const staged = wizardSessionId != null;
   // §5.6/§3.2 state machine, derived by the shared single source (spec
@@ -2294,7 +2316,13 @@ export function PackListBreakdown({
   // S1: nothing parsed AND nothing to offer. A pending offer (S2/S4) or an active
   // override (S3) suppresses the empty state. Must also require !divergent so a
   // durable-set/empty-preview row is S5 (recovery), not S1.
-  const isEmpty = !divergent && !hasCases && archivedPullSheetTabs.length === 0;
+  // A published offer (P2) or active override (P3) also suppresses the empty state (§2.3):
+  // the affordance replaces the bare "No pack list parsed." line, mirroring the staged S2/S3 rule.
+  const publishedGearShown =
+    publishedGear != null &&
+    (publishedGear.wire != null || (publishedGear.offer?.tabNames.length ?? 0) > 0);
+  const isEmpty =
+    !divergent && !hasCases && archivedPullSheetTabs.length === 0 && !publishedGearShown;
   // Dismissing an offer unmounts its whole card (incl. the focused button). Inside
   // the focus-trapped review modal that would strand focus on <body> (WCAG 2.4.3),
   // so the section wrapper is a `tabIndex={-1}` focus fallback the offer targets
@@ -2337,8 +2365,58 @@ export function PackListBreakdown({
               />
             ))
           : null}
+        {publishedGear ? (
+          <PublishedArchivedTabAffordance gear={publishedGear} onDismissFocus={focusSection} />
+        ) : null}
       </div>
     </BreakdownSection>
+  );
+}
+
+/** Published-mode archived-tab affordance (spec 2026-07-23 §2.1). P3 note when an override is
+ *  active (wire non-null); otherwise the P2 offers, one card per active archived-tab name,
+ *  capped at PUBLISHED_ARCHIVED_OFFER_CAP with an overflow line. */
+const PUBLISHED_ARCHIVED_OFFER_CAP = 3;
+function PublishedArchivedTabAffordance({
+  gear,
+  onDismissFocus,
+}: {
+  gear: PublishedGear;
+  onDismissFocus: () => void;
+}) {
+  const canMutate = gear.canMutate;
+  if (gear.wire !== null) {
+    return (
+      <PublishedArchivedTabIncludedNote
+        slug={gear.slug}
+        driveFileId={gear.driveFileId}
+        wire={gear.wire}
+        canMutate={canMutate}
+      />
+    );
+  }
+  const names = gear.offer?.tabNames ?? [];
+  const shown = names.slice(0, PUBLISHED_ARCHIVED_OFFER_CAP);
+  const overflow = names.length - shown.length;
+  return (
+    <>
+      {shown.map((tabName, i) => (
+        <PublishedArchivedTabOffer
+          key={`${tabName}-${i}`}
+          slug={gear.slug}
+          driveFileId={gear.driveFileId}
+          wire={gear.wire}
+          canMutate={canMutate}
+          tabName={tabName}
+          onDismissFocus={onDismissFocus}
+        />
+      ))}
+      {overflow > 0 ? (
+        <p className="text-xs text-text-subtle">
+          {`and ${overflow} more archived ${overflow === 1 ? "tab" : "tabs"}. Resolve these in the sheet.`}
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -4090,6 +4168,17 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
           archivedPullSheetTabs={s.archivedPullSheetTabs}
           pullSheetOverride={s.pullSheetOverride}
           {...(isStaged(s) ? { wizardSessionId: s.wizardSessionId } : {})}
+          {...(!isStaged(s)
+            ? {
+                publishedGear: {
+                  offer: s.archivedTabOffer ? { tabNames: s.archivedTabOffer.tabNames } : null,
+                  wire: s.pullSheetOverrideWire,
+                  slug: s.slug,
+                  driveFileId: s.driveFileId,
+                  canMutate: s.published && !s.archived && s.driveFileId != null,
+                },
+              }
+            : {})}
         />
       ),
     },
