@@ -59,8 +59,19 @@ export async function queryAlerts(filters: AlertFilters): Promise<QueryAlertsRes
     // returned count is intentionally ignored.
     let query = supabase.from("admin_alerts").select(SELECT, { count: "exact" });
     if (filters.openOnly) query = query.is("resolved_at", null);
-    if (filters.showIdOrGlobal)
+    if (filters.showIdOrGlobal !== undefined) {
+      // Fail-closed at the source, not just the caller: the value is
+      // interpolated into a PostgREST .or() expression, so anything non-UUID
+      // (incl. "") must yield ZERO rows, never a widened/injected filter.
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          filters.showIdOrGlobal,
+        )
+      ) {
+        return { kind: "ok", alerts: [] };
+      }
       query = query.or(`show_id.eq.${filters.showIdOrGlobal},show_id.is.null`);
+    }
     const code = filters.code?.trim();
     if (code) query = query.eq("code", code);
     const { data, error } = await query

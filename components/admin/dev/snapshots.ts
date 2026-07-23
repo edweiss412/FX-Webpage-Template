@@ -82,6 +82,8 @@ export function buildPublishedSnapshot(p: PublishedSnapshotInput): Record<string
     } else {
       out["feed"] = feed;
     }
+  } else {
+    out["feed"] = p.feed ?? null; // allowlisted field always present (null for null/primitive)
   }
   return out;
 }

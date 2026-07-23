@@ -28,9 +28,17 @@ function walk(node: unknown, path: readonly string[]): unknown {
   }
   if (Array.isArray(node)) return node.map((v, i) => walk(v, [...path, String(i)]));
   if (node !== null && typeof node === "object") {
-    const out: Record<string, unknown> = {};
+    // Null-prototype + defineProperty: a plain `out[key] =` would invoke the
+    // prototype setter for an own "__proto__" key (dropping the key and
+    // mutating the rebuilt object's prototype) instead of copying it.
+    const out: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-      out[redactString(k, false)] = walk(v, [...path, k]);
+      Object.defineProperty(out, redactString(k, false), {
+        value: walk(v, [...path, k]),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return out;
   }

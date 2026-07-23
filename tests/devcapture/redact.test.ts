@@ -55,6 +55,19 @@ describe("redactTelemetry", () => {
     expect(Object.keys(out.clientSnapshot).some((k) => k.includes("@"))).toBe(false);
   });
 
+  it("preserves an own __proto__ key safely (no prototype mutation, key kept)", () => {
+    const evil = JSON.parse('{"__proto__": {"polluted": true}, "x": "ok"}') as Record<
+      string,
+      unknown
+    >;
+    const out = redactTelemetry({ meta: {}, clientSnapshot: evil, server: {} }) as {
+      clientSnapshot: Record<string, unknown>;
+    };
+    expect(Object.getOwnPropertyNames(out.clientSnapshot)).toContain("__proto__");
+    expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+    expect(out.clientSnapshot["x"]).toBe("ok");
+  });
+
   it("shape-gates the commitSha exemption at BOTH paths", () => {
     const out = redactTelemetry({
       meta: { commitSha: HEX40 },

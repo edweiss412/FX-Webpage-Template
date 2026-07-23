@@ -30,7 +30,11 @@ export async function queryIngestFailures(filters: FailureFilters): Promise<Quer
     const supabase = createSupabaseServiceRoleClient();
     let query = supabase.from("pending_ingestions").select(SELECT, { count: "exact" });
     if (filters.sessionId) query = query.eq("wizard_session_id", filters.sessionId);
-    if (filters.driveFileId) query = query.eq("drive_file_id", filters.driveFileId);
+    if (filters.driveFileId !== undefined) {
+      // Fail-closed: an empty id means "match nothing", not "match everything".
+      if (filters.driveFileId.length === 0) return { kind: "ok", rows: [] };
+      query = query.eq("drive_file_id", filters.driveFileId);
+    }
     if (filters.code) query = query.eq("last_error_code", filters.code);
     const sinceHours = filters.sinceHours === undefined ? 24 : filters.sinceHours;
     if (sinceHours != null) {

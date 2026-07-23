@@ -39,31 +39,37 @@ const WARNINGS_CAP = 200; // §10
 
 function parseRequest(input: unknown): CaptureTelemetryRequest | null {
   // Exact-shape guard: OWN keys must be exactly the union variant's keys (§5
-  // fail-closed - extra keys, hybrid objects, and prototype-inherited matches
-  // are all rejected).
+  // fail-closed - extra keys, hybrid objects, prototype-inherited matches,
+  // symbol/non-enumerable props, and accessor time-of-check games are all
+  // rejected: values are read ONCE into locals and the return is built from
+  // those locals, and any own symbol key fails the shape.
   if (input === null || typeof input !== "object") return null;
+  if (Object.getOwnPropertySymbols(input).length > 0) return null;
   const r = input as Record<string, unknown>;
-  const keys = Object.keys(r).sort();
+  const keys = Object.getOwnPropertyNames(r).sort();
+  const kind = r["kind"];
+  const showId = r["showId"];
+  const driveFileId = r["driveFileId"];
   if (
     keys.length === 2 &&
     keys[0] === "kind" &&
     keys[1] === "showId" &&
-    r["kind"] === "published" &&
-    typeof r["showId"] === "string" &&
-    UUID_RE.test(r["showId"])
+    kind === "published" &&
+    typeof showId === "string" &&
+    UUID_RE.test(showId)
   ) {
-    return { kind: "published", showId: r["showId"] };
+    return { kind: "published", showId };
   }
   if (
     keys.length === 2 &&
     keys[0] === "driveFileId" &&
     keys[1] === "kind" &&
-    r["kind"] === "staged" &&
-    typeof r["driveFileId"] === "string" &&
-    r["driveFileId"].length > 0 &&
-    r["driveFileId"].length <= 128
+    kind === "staged" &&
+    typeof driveFileId === "string" &&
+    driveFileId.length > 0 &&
+    driveFileId.length <= 128
   ) {
-    return { kind: "staged", driveFileId: r["driveFileId"] };
+    return { kind: "staged", driveFileId };
   }
   return null;
 }

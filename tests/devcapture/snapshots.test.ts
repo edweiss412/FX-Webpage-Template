@@ -73,6 +73,17 @@ describe("buildPublishedSnapshot", () => {
   });
 });
 
+describe("buildPublishedSnapshot feed guard", () => {
+  it("null/primitive feed still yields an explicit feed key (null)", () => {
+    const snap = buildPublishedSnapshot(publishedFixture({ feed: null })) as Record<
+      string,
+      unknown
+    >;
+    expect("feed" in snap).toBe(true);
+    expect(snap["feed"]).toBeNull();
+  });
+});
+
 describe("buildStagedSnapshot", () => {
   const data = { dfid: "drive-1", wizardSessionId: "w1", deep: { note: "STAGED-CANARY" } };
 

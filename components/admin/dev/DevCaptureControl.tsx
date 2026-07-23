@@ -69,13 +69,22 @@ export function useDevCapture(opts: {
       if (el === null) throw new Error("capture target unmounted");
       const rect = el.getBoundingClientRect();
       // Concurrent by construction: both promises created before either await.
-      const [png, server] = await Promise.all([
+      // allSettled, not all: a screenshot rejection must not release the
+      // single-flight guard (via the outer finally) while the telemetry
+      // request is still in flight - a retry could then overlap it.
+      const [pngSettled, serverSettled] = await Promise.allSettled([
         captureElementPng(el).then((b) => b.arrayBuffer()),
         captureShowTelemetry(opts.request).then(classifyResolved, () => ({
           kind: "unavailable" as const,
           reason: "network_error" as const,
         })),
       ]);
+      if (pngSettled.status === "rejected") throw pngSettled.reason;
+      const png = pngSettled.value;
+      const server =
+        serverSettled.status === "fulfilled"
+          ? serverSettled.value
+          : ({ kind: "unavailable", reason: "network_error" } as const);
       const commitSha =
         server.kind === "ok" && typeof server["commitSha"] === "string"
           ? (server["commitSha"] as string)
