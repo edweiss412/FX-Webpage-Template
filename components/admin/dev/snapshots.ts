@@ -83,7 +83,7 @@ export function buildPublishedSnapshot(p: PublishedSnapshotInput): Record<string
       out["feed"] = feed;
     }
   } else {
-    out["feed"] = p.feed ?? null; // allowlisted field always present (null for null/primitive)
+    out["feed"] = null; // allowlisted field always present; null/primitive normalize to null
   }
   return out;
 }

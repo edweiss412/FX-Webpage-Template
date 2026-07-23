@@ -97,13 +97,12 @@ describe("buildPublishedSnapshot", () => {
 });
 
 describe("buildPublishedSnapshot feed guard", () => {
-  it("null/primitive feed still yields an explicit feed key (null)", () => {
-    const snap = buildPublishedSnapshot(publishedFixture({ feed: null })) as Record<
-      string,
-      unknown
-    >;
-    expect("feed" in snap).toBe(true);
-    expect(snap["feed"]).toBeNull();
+  it("null AND primitive feed values normalize to an explicit null feed key", () => {
+    for (const feed of [null, "junk", 42, true] as const) {
+      const snap = buildPublishedSnapshot(publishedFixture({ feed })) as Record<string, unknown>;
+      expect("feed" in snap).toBe(true);
+      expect(snap["feed"]).toBeNull();
+    }
   });
 });
 

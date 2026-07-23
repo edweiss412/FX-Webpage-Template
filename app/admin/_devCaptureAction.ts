@@ -44,8 +44,18 @@ function parseRequest(input: unknown): CaptureTelemetryRequest | null {
   // rejected: values are read ONCE into locals and the return is built from
   // those locals, and any own symbol key fails the shape.
   if (input === null || typeof input !== "object") return null;
-  if (Object.getOwnPropertySymbols(input).length > 0) return null;
-  const r = input as Record<string, unknown>;
+  // Neutralize accessor TOCTOU wholesale: structuredClone materializes plain
+  // data (throws on functions/getter side-effect exotica -> fail closed) so
+  // every later read sees one immutable snapshot, and the exact-shape check
+  // runs against that snapshot, not the live object.
+  let snap: Record<string, unknown>;
+  try {
+    snap = structuredClone(input) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (Object.getOwnPropertySymbols(snap).length > 0) return null;
+  const r = snap;
   const keys = Object.getOwnPropertyNames(r).sort();
   const kind = r["kind"];
   const showId = r["showId"];

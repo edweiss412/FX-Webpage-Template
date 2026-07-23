@@ -106,17 +106,23 @@ export async function seedStagedRow(): Promise<string> {
 
   // Rows first, settings LAST: if either insert throws, app_settings is still
   // settled (no half-seeded wizard-pending state to strand).
-  runLockedSql(
-    driveFileId,
-    `insert into public.pending_syncs
+  try {
+    runLockedSql(
+      driveFileId,
+      `insert into public.pending_syncs
        (drive_file_id, source_kind, base_modified_time, staged_modified_time,
         parse_result, triggered_review_items, warning_summary, wizard_session_id)
      values
        (${sqlString(driveFileId)}, 'manual', null, now(),
         ${sqlString(JSON.stringify(PARSE_RESULT))}::jsonb, '[]'::jsonb, '',
         ${sqlString(sessionId)}::uuid);`,
-    "pending_syncs insert",
-  );
+      "pending_syncs insert",
+    );
+  } catch (err) {
+    priorBySession.delete(sessionId);
+    sessionByDfid.delete(driveFileId);
+    throw err;
+  }
 
   // Step3 rows derive from onboarding_scan_manifest (status staged/applied)
   // joined to the session's pending_syncs rows — without the manifest row the
@@ -134,7 +140,14 @@ export async function seedStagedRow(): Promise<string> {
     throw new Error(`devCaptureStaged manifest insert failed: ${maniErr.message}`);
   }
 
-  await assertWizardSettings(sessionId);
+  try {
+    await assertWizardSettings(sessionId);
+  } catch (err) {
+    // Ambiguous transport failure: the update may or may not have committed.
+    // Full cleanup (best-effort) restores the settled state either way.
+    await cleanupStagedRow(driveFileId).catch(() => undefined);
+    throw err;
+  }
 
   return driveFileId;
 }
@@ -152,32 +165,42 @@ export async function cleanupStagedRow(driveFileId: string): Promise<void> {
   } catch (err) {
     errors.push(String(err));
   }
-  const { error: maniDelErr } = await admin
-    .from("onboarding_scan_manifest")
-    .delete()
-    .eq("drive_file_id", driveFileId);
-  if (maniDelErr) errors.push(`manifest cleanup failed: ${maniDelErr.message}`);
+  try {
+    const { error: maniDelErr } = await admin
+      .from("onboarding_scan_manifest")
+      .delete()
+      .eq("drive_file_id", driveFileId);
+    if (maniDelErr) errors.push(`manifest cleanup failed: ${maniDelErr.message}`);
+  } catch (err) {
+    errors.push(`manifest cleanup threw: ${String(err)}`);
+  }
 
   // Restore the SETTLED dashboard state rather than the captured prior: under
   // sibling-worktree pollution the prior snapshot may itself be a foreign
   // session's mid-onboarding state, and the spec file's afterAll restores the
   // true beforeAll prior anyway.
-  const { error: restoreErr } = await admin
-    .from("app_settings")
-    .update({
-      watched_folder_id: "seed-fixture-folder",
-      watched_folder_name: "Seed fixture folder",
-      watched_folder_set_by_email: "seed-mode@fxav.local",
-      watched_folder_set_at: "2026-01-01T12:00:00.000Z",
-      pending_folder_id: null,
-      pending_folder_name: null,
-      pending_folder_set_by_email: null,
-      pending_folder_set_at: null,
-      pending_wizard_session_id: null,
-      pending_wizard_session_at: null,
-    })
-    .eq("id", "default");
-  if (restoreErr) errors.push(`settings restore failed: ${restoreErr.message}`);
+  let restoreErrMsg: string | null = null;
+  try {
+    const { error: restoreErr } = await admin
+      .from("app_settings")
+      .update({
+        watched_folder_id: "seed-fixture-folder",
+        watched_folder_name: "Seed fixture folder",
+        watched_folder_set_by_email: "seed-mode@fxav.local",
+        watched_folder_set_at: "2026-01-01T12:00:00.000Z",
+        pending_folder_id: null,
+        pending_folder_name: null,
+        pending_folder_set_by_email: null,
+        pending_folder_set_at: null,
+        pending_wizard_session_id: null,
+        pending_wizard_session_at: null,
+      })
+      .eq("id", "default");
+    restoreErrMsg = restoreErr?.message ?? null;
+  } catch (err) {
+    restoreErrMsg = String(err);
+  }
+  if (restoreErrMsg !== null) errors.push(`settings restore failed: ${restoreErrMsg}`);
   const sessionId = sessionByDfid.get(driveFileId);
   if (sessionId !== undefined) priorBySession.delete(sessionId);
   sessionByDfid.delete(driveFileId);
