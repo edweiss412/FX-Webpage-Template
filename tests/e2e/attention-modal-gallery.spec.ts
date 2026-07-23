@@ -194,7 +194,16 @@ test.describe("attention modal switcher gallery", () => {
     // gallery's mutation controls, and outside GalleryWriteGuard's fetch-only
     // scope (it is not a `window.fetch` call). It never writes show data, so it
     // is not a containment failure; ignore it and any other realtime-token mint.
-    const IGNORED_WRITE_PATHS = [/\/api\/admin\/alerts\/bell\/token$/, /\/token$/];
+    // Same class: the client error-reporting beacon (`POST
+    // /api/observe/client-error`) fires whenever a transient SSR digest blip
+    // (the DEVELOPER_SESSION_LOOKUP_FAILED class gotoScenario's bounded retry
+    // absorbs) reaches the client error boundary. It writes telemetry, never
+    // show data, and fires independently of any mutation control.
+    const IGNORED_WRITE_PATHS = [
+      /\/api\/admin\/alerts\/bell\/token$/,
+      /\/token$/,
+      /\/api\/observe\/client-error$/,
+    ];
     const nonGetWrites: string[] = [];
     const onRequest = (req: Request) => {
       const method = req.method().toUpperCase();
@@ -514,9 +523,7 @@ test.describe("attention modal switcher gallery", () => {
     await expect(page.locator(DIALOG).getByText(/and 1 more people/)).toBeVisible();
   });
 
-  test("modal-state: ignored warnings disclosure opens to muted cards (§3.6)", async ({
-    page,
-  }) => {
+  test("modal-state: ignored warnings disclosure opens to muted cards (§3.6)", async ({ page }) => {
     await gotoScenario(page, "t2-ignored-warnings");
     const dialog = page.locator(DIALOG);
     // Native <details>/<summary> disclosure (sectionWarningExtras.tsx:242-252) —
@@ -546,4 +553,3 @@ test.describe("attention modal switcher gallery", () => {
     await expect(dialog.getByRole("link", { name: "Diagram from Diagrams" })).toHaveCount(12);
   });
 });
-

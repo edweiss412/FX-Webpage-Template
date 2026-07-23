@@ -347,11 +347,7 @@ function validateFixtureLifecycle(fx: Record<string, unknown>, out: string[]): v
   if (fx.neverSynced === true && fx.checkedAbsent === true) {
     out.push("fixture: neverSynced shadows checkedAbsent");
   }
-  if (
-    fx.checkedAbsent === true &&
-    fx.lastSyncStatus !== undefined &&
-    fx.lastSyncStatus !== "ok"
-  ) {
+  if (fx.checkedAbsent === true && fx.lastSyncStatus !== undefined && fx.lastSyncStatus !== "ok") {
     out.push("fixture: checkedAbsent is consulted only on the ok bucket");
   }
 }

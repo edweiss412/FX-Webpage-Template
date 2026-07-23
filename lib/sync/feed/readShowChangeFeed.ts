@@ -14,7 +14,11 @@ import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 import { type Disposition, type FeedEntry, type FeedGate } from "@/lib/sync/holds/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { type HoldRow } from "@/lib/sync/feed/shapeHoldEntry";
-import { shapeChangeFeed, isCrewDomainChangeKind, type ChangeLogRow } from "@/lib/sync/feed/shapeChangeFeed";
+import {
+  shapeChangeFeed,
+  isCrewDomainChangeKind,
+  type ChangeLogRow,
+} from "@/lib/sync/feed/shapeChangeFeed";
 
 // Re-exports: the mapping (and this helper's public import path) moved to
 // shapeChangeFeed.ts; existing consumers/tests import from here unchanged.

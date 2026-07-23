@@ -255,7 +255,11 @@ describe("isModalVisible - modal-state carriers", () => {
     ).toBe(true);
     expect(
       isModalVisible(
-        minimal("t2-msc-v3", { tier: 2, alerts: [cutAlert], fixture: { archived: true, published: false } }),
+        minimal("t2-msc-v3", {
+          tier: 2,
+          alerts: [cutAlert],
+          fixture: { archived: true, published: false },
+        }),
       ),
     ).toBe(true);
   });
@@ -264,7 +268,13 @@ describe("isModalVisible - modal-state carriers", () => {
 describe("scenarioGroup - landing and rendered-section fallbacks", () => {
   test("fixture-only scenario with landing groups there; landing loses to real sections", () => {
     expect(
-      scenarioGroup(minimal("t2-msc-g1", { tier: 2, fixture: { archived: true, published: false }, landing: "overview" })),
+      scenarioGroup(
+        minimal("t2-msc-g1", {
+          tier: 2,
+          fixture: { archived: true, published: false },
+          landing: "overview",
+        }),
+      ),
     ).toBe("overview");
     const withHold = scenarioById("t2-hold-only");
     expect(withHold).toBeDefined();

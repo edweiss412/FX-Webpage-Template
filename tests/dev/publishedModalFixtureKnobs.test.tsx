@@ -184,10 +184,7 @@ describe("volume knobs", () => {
     expect(baseline.every((i) => i.badge !== null)).toBe(true);
   });
   test("diagramImages: 13 render a 12-tile grid plus the overflow note", () => {
-    const { snapshot } = applied(
-      { volumes: { diagramImages: 13 } },
-      undefined,
-    );
+    const { snapshot } = applied({ volumes: { diagramImages: 13 } }, undefined);
     render(
       <PublishedDiagramsBreakdown
         showId="99999999-9999-4999-8999-999999999999"
@@ -232,10 +229,7 @@ describe("share knob", () => {
 describe("base-fixture enrichment (rich base for all)", () => {
   test("event anchor snapshot renders dress code and a boolean chip source", () => {
     const snap = buildGallerySnapshot([], { anchors: { openingReel: true } });
-    const details = (snap.show as Record<string, unknown>).event_details as Record<
-      string,
-      unknown
-    >;
+    const details = (snap.show as Record<string, unknown>).event_details as Record<string, unknown>;
     expect(typeof details.dress_code).toBe("string");
     expect(details.polling).toBe("Yes");
   });

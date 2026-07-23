@@ -35,7 +35,11 @@ vi.mock("@/components/admin/showpage/PublishedReviewModal", async () => {
       capturedProps = props;
       const { token, applyRotated } = useShareToken();
       return (
-        <div data-testid="mock-modal" data-title={String(props.title ?? "")} data-token={token ?? ""}>
+        <div
+          data-testid="mock-modal"
+          data-title={String(props.title ?? "")}
+          data-token={token ?? ""}
+        >
           <button
             type="button"
             data-testid="mock-rotate"
@@ -200,7 +204,6 @@ describe("AttentionModalSwitcher", () => {
     expect(select.value).toBe("crew");
   });
 });
-
 
 describe("per-scenario ShareTokenProvider (modal-state coverage)", () => {
   const tok = (id: string, title: string, shareToken: string | null): GallerySwitcherScenario => ({

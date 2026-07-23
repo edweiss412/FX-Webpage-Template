@@ -323,7 +323,7 @@ export function tier2Scenarios(): AttentionScenario[] {
     }),
     scenario(T2_HOLD_ONLY, "A pending hold and no alerts", {
       alerts: [],
-      holds: [hold("dana-reed")],
+      holds: [hold("Dana Reed")],
     }),
     scenario(T2_INBOX_ROUTED, "Inbox-routed code, auto-clears with the inbox note", {
       alerts: [alert(pickCode("inbox"))],
@@ -353,7 +353,7 @@ export function tier2Scenarios(): AttentionScenario[] {
     scenario(T2_SINGLE, "Exactly one item", { alerts: [alert(pickCode("actionable"))], holds: [] }),
     scenario(T2_MANY, "12 real items across sections and classes", {
       alerts: manyAlerts(),
-      holds: [hold("dana-reed")],
+      holds: [hold("Dana Reed")],
     }),
     scenario(T2_DEGRADED, "Alert read degraded", { alerts: [], holds: [], degraded: true }),
     scenario(T2_CLASS_MIX, "One of each pill class: confirm, review, monitoring", {
@@ -367,16 +367,16 @@ export function tier2Scenarios(): AttentionScenario[] {
     }),
     scenario(T2_DEGRADED_WITH_HOLDS, "Alert read degraded while a hold still flows", {
       alerts: [],
-      holds: [hold("dana-reed")],
+      holds: [hold("Dana Reed")],
       degraded: true,
     }),
     scenario(T2_MULTI_HOLD, "Three pending holds", {
       alerts: [],
-      holds: [hold("dana-reed"), hold("sam-ito"), hold("kim-cho")],
+      holds: [hold("Dana Reed"), hold("Sam Ito"), hold("Kim Cho")],
     }),
     scenario(T2_FEED_TRUNCATED, "Changes feed truncated at its cap", {
       alerts: [],
-      holds: [hold("dana-reed")],
+      holds: [hold("Dana Reed")],
       feedTruncated: true,
     }),
     ...modalStateScenarios(),
@@ -394,10 +394,7 @@ import type { ScenarioGroupId } from "@/lib/dev/galleryModalTypes";
 
 const LOG_AT = "2026-07-01T1"; // hour prefix; rows stamp distinct minutes below
 
-function logRow(
-  minute: number,
-  over: Partial<ScenarioChangeLogRow> = {},
-): ScenarioChangeLogRow {
+function logRow(minute: number, over: Partial<ScenarioChangeLogRow> = {}): ScenarioChangeLogRow {
   return {
     occurred_at: `${LOG_AT}0:${String(minute).padStart(2, "0")}:00.000Z`,
     status: "applied",
@@ -544,25 +541,25 @@ export function modalStateScenarios(): AttentionScenario[] {
     // ── Changes-class ────────────────────────────────────────────────────────
     scenario("t2-changelog-history", "Every change-feed badge and action composition", {
       alerts: [],
-      holds: [hold("msc-dana-reed")],
+      holds: [hold("Dana Reed")],
       changeLog: changelogHistoryRows(),
       landing: "changes",
     }),
     scenario("t2-hold-dispositions", "All four hold renderings", {
       alerts: [],
       holds: [
-        hold("msc-email-change"),
+        hold("Priya Natarajan"),
         mscHold(
-          "msc-rename-plain",
+          "Dana Reed",
           { disposition: "rename", name: "Dana R. Reed", email: "old@example.test" },
           { name: "Dana Reed", email: "old@example.test" },
         ),
         mscHold(
-          "msc-rename-folded",
-          { disposition: "rename", name: "Dana R. Reed", email: "moved@example.test" },
-          { name: "Dana Reed", email: "old@example.test" },
+          "Alex Kim",
+          { disposition: "rename", name: "Alex J. Kim", email: "moved@example.test" },
+          { name: "Alex Kim", email: "old@example.test" },
         ),
-        mscHold("msc-removal", { disposition: "removal" }, { name: "Casey Ruiz" }),
+        mscHold("Casey Ruiz", { disposition: "removal" }, { name: "Casey Ruiz" }),
       ],
       landing: "changes",
     }),
@@ -579,15 +576,30 @@ export function modalStateScenarios(): AttentionScenario[] {
       { archived: true, published: false },
       "overview",
     ),
-    fixtureScenario("t2-unpublished", "Unpublished toggle and paused share link", { published: false }, "overview"),
-    fixtureScenario("t2-finalizing", "Finalize chip on the ON toggle", { finalizeOwned: true }, "overview"),
+    fixtureScenario(
+      "t2-unpublished",
+      "Unpublished toggle and paused share link",
+      { published: false },
+      "overview",
+    ),
+    fixtureScenario(
+      "t2-finalizing",
+      "Finalize chip on the ON toggle",
+      { finalizeOwned: true },
+      "overview",
+    ),
     fixtureScenario(
       "t2-publishing",
       "Publishing chip: unpublished with finalize ownership",
       { published: false, finalizeOwned: true },
       "overview",
     ),
-    fixtureScenario("t2-live-now", "Live-now badge with date-consistent fixture", { isLive: true }, "overview"),
+    fixtureScenario(
+      "t2-live-now",
+      "Live-now badge with date-consistent fixture",
+      { isLive: true },
+      "overview",
+    ),
     {
       id: "t2-share-link",
       tier: 2,
@@ -610,30 +622,60 @@ export function modalStateScenarios(): AttentionScenario[] {
       "overview",
     ),
     // ── Sync postures ────────────────────────────────────────────────────────
-    fixtureScenario("t2-sync-drive-error", "Sync: couldn't reach Drive", { lastSyncStatus: "drive_error" }, "overview"),
+    fixtureScenario(
+      "t2-sync-drive-error",
+      "Sync: couldn't reach Drive",
+      { lastSyncStatus: "drive_error" },
+      "overview",
+    ),
     fixtureScenario(
       "t2-sync-sheet-unavailable",
       "Sync: sheet not in folder",
       { lastSyncStatus: "sheet_unavailable" },
       "overview",
     ),
-    fixtureScenario("t2-sync-parse-error", "Sync: couldn't read the sheet", { lastSyncStatus: "parse_error" }, "overview"),
-    fixtureScenario("t2-sync-shrink-held", "Sync: re-sync held (data loss)", { lastSyncStatus: "shrink_held" }, "overview"),
+    fixtureScenario(
+      "t2-sync-parse-error",
+      "Sync: couldn't read the sheet",
+      { lastSyncStatus: "parse_error" },
+      "overview",
+    ),
+    fixtureScenario(
+      "t2-sync-shrink-held",
+      "Sync: re-sync held (data loss)",
+      { lastSyncStatus: "shrink_held" },
+      "overview",
+    ),
     fixtureScenario(
       "t2-sync-pending-review",
       "Sync: changes to review",
       { lastSyncStatus: "pending_review" },
       "overview",
     ),
-    fixtureScenario("t2-sync-pending", "Sync: in progress", { lastSyncStatus: "pending" }, "overview"),
-    fixtureScenario("t2-sync-not-yet", "Sync: not synced yet (null status)", { lastSyncStatus: null }, "overview"),
+    fixtureScenario(
+      "t2-sync-pending",
+      "Sync: in progress",
+      { lastSyncStatus: "pending" },
+      "overview",
+    ),
+    fixtureScenario(
+      "t2-sync-not-yet",
+      "Sync: not synced yet (null status)",
+      { lastSyncStatus: null },
+      "overview",
+    ),
     fixtureScenario(
       "t2-sync-unknown",
       "Sync: defensive unknown-status bucket",
       { lastSyncStatus: "mystery_future_status" },
       "overview",
     ),
-    fixtureScenario("t2-never-synced", "Sync element entirely absent", { neverSynced: true }, "overview"),
+    fixtureScenario(
+      "t2-never-synced",
+      "Sync element entirely absent",
+      { neverSynced: true },
+      "overview",
+    ),
     fixtureScenario(
       "t2-sync-no-check",
       "Synced time falls back when the check stamp is absent",
@@ -669,7 +711,12 @@ export function modalStateScenarios(): AttentionScenario[] {
       { volumes: { crew: 501 } },
       "crew",
     ),
-    fixtureScenario("t2-solo-hotel", "Exactly one hotel (flat solo card)", { volumes: { hotels: 1 } }, "mixed"),
+    fixtureScenario(
+      "t2-solo-hotel",
+      "Exactly one hotel (flat solo card)",
+      { volumes: { hotels: 1 } },
+      "mixed",
+    ),
     fixtureScenario(
       "t2-hotel-guest-stack",
       "Hotel guest avatar stack past the five-avatar cap",
@@ -754,7 +801,6 @@ export function modalStateScenarios(): AttentionScenario[] {
         ignorableWarning("Greenroom Y"),
       ],
       ignoreWarningIndexes: [2, 3],
-      landing: "warnings",
     }),
     scenario("t2-all-ignored", "Every warning ignored: clean copy plus the disclosure", {
       alerts: [],

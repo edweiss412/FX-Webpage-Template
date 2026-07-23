@@ -402,9 +402,7 @@ describe("validateScenario - modal-state fields: shape checks", () => {
     expect(vs(mscBase({ changeLog: [logRow({ source: "gremlin" as never })] }))).not.toEqual([]);
     expect(vs(mscBase({ changeLog: [logRow({ change_kind: "  " })] }))).not.toEqual([]);
     expect(vs(mscBase({ changeLog: [logRow({ occurred_at: "not-a-date" })] }))).not.toEqual([]);
-    expect(
-      vs(mscBase({ changeLog: [logRow({ acknowledged_at: "not-a-date" })] })),
-    ).not.toEqual([]);
+    expect(vs(mscBase({ changeLog: [logRow({ acknowledged_at: "not-a-date" })] }))).not.toEqual([]);
     expect(vs(mscBase({ changeLog: [logRow({ change_kind: "use_raw_stale" })] }))).toEqual([]);
   });
   test("changeLog longer than the production page limit (50) is rejected", () => {
@@ -423,9 +421,9 @@ describe("validateScenario - modal-state fields: shape checks", () => {
     expect(vs(mscBase({ fixture: { empty: ["basement" as never] } }))).not.toEqual([]);
     expect(vs(mscBase({ fixture: { volumes: { schedule: "big" as never } } }))).not.toEqual([]);
     expect(vs(mscBase({ fixture: { volumes: { agenda: "big" as never } } }))).not.toEqual([]);
-    expect(
-      vs(mscBase({ fixture: { volumes: { packlist: { cases: 13 } as never } } })),
-    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { volumes: { packlist: { cases: 13 } as never } } }))).not.toEqual(
+      [],
+    );
     expect(
       vs(mscBase({ fixture: { share: { linkActive: false as never, crewEmails: 3 } } })),
     ).not.toEqual([]);
@@ -470,9 +468,7 @@ describe("validateScenario - modal-state fields: tier and cross-field guards", (
     expect(vs(mscBase({ fixture: { volumes: { crew: 0 } } }))).not.toEqual([]);
     expect(vs(mscBase({ fixture: { volumes: { rooms: -2 } } }))).not.toEqual([]);
     expect(vs(mscBase({ fixture: { volumes: { hotels: 1.5 } } }))).not.toEqual([]);
-    expect(
-      vs(mscBase({ fixture: { empty: ["crew"], volumes: { crew: 31 } } })),
-    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { empty: ["crew"], volumes: { crew: 31 } } }))).not.toEqual([]);
     expect(vs(mscBase({ fixture: { empty: ["crew", "crew"] } }))).not.toEqual([]);
     expect(vs(mscBase({ fixture: { volumes: { crew: 31 } } }))).toEqual([]);
   });
@@ -497,15 +493,11 @@ describe("validateScenario - modal-state fields: tier and cross-field guards", (
     expect(
       vs(mscBase({ fixture: { neverSynced: true, lastSyncStatus: "drive_error" } })),
     ).not.toEqual([]);
-    expect(
-      vs(mscBase({ fixture: { neverSynced: true, checkedAbsent: true } })),
-    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { neverSynced: true, checkedAbsent: true } }))).not.toEqual([]);
     expect(
       vs(mscBase({ fixture: { checkedAbsent: true, lastSyncStatus: "drive_error" } })),
     ).not.toEqual([]);
-    expect(
-      vs(mscBase({ fixture: { checkedAbsent: true, lastSyncStatus: null } })),
-    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { checkedAbsent: true, lastSyncStatus: null } }))).not.toEqual([]);
     expect(vs(mscBase({ fixture: { neverSynced: true } }))).toEqual([]);
     expect(vs(mscBase({ fixture: { checkedAbsent: true } }))).toEqual([]);
   });
@@ -542,15 +534,9 @@ describe("validateScenario - modal-state fields: tier and cross-field guards", (
       message: "m",
       rawSnippet,
     });
-    expect(
-      vs(mscBase({ warnings: [warn("a")], ignoreWarningIndexes: [1] })),
-    ).not.toEqual([]);
-    expect(
-      vs(mscBase({ warnings: [warn("a")], ignoreWarningIndexes: [0, 0] })),
-    ).not.toEqual([]);
-    expect(
-      vs(mscBase({ warnings: [warn("   ")], ignoreWarningIndexes: [0] })),
-    ).not.toEqual([]);
+    expect(vs(mscBase({ warnings: [warn("a")], ignoreWarningIndexes: [1] }))).not.toEqual([]);
+    expect(vs(mscBase({ warnings: [warn("a")], ignoreWarningIndexes: [0, 0] }))).not.toEqual([]);
+    expect(vs(mscBase({ warnings: [warn("   ")], ignoreWarningIndexes: [0] }))).not.toEqual([]);
     // fingerprint collision: ignored and active share code + normalized snippet
     expect(
       vs(mscBase({ warnings: [warn("same"), warn("same")], ignoreWarningIndexes: [1] })),
@@ -564,21 +550,11 @@ describe("validateScenario - modal-state fields: tier and cross-field guards", (
     expect(vs(mscBase({ fixture: { share: share(-1) } }))).not.toEqual([]);
     expect(vs(mscBase({ fixture: { share: share(1.5) } }))).not.toEqual([]);
     expect(vs(mscBase({ fixture: { share: share(501) } }))).not.toEqual([]);
-    expect(
-      vs(mscBase({ fixture: { share: share(1), empty: ["crew"] } })),
-    ).not.toEqual([]);
-    expect(
-      vs(mscBase({ fixture: { share: share(0), empty: ["crew"] } })),
-    ).toEqual([]);
-    expect(
-      vs(mscBase({ fixture: { share: share(40), volumes: { crew: 31 } } })),
-    ).not.toEqual([]);
-    expect(
-      vs(mscBase({ fixture: { share: share(1), volumes: { crew: 501 } } })),
-    ).not.toEqual([]);
-    expect(
-      vs(mscBase({ fixture: { share: share(1), published: false } })),
-    ).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(1), empty: ["crew"] } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(0), empty: ["crew"] } }))).toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(40), volumes: { crew: 31 } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(1), volumes: { crew: 501 } } }))).not.toEqual([]);
+    expect(vs(mscBase({ fixture: { share: share(1), published: false } }))).not.toEqual([]);
     expect(
       vs(mscBase({ fixture: { share: share(1), archived: true, published: false } })),
     ).not.toEqual([]);
