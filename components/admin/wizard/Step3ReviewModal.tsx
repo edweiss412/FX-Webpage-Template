@@ -488,7 +488,10 @@ export function Step3ReviewModal({
                   <span
                     role="status"
                     data-testid={`wizard-step3-card-${dfid}-dev-capture-status`}
-                    className="text-xs text-text-subtle"
+                    // max-w + truncate (impeccable critique P2): shrink-0 actions
+                    // row would otherwise squeeze the title at 390px for the 6 s
+                    // error window. Full text is in the console by contract.
+                    className="max-w-40 truncate text-xs text-text-subtle"
                   >
                     {/* §11: instant — deliberate (copy swap; spec 2026-07-22 §7.4 all-instant) */}
                     {devCapture.state === "busy"
