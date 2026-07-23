@@ -21,6 +21,7 @@
 import type { ReactNode } from "react";
 import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { isCurrentUserDeveloper } from "@/lib/auth/requireDeveloper";
+import { DeveloperFlagProvider } from "@/components/admin/dev/DeveloperFlagContext";
 import { AdminNav } from "@/components/admin/nav/AdminNav";
 import { OnboardingTopBar } from "@/components/admin/nav/OnboardingTopBar";
 import { PageTransition } from "@/components/layout/PageTransition";
@@ -166,7 +167,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           healthRollup={healthRollup}
           isDeveloper={viewerIsDeveloper}
         />
-        <PageTransition>{children}</PageTransition>
+        <DeveloperFlagProvider viewerIsDeveloper={viewerIsDeveloper}>
+          <PageTransition>{children}</PageTransition>
+        </DeveloperFlagProvider>
       </div>
     );
   }
@@ -203,7 +206,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           above persists (it's outside the wrapper); only the content below
           transitions. loading.tsx skeletons render INSIDE this wrapper, so the
           skeleton fades in on click and the real content swaps in when ready. */}
-      <PageTransition>{children}</PageTransition>
+      <DeveloperFlagProvider viewerIsDeveloper={viewerIsDeveloper}>
+        <PageTransition>{children}</PageTransition>
+      </DeveloperFlagProvider>
     </div>
   );
 }
