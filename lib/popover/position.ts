@@ -15,6 +15,17 @@
 
 export const GAP = 6; // trigger↔body gap, px (was `calc(100%+6px)`)
 export const VIEWPORT_INSET = 8; // min distance from bounds edges, px
+export const CARET_WIDTH = 12; // triangle base, px
+export const CARET_HEIGHT = 6; // = GAP - the caret exactly fills the trigger-body gap
+// Min distance from a body edge to the caret CENTER: 12 mirrors --radius-md
+// (app/globals.css) so the triangle base sits on the straight edge run, never
+// a rounded corner.
+export const CARET_EDGE_INSET = 12 + CARET_WIDTH / 2;
+// Vertical inset of the inner (fill) triangle from the outer (border)
+// triangle; also the seam overhang over the body border. The shell's
+// top-[1.5px]/bottom-[1.5px] class literals are locked to this value by
+// tests (Tailwind cannot extract dynamic class strings).
+export const CARET_INNER_OFFSET = 1.5;
 
 export type Rect = {
   left: number;
@@ -46,6 +57,9 @@ export type PopoverPlacement =
       viewport: { x: number; y: number };
       maxHeight: number | null;
       maxWidth: number | null;
+      /** Caret box top-left, viewport coords; null when the body is too
+       *  narrow to seat the triangle on a straight edge (spec §3.3). */
+      caret: { x: number; y: number } | null;
     };
 
 export function intersectRects(a: Rect, b: Rect): Rect {
@@ -124,5 +138,19 @@ export function computePopoverPlacement(input: PopoverPlacementInput): PopoverPl
   let x = align === "right" ? trigger.right - effectiveWidth : trigger.left;
   x = Math.min(Math.max(x, bounds.left), bounds.right - effectiveWidth);
 
-  return { kind: "placed", side, viewport: { x, y }, maxHeight, maxWidth };
+  // ---- step 5: caret (spec 2026-07-22-hoverhelp-caret-blur-close §3.3) ----
+  let caret: { x: number; y: number } | null = null;
+  if (effectiveWidth >= 2 * CARET_EDGE_INSET) {
+    const caretCenterX0 = trigger.left + trigger.width / 2;
+    const caretCenterX = Math.min(
+      Math.max(caretCenterX0, x + CARET_EDGE_INSET),
+      x + effectiveWidth - CARET_EDGE_INSET,
+    );
+    caret = {
+      x: caretCenterX - CARET_WIDTH / 2,
+      y: side === "bottom" ? trigger.bottom : trigger.top - GAP,
+    };
+  }
+
+  return { kind: "placed", side, viewport: { x, y }, maxHeight, maxWidth, caret };
 }
