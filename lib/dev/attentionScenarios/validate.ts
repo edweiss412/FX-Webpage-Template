@@ -360,6 +360,23 @@ function validateFixtureVolumes(fx: Record<string, unknown>, out: string[]): voi
     return;
   }
   if (Object.keys(volumes).length === 0) out.push("fixture.volumes: empty object is a no-op");
+  // Unknown volume keys are hard errors: a typoed key ({ crews: 9 }) would be a
+  // silent no-op that still counts as "fixture present" for isModalVisible
+  // (whole-diff review B P1).
+  const VOLUME_KEYS = new Set([
+    "crew",
+    "rooms",
+    "hotels",
+    "schedule",
+    "diagramImages",
+    "packlist",
+    "agenda",
+    "agendaLinks",
+    "hotelGuests",
+  ]);
+  for (const key of Object.keys(volumes)) {
+    if (!VOLUME_KEYS.has(key)) out.push(`fixture.volumes: unknown key ${key}`);
+  }
   for (const key of ["crew", "rooms", "hotels", "diagramImages", "agendaLinks", "hotelGuests"]) {
     if (volumes[key] !== undefined && !isPositiveInt(volumes[key])) {
       out.push(`fixture.volumes.${key}: must be a positive integer`);
@@ -440,6 +457,28 @@ function validateModalStateFields(s: AttentionScenario, out: string[]): void {
       return;
     }
     if (Object.keys(fx).length === 0) out.push("fixture: empty object is a no-op");
+    // Unknown fixture keys are hard errors: { typo: true } is non-empty yet
+    // changes nothing, breaking the "fixture present implies effective"
+    // contract isModalVisible relies on (whole-diff review B P1).
+    const FIXTURE_KEYS = new Set([
+      "archived",
+      "published",
+      "finalizeOwned",
+      "isLive",
+      "lastSyncStatus",
+      "neverSynced",
+      "checkedAbsent",
+      "titleAbsent",
+      "datesAbsent",
+      "clientAbsent",
+      "alertFlash",
+      "empty",
+      "volumes",
+      "share",
+    ]);
+    for (const key of Object.keys(fx as Record<string, unknown>)) {
+      if (!FIXTURE_KEYS.has(key)) out.push(`fixture: unknown key ${key}`);
+    }
     validateFixtureLifecycle(fx as Record<string, unknown>, out);
 
     const empty = (fx as Record<string, unknown>).empty;
@@ -475,6 +514,11 @@ function validateModalStateFields(s: AttentionScenario, out: string[]): void {
       }
       if (empty.includes("agenda") && volumes.agendaLinks !== undefined) {
         out.push("fixture: empty agenda contradicts volumes.agendaLinks");
+      }
+      // hotelGuests reshapes hotel 1's guest list, which cannot exist once the
+      // hotels collection is emptied (whole-diff review B P1).
+      if (empty.includes("hotels") && volumes.hotelGuests !== undefined) {
+        out.push("fixture: empty hotels contradicts volumes.hotelGuests");
       }
     }
 

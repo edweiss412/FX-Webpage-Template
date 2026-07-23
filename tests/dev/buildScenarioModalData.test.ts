@@ -12,6 +12,8 @@ import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildScenarioModalData } from "@/lib/dev/buildScenarioModalData";
+import { buildGallerySnapshot } from "@/lib/dev/publishedModalFixture";
+import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
 import { tier1WarningScenarios } from "@/lib/dev/attentionScenarios/tier1";
 import { T2_ANCHOR_ABSENT, T2_HOLD_ONLY, tier2Scenarios } from "@/lib/dev/attentionScenarios/tier2";
@@ -162,9 +164,14 @@ describe("buildScenarioModalData modal-state wiring", () => {
     };
     const { bySection } = buildScenarioModalData(s);
     const models = Object.values(bySection);
-    const ignoredCount = models.reduce((n, m) => n + m.ignored.length, 0);
-    expect(ignoredCount).toBe(1);
-    expect(warningFingerprint(w("bbb"))).not.toBeNull();
+    const ignoredItems = models.flatMap((m) => m.ignored);
+    // Identity, not just count: the ignored entry must be the index-1 ("bbb")
+    // warning — ignoring index 0 would also pass a count-only assertion
+    // (review A P2).
+    expect(ignoredItems).toHaveLength(1);
+    expect(ignoredItems[0]?.warning.rawSnippet).toBe("bbb");
+    const activeSnippets = models.flatMap((m) => m.active.map((i) => i.warning.rawSnippet));
+    expect(activeSnippets).toEqual(["aaa"]);
   });
   test("alertFlash sets data.alertId to the surviving derived alert id; others stay null", () => {
     const s: AttentionScenario = {
@@ -191,6 +198,47 @@ describe("buildScenarioModalData modal-state wiring", () => {
       holds: [],
     };
     expect(buildScenarioModalData(plain).alertId).toBeNull();
+  });
+  test("alertFlash targets the first SURVIVING alert when the first raw alert is cut (review A P2)", () => {
+    const s: AttentionScenario = {
+      id: "t2-msc-flash-cut",
+      tier: 2,
+      label: "flash past a cut alert",
+      alerts: [
+        // Index 0 is a cut code (no derived item) — the flash must skip it and
+        // land on the index-1 derived alert, not blindly take raw index 0.
+        {
+          code: "PICKER_EPOCH_RESET",
+          context: {},
+          raised_at: "2026-07-01T10:00:00.000Z",
+          occurrence_count: 1,
+        },
+        {
+          code: "SHEET_UNAVAILABLE",
+          context: {},
+          raised_at: "2026-07-01T11:00:00.000Z",
+          occurrence_count: 1,
+        },
+      ],
+      holds: [],
+      fixture: { alertFlash: true },
+    };
+    expect(buildScenarioModalData(s).alertId).toBe("t2-msc-flash-cut-alert-1");
+  });
+  test("openSheetHref on the FINAL scenario output always equals the canonical deep link (review A P2)", () => {
+    const s: AttentionScenario = {
+      id: "t2-msc-sheethref",
+      tier: 2,
+      label: "sheet href parity",
+      alerts: [],
+      holds: [],
+      fixture: { titleAbsent: true },
+    };
+    // Derive the expectation from the same snapshot the scenario builds on —
+    // never from the container that also carries the base value (anti-tautology).
+    const dfid = buildGallerySnapshot().show.drive_file_id;
+    expect(typeof dfid).toBe("string");
+    expect(buildScenarioModalData(s).openSheetHref).toBe(buildSheetDeepLink(dfid as string));
   });
   test("fixture flows into both halves (archived scenario data + props)", () => {
     const s: AttentionScenario = {

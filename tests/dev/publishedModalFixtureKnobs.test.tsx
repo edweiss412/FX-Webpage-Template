@@ -52,6 +52,26 @@ describe("derivation-parity walker (spec §3.2)", () => {
     expect(dataOverrides.crewEmails).toEqual([]);
     expect(dataOverrides.data?.previewRoster).toEqual([]);
   });
+  test("exactly 500 rows is NOT over the cap (the contract is > 500, not >= 500)", () => {
+    const { snapshot, dataOverrides } = applied({ volumes: { crew: 500 } });
+    expect(snapshot.crew_members.length).toBe(500);
+    // Under-or-at the cap the emails derive from the snapshot rows and the
+    // preview roster is NOT blanked.
+    expect(dataOverrides.crewEmails).not.toEqual([]);
+    expect(dataOverrides.data?.previewRoster).toBeUndefined();
+  });
+  test("crewEmails re-derives for EVERY fixture, not just share/over-cap (review A P1)", () => {
+    // Emptying the crew must flow into crewEmails — the static base emails
+    // leaking through was the review finding.
+    const emptied = applied({ empty: ["crew"] });
+    expect(emptied.dataOverrides.crewEmails).toEqual([]);
+    // An under-cap crew reshape must re-derive from the reshaped snapshot.
+    const grown = applied({ volumes: { crew: 9 } });
+    const grownEmails = grown.snapshot.crew_members
+      .map((r) => (r as Record<string, unknown>).email)
+      .filter((e): e is string => typeof e === "string" && e.includes("@"));
+    expect(grown.dataOverrides.crewEmails).toEqual(grownEmails);
+  });
   test("pickerCrew derives from snapshot rows; archived blanks it", () => {
     const live = applied({ isLive: true });
     expect(live.dataOverrides.pickerCrew).toHaveLength(GALLERY_BASE_COUNTS.crew);
@@ -64,6 +84,12 @@ describe("derivation-parity walker (spec §3.2)", () => {
     expect(dataOverrides.isLive).toBe(true);
     const dates = (snapshot.show as Record<string, unknown>).dates as ShowRow["dates"];
     expect(isShowLiveOnDate(dates, "2026-07-01")).toBe(true);
+  });
+  test("isLive is DERIVED (published && isShowLiveOnDate), never asserted (review A P1)", () => {
+    // The validator forbids this combination, but the mapper must not depend on
+    // that: an unpublished show cannot derive live, so the badge stays false.
+    const unpublished = applied({ published: false, isLive: true });
+    expect(unpublished.dataOverrides.isLive).toBe(false);
   });
   test("titleAbsent yields modal title null and storable empty snapshot title", () => {
     const { snapshot, dataOverrides } = applied({ titleAbsent: true });

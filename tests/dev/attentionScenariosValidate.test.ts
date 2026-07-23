@@ -434,22 +434,46 @@ describe("validateScenario - modal-state fields: shape checks", () => {
 
 describe("validateScenario - modal-state fields: tier and cross-field guards", () => {
   test("all five fields are tier-2 only", () => {
-    for (const over of [
-      { changeLog: [logRow()] },
-      { feedNull: true },
-      { fixture: { archived: true, published: false } },
-      { ignoreWarningIndexes: [0] },
-      { landing: "overview" as const },
-    ]) {
-      expect(vs({ ...mscBase(over as Partial<MSCScenario>), tier: 1 })).not.toEqual([]);
-      expect(vs({ ...mscBase(over as Partial<MSCScenario>), tier: 3 })).not.toEqual([]);
+    for (const [over, name] of [
+      [{ changeLog: [logRow()] }, "changeLog"],
+      [{ feedNull: true }, "feedNull"],
+      [{ fixture: { archived: true, published: false } }, "fixture"],
+      [{ ignoreWarningIndexes: [0] }, "ignoreWarningIndexes"],
+      [{ landing: "overview" as const }, "landing"],
+    ] as const) {
+      // Assert the SPECIFIC tier-2-only message: any unrelated tier/ID error
+      // would satisfy a bare non-empty assertion (review B P1).
+      expect(vs({ ...mscBase(over as Partial<MSCScenario>), tier: 1 })).toContainEqual(
+        expect.stringContaining(`${name}: tier 2 only`),
+      );
+      expect(vs({ ...mscBase(over as Partial<MSCScenario>), tier: 3 })).toContainEqual(
+        expect.stringContaining(`${name}: tier 2 only`),
+      );
     }
   });
   test("feedNull entry-exclusivity: emptiness equals absence", () => {
     expect(vs(mscBase({ feedNull: true, changeLog: [logRow()] }))).not.toEqual([]);
     expect(vs(mscBase({ feedNull: true, feedTruncated: true }))).not.toEqual([]);
+    // The third exclusivity arm — HOLDS also contradict a null feed (review B P1
+    // pinned each arm independently).
+    expect(vs(mscBase({ feedNull: true, holds: [holdRow()] }))).toContainEqual(
+      expect.stringContaining("feedNull: holds"),
+    );
     expect(vs(mscBase({ feedNull: true, changeLog: [] }))).toEqual([]);
     expect(vs(mscBase({ feedNull: true }))).toEqual([]);
+  });
+  test("unknown fixture and volume keys are hard errors, never silent no-ops (review B P1)", () => {
+    expect(vs(mscBase({ fixture: { typo: true } as never }))).toContainEqual(
+      expect.stringContaining("fixture: unknown key typo"),
+    );
+    expect(vs(mscBase({ fixture: { volumes: { typo: 1 } } as never }))).toContainEqual(
+      expect.stringContaining("fixture.volumes: unknown key typo"),
+    );
+  });
+  test("empty hotels contradicts volumes.hotelGuests (review B P1)", () => {
+    expect(
+      vs(mscBase({ fixture: { empty: ["hotels"], volumes: { hotelGuests: 7 } } })),
+    ).toContainEqual(expect.stringContaining("empty hotels contradicts volumes.hotelGuests"));
   });
   test("no-op knobs are rejected", () => {
     expect(vs(mscBase({ fixture: {} }))).not.toEqual([]);
@@ -473,7 +497,16 @@ describe("validateScenario - modal-state fields: tier and cross-field guards", (
     expect(vs(mscBase({ fixture: { volumes: { crew: 31 } } }))).toEqual([]);
   });
   test("lifecycle contradictions", () => {
-    expect(vs(mscBase({ fixture: { archived: true, published: true } }))).not.toEqual([]);
+    // Assert the SPECIFIC contradiction message: archived+published:true also
+    // fails the base-default no-op guard, so a bare non-empty assertion would
+    // survive deletion of the lifecycle guard (review B P1 tautology note).
+    expect(vs(mscBase({ fixture: { archived: true, published: true } }))).toContainEqual(
+      expect.stringContaining("atomically unpublished"),
+    );
+    // archived without an explicit published is its own error arm.
+    expect(vs(mscBase({ fixture: { archived: true } }))).toContainEqual(
+      expect.stringContaining("requires explicit published: false"),
+    );
     expect(
       vs(mscBase({ fixture: { archived: true, published: false, finalizeOwned: true } })),
     ).not.toEqual([]);

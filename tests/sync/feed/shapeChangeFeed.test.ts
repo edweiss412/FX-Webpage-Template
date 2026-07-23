@@ -51,6 +51,17 @@ describe("shapeChangeFeed", () => {
     const [f] = shapeChangeFeed([log({ change_kind: "crew_renamed" })], []);
     expect(f?.action).toBe("none");
   });
+  test("every crew-domain kind gates undo (crew_added and crew_removed, not just crew_renamed)", () => {
+    for (const change_kind of ["crew_added", "crew_removed"]) {
+      const [e] = shapeChangeFeed(
+        [log({ change_kind, individually_undoable: true, source: "mi11_approve" })],
+        [],
+      );
+      expect(e?.action).toBe("undo");
+      const [f] = shapeChangeFeed([log({ change_kind })], []);
+      expect(f?.action).toBe("none");
+    }
+  });
   test("undo requires applied status and a crew-domain kind", () => {
     const [h] = shapeChangeFeed(
       [log({ status: "undone", change_kind: "crew_renamed", individually_undoable: true })],

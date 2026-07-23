@@ -21,6 +21,7 @@ import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import { GALLERY_NOW, GALLERY_SLUG, type GalleryModalData } from "@/lib/dev/galleryModalTypes";
+import { isShowLiveOnDate } from "@/lib/time/showSpan";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import type { ScenarioFixture } from "@/lib/dev/attentionScenarios/types";
 import type { PersistedEmbeddedImage, RunOfShow, AgendaEntry } from "@/lib/parser/types";
@@ -431,15 +432,23 @@ export function applyFixture(
   }
   if (fx.finalizeOwned === true && !archived) dataOverrides.finalizeOwned = true;
   if (fx.isLive === true) {
-    // Production derives isLive as published && isShowLiveOnDate(dates, today);
-    // the knob reshapes dates around GALLERY_NOW so the badge is date-consistent.
+    // Production derives isLive as published && isShowLiveOnDate(dates, today)
+    // (app/admin/_showReviewModal.tsx:384); the knob reshapes dates around
+    // GALLERY_NOW and then runs the SAME derivation over the reshaped snapshot
+    // (never asserts true) so a lifecycle contradiction the validator missed
+    // would surface as a false badge here, not silently render live.
     snapshot.show.dates = {
       travelIn: "2026-06-30",
       set: null,
       showDays: ["2026-07-01"],
       travelOut: "2026-07-02",
     };
-    dataOverrides.isLive = true;
+    dataOverrides.isLive =
+      snapshot.show.published === true &&
+      isShowLiveOnDate(
+        snapshot.show.dates as Parameters<typeof isShowLiveOnDate>[0],
+        GALLERY_NOW.toISOString().slice(0, 10),
+      );
   }
   if (fx.neverSynced === true) {
     dataOverrides.lastSyncedAt = null;
@@ -552,7 +561,10 @@ export function applyFixture(
     : snapshot.crew_members
         .map((r) => (r as Record<string, unknown>).email)
         .filter((e): e is string => typeof e === "string" && e.includes("@"));
-  if (fx.share !== undefined || rosterOverCap) dataOverrides.crewEmails = derivedEmails;
+  // ALWAYS re-derive when a fixture is applied (not just share/over-cap): any
+  // roster mutation (empty crew, volumes.crew) must flow into crewEmails or the
+  // static base emails leak through (whole-diff review A P1).
+  if (fixture !== undefined) dataOverrides.crewEmails = derivedEmails;
   // pickerCrew: loader parity (archived ? [] : every snapshot row).
   const pickerCrew: PickerResetCrewRow[] = archived
     ? []

@@ -514,13 +514,28 @@ test.describe("attention modal switcher gallery", () => {
   test("modal-state: nothing-parsed shows the empty-section copy (§3.6)", async ({ page }) => {
     await gotoScenario(page, "t2-nothing-parsed");
     const dialog = page.locator(DIALOG);
+    // Every declared-empty section's copy, not just crew/rooms (review B P2):
+    // the scenario empties crew, venue, rooms, hotels, transport, contacts,
+    // billing, agenda AND absents dates.
     await expect(dialog.getByText("No crew parsed.")).toBeVisible();
     await expect(dialog.getByText("No rooms parsed.")).toBeVisible();
+    await expect(dialog.getByText("No hotels parsed.")).toBeVisible();
+    await expect(dialog.getByText("No transportation parsed.")).toBeVisible();
+    await expect(dialog.getByText("No contacts parsed.")).toBeVisible();
+    await expect(dialog.getByText("No billing details parsed.")).toBeVisible();
+    await expect(dialog.getByText(/dates not detected/i).first()).toBeVisible();
   });
 
-  test("modal-state: overflow volumes render the crew cap note (§3.6)", async ({ page }) => {
+  test("modal-state: overflow volumes render every cap note (§3.6)", async ({ page }) => {
     await gotoScenario(page, "t2-overflow-volumes");
-    await expect(page.locator(DIALOG).getByText(/and 1 more people/)).toBeVisible();
+    const dialog = page.locator(DIALOG);
+    // All four declared overflow axes (review B P2): crew 31/cap 30, rooms
+    // 21/cap 20, hotels 13/cap 12 (step3ReviewSections.tsx:152-154), schedule
+    // "overflow" (agenda-day cap slicing).
+    await expect(dialog.getByText(/and 1 more people/)).toBeVisible();
+    await expect(dialog.getByText(/and 1 more rooms/)).toBeVisible();
+    await expect(dialog.getByText(/and 1 more hotels/)).toBeVisible();
+    await expect(dialog.getByText(/more days/).first()).toBeVisible();
   });
 
   test("modal-state: ignored warnings disclosure opens to muted cards (§3.6)", async ({ page }) => {
@@ -537,7 +552,16 @@ test.describe("attention modal switcher gallery", () => {
     await gotoScenario(page, "t2-share-batches");
     const dialog = page.locator(DIALOG);
     await dialog.getByRole("button", { name: /share link/i }).click();
-    await expect(page.getByText(/needs \d+ separate emails/i)).toBeVisible();
+    const note = page.locator('[data-testid="admin-current-share-link-email-note"]');
+    await expect(note).toHaveText(/needs \d+ separate emails/i);
+    // Cross-check the note's count against the actually rendered batch rows
+    // (ShareHub.tsx:442-463 renders one anchor per mailto batch) so a wrong
+    // batch calculation cannot pass on the note's mere presence (review B P2).
+    const claimed = Number((await note.innerText()).match(/needs (\d+) separate emails/i)?.[1]);
+    expect(claimed).toBeGreaterThan(1);
+    await expect(page.locator('[data-testid="admin-current-share-link-email-button"]')).toHaveCount(
+      claimed,
+    );
   });
 
   test("modal-state: diagram sub-block renders 12 capped thumbnails plus the overflow note (§3.6)", async ({
