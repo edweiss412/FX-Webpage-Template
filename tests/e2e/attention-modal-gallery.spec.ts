@@ -245,7 +245,11 @@ test.describe("attention modal switcher gallery", () => {
           await expect(attentionMenu).toHaveCount(0);
         }
         const publish = dialog.locator('[data-testid="strip-publish-toggle"] button').first();
-        if ((await publish.count()) > 0) {
+        // Skip DISABLED toggles (e.g. the finalize-owned / live lifecycle
+        // scenarios render the switch locked): a disabled control cannot write,
+        // so containment holds trivially, and clicking it only times out. The
+        // ledger's "publish" entry is still proven by the enabled scenarios.
+        if ((await publish.count()) > 0 && (await publish.isEnabled())) {
           await publish.click();
           exercised.add("publish");
         }
