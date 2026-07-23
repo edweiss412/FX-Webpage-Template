@@ -53,8 +53,8 @@ d("set_published_pull_sheet_override", () => {
   beforeAll(async () => {
     sql = postgres(url, { max: 1 });
     await sql`delete from shows where drive_file_id = ${DFID}`;
-    await sql`insert into shows (id, drive_file_id, slug, title, published, archived)
-              values (gen_random_uuid(), ${DFID}, 'test-pso-slug-1', 'PSO Test', true, false)`;
+    await sql`insert into shows (id, drive_file_id, slug, title, client_label, template_version, published, archived)
+              values (gen_random_uuid(), ${DFID}, 'test-pso-slug-1', 'PSO Test', 'PSO Client', 'v2', true, false)`;
   });
   afterAll(async () => { await sql`delete from shows where drive_file_id = ${DFID}`; await sql.end(); });
 
