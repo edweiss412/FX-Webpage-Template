@@ -154,9 +154,10 @@ Override JSON shape identical to the wizard's: `{tabName, fingerprint, acceptedB
 
 Published modal needs the real `shows.pull_sheet_override`:
 
-- Extend the snapshot read used by the published modal (`lib/admin/readShowReviewSnapshot.ts:40`,
-  RPC `get_admin_show_review_snapshot`) to include `pull_sheet_override` — function-only
-  migration change (no new columns anywhere).
+- NO read-side migration: the snapshot RPC already returns the WHOLE shows row via `to_jsonb(s)`
+  (`supabase/migrations/20260716120000_admin_show_review_snapshot_rpc.sql:16`), so
+  `pull_sheet_override` is already in `snapshot.show`
+  (`lib/admin/readShowReviewSnapshot.ts:40`).
 - `publishedAdapter` maps it through instead of hard-coding null
   (`components/admin/review/publishedAdapter.ts:82`); `archivedPullSheetTabs` stays `[]` in the
   published payload (the offer is warning-driven, not tab-list-driven — mode boundary §2.1).
@@ -208,8 +209,8 @@ surface carries the §2.2 pointer so no field lies there. Any field found false 
 | --- | --- |
 | Table DDL | N/A — no new columns/tables (`shows.pull_sheet_override` exists, `20260706000000_pull_sheet_override.sql:8-9`). |
 | CHECKs | N/A — none touched. |
-| RPC write | NEW `set_published_pull_sheet_override` (§3.2), new migration; validation project surgical apply + `pnpm gen:schema-manifest` regen per post-migration checklist. |
-| RPC read | `get_admin_show_review_snapshot` extended with `pull_sheet_override` (§4), same migration; same checklist. |
+| RPC write | NEW `set_published_pull_sheet_override` (§3.2), new migration (function-only); validation project surgical apply + `pnpm gen:schema-manifest` regen per post-migration checklist. |
+| RPC read | N/A — `get_admin_show_review_snapshot` already returns the whole shows row (`to_jsonb(s)`, `supabase/migrations/20260716120000_admin_show_review_snapshot_rpc.sql:16`); adapter-only change (§4). |
 | Triggers/cleanup | N/A — none. |
 | Frontend | §2 (published Pack list offer; held pointer). |
 | Audit/telemetry | §6. |
