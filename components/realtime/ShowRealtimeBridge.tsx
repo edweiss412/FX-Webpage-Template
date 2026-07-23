@@ -668,7 +668,30 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
           // Defensive cast through `unknown`: the type system says this
           // branch is unreachable, but Supabase may deliver an unenumerated
           // event at runtime. We log without crashing.
-          const unknownEvent = e as unknown as { event?: unknown };
+          const unknownEvent = e as unknown as {
+            event?: unknown;
+            extension?: unknown;
+            status?: unknown;
+            message?: unknown;
+          };
+          // Server-pushed auth churn: the Realtime server delivers
+          // `{ message, status: "error", extension: "system", channel }`
+          // when the channel token expires while the tab is throttled (or a
+          // join races an expired token — "You do not have permissions...").
+          // This is EXPECTED — the CHANNEL_ERROR status callback drives the
+          // renewal sequence, whose outcome is logged separately ("JWT renew
+          // outcome ..."). Log console-only info (clientLog info never POSTs
+          // to the transport) instead of the warn-level unknown-event fence,
+          // which fired on every expiry cycle.
+          if (unknownEvent.extension === "system" && unknownEvent.status === "error") {
+            clientLog(
+              "info",
+              "client.realtime",
+              "channel auth churn (expected; renewal path handles)",
+              unknownEvent,
+            );
+            return;
+          }
           clientLog(
             "warn",
             "client.realtime",

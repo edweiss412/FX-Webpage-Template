@@ -1905,6 +1905,55 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     consoleWarnSpy.mockRestore();
   });
 
+  // === Auth-churn discrimination in the default branch ===
+  // The Realtime server pushes `system` payloads shaped
+  // `{ message, status: "error", extension: "system", channel }` when a
+  // channel's token expires while a tab is throttled (or a join races an
+  // expired token). This is EXPECTED churn — the CHANNEL_ERROR status
+  // callback drives the renewal sequence, whose outcome is already logged.
+  // The default branch must discriminate this shape and log console-only
+  // info instead of the warn-level "unknown system event" (which POSTs to
+  // the log transport on every expiry cycle).
+  test("auth-churn system payload (extension system + status error) logs info, not the unknown-event warn", async () => {
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const consoleInfoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+
+    await mountBridgeAndAwaitSubscribe();
+    const channel = subscribeMock.state.currentChannel;
+    if (!channel) throw new Error("channel not registered");
+    expect(channel.onSystemHandlers).toHaveLength(1);
+
+    await act(async () => {
+      // Cast through unknown — the union doesn't enumerate server-pushed
+      // system payloads; the runtime fence discriminates them.
+      channel.fireSystem({
+        message: "Token has expired 0 seconds ago",
+        status: "error",
+        extension: "system",
+        channel: "show:00000000-0000-0000-0000-000000000000:invalidation",
+      } as unknown as SystemEvent);
+    });
+    await flushPromises();
+
+    // NOT routed through the unknown-event warn.
+    const warnedUnknown = consoleWarnSpy.mock.calls.some((args) =>
+      args.some((a) => typeof a === "string" && a.includes("unknown system event")),
+    );
+    expect(warnedUnknown).toBe(false);
+    // Routed through the console-only info instead.
+    const infoLogged = consoleInfoSpy.mock.calls.some((args) =>
+      args.some((a) => typeof a === "string" && a.includes("auth churn")),
+    );
+    expect(infoLogged).toBe(true);
+    // Inert like other default-branch events — renewal is driven by the
+    // CHANNEL_ERROR status callback, not by this notice.
+    expect(routerMock.state.refreshCalls).toBe(0);
+    expect(subscribeMock.state.subscribeCalls.length).toBe(1);
+
+    consoleWarnSpy.mockRestore();
+    consoleInfoSpy.mockRestore();
+  });
+
   // === Codex round 4 HIGH — stale-renewal-after-cleanup ABA race ===
   // Scenario: a renewal's `await newSubscribed` rejects (TIMED_OUT) and
   // the bridge enters its catch path. Inside the catch we tear down the

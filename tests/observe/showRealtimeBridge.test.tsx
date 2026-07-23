@@ -14,12 +14,14 @@ describe("ShowRealtimeBridge console.* → clientLog migration (structural)", ()
     expect(SRC).not.toMatch(/console\.(warn|info|error|log|debug)\(/);
   });
 
-  test("all 15 migrated calls route through clientLog(<level>, 'client.realtime', ...)", () => {
+  test("all 16 calls route through clientLog(<level>, 'client.realtime', ...)", () => {
+    // 15 migrated console.* sites + the auth-churn info discrimination added
+    // to the default branch (fix/realtime-auth-churn-log).
     const clientLogCalls = SRC.match(/clientLog\(/g) ?? [];
-    expect(clientLogCalls).toHaveLength(15);
+    expect(clientLogCalls).toHaveLength(16);
     const realtimeCalls =
       SRC.match(/clientLog\(\s*"(?:warn|info|error|debug)",\s*"client\.realtime"/g) ?? [];
-    expect(realtimeCalls).toHaveLength(15);
+    expect(realtimeCalls).toHaveLength(16);
   });
 
   test("the 4 reason-folded failure messages are present AND mutually distinct (dedup can't collapse them)", () => {
@@ -47,8 +49,25 @@ describe("ShowRealtimeBridge console.* → clientLog migration (structural)", ()
     // The detail is DERIVED from the runtime event name, not hardcoded — the
     // 6th arg reads unknownEvent.event so dashboards see which event arrived.
     expect(defaultBranchCall).toMatch(/unknownEvent\.event/);
-    // The mechanical count is unchanged — this is an in-place enrichment of an
-    // existing site, not a new clientLog call.
-    expect(SRC.match(/clientLog\(/g) ?? []).toHaveLength(15);
+    // Total site count pinned above (16); this test only pins the warn site's
+    // shape.
+    expect(SRC.match(/clientLog\(/g) ?? []).toHaveLength(16);
+  });
+
+  test("auth-churn discrimination — server system errors log console-only info BEFORE the unknown-event warn", () => {
+    // The server pushes `{ message, status: "error", extension: "system" }`
+    // on token expiry / join-denied. The default branch must discriminate
+    // that shape (extension + status check) and route it to an info-level
+    // clientLog (console-only; no transport POST) so expected churn does
+    // not emit warn-level REALTIME_UNKNOWN_SYSTEM_EVENT every cycle.
+    expect(SRC).toMatch(/extension\s*===\s*"system"[\s\S]{0,120}status\s*===\s*"error"/);
+    const infoCall = SRC.match(
+      /clientLog\(\s*"info",\s*"client\.realtime",\s*"channel auth churn[\s\S]*?\);/,
+    )?.[0];
+    expect(infoCall).toBeTruthy();
+    // Discrimination happens INSIDE the default branch, before the warn
+    // fence: the info site must precede the "unknown system event" site.
+    expect(SRC.indexOf('"channel auth churn')).toBeGreaterThan(-1);
+    expect(SRC.indexOf('"channel auth churn')).toBeLessThan(SRC.indexOf('"unknown system event"'));
   });
 });
