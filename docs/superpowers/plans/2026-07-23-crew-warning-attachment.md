@@ -42,7 +42,7 @@ All file:line claims verified by direct read at HEAD:
 
 ### T2 — model keying via helper
 
-- **Test first** (extend `tests/admin/sectionWarningModel.autocorrect.test.ts` or sibling): active `FIELD_UNREADABLE` with crew blockRef lands in `warningsByCrewKey["john redcorn"]`; blank-name blockRef item does NOT; legacy autocorrect-subject case unchanged (existing assertions keep passing). Failure mode caught: model still gated to the 2 codes → new test red.
+- **Test first** (extend `tests/admin/sectionWarningModel.autocorrect.test.ts` or sibling): active `FIELD_UNREADABLE` with crew blockRef lands in `warningsByCrewKey["john redcorn"]`; a raw day-restriction fixture name `"Calvin Saller (6/24 and 6/26 ONLY)"` lands under `"calvin saller"` (spec R4-F1 — the STRIPPED key, same expression as the production helper); blank-name blockRef item does NOT; legacy autocorrect-subject case unchanged (existing assertions keep passing). Failure mode caught: model still gated to the 2 codes, or keyed on the raw name → new test red.
 - **Impl:** `sectionWarningModel.ts:126-136` loop body → `const key = crewRowKeyForWarning(it.warning); if (key === null) continue; …` (Map accumulation unchanged).
 - Commit `feat(admin): key blockRef-crew warnings into warningsByCrewKey`.
 
