@@ -116,6 +116,12 @@ function markerFor(id: string): Marker {
   }
   // A hold -> the Changes rail badge.
   if (items.some((i) => i.kind === "hold")) testids.push("changes-rail-badge");
+  // Monitoring-only items (non-actionable self_heal, e.g. t2-monitoring-only
+  // from the monitoring-badge-expand work) render in the quiet pill segment,
+  // not as AttentionBanner cards (PublishedReviewModal.tsx:821).
+  if (items.some((i) => i.kind === "alert" && !i.actionable && i.clearingKind === "self_heal")) {
+    testids.push("attention-pill-monitoring-segment");
+  }
   // Nothing above -> the clean-modal empty-attention copy.
   if (testids.length === 0 && texts.length === 0) texts.push("Nothing needs a look");
   return { testids, texts };
@@ -194,7 +200,16 @@ test.describe("attention modal switcher gallery", () => {
     // gallery's mutation controls, and outside GalleryWriteGuard's fetch-only
     // scope (it is not a `window.fetch` call). It never writes show data, so it
     // is not a containment failure; ignore it and any other realtime-token mint.
-    const IGNORED_WRITE_PATHS = [/\/api\/admin\/alerts\/bell\/token$/, /\/token$/];
+    // Same class: the client error-reporting beacon (`POST
+    // /api/observe/client-error`) fires whenever a transient SSR digest blip
+    // (the DEVELOPER_SESSION_LOOKUP_FAILED class gotoScenario's bounded retry
+    // absorbs) reaches the client error boundary. It writes telemetry, never
+    // show data, and fires independently of any mutation control.
+    const IGNORED_WRITE_PATHS = [
+      /\/api\/admin\/alerts\/bell\/token$/,
+      /\/token$/,
+      /\/api\/observe\/client-error$/,
+    ];
     const nonGetWrites: string[] = [];
     const onRequest = (req: Request) => {
       const method = req.method().toUpperCase();
@@ -245,7 +260,11 @@ test.describe("attention modal switcher gallery", () => {
           await expect(attentionMenu).toHaveCount(0);
         }
         const publish = dialog.locator('[data-testid="strip-publish-toggle"] button').first();
-        if ((await publish.count()) > 0) {
+        // Skip DISABLED toggles (e.g. the finalize-owned / live lifecycle
+        // scenarios render the switch locked): a disabled control cannot write,
+        // so containment holds trivially, and clicking it only times out. The
+        // ledger's "publish" entry is still proven by the enabled scenarios.
+        if ((await publish.count()) > 0 && (await publish.isEnabled())) {
           await publish.click();
           exercised.add("publish");
         }
@@ -472,5 +491,96 @@ test.describe("attention modal switcher gallery", () => {
     await expect(live).toHaveText(new RegExp(`^\\s*${firstIndex + 1}\\s*/`));
     await expect(select).toHaveValue(targetGroup);
     await expect(page.locator(DIALOG)).toHaveCount(1);
+  });
+  test("modal-state: changelog history renders every badge, accept, undo, and gate composition (§3.6)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-changelog-history");
+    const dialog = page.locator(DIALOG);
+    const feedEntries = dialog.locator('[data-testid="change-feed-summary"]');
+    await expect(feedEntries).toHaveCount(12);
+    for (const badge of ["Applied", "Rejected", "Undone", "Superseded", "Pending review"]) {
+      await expect(dialog.getByText(badge).first()).toBeVisible();
+    }
+    await expect(dialog.getByRole("button", { name: /accept all \(3\)/i })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /^undo this change$/i })).toHaveCount(2);
+    await expect(dialog.getByText("Accepted", { exact: true })).toHaveCount(3);
+  });
+
+  test("modal-state: archived show hides the publish toggle and re-sync (§3.6)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-archived");
+    const dialog = page.locator(DIALOG);
+    await expect(dialog.getByText(/archived/i).first()).toBeVisible();
+    await expect(dialog.getByRole("switch")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: /re-sync/i })).toHaveCount(0);
+  });
+
+  test("modal-state: nothing-parsed shows the empty-section copy (§3.6)", async ({ page }) => {
+    await gotoScenario(page, "t2-nothing-parsed");
+    const dialog = page.locator(DIALOG);
+    // Every declared-empty section's copy, not just crew/rooms (review B P2):
+    // the scenario empties crew, venue, rooms, hotels, transport, contacts,
+    // billing, agenda AND absents dates.
+    await expect(dialog.getByText("No crew parsed.")).toBeVisible();
+    await expect(dialog.getByText("No venue details parsed.")).toBeVisible();
+    await expect(dialog.getByText("No rooms parsed.")).toBeVisible();
+    await expect(dialog.getByText("No hotels parsed.")).toBeVisible();
+    await expect(dialog.getByText("No transportation parsed.")).toBeVisible();
+    await expect(dialog.getByText("No contacts parsed.")).toBeVisible();
+    await expect(dialog.getByText("No billing details parsed.")).toBeVisible();
+    await expect(dialog.getByText(/dates not detected/i).first()).toBeVisible();
+  });
+
+  test("modal-state: overflow volumes render every cap note (§3.6)", async ({ page }) => {
+    await gotoScenario(page, "t2-overflow-volumes");
+    const dialog = page.locator(DIALOG);
+    // All four declared overflow axes (review B P2): crew 31/cap 30, rooms
+    // 21/cap 20, hotels 13/cap 12 (step3ReviewSections.tsx:152-154), schedule
+    // "overflow" (agenda-day cap slicing).
+    await expect(dialog.getByText(/and 1 more people/)).toBeVisible();
+    await expect(dialog.getByText(/and 1 more rooms/)).toBeVisible();
+    await expect(dialog.getByText(/and 1 more hotels/)).toBeVisible();
+    await expect(dialog.getByText(/more days/).first()).toBeVisible();
+  });
+
+  test("modal-state: ignored warnings disclosure opens to muted cards (§3.6)", async ({ page }) => {
+    await gotoScenario(page, "t2-ignored-warnings");
+    const dialog = page.locator(DIALOG);
+    // Native <details>/<summary> disclosure (sectionWarningExtras.tsx:242-252) —
+    // the summary has no button role, so target its testid prefix directly.
+    const disclosure = dialog.locator('[data-testid^="section-ignored-summary-"]');
+    await disclosure.click();
+    await expect(dialog.getByRole("button", { name: /un-ignore/i }).first()).toBeVisible();
+  });
+
+  test("modal-state: share batches show the multi-email note (§3.6)", async ({ page }) => {
+    await gotoScenario(page, "t2-share-batches");
+    const dialog = page.locator(DIALOG);
+    await dialog.getByRole("button", { name: /share link/i }).click();
+    const note = page.locator('[data-testid="admin-current-share-link-email-note"]');
+    await expect(note).toHaveText(/needs \d+ separate emails/i);
+    // Cross-check the note's count against the actually rendered batch rows
+    // (ShareHub.tsx:442-463 renders one anchor per mailto batch) so a wrong
+    // batch calculation cannot pass on the note's mere presence (review B P2).
+    const claimed = Number((await note.innerText()).match(/needs (\d+) separate emails/i)?.[1]);
+    expect(claimed).toBeGreaterThan(1);
+    await expect(page.locator('[data-testid="admin-current-share-link-email-button"]')).toHaveCount(
+      claimed,
+    );
+  });
+
+  test("modal-state: diagram sub-block renders 12 capped thumbnails plus the overflow note (§3.6)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-diagram-images");
+    const dialog = page.locator(DIALOG);
+    await expect(dialog.getByText(/\+1 more/)).toBeVisible();
+    // The review modal's Diagrams sub-block renders link+img thumbnails (not the
+    // crew-page Gallery tile grid): a "13 embedded images" count line, 12 capped
+    // thumbnail links, and the "+1 more" note asserted above.
+    await expect(dialog.getByText("13 embedded images")).toBeVisible();
+    await expect(dialog.getByRole("link", { name: "Diagram from Diagrams" })).toHaveCount(12);
   });
 });

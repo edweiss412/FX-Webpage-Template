@@ -14,7 +14,8 @@
  */
 import { deriveAttentionItems, type AttentionItem } from "@/lib/admin/attentionItems";
 import { deriveAlertRowFields } from "@/lib/adminAlerts/deriveAlertRowFields";
-import { shapeHoldEntry, type HoldRow } from "@/lib/sync/feed/shapeHoldEntry";
+import { type HoldRow } from "@/lib/sync/feed/shapeHoldEntry";
+import { shapeChangeFeed, type ChangeLogRow } from "@/lib/sync/feed/shapeChangeFeed";
 import type { FeedEntry } from "@/lib/sync/holds/types";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
 import { GALLERY_SLUG } from "@/lib/dev/galleryModalTypes";
@@ -38,6 +39,10 @@ function toAlertInputs(s: AttentionScenario) {
   }));
 }
 
+function toChangeLogRows(s: AttentionScenario): ChangeLogRow[] {
+  return (s.changeLog ?? []).map((row, i) => ({ id: `${s.id}-log-${i}`, ...row }));
+}
+
 function toHoldRows(s: AttentionScenario): HoldRow[] {
   return s.holds.map((h, i) => ({
     id: `${s.id}-hold-${i}`,
@@ -56,8 +61,17 @@ function toHoldRows(s: AttentionScenario): HoldRow[] {
  * its Changes feed agree (a badge with an empty feed was Codex R1 P1).
  */
 export function buildScenarioFeed(s: AttentionScenario): ScenarioFeed {
-  if (s.holds.length === 0) return null;
-  return { entries: toHoldRows(s).map(shapeHoldEntry), truncated: s.feedTruncated === true };
+  // Deterministic contract (spec §3.1, R11): null EXACTLY when there are no
+  // holds and no changeLog. `feedNull` plays no role here — its entry-exclusivity
+  // guard means a feedNull scenario always lands in this absent-null arm, and
+  // the infra `feed: null` override is applied solely by buildScenarioModalData.
+  if (s.holds.length === 0 && (s.changeLog?.length ?? 0) === 0) return null;
+  // The REAL production shaper: mapping, acceptable/undo predicates, and the
+  // full-precision cross-source merge all come from shapeChangeFeed.
+  return {
+    entries: shapeChangeFeed(toChangeLogRows(s), toHoldRows(s)),
+    truncated: s.feedTruncated === true,
+  };
 }
 
 /** The real derived attention list for one scenario. */

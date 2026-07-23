@@ -108,3 +108,19 @@ describe("catalog index", () => {
     }
   });
 });
+
+describe("modal-state fields are tier-2 exclusive across the catalog", () => {
+  // Structural pin (plan Task 2 guard 19): the five gallery-only fields must
+  // never appear on tier-1/3 scenarios — tier 3 is the materializable tier and
+  // materialize must never observe them.
+  test("no tier-1/3 scenario carries changeLog/feedNull/fixture/ignoreWarningIndexes/landing", () => {
+    for (const s of ALL_SCENARIOS) {
+      if (s.tier === 2) continue;
+      expect(s.changeLog, `${s.id} changeLog`).toBeUndefined();
+      expect(s.feedNull, `${s.id} feedNull`).toBeUndefined();
+      expect(s.fixture, `${s.id} fixture`).toBeUndefined();
+      expect(s.ignoreWarningIndexes, `${s.id} ignoreWarningIndexes`).toBeUndefined();
+      expect(s.landing, `${s.id} landing`).toBeUndefined();
+    }
+  });
+});

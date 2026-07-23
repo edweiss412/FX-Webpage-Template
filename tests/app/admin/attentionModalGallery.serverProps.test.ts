@@ -215,3 +215,101 @@ describe("resolveInitialScenario", () => {
     expect(resolveInitialScenario([], rendered)).toBeNull();
   });
 });
+
+// ── Modal-state-coverage: visibility carriers, grouping fallbacks, shareToken ──
+// (plan Task 5)
+
+describe("isModalVisible - modal-state carriers", () => {
+  const cutAlert = {
+    code: "PICKER_EPOCH_RESET",
+    context: {},
+    raised_at: "2026-07-01T11:00:00.000Z",
+    occurrence_count: 1,
+  };
+  test("a cut-only alert alone stays excluded", () => {
+    expect(isModalVisible(minimal("t2-msc-cut", { tier: 2, alerts: [cutAlert] }))).toBe(false);
+  });
+  test("feedNull, non-empty changeLog, and an effective fixture each make it visible", () => {
+    expect(
+      isModalVisible(minimal("t2-msc-v1", { tier: 2, alerts: [cutAlert], feedNull: true })),
+    ).toBe(true);
+    expect(
+      isModalVisible(
+        minimal("t2-msc-v2", {
+          tier: 2,
+          alerts: [cutAlert],
+          changeLog: [
+            {
+              occurred_at: "2026-07-01T10:00:00.000Z",
+              status: "applied",
+              summary: "x",
+              entity_ref: null,
+              change_kind: "field_changed",
+              individually_undoable: false,
+              source: "auto_apply",
+              acknowledged_at: null,
+            },
+          ],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isModalVisible(
+        minimal("t2-msc-v3", {
+          tier: 2,
+          alerts: [cutAlert],
+          fixture: { archived: true, published: false },
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("scenarioGroup - landing and rendered-section fallbacks", () => {
+  test("fixture-only scenario with landing groups there; landing loses to real sections", () => {
+    expect(
+      scenarioGroup(
+        minimal("t2-msc-g1", {
+          tier: 2,
+          fixture: { archived: true, published: false },
+          landing: "overview",
+        }),
+      ),
+    ).toBe("overview");
+    const withHold = scenarioById("t2-hold-only");
+    expect(withHold).toBeDefined();
+    expect(scenarioGroup({ ...withHold!, landing: "overview" })).toBe("changes");
+  });
+  test("agenda-routed warning + empty agenda groups under warnings (rendered-section fallback)", () => {
+    const s = minimal("t2-msc-g2", {
+      tier: 2,
+      warnings: [
+        {
+          severity: "warn",
+          code: "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+          message: "Synthetic warning for gallery review.",
+          blockRef: { kind: "agenda" },
+        },
+      ],
+      fixture: { empty: ["agenda"] },
+    });
+    expect(scenarioGroup(s)).toBe("warnings");
+  });
+  test("anchor-absent alert groups under overview (modal redirect parity)", () => {
+    const anchorAbsent = scenarioById(T2_ANCHOR_ABSENT);
+    expect(anchorAbsent).toBeDefined();
+    expect(scenarioGroup(anchorAbsent!)).toBe("overview");
+  });
+});
+
+describe("partitionScenarios - shareToken stamping", () => {
+  test("share scenarios carry a token; others null", () => {
+    const { rendered } = partitionScenarios();
+    for (const sc of rendered) {
+      const source = scenarioById(sc.id);
+      const wantsShare = source?.fixture?.share?.linkActive === true;
+      if (wantsShare) expect(sc.shareToken, sc.id).toEqual(expect.any(String));
+      else expect(sc.shareToken, sc.id).toBeNull();
+    }
+  });
+});

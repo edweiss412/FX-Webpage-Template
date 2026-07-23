@@ -24,12 +24,36 @@ vi.mock("next/navigation", () => ({
 // gallery leaves the real modal's native close intact (it navigates to /admin),
 // so the switcher no longer overrides ReviewModalCloseContext — the mock does
 // not need to consume it.
-vi.mock("@/components/admin/showpage/PublishedReviewModal", () => ({
-  PublishedReviewModal: (props: Record<string, unknown>) => {
-    capturedProps = props;
-    return <div data-testid="mock-modal" data-title={String(props.title ?? "")} />;
-  },
-}));
+vi.mock("@/components/admin/showpage/PublishedReviewModal", async () => {
+  // The mock consumes the REAL ShareTokenContext so the provider-remount tests
+  // can observe the token the modal would see and drive the rotate path.
+  const { useShareToken } = await vi.importActual<
+    typeof import("@/app/admin/show/[slug]/ShareTokenContext")
+  >("@/app/admin/show/[slug]/ShareTokenContext");
+  return {
+    PublishedReviewModal: (props: Record<string, unknown>) => {
+      capturedProps = props;
+      const { token, applyRotated } = useShareToken();
+      return (
+        <div
+          data-testid="mock-modal"
+          data-title={String(props.title ?? "")}
+          data-token={token ?? ""}
+        >
+          <button
+            type="button"
+            data-testid="mock-rotate"
+            // The context exposes no epoch; the gallery provider is always
+            // seeded initialEpoch 0, so 1 strictly advances it.
+            onClick={() => applyRotated("rotated-token", 1)}
+          >
+            rotate
+          </button>
+        </div>
+      );
+    },
+  };
+});
 
 import { AttentionModalSwitcher, indexOfId } from "@/components/admin/dev/AttentionModalSwitcher";
 
@@ -43,6 +67,7 @@ function scenario(
     tier: 1,
     label: id,
     group,
+    shareToken: null,
     codes: [id.toUpperCase()],
     // The mocked modal ignores all but `title`; a lightweight cast keeps the
     // fixture from having to construct all ~20 real data props.
@@ -177,5 +202,41 @@ describe("AttentionModalSwitcher", () => {
     fireEvent.change(select, { target: { value: "crew" } });
     expect(screen.getByTestId("mock-modal").getAttribute("data-title")).toBe("C");
     expect(select.value).toBe("crew");
+  });
+});
+
+describe("per-scenario ShareTokenProvider (modal-state coverage)", () => {
+  const tok = (id: string, title: string, shareToken: string | null): GallerySwitcherScenario => ({
+    ...scenario(id, title),
+    shareToken,
+  });
+
+  test("active-token scenario -> null-token scenario drops the token (provider remounts)", () => {
+    render(
+      <AttentionModalSwitcher
+        scenarios={[tok("a", "A", "tok-a"), tok("b", "B", null)]}
+        excluded={[]}
+        initialId="a"
+      />,
+    );
+    expect(screen.getByTestId("mock-modal").getAttribute("data-token")).toBe("tok-a");
+    pressKey("ArrowRight");
+    expect(screen.getByTestId("mock-modal").getAttribute("data-token")).toBe("");
+  });
+
+  test("an epoch-advanced rotated token resets on scenario switch (key-only behavior)", () => {
+    render(
+      <AttentionModalSwitcher
+        scenarios={[tok("a", "A", "tok-a"), tok("b", "B", "tok-b")]}
+        excluded={[]}
+        initialId="a"
+      />,
+    );
+    act(() => {
+      screen.getByTestId("mock-rotate").click();
+    });
+    expect(screen.getByTestId("mock-modal").getAttribute("data-token")).toBe("rotated-token");
+    pressKey("ArrowRight");
+    expect(screen.getByTestId("mock-modal").getAttribute("data-token")).toBe("tok-b");
   });
 });
