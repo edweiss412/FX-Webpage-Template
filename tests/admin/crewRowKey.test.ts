@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { crewRowKeyForWarning } from "@/lib/admin/crewRowKey";
-import {
-  extractDayRestriction,
-  stripDayRestrictionParen,
-} from "@/lib/parser/personalization";
+import { extractDayRestriction, stripDayRestrictionParen } from "@/lib/parser/personalization";
 import type { ParseWarning } from "@/lib/parser/types";
 
 // Spec 2026-07-23-crew-warning-attachment §2A/§5.1 — the single source for
@@ -20,7 +17,10 @@ const autocorrectWarning = (over: Partial<ParseWarning>): ParseWarning =>
   ({
     ...base,
     code: "STAGE_WORD_AUTOCORRECTED",
-    autocorrect: { subject: "Eric Weiss", corrections: [{ detected: "Strke", corrected: "Strike" }] },
+    autocorrect: {
+      subject: "Eric Weiss",
+      corrections: [{ detected: "Strke", corrected: "Strike" }],
+    },
     blockRef: { kind: "crew", index: 0, name: "Eric Weiss" },
     ...over,
   }) as ParseWarning;
@@ -48,9 +48,7 @@ describe("crewRowKeyForWarning — legacy autocorrect codes (subject-only, backw
 
   it("autocorrect object present but subject missing → null", () => {
     expect(
-      crewRowKeyForWarning(
-        autocorrectWarning({ autocorrect: { corrections: [] } as never }),
-      ),
+      crewRowKeyForWarning(autocorrectWarning({ autocorrect: { corrections: [] } as never })),
     ).toBeNull();
   });
 

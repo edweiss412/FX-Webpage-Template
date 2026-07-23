@@ -15,6 +15,8 @@
  * select the element under test); expected keys derive from the fixture names
  * through the production strip, never hardcoded raw forms.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
@@ -62,7 +64,12 @@ function snapshot(warnings: ParseWarning[]): ShowReviewSnapshot {
       title: "Attach Fixture Show",
       client_label: "Acme",
       client_contact: null,
-      dates: { travelIn: "2026-05-01", set: null, showDays: ["2026-05-02"], travelOut: "2026-05-03" },
+      dates: {
+        travelIn: "2026-05-01",
+        set: null,
+        showDays: ["2026-05-02"],
+        travelOut: "2026-05-03",
+      },
       venue: { name: "Hall A", address: "1 Main St" },
       event_details: null,
       agenda_links: [],
@@ -165,7 +172,10 @@ describe("conservation — under-row vs section group (spec §5.3)", () => {
 
   it("unmatched warning stays in the section group (fallback B)", () => {
     render(
-      <AttachHarness data={buildData([fieldWarn("Ghost Crew", "N/A")])} renderedCrewKeys={RENDERED} />,
+      <AttachHarness
+        data={buildData([fieldWarn("Ghost Crew", "N/A")])}
+        renderedCrewKeys={RENDERED}
+      />,
     );
     const section = crewSection();
     expect(within(section).queryByTestId(`crew-warn-stack-ghost crew`)).toBeNull();
@@ -261,7 +271,10 @@ describe("sectionExtras renders inside the panel card (spec §2B, T4)", () => {
 
   it("the fallback group is a DESCENDANT of the crew panel card, not a sibling", () => {
     render(
-      <AttachHarness data={buildData([fieldWarn("Ghost Crew", "N/A")])} renderedCrewKeys={RENDERED} />,
+      <AttachHarness
+        data={buildData([fieldWarn("Ghost Crew", "N/A")])}
+        renderedCrewKeys={RENDERED}
+      />,
     );
     const section = crewSection();
     const group = within(section).getByTestId("section-warning-controls-crew");
@@ -288,7 +301,8 @@ describe("sectionExtras renders inside the panel card (spec §2B, T4)", () => {
       let el: HTMLElement | null = group.parentElement;
       let crossedBorderedDiv = false;
       while (el && el !== wsection) {
-        if (el.tagName === "DIV" && /(^|\s)border(\s|$)/.test(el.className)) crossedBorderedDiv = true;
+        if (el.tagName === "DIV" && /(^|\s)border(\s|$)/.test(el.className))
+          crossedBorderedDiv = true;
         el = el.parentElement;
       }
       expect(crossedBorderedDiv, "warnings extras must not move inside a card").toBe(false);
@@ -303,10 +317,10 @@ describe("nullish threading guard — shape pin (spec R2-F3, plan-R1 F4b)", () =
     // not unconditional (which would violate exactOptionalPropertyTypes by
     // threading undefined). Behavioral proof of the null case lives above
     // (null factory → no extras node anywhere); this pins the guard's shape.
-    const src = require("node:fs").readFileSync(
-      require("node:path").join(process.cwd(), "components/admin/review/ShowReviewSurface.tsx"),
+    const src = readFileSync(
+      join(process.cwd(), "components/admin/review/ShowReviewSurface.tsx"),
       "utf8",
-    ) as string;
-    expect(src).toMatch(/extrasNode != null \? \{ sectionExtras: extrasNode \} : \{\}/);
+    );
+    expect(src).toMatch(/extrasNode != null\s*\?\s*\{ sectionExtras: extrasNode \}\s*:\s*\{\}/);
   });
 });

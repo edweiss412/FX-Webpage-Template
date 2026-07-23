@@ -1052,13 +1052,18 @@ test.describe("crew warning placement — containment (crew-warning-attachment T
       if (!rosterRow) throw new Error("roster row 'Crew Member A' not found in crew section");
       let el: HTMLElement | null = rosterRow.parentElement as HTMLElement | null;
       while (el && el !== section) {
-        if (el instanceof HTMLDivElement && Number.parseFloat(getComputedStyle(el).borderTopWidth) > 0) {
+        if (
+          el instanceof HTMLDivElement &&
+          Number.parseFloat(getComputedStyle(el).borderTopWidth) > 0
+        ) {
           const r = el.getBoundingClientRect();
           return { x: r.x, y: r.y, w: r.width, h: r.height };
         }
         el = el.parentElement as HTMLElement | null;
       }
-      throw new Error("no bordered ancestor div (panel card) between the roster row and the section");
+      throw new Error(
+        "no bordered ancestor div (panel card) between the roster row and the section",
+      );
     });
   }
 
@@ -1066,7 +1071,9 @@ test.describe("crew warning placement — containment (crew-warning-attachment T
     page,
   }) => {
     await openHarness(page, { width: 1280, height: 900 }, "crewwarnings.html");
-    await expect(page.locator(STACK), "under-row stack present for the stripped key").toHaveCount(1);
+    await expect(page.locator(STACK), "under-row stack present for the stripped key").toHaveCount(
+      1,
+    );
 
     const card = await cardRect(page);
     const stack = (await page.locator(STACK).boundingBox())!;

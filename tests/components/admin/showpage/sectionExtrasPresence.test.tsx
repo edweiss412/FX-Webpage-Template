@@ -79,9 +79,7 @@ describe("routed-sections extras presence + in-card containment (spec §5.4b)", 
       />,
     );
     for (const { id } of ROUTED) {
-      const section = screen.getByTestId(
-        `wizard-step3-card-${DRIVE_FILE_ID}-review-section-${id}`,
-      );
+      const section = screen.getByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-review-section-${id}`);
       const extras = within(section).getByTestId(`section-warning-controls-${id}`);
       // Descendant-of-card: between the extras node and the section wrapper
       // there must be a bordered div (the §5.2 panel card). A sibling-placed

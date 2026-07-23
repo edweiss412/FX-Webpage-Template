@@ -260,7 +260,8 @@ function crewWarningFixtures(): ParseWarning[] {
     {
       severity: "warn",
       code: "FIELD_UNREADABLE",
-      message: 'Crew phone for row 1 couldn\'t be read as a phone number ("N/A") — check the sheet.',
+      message:
+        'Crew phone for row 1 couldn\'t be read as a phone number ("N/A") — check the sheet.',
       rawSnippet: "N/A",
       blockRef: { kind: "crew", index: 0, name: "Crew Member A (5/3 ONLY)" },
     },
