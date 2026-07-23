@@ -9,7 +9,7 @@
  *  pass (spec R1 F8, R2 F6a, R2 F3). */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useContext } from "react";
+import { useContext, useEffect } from "react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -27,7 +27,12 @@ afterEach(cleanup);
 let announceFn: ((message: string) => void) | null = null;
 function AnnounceProbe() {
   const { announce } = useContext(WarningAnnounceContext);
-  announceFn = announce;
+  // Effect-scoped capture: assigning during render trips the react-hooks
+  // no-reassign rule; RTL's render flushes effects, so announceFn is set
+  // before any test drives it.
+  useEffect(() => {
+    announceFn = announce;
+  });
   return null;
 }
 
