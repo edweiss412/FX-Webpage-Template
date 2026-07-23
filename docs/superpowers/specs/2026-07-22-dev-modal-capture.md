@@ -273,6 +273,8 @@ Any other number appearing in the implementation must trace to one of these or t
 
 ## 12. Review record (cross-model ladder)
 
+- Plan review (Codex, inlined, R1-R7): BLOCKING x3 (13/10/8), NEEDS-ATTENTION (6), BLOCKING (4), BLOCKING (1), **APPROVE**. Three spec amendments ratified along the way (§2.2 placement, §2.2 busy-first ordering, §2.4 busyRef).
+
 - R1 (Codex, inlined): BLOCKING — 13 findings (token race, redaction gaps, starvation, sentinel proof, +9). All repaired, committed.
 - R2 (Codex, inlined): BLOCKING — 11 findings (doc-wide email walk, token-shape grounding, sweep corruption, truncation truthfulness, +7). All repaired, committed.
 - R3 (Codex, inlined): BLOCKING — 10 findings (key-rule redaction, commitSha shape gate, optional resolution, size bound, +6). All repaired, committed.
