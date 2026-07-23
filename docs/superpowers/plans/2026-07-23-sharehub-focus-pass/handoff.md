@@ -31,8 +31,7 @@ Responsive 4 (tap targets untouched), Theming 4 (dark-mode bare-offset halo FIXE
   (dispatch evidence; AC-1 triggers; ring-family set equality) → **R6 APPROVE**.
 - Plan: R1 BLOCKING (self-containedness; Task 0; sweep regex) → R2 NA (set-equality upgrade;
   lifecycle; revision pin) → R3 NA (marker-advance; gate revalidation loop; oracle sync;
-  executable archive check) → R4 NA (Task-4 loop-back; this handoff doc) → (R5 pending at
-  time of writing; final verdict recorded in PR body).
+  executable archive check) → R4 NA (Task-4 loop-back; this handoff doc) → **R5 APPROVE** (no findings).
 - Whole-diff: **R1 APPROVE** (fresh-eyes inlined) with two NOTE micro-corrections, both
   applied docs-only in the same pass: WCAG citation fixed to 2.2 SC 2.4.13 Focus Appearance
   (was mislabeled 2.4.11) in BACKLOG.md; DEFERRED-archive entry now cites BOTH pinning test
