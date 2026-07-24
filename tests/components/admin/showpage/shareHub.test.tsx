@@ -28,6 +28,7 @@ import {
   NO_BORDER,
   NO_REST_BACKGROUND,
   WRAPPER_CLASSES,
+  ROW_TOKENS,
 } from "./_rowAssertions";
 import { ShareHub } from "@/components/admin/showpage/ShareHub";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
@@ -207,7 +208,7 @@ describe("ShareHub — open/close semantics", () => {
     // roster could otherwise push Rotate/Reset below the fold at 390px.
     renderHub();
     fireEvent.click(primary());
-    expect(popover().className).toMatch(/max-h-\[min\(70vh,32rem\)\]/);
+    expect(popover().className).toMatch(/max-h-\[min\(70vh,30rem\)\]/);
     expect(popover().className).toContain("overflow-y-auto");
   });
 
@@ -329,7 +330,7 @@ describe("ShareHub — caret (spec §5)", () => {
 
     // The dialog keeps its OWN scrolling - the withdrawn outer/inner split would
     // have moved it off the focused element.
-    expectClasses(popover(), { has: ["overflow-y-auto", "max-h-[min(70vh,32rem)]"] });
+    expectClasses(popover(), { has: ["overflow-y-auto", "max-h-[min(70vh,30rem)]"] });
 
     fireEvent.click(primary());
     expect(screen.queryByTestId("share-hub-caret")).toBeNull();
@@ -418,22 +419,6 @@ describe("ShareHub — unpublished arm", () => {
 });
 
 /** The prescribed row class list (spec §4.1), shared by both Careful rows. */
-const ROW_TOKENS = [
-  "flex",
-  "w-full",
-  "items-center",
-  "gap-2",
-  "rounded-sm",
-  "min-h-tap-min",
-  "p-2",
-  "text-left",
-  "hover:bg-surface-sunken",
-  "transition-colors",
-  "duration-fast",
-  "focus-visible:outline-none",
-  "focus-visible:ring-2",
-  "focus-visible:ring-focus-ring",
-] as const;
 
 describe("ShareHub — Careful section wiring", () => {
   it("rotate idle state is ONE borderless full-width menu row", () => {
@@ -469,6 +454,35 @@ describe("ShareHub — Careful section wiring", () => {
       scope: popover(),
       descriptionId: rotate.getAttribute("aria-describedby"),
     });
+  });
+
+  it("archive idle state is ONE §4.1 menu row anchored to the full section width (spec §2.1/§2.3)", () => {
+    renderHub();
+    fireEvent.click(primary());
+
+    const archive = screen.getByTestId("archive-show-button");
+    expect(archive.tagName).toBe("BUTTON");
+    expectClasses(archive, {
+      exactly: ROW_TOKENS,
+      forbids: [NO_BORDER, NO_REST_BACKGROUND, /(?:^|:)focus-visible:ring-offset-/],
+    });
+    expectRowText(archive, popover(), {
+      label: "Archive show",
+      description: "Crew links stop working immediately",
+    });
+    const icon = archive.querySelector("svg")!;
+    expect(icon.getAttribute("width")).toBe("16");
+    expect(icon.getAttribute("height")).toBe("16");
+    expectClasses(icon, { has: ["shrink-0", "text-text-subtle", "lucide-archive"] });
+    expect(within(popover()).queryByRole("button", { name: "Archive" })).toBeNull();
+    expectClasses(archive.parentElement!, { exactly: WRAPPER_CLASSES });
+    expectRowBoundary(archive, {
+      scope: popover(),
+      descriptionId: archive.getAttribute("aria-describedby"),
+    });
+    // §2.3 width-chain link: the Show-section host div is w-full with NO inset.
+    const section = screen.getByTestId("share-hub-show-section");
+    expectClasses(section, { exactly: ["w-full"] });
   });
 
   it("rotate row carries its label + description and follows published for isCrewLinkActive", () => {

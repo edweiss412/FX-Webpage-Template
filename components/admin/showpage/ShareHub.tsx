@@ -484,7 +484,7 @@ export function ShareHub({
           // max-h + overflow: the email rows are batched per 1900-char mailto
           // cap with no row limit, so a large roster could otherwise push the
           // destructive controls below the fold on a 390px phone.
-          className="absolute right-0 top-full z-40 mt-1.5 flex max-h-[min(70vh,32rem)] w-[308px] max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-surface p-2.5 shadow-popover focus-visible:outline-none"
+          className="absolute right-0 top-full z-40 mt-1.5 flex max-h-[min(70vh,30rem)] w-[308px] max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-surface p-2.5 shadow-popover focus-visible:outline-none"
         >
           {/* Share half — suppressed wholesale while archived (read-only): no
               URL, no Copy, no email rows, no rotate, no reset. What remains is
@@ -543,7 +543,7 @@ export function ShareHub({
                   data-testid="share-hub-paused-note"
                   className="rounded-sm bg-surface-sunken px-2 py-1.5 text-xs/relaxed text-text-subtle"
                 >
-                  The crew link is paused while this show is unpublished. Publish to share it — you
+                  The crew link is paused while this show is unpublished. Publish to share it. You
                   can still rotate or reset below.
                 </p>
               )}
@@ -597,7 +597,14 @@ export function ShareHub({
                   P3). Falls back to the wrapper before the confirm mounts. */}
               <div
                 data-testid="share-hub-show-section"
-                className="px-0.5"
+                // w-full is load-bearing, not cosmetic (spec §2.3): this div is
+                // a flex child of the fixed-width popover column, and this
+                // project's Tailwind v4 does NOT default flex children to
+                // cross-axis stretch — without it the section can shrink-wrap
+                // and the row's inner w-full chain resolves against a narrower
+                // box. The old px-0.5 inset is gone so the archive row's hover
+                // plane spans the same content width as the Careful rows.
+                className="w-full"
                 onClick={(e) => {
                   const el = e.currentTarget;
                   requestAnimationFrame(() => {

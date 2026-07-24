@@ -119,10 +119,20 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
       // transition inventory declares every §3.4 STATE pair instant but keeps
       // AutoPublishToggle's built-in knob transition-transform (a within-control
       // micro-interaction, the settings-toggle precedent, not a state swap).
+      // ArchiveShowButton's carve-out mirrors PublishedToggle's: the
+      // destructive-confirm recipe's `transition-opacity` on the armed confirm
+      // (hover/disabled opacity, a within-control micro-interaction) was
+      // ratified by the 2026-07-20 row-variant amendment (ArchiveShowButton.tsx
+      // rowLabel doc block) and the archive-row-menu-idiom spec §4, which names
+      // it the ONLY animated property. Every §3.4 STATE pair stays instant.
+      // (This guard sat dark in CI and had been red since that amendment —
+      // BL-E2E-LIFECYCLE-SPECS-CI-DARK carries the wiring work.)
       const permitted =
         rel === "components/admin/PublishedToggle.tsx"
           ? /transition-(?!colors\b|transform\b)[a-z]+/g
-          : /transition-(?!colors\b)[a-z]+/g;
+          : rel === "components/admin/ArchiveShowButton.tsx"
+            ? /transition-(?!colors\b|opacity\b)[a-z]+/g
+            : /transition-(?!colors\b)[a-z]+/g;
       const stateTransitions = src.match(permitted) ?? [];
       expect(
         stateTransitions,
