@@ -81,7 +81,7 @@ Consequences the matrix pins: ignored-only (`info==act==elsewhere==0, ign>0`) re
 
 Notes gain the same `?` popover affordance cards carry (`CompactAlertHelp` path, `PerShowActionableWarnings.tsx:240-247`). Assembly rule (total truth table):
 
-- `copy` = the FIRST NON-BLANK of catalog `longExplanation`, then `helpfulContext` (blank = `null`, empty, or whitespace-only; a blank `longExplanation` falls through to `helpfulContext` — this is NOT nullish coalescing); a missing catalog row or both blank → copy ABSENT. The §5/§6.4-adjacent unit scope adds this boundary case (blank longExplanation + present helpfulContext → trigger with helpfulContext).
+- `copy` = the FIRST NON-BLANK of catalog `longExplanation`, then `helpfulContext` (blank = `null`, empty, or whitespace-only; a blank `longExplanation` falls through to `helpfulContext` — this is NOT nullish coalescing); a missing catalog row or both blank → copy ABSENT. Executable home: the §2 rebuild's own TDD suite (new file tests/components/admin/sheetWarningsPanel.test.tsx, listed in §9 Creates) asserts the full four-row truth table PLUS this boundary case (blank `longExplanation` + present `helpfulContext` → trigger renders with `helpfulContext`), alongside the §2.3a state-matrix and §2.3 count assertions.
 - `sentence` = `correctionLoopCopy("resync")` iff `w.sourceCell` is non-null (same gate as cards, `components/admin/PerShowActionableWarnings.tsx:125-138`).
 - Popover body = the present members of `[copy, sentence]` in that order; trigger renders iff the body is non-empty.
 
@@ -184,7 +184,7 @@ No new boolean flags. `suppressPanelCard` (storage: chrome object; write: ShowRe
 ## 9. Meta-test inventory (declared per project rule)
 
 - **Extends:** `tests/admin/visibleWarningRows.test.ts` (count helper), routed-warnings gate tests (`tests/components/admin/review/routedWarningsGate.test.tsx`), `publishedWarningNoLoss.test.tsx` (no-warning-lost identity union — must hold across the in-box move), attention-routes/alert-catalog meta-tests (item 6), INFO_CODE_ACTIONABILITY scanner (item 3), stagedCardBaseline (kept; item 4 adds the composition layer above it).
-- **Creates:** the §5 parsePanelComposition test file and the §6.4 crewMatchFanout test file (both new). <!-- spec-lint: ignore — files are created by this bundle -->
+- **Creates:** the §5 parsePanelComposition test file, the §6.4 crewMatchFanout test file, and the §2 sheetWarningsPanel test file (state matrix §2.3a, count rule §2.3, popover truth table + blank-fallthrough boundary §2.4) — all three new. <!-- spec-lint: ignore — files are created by this bundle -->
 - **Not applicable:** advisory-lock topology (no lock surface touched — `upsertAdminAlert` call shape unchanged inside the existing auth path); Supabase call-boundary registry (NO Supabase read or write path changes anywhere in this bundle — item 6's producer and its select are byte-identical, §6.1); §12.4 catalog parity (no catalog edits); email canonicalization (producer already canonicalizes, `validateGoogleSession.ts:44`).
 
 ## 10. Test strategy summary
@@ -193,4 +193,4 @@ TDD per task. Real-browser assertions where geometry/placement matters (crew-row
 
 ## 11. Numeric self-check
 
-Six items; two options (D, ii) for item 1; three body states post-rebuild; 20-file rename sweep (non-docs, re-run at plan time); zero DB migrations; zero §12.4 edits; two new test files (§5 composition+branch pin; §6.4 fan-out unit), matching §9's Creates list.
+Six items; two options (D, ii) for item 1; six §2.3a interior blocks with 15 transition pairs (§2.6); four popover truth-table rows plus one boundary case (§2.4); 20-file rename sweep (non-docs, re-run at plan time); zero DB migrations; zero §12.4 edits; three new test files (§5 composition+branch pin; §6.4 fan-out unit; §2 panel suite), matching §9's Creates list.
