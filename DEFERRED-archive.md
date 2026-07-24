@@ -2,6 +2,43 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## Crew warning under-row polish (2026-07-23)
+
+Three crew-warning-attachment critique deferrals (recorded 2026-07-23) resolved by
+`feat/crewwarn-underrow-polish` (spec
+`docs/superpowers/specs/2026-07-23-crewwarn-underrow-polish-design.md`, Codex spec
+review APPROVE at R5, plan APPROVE at R3; impeccable dual-gate dispositions in
+`docs/superpowers/plans/2026-07-23-crewwarn-underrow-polish-closeout.md` §12).
+
+### CREWWARN-UNDERROW-INDENT-1 — [P1, was partially fixed] — ✅ RESOLVED
+
+Was: the under-row card bound to its member by spacing only (spacing asymmetry
+`pt-1 pb-2` had shipped; the indent half was deferred pending the
+`CrewUnderRowStack` per-kind decision). Resolved: 24px half-indent (`pl-6`) on a
+per-node wrapper in `renderCrewUnderRowCards` — warning cards only; attention
+banners keep the ratified published-show-alerts §5.4 full width (per-kind layout,
+spec §1.1 #2). The 52px name-column indent was REJECTED by the owner against a
+phone-width mockup (guidance sentence wrapped 2→3 lines at 338px). Hop-by-hop
+real-browser width assertions pin both stack subtrees
+(`tests/e2e/published-review-modal.layout.spec.ts`, T-WARN-INDENT / T-WARN-CAP).
+
+### CREWWARN-UNDERROW-COPY-CONDENSE-1 — [P2] — ✅ RESOLVED
+
+Was: the under-row card repeated the group card's full generic copy. Resolved:
+`condensed` variant on `PerShowActionableWarnings` — catalog guidance joins the
+`?` popover BODY (described run stays a superset of full mode via
+`condensedPopoverSlots`, derived from full mode's slots); instance (autocorrect)
+lines stay inline (staged-parity pinned). No catalog/§12.4 edits — render
+location only. Group, fallback, ignored, and staged surfaces unchanged.
+
+### CREWWARN-CAP-FIXTURE-1 — [P3] — ✅ RESOLVED
+
+Was: the 2-visible + "N more" cap state had never been rendered anywhere
+lookable. Resolved: `crewWarningsCapped` harness page (banner + 3 warnings on one
+member → visible = full-width banner + one indented warning, "2 more" hidden) +
+layout assertions at 1280 and 390 incl. the native-details open state; page
+inspected in both themes during the impeccable dual-gate.
+
 ## Warning announcer + elsewhere copy (2026-07-22)
 
 Four warning-panel-polish impeccable-critique deferrals (recorded 2026-07-22,

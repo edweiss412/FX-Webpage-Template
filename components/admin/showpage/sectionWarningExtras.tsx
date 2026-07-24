@@ -45,9 +45,10 @@ export function renderCrewUnderRowCards(args: {
     out.set(
       key,
       items.map((it, i) => (
-        // Spec 2026-07-23-crewwarn-underrow-polish §2: 24px indent binds the card
-        // to ITS member's name column; per-node wrapper keeps cap granularity.
-        // Banners are NOT wrapped (per-kind rule, spec §1.1 #2).
+        // Spec 2026-07-23-crewwarn-underrow-polish §2: 24px half-indent (ratified
+        // over the 52px name-column indent for mobile width) binds the card to ITS
+        // member's row; per-node wrapper keeps cap granularity. Banners are NOT
+        // wrapped (per-kind rule, spec §1.1 #2).
         <div key={`crew-warn-${key}-${i}`} className="pl-6">
           <PerShowActionableWarnings
             items={[it.warning]}
