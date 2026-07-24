@@ -158,6 +158,7 @@ const MEASURED = [
   "admin-resync-button",
   "strip-divider-2",
   "share-hub-group",
+  "share-hub-root",
   "share-hub-primary",
   "share-hub-kebab",
 ] as const;
@@ -273,6 +274,13 @@ test("rows, caps, clip priority, containment — worst-case vs fixture-typical",
   for (const name of MEASURED) {
     expect(worst[name]!.right, `${name} right edge`).toBeLessThanOrEqual(band.contentRight + 0.5);
   }
+
+  // (d2) Full-width chain + anchor datum (spec §3 R3): group == root width
+  // within 0.5px, and the group/kebab right edges sit at the band content
+  // edge — the popover anchor datum survives the mobile layout.
+  expect(Math.abs(worst["share-hub-group"]!.width - worst["share-hub-root"]!.width)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(worst["share-hub-group"]!.right - band.contentRight)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(worst["share-hub-kebab"]!.right - band.contentRight)).toBeLessThanOrEqual(1);
 
   // (e) Clip priority: the health label's own box never clips.
   const health = await page
@@ -472,8 +480,57 @@ describe("stacked mobile band (spec 2026-07-24-strip-mobile-stacked-band §3)", 
       expect(classes).toContain(cls);
     }
   });
+
+  it("badge transitions: all state pairs swap instantly with no animation classes", () => {
+    const states = [
+      { archived: false, isLive: true, published: true, label: "Live" },
+      { archived: false, isLive: false, published: true, label: "Published" },
+      { archived: false, isLive: false, published: false, label: "Draft" },
+      { archived: true, isLive: false, published: false, label: "Archived" },
+    ] as const;
+    for (let i = 0; i < states.length; i++) {
+      for (let j = 0; j < states.length; j++) {
+        if (i === j) continue;
+        const { rerender } = renderStrip(states[i]!);
+        rerenderStrip(rerender, states[j]!);
+        const badge = screen.getByTestId("strip-state-badge");
+        expect(badge).toHaveTextContent(states[j]!.label);
+        expect(badge.className).not.toMatch(/animate-|transition-/);
+        cleanup();
+      }
+    }
+  });
+
+  it("compound: badge swap does not remount R2 (stable node identity)", () => {
+    const { rerender } = renderStrip({ published: true, isLive: true });
+    const syncBefore = screen.getByTestId("strip-sync-age");
+    rerenderStrip(rerender, { published: false, isLive: false });
+    expect(screen.getByTestId("strip-state-badge")).toHaveTextContent("Draft");
+    expect(screen.getByTestId("strip-sync-age")).toBe(syncBefore);
+  });
 });
 ```
+
+Also add, next to `renderStrip` (line 84), the rerender twin it uses:
+
+```tsx
+function rerenderStrip(
+  rerender: (ui: React.ReactElement) => void,
+  overrides: Partial<StatusStripProps> = {},
+  { token = "TOK" as string | null, epoch = 5 } = {},
+) {
+  rerender(
+    <ShareTokenProvider initialToken={token} initialEpoch={epoch}>
+      <StatusStrip {...baseProps(overrides)} />
+    </ShareTokenProvider>,
+  );
+}
+```
+
+(If `React` types are not imported for the `ReactElement` annotation, use
+`Parameters<ReturnType<typeof render>["rerender"]>[0]` or simply type the
+first parameter as `(ui: JSX.Element) => void` — match the file's existing
+style.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -770,19 +827,19 @@ git commit --no-verify -m "feat(admin): PublishedToggle settings variant - respo
 - Produces: single `admin-resync-button`; `admin-resync-mobile-label` block; `admin-resync-desktop-label` wrapper.
 - Consumes: Task 2's R2 layout.
 
-- [ ] **Step 1: Write the failing tests** — append to `tests/components/ReSyncButton.test.tsx`, following that file's existing render/mock pattern (add `screen` to its `@testing-library/react` import if absent — verified currently absent):
+- [ ] **Step 1: Write the failing tests** — append to `tests/components/ReSyncButton.test.tsx`. The file (verified, lines 14-31) imports `test` (not `it`) and `waitFor`, uses a module-level `fetchMock = vi.fn<typeof fetch>()` assigned to `global.fetch` in `beforeEach`, and `render(...).getByTestId` destructuring. Match that exactly:
 
 ```tsx
 describe("mobile Sync skin (spec 2026-07-24-strip-mobile-stacked-band §3 R2)", () => {
-  it("one trigger; two breakpoint-gated label blocks; real 44px box; mobile paddings", () => {
-    render(<ReSyncButton slug="s1" />);
-    expect(screen.getAllByTestId("admin-resync-button")).toHaveLength(1);
-    const btn = screen.getByTestId("admin-resync-button");
+  test("one trigger; two breakpoint-gated label blocks; real 44px box; mobile paddings", () => {
+    const { getByTestId, getAllByTestId } = render(<ReSyncButton slug="s1" />);
+    expect(getAllByTestId("admin-resync-button")).toHaveLength(1);
+    const btn = getByTestId("admin-resync-button");
     for (const cls of ["min-h-tap-min", "min-w-tap-min", "max-sm:px-0", "max-sm:ml-auto"]) {
       expect(btn.className).toContain(cls);
     }
-    expect(screen.getByTestId("admin-resync-desktop-label").className).toContain("max-sm:hidden");
-    const mobile = screen.getByTestId("admin-resync-mobile-label");
+    expect(getByTestId("admin-resync-desktop-label").className).toContain("max-sm:hidden");
+    const mobile = getByTestId("admin-resync-mobile-label");
     for (const cls of [
       "hidden",
       "max-sm:inline-flex",
@@ -797,25 +854,62 @@ describe("mobile Sync skin (spec 2026-07-24-strip-mobile-stacked-band §3 R2)", 
     expect(mobile).toHaveTextContent("Sync");
   });
 
-  it("pending: icon spins with motion-reduce escape; aria-busy on", async () => {
-    // Reuse the file's established fetch mock; hold the POST unresolved.
+  test("pending: icon spins with motion-reduce escape; aria-busy on", async () => {
     let release!: () => void;
-    mockFetchOnce(() => new Promise<Response>((r) => { release = () => r(okJson({ ok: true, result: { outcome: "skipped" } })); }));
-    render(<ReSyncButton slug="s1" />);
-    fireEvent.click(screen.getByTestId("admin-resync-button"));
-    const icon = screen.getByTestId("admin-resync-mobile-label").querySelector("svg");
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((r) => {
+          release = () =>
+            r({
+              json: async () => ({ ok: true, result: { outcome: "skipped" } }),
+            } as unknown as Response);
+        }),
+    );
+    const { getByTestId } = render(<ReSyncButton slug="s1" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    await waitFor(() =>
+      expect(getByTestId("admin-resync-button").getAttribute("aria-busy")).toBe("true"),
+    );
+    const icon = getByTestId("admin-resync-mobile-label").querySelector("svg");
     expect(icon?.getAttribute("class") ?? "").toContain("animate-spin");
     expect(icon?.getAttribute("class") ?? "").toContain("motion-reduce:animate-none");
-    expect(screen.getByTestId("admin-resync-button").getAttribute("aria-busy")).toBe("true");
     release();
   });
 });
 ```
 
-(`mockFetchOnce`/`okJson` stand for the file's OWN fetch-stub helpers — read
-the file's existing pending-state test and reuse its exact mechanism; if it
-has none, mock `global.fetch` the way its sibling tests do. Do not invent a
-new stubbing style.)
+ALSO append to `tests/components/admin/showpage/statusStrip.test.tsx` the
+strip-level dual-pending compound (spec §8 compound; RED now — the mobile
+label does not exist until this task's implementation):
+
+```tsx
+  it("compound: toggle pending and Sync pending simultaneously, independent controls", async () => {
+    let releaseFetch!: () => void;
+    const held = new Promise<Response>((r) => {
+      releaseFetch = () =>
+        r({
+          json: async () => ({ ok: true, result: { outcome: "skipped" } }),
+        } as unknown as Response);
+    });
+    vi.stubGlobal("fetch", vi.fn(() => held));
+    let releaseAction!: (v: { ok: true }) => void;
+    renderStrip({ setPublished: () => new Promise((r) => { releaseAction = r; }) });
+    fireEvent.click(screen.getByTestId("published-toggle"));
+    fireEvent.click(screen.getByTestId("admin-resync-button"));
+    await waitFor(() =>
+      expect(screen.getByTestId("published-toggle").getAttribute("aria-busy")).toBe("true"),
+    );
+    expect(screen.getByTestId("admin-resync-button").getAttribute("aria-busy")).toBe("true");
+    const icon = screen.getByTestId("admin-resync-mobile-label").querySelector("svg");
+    expect(icon?.getAttribute("class") ?? "").toContain("animate-spin");
+    releaseAction({ ok: true });
+    releaseFetch();
+    vi.unstubAllGlobals();
+  });
+```
+
+(Add `waitFor`/`fireEvent`/`vi` to statusStrip.test.tsx's imports if any is
+missing — check its existing import lines and extend, never duplicate.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -912,7 +1006,9 @@ describe("mobile split actions row (spec 2026-07-24-strip-mobile-stacked-band §
     ]) {
       expect(kebab.className).toContain(cls);
     }
-    expect(primary.parentElement!.className).toContain("max-sm:w-full");
+    const root = screen.getByTestId("share-hub-root");
+    expect(root.className).toContain("max-sm:w-full");
+    expect(primary.parentElement).toBe(root);
   });
 
   it("labels unchanged in all lifecycles", () => {
@@ -932,7 +1028,9 @@ describe("mobile split actions row (spec 2026-07-24-strip-mobile-stacked-band §
 
 - [ ] **Step 3: Implement** in `ShareHub.tsx`:
 
-- Root div (line ~368): append ` max-sm:w-full` inside its template literal.
+- Root div (line ~368): append ` max-sm:w-full` inside its template literal
+  AND give it `data-testid="share-hub-root"` (the layout spec measures the
+  full-width chain through this previously un-testid'd element).
 - Primary trigger: append to BOTH ternary arms:
   ` max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden`
   (`max-sm:border-border` deliberately overrides the arm's `border-border-strong` color below sm — spec §3 R3 skin; width stays 1px).
@@ -1054,90 +1152,47 @@ StatusStrip.tsx:291-304 comment explains the required shape). Commit scoped:
 
 ---
 
-### Task 9: Transition audit (spec §8 — full inventory)
+### Task 9: Transition audit — verification pass (spec §8)
 
-**Files:**
-- Test: `tests/components/admin/showpage/statusStrip.test.tsx`, `tests/components/admin/PublishedToggle.test.tsx`
+The §8 inventory's executable pins were authored RED-first inside their
+owning tasks: badge pairs + stable-R2 identity (Task 2 Step 1), dual-pending
+compound + spin/motion-reduce (Task 4 Step 1), settings breakpoint boundary
+(Task 3 Step 1). This task is the AUDIT that nothing animated slipped in and
+that every declared-instant pair stays class-free — no new tests, so no TDD
+cycle applies.
 
-- [ ] **Step 1: Conditional-render inventory + animation-surface grep** — enumerate every ternary/conditional the diff adds (badge resolver arms; D1/D2 conditions; `isSettings` blocks; mobile/desktop label blocks; spin className ternary) and confirm the diff's only animation tokens are the Task 4 spin pair:
+- [ ] **Step 1: Animation-surface grep** — the diff's ONLY animation tokens
+must be the Task 4 spin pair:
 
 ```bash
-git diff origin/main...HEAD -- 'components/**' | grep -nE "AnimatePresence|animate-|transition-" 
+git diff origin/main...HEAD -- 'components/**' | grep -nE "AnimatePresence|animate-|transition-"
 ```
 
 Expected output: exactly the `animate-spin motion-reduce:animate-none` line
-(plus unchanged context lines if any). Anything else → check against §8
-(instant is the contract) before proceeding.
+(plus unchanged context lines). Anything else → check against spec §8
+(instant is the contract) and remove or justify against the table before
+proceeding.
 
-- [ ] **Step 2: Badge pair coverage (all 6 pairs, instant)** — append to statusStrip.test.tsx:
-
-```tsx
-  it("badge transitions: all state pairs swap instantly with no animation classes", () => {
-    const states = [
-      { archived: false, isLive: true, published: true, label: "Live" },
-      { archived: false, isLive: false, published: true, label: "Published" },
-      { archived: false, isLive: false, published: false, label: "Draft" },
-      { archived: true, isLive: false, published: false, label: "Archived" },
-    ] as const;
-    for (let i = 0; i < states.length; i++) {
-      for (let j = 0; j < states.length; j++) {
-        if (i === j) continue;
-        const { rerender } = renderStrip(states[i]!);
-        rerenderStrip(rerender, states[j]!);
-        const badge = screen.getByTestId("strip-state-badge");
-        expect(badge).toHaveTextContent(states[j]!.label);
-        expect(badge.className).not.toMatch(/animate-|transition-/);
-        cleanup();
-      }
-    }
-  });
-
-  it("compound: badge swap does not remount R2 (stable node identity)", () => {
-    const { rerender } = renderStrip({ published: true, isLive: true });
-    const syncBefore = screen.getByTestId("strip-sync-age");
-    rerenderStrip(rerender, { published: false, isLive: false });
-    expect(screen.getByTestId("strip-state-badge")).toHaveTextContent("Draft");
-    expect(screen.getByTestId("strip-sync-age")).toBe(syncBefore);
-  });
-```
-
-Add a `rerenderStrip(rerender, overrides)` helper mirroring `renderStrip`'s
-prop assembly if the file lacks one.
-
-- [ ] **Step 3: Compound dual-pending (toggle pending while Sync pending)** — append to PublishedToggle.test.tsx's settings describe:
-
-```tsx
-  it("compound: switch disables during its own pending without touching sublabel copy", async () => {
-    let resolveAction!: (v: { ok: true }) => void;
-    renderSettings({
-      published: true,
-      setPublished: () => new Promise((r) => { resolveAction = r; }),
-    });
-    fireEvent.click(screen.getByTestId("published-toggle"));
-    await waitFor(() =>
-      expect(screen.getByTestId("published-toggle").getAttribute("aria-busy")).toBe("true"),
-    );
-    expect(screen.getByTestId("published-toggle-sublabel")).toHaveTextContent("Visible to crew");
-    resolveAction({ ok: true });
-  });
-```
-
-(The Sync-side pending independence is already pinned by Task 4's spin test —
-the two controls share no state; the structural single-form-each fact IS the
-compound guarantee. Skeleton↔loaded is the parity spec's subject; viewport
-crossing persistence is structural: single instances, asserted by the
-`toHaveLength(1)` tests. ShareHub open-during-lifecycle busy-defer behavior
-is pre-existing and pinned by shareHub.test.tsx:919-949 — not re-tested.)
-
-- [ ] **Step 4: Run + commit**
+- [ ] **Step 2: Conditional-render inventory** — list every ternary/
+conditional the diff adds and confirm each maps to a §8 row or a §3 presence
+rule: badge resolver arms (4), D1/D2 conditions, `isSettings` blocks (3),
+mobile/desktop label blocks (toggle + resync), spin className ternary.
 
 ```bash
-pnpm vitest run tests/components/admin/showpage/statusStrip.test.tsx tests/components/admin/PublishedToggle.test.tsx
-git add tests/components/admin/showpage/statusStrip.test.tsx tests/components/admin/PublishedToggle.test.tsx
-git commit --no-verify -m "test(admin): transition-audit pins - badge pairs instant, stable R2, dual-pending"
+git diff origin/main...HEAD -- 'components/**' | grep -nE "\? \(|\? "|isSettings|!archived|lastSyncedAt"
 ```
 
----
+Record the mapping as a checklist in the Task 11 close-out doc (one line per
+conditional). No commit unless a defect is found (then fix + scoped commit
+`fix(admin): <what>`).
+
+- [ ] **Step 3: Confirm the owning-task pins are green**
+
+```bash
+pnpm vitest run tests/components/admin/showpage/statusStrip.test.tsx tests/components/admin/PublishedToggle.test.tsx tests/components/ReSyncButton.test.tsx
+```
+
+Expected: PASS.
 
 ### Task 10: DESIGN.md delta + DEFERRED graduation
 
@@ -1181,23 +1236,27 @@ pnpm test:e2e:modal-header
 
 Expected: all green. FULL `pnpm test` (scoped runs miss registry suites).
 
-- [ ] **Step 2:** If `format:check` flags files, run `pnpm format`, then:
+- [ ] **Step 2:** If `format:check` flags files, run `pnpm format`, then stage
+EXACTLY the reformatted paths (never `-u`, never a directory):
 
 ```bash
-git add -u
+git status --short          # confirm: only modified tracked files, no untracked
+git diff --name-only        # the exact reformatted list
+git add $(git diff --name-only)
 git commit --no-verify -m "chore: prettier residue from full-suite gates"
 ```
-
-(`git add -u` is safe here: only formatting deltas to already-tracked files
-exist at this point; verify with `git status --short` first — no untracked
-files may appear in this commit.)
 
 ---
 
 ### Task 13: Adversarial review (cross-model) — split tight-scope
 
-- [ ] **Step 1:** Two codex-guard dispatches (components diff; tests+config diff), fresh-eyes, REVIEWER ONLY, §1.1 do-not-relitigate, verdict marker. Iterate to APPROVE; class-sweep every finding before patching.
-- [ ] **Step 2:** Log findings + refutations in the Task 11 close-out doc.
+- [ ] **Step 1:** Two codex-guard dispatches (components diff; tests+config diff), fresh-eyes, REVIEWER ONLY, §1.1 do-not-relitigate, verdict marker. Iterate to APPROVE; class-sweep every finding before patching. Each repair round commits its fixes with scoped paths (`fix(admin)`/`test(admin): <what>`).
+- [ ] **Step 2:** Log findings + refutations in the Task 11 close-out doc and commit it:
+
+```bash
+git add docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band-closeout.md
+git commit --no-verify -m "docs(plan): close-out - adversarial review triage log"
+```
 
 ---
 
