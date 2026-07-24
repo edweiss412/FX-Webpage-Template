@@ -79,8 +79,11 @@ export type PublishedToggleProps = {
   /** Pre-bound (to this show's slug) setShowPublishedAction. */
   setPublished: (next: boolean) => Promise<LifecycleResult>;
   /** Presentation. "card" (default) = full bordered box w/ h3 + subline + in-flow error.
-   *  "inline" = compact switch + "Published" label; refusal/finalize copy → anchored popover. */
-  variant?: "card" | "inline";
+   *  "inline" = compact switch + "Published" label; refusal/finalize copy → anchored popover.
+   *  "settings" = the inline arm made responsive for the strip (spec
+   *  2026-07-24-strip-mobile-stacked-band §3 R1): below sm a full-width row
+   *  with a heading + state sublabel; at ≥sm identical to "inline". */
+  variant?: "card" | "inline" | "settings";
 };
 
 export function PublishedToggle({
@@ -117,13 +120,41 @@ export function PublishedToggle({
     else setGenericError(true);
   };
 
-  if (variant === "inline") {
+  if (variant === "inline" || variant === "settings") {
+    const isSettings = variant === "settings";
     const popoverId = `published-toggle-popover-${_slug}`;
     const showError = errorCode != null || genericError;
     const showFinalize = !showError && finalizeOwned;
+    // Settings sublabel (spec §3 R1): finalize copy verbatim when locked,
+    // else the crew-visibility consequence. Plain adjacent text — NO id and
+    // NO describedby wiring (an IDREF-referenced element contributes its text
+    // even while CSS-hidden, so wiring it would leak into the >=sm switch's
+    // accessible description; spec R3 finding 1).
+    const settingsSublabel = finalizeOwned
+      ? subline
+      : published
+        ? "Visible to crew"
+        : "Hidden from crew";
     return (
-      <div data-testid="published-toggle-inline" className="inline-flex items-center gap-2">
-        <span className="text-sm font-medium text-text-strong">Published</span>
+      <div
+        data-testid="published-toggle-inline"
+        className={
+          isSettings
+            ? "inline-flex items-center gap-2 max-sm:flex max-sm:w-full max-sm:min-h-tap-min max-sm:items-center max-sm:justify-between max-sm:gap-3"
+            : "inline-flex items-center gap-2"
+        }
+      >
+        <span className={`text-sm font-medium text-text-strong${isSettings ? " max-sm:hidden" : ""}`}>
+          Published
+        </span>
+        {isSettings ? (
+          <span className="hidden max-sm:flex max-sm:min-w-0 max-sm:flex-col">
+            <span className="text-sm font-semibold text-text-strong">Published</span>
+            <span data-testid="published-toggle-sublabel" className="truncate text-xs text-text-subtle">
+              {settingsSublabel}
+            </span>
+          </span>
+        ) : null}
         <form action={formAction} className="contents">
           <SwitchButton
             on={published}
@@ -148,7 +179,11 @@ export function PublishedToggle({
             )}
           </div>
         ) : showFinalize ? (
-          <span id={popoverId} data-testid="published-toggle-popover" className={FINALIZE_CHIP}>
+          <span
+            id={popoverId}
+            data-testid="published-toggle-popover"
+            className={isSettings ? `${FINALIZE_CHIP} max-sm:hidden` : FINALIZE_CHIP}
+          >
             {/* Compact visible label (mode-dependent); the full explanation is the sr-only copy so
                 the aria-describedby announcement + the S4 substring assertion carry the whole
                 sentence without a long visible strip chip. */}

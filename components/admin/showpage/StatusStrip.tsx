@@ -239,7 +239,7 @@ export function StatusStrip({
         <div data-testid="strip-publish-toggle" className="shrink-0 max-sm:w-full">
           <PublishedToggle
             slug={slug}
-            variant="inline"
+            variant="settings"
             published={published}
             finalizeOwned={finalizeOwned}
             setPublished={setPublished}
