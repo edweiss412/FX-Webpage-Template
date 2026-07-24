@@ -21,7 +21,7 @@ In scope:
 1. Split the conflated validator case so each code is validated against its own producer's context shape (§4).
 2. Promote the already-exhaustive, producer-accurate context fixtures to a shared module and make both fixture families consume it (§3).
 3. Bind the gallery scenario catalog to that module so a fixture supplying keys the producer never writes fails the scenario-catalog test suite (§5).
-4. Bind the producer call sites to that module via static discovery, with a declared escape hatch for computed contexts (§6).
+4. Add a context-key dimension to the EXISTING producer-scope registry and its AST guard, rather than building a second discovery mechanism (§6).
 5. Repair the two stale gallery rows and add positive fan-out coverage to the gallery (§7, §8).
 
 Out of scope: any producer edit; any change to placement math (`lib/admin/crewRowMatch.ts`), derivation (`lib/adminAlerts/deriveAlertRowFields.ts:55-73`), or catalog copy (`lib/messages/catalog.ts:73-87`). No DB migration. No §12.4 catalog row edits.
@@ -134,18 +134,19 @@ The existing `DEV_SCENARIO_TAG_KEY` exemption (`validate.ts:159`) is preserved: 
 
 ---
 
-## 6. Producer-side parity (static discovery)
+## 6. Producer-side parity — EXTEND the existing registry, do not build a second one
 
-<!-- spec-lint: ignore — this file is created by this bundle and cannot resolve until implementation -->
+**The producer-discovery infrastructure this spec needs already exists.** `tests/adminAlerts/alertProducerScope.registry.ts:29` (`PRODUCER_SCOPE`, 46 rows, one per `(site, code)`) is guarded by `tests/adminAlerts/_metaAlertProducerScope.test.ts`, which performs a TypeScript-compiler-API AST walk over `lib` + `app` for any CallExpression whose callee's rightmost identifier is `upsertAdminAlert` — so the `tx.` / `deps.` / `recoveryTx.` wrapper forms are already covered — **plus** `upsert_admin_alert(` invocations in `supabase/**/*.sql`. It already fails by default on an unregistered site, already fails on a stale row, and already models dynamic sites with `dynamic: true` plus a mandatory provenance note (`tests/adminAlerts/alertProducerScope.registry.ts:17-27`).
 
-New meta-test `tests/adminAlerts/_metaProducerContextParity.test.ts`, filesystem-walked so a new producer fails by default (invariant-10 discovery idiom). It reuses the existing source-walk helper `lib/messages/__internal__/walkSourceFiles.ts` over the same `app` + `lib` roots the §12.4 producer scan already walks (`lib/messages/__internal__/codeProducers.ts:13`), rather than introducing a second walker.
+Building a second walker would duplicate that guarantee and would *lose* one this spec's original design missed entirely: the SQL-side producer discovery.
 
-- Walk `lib/**` and `app/**` for `upsertAdminAlert({...})` call sites (including the `tx.`/`deps.` transaction-wrapper forms seen at `lib/drive/watch.ts:409`, `lib/sync/unpublishShow.ts:238`, `lib/sync/runScheduledCronSync.ts:2364`).
-- For each call site whose `code:` is a string literal AND whose `context:` is an object literal, extract the literal's top-level keys and assert they equal `requiredKeys ∪ optionalKeys` for that code. Keys inside a conditional spread (`...(cond ? { k: v } : {})`, e.g. `lib/sync/runManualSyncForShow.ts:190`, `lib/sync/runScheduledCronSync.ts:2376`) count as optional.
-- A call site whose `code:` or `context:` is a variable/helper/dynamic expression requires `PRODUCER_CONTEXTS[code].computed` to be set, or the test fails. Known members at spec time: `lib/drive/watch.ts:411` (`context` variable), `lib/sync/runScheduledCronSync.ts:378` (`context` variable), the two `buildParseErrorContext(...)` sites (`lib/sync/runManualSyncForShow.ts:266`, `lib/sync/runScheduledCronSync.ts:3389`), and the dynamic-code sites (`lib/sync/applyStaged.ts:1952-1966`, `code: result.adminAlertCode` and the `adminAlertCodes` loop). The plan re-derives this list against live code rather than trusting it.
-- Assert every one of the 36 `AdminAlertCode` members has a discovered producer, and that `PRODUCER_CONTEXTS` covers all 45 `ADMIN_ALERTS_CODES` — the 9 non-`upsertAdminAlert` codes are covered by the registry but exempt from producer discovery, declared explicitly rather than by silent absence.
+The change is therefore a **dimension added to the existing registry**, not a new mechanism:
 
-**Explicit bound (declared, not hidden):** static discovery reads object literals only. A helper-built context is verified by its hand-authored `computed` row, not mechanically. The test makes that visible by requiring the `computed` string to name the helper's `path:line`; it does not silently skip.
+- Extend `ProducerScopeRow` with the context-key dimension: `contextKeys` (always written) and `optionalContextKeys` (written only on some branches — conditional spreads such as `lib/sync/runManualSyncForShow.ts:190` and `lib/sync/runScheduledCronSync.ts:2376`). A row that is already `dynamic: true` carries hand-authored keys plus its existing provenance `note` naming the helper, and is exempt from the literal cross-check.
+- Extend `_metaAlertProducerScope.test.ts`'s existing AST walk to also read the `context:` property of each discovered call site. Where that property is an object literal, assert its top-level keys equal `contextKeys ∪ optionalContextKeys` for that row. Where it is a variable or helper call, require `dynamic: true` (or a new `computedContext: true` flag for sites whose *code* is static but whose *context* is computed — `lib/drive/watch.ts:411`, `lib/sync/runScheduledCronSync.ts:378`, and the two `buildParseErrorContext(...)` sites at `lib/sync/runManualSyncForShow.ts:266` and `lib/sync/runScheduledCronSync.ts:3389`). The plan re-derives this list against live code rather than trusting it.
+- `PRODUCER_CONTEXTS` (§3) then derives its `requiredKeys` / `optionalKeys` from the registry rather than restating them, so the two cannot drift. §3's module remains the source of the *representative context value* used by fixtures; the registry remains the source of *which keys exist*. One fact, one home, each.
+
+**Explicit bound (declared, not hidden).** The AST cross-check reads object literals only. A helper-built context is verified by its hand-authored row plus the provenance note naming the helper's `path:line`; it is not mechanically verified. This bound is inherited from the existing registry's acknowledged §3.0 residual risk (`tests/adminAlerts/alertProducerScope.registry.ts:6-14`), not newly introduced here. Raw `INSERT INTO admin_alerts` sites remain undiscovered, exactly as today.
 
 ---
 
@@ -195,8 +196,8 @@ No new boolean flags, config fields, or toggles. `computed` is a documentation-b
 
 <!-- spec-lint: ignore — the two files named on the Creates line are created by this bundle and cannot resolve until implementation -->
 
-- **Creates:** `tests/adminAlerts/producerContexts.ts` (module, not a test), `tests/adminAlerts/_metaProducerContextParity.test.ts`, and the §8 gallery placement-coverage pin.
-- **Extends:** `lib/dev/attentionScenarios/validate.ts` rules (§4, §5) and their existing test file; `tests/adminAlerts/alertIdentityMatrix.test.ts` (now importing the promoted fixtures, 45-code totality assertion preserved at `tests/adminAlerts/alertIdentityMatrix.test.ts:460`).
+- **Creates:** `tests/adminAlerts/producerContexts.ts` (module, not a test) and the §8 gallery placement-coverage pin. No new meta-test file: §6 extends the existing producer-scope guard rather than adding a second one.
+- **Extends:** `lib/dev/attentionScenarios/validate.ts` rules (§4, §5) and their existing test file; `tests/adminAlerts/alertProducerScope.registry.ts` + `tests/adminAlerts/_metaAlertProducerScope.test.ts` (the context-key dimension, §6); `tests/adminAlerts/alertIdentityMatrix.test.ts` (now importing the promoted fixtures, 45-code totality assertion preserved at `tests/adminAlerts/alertIdentityMatrix.test.ts:460`).
 - **Not applicable:** advisory-lock topology (no lock surface touched — no producer edit, §1.1); Supabase call-boundary registry (no Supabase read/write path changes); §12.4 catalog parity (no catalog edits); mutation-surface observability (no mutation surface added); validation-schema-parity (no migration); impeccable dual-gate — **applies only if a component file changes**; the current scope touches `lib/dev/**` and `tests/**` only, so the plan re-checks this at implementation time and runs the gate if any `components/**` or `app/**` file enters the diff.
 
 ---
@@ -209,4 +210,4 @@ TDD per task (invariant 1). Each rule in §4/§5/§6 gets a failing test asserti
 
 ## 13. Numeric self-check
 
-36 `AdminAlertCode` union members (`lib/adminAlerts/upsertAdminAlert.ts:3-39`); 45 `ADMIN_ALERTS_CODES` registry members (`tests/adminAlerts/adminAlertCodes.fixture.ts:13-59`); 45 `ATTENTION_ROUTES` codes, hence 45 tier-1 alert scenarios; 6 `ALERT_ROW_OVERRIDES` entries (`lib/dev/attentionScenarios/tier1.ts:37`) and therefore 39 tier-1 scenarios carrying `{}` (§5); 9 registry codes exempt from producer discovery (45 − 36); 2 stale fixture rows repaired (§7); 2 gallery roster UUIDs per repaired row; ≥2 `crew_member_ids` required by §4; 6 gallery crew roster rows (`lib/dev/publishedModalFixture.ts:106-123`); `CREW_CAP` = 30; 1 new scenario (§8); 2 new files + 1 promoted module (§11); 0 migrations; 0 §12.4 edits; 0 producer edits.
+36 `AdminAlertCode` union members (`lib/adminAlerts/upsertAdminAlert.ts:3-39`); 45 `ADMIN_ALERTS_CODES` registry members (`tests/adminAlerts/adminAlertCodes.fixture.ts:13-59`); 45 `ATTENTION_ROUTES` codes, hence 45 tier-1 alert scenarios; 6 `ALERT_ROW_OVERRIDES` entries (`lib/dev/attentionScenarios/tier1.ts:37`) and therefore 39 tier-1 scenarios carrying `{}` (§5); 9 registry codes exempt from producer discovery (45 − 36); 2 stale fixture rows repaired (§7); 2 gallery roster UUIDs per repaired row; ≥2 `crew_member_ids` required by §4; 6 gallery crew roster rows (`lib/dev/publishedModalFixture.ts:106-123`); `CREW_CAP` = 30; 1 new scenario (§8); 1 new module + 1 new coverage pin, with §6 extending the existing 46-row producer-scope registry rather than adding a file (§11); 0 migrations; 0 §12.4 edits; 0 producer edits.
