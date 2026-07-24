@@ -267,3 +267,14 @@ export function buildActionOverrides(
 
   return scripted ? overrides : null;
 }
+
+/**
+ * Count the acceptable entries in a scenario's serialized feed (the shaper's
+ * own `acceptable` flag - components/ChangesFeed renders Accept for exactly
+ * these). Drives the scripted acceptAll success count.
+ */
+export function countAcceptableEntries(
+  feed: { entries: readonly { acceptable: boolean }[] } | null | undefined,
+): number {
+  return feed?.entries.filter((e) => e.acceptable).length ?? 0;
+}
