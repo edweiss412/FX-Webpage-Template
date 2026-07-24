@@ -535,7 +535,7 @@ export function ShareHub({
                   data-testid="share-hub-paused-note"
                   className="rounded-sm bg-surface-sunken px-2 py-1.5 text-xs/relaxed text-text-subtle"
                 >
-                  The crew link is paused while this show is unpublished. Publish to share it — you
+                  The crew link is paused while this show is unpublished. Publish to share it. You
                   can still rotate or reset below.
                 </p>
               )}

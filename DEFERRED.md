@@ -42,3 +42,11 @@ From the archive-row-menu-idiom spec's R8/R9 empirical probes (2026-07-24), meas
 **Accepted, not fixed, in the archive-row restyle.** Pre-existing behavior on origin/main, untouched by the diff (which reduces armed height by 24px, strictly improving reachability); fixing auto-reveal is a deliberate scroll-orchestration decision (panel + popover coordination) that deserves its own spec, not a rider on a row restyle. Backlog work item: `BL-SHAREHUB-ARM-VIEWPORT-REVEAL` in BACKLOG.md. The restyle's 390x560 e2e asserts the handler's own popover-content-coordinate contract so a regression in what IS ratified still fails.
 
 **Un-defer trigger:** prioritizing BL-SHAREHUB-ARM-VIEWPORT-REVEAL, or user/owner report of the armed confirm being invisible on a phone.
+
+### SHAREHUB-ARCHIVE-GRAVITY-CUE-1 — [P2] the hub's most destructive action carries its calmest idle framing
+
+From the impeccable critique of `feat/archive-row-menu-idiom` (2026-07-24). With the archive row restyled to the shared §4.1 menu-row idiom (the ratified goal), irreversible Archive is now pixel-identical at rest to reversible Rotate, and the section labels invert the consequence hierarchy: Rotate/Reset sit under "CAREFUL" while Archive sits under the neutral "SHOW". The armed state carries the destructive weight correctly (inverted-amber Confirm + consequence prose, two-tap, no timer), so no action is reachable without the gravity cue — the gap is idle-scan salience only.
+
+**Accepted, not fixed, in the archive-row restyle.** Idiom unification was the ratified point of the change (19-round spec); adding a distinguishing destructive cue back to the idle row (amber glyph tint, a "CAREFUL"-weight eyebrow for the Show section, or folding Archive under CAREFUL) is an owner voice/IA decision that would amend the ShareHub section design, not this restyle.
+
+**Un-defer trigger:** owner review of the hub's section labeling, or any real incident/report of an accidental arming (the two-tap confirm still guards the commit either way).
