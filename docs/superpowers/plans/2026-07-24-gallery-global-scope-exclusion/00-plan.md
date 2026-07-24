@@ -23,7 +23,7 @@ Every fact this plan names was grepped against the live worktree before drafting
 | `tests/adminAlerts/**` already in the parallel vitest project | `vitest.projects.ts:83` | no config change needed for the new meta-test |
 | `tests/dev/**` is not in `PARALLEL_TEST_GLOBS`, so it runs in the serial project | `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:64`) | existing behavior; no change |
 | `filesMembership` walks only `page.tsx`/`actions.ts`/`route.ts`/`layout.tsx` | `ROUTE_FILES` (`tests/admin/dev/filesMembership.test.ts:37`) | `buildSwitcherScenarios.ts` is a helper; no registration needed |
-| `SwitcherControls.tsx` is absent from the motion-free registry | `tests/components/admin/transitionAudit.test.tsx:41-62` | Task 7 adds it |
+| `SwitcherControls.tsx` is absent from the motion-free registry | `tests/components/admin/transitionAudit.test.tsx:41-62` | Task 6 adds it |
 
 `pnpm spec:lint` on the spec: `summary: 0 hard, 0 advisory`.
 
@@ -38,23 +38,24 @@ alert-sync-stalled
 alert-watch-channel-orphaned
 ```
 
-Post-change the rendered count is **128** and `excluded` grows 31 → 35. Task 3 checks the full 132-id list in as `RENDERED_IDS_BEFORE`; Task 5 asserts the 128-id subtraction.
+Post-change the rendered count is **128** and `excluded` grows 31 → 35. Task 4 checks the full 132-id list in as `RENDERED_IDS_BEFORE` and asserts the 128-id subtraction against it.
 
 ## 0.1 Meta-test inventory
 
 - **CREATES** `tests/adminAlerts/_metaGlobalScopeCodes.test.ts (new)` — pins `GLOBAL_SCOPE_CODES` set-equal to the `globalOnlyCodes()` projection, so a producer-scope reclassification fails CI instead of drifting the gallery.
+- **CREATES** the scenario-catalogue guard (Task 5) — walks `ALL_SCENARIOS` and fails if any tier-2 or tier-3 scenario declares a global-scope code. Filesystem-independent but catalogue-total, so a composite that does not exist yet fails by default rather than being silently dropped by the partition.
 - **EXTENDS** `tests/components/admin/transitionAudit.test.tsx` — adds `components/admin/dev/SwitcherControls.tsx` to the motion-free source scan.
 - **Not applicable:** Supabase call-boundary (`tests/auth/_metaInfraContract.test.ts`) — no Supabase call is added. Advisory-lock topology — no `pg_advisory*` surface. `admin_alerts` catalog completeness — no catalogue row changes. Mutation-surface observability — no mutating route or action.
 
 ## 0.2 Mandatory-task dispositions
 
 - **Layout-dimensions task: N/A.** Spec §5.1 documents zero parent→child dimension relationships: the new element is a block-level `<p>` in an existing `overflow-y-auto` column with no fixed-height parent and no flex or grid child relationship. There is nothing for a `getBoundingClientRect` assertion to pin. Declared rather than skipped.
-- **Transition-audit task: Task 7.** Spec §5.2's inventory is three rows, all "instant" or "unreachable". The audit is a source scan (registry row in `transitionAudit.test.tsx`) rather than an interaction test, because the inventory contains no animated state to compound.
+- **Transition-audit task: Task 6.** Spec §5.2's inventory is three rows, all "instant" or "unreachable". The audit is a source scan (registry row in `transitionAudit.test.tsx`) rather than an interaction test, because the inventory contains no animated state to compound.
 - **e2e harness-readiness: N/A for new Playwright, but the existing spec IS a consumer.** No new Playwright is attached. `tests/e2e/attention-modal-gallery.spec.ts:148-151` calls `partitionScenarios()` at module load and derives `RENDERED_IDS`, `STRUCTURAL`, and `CUT`. Analysed per assertion:
   - `tests/e2e/attention-modal-gallery.spec.ts:372` asserts `STRUCTURAL.length` is `3`. Unaffected: the global arm runs after `cut`, and no structural scenario carries alerts.
   - `tests/e2e/attention-modal-gallery.spec.ts:373` asserts `CUT.length > 0`, and `tests/e2e/attention-modal-gallery.spec.ts:392` asserts the controls render `String(CUT.length)` as a substring. `EXPECTED_CUT_IDS` is unchanged at 28, and the cut paragraph still renders `28`, so both hold. The toggle count moves 31 → 35 but is matched by a different assertion.
   - `RENDERED_IDS` drops 132 → 128 (measured, see §0.3). The sweep at `tests/e2e/attention-modal-gallery.spec.ts:236` iterates whatever is rendered and `tests/e2e/attention-modal-gallery.spec.ts:194` only asserts non-empty, so both hold.
-  - **Task 7 adds** a `GLOBAL` derivation and one assertion that the global line's count renders, mirroring the existing `CUT` assertion at `tests/e2e/attention-modal-gallery.spec.ts:392`. Without it the new paragraph is the only excluded-reason line with no end-to-end proof it reaches the DOM.
+  - **Task 6 adds** a `GLOBAL` derivation and one assertion that the global line's count renders, mirroring the existing `CUT` assertion at `tests/e2e/attention-modal-gallery.spec.ts:392`. Without it the new paragraph is the only excluded-reason line with no end-to-end proof it reaches the DOM.
 - **`tests/dev/galleryModalTypes.test.ts:51`** constructs an `ExcludedScenario` with `reason: "cut"` as a type-resolution proof. Widening the union is compatible; verified no change needed.
 
 ---
@@ -197,81 +198,42 @@ export const GLOBAL_SCOPE_CODES: ReadonlySet<string> = new Set([
 
 ---
 
-### Task 3 — carrier-helper extraction (behavior-preserving)
+### Task 3 — `isShowScopeReachable`
 
-**Test first:** in `tests/app/admin/attentionModalGallery.serverProps.test.ts`, capture the current rendered id set as a checked-in constant and assert `partitionScenarios().rendered` still equals it. Written and passing BEFORE the extraction, so it is a genuine regression net rather than a post-hoc rationalization:
+**Test first:** truth table in `tests/app/admin/attentionModalGallery.serverProps.test.ts`, driven by synthetic scenarios built with the file's existing `minimal()` helper (`tests/app/admin/attentionModalGallery.serverProps.test.ts:73-75`). Red because the symbol does not exist yet.
 
 ```ts
-// Captured from `partitionScenarios()` at commit dec700d8, BEFORE the carrier
-// extraction and the global axis. Task 5 subtracts exactly the four global ids
-// from this list; anything else moving is a regression.
-const RENDERED_IDS_BEFORE: string[] = [/* generated, see below */];
-
-it("the rendered id set is exactly the checked-in baseline", () => {
-  expect(partitionScenarios().rendered.map((s) => s.id).sort()).toEqual(RENDERED_IDS_BEFORE);
+const alertRow = (code: string) => ({
+  code,
+  context: {},
+  raised_at: "2026-07-01T12:00:00.000Z",
+  occurrence_count: 1,
 });
-```
-
-Generate the constant with `pnpm vitest run tests/app/admin/attentionModalGallery.serverProps.test.ts -t "rendered id set"` once and paste the failure diff. Do NOT generate it by calling the function inside the test.
-
-**Failure mode caught:** a typo in the extracted carrier list (a dropped `feedNull`, a `??` that changes falsy handling) silently removing an unrelated scenario from the gallery.
-
-**Implementation:** in `app/admin/dev/attention-gallery/buildSwitcherScenarios.ts`, extract the inlined list from `isModalVisible` (`app/admin/dev/attention-gallery/buildSwitcherScenarios.ts:45-56`) verbatim:
-
-```ts
-/** Everything besides derived alert items that makes a scenario worth a card.
- *  Extracted from isModalVisible so isShowScopeReachable cannot drift from it. */
-function hasNonAlertCarrier(s: AttentionScenario): boolean {
-  return (
-    (s.warnings?.length ?? 0) > 0 ||
-    s.degraded === true ||
-    s.feedNull === true ||
-    (s.changeLog?.length ?? 0) > 0 ||
-    s.fixture !== undefined ||
-    s.actionOutcomes !== undefined
-  );
-}
-
-export function isModalVisible(s: AttentionScenario): boolean {
-  return (
-    deriveScenarioAttention(s).length > 0 ||
-    hasNonAlertCarrier(s) ||
-    (s.alerts.length === 0 && s.holds.length === 0)
-  );
-}
-```
-
-Module-local, not exported: it is an implementation detail of the two predicates.
-
-**Commit:** `refactor(admin-dev): extract hasNonAlertCarrier from isModalVisible`
-
----
-
-### Task 4 — `isShowScopeReachable`
-
-**Test first:** truth table in `tests/app/admin/attentionModalGallery.serverProps.test.ts`, driven by synthetic scenarios built with the file's existing `minimal()` helper (`tests/app/admin/attentionModalGallery.serverProps.test.ts:73-75`):
-
-```ts
-const alertRow = (code: string) => ({ code, context: {}, raised_at: "2026-07-01T12:00:00.000Z", occurrence_count: 1 });
 
 describe("isShowScopeReachable", () => {
   it("no alerts → reachable", () => {
     expect(isShowScopeReachable(minimal("x"))).toBe(true);
   });
-  it("all-global alerts, no carrier, no holds → NOT reachable", () => {
-    expect(isShowScopeReachable(minimal("x", { alerts: [alertRow("LIVE_ROW_CONFLICT")] }))).toBe(false);
+  it("a single global alert → NOT reachable", () => {
+    expect(isShowScopeReachable(minimal("x", { alerts: [alertRow("LIVE_ROW_CONFLICT")] }))).toBe(
+      false,
+    );
   });
-  it("two different global codes → still NOT reachable", () => {
+  it("two different global codes → NOT reachable", () => {
     expect(
-      isShowScopeReachable(minimal("x", { alerts: [alertRow("SYNC_STALLED"), alertRow("WATCH_CHANNEL_ORPHANED")] })),
+      isShowScopeReachable(
+        minimal("x", { alerts: [alertRow("SYNC_STALLED"), alertRow("WATCH_CHANNEL_ORPHANED")] }),
+      ),
     ).toBe(false);
   });
-  it("mixed global + per-show → reachable", () => {
+  it("MIXED global + per-show → NOT reachable (the R1 finding: one global item contaminates the card)", () => {
     expect(
-      isShowScopeReachable(minimal("x", { alerts: [alertRow("SYNC_STALLED"), alertRow("DRIVE_FETCH_FAILED")] })),
-    ).toBe(true);
+      isShowScopeReachable(
+        minimal("x", { alerts: [alertRow("SYNC_STALLED"), alertRow("DRIVE_FETCH_FAILED")] }),
+      ),
+    ).toBe(false);
   });
-  it("all-global WITH a warning carrier → reachable", () => {
+  it("a carrier does NOT rescue a global alert", () => {
     expect(
       isShowScopeReachable(
         minimal("x", {
@@ -279,11 +241,12 @@ describe("isShowScopeReachable", () => {
           warnings: [{ severity: "warn", code: "UNKNOWN_FIELD", message: "x" }],
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
-  it("all-global WITH holds → reachable", () => {
-    const s = minimal("x", { alerts: [alertRow("LIVE_ROW_CONFLICT")] });
-    expect(isShowScopeReachable({ ...s, holds: [HOLD_FIXTURE] })).toBe(true);
+  it("only per-show alerts → reachable", () => {
+    expect(isShowScopeReachable(minimal("x", { alerts: [alertRow("DRIVE_FETCH_FAILED")] }))).toBe(
+      true,
+    );
   });
   it("an unknown code is reachable (fail toward VISIBLE)", () => {
     expect(isShowScopeReachable(minimal("x", { alerts: [alertRow("NOT_A_REAL_CODE")] }))).toBe(true);
@@ -291,27 +254,32 @@ describe("isShowScopeReachable", () => {
 });
 ```
 
-`HOLD_FIXTURE` reuses the hold shape already present in the `holds` array of `tier3.ts:117`; lift it into a local const rather than importing the scenario, so the test does not couple to a catalogue entry Task 6 edits.
+**Failure mode caught:** the `every`-instead-of-`some` inversion. That is not hypothetical — it is what round 1 rejected, and the mixed and carrier cases are the two assertions that fail under it. A predicate returning a constant fails at least three rows either way.
 
-**Failure mode caught:** the two most likely wrong implementations — `.some()` instead of `.every()` (would exclude `T3_FULL_SPLIT` and every mixed composite), and omitting the carrier arm (would exclude any future global-code-plus-fixture scenario).
-
-**Implementation:**
+**Implementation:** in `app/admin/dev/attention-gallery/buildSwitcherScenarios.ts`:
 
 ```ts
+/**
+ * A scenario is show-scope reachable iff NONE of its alerts is global-scope.
+ * ANY global alert makes the card fiction: deriveScenarioAttention derives an
+ * item for it and the modal renders that item, regardless of what else the
+ * scenario carries. fetchPerShowAlerts filters `.eq("show_id", showId)`
+ * independently of everything else on the show.
+ */
 export function isShowScopeReachable(s: AttentionScenario): boolean {
-  if (s.alerts.length === 0) return true;
-  if (!s.alerts.every((a) => GLOBAL_SCOPE_CODES.has(a.code))) return true;
-  return hasNonAlertCarrier(s) || s.holds.length > 0;
+  return !s.alerts.some((a) => GLOBAL_SCOPE_CODES.has(a.code));
 }
 ```
 
-**Commit:** `feat(admin-dev): isShowScopeReachable predicate for global-scope-only scenarios`
+`isModalVisible` is NOT touched. An earlier draft extracted its carrier list into a shared helper; with the predicate reduced to one `some` call there is no second consumer, so the extraction would be a one-caller indirection.
+
+**Commit:** `feat(admin-dev): isShowScopeReachable predicate for global-scope scenarios`
 
 ---
 
-### Task 5 — third partition arm + type widening + pins
+### Task 4 — third partition arm, type widening, and pins
 
-**Test first:** in `tests/app/admin/attentionModalGallery.serverProps.test.ts`:
+**Test first:** in `tests/app/admin/attentionModalGallery.serverProps.test.ts`. The first assertion is red immediately (no scenario carries `reason: "global"` yet):
 
 ```ts
 // The exact global set today (checked-in, NOT derived from GLOBAL_SCOPE_CODES:
@@ -324,14 +292,32 @@ const EXPECTED_GLOBAL_IDS = [
   "alert-watch-channel-orphaned",
 ].sort();
 
+// Captured from partitionScenarios() at b4603d58, BEFORE this change: 132 ids.
+const RENDERED_IDS_BEFORE: string[] = [/* the 132, checked in verbatim */];
+
 it("global excluded set is EXACTLY the four checked-in ids", () => {
-  const g = excluded.filter((e) => e.reason === "global");
-  expect(g.map((e) => e.id).sort()).toEqual(EXPECTED_GLOBAL_IDS);
+  expect(
+    excluded
+      .filter((e) => e.reason === "global")
+      .map((e) => e.id)
+      .sort(),
+  ).toEqual(EXPECTED_GLOBAL_IDS);
 });
 
 it("cut set is UNCHANGED: the five health globals keep their cut label", () => {
-  expect(excluded.filter((e) => e.reason === "cut").map((e) => e.id).sort()).toEqual(EXPECTED_CUT_IDS);
-  for (const id of ["alert-webhook-token-invalid", "alert-callback-claim-threw", "alert-github-bot-login-missing", "alert-picker-bootstrap-rpc-failed", "alert-picker-bootstrap-resolve-show-failed"]) {
+  expect(
+    excluded
+      .filter((e) => e.reason === "cut")
+      .map((e) => e.id)
+      .sort(),
+  ).toEqual(EXPECTED_CUT_IDS);
+  for (const id of [
+    "alert-webhook-token-invalid",
+    "alert-callback-claim-threw",
+    "alert-github-bot-login-missing",
+    "alert-picker-bootstrap-rpc-failed",
+    "alert-picker-bootstrap-resolve-show-failed",
+  ]) {
     expect(EXPECTED_CUT_IDS).toContain(id);
   }
 });
@@ -342,16 +328,19 @@ it("no scenario is excluded under two reasons", () => {
 });
 
 it("rendered = the pre-change baseline minus exactly the four global ids", () => {
-  const expected = RENDERED_IDS_BEFORE.filter((id) => !EXPECTED_GLOBAL_IDS.includes(id));
-  expect(partitionScenarios().rendered.map((s) => s.id).sort()).toEqual(expected);
+  expect(rendered.map((s) => s.id).sort()).toEqual(
+    RENDERED_IDS_BEFORE.filter((id) => !EXPECTED_GLOBAL_IDS.includes(id)),
+  );
 });
 ```
 
-The Task 3 baseline assertion is updated to the subtracted form in this task (it is the same constant, re-used, not re-captured).
+The baseline constant is the 132-id list measured in §0.3 — checked in verbatim, never regenerated by calling the function under test.
 
-**Failure mode caught:** the ordering contract. If the global arm were evaluated before `cut`, the five health globals would be relabelled and the second assertion fails; if the predicate over-matched, the fourth fails.
+**Failure mode caught:** the ordering contract. Evaluating the global arm before `cut` relabels the five health globals and fails the second assertion. An over-matching predicate fails the fourth. `isModalVisible` drift also fails the fourth, which is why dropping the extraction costs no coverage.
 
-**Implementation:** widen `lib/dev/galleryModalTypes.ts:55` to `"structural" | "cut" | "global"`, then add the third arm to `partitionScenarios` AFTER the `cut` arm (`buildSwitcherScenarios.ts:125-128`):
+**Also in this commit:** `tests/admin/attentionExclusionSet.test.ts:110-122` swaps its `LIVE_ROW_CONFLICT` keeper for `SHEET_UNAVAILABLE` (a `FROZEN_REACHABLE` member). The assertion's meaning is unchanged — a non-info, non-health code survives the `DOUG_EXCLUDED_CODES` filter — but the old code choice reads as a claim that `LIVE_ROW_CONFLICT` is a per-show state, which this change establishes it is not. It rides here rather than standing alone because on its own it has no red phase.
+
+**Implementation:** widen `lib/dev/galleryModalTypes.ts:55` to `"structural" | "cut" | "global"`, then add the third arm AFTER the `cut` arm (`app/admin/dev/attention-gallery/buildSwitcherScenarios.ts:125-128`):
 
 ```ts
     if (!isShowScopeReachable(s)) {
@@ -360,47 +349,57 @@ The Task 3 baseline assertion is updated to the subtracted form in this task (it
     }
 ```
 
-**Commit:** `feat(admin-dev): exclude global-scope-only scenarios from the gallery switcher`
+**Commit:** `feat(admin-dev): exclude global-scope scenarios from the gallery switcher`
 
 ---
 
-### Task 6 — `T3_FULL_SPLIT` composite correction
+### Task 5 — catalogue guard + `T3_FULL_SPLIT` correction
 
-**Test first:** update the two existing pins to the post-removal expectation and watch them fail against the current catalogue:
+The R1 BLOCKING repair's structural half. Without it, a future composite carrying a global code is silently dropped by Task 4's partition and its real coverage is lost with no signal.
 
-- `tests/dev/fullSplitComposite.test.ts:28` drops `"SYNC_STALLED"` from the expected code list; the derived-count assertion at `tests/dev/fullSplitComposite.test.ts:47` goes from `2` to `1`, as does the `it` title at `tests/dev/fullSplitComposite.test.ts:42`.
-- `tests/dev/fullSplitCompositeRender.test.tsx:56` and its `it` title at `tests/dev/fullSplitCompositeRender.test.tsx:53` go to `1 to confirm · 2 to review · 1 monitoring`; the self-heal length assertion at `tests/dev/fullSplitCompositeRender.test.tsx:114` goes from `toHaveLength(2)` to `toHaveLength(1)`.
-
-Add one assertion that pins the reason rather than the number, so a future re-add fails with a readable message:
+**Test first:** a new catalogue guard, red against the current `tier3.ts`:
 
 ```ts
-it("carries no global-scope code (a real show modal could never show one)", () => {
-  const s = tier3Scenarios().find((x) => x.id === T3_FULL_SPLIT)!;
-  const offenders = s.alerts.map((a) => a.code).filter((c) => GLOBAL_SCOPE_CODES.has(c));
-  expect(offenders, `global-scope codes in ${T3_FULL_SPLIT}`).toEqual([]);
+it("NO tier-2 or tier-3 scenario declares a global-scope alert code", () => {
+  // Tier 1 is exempt BY CONSTRUCTION: its one-scenario-per-route-key fan-out is
+  // exactly what the exclusion axis handles. A composite is different: the
+  // partition would drop it silently, taking its per-show alerts, holds, and
+  // sections with it.
+  const offenders = ALL_SCENARIOS.filter((s) => s.tier !== 1).flatMap((s) =>
+    s.alerts.filter((a) => GLOBAL_SCOPE_CODES.has(a.code)).map((a) => `${s.id}: ${a.code}`),
+  );
+  expect(offenders).toEqual([]);
 });
 ```
 
-**Failure mode caught:** the count assertions alone would let someone swap `SYNC_STALLED` for `WATCH_CHANNEL_ORPHANED` and stay green at 2. The offender assertion catches the class, not the instance.
+Plus the two existing composite pins, updated to their post-removal values:
 
-**Implementation:** remove the `SYNC_STALLED` row and its stale comment from `lib/dev/attentionScenarios/tier3.ts:113-114`. Replace the comment with one naming the remaining self-healing code and why it is the only one.
+- `tests/dev/fullSplitComposite.test.ts:28` drops `"SYNC_STALLED"`; the derived-count assertion at `tests/dev/fullSplitComposite.test.ts:47` goes `2` → `1`, as does the `it` title at `tests/dev/fullSplitComposite.test.ts:42`.
+- `tests/dev/fullSplitCompositeRender.test.tsx:56` and its `it` title at `tests/dev/fullSplitCompositeRender.test.tsx:53` go to `1 to confirm · 2 to review · 1 monitoring`; the length assertion at `tests/dev/fullSplitCompositeRender.test.tsx:114` goes `toHaveLength(2)` → `toHaveLength(1)`.
 
-**Commit:** `fix(admin-dev): drop the global-scope SYNC_STALLED row from T3_FULL_SPLIT`
+**Failure mode caught:** the count assertions alone would stay green if someone swapped `SYNC_STALLED` for `WATCH_CHANNEL_ORPHANED`. The catalogue guard names the class, walks every scenario, and fails by default for a composite that does not exist yet — the difference between fixing today's instance and closing the class.
+
+**Implementation:** remove the `SYNC_STALLED` row and its stale comment from `lib/dev/attentionScenarios/tier3.ts:113-114`, replacing the comment with one naming `DRIVE_FETCH_FAILED` as the only per-show-reachable self-healing code and why.
+
+**Commit:** `fix(admin-dev): no composite may carry a global-scope code; drop SYNC_STALLED from T3_FULL_SPLIT`
 
 ---
 
-### Task 7 — UI: third excluded-panel paragraph + transition audit
+### Task 6 — UI: excluded-panel global line, component + e2e coverage, transition audit
 
-**Test first:** in `tests/components/admin/dev/switcherControls.test.tsx`, extend `MIXED` (`tests/components/admin/dev/switcherControls.test.tsx:34-36`) with a `reason: "global"` entry and assert:
+**Test first (component):** in `tests/components/admin/dev/switcherControls.test.tsx`, extend `MIXED` (`tests/components/admin/dev/switcherControls.test.tsx:34-36`) with a `reason: "global"` entry and assert:
 
 - all three lines render when all three reasons are present;
 - a global-only `excluded` array renders the global line and neither sibling;
-- the global line's count comes from the global-filtered list, not `excluded.length` — assert with a fixture of 3 global + 2 cut and expect the global line to say `3`, which a naive `excluded.length` would render as `5`;
-- the toggle still reads `5 excluded` for that same fixture (the toggle IS `excluded.length`).
+- **the global line's count comes from the global-filtered list, not `excluded.length`** — drive it with 3 global + 2 cut and expect the global line to read `3`, which a naive `excluded.length` renders as `5`;
+- the toggle still reads `5 excluded` for that same fixture (the toggle IS `excluded.length`);
+- a single-item global list renders `1 dashboard-level alert` (singular), not `1 dashboard-level alerts`.
 
-Extend `tests/components/admin/transitionAudit.test.tsx`'s `SERVER_RENDERED` list (`tests/components/admin/transitionAudit.test.tsx:41-62`) with `components/admin/dev/SwitcherControls.tsx`, satisfying the mandatory transition-audit task: the source scan pins that the new paragraph introduces no mount/route-enter animation, matching spec §5.2's all-instant inventory.
+**Test first (e2e):** in `tests/e2e/attention-modal-gallery.spec.ts`, derive `GLOBAL` beside `STRUCTURAL` and `CUT` (`tests/e2e/attention-modal-gallery.spec.ts:148-151`) and add one assertion that the panel renders `String(GLOBAL.length)`, mirroring the existing `CUT` assertion at `tests/e2e/attention-modal-gallery.spec.ts:392`. Without it the global line is the only excluded-reason line with no proof it reaches the real DOM.
 
-**Failure mode caught:** the count-source assertion is the one that matters — a `{excluded.length}` copy-paste in the new paragraph is the most likely implementation slip and reads correct in a single-reason fixture.
+**Test first (transition audit):** add `components/admin/dev/SwitcherControls.tsx` to the `SERVER_RENDERED` list (`tests/components/admin/transitionAudit.test.tsx:41-62`). This satisfies the mandatory transition-audit task: a source scan pinning that the new paragraph introduces no mount or route-enter animation, matching spec §5.2's all-instant inventory.
+
+**Failure mode caught:** the count-source assertion. A `{excluded.length}` copy-paste in the new paragraph is the most likely implementation slip and reads correct in every single-reason fixture. The singular assertion catches the R1 finding-5 copy defect.
 
 **Implementation:** in `components/admin/dev/SwitcherControls.tsx`, add beside `components/admin/dev/SwitcherControls.tsx:67-68`:
 
@@ -413,37 +412,29 @@ and after the cut paragraph (`components/admin/dev/SwitcherControls.tsx:139-143`
 ```tsx
 {global.length > 0 && (
   <p className="text-xs text-text-subtle">
-    {global.length} dashboard-level alerts. These are never attached to a show, so this modal
-    cannot show them.
+    {global.length} dashboard-level {global.length === 1 ? "alert" : "alerts"}. Never attached to
+    a show, so this modal cannot show {global.length === 1 ? "it" : "them"}.
   </p>
 )}
 ```
 
-Copy check before committing: no em-dash, no apostrophe, `text-xs`/`text-text-subtle` matching the two sibling lines.
+Copy check before committing: no em-dash, no apostrophe, `text-xs` and `text-text-subtle` matching the two sibling lines.
 
 **Commit:** `feat(admin-dev): excluded-panel line for global-scope alerts`
 
 ---
 
-### Task 8 — route annotations + exclusion-set control swap
+## 1.1 Gates (no commit of their own)
 
-**Test first:** in `tests/admin/attentionExclusionSet.test.ts:110-122`, swap the `LIVE_ROW_CONFLICT` keeper for `SHEET_UNAVAILABLE` (a `FROZEN_REACHABLE` member) and update the assertion. The test's meaning is unchanged — a non-info, non-health code survives the `DOUG_EXCLUDED_CODES` filter — but the code no longer implies `LIVE_ROW_CONFLICT` is a per-show state.
+These are verification gates, not commit-bearing tasks. Neither produces an artifact; each produces either a pass or a fix that lands as its own follow-up commit.
 
-**Failure mode caught:** none new; this is a fidelity repair to an existing test's premise. Stated plainly rather than dressed up as a new guard.
+### Gate A — impeccable dual-gate
 
-**Implementation:** inline comment on each of the four `ATTENTION_ROUTES` rows in `lib/admin/attentionItems.ts` (`LIVE_ROW_CONFLICT`, `ONBOARDING_SHEET_UNREADABLE`, `SYNC_STALLED`, `WATCH_CHANNEL_ORPHANED`) noting: global-scope producer, row present for registry totality (`_metaAttentionRoutes` set-equality), never reachable through `fetchPerShowAlerts`.
+`components/admin/dev/SwitcherControls.tsx` is under `components/`, so plan-wide invariant 8 applies: `/impeccable critique` AND `/impeccable audit` on the affected diff, both with the canonical v3 setup gates (the context load, then the register reference read). P0 and P1 findings are fixed or explicitly deferred via a `DEFERRED.md` entry. Findings and dispositions go in §3.1 below. Any fix lands as its own commit.
 
-**Commit:** `docs(admin): annotate the four global-scope ATTENTION_ROUTES rows`
+### Gate B — pre-push verification
 
----
-
-### Task 9 — impeccable dual-gate
-
-`components/admin/dev/SwitcherControls.tsx` is under `components/`, so plan-wide invariant 8 applies: `/impeccable critique` AND `/impeccable audit` on the affected diff, both with the canonical v3 setup gates (the context load script, then the register reference read). P0 and P1 findings are fixed or explicitly deferred via a `DEFERRED.md` entry. Findings and dispositions are recorded in the close-out section of this plan.
-
-### Task 10 — pre-push gates
-
-In order, all from the worktree root:
+In order, from the worktree root:
 
 ```
 pnpm typecheck
@@ -459,24 +450,22 @@ pnpm test
 ## 2. Task order and dependencies
 
 ```
-1 ──► 2 ──► 4 ──► 5 ──► 7 ──► 9 ──► 10
-            ▲     ▲
-       3 ───┘     │
-       6 ─────────┘   (6 is independent of 3/4/5; ordered before 7 only to keep the diff readable)
-       8 ─────────┘
+1 ──► 2 ──► 3 ──► 4 ──► 6 ──► Gate A ──► Gate B
+                  ▲
+             5 ───┘   (5 needs 2 for GLOBAL_SCOPE_CODES; independent of 3/4)
 ```
 
-Task 3 must land before Task 4 (the predicate calls `hasNonAlertCarrier`) and before Task 5 (the baseline constant it introduces is subtracted there). Task 2 must land before Task 4 (the predicate reads `GLOBAL_SCOPE_CODES`) and before Task 6's offender assertion.
+Task 2 must land before Tasks 3 and 5 (both read `GLOBAL_SCOPE_CODES`). Task 3 must land before Task 4 (the partition arm calls the predicate). Task 5 is ordered before Task 6 only to keep the diff readable; its catalogue guard and Task 4's partition pins are independent.
 
 ## 3. Close-out
 
-- [ ] All 10 tasks committed, one commit each, conventional-commits style.
-- [ ] `pnpm typecheck` / `lint` / `format:check` / `test` all green, exit codes checked.
-- [ ] Impeccable critique + audit findings and dispositions recorded below.
+- [ ] Tasks 1 to 6 committed, one commit each, conventional-commits style. Gates A and B are verification steps and produce no commit unless a finding requires a fix, which lands as its own commit.
+- [ ] `pnpm typecheck` / `lint` / `format:check` / `test` all green, exit codes checked explicitly.
+- [ ] Impeccable critique and audit findings and dispositions recorded in §3.1.
 - [ ] Whole-diff cross-model review to APPROVE.
-- [ ] Real CI green on the PR (not just local).
+- [ ] Real CI green on the PR, not just local.
 - [ ] Merged, local `main` fast-forwarded, `git rev-list --left-right --count main...origin/main` reports `0	0`.
 
 ### 3.1 Impeccable findings
 
-_(filled in at Task 9)_
+_(filled in at Gate A)_
