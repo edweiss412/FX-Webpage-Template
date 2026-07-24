@@ -35,10 +35,7 @@ describe("deriveAlertRowFields crewMatch derivation (spec §6.2)", () => {
   });
 
   it("duplicate context ids → deduped; expectedCount is post-dedup", () => {
-    const out = deriveAlertRowFields(
-      alertRow({ crew_member_ids: [A, B, A] }),
-      undefined,
-    );
+    const out = deriveAlertRowFields(alertRow({ crew_member_ids: [A, B, A] }), undefined);
     expect(out.crewMatch).toEqual({ crewMemberIds: [A, B], expectedCount: 2 });
   });
 
@@ -132,7 +129,9 @@ describe("validateScenario crewMatch field (spec §3.6 / §6.2)", () => {
   }
 
   it("accepts a well-formed optional crewMatch", () => {
-    expect(validateScenario(scenario({ crewMatch: { crewMemberIds: [A, B], expectedCount: 2 } }))).toEqual([]);
+    expect(
+      validateScenario(scenario({ crewMatch: { crewMemberIds: [A, B], expectedCount: 2 } })),
+    ).toEqual([]);
   });
 
   it("accepts a scenario omitting crewMatch entirely", () => {
@@ -140,7 +139,9 @@ describe("validateScenario crewMatch field (spec §3.6 / §6.2)", () => {
   });
 
   it("rejects a non-UUID crewMatch member", () => {
-    const errors = validateScenario(scenario({ crewMatch: { crewMemberIds: [A, "nope"], expectedCount: 2 } }));
+    const errors = validateScenario(
+      scenario({ crewMatch: { crewMemberIds: [A, "nope"], expectedCount: 2 } }),
+    );
     expect(errors.some((e) => e.includes("crewMatch"))).toBe(true);
   });
 
@@ -211,8 +212,9 @@ describe("buildCrewRowResolver CREW_CAP slice (spec §6.3)", () => {
   it("an involved row rendered BEYOND CREW_CAP → null (section-top)", () => {
     // Roster of CREW_CAP filler ids + the involved id at index CREW_CAP (just past
     // the cap): the resolver only sees the shown slice, so it cannot match it.
-    const filler = Array.from({ length: CREW_CAP }, (_, i) =>
-      `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+    const filler = Array.from(
+      { length: CREW_CAP },
+      (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
     );
     const resolve = buildCrewRowResolver([...filler, A]);
     expect(resolve({ crewMemberIds: [A], expectedCount: 1 })).toBeNull();

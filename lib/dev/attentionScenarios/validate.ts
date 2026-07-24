@@ -125,7 +125,11 @@ function validateCrewMatch(row: ScenarioAlertRow, where: string, out: string[]):
     return;
   }
   const ids = cm.crewMemberIds;
-  if (!Array.isArray(ids) || ids.length === 0 || !ids.every((v) => typeof v === "string" && UUID_RE.test(v))) {
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    !ids.every((v) => typeof v === "string" && UUID_RE.test(v))
+  ) {
     out.push(`${where}: crewMatch.crewMemberIds must be a non-empty array of UUID strings`);
     return;
   }

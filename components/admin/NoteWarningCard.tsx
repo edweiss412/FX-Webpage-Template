@@ -15,7 +15,8 @@ import type { ReactNode } from "react";
  *  blank = null/undefined/empty/whitespace-only. NOT nullish coalescing — a blank
  *  first value falls through to the second (spec §2.4). */
 function firstNonBlank(a: string | null | undefined, b: string | null | undefined): string | null {
-  const ok = (v: string | null | undefined): v is string => typeof v === "string" && v.trim().length > 0;
+  const ok = (v: string | null | undefined): v is string =>
+    typeof v === "string" && v.trim().length > 0;
   if (ok(a)) return a;
   if (ok(b)) return b;
   return null;
@@ -28,7 +29,10 @@ function firstNonBlank(a: string | null | undefined, b: string | null | undefine
  *     (same gate as the amber cards, `PerShowActionableWarnings.tsx:125-138`).
  * Pure + exported so the four-row table is unit-testable without rendering.
  */
-export function notePopoverParts(w: ParseWarning): { copy: string | null; sentence: string | null } {
+export function notePopoverParts(w: ParseWarning): {
+  copy: string | null;
+  sentence: string | null;
+} {
   const entry = isMessageCode(w.code) ? messageFor(w.code as MessageCode) : null;
   const copy = firstNonBlank(entry?.longExplanation, entry?.helpfulContext);
   const sentence = w.sourceCell ? correctionLoopCopy("resync") : null;
