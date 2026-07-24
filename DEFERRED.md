@@ -34,3 +34,11 @@ per action, silence on background refreshes, and the reveal focus move. The
 automated halves (impeccable audit a11y dimension; role/mutation structural
 tests) shipped pre-merge. Un-defer trigger: owner performs and records the
 pass.
+
+### SHAREHUB-ARM-VIEWPORT-REVEAL-1 — [P2] armed Archive confirm settles below the viewport on short phones (auto-reveal stops at the popover scroller)
+
+From the archive-row-menu-idiom spec's R8/R9 empirical probes (2026-07-24), measured on LIVE pre-restyle code at 390x560: arming Archive fires the ratified `scrollIntoView(confirm, { block: "end" })` and the popover scroller lands exactly right (`scrollTop` 93 = 483 − 390), but the scrollable modal panel stays at `scrollTop` 0, so the Confirm/Cancel pair sits at viewport y 676-720 in a 560px viewport. The user reaches it by scrolling the modal panel manually.
+
+**Accepted, not fixed, in the archive-row restyle.** Pre-existing behavior on origin/main, untouched by the diff (which reduces armed height by 24px, strictly improving reachability); fixing auto-reveal is a deliberate scroll-orchestration decision (panel + popover coordination) that deserves its own spec, not a rider on a row restyle. Backlog work item: `BL-SHAREHUB-ARM-VIEWPORT-REVEAL` in BACKLOG.md. The restyle's 390x560 e2e asserts the handler's own popover-content-coordinate contract so a regression in what IS ratified still fails.
+
+**Un-defer trigger:** prioritizing BL-SHAREHUB-ARM-VIEWPORT-REVEAL, or user/owner report of the armed confirm being invisible on a phone.
