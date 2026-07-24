@@ -42,11 +42,11 @@ detector 0 findings, heuristics 24/28 scored. Audit: 19/20 (A11y 3, Perf 4,
 Responsive 4, Theming 4, Anti-patterns 4); all styling via token classes,
 44px floor + focus ring on both links, wrap-safe at both flex levels, no
 anti-pattern hits. **0 P0, 0 P1** — invariant-8 gate passes with nothing to
-fix or DEFERRED.md-defer.
+fix or DEFERRED.md-defer. **All four deferrals below were filed as `SETTINGS-DEVROW-GALLERY-RESIDUE-1` on 2026-07-24 and closed the same day; that entry now lives in DEFERRED-archive.md, not the active queue.**
 
 | Tier | Finding | Disposition |
 |------|---------|-------------|
-| P2 | "Open" label ambiguous beside a named sibling (SR link-list context) | Deferred — renaming existing copy conflicts with spec §1.1 "row copy unchanged"; WCAG 2.4.4 satisfied by in-context row heading. Candidate for a follow-up copy pass. |
-| P2 | Link label "Attention gallery" vs destination h1 "Attention modal gallery" | Deferred — label ratified in spec §1.1/§3 (user-approved). Destination h1 provides immediate confirmation; revisit only with a spec amendment. |
-| P3 | `devLinkClass` lacks `transition-colors duration-fast` + `focus-visible:ring-offset-2` vs sibling secondary button (`DriveConnectionPanel.tsx:244`) | Deferred — pre-existing literal carried verbatim per spec §3 ("className identical to the Open link"); aligning both is a cross-component polish item. |
-| P3 | Row description does not mention the gallery action | Deferred — spec §1.1 freezes row description copy. |
+| P2 | "Open" label ambiguous beside a named sibling (SR link-list context) | **CLOSED 2026-07-24** by `2026-07-24-settings-devrow-copy-close` (hidden `sr-only` qualifier; accessible name "Open developer tools"). Originally deferred — renaming existing copy conflicts with spec §1.1 "row copy unchanged"; WCAG 2.4.4 satisfied by in-context row heading. Candidate for a follow-up copy pass. |
+| P2 | Link label "Attention gallery" vs destination h1 "Attention modal gallery" | **CLOSED 2026-07-24** by `2026-07-24-settings-devrow-copy-close` (the h1 moved to "Attention gallery"; the link label is unchanged). Originally deferred — label ratified in spec §1.1/§3 (user-approved). Destination h1 provides immediate confirmation; revisit only with a spec amendment. |
+| P3 | `devLinkClass` lacks `transition-colors duration-fast` + `focus-visible:ring-offset-2` vs sibling secondary button (`DriveConnectionPanel.tsx:244`) | **PARTLY CLOSED 2026-07-24** by `2026-07-24-settings-devrow-copy-close`: the transition half landed. The offset half is superseded — `DESIGN.md:40` now bans a bare `focus-visible:ring-offset-2`, and the app-wide sweep is owned by `BL-FOCUS-RING-CONTRAST`. Originally deferred — pre-existing literal carried verbatim per spec §3 ("className identical to the Open link"); aligning both is a cross-component polish item. |
+| P3 | Row description does not mention the gallery action | **CLOSED 2026-07-24** by `2026-07-24-settings-devrow-copy-close`. Originally deferred — spec §1.1 freezes row description copy. |
