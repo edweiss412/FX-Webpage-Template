@@ -98,6 +98,16 @@ Every task: failing test -> minimal implementation -> passing test -> commit (in
 
 **Test first.** Create a new `_metaPopoverPlacementContract` test under the showpage component test directory. It walks `components/**/*.tsx` from the filesystem (not a lexical file list), and for each file that declares an overlay in the defect shape — a className string containing `top-full` or `bottom-full` AND `overflow-y-auto` AND a `max-h-[` cap — asserts the file either imports from `@/lib/popover/position` or appears in a reasoned allowlist.
 
+**Detection breadth (self-review, pre-empting the obvious evasion).** Matching only `overflow-y-auto` + `max-h-[` is too narrow for this repo. The classifier matches:
+
+- scroller: `overflow-y-auto` **or** `overflow-auto` **or** `overflow-y-scroll`
+- cap: `max-h-[` **or** `max-h-(` (Tailwind v4 CSS-variable arbitrary values, which this repo already uses elsewhere, e.g. `shadow-(--shadow-tile)` at `components/admin/review/ReviewModalShell.tsx:623`)
+- anchor: `top-full` **or** `bottom-full`
+
+It scans the whole file's source text rather than a JSX attribute, so a class list hoisted into a module-level constant is still caught — which matters, because that is exactly how `ReSyncButton` writes it (`components/admin/ReSyncButton.tsx:68-69`, `const OVERLAY_PANEL = "..."`), and a JSX-attribute-only scan would miss it and produce a false green.
+
+**Known limitation, stated rather than papered over:** a class list assembled in a DIFFERENT file and imported would evade the scan. No overlay in this repo is written that way today (sweep S2), and the e2e sweep in Task 7 covers behaviour regardless, so the guard is a cheap early-warning net, not the sole defence. Verified against the live defect: `ShareHub.tsx:487` is a single literal className containing `top-full`, `overflow-y-auto` and `max-h-[min(70vh,30rem)]`, so the classifier does fire on it.
+
 Allowlist: exactly one entry, `components/admin/ReSyncButton.tsx`, with an inline reason string ("clip-safe via useFitWithinClip; full-width inset-x-0 overlay where flipping buys nothing; spec §1.1"). The test asserts the allowlist has no *unused* entries too, so deleting an overlay does not leave a stale exemption.
 
 **Failure mode it catches:** a third overlay written in this idiom without inheriting either fix — which is precisely how the share hub shipped broken after `HoverHelp` was fixed. It fails on `ShareHub.tsx` when written (red), and the migration below turns it green inside this same task.
