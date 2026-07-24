@@ -16,6 +16,7 @@ afterEach(() => {
 const g = (): ActiveWarningGroup => ({
   code: "UNKNOWN_FIELD",
   label: "Unrecognized row in sheet",
+  itemCount: 2,
   bulk: {
     code: "UNKNOWN_FIELD",
     label: "Unrecognized row in sheet",
@@ -53,5 +54,25 @@ describe("BulkIgnoreControls transition audit (spec §5.4)", () => {
     const before = screen.getByTestId("dq-group-label-UNKNOWN_FIELD").className;
     fireEvent.click(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD"));
     expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").className).toBe(before);
+  });
+
+  test("row-present <-> row-absent flips are instant unmount/remount, no animation classes (spec 2026-07-24 §2.5)", () => {
+    const noBulkPlural = (): ActiveWarningGroup => ({
+      code: "UNKNOWN_FIELD",
+      label: "Unrecognized row in sheet",
+      itemCount: 2,
+      bulk: null,
+      cards: <ul data-testid="cards" />,
+    });
+    const { rerender } = render(<BulkIgnoreControls slug="rpas" groups={[noBulkPlural()]} />);
+    const row = screen.getByTestId("dq-group-label-UNKNOWN_FIELD").parentElement!;
+    // The header row carries no transition/animation classes: removal is instant.
+    expect(row.className).not.toMatch(/transition|animate|duration/);
+    // present -> absent (server refresh drops the group to a lone chip-less card)
+    rerender(<BulkIgnoreControls slug="rpas" groups={[{ ...noBulkPlural(), itemCount: 1 }]} />);
+    expect(screen.queryByTestId("dq-group-label-UNKNOWN_FIELD")).toBeNull();
+    // absent -> present (a second distinct card returns)
+    rerender(<BulkIgnoreControls slug="rpas" groups={[noBulkPlural()]} />);
+    expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD")).toBeTruthy();
   });
 });

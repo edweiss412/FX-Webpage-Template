@@ -109,19 +109,51 @@ export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = 
         // under-report the band height at exactly the viewport where the real
         // strip is tallest. `min-h-tap-min` reproduces the real row's height
         // driver: the Re-sync trigger's 44px tap floor, not the chips.
-        <div
-          aria-hidden="true"
-          className="flex min-h-tap-min w-full flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
-        >
-          {/* publish toggle */}
-          <Skeleton className="h-6 w-28 rounded-pill" />
-          {/* sync status line */}
-          <Skeleton className="h-6 w-32 rounded-pill" />
-          {/* Re-sync trigger */}
-          <Skeleton className="h-6 w-20 rounded-pill" />
-          {/* copy link — right-flushed, matching the strip's `ml-auto` */}
-          <Skeleton className="ml-auto h-6 w-36 rounded-pill" />
-        </div>
+        <>
+          <div
+            aria-hidden="true"
+            className="flex min-h-tap-min w-full flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap max-sm:hidden"
+          >
+            {/* publish toggle */}
+            <Skeleton className="h-6 w-28 rounded-pill" />
+            {/* sync status line */}
+            <Skeleton className="h-6 w-32 rounded-pill" />
+            {/* Re-sync trigger */}
+            <Skeleton className="h-6 w-20 rounded-pill" />
+            {/* copy link — right-flushed, matching the strip's `ml-auto` */}
+            <Skeleton className="ml-auto h-6 w-36 rounded-pill" />
+          </div>
+          {/* <sm stacked mirror (stacked-band spec §6): same row/divider/gap
+            structure as the loaded band — badge line, publish row, divider,
+            meta row, divider, split actions. HEIGHTS are the contract (they
+            reproduce §4's caps); widths are cosmetic. Parity E ≤4px at 390 is
+            pinned by skeletonBandParity.spec.ts. */}
+          <div
+            aria-hidden="true"
+            className="hidden max-sm:flex w-full flex-wrap items-center gap-x-4 gap-y-2"
+          >
+            <div className="flex w-full justify-end">
+              <Skeleton className="h-6 w-16 rounded-pill" />
+            </div>
+            <div className="flex min-h-tap-min w-full items-center justify-between">
+              <div className="flex min-w-0 flex-col gap-1">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+              <Skeleton className="h-7 w-12 rounded-pill" />
+            </div>
+            <div className="h-px w-full bg-border" />
+            <div className="flex min-h-tap-min w-full items-center justify-between">
+              <Skeleton className="h-4 w-44" />
+              <Skeleton className="h-8 w-16 rounded-sm" />
+            </div>
+            <div className="h-px w-full bg-border" />
+            <div className="flex w-full items-center gap-2">
+              <Skeleton className="h-11 flex-1 rounded-sm" />
+              <Skeleton className="size-11  rounded-sm" />
+            </div>
+          </div>
+        </>
       }
     >
       {/* Body: fills the panel column the way the surface root does

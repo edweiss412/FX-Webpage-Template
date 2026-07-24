@@ -64,6 +64,31 @@ import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetCont
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
+type StateBadge = { label: string; pill: string; dot: string };
+
+// Mobile state badge (spec 2026-07-24-strip-mobile-stacked-band §3 R0).
+// Precedence archived > isLive > published. `isLive && !published` is
+// upstream-unreachable (see the Live-now note above: the page computes
+// `published && isShowLiveOnDate`); precedence shows "Live" on that
+// garbage-in (spec §10).
+function stateBadge(archived: boolean, isLive: boolean, published: boolean): StateBadge {
+  if (archived)
+    return {
+      label: "Archived",
+      pill: "border border-border bg-surface text-text-subtle",
+      dot: "bg-text-faint",
+    };
+  if (isLive)
+    return { label: "Live", pill: "bg-accent-tint text-accent-on-bg", dot: "bg-accent-on-bg" };
+  if (published)
+    return {
+      label: "Published",
+      pill: "bg-surface-sunken text-text-subtle",
+      dot: "bg-status-positive",
+    };
+  return { label: "Draft", pill: "bg-surface-sunken text-text-subtle", dot: "bg-text-faint" };
+}
+
 export type StatusStripProps = {
   /** Stable subject id for the bound publish action + crew-URL path. Feeds the crew
    *  copy URL and the bound publish toggle — NOT a display label (the strip renders no
@@ -186,24 +211,52 @@ export function StatusStrip({
       // The band owns the positioned ancestor.
       className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap"
     >
+      {/* R0 (spec 2026-07-24-strip-mobile-stacked-band §3): mobile-only state
+          badge on its own full-width flex line (w-full = own line under
+          flex-wrap; no break elements). */}
+      <div data-testid="strip-state-badge-row" className="hidden max-sm:flex w-full justify-end">
+        {(() => {
+          const b = stateBadge(archived, isLive, published);
+          return (
+            <span
+              data-testid="strip-state-badge"
+              className={`inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-pill px-2.5 text-xs font-semibold ${b.pill}`}
+            >
+              <span aria-hidden="true" className={`size-2 shrink-0 rounded-pill ${b.dot}`} />
+              {b.label}
+            </span>
+          );
+        })()}
+      </div>
+
       {archived ? (
         <span
           data-testid="strip-archived-badge"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-surface px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-text-subtle"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-surface px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-text-subtle max-sm:hidden"
         >
           Archived · read-only
         </span>
       ) : (
-        <div data-testid="strip-publish-toggle" className="shrink-0">
+        <div data-testid="strip-publish-toggle" className="shrink-0 max-sm:w-full">
           <PublishedToggle
             slug={slug}
-            variant="inline"
+            variant="settings"
             published={published}
             finalizeOwned={finalizeOwned}
             setPublished={setPublished}
           />
         </div>
       )}
+
+      {/* D1 (spec §3): mobile divider line after the publish row; absent when
+          archived (R1 absent), so no divider is ever orphaned. */}
+      {!archived ? (
+        <div
+          aria-hidden="true"
+          data-testid="strip-divider-1"
+          className="hidden max-sm:block h-px w-full bg-border"
+        />
+      ) : null}
 
       {showControlDivider ? (
         <span
@@ -214,13 +267,21 @@ export function StatusStrip({
       ) : null}
 
       {!archived && isLive ? (
-        <span data-testid="strip-live-badge" className="shrink-0">
+        <span data-testid="strip-live-badge" className="shrink-0 max-sm:hidden">
           <StatusIndicator status="live" label="Live now" />
         </span>
       ) : null}
 
       {syncLabel != null && sync != null ? (
-        <span data-testid="strip-sync-age" className="flex shrink-0 items-center gap-2">
+        <span
+          data-testid="strip-sync-age"
+          // basis-0 + grow, NOT shrink (measured 2026-07-24): under flex-wrap
+          // an item wraps at its HYPOTHETICAL main size before shrink ever
+          // applies, so a shrink-based cap would push the Sync trigger to its
+          // own line on worst-case data. Base size 0 always fits the line;
+          // grow fills the leftover; min-w-0 + overflow-hidden clip the tail.
+          className="flex shrink-0 items-center gap-2 max-sm:basis-0 max-sm:grow max-sm:min-w-0 max-sm:overflow-hidden"
+        >
           {/* One health dot, colored by sync HEALTH (last_sync_status bucket) — NOT the
               edit time. It pairs with both text lines (the color-blind floor). */}
           {/* pulse: subtle heartbeat on the healthy/synced dot (no-op on non-positive). */}
@@ -243,9 +304,17 @@ export function StatusStrip({
               label here instead (syncStatus.ts:20). */}
           <span
             data-testid="strip-status-line"
-            className="inline-flex items-center gap-2 text-xs/tight text-text-subtle tabular-nums"
+            className="inline-flex items-center gap-2 text-xs/tight text-text-subtle tabular-nums max-sm:min-w-0 max-sm:overflow-hidden"
           >
-            <span data-testid="strip-synced-line">{syncLabel}</span>
+            {/* Clip priority (spec §3 R2): the health/synced span is never
+                sacrificed in favor of the Edited clause; the Edited tail
+                clips first. All max-sm scoped — desktop untouched. */}
+            <span
+              data-testid="strip-synced-line"
+              className="max-sm:whitespace-nowrap max-sm:shrink-0"
+            >
+              {syncLabel}
+            </span>
             {/* The bullet is the collapse's ONLY new orphan risk: with the
                 column gone, nothing else separates the two texts, so it must
                 mount and unmount WITH the Edited clause — never on its own.
@@ -258,7 +327,9 @@ export function StatusStrip({
                   data-testid="strip-status-bullet"
                   className="size-[3px] shrink-0 rounded-pill bg-border-strong"
                 />
-                <span data-testid="strip-edited-age">Edited {editedRel}</span>
+                <span data-testid="strip-edited-age" className="max-sm:truncate max-sm:min-w-0  ">
+                  Edited {editedRel}
+                </span>
               </>
             ) : null}
           </span>
@@ -303,6 +374,17 @@ export function StatusStrip({
         <ReSyncButton slug={slug} />
       ) : null}
 
+      {/* D2 (spec §3): mobile divider before the actions row; renders iff R2
+          rendered anything (sync-age needs lastSyncedAt; the Sync trigger
+          needs !archived). */}
+      {lastSyncedAt != null || !archived ? (
+        <div
+          aria-hidden="true"
+          data-testid="strip-divider-2"
+          className="hidden max-sm:block h-px w-full bg-border"
+        />
+      ) : null}
+
       {/* share-hub T4. The hub replaces the standalone copy-link: URL, Copy,
           Email-crew, rotate and reset all live in its popover — and, since the
           lifecycle move, Archive/Unarchive too. That is why the group is now
@@ -311,7 +393,10 @@ export function StatusStrip({
           the group on `!archived` would strand the only way back.
           `ml-auto` right-flushes the group against the band's content edge —
           which resolves only because the strip row is `w-full` (see above). */}
-      <div data-testid="share-hub-group" className="ml-auto flex shrink-0 items-center">
+      <div
+        data-testid="share-hub-group"
+        className="ml-auto flex shrink-0 items-center max-sm:w-full"
+      >
         <ShareHub
           slug={slug}
           showId={showId}

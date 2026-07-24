@@ -24,7 +24,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { StatusStrip, type StatusStripProps } from "@/components/admin/showpage/StatusStrip";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
@@ -86,6 +86,20 @@ function renderStrip(
   { token = "TOK" as string | null, epoch = 5 } = {},
 ) {
   return render(
+    <ShareTokenProvider initialToken={token} initialEpoch={epoch}>
+      <StatusStrip {...baseProps(overrides)} />
+    </ShareTokenProvider>,
+  );
+}
+
+/** Rerender twin of renderStrip — same provider + baseProps assembly, so
+ *  transition tests can swap props on a mounted tree. */
+function rerenderStrip(
+  rerender: ReturnType<typeof render>["rerender"],
+  overrides: Partial<StatusStripProps> = {},
+  { token = "TOK" as string | null, epoch = 5 } = {},
+) {
+  rerender(
     <ShareTokenProvider initialToken={token} initialEpoch={epoch}>
       <StatusStrip {...baseProps(overrides)} />
     </ShareTokenProvider>,
@@ -613,5 +627,192 @@ describe("StatusStrip", () => {
         expect(classes, `layout class \`${token}\` must survive the collapse`).toContain(token);
       }
     });
+  });
+});
+
+describe("stacked mobile band (spec 2026-07-24-strip-mobile-stacked-band §3)", () => {
+  it("badge matrix: literal outcomes per lifecycle", () => {
+    const cases = [
+      { archived: true, isLive: false, published: true, label: "Archived" },
+      { archived: true, isLive: true, published: false, label: "Archived" },
+      { archived: false, isLive: true, published: true, label: "Live" },
+      { archived: false, isLive: false, published: true, label: "Published" },
+      { archived: false, isLive: false, published: false, label: "Draft" },
+      // Contract-violation input (spec §10 garbage-in): precedence shows Live.
+      { archived: false, isLive: true, published: false, label: "Live" },
+    ] as const;
+    for (const c of cases) {
+      renderStrip({ archived: c.archived, isLive: c.isLive, published: c.published });
+      const badge = screen.getByTestId("strip-state-badge");
+      // Exact match: the dot span is aria-hidden and textless, so the badge's
+      // whole text content IS the label (superstring renders would leak here).
+      expect(badge.textContent?.trim()).toBe(c.label);
+      expect(badge.className).toContain("h-6");
+      expect(badge.className).toContain("rounded-pill");
+      cleanup();
+    }
+  });
+
+  it("badge row wrapper: full-width right-aligning mobile-only line, direct strip child", () => {
+    renderStrip();
+    const row = screen.getByTestId("strip-state-badge-row");
+    for (const cls of ["hidden", "max-sm:flex", "w-full", "justify-end"]) {
+      expect(row.className).toContain(cls);
+    }
+    expect(row.parentElement).toBe(screen.getByTestId("show-status-strip"));
+  });
+
+  it("Published/Draft pill recipe: the contrast-pinned sunken pair, tokened dots", () => {
+    // Links the component to tests/styles/status-token-contrast.test.ts's
+    // text-subtle-on-surface-sunken row: without this pin a token swap on the
+    // pill would pass the contrast test vacuously.
+    renderStrip({ isLive: false, published: true });
+    const pub = screen.getByTestId("strip-state-badge");
+    expect(pub.className).toContain("bg-surface-sunken");
+    expect(pub.className).toContain("text-text-subtle");
+    expect(pub.querySelector("span[aria-hidden]")?.className).toContain("bg-status-positive");
+    cleanup();
+    renderStrip({ isLive: false, published: false });
+    const draft = screen.getByTestId("strip-state-badge");
+    expect(draft.className).toContain("bg-surface-sunken");
+    expect(draft.className).toContain("text-text-subtle");
+    expect(draft.querySelector("span[aria-hidden]")?.className).toContain("bg-text-faint");
+  });
+
+  it("Live badge recipe: pinned accent-tint pair, accent-on-bg dot", () => {
+    renderStrip({ isLive: true, published: true });
+    const badge = screen.getByTestId("strip-state-badge");
+    expect(badge.className).toContain("bg-accent-tint");
+    expect(badge.className).toContain("text-accent-on-bg");
+    const dot = badge.querySelector("span[aria-hidden]");
+    expect(dot?.className).toContain("size-2");
+    expect(dot?.className).toContain("bg-accent-on-bg");
+  });
+
+  it("desktop badges hide below sm; one state signal per breakpoint", () => {
+    renderStrip({ isLive: true, published: true });
+    expect(screen.getByTestId("strip-live-badge").className).toContain("max-sm:hidden");
+    cleanup();
+    renderStrip({ archived: true });
+    expect(screen.getByTestId("strip-archived-badge").className).toContain("max-sm:hidden");
+    expect(screen.getByTestId("strip-state-badge").textContent).toContain("Archived");
+  });
+
+  it("dividers: D1 iff not archived; D2 iff R2 renders anything; correct classes", () => {
+    renderStrip();
+    for (const id of ["strip-divider-1", "strip-divider-2"] as const) {
+      const d = screen.getByTestId(id);
+      for (const cls of ["hidden", "max-sm:block", "h-px", "w-full", "bg-border"]) {
+        expect(d.className).toContain(cls);
+      }
+      expect(d.parentElement).toBe(screen.getByTestId("show-status-strip"));
+    }
+    cleanup();
+    renderStrip({ archived: true });
+    expect(screen.queryByTestId("strip-divider-1")).toBeNull();
+    expect(screen.getByTestId("strip-divider-2")).toBeTruthy();
+    cleanup();
+    renderStrip({ archived: true, lastSyncedAt: null });
+    expect(screen.queryByTestId("strip-divider-1")).toBeNull();
+    expect(screen.queryByTestId("strip-divider-2")).toBeNull();
+  });
+
+  it("R2 clip-priority classes are max-sm scoped; desktop shrink-0 retained", () => {
+    renderStrip();
+    const group = screen.getByTestId("strip-sync-age");
+    // basis-0+grow, not shrink: flex-wrap wraps at hypothetical size before
+    // shrink applies (measured in stackedBandLayout.spec.ts).
+    for (const cls of [
+      "shrink-0",
+      "max-sm:basis-0",
+      "max-sm:grow",
+      "max-sm:min-w-0",
+      "max-sm:overflow-hidden",
+    ]) {
+      expect(group.className).toContain(cls);
+    }
+    const synced = screen.getByTestId("strip-synced-line");
+    expect(synced.className).toContain("max-sm:whitespace-nowrap");
+    expect(synced.className).toContain("max-sm:shrink-0");
+    const edited = screen.getByTestId("strip-edited-age");
+    // max-sm:truncate is the canonical form of nowrap+overflow-hidden+ellipsis
+    // (better-tailwindcss/enforce-canonical-classes).
+    for (const cls of ["max-sm:truncate", "max-sm:min-w-0"]) {
+      expect(edited.className).toContain(cls);
+    }
+  });
+
+  it("share-hub group spans the band below sm; root row classes unchanged", () => {
+    renderStrip();
+    expect(screen.getByTestId("share-hub-group").className).toContain("max-sm:w-full");
+    const classes = screen.getByTestId("show-status-strip").className.split(/\s+/);
+    for (const cls of ["flex", "w-full", "flex-wrap", "items-center", "sm:flex-nowrap"]) {
+      expect(classes).toContain(cls);
+    }
+  });
+
+  it("badge transitions: all state pairs swap instantly with no animation classes", () => {
+    const states = [
+      { archived: false, isLive: true, published: true, label: "Live" },
+      { archived: false, isLive: false, published: true, label: "Published" },
+      { archived: false, isLive: false, published: false, label: "Draft" },
+      { archived: true, isLive: false, published: false, label: "Archived" },
+    ] as const;
+    for (let i = 0; i < states.length; i++) {
+      for (let j = 0; j < states.length; j++) {
+        if (i === j) continue;
+        const { rerender } = renderStrip(states[i]!);
+        rerenderStrip(rerender, states[j]!);
+        const badge = screen.getByTestId("strip-state-badge");
+        expect(badge.textContent).toContain(states[j]!.label);
+        expect(badge.className).not.toMatch(/animate-|transition-/);
+        cleanup();
+      }
+    }
+  });
+
+  it("compound: badge swap does not remount R2 (stable node identity)", () => {
+    const { rerender } = renderStrip({ published: true, isLive: true });
+    const syncBefore = screen.getByTestId("strip-sync-age");
+    rerenderStrip(rerender, { published: false, isLive: false });
+    expect(screen.getByTestId("strip-state-badge").textContent).toContain("Draft");
+    expect(screen.getByTestId("strip-sync-age")).toBe(syncBefore);
+  });
+});
+
+describe("compound pending (spec 2026-07-24-strip-mobile-stacked-band §8)", () => {
+  it("compound: toggle pending and Sync pending simultaneously, independent controls", async () => {
+    let releaseFetch!: () => void;
+    const held = new Promise<Response>((r) => {
+      releaseFetch = () =>
+        r({
+          json: async () => ({ ok: true, result: { outcome: "skipped" } }),
+        } as unknown as Response);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => held),
+    );
+    let releaseAction!: (v: { ok: true }) => void;
+    renderStrip({
+      setPublished: () =>
+        new Promise((r) => {
+          releaseAction = r;
+        }),
+    });
+    fireEvent.click(screen.getByTestId("published-toggle"));
+    fireEvent.click(screen.getByTestId("admin-resync-button"));
+    await waitFor(() =>
+      expect(screen.getByTestId("published-toggle").getAttribute("aria-busy")).toBe("true"),
+    );
+    expect(screen.getByTestId("admin-resync-button").getAttribute("aria-busy")).toBe("true");
+    const icon = screen.getByTestId("admin-resync-mobile-label").querySelector("svg");
+    expect(icon?.getAttribute("class") ?? "").toContain("animate-spin");
+    releaseAction({ ok: true });
+    releaseFetch();
+    await waitFor(() =>
+      expect(screen.getByTestId("published-toggle").getAttribute("aria-busy")).toBe("false"),
+    );
+    vi.unstubAllGlobals();
   });
 });

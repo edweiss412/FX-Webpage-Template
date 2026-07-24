@@ -45,6 +45,7 @@ const groups: ActiveWarningGroup[] = [
   {
     code: "FIELD_UNREADABLE",
     label: MESSAGE_CATALOG.FIELD_UNREADABLE.title,
+    itemCount: 2,
     bulk: {
       code: "FIELD_UNREADABLE",
       label: MESSAGE_CATALOG.FIELD_UNREADABLE.title,
@@ -59,7 +60,16 @@ const groups: ActiveWarningGroup[] = [
     code: "UNKNOWN_SECTION_HEADER",
     label: MESSAGE_CATALOG.UNKNOWN_SECTION_HEADER.title,
     bulk: null,
-    cards: <div />,
+    // Two placeholder cards keep this group's eyebrow rendering (visual plurality
+    // in the harness) while honoring the itemCount contract — the layout spec
+    // asserts nothing on this group (spec 2026-07-24 §3).
+    itemCount: 2,
+    cards: (
+      <div>
+        <div />
+        <div />
+      </div>
+    ),
   },
 ];
 

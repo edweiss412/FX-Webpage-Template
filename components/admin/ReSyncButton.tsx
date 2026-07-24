@@ -19,6 +19,7 @@
  */
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { RefreshCw } from "lucide-react";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
@@ -300,7 +301,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
         disabled={pending}
         data-testid="admin-resync-button"
         aria-busy={pending}
-        className="inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm px-2 text-[13px] font-semibold text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm px-2 text-[13px] font-semibold text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60 max-sm:px-0 max-sm:ml-auto"
       >
         {/* Width reservation (§8, T-RESYNC-WIDTH). The trigger sits between the
             status line and an `ml-auto` Copy, so a naive label swap reflows the
@@ -308,14 +309,39 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
             labels occupy the SAME grid cell, so the cell is always as wide as
             the wider of the two — no hardcoded min-w to drift when copy
             changes. The inactive label is aria-hidden AND `invisible`, so it
-            contributes width but never reaches the accessible name. */}
-        <span className="grid place-items-center">
-          <span aria-hidden="true" className="invisible col-start-1 row-start-1 whitespace-nowrap">
-            {pending ? IDLE_LABEL : PENDING_LABEL}
+            contributes width but never reaches the accessible name.
+            >=sm ONLY: below sm the mobile skin next door renders instead
+            (spec 2026-07-24-strip-mobile-stacked-band §3 R2); whichever block
+            is display:none is excluded from the accessible name. */}
+        <span data-testid="admin-resync-desktop-label" className="max-sm:hidden">
+          <span className="grid place-items-center">
+            <span
+              aria-hidden="true"
+              className="invisible col-start-1 row-start-1 whitespace-nowrap"
+            >
+              {pending ? IDLE_LABEL : PENDING_LABEL}
+            </span>
+            <span className="col-start-1 row-start-1 whitespace-nowrap">
+              {pending ? PENDING_LABEL : IDLE_LABEL}
+            </span>
           </span>
-          <span className="col-start-1 row-start-1 whitespace-nowrap">
-            {pending ? PENDING_LABEL : IDLE_LABEL}
-          </span>
+        </span>
+        {/* <sm: bordered 32px skin inside the 44px button. The BUTTON keeps its
+            real min-h/min-w-tap-min rect (no pseudo-element hit games); the
+            skin owns the mobile padding (button px-2 -> max-sm:px-0 above).
+            Visible text IS the accessible name at this breakpoint: "Sync".
+            Pending is carried by spin + aria-busy + disabled; the label never
+            swaps, so nothing reflows. */}
+        <span
+          data-testid="admin-resync-mobile-label"
+          className="hidden max-sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-sm border border-border"
+        >
+          <RefreshCw
+            aria-hidden="true"
+            size={15}
+            className={pending ? "animate-spin motion-reduce:animate-none" : undefined}
+          />
+          Sync
         </span>
       </button>
       {errorCode ? (

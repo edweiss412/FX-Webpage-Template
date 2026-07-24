@@ -4,6 +4,8 @@ name: Modal-header layout e2e (standalone harnesses)
 #
 #   skeletonBandParity              streaming skeleton vs loaded modal band
 #                                   parity (the load-time header "snap")
+#   stackedBandLayout               stacked mobile band geometry at 390px
+#                                   (spec 2026-07-24-strip-mobile-stacked-band)
 #   statusStripToggleLayout         PublishedToggle containment + error banner
 #   step3-review-modal.layout       Step 3 INVARIANCE — must pass unmodified;
 #                                   it is the signal that the shared
@@ -44,6 +46,7 @@ on:
   pull_request:
     paths:
       - "tests/e2e/skeletonBandParity.spec.ts"
+      - "tests/e2e/stackedBandLayout.spec.ts"
       - "tests/e2e/statusStripToggleLayout.spec.ts"
       - "tests/e2e/step3-review-modal.layout.spec.ts"
       - "tests/e2e/_skeletonParityHarness.tsx"

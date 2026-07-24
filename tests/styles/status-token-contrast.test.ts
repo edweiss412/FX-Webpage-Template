@@ -272,3 +272,21 @@ describe("warning-card guidance contrast (AA 4.5:1, both themes)", () => {
     }
   }
 });
+
+// Stacked-band state pill (spec 2026-07-24-strip-mobile-stacked-band §3 R0):
+// the Published/Draft arms render `text-text-subtle` ON `bg-surface-sunken` —
+// a pairing DESIGN.md §1.2 did not previously pin (its subtle rows cover
+// bg / surface / warning-bg). Pin it here so the pill can never silently drop
+// below AA when either token shifts. The Live arm's pair (accent-on-bg on
+// accent-tint) is already pinned in §1.2; the badge dots sit next to a text
+// label (color-blind floor), and Published's positive dot is covered by the
+// hue rows above.
+describe("stacked-band state pill contrast (spec 2026-07-24 §3 R0)", () => {
+  for (const mode of MODES) {
+    it(`${mode.name}: text-subtle clears >=4.5:1 AA on surface-sunken (Published/Draft pill)`, () => {
+      const subtle = tokenIn(mode.src, "--color-text-subtle-runtime");
+      const sunken = tokenIn(mode.src, "--color-surface-sunken-runtime");
+      expect(contrast(subtle, sunken)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+    });
+  }
+});
