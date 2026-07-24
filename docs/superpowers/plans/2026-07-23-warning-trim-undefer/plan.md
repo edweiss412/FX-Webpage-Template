@@ -76,10 +76,15 @@ test("ParsePanel renders one StagedReviewCard per row, in input order, mounting 
   render(<ParsePanel {...panelProps(fixtureRows)} />);
   // Exact-id selector per row: nested warning testids share the prefix, so match card ROOTS only
   const cards = fixtureRows.map((r) => screen.getByTestId(`wizard-step3-card-${r.dfid}`));
-  // Exact COUNT: no extra card roots beyond the fixture's (root ids are the fixture dfid set)
+  // Exact COUNT via a root-only structural discriminator: a card ROOT is a
+  // prefix-matching element with no prefix-matching ancestor (nested warning
+  // testids share the prefix but live inside a root). Multiset of root ids
+  // must equal the fixture id set, so an extra or unexpected root FAILS.
   const allRoots = Array.from(document.querySelectorAll('[data-testid^="wizard-step3-card-"]'))
-    .filter((el) => fixtureRows.some((r) => el.getAttribute("data-testid") === `wizard-step3-card-${r.dfid}`));
-  expect(allRoots).toHaveLength(fixtureRows.length);
+    .filter((el) => !el.parentElement?.closest('[data-testid^="wizard-step3-card-"]'));
+  expect(allRoots.map((el) => el.getAttribute("data-testid")).sort()).toEqual(
+    fixtureRows.map((r) => `wizard-step3-card-${r.dfid}`).sort(),
+  );
   // DOM ORDER matches input order (compareDocumentPosition, pairwise)
   for (let i = 1; i < cards.length; i++) {
     expect(cards[i - 1]!.compareDocumentPosition(cards[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
