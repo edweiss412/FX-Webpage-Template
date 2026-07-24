@@ -20,6 +20,10 @@ export type ActiveWarningGroup = {
   code: string;
   label: string | null;
   bulk: BulkIgnoreGroupWithLabel | null;
+  /** Number of warning cards in the `cards` slot (post crew-filter). The eyebrow
+   *  row is suppressed for a lone chip-less card — its title already carries the
+   *  type (spec 2026-07-24-dq-singleton-eyebrow-suppress §2.1). */
+  itemCount: number;
   cards: ReactNode;
 };
 
@@ -42,8 +46,12 @@ const ARM_REVERT_MS = 4_000;
 
 /**
  * DQIGNORE-6 — the ACTIVE data-quality list, grouped by code. Each group renders an
- * eyebrow (plain-language type label + hairline rule) and, when bulk-eligible, an inline
- * "Ignore all N" chip on that eyebrow row; the group's cards render below, and a
+ * eyebrow (plain-language type label + hairline rule) UNLESS it is a lone chip-less
+ * card (itemCount 1, no bulk), whose header adds nothing over the card itself and is
+ * suppressed (spec 2026-07-24-dq-singleton-eyebrow-suppress §2.1: for cataloged codes
+ * it verbatim-duplicates the card title; data-gap-labeled singletons are suppressed
+ * too, nothing is grouped and nothing rides the row). Bulk-eligible groups render an
+ * inline "Ignore all N" chip on that eyebrow row; the group's cards render below, and a
  * partial-failure notice (if any) renders below the acting group's cards. The chip's
  * two-tap arm→confirm guard, single-armed-panel-wide invariant (one shared armedCode +
  * timer), and per-fingerprint fan-out are unchanged from DQIGNORE-2/§4 G4. Renders null
@@ -148,43 +156,49 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
           : armed
             ? `Confirm ignore all ${bulk?.items.length ?? 0}`
             : `Ignore all ${bulk?.items.length ?? 0}`;
+        // spec 2026-07-24 §2.1: a lone chip-less card duplicates its own title in
+        // the eyebrow — suppress the whole header row. Any group with a bulk chip
+        // keeps the row (the chip rides it), as does any plural group.
+        const showEyebrowRow = bulk !== null || group.itemCount !== 1;
         return (
           <div
             key={group.code}
             className="flex flex-col gap-2"
             data-testid={`dq-active-group-${group.code}`}
           >
-            <div className="flex items-center gap-2">
-              {group.label ? (
-                <span
-                  data-testid={`dq-group-label-${group.code}`}
-                  className="min-w-0 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
-                >
-                  {group.label}
-                </span>
-              ) : null}
-              <span aria-hidden="true" className="h-px flex-1 bg-border" />
-              {bulk ? (
-                <>
-                  <button
-                    type="button"
-                    data-testid={`dq-bulk-ignore-${group.code}`}
-                    onClick={() => onGuardedClick(bulk)}
-                    disabled={state.kind === "running"}
-                    aria-busy={running}
-                    aria-label={group.label ? `${chipText} · ${group.label}` : undefined}
-                    className={armed ? ARMED_BTN : BTN}
+            {showEyebrowRow ? (
+              <div className="flex items-center gap-2">
+                {group.label ? (
+                  <span
+                    data-testid={`dq-group-label-${group.code}`}
+                    className="min-w-0 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
                   >
-                    {chipText}
-                  </button>
-                  {/* Persistent sr-only live region (always mounted — conditional mounting
-                      drops the announcement). Kept as the chip's nextElementSibling. */}
-                  <span role="status" className="sr-only">
-                    {armed ? "Tap again to confirm." : ""}
+                    {group.label}
                   </span>
-                </>
-              ) : null}
-            </div>
+                ) : null}
+                <span aria-hidden="true" className="h-px flex-1 bg-border" />
+                {bulk ? (
+                  <>
+                    <button
+                      type="button"
+                      data-testid={`dq-bulk-ignore-${group.code}`}
+                      onClick={() => onGuardedClick(bulk)}
+                      disabled={state.kind === "running"}
+                      aria-busy={running}
+                      aria-label={group.label ? `${chipText} · ${group.label}` : undefined}
+                      className={armed ? ARMED_BTN : BTN}
+                    >
+                      {chipText}
+                    </button>
+                    {/* Persistent sr-only live region (always mounted — conditional mounting
+                        drops the announcement). Kept as the chip's nextElementSibling. */}
+                    <span role="status" className="sr-only">
+                      {armed ? "Tap again to confirm." : ""}
+                    </span>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             {group.cards}
             {errored ? (
               <p

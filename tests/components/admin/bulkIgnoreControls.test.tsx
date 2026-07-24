@@ -24,6 +24,7 @@ function okResponse(): Response {
 const bulkGroup = (): ActiveWarningGroup => ({
   code: "UNKNOWN_FIELD",
   label: "Unrecognized row in sheet",
+  itemCount: 2,
   bulk: {
     code: "UNKNOWN_FIELD",
     label: "Unrecognized row in sheet",
@@ -35,12 +36,25 @@ const bulkGroup = (): ActiveWarningGroup => ({
   cards: <ul data-testid="cards-UNKNOWN_FIELD" />,
 });
 
-// A singleton / non-ignorable group: no bulk → no chip.
-const singletonGroup = (): ActiveWarningGroup => ({
+// N≥2 no-bulk: keeps the eyebrow — carries the data-gap-label + invariant-5
+// coverage the suppressed singleton pin used to hold (spec 2026-07-24 §4.2).
+const pluralNoBulkGroup = (): ActiveWarningGroup => ({
   code: "BLOCK_DISAPPEARED",
   label: "removed section",
+  itemCount: 2,
   bulk: null,
   cards: <ul data-testid="cards-BLOCK_DISAPPEARED" />,
+});
+
+// A singleton / non-ignorable group: itemCount 1, no bulk → row suppressed
+// (spec 2026-07-24 §2.1). Distinct code so it can co-render with the plural
+// BLOCK_DISAPPEARED fixture above.
+const singletonGroup = (): ActiveWarningGroup => ({
+  code: "BLOCK_DISAPPEARED_SOLO",
+  label: "removed section",
+  itemCount: 1,
+  bulk: null,
+  cards: <ul data-testid="cards-BLOCK_DISAPPEARED_SOLO" />,
 });
 
 describe("BulkIgnoreControls (grouped active list)", () => {
@@ -49,30 +63,76 @@ describe("BulkIgnoreControls (grouped active list)", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  test("every group renders an eyebrow with its label + its cards; only bulk-eligible groups get a chip", () => {
-    render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup(), singletonGroup()]} />);
+  test("bulk-eligible and plural no-bulk groups keep the eyebrow; a lone singleton suppresses it (spec 2026-07-24 §2.1)", () => {
+    render(
+      <BulkIgnoreControls
+        slug="rpas"
+        groups={[bulkGroup(), pluralNoBulkGroup(), singletonGroup()]}
+      />,
+    );
     // eyebrow labels asserted on the EYEBROW subtree (dedicated testid), NOT the whole
     // group — the card slot would otherwise also carry the catalog title and mask a
     // missing eyebrow (anti-tautology; spec §5.4 / spec test-scope rule).
+    // Kept row 1: bulk-eligible — label + chip.
     expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).toBe(
       "Unrecognized row in sheet",
     );
-    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe(
-      "removed section",
-    );
-    // invariant 5: the raw code is never printed in the eyebrow
     expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).not.toContain(
       "UNKNOWN_FIELD",
+    );
+    expect(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBeInTheDocument();
+    // Kept row 2: plural no-bulk — data-gap label path, invariant 5, no chip.
+    expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe(
+      "removed section",
     );
     expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).not.toContain(
       "BLOCK_DISAPPEARED",
     );
-    // cards slotted through
+    expect(screen.queryByTestId("dq-bulk-ignore-BLOCK_DISAPPEARED")).toBeNull();
+    // Suppressed: singleton (itemCount 1, no bulk) — no eyebrow label, and no
+    // bare header row either: the group's wrapper starts directly with the cards.
+    expect(screen.queryByTestId("dq-group-label-BLOCK_DISAPPEARED_SOLO")).toBeNull();
+    const solo = screen.getByTestId("dq-active-group-BLOCK_DISAPPEARED_SOLO");
+    expect(solo.querySelector(".h-px")).toBeNull(); // no hairline row
+    // Structural pin (spec §4.1): the wrapper's FIRST child IS the cards slot — a
+    // surviving empty header div (hairline stripped but row present) fails here.
+    expect(solo.firstElementChild).toBe(within(solo).getByTestId("cards-BLOCK_DISAPPEARED_SOLO"));
+    // cards slotted through on kept rows too
     expect(screen.getByTestId("cards-UNKNOWN_FIELD")).toBeInTheDocument();
     expect(screen.getByTestId("cards-BLOCK_DISAPPEARED")).toBeInTheDocument();
-    // chip only on the bulk-eligible group
-    expect(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD")).toBeInTheDocument();
-    expect(screen.queryByTestId("dq-bulk-ignore-BLOCK_DISAPPEARED")).toBeNull();
+  });
+
+  test("a group with one visible card but a live bulk chip keeps the eyebrow row (spec 2026-07-24 §2.1)", () => {
+    // Count derived from this fixture array (anti-tautology): the chip's N is the
+    // bulk item count, NOT the visible-card count.
+    const bulkItems = [
+      { code: "FIELD_UNREADABLE", rawSnippet: "Crew phone | ???" },
+      { code: "FIELD_UNREADABLE", rawSnippet: "Hotel | ???" },
+    ];
+    render(
+      <BulkIgnoreControls
+        slug="rpas"
+        groups={[
+          {
+            code: "FIELD_UNREADABLE",
+            label: "Unreadable field",
+            itemCount: 1, // one card left in the slot — the other moved under a crew row
+            bulk: {
+              code: "FIELD_UNREADABLE",
+              label: "Unreadable field",
+              items: bulkItems,
+            },
+            cards: <ul data-testid="cards-FIELD_UNREADABLE" />,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId("dq-group-label-FIELD_UNREADABLE").textContent).toBe(
+      "Unreadable field",
+    );
+    expect(screen.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe(
+      `Ignore all ${bulkItems.length}`,
+    );
   });
 
   test("chip count derives from the group's distinct-content items", () => {
@@ -104,6 +164,7 @@ describe("BulkIgnoreControls (grouped active list)", () => {
           {
             code: "UNKNOWN_FIELD",
             label: null,
+            itemCount: 2,
             bulk: {
               code: "UNKNOWN_FIELD",
               label: null,
@@ -180,6 +241,7 @@ describe("BulkIgnoreControls (grouped active list)", () => {
     const groupY: ActiveWarningGroup = {
       code: "FIELD_UNREADABLE",
       label: "Unreadable field",
+      itemCount: 3,
       bulk: {
         code: "FIELD_UNREADABLE",
         label: "Unreadable field",
@@ -359,6 +421,7 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       const g: ActiveWarningGroup = {
         code: "UNKNOWN_FIELD",
         label: "Unrecognized row in sheet",
+        itemCount: 1,
         bulk: {
           code: "UNKNOWN_FIELD",
           label: "Unrecognized row in sheet",
