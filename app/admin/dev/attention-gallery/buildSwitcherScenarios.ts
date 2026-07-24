@@ -21,6 +21,7 @@ import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import { sectionForWarning } from "@/lib/admin/step3SectionStatus";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
+import { GLOBAL_SCOPE_CODES } from "@/lib/adminAlerts/alertScope";
 import { anchorsWantedFor } from "@/lib/dev/buildScenarioModalData";
 import { GROUP_ORDER, type ScenarioGroupId } from "@/lib/dev/galleryModalTypes";
 import { buildScenarioModalData } from "@/lib/dev/buildScenarioModalData";
@@ -53,6 +54,27 @@ export function isModalVisible(s: AttentionScenario): boolean {
     s.actionOutcomes !== undefined ||
     (s.alerts.length === 0 && s.holds.length === 0)
   );
+}
+
+/**
+ * Reachable on a real show modal iff NONE of the scenario's alerts is
+ * global-scope.
+ *
+ * ANY global alert makes the card fiction: `deriveScenarioAttention` derives an
+ * item for every declared alert and the modal renders it, so a carrier, a hold,
+ * or a per-show sibling changes what ELSE the card shows without making the
+ * global alert reachable. `fetchPerShowAlerts` filters `.eq("show_id", showId)`
+ * regardless of what else sits on the show
+ * (lib/adminAlerts/fetchPerShowAlerts.ts:83).
+ *
+ * In practice this fires only on tier-1 cards: the catalogue guard in
+ * tests/app/admin/attentionModalGallery.serverProps.test.ts forbids a tier-2 or
+ * tier-3 scenario from declaring a global code at all, so a composite fails at
+ * authoring time rather than being silently dropped here with its per-show
+ * alerts, holds, and sections.
+ */
+export function isShowScopeReachable(s: AttentionScenario): boolean {
+  return !s.alerts.some((a) => GLOBAL_SCOPE_CODES.has(a.code));
 }
 
 function codesFor(s: AttentionScenario): string[] {

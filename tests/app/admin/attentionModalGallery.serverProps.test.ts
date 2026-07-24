@@ -13,6 +13,7 @@ import {
   partitionScenarios,
   isModalExpressible,
   isModalVisible,
+  isShowScopeReachable,
   resolveInitialScenario,
 } from "@/app/admin/dev/attention-gallery/buildSwitcherScenarios";
 import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
@@ -73,6 +74,78 @@ const EXPECTED_CUT_IDS = [
 function minimal(id: string, over: Partial<AttentionScenario> = {}): AttentionScenario {
   return { id, tier: 1, label: id, alerts: [], holds: [], ...over };
 }
+
+// Round-1 review returned BLOCKING on an earlier `every`-based predicate that
+// kept a scenario whose alerts were only PARTLY global, on the theory that the
+// carrier was "the real state under review". It is not: deriveScenarioAttention
+// derives an item for EVERY declared alert and the modal renders it, so one
+// global code makes the whole card fiction. The mixed and carrier rows below
+// are the two assertions that fail under the rejected form.
+const alertRow = (code: string) => ({
+  code,
+  context: {},
+  raised_at: "2026-07-01T12:00:00.000Z",
+  occurrence_count: 1,
+});
+
+describe("isShowScopeReachable (synthetic truth table)", () => {
+  test("no alerts is reachable", () => {
+    expect(isShowScopeReachable(minimal("x"))).toBe(true);
+  });
+
+  test("a single global alert is NOT reachable", () => {
+    expect(isShowScopeReachable(minimal("x", { alerts: [alertRow("LIVE_ROW_CONFLICT")] }))).toBe(
+      false,
+    );
+  });
+
+  test("two different global codes are NOT reachable", () => {
+    expect(
+      isShowScopeReachable(
+        minimal("x", { alerts: [alertRow("SYNC_STALLED"), alertRow("WATCH_CHANNEL_ORPHANED")] }),
+      ),
+    ).toBe(false);
+  });
+
+  test("MIXED global plus per-show is NOT reachable", () => {
+    expect(
+      isShowScopeReachable(
+        minimal("x", { alerts: [alertRow("SYNC_STALLED"), alertRow("DRIVE_FETCH_FAILED")] }),
+      ),
+    ).toBe(false);
+  });
+
+  test("a warning carrier does NOT rescue a global alert", () => {
+    expect(
+      isShowScopeReachable(
+        minimal("x", {
+          alerts: [alertRow("LIVE_ROW_CONFLICT")],
+          warnings: [{ severity: "warn", code: "UNKNOWN_FIELD", message: "synthetic" }],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("a fixture carrier does NOT rescue a global alert", () => {
+    expect(
+      isShowScopeReachable(
+        minimal("x", { alerts: [alertRow("LIVE_ROW_CONFLICT")], fixture: { archived: true } }),
+      ),
+    ).toBe(false);
+  });
+
+  test("only per-show alerts is reachable", () => {
+    expect(isShowScopeReachable(minimal("x", { alerts: [alertRow("DRIVE_FETCH_FAILED")] }))).toBe(
+      true,
+    );
+  });
+
+  test("an unknown code is reachable (fail toward VISIBLE)", () => {
+    expect(isShowScopeReachable(minimal("x", { alerts: [alertRow("NOT_A_REAL_CODE")] }))).toBe(
+      true,
+    );
+  });
+});
 
 describe("isModalExpressible (synthetic truth table)", () => {
   test("a sectionAvailable override is not expressible", () => {
