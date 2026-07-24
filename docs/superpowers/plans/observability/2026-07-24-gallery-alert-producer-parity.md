@@ -17,6 +17,8 @@
 
 ## Meta-test inventory (declared per AGENTS.md writing-plans rule)
 
+<!-- spec-lint: ignore — created by this bundle; cannot resolve until implementation -->
+
 - **Creates:** `tests/adminAlerts/producerContexts.ts` (a module, not a test file — it will not be collected, since both `BASE_INCLUDE` and `PARALLEL_TEST_GLOBS` match only `*.test.ts{,x}`).
 - **Extends:** `tests/adminAlerts/_metaAlertProducerScope.test.ts` + `tests/adminAlerts/alertProducerScope.registry.ts` (context-key dimension, §6); `tests/adminAlerts/alertIdentityMatrix.test.ts` (imports the promoted fixtures); `tests/admin/crewMatchFanout.test.ts` (validator rules + the §8 placement-coverage pin); `tests/dev/attentionScenariosTier1.test.ts` and `tests/dev/attentionScenariosIndex.test.ts` (unchanged assertions that must keep passing — they are the regression net for Tasks 4–7).
 - **Vitest wiring:** no config change needed. `tests/adminAlerts/**/*.test.{ts,tsx}` is already in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:83`); `tests/admin/**` and `tests/dev/**` are already collected via `BASE_INCLUDE` (`vitest.projects.ts:34`).
@@ -27,26 +29,27 @@ Every identifier named below was grepped against the live tree on this branch:
 
 | Claim | Verified at |
 |---|---|
-| `PRODUCER_SCOPE`, 46 `(site, code)` rows | `tests/adminAlerts/alertProducerScope.registry.ts:29` |
+| `PRODUCER_SCOPE`, 45 `(site, code)` rows covering 33 distinct codes; 4 rows are SQL sites; 13 of the 45 registry codes have no row | `tests/adminAlerts/alertProducerScope.registry.ts:29` (counts computed via `npx tsx`, not eyeballed) |
+| `volumes.crew` grows the roster with deterministic generated ids | `lib/dev/publishedModalFixture.ts:484-488`, `lib/dev/publishedModalFixture.ts:273-279` |
 | `ProducerScopeRow` type with `dynamic?` + `note?` | `tests/adminAlerts/alertProducerScope.registry.ts:17-27` |
 | AST walk over `lib` + `app` + `supabase/**/*.sql` | `tests/adminAlerts/_metaAlertProducerScope.test.ts:1-45` |
 | local `Fixture` type (`code`/`showId`/`context`/`occurrenceCount?`) | `tests/adminAlerts/alertIdentityMatrix.test.ts:75-81` |
-| `FIXTURES` array, 45-code totality assertion | `tests/adminAlerts/alertIdentityMatrix.test.ts:86`, `:460` |
+| `FIXTURES` array, 45-code totality assertion | `tests/adminAlerts/alertIdentityMatrix.test.ts:86` and `tests/adminAlerts/alertIdentityMatrix.test.ts:460` |
 | `ADMIN_ALERTS_CODES`, 45 members | `tests/adminAlerts/adminAlertCodes.fixture.ts:13-59` |
 | `AdminAlertCode` union, 36 members | `lib/adminAlerts/upsertAdminAlert.ts:3-39` |
 | conflated validator case | `lib/dev/attentionScenarios/validate.ts:106-120` |
-| `validateAlert`, `DEV_SCENARIO_TAG_KEY` exemption | `lib/dev/attentionScenarios/validate.ts:154`, `:159` |
+| `validateAlert`, `DEV_SCENARIO_TAG_KEY` exemption | `lib/dev/attentionScenarios/validate.ts:154` and `lib/dev/attentionScenarios/validate.ts:159` |
 | `validateCrewMatch` | `lib/dev/attentionScenarios/validate.ts:128-152` |
-| stale fixture rows | `lib/dev/attentionScenarios/tier1.ts:60-65`, `lib/dev/attentionScenarios/tier2.ts:808-813` |
+| stale fixture rows (FIVE, class-swept) | `lib/dev/attentionScenarios/tier1.ts:61`, `lib/dev/attentionScenarios/tier1.ts:67`, `lib/dev/attentionScenarios/tier2.ts:245`, `lib/dev/attentionScenarios/tier2.ts:809`, `lib/dev/attentionScenarios/tier3.ts:55` |
 | `ALERT_ROW_OVERRIDES`, 6 entries | `lib/dev/attentionScenarios/tier1.ts:37` |
 | gallery roster ids `cccccccc-…-00000000000{1..6}` | `lib/dev/publishedModalFixture.ts:106-123` |
 | `deriveCrewMatch` reads `crew_member_ids` | `lib/adminAlerts/deriveAlertRowFields.ts:55-73` |
 | `ALERT_IDENTITY_MAP` segment specs | `lib/adminAlerts/alertIdentityMap.ts:58-75` |
 | `EMAIL_FIELD_BY_CODE` per-code email source | `lib/adminAlerts/resolveAlertIdentities.ts:69-72` |
 | `crew_member_count` derived from `crew_member_ids.length` | `lib/adminAlerts/projectIdentityContext.ts:101` |
-| `crewRowIndexesForIds` / `buildCrewRowResolver` | `lib/admin/crewRowMatch.ts:24`, `:61` |
+| `crewRowIndexesForIds` / `buildCrewRowResolver` | `lib/admin/crewRowMatch.ts:24` and `lib/admin/crewRowMatch.ts:61` |
 | `CREW_CAP = 30` | `components/admin/wizard/step3ReviewSections.tsx:160` |
-| existing fan-out test file + describes | `tests/admin/crewMatchFanout.test.ts:28,76,112,170` |
+| existing fan-out test file + describes | `tests/admin/crewMatchFanout.test.ts:28` |
 | gate commands | `package.json` scripts: `test`, `typecheck`, `lint`, `format:check` |
 
 Measured (not estimated) via `npx tsx` over `ALL_SCENARIOS`: **163 scenarios (88 tier-1, 71 tier-2, 4 tier-3); 67 carry ≥1 alert; 85 alert rows; 70 of them with `context: {}`.** These are the figures Tasks 5 and 7 must not regress.
@@ -55,13 +58,17 @@ Measured (not estimated) via `npx tsx` over `ALL_SCENARIOS`: **163 scenarios (88
 
 ## Task 1: Promote the producer-context fixtures to a shared module
 
-**Failing test first.** In a new `tests/adminAlerts/producerContexts.test.ts`: assert `Object.keys(PRODUCER_CONTEXTS).sort()` equals `[...ADMIN_ALERTS_CODES].sort()` (45 codes), and that every entry's `requiredKeys` is a subset of `Object.keys(entry.context)`. Both fail because the module does not exist.
+<!-- spec-lint: ignore — created by this bundle; cannot resolve until implementation -->
 
-**Implementation.** Create `tests/adminAlerts/producerContexts.ts`. Move the `FIXTURES` array body out of `tests/adminAlerts/alertIdentityMatrix.test.ts:86` verbatim, keyed by code. Export `ProducerContextEntry` as a strict superset of the old local `Fixture` (§3 field-preservation rule): `code`, `showId`, `context`, `occurrenceCount?` keep name/type/optionality; `producer`, `requiredKeys`, `optionalKeys?`, `computed?` are additive. `alertIdentityMatrix.test.ts` imports `PRODUCER_CONTEXTS` and derives its local `FIXTURES` from it.
+**Failing test first.** In a new `tests/adminAlerts/producerContexts.test.ts`: assert `PRODUCER_CONTEXT_LIST.map(e => e.code).sort()` equals `[...ADMIN_ALERTS_CODES].sort()` (45 codes), and that `PRODUCER_CONTEXT_BY_CODE` has an entry for each. Both fail because the module does not exist.
+
+<!-- spec-lint: ignore — created by this bundle; cannot resolve until implementation -->
+
+**Implementation.** Create `tests/adminAlerts/producerContexts.ts`. Move the `FIXTURES` array body out of `tests/adminAlerts/alertIdentityMatrix.test.ts:86` **verbatim, as an array** — the collection shape is preserved deliberately (§3), so `alertIdentityMatrix.test.ts` can bind `const FIXTURES = PRODUCER_CONTEXT_LIST` and keep every array-based assertion unchanged. Export `ProducerContextEntry` with exactly the old local `Fixture` fields: `code`, `showId`, `context`, `occurrenceCount?`. **Nothing else.** Key sets, producer citations, and computed-context provenance belong to the §6 registry, not here — an earlier draft put them in both places and that contradiction was a round-1 HIGH. `PRODUCER_CONTEXT_BY_CODE` is a derived index over the list, not a second source.
 
 **Failure mode this catches:** a future code added to `ADMIN_ALERTS_CODES` without a producer-context row — today that silently leaves the identity matrix short, and after this task it fails loudly. **Anti-tautology:** the totality assertion compares against the live `ADMIN_ALERTS_CODES` import, never a hardcoded 45; the subset assertion is derived from each entry's own `context`, so an entry cannot satisfy it by declaring an empty `requiredKeys` while also carrying keys it lies about.
 
-**Regression net:** `tests/adminAlerts/alertIdentityMatrix.test.ts` must pass unchanged in substance — its 45-code assertion at `:460` and every per-code identity expectation. A drop or rename during the move surfaces as a compile error, not a passing test.
+**Regression net:** `tests/adminAlerts/alertIdentityMatrix.test.ts` must pass unchanged in substance — its 45-code assertion at `tests/adminAlerts/alertIdentityMatrix.test.ts:460` and every per-code identity expectation. A drop or rename during the move surfaces as a compile error, not a passing test.
 
 **Commit:** `refactor(alerts): promote per-code producer-context fixtures to a shared module`
 
@@ -71,12 +78,17 @@ Measured (not estimated) via `npx tsx` over `ALL_SCENARIOS`: **163 scenarios (88
 
 **Failing test first.** Extend `tests/adminAlerts/_metaAlertProducerScope.test.ts` with a case asserting that for every discovered call site whose `context:` argument is an object literal, the literal's top-level keys equal `contextKeys ∪ optionalContextKeys` on the matching `PRODUCER_SCOPE` row. Fails because the fields do not exist yet and no row declares them.
 
-**Implementation.** Extend `ProducerScopeRow` (`tests/adminAlerts/alertProducerScope.registry.ts:17`) with `contextKeys?: readonly string[]`, `optionalContextKeys?: readonly string[]`, and `computedContext?: true`. Extend the existing AST discovery to also visit the `context:` property of each `upsertAdminAlert` CallExpression's object argument:
+**Implementation.** Extend `ProducerScopeRow` (`tests/adminAlerts/alertProducerScope.registry.ts:17`) with `contextKeys?: readonly string[]`, `optionalContextKeys?: readonly string[]`, and `computedContext?: true`. Extend the existing AST discovery to visit the `context:` property of each `upsertAdminAlert` CallExpression's object argument, using the spec §6 classification table — which is **total**, so no initializer shape falls through unclassified:
 
-- `ObjectLiteralExpression` → collect `PropertyAssignment` / `ShorthandPropertyAssignment` names as required; collect names inside a `SpreadAssignment` whose expression is a `ConditionalExpression` as optional (the `...(cond ? { k: v } : {})` form at `lib/sync/runManualSyncForShow.ts:190` and `lib/sync/runScheduledCronSync.ts:2376`).
-- anything else (`Identifier`, `CallExpression`) → require `computedContext: true` on the row, plus a non-empty `note`.
+- `ObjectLiteralExpression`, plain members only → `contextKeys` = those names; `optionalContextKeys` empty.
+- `ObjectLiteralExpression` containing a `SpreadAssignment` over a `ConditionalExpression` → plain members are `contextKeys`; keys in either arm are `optionalContextKeys` (`lib/sync/runManualSyncForShow.ts:190`, `lib/sync/runScheduledCronSync.ts:2376`).
+- `ObjectLiteralExpression` with any other spread, or an `Identifier` / `CallExpression` → `computedContext: true` plus a non-empty provenance `note`.
 
-Populate every row. Sites known to need `computedContext` at plan time — **re-derived by the implementer against live code, not trusted from this list**: `lib/drive/watch.ts:409` (`context` variable), `lib/sync/runScheduledCronSync.ts:375` (`context` variable), `lib/sync/runManualSyncForShow.ts:261` and `lib/sync/runScheduledCronSync.ts:3386` (`buildParseErrorContext(...)`), and the dynamic-code sites at `lib/sync/applyStaged.ts:1952` / `:1962`.
+**The code axis and the context axis are independent** — conflating them was a round-1 HIGH. `lib/sync/applyStaged.ts:1952` and `lib/sync/applyStaged.ts:1962` are `dynamic: true` on the **code** axis (`result.adminAlertCode`, and a loop variable) while their **context** is the plain literal `{ drive_file_id: args.driveFileId }`, i.e. static. The row must say both.
+
+**SQL sites** (4 today, e.g. `supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:16`) are classified `computedContext: true` with a note naming the migration; the walker does not attempt SQL context extraction. Assert this classification positively so a SQL row cannot silently take a TypeScript-shaped branch. Note one existing SQL row registers the literal code `p_code` (a parameter name, not a real code) — leave it as-is; it is pre-existing and out of scope.
+
+Sites needing `computedContext` on the context axis at plan time — **re-derived by the implementer against live code, not trusted from this list**: `lib/drive/watch.ts:409`, `lib/sync/runScheduledCronSync.ts:375` (bare `context` identifier), `lib/sync/runManualSyncForShow.ts:261` and `lib/sync/runScheduledCronSync.ts:3386` (`buildParseErrorContext(...)`).
 
 **Failure mode this catches:** a producer that starts writing a new context key, or stops writing one, without any fixture or consumer noticing — precisely the drift that produced this whole bundle. **Anti-tautology:** the expected key set comes from the AST of the real call site, never from the registry row being tested; a row that simply mirrors whatever the test computed would still fail the `dynamic`/`computedContext` classification assertions.
 
@@ -84,15 +96,20 @@ Populate every row. Sites known to need `computedContext` at plan time — **re-
 
 ---
 
-## Task 3: Derive `requiredKeys` from the registry so the two cannot drift
+## Task 3: `allowedKeys` / `guaranteedKeys` aggregation helpers
 
-**Failing test first.** Assert that for every code, `PRODUCER_CONTEXTS[code].requiredKeys` equals the union of `contextKeys` across that code's `PRODUCER_SCOPE` rows (a code may have several producer sites). Fails while `requiredKeys` is hand-authored.
+**Failing test first.** Assert, for the live multi-site code `SHEET_UNAVAILABLE` (three sites: `lib/sync/runManualSyncForShow.ts:185`, `lib/sync/runScheduledCronSync.ts:2573`, `lib/sync/runScheduledCronSync.ts:2633`), that `failure_code` is in `allowedKeys` but NOT in `guaranteedKeys`, while `drive_file_id` is in both. Also assert every code's representative `context` from Task 1 has all its keys inside `allowedKeys` — the cross-check that the two modules agree without either owning the other's fact.
 
-**Implementation.** Replace the hand-authored `requiredKeys` with a derivation over `PRODUCER_SCOPE`, keeping `context` (the representative *value*) hand-authored in the module. §3's split stands: the registry owns *which keys exist*; the module owns *what a realistic value looks like*.
+**Implementation.** Export from the registry module:
 
-**Guard condition:** a code with multiple producer sites writing different key sets (e.g. `SHEET_UNAVAILABLE` at `lib/sync/runManualSyncForShow.ts:185`, `lib/sync/runScheduledCronSync.ts:2573`, `:2633`) takes the **intersection** for required and the **union minus intersection** for optional — a key only some sites write is not guaranteed present. The test states this explicitly with `SHEET_UNAVAILABLE` as the worked example, since it is the live multi-site case.
+- `allowedKeys(code)` = union over that code's rows of (`contextKeys` and `optionalContextKeys`)
+- `guaranteedKeys(code)` = intersection over that code's rows of `contextKeys`
 
-**Commit:** `refactor(alerts): derive producer-context required keys from the scope registry`
+A code whose only rows are `computedContext` still returns the hand-authored sets from those rows. A code with **no** row (13 of the 45) returns empty sets, making §5's subset rule vacuous for it — assert that explicitly so the vacuity is a stated property rather than an accident.
+
+**Failure mode this catches:** a single-site sample mistaken for the key universe, which would reject a legitimate branch-specific key — the round-1 HIGH. **Anti-tautology:** expectations are derived from the registry rows, and `SHEET_UNAVAILABLE` is asserted by name because it is the live proof that union differs from intersection.
+
+**Commit:** `feat(alerts): aggregate producer context keys across a code's sites`
 
 ---
 
@@ -108,41 +125,74 @@ Populate every row. Sites known to need `computedContext` at plan time — **re-
 
 ---
 
-## Task 5: Generic gallery↔producer binding rules
+## Task 5: Generic gallery-to-producer binding rules
 
-**Failing test first.** Three cases, each pinning one rule and each using a shape that passes today: (a) a scenario row carrying a key absent from that code's `PRODUCER_CONTEXTS` context → rejected, message names the key and the producer site; (b) a row omitting a key the *renderer* reads for its code → rejected; (c) a row declaring a crew UUID outside the gallery roster → rejected. Plus two negative cases that must stay ACCEPTED: a row carrying `context: {}` for a code whose card reads no context, and a row whose `crewMatch` is absent.
+**Failing test first.** Five cases pinning the rules, each using a shape that passes today, plus three that must stay ACCEPTED:
 
-**Implementation.** Add the rules to `validateAlert` (`lib/dev/attentionScenarios/validate.ts:154`) per §5. The renderer-read key set is derived per code by walking `ALERT_IDENTITY_MAP[code].segments` and mapping each `SegmentSpec` to the context key it consumes: `email` → `EMAIL_FIELD_BY_CODE[code] ?? "email"` (`lib/adminAlerts/resolveAlertIdentities.ts:69-72`); `crewName`/`count`/`contextField` → the spec's own `key`, except that `crew_member_count` maps to its underlying `crew_member_ids` (`lib/adminAlerts/projectIdentityContext.ts:101`); `showName` reads no context key. Preserve the `DEV_SCENARIO_TAG_KEY` exemption (`validate.ts:159`). Add the `crewMatch` ↔ `context.crew_member_ids` agreement check.
+REJECT: (a) a row carrying a key outside `allowedKeys(code)` — fixture is the real historical defect, `crew_member_id` on `AMBIGUOUS_EMAIL_BINDING`; (b) a row omitting a key in `rendererReadKeys(code)` intersect `allowedKeys(code)`; (c) a row declaring a crew UUID belonging to no row of that scenario's roster; (d) a `crewMatch` on any code other than `AMBIGUOUS_EMAIL_BINDING`; (e) a `galleryIdentity` whose email or crew-row count disagrees with `context`.
 
-**The 70-row constraint is a hard acceptance criterion.** After this task, `tests/dev/attentionScenariosTier1.test.ts` and `tests/dev/attentionScenariosIndex.test.ts` must still pass with zero scenario edits beyond Tasks 6–7. If any of the 70 empty-context alert rows starts failing, the renderer-read derivation is wrong — fix the derivation, never the scenarios.
+ACCEPT: (f) a row carrying `context: {}` for a code whose card reads no context; (g) a row with no `crewMatch`; (h) a row whose key is written by only some of its code's producer sites (`SHEET_UNAVAILABLE.failure_code`).
 
-**Anti-tautology:** case (a) uses the real historical defect (`crew_member_id` on `AMBIGUOUS_EMAIL_BINDING`) as its fixture, so the test would have caught the actual bug. The roster-membership case derives the roster from `publishedModalFixture` rather than hardcoding ids, so a roster edit cannot silently neuter it.
+**Implementation.** Add the rules to `validateAlert` (`lib/dev/attentionScenarios/validate.ts:154`) per spec §5. Implement `rendererReadKeys(code)` from the spec's per-segment-kind table, walking `ALERT_IDENTITY_MAP[code].segments`:
+
+| Segment kind | Context key required |
+|---|---|
+| `showName` | none (resolved from the `show_id` column) |
+| `email` | `EMAIL_FIELD_BY_CODE[code] ?? "email"` |
+| `crewName` | the spec's own `key` |
+| `contextField` | the spec's own `key` |
+| `count` | the UNDERLYING key: `crew_member_count` maps to `crew_member_ids`, `role_change_count` to `changes`, `failed_sheet_names_count` to `failed_sheet_names` |
+
+Add a totality test asserting this mapping covers every `kind` in the `SegmentSpec` union, so a new segment kind fails loudly instead of silently contributing nothing. Preserve the `DEV_SCENARIO_TAG_KEY` exemption (`lib/dev/attentionScenarios/validate.ts:159`).
+
+**Roster scoping.** The membership rule resolves against **that scenario's own** roster, not the six-row default — a scenario declaring `volumes.crew = N` has an N-row roster (`lib/dev/publishedModalFixture.ts:484-488`). This is what makes Task 7's beyond-cap case expressible without an exemption; getting it wrong reintroduces the round-1 BLOCKING.
+
+**The 70-row constraint is a hard acceptance criterion.** After this task, `tests/dev/attentionScenariosTier1.test.ts` and `tests/dev/attentionScenariosIndex.test.ts` must still pass with zero scenario edits beyond Tasks 6-7. If any of the 70 empty-context alert rows starts failing, the `rendererReadKeys` derivation is wrong — fix the derivation, never the scenarios.
+
+**Anti-tautology:** case (a) uses the actual historical defect as its fixture, so the test would have caught the real bug. The roster case derives the roster from the fixture builder rather than hardcoding ids, so a roster edit cannot silently neuter it.
 
 **Commit:** `feat(dev): bind gallery scenario contexts to their producers' key sets`
 
 ---
 
-## Task 6: Repair the two stale fixture rows
+## Task 6: Repair all five stale fixture rows
 
-**Failing test first.** Task 4 and Task 5's tests already fail against the live `tier1.ts` / `tier2.ts` rows once those tasks land — this task is the repair that makes the whole catalog green again. Add one explicit assertion that the tier-1 `AMBIGUOUS_EMAIL_BINDING` scenario derives a non-undefined `crewMatch` whose ids resolve to rendered roster indexes via `buildCrewRowResolver`.
+**Failing test first.** Tasks 4 and 5 already turn these rows red. Add one explicit assertion that the tier-1 `AMBIGUOUS_EMAIL_BINDING` scenario derives a non-undefined `crewMatch` whose ids resolve to rendered roster indexes via `buildCrewRowResolver`.
 
-**Implementation.** Per §7, in both `lib/dev/attentionScenarios/tier1.ts:60-65` and `lib/dev/attentionScenarios/tier2.ts:808-813`: `context: { email, crew_member_ids: [<two gallery roster UUIDs>] }` drawn from `lib/dev/publishedModalFixture.ts:107-113`, and a `galleryIdentity` carrying Show + email + crew-row-count segments.
+**Implementation.** Five rows, not two — the class-sweep inventory in spec §7:
 
-**Class-sweep before finishing:** `rg -n "crew_member_id\b" lib/dev/` must return no `AMBIGUOUS_EMAIL_BINDING`-adjacent hit. Record the command and its output in the commit body.
+| Row | Code | Repair |
+|---|---|---|
+| `lib/dev/attentionScenarios/tier1.ts:61` | `AMBIGUOUS_EMAIL_BINDING` | plural `crew_member_ids` + `email`, roster ids, agreeing identity |
+| `lib/dev/attentionScenarios/tier1.ts:67` | `OAUTH_IDENTITY_CLAIMED` | id only — swap `7a1b2c3d-…` for a roster member; the singular key is CORRECT for this code |
+| `lib/dev/attentionScenarios/tier2.ts:245` | `crewCode()` helper | same as tier1:61; count the `crewAlert()` call sites rather than assuming one |
+| `lib/dev/attentionScenarios/tier2.ts:809` | `AMBIGUOUS_EMAIL_BINDING` | same as tier1:61 |
+| `lib/dev/attentionScenarios/tier3.ts:55` | `AMBIGUOUS_EMAIL_BINDING` | same as tier1:61 |
 
-**Commit:** `fix(dev): give the gallery duplicate-email scenarios their real producer context`
+Roster ids come from `lib/dev/publishedModalFixture.ts:107-113`. Identity segments must satisfy Task 5 rule (e): email equals `context.email`, count equals `crew_member_ids.length`.
+
+**Class-sweep before finishing.** Re-run `rg -n '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' lib/dev/attentionScenarios/*.ts` and confirm every hit is a roster member. Record the command and output in the commit body.
+
+**Commit:** `fix(dev): give the gallery crew-alert scenarios their real producer context`
 
 ---
 
-## Task 7: Section-top fallback scenario + placement-coverage pin
+## Task 7: Beyond-cap fallback scenario + placement-coverage pin
 
-**Failing test first.** In `tests/admin/crewMatchFanout.test.ts`, assert over the whole scenario catalog that at least one scenario produces a **fanned-out** crew placement and at least one produces a **section-top** crew placement. Fails before the new scenario exists (after Task 6, every `AMBIGUOUS_EMAIL_BINDING` scenario fans out).
+**Failing test first.** In `tests/admin/crewMatchFanout.test.ts`, assert BY SCENARIO ID:
 
-**Implementation.** Add one tier-2 scenario per §8 declaring a `crewMatch` whose ids are legal UUIDs but resolve to no rendered row, so `crewRowIndexesForIds` returns `null` (`lib/admin/crewRowMatch.ts:46`) and placement falls back to section-top — exercising the fallback without a malformed context. Note the §5 roster-membership rule must admit this deliberate case: scope that rule to `context` crew-id keys, and let a `crewMatch` declare a non-roster id **only** when the scenario is explicitly marked as a fallback demo. The implementer resolves the exact marker; the constraint is that "unresolvable id" stays expressible for this scenario and stays rejected everywhere else.
+- `scenarioIdForCode("alert", "AMBIGUOUS_EMAIL_BINDING")` derives a **fanned-out** placement;
+- the new tier-2 fallback scenario id derives a **section-top** placement.
 
-**Anti-tautology:** the assertion runs `bucketAttention` over each scenario's derived items and inspects which bucket the banner landed in — not a container that could render either placement, and not the scenario's own declaration.
+Both fail before the new scenario exists (after Task 6 every ambiguous-email scenario fans out). A third, weaker existential assertion covers the rest of the catalog. Naming the ids is the point: an existential-only pin can be satisfied by an unrelated scenario after the intended one regresses — that was a round-1 MEDIUM.
 
-**Commit:** `test(dev): pin gallery coverage of both crew-banner placements`
+**Implementation.** Add one tier-2 scenario declaring `volumes: { crew: 35 }`, growing its roster to 35 generated rows (`lib/dev/publishedModalFixture.ts:484-488`, ids from `genCrewRow`, `lib/dev/publishedModalFixture.ts:273-279`). Its `crewMatch` names a roster member at index >= 30. That id IS a roster member, so Task 5's membership rule passes; but `buildCrewRowResolver` slices to `CREW_CAP = 30` before matching (`lib/admin/crewRowMatch.ts:64`), so `hits(id) === 0`, the resolver returns null (`lib/admin/crewRowMatch.ts:46`), and placement falls back to section-top.
+
+**Verify the generated ids are what the plan assumes.** `genCrewRow` builds `cccccccc-0000-4000-8000-${pad3(i)}000000000` then `.slice(0, 36)`. The implementer computes the actual id for the chosen index at implementation time rather than hand-writing it — a truncation off-by-one here silently produces a non-roster id and reintroduces the very failure this scenario is meant to demonstrate legitimately.
+
+**Anti-tautology:** assertions run `bucketAttention` over each scenario's derived items and inspect which bucket the banner landed in — never a container that could render either, never the scenario's own declaration.
+
+**Commit:** `test(dev): pin gallery coverage of both crew-banner placements by scenario id`
 
 ---
 
@@ -170,4 +220,5 @@ Fix-forward on any failure; do not merge on a red gate. Verify pre-existing fail
 - **e2e harness:** N/A — no Playwright test is added. The existing fan-out e2e (`tests/e2e/published-show-attention.spec.ts:132`) is untouched and remains the production-side proof.
 - **Layout-dimensions / transition-audit tasks:** N/A — no component renders differently as a result of this bundle; the gallery's visual change comes entirely from fixture data flowing through unchanged components.
 - **Structural-defense calibration:** the defense (Tasks 2, 3, 5) ships in the same bundle as the instance fix (Task 6), per the "nameable at first occurrence" tightening — not deferred to a later round.
+- **Round-1 adversarial findings** (2 BLOCKING, 6 HIGH, 3 MEDIUM) were all accepted and folded into the spec before this plan was finalized; Tasks 1, 3, 5, 6, and 7 were rewritten to match. The plan was never dispatched for review in its pre-repair form.
 - **Ordering risk:** Tasks 4 and 5 deliberately turn the catalog red before Task 6 repairs it. Each of those commits therefore has a failing catalog test by construction. This is the TDD invariant working as intended, but Task 6 must land in the same PR; the branch is never merged between Task 4 and Task 6.
