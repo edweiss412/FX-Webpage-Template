@@ -1499,12 +1499,21 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
   /**
    * KNOWN, DEFERRED instances of this class — a debt ledger, not a mute switch.
    *
-   * Each row is subtracted from the offender list so the probe still fails on
-   * anything NEW, and each carries the reason it is not fixed here. A ledger row
-   * that gets fixed simply stops matching; the BACKLOG entry owns its removal.
+   * SCOPED AND COUNTED, deliberately. An earlier version matched with `some()` on
+   * the `parent`/`child`/`axis` triple alone, which was unsound in four ways at
+   * once: labels are derived from an element's own testid OR its nearest testid'd
+   * ANCESTOR, so the triple is NOT unique; one row therefore suppressed EVERY
+   * occurrence of that triple, a NEW offender added beside the known one, and the
+   * same triple on any other fixture page or viewport. It also could not tell a
+   * live debt from a stale row whose instance had since been fixed.
    *
-   * The one row below is PRE-EXISTING and lives in a component this branch does
-   * not touch (`components/admin/BulkIgnoreControls.tsx:179`): the warning group's
+   * So each row now pins the exact fixture page, viewport width, and OCCURRENCE
+   * COUNT it accounts for. Matching is one-to-one: exactly `count` occurrences are
+   * consumed, a surplus stays in the offender list and fails, and a shortfall fails
+   * separately as a stale row that must be deleted.
+   *
+   * The one debt below is PRE-EXISTING and lives in a component this branch does not
+   * touch (`components/admin/BulkIgnoreControls.tsx:179`): the warning group's
    * decorative `h-px flex-1 bg-border` hairline. In a crowded `flex items-center
    * gap-2` row at 375px the label and the bulk chip consume the line, `flex-1`
    * resolves to zero width, and the row still charges `gap-2` on both sides of an
@@ -1513,13 +1522,24 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
    * width? give it a min-width? let the row wrap?), which belongs with that
    * component and its own before/after judgment, not bundled into this seam fix.
    */
-  const KNOWN_PHANTOM_ITEMS: { parent: string; child: string; axis: string; why: string }[] = [
-    {
+  const KNOWN_PHANTOM_ITEMS: {
+    page: string;
+    width: number;
+    parent: string;
+    child: string;
+    axis: string;
+    count: number;
+    why: string;
+  }[] = [
+    ...(["crewwarnings.html", "crewwarningscapped.html"] as const).map((page) => ({
+      page,
+      width: 375,
       parent: "<div in dq-active-group-FIELD_UNREADABLE>",
       child: "<span in dq-active-group-FIELD_UNREADABLE>",
       axis: "column-gap",
+      count: 1,
       why: "BulkIgnoreControls.tsx:179 decorative hairline collapses to 0 width in a crowded row at 375px — pre-existing, deferred to BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW",
-    },
+    })),
   ];
 
   for (const { page: htmlPath, label } of NOPHANTOM_PAGES) {
@@ -1626,23 +1646,53 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
         // every non-archived page, so the ≥2-items rule correctly skips it and it
         // never enters `visited`. An anchor that only holds while the bug is
         // present is not an anchor.
+        // TWO anchors, both named, no magic counts. The pane proves the walk
+        // entered the section column; a container belonging to a rail SECTION
+        // proves it descended INTO the sections rather than stopping at the top
+        // level. (An earlier `itemsExamined > 20` was just the rejected container
+        // floor in another costume: 21 unrelated items satisfy it, and a legitimate
+        // simplification breaks it.) The pane is matched with the harness's own
+        // dfid, so an unrelated future testid ending `-review-content` cannot
+        // satisfy it.
         expect(
-          found.visited.filter((v) => v.endsWith("-review-content")),
+          found.visited.filter((v) => v === `wizard-step3-card-${HARNESS_DFID}-review-content`),
           `the walk reached the section scroll pane [${label} @ ${width}]`,
         ).not.toEqual([]);
         expect(
-          found.itemsExamined,
-          `the walk examined real items [${label} @ ${width}]`,
-        ).toBeGreaterThan(20);
-        // Ledgered rows are subtracted, never ignored: anything NEW still fails.
-        const fresh = found.offenders.filter(
-          (o) =>
-            !KNOWN_PHANTOM_ITEMS.some(
-              (k) => k.parent === o.parent && k.child === o.child && k.axis === o.axis,
-            ),
-        );
+          found.visited.filter((v) => /-review-section-|-section-[a-z]+-panel-card/.test(v)),
+          `the walk descended into the rail sections, not just the pane [${label} @ ${width}]`,
+        ).not.toEqual([]);
+
+        // LEDGER RECONCILIATION, one-to-one. Each row consumes exactly `count`
+        // occurrences of its triple on its own page and width. A surplus survives
+        // into `remaining` and fails as a new offender; a shortfall fails as a stale
+        // row. Neither a new instance beside a known one nor a row whose debt was
+        // repaid can hide.
+        const ledger = KNOWN_PHANTOM_ITEMS.filter((k) => k.page === htmlPath && k.width === width);
+        const remaining = [...found.offenders];
+        const stale: string[] = [];
+        for (const row of ledger) {
+          let consumed = 0;
+          for (let i = remaining.length - 1; i >= 0 && consumed < row.count; i -= 1) {
+            const o = remaining[i]!;
+            if (o.parent === row.parent && o.child === row.child && o.axis === row.axis) {
+              remaining.splice(i, 1);
+              consumed += 1;
+            }
+          }
+          if (consumed < row.count) {
+            stale.push(
+              `${row.parent} → ${row.child} (${row.axis}): ledger expects ${row.count}, found ${consumed}`,
+            );
+          }
+        }
         expect(
-          fresh,
+          stale,
+          `stale KNOWN_PHANTOM_ITEMS rows [${label} @ ${width}] — the instance is gone, so delete` +
+            ` the row (a row kept past its debt masks a later offender with the same label triple)`,
+        ).toEqual([]);
+        expect(
+          remaining,
           `zero-extent items charge their parent's gap and show as a seam no element accounts for [${label} @ ${width}]`,
         ).toEqual([]);
       });
