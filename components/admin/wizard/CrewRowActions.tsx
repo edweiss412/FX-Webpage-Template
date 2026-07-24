@@ -24,6 +24,7 @@ import { EllipsisVertical, Eye, RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState, useTransition, type KeyboardEvent } from "react";
 
 import { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelection";
+import { useDevActionOverride } from "@/components/admin/dev/actionOverrideContext";
 
 // Armed-state auto-revert — harmonized 4s across destructive surfaces
 // (DESTRUCT-2; mirrors app/admin/show/[slug]/PickerResetControl.tsx:29).
@@ -50,6 +51,8 @@ export function CrewRowActions({
   onOutcome: (o: CrewRowOutcome | null) => void;
 }) {
   const [mode, setMode] = useState<"menu" | "confirm" | "resolving">("menu");
+  // Gallery-only override seam; undefined in production (provider never mounted).
+  const overrideReset = useDevActionOverride("resetCrewMemberSelection");
   const [isPending, startTransition] = useTransition();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -189,7 +192,10 @@ export function CrewRowActions({
     // app/admin/show/[slug]/PickerResetControl.tsx:161-166; no new §12.4 codes.
     startTransition(async () => {
       try {
-        const r = await resetCrewMemberSelection({ showId, crewMemberId: crewId });
+        const r = await (overrideReset ?? resetCrewMemberSelection)({
+          showId,
+          crewMemberId: crewId,
+        });
         if (r.ok) {
           onOutcome({ kind: "ok", message: `Reset ${name}. They'll pick again next visit.` });
         } else if (r.code === "PICKER_CREW_MEMBER_NOT_FOUND") {

@@ -50,6 +50,7 @@ export function isModalVisible(s: AttentionScenario): boolean {
     s.feedNull === true ||
     (s.changeLog?.length ?? 0) > 0 ||
     s.fixture !== undefined ||
+    s.actionOutcomes !== undefined ||
     (s.alerts.length === 0 && s.holds.length === 0)
   );
 }
@@ -136,6 +137,7 @@ export function partitionScenarios(): {
       // A fixed synthetic token: real enough for URL/copy affordances, never a
       // live credential (the gallery has no DB show behind it).
       shareToken: s.fixture?.share?.linkActive === true ? "gallery-share-token" : null,
+      actionOutcomes: s.actionOutcomes ?? null,
     });
   }
   // Group-ordered walk (spec §3.5); Array.prototype.sort is stable, so catalog

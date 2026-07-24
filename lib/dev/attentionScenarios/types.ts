@@ -149,6 +149,40 @@ export type ScenarioHoldRow = {
   reservation_collisions?: Array<{ name: string; email: string | null }>;
 };
 
+export type PropActionOutcome =
+  | { kind: "success" }
+  | { kind: "error"; code: string }
+  | { kind: "pending" };
+
+/** The only error codes the re-sync route emits (app/api/admin/sync/[slug]/route.ts:76-106). */
+export const RESYNC_ERROR_CODES = [
+  "SYNC_INFRA_ERROR",
+  "PENDING_SYNC_NOT_FOUND",
+  "FINALIZE_OWNED_SHOW",
+  "SHOW_BUSY_RETRY",
+] as const;
+
+/** Per-control scripted outcomes (spec 2026-07-23-gallery-action-outcomes §3.0). */
+export type ScenarioActionOutcomes = {
+  setPublished?: PropActionOutcome;
+  archive?: PropActionOutcome | { kind: "not_found" };
+  undo?: PropActionOutcome;
+  accept?: PropActionOutcome;
+  acceptAll?: PropActionOutcome;
+  approve?: PropActionOutcome;
+  reject?: PropActionOutcome;
+  resync?:
+    | { kind: "success"; outcome?: "applied" | "stage" | "skipped" | "asset_recovery" }
+    | { kind: "shrink_held"; detail: string }
+    | { kind: "error"; code: (typeof RESYNC_ERROR_CODES)[number] }
+    | { kind: "pending" };
+  resolve?: { kind: "success" } | { kind: "error"; code: string } | { kind: "pending" };
+  bulkIgnore?: { kind: "partial"; okCount: number } | { kind: "fail" } | { kind: "pending" };
+  crewReset?: { kind: "success" } | { kind: "not_found" } | { kind: "error" } | { kind: "pending" };
+  rotate?: { kind: "success" } | { kind: "error" } | { kind: "pending" };
+  everyoneReset?: { kind: "success" } | { kind: "error" } | { kind: "pending" };
+};
+
 export type AttentionScenario = {
   /** ^[a-z0-9][a-z0-9-]{2,47}$ - DOM anchor, query value, synthetic id prefix, DB tag. */
   id: string;
@@ -185,4 +219,8 @@ export type AttentionScenario = {
    *  and no warning sections (fixture/feed-only states). Ignored when real
    *  sections exist. */
   landing?: ScenarioGroupId;
+  /** Tier 2 only - scripts the outcome each modal control's action resolves to.
+   *  Click-driven: nothing fires on mount. Absent key = current default
+   *  (NOOP success for prop closures; GalleryWriteGuard 403 for writes). */
+  actionOutcomes?: ScenarioActionOutcomes;
 };

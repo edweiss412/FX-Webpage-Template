@@ -242,7 +242,11 @@ test.describe("attention modal switcher gallery", () => {
 
         // Defer resolve-bearing scenarios; sweep form-action controls now.
         const resolveBtn = dialog.locator('[data-testid^="per-show-alert-resolve-"]');
-        if ((await resolveBtn.count()) > 0) {
+        // Scripted action-outcome scenarios (t2-act-*) serve a SCRIPTED response
+        // for resolve (data-gallery-scripted-write, not blocked-write) and are
+        // containment-proven by their own suite below; this sweep's blocked-write
+        // sequencing needs an UNSCRIPTED representative.
+        if ((await resolveBtn.count()) > 0 && !id.startsWith("t2-act-")) {
           resolveScenarios.push(id);
         }
 
@@ -582,5 +586,156 @@ test.describe("attention modal switcher gallery", () => {
     // thumbnail links, and the "+1 more" note asserted above.
     await expect(dialog.getByText("13 embedded images")).toBeVisible();
     await expect(dialog.getByRole("link", { name: "Diagram from Diagrams" })).toHaveCount(12);
+  });
+});
+
+test.describe("action outcomes (spec 2026-07-23 gallery-action-outcomes)", () => {
+  // Non-egress recorder: scripted endpoints must never produce a real network
+  // request — GalleryWriteGuard synthesizes the Response BEFORE dispatch, so a
+  // single request event to any of these paths is a containment failure.
+  const SCRIPTED_ENDPOINTS = [
+    /\/api\/admin\/sync\//,
+    /\/alerts\/[^/]+\/resolve$/,
+    /\/data-quality\/ignore$/,
+  ];
+  let scriptedEgress: string[] = [];
+  const onRequest = (req: Request) => {
+    const u = new URL(req.url());
+    if (u.port !== "3001") return;
+    if (SCRIPTED_ENDPOINTS.some((re) => re.test(u.pathname))) {
+      scriptedEgress.push(`${req.method()} ${u.pathname}`);
+    }
+  };
+
+  test.beforeEach(async ({ page }) => {
+    scriptedEgress = [];
+    page.on("request", onRequest);
+    await signInAs(page, DEVELOPER_FIXTURE);
+  });
+  test.afterEach(async ({ page }) => {
+    page.off("request", onRequest);
+    expect(scriptedEgress, "scripted endpoints must never reach the network").toEqual([]);
+    await signOut(page);
+  });
+
+  const dialogOf = (page: Page) => page.locator(DIALOG);
+
+  test("re-sync error panel renders catalog copy from the scripted 500", async ({ page }) => {
+    await gotoScenario(page, "t2-act-resync-error");
+    const dialog = dialogOf(page);
+    await dialog.locator('[data-testid="admin-resync-button"]').click();
+    const panel = dialog.locator('[data-testid="admin-resync-error"]');
+    await expect(panel).toBeVisible();
+    // Non-empty catalog copy (kills the blank-ErrorExplainer failure mode).
+    expect((await panel.innerText()).trim().length).toBeGreaterThan(20);
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-gallery-scripted-write",
+      /POST \/api\/admin\/sync\//,
+    );
+  });
+
+  test("re-sync shrink-hold confirm shows the scripted detail", async ({ page }) => {
+    await gotoScenario(page, "t2-act-resync-shrink");
+    const dialog = dialogOf(page);
+    await dialog.locator('[data-testid="admin-resync-button"]').click();
+    const confirm = dialog.locator('[data-testid="admin-resync-shrink-confirm"]');
+    await expect(confirm).toBeVisible();
+    await expect(confirm).toContainText("This re-sync would reduce the show:");
+    // Scripted detail derived from the scenario object, not duplicated:
+    const scenario = ALL_SCENARIOS.find((s) => s.id === "t2-act-resync-shrink");
+    const detail =
+      scenario?.actionOutcomes?.resync?.kind === "shrink_held"
+        ? scenario.actionOutcomes.resync.detail
+        : "";
+    expect(detail.length).toBeGreaterThan(0);
+    await expect(confirm).toContainText(detail);
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-gallery-scripted-write",
+      /POST \/api\/admin\/sync\//,
+    );
+  });
+
+  test("publish-toggle refusal popover renders the cataloged refusal", async ({ page }) => {
+    await gotoScenario(page, "t2-act-publish-refusal");
+    const dialog = dialogOf(page);
+    await dialog.locator('[data-testid="strip-publish-toggle"] button').first().click();
+    const popover = dialog.locator('[data-testid="published-toggle-popover"]');
+    await expect(popover).toBeVisible();
+    expect((await popover.innerText()).trim().length).toBeGreaterThan(20);
+  });
+
+  test("bulk-ignore partial reports Ignored X of N from the scripted per-item results", async ({
+    page,
+  }) => {
+    const scenario = ALL_SCENARIOS.find((s) => s.id === "t2-act-bulkignore-partial");
+    const okCount =
+      scenario?.actionOutcomes?.bulkIgnore?.kind === "partial"
+        ? scenario.actionOutcomes.bulkIgnore.okCount
+        : 0;
+    const groupSize = scenario?.warnings?.length ?? 0;
+    expect(okCount).toBeGreaterThan(0);
+    expect(groupSize).toBeGreaterThan(okCount);
+
+    await gotoScenario(page, "t2-act-bulkignore-partial");
+    const dialog = dialogOf(page);
+    const chip = dialog.locator('[data-testid^="dq-bulk-ignore-"]').first();
+    await chip.click(); // arm
+    await chip.click(); // confirm (two-tap guard)
+    const alertBox = dialog.locator('[data-testid="dq-bulk-ignore-error"]');
+    await expect(alertBox).toBeVisible();
+    await expect(alertBox).toContainText(
+      `Ignored ${okCount} of ${groupSize}. Refresh to see the rest.`,
+    );
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-gallery-scripted-write",
+      /POST .*\/data-quality\/ignore/,
+    );
+  });
+
+  test("crew-row reset not-found banner renders the roster-changed sentence", async ({ page }) => {
+    await gotoScenario(page, "t2-act-crewreset-notfound");
+    const dialog = dialogOf(page);
+    await dialog.locator('[data-testid^="crew-row-menu-button-"]').first().click();
+    await dialog.locator('[data-testid^="crew-row-reset-item-"]').first().click();
+    await dialog.locator('[data-testid="crew-row-reset-confirm-go"]').click();
+    const banner = dialog.locator('[data-testid="crew-row-reset-error"]');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText("no longer on the roster");
+  });
+
+  test("archive refusal renders catalog copy from the scripted stale-tab race (R1-F1/F4)", async ({
+    page,
+  }) => {
+    // Proves the archive control MOUNTS on this scenario (the R1-F1 class:
+    // an unreachable scripted control) AND its refusal copy renders.
+    await gotoScenario(page, "t2-act-archive-refusal");
+    const dialog = dialogOf(page);
+    await dialog.locator('[data-testid="share-hub-kebab"]').click();
+    await dialog.locator('[data-testid="archive-show-button"]').click();
+    await dialog.locator('[data-testid="archive-show-confirm-button"]').click();
+    const err = dialog.locator('[data-testid="archive-show-error"]');
+    await expect(err).toBeVisible();
+    expect((await err.innerText()).trim().length).toBeGreaterThan(20);
+  });
+
+  test("share-hub rotate success reveals the rotated link state", async ({ page }) => {
+    await gotoScenario(page, "t2-act-share-success");
+    const dialog = dialogOf(page);
+    await dialog.locator('[data-testid="share-hub-kebab"]').click();
+    await dialog.locator('[data-testid="admin-rotate-share-token-button"]').click();
+    await dialog.locator('[data-testid="admin-rotate-share-token-confirm-button"]').click();
+    await expect(dialog.locator('[data-testid="admin-rotate-share-token-ok"]')).toBeVisible();
+  });
+
+  test("pending: re-sync stays on its busy label (never-resolving script)", async ({ page }) => {
+    await gotoScenario(page, "t2-act-pending");
+    const dialog = dialogOf(page);
+    const btn = dialog.locator('[data-testid="admin-resync-button"]');
+    await btn.click();
+    await expect(btn).toBeDisabled();
+    // Bounded settle: the busy state must STILL hold after a real beat.
+    await page.waitForTimeout(500);
+    await expect(btn).toBeDisabled();
+    await expect(btn).toHaveAttribute("aria-busy", "true");
   });
 });

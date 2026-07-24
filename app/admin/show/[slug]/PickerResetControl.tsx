@@ -18,6 +18,7 @@ import { RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
+import { useDevActionOverride } from "@/components/admin/dev/actionOverrideContext";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
@@ -52,6 +53,8 @@ export function PickerResetControl({
   onBusyChange?: (busy: boolean) => void;
 }) {
   const hasCrew = crew.length > 0;
+  // Gallery-only override seam; undefined in production (provider never mounted).
+  const overrideEpoch = useDevActionOverride("resetPickerEpoch");
   const [ui, setUi] = useState<UiState>("idle");
   const [outcome, setOutcome] = useState<Outcome>(null);
   const [isPending, startTransition] = useTransition();
@@ -156,7 +159,7 @@ export function PickerResetControl({
     // are mapped to these sentences here).
     startTransition(async () => {
       try {
-        const r = await resetPickerEpoch({ showId });
+        const r = await (overrideEpoch ?? resetPickerEpoch)({ showId });
         // not-subject:M5-D8 — admin-authored inline copy (see rationale above).
         setOutcome(
           r.ok

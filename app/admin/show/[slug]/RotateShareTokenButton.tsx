@@ -24,6 +24,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
+import { useDevActionOverride } from "@/components/admin/dev/actionOverrideContext";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
@@ -75,6 +76,8 @@ export function RotateShareTokenButton({
   onBusyChange?: (busy: boolean) => void;
 }) {
   const router = useRouter();
+  // Gallery-only override seam; undefined in production (provider never mounted).
+  const overrideRotate = useDevActionOverride("rotateShareToken");
   const [ui, setUi] = useState<UiState>("idle");
   const [result, setResult] = useState<Result>(null);
   const [isPending, startTransition] = useTransition();
@@ -152,7 +155,7 @@ export function RotateShareTokenButton({
     setUi("resolving");
     startTransition(async () => {
       try {
-        const r = await rotateShareToken({ showId });
+        const r = await (overrideRotate ?? rotateShareToken)({ showId });
         setResult(r);
         if (r.ok) {
           // Push the new token+epoch into the shared cache so the card / chip / crew

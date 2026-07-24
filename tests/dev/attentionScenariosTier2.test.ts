@@ -477,3 +477,33 @@ describe("modal-state roster (spec §3.6)", () => {
     expect(data.venue).toBeNull();
   });
 });
+
+describe("action-outcome roster (spec 2026-07-23 §3.5)", () => {
+  const ACT_IDS = [
+    "t2-act-resync-error",
+    "t2-act-resync-shrink",
+    "t2-act-resync-success",
+    "t2-act-publish-refusal",
+    "t2-act-publish-generic",
+    "t2-act-archive-refusal",
+    "t2-act-archive-notfound",
+    "t2-act-feed-errors",
+    "t2-act-resolve-error",
+    "t2-act-bulkignore-partial",
+    "t2-act-bulkignore-fail",
+    "t2-act-crewreset-notfound",
+    "t2-act-share-errors",
+    "t2-act-share-success",
+    "t2-act-pending",
+  ] as const;
+
+  test("all 15 scripted scenarios exist, are tier-2, script something, and validate clean", () => {
+    const all = tier2Scenarios();
+    for (const id of ACT_IDS) {
+      const s = all.find((x) => x.id === id);
+      expect(s, id).toBeDefined();
+      expect(s!.actionOutcomes && Object.keys(s!.actionOutcomes).length, id).toBeTruthy();
+      // Set-equality suite above already validates; this pins per-id presence.
+    }
+  });
+});

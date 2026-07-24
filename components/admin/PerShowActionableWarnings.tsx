@@ -199,6 +199,63 @@ export function PerShowActionableWarnings({
         const rawLabel = w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
         const rowLabel = rawLabel && rawLabel.trim().length > 0 ? rawLabel.trim() : null;
 
+        // FIELD_UNREADABLE discriminator band (spec 2026-07-23-crewwarn-instance-discriminator
+        // §2.2). USABLE rule: string + non-empty after trim, rendered trimmed; anything else
+        // (null, number, object — the jsonb boundary is unvalidated) is ABSENT. Render-side
+        // only; the identity/dedup folds use the raw string. Name renders in full mode only:
+        // condensed cards sit under the member's crew row, where the name would duplicate it.
+        const usable = (v: unknown): string | null =>
+          typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+        const fieldRaw = w.code === "FIELD_UNREADABLE" ? usable(w.blockRef?.field) : null;
+        const fieldLabel =
+          fieldRaw === null
+            ? null
+            : fieldRaw === "phone"
+              ? "Phone"
+              : fieldRaw === "email"
+                ? "Email"
+                : fieldRaw;
+        const bandName = isCondensed ? null : usable(w.blockRef?.name);
+        const bandValue = usable(w.rawSnippet);
+        // Name and value render in SEPARATE spans (whole-diff R2): a single joined
+        // string lets delimiter-bearing sheet data collapse two distinct warnings into
+        // one visible text (name `Jordan · "office"` + value `night` vs name `Jordan` +
+        // value `office" · "night`). Separate spans keep the (name, value) tuple
+        // distinct in the DOM, and the proportional name vs mono quoted value keeps
+        // them typographically distinct on screen. Name is prose, so break-words —
+        // the mono/break-all treatment is reserved for the junk value.
+        const fieldBand: ReactNode = fieldLabel ? (
+          <span
+            className="inline-flex min-w-0 flex-wrap items-center gap-1.5"
+            data-testid="per-show-actionable-field-label"
+          >
+            <span className="text-[10px] font-semibold tracking-wider break-all text-warning-text uppercase">
+              {fieldLabel}
+            </span>
+            {bandName !== null ? (
+              <span
+                className="min-w-0 text-xs wrap-break-word text-text"
+                data-testid="per-show-actionable-field-name"
+              >
+                {bandName}
+              </span>
+            ) : null}
+            {bandName !== null && bandValue !== null ? (
+              <span aria-hidden="true" className="text-xs text-text-subtle">
+                ·
+              </span>
+            ) : null}
+            {bandValue !== null ? (
+              <span
+                className="font-mono text-xs break-all text-text"
+                data-testid="per-show-actionable-field-label-value"
+              >
+                {`"${bandValue}"`}
+              </span>
+            ) : null}
+          </span>
+        ) : null;
+
         const detailBand: ReactNode = rowLabel ? (
           <span
             className="inline-flex items-center gap-1.5"
@@ -285,7 +342,7 @@ export function PerShowActionableWarnings({
                   />
                 ) : null
               }
-              detailBand={detailBand}
+              detailBand={detailBand ?? fieldBand}
               controlsBand={controlsBand}
             />
           </li>

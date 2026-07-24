@@ -21,7 +21,23 @@ export function warningIdentityKey(w: IdentityFields): string {
   // state can migrate between the two recognize controls). Legacy warnings without
   // roleToken keep the token-free key (unchanged).
   const rt = w.code === "UNKNOWN_ROLE_TOKEN" && typeof w.roleToken === "string" ? w.roleToken : "";
-  return `${w.code}|${cell}|${snippet}|${br}|${rt}`;
+  // Fold blockRef.field for FIELD_UNREADABLE (crewwarn-instance-discriminator §2.1): a member
+  // whose phone AND email carry the SAME unusable value would otherwise share one identity —
+  // occurrence-suffixed React keys and one report surfaceId (shared draft/idempotency state).
+  // Shares the tail slot with the roleToken fold (codes are disjoint), so every other key stays
+  // byte-identical. NUL presence delimiter: present-but-empty stays distinct from field-less
+  // legacy warnings. RAW string, never trimmed (identity semantics, not render semantics).
+  // JSON-escaped (whole-diff R1): the jsonb boundary is unvalidated, so blockRef.name may carry
+  // raw NUL bytes and forge the \0F marker; JSON.stringify output contains no raw NUL (control
+  // chars escape to backslash-u sequences), so the key's LAST raw NUL is always this delimiter — two distinct
+  // (name, field) pairs can never serialize to one key, and a field-less key (which ends "|",
+  // never a quote) can't be forged by a name embedding "\0F<json>". Injectivity of
+  // JSON.stringify keeps the raw/untrimmed distinctions intact.
+  const fu =
+    w.code === "FIELD_UNREADABLE" && typeof w.blockRef?.field === "string"
+      ? `\0F${JSON.stringify(w.blockRef.field)}`
+      : "";
+  return `${w.code}|${cell}|${snippet}|${br}|${rt}${fu}`;
 }
 
 /** Per-render UNIQUE React keys; identity + occurrence suffix for perfect duplicates.

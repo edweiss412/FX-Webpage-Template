@@ -594,3 +594,23 @@ describe("StagedReviewCard", () => {
     });
   });
 });
+
+describe("StagedReviewCard — FIELD_UNREADABLE discriminator band (crewwarn-instance-discriminator §2.3)", () => {
+  test("staged card renders the full-mode field band for FIELD_UNREADABLE operatorActionable rows", () => {
+    const row: StagedRow = {
+      ...baseRow,
+      operatorActionable: [
+        {
+          severity: "warn",
+          code: "FIELD_UNREADABLE",
+          message: "m",
+          rawSnippet: "call the office",
+          blockRef: { kind: "crew", index: 1, name: "Jordan Ellis", field: "phone" },
+        },
+      ],
+    };
+    const { getByTestId } = render(<StagedReviewCard row={row} />);
+    const band = getByTestId("per-show-actionable-field-label");
+    expect(band.textContent).toBe('PhoneJordan Ellis·"call the office"');
+  });
+});
