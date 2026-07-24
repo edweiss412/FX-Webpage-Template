@@ -347,13 +347,32 @@ describe("ReSyncButton", () => {
     // The width reservation renders the inactive label as a hidden sizer, so
     // the accessible name must still be exactly one label — a sizer that leaks
     // announces "Re-syncSyncing…" to a screen reader.
+    //
+    // SCOPED to the desktop label block (stacked-band spec §9.4): jsdom
+    // computes no CSS, so the display:none-gated mobile "Sync" block cannot be
+    // excluded from toHaveAccessibleName here — real-browser accName equality
+    // ("Re-sync" @1280, "Sync" @390) is asserted by stackedBandLayout.spec.ts.
+    // What jsdom CAN pin exactly: the sizer is aria-hidden AND invisible, and
+    // the desktop block's non-sizer text is exactly one label per state.
     let resolve: (response: Response) => void = () => {};
     fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (resolve = r)));
     const { getByTestId } = render(<ReSyncButton slug="s" />);
     const button = getByTestId("admin-resync-button") as HTMLButtonElement;
-    expect(button).toHaveAccessibleName("Re-sync");
+    const desktopVisibleLabel = () => {
+      const block = getByTestId("admin-resync-desktop-label");
+      const spans = Array.from(block.querySelectorAll("span")).filter(
+        (s) => s.childElementCount === 0,
+      );
+      const sizer = spans.find((s) => s.className.includes("invisible"));
+      expect(sizer?.getAttribute("aria-hidden"), "sizer stays out of the name").toBe("true");
+      return spans
+        .filter((s) => !s.className.includes("invisible"))
+        .map((s) => s.textContent)
+        .join("");
+    };
+    expect(desktopVisibleLabel()).toBe("Re-sync");
     fireEvent.click(button);
-    await waitFor(() => expect(button).toHaveAccessibleName("Syncing…"));
+    await waitFor(() => expect(desktopVisibleLabel()).toBe("Syncing…"));
     resolve({ json: async () => ({ ok: true }) } as unknown as Response);
   });
 
