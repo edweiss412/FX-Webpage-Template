@@ -58,7 +58,47 @@ Verified mount predicates (R1-corrected, all live-code):
   - `rotate` without `share.linkActive` → `unreachable`;
   - coherent script (share fixture + rotate/everyoneReset/crewReset) → `[]`.
 - [ ] **Step 2:** run file — new describe FAILs.
-- [ ] **Step 3: types** — as R0 (`PropActionOutcome`, `RESYNC_ERROR_CODES` const array, `ScenarioActionOutcomes`, field docblock). Unchanged from R0 text.
+- [ ] **Step 3: types** — in `types.ts`, above `AttentionScenario`:
+
+```ts
+export type PropActionOutcome =
+  | { kind: "success" }
+  | { kind: "error"; code: string }
+  | { kind: "pending" };
+
+export const RESYNC_ERROR_CODES = [
+  "SYNC_INFRA_ERROR", "PENDING_SYNC_NOT_FOUND", "FINALIZE_OWNED_SHOW", "SHOW_BUSY_RETRY",
+] as const;
+
+export type ScenarioActionOutcomes = {
+  setPublished?: PropActionOutcome;
+  archive?: PropActionOutcome | { kind: "not_found" };
+  undo?: PropActionOutcome;
+  accept?: PropActionOutcome;
+  acceptAll?: PropActionOutcome;
+  approve?: PropActionOutcome;
+  reject?: PropActionOutcome;
+  resync?:
+    | { kind: "success"; outcome?: "applied" | "stage" | "skipped" | "asset_recovery" }
+    | { kind: "shrink_held"; detail: string }
+    | { kind: "error"; code: (typeof RESYNC_ERROR_CODES)[number] }
+    | { kind: "pending" };
+  resolve?: { kind: "success" } | { kind: "error"; code: string } | { kind: "pending" };
+  bulkIgnore?: { kind: "partial"; okCount: number } | { kind: "fail" } | { kind: "pending" };
+  crewReset?: { kind: "success" } | { kind: "not_found" } | { kind: "error" } | { kind: "pending" };
+  rotate?: { kind: "success" } | { kind: "error" } | { kind: "pending" };
+  everyoneReset?: { kind: "success" } | { kind: "error" } | { kind: "pending" };
+};
+```
+
+and after `landing` (~line 181):
+
+```ts
+  /** Tier 2 only - scripts the outcome each modal control's action resolves to.
+   *  Click-driven: nothing fires on mount. Absent key = current default
+   *  (NOOP success for prop closures; GalleryWriteGuard 403 for writes). */
+  actionOutcomes?: ScenarioActionOutcomes;
+```
 - [ ] **Step 4: validator.** `validate.ts` imports: `RESYNC_ERROR_CODES` (VALUE import from `./types`), `shapeChangeFeed` from `@/lib/sync/feed/shapeChangeFeed`, `groupIgnorableByCode` from `@/lib/dataQuality/bulkIgnoreGroups`, `deriveScenarioAttention` from `./..` (wherever validate already imports it — it does for the PARSE_ERROR check; reuse). Kind-allowlist walk as R0 (`ACTION_OUTCOME_KINDS`). Reachability via PRODUCTION derivers:
 
 ```ts
@@ -120,18 +160,70 @@ function validateActionOutcomeReachability(s: AttentionScenario, ao: ScenarioAct
   - Call actions with their REAL arities from the prop types (`ChangesFeed.tsx:20-33` — `useActionState`-driven actions take `(prevState, formData)`): `acts.acceptAllAction(null, new FormData())`, `acts.undoAction(null, new FormData())`; `setPublished(true)`; `archiveAction()` per its own prop type — copy each signature from `PublishedReviewModalProps` at code time; the `satisfies` pin makes a wrong arity a compile error, which IS the test's compile-time half.
   - Derived count (no literal-in-literal-out): `const ACCEPTABLE = 4; const acts = buildScriptedActions({ acceptAll: { kind: "success" } }, ACCEPTABLE); await expect(acts.acceptAllAction(null, new FormData())).resolves.toEqual({ ok: true, count: ACCEPTABLE });` — failure mode: builder hardcoding a count.
   - Hang race, fetch-script sequencing, resync status map, channel-3 unions: as R0 (bulk `respond(0..2)` table, `heldModifiedTime` fixed literal, `PICKER_*` codes).
-- [ ] **Step 2:** FAIL. **Step 3: implement** — mappings exactly as R0 §Task 3 Step 3; signature `buildScriptedActions(outcomes: ScenarioActionOutcomes | null, acceptableCount: number)` (rename from `pendingRowCount`; semantic = shaped acceptable entries); `accept` success `{ ok: true, count: 1 }`; return `NOOP_ACTIONS` identity when nothing channel-1 is scripted. **Step 4:** green + switcher still compiles with the import swap. **Step 5: commit** `feat(admin): gallery action-outcome script builders; export NOOP_ACTIONS`.
+- [ ] **Step 2:** FAIL. **Step 3: implement.** Signature `buildScriptedActions(outcomes: ScenarioActionOutcomes | null, acceptableCount: number)`. Response mappings (spec §2/§3.2 envelopes):
+  - resync success → `200 { ok: true, result: { outcome: outcome ?? "applied" } }`; shrink → `200 { ok: true, result: { outcome: "shrink_held", detail, heldModifiedTime: "2026-06-29T00:00:00.000Z" } }`; error → status map `SYNC_INFRA_ERROR:500, PENDING_SYNC_NOT_FOUND:404, FINALIZE_OWNED_SHOW:409, SHOW_BUSY_RETRY:409`, body `{ ok: false, error: code }`; pending → `"hang"`.
+  - resolve success → `200 { status: "resolved", id: "gallery-alert", resolved_at: "2026-07-01T00:00:00.000Z" }`; error → `500 { ok: false, code }`; pending → hang.
+  - bulkIgnore partial → `idx < okCount ? 200 { status: "ignored" } : 500 { ok: false, code: "GALLERY_SCRIPTED_FAIL" }` (synthetic code, never rendered — client branches on `r.ok`, `BulkIgnoreControls.tsx:100`); fail → always the 500 arm; pending → hang.
+  - Path patterns: resync `/^\/api\/admin\/sync\//`; resolve `/^\/api\/admin\/show\/[^/]+\/alerts\/[^/]+\/resolve$/`; bulkIgnore `/\/data-quality\/ignore$/`.
+  - Channel-1: shallow copy of `NOOP_ACTIONS`, override scripted keys with closures matching each prop's exact signature; `pending` = `() => new Promise<never>(() => {})`; `setPublished` error → `{ ok: false, code }`; `archive` `not_found` → `{ ok: false, code: "show_not_found" }`; `accept` success `{ ok: true, count: 1 }`; `acceptAll` success `{ ok: true, count: acceptableCount }`; return `NOOP_ACTIONS` identity when nothing channel-1 is scripted.
+  - Channel-3 (`buildActionOverrides`): crewReset success `{ ok: true, reset_at: "2026-07-01T12:00:00.000Z" }`, not_found → `{ ok: false, code: "PICKER_CREW_MEMBER_NOT_FOUND" }`, error → `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }`; rotate success `{ ok: true, new_share_token: "gallery-share-token-rotated", new_epoch: 2 }`, error → `PICKER_RESOLVER_LOOKUP_FAILED`; everyoneReset success `{ ok: true, new_epoch: 2 }`, error → same code; pending → never-resolving; return `null` when no channel-3 key scripted. **Step 4:** green + switcher still compiles with the import swap. **Step 5: commit** `feat(admin): gallery action-outcome script builders; export NOOP_ACTIONS`.
 
 ### Task 4: guard `scripts` prop + mount relocation + page-test ripple
 
 **Files:** Modify `components/admin/dev/GalleryWriteGuard.tsx`, `app/admin/dev/attention-gallery/page.tsx` (remove mount+import), `tests/app/admin/attentionGalleryPage.test.tsx:83-89` (guard-present assertion moves to the switcher test — assert the page does NOT render it and the switcher DOES). Test: extend the existing guard test file if one exists (grep `GalleryWriteGuard` under `tests/` first), else create `tests/dev/galleryWriteGuardScripts.test.tsx`.
 
-- [ ] Steps as R0 Task 4 (scripted-match branch code unchanged), PLUS: prop-less render byte-identical assertion; page test updated in the SAME commit (R1-F5b). Switcher mount lands in Task 6 — this task's switcher change is only the import-site compile fix from Task 3 if sequencing requires; keep page test red-green within this task by asserting via the temporary direct mount in the guard test file, and the page-level absence.
+- [ ] **Step 1: failing test** — render `<GalleryWriteGuard scripts={[shrinkScript]} />` (build via `buildFetchScripts`); `await fetch("/api/admin/sync/x", { method: "POST" })` returns the scripted 200 body and sets `data-gallery-scripted-write`; non-matching `POST /api/other` still 403 `GALLERY_DISPLAY_ONLY` + `data-gallery-blocked-write`; GET passes through (spy original fetch); prop-less render behaves byte-identically to today (403 path only); a `"hang"` respond never settles (race pattern from Task 3).
+- [ ] **Step 2:** FAIL. **Step 3: implement** — add `scripts?: readonly GalleryFetchScript[]`; inside the effect, `const counters = new Map<string, number>()` per effect run, deps `[scripts]`; before the 403 branch:
+
+```ts
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      const script = scripts?.find((sc) => sc.method === method && sc.pathPattern.test(path));
+      if (script) {
+        const n = counters.get(script.key) ?? 0;
+        counters.set(script.key, n + 1);
+        document.documentElement.setAttribute("data-gallery-scripted-write", `${method} ${path}`);
+        const r = script.respond(n);
+        if (r === "hang") return new Promise<Response>(() => {});
+        return new Response(JSON.stringify(r.body), { status: r.status, headers: { "content-type": "application/json" } });
+      }
+```
+
+- [ ] **Step 4:** remove the page mount + import (`page.tsx:32,51`); update `tests/app/admin/attentionGalleryPage.test.tsx:83-89` in the SAME commit: page does NOT render the guard; guard presence is asserted at the switcher level (Task 6's `ScenarioMount` renders it — until Task 6 lands, pin presence via the guard test file's direct render so the suite stays green at this commit boundary).
+- [ ] **Step 5:** green + `pnpm tsc --noEmit`.
 - [ ] **Commit** `feat(admin): scripted fetch responses in GalleryWriteGuard; page mount removed`.
 
 ### Task 5: override context + call sites + production pins
 
-Unchanged from R0 Task 5 (module code, 3 one-line call sites, no-provider regression tests mocking the lib modules, provider-mounted override tests, `pnpm build` RSC sanity). **Commit** `feat(admin): dev action override seam for picker controls`.
+**Files:** Create `components/admin/dev/actionOverrideContext.tsx`; modify `components/admin/wizard/CrewRowActions.tsx:192`, `app/admin/show/[slug]/RotateShareTokenButton.tsx:155`, `app/admin/show/[slug]/PickerResetControl.tsx:159`. Test `tests/components/actionOverrideDefaults.test.tsx`.
+
+- [ ] **Step 1: failing tests** — per component: `vi.mock` the lib action module; render with minimal props and NO provider; drive to confirm; assert the mocked REAL action called with the component's own args (pins prod-default). Then one provider-mounted case each: provider supplies a `vi.fn` override; assert override called AND real mock NOT called. Reuse each component's existing test scaffolding (grep `CrewRowActions` under `tests/` first); jsdom + the project's `act`/`waitFor` transition-flush patterns.
+- [ ] **Step 2:** FAIL. **Step 3: implement:**
+
+```tsx
+"use client";
+// Null-default override seam for the 3 modal controls that call server actions
+// by direct import (spec 2026-07-23 §3.3). Production never mounts the
+// provider; the hook then returns undefined and callers use the real import.
+import { createContext, useContext } from "react";
+import type { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelection";
+import type { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
+import type { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
+
+export type DevActionOverrides = {
+  resetCrewMemberSelection?: typeof resetCrewMemberSelection;
+  rotateShareToken?: typeof rotateShareToken;
+  resetPickerEpoch?: typeof resetPickerEpoch;
+};
+
+export const DevActionOverrideContext = createContext<DevActionOverrides | null>(null);
+
+export function useDevActionOverride<K extends keyof DevActionOverrides>(key: K): DevActionOverrides[K] {
+  return useContext(DevActionOverrideContext)?.[key];
+}
+```
+
+Call sites (one hook line + one wrap each): `const overrideReset = useDevActionOverride("resetCrewMemberSelection");` then `const r = await (overrideReset ?? resetCrewMemberSelection)({ showId, crewMemberId: crewId });`; same shape `(overrideRotate ?? rotateShareToken)({ showId })` and `(overrideEpoch ?? resetPickerEpoch)({ showId })`.
+- [ ] **Step 4:** green. **Step 5:** `pnpm build` sanity (type-only imports must not pull server code into the client graph; build catches RSC violations). **Step 6: commit** `feat(admin): dev action override seam for picker controls`.
 
 ### Task 6: switcher integration via `ScenarioMount` child (R1-F4 fix)
 
@@ -168,19 +260,85 @@ function ScenarioMount({ scenario }: { scenario: GallerySwitcherScenario }) {
 **Files:** Modify `lib/dev/galleryModalTypes.ts` (`ScenarioGroupId`, `GROUP_ORDER`, **`GROUP_LABELS` gains `actions: "Action outcomes"`** — `Record<ScenarioGroupId, string>` at lines 117-126 otherwise fails to compile), `lib/dev/attentionScenarios/tier2.ts` (**`T2_REQUIRED_IDS` at lines 40-98 gains all 15 ids** — exact set-equality test `attentionScenariosTier2.test.ts:110-118`), `tests/dev/attentionScenariosIndex.test.ts:112-125` (tier-exclusivity field enumeration gains `actionOutcomes`). Tests: those three files.
 
 - [ ] **Step 1: failing tests** — 15 ids in `T2_REQUIRED_IDS` + catalog; `"actions"` in `GROUP_ORDER`/`GROUP_LABELS`; tier-exclusivity walker covers `actionOutcomes`; every roster scenario validates `[]` clean (the index test's whole-catalog validation covers this once entries exist).
-- [ ] **Step 2:** FAIL. **Step 3: roster.** Use the FILE's real factories: `hold(entityKey)` (line 238) for mi11 holds; `logRow(minute, over)` (line 409) for changeLog rows. Feed-bearing rows must satisfy the SHAPER arms: acceptable row = `logRow(1, { source: "auto_apply", status: "applied", acknowledged_at: null })`; undo row = `logRow(2, { status: "applied", individually_undoable: true, change_kind: "crew_added" })` (a `UNDOABLE_CHANGE_KINDS` member, `lib/sync/holds/types.ts:46`) — confirm `logRow` defaults at code time and override every arm-relevant column explicitly. Warnings for bulk scenarios: 3 (partial) / 2 (fail) same-code DISTINCT-`rawSnippet` ignorable warnings via the file's warning helpers (grep tier2.ts for its ParseWarning construction; distinct snippets are REQUIRED or the group collapses to size 1). Resolve scenario alert: `alert(pickByDerivedClass("actionable"))` (helper at tier2.ts:150-173). **Error codes: every channel-1 scripted code MUST exist in `MESSAGE_CATALOG`** (R1-F6): before writing each, `grep -n "<CODE>" lib/messages/catalog.ts`; source candidates from the real action implementations (grep the server actions wired into `app/admin/_showReviewModal.tsx` for their emitted `{ ok: false, code }` values — e.g. `UNDO_NOT_FOUND` is cataloged); if an action's real codes are all cataloged, pick one per control; NEVER invent a code for a channel-1 script (blank `ErrorExplainer`). `t2-act-publish-generic` uses `"infra_error"` DELIBERATELY (uncataloged-by-design generic arm, `PublishedToggle.tsx:116` non-member → `genericError`, no ErrorExplainer on that arm — verify arm renders copy without catalog at code time). Scenario list otherwise as R0 §Task 7 (15 ids, labels, fixtures, landing) with `t2-act-feed-errors` rows swapped to the shaper-arm rows above.
+- [ ] **Step 2:** FAIL. **Step 3: roster.** Use the FILE's real factories: `hold(entityKey)` (line 238) for mi11 holds; `logRow(minute, over)` (line 409) for changeLog rows. Feed-bearing rows must satisfy the SHAPER arms: acceptable row = `logRow(1, { source: "auto_apply", status: "applied", acknowledged_at: null })`; undo row = `logRow(2, { status: "applied", individually_undoable: true, change_kind: "crew_added" })` (a `UNDOABLE_CHANGE_KINDS` member, `lib/sync/holds/types.ts:46`) — confirm `logRow` defaults at code time and override every arm-relevant column explicitly. Warnings for bulk scenarios: 3 (partial) / 2 (fail) same-code DISTINCT-`rawSnippet` ignorable warnings via the file's warning helpers (grep tier2.ts for its ParseWarning construction; distinct snippets are REQUIRED or the group collapses to size 1). Resolve scenario alert: `alert(pickByDerivedClass("actionable"))` (helper at tier2.ts:150-173). **Error codes: every channel-1 scripted code MUST exist in `MESSAGE_CATALOG`** (R1-F6): before writing each, `grep -n "<CODE>" lib/messages/catalog.ts`; source candidates from the real action implementations (grep the server actions wired into `app/admin/_showReviewModal.tsx` for their emitted `{ ok: false, code }` values — e.g. `UNDO_NOT_FOUND` is cataloged); if an action's real codes are all cataloged, pick one per control; NEVER invent a code for a channel-1 script (blank `ErrorExplainer`). `t2-act-publish-generic` uses `"infra_error"` DELIBERATELY (uncataloged-by-design generic arm, `PublishedToggle.tsx:116` non-member → `genericError`, no ErrorExplainer on that arm — verify arm renders copy without catalog at code time). Full roster (15; codes marked `<CATALOG>` are chosen at code time from the real actions' emitted cataloged codes per the grep discipline above):
+
+```ts
+    // ── Action outcomes (spec 2026-07-23, class-6 un-deferral) ──────────────
+    { id: "t2-act-resync-error", tier: 2, label: "Re-sync: infra error", alerts: [], holds: [],
+      landing: "actions", actionOutcomes: { resync: { kind: "error", code: "SYNC_INFRA_ERROR" } } },
+    { id: "t2-act-resync-shrink", tier: 2, label: "Re-sync: shrink held for confirmation", alerts: [], holds: [],
+      landing: "actions", actionOutcomes: { resync: { kind: "shrink_held", detail: "2 crew members removed" } } },
+    { id: "t2-act-resync-success", tier: 2, label: "Re-sync: success", alerts: [], holds: [],
+      landing: "actions", actionOutcomes: { resync: { kind: "success" } } },
+    { id: "t2-act-publish-refusal", tier: 2, label: "Publish toggle: known refusal", alerts: [], holds: [],
+      landing: "actions", actionOutcomes: { setPublished: { kind: "error", code: "PUBLISH_BLOCKED_PENDING_REVIEW" } } },
+    { id: "t2-act-publish-generic", tier: 2, label: "Publish toggle: generic error", alerts: [], holds: [],
+      landing: "actions", actionOutcomes: { setPublished: { kind: "error", code: "infra_error" } } },
+    { id: "t2-act-archive-refusal", tier: 2, label: "Archive: finalize-owned refusal", alerts: [], holds: [],
+      fixture: { finalizeOwned: true }, landing: "actions",
+      actionOutcomes: { archive: { kind: "error", code: "FINALIZE_OWNED_SHOW" } } },
+    { id: "t2-act-archive-notfound", tier: 2, label: "Archive: show since deleted", alerts: [], holds: [],
+      landing: "actions", actionOutcomes: { archive: { kind: "not_found" } } },
+    { id: "t2-act-feed-errors", tier: 2, label: "Changes feed: every action errors", alerts: [],
+      holds: [hold("Casey Brooks")],
+      changeLog: [
+        logRow(1, { source: "auto_apply", status: "applied", acknowledged_at: null }),          // acceptable arm
+        logRow(2, { status: "applied", individually_undoable: true, change_kind: "crew_added" }), // undo arm
+      ],
+      actionOutcomes: { approve: { kind: "error", code: "<CATALOG>" }, reject: { kind: "error", code: "<CATALOG>" },
+        accept: { kind: "error", code: "<CATALOG>" }, acceptAll: { kind: "error", code: "<CATALOG>" },
+        undo: { kind: "error", code: "UNDO_NOT_FOUND" } } },
+    { id: "t2-act-resolve-error", tier: 2, label: "Alert resolve: error",
+      alerts: [alert(pickByDerivedClass("actionable"))], holds: [],
+      actionOutcomes: { resolve: { kind: "error", code: "RESOLVE_INFRA" } } }, // generic-fallback arm by intent
+    { id: "t2-act-bulkignore-partial", tier: 2, label: "Bulk ignore: partial success", alerts: [], holds: [],
+      warnings: [/* 3 same-code DISTINCT-rawSnippet ignorable warnings via the file's warning helper */],
+      actionOutcomes: { bulkIgnore: { kind: "partial", okCount: 2 } } },
+    { id: "t2-act-bulkignore-fail", tier: 2, label: "Bulk ignore: total failure", alerts: [], holds: [],
+      warnings: [/* 2 same-code DISTINCT-rawSnippet */], actionOutcomes: { bulkIgnore: { kind: "fail" } } },
+    { id: "t2-act-crewreset-notfound", tier: 2, label: "Crew reset: roster changed underneath", alerts: [], holds: [],
+      landing: "actions", actionOutcomes: { crewReset: { kind: "not_found" } } },
+    { id: "t2-act-share-errors", tier: 2, label: "Share hub: rotate + reset errors", alerts: [], holds: [],
+      fixture: { share: { linkActive: true, crewEmails: 3 } }, landing: "actions",
+      actionOutcomes: { rotate: { kind: "error" }, everyoneReset: { kind: "error" } } },
+    { id: "t2-act-share-success", tier: 2, label: "Share hub: rotate/reset/crew-reset success", alerts: [], holds: [],
+      fixture: { share: { linkActive: true, crewEmails: 3 } }, landing: "actions",
+      actionOutcomes: { rotate: { kind: "success" }, everyoneReset: { kind: "success" }, crewReset: { kind: "success" } } },
+    { id: "t2-act-pending", tier: 2, label: "In-flight: every control hangs", alerts: [],
+      holds: [hold("Riley Sloane")],
+      changeLog: [logRow(3, { status: "applied", individually_undoable: true, change_kind: "crew_added" })],
+      fixture: { share: { linkActive: true, crewEmails: 3 } },
+      actionOutcomes: { resync: { kind: "pending" }, setPublished: { kind: "pending" }, approve: { kind: "pending" },
+        undo: { kind: "pending" }, crewReset: { kind: "pending" }, rotate: { kind: "pending" } } },
+```
+
+The two bracketed warning arrays are the ONLY authoring slots left to code time, constrained fully: same `code`, distinct `rawSnippet` each, ignorable per `groupIgnorableByCode`, constructed with the file's existing ParseWarning helper (grep `warnings:` in `tier2.ts` for the pattern; a wrong construction fails Task 1's reachability validator, which is the guard).
 - [ ] **Step 4:** green across `tests/dev`. **Step 5: commit** `feat(admin): action-outcome scenario roster + actions nav group + registry ripples`.
 
 ### Task 8: e2e — click-driven outcomes + network-negative containment (R1-F7b/F8 fixes)
 
 **Files:** Modify `tests/e2e/attention-modal-gallery.spec.ts`.
 
-- [ ] **Step 1:** scenarios under test IMPORT their numbers: `import { TIER2_SCENARIOS } from "@/lib/dev/attentionScenarios/tier2"` (or the exported accessor the file provides — grep; the point is okCount/groupSize derive from the scenario object, no duplicated literals). Assertions as R0 Task 8 plus, in EVERY scripted-endpoint test, a `page.on("request")` recorder (pattern already in the file at lines 191-295) asserting ZERO requests to `/api/admin/sync/`, `/alerts/`-resolve, and `/data-quality/ignore` reach the network (scripted branch intercepts before dispatch; `data-gallery-scripted-write` alone proves the branch ran, not non-egress — both asserted). Outcome-copy assertions must assert NON-EMPTY rendered copy (kills the blank-ErrorExplainer failure mode) and scope to the outcome region (clone-and-strip if the label also renders elsewhere).
+- [ ] **Step 1:** scenarios under test IMPORT their numbers: grep `tier2.ts` for its exported catalog accessor and derive okCount/groupSize from the scenario object — no duplicated literals. Per-scenario assertions (each names its failure mode):
+  - `t2-act-resync-error`: jump to scenario (existing helpers), click Re-sync, expect the error panel scoped to its container (`ReSyncButton.tsx:321` region) with NON-EMPTY catalog copy; `data-gallery-scripted-write` contains `POST /api/admin/sync/`.
+  - `t2-act-resync-shrink`: click, expect confirm-panel text `This re-sync would reduce the show:` + the scripted detail substring (`ReSyncButton.tsx:368`).
+  - `t2-act-publish-refusal`: toggle, expect refusal-popover catalog copy substring scoped to the toggle's popover region.
+  - `t2-act-bulkignore-partial`: click bulk chip + confirm, expect `Ignored ${okCount} of ${groupSize}. Refresh to see the rest.` with both numbers derived from the imported scenario.
+  - `t2-act-crewreset-notfound`: open crew ⋮, confirm reset, expect the not-found banner sentence (`CrewRowActions.tsx:196-200` copy).
+  - `t2-act-share-success`: open share hub, rotate, expect success banner + rotated-token surface.
+  - `t2-act-pending`: click Re-sync, `page.waitForTimeout(500)`, busy label still present (`ReSyncButton.tsx:314-317`) — bounded settle, not a poll.
+  - EVERY scripted-endpoint test: `page.on("request")` recorder (pattern at `attention-modal-gallery.spec.ts:191-295`) asserting ZERO requests to `/api/admin/sync/`, alert-resolve, or `/data-quality/ignore` reach the network — the HTML marker proves the scripted branch ran; the recorder proves non-egress; both are asserted (spec §5).
+  - Containment sweep: extend the existing non-GET sweep so every recorded write carries `data-gallery-scripted-write` OR `data-gallery-blocked-write`.
+  - Outcome-copy assertions assert NON-EMPTY rendered copy (kills blank-ErrorExplainer) and scope to the outcome region (clone-and-strip if the label renders elsewhere too).
 - [ ] **Step 2:** run dev-build project green. **Step 3: commit** `test(admin): e2e coverage for gallery action outcomes`.
 
 ### Task 9: docs + DEFERRED un-defer
 
-As R0 Task 9 Steps 1-2 (DEFERRED rewrite; pre-push gates `pnpm tsc --noEmit && pnpm lint && pnpm format:check && pnpm test`). **Commit** `docs(admin): un-defer modal-state-coverage class 6`.
+**Files:** Modify `DEFERRED.md` (class-6 entry, lines 117-129).
+
+- [ ] **Step 1:** keep the historical entry, append: `**Un-deferred 2026-07-23** by docs/superpowers/specs/2026-07-23-gallery-action-outcomes-design.md (this PR): all six surfaces plus rotate/everyone-reset/archive are click-demonstrable via the scripted-outcome layer.`
+- [ ] **Step 2: pre-push gates** — `pnpm tsc --noEmit && pnpm lint && pnpm format:check && pnpm test` all green (env-bound/e2e suites are excluded from `pnpm test` by design; e2e ran in Task 8).
+- [ ] **Step 3: commit** `docs(admin): un-defer modal-state-coverage class 6`.
 
 ### Task 10: gates + close-out pipeline (R1-F10 fix)
 
