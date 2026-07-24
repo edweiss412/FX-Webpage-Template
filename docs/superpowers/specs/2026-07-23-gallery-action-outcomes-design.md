@@ -33,7 +33,7 @@ Three delivery channels. Every claim cited.
 
 | Surface | Outcome UI | Result contract |
 | --- | --- | --- |
-| Publish-toggle refusal popover / generic error | `PublishedToggle.tsx:94-95` (`errorCode`/`genericError`), popover 134-149; refusals gated by `KNOWN_REFUSAL_CODES` = `PUBLISH_BLOCKED_PENDING_REVIEW`, `SHOW_ARCHIVED_IMMUTABLE`, `FINALIZE_OWNED_SHOW` (34-38); non-member code → generic (116) | `LifecycleResult = { ok: true } \| { ok: false; code: string }` (32) |
+| Publish-toggle refusal popover / generic error | `PublishedToggle.tsx:94-95` (`errorCode`/`genericError`), popover render arms 141-149 and 176-183; refusals gated by `KNOWN_REFUSAL_CODES` = `PUBLISH_BLOCKED_PENDING_REVIEW`, `SHOW_ARCHIVED_IMMUTABLE`, `FINALIZE_OWNED_SHOW` (34-38); non-member code → generic (116) | `LifecycleResult = { ok: true } \| { ok: false; code: string }` (32) |
 | Archive outcomes | `ArchiveShowButton.tsx:143-160` `onResult`: `show_not_found` → `notFound`, `KNOWN_REFUSAL_CODES` = `FINALIZE_OWNED_SHOW`, `SHOW_ARCHIVED_IMMUTABLE` (50) → `errorCode`, else `genericError` | same `LifecycleResult` (41) |
 | Mi11 gate errors | `Mi11GateActions.tsx:98-99` twin `useActionState`; error rendered via `mi11-gate-result` block | `Mi11GateActionResult = { ok: true } \| { ok: false; code: string }` (31) |
 | Accept / Accept-all errors | `AcceptChangeButton.tsx:73` `useActionState`; error at 86 | `AcceptButtonResult = { ok: true; count: number } \| { ok: false; code: string }` (26) |
@@ -117,6 +117,8 @@ Guard conditions: every sub-field optional; an empty `actionOutcomes` object is 
 
 The modal remount key already used per scenario guarantees no cross-scenario state bleed (each scenario mounts fresh component state).
 
+Data flow: `actionOutcomes` is plain serializable data, so `GallerySwitcherScenario` (`lib/dev/galleryModalTypes.ts:33`) gains a passthrough `actionOutcomes` field the server page forwards — the same pattern as the per-scenario `shareToken` field (`lib/dev/galleryModalTypes.ts:43`). All closures (channels 1 and 3) and fetch scripts (channel 2) are built client-side in the switcher from that field; no function crosses the RSC boundary.
+
 ### 3.2 Channel 2 — scripted fetch responses in `GalleryWriteGuard`
 
 `GalleryWriteGuard` gains an optional `scripts` prop (default absent = today's behavior, byte-for-byte):
@@ -132,6 +134,8 @@ type FetchScript = {
 ```
 
 Matching non-GET requests return the scripted JSON `Response` and set a `data-gallery-scripted-write` attribute (value `${method} ${path}`); non-matching non-GET keeps the 403 + `data-gallery-blocked-write` path unchanged. `callIndex` (per-mount counter keyed by script) implements `bulkIgnore.partial`: first `okCount` calls → `{ status: "ignored" }` 200, rest → `{ ok: false, code: "GALLERY_SCRIPTED_FAIL" }` 500 (route's error envelope shape, `app/api/admin/show/[slug]/data-quality/ignore/route.ts:53`; the code value is deliberately gallery-synthetic and never rendered — the client branches only on `r.ok`, `BulkIgnoreControls.tsx:100`). The switcher derives `scripts` from the current scenario's `actionOutcomes` (resync / resolve / bulkIgnore keys) and remounts the guard with the scenario key so counters reset.
+
+Mount relocation: the guard currently mounts prop-less from the server page (`app/admin/dev/attention-gallery/page.tsx:51`). It moves into `AttentionModalSwitcher` (client), which always renders it — `scripts` absent for unscripted scenarios — keyed by scenario id. Exactly one guard instance exists at a time (single fetch patch; the page-level mount is removed in the same change), and with `scripts` absent its behavior is byte-identical to today's.
 
 No real network write can result: scripted responses are synthesized client-side; unscripted writes still 403. The e2e containment sweep contract is updated to accept `data-gallery-scripted-write` as a first-class marker alongside `data-gallery-blocked-write` (§5).
 
@@ -178,7 +182,7 @@ Exact mount predicates are verified against component render conditions at plan 
 | --- | --- | --- |
 | `t2-act-resync-error` | `resync: error SYNC_INFRA_ERROR` | re-sync error panel |
 | `t2-act-resync-shrink` | `resync: shrink_held` | shrink-hold confirm panel |
-| `t2-act-resync-success` | `resync: success applied` | success message + refresh path |
+| `t2-act-resync-success` | `resync: success applied` | success message + refresh path (`router.refresh()` soft-refreshes the gallery server page; scenario data is static, client state preserved — expected, harmless) |
 | `t2-act-publish-refusal` | `setPublished: error PUBLISH_BLOCKED_PENDING_REVIEW` | refusal popover |
 | `t2-act-publish-generic` | `setPublished: error <non-allowlisted>` | generic-error arm |
 | `t2-act-archive-refusal` | `archive: error FINALIZE_OWNED_SHOW`, on finalize-owned fixture | archive refusal + disabled-publish interplay |
