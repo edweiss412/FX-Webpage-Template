@@ -4,21 +4,21 @@
 
 **Goal:** Same-code FIELD_UNREADABLE warning cards become visually and identity-distinguishable (context-aware detail band + field-folded dedup/identity keys), and the data-quality group eyebrow wraps instead of truncating at 390px.
 
-**Architecture:** One additive `blockRef.field` write in the parser producer fans out to (a) a new detail band in the shared `PerShowActionableWarnings` card, (b) a FIELD_UNREADABLE fold in the `operatorActionableWarnings` dedup key (fixes a latent hidden-card bug), and (c) a FIELD_UNREADABLE fold in `warningIdentityKey` (fixes a latent shared-report-draft bug). The eyebrow fix is a one-class change in `BulkIgnoreControls` plus a new live-bundled standalone browser spec.
+**Architecture:** One additive `blockRef.field` write in the parser producer fans out to (a) a new detail band in the shared `PerShowActionableWarnings` card, (b) a FIELD_UNREADABLE fold in the `operatorActionableWarnings` dedup key (fixes a latent hidden-card bug), and (c) a FIELD_UNREADABLE fold in `warningIdentityKey` (fixes a latent shared-report-draft bug). The eyebrow fix is a one-class change in `BulkIgnoreControls`, driven test-first by a live-bundled standalone browser spec.
 
-**Tech Stack:** Next.js 16 / React server components, Vitest + jsdom, Playwright standalone config (`tests/e2e/standalone.config.ts`), esbuild@0.28.0 live-bundle harness pattern.
+**Tech Stack:** Next.js 16 / React server components, Vitest + jsdom, Playwright standalone config (`tests/e2e/standalone.config.ts`), esbuild@0.28.0 live-bundle + @tailwindcss/cli 4.2.4 compiled-CSS harness pattern (`tests/e2e/blocked-row-resolver-transitions.spec.ts:35-110`).
 
 **Spec:** `docs/superpowers/specs/2026-07-23-crewwarn-instance-discriminator-design.md` (APPROVED, Codex R3). Spec §1.1 do-not-relitigate list binds every task.
 
 ## Global Constraints
 
-- TDD per task: failing test → minimal implementation → passing test → commit (invariant 1). Commit per task, conventional-commits (invariant 6).
+- TDD per task: failing test → minimal implementation → passing test → commit (invariant 1). Commit per task, conventional-commits (invariant 6). Every test in this plan is written and observed RED before the production change it exercises.
 - No catalog / §12.4 edits; no new `code:` literals (spec §1.1 #6).
 - IGNORE fingerprint (`warningFingerprint`) untouched (spec §1.1 #5).
-- USABLE rule everywhere a band segment renders: `typeof v === "string" && v.trim().length > 0`, render trimmed; anything else ⇒ segment absent; `.trim()` never runs on a non-string (spec §2.2).
+- USABLE rule everywhere a band segment renders: `typeof v === "string" && v.trim().length > 0`, render trimmed; anything else ⇒ segment absent; `.trim()` never runs on a non-string (spec §2.2). Render rule only — identity/dedup keys use the raw string untrimmed.
 - Separator is `·` never an em-dash; band is non-interactive (no tap-target requirement).
-- No mutation surfaces touched → no telemetry registry rows (invariant 10 n/a; verify no new route/action in final diff).
-- Strict tsconfig: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` — never assign `undefined` to an optional key; use conditional spread.
+- No mutation surfaces touched → no telemetry registry rows (invariant 10 n/a; re-verify in the final diff).
+- Strict tsconfig: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` — never assign `undefined` to an optional key; use conditional spread; `as const` on string-literal fixture fields assigned to union-typed properties.
 - Meta-test inventory (spec §3 test 7): none created/extended — declared "none applies" because no new Supabase boundary, admin mutation, advisory lock, or catalog code.
 
 ---
@@ -32,10 +32,10 @@
 **Interfaces:**
 - Produces: FIELD_UNREADABLE warnings whose `blockRef` is `{ kind, index, name, field: "phone" | "email" }`. Tasks 2–5 rely on `blockRef.field`.
 
-- [ ] **Step 1: Write the failing test** — extend the existing `emitFieldUnreadable` describe block in `tests/parser/warnings.test.ts`:
+- [ ] **Step 1: Write the failing test** — extend the existing `emitFieldUnreadable` describe block in `tests/parser/warnings.test.ts`. The message and rawSnippet contracts are pinned IN FULL for BOTH branches (spec §2.1 "message + rawSnippet unchanged"):
 
 ```ts
-test("stores the field discriminator on blockRef (phone and email)", () => {
+test("stores the field discriminator on blockRef; message + rawSnippet unchanged (phone and email)", () => {
   const agg = { warnings: [] as ParseWarning[] };
   emitFieldUnreadable(agg as never, {
     section: "crew", field: "phone", rawSnippet: "call me", index: 3, name: "Jordan Ellis",
@@ -45,12 +45,19 @@ test("stores the field discriminator on blockRef (phone and email)", () => {
   });
   expect(agg.warnings[0]?.blockRef).toEqual({ kind: "crew", index: 3, name: "Jordan Ellis", field: "phone" });
   expect(agg.warnings[1]?.blockRef).toEqual({ kind: "crew", index: 3, name: "Jordan Ellis", field: "email" });
-  // message shape unchanged (outcome-neutral wording pinned elsewhere; here: field word present)
-  expect(agg.warnings[0]?.message).toContain("Crew phone for row 4");
+  expect(agg.warnings[0]?.rawSnippet).toBe("call me");
+  expect(agg.warnings[1]?.rawSnippet).toBe("jordan-at");
+  const EM = String.fromCharCode(0x2014); // the producer's em-dash, kept out of this doc's copy scanner
+  expect(agg.warnings[0]?.message).toBe(
+    `Crew phone for row 4 couldn't be read as a phone number ("call me") ${EM} check the sheet.`,
+  );
+  expect(agg.warnings[1]?.message).toBe(
+    `Crew email for row 4 couldn't be read as an email address ("jordan-at") ${EM} check the sheet.`,
+  );
 });
 ```
 
-(Match the aggregator construction style already used in that file — if it builds a real `ParseAggregator`, reuse its helper.)
+(The `EM` constant pins the EXISTING producer em-dash at `lib/parser/warnings.ts:93` byte-for-byte; it is not new copy. Match the aggregator construction style already used in that file; if it builds a real `ParseAggregator`, reuse its helper.)
 
 - [ ] **Step 2: Run** `pnpm vitest run tests/parser/warnings.test.ts` — expect FAIL: `blockRef` missing `field`.
 - [ ] **Step 3: Implement** — in `lib/parser/warnings.ts` `emitFieldUnreadable`, change the push's blockRef line:
@@ -72,13 +79,13 @@ blockRef: { kind: params.section, index: params.index, name: params.name, field:
 - Consumes: `blockRef.field` (Task 1).
 - Produces: `operatorActionableWarnings` keeps same-cell same-index FIELD_UNREADABLE pairs when `field` differs.
 
-- [ ] **Step 1: Failing test** (this pins the latent bug — red BEFORE the fix even with Task 1 landed):
+- [ ] **Step 1: Failing test** (pins the latent bug — red BEFORE the fix even with Task 1 landed). `code` carries `as const` so the object literal satisfies `ParseWarning` under strict narrowing:
 
 ```ts
 test("same-member phone+email FIELD_UNREADABLE with one shared anchor BOTH survive (field fold)", () => {
   const base = {
     severity: "warn" as const,
-    code: "FIELD_UNREADABLE",
+    code: "FIELD_UNREADABLE" as const,
     message: "m",
     sourceCell: { gid: 7, a1: "B9" },
   };
@@ -91,7 +98,7 @@ test("same-member phone+email FIELD_UNREADABLE with one shared anchor BOTH survi
 
 test("legacy field-less pair keeps today's collapse (backward compat)", () => {
   const base = {
-    severity: "warn" as const, code: "FIELD_UNREADABLE", message: "m",
+    severity: "warn" as const, code: "FIELD_UNREADABLE" as const, message: "m",
     sourceCell: { gid: 7, a1: "B9" },
   };
   const ws: ParseWarning[] = [
@@ -127,23 +134,28 @@ const rowDisc =
 
 **Interfaces:**
 - Consumes: `blockRef.field` (Task 1).
-- Produces: distinct `warningIdentityKey` → distinct `buildReportSurfaceId` and suffix-free `stableWarningKeys` for field-bearing pairs.
+- Produces: distinct `warningIdentityKey` AND distinct `buildReportSurfaceId` (the downstream wiring is asserted, not inferred) plus suffix-free `stableWarningKeys` for field-bearing pairs.
 
-- [ ] **Step 1: Failing test:**
+- [ ] **Step 1: Failing test.** The legacy-key check pins the PRE-CHANGE key as a BYTE LITERAL (derived from the current source: `code|gid:a1|normalizedSnippet|kind:index:iso:name|discriminator` with `normalizeSnippet` = trim + whitespace-collapse, `lib/dataQuality/ignorableSnippet.ts:3-5`) — not a self-comparison:
 
 ```ts
-test("FIELD_UNREADABLE identity folds blockRef.field; legacy field-less key unchanged", () => {
+import { warningIdentityKey, stableWarningKeys, type IdentityFields } from "@/lib/dataQuality/warningIdentity";
+import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
+
+test("FIELD_UNREADABLE identity folds blockRef.field; legacy field-less key is byte-identical to today's shape", () => {
   const mk = (field?: string): IdentityFields => ({
     code: "FIELD_UNREADABLE",
     sourceCell: { gid: 7, a1: "B9" },
     rawSnippet: "n/a",
     blockRef: { kind: "crew", index: 2, name: "Jordan", ...(field !== undefined ? { field } : {}) },
   });
+  // Byte-literal pin of the PRE-change key format for a field-less warning. If the
+  // implementation changes the shared shape (e.g. appends a new "|" slot), this fails.
+  expect(warningIdentityKey(mk())).toBe("FIELD_UNREADABLE|7:B9|n/a|crew:2::Jordan|");
   expect(warningIdentityKey(mk("phone"))).not.toBe(warningIdentityKey(mk("email")));
-  expect(warningIdentityKey(mk())).toBe(warningIdentityKey(mk()));
-  // legacy key is byte-identical to the pre-change shape: field absent adds nothing
-  expect(warningIdentityKey(mk())).toBe(warningIdentityKey({ ...mk(), blockRef: { kind: "crew", index: 2, name: "Jordan" } }));
-  // stableWarningKeys: field-bearing pair needs no occurrence suffix
+  // Downstream wiring: report surfaceIds diverge too (spec 2.1, no shared report draft).
+  expect(buildReportSurfaceId("showx", mk("phone"))).not.toBe(buildReportSurfaceId("showx", mk("email")));
+  // stableWarningKeys: field-bearing pair needs no occurrence suffix.
   const keys = stableWarningKeys([mk("phone"), mk("email")]);
   expect(new Set(keys).size).toBe(2);
   expect(keys[0]).not.toMatch(/#\d+$/);
@@ -151,8 +163,10 @@ test("FIELD_UNREADABLE identity folds blockRef.field; legacy field-less key unch
 });
 ```
 
-- [ ] **Step 2: Run** `pnpm vitest run tests/dataQuality/warningIdentity.test.ts` — FAIL (keys equal, suffix used).
-- [ ] **Step 3: Implement** — in `warningIdentityKey`, extend the discriminator slot (shared with the roleToken fold; codes are disjoint so the slot cannot collide):
+(Confirm the file has no `@vitest-environment jsdom` pragma — `buildReportSurfaceId` is SERVER-ONLY via node:crypto and needs the node environment. `tests/dataQuality/warningIdentity.test.ts` currently runs in node; keep it that way.)
+
+- [ ] **Step 2: Run** `pnpm vitest run tests/dataQuality/warningIdentity.test.ts` — FAIL: byte-literal passes but `mk("phone")`/`mk("email")` keys are EQUAL (and surfaceIds equal, suffix used). If the byte-literal itself fails, STOP — the derived format is wrong; fix the literal against the real output BEFORE any production change, since it documents the pre-change contract.
+- [ ] **Step 3: Implement** — in `warningIdentityKey`, extend the discriminator slot (shared with the roleToken fold; codes are disjoint so the slot cannot collide, and every non-FIELD_UNREADABLE / field-less key stays byte-identical):
 
 ```ts
 const rt = w.code === "UNKNOWN_ROLE_TOKEN" && typeof w.roleToken === "string" ? w.roleToken : "";
@@ -161,22 +175,21 @@ const fu =
 return `${w.code}|${cell}|${snippet}|${br}|${rt}${fu}`;
 ```
 
-(Reusing the tail slot keeps every NON-field key byte-identical — no global key churn; only field-bearing FIELD_UNREADABLE keys change, the deliberate one-time churn the spec §2.1 documents.)
-
 - [ ] **Step 4: Run — PASS.** Also `pnpm vitest run tests/dataQuality/ tests/admin/perShowActionableKeyStability.test.tsx` green.
 - [ ] **Step 5: Commit** `fix(admin): fold blockRef.field into FIELD_UNREADABLE warning identity — no shared report surfaceId for phone+email pairs`
 
-### Task 4: Card detail band
+### Task 4: Card detail band (all surfaces, staged included)
 
 **Files:**
 - Modify: `components/admin/PerShowActionableWarnings.tsx` (band block near the `rawLabel` logic at lines 199-217, and the `detailBand={...}` prop at 288)
-- Test: create tests/components/perShowActionableWarnings.fieldBand.test.tsx (new file)
+- Test: create tests/components/perShowActionableWarnings.fieldBand.test.tsx (new file); extend `tests/components/StagedReviewCard.test.tsx`
+- Verify-only: `tests/components/admin/stagedCardBaseline.test.tsx` (run unmodified — snapshot must NOT change)
 
 **Interfaces:**
 - Consumes: `blockRef.field/name`, `rawSnippet` via the USABLE rule.
-- Produces: `data-testid="per-show-actionable-field-label"` band + `-value` span; `detailBand` slot = `rowLabel band ?? field band`.
+- Produces: `data-testid="per-show-actionable-field-label"` band + `per-show-actionable-field-label-value` span; `detailBand` slot = `rowLabel band ?? field band`. The staged-surface wiring test lives HERE so it is written red-first in the same TDD cycle as the band itself.
 
-- [ ] **Step 1: Failing tests** (new file, header pattern copied from `tests/components/perShowActionableWarnings.autocorrect.test.tsx`: `// @vitest-environment jsdom`, cleanup, RTL render):
+- [ ] **Step 1: Failing tests.** New file header pattern copied from `tests/components/perShowActionableWarnings.autocorrect.test.tsx` (`// @vitest-environment jsdom`, cleanup, RTL render):
 
 ```tsx
 const fu = (over: Partial<ParseWarning> & { blockRef?: ParseWarning["blockRef"] }): ParseWarning => ({
@@ -204,7 +217,8 @@ test("condensed: name absent, value present", () => {
   expect(band?.textContent).not.toContain("Jordan Ellis");
 });
 
-// Spec 2.4 guard sweep: every ABSENT class per input; none throws, no dangling separator, no empty quotes
+// Spec 2.4 guard sweep: FULL per-input ABSENT matrix (missing / null / "" / whitespace /
+// non-string) for each of the three inputs; none throws, no dangling separator, no empty quotes.
 test.each([
   ["missing key", { kind: "crew", index: 2, name: "J" }],
   ["null", { kind: "crew", index: 2, name: "J", field: null }],
@@ -217,18 +231,30 @@ test.each([
   expect(screen.queryByTestId("per-show-actionable-field-label")).toBeNull();
 });
 
-test("ABSENT name (full mode) drops the segment, no dangling separator", () => {
-  render(<PerShowActionableWarnings items={[fu({ blockRef: { kind: "crew", index: 2, field: "phone" } })]} driveFileId="df" />);
+test.each([
+  ["missing key", { kind: "crew", index: 2, field: "phone" }],
+  ["null", { kind: "crew", index: 2, name: null, field: "phone" }],
+  ["empty", { kind: "crew", index: 2, name: "", field: "phone" }],
+  ["whitespace", { kind: "crew", index: 2, name: "   ", field: "phone" }],
+  ["non-string array", { kind: "crew", index: 2, name: [], field: "phone" }],
+])("ABSENT name (%s, full mode) drops the segment, no dangling separator", (_label, blockRef) => {
+  render(<PerShowActionableWarnings items={[fu({ blockRef: blockRef as never })]} driveFileId="df" />);
   expect(bands()[0]?.textContent).toBe(`Phone"call the office"`);
 });
 
-test("ABSENT rawSnippet drops value + quotes entirely", () => {
-  render(<PerShowActionableWarnings items={[fu({ rawSnippet: "   " })]} driveFileId="df" />);
+test.each([
+  ["missing key", undefined],
+  ["null", null],
+  ["empty", ""],
+  ["whitespace", "   "],
+  ["non-string number", 42],
+])("ABSENT rawSnippet (%s) drops value + quotes entirely", (_label, rawSnippet) => {
+  render(<PerShowActionableWarnings items={[fu({ rawSnippet: rawSnippet as never })]} driveFileId="df" />);
   expect(bands()[0]?.textContent).toBe("PhoneJordan Ellis");
   expect(bands()[0]?.textContent).not.toContain('"');
 });
 
-test("non-string name and rawSnippet do not throw on jsonb junk", () => {
+test("all three junk at once does not throw; label alone renders", () => {
   render(<PerShowActionableWarnings items={[fu({ rawSnippet: 42 as never, blockRef: { kind: "crew", index: 2, name: [] as never, field: "phone" } })]} driveFileId="df" />);
   expect(bands()[0]?.textContent).toBe("Phone");
 });
@@ -252,10 +278,26 @@ test("UNKNOWN_FIELD keeps Sheet row band; never both bands on one card", () => {
 });
 ```
 
+AND in `tests/components/StagedReviewCard.test.tsx` (router already mocked module-scope there; adapt the fixture builder name):
+
+```tsx
+test("staged card renders the full-mode field band for FIELD_UNREADABLE operatorActionable rows", () => {
+  const row = baseRow({
+    operatorActionable: [{
+      severity: "warn", code: "FIELD_UNREADABLE", message: "m", rawSnippet: "call the office",
+      blockRef: { kind: "crew", index: 1, name: "Jordan Ellis", field: "phone" },
+    }],
+  });
+  render(<StagedReviewCard row={row} />);
+  const band = screen.getByTestId("per-show-actionable-field-label");
+  expect(band.textContent).toBe('PhoneJordan Ellis · "call the office"');
+});
+```
+
 (`textContent` concatenates the label span and value span with no separator — hence `Phone${name}` with no space in expectations. Visual spacing is flex `gap`, exactly like the existing Sheet-row band.)
 
-- [ ] **Step 2: Run** `pnpm vitest run tests/components/perShowActionableWarnings.fieldBand.test.tsx` — FAIL (testid absent).
-- [ ] **Step 3: Implement** — in `PerShowActionableWarnings.tsx`, after the `rowLabel`/`detailBand` block (line ~217), add:
+- [ ] **Step 2: Run** `pnpm vitest run tests/components/perShowActionableWarnings.fieldBand.test.tsx tests/components/StagedReviewCard.test.tsx` — ALL new tests FAIL (testid absent), existing StagedReviewCard tests stay green.
+- [ ] **Step 3: Implement** — in `PerShowActionableWarnings.tsx`, after the `rawLabel`/`detailBand` block (line ~217), add:
 
 ```tsx
 // FIELD_UNREADABLE discriminator band (spec 2026-07-23-crewwarn-instance-discriminator §2.2).
@@ -293,78 +335,27 @@ const fieldBand: ReactNode = fieldLabel ? (
 
 and change the card prop: `detailBand={detailBand ?? fieldBand}`.
 
-- [ ] **Step 4: Run — PASS.** Also `pnpm vitest run tests/components/perShowActionableWarnings.autocorrect.test.tsx tests/admin/perShowActionableTransitions.test.tsx tests/components/admin/showpage/` green (no regression on sibling card tests).
+- [ ] **Step 4: Run — all new tests PASS.** Then the no-regression + baseline sweep:
+  - `pnpm vitest run tests/components/perShowActionableWarnings.autocorrect.test.tsx tests/admin/perShowActionableTransitions.test.tsx tests/components/admin/showpage/` — green.
+  - `pnpm vitest run tests/components/admin/stagedCardBaseline.test.tsx` — PASS with NO snapshot update (fixture `MAPPED_WARNINGS` has no FIELD_UNREADABLE, `tests/helpers/warningSurfaceFixture.ts:88-91`; spec §2.3). If it demands an update, STOP — that's a spec violation to investigate, not a snapshot to bless.
 - [ ] **Step 5: Commit** `feat(admin): FIELD_UNREADABLE cards carry a context-aware field discriminator band`
 
-### Task 5: Staged surface — band wiring + baseline unchanged
+### Task 5: Eyebrow wrap, browser-spec-first
 
 **Files:**
-- Test only: extend `tests/components/StagedReviewCard.test.tsx`; run `tests/components/admin/stagedCardBaseline.test.tsx` unmodified
+- Create: tests/e2e/_bulkIgnoreEyebrowLiveEntry.tsx (new file — live-bundle entry, pattern: `tests/e2e/_blockedRowResolverLiveEntry.tsx`: React root mount, `AppRouterContext` stub with no-op `refresh`, default `WarningAnnounceContext`)
+- Create: tests/e2e/bulk-ignore-eyebrow.layout.spec.ts (new file — pattern: `tests/e2e/blocked-row-resolver-transitions.spec.ts`: own http server; `pnpm dlx esbuild@0.28.0` bundles the entry; **CSS is REAL production Tailwind** — `pnpm dlx @tailwindcss/cli@4.2.4 -i entry.css -o out.css` where entry.css = `@source "components/admin/BulkIgnoreControls.tsx"` prepended to a copy of `app/globals.css`, exactly the mechanism at `tests/e2e/blocked-row-resolver-transitions.spec.ts:99-110`; the page `<head>` links out.css so `truncate`/`min-w-0`/flex utilities actually apply and the red run is meaningful)
+- Modify: `tests/e2e/standalone.config.ts:36` — add the bulk-ignore-eyebrow.layout name to the `testMatch` alternation (allow-list; an unregistered spec runs nowhere)
+- Modify: `components/admin/BulkIgnoreControls.tsx:161` (the fix — LAST, after red is observed)
+- Test: extend `tests/components/admin/bulkIgnoreControls.test.tsx` (class pin, also red-first)
 
-**Interfaces:**
-- Consumes: Task 4 band; `StagedRow.operatorActionable` (`components/admin/StagedReviewCard.tsx:151`).
+**Fixture:** two groups; the FIELD_UNREADABLE group carries the REAL catalog title as `label` (import `MESSAGE_CATALOG.FIELD_UNREADABLE.title` in the HARNESS so the rendered label is live) and a `bulk` of 2 items; `cards` slot is a plain placeholder node (the spec measures the eyebrow row, not the cards).
 
-- [ ] **Step 1: Add test** (mirror the file's existing StagedRow fixture builder; router already mocked module-scope):
-
-```tsx
-test("staged card renders the full-mode field band for FIELD_UNREADABLE operatorActionable rows", () => {
-  const row = baseRow({
-    operatorActionable: [{
-      severity: "warn", code: "FIELD_UNREADABLE", message: "m", rawSnippet: "call the office",
-      blockRef: { kind: "crew", index: 1, name: "Jordan Ellis", field: "phone" },
-    }],
-  });
-  render(<StagedReviewCard row={row} />);
-  const band = screen.getByTestId("per-show-actionable-field-label");
-  expect(band.textContent).toBe('PhoneJordan Ellis · "call the office"');
-});
-```
-
-(Adapt `baseRow` to the file's actual fixture helper name and required props.)
-
-- [ ] **Step 2: Run** `pnpm vitest run tests/components/StagedReviewCard.test.tsx` — new test PASSES immediately IF Task 4 landed (this is a wiring pin, not a red-first behavior test — acceptable because the behavior test cycle happened in Task 4; this pins the staged composition).
-- [ ] **Step 3: Baseline check:** `pnpm vitest run tests/components/admin/stagedCardBaseline.test.tsx` — PASS with NO snapshot update (fixture has no FIELD_UNREADABLE; spec §2.3). If it demands an update, STOP — that's a spec violation to investigate, not a snapshot to bless.
-- [ ] **Step 4: Commit** `test(admin): pin staged-surface field-band wiring; baseline snapshot unchanged`
-
-### Task 6: Eyebrow wrap
-
-**Files:**
-- Modify: `components/admin/BulkIgnoreControls.tsx:161`
-- Test: extend `tests/components/admin/bulkIgnoreControls.test.tsx`
-
-- [ ] **Step 1: Failing test:**
-
-```tsx
-test("eyebrow label wraps instead of truncating (no truncate class)", () => {
-  renderGroups(); // file's existing helper that renders BulkIgnoreControls with labeled groups
-  const label = screen.getByTestId("dq-group-label-UNKNOWN_FIELD");
-  expect(label.className).not.toContain("truncate");
-  expect(label.className).toContain("min-w-0");
-});
-```
-
-- [ ] **Step 2: Run** `pnpm vitest run tests/components/admin/bulkIgnoreControls.test.tsx` — FAIL.
-- [ ] **Step 3: Implement** — eyebrow span class at `BulkIgnoreControls.tsx:161` becomes:
-
-```tsx
-className="min-w-0 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
-```
-
-- [ ] **Step 4: Run — PASS (whole file + `bulkIgnoreControlsTransitionAudit.test.tsx`).**
-- [ ] **Step 5: Commit** `fix(admin): group eyebrow wraps at narrow widths instead of ellipsizing`
-
-### Task 7: Real-browser eyebrow spec (390px, idle + armed)
-
-**Files:**
-- Create: tests/e2e/_bulkIgnoreEyebrowLiveEntry.tsx (new file) (live-bundle entry, pattern: `tests/e2e/_blockedRowResolverLiveEntry.tsx` — React root mount, `AppRouterContext` stub with no-op `refresh`, default `WarningAnnounceContext`)
-- Create: tests/e2e/bulk-ignore-eyebrow.layout.spec.ts (new file) (pattern: `tests/e2e/blocked-row-resolver-transitions.spec.ts` — own http server, `pnpm dlx esbuild@0.28.0` bundle, LIVE tree)
-- Modify: `tests/e2e/standalone.config.ts:36` — add the bulk-ignore-eyebrow.layout name to the `testMatch` alternation (allow-list; unregistered spec runs nowhere)
-
-**Fixture:** two groups; the FIELD_UNREADABLE group carries `label: "Phone or email we couldn't use"` (the real catalog title — import `MESSAGE_CATALOG.FIELD_UNREADABLE.title` so drift fails the test, not silently passes) and a `bulk` of 2 items; `cards` slot can be a plain placeholder node (the spec measures the eyebrow row, not the cards).
-
-- [ ] **Step 1: Write the spec** (red first — the harness file exists but the config change is what discovers it; assertions in BOTH states):
+- [ ] **Step 1: Write the browser spec + harness + config registration.** Assertions in BOTH chip states. `EXPECTED_TITLE` is an INDEPENDENT byte literal in the SPEC file (not read from the catalog) so catalog drift fails assertion (d) rather than moving both sides:
 
 ```ts
+const EXPECTED_TITLE = "Phone or email we couldn't use"; // independent pin of MESSAGE_CATALOG.FIELD_UNREADABLE.title
+
 for (const state of ["idle", "armed"] as const) {
   test(`390px eyebrow row, ${state}`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -389,30 +380,61 @@ for (const state of ["idle", "armed"] as const) {
         text: eyebrow.textContent,
       };
     });
-    expect(m.eyebrowClipped).toBe(false);       // (a) not ellipsized
+    expect(m.eyebrowClipped).toBe(false);       // (a) not ellipsized: THE red assertion pre-fix
     expect(m.rowOverflow).toBe(false);          // (b) no horizontal overflow
-    expect(m.overlap).toBe(false);              // (c) eyebrow × chip bboxes disjoint
-    expect(m.text).toBe(EXPECTED_TITLE);        // (d) full catalog title present (wrap, not clip)
+    expect(m.overlap).toBe(false);              // (c) eyebrow x chip bboxes disjoint
+    expect(m.text).toBe(EXPECTED_TITLE);        // (d) catalog-drift pin; NOT expected red pre-fix (ellipsis clips paint, not textContent)
   });
 }
 ```
 
-- [ ] **Step 2: Register in `standalone.config.ts` testMatch, run** `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts --project=standalone-chromium bulk-ignore-eyebrow` — with Task 6 NOT yet reverted this passes; to honor red-first, run once with the `truncate` class temporarily restored via the harness build of the PRE-Task-6 commit: `git stash` the Task 6 change is NOT required — instead assert red by checking the spec fails against `git stash`-free tree only if Task 6 is unmerged. (Practical order: write spec BEFORE Task 6's Step 3, watch (a)/(d) fail, then land Task 6 and watch it pass. If executing sequentially after Task 6, verify red by temporarily re-adding `truncate` locally, observing (a)+(d) fail, then reverting — note the observation in the commit body.)
-- [ ] **Step 3: Commit** `test(admin): real-browser 390px eyebrow wrap + no-overlap spec, idle and armed`
+AND the jsdom class pin in `tests/components/admin/bulkIgnoreControls.test.tsx`:
 
-### Task 8: Close-out gates
+```tsx
+test("eyebrow label wraps instead of truncating (no truncate class)", () => {
+  renderGroups(); // file's existing helper that renders BulkIgnoreControls with labeled groups
+  const label = screen.getByTestId("dq-group-label-UNKNOWN_FIELD");
+  expect(label.className).not.toContain("truncate");
+  expect(label.className).toContain("min-w-0");
+});
+```
 
-**Files:** none new (fix-ups only).
+- [ ] **Step 2: Observe RED with production code UNCHANGED** (`truncate` still live):
+  - `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts --project=standalone-chromium bulk-ignore-eyebrow` — FAILS on (a) `eyebrowClipped === true` (both states). (b)/(c)/(d) may pass pre-fix; (a) is the red evidence.
+  - `pnpm vitest run tests/components/admin/bulkIgnoreControls.test.tsx` — new class test FAILS.
+- [ ] **Step 3: Implement** — eyebrow span class at `BulkIgnoreControls.tsx:161` becomes:
 
-- [ ] **Step 1: Full local suite** `pnpm test` — green; `$?` checked (Vitest exits 1 on uncaught errors even with all tests passing — check exit code, not the Tests line).
-- [ ] **Step 2:** `pnpm typecheck && pnpm lint && pnpm format:check` — green (vitest strips types; eslint pins canonical tailwind; `--no-verify` commits bypassed prettier).
-- [ ] **Step 3: Impeccable dual-gate** (invariant 8 — UI surface touched): `/impeccable critique` AND `/impeccable audit` on the diff, canonical v3 setup gates (context.mjs PRODUCT.md + DESIGN.md → register read). P0/P1 fixed or DEFERRED.md-deferred; findings + dispositions recorded in the close-out doc §12.
-- [ ] **Step 4: Whole-diff Codex review** (fresh-eyes posture, inline mode if repo-access attempts wedge) to APPROVE.
-- [ ] **Step 5:** Update `DEFERRED.md` (graduate both entries to `DEFERRED-archive.md` with resolution provenance), write close-out doc docs/superpowers/plans/2026-07-23-crewwarn-instance-discriminator-closeout.md (new file).
-- [ ] **Step 6:** Push, PR, real CI green, `gh pr merge --merge`, fast-forward local main, verify `git rev-list --left-right --count main...origin/main` == `0 0`, CronDelete the nudge job (Stage 4.4 — the ONLY permitted delete site).
+```tsx
+className="min-w-0 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+```
+
+- [ ] **Step 4: Re-run both commands — ALL PASS** (plus `pnpm vitest run tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx` green).
+- [ ] **Step 5: Commit** `fix(admin): group eyebrow wraps at 390px instead of ellipsizing — real-browser idle+armed spec`
+
+### Task 6: Close-out docs
+
+**Files:**
+- Modify: `DEFERRED.md` (graduate `CREWWARN-INSTANCE-DISCRIMINATOR-1` + `CREWWARN-INCARD-MOBILE-EYEBROW-1` to `DEFERRED-archive.md` with resolution provenance; update the "Last reconciled" line)
+- Modify: `DEFERRED-archive.md` (receive both full entries)
+- Create: docs/superpowers/plans/2026-07-23-crewwarn-instance-discriminator-closeout.md (new file — §12 holds impeccable findings + dispositions, filled during Task 7; refuted-claims ledger for review rounds)
+
+- [ ] **Step 1:** Write the graduation + archive entries + close-out skeleton (scope, task→commit table, review-round ledger with the spec R1-R3 and plan R1 findings and their dispositions).
+- [ ] **Step 2:** `pnpm format:check` on the touched markdown (prettier rules apply to tracked md; never prettier the master spec).
+- [ ] **Step 3: Commit** `docs: graduate CREWWARN discriminator + eyebrow deferrals; close-out ledger`
+
+### Task 7: Gates, review, ship
+
+**Files:** fix-up edits only, each committed via the loop below.
+
+- [ ] **Step 1: Full local verification** — `pnpm test` (check `$?`, not the Tests line — Vitest exits 1 on uncaught errors with all tests passing), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, plus the standalone browser spec from Task 5. All green.
+- [ ] **Step 2: Impeccable dual-gate** (invariant 8 — UI surface touched): `/impeccable critique` AND `/impeccable audit` on the diff, canonical v3 setup gates (context.mjs PRODUCT.md + DESIGN.md → register read). P0/P1 fixed or DEFERRED.md-deferred; findings + dispositions recorded in the close-out doc §12.
+- [ ] **Step 3: Fix-up loop (applies to Steps 2 and 4):** after ANY fix-up edit — commit it (`fix(admin): <finding>` / `docs: <disposition>`), then RE-RUN Step 1 in full. The gate sequence never advances on an uncommitted or unverified tree.
+- [ ] **Step 4: Whole-diff Codex review** (fresh-eyes posture; inline mode if repo-access attempts wedge) over the COMPLETE branch diff INCLUDING Task 6's docs edits and any Step 2 fix-ups, to APPROVE. Findings → Step 3 loop → re-dispatch.
+- [ ] **Step 5: Ship** — push, PR, real CI green (merge-ref rebuilt if behind main), `gh pr merge --merge`, fast-forward local main, verify `git rev-list --left-right --count main...origin/main` == `0 0`, CronDelete the nudge job (Stage 4.4 — the ONLY permitted delete site).
 
 ## Self-Review Notes
 
-- Spec coverage: §2.1 → Tasks 1-3; §2.2-2.4 → Task 4; §2.3 staged row → Task 5; §2.5 → Task 6; §3 test 6/6b → Tasks 7/4; §2.6/§2.7 → no animation/dimension tasks needed (inventory declares all-instant, no fixed-dimension parent; Task 7 covers the one geometric interaction).
-- Type consistency: `usable` local to Task 4; folds in Tasks 2/3 use `typeof ... === "string"` guards (no trim in keys — keys use the raw string; only the BAND trims, per spec: normalization is a render rule, not an identity rule).
-- Anti-tautology: Task 4 expectations derive from fixture fields; Task 2's red test pins the bug; Task 7 imports the live catalog title.
+- Spec coverage: §2.1 → Tasks 1-3 (incl. buildReportSurfaceId wiring pin); §2.2-2.4 → Task 4 (full ABSENT matrix per input); §2.3 staged row → Task 4 (red-first staged wiring + baseline-unchanged check); §2.5 + §3 test 6 → Task 5 (browser spec red BEFORE the class change, real compiled Tailwind); §3 test 6b → Task 4 junk-label test; §2.6/§2.7 → no animation/dimension tasks needed (all-instant inventory, no fixed-dimension parent; Task 5 covers the armed-width geometric interaction).
+- TDD ordering: every test lands red before its production change (Task 4 staged test red against missing band; Task 5 browser+class tests red against live `truncate`).
+- Type consistency: `usable` local to Task 4; folds in Tasks 2/3 use `typeof ... === "string"` guards on the RAW string (render-side trims, identity-side does not — spec §2.2 note); `as const` on `code` fixture fields.
+- Anti-tautology: Task 3 pins the legacy key as a byte literal and the surfaceId divergence; Task 5 pins the title as an independent literal in the spec file; Task 4 expectations derive from fixture fields.
