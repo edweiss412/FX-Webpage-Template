@@ -535,3 +535,57 @@ describe("ReSyncButton", () => {
     expect(panel.style.maxHeight).toBe("");
   });
 });
+
+describe("mobile Sync skin (spec 2026-07-24-strip-mobile-stacked-band §3 R2)", () => {
+  test("one trigger; two breakpoint-gated label blocks; real 44px box; mobile paddings", () => {
+    const { getByTestId, getAllByTestId } = render(<ReSyncButton slug="s1" />);
+    expect(getAllByTestId("admin-resync-button")).toHaveLength(1);
+    const btn = getByTestId("admin-resync-button");
+    for (const cls of ["min-h-tap-min", "min-w-tap-min", "max-sm:px-0", "max-sm:ml-auto"]) {
+      expect(btn.className).toContain(cls);
+    }
+    expect(getByTestId("admin-resync-desktop-label").className).toContain("max-sm:hidden");
+    const mobile = getByTestId("admin-resync-mobile-label");
+    for (const cls of [
+      "hidden",
+      "max-sm:inline-flex",
+      "h-8",
+      "px-3",
+      "rounded-sm",
+      "border",
+      "border-border",
+    ]) {
+      expect(mobile.className).toContain(cls);
+    }
+    expect(mobile).toHaveTextContent("Sync");
+  });
+
+  test("pending: icon spins with motion-reduce escape; aria-busy on, then clears", async () => {
+    let release!: () => void;
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((r) => {
+          release = () =>
+            r({
+              json: async () => ({ ok: true, result: { outcome: "skipped" } }),
+            } as unknown as Response);
+        }),
+    );
+    const { getByTestId } = render(<ReSyncButton slug="s1" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    await waitFor(() =>
+      expect(getByTestId("admin-resync-button").getAttribute("aria-busy")).toBe("true"),
+    );
+    const icon = getByTestId("admin-resync-mobile-label").querySelector("svg");
+    expect(icon?.getAttribute("class") ?? "").toContain("animate-spin");
+    expect(icon?.getAttribute("class") ?? "").toContain("motion-reduce:animate-none");
+    release();
+    // Spin STOP (spec §8 S idle<->pending both directions): busy clears and
+    // the spin class is removed once the POST settles.
+    await waitFor(() =>
+      expect(getByTestId("admin-resync-button").getAttribute("aria-busy")).toBe("false"),
+    );
+    const settled = getByTestId("admin-resync-mobile-label").querySelector("svg");
+    expect(settled?.getAttribute("class") ?? "").not.toContain("animate-spin");
+  });
+});

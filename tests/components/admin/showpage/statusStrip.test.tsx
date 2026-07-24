@@ -24,7 +24,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { StatusStrip, type StatusStripProps } from "@/components/admin/showpage/StatusStrip";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
@@ -753,5 +753,34 @@ describe("stacked mobile band (spec 2026-07-24-strip-mobile-stacked-band §3)", 
     rerenderStrip(rerender, { published: false, isLive: false });
     expect(screen.getByTestId("strip-state-badge").textContent).toContain("Draft");
     expect(screen.getByTestId("strip-sync-age")).toBe(syncBefore);
+  });
+});
+
+describe("compound pending (spec 2026-07-24-strip-mobile-stacked-band §8)", () => {
+  it("compound: toggle pending and Sync pending simultaneously, independent controls", async () => {
+    let releaseFetch!: () => void;
+    const held = new Promise<Response>((r) => {
+      releaseFetch = () =>
+        r({
+          json: async () => ({ ok: true, result: { outcome: "skipped" } }),
+        } as unknown as Response);
+    });
+    vi.stubGlobal("fetch", vi.fn(() => held));
+    let releaseAction!: (v: { ok: true }) => void;
+    renderStrip({ setPublished: () => new Promise((r) => { releaseAction = r; }) });
+    fireEvent.click(screen.getByTestId("published-toggle"));
+    fireEvent.click(screen.getByTestId("admin-resync-button"));
+    await waitFor(() =>
+      expect(screen.getByTestId("published-toggle").getAttribute("aria-busy")).toBe("true"),
+    );
+    expect(screen.getByTestId("admin-resync-button").getAttribute("aria-busy")).toBe("true");
+    const icon = screen.getByTestId("admin-resync-mobile-label").querySelector("svg");
+    expect(icon?.getAttribute("class") ?? "").toContain("animate-spin");
+    releaseAction({ ok: true });
+    releaseFetch();
+    await waitFor(() =>
+      expect(screen.getByTestId("published-toggle").getAttribute("aria-busy")).toBe("false"),
+    );
+    vi.unstubAllGlobals();
   });
 });
