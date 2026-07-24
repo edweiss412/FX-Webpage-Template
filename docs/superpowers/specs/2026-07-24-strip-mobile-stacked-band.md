@@ -42,7 +42,7 @@ different row membership. The skeleton's single 73px row cannot match either.
 
 | Decision | Ratification |
 | --- | --- |
-| Visual source is the user's 1B card; a taller band (~200px vs today's 149px wrap) is ACCEPTED — height was traded for clarity + determinism explicitly. | User approval 2026-07-24 (conversation; mock artifact `46d1a087`) |
+| Visual source is the user's 1B card; a taller band (~214px vs today's 149px wrap) is ACCEPTED — height was traded for clarity + determinism explicitly. | User approval 2026-07-24 (conversation; mock artifact `46d1a087`) |
 | Phones only: every change is `max-sm:`-scoped or `sm:hidden`. `≥sm` layout/labels/behavior unchanged. | User answer "Phones only" 2026-07-24 |
 | Badge states: "Live" only when `isLive` (page-computed `published && isShowLiveOnDate` passed as a prop, StatusStrip.tsx:43-45,80-81); "Published" when published and not live; "Draft" when unpublished; "Archived" when archived. NOT the 1B binary Live/Draft. | User answer 2026-07-24 |
 | Sublabel copy: "Visible to crew" / "Hidden from crew". | User answer 2026-07-24 |
@@ -50,9 +50,9 @@ different row membership. The skeleton's single 73px row cannot match either.
 | Sync trigger: 32px visual height inside a 44px real hit box, label "Sync" below `sm`; desktop keeps the "Re-sync" text grid untouched (ReSyncButton.tsx:312-319). | User answer 2026-07-24 |
 | 1B's tap-anywhere publish row is DROPPED: the switch (`SwitchButton`, a `type="submit"` form submitter — PublishedToggle.tsx:209-244, React-19 dispatch safety PublishedToggle.tsx:19-24) stays the only interactive element in the row. Its hit area meets the 44px floor via the existing `before:*` inset extension (PublishedToggle.tsx:233-235). | This spec; deviation from mock ratified here |
 | ONE PublishedToggle instance and ONE ReSyncButton instance serve both breakpoints (responsive internals, never duplicate mounts): duplicate mounts would fork `useFormStatus` pending state, duplicate `data-testid="published-toggle"` / popover ids, and allow a second dispatch across a breakpoint cross. | This spec (R1 finding 2/3) |
-| Rows are formed by full-width break elements between the strip's DIRECT children — never by wrapper rows — preserving the executable direct-parent + DOM-order contracts (statusStrip.test.tsx:329-345) and the §9 scanner-counted Re-sync mount form (StatusStrip.tsx:291-304). | This spec (R1 finding 1) |
+| Rows are formed by full-width DIRECT children of the strip (no wrapper rows, no zero-height break elements) — preserving the executable direct-parent + DOM-order contracts (statusStrip.test.tsx:329-345), the §9 scanner-counted Re-sync mount form (StatusStrip.tsx:291-304), and avoiding phantom `gap-y` lines. | This spec (R1 finding 1; R2 finding 1) |
 | ShareHub trigger labels unchanged in all lifecycles: "Share link" / "Share link · paused" / "Show actions" (ShareHub.tsx:418). Only geometry/border changes below `sm`. | User design pivot 2026-07-24 |
-| DEFERRED.md:17's `basis-full` prescription is honored in mechanism (break elements ARE explicit `basis-full` rows) and superseded in layout by the user-approved 1B translation; its "NOT tightening spacing" constraint holds. | This spec |
+| DEFERRED.md:17's `basis-full` prescription is honored in mechanism (rows are explicit full-width flex lines) and superseded in layout by the user-approved 1B translation; its "NOT tightening spacing" constraint holds. | This spec |
 | Live pill: `bg-accent-tint` + `text-accent-on-bg` + `bg-accent-on-bg` dot — all three legs of the DESIGN.md §1.2 pinned pair "accent-on-bg on accent-tint" (4.91:1 light / 8.03:1 dark; DESIGN.md:78). The raw-accent dot was rejected (≈2:1 on tint). Accent-tint's §1.1 usage note gains this pill. | This spec (R1 finding 8d) |
 | No DB, no RPC, no advisory locks, no new mutation surfaces, no §12.4 codes. Invariants 2/3/9/10 N/A beyond existing coverage. | This spec |
 
@@ -76,39 +76,53 @@ different row membership. The skeleton's single 73px row cannot match either.
 
 ## §3 Mobile band structure (`<sm`)
 
-### Architecture: flat children + break elements
+### Architecture: flat children, full-width items form the rows
 
 The strip root KEEPS `flex w-full flex-wrap items-center gap-x-4 gap-y-2
-sm:flex-nowrap` (no `flex-col`). Mobile rows are produced by aria-hidden,
-zero-height, full-width BREAK elements inserted between the existing direct
-children: `<span aria-hidden="true" class="hidden max-sm:block h-0
-basis-full" />` (rendered `sm:`-up as `display:none`; below `sm` each forces a
-flex line break). Dividers are real 1px rules that occupy their own line:
-`<div aria-hidden="true" class="hidden max-sm:block h-px basis-full
-bg-border" />` (`gap-y-2` supplies 8px above/below each line). All strip
-children remain DIRECT children — the jsdom direct-parent and DOM-order
-contracts and the scanner-counted `{!archived ? (` mount survive unchanged.
+sm:flex-nowrap` (no `flex-col`). There are NO break elements: in a wrapping
+flex row, any item that is full-width (`w-full` or `basis-full`) necessarily
+occupies its own flex line, and `gap-y-2` supplies exactly one 8px gap
+between consecutive LINES (a zero-height break line would add a phantom
+8px — R2 finding 1 — which this architecture avoids by having no such
+lines). Mobile rows are therefore formed purely by which items are
+full-width below `sm`:
+
+- R0: the badge sits inside a NEW wrapper `<div class="hidden max-sm:flex
+  w-full justify-end">` — full-width, so it is a line; `justify-end`
+  right-flushes the pill.
+- R1: the toggle's existing strip wrapper gains `max-sm:w-full` — a line.
+- D1/D2 dividers: `<div aria-hidden="true" class="hidden max-sm:block h-px
+  w-full bg-border" />` — each a 1px line.
+- R2: sync-age + Re-sync trigger are NOT full-width; they share the line
+  between the two dividers (all other <sm-visible neighbors are full-width).
+- R3: `share-hub-group` gains `max-sm:w-full` — a line.
+
+All strip children remain DIRECT children — the jsdom direct-parent and
+DOM-order contracts and the scanner-counted `{!archived ? (` mount survive
+unchanged.
 
 Child sequence (DOM order; existing elements keep their order):
 
-badge(R0) · BREAK · toggle-or-archived-badge(R1) · BREAK · DIVIDER(D1) ·
+badge-wrapper(R0) · toggle-or-archived-badge(R1) · D1 ·
 control-divider(existing, `hidden sm:block`) · live-badge(desktop-only) ·
-sync-age + resync(R2) · BREAK · DIVIDER(D2) · share-hub-group(R3)
+sync-age + resync(R2) · D2 · share-hub-group(R3)
 
-Presence rules for breaks/dividers: the R0→R1 break always renders; D1
-renders iff R1 rendered (i.e. not archived — the archived badge row IS R1's
-slot when archived, see R1 below); D2 renders iff R2 rendered anything
-(sync-age present OR Sync trigger present). A row that renders nothing also
-renders no adjacent divider, so no divider is ever orphaned.
+Divider presence: D1 renders iff R1 rendered (not archived); D2 renders iff
+R2 rendered anything (sync-age present OR Sync trigger present). A row that
+renders nothing also renders no adjacent divider, so no divider is ever
+orphaned and no empty line ever forms.
 
-### R0 Badge row — NEW element, `hidden max-sm:inline-flex`
+### R0 Badge row — NEW elements (wrapper + pill), mobile-only
 
-`data-testid="strip-state-badge"`, pushed to the right edge by `max-sm:ml-auto`
-(first on its line; `ml-auto` right-flushes it). Fixed box: `h-6` (24px)
-`rounded-pill px-2.5 text-xs font-semibold inline-flex items-center gap-1.5
-whitespace-nowrap`, dot `size-[7px] rounded-pill shrink-0` + label — label
-always present (§1 color-blind floor). Height is EXACTLY 24px by class, not
-by line box (text-xs line ≈16.8px centers inside).
+Wrapper: `hidden max-sm:flex w-full justify-end` (the row). Pill:
+`data-testid="strip-state-badge"`, fixed box `h-6` (24px) `rounded-pill
+px-2.5 text-xs font-semibold inline-flex items-center gap-1.5
+whitespace-nowrap`, dot `size-2 rounded-pill shrink-0` (8px — spacing-scale
+token, no arbitrary value; the §12 token rule DESIGN.md:343 forbids new
+magic pixels, and the existing `size-[3px]` bullet at StatusStrip.tsx:259
+predates it) + label — label always present (§1 color-blind floor). Height
+is EXACTLY 24px by class, not by line box (text-xs line ≈16.8px centers
+inside).
 
 | State (evaluation order) | Label | Recipe |
 | --- | --- | --- |
@@ -151,10 +165,12 @@ INTERNALLY (one form, one SwitchButton, one error/finalize state):
   finalize sublines clip visually; assistive tech still receives the full
   string (visual clipping does not alter text alternatives).
 - Switch: the existing `<form>` + `SwitchButton`, unchanged semantics/testid/
-  aria-label. `aria-describedby` becomes the two-token list
-  `"${popoverId} ${popoverId}-sublabel"` in settings variant — at most one
-  target is rendered-and-visible at a time; hidden/absent IDREFs contribute
-  nothing.
+  aria-label. `aria-describedby` in the settings variant is a SINGLE dynamic
+  token, mirroring the inline variant's conditional pattern
+  (PublishedToggle.tsx:131): `showError` → `popoverId` (the error banner);
+  otherwise → `${popoverId}-sublabel`. The description is therefore always
+  exactly one visible element — never the error-plus-state concatenation a
+  static two-token list would produce (R2 finding 6).
 - Error/generic-retry: the existing `POPOVER_POSITION` band-anchored banner,
   unchanged, ONE instance. The FINALIZE_CHIP renders `max-sm:hidden` (desktop
   ≥sm keeps today's chip exactly); below `sm` finalize copy is carried by the
@@ -173,25 +189,31 @@ additions: `max-sm:*` classes, the hidden mobile label block, the extra
 - Sync-age group (222-266): gains `max-sm:shrink max-sm:min-w-0
   max-sm:overflow-hidden` (the existing `shrink-0` stays for `≥sm`; `max-sm:`
   variants override below it). Its status line (246) gains `max-sm:min-w-0
-  max-sm:overflow-hidden`; the two text spans gain `whitespace-nowrap
-  max-sm:overflow-hidden max-sm:text-ellipsis`. Net effect: the row NEVER
-  grows vertically — overflow clips the "Edited" tail. Worst-case honest
-  math: 271.9 (status group) + 16 (gap) + ~82 (Sync skin: 15px icon + 7px
-  gap + "Sync" text + 24px padding + 2px border) ≈ 370 > 350, so the
-  worst-case bucket label DOES clip ~20px of the Edited tail; the typical
-  fixture (195.8 + 16 + 82 ≈ 294) fits untouched. Clipping is the accepted
-  cost of a hard height cap (unbounded `formatRelative` output makes any
-  no-clip guarantee false).
+  max-sm:overflow-hidden`. Clip PRIORITY (R2 finding 4): the health/synced
+  span (`strip-synced-line`, 248) gains `whitespace-nowrap shrink-0` — it is
+  NEVER truncated; the Edited span (261) gains `whitespace-nowrap
+  max-sm:min-w-0 max-sm:overflow-hidden max-sm:text-ellipsis` — the Edited
+  tail is the only sacrificial text. The row NEVER grows vertically. Honest
+  worst-case math (incl. the trigger's real box — R2 finding 5): the
+  trigger's existing outer `px-2` becomes `max-sm:px-0` so the inner skin
+  owns all padding; item width ≈ 81 (15 icon + ~6 gap + "Sync" ~34 + 24
+  `px-3` + 2 border). Worst row = 271.9 + 16 + 81 ≈ 369 > 350 → ~19px of the
+  Edited tail clips; the health label (~150px worst alone) always fits
+  (150 + 16 + 81 = 247 ≤ 350). Typical fixture: 195.8 + 16 + 81 ≈ 293, no
+  clip. Clipping is the accepted cost of a hard height cap (unbounded
+  `formatRelative` output makes any no-clip guarantee false).
 - ReSyncButton (single instance, direct strip child): the trigger keeps
   `min-h-tap-min min-w-tap-min` as its REAL box (ReSyncButton.tsx:303) and
   gains `max-sm:ml-auto` (right-flush on its line). Inside the button, two
   breakpoint-gated content blocks:
   - `≥sm` (`max-sm:hidden`): the existing label grid (312-319), untouched.
   - `<sm` (`hidden max-sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-sm
-    border border-border`): `<RefreshCw size={15} aria-hidden>` + "Sync". The
-    bordered 32px (`h-8`) skin is an inner span; the BUTTON's rect stays
-    ≥44×44 (real box, so `getBoundingClientRect` tap assertions hold without
-    pseudo-element games). While `pending`: the icon gets `animate-spin
+    border border-border`): `<RefreshCw size={15} aria-hidden>` + "Sync"
+    (`size={15}` follows the existing strip-surface lucide literal precedent,
+    ShareHub.tsx:414-416 — no new token needed). The bordered 32px (`h-8`)
+    skin is an inner span; the BUTTON keeps `min-h-tap-min min-w-tap-min` as
+    its real rect and its outer `px-2` becomes `max-sm:px-0` (the skin owns
+    the padding). While `pending`: the icon gets `animate-spin
     motion-reduce:animate-none`; label stays "Sync"; `aria-busy` + `disabled`
     (existing, 296-303) carry the state.
   Accessible name: the button's name is its visible text — "Sync" below `sm`,
@@ -221,19 +243,22 @@ The kebab stays the LAST trigger, so with the root at full band width the
 group's right edge — the popover/caret anchor datum (ShareHub.tsx:172-211) —
 remains the band's content right edge; the 390px popover-alignment assertion
 (published-review-modal.interactions.spec.ts:804) must stay green unmodified.
-The in-flow dev-capture status element (ShareHub.tsx:440) renders after the
-kebab inside the root flex row; below `sm` it wraps to its own line inside R3
-when present (dev-only surface; band growth while a dev capture is running is
-accepted and out of parity scope).
+The in-flow dev-capture status element (ShareHub.tsx:443-450) stays ON the
+trigger line (the root has no `flex-wrap`) and already self-bounds via its
+existing `max-w-48 truncate`; it cannot grow the band (R2 finding 7). Below
+`sm` with `flex-1` on the primary, the status competes for the same line —
+acceptable for a dev-only transient, and its truncation keeps R3's height
+fixed.
 
 ## §4 Dimensional invariants (`<sm`, 390×844)
 
 | Parent → child | Guarantee | Class |
 | --- | --- | --- |
 | band → strip root | full width | `w-full` (existing) |
-| rows | formed by breaks | `hidden max-sm:block h-0 basis-full` |
-| dividers | own 1px line | `hidden max-sm:block h-px basis-full bg-border` |
-| R0 badge | fixed 24px, right edge | `h-6`, `max-sm:ml-auto` |
+| rows | own flex line each | full-width items (`w-full`) — no break elements |
+| dividers | own 1px line | `hidden max-sm:block h-px w-full bg-border` |
+| R0 wrapper | own line, pill right-flushed | `hidden max-sm:flex w-full justify-end` |
+| R0 badge | fixed 24px | `h-6` |
 | R1 container | full width, ≥44px, centered | `max-sm:w-full max-sm:min-h-tap-min max-sm:items-center` on the toggle container; `max-sm:w-full` on its strip wrapper |
 | R1 label block | shrinkable column, one-line sublabel | `max-sm:min-w-0 max-sm:flex-col`, sublabel `truncate` |
 | R2 sync-age | shrinks + clips, never wraps rows | `max-sm:shrink max-sm:min-w-0 max-sm:overflow-hidden`, nowrap + ellipsis on text spans |
@@ -244,12 +269,14 @@ accepted and out of parity scope).
 
 Row heights below `sm` are hard-capped: R0 = 24 (`h-6`), R1 = max(44,
 heading 20 + sublabel 16.8) ≈ 44 (truncate caps the sublabel at one line),
-R2 = 44 (trigger box; sync-age clips), R3 = 44 (trigger min box; dev-capture
-status excepted, dev-only), dividers = 1px, inter-line `gap-y-2` = 8px.
-Band height is a function of element PRESENCE only (archived / never-synced),
-never of text content. Presence variants: full (R0·R1·D1·R2·D2·R3),
-never-synced (same rows, R2 left empty), archived (R0·R2-without-Sync·D2·R3;
-no R1/D1), archived+never-synced (R0·R3 only).
+R2 = 44 when the trigger renders / ≈17 when only the status line does
+(archived), R3 = 44, dividers = 1px, one `gap-y-2` (8px) between consecutive
+lines. Full band = 24+8+44+8+1+8+44+8+1+8+44 = 198 content + 16 band `py-2`
+= **214px**, a pure function of element PRESENCE (archived / never-synced),
+never of text content. Presence variants: full (R0·R1·D1·R2·D2·R3, 214px),
+never-synced (same rows, R2 left empty, 214px), archived
+(R0·R2-status-only·D2·R3 = 24+8+17+8+1+8+44 = 110 content + 16 = 126px),
+archived+never-synced (R0·R3 = 24+8+44 = 76 content + 16 = 92px).
 
 ## §5 Breakpoint × lifecycle mode boundaries
 
@@ -272,25 +299,27 @@ The subHeader placeholder mirrors the loaded band per breakpoint:
 - `≥sm`: the existing single row untouched (E = 0.00 at 1280 stays); it gains
   `max-sm:hidden`.
 - `<sm` (new sibling block, `hidden max-sm:flex flex-wrap items-center gap-x-4
-  gap-y-2 w-full` with the same break/divider elements as §3): badge bar
-  (`h-6 w-16 rounded-pill ml-auto`), BREAK, publish row (`min-h-tap-min w-full
-  flex items-center justify-between`: label column bars `h-4 w-24` + `h-3
-  w-20`, switch bar `h-7 w-12 rounded-pill`), BREAK, divider `h-px basis-full`,
-  meta row (`min-h-tap-min w-full flex items-center justify-between`: `h-4
-  w-44` bar, `h-8 w-16 rounded-sm` bar), BREAK, divider, actions row (`h-11
-  flex-1 rounded-sm` bar + `h-11 w-11 rounded-sm` bar).
+  gap-y-2 w-full` — same no-break-elements architecture as §3, every row a
+  full-width item): badge row (`w-full flex justify-end` wrapper holding an
+  `h-6 w-16 rounded-pill` bar), publish row (`min-h-tap-min w-full flex
+  items-center justify-between`: label column bars `h-4 w-24` + `h-3 w-20`,
+  switch bar `h-7 w-12 rounded-pill`), divider `h-px w-full`, meta row
+  (`min-h-tap-min w-full flex items-center justify-between`: `h-4 w-44` bar,
+  `h-8 w-16 rounded-sm` bar), divider, actions row (`w-full flex gap-2`:
+  `h-11 flex-1 rounded-sm` bar + `h-11 w-11 rounded-sm` bar).
 
 Widths are cosmetic; HEIGHTS and the row/divider/gap skeleton mirror §4's
 caps exactly, so E ≤4px is assertable at 390 for the parity fixture.
 
-**Scope honesty (R1 finding 5):** the skeleton has no lifecycle input
-(ShowReviewModalSkeleton.tsx:32) and always renders the full-band placeholder.
-Exact parity is asserted FOR THE PARITY FIXTURE'S LIFECYCLE (published,
-non-archived, non-finalize — the overwhelmingly common load). For an archived
-show's shorter mobile band the skeleton over-reserves by R1+D1 (~53px) and the
-band shrinks when content arrives; this is a bounded, documented residual, not
-a parity-spec subject. (Desktop archived has the same class of residual today
-and is likewise untested.)
+**Scope honesty (R1 finding 5; numbers corrected per R2 finding 2):** the
+skeleton has no lifecycle input (ShowReviewModalSkeleton.tsx:32) and always
+renders the full-band 214px placeholder. Exact parity is asserted FOR THE
+PARITY FIXTURE'S LIFECYCLE (published, non-archived, non-finalize — the
+overwhelmingly common load). Residuals for the other lifecycles, from the §4
+variant table: archived 214−126 = **88px** over-reserve; archived +
+never-synced 214−92 = **122px**. The band shrinks when such content arrives;
+this is a bounded, documented residual, not a parity-spec subject. (Desktop
+archived has the same class of residual today and is likewise untested.)
 
 ## §7 DESIGN.md delta
 
@@ -339,8 +368,11 @@ CSS visibility swap; because toggle/resync are single instances, pending
 state, error banners, and overlays PERSIST across the cross (same nodes).
 
 Compound: ShareHub popover open while `published`/`archived` changes → the
-popover CLOSES (existing behavior, ShareHub.tsx:287) — unchanged, restated
-here because the badge now also updates on the same refresh. Toggle pending
+popover closes ONLY when the hub is idle; while a hub action is in flight the
+close is DEFERRED and the popover deliberately stays open after settlement so
+its outcome stays readable (ShareHub.tsx:276-324; pinned by
+shareHub.test.tsx:919-949) — unchanged behavior, restated because the badge
+now also updates on the same refresh. Toggle pending
 while Sync pending: independent forms, allowed; overlay z-order per existing
 rule (ReSync z-50 over toggle z-40, ReSyncButton.tsx:52-56). Viewport cross
 while any overlay open: overlays are band-anchored (`inset-x-0 top-full`) and
@@ -383,10 +415,15 @@ single-instance — they persist and keep full-band width.
 5. **statusStripToggleLayout.spec.ts migration**: (a)/(c) chip assertions move
    to a ≥sm viewport (chip unchanged there); 390px gains: finalize renders
    the truncated sublabel in-flow inside R1 (no chip, no overlay, R1 height
-   still ≤48). (d) is REPLACED by a real settings-mode refusal state rendered
-   through PublishedToggle itself (extend _statusStripToggleHarness.tsx with
-   an error-state render), asserting the banner spans the band and stays
-   in-viewport at 390 (R1 finding 9a). (b) unchanged.
+   still ≤48). (d) KEEPS its hand-built ErrorExplainer banner probe — the
+   harness is static server-rendered HTML with no hydration, so a real
+   refusal state is unreachable there (R2 finding 3; error state exists only
+   after a form action runs, PublishedToggle.tsx:93-118). The settings-mode
+   refusal is instead covered by (i) the existing probe pinning the banner's
+   geometry classes at 390 and (ii) a NEW jsdom assertion that the settings
+   variant's refusal branch renders the SAME `POPOVER_POSITION` class string
+   the probe measures — together closing R1 finding 9a executably.
+   (b) unchanged.
 6. **ReSyncButton unit**: mobile block markup (RefreshCw + "Sync"), pending
    adds `animate-spin` + `aria-busy`; desktop grid untouched (existing
    T-RESYNC-WIDTH stays green).
@@ -403,13 +440,16 @@ single-instance — they persist and keep full-band width.
 | --- | --- | --- |
 | `lastSyncedAt` | null | sync-age absent; R2 keeps ≥44px (trigger present when not archived); with `archived` too → R2 and D2 absent |
 | `lastSyncedAt` | invalid ISO | `formatRelative` returns it verbatim; R2 clips the tail (truncation cap) — no height change |
-| `lastCheckedAt` | null / invalid | ok-bucket time falls back to `lastSyncedAt` (StatusStrip.tsx:133-138); invalid renders verbatim + clips |
+| `lastCheckedAt` | null | ok-bucket time falls back to `lastSyncedAt` via `??` (StatusStrip.tsx:137) |
+| `lastCheckedAt` | invalid ISO | NO fallback (`??` passes non-null through); `formatRelative` returns the string verbatim; renders + clips |
 | `lastSyncStatus` | null / "" / unknown | mapper yields "Not synced yet" / "Unknown sync state" buckets (syncStatus.ts:38-43); label renders only when `lastSyncedAt` non-null (the 132 null-guard short-circuits first) |
-| `now` | invalid Date | `formatRelative` yields NaN-driven "just now"/garbage; display-only, clipped; no crash path (arithmetic only) |
+| `now` | invalid Date | NaN arithmetic falls through every `<` comparison to the days branch → renders "NaNd ago" deterministically (showDisplay.ts:101-107); display-only, clipped, no crash |
 | `isLive` | true while `published` false | badge shows "Live" (precedence); upstream contract makes it unreachable (StatusStrip.tsx:43-45) — documented garbage-in |
 | `archived` | true | R1+D1 absent, Sync absent, hub archived arm, badge "Archived" |
 | `finalizeOwned` | true | switch disabled; `<sm` sublabel carries the finalize copy, `≥sm` chip (settings variant is the ONLY strip variant; card is out of strip scope) |
-| `slug` / `showId` / `showTitle` | "" | display/id passthrough (popover id degrades to `published-toggle-popover-`; unchanged from today's inline behavior) |
+| `slug` | "" | popover id degrades to `published-toggle-popover-` AND the hub's crew URL degrades to `/show//<token>` (ShareHub consumes `slug` for the copy URL) — both today's existing inline/hub behavior, unchanged by this spec |
+| `showId` | "" | passed through to the hub's rotate/reset mutation actions unchanged (existing behavior; those actions' own validation is out of scope) |
+| `showTitle` | "" / whitespace | mailto builder trims and falls back to the bare "Crew link" subject/body (crewLinkMailto.ts:51-57,85-97) — existing behavior |
 | `crewEmails` / `pickerCrew` | [] | ShareHub internals unchanged (out of scope) |
 | `devCaptureSnapshot` | undefined | prop omitted via existing conditional spread (StatusStrip.tsx:326); dev-capture status row absent |
 | status text overflow | any length | clipped horizontally (`overflow-hidden` + ellipsis); R2 height immutable |
@@ -427,12 +467,15 @@ DEFERRED-archive.md with pointers here.
 
 Numeric inventory (value — §provenance): 350 content width (§2 probe); 271.9
 worst status group, 195.8 typical (§2); 164.8/112.8/44 hub split (§2); 120.4
-toggle group, 71.8 live badge (§2); 149/73/120 band heights (§2); ~82 Sync
-skin estimate → verified by §9.2 no-overflow assertion (§3 R2); ~370 > 350
-worst-case row 2 → clips (§3 R2); 44 tap floor `--spacing-tap-min` (§2); 4/8
-E/D tolerances (§2); 24 badge height `h-6` (§3 R0); 16.8 text-xs line box
-(§2); 32/`h-8` Sync visual skin (§3 R2); [44,48] row-height test band (§9.2);
-~53px archived skeleton over-reserve = R1 44 + D1 1 + gap 8 (§6); 390×844 /
-1280×900 parity viewports (§2); ~200px full mobile band ≈ 24+8+44+8+1+8+44+
-8+1+8+44 + band `py-2` 16 (§4); 48×28 switch real rect (§2); 15 RefreshCw
-size (§3 R2); 1px dividers (§3).
+toggle group, 71.8 live badge (§2); 149/73/120 pre-change band heights (§2);
+~81 Sync trigger item width (skin 15+~6+~34+24+2, outer `max-sm:px-0`) →
+verified by §9.2 no-overflow assertion (§3 R2); ~369 > 350 worst-case row 2 →
+~19px Edited-tail clip; ~150+16+81=247 health-label floor (§3 R2); 44 tap
+floor `--spacing-tap-min` (§2); 4/8 E/D tolerances (§2); 24 badge height
+`h-6`, 8px `size-2` badge dot (§3 R0); 16.8 text-xs line box (§2); 32/`h-8`
+Sync visual skin (§3 R2); [44,48] row-height test band (§9.2); 214 full band
+= 198 content + 16 `py-2`, 126 archived, 92 archived+never-synced (§4);
+88/122 archived skeleton over-reserves = 214−126 / 214−92 (§6); 390×844 /
+1280×900 parity viewports (§2); 48×28 switch real rect (§2); 15 lucide icon
+literal (precedent ShareHub.tsx:414-416) (§3 R2); 1px dividers (§3); ~48
+max-w-48 dev-capture truncation = 192px (§3 R3, existing).
