@@ -4,9 +4,9 @@
 
 **Goal:** Ship the three deferred crew-warning findings — 24px indent binding (INDENT-1), condensed under-row copy (COPY-CONDENSE-1), and the capped-stack visual fixture (CAP-FIXTURE-1) — per spec `docs/superpowers/specs/2026-07-23-crewwarn-underrow-polish-design.md` (Codex-APPROVEd R5).
 
-**Architecture:** A `condensed` boolean prop on `PerShowActionableWarnings` moves catalog guidance into the `?` popover body (composition derived from full mode's slots via a new exported pure helper `condensedPopoverSlots`); `renderCrewUnderRowCards` wraps each node in a `pl-6` div and passes `condensed`; the e2e harness gains a `withCappedCrewWarnings` fixture + `crewWarningsCapped` page (mixed banner + 3 warnings); the layout spec gains hop-by-hop width assertions.
+**Architecture:** A `condensed` boolean prop on `PerShowActionableWarnings` moves catalog guidance into the `?` popover body (composition derived from full mode's slots via a new exported pure helper `condensedPopoverSlots`); `renderCrewUnderRowCards` wraps each node in a `pl-6` div and passes `condensed`; the e2e harness gains a `withCappedCrewWarnings` fixture + `crewWarningsCapped` page (mixed banner + 3 warnings); the layout spec gains hop-by-hop width assertions for both stack subtrees.
 
-**Tech Stack:** React 19 / Next 16, Tailwind v4, Vitest jsdom units, Playwright static-harness layout spec.
+**Tech Stack:** React 19 / Next 16, Tailwind v4, Vitest jsdom units, Playwright static-harness layout spec (standalone config — no web server).
 
 ## Global Constraints
 
@@ -15,13 +15,14 @@
 - Spec §1.1 is ratified: 24px (`pl-6`), per-kind widths (banners full), instance guidance stays inline, NO edits to `lib/messages/catalog.ts` / §12.4 / `tests/messages/warningCardCopyRegistry.ts`.
 - Strict TS: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` — index with `!` only after a length assertion; never pass `undefined` to optional props explicitly.
 - Worktree: `/Users/ericweiss/FX-worktrees/crewwarn-underrow-polish` (branch `feat/crewwarn-underrow-polish`). All commands run there.
-- UI diff ⇒ impeccable dual-gate (critique + audit) before whole-diff review (invariant 8).
+- UI diff ⇒ impeccable dual-gate (critique + audit) before whole-diff review (invariant 8); findings + dispositions land in the close-out doc (Task 4/5), the single-PR equivalent of a milestone handoff §12.
+- Playwright commands for the layout spec ALWAYS use the standalone config (`tests/e2e/standalone.config.ts`, project `standalone-chromium`) — the default config owns app web servers this spec must not boot (plan-R1 F8).
 
 **Meta-test inventory (mandatory declaration):** None created or extended. Reason: no new Supabase call boundaries (invariant 9 registries untouched), no new mutation surfaces (invariant 10), no new §12.4/admin-alert codes, no advisory locks. The sentinel-hiding and catalog meta-tests are unaffected because no catalog strings or tile sentinels change.
 
 **e2e harness readiness (mandatory declaration):** The layout spec boots NO server — it renders static pages via `renderToStaticMarkup` (harness CLI) + Tailwind CLI css, served from a temp dir (`tests/e2e/published-review-modal.layout.spec.ts:95-160`). Readiness gate = `await expect(page.locator(MODAL)).toBeVisible()` inside `openHarness` (`tests/e2e/published-review-modal.layout.spec.ts:175-183`) with reduced-motion emulation; no hydration exists, so no hydration gate applies. Detach-safety: all measurements use `locator.boundingBox()` / one-shot `evaluate` on elements that persist (native `<details>` toggle never unmounts the measured nodes).
 
-**Workflow wiring:** new tests live INSIDE the existing `tests/e2e/published-review-modal.layout.spec.ts` (already in the workflow paths and run list, `.github/workflows/published-modal-e2e.yml:51` and `.github/workflows/published-modal-e2e.yml:144`) and existing vitest globs (`tests/components/admin/**` matches BASE_INCLUDE). Task 4 adds the two missing component paths to the workflow filter.
+**Workflow wiring:** new tests live INSIDE the existing `tests/e2e/published-review-modal.layout.spec.ts` (already in the workflow paths and run list, `.github/workflows/published-modal-e2e.yml:51` and `.github/workflows/published-modal-e2e.yml:144`, and in the standalone allow-list, `tests/e2e/standalone.config.ts:36`) and existing vitest globs (`tests/components/admin/**` matches BASE_INCLUDE). Task 3 adds the two missing component paths to the workflow filter.
 
 ---
 
@@ -44,7 +45,8 @@
  *  into the popover BODY (described run - superset of full mode), instance lines
  *  stay inline, and the 8-row slot table is total. Failure modes caught: guidance
  *  demoted to afterBodyText (outside aria-describedby), catalog line still inline
- *  when condensed, condensed={false} diverging from omission. */
+ *  or leaking into any OTHER card element when condensed (anti-tautology: the card
+ *  subtree is checked whole, spec §6), condensed={false} diverging from omission. */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -80,14 +82,14 @@ const instanceWarn: ParseWarning = {
 };
 
 const entry = messageFor("FIELD_UNREADABLE");
-const guidance = (entry.helpfulContext ?? "").trim();
-const trigger = (entry.triggerContext ?? "").trim();
+const guidance = (entry.helpfulContext ?? "").trim().replace(/[*_`]/g, "");
+const trigger = (entry.triggerContext ?? "").trim().replace(/[*_`]/g, "");
 
 function popoverFor(i: number) {
   const item = screen.getAllByTestId("per-show-actionable-item")[i]!;
   const btn = item.querySelector("[data-testid$='-trigger']")!;
   const describedEl = document.getElementById(btn.getAttribute("aria-describedby") ?? "");
-  return { btn, describedEl };
+  return { item, btn, describedEl };
 }
 
 describe("condensedPopoverSlots (8-row table, spec §3)", () => {
@@ -112,23 +114,24 @@ describe("condensedPopoverSlots (8-row table, spec §3)", () => {
 });
 
 describe("condensed rendering (spec §3)", () => {
-  it("catalog guidance leaves the card and joins the DESCRIBED popover body", () => {
+  it("catalog guidance leaves the CARD subtree entirely and joins the DESCRIBED popover body", () => {
     render(<PerShowActionableWarnings items={[fieldWarn]} driveFileId={null} condensed />);
     expect(screen.queryByTestId("per-show-actionable-guidance")).toBeNull();
-    const { describedEl } = popoverFor(0);
+    const { item, describedEl } = popoverFor(0);
+    // Anti-tautology (spec §6): the popover body is PORTALED out of the card
+    // (hoverhelp-smart-position #549), so the card subtree must not contain the
+    // guidance in ANY element, tagged or not.
+    expect(item.textContent ?? "").not.toContain(guidance);
     const text = describedEl?.textContent ?? "";
-    // renderEmphasis strips *_` markers; compare against the marker-less forms.
-    expect(text).toContain(trigger.replace(/[*_`]/g, ""));
-    expect(text).toContain(guidance.replace(/[*_`]/g, ""));
+    expect(text).toContain(trigger);
+    expect(text).toContain(guidance);
   });
 
   it("full mode is untouched: guidance inline, popover body = triggerContext only", () => {
     render(<PerShowActionableWarnings items={[fieldWarn]} driveFileId={null} />);
-    expect(screen.getByTestId("per-show-actionable-guidance").textContent).toContain(
-      guidance.replace(/[*_`]/g, ""),
-    );
+    expect(screen.getByTestId("per-show-actionable-guidance").textContent).toContain(guidance);
     const { describedEl } = popoverFor(0);
-    expect(describedEl?.textContent ?? "").not.toContain(guidance.replace(/[*_`]/g, ""));
+    expect(describedEl?.textContent ?? "").not.toContain(guidance);
   });
 
   it("instance guidance stays inline under condensed (Resolved Decision 3)", () => {
@@ -154,7 +157,7 @@ describe("condensed rendering (spec §3)", () => {
 - [ ] **Step 2: Run to verify failure**
 
 Run: `pnpm exec vitest run tests/components/admin/perShowActionableCondensed.test.tsx`
-Expected: FAIL — `condensedPopoverSlots` is not exported / condensed cards still render inline guidance.
+Expected: FAIL — `condensedPopoverSlots` is not exported; condensed cards still render inline guidance.
 
 - [ ] **Step 3: Implement**
 
@@ -193,9 +196,9 @@ Add the prop (after `followUpCopy?: string;` in the props type, with doc comment
   condensed?: boolean;
 ```
 
-Destructure it: `tone = "warning"`, `followUpCopy`, `condensed`.
+Destructure it alongside `tone = "warning"`, `followUpCopy`.
 
-Replace the current slot computation (lines computing `popoverBody` / `afterBodyText`, currently `const popoverBody = context ?? followUp;` and `const afterBodyText: string | null = context !== null ? followUp : null;`):
+Replace the current slot computation (the two lines `const popoverBody = context ?? followUp;` and `const afterBodyText: string | null = context !== null ? followUp : null;`):
 
 ```ts
         const isCondensed = condensed === true;
@@ -208,7 +211,7 @@ Replace the current slot computation (lines computing `popoverBody` / `afterBody
         });
 ```
 
-(Full mode: `movedGuidance` is null, so `condensedPopoverSlots` degenerates to exactly the two expressions it replaces — byte-identical output.)
+(Full mode: `movedGuidance` is null, so `condensedPopoverSlots` degenerates to exactly the two expressions it replaces — byte-identical output. The `followUp` sourceCell gate above this block is untouched.)
 
 Suppress the inline catalog branch under condensed — change the ternary's second arm condition from `guidanceResult.markup ?` to `!isCondensed && guidanceResult.markup ?`.
 
@@ -226,17 +229,22 @@ git commit -m "feat(admin): condensed under-row warning-card variant (catalog gu
 
 ---
 
-### Task 2: 24px indent wrapper + condensed at the under-row call site
+### Task 2: 24px indent wrapper + condensed call site, with membership/compound coverage as the red phase
+
+Both test files below are written and run RED **before** the call-site implementation lands (plan-R1 F1: the membership suite depends on the `pl-6` wrapper and the condensed under-row variant, so it fails legitimately until Step 4).
 
 **Files:**
 - Modify: `components/admin/showpage/sectionWarningExtras.tsx:45-65` (`renderCrewUnderRowCards`)
 - Test (create): tests/components/admin/showpage/crewUnderRowIndent.test.tsx
+- Test (create): tests/components/admin/showpage/crewUnderRowMembership.test.tsx
 
 **Interfaces:**
-- Consumes: Task 1's `condensed` prop.
+- Consumes: Task 1's `condensed` prop; the `AttachHarness` composition pattern from `tests/components/admin/showpage/crewWarningAttachment.test.tsx:106-146` (copied, not imported).
 - Produces: each map value node's OUTERMOST element is `<div class="pl-6">`; node count unchanged (one per warning).
 
-- [ ] **Step 1: Write the failing test**
+**Transition-audit declaration (mandatory):** no `AnimatePresence`, no new ternary render with animated arms, no motion props anywhere in this diff; every §5 pair is instant (no animation needed) by design. The membership suite pins the DATA consequences of the instant transitions. The "sibling Report modal open while toggling the disclosure" compound is declared unaffected by spec §5 (native disclosure, no animation tree) and carries no assertion — recorded as a deliberate non-test in the close-out doc.
+
+- [ ] **Step 1: Write the failing indent test**
 
 ```tsx
 // tests/components/admin/showpage/crewUnderRowIndent.test.tsx
@@ -284,7 +292,6 @@ describe("under-row node shape (spec §2)", () => {
     expect(nodes).toHaveLength(3);
     render(<div data-testid="host">{nodes}</div>);
     const host = screen.getByTestId("host");
-    // Outermost element of EACH node is the indent wrapper.
     const wrappers = Array.from(host.children);
     expect(wrappers).toHaveLength(3);
     for (const w of wrappers) {
@@ -297,75 +304,21 @@ describe("under-row node shape (spec §2)", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [ ] **Step 2: Write the failing membership/compound suite**
 
-Run: `pnpm exec vitest run tests/components/admin/showpage/crewUnderRowIndent.test.tsx`
-Expected: FAIL — wrapper className is not `pl-6` (nodes are bare `PerShowActionableWarnings`).
-
-- [ ] **Step 3: Implement**
-
-In `renderCrewUnderRowCards` (`sectionWarningExtras.tsx`), replace the `items.map(...)` element with the wrapped, condensed form (key moves to the wrapper):
-
-```tsx
-      items.map((it, i) => (
-        // Spec 2026-07-23-crewwarn-underrow-polish §2: 24px indent binds the card
-        // to ITS member's name column; per-node wrapper keeps cap granularity.
-        // Banners are NOT wrapped (per-kind rule, spec §1.1 #2).
-        <div key={`crew-warn-${key}-${i}`} className="pl-6">
-          <PerShowActionableWarnings
-            items={[it.warning]}
-            driveFileId={driveFileId}
-            condensed
-            renderItemControls={(w) => (
-              <SectionWarningItemControls
-                warning={w}
-                reportSurfaceId={it.reportSurfaceId}
-                mode="active"
-                slug={slug}
-                showId={showId}
-                driveFileId={driveFileId}
-                useRawDecisions={useRawDecisions}
-              />
-            )}
-          />
-        </div>
-      )),
-```
-
-- [ ] **Step 4: Run tests**
-
-Run: `pnpm exec vitest run tests/components/admin/showpage/ tests/admin/stagedCrewWarn.parity.test.tsx`
-Expected: PASS (incl. existing `crewWarningAttachment` conservation suite — testids unchanged).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add components/admin/showpage/sectionWarningExtras.tsx tests/components/admin/showpage/crewUnderRowIndent.test.tsx
-git commit -m "feat(admin): indent under-row warning cards 24px and render them condensed"
-```
-
----
-
-### Task 3: Compound-transition unit coverage (spec §5 / §6 item 4)
-
-**Files:**
-- Test (create): tests/components/admin/showpage/crewUnderRowMembership.test.tsx
-
-**Interfaces:**
-- Consumes: the `AttachHarness` composition pattern from `tests/components/admin/showpage/crewWarningAttachment.test.tsx:106-146` (copy it into this file — do not import test internals across files).
-
-**Transition-audit declaration (mandatory):** no `AnimatePresence`, no new ternary render with animated arms, no motion props are added anywhere in this diff; every §5 pair is instant (no animation needed) by design. This task pins the DATA consequences of the instant transitions.
-
-- [ ] **Step 1: Write the failing tests**
+Card identity in these tests is the help-trigger testid, `per-show-actionable-help-<stableWarningKeys key>` (`components/admin/PerShowActionableWarnings.tsx:250`) — the only per-warning distinguisher in the DOM: FIELD_UNREADABLE cards all render the same catalog title, `message` is displaced by the title, and `rawSnippet` renders only for UNKNOWN_FIELD (plan-R1 F2).
 
 ```tsx
 // tests/components/admin/showpage/crewUnderRowMembership.test.tsx
 // @vitest-environment jsdom
 /** Spec 2026-07-23-crewwarn-underrow-polish §5 membership rule + §6 item 4.
  *  visible = nodes.slice(0,2); hidden = nodes.slice(2) (step3ReviewSections.tsx:1481-1483).
- *  Failure modes: hidden-removal disturbing the visible pair; visible-removal not
- *  promoting hidden[0]; details surviving an empty hidden list; ignored card
- *  rendering condensed/indented. */
+ *  Card identity = help-trigger testid (stableWarningKeys) - the cards' visible text
+ *  is IDENTICAL across FIELD_UNREADABLE fixtures, so text-based assertions would be
+ *  vacuous (plan-R1 F2). Failure modes: hidden-removal disturbing the visible pair;
+ *  visible-removal not promoting hidden[0]; details open-state lost while hidden
+ *  remains; a 0→>0 disclosure mounting OPEN; restoration not returning a condensed
+ *  indented card; fallback group card losing full copy. */
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useRef } from "react";
@@ -390,6 +343,7 @@ import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import type { ParseWarning } from "@/lib/parser/types";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 
 afterEach(cleanup);
 
@@ -407,6 +361,9 @@ const warn = (index: number, snippet: string): ParseWarning => ({
 const W1 = warn(0, "AAA");
 const W2 = warn(1, "BBB");
 const W3 = warn(2, "CCC");
+const W4 = warn(3, "DDD");
+
+const idFor = (w: ParseWarning) => `per-show-actionable-help-${stableWarningKeys([w])[0]!}`;
 
 function snapshot(warnings: ParseWarning[]): ShowReviewSnapshot {
   return {
@@ -446,9 +403,11 @@ function snapshot(warnings: ParseWarning[]): ShowReviewSnapshot {
 function Harness({
   warnings,
   ignoredFingerprints = new Set<string>(),
+  matched = true,
 }: {
   warnings: ParseWarning[];
   ignoredFingerprints?: ReadonlySet<string>;
+  matched?: boolean;
 }) {
   const scrollerRef = useRef<HTMLElement | null>(null);
   const data = buildPublishedSectionData(snapshot(warnings), { slug: SLUG }) as PublishedSectionData;
@@ -458,7 +417,7 @@ function Harness({
     ignoredFingerprints,
     renderedSectionIds: new Set<SectionId>(step3Sections(data).map((s) => s.id)),
   });
-  const renderedCrewKeys = new Set(["alice anders"]);
+  const renderedCrewKeys = new Set(matched ? ["alice anders"] : []);
   return (
     <ShowReviewSurface
       data={data}
@@ -476,74 +435,158 @@ function Harness({
 }
 
 const stack = () => screen.getByTestId("crew-warn-stack-alice anders");
-const visibleSnippets = () =>
+const detailsEl = () =>
+  screen.queryByTestId("crew-warn-more-alice anders") as HTMLDetailsElement | null;
+/** Visible = pl-6 wrappers that are DIRECT stack children (hidden ones live under
+ *  the details element). Identity via the help-trigger testid prefix. */
+const visibleIds = () =>
   Array.from(stack().children)
-    .filter((el) => el.tagName === "DIV" && el.className === "pl-6")
-    .map((el) => el.textContent ?? "");
+    .filter((el): el is HTMLElement => el.tagName === "DIV" && el.className === "pl-6")
+    .map(
+      (el) =>
+        el
+          .querySelector('[data-testid^="per-show-actionable-help-"]')
+          ?.getAttribute("data-testid") ?? "",
+    );
+const hasId = (ids: string[], w: ParseWarning) => ids.some((t) => t.startsWith(idFor(w)));
 
 describe("§5 membership rule across rerenders", () => {
-  it("hidden removal: visible pair UNCHANGED, details unmounts when hidden empties", () => {
-    const { rerender } = render(<Harness warnings={[W1, W2, W3]} />);
-    expect(screen.getByTestId("crew-warn-more-alice anders").textContent).toContain("1 more");
-    const before = visibleSnippets();
+  it("hidden removal: visible pair UNCHANGED; open survives while hidden remains; details unmounts when hidden empties", () => {
+    const { rerender } = render(<Harness warnings={[W1, W2, W3, W4]} />);
+    const d = detailsEl()!;
+    expect(d.textContent).toContain("2 more");
+    d.open = true;
+    // Remove a HIDDEN node (W4): visible pair identical, open persists, count drops.
+    const before = visibleIds();
     expect(before).toHaveLength(2);
+    rerender(<Harness warnings={[W1, W2, W3]} />);
+    expect(visibleIds()).toEqual(before);
+    const dAfter = detailsEl()!;
+    expect(dAfter.open).toBe(true);
+    expect(dAfter.textContent).toContain("1 more");
+    // Remove the LAST hidden node: details unmounts entirely.
     rerender(<Harness warnings={[W1, W2]} />);
-    expect(visibleSnippets()).toEqual(before);
-    expect(screen.queryByTestId("crew-warn-more-alice anders")).toBeNull();
+    expect(detailsEl()).toBeNull();
   });
 
   it("visible removal: hidden[0] promotes into the visible slice", () => {
     const { rerender } = render(<Harness warnings={[W1, W2, W3]} />);
+    expect(hasId(visibleIds(), W3)).toBe(false);
     rerender(<Harness warnings={[W2, W3]} />);
-    const after = visibleSnippets();
+    const after = visibleIds();
     expect(after).toHaveLength(2);
-    expect(after.some((t) => t.includes("CCC"))).toBe(true);
-    expect(screen.queryByTestId("crew-warn-more-alice anders")).toBeNull();
+    expect(hasId(after, W2)).toBe(true);
+    expect(hasId(after, W3)).toBe(true);
+    expect(detailsEl()).toBeNull();
   });
 
-  it("re-entry into a capped stack pushes a visible node into hidden (count grows)", () => {
+  it("re-entry crossing 0 → >0 mounts the disclosure CLOSED", () => {
     const { rerender } = render(<Harness warnings={[W1, W2]} />);
-    expect(screen.queryByTestId("crew-warn-more-alice anders")).toBeNull();
+    expect(detailsEl()).toBeNull();
     rerender(<Harness warnings={[W1, W2, W3]} />);
-    expect(screen.getByTestId("crew-warn-more-alice anders").textContent).toContain("1 more");
+    const d = detailsEl()!;
+    expect(d.open).toBe(false);
+    expect(d.textContent).toContain("1 more");
   });
 });
 
-describe("§5 active↔ignored variant flip", () => {
-  it("ignored card renders full-copy/muted in the group; under-row card unmounts", () => {
-    // warningFingerprint returns string | null (null = not ignorable); "CCC" is a
-    // non-empty snippet, so assert then narrow (strict TS: Set<string> needs string).
-    const fp = warningFingerprint(W3);
-    expect(fp).not.toBeNull();
-    render(<Harness warnings={[W1, W2, W3]} ignoredFingerprints={new Set([fp!])} />);
-    // W3 no longer under the row (2 actives remain, uncapped).
-    expect(screen.queryByTestId("crew-warn-more-alice anders")).toBeNull();
-    expect(visibleSnippets().some((t) => t.includes("CCC"))).toBe(false);
-    // ...and appears in the Ignored disclosure FULL (inline catalog guidance
-    // present) and UNINDENTED (no pl-6 ancestor).
+describe("§5 active↔ignored variant flip (both directions)", () => {
+  const fp = () => {
+    const v = warningFingerprint(W3);
+    expect(v).not.toBeNull();
+    return v!;
+  };
+
+  it("ignored card renders FULL copy, muted, unindented in the group; under-row card unmounts", () => {
+    render(<Harness warnings={[W1, W2, W3]} ignoredFingerprints={new Set([fp()])} />);
+    expect(detailsEl()).toBeNull();
+    expect(hasId(visibleIds(), W3)).toBe(false);
     const ignored = screen.getByTestId("section-ignored-list-crew");
     const guidance = within(ignored).getAllByTestId("per-show-actionable-guidance");
     expect(guidance.length).toBeGreaterThan(0);
+    // Muted skin (tone="muted"): guidance uses text-text-subtle, not warning-text.
+    expect(guidance[0]!.className).toContain("text-text-subtle");
     expect(ignored.querySelector(".pl-6")).toBeNull();
+  });
+
+  it("restoration returns a condensed, indented card under the row", () => {
+    const { rerender } = render(
+      <Harness warnings={[W1, W2, W3]} ignoredFingerprints={new Set([fp()])} />,
+    );
+    rerender(<Harness warnings={[W1, W2, W3]} />);
+    // Back to 3 actives: capped stack, W3 hidden behind "1 more", all condensed.
+    expect(detailsEl()!.textContent).toContain("1 more");
+    expect(within(stack()).queryAllByTestId("per-show-actionable-guidance")).toHaveLength(0);
+    detailsEl()!.open = true;
+    const hiddenWrapper = detailsEl()!.querySelector("div.pl-6");
+    expect(hiddenWrapper).not.toBeNull();
+  });
+});
+
+describe("§5 matched↔fallback variant flip", () => {
+  it("fallback group card is FULL (inline guidance); matched under-row card is condensed", () => {
+    const { rerender } = render(<Harness warnings={[W1]} matched={false} />);
+    const group = screen.getByTestId("section-warning-controls-crew");
+    expect(within(group).getAllByTestId("per-show-actionable-guidance").length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("crew-warn-stack-alice anders")).toBeNull();
+    rerender(<Harness warnings={[W1]} matched />);
+    expect(screen.queryByTestId("section-warning-controls-crew")).toBeNull();
+    expect(within(stack()).queryAllByTestId("per-show-actionable-guidance")).toHaveLength(0);
+    expect(visibleIds()).toHaveLength(1);
   });
 });
 ```
 
-- [ ] **Step 2: Run to verify red/green baseline**
+- [ ] **Step 3: Run BOTH suites to verify failure**
 
-Run: `pnpm exec vitest run tests/components/admin/showpage/crewUnderRowMembership.test.tsx`
-Expected: PASS if Tasks 1-2 are complete (this task pins EXISTING recompute behavior + the new variant split; if any assertion fails, that is a real Task 1/2 defect — fix there, not here). Write the file BEFORE running so the suite exists as the contract.
+Run: `pnpm exec vitest run tests/components/admin/showpage/crewUnderRowIndent.test.tsx tests/components/admin/showpage/crewUnderRowMembership.test.tsx`
+Expected: FAIL — no `pl-6` wrappers exist yet (indent suite's className assertion; membership suite's `visibleIds()`/wrapper queries return empty), and under-row cards still render inline guidance.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Implement**
+
+In `renderCrewUnderRowCards` (`sectionWarningExtras.tsx`), replace the `items.map(...)` element with the wrapped, condensed form (key moves to the wrapper):
+
+```tsx
+      items.map((it, i) => (
+        // Spec 2026-07-23-crewwarn-underrow-polish §2: 24px indent binds the card
+        // to ITS member's name column; per-node wrapper keeps cap granularity.
+        // Banners are NOT wrapped (per-kind rule, spec §1.1 #2).
+        <div key={`crew-warn-${key}-${i}`} className="pl-6">
+          <PerShowActionableWarnings
+            items={[it.warning]}
+            driveFileId={driveFileId}
+            condensed
+            renderItemControls={(w) => (
+              <SectionWarningItemControls
+                warning={w}
+                reportSurfaceId={it.reportSurfaceId}
+                mode="active"
+                slug={slug}
+                showId={showId}
+                driveFileId={driveFileId}
+                useRawDecisions={useRawDecisions}
+              />
+            )}
+          />
+        </div>
+      )),
+```
+
+- [ ] **Step 5: Run tests**
+
+Run: `pnpm exec vitest run tests/components/admin/showpage/ tests/admin/stagedCrewWarn.parity.test.tsx`
+Expected: PASS (incl. existing `crewWarningAttachment` conservation suite — testids unchanged).
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add tests/components/admin/showpage/crewUnderRowMembership.test.tsx
-git commit -m "test(admin): pin under-row membership recompute + active/ignored variant flip"
+git add components/admin/showpage/sectionWarningExtras.tsx tests/components/admin/showpage/crewUnderRowIndent.test.tsx tests/components/admin/showpage/crewUnderRowMembership.test.tsx
+git commit -m "feat(admin): indent under-row warning cards 24px, condensed, with membership coverage"
 ```
 
 ---
 
-### Task 4: Capped harness fixture + layout assertions + workflow paths
+### Task 3: Capped harness fixture + hop-by-hop layout assertions + workflow paths
 
 **Files:**
 - Modify: `tests/e2e/_publishedReviewModalHarness.tsx` (overrides type `tests/e2e/_publishedReviewModalHarness.tsx:242-253`, fixtures `tests/e2e/_publishedReviewModalHarness.tsx:255-276`, `modalElement` `tests/e2e/_publishedReviewModalHarness.tsx:278-299`, CLI entry `tests/e2e/_publishedReviewModalHarness.tsx:354-382`)
@@ -552,9 +595,11 @@ git commit -m "test(admin): pin under-row membership recompute + active/ignored 
 
 **Interfaces:**
 - Consumes: `HarnessStateOverrides.attentionItems` (replace-wholesale, `tests/e2e/_publishedReviewModalHarness.tsx:315`), `harnessAttentionItems` (`tests/e2e/_publishedReviewModalHarness.tsx:56`).
-- Produces: harness JSON key `crewWarningsCapped`; page file crewwarningscapped.html.
+- Produces: harness JSON key `crewWarningsCapped`; page file crewwarningscapped.html; exported `crewCappedAttentionItem()`.
 
 - [ ] **Step 1: Write the failing layout tests** (append after the existing T5 `test.describe` block)
+
+The banner node is inserted DIRECTLY as a stack child and its root div carries `data-attention-anchor` + `data-testid="attention-banner-<id>"` on ONE element (`components/admin/review/AttentionBanner.tsx:222-227`) — selector is `${STACK} > [data-testid^="attention-banner-"]`, no intermediate div (plan-R1 F3). Every §2 hop in BOTH subtrees is asserted (plan-R1 F4).
 
 ```ts
 // crewwarn-underrow-polish §2/§4: hop-by-hop width invariants + the capped mixed
@@ -562,71 +607,82 @@ git commit -m "test(admin): pin under-row membership recompute + active/ignored 
 test.describe("crew warning indent + cap (crewwarn-underrow-polish)", () => {
   const STACK = '[data-testid="crew-warn-stack-crew member a"]';
   const MORE = '[data-testid="crew-warn-more-crew member a"]';
+  const CARD = '[data-testid="compact-alert-card"]';
 
-  async function widthOf(page: Page, selector: string): Promise<number> {
-    const box = await page.locator(selector).boundingBox();
-    if (!box) throw new Error(`no box for ${selector}`);
-    return box.width;
+  async function widthOf(page: Page, selector: string, nth = 0): Promise<number> {
+    const box = await page.locator(selector).nth(nth).boundingBox();
+    expect(box, `no box for ${selector} [${nth}]`).not.toBeNull();
+    return box!.width;
   }
 
-  test("T-WARN-INDENT @1280: visible chain stack→wrapper→ul→li→card, 24px step", async ({
-    page,
-  }) => {
+  /** Asserts the FULL visible-card chain wrapper→ul→li→card for the pl-6 wrapper
+   *  rooted at `wrapperSel` (nth), against the given parent width. */
+  async function expectCardChain(
+    page: Page,
+    wrapperSel: string,
+    nth: number,
+    parentWidth: number,
+  ): Promise<void> {
+    const w = await widthOf(page, wrapperSel, nth);
+    expect(Math.abs(w - parentWidth), `wrapper vs parent`).toBeLessThanOrEqual(TOL);
+    const ulW = await widthOf(page, `${wrapperSel} > ul`, nth);
+    expect(Math.abs(ulW - (w - 24)), `ul vs wrapper - 24`).toBeLessThanOrEqual(TOL);
+    const liW = await widthOf(page, `${wrapperSel} > ul > li`, nth);
+    expect(Math.abs(liW - ulW), `li vs ul`).toBeLessThanOrEqual(TOL);
+    const cardW = await widthOf(page, `${wrapperSel} > ul > li > ${CARD}`, nth);
+    expect(Math.abs(cardW - liW), `card vs li`).toBeLessThanOrEqual(TOL);
+  }
+
+  test("T-WARN-INDENT @1280: single-warning page, full visible chain", async ({ page }) => {
     await openHarness(page, { width: 1280, height: 900 }, "crewwarnings.html");
     const stackW = await widthOf(page, STACK);
-    const wrapper = `${STACK} > div.pl-6`;
-    await expect(page.locator(wrapper)).toHaveCount(1);
-    expect(Math.abs((await widthOf(page, wrapper)) - stackW)).toBeLessThanOrEqual(TOL);
-    const ul = `${wrapper} > ul`;
-    expect(Math.abs((await widthOf(page, ul)) - (stackW - 24))).toBeLessThanOrEqual(TOL);
-    const li = `${ul} > li`;
-    expect(Math.abs((await widthOf(page, li)) - (await widthOf(page, ul)))).toBeLessThanOrEqual(
-      TOL,
-    );
-    const card = `${li} > [data-testid="compact-alert-card"]`;
-    expect(Math.abs((await widthOf(page, card)) - (await widthOf(page, li)))).toBeLessThanOrEqual(
-      TOL,
-    );
+    await expect(page.locator(`${STACK} > div.pl-6`)).toHaveCount(1);
+    await expectCardChain(page, `${STACK} > div.pl-6`, 0, stackW);
   });
 
   for (const vp of [
     { width: 1280, height: 900 },
     { width: 390, height: 844 },
   ]) {
-    test(`T-WARN-CAP @${vp.width}: banner + 1 warning visible, "2 more" hidden, per-kind widths`, async ({
+    test(`T-WARN-CAP @${vp.width}: banner + 1 warning visible, "2 more" hidden, per-kind widths, both subtrees hop-by-hop`, async ({
       page,
     }) => {
       await openHarness(page, vp, "crewwarningscapped.html");
       const stackW = await widthOf(page, STACK);
 
-      // Cap slots: exactly 1 banner + 1 visible warning wrapper OUTSIDE details.
-      await expect(page.locator(`${STACK} > div > [data-testid^="attention-banner-"]`)).toHaveCount(
-        1,
-      );
+      // Cap slots: exactly 1 banner + 1 visible warning wrapper as DIRECT children.
+      const bannerSel = `${STACK} > [data-testid^="attention-banner-"]`;
+      await expect(page.locator(bannerSel)).toHaveCount(1);
       await expect(page.locator(`${STACK} > div.pl-6`)).toHaveCount(1);
 
-      // Per-kind widths in ONE stack (spec §1.1 #2 + §2).
-      const bannerW = await widthOf(page, `${STACK} > div > [data-testid^="attention-banner-"]`);
-      expect(Math.abs(bannerW - stackW)).toBeLessThanOrEqual(TOL);
-      const visibleUl = `${STACK} > div.pl-6 > ul`;
-      expect(Math.abs((await widthOf(page, visibleUl)) - (stackW - 24))).toBeLessThanOrEqual(TOL);
+      // Per-kind widths in ONE stack (spec §1.1 #2 + §2) + full visible chain.
+      expect(Math.abs((await widthOf(page, bannerSel)) - stackW)).toBeLessThanOrEqual(TOL);
+      await expectCardChain(page, `${STACK} > div.pl-6`, 0, stackW);
 
-      // Disclosure: summary "2 more", 44px tap floor, closed hides both wrappers.
+      // Disclosure subtree, closed state first: details spans the stack, summary
+      // spans the details, hidden wrappers exist but are NOT visible.
+      const detailsSel = `${STACK} > details`;
+      expect(Math.abs((await widthOf(page, detailsSel)) - stackW)).toBeLessThanOrEqual(TOL);
       const summary = page.locator(`${MORE} > summary`);
       await expect(summary).toContainText("2 more");
       const sBox = await summary.boundingBox();
-      expect(sBox && sBox.height).toBeGreaterThanOrEqual(44);
-      expect(Math.abs((sBox ? sBox.width : 0) - stackW)).toBeLessThanOrEqual(TOL);
-
-      // Open natively; hidden chain carries the same indent (spec §2 disclosure table).
-      await summary.click();
+      expect(sBox).not.toBeNull();
+      expect(sBox!.height).toBeGreaterThanOrEqual(44);
+      expect(Math.abs(sBox!.width - (await widthOf(page, detailsSel)))).toBeLessThanOrEqual(TOL);
       await expect(page.locator(`${MORE} div.pl-6`)).toHaveCount(2);
-      const hiddenUl = `${MORE} div.pl-6 > ul`;
-      const hiddenUls = page.locator(hiddenUl);
-      await expect(hiddenUls).toHaveCount(2);
+      await expect(page.locator(`${MORE} div.pl-6`).first()).toBeHidden();
+
+      // Open natively; disclosure body + BOTH hidden card chains (spec §2 table).
+      await summary.click();
+      const bodySel = `${MORE} > div`;
       expect(
-        Math.abs((await hiddenUls.first().boundingBox())!.width - (stackW - 24)),
+        Math.abs((await widthOf(page, bodySel)) - (await widthOf(page, detailsSel))),
       ).toBeLessThanOrEqual(TOL);
+      const bodyW = await widthOf(page, bodySel);
+      for (const nth of [0, 1]) {
+        await expect(page.locator(`${MORE} div.pl-6`).nth(nth)).toBeVisible();
+        await expectCardChain(page, `${bodySel} > div.pl-6`, nth, bodyW);
+      }
     });
   }
 });
@@ -645,8 +701,8 @@ Add `"crewwarningscapped.html"` to the `@source` file list array.
 
 - [ ] **Step 3: Run to verify failure**
 
-Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.layout.spec.ts -g "crewwarn-underrow-polish"`
-Expected: FAIL in beforeAll - `pages.crewWarningsCapped` is undefined (harness doesn't emit it yet).
+Run: `pnpm exec playwright test --config tests/e2e/standalone.config.ts --project=standalone-chromium tests/e2e/published-review-modal.layout.spec.ts -g "crewwarn-underrow-polish"`
+Expected: FAIL — `pages.crewWarningsCapped` is undefined, so beforeAll writes a page whose body is the string "undefined" and each new test fails at `openHarness`'s modal-visible gate (the type assertion on the parsed JSON does not validate at runtime; plan-R1 F9).
 
 - [ ] **Step 4: Implement the harness fixture**
 
@@ -750,8 +806,8 @@ CLI entry — add after the `crewWarnings` page:
 
 - [ ] **Step 5: Run the layout block**
 
-Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.layout.spec.ts -g "crewwarn-underrow-polish"`
-Expected: PASS (3 tests). Then the FULL spec: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.layout.spec.ts` — Expected: PASS (T5 containment tolerates the indent).
+Run: `pnpm exec playwright test --config tests/e2e/standalone.config.ts --project=standalone-chromium tests/e2e/published-review-modal.layout.spec.ts -g "crewwarn-underrow-polish"`
+Expected: PASS (3 tests). Then the FULL spec: `pnpm exec playwright test --config tests/e2e/standalone.config.ts --project=standalone-chromium tests/e2e/published-review-modal.layout.spec.ts` — Expected: PASS (T5 containment tolerates the indent).
 
 - [ ] **Step 6: Add workflow paths** — in `.github/workflows/published-modal-e2e.yml`, after the `components/admin/HoverHelp.tsx` entry add:
 
@@ -771,35 +827,37 @@ git commit -m "test(admin): capped mixed-stack harness page + hop-by-hop indent 
 
 ---
 
-### Task 5: Impeccable dual-gate (invariant 8)
+### Task 4: Impeccable dual-gate (invariant 8)
 
-**Files:** none new (findings/dispositions recorded in Task 6's docs).
+**Files:**
+- Create: docs/superpowers/plans/2026-07-23-crewwarn-underrow-polish-closeout.md (the single-PR close-out doc; its §12 carries impeccable findings + dispositions, per AGENTS.md invariant 8 — plan-R1 F7)
 
-- [ ] **Step 1:** Run `/impeccable critique` on the branch diff (canonical v3 setup: context.mjs context load with PRODUCT.md + DESIGN.md, then register reference read). Scope: the under-row card surfaces (crew section, condensed cards, capped disclosure) using the harness pages from Task 4 for visual states.
+- [ ] **Step 1:** Run `/impeccable critique` on the branch diff (canonical v3 setup: context.mjs context load with PRODUCT.md + DESIGN.md, then register reference read). Scope: the under-row card surfaces (crew section, condensed cards, capped disclosure) using the harness pages from Task 3 for visual states.
 - [ ] **Step 2:** Run `/impeccable audit` on the same diff with the same setup gates.
-- [ ] **Step 3:** Fix P0/P1 findings inline (commit per fix, `fix(admin): ...`), or defer each explicitly with a DEFERRED.md entry + un-defer trigger. Record every finding + disposition for Task 6.
-- [ ] **Step 4:** Commit any fixes.
+- [ ] **Step 3:** Fix P0/P1 findings inline (commit per fix, `fix(admin): ...`), or defer each explicitly with a DEFERRED.md entry + un-defer trigger.
+- [ ] **Step 4:** Create the close-out doc with: §1 shipped scope (three findings + mechanisms), §12 impeccable findings + dispositions table (every finding, severity, disposition), and a refuted-claims log seeded with: plan-R1 F5's sibling-Report-modal sub-point (spec §5 declares that compound unaffected — native disclosure, no animation tree — so no assertion exists by design).
+- [ ] **Step 5:** Commit: `git add docs/superpowers/plans/2026-07-23-crewwarn-underrow-polish-closeout.md && git commit -m "docs: crewwarn under-row polish close-out (impeccable dispositions)"` (plus any fix commits from Step 3).
 
 ---
 
-### Task 6: Docs close-out — DEFERRED.md graduation
+### Task 5: Docs close-out — DEFERRED.md graduation
 
 **Files:**
 - Modify: `DEFERRED.md` (remove the three entries, currently lines 11-33; update the Last reconciled line, currently line 7)
 - Modify: `DEFERRED-archive.md` (append the three full entries with resolution notes)
 
-- [ ] **Step 1:** Move `CREWWARN-UNDERROW-INDENT-1`, `CREWWARN-UNDERROW-COPY-CONDENSE-1`, `CREWWARN-CAP-FIXTURE-1` (full text) into `DEFERRED-archive.md` under a "Crew warning under-row polish (2026-07-23)" heading, each with: RESOLVED by `feat/crewwarn-underrow-polish`, spec ref, and the shipped mechanism one-liner (24px per-kind indent; condensed variant; `crewWarningsCapped` page). `CREWWARN-INCARD-MOBILE-EYEBROW-1` STAYS in DEFERRED.md.
-- [ ] **Step 2:** Update DEFERRED.md's `Last reconciled:` line to record the graduation, and note the impeccable dual-gate findings + dispositions (from Task 5) in the same entry text.
+- [ ] **Step 1:** Move `CREWWARN-UNDERROW-INDENT-1`, `CREWWARN-UNDERROW-COPY-CONDENSE-1`, `CREWWARN-CAP-FIXTURE-1` (full text) into `DEFERRED-archive.md` under a "Crew warning under-row polish (2026-07-23)" heading, each with: RESOLVED by `feat/crewwarn-underrow-polish`, spec ref, the shipped mechanism one-liner (24px per-kind indent; condensed variant; capped harness page), and a pointer to the close-out doc for impeccable dispositions. `CREWWARN-INCARD-MOBILE-EYEBROW-1` STAYS in DEFERRED.md.
+- [ ] **Step 2:** Update DEFERRED.md's Last reconciled line to record the graduation with a pointer to the close-out doc.
 - [ ] **Step 3:** Commit: `git add DEFERRED.md DEFERRED-archive.md && git commit -m "docs: graduate three CREWWARN under-row deferrals to the archive"`
 
 ---
 
-### Task 7: Pre-push gates + ship
+### Task 6: Pre-push gates + ship
 
 - [ ] **Step 1:** `pnpm typecheck` — Expected: clean (vitest strips types; this is the real gate).
 - [ ] **Step 2:** `pnpm lint` — Expected: clean (canonical Tailwind classes).
 - [ ] **Step 3:** `pnpm format:check` — Expected: clean.
 - [ ] **Step 4:** `pnpm test` — Expected: full local suite green (registry/meta suites included; env-bound + e2e excluded by design).
-- [ ] **Step 5:** Full layout e2e once more: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.layout.spec.ts` — Expected: PASS.
+- [ ] **Step 5:** Full layout e2e once more: `pnpm exec playwright test --config tests/e2e/standalone.config.ts --project=standalone-chromium tests/e2e/published-review-modal.layout.spec.ts` — Expected: PASS.
 - [ ] **Step 6:** Whole-diff Codex cross-model review (codex-guard, fresh-eyes brief, REVIEWER ONLY, §1.1 do-not-relitigate block) to APPROVE; class-sweep before patching any finding.
 - [ ] **Step 7:** Push, open PR (merge-commit convention), wait REAL CI green (`gh pr checks <PR#> --watch`), `gh pr merge --merge`, fast-forward local main, verify `git rev-list --left-right --count main...origin/main` == `0  0`. Stage 4.4: CronDelete the nudge job, set ship-state `stage: "done"`.
