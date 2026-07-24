@@ -1315,7 +1315,10 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
         // renderExtraPanel), so walk up to the child whose parent is the pane.
         const pane = section.closest('[data-testid$="-review-content"]');
         if (pane === null) return null;
-        let box: HTMLElement = section;
+        // `Element`, not `HTMLElement`: `parentElement` widens to
+        // HTMLElement | SVGElement | MathMLElement, which does not narrow back
+        // under exactOptionalPropertyTypes. Only rects are read below.
+        let box: Element = section;
         while (box.parentElement !== null && box.parentElement !== pane) {
           box = box.parentElement;
         }
