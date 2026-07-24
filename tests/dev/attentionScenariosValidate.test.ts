@@ -789,14 +789,23 @@ describe("validateScenario - actionOutcomes", () => {
 describe("validateScenario - actionOutcomes (whole-diff R1 repairs)", () => {
   test("archive is unreachable while finalize-owned (lifecycle section omitted)", () => {
     expect(
-      vs(mscBase({ fixture: { finalizeOwned: true }, actionOutcomes: { archive: { kind: "error", code: "FINALIZE_OWNED_SHOW" } } })),
+      vs(
+        mscBase({
+          fixture: { finalizeOwned: true },
+          actionOutcomes: { archive: { kind: "error", code: "FINALIZE_OWNED_SHOW" } },
+        }),
+      ),
     ).toContainEqual(expect.stringContaining("actionOutcomes.archive: unreachable"));
   });
   test("resolve requires an ACTIONABLE ALERT item - actionable holds do not mount the button", () => {
     const holdRow = {
-      drive_file_id: "df", domain: "crew_email" as const, entity_key: "Casey",
-      held_value: {}, proposed_value: { disposition: "email_change", name: "Casey", email: "c@x.test" },
-      base_modified_time: "2026-07-01T10:00:00.000Z", kind: "mi11_pending" as const,
+      drive_file_id: "df",
+      domain: "crew_email" as const,
+      entity_key: "Casey",
+      held_value: {},
+      proposed_value: { disposition: "email_change", name: "Casey", email: "c@x.test" },
+      base_modified_time: "2026-07-01T10:00:00.000Z",
+      kind: "mi11_pending" as const,
     };
     expect(
       vs(mscBase({ holds: [holdRow as never], actionOutcomes: { resolve: { kind: "pending" } } })),
@@ -804,15 +813,15 @@ describe("validateScenario - actionOutcomes (whole-diff R1 repairs)", () => {
   });
   test("resync success outcome outside the closed union is rejected", () => {
     expect(
-      vs(mscBase({ actionOutcomes: { resync: { kind: "success", outcome: "exploded" } } as never })),
+      vs(
+        mscBase({ actionOutcomes: { resync: { kind: "success", outcome: "exploded" } } as never }),
+      ),
     ).toContainEqual(expect.stringContaining("success outcome must be one of"));
   });
   test("malformed payloads report kind errors without throwing in reachability", () => {
-    expect(() =>
-      vs(mscBase({ actionOutcomes: { bulkIgnore: null } as never })),
-    ).not.toThrow();
-    expect(
-      vs(mscBase({ actionOutcomes: { bulkIgnore: null } as never })),
-    ).toContainEqual(expect.stringContaining("actionOutcomes.bulkIgnore: kind"));
+    expect(() => vs(mscBase({ actionOutcomes: { bulkIgnore: null } as never }))).not.toThrow();
+    expect(vs(mscBase({ actionOutcomes: { bulkIgnore: null } as never }))).toContainEqual(
+      expect.stringContaining("actionOutcomes.bulkIgnore: kind"),
+    );
   });
 });
