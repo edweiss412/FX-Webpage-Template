@@ -147,7 +147,7 @@ test("presence delimiter: field-less vs present-but-empty field are distinct key
 (Adapt `sourceCell` construction to the file's existing anchor fixture helper if one exists.)
 
 - [ ] **Step 2: Run** `pnpm vitest run tests/parser/operatorActionableWarnings.test.ts` — RED: the phone/email survival test, the padded-vs-unpadded test, and the presence-delimiter test ALL fail (each collapses to length 1 pre-fix). The legacy-collapse test starts GREEN by design — it is the backward-compat guard, recorded as such.
-- [ ] **Step 3: Implement** — in `lib/parser/dataGaps.ts`, extend the FIELD_UNREADABLE branch of `rowDisc`:
+- [ ] **Step 3: Implement** — in `lib/parser/dataGaps.ts`, extend the FIELD_UNREADABLE branch of `rowDisc` (the bare `FIELD_UNREADABLE` identifier is the existing import at `lib/parser/dataGaps.ts:16` — this snippet edits live code where it is already in scope; no new import):
 
 ```ts
 const rowDisc =
@@ -288,19 +288,25 @@ test.each([
   expect(bands()[0]?.textContent).toBe(`Phone"call the office"`);
 });
 
+// Builder thunks so the "missing key" case is TRUE property omission (destructure-drop),
+// never an explicit `rawSnippet: undefined` (exactOptionalPropertyTypes forbids that shape).
+const dropSnippet = (): ParseWarning => {
+  const { rawSnippet: _omit, ...rest } = fu({});
+  return rest as ParseWarning;
+};
 test.each([
-  ["missing key", undefined],
-  ["null", null],
-  ["empty", ""],
-  ["whitespace", "   "],
-  ["non-string number", 42],
-])("ABSENT rawSnippet (%s) drops value + quotes entirely", (_label, rawSnippet) => {
-  render(<PerShowActionableWarnings items={[fu({ rawSnippet: rawSnippet as never })]} driveFileId="df" />);
+  ["missing key", dropSnippet],
+  ["null", () => fu({ rawSnippet: null as never })],
+  ["empty", () => fu({ rawSnippet: "" })],
+  ["whitespace", () => fu({ rawSnippet: "   " })],
+  ["non-string number", () => fu({ rawSnippet: 42 as never })],
+])("ABSENT rawSnippet (%s) drops value + quotes entirely", (_label, build) => {
+  render(<PerShowActionableWarnings items={[build()]} driveFileId="df" />);
   expect(bands()[0]?.textContent).toBe("PhoneJordan Ellis");
   expect(bands()[0]?.textContent).not.toContain('"');
 });
 
-test("all three junk at once does not throw; label alone renders", () => {
+test("junk name + junk rawSnippet with a valid field renders the label alone, no throw", () => {
   render(<PerShowActionableWarnings items={[fu({ rawSnippet: 42 as never, blockRef: { kind: "crew", index: 2, name: [] as never, field: "phone" } })]} driveFileId="df" />);
   expect(bands()[0]?.textContent).toBe("Phone");
 });
@@ -361,7 +367,7 @@ test("staged card renders the full-mode field band for FIELD_UNREADABLE operator
 
 (`textContent` concatenates the label span and value span with no separator — hence `Phone${name}` with no space in expectations. Visual spacing is flex `gap`, exactly like the existing Sheet-row band.)
 
-- [ ] **Step 2: Run** `pnpm vitest run tests/components/perShowActionableWarnings.fieldBand.test.tsx tests/components/StagedReviewCard.test.tsx` — the run is RED: every POSITIVE band test (full-mode, condensed, padded/label-mapping, value-testid, junk-label, staged wiring, and the field-band half of the exclusivity test) FAILS with the testid absent. Two groups start GREEN by design and are recorded as such: the six ABSENT-field cases and the stray-code gate (both assert the band's absence, true before the band exists). Every OTHER case fails — including the ABSENT-name and ABSENT-rawSnippet sweeps and the all-junk label-only case, whose expectations require a rendered band with partial content. Existing StagedReviewCard tests stay green.
+- [ ] **Step 2: Run** `pnpm vitest run tests/components/perShowActionableWarnings.fieldBand.test.tsx tests/components/StagedReviewCard.test.tsx` — the run is RED: every POSITIVE band test (full-mode, condensed, padded/label-mapping, value-testid, junk-label, staged wiring, and the field-band half of the exclusivity test) FAILS with the testid absent. Two groups start GREEN by design and are recorded as such: the six ABSENT-field cases and the stray-code gate (both assert the band's absence, true before the band exists). Every OTHER case fails — including the ABSENT-name and ABSENT-rawSnippet sweeps and the junk-name+junk-snippet valid-field case, whose expectations require a rendered band with partial content (that group includes the junk-name+junk-snippet valid-field case). Existing StagedReviewCard tests stay green.
 - [ ] **Step 3: Implement** — in `PerShowActionableWarnings.tsx`, after the `rawLabel`/`detailBand` block (line ~217), add:
 
 ```tsx
