@@ -86,7 +86,7 @@ export function ArchivedShowRow({ row, now, unarchiveAction }: ArchivedShowRowPr
               the sr-only span: the accessible-name algorithm trims each text node
               before concatenating, so a space inside the span is dropped and the
               name computes as "OpenOld Show". */}
-          Open <span className="sr-only">{row.title ?? row.slug}</span>
+          Open <span className="sr-only">{row.title?.trim() || row.slug}</span>
         </Link>
       </div>
     </li>

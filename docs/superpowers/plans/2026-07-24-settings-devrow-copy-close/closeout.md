@@ -84,7 +84,7 @@ surface, design serves the task), `reference/product.md` read.
 
 | Tier | Finding | Disposition |
 | --- | --- | --- |
-| P2 | **The exact defect being fixed has a second instance.** `components/admin/ArchivedShowRow.tsx:85` renders a link whose accessible name is the bare word "Open" — and unlike the settings row's single instance, this one repeats once per archived show, so an out-of-context link list reads "Open, Open, Open". Strictly worse than the case under repair. | **FIXED in this diff.** `Open <span className="sr-only">{row.title ?? row.slug}</span>`; accessible name becomes `Open Old Show`, visible label unchanged. Asserted in `tests/components/admin/Dashboard-archived.test.tsx` with the same name-plus-clone-and-strip pair. Fixing rather than deferring follows the project's class-sweep rule: patching one instance of a shape while an identical worse instance stays is the whack-a-mole the rule exists to prevent. |
+| P2 | **The exact defect being fixed has a second instance.** `components/admin/ArchivedShowRow.tsx:85` renders a link whose accessible name is the bare word "Open" — and unlike the settings row's single instance, this one repeats once per archived show, so an out-of-context link list reads "Open, Open, Open". Strictly worse than the case under repair. | **FIXED in this diff.** `Open <span className="sr-only">{row.title?.trim() || row.slug}</span>`; accessible name becomes `Open Old Show`, visible label unchanged. Asserted in `tests/components/admin/Dashboard-archived.test.tsx` with the same name-plus-clone-and-strip pair. Fixing rather than deferring follows the project's class-sweep rule: patching one instance of a shape while an identical worse instance stays is the whack-a-mole the rule exists to prevent. |
 | P3 | `ArchivedShowRow.tsx:83` carries a bare `focus-visible:ring-offset-2`. | **Not raised as a finding — out of scope by ratification.** One of the ~90 app-wide bare offsets owned by `BL-FOCUS-RING-CONTRAST`; `DESIGN.md:40` bans adding one, and fixing it needs the per-backdrop color decision that backlog item owns. Recorded so a future reviewer does not re-derive it. |
 
 **Strengths:** the copy change carries the product register's plain-language voice with
@@ -104,8 +104,23 @@ matches; the transition lands on the shared literal, so the two links cannot dri
 | Responsive | 4 | `min-h-tap-min` (44px) preserved on both links — the venue-floor phone requirement in PRODUCT.md. `sr-only` is `position:absolute` with a 1px clip, so it contributes no width and cannot change wrap behavior at 390px. The row is still `flex-wrap`. |
 | Anti-patterns | 4 | Detector `[]`. None of the banned patterns present. |
 
-**P0/P1:** none. Nothing deferred; the one P2 was fixed in-diff and the one P3 is an
-already-ratified out-of-scope item with a backlog owner.
+**P0/P1 disposition: zero P0 and zero P1 findings in either half of the gate**, so
+nothing required a fix-or-defer decision at those tiers. Nothing was deferred: the one
+P2 was fixed in-diff (§12 critique table) and the one P3 is an already-ratified
+out-of-scope item with a backlog owner.
+
+## 12b. Whole-diff cross-model review
+
+Codex, fresh-eyes posture, REVIEWER ONLY. R1 NEEDS-ATTENTION with 3 findings, all
+accepted and repaired:
+
+| Tier | Finding | Repair |
+| --- | --- | --- |
+| HIGH | The guard's `INVARIANT8_PLANS` was a hand-maintained allowlist, so its "every invariant-8 plan" assertion overclaimed: a new UI plan could declare the gate, omit itself, and stay green. Fail-by-default was defeated. | Replaced with a filesystem walk of `docs/superpowers/plans/*/plan.md`. A new plan that declares the gate and ships no `§12` closeout now fails by default. The 11 pre-existing plans that predate the guard sit in an explicit `KNOWN_PRE_GUARD_PLANS` debt set — visible and reviewable, and joining it requires a deliberate edit rather than an omission. |
+| MEDIUM | `row.title ?? row.slug` falls back only on `null`/`undefined`, so an empty or whitespace-only title normalized the accessible name straight back to a bare "Open" — recreating the defect. | `row.title?.trim()` with a `||` fallback to `row.slug`, plus a dedicated test case seeding a whitespace-only title and asserting the name falls back to the slug. |
+| MEDIUM | The `§12` check accepted the substrings "critique" and "audit", so text like "critique not run" satisfied it. | The assertion now also requires a stated P0/P1 disposition and explicitly rejects a "<gate> … not run" phrasing. This closeout states its disposition accordingly. |
+
+R2: APPROVE.
 
 ## 13. Verification
 
