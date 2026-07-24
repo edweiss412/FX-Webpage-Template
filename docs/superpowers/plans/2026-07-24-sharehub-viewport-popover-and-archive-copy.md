@@ -118,6 +118,35 @@ Each registry row carries a file and one of three dispositions with a reason str
 - `fit-within-clip` — clip-safe via `useFitWithinClip` instead (asserted by requiring that import): `ReSyncButton.tsx`.
 - `not-clip-constrained` — anchored overlay that is not inside the review-modal panel, or has no internal scroll range, so it cannot strand content. Requires a reason naming which.
 
+**Measured detector breadth (run at plan time, not estimated).**
+
+```
+$ for f in $(grep -rl "absolute" --include="*.tsx" components); do \
+    grep -q "top-full\|bottom-full\|top-\[\|bottom-\[" "$f" && \
+    grep -q "overflow-y-auto\|overflow-auto\|overflow-y-scroll" "$f" && echo "$f"; done
+components/admin/BellPanel.tsx
+components/admin/FinalizeButton.tsx
+components/admin/HoverHelp.tsx
+components/admin/ReSyncButton.tsx
+components/admin/showpage/AttentionMenu.tsx
+components/admin/showpage/ShareHub.tsx
+```
+
+Six files — dropping the cap dimension does NOT produce an unmanageable registry. Starting rows:
+
+| file | disposition | reason |
+| --- | --- | --- |
+| `components/admin/HoverHelp.tsx` | `placement-module` | migrated 2026-07-22 |
+| `components/admin/showpage/ShareHub.tsx` | `placement-module` | migrated by this task |
+| `components/admin/ReSyncButton.tsx` | `fit-within-clip` | clip-safe via `useFitWithinClip`; full-width `inset-x-0` overlay where flipping buys nothing |
+| `components/admin/FinalizeButton.tsx` | `not-clip-constrained` | portals out (`components/admin/FinalizeButton.tsx:741`), so the panel is not an ancestor |
+| `components/admin/BellPanel.tsx` | `not-clip-constrained` | mounts in the nav bell (`components/admin/nav/NotifBell.tsx:97`), outside the review-modal panel |
+| `components/admin/showpage/AttentionMenu.tsx` | `unverified-gap` | **see below** |
+
+**The registry immediately surfaced a second candidate instance — which is the point of building it.** `AttentionMenu` mounts INSIDE the clipping panel (`components/admin/showpage/PublishedReviewModal.tsx:868`), is absolutely anchored (`components/admin/showpage/AttentionMenu.tsx:119`, `top-[calc(100%+8px)]`), and carries its own capped scroller (`components/admin/showpage/AttentionMenu.tsx:130`, `max-h-96 overflow-y-auto`) while using neither the placement module nor `fitWithinClip`. That is the same shape as the defect this branch fixes. The original spec sweep (§1.1 S2) missed it because that grep required `top-full` and this component uses an arbitrary anchor — exactly the false negative plan-review R3 Q3 predicted.
+
+**Scope decision: NOT fixed here.** Whether it actually strands content depends on its measured geometry (it sits near the panel top, so a 384px panel may well fit), and this branch is not expanding to a second component on an unmeasured suspicion. Task 10 files `BL-ATTENTION-MENU-PANEL-CLIP` with the probe recipe, and the registry row carries `unverified-gap` plus that backlog reference so the guard stays green while the question stays visible rather than being silently exempted.
+
 The test asserts: every detected file has a row; every row's asserted import is actually present; and **no row is unused** (so deleting an overlay cannot leave a stale exemption behind).
 
 **Failure mode it catches:** a NEW anchored, internally-scrolling overlay added to this tree without anyone deciding how it survives the panel's `overflow-clip` — which is exactly how the share hub shipped broken after `HoverHelp` was fixed, with nothing failing. This is the repo's established registry idiom (invariants 9 and 10), not a new mechanism.
@@ -246,6 +275,8 @@ Pre-code mechanical gate: no em-dash, no apostrophe literal, sentence case, no t
 Commit: `feat(admin): make the archive row description true in both lifecycle states`
 
 ### Task 10 — ledgers + help copy
+
+Also file `BL-ATTENTION-MENU-PANEL-CLIP` (surfaced by the Task 1 registry): `AttentionMenu` is an anchored, internally-scrolling, capped overlay mounted inside the `overflow-clip` review-modal panel that uses neither clip-safety mechanism. Probe recipe: open the attention menu at 390x{844,667,560} with enough items to fill `max-h-96`, and assert the last item is reachable via `elementFromPoint` — the same shape as spec §9.2.
 
 Per §2.3 (as amended 2026-07-24: merge-atomic, not commit-atomic — the fix is nine commits, so "the same commit as the fix" never existed) and §2.4, in one dedicated commit that MUST land in this PR: correct `BACKLOG.md` `BL-SHAREHUB-ARM-VIEWPORT-REVEAL` (strike the false manual-scroll mitigation, record `overflow-clip`, raise MEDIUM -> HIGH, mark closed, cross-reference `BL-HOVERHELP-PORTAL` as the same class); move both `DEFERRED.md` entries to `DEFERRED-archive.md`, the second marked REFUTED with §1.2's reasoning; add `BL-PUBLISHED-TOGGLE-OVERLAY-CLIP`; fix `app/help/admin/dashboard/page.mdx:49` to name the share hub instead of the Overview section.
 
