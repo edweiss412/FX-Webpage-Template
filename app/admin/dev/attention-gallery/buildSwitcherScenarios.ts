@@ -148,6 +148,28 @@ export function partitionScenarios(): {
       excluded.push({ id: s.id, label: s.label, reason: "cut" });
       continue;
     }
+    // AFTER cut on purpose: the five health-audience global-scope codes fail
+    // isModalVisible first and keep their existing "cut" label, so this arm
+    // moves exactly the four doug-audience tier-1 cards.
+    //
+    // TIER 1 ONLY, deliberately. A tier-1 scenario IS its code — the
+    // one-card-per-route-key fan-out exists to show that code's card, so a card
+    // for an unreachable code is pure fiction with nothing else in it. A tier-2
+    // or tier-3 composite uses codes as INGREDIENTS to demonstrate a structural
+    // state (the actionable class, occurrence counts, identity absence); its
+    // subject is the state, not the code. Excluding those here would delete
+    // real coverage to fix an ingredient. Nine composites currently pick a
+    // global-scope code — pinned as a visible list in
+    // tests/app/admin/attentionModalGallery.serverProps.test.ts so the set
+    // cannot grow silently. Making them scope-faithful means changing which
+    // codes the tier-2 pickers select, which is a separate decision: measured
+    // against the live catalogue, EVERY context-free per-show-reachable code is
+    // auto-resolving, so the gallery's "actionable" axis has no reachable
+    // context-free code to pick at all.
+    if (s.tier === 1 && !isShowScopeReachable(s)) {
+      excluded.push({ id: s.id, label: s.label, reason: "global" });
+      continue;
+    }
     const data = buildScenarioModalData(s);
     rendered.push({
       id: s.id,

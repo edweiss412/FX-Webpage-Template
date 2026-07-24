@@ -52,7 +52,14 @@ export type GallerySwitcherScenario = {
  *  - "cut": a code cut from the published attention surface (DOUG_EXCLUDED_CODES)
  *    that the real modal also never renders (empty modal → not a real state).
  */
-export type ExcludedScenario = { id: string; label: string; reason: "structural" | "cut" };
+export type ExcludedScenario = {
+  id: string;
+  label: string;
+  /** "global" = every card the scenario would show is unreachable per-show: an
+   *  alert whose producers always write show_id: null. Orthogonal to "cut",
+   *  which is an AUDIENCE decision (lib/adminAlerts/alertScope.ts). */
+  reason: "structural" | "cut" | "global";
+};
 
 /** Fixed so relative-time copy is stable across reloads (matches buildBlockProps). */
 export const GALLERY_NOW = new Date("2026-07-01T18:00:00.000Z");
