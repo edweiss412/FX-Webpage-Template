@@ -46,6 +46,12 @@ export type AdminAlertRow = {
    * an exactly-one "Crew"-labeled identity segment. Definite field.
    */
   crewName: string | null;
+  /**
+   * §6.2 id-matched crew fan-out target for AMBIGUOUS_EMAIL_BINDING. OPTIONAL —
+   * `deriveAlertRowFields` spread-inserts it only when derived; absent == no
+   * match (exactOptionalPropertyTypes; there is no explicit null).
+   */
+  crewMatch?: { crewMemberIds: string[]; expectedCount: number };
 };
 
 // Registered row for the §B Supabase call-boundary contract (AGENTS.md §1.9).
