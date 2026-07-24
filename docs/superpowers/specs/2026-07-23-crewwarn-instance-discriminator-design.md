@@ -44,21 +44,21 @@ In `PerShowActionableWarnings`, alongside the existing UNKNOWN_FIELD `rowLabel` 
 - **Gate:** `w.code === "FIELD_UNREADABLE"` AND `blockRef.field` is USABLE. Otherwise no band (guard table §2.4).
 - **Label** (uppercase eyebrow, same classes as "Sheet row" label at `PerShowActionableWarnings.tsx:207`): `Phone` when `field === "phone"`, `Email` when `field === "email"`, else the trimmed field value verbatim (future-proof; only these two are emitted today).
 - **Name and value (AMENDED 2026-07-24, whole-diff review R2 — supersedes the original single joined value span; see the close-out doc §13):** name and value render in SEPARATE sibling spans, never one joined string — a joined string lets delimiter-bearing sheet data (a name or value containing ` · "` sequences) render two DISTINCT warnings identically. Structure inside the band wrapper:
-  - **Name span** (full mode only, `condensed !== true`; USABLE `blockRef.name`): proportional prose classes `min-w-0 text-xs break-words text-text`, `data-testid="per-show-actionable-field-name"`. NOT mono, NOT break-all — the mono treatment is reserved for the junk value so the two stay typographically distinct.
+  - **Name span** (full mode only, `condensed !== true`; USABLE `blockRef.name`): proportional prose classes `min-w-0 text-xs wrap-break-word text-text`, `data-testid="per-show-actionable-field-name"`. NOT mono, NOT break-all — the mono treatment is reserved for the junk value so the two stay typographically distinct.
   - **Separator span** (only when BOTH name and value present): `aria-hidden="true"`, middle dot `·`, `text-xs text-text-subtle` (decorative; precedent `components/auth/IdentityChip.tsx:49`).
   - **Value span** (USABLE `rawSnippet`): `font-mono text-xs break-all text-text`, `data-testid="per-show-actionable-field-label-value"`, renders exactly `"{value}"` (quoted trimmed value, nothing else).
   - **Condensed mode** (`condensed === true`, under-row): value span only — no name span, no separator.
 - Separator is the middle dot `·` (em-dash ban, AGENTS.md pre-code mechanical gate). Quotes are straight double quotes, matching the producer's own message quoting (`lib/parser/warnings.ts:93`).
 - `data-testid`: `per-show-actionable-field-label` (band), `per-show-actionable-field-name` (name span, amended R2), and `per-show-actionable-field-label-value` (value span), extending the row-label pair convention at `components/admin/PerShowActionableWarnings.tsx:205` and `components/admin/PerShowActionableWarnings.tsx:212`.
 - Band is non-interactive text — no tap-target requirement.
-- Long values: the band container is the existing `CompactAlertCard` detail band (`components/admin/CompactAlertCard.tsx:115-120`); BOTH the label span AND the value span get `break-all` so an arbitrarily long unusable cell value — or an arbitrarily long junk `blockRef.field` label from the unvalidated jsonb boundary — wraps inside the card instead of overflowing (cap behavior — no truncation, wrap; the known labels "Phone"/"Email" never wrap in practice). The name span (amended R2) is prose: `break-words` + `min-w-0` (break-words alone does not shrink a flex item below min-content; min-w-0 keeps a pathological unbroken name inside the card).
+- Long values: the band container is the existing `CompactAlertCard` detail band (`components/admin/CompactAlertCard.tsx:115-120`); BOTH the label span AND the value span get `break-all` so an arbitrarily long unusable cell value — or an arbitrarily long junk `blockRef.field` label from the unvalidated jsonb boundary — wraps inside the card instead of overflowing (cap behavior — no truncation, wrap; the known labels "Phone"/"Email" never wrap in practice). The name span (amended R2) is prose: `wrap-break-word` + `min-w-0` (wrap-break-word alone does not shrink a flex item below min-content; min-w-0 keeps a pathological unbroken name inside the card).
 
 ### 2.3 Surfaces affected (mode boundaries)
 
 | Surface | Mode | Band content |
 | --- | --- | --- |
-| Under-row cards (published modal crew rows) | condensed | `PHONE · "value"` |
-| Data-quality group list (per-show panel via `sectionWarningExtras.tsx:265`) | full | `PHONE · Jordan Ellis · "value"` |
+| Under-row cards (published modal crew rows) | condensed | `PHONE "value"` (label span, then value span; no separator glyph — the middot renders only BETWEEN a present name and value, amended R2/R4) |
+| Data-quality group list (per-show panel via `sectionWarningExtras.tsx:265`) | full | `PHONE Jordan Ellis · "value"` (label span, name span, middot separator span, value span — the only middot sits between name and value, amended R2/R4) |
 | Ignored (muted) list | full | same as group list (band renders in muted tone context unchanged) |
 | StagedReviewCard (`components/admin/StagedReviewCard.tsx:521`) | full | same as group list. The staged snapshot baseline (`tests/components/admin/stagedCardBaseline.test.tsx`) is expected UNCHANGED: its fixture `MAPPED_WARNINGS` contains only `UNKNOWN_ROLE_TOKEN` + `ROOM_HEADER_SPLIT_AMBIGUOUS` rows (`tests/helpers/warningSurfaceFixture.ts:88-91`), neither of which passes the FIELD_UNREADABLE band gate. Staged-surface band wiring is instead covered by a direct `StagedReviewCard` render test with a FIELD_UNREADABLE fixture (§3 test 5). |
 
@@ -69,9 +69,9 @@ Every input is first classified by the §2.2 normalization rule: USABLE (string,
 | `blockRef.field` | `blockRef.name` | `rawSnippet` | Renders |
 | --- | --- | --- | --- |
 | ABSENT | any | any | no band (legacy path, §1.1 #7) |
-| USABLE | USABLE | USABLE | full: `Phone · name · "value"`; condensed: `Phone · "value"` |
-| USABLE | ABSENT | USABLE | full: `Phone · "value"` (name segment dropped, no dangling separator); condensed unchanged |
-| USABLE | USABLE | ABSENT | full: `Phone · name`; condensed: `Phone` — value segment + quotes dropped entirely, never `""` |
+| USABLE | USABLE | USABLE | full: `Phone name · "value"`; condensed: `Phone "value"` (middot only between name and value, amended R2/R4) |
+| USABLE | ABSENT | USABLE | full: `Phone "value"` (name span and separator both absent, no dangling glyph); condensed unchanged |
+| USABLE | USABLE | ABSENT | full: `Phone name` (no separator without a value); condensed: `Phone` — value span + quotes dropped entirely, never `""` |
 | USABLE | ABSENT | ABSENT | `Phone` alone (label only), both modes |
 
 Label mapping for USABLE field: `"phone"` → `Phone`, `"email"` → `Email`, any other trimmed value → that trimmed value as-is (future-proof; only these two are emitted today). `blockRef.name` is the RAW name cell (pre-restriction-strip, `lib/parser/blocks/crew.ts:292-294`), rendered TRIMMED but otherwise unmodified (no restriction-strip, no case change) — it matches what Doug sees in the sheet.

@@ -26,8 +26,8 @@ card anatomy."
 
 Resolved: context-aware detail band (owner-ratified Option B via mockup review) — the producer
 now writes `blockRef.field` (`emitFieldUnreadable`), and FIELD_UNREADABLE cards render a
-field-label band: condensed (under-row) `PHONE · "value"`; full/staged
-`PHONE · name · "value"`. Two latent bugs fixed in the same diff: the `operatorActionableWarnings`
+field-label band: condensed (under-row) `PHONE "value"`; full/staged
+`PHONE name · "value"` (split spans; the only middot separator sits between name and value). Two latent bugs fixed in the same diff: the `operatorActionableWarnings`
 dedup key and `warningIdentityKey` both fold `blockRef.field` (NUL presence-delimited, raw
 untrimmed), so a member's phone+email pair is no longer dedup-hidden when anchored to one crew
 cell, and no longer shares one report surfaceId (ReportModal draft/idempotency state).

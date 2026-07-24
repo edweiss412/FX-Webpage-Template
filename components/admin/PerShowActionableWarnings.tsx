@@ -234,7 +234,7 @@ export function PerShowActionableWarnings({
             </span>
             {bandName !== null ? (
               <span
-                className="min-w-0 text-xs break-words text-text"
+                className="min-w-0 text-xs wrap-break-word text-text"
                 data-testid="per-show-actionable-field-name"
               >
                 {bandName}
