@@ -223,7 +223,9 @@ Mechanical copy gates (pre-code checklist per the 2026-07-19 retrospective): no 
 
 ### 2.3 Ledger corrections
 
-Landed in the same commit as the fix:
+**Amended 2026-07-24 (plan-review R3 Q4, MEDIUM).** This section originally said the corrections land "in the same commit as the fix". There is no single fix commit — the fix is nine TDD commits across a branch — so that requirement was unsatisfiable as written and the plan contradicted it. Corrected requirement: the ledger corrections land **in the same PR as the fix, in one dedicated commit**, and the branch may not merge with any of the three entries still stating the refuted claims. Atomicity that matters here is merge-atomicity, not commit-atomicity: no reader can ever observe `main` with the fix shipped and the ledgers still wrong.
+
+Landed in the same PR as the fix, in one dedicated commit:
 
 - `BACKLOG.md` `BL-SHAREHUB-ARM-VIEWPORT-REVEAL`: strike "The user CAN reach them by scrolling the modal panel manually (band and popover move up with it)"; record that the panel is `overflow-clip` and cannot scroll; record that the defect reaches every phone height; raise severity MEDIUM -> HIGH; mark CLOSED by this branch. Cross-reference `BL-HOVERHELP-PORTAL` as the same class, since the share hub was the unmigrated remainder.
 - `DEFERRED.md` `SHAREHUB-ARM-VIEWPORT-REVEAL-1`: entry moves to `DEFERRED-archive.md` with the corrected finding and the shipping PR, per the queue's own rule (`DEFERRED.md`).

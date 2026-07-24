@@ -247,7 +247,7 @@ Commit: `feat(admin): make the archive row description true in both lifecycle st
 
 ### Task 10 — ledgers + help copy
 
-Per §2.3 and §2.4, in one commit: correct `BACKLOG.md` `BL-SHAREHUB-ARM-VIEWPORT-REVEAL` (strike the false manual-scroll mitigation, record `overflow-clip`, raise MEDIUM -> HIGH, mark closed, cross-reference `BL-HOVERHELP-PORTAL` as the same class); move both `DEFERRED.md` entries to `DEFERRED-archive.md`, the second marked REFUTED with §1.2's reasoning; add `BL-PUBLISHED-TOGGLE-OVERLAY-CLIP`; fix `app/help/admin/dashboard/page.mdx:49` to name the share hub instead of the Overview section.
+Per §2.3 (as amended 2026-07-24: merge-atomic, not commit-atomic — the fix is nine commits, so "the same commit as the fix" never existed) and §2.4, in one dedicated commit that MUST land in this PR: correct `BACKLOG.md` `BL-SHAREHUB-ARM-VIEWPORT-REVEAL` (strike the false manual-scroll mitigation, record `overflow-clip`, raise MEDIUM -> HIGH, mark closed, cross-reference `BL-HOVERHELP-PORTAL` as the same class); move both `DEFERRED.md` entries to `DEFERRED-archive.md`, the second marked REFUTED with §1.2's reasoning; add `BL-PUBLISHED-TOGGLE-OVERLAY-CLIP`; fix `app/help/admin/dashboard/page.mdx:49` to name the share hub instead of the Overview section.
 
 Commit: `docs: close the share-hub reveal and gravity-cue deferrals with corrected findings`
 
@@ -271,7 +271,7 @@ Commit: `chore: remove the throwaway placement probe`
 - [ ] Task 8 — transition audit
 - [ ] Task 9 — state-conditional copy
 - [ ] Task 10 — ledgers + help copy
-- [ ] Task 11 — close-out
+- [ ] Task 11 — close-out (blocks merge: verify no DEFERRED.md/BACKLOG.md entry still states the refuted claims)
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — mandatory gate before execution handoff. Spec §10 records four consecutive silent Codex deaths this session; if that persists, the same self-certification rung applies and is recorded here with the attempt log.
 - [ ] impeccable critique + audit (invariant 8 — UI surface)
