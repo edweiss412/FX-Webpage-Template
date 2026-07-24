@@ -96,23 +96,37 @@ Every task: failing test -> minimal implementation -> passing test -> commit (in
 
 **Why these are one task, not two (plan-review R1 BLOCKING).** The guard is red on `ShareHub.tsx` by construction and only the migration can make it green. Splitting them would give Task 1 no implementation step capable of passing its own test and would leave the branch red between commits, violating the per-task `failing test -> minimal implementation -> passing test -> commit` invariant. Red-to-green happens inside this one task.
 
-**Test first.** Create a new `_metaPopoverPlacementContract` test under the showpage component test directory. It walks `components/**/*.tsx` from the filesystem (not a lexical file list), and for each file that declares an overlay in the defect shape — a className string containing `top-full` or `bottom-full` AND `overflow-y-auto` AND a `max-h-[` cap — asserts the file either imports from `@/lib/popover/position` or appears in a reasoned allowlist.
+**Test first.** Create a new `_metaPopoverPlacementContract` test under the showpage component test directory, as a **registry tripwire**, not a defect classifier.
 
-**Detection breadth (self-review, pre-empting the obvious evasion).** Matching only `overflow-y-auto` + `max-h-[` is too narrow for this repo. The classifier matches:
+**Why a registry and not a shape detector (plan-review R3 Q3, HIGH).** The first draft classified files by co-occurrence of `top-full` + `overflow-y-auto` + `max-h-[`. Review demonstrated that is simultaneously too narrow and too loose, with live counter-examples in this repo:
 
-- scroller: `overflow-y-auto` **or** `overflow-auto` **or** `overflow-y-scroll`
-- cap: `max-h-[` **or** `max-h-(` (Tailwind v4 CSS-variable arbitrary values, which this repo already uses elsewhere, e.g. `shadow-(--shadow-tile)` at `components/admin/review/ReviewModalShell.tsx:623`)
-- anchor: `top-full` **or** `bottom-full`
+| evasion | live instance |
+| --- | --- |
+| Tailwind scale cap instead of arbitrary | `components/admin/showpage/AttentionMenu.tsx:130` (`max-h-96`) |
+| semantic token cap | `components/admin/BellPanel.tsx:1169` (`max-h-panel-max-mobile`) |
+| inline style cap | `components/shared/ReportModal.tsx:636` (`style={{ maxHeight: ... }}`) |
+| arbitrary anchor instead of `top-full` | `components/admin/showpage/AttentionMenu.tsx:119` (`top-[calc(100%+8px)]`) |
+| class list imported from another file | acknowledged; no live instance |
 
-It scans the whole file's source text rather than a JSX attribute, so a class list hoisted into a module-level constant is still caught — which matters, because that is exactly how `ReSyncButton` writes it (`components/admin/ReSyncButton.tsx:68-69`, `const OVERLAY_PANEL = "..."`), and a JSX-attribute-only scan would miss it and produce a false green.
+And whole-file substring co-occurrence can classify three unrelated JSX elements in one file as a single defective overlay — a false positive that trains the reader to ignore the guard.
 
-**Known limitation, stated rather than papered over:** a class list assembled in a DIFFERENT file and imported would evade the scan. No overlay in this repo is written that way today (sweep S2), and the e2e sweep in Task 7 covers behaviour regardless, so the guard is a cheap early-warning net, not the sole defence. Verified against the live defect: `ShareHub.tsx:487` is a single literal className containing `top-full`, `overflow-y-auto` and `max-h-[min(70vh,30rem)]`, so the classifier does fire on it.
+**The registry inverts the failure mode.** The detector is deliberately BROAD — any `components/**/*.tsx` (walked with the shared `walkSourceFiles` helper, `lib/messages/__internal__/walkSourceFiles.ts:8`) whose source contains an absolute-overlay hint (`absolute` together with any of `top-full`, `bottom-full`, `top-[`, `bottom-[`) AND a scroller hint (`overflow-y-auto`, `overflow-auto`, `overflow-y-scroll`) must appear in an explicit registry. Over-matching is now harmless: it costs one registry row stating the disposition, rather than producing a silent pass. Under-matching is what the old design risked and what the counter-examples above exploit.
 
-Allowlist: exactly one entry, `components/admin/ReSyncButton.tsx`, with an inline reason string ("clip-safe via useFitWithinClip; full-width inset-x-0 overlay where flipping buys nothing; spec §1.1"). The test asserts the allowlist has no *unused* entries too, so deleting an overlay does not leave a stale exemption.
+Each registry row carries a file and one of three dispositions with a reason string:
 
-**Failure mode it catches:** a third overlay written in this idiom without inheriting either fix — which is precisely how the share hub shipped broken after `HoverHelp` was fixed. It fails on `ShareHub.tsx` when written (red), and the migration below turns it green inside this same task.
+- `placement-module` — resolves geometry through `lib/popover/position.ts` (asserted by also requiring the import). After the migration: `ShareHub.tsx`, `HoverHelp.tsx`.
+- `fit-within-clip` — clip-safe via `useFitWithinClip` instead (asserted by requiring that import): `ReSyncButton.tsx`.
+- `not-clip-constrained` — anchored overlay that is not inside the review-modal panel, or has no internal scroll range, so it cannot strand content. Requires a reason naming which.
 
-**Anti-tautology:** it must NOT assert merely "ShareHub imports something"; it asserts the specific module, and the walker must be proven to see new files (the test includes a synthetic-path unit case for the classifier so an over-narrow regex cannot silently match nothing).
+The test asserts: every detected file has a row; every row's asserted import is actually present; and **no row is unused** (so deleting an overlay cannot leave a stale exemption behind).
+
+**Failure mode it catches:** a NEW anchored, internally-scrolling overlay added to this tree without anyone deciding how it survives the panel's `overflow-clip` — which is exactly how the share hub shipped broken after `HoverHelp` was fixed, with nothing failing. This is the repo's established registry idiom (invariants 9 and 10), not a new mechanism.
+
+**Anti-tautology:** the classifier itself is unit-tested against synthetic sources covering each row of the evasion table above, so an over-narrow regex cannot silently match nothing. It is also asserted to fire on `ShareHub.tsx` as written today (`components/admin/showpage/ShareHub.tsx:487`), which is the red state this task starts from.
+
+It fails on `ShareHub.tsx` when written (red, because the file has no `placement-module` import yet), and the migration below turns it green inside this same task.
+
+Commit note: the registry file and the test land together.
 
 **Then, in the same task — the migration.**
 
