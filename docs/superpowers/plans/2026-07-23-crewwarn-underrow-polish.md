@@ -19,9 +19,9 @@
 
 **Meta-test inventory (mandatory declaration):** None created or extended. Reason: no new Supabase call boundaries (invariant 9 registries untouched), no new mutation surfaces (invariant 10), no new §12.4/admin-alert codes, no advisory locks. The sentinel-hiding and catalog meta-tests are unaffected because no catalog strings or tile sentinels change.
 
-**e2e harness readiness (mandatory declaration):** The layout spec boots NO server — it renders static pages via `renderToStaticMarkup` (harness CLI) + Tailwind CLI css, served from a temp dir (`tests/e2e/published-review-modal.layout.spec.ts:95-160`). Readiness gate = `await expect(page.locator(MODAL)).toBeVisible()` inside `openHarness` (`:175-183`) with reduced-motion emulation; no hydration exists, so no hydration gate applies. Detach-safety: all measurements use `locator.boundingBox()` / one-shot `evaluate` on elements that persist (native `<details>` toggle never unmounts the measured nodes).
+**e2e harness readiness (mandatory declaration):** The layout spec boots NO server — it renders static pages via `renderToStaticMarkup` (harness CLI) + Tailwind CLI css, served from a temp dir (`tests/e2e/published-review-modal.layout.spec.ts:95-160`). Readiness gate = `await expect(page.locator(MODAL)).toBeVisible()` inside `openHarness` (`tests/e2e/published-review-modal.layout.spec.ts:175-183`) with reduced-motion emulation; no hydration exists, so no hydration gate applies. Detach-safety: all measurements use `locator.boundingBox()` / one-shot `evaluate` on elements that persist (native `<details>` toggle never unmounts the measured nodes).
 
-**Workflow wiring:** new tests live INSIDE the existing `tests/e2e/published-review-modal.layout.spec.ts` (already in `published-modal-e2e.yml` paths and run list, `:51`, `:144`) and existing vitest globs (`tests/components/admin/**` matches BASE_INCLUDE). Task 4 adds the two missing component paths to the workflow filter.
+**Workflow wiring:** new tests live INSIDE the existing `tests/e2e/published-review-modal.layout.spec.ts` (already in the workflow paths and run list, `.github/workflows/published-modal-e2e.yml:51` and `.github/workflows/published-modal-e2e.yml:144`) and existing vitest globs (`tests/components/admin/**` matches BASE_INCLUDE). Task 4 adds the two missing component paths to the workflow filter.
 
 ---
 
@@ -29,7 +29,7 @@
 
 **Files:**
 - Modify: `components/admin/PerShowActionableWarnings.tsx`
-- Test: `tests/components/admin/perShowActionableCondensed.test.tsx` (create)
+- Test (create): tests/components/admin/perShowActionableCondensed.test.tsx
 
 **Interfaces:**
 - Produces: `condensedPopoverSlots(args: { movedGuidance: string | null; context: string | null; followUp: string | null }): { popoverBody: string | null; afterBodyText: string | null }` (exported, pure); `PerShowActionableWarnings` prop `condensed?: boolean` (rendering switches on `condensed === true`).
@@ -41,7 +41,7 @@
 // tests/components/admin/perShowActionableCondensed.test.tsx
 // @vitest-environment jsdom
 /** Spec 2026-07-23-crewwarn-underrow-polish §3: condensed moves CATALOG guidance
- *  into the popover BODY (described run — superset of full mode), instance lines
+ *  into the popover BODY (described run - superset of full mode), instance lines
  *  stay inline, and the 8-row slot table is total. Failure modes caught: guidance
  *  demoted to afterBodyText (outside aria-describedby), catalog line still inline
  *  when condensed, condensed={false} diverging from omission. */
@@ -165,7 +165,7 @@ Add after `resolveGuidance` (below line 65):
 ```ts
 /** Condensed popover slots (spec 2026-07-23-crewwarn-underrow-polish §3): DERIVED
  *  from full mode's two slots so the described set is {movedGuidance} ∪ full mode's
- *  described set in every row — fullBody keeps its described position, followUp
+ *  described set in every row - fullBody keeps its described position, followUp
  *  keeps its full-mode slot. Pure + exported so the 8-row table is unit-testable. */
 export function condensedPopoverSlots(args: {
   movedGuidance: string | null;
@@ -189,7 +189,7 @@ Add the prop (after `followUpCopy?: string;` in the props type, with doc comment
   /** Under-row placement (spec 2026-07-23-crewwarn-underrow-polish §3): the catalog
    *  guidance line moves into the `?` popover BODY; instance (autocorrect) guidance
    *  stays inline. Switches on `condensed === true`; false ≡ omitted. Group,
-   *  fallback, ignored, and staged surfaces omit this — full copy unchanged. */
+   *  fallback, ignored, and staged surfaces omit this - full copy unchanged. */
   condensed?: boolean;
 ```
 
@@ -230,7 +230,7 @@ git commit -m "feat(admin): condensed under-row warning-card variant (catalog gu
 
 **Files:**
 - Modify: `components/admin/showpage/sectionWarningExtras.tsx:45-65` (`renderCrewUnderRowCards`)
-- Test: `tests/components/admin/showpage/crewUnderRowIndent.test.tsx` (create)
+- Test (create): tests/components/admin/showpage/crewUnderRowIndent.test.tsx
 
 **Interfaces:**
 - Consumes: Task 1's `condensed` prop.
@@ -349,12 +349,12 @@ git commit -m "feat(admin): indent under-row warning cards 24px and render them 
 ### Task 3: Compound-transition unit coverage (spec §5 / §6 item 4)
 
 **Files:**
-- Test: `tests/components/admin/showpage/crewUnderRowMembership.test.tsx` (create)
+- Test (create): tests/components/admin/showpage/crewUnderRowMembership.test.tsx
 
 **Interfaces:**
 - Consumes: the `AttachHarness` composition pattern from `tests/components/admin/showpage/crewWarningAttachment.test.tsx:106-146` (copy it into this file — do not import test internals across files).
 
-**Transition-audit declaration (mandatory):** no `AnimatePresence`, no new ternary render with animated arms, no motion props are added anywhere in this diff; every §5 pair is "instant — no animation needed" by design. This task pins the DATA consequences of the instant transitions.
+**Transition-audit declaration (mandatory):** no `AnimatePresence`, no new ternary render with animated arms, no motion props are added anywhere in this diff; every §5 pair is instant (no animation needed) by design. This task pins the DATA consequences of the instant transitions.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -546,13 +546,13 @@ git commit -m "test(admin): pin under-row membership recompute + active/ignored 
 ### Task 4: Capped harness fixture + layout assertions + workflow paths
 
 **Files:**
-- Modify: `tests/e2e/_publishedReviewModalHarness.tsx` (overrides type `:242-253`, fixtures `:255-276`, `modalElement` `:278-299`, CLI entry `:354-382`)
-- Modify: `tests/e2e/published-review-modal.layout.spec.ts` (beforeAll pages block `:118-140`, `@source` list `:141-150`; new test block after the T5 block ending `~:1130`)
+- Modify: `tests/e2e/_publishedReviewModalHarness.tsx` (overrides type `tests/e2e/_publishedReviewModalHarness.tsx:242-253`, fixtures `tests/e2e/_publishedReviewModalHarness.tsx:255-276`, `modalElement` `tests/e2e/_publishedReviewModalHarness.tsx:278-299`, CLI entry `tests/e2e/_publishedReviewModalHarness.tsx:354-382`)
+- Modify: `tests/e2e/published-review-modal.layout.spec.ts` (beforeAll pages block `tests/e2e/published-review-modal.layout.spec.ts:118-140`, `@source` list `tests/e2e/published-review-modal.layout.spec.ts:141-150`; new test block after the T5 block)
 - Modify: `.github/workflows/published-modal-e2e.yml:37-60` (add two paths)
 
 **Interfaces:**
-- Consumes: `HarnessStateOverrides.attentionItems` (replace-wholesale, `:315`), `harnessAttentionItems` (`:56`).
-- Produces: harness JSON key `crewWarningsCapped`; page file `crewwarningscapped.html`.
+- Consumes: `HarnessStateOverrides.attentionItems` (replace-wholesale, `tests/e2e/_publishedReviewModalHarness.tsx:315`), `harnessAttentionItems` (`tests/e2e/_publishedReviewModalHarness.tsx:56`).
+- Produces: harness JSON key `crewWarningsCapped`; page file crewwarningscapped.html.
 
 - [ ] **Step 1: Write the failing layout tests** (append after the existing T5 `test.describe` block)
 
@@ -634,7 +634,7 @@ test.describe("crew warning indent + cap (crewwarn-underrow-polish)", () => {
 
 - [ ] **Step 2: Wire the new page into beforeAll** (same spec file)
 
-Add `crewWarningsCapped: string;` to the `pages` type annotation, and after the `crewwarnings.html` write:
+Add `crewWarningsCapped: string;` to the `pages` type annotation, and after the crewwarnings.html write:
 
 ```ts
   // crewwarn-underrow-polish §4: capped mixed stack (banner + 3 warnings, one member).
@@ -646,7 +646,7 @@ Add `"crewwarningscapped.html"` to the `@source` file list array.
 - [ ] **Step 3: Run to verify failure**
 
 Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.layout.spec.ts -g "crewwarn-underrow-polish"`
-Expected: FAIL in beforeAll — `pages.crewWarningsCapped` is undefined (harness doesn't emit it yet).
+Expected: FAIL in beforeAll - `pages.crewWarningsCapped` is undefined (harness doesn't emit it yet).
 
 - [ ] **Step 4: Implement the harness fixture**
 
@@ -669,7 +669,7 @@ function cappedCrewWarningFixtures(): ParseWarning[] {
   const mk = (index: number, field: string, snippet: string): ParseWarning => ({
     severity: "warn",
     code: "FIELD_UNREADABLE",
-    message: `Crew ${field} for row ${index + 1} couldn't be read ("${snippet}") — check the sheet.`,
+    message: `Crew ${field} for row ${index + 1} couldn't be read ("${snippet}") - check the sheet.`,
     rawSnippet: snippet,
     blockRef: { kind: "crew", index, name: "Crew Member A (5/3 ONLY)" },
   });
@@ -680,7 +680,7 @@ function cappedCrewWarningFixtures(): ParseWarning[] {
     {
       severity: "warn",
       code: "FIELD_UNREADABLE",
-      message: 'Crew email for row 9 couldn\'t be read as an address ("nope") — check the sheet.',
+      message: 'Crew email for row 9 couldn\'t be read as an address ("nope") - check the sheet.',
       rawSnippet: "nope",
       blockRef: { kind: "crew", index: 8, name: "Ghost Crew" },
     },
@@ -740,7 +740,7 @@ In `modalElement`, replace the `bySection` ternary condition and warnings source
 CLI entry — add after the `crewWarnings` page:
 
 ```ts
-      // crewwarn-underrow-polish §4: capped mixed stack — banner rides the
+      // crewwarn-underrow-polish §4: capped mixed stack - banner rides the
       // replace-wholesale attentionItems override, defaults preserved.
       crewWarningsCapped: renderModalHtml(HARNESS_ALERT_COUNT, {
         withCappedCrewWarnings: true,
@@ -775,7 +775,7 @@ git commit -m "test(admin): capped mixed-stack harness page + hop-by-hop indent 
 
 **Files:** none new (findings/dispositions recorded in Task 6's docs).
 
-- [ ] **Step 1:** Run `/impeccable critique` on the branch diff (canonical v3 setup: `context.mjs` context load with PRODUCT.md + DESIGN.md, then register reference read). Scope: the under-row card surfaces (crew section, condensed cards, capped disclosure) using the harness pages from Task 4 for visual states.
+- [ ] **Step 1:** Run `/impeccable critique` on the branch diff (canonical v3 setup: context.mjs context load with PRODUCT.md + DESIGN.md, then register reference read). Scope: the under-row card surfaces (crew section, condensed cards, capped disclosure) using the harness pages from Task 4 for visual states.
 - [ ] **Step 2:** Run `/impeccable audit` on the same diff with the same setup gates.
 - [ ] **Step 3:** Fix P0/P1 findings inline (commit per fix, `fix(admin): ...`), or defer each explicitly with a DEFERRED.md entry + un-defer trigger. Record every finding + disposition for Task 6.
 - [ ] **Step 4:** Commit any fixes.
@@ -785,7 +785,7 @@ git commit -m "test(admin): capped mixed-stack harness page + hop-by-hop indent 
 ### Task 6: Docs close-out — DEFERRED.md graduation
 
 **Files:**
-- Modify: `DEFERRED.md` (remove the three entries at `:11-33`; update `Last reconciled` line `:7`)
+- Modify: `DEFERRED.md` (remove the three entries, currently lines 11-33; update the Last reconciled line, currently line 7)
 - Modify: `DEFERRED-archive.md` (append the three full entries with resolution notes)
 
 - [ ] **Step 1:** Move `CREWWARN-UNDERROW-INDENT-1`, `CREWWARN-UNDERROW-COPY-CONDENSE-1`, `CREWWARN-CAP-FIXTURE-1` (full text) into `DEFERRED-archive.md` under a "Crew warning under-row polish (2026-07-23)" heading, each with: RESOLVED by `feat/crewwarn-underrow-polish`, spec ref, and the shipped mechanism one-liner (24px per-kind indent; condensed variant; `crewWarningsCapped` page). `CREWWARN-INCARD-MOBILE-EYEBROW-1` STAYS in DEFERRED.md.
