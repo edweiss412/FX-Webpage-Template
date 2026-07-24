@@ -51,7 +51,13 @@ export function DevToolsRow({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Link href="/admin/dev" data-testid="admin-dev-tools-open" className={devLinkClass}>
-          Open
+          {/* The separating space is a VISIBLE text node on this line, not inside
+              the sr-only span: the accessible-name algorithm trims each text
+              node before concatenating, so `Open<span> developer tools</span>`
+              computes as "Opendeveloper tools" (measured, spec §3.1c). JSX also
+              drops whitespace-only text between elements on separate lines, so
+              the span must stay on this line. */}
+          Open <span className="sr-only">developer tools</span>
         </Link>
         <Link
           href="/admin/dev/attention-gallery"

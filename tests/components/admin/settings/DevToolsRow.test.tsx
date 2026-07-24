@@ -35,7 +35,10 @@ describe("DevToolsRow — DEV_PANEL_PRESENT true", () => {
     expect(screen.getByText("Developer tools")).toBeInTheDocument();
     const open = screen.getByTestId("admin-dev-tools-open");
     expect(open).toHaveAttribute("href", "/admin/dev");
-    expect(open).toHaveTextContent("Open");
+    // Accessible name, not raw textContent: the visible label is `Open` but the
+    // link carries a hidden qualifier (spec 2026-07-24 §4). Asserted in full by
+    // T1/T1b/T2 below.
+    expect(open).toHaveAccessibleName("Open developer tools");
   });
 
   it("renders the Attention gallery link beside Open — href, parity, wrapper, order", () => {
@@ -48,7 +51,32 @@ describe("DevToolsRow — DEV_PANEL_PRESENT true", () => {
     expect(gallery).toHaveAttribute("href", "/admin/dev/attention-gallery");
     expect(gallery).toHaveTextContent(/^Attention gallery$/);
     expect(open).toHaveAttribute("href", "/admin/dev");
-    expect(open).toHaveTextContent(/^Open$/);
+
+    // T1 (2026-07-24 spec §9) - accessible-name boundary. Exact match, never a
+    // substring: the failure this catches is `Opendeveloper tools`, produced
+    // when the separating space lives INSIDE the sr-only span, because the
+    // accessible-name algorithm trims each text node before concatenating.
+    // Measured against dom-accessibility-api 0.5.16, spec §3.1(c).
+    expect(open).toHaveAccessibleName("Open developer tools");
+
+    // T1b - the name comes from a HIDDEN TEXT NODE, not from aria-label. T1
+    // alone is satisfied by <Link aria-label="Open developer tools">Open</Link>,
+    // which has the right name, no hidden qualifier, and violates spec §4's
+    // no-aria-label decision - so the ratified mechanism could regress while
+    // T1 and T2 both stayed green.
+    expect(open).not.toHaveAttribute("aria-label");
+    expect(open).not.toHaveAttribute("aria-labelledby");
+    const hidden = Array.from(open.querySelectorAll(".sr-only"));
+    expect(hidden).toHaveLength(1);
+    expect(hidden[0]?.textContent).toBe("developer tools");
+
+    // T2 - the visible label is still exactly `Open` (spec §1.1: the rejected
+    // option was a visible rename). Clone-and-strip, because the live node's
+    // textContent now legitimately contains the hidden suffix, so T1 alone
+    // would pass a visibly-renamed button.
+    const visibleOnly = open.cloneNode(true) as HTMLElement;
+    visibleOnly.querySelectorAll(".sr-only").forEach((n) => n.remove());
+    expect(visibleOnly.textContent?.trim()).toBe("Open");
 
     // styling parity (spec §4, R1 F1): identical class attribute, and the
     // shared string keeps the tap-target + focus-ring classes so parity
