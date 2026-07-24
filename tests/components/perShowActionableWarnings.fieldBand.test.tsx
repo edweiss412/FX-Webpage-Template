@@ -18,7 +18,9 @@ import type { ParseWarning } from "@/lib/parser/types";
 
 afterEach(cleanup);
 
-const fu = (over: Partial<ParseWarning> & { blockRef?: ParseWarning["blockRef"] }): ParseWarning => ({
+const fu = (
+  over: Partial<ParseWarning> & { blockRef?: ParseWarning["blockRef"] },
+): ParseWarning => ({
   severity: "warn",
   code: "FIELD_UNREADABLE",
   message: "instance message unused by the band",
@@ -60,7 +62,9 @@ describe("PerShowActionableWarnings — FIELD_UNREADABLE discriminator band", ()
     ["non-string number", { kind: "crew", index: 2, name: "J", field: 0 }],
     ["non-string object", { kind: "crew", index: 2, name: "J", field: { a: 1 } }],
   ])("ABSENT field (%s) renders no band", (_label, blockRef) => {
-    render(<PerShowActionableWarnings items={[fu({ blockRef: blockRef as never })]} driveFileId="df" />);
+    render(
+      <PerShowActionableWarnings items={[fu({ blockRef: blockRef as never })]} driveFileId="df" />,
+    );
     expect(screen.queryByTestId("per-show-actionable-field-label")).toBeNull();
   });
 
@@ -71,7 +75,9 @@ describe("PerShowActionableWarnings — FIELD_UNREADABLE discriminator band", ()
     ["whitespace", { kind: "crew", index: 2, name: "   ", field: "phone" }],
     ["non-string array", { kind: "crew", index: 2, name: [], field: "phone" }],
   ])("ABSENT name (%s, full mode) drops the segment, no dangling separator", (_label, blockRef) => {
-    render(<PerShowActionableWarnings items={[fu({ blockRef: blockRef as never })]} driveFileId="df" />);
+    render(
+      <PerShowActionableWarnings items={[fu({ blockRef: blockRef as never })]} driveFileId="df" />,
+    );
     expect(bands()[0]?.textContent).toBe(`Phone"call the office"`);
   });
 
@@ -96,7 +102,12 @@ describe("PerShowActionableWarnings — FIELD_UNREADABLE discriminator band", ()
   test("junk name + junk rawSnippet with a valid field renders the label alone, no throw", () => {
     render(
       <PerShowActionableWarnings
-        items={[fu({ rawSnippet: 42 as never, blockRef: { kind: "crew", index: 2, name: [] as never, field: "phone" } })]}
+        items={[
+          fu({
+            rawSnippet: 42 as never,
+            blockRef: { kind: "crew", index: 2, name: [] as never, field: "phone" },
+          }),
+        ]}
         driveFileId="df"
       />,
     );

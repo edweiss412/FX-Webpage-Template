@@ -181,8 +181,16 @@ describe("FIELD_UNREADABLE field fold (crewwarn-instance-discriminator §2.1)", 
 
   it("same-member phone+email with one shared anchor BOTH survive (field fold)", () => {
     const ws: ParseWarning[] = [
-      { ...base, rawSnippet: "no digits", blockRef: { kind: "crew", index: 2, name: "Jordan", field: "phone" } },
-      { ...base, rawSnippet: "no at", blockRef: { kind: "crew", index: 2, name: "Jordan", field: "email" } },
+      {
+        ...base,
+        rawSnippet: "no digits",
+        blockRef: { kind: "crew", index: 2, name: "Jordan", field: "phone" },
+      },
+      {
+        ...base,
+        rawSnippet: "no at",
+        blockRef: { kind: "crew", index: 2, name: "Jordan", field: "email" },
+      },
     ];
     expect(operatorActionableWarnings(ws)).toHaveLength(2);
   });
@@ -190,7 +198,11 @@ describe("FIELD_UNREADABLE field fold (crewwarn-instance-discriminator §2.1)", 
   it("fold uses the RAW field string untrimmed: padded vs unpadded field both survive", () => {
     const ws: ParseWarning[] = [
       { ...base, rawSnippet: "x", blockRef: { kind: "crew", index: 2, name: "J", field: "phone" } },
-      { ...base, rawSnippet: "y", blockRef: { kind: "crew", index: 2, name: "J", field: " phone " } },
+      {
+        ...base,
+        rawSnippet: "y",
+        blockRef: { kind: "crew", index: 2, name: "J", field: " phone " },
+      },
     ];
     // Raw-string fold (identity/dedup keys never trim); a trimming implementation collapses these.
     expect(operatorActionableWarnings(ws)).toHaveLength(2);
