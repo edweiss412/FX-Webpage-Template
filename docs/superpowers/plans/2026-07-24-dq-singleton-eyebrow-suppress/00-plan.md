@@ -98,7 +98,9 @@ test("bulk-eligible and plural no-bulk groups keep the eyebrow; a lone singleton
   expect(screen.queryByTestId("dq-group-label-BLOCK_DISAPPEARED_SOLO")).toBeNull();
   const solo = screen.getByTestId("dq-active-group-BLOCK_DISAPPEARED_SOLO");
   expect(solo.querySelector(".h-px")).toBeNull(); // no hairline row
-  expect(within(solo).getByTestId("cards-BLOCK_DISAPPEARED_SOLO")).toBeTruthy(); // cards survive
+  // Structural pin (spec §4.1): the wrapper's FIRST child IS the cards slot - a
+  // surviving empty header div (hairline stripped but row present) fails here.
+  expect(solo.firstElementChild).toBe(within(solo).getByTestId("cards-BLOCK_DISAPPEARED_SOLO"));
   // cards slotted through on kept rows too
   expect(screen.getByTestId("cards-UNKNOWN_FIELD")).toBeTruthy();
   expect(screen.getByTestId("cards-BLOCK_DISAPPEARED")).toBeTruthy();
@@ -120,12 +122,18 @@ const singletonGroup = (): ActiveWarningGroup => ({
 });
 ```
 
-(`code` is only a key/testid discriminator in this component — any string is type-legal.) Sweep the file for other uses of `singletonGroup` / `cards-BLOCK_DISAPPEARED` testids (line ~153 renders `[bulkGroup(), singletonGroup()]`) and update expectations there: that test asserts card slots render — keep it asserting `cards-BLOCK_DISAPPEARED_SOLO` presence (cards render even when the row is suppressed).
+(`code` is only a key/testid discriminator in this component — any string is type-legal.) Sweep the file for other uses of `singletonGroup`: the partial-failure test (`tests/components/admin/bulkIgnoreControls.test.tsx:149-166`) renders it as a BYSTANDER only — all its assertions target the `UNKNOWN_FIELD` group — so the code/testid rename requires NO expectation edits there. Verify with `rg -n "singletonGroup|BLOCK_DISAPPEARED" tests/components/admin/bulkIgnoreControls.test.tsx` that every remaining reference is either a fixture definition or one of the assertions this plan already rewrites.
 
 (c) Add the N=1-with-bulk retention test (spec §4.3):
 
 ```tsx
 test("a group with one visible card but a live bulk chip keeps the eyebrow row (spec 2026-07-24 §2.1)", () => {
+  // Count derived from this fixture array (anti-tautology): the chip's N is the
+  // bulk item count, NOT the visible-card count.
+  const bulkItems = [
+    { code: "FIELD_UNREADABLE", rawSnippet: "Crew phone | ???" },
+    { code: "FIELD_UNREADABLE", rawSnippet: "Hotel | ???" },
+  ];
   render(
     <BulkIgnoreControls
       slug="rpas"
@@ -137,10 +145,7 @@ test("a group with one visible card but a live bulk chip keeps the eyebrow row (
           bulk: {
             code: "FIELD_UNREADABLE",
             label: "Unreadable field",
-            items: [
-              { code: "FIELD_UNREADABLE", rawSnippet: "Crew phone | ???" },
-              { code: "FIELD_UNREADABLE", rawSnippet: "Hotel | ???" },
-            ],
+            items: bulkItems,
           },
           cards: <ul data-testid="cards-FIELD_UNREADABLE" />,
         },
@@ -150,7 +155,9 @@ test("a group with one visible card but a live bulk chip keeps the eyebrow row (
   expect(screen.getByTestId("dq-group-label-FIELD_UNREADABLE").textContent).toBe(
     "Unreadable field",
   );
-  expect(screen.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe("Ignore all 2");
+  expect(screen.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe(
+    `Ignore all ${bulkItems.length}`,
+  );
 });
 ```
 
@@ -227,6 +234,25 @@ and replace the unconditional header `<div className="flex items-center gap-2">�
 
 (The inner markup is byte-identical to today's `BulkIgnoreControls.tsx:157-187`; only the `showEyebrowRow` wrapper is new. The sr-only live region sits inside the row, which is only removable when `bulk === null` — no chip, no pending announcement, so no announcement is droppable.)
 
+Also update the component's JSDoc (`components/admin/BulkIgnoreControls.tsx:43-51`), which currently states every group renders an eyebrow. Replace the first sentence of that comment:
+
+```
+ * DQIGNORE-6 - the ACTIVE data-quality list, grouped by code. Each group renders an
+ * eyebrow (plain-language type label + hairline rule) and, when bulk-eligible, an inline
+```
+
+with:
+
+```
+ * DQIGNORE-6 - the ACTIVE data-quality list, grouped by code. Each group renders an
+ * eyebrow (plain-language type label + hairline rule) UNLESS it is a lone chip-less
+ * card (itemCount 1, no bulk), whose eyebrow would verbatim-duplicate the card title
+ * and is suppressed (spec 2026-07-24-dq-singleton-eyebrow-suppress §2.1). Bulk-eligible
+ * groups additionally render an inline
+```
+
+keeping the rest of the comment unchanged.
+
 In `components/admin/showpage/sectionWarningExtras.tsx`, in the FINAL `.map` (the one producing `cards`, current lines 200-234), add after `bulk: g.bulk,`:
 
 ```tsx
@@ -263,7 +289,33 @@ In `tests/components/admin/showpage/sectionWarningControls.test.tsx`, DQIGNORE-6
 
 - [ ] **Step 6: Update the remaining constructors (typecheck-driven sweep)**
 
-`tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx` `g()` (line ~16): add `itemCount: 2,` after `label`.
+`tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx` `g()` (line ~16): add `itemCount: 2,` after `label`. Then add the row-present/row-absent transition test the spec's §2.5 inventory requires (writing-plans transition-audit mandate; the existing tests cover only the chip's idle/armed morph):
+
+```tsx
+  test("row-present <-> row-absent flips are instant unmount/remount, no animation classes (spec 2026-07-24 §2.5)", () => {
+    const noBulkPlural = (): ActiveWarningGroup => ({
+      code: "UNKNOWN_FIELD",
+      label: "Unrecognized row in sheet",
+      itemCount: 2,
+      bulk: null,
+      cards: <ul data-testid="cards" />,
+    });
+    const { rerender } = render(<BulkIgnoreControls slug="rpas" groups={[noBulkPlural()]} />);
+    const row = screen.getByTestId("dq-group-label-UNKNOWN_FIELD").parentElement!;
+    // The header row carries no transition/animation classes: removal is instant.
+    expect(row.className).not.toMatch(/transition|animate|duration/);
+    // present -> absent (server refresh drops the group to a lone chip-less card)
+    rerender(
+      <BulkIgnoreControls slug="rpas" groups={[{ ...noBulkPlural(), itemCount: 1 }]} />,
+    );
+    expect(screen.queryByTestId("dq-group-label-UNKNOWN_FIELD")).toBeNull();
+    // absent -> present (a second distinct card returns)
+    rerender(<BulkIgnoreControls slug="rpas" groups={[noBulkPlural()]} />);
+    expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD")).toBeTruthy();
+  });
+```
+
+(`ActiveWarningGroup` is already imported in that file at line 5; `render`/`screen` already imported.)
 
 `tests/e2e/_bulkIgnoreEyebrowLiveEntry.tsx` (spec §3 e2e row): `FIELD_UNREADABLE` group gets `itemCount: 2,`; `UNKNOWN_SECTION_HEADER` gets honest plural cards + count:
 
@@ -292,6 +344,8 @@ Expected: PASS. If it lists any other `ActiveWarningGroup` constructor, add an h
 
 Run: `pnpm vitest run tests/components/admin/bulkIgnoreControls.test.tsx tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx tests/components/admin/showpage/sectionWarningControls.test.tsx tests/components/admin/showpage/crewWarningAttachment.test.tsx`
 Expected: PASS — `crewWarningAttachment.test.tsx` UNMODIFIED (spec §4.7: its N=0/N=1-with-bulk chip pins must survive; a diff in that file is a plan violation).
+Run: `git diff --exit-code -- tests/components/admin/showpage/crewWarningAttachment.test.tsx`
+Expected: exit 0 (byte-unmodified, proven — not just omitted from `git add`).
 Run: `pnpm eslint components/admin/BulkIgnoreControls.tsx components/admin/showpage/sectionWarningExtras.tsx` and `pnpm format:check` (scoped output ok).
 Expected: clean.
 
@@ -332,8 +386,15 @@ Expected: all clean. Check `$?` on the vitest run, not just the Tests line (unca
 
 - [ ] **Step 3: Verify the layout gate still passes against the edited live entry**
 
-Run: `pnpm exec playwright test tests/e2e/bulk-ignore-eyebrow.layout.spec.ts --no-deps 2>&1 | tail -5` (source `.env.local` per the standalone-playwright convention if the run complains about env; the spec measures only the `FIELD_UNREADABLE` group, which kept its eyebrow).
-Expected: PASS. If the harness build chokes on the fixture edit, the failure is in this branch's diff — fix before commit.
+Run (the spec's own prescribed standalone config, `tests/e2e/bulk-ignore-eyebrow.layout.spec.ts:23-25` — the default `playwright.config.ts` projects do NOT register this file):
+
+```bash
+set -a; source .env.local; set +a
+node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/bulk-ignore-eyebrow.layout.spec.ts
+echo "playwright exit: $?"
+```
+
+Expected: exit 0 (no `tail` pipe — the exit code is the proof; the spec measures only the `FIELD_UNREADABLE` group, which kept its eyebrow). If the harness build chokes on the fixture edit, the failure is in this branch's diff — fix before commit.
 
 - [ ] **Step 4: Commit**
 
@@ -355,7 +416,7 @@ git commit --no-verify -m "docs: mark DQIGNORE-6 singleton-eyebrow row supersede
 
 - [ ] **Step 1: Run `/impeccable critique` on the affected diff** (canonical v3 setup gates: impeccable v3 context load → register reference read). Scope: `components/admin/BulkIgnoreControls.tsx`, `components/admin/showpage/sectionWarningExtras.tsx`.
 - [ ] **Step 2: Run `/impeccable audit` on the same diff.**
-- [ ] **Step 3: Fix P0/P1 findings or defer via `DEFERRED.md` entry; P2/P3 at discretion.** Re-run the affected gate after any fix. Commit any fixes as `fix(admin): …` (one commit).
+- [ ] **Step 3: Fix P0/P1 findings or defer via `DEFERRED.md` entry; P2/P3 at discretion.** Re-run the affected impeccable gate after any fix, then re-run the FULL Task-2 verification set (`pnpm test`, `pnpm typecheck`, `pnpm eslint .`, `pnpm format:check`, and the standalone layout command from Task 2 Step 3) before committing — a gate repair must not create a red commit boundary. Commit code fixes as `fix(admin): …`; commit a deferral as `docs: DEFERRED entry for <finding>` (a `DEFERRED.md` edit is a tracked change and gets its own commit if no code fix accompanies it).
 - [ ] **Step 4: Record dispositions** for the PR body (findings + fixed/deferred each).
 
 ---
@@ -365,4 +426,4 @@ git commit --no-verify -m "docs: mark DQIGNORE-6 singleton-eyebrow row supersede
 1. **Spec coverage:** §2.1 predicate → Task 1 Step 3; §2.2 threading → Task 1 Step 3; §2.3 guard rows → covered by predicate + §4 tests (type-guaranteed rows need no runtime code per spec); §2.5 transition (instant) → no animation code, transition-audit fixture updated Task 1 Step 6; §3 table → every row has a task line (crewWarningAttachment = verify-unmodified, Task 1 Step 7); §4.1-4.7 tests → Task 1 Steps 1/5/6/7; supersession note → Task 2; impeccable → Task 3. No gaps.
 2. **Placeholder scan:** no TBD/TODO/"similar to"; every code step shows code.
 3. **Type consistency:** `itemCount: number` required, same name in type/build-site/fixtures; `showEyebrowRow` local only. Snippets checked against strict tsconfig: no indexed access added, no optional-property writes; `within` import called out.
-4. **Pre-existing-failure baseline:** verify at merge-base if any Task 2 full-suite failure looks unrelated (`git stash` → rerun → compare) before attributing to this diff.
+4. **Pre-existing-failure baseline:** if any Task 2 full-suite failure looks unrelated to this diff, verify it at the ACTUAL merge-base (Task 1 is already committed, so `git stash` cannot reach it): `git worktree add ../FX-worktrees/mb-check $(git merge-base HEAD origin/main)` → `pnpm install && pnpm worktree:link-env` there → rerun the failing suite → compare → `git worktree remove ../FX-worktrees/mb-check`. Only a failure reproduced at merge-base may be classified pre-existing.
