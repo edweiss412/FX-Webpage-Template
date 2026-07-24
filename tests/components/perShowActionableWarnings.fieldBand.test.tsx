@@ -41,8 +41,9 @@ describe("PerShowActionableWarnings — FIELD_UNREADABLE discriminator band", ()
     ];
     render(<PerShowActionableWarnings items={items} driveFileId="df" />);
     const [a, b] = bands();
-    expect(a?.textContent).toBe(`Phone${items[0]!.blockRef!.name} · "${items[0]!.rawSnippet}"`);
-    expect(b?.textContent).toBe(`Email${items[1]!.blockRef!.name} · "${items[1]!.rawSnippet}"`);
+    // Middot separator is its own span; gap spacing is CSS, so textContent has no spaces.
+    expect(a?.textContent).toBe(`Phone${items[0]!.blockRef!.name}·"${items[0]!.rawSnippet}"`);
+    expect(b?.textContent).toBe(`Email${items[1]!.blockRef!.name}·"${items[1]!.rawSnippet}"`);
   });
 
   test("condensed: name absent, value present", () => {
@@ -123,8 +124,34 @@ describe("PerShowActionableWarnings — FIELD_UNREADABLE discriminator band", ()
     ];
     render(<PerShowActionableWarnings items={items} driveFileId="df" />);
     const value = screen.getByTestId("per-show-actionable-field-label-value");
-    expect(value.textContent).toBe(`Jordan Ellis · "call the office"`);
-    expect(bands()[0]?.textContent).toBe(`PhoneJordan Ellis · "call the office"`);
+    expect(value.textContent).toBe(`"call the office"`);
+    expect(screen.getByTestId("per-show-actionable-field-name").textContent).toBe("Jordan Ellis");
+    expect(bands()[0]?.textContent).toBe(`PhoneJordan Ellis·"call the office"`);
+  });
+
+  test("delimiter-bearing name/value pairs stay distinguishable: name and value live in separate spans (whole-diff R2)", () => {
+    // A single joined string renders these two DISTINCT warnings identically
+    // (`Jordan · "office" · "night"`). The band must keep name and value in
+    // separate testid'd spans so the (name, value) tuple always differs when
+    // the underlying data differs. Expected values derive from the fixtures.
+    const a = fu({
+      rawSnippet: 'office" · "night',
+      blockRef: { kind: "crew", index: 2, name: "Jordan", field: "phone" },
+    });
+    const b = fu({
+      rawSnippet: "night",
+      blockRef: { kind: "crew", index: 2, name: 'Jordan · "office"', field: "phone" },
+    });
+    render(<PerShowActionableWarnings items={[a, b]} driveFileId="df" />);
+    const names = screen.getAllByTestId("per-show-actionable-field-name");
+    const values = screen.getAllByTestId("per-show-actionable-field-label-value");
+    expect(names.map((n) => n.textContent)).toEqual([a.blockRef!.name, b.blockRef!.name]);
+    expect(values.map((v) => v.textContent)).toEqual([`"${a.rawSnippet}"`, `"${b.rawSnippet}"`]);
+    // The tuples differ even though the naive concatenation would not.
+    expect([names[0]!.textContent, values[0]!.textContent]).not.toEqual([
+      names[1]!.textContent,
+      values[1]!.textContent,
+    ]);
   });
 
   test("stray blockRef.field on a non-FIELD_UNREADABLE code renders no field band (code gate)", () => {

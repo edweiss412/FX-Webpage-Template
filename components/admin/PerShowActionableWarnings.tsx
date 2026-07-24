@@ -217,9 +217,13 @@ export function PerShowActionableWarnings({
                 : fieldRaw;
         const bandName = isCondensed ? null : usable(w.blockRef?.name);
         const bandValue = usable(w.rawSnippet);
-        const bandText = [bandName, bandValue !== null ? `"${bandValue}"` : null]
-          .filter((s): s is string => s !== null)
-          .join(" · ");
+        // Name and value render in SEPARATE spans (whole-diff R2): a single joined
+        // string lets delimiter-bearing sheet data collapse two distinct warnings into
+        // one visible text (name `Jordan · "office"` + value `night` vs name `Jordan` +
+        // value `office" · "night`). Separate spans keep the (name, value) tuple
+        // distinct in the DOM, and the proportional name vs mono quoted value keeps
+        // them typographically distinct on screen. Name is prose, so break-words —
+        // the mono/break-all treatment is reserved for the junk value.
         const fieldBand: ReactNode = fieldLabel ? (
           <span
             className="inline-flex min-w-0 flex-wrap items-center gap-1.5"
@@ -228,12 +232,25 @@ export function PerShowActionableWarnings({
             <span className="text-[10px] font-semibold tracking-wider break-all text-warning-text uppercase">
               {fieldLabel}
             </span>
-            {bandText.length > 0 ? (
+            {bandName !== null ? (
+              <span
+                className="min-w-0 text-xs break-words text-text"
+                data-testid="per-show-actionable-field-name"
+              >
+                {bandName}
+              </span>
+            ) : null}
+            {bandName !== null && bandValue !== null ? (
+              <span aria-hidden="true" className="text-xs text-text-subtle">
+                ·
+              </span>
+            ) : null}
+            {bandValue !== null ? (
               <span
                 className="font-mono text-xs break-all text-text"
                 data-testid="per-show-actionable-field-label-value"
               >
-                {bandText}
+                {`"${bandValue}"`}
               </span>
             ) : null}
           </span>

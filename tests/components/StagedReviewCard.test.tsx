@@ -611,6 +611,6 @@ describe("StagedReviewCard — FIELD_UNREADABLE discriminator band (crewwarn-ins
     };
     const { getByTestId } = render(<StagedReviewCard row={row} />);
     const band = getByTestId("per-show-actionable-field-label");
-    expect(band.textContent).toBe('PhoneJordan Ellis · "call the office"');
+    expect(band.textContent).toBe('PhoneJordan Ellis·"call the office"');
   });
 });
