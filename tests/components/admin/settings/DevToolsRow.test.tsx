@@ -82,8 +82,34 @@ describe("DevToolsRow — DEV_PANEL_PRESENT true", () => {
     // shared string keeps the tap-target + focus-ring classes so parity
     // cannot be satisfied by both links losing them together.
     expect(gallery.getAttribute("class")).toBe(open.getAttribute("class"));
-    expect(open.getAttribute("class")).toContain("min-h-tap-min");
-    expect(open.getAttribute("class")).toContain("focus-visible:ring-2");
+
+    // T4 (2026-07-24 spec §9) - token membership, never substring. A
+    // `classString.toContain("duration-fast")` passes on `duration-fastest`,
+    // `focus-visible:ring-2` passes on `focus-visible:ring-20`, and
+    // `transition-colors` passes on `transition-colors-extra`, so the required
+    // utility could be absent entirely while the assertion stayed green.
+    const openTokens = Array.from(open.classList);
+    for (const token of [
+      "min-h-tap-min",
+      "focus-visible:ring-2",
+      "transition-colors",
+      "duration-fast",
+    ]) {
+      expect(openTokens).toContain(token);
+    }
+
+    // T5 - no BARE focus ring offset. DESIGN.md:40 requires any offset to carry
+    // a container-matched `ring-offset-<backdrop>`; a bare numeric offset is a
+    // dark-mode white-gap defect. Both halves are scoped to the focus-visible
+    // variant: an unscoped predicate would pass on an unrelated
+    // `hover:ring-offset-bg` and fail on a lone `hover:ring-offset-2`. Vacuous
+    // today by construction - this is the pin that keeps the app-wide bare-offset
+    // sweep (BL-FOCUS-RING-CONTRAST) from being pre-empted here by a future
+    // "parity" pass copying the DriveConnectionPanel siblings.
+    const focusOffsets = openTokens.filter((t) => t.startsWith("focus-visible:ring-offset-"));
+    const hasNumericFocusOffset = focusOffsets.some((t) => /-\d+$/.test(t));
+    const hasNamedFocusOffset = focusOffsets.some((t) => /-[a-z][a-z-]*$/.test(t));
+    expect(hasNumericFocusOffset && !hasNamedFocusOffset).toBe(false);
 
     // action-group wrapper (spec §4, R2 F1): same direct parent, NOT the row
     // root (root already has flex-wrap — a root-level check would be vacuous),

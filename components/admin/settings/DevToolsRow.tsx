@@ -14,7 +14,7 @@ import Link from "next/link";
 import { DEV_PANEL_PRESENT } from "@/lib/admin/__generated__/devPanelPresent";
 
 const devLinkClass =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 
 export function DevToolsRow({
   icon,
