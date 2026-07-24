@@ -61,4 +61,25 @@ pre-existing `transition-colors` context lines.
 
 ## Adversarial-review triage log
 
-<!-- REVIEW-TRIAGE -->
+Whole-diff review ran as two tight-scope dispatches (split-default rule).
+
+**Components scope (codex, R1): NEEDS-ATTENTION, 1 finding.**
+- P2 archived DEFERRED entries kept "Accepted, not fixed" prose verbatim,
+  contradicting the resolution note. FIXED: superseded-historical preamble +
+  RESOLVED-dated headings in DEFERRED-archive.md.
+
+**Tests scope: codex died 3x (`no_o_file`, no verdict) — same-harness
+fresh-eyes fallback per the #568 precedent. Verdict: NEEDS-ATTENTION, 3
+findings, all fixed:**
+- P2 §9.2(d) Sync-trigger HEIGHT assertion did not execute (only width).
+  FIXED: admin-resync-button added to the >=44-tall loop
+  (stackedBandLayout.spec.ts).
+- P3 badge matrix used toContain. FIXED: exact trim().toBe.
+- P3 Published/Draft pill tokens unlinked to the contrast pin. FIXED: jsdom
+  recipe test asserting bg-surface-sunken/text-text-subtle + dot tokens.
+
+Reviewer-verified sound (recorded so future rounds do not re-derive): worst
+strings genuinely producer-derived; 18/18 testids exist; CI wiring real
+end-to-end; determinism/containment/anchor-datum assertions non-vacuous;
+flake surface clean (ephemeral port, workers:1, fonts.ready+rAF, static
+HTML).
