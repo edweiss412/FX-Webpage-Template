@@ -37,7 +37,7 @@
 ### Task 1: Suppression conditional + itemCount threading + all pins
 
 **Files:**
-- Modify: `components/admin/BulkIgnoreControls.tsx:19-24` (type), `:151-187` (render)
+- Modify: `components/admin/BulkIgnoreControls.tsx:19-24` (type), `components/admin/BulkIgnoreControls.tsx:151-187` (render)
 - Modify: `components/admin/showpage/sectionWarningExtras.tsx:200-234` (final map)
 - Test: `tests/components/admin/bulkIgnoreControls.test.tsx`
 - Test: `tests/components/admin/showpage/sectionWarningControls.test.tsx:316-334`
@@ -61,7 +61,7 @@ In `tests/components/admin/bulkIgnoreControls.test.tsx`:
 (b) Rewrite the grouped-render test ("every group renders an eyebrow…") — the singleton half inverts; the data-gap-label + invariant-5 coverage the singleton pin carried transfers to a NEW N=2 no-bulk fixture (spec §4.2):
 
 ```tsx
-// N≥2 no-bulk: keeps the eyebrow — carries the data-gap-label + invariant-5
+// N≥2 no-bulk: keeps the eyebrow - carries the data-gap-label + invariant-5
 // coverage the suppressed singleton pin used to hold (spec 2026-07-24 §4.2).
 const pluralNoBulkGroup = (): ActiveWarningGroup => ({
   code: "BLOCK_DISAPPEARED",
@@ -78,14 +78,14 @@ test("bulk-eligible and plural no-bulk groups keep the eyebrow; a lone singleton
       groups={[bulkGroup(), pluralNoBulkGroup(), singletonGroup()]}
     />,
   );
-  // Kept row 1: bulk-eligible — label + chip.
+  // Kept row 1: bulk-eligible - label + chip.
   expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).toBe(
     "Unrecognized row in sheet",
   );
   expect(screen.getByTestId("dq-group-label-UNKNOWN_FIELD").textContent).not.toContain(
     "UNKNOWN_FIELD",
   );
-  // Kept row 2: plural no-bulk — data-gap label path, invariant 5, no chip.
+  // Kept row 2: plural no-bulk - data-gap label path, invariant 5, no chip.
   expect(screen.getByTestId("dq-group-label-BLOCK_DISAPPEARED").textContent).toBe(
     "removed section",
   );
@@ -93,7 +93,7 @@ test("bulk-eligible and plural no-bulk groups keep the eyebrow; a lone singleton
     "BLOCK_DISAPPEARED",
   );
   expect(screen.queryByTestId("dq-bulk-ignore-BLOCK_DISAPPEARED")).toBeNull();
-  // Suppressed: singleton (itemCount 1, no bulk) — no eyebrow label, and no
+  // Suppressed: singleton (itemCount 1, no bulk) - no eyebrow label, and no
   // bare header row either: the group's wrapper starts directly with the cards.
   expect(screen.queryByTestId("dq-group-label-BLOCK_DISAPPEARED_SOLO")).toBeNull();
   const solo = screen.getByTestId("dq-active-group-BLOCK_DISAPPEARED_SOLO");
@@ -133,7 +133,7 @@ test("a group with one visible card but a live bulk chip keeps the eyebrow row (
         {
           code: "FIELD_UNREADABLE",
           label: "Unreadable field",
-          itemCount: 1, // one card left in the slot — the other moved under a crew row
+          itemCount: 1, // one card left in the slot - the other moved under a crew row
           bulk: {
             code: "FIELD_UNREADABLE",
             label: "Unreadable field",
@@ -171,7 +171,7 @@ export type ActiveWarningGroup = {
   label: string | null;
   bulk: BulkIgnoreGroupWithLabel | null;
   /** Number of warning cards in the `cards` slot (post crew-filter). The eyebrow
-   *  row is suppressed for a lone chip-less card — its title already carries the
+   *  row is suppressed for a lone chip-less card - its title already carries the
    *  type (spec 2026-07-24-dq-singleton-eyebrow-suppress §2.1). */
   itemCount: number;
   cards: ReactNode;
@@ -182,7 +182,7 @@ In the `groups.map` body (before `return`), add the predicate and wrap the heade
 
 ```tsx
         // spec 2026-07-24 §2.1: a lone chip-less card duplicates its own title in
-        // the eyebrow — suppress the whole header row. Any group with a bulk chip
+        // the eyebrow - suppress the whole header row. Any group with a bulk chip
         // keeps the row (the chip rides it), as does any plural group.
         const showEyebrowRow = bulk !== null || group.itemCount !== 1;
 ```
@@ -214,7 +214,7 @@ and replace the unconditional header `<div className="flex items-center gap-2">�
                     >
                       {chipText}
                     </button>
-                    {/* Persistent sr-only live region (always mounted — conditional mounting
+                    {/* Persistent sr-only live region (always mounted - conditional mounting
                         drops the announcement). Kept as the chip's nextElementSibling. */}
                     <span role="status" className="sr-only">
                       {armed ? "Tap again to confirm." : ""}
@@ -230,7 +230,7 @@ and replace the unconditional header `<div className="flex items-center gap-2">�
 In `components/admin/showpage/sectionWarningExtras.tsx`, in the FINAL `.map` (the one producing `cards`, current lines 200-234), add after `bulk: g.bulk,`:
 
 ```tsx
-        // spec 2026-07-24 §2.2: the number of cards actually in the slot —
+        // spec 2026-07-24 §2.2: the number of cards actually in the slot -
         // post-crew-filter, so a partially-moved group counts only what renders here.
         itemCount: g.items.length,
 ```
@@ -249,10 +249,10 @@ In `tests/components/admin/showpage/sectionWarningControls.test.tsx`, DQIGNORE-6
     expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe("Ignore all 2");
     expect(crew.queryByTestId("dq-bulk-ignore-UNKNOWN_ROLE_TOKEN")).toBeNull();
     // spec 2026-07-24 §2.1: the lone UNKNOWN_ROLE_TOKEN group (1 card, no chip)
-    // suppresses its eyebrow — the card renders alone; its title carries the type.
+    // suppresses its eyebrow - the card renders alone; its title carries the type.
     expect(crew.queryByTestId("dq-group-label-UNKNOWN_ROLE_TOKEN")).toBeNull();
     // Eyebrow label on the KEPT row, scoped to its own testid (anti-tautology: the
-    // cards also render copy) — plain-language bulkGroupLabel path, never the raw
+    // cards also render copy) - plain-language bulkGroupLabel path, never the raw
     // §12.4 code (invariant 5). Coverage transferred from the suppressed pin.
     const eyebrow = crew.getByTestId("dq-group-label-FIELD_UNREADABLE");
     expect(eyebrow.textContent).toBe(messageFor("FIELD_UNREADABLE" as MessageCode).title);
@@ -273,7 +273,7 @@ In `tests/components/admin/showpage/sectionWarningControls.test.tsx`, DQIGNORE-6
     label: MESSAGE_CATALOG.UNKNOWN_SECTION_HEADER.title,
     bulk: null,
     // Two placeholder cards keep this group's eyebrow rendering (visual plurality
-    // in the harness) while honoring the itemCount contract — the layout spec
+    // in the harness) while honoring the itemCount contract - the layout spec
     // asserts nothing on this group (spec 2026-07-24 §3).
     itemCount: 2,
     cards: (
@@ -353,7 +353,7 @@ git commit --no-verify -m "docs: mark DQIGNORE-6 singleton-eyebrow row supersede
 - Consumes: the full Task-1 diff.
 - Produces: gate dispositions for the close-out record (§12-style notes in the PR body — this feature has no milestone handoff doc).
 
-- [ ] **Step 1: Run `/impeccable critique` on the affected diff** (canonical v3 setup gates: `context.mjs` context load → register reference read). Scope: `components/admin/BulkIgnoreControls.tsx`, `components/admin/showpage/sectionWarningExtras.tsx`.
+- [ ] **Step 1: Run `/impeccable critique` on the affected diff** (canonical v3 setup gates: impeccable v3 context load → register reference read). Scope: `components/admin/BulkIgnoreControls.tsx`, `components/admin/showpage/sectionWarningExtras.tsx`.
 - [ ] **Step 2: Run `/impeccable audit` on the same diff.**
 - [ ] **Step 3: Fix P0/P1 findings or defer via `DEFERRED.md` entry; P2/P3 at discretion.** Re-run the affected gate after any fix. Commit any fixes as `fix(admin): …` (one commit).
 - [ ] **Step 4: Record dispositions** for the PR body (findings + fixed/deferred each).
