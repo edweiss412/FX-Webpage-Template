@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-24
 **Status:** Draft (autonomous `/ship-feature` run; owner copy ratification given in-session)
-**Scope:** two component/page copy edits, one className token, three doc/ledger updates. No DB, no routes, no new props, no new tokens.
+**Scope:** two component/page copy edits, one className token, four doc/ledger updates (§8). No DB, no routes, no new props, no new tokens.
 
 ## 1. What
 
@@ -139,16 +139,33 @@ No em dash, no apostrophe, no raw error code. Two sentences, same
 ```
 
 **The separating space is a visible text node on the same JSX line as the
-span**, deliberately NOT inside the `sr-only` span. The accessible-name
-algorithm (`dom-accessibility-api`, which Testing Library and browsers follow)
-trims leading/trailing whitespace inside each text node, so the intuitive
-`Open<span className="sr-only"> developer tools</span>` yields the accessible
-name `Opendeveloper tools`. JSX also strips whitespace-only text between an
-expression/element pair on **separate lines**, so the space must be on the same
-line as the `<span>` (prettier preserves it there). This exact defect shipped
-once before on `View details<span className="sr-only"> for {title}</span>` and
-went unnoticed for months because the test matched a substring, never the
-boundary — §9 asserts the boundary with an anchored regex.
+span**, deliberately NOT inside the `sr-only` span, and the span is NOT on its
+own line.
+
+**Empirical probe (run 2026-07-24 in this worktree; measured, not reasoned).**
+This claim was contested in spec review R1 on the theory that the
+accessible-name algorithm accumulates descendant text and normalizes the flat
+result, which would make all three JSX forms equivalent. A throwaway jsdom
+vitest file rendered all three against the installed
+dom-accessibility-api 0.5.16 (resolved via testing-library/dom 10.4.1 —
+the same implementation `toHaveAccessibleName` uses) and asserted each name:
+
+| JSX form | Measured accessible name |
+| --- | --- |
+| `Open<span className="sr-only"> developer tools</span>` (space inside the span) | `Opendeveloper tools` ❌ |
+| `Open <span className="sr-only">developer tools</span>` (space as a visible text node, same line) | `Open developer tools` ✓ |
+| `Open` and `<span …>` on **separate lines** | `Opendeveloper tools` ❌ |
+
+Both failure modes are real: the algorithm trims each text node's
+leading/trailing whitespace before concatenation, and JSX independently strips
+whitespace-only text between an expression/element pair on separate lines. Only
+the middle form is correct, which is why §9 T1 asserts the name by exact match
+rather than substring. The probe file was deleted after measuring; T1 is its
+permanent replacement.
+
+This exact defect shipped once before on
+`View details<span className="sr-only"> for {title}</span>` and went unnoticed
+for months because the test matched a substring, never the boundary.
 
 Resulting names: accessible `Open developer tools`; visible `Open`.
 
@@ -160,8 +177,11 @@ paragraph does not repeat the heading string, so no cascade.
 
 ### 3.3 Nothing else changes
 
-No new file, no new token, no new test file beyond edits to the two existing
-unit tests (§9). No `data-testid` added or removed.
+No new file, no new token, and **no new test file**. Every test edit lands in
+the single existing file `tests/components/admin/settings/DevToolsRow.test.tsx`
+(§9); `tests/components/admin/settings/DevToolsRow.absent.test.tsx` is NOT
+touched — it asserts an empty DOM and has no text assertions to update. No
+`data-testid` is added or removed.
 
 ### 3.4 Dimensional Invariants
 
@@ -205,6 +225,17 @@ States: **rest**, **hover**, **focus-visible**, **hover+focus-visible**.
 | hover ↔ hover+focus-visible | Background already settled; ring instant. |
 | focus-visible ↔ hover+focus-visible | Ring already present and unchanged; background eases. |
 | any → navigating away | Not a visual state of this component; the link unmounts with the page. |
+
+**Structural states (R1 F1).** The component also has two pre-existing
+conditional-render branches. Neither is added or modified by this diff, but
+once a transition inventory exists it must enumerate every conditional block,
+so they are listed here rather than left undocumented:
+
+| Structural pair | Treatment |
+| --- | --- |
+| not-rendered ↔ rendered (`if (!DEV_PANEL_PRESENT \|\| !isDeveloper) return null;`, `components/admin/settings/DevToolsRow.tsx:33`) | **Instant — no animation needed, and none is reachable.** `DEV_PANEL_PRESENT` is a build-time constant and `isDeveloper` is resolved server-side per request (`app/admin/settings/page.tsx:221`); neither can flip inside a mounted client session, so this pair never occurs as a transition. There is deliberately no `AnimatePresence` and no exit animation. |
+| icon absent ↔ icon present (`icon ? … : null`, `components/admin/settings/DevToolsRow.tsx:40-44`) | **Instant — no animation needed, and none is reachable.** `icon` is a server-passed prop, constant for the life of the mount. |
+| structural change while an interaction state is active (compound) | **Not reachable.** Both structural pairs require a server round-trip that produces a new element, so no interaction state survives the change; the new node starts from its own initial computed style with no stale mid-transition value. If either branch ever becomes client-toggleable, this row is the one that must be revisited. |
 
 `duration-fast` is an existing DESIGN.md token already used by every sibling
 settings control; no new token, no `prefers-reduced-motion` exception needed
@@ -303,16 +334,42 @@ even with the old description) has text content exactly
 _Catches:_ the tautology where the assertion is satisfied by the sibling
 link's label rather than by the paragraph under test.
 
-**T7 — destination heading matches the link label.** In
-`tests/components/admin/settings/DevToolsRow.test.tsx` this cannot be checked
-(different module tree), so it lands as a source-level assertion in the same
-file's sibling: read `app/admin/dev/attention-gallery/page.tsx` from disk and
-assert it contains `>Attention gallery</h1>` and no longer contains
-`Attention modal gallery`. _Catches:_ the two strings silently drifting apart
-again, which is precisely finding 2 recurring. A source-scan is the right shape
-here because the page is an async Server Component with a `requireDeveloper()`
-first line — rendering it in jsdom would require mocking the auth chain to
-assert one string.
+**T7 — destination heading matches the link label.** Lands in the same file, in
+its own `describe`, as a source-level assertion over
+`app/admin/dev/attention-gallery/page.tsx`. _Catches:_ the link label and the
+destination heading silently drifting apart again — finding 2 recurring.
+
+A source scan is the right shape because the page is an async Server Component
+whose first line is `requireDeveloper()`; rendering it in jsdom would mean
+mocking the whole auth chain to assert one string. But a naive substring scan
+has three failure modes that R1 F3 correctly identified, and the assertion is
+specified to avoid all three:
+
+1. **Formatting brittleness.** `>Attention gallery</h1>` breaks the moment
+   prettier reflows the heading across lines. Match with a whitespace-tolerant
+   regex over the element instead:
+   `/<h1[^>]*>\s*([^<]*?)\s*<\/h1>/` , then assert the **captured group** equals
+   `Attention gallery`. Assert the regex matched at all before comparing, so a
+   structural change to the heading fails loudly rather than passing vacuously.
+2. **False positive from an unrelated literal.** Because the assertion compares
+   the captured heading text rather than searching the whole file, a comment or
+   unrelated string containing the phrase cannot satisfy it.
+3. **False negative from a stale mention in a comment.** The blanket
+   `not.toContain("Attention modal gallery")` would fail on a comment that
+   legitimately narrates the rename. It is therefore **dropped** — asserting
+   the captured heading text equals `Attention gallery` already excludes the old
+   value from the only place that matters.
+
+**Residual limitation, stated rather than hidden:** the regex takes the FIRST
+`<h1>` in the file, so it would read the wrong element if a second `<h1>` were
+ever added above it. Acceptable: the page has exactly one `<h1>`
+(`app/admin/dev/attention-gallery/page.tsx:54`), and a second one would be an
+a11y defect this project would catch separately.
+
+**Path resolution** is via `new URL(..., import.meta.url)`, not
+`process.cwd()`, so the test is working-directory independent. A path typo
+surfaces as `ENOENT`, which is a false red — the task step requires confirming
+the red state fails on the string comparison, not on the file read.
 
 The existing assertions at `tests/components/admin/settings/DevToolsRow.test.tsx:38`
 and `tests/components/admin/settings/DevToolsRow.test.tsx:51` (`toHaveTextContent` /
@@ -332,7 +389,7 @@ layout-dimensions task does **not** apply (§10).
 | Rule | Applies? |
 | --- | --- |
 | Layout-dimensions task (real-browser `getBoundingClientRect`) | **No.** No fixed-height/width parent is introduced or changed. The row is content-height `flex flex-wrap` with `gap-3`; the action group is `flex flex-wrap gap-2`. Nothing in this diff sets a dimension. |
-| Transition-audit task | **No `AnimatePresence`, no conditional render, no mount/unmount transition** is added. The single new animated property is a CSS `transition-colors` on a persistent element; §5 enumerates its state pairs and T4 pins the tokens. |
+| Transition-audit task | **Yes, and it is discharged in §5 rather than deferred to a separate plan task (R1 F1).** No `AnimatePresence` and no new conditional block is added — the single new animated property is a CSS `transition-colors` on a persistently-mounted link — but the component does contain two pre-existing conditional-render branches (the null gate and `icon ? … : null`). §5's structural-states table enumerates both, plus the compound case, each with an explicit instant-and-unreachable declaration. The plan carries a step that re-walks every `AnimatePresence`, ternary render, and conditional block in the two touched files against that table; T4 pins the CSS tokens. |
 | Meta-test inventory | **None created or extended.** No Supabase call boundary, no `admin_alerts` code, no advisory lock, no new mutation surface, no `§12.4` catalog row, no new admin route/table. T5 is a local assertion in the component's own test, not a registry. |
 | Advisory-lock topology | **N/A** — no `pg_advisory*` in the diff. |
 | DB/tier×domain matrix, CHECK/enum matrix, migration parity | **N/A** — no DB surface. |
@@ -351,7 +408,8 @@ Every number in this document, cross-checked against the body it describes:
   (the class literal, the description, the Open link's children) plus **1** in
   `app/admin/dev/attention-gallery/page.tsx` = **2 files** changed in
   §3, consistent with §1's "two component/page copy edits".
-- **4** doc/ledger updates in §8 — matches the four numbered items.
+- **4** doc/ledger updates in §8 — matches the four numbered items there AND
+  the count in the document Scope line (R1 F4: those two disagreed at R1).
 - **7** tests T1-T7 in §9 — matches the seven numbered paragraphs.
 - **~90** bare ring offsets — quoted from `BL-FOCUS-RING-CONTRAST` in
   `BACKLOG.md`, not independently recounted; §7 and the `DEFERRED.md` entry use
@@ -359,10 +417,18 @@ Every number in this document, cross-checked against the body it describes:
 - **2** sibling offsets in
   `components/admin/settings/DriveConnectionPanel.tsx` (lines 244 and 277) —
   matches the `DEFERRED.md` entry and the §2 citation row.
-- **4** button states / **6** state pairs in §5 — 4·3/2 = 6 unordered pairs,
-  all enumerated, plus one non-state row (navigating away) marked N/A.
+- **4** interaction states / **6** state pairs in §5 — 4·3/2 = 6 unordered
+  pairs, all enumerated, plus one non-state row (navigating away) marked N/A.
+  §5's second table adds **3** structural rows (the null gate, the icon branch,
+  and their compound), all pre-existing and all declared instant-and-unreachable
+  (R1 F1).
 - **3** occurrences of the old heading string found by the §2 grep; **1** is
   the `<h1>` this spec edits, **2** are ledger/closeout prose that §8 rewrites.
+- **3** JSX forms measured by the §3.1(c) probe; **1** produces the correct
+  accessible name.
+- **7** tests, all in **1** test file
+  (`tests/components/admin/settings/DevToolsRow.test.tsx`); **0** new test files
+  (§3.3, R1 F5).
 
 ## 12. Risk
 
