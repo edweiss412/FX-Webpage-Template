@@ -60,7 +60,8 @@ Visible subtree — stack → wrapper → `<ul>` → `<li>` → card:
 |---|---|
 | indent wrapper width == stack width | wrapper is a block-level flex child of an `items-stretch` column (`components/admin/wizard/step3ReviewSections.tsx:1487`) |
 | card `<ul>` width == wrapper width − 24px | `pl-6` on the wrapper; the `<ul>` is a block-level child filling the wrapper's content box (`components/admin/PerShowActionableWarnings.tsx:107`) |
-| card `<li>` width == `<ul>` width | `<li>` is a flex child of the `<ul>`'s `flex flex-col` — cross-axis behavior identical to today's full-width cards (same element, same classes) |
+| card `<li>` width == `<ul>` width | `<li>` is a flex child of the `<ul>`'s `flex flex-col` (`components/admin/PerShowActionableWarnings.tsx:107`); no explicit `items-stretch` exists on this `<ul>` today — the hop is guaranteed by the SAME markup that renders today's full-width cards, and the layout task asserts it in a real browser (R2-F2). If the assertion fails, the fix is adding `items-stretch` to this `<ul>` (all surfaces, visual no-op) — not widening tolerance. |
+| card root width == `<li>` width | `CompactAlertCard`'s root is a block-level `<div>` child of the `<li>` (`components/admin/CompactAlertCard.tsx:96-98`), filling its content box |
 | banner width == stack width | banner node has no wrapper (per-kind rule) |
 
 Disclosure subtree — stack → `<details>` → summary / body `<div>` → wrapper → card:
@@ -72,6 +73,7 @@ Disclosure subtree — stack → `<details>` → summary / body `<div>` → wrap
 | disclosure body `<div>` width == `<details>` width | same `items-stretch` parent (`components/admin/wizard/step3ReviewSections.tsx:1505`) |
 | hidden indent wrapper width == disclosure body width | wrapper is a block-level flex child of the body's `items-stretch` column (`components/admin/wizard/step3ReviewSections.tsx:1505`) |
 | hidden card `<ul>` width == hidden wrapper width − 24px | same `pl-6` wrapper as visible nodes (Resolved Decision 7) |
+| hidden card `<li>` width == `<ul>` width; hidden card root width == `<li>` width | same two hops as the visible subtree (`components/admin/PerShowActionableWarnings.tsx:107`; `components/admin/CompactAlertCard.tsx:96-98`) — asserted in the disclosure-open state too (R2-F2) |
 
 Real-browser assertions land in the plan's layout task (jsdom computes no layout) and cover BOTH subtrees hop by hop, not only the end-to-end card-vs-stack delta.
 
@@ -108,10 +110,13 @@ Condensed changes exactly two things. Define `movedGuidance` = the catalog marku
 1. **Inline guidance:** rendered only when `resolveGuidance` returns `kind: "instance"` (`PerShowActionableWarnings.tsx:58-65`). Catalog markup (`kind: "catalog"`) does NOT render inline.
 2. **Popover composition** (with `context` = `triggerContext`, `followUp` as today — all normalized to `string | null` by `warningCardCopyFields` / the `followUp` ternary):
 
-   - `popoverBody` = the non-null members of `[movedGuidance, context]` joined with a single space (both are complete sentences from the §4.2 table); when both are null, `followUp`; when that is also null, `null` (no trigger).
-   - `afterBodyText` = `followUp` when `movedGuidance ?? context` is non-null, else `null` — the SAME slot `followUp` occupies in full mode.
+   - Let `fullBody = context ?? followUp` and `fullAfter = context !== null ? followUp : null` — EXACTLY full mode's two popover slots (`PerShowActionableWarnings.tsx:136-148`).
+   - `popoverBody` = the non-null members of `[movedGuidance, fullBody]` joined with a single space (all three inputs are complete sentences from the authored copy table, `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md` §4.2; R2-F5); `null` when both are null (no trigger).
+   - `afterBodyText` = `fullAfter`, unchanged.
 
-   The moved guidance goes into the popover BODY, never into `afterBodyText`: `HoverHelp` keeps only the primary body in the `aria-describedby` run and renders `afterBodyText` as supplementary content outside it (`components/admin/HoverHelp.tsx:481-498`, `components/admin/HoverHelp.tsx:580-581`; pinned by `tests/components/admin/perShowActionableFollowUp.test.tsx:41-53`). With the join, the condensed accessible description is a superset of full mode's (`movedGuidance + " " + context` vs `context`); parking `context` in `afterBodyText` would instead DROP it from the description (R1-F2).
+   This derivation makes the described set `{movedGuidance} ∪ (full mode's described set)` in EVERY row by construction (R2-F1) — condensed never demotes anything full mode described, including the `context`-absent + `followUp`-present row where full mode promotes `followUp` into the body.
+
+   The moved guidance goes into the popover BODY, never into `afterBodyText`: `HoverHelp` keeps only the primary body in the `aria-describedby` run and renders `afterBodyText` as supplementary content outside it (`components/admin/HoverHelp.tsx:481-498`, `components/admin/HoverHelp.tsx:580-581`; pinned by `tests/components/admin/perShowActionableFollowUp.test.tsx:41-53`). Joining g with `fullBody` (rather than parking either `context` or a body-promoted `followUp` in `afterBodyText`) is what keeps the description a superset — R1-F2 caught the context demotion, R2-F1 the followUp one.
 
    `movedGuidance` is always the CATALOG value, never instance text — instance text stays inline (Resolved Decision 3), so nothing plain ever enters `renderEmphasis` via `buildHelpPopoverBody` (`compactAlertHelp.tsx:80`) or the `afterBodyText` hop (`compactAlertHelp.tsx:139-140`).
 
@@ -119,20 +124,20 @@ Condensed changes exactly two things. Define `movedGuidance` = the catalog marku
 
 `movedGuidance` (g), `context` (c), `followUp` (f) each ∈ {present, absent} — 8 rows:
 
-| g | c | f | popoverBody | afterBodyText | `?` renders |
-|---|---|---|---|---|---|
-| ✓ | ✓ | ✓ | g + " " + c | f | yes |
-| ✓ | ✓ | — | g + " " + c | null | yes |
-| ✓ | — | ✓ | g | f | yes |
-| ✓ | — | — | g | null | yes |
-| — | ✓ | ✓ | c | f | yes (== full mode) |
-| — | ✓ | — | c | null | yes (== full mode) |
-| — | — | ✓ | f | null | yes (== full mode) |
-| — | — | — | null | null | no trigger (`PerShowActionableWarnings.tsx:241`) |
+| g | c | f | fullBody | popoverBody | afterBodyText | `?` renders |
+|---|---|---|---|---|---|---|
+| ✓ | ✓ | ✓ | c | g + " " + c | f | yes |
+| ✓ | ✓ | — | c | g + " " + c | null | yes |
+| ✓ | — | ✓ | f | g + " " + f | null | yes (f described, as in full mode; R2-F1) |
+| ✓ | — | — | null | g | null | yes |
+| — | ✓ | ✓ | c | c | f | yes (== full mode) |
+| — | ✓ | — | c | c | null | yes (== full mode) |
+| — | — | ✓ | f | f | null | yes (== full mode) |
+| — | — | — | null | null | null | no trigger (`PerShowActionableWarnings.tsx:241`) |
 
-Today's under-row call site passes no `followUpCopy` (`sectionWarningExtras.tsx:47-64` constructs the element without it), so the f column is exercised only if a future caller combines `condensed` with `followUpCopy` — the table makes that composition defined rather than emergent, and f keeps its full-mode slot (`afterBodyText`) in every row where it is not the sole content.
+Today's under-row call site passes no `followUpCopy` (`sectionWarningExtras.tsx:47-64` constructs the element without it), so the f column is exercised only if a future caller combines `condensed` with `followUpCopy` — the table makes that composition defined rather than emergent, and f occupies exactly the slot full mode gives it in every row (body when it IS the full-mode body, `afterBodyText` when it is the full-mode after-paragraph).
 
-Instance-kind warnings always land in rows 5-8 (g null by definition), so their condensed popover is byte-identical to full mode — consistent with the staged-parity contract (Resolved Decision 3). The accessible description never loses content relative to full mode in any row: rows 1-4 are supersets, rows 5-8 are identical.
+Instance-kind warnings always land in rows 5-8 (g null by definition), so their condensed popover is byte-identical to full mode — consistent with the staged-parity contract (Resolved Decision 3). The accessible description never loses content relative to full mode in any row: rows 1-4 are strict supersets (they add g), rows 5-8 are identical.
 
 ### Mode boundaries
 
@@ -156,10 +161,10 @@ Instance-kind warnings always land in rows 5-8 (g null by definition), so their 
 
 `tests/e2e/_publishedReviewModalHarness.tsx`:
 
-- `HarnessStateOverrides` (`tests/e2e/_publishedReviewModalHarness.tsx:242`) gains `withCappedCrewWarnings?: boolean`.
+- `HarnessStateOverrides` (`tests/e2e/_publishedReviewModalHarness.tsx:242`) gains `withCappedCrewWarnings?: boolean`. Guards (R2-F4): `false` ≡ omitted; `withCappedCrewWarnings` takes precedence over `withCrewWarnings` when both are set (the capped fixture is a superset state); the flag controls ONLY the warning fixtures — the crew-keyed attention item arrives via the existing `attentionItems` override, whose replace-wholesale semantics are unchanged (`tests/e2e/_publishedReviewModalHarness.tsx:315`).
 - New fixture builder: 3 warnings whose raw `blockRef.name` all strip to the rendered "Crew Member A" roster row, following the existing fixture pattern (`crewWarningFixtures()`, `tests/e2e/_publishedReviewModalHarness.tsx:258` — raw name `"Crew Member A (5/3 ONLY)"`). Three FIELD_UNREADABLE warnings (phone / email / distinct third cell) with **distinct `blockRef.index` values and, where anchored, distinct resolved A1 cells** — the keys the LIVE data boundary actually deduplicates on: `operatorActionableWarnings` dedups by (code, resolved A1) and folds `blockRef.index` into the key for FIELD_UNREADABLE only (`lib/parser/dataGaps.ts:409-435`). `message`/`rawSnippet` never participate in dedup (R1-F4). The harness path (`buildSectionWarningModel`) performs no dedup of its own, so key-distinctness here is LIVE-fidelity (the same three warnings would survive the real boundary), not a harness-survival trick. The unmatched "Ghost Crew" warning is retained so the capped page also keeps the fallback-group state visible.
 - **Mixed-stack coverage (R1-F3):** the capped page ALSO seeds ONE crew-keyed attention item for the same member (via the existing `attentionItems` override, `tests/e2e/_publishedReviewModalHarness.tsx:247`, item shape per `harnessAttentionItems`, `tests/e2e/_publishedReviewModalHarness.tsx:56-80`, with `crewKey: "crew member a"` and a crew-routed section). Production merges banners FIRST, then warning nodes (`components/admin/review/ShowReviewSurface.tsx:161-168`), and the host slices the MERGED list at 2 (`components/admin/wizard/step3ReviewSections.tsx:1481-1483`) — so banners consume cap slots, and the page renders the composition the per-kind rule ratifies: visible = [full-width banner, indented warning #1]; hidden = [warning #2, warning #3] behind "2 more". The plain 3-warnings-no-banner cap state (2 visible warnings + "1 more") is covered as a jsdom unit case (node granularity), not a second harness page.
-- New JSON page in the CLI entry (`tests/e2e/_publishedReviewModalHarness.tsx:361-380`): `crewWarningsCapped: renderModalHtml(HARNESS_ALERT_COUNT, { withCappedCrewWarnings: true })` where the override also injects the crew-keyed attention item.
+- New JSON page in the CLI entry (`tests/e2e/_publishedReviewModalHarness.tsx:361-380`): `crewWarningsCapped: renderModalHtml(HARNESS_ALERT_COUNT, { withCappedCrewWarnings: true, attentionItems: [...harnessAttentionItems(HARNESS_ALERT_COUNT), <crew-keyed item>] })` — the banner rides the existing override explicitly (replace-wholesale, R2-F4), keeping the default overview items so the header pill state matches the other pages.
 - Layout spec (`tests/e2e/published-review-modal.layout.spec.ts:124-135`) writes a crewwarningscapped page alongside the existing generated pages.
 
 ### Assertions (new layout test block)
@@ -176,22 +181,27 @@ Visual pass: the capped page joins the impeccable critique/audit screenshot set 
 
 ## §5 Transition inventory
 
-No new visual states are introduced; the condensed/full split is static per surface, and the indent is static geometry.
+No new ANIMATED states are introduced — the condensed/full split is static per surface and the indent is static geometry — but this spec makes two existing data transitions cross a variant boundary, so they are inventoried explicitly (R2-F3):
 
 | Pair | Treatment |
 |---|---|
 | details closed ↔ open ("N more") | existing: chevron `transition-transform group-open:rotate-90` only; body instant (`step3ReviewSections.tsx:1500-1505`) — unchanged |
-| card active ↔ ignored (list move) | existing surfaces, unchanged (cards re-render between lists; instant) |
-| matched ↔ fallback placement (data transition) | existing behavior pinned by `crewWarningAttachment.test.tsx:238` — a moved card changes variant (condensed ↔ full) with the move; instant, no animation (it is a list-to-list remount) |
+| card active (under-row) ↔ ignored (in-group) | NOW a variant flip: active is condensed + indented under the row; ignored is full copy, `tone="muted"`, unindented, inside the section group's Ignored disclosure (`components/admin/showpage/sectionWarningExtras.tsx:263-297`). Instant list-to-list re-render driven by the ignore action's refresh — no animation, deliberately: the card changes PLACE, and a cross-panel morph would be motion noise. |
+| matched ↔ fallback placement (data transition) | existing behavior pinned by `crewWarningAttachment.test.tsx:238` — the moved card ALSO flips condensed ↔ full with the move; instant, no animation (list-to-list remount) |
 
-Compound: opening "N more" while a sibling card's Report modal is open — unaffected (disclosure is native, no AnimatePresence in this tree).
+Compound transitions (all instant, no mid-animation windows — the disclosure is native and nothing in this tree animates layout):
+
+- Opening "N more" while a sibling card's Report modal is open — unaffected (no AnimatePresence in this tree).
+- Ignoring a HIDDEN warning while the "N more" disclosure is open: the node list shrinks; the `<details>` element persists (React updates children in place; its uncontrolled `open` DOM state survives) until `hidden.length` reaches 0, at which point the whole `<details>` unmounts instantly (`step3ReviewSections.tsx:1490-1507`). The visible slice back-fills from the hidden list.
+- Matched → fallback (or last warning ignored) while the disclosure is open: the stack (or its warnings) unmounts entirely — instant, pinned semantics per `crewWarningAttachment.test.tsx:238`.
 
 ## §6 Test plan (summary — plan expands per TDD)
 
 1. Unit (jsdom): condensed rendering rules — catalog guidance absent inline, popover body/after per the 8-row table (assert against `data-testid="per-show-actionable-guidance"` absence + the described element's text content via the `perShowActionableFollowUp` seams — the accessible description must CONTAIN the moved guidance and the trigger context, per §3's superset claim); instance line still inline when autocorrect present; `condensed={false}` identical to omission (R1-F6); full-mode surfaces byte-unchanged (targeted queries on the group call site).
 2. Unit: `renderCrewUnderRowCards` node shape — each node's outermost element carries `pl-6`; node count == warning count (cap granularity preserved). Plain cap state at node granularity: 3 warning nodes, no banner → visible slice 2, "1 more" (the no-banner counterpart of §4's harness page).
-3. Real-browser layout: §2 hop-by-hop invariants (both subtrees) + §4 mixed-stack assertions (extends `published-review-modal.layout.spec.ts`).
-4. Existing suites expected to hold without edits: containment T5 block (tolerates indent — `stack.x >= card.x − TOL`), conservation tests, parity tests (instance line untouched).
+3. Real-browser layout: §2 hop-by-hop invariants (both subtrees, disclosure measured open AND closed) + §4 mixed-stack assertions (extends `published-review-modal.layout.spec.ts`).
+4. Unit (jsdom), §5 compound coverage (R2-F3): rerender with a hidden warning removed while the disclosure member list is capped — visible slice back-fills, "N more" count drops, and the `<details>` disappears when the hidden list empties; active→ignored move renders the ignored card full-copy/muted/unindented in the group while the under-row card unmounts (extends the `crewWarningAttachment` rerender pattern, `tests/components/admin/showpage/crewWarningAttachment.test.tsx:238`).
+5. Existing suites expected to hold without edits: containment T5 block (tolerates indent — `stack.x >= card.x − TOL`), conservation tests, parity tests (instance line untouched).
 
 Anti-tautology: expected widths derive from measured stack width minus the 24px constant, never hardcoded card widths; the condensed-popover test asserts the POPOVER receives the catalog string while the CARD body does not contain it (clone tree, strip popover, then query).
 
