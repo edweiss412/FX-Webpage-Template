@@ -489,8 +489,12 @@ export function expectRowBoundary(
   }
 
   if (descriptionId) {
+    // Exact-match id scan without a selector string: `CSS.escape` is absent in
+    // some jsdom environments (it resolved here only when a component tree
+    // happened to polyfill it), and an unescaped interpolation would mis-parse
+    // exotic ids. Attribute walk + strict equality has neither problem.
     expect(
-      [...scope.querySelectorAll(`[id="${CSS.escape(descriptionId)}"]`)],
+      [...scope.querySelectorAll("[id]")].filter((el) => el.id === descriptionId),
       `exactly one element may carry id ${descriptionId}`,
     ).toHaveLength(1);
   }

@@ -98,8 +98,11 @@ export function ArchiveShowButton({
   const descId = useId();
   const warnId = useId();
   /** The row variant cancels explicitly (rotate's idiom); only the legacy
-   *  variants arm against the 4s timer. */
-  const asRow = compact && rowLabel != null;
+   *  variants arm against the 4s timer. Blank/whitespace labels fall back to
+   *  the legacy compact render, which is self-named by its visible "Archive
+   *  show" text — a §4.1 row with an empty label would be an unnamed
+   *  destructive button (spec §2.1, R1 finding 2). */
+  const asRow = compact && rowLabel != null && rowLabel.trim() !== "";
   const triggerRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   /** Set only when the operator cancels, so a restore never fires on the
@@ -183,6 +186,9 @@ export function ArchiveShowButton({
     onBusyChange?.(b);
   };
 
+  /** Confirm-branch header ONLY. The idle row renders its own label/description
+   *  inside the button (see the row variant below); these stay SEPARATE so
+   *  restyling the idle row cannot shift the ratified confirm render. */
   const labelHeader = asRow ? (
     <div className="min-w-0">
       <p className="text-sm font-medium text-text-strong">{rowLabel}</p>
@@ -230,33 +236,37 @@ export function ArchiveShowButton({
     </>
   );
 
-  // ── ROW VARIANT (the hub popover). Mirrors RotateShareTokenButton: titled
-  // row + short trigger when idle; label + consequence prose + Confirm/Cancel
-  // when armed. The consequence sentence is UNCHANGED — it moved from the
-  // button label into `warningP`, where it can wrap as prose instead of as a
-  // four-line inverted-amber slab, and where reading it does not race a timer.
+  // ── ROW VARIANT (the hub popover) — the §4.1 menu-row idiom, byte-for-byte
+  // the rotate recipe (spec 2026-07-24-archive-row-menu-idiom §2.1; fidelity-
+  // fixes §4.1). Idle: one borderless full-width row, icon + stacked
+  // label/description INSIDE the button. Armed: the owner-ratified
+  // Confirm/Cancel render (no timer) — unchanged. The wrapper below is a plain,
+  // non-interactive div written with a LITERAL class string — a source-form
+  // contract `_metaRowWrapperInert.test.ts` parses to prove no handler is
+  // attached to it.
   if (asRow) {
     return (
-      <div className="flex flex-col gap-2 py-3">
+      <div className="flex w-full flex-col gap-2">
         {!armed ? (
-          <div className="flex items-start justify-between gap-3">
-            {labelHeader}
-            <button
-              type="button"
-              ref={triggerRef}
-              data-testid="archive-show-button"
-              onClick={onArmClick}
-              aria-label="Archive show"
-              aria-describedby={rowDescription ? descId : undefined}
-              // Sized and weighted to match the rotate row directly above it —
-              // same padding, same glyph treatment, same hover. Two destructive
-              // rows in one 308px popover must read as one idiom, not two.
-              className="inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-            >
-              <Archive aria-hidden="true" size={14} />
-              Archive
-            </button>
-          </div>
+          <button
+            type="button"
+            ref={triggerRef}
+            data-testid="archive-show-button"
+            onClick={onArmClick}
+            aria-label={rowLabel}
+            aria-describedby={rowDescription?.trim() ? descId : undefined}
+            className="flex min-h-tap-min w-full items-center gap-2 rounded-sm p-2 text-left transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          >
+            <Archive aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
+            <span className="flex min-w-0 flex-col">
+              <span className="text-sm font-medium text-text-strong">{rowLabel}</span>
+              {rowDescription?.trim() ? (
+                <span id={descId} className="text-xs text-text-subtle">
+                  {rowDescription}
+                </span>
+              ) : null}
+            </span>
+          </button>
         ) : (
           <div
             role="group"

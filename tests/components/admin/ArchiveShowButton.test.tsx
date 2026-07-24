@@ -31,7 +31,7 @@ import {
 } from "./showpage/_rowAssertions";
 
 const refresh = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }), usePathname: () => "/admin" }));
 
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 
