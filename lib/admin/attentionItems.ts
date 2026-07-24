@@ -120,15 +120,20 @@ export const ATTENTION_ROUTES: Record<string, AttentionRoute> = {
   ASSET_RECOVERY_BYTES_EXCEEDED: { sectionId: "rooms", anchor: "diagrams" },
   ASSET_RECOVERY_REVISION_DRIFT: { sectionId: "overview" },
   ASSET_RECOVERY_DRIFT_COOLDOWN: { sectionId: "overview" },
+  // GLOBAL-SCOPE (lib/adminAlerts/alertScope.ts): every producer writes show_id: null,
+  // so fetchPerShowAlerts' .eq("show_id", showId) can never deliver it here. The row
+  // exists only so _metaAttentionRoutes' set-equality with the registry holds.
   WATCH_CHANNEL_ORPHANED: { sectionId: "overview" },
   WEBHOOK_TOKEN_INVALID: { sectionId: "overview" },
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: { sectionId: "rooms", anchor: "diagrams" },
+  // GLOBAL-SCOPE (see WATCH_CHANNEL_ORPHANED above): registry-totality row only.
   LIVE_ROW_CONFLICT: { sectionId: "overview" },
   DRIVE_FETCH_FAILED: { sectionId: "overview" },
   PARSE_ERROR_LAST_GOOD: { sectionId: "warnings" },
   SHEET_UNAVAILABLE: { sectionId: "overview" },
   RESYNC_SHRINK_HELD: { sectionId: "overview" },
   RESYNC_QUALITY_REGRESSED: { sectionId: "warnings" },
+  // GLOBAL-SCOPE (see WATCH_CHANNEL_ORPHANED above): registry-totality row only.
   SYNC_STALLED: { sectionId: "overview" },
   EMAIL_DELIVERY_FAILED: { sectionId: "overview" },
   EMAIL_NOT_CONFIGURED: { sectionId: "overview" },
@@ -153,6 +158,7 @@ export const ATTENTION_ROUTES: Record<string, AttentionRoute> = {
   BRANCH_PROTECTION_DRIFT: { sectionId: "overview" },
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: { sectionId: "overview" },
   WIZARD_SESSION_SUPERSEDED_RACE: { sectionId: "overview" },
+  // GLOBAL-SCOPE (see WATCH_CHANNEL_ORPHANED above): registry-totality row only.
   ONBOARDING_SHEET_UNREADABLE: { sectionId: "overview" },
 };
 

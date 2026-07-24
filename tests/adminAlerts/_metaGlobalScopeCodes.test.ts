@@ -13,9 +13,11 @@
 //      (tests/admin/_metaAttentionRoutes.test.ts).
 import { describe, expect, it } from "vitest";
 import {
+  globalOnlyCodes,
   projectGlobalOnly,
   type ProducerScopeRow,
 } from "@/tests/adminAlerts/alertProducerScope.registry";
+import { GLOBAL_SCOPE_CODES } from "@/lib/adminAlerts/alertScope";
 
 const row = (code: string, scope: "per-show" | "global", seed = false): ProducerScopeRow => ({
   site: `synthetic/${code}-${scope}${seed ? "-seed" : ""}.ts:1`,
@@ -54,5 +56,33 @@ describe("projectGlobalOnly (synthetic rows)", () => {
       ...projectGlobalOnly([row("A", "global"), row("B", "per-show"), row("C", "global")]),
     ];
     expect(out.sort()).toEqual(["A", "C"]);
+  });
+});
+
+describe("GLOBAL_SCOPE_CODES", () => {
+  it("is set-equal to the registry projection", () => {
+    const projected = [...globalOnlyCodes()].sort();
+    expect(
+      [...GLOBAL_SCOPE_CODES].sort(),
+      `regenerate GLOBAL_SCOPE_CODES to: ${JSON.stringify(projected)}`,
+    ).toEqual(projected);
+  });
+
+  it("contains the four doug-audience codes this exclusion exists for", () => {
+    // Belt-and-braces against a projection bug that would make the set-equality
+    // assertion pass vacuously on two empty sets.
+    for (const code of [
+      "LIVE_ROW_CONFLICT",
+      "ONBOARDING_SHEET_UNREADABLE",
+      "SYNC_STALLED",
+      "WATCH_CHANNEL_ORPHANED",
+    ]) {
+      expect(GLOBAL_SCOPE_CODES.has(code), code).toBe(true);
+    }
+  });
+
+  it("does NOT contain a per-show-reachable code", () => {
+    expect(GLOBAL_SCOPE_CODES.has("DRIVE_FETCH_FAILED")).toBe(false);
+    expect(GLOBAL_SCOPE_CODES.has("SHEET_UNAVAILABLE")).toBe(false);
   });
 });
