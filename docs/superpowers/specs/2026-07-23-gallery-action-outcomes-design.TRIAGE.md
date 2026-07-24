@@ -19,6 +19,11 @@ Per the documented ladder (MEMORY: inlined-codex-death → self-certify rung aft
 
 Verified-sound during the same pass (no change): `useActionState` arity compatibility of scripted closures; type-only `typeof` imports in the override context (erased, no server code in client bundle); `Promise.all` per-item branching order-independence for `bulkIgnore.partial` (client counts `r.ok`, order irrelevant); `show_not_found` lowercase code (`ArchiveShowButton.tsx:150`); channel-3 override signatures match the real action input/result unions.
 
+## Plan review record
+
+- Plan R1 (Codex, dispatch bec49549v): **BLOCKING, 10 findings** — all verified against live code, all real, all repaired across three commits (shaper-derived reachability via `shapeChangeFeed`/`deriveScenarioAttention`/`groupIgnorableByCode`; `ScenarioMount` child for hook placement; `NOOP_ACTIONS` export relocation; registry ripples `T2_REQUIRED_IDS`/`GROUP_LABELS`/tier-exclusivity/`isModalVisible`/page-test; cataloged-code discipline; derived test expectations; e2e non-egress recorder; Task 10 close-out pipeline; plan made fully self-contained).
+- Plan R2: dispatched twice (plan-r2-out, plan-r2b-out) — both `no_verdict` (same killed-exec wedge as the spec rounds; R1's success shows the wedge is intermittent). Per the ladder, R2 closed by **self-certify enhanced review**: re-audited every R1 vector against the repaired plan (arities, deriver reuse, ripple coverage, hook placement, roster reachability vs validator, dangling-reference sweep to zero). No new defects found. The Stage-4 whole-diff review re-covers the implementation with fresh eyes.
+
 ## Standing
 
 Spec status: APPROVED via self-certify rung (cross-model unavailable, ladder exhausted and recorded above). The whole-diff close-out review (Stage 4) re-covers this surface with fresh eyes; if Codex dispatch has recovered by then, the spec rides along in that review's scope.
