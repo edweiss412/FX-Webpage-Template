@@ -45,22 +45,27 @@ export function renderCrewUnderRowCards(args: {
     out.set(
       key,
       items.map((it, i) => (
-        <PerShowActionableWarnings
-          key={`crew-warn-${key}-${i}`}
-          items={[it.warning]}
-          driveFileId={driveFileId}
-          renderItemControls={(w) => (
-            <SectionWarningItemControls
-              warning={w}
-              reportSurfaceId={it.reportSurfaceId}
-              mode="active"
-              slug={slug}
-              showId={showId}
-              driveFileId={driveFileId}
-              useRawDecisions={useRawDecisions}
-            />
-          )}
-        />
+        // Spec 2026-07-23-crewwarn-underrow-polish §2: 24px indent binds the card
+        // to ITS member's name column; per-node wrapper keeps cap granularity.
+        // Banners are NOT wrapped (per-kind rule, spec §1.1 #2).
+        <div key={`crew-warn-${key}-${i}`} className="pl-6">
+          <PerShowActionableWarnings
+            items={[it.warning]}
+            driveFileId={driveFileId}
+            condensed
+            renderItemControls={(w) => (
+              <SectionWarningItemControls
+                warning={w}
+                reportSurfaceId={it.reportSurfaceId}
+                mode="active"
+                slug={slug}
+                showId={showId}
+                driveFileId={driveFileId}
+                useRawDecisions={useRawDecisions}
+              />
+            )}
+          />
+        </div>
       )),
     );
   }
