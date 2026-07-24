@@ -216,6 +216,15 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
     // admin-show-modal Task 11 (D9): server-rendered archived row embeds its own
     // bucket context — fixed /admin?bucket=archived&show= literal.
     expect(open.getAttribute("href")).toBe("/admin?bucket=archived&show=old-show");
+    // Class sweep from the 2026-07-24 dev-row copy close-out (impeccable
+    // critique A-P2): a link whose accessible name is the bare word "Open" is
+    // useless in a screen reader's link list, and this one repeats once per
+    // archived row - "Open, Open, Open". The show title disambiguates it while
+    // the visible label stays "Open".
+    expect(open).toHaveAccessibleName("Open Old Show");
+    const visibleOnly = open.cloneNode(true) as HTMLElement;
+    visibleOnly.querySelectorAll(".sr-only").forEach((n) => n.remove());
+    expect(visibleOnly.textContent?.trim()).toBe("Open");
     expect(row.textContent).not.toMatch(/Re-sync|Rotate|Share|Copy link/i);
   });
 

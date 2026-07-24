@@ -21,6 +21,9 @@ const DEFERRAL_ID = /^### ([A-Z0-9][A-Z0-9-]+)/gm;
  */
 const GRADUATED = ["SETTINGS-DEVROW-GALLERY-RESIDUE-1"] as const;
 
+/** Plan directories whose plan.md declares an invariant-8 (impeccable) gate. */
+const INVARIANT8_PLANS = ["docs/superpowers/plans/2026-07-24-settings-devrow-copy-close"] as const;
+
 // process.cwd() is the project root under vitest — the convention
 // tests/cross-cutting/vitest-projects-partition.test.ts already uses.
 // import.meta.url is NOT a file: URL under vitest's transform, so
@@ -48,6 +51,22 @@ describe("deferral ledger graduation", () => {
     for (const id of GRADUATED) {
       expect(archived.has(id), `${id} missing from DEFERRED-archive.md`).toBe(true);
       expect(active.has(id), `${id} still in DEFERRED.md`).toBe(false);
+    }
+  });
+
+  it("every invariant-8 plan has a closeout whose section 12 records both gate halves", () => {
+    for (const dir of INVARIANT8_PLANS) {
+      const closeout = read(`${dir}/closeout.md`);
+      // Slice the BODY of section 12, heading to next heading. Searching the
+      // whole document would pass on an EMPTY section 12 whenever the words
+      // appear in a title, a checklist, or boilerplate elsewhere.
+      const start = /^##\s*12\b.*$/m.exec(closeout);
+      expect(start, `${dir}/closeout.md has no "## 12" section`).not.toBeNull();
+      const after = closeout.slice(start!.index + start![0].length);
+      const next = /^##\s/m.exec(after);
+      const body = (next ? after.slice(0, next.index) : after).toLowerCase();
+      expect(body).toContain("critique");
+      expect(body).toContain("audit");
     }
   });
 });
