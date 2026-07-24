@@ -221,7 +221,7 @@ export function buildFetchScripts(outcomes: ScenarioActionOutcomes | null): Gall
         const okCount = bi.kind === "partial" ? bi.okCount : 0;
         if (callIndex < okCount) return { status: 200, body: { status: "ignored" } };
         // Synthetic, never-rendered code: BulkIgnoreControls branches on r.ok only.
-        return { status: 500, body: { ok: false, code: "GALLERY_SCRIPTED_FAIL" } };
+        return { status: 500, body: { ok: false, code: "gallery_scripted_fail" } };
       },
     });
   }

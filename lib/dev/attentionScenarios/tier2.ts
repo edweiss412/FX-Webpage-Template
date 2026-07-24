@@ -915,7 +915,7 @@ export function modalStateScenarios(): AttentionScenario[] {
       holds: [],
       // Uncataloged BY DESIGN: exercises the resolve button's defensive
       // fallback copy (PerShowAlertResolveButton.tsx:52 not-subject comment).
-      actionOutcomes: { resolve: { kind: "error", code: "RESOLVE_INFRA" } },
+      actionOutcomes: { resolve: { kind: "error", code: "gallery_resolve_infra" } },
     }),
     scenario("t2-act-bulkignore-partial", "Bulk ignore: partial success", {
       alerts: [],

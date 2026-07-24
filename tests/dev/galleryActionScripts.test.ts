@@ -68,7 +68,7 @@ describe("buildFetchScripts (channel 2)", () => {
     expect(bulk!.respond(1)).toEqual({ status: 200, body: { status: "ignored" } });
     expect(bulk!.respond(2)).toEqual({
       status: 500,
-      body: { ok: false, code: "GALLERY_SCRIPTED_FAIL" },
+      body: { ok: false, code: "gallery_scripted_fail" },
     });
     const resync = scripts.find((s) => s.key === "resync");
     expect(resync).toBeDefined();

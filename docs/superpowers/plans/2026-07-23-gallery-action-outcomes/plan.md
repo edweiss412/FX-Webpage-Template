@@ -226,7 +226,7 @@ it("builds fetch scripts with sequenced bulk-ignore", () => {
   const bulk = scripts.find((s) => s.key === "bulkIgnore")!;
   expect(bulk.respond(0)).toEqual({ status: 200, body: { status: "ignored" } });
   expect(bulk.respond(1)).toEqual({ status: 200, body: { status: "ignored" } });
-  expect(bulk.respond(2)).toEqual({ status: 500, body: { ok: false, code: "GALLERY_SCRIPTED_FAIL" } });
+  expect(bulk.respond(2)).toEqual({ status: 500, body: { ok: false, code: "gallery_scripted_fail" } });
   const resync = scripts.find((s) => s.key === "resync")!;
   expect(resync.pathPattern.test("/api/admin/sync/gallery-show")).toBe(true);
   expect(resync.respond(0)).toEqual({ status: 200, body: { ok: true,
@@ -251,7 +251,7 @@ it("builds channel-3 overrides matching the real result unions", async () => {
 - [ ] **Step 2:** FAIL. **Step 3: implement.** Signature `buildScriptedActions(outcomes: ScenarioActionOutcomes | null, acceptableCount: number)`. Response mappings (spec §2/§3.2 envelopes):
   - resync success → `200 { ok: true, result: { outcome: outcome ?? "applied" } }`; shrink → `200 { ok: true, result: { outcome: "shrink_held", detail, heldModifiedTime: "2026-06-29T00:00:00.000Z" } }`; error → status map `SYNC_INFRA_ERROR:500, PENDING_SYNC_NOT_FOUND:404, FINALIZE_OWNED_SHOW:409, SHOW_BUSY_RETRY:409`, body `{ ok: false, error: code }`; pending → `"hang"`.
   - resolve success → `200 { status: "resolved", id: "gallery-alert", resolved_at: "2026-07-01T00:00:00.000Z" }`; error → `500 { ok: false, code }`; pending → hang.
-  - bulkIgnore partial → `idx < okCount ? 200 { status: "ignored" } : 500 { ok: false, code: "GALLERY_SCRIPTED_FAIL" }` (synthetic code, never rendered — client branches on `r.ok`, `BulkIgnoreControls.tsx:100`); fail → always the 500 arm; pending → hang.
+  - bulkIgnore partial → `idx < okCount ? 200 { status: "ignored" } : 500 { ok: false, code: "gallery_scripted_fail" }` (synthetic code, never rendered — client branches on `r.ok`, `BulkIgnoreControls.tsx:100`); fail → always the 500 arm; pending → hang.
   - Path patterns: resync `/^\/api\/admin\/sync\//`; resolve `/^\/api\/admin\/show\/[^/]+\/alerts\/[^/]+\/resolve$/`; bulkIgnore `/\/data-quality\/ignore$/`.
   - Channel-1: shallow copy of `NOOP_ACTIONS`, override scripted keys with closures matching each prop's exact signature; `pending` = `() => new Promise<never>(() => {})`; `setPublished` error → `{ ok: false, code }`; `archive` `not_found` → `{ ok: false, code: "show_not_found" }`; `accept` success `{ ok: true, count: 1 }`; `acceptAll` success `{ ok: true, count: acceptableCount }`; return `NOOP_ACTIONS` identity when nothing channel-1 is scripted.
   - Channel-3 (`buildActionOverrides`): crewReset success `{ ok: true, reset_at: "2026-07-01T12:00:00.000Z" }`, not_found → `{ ok: false, code: "PICKER_CREW_MEMBER_NOT_FOUND" }`, error → `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }`; rotate success `{ ok: true, new_share_token: "gallery-share-token-rotated", new_epoch: 2 }`, error → `PICKER_RESOLVER_LOOKUP_FAILED`; everyoneReset success `{ ok: true, new_epoch: 2 }`, error → same code; pending → never-resolving; return `null` when no channel-3 key scripted. **Step 4:** green + switcher still compiles with the import swap. **Step 5: commit** `feat(admin): gallery action-outcome script builders; export NOOP_ACTIONS`.
@@ -378,7 +378,7 @@ function ScenarioMount({ scenario }: { scenario: GallerySwitcherScenario }) {
         undo: { kind: "error", code: "UNDO_NOT_FOUND" } } },
     { id: "t2-act-resolve-error", tier: 2, label: "Alert resolve: error",
       alerts: [alert(pickByDerivedClass("actionable"))], holds: [],
-      actionOutcomes: { resolve: { kind: "error", code: "RESOLVE_INFRA" } } }, // generic-fallback arm by intent
+      actionOutcomes: { resolve: { kind: "error", code: "gallery_resolve_infra" } } }, // generic-fallback arm by intent
     { id: "t2-act-bulkignore-partial", tier: 2, label: "Bulk ignore: partial success", alerts: [], holds: [],
       warnings: [/* 3 same-code DISTINCT-rawSnippet ignorable warnings via the file's warning helper */],
       actionOutcomes: { bulkIgnore: { kind: "partial", okCount: 2 } } },
