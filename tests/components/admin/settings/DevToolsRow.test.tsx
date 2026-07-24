@@ -101,6 +101,26 @@ describe("DevToolsRow — DEV_PANEL_PRESENT true", () => {
     expect(open.compareDocumentPosition(gallery) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("row description names the gallery, sourced from the description element", () => {
+    render(<DevToolsRow isDeveloper={true} />);
+
+    // T6 (2026-07-24 spec §9) - scoped to the row's HEADING BLOCK, not the row
+    // root: the root also contains a link whose visible text is "Attention
+    // gallery", so an unscoped getByText(/attention gallery/i) would pass even
+    // with the OLD description still in place.
+    const row = screen.getByTestId("admin-dev-tools-row");
+    const heading = screen.getByText("Developer tools");
+    const description = heading.parentElement?.querySelector("p");
+    expect(description).not.toBeNull();
+    expect(description!.textContent).toBe(
+      "Fixture tester, parse diagnostics, and the attention gallery. Hidden from normal use.",
+    );
+
+    // Anti-tautology self-check: the element asserted above is not the sibling
+    // link that independently renders the same phrase.
+    expect(row.querySelector('[data-testid="admin-dev-tools-gallery"]')).not.toBe(description);
+  });
+
   it("isDeveloper={false} → renders nothing (normal admin never sees dev tools)", () => {
     const { container } = render(<DevToolsRow isDeveloper={false} />);
     expect(container).toBeEmptyDOMElement();
