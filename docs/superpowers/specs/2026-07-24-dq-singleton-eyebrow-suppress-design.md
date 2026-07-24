@@ -70,7 +70,7 @@ Build site: `buildSectionWarningExtras` final map (`sectionWarningExtras.tsx:200
 
 ### 2.4 Mode boundaries
 
-Published mode only, by construction: `BulkIgnoreControls` mounts only via `buildSectionWarningExtras`, which returns null for non-published data (`sectionWarningExtras.tsx:154`) — plus the e2e/gallery harnesses that mount it directly. Wizard mode has no eyebrows and no `BulkIgnoreControls` mount; nothing shared changes shape there.
+Published mode only, by construction: `BulkIgnoreControls` mounts only via `buildSectionWarningExtras`, which returns null for non-published data (`sectionWarningExtras.tsx:154`) — plus exactly one harness that mounts it directly, the e2e live entry `tests/e2e/_bulkIgnoreEyebrowLiveEntry.tsx` (no gallery/dev code mounts it; `lib/dev/galleryActionScripts.ts:223` is a comment reference only). Wizard mode has no eyebrows and no `BulkIgnoreControls` mount; nothing shared changes shape there.
 
 ### 2.5 Transition inventory
 
@@ -93,7 +93,8 @@ None. No fixed-dimension parent is introduced or modified; the suppressed row is
 | `components/admin/BulkIgnoreControls.tsx` | `itemCount` on `ActiveWarningGroup`; row-render conditional |
 | `components/admin/showpage/sectionWarningExtras.tsx` | thread `itemCount: g.items.length` |
 | `tests/components/admin/bulkIgnoreControls.test.tsx` | fixtures gain `itemCount`; singleton eyebrow pin flips to suppression assertion; new N=1-with-bulk and N≥2-no-bulk retention assertions |
-| `tests/components/admin/showpage/sectionWarningControls.test.tsx` | DQIGNORE-6 test (`tests/components/admin/showpage/sectionWarningControls.test.tsx:315-333`): lone `UNKNOWN_ROLE_TOKEN` eyebrow pin flips to suppression; `FIELD_UNREADABLE` (bulk, N=2) eyebrow pin stays |
+| `tests/components/admin/showpage/sectionWarningControls.test.tsx` | DQIGNORE-6 test (`tests/components/admin/showpage/sectionWarningControls.test.tsx:316-334`): lone `UNKNOWN_ROLE_TOKEN` eyebrow pin flips to suppression; `FIELD_UNREADABLE` (bulk, N=2) eyebrow pin stays AND gains label-text + invariant-5 assertions (see §4.5) |
+| `tests/components/admin/showpage/crewWarningAttachment.test.tsx` | **No edits expected** — but it exercises the §2.1 edge branches through the PRODUCTION build site: no-bulk singleton fallback group (`tests/components/admin/showpage/crewWarningAttachment.test.tsx:173-184` — asserts card count only, passes under suppression), N=1-with-bulk (`tests/components/admin/showpage/crewWarningAttachment.test.tsx:186-199`, asserts "Ignore all 2" chip), N=0-with-bulk chip + placeholder survival (`tests/components/admin/showpage/crewWarningAttachment.test.tsx:201-218`). It is the executable coverage for §2.3's N=0 and N=1-with-bulk rows and MUST run green unmodified as part of task verification. §4 test 3 deliberately duplicates its N=1-with-bulk coverage at the component layer (unit-level predicate pin vs integration-level build-site pin — both kept). |
 | `tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx` | fixture gains `itemCount` (bulk-eligible — behavior unchanged) |
 | `tests/e2e/_bulkIgnoreEyebrowLiveEntry.tsx` | fixtures gain `itemCount` (`FIELD_UNREADABLE`: 2; `UNKNOWN_SECTION_HEADER`: 2 — keeps the harness's second eyebrow rendering for wrap geometry) |
 | `docs/superpowers/specs/data-quality/2026-07-17-dq-group-active-by-code.md` | supersession note on the §46 singleton row pointing here (one line, no restructure) |
@@ -105,11 +106,12 @@ Not affected (verified): `lib/admin/sectionWarningModel.ts` (model unchanged), `
 All in existing files; anti-tautology per project rules — assertions scoped to the eyebrow testids (`dq-group-label-*`), counts derived from fixture item counts, never hardcoded independent of the fixture.
 
 1. **N=1 suppression** (`bulkIgnoreControls.test.tsx`): singleton fixture (`itemCount: 1`, `bulk: null`) renders NO `dq-group-label-<code>` AND no hairline row — assert the group wrapper's first child is the cards slot (structural: no `flex items-center` header div). Cards still render. Failure mode caught: suppression not implemented, or suppressing the cards along with the row.
-2. **N≥2 no-bulk retention**: fixture `itemCount: 2`, `bulk: null` → eyebrow label present, no chip. Failure mode: over-suppression keyed on `bulk` alone.
+2. **N≥2 no-bulk retention**: fixture `itemCount: 2`, `bulk: null`, using the DATA-GAP label path (`BLOCK_DISAPPEARED`, label "removed section") → eyebrow label present with exact text "removed section" AND invariant-5 no-raw-code assertion (`not.toContain("BLOCK_DISAPPEARED")`), no chip. This fixture deliberately inherits the label + invariant-5 coverage the flipped singleton pin previously carried (`tests/components/admin/bulkIgnoreControls.test.tsx:60-69` — the ONLY data-gap-label and no-bulk-eyebrow invariant-5 assertions today); inverting the singleton pin without this transfer would delete both. Failure modes: over-suppression keyed on `bulk` alone; data-gap label path regression; raw code leaking into a kept no-bulk eyebrow.
 3. **N=1 with-bulk retention**: fixture `itemCount: 1`, `bulk` present (2 bulk items) → eyebrow row present with chip. Failure mode: suppression keyed on `itemCount` alone hiding a live chip.
 4. **Existing pins updated, not deleted**: the grouped-render test keeps asserting the bulk group's eyebrow text + invariant-5 no-raw-code on KEPT rows; the singleton half of the assertion inverts to `queryByTestId(...).toBeNull()`.
-5. **Section-level pin** (`sectionWarningControls.test.tsx` DQIGNORE-6 test): lone `UNKNOWN_ROLE_TOKEN` group renders its card with NO eyebrow; `FIELD_UNREADABLE` keeps eyebrow + "Ignore all 2" chip. Counts derived from the fixture's warning list.
-6. **Typecheck is the constructor sweep**: `itemCount` required → `pnpm typecheck` fails on any un-updated constructor (e2e entry, transition audit, gallery if any). No separate meta-test needed.
+5. **Section-level pin** (`sectionWarningControls.test.tsx` DQIGNORE-6 test): lone `UNKNOWN_ROLE_TOKEN` group renders its card with NO eyebrow; `FIELD_UNREADABLE` keeps eyebrow + "Ignore all 2" chip, AND gains label-text + invariant-5 assertions on the kept eyebrow (`dq-group-label-FIELD_UNREADABLE` text equals `messageFor("FIELD_UNREADABLE").title`, `not.toContain("FIELD_UNREADABLE")`) — transferring the section-level invariant-5 coverage from the flipped `UNKNOWN_ROLE_TOKEN` pin (`tests/components/admin/showpage/sectionWarningControls.test.tsx:331-333`). Counts derived from the fixture's warning list.
+6. **Typecheck is the constructor sweep**: `itemCount` required → `pnpm typecheck` fails on any un-updated constructor (e2e entry, transition audit). No separate meta-test needed.
+7. **N=0 / N=1-with-bulk integration coverage** is NOT re-authored: it already executes through the production build site in `tests/components/admin/showpage/crewWarningAttachment.test.tsx:186-218` (§3 table row) and must pass unmodified — the executable coverage for §2.3's "itemCount 0 → row kept" and "itemCount 1 with bulk → row kept" rows.
 
 Meta-test inventory: none created or extended — no registry-class surface touched ("none applies": no Supabase call, no admin alert, no advisory lock, no sentinel-hiding text, no new mutation surface).
 
@@ -117,7 +119,7 @@ Meta-test inventory: none created or extended — no registry-class surface touc
 
 - "N=1" / `itemCount !== 1`: the single suppression threshold, used consistently in §2.1, §2.3, §4.
 - "≥2": bulk-eligibility threshold, quoted from `lib/dataQuality/bulkIgnoreGroups.ts:8-10` (distinct-content sets, DQIGNORE-2) — not redefined here.
-- 7 affected files in §3 table; 6 test items in §4; 1 transition pair in §2.5.
+- 8 rows in the §3 affected-surfaces table (7 edited + 1 no-edits-expected verification row); 7 test items in §4; 1 transition pair in §2.5.
 
 ## 6. Impeccable gate
 
