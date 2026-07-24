@@ -50,8 +50,10 @@ export type SectionWarningModel = {
   ignored: SectionWarningItem[];
   /** Codes with >=2 distinct-content ACTIVE ignorable warnings → one bulk "Ignore all N". */
   bulkGroups: BulkIgnoreGroupWithLabel[];
-  /** The ACTIVE list grouped by code (first-appearance order) — every active code gets a group
-   *  (eyebrow), bulk-eligible or not; the bulk chip rides only groups whose `bulk` is present. */
+  /** The ACTIVE list grouped by code (first-appearance order) — every active code gets a group,
+   *  bulk-eligible or not; the bulk chip rides only groups whose `bulk` is present. The render
+   *  layer suppresses the eyebrow row for lone chip-less groups (spec
+   *  2026-07-24-dq-singleton-eyebrow-suppress §2.1) — the grouping model is unchanged. */
   activeGroups: ActiveWarningCodeGroup[];
   /** ACTIVE crew-row-scoped warnings indexed by crewRowKeyForWarning (the 2 autocorrect
    *  codes via canonicalCrewKey(subject); other codes via their crew blockRef name passed
@@ -99,7 +101,8 @@ export function buildSectionWarningModel(input: {
     }));
     const activeItems = active.map(stamp);
     // DQIGNORE-6 — group the section's ACTIVE items by code (first-appearance order). Every
-    // active code gets a group/eyebrow; `bulk` is attached only when the code is bulk-eligible
+    // active code gets a group (the render layer decides eyebrow visibility — lone chip-less
+    // groups suppress it, spec 2026-07-24 §2.1); `bulk` is attached only when the code is bulk-eligible
     // (matches a groupIgnorableByCode entry). Code order from groupActiveByCode; items gathered
     // per code preserving routed order (both derive from the same ordered `activeItems`).
     const bulkByCode = new Map(bulkGroups.map((g) => [g.code, g] as const));

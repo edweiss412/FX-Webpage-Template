@@ -313,7 +313,7 @@ describe("buildSectionWarningExtras (per-section render, inside owning section)"
     ).toBeNull();
   });
 
-  it("groups the section's active warnings by code — one card-list + eyebrow per code, chip only on bulk-eligible (DQIGNORE-6)", () => {
+  it("groups the section's active warnings by code — one card-list per code, eyebrow only on kept rows, chip only on bulk-eligible (DQIGNORE-6 + 2026-07-24 suppression)", () => {
     // roleWarning (lone UNKNOWN_ROLE_TOKEN) + two distinct FIELD_UNREADABLE snippets, all
     // routing to crew → two per-code groups inside the crew section.
     const fieldWarnings = [fieldWarningA, fieldWarningB];
