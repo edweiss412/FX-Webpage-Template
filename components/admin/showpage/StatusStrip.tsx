@@ -274,7 +274,12 @@ export function StatusStrip({
       {syncLabel != null && sync != null ? (
         <span
           data-testid="strip-sync-age"
-          className="flex shrink-0 items-center gap-2 max-sm:shrink max-sm:min-w-0 max-sm:overflow-hidden"
+          // basis-0 + grow, NOT shrink (measured 2026-07-24): under flex-wrap
+          // an item wraps at its HYPOTHETICAL main size before shrink ever
+          // applies, so a shrink-based cap would push the Sync trigger to its
+          // own line on worst-case data. Base size 0 always fits the line;
+          // grow fills the leftover; min-w-0 + overflow-hidden clip the tail.
+          className="flex shrink-0 items-center gap-2 max-sm:basis-0 max-sm:grow max-sm:min-w-0 max-sm:overflow-hidden"
         >
           {/* One health dot, colored by sync HEALTH (last_sync_status bucket) — NOT the
               edit time. It pairs with both text lines (the color-blind floor). */}

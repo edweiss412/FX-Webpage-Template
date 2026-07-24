@@ -701,7 +701,15 @@ describe("stacked mobile band (spec 2026-07-24-strip-mobile-stacked-band §3)", 
   it("R2 clip-priority classes are max-sm scoped; desktop shrink-0 retained", () => {
     renderStrip();
     const group = screen.getByTestId("strip-sync-age");
-    for (const cls of ["shrink-0", "max-sm:shrink", "max-sm:min-w-0", "max-sm:overflow-hidden"]) {
+    // basis-0+grow, not shrink: flex-wrap wraps at hypothetical size before
+    // shrink applies (measured in stackedBandLayout.spec.ts).
+    for (const cls of [
+      "shrink-0",
+      "max-sm:basis-0",
+      "max-sm:grow",
+      "max-sm:min-w-0",
+      "max-sm:overflow-hidden",
+    ]) {
       expect(group.className).toContain(cls);
     }
     const synced = screen.getByTestId("strip-synced-line");

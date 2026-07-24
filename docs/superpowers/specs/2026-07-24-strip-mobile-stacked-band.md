@@ -190,9 +190,15 @@ additions: `max-sm:*` classes, the hidden mobile label block, and the chip's
 
 ### R2 Meta row
 
-- Sync-age group (222-266): gains `max-sm:shrink max-sm:min-w-0
-  max-sm:overflow-hidden` (the existing `shrink-0` stays for `≥sm`; `max-sm:`
-  variants override below it). Its status line (246) gains `max-sm:min-w-0
+- Sync-age group (222-266): gains `max-sm:basis-0 max-sm:grow max-sm:min-w-0
+  max-sm:overflow-hidden` (the existing `shrink-0` stays for `≥sm`).
+  MECHANISM CORRECTION (implementation-measured 2026-07-24): the draft said
+  `max-sm:shrink`, but under `flex-wrap` an item wraps at its HYPOTHETICAL
+  main size before shrink ever applies, so a shrink-based cap pushes the Sync
+  trigger to its own line on worst-case data instead of clipping. A zero
+  flex-basis always fits the line; `grow` fills the leftover after the
+  trigger; `min-w-0` + `overflow-hidden` clip the tail. Intent (one line,
+  clip-not-wrap) unchanged. Its status line (246) gains `max-sm:min-w-0
   max-sm:overflow-hidden`. Clip PRIORITY (R2 finding 4; scoping per R4
   finding 1): the health/synced span (`strip-synced-line`, 248) gains
   `max-sm:whitespace-nowrap max-sm:shrink-0` — never sacrificed IN FAVOR OF
@@ -278,7 +284,7 @@ dev-capture browser fixture.
 | R0 badge | fixed 24px | `h-6` |
 | R1 container | full width, ≥44px, centered | `max-sm:w-full max-sm:min-h-tap-min max-sm:items-center` on the toggle container; `max-sm:w-full` on its strip wrapper |
 | R1 label block | shrinkable column, one-line sublabel | `max-sm:min-w-0 max-sm:flex-col`, sublabel `truncate` |
-| R2 sync-age | shrinks + clips, never wraps rows | `max-sm:shrink max-sm:min-w-0 max-sm:overflow-hidden`; `max-sm:`-scoped nowrap + ellipsis on text spans |
+| R2 sync-age | zero-basis + grow + clip, never wraps rows | `max-sm:basis-0 max-sm:grow max-sm:min-w-0 max-sm:overflow-hidden`; `max-sm:`-scoped nowrap + ellipsis on text spans |
 | R2 Sync trigger | ≥44×44 real box, right edge | `min-h-tap-min min-w-tap-min` (existing) + `max-sm:ml-auto` |
 | R3 root chain | full width at every link | `max-sm:w-full` on group AND ShareHub root |
 | R3 primary | fills remaining width, single line always | `max-sm:flex-1 max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden` |
