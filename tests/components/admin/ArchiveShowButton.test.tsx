@@ -16,7 +16,19 @@
  *   - on a successful action result → router.refresh().
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import React from "react";
+import {
+  ROW_TOKENS,
+  WRAPPER_CLASSES,
+  NO_BORDER,
+  NO_REST_BACKGROUND,
+  expectClasses,
+  expectRowText,
+  expectRowBoundary,
+  expectNoDescriptionNode,
+  tokensOf,
+} from "./showpage/_rowAssertions";
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
@@ -68,18 +80,162 @@ describe("ArchiveShowButton — row variant (hub popover)", () => {
     ),
   });
 
-  it("resting: titled row + SHORT trigger; the consequence is not crammed into the button", () => {
-    const { getByTestId, getByText } = renderRow();
+  it("resting: ONE §4.1 menu row - full token set, icon+column topology, bound name (spec §2.1)", () => {
+    const { getByTestId, container } = renderRow();
     const trigger = getByTestId("archive-show-button");
-    expect(trigger.textContent).toBe("Archive");
-    // The long sentence must not be the label — that is the whole point of the
-    // amendment (it wrapped to ~4 lines of inverted amber in a 308px popover).
-    expect(trigger.textContent).not.toMatch(/stop working/i);
-    expect(getByText("Archive show")).toBeTruthy();
-    expect(getByText("Crew links stop working immediately")).toBeTruthy();
-    // Short label still needs a full accessible name.
-    expect(trigger.getAttribute("aria-label")).toBe("Archive show");
+    expect(trigger.tagName).toBe("BUTTON");
+    expectClasses(trigger, {
+      exactly: ROW_TOKENS,
+      forbids: [NO_BORDER, NO_REST_BACKGROUND, /(?:^|:)focus-visible:ring-offset-/],
+    });
+    // One call covers containment, exact text, uniqueness, typography, stacking
+    // order, and row topology for BOTH strings (§7.0).
+    expectRowText(trigger, container, {
+      label: "Archive show",
+      description: "Crew links stop working immediately",
+    });
+    const icon = trigger.querySelector("svg")!;
+    expect(icon.getAttribute("width")).toBe("16");
+    expect(icon.getAttribute("height")).toBe("16");
+    expectClasses(icon, { has: ["shrink-0", "text-text-subtle", "lucide-archive"] });
+    // The OLD shape must be GONE, not merely joined by the new one: no button
+    // whose accessible name is the bare short label.
+    expect(within(container).queryByRole("button", { name: "Archive" })).toBeNull();
+    expectRowBoundary(trigger, {
+      scope: container,
+      descriptionId: trigger.getAttribute("aria-describedby"),
+      container,
+    });
   });
+
+  it("aria-label is PROP-bound, not hardcoded (R1-3 anti-tautology)", () => {
+    const { getByTestId, container } = render(
+      <ArchiveShowButton
+        archiveAction={vi.fn(async () => ({ ok: true }) as const)}
+        compact
+        rowLabel="Retire this show"
+        rowDescription="Crew links stop working immediately"
+      />,
+    );
+    const trigger = getByTestId("archive-show-button");
+    expect(trigger.getAttribute("aria-label")).toBe("Retire this show");
+    expect(within(container).getByRole("button", { name: "Retire this show" })).toBe(trigger);
+    // A kept-hardcoded aria-label="Archive show" or leftover literal fails here.
+    expect(container.textContent).not.toContain("Archive show");
+  });
+
+  it("absent description: no carrier node at all (§3 guard)", () => {
+    const { getByTestId, container } = render(
+      <ArchiveShowButton
+        archiveAction={vi.fn(async () => ({ ok: true }) as const)}
+        compact
+        rowLabel="Archive show"
+      />,
+    );
+    expectNoDescriptionNode(getByTestId("archive-show-button"), container, "Archive show");
+  });
+
+  it.each(["", "   "])(
+    "blank rowLabel %j: legacy compact render, never an unnamed row (§2.1 gate)",
+    (blank) => {
+      const { getByTestId, container } = render(
+        <ArchiveShowButton
+          archiveAction={vi.fn(async () => ({ ok: true }) as const)}
+          compact
+          rowLabel={blank}
+          rowDescription="Crew links stop working immediately"
+        />,
+      );
+      // Legacy compact button: self-named by visible text.
+      expect(within(container).getByRole("button", { name: "Archive show" })).toBe(
+        getByTestId("archive-show-button"),
+      );
+      // No §4.1 wrapper anywhere (the row variant did not render).
+      const wrapperHits = [...container.querySelectorAll("div")].filter(
+        (d) => [...tokensOf(d)].sort().join(" ") === [...WRAPPER_CLASSES].sort().join(" "),
+      );
+      expect(wrapperHits).toEqual([]);
+    },
+  );
+
+  it("both states keep the wrapper at exactly WRAPPER_CLASSES; armed group keeps its own py-3 (§1.1 spacing ratification)", () => {
+    const { getByTestId } = renderRow();
+    const idleWrapper = getByTestId("archive-show-button").parentElement!;
+    expectClasses(idleWrapper, { exactly: WRAPPER_CLASSES });
+    fireEvent.click(getByTestId("archive-show-button"));
+    const armedGroup = getByTestId("archive-show-confirm-row");
+    expectClasses(armedGroup, { exactly: ["flex", "flex-col", "gap-2", "py-3"] });
+    expectClasses(armedGroup.parentElement!, { exactly: WRAPPER_CLASSES });
+  });
+
+  it("pending → idle on refusal: banner mounts as wrapper sibling, busy released, trigger back (§6 item 1a)", async () => {
+    const onBusyChange = vi.fn();
+    let settle: ((v: { ok: false; code: string }) => void) | null = null;
+    const action = vi.fn(() => new Promise<{ ok: false; code: string }>((res) => (settle = res)));
+    const { getByTestId, queryByTestId } = render(
+      <ArchiveShowButton
+        archiveAction={action}
+        compact
+        onBusyChange={onBusyChange}
+        rowLabel="Archive show"
+        rowDescription="Crew links stop working immediately"
+      />,
+    );
+    fireEvent.click(getByTestId("archive-show-button"));
+    await act(async () => {
+      fireEvent.click(getByTestId("archive-show-confirm-button"));
+    });
+    await act(async () => {
+      settle?.({ ok: false, code: "FINALIZE_OWNED_SHOW" });
+    });
+    expect(queryByTestId("archive-show-confirm-button")).toBeNull();
+    expect(getByTestId("archive-show-error")).toBeTruthy();
+    expect(getByTestId("archive-show-button")).toBeTruthy();
+    // Banner is a WRAPPER sibling (not nested in the row button).
+    expect(getByTestId("archive-show-error").parentElement).toBe(
+      getByTestId("archive-show-button").parentElement,
+    );
+    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("rejecting action: reaches the boundary, busy gate never wedges (§6 item 1b)", async () => {
+    const onBusyChange = vi.fn();
+    class Boundary extends React.Component<{ children: React.ReactNode }, { caught: boolean }> {
+      override state = { caught: false };
+      static getDerivedStateFromError() {
+        return { caught: true };
+      }
+      override render() {
+        return this.state.caught ? (
+          <p data-testid="boundary-caught">caught</p>
+        ) : (
+          this.props.children
+        );
+      }
+    }
+    const action = vi.fn(async (): Promise<{ ok: true }> => {
+      throw new Error("transport down");
+    });
+    const { getByTestId, findByTestId } = render(
+      <Boundary>
+        <ArchiveShowButton
+          archiveAction={action}
+          compact
+          onBusyChange={onBusyChange}
+          rowLabel="Archive show"
+          rowDescription="Crew links stop working immediately"
+        />
+      </Boundary>,
+    );
+    fireEvent.click(getByTestId("archive-show-button"));
+    await act(async () => {
+      fireEvent.click(getByTestId("archive-show-confirm-button"));
+    });
+    expect(await findByTestId("boundary-caught")).toBeTruthy();
+    // The unmount cleanup must have released a still-pending busy level.
+    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+  });
+
 
   it("armed: consequence renders as PROSE the confirm points at, and the label stays short", async () => {
     const { getByTestId } = renderRow();
