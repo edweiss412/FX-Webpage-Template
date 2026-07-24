@@ -7,9 +7,10 @@ Historical ledger of resolved / stale / N/A / accepted deferrals — full proven
 Five of the six remaining "warning-surface-trim (2026-07-21)" deferrals RESOLVED
 by `feat/warning-trim-undefer` (spec
 `docs/superpowers/specs/2026-07-23-warning-trim-undefer-design.md`, adversarial
-APPROVE at R5). The sixth — the bell-only first-publish data-gaps digest — stays
-parked in [DEFERRED.md](./DEFERRED.md) with a refreshed rationale (owner
-re-confirmed bell-only 2026-07-23).
+APPROVE at R5). The sixth — the bell-only first-publish data-gaps digest — was
+re-confirmed bell-only by the owner on 2026-07-23 and archived here on
+2026-07-24 as a RATIFIED decision (see `WARNTRIM-FIRSTPUB-DIGEST-BELL-ONLY-1`
+below).
 
 ### WARNTRIM-HEADING-COUNT-SILENT-1 — [P1] — ✅ RESOLVED
 
@@ -84,6 +85,53 @@ layer fans the banner into each rendered roster row whose id matches one-to-one
 match, so the original `crewName` precondition is moot. The e2e is un-skipped and
 the spec is wired into the desktop-chromium project (`feat/warning-trim-undefer`
 Tasks 6-8, `lib/admin/crewRowMatch.ts`).
+
+### WARNTRIM-FIRSTPUB-DIGEST-BELL-ONLY-1 — [MEDIUM] — ✅ RATIFIED bell-only (no change)
+
+Original entry (full text): "**[MEDIUM] The first-publish alert cut is
+discoverable only through the bell.** Owner re-confirmed bell-only on 2026-07-23
+(warning-trim-undefer spec §7): the digest is a frozen publish-time count of
+warnings the modal already renders live, so a banner would add only the
+publish-event notice, not new content; role-flag DELTAS remain visible on the
+show modal via the Sheet changes feed rows built in
+`lib/sync/changeLog/fieldChanges.ts:154-181`; only the first-publish data-gaps
+digest is bell-only, by the ratified intent of `2026-07-04-alert-audience-split`
+§3. **Noted, not changed.** Un-defer trigger: the owner asks for a publish-event
+banner (with or without the digest)."
+
+Ratified: bell-only is the accepted end state, not a pending deferral — the
+digest (`SHOW_FIRST_PUBLISHED` `context.data_gaps`) duplicates counts the modal
+already renders live, so no modal surface is planned. Archived 2026-07-24. A
+future owner ask for a publish-event banner is a fresh feature request, not an
+un-defer of this entry.
+
+## Modal-state coverage class 6 — gallery action outcomes (2026-07-23)
+
+The single "modal-state-coverage (2026-07-22) — class 6" deferral, RESOLVED by
+`docs/superpowers/specs/2026-07-23-gallery-action-outcomes-design.md`
+(`feat/gallery-action-outcomes`, PR #566). Archived 2026-07-24.
+
+### MODALSTATE-CLASS6-ACTION-OUTCOMES-1 — [MEDIUM] — ✅ RESOLVED
+
+Original entry (full text): "**[MEDIUM] Action-outcome states
+(pending/error/success on modal controls) are not demonstrable in the dev
+attention-gallery.** The 2026-07-22 modal-state sweep's class 6: re-sync
+overlays (error / shrink-hold confirm / success), publish-toggle refusal
+popover, Mi11 gate errors, resolve-button errors, bulk-ignore partial/fail
+alerts, crew-row reset outcome banners. These mount only from server action
+responses, so demonstrating them needs outcome-stubbing infrastructure (a
+gallery action layer returning scripted results), a different mechanism from the
+static scenario fields shipped by
+`docs/superpowers/specs/2026-07-22-modal-state-coverage-design.md` (classes
+1-5). Owner deferred on 2026-07-22 ("1-5: all static states, 6 to deferred.md").
+Un-defer trigger: an owner ask to review action-outcome UX in the gallery, at
+which point the gallery's client action closures gain a scripted-outcome mode
+per control."
+
+Resolved: all six surfaces plus share-token rotate, everyone-reset, and archive
+outcomes are click-demonstrable via the scripted-outcome layer — tier-2
+`actionOutcomes` scenarios, scripted `GalleryWriteGuard` responses, and the
+null-default dev action override seam.
 
 ## CREWWARN instance discriminator + eyebrow wrap (2026-07-23)
 
