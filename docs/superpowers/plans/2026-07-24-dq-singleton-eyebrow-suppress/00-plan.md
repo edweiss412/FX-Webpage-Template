@@ -122,7 +122,18 @@ const singletonGroup = (): ActiveWarningGroup => ({
 });
 ```
 
-(`code` is only a key/testid discriminator in this component — any string is type-legal.) Sweep the file for other uses of `singletonGroup`: the partial-failure test (`tests/components/admin/bulkIgnoreControls.test.tsx:149-166`) renders it as a BYSTANDER only — all its assertions target the `UNKNOWN_FIELD` group — so the code/testid rename requires NO expectation edits there. Verify with `rg -n "singletonGroup|BLOCK_DISAPPEARED" tests/components/admin/bulkIgnoreControls.test.tsx` that every remaining reference is either a fixture definition or one of the assertions this plan already rewrites.
+(`code` is only a key/testid discriminator in this component — any string is type-legal.) Reconciliation sweep — RUN AT PLAN TIME per the AGENTS.md grep-driven-sweep rule. Command: `rg -n "singletonGroup|BLOCK_DISAPPEARED" tests/components/admin/bulkIgnoreControls.test.tsx`. Output (2026-07-24, plan-authoring worktree HEAD) and per-hit disposition:
+
+| Hit | Content | Disposition |
+| --- | --- | --- |
+| :39-43 | `singletonGroup` fixture definition (code/label/cards) | Rewritten by (b): code becomes `BLOCK_DISAPPEARED_SOLO`, gains `itemCount: 1` |
+| :53 | grouped-render test renders `[bulkGroup(), singletonGroup()]` | Test rewritten wholesale by (b) (three-group render) |
+| :60, :67-68 | eyebrow-label + invariant-5 assertions on `dq-group-label-BLOCK_DISAPPEARED` | Replaced by (b): coverage transfers to `pluralNoBulkGroup` (same testids, now backed by the N=2 fixture) |
+| :72 | `cards-BLOCK_DISAPPEARED` presence assertion | Replaced by (b): kept-row card assertion (now the plural fixture's slot) plus the solo first-child pin |
+| :75 | `dq-bulk-ignore-BLOCK_DISAPPEARED` null (no chip) | Replaced by (b): asserted on the plural no-bulk group |
+| :153 | partial-failure test renders `singletonGroup()` as BYSTANDER | NO edit: all its assertions target the `UNKNOWN_FIELD` group; rename is invisible to it |
+
+Every hit is accounted for; the implementer re-runs the same `rg` after (a)-(c) and confirms no reference outside this table survives unedited.
 
 (c) Add the N=1-with-bulk retention test (spec §4.3):
 
@@ -409,6 +420,8 @@ node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/
 ```
 
 Expected: the playwright command itself exits 0 (it is the LAST command, so the shell's exit status IS playwright's — no `echo`, no pipe, nothing after it to mask a failure; the spec measures only the `FIELD_UNREADABLE` group, which kept its eyebrow). If the harness build chokes on the fixture edit, the failure is in this branch's diff — fix before commit.
+
+Harness-readiness (AGENTS.md e2e checklist — all three are properties of the EXISTING spec file, verified at plan time, unchanged by this diff): (a) server boot — the spec self-hosts: it esbuild-bundles the live entry and serves a generated in-memory HTML page over `node:http` on an ephemeral loopback port (`tests/e2e/bulk-ignore-eyebrow.layout.spec.ts:106`), no dev/prod app server involved; (b) readiness gate — `page.waitForSelector(CHIP)` after `goto` plus a `waitForFunction` before measurement (`tests/e2e/bulk-ignore-eyebrow.layout.spec.ts:121-129`), never bare `networkidle`; (c) detach-safety — measurements use one-shot `page.evaluate` reads (`tests/e2e/bulk-ignore-eyebrow.layout.spec.ts:130`) on a static harness whose nodes are never unmounted mid-test, so no sampler can outlive its element.
 
 - [ ] **Step 4: Commit**
 
