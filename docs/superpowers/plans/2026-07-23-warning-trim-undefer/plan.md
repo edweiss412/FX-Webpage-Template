@@ -47,7 +47,7 @@ Interfaces produced (used across tasks):
 - `sheetWarningsPanelCount(args: { visibleInfoRows: number; activeHere: number }): number` — Task 3; consumed by heading chip + railCount in Task 5.
 - `NoteWarningCard({ warning, driveFileId }: { warning: ParseWarning; driveFileId: string | null }): JSX.Element | null` — Task 4; consumed by WarningsBreakdown in Task 5.
 - `notePopoverParts(w: ParseWarning): { copy: string | null; sentence: string | null }` — Task 4 (exported from the new NoteWarningCard file).
-- `AttentionItem.crewMatch: { crewMemberIds: string[]; expectedCount: number } | null` — Task 6.
+- `AttentionItem.crewMatch?: { crewMemberIds: string[]; expectedCount: number }` and `AttentionAlertInput.crewMatch?: …` (same shape) — OPTIONAL fields, spread-inserted only when derived (exactOptionalPropertyTypes; absent == no match, there is no explicit null). Every existing constructor/fixture compiles unchanged (optional). — Task 6.
 - `SectionAttentionBucket.byRowIndex?: Map<number, ReactNode[]>` and `BucketOpts.crewRowIndexesForIds?: (ids: readonly string[]) => number[] | null` — Task 6.
 - `CrewAttention.byIndex?: ReadonlyMap<number, ReactNode[]>` — Task 7.
 
@@ -95,6 +95,7 @@ Adapt selectors to ParsePanel's real DOM (read the component first; `panelProps`
   - NO `per-show-actionable-item`, no group eyebrow (`section-warning-controls-*` absent), no bulk chip;
   - the `UNKNOWN_ROLE_TOKEN` row renders an enabled, accessibly-named recognize-role control and the structural row an enabled use-raw control (query within each row's `li`; mock the control boundaries' server dependencies the same way `step3ReviewSections.test.tsx` does).
   - Absence assertions scoped to the rendered `BreakdownSection` subtree, cloned with independently-rendering siblings removed (anti-tautology).
+  - **Unconditional-callout proof (spec §4):** a SECOND fixture with warn rows only (zero info rows, zero correction-inviting rows) still renders `correction-loop-callout` — pins "wizard unconditional" rather than "callout when rows invite correction".
 - [ ] **Step 4: Run both; verify green.** `pnpm vitest run tests/components/admin/parsePanelComposition.test.tsx` → all pass.
 - [ ] **Step 5: Commit** — `test(admin): pin ParsePanel composition and wizard warnings branch (warning-trim-undefer spec §5)`
 
@@ -138,6 +139,7 @@ describe("sheetWarningsPanelCount (spec §2.3)", () => {
 
 **Files:**
 - Create: components/admin/NoteWarningCard.tsx (new)
+- Create: lib/admin/reviewWarningTitle.ts (new — `reviewWarningTitle` MOVES here verbatim from `components/admin/wizard/step3ReviewSections.tsx:2701-2715`, which re-exports it for its existing four test consumers; this breaks the otherwise-circular import step3ReviewSections → NoteWarningCard → step3ReviewSections that Task 5 would create). `correctionLoopCopy` is already exported from `components/admin/CorrectionLoopCallout.tsx:32` (no cycle — that module imports nothing from this chain).
 - Test: tests/components/admin/sheetWarningsPanel.test.tsx (second describe, `@vitest-environment jsdom` pragma at file top since it mixes — if mixing environments is awkward, move Task 3's describe into this jsdom file; both are fine under jsdom)
 - Reference: `components/admin/CompactAlertCard.tsx` (tone="neutral"), `components/admin/PerShowActionableWarnings.tsx:125-152` + `components/admin/PerShowActionableWarnings.tsx:240-247` (popover + link gating precedents), `components/admin/CorrectionLoopCallout.tsx:32-34` (`correctionLoopCopy`), `components/admin/wizard/step3ReviewSections.tsx:2701-2715` (`reviewWarningTitle`)
 
@@ -147,29 +149,45 @@ describe("sheetWarningsPanelCount (spec §2.3)", () => {
 
 ```tsx
 describe("notePopoverParts (spec §2.4 truth table)", () => {
-  // copy = FIRST NON-BLANK of longExplanation, then helpfulContext (NOT ??)
-  it.each([
-    ["copy+cell", warnWith({ code: KNOWN_INFO_CODE, sourceCell: CELL }), true, true],
-    ["copy only", warnWith({ code: KNOWN_INFO_CODE, sourceCell: null }), true, false],
-    ["cell only", warnWith({ code: "NOT_A_CODE", sourceCell: CELL }), false, true],
-    ["neither", warnWith({ code: "NOT_A_CODE", sourceCell: null }), false, false],
-  ])("%s", (_l, w, hasCopy, hasSentence) => {
-    const p = notePopoverParts(w);
-    expect(p.copy !== null).toBe(hasCopy);
-    expect(p.sentence !== null).toBe(hasSentence);
+  // copy = FIRST NON-BLANK of longExplanation, then helpfulContext (NOT ??).
+  // EXACT-VALUE assertions (anti-tautology): expected strings derive from the
+  // catalog and correctionLoopCopy, never re-authored literals.
+  const CASES: ReadonlyArray<
+    [label: string, w: ParseWarning, copy: string | null, sentence: string | null]
+  > = [
+    ["copy+cell", warnWith({ code: KNOWN_INFO_CODE, sourceCell: CELL }),
+      expectedCopyFor(KNOWN_INFO_CODE), correctionLoopCopy("resync")],
+    ["copy only", warnWith({ code: KNOWN_INFO_CODE, sourceCell: null }),
+      expectedCopyFor(KNOWN_INFO_CODE), null],
+    ["cell only", warnWith({ code: "NOT_A_CODE", sourceCell: CELL }),
+      null, correctionLoopCopy("resync")],
+    ["neither", warnWith({ code: "NOT_A_CODE", sourceCell: null }), null, null],
+  ];
+  it.each(CASES)("%s", (_l, w, copy, sentence) => {
+    expect(notePopoverParts(w)).toEqual({ copy, sentence });
   });
   it("blank longExplanation falls through to helpfulContext (first-non-blank, not ??)", () => {
-    // pick/mock a code whose longExplanation is "" or whitespace but helpfulContext present
     const p = notePopoverParts(warnWith({ code: BLANK_LONG_CODE, sourceCell: null }));
     expect(p.copy).toBe(messageFor(BLANK_LONG_CODE).helpfulContext);
   });
 });
-describe("NoteWarningCard", () => {
-  it("renders neutral tone, title, guidance; no severity glyph, no Report/Ignore", () => { /* query card, assert no bang glyph, no buttons besides ? and Open in Sheet */ });
-  it("no ? trigger when both parts absent; no guidance element when context blank", () => { /* … */ });
-  it("Open in Sheet renders iff buildSheetDeepLink yields href (result-gated)", () => { /* null driveFileId + present cell → absent */ });
+describe("NoteWarningCard rendered popover (all four truth-table rows)", () => {
+  // For EACH of the four rows: render the card, open the ? trigger (absent-trigger
+  // row asserts NO trigger), and assert the popover body holds exactly the expected
+  // paragraphs IN ORDER (copy paragraph before sentence paragraph when both present),
+  // with textContent equal to the derived expected strings.
+  it("copy+cell: two paragraphs, copy first, sentence second", () => { /* … */ });
+  it("copy only: single copy paragraph", () => { /* … */ });
+  it("cell only: single sentence paragraph", () => { /* … */ });
+  it("neither: no ? trigger rendered", () => { /* … */ });
+  it("blank-longExplanation fallthrough renders helpfulContext paragraph", () => { /* … */ });
+  it("neutral tone, title, guidance; no severity glyph, no Report/Ignore buttons", () => { /* … */ });
+  it("no guidance element when context blank", () => { /* … */ });
+  it("Open in Sheet renders iff buildSheetDeepLink yields href (null driveFileId + cell → absent)", () => { /* … */ });
 });
 ```
+
+`expectedCopyFor(code)` = `firstNonBlank(messageFor(code).longExplanation, messageFor(code).helpfulContext)` computed in the test from the live catalog — the test cannot pass on a re-authored string.
 
 - [ ] **Step 2:** Run → FAIL. **Step 3:** Implement `NoteWarningCard`: `CompactAlertCard tone="neutral" stripe="none"`, message = `reviewWarningTitle(w)` + guidance line (`helpfulContext`-derived, omit when blank), helpTrigger = `CompactAlertHelp`-style popover fed by `notePopoverParts` (copy then sentence paragraphs), controls band = Open-in-Sheet link only (result-gated). `notePopoverParts`: `firstNonBlank(longExplanation, helpfulContext)`; sentence = `w.sourceCell ? correctionLoopCopy("resync") : null`. **Step 4:** PASS. **Step 5: Commit** — `feat(admin): NoteWarningCard neutral card with popover assembly (spec §2.4)`
 
@@ -179,24 +197,29 @@ describe("NoteWarningCard", () => {
 - Modify: `components/admin/wizard/step3ReviewSections.tsx` (WarningsBreakdown published branch `2754-2895`; `ModalSectionChrome` `hasBody`; `Step3SectionChrome.suppressPanelCard` removal; heading count wiring `884-926`; railCount `4218-4225`)
 - Modify: `components/admin/review/ShowReviewSurface.tsx` (`suppressWarningsPanelCard` computation + spread `1074-1076`; warnings extras: thread via chrome `sectionExtras` — drop the `s.id !== "warnings"` exclusion at `1105-1107`; delete the sibling render at `1160`; drop `seamless` opt)
 - Modify: `components/admin/showpage/sectionWarningExtras.tsx` (retire `seamless` variant — extras root becomes plain `flex flex-col gap-3`, no `border-t`, since the box supplies the boundary)
-- Modify: `lib/admin/infoCodeActionability.ts` + its scanner/meta-test — the published callout consumer dies (§4); if `infoRowInvitesCorrection` has no remaining consumer, retire the export and update `tests/admin/_metaInfoCodeActionability.test.ts` (read it first; its two-layer scanner contract from polish spec §3.4 must be adjusted in the SAME commit, not deleted blind)
+- Modify: `lib/admin/infoCodeActionability.ts` + `tests/admin/_metaInfoCodeActionability.test.ts` — VERIFIED (2026-07-23 grep): `infoRowInvitesCorrection`'s ONLY consumer is the published callout gate (`components/admin/wizard/step3ReviewSections.tsx:2880` + import `components/admin/wizard/step3ReviewSections.tsx:107`); after §4 removal the export is dead. Action: RETIRE the export + import; the `INFO_CODE_ACTIONABILITY` registry map stays (the meta-test's two-layer scanner pins info-code coverage independently of the gate) — update `tests/admin/_metaInfoCodeActionability.test.ts` in the SAME commit to drop only its `infoRowInvitesCorrection` consumer-existence assertion (read the file first; keep the registry-completeness layer verbatim)
 - Test: tests/components/admin/sheetWarningsPanel.test.tsx (third describe — state matrix)
 
 **Interfaces:** Consumes `NoteWarningCard`, `sheetWarningsPanelCount`. The chrome no longer has `suppressPanelCard`; count for warnings = `sheetWarningsPanelCount({ visibleInfoRows: rows.length, activeHere: here })` when the gate is on, else `rows.length` (wizard, unchanged).
 
-- [ ] **Step 1: Failing tests — §2.3a matrix.** Render `WarningsBreakdown` inside a chrome provider (published gate on) across the matrix rows; fixture-derived expectations:
-  - notes-only → box + Notes group (eyebrow "Notes") + NoteWarningCards; count == info count;
-  - here-cards-only (Silent-was) → box + extras cards INSIDE the panel-card element; heading count == here; NO seam `border-t` on extras root;
-  - both → notes group first, then actionable groups (DOM order assertion);
-  - ignored-only → box + Clean row + ignored disclosure together; count 0 + carve-out suppression when flagged (assert NO count chip when `flagged` true and count 0);
-  - elsewhere-only (+ ign>0) → pointer sentence + ignored disclosure coexist; no G/A;
-  - empty → Clean row alone; "(0)" chip when not flagged.
-  - Assert box (panel-card element with `border`) present in EVERY row above.
+- [ ] **Step 1: Failing tests — §2.3a matrix, FULL six-block assertion per row.** Define one assertion helper `expectBlocks(container, { notes, notesGroup, actionable, ignored, pointer, clean }: Record<BlockName, boolean>)` that asserts presence AND absence of ALL six blocks (parse-notes lines, Notes group eyebrow, actionable groups, ignored disclosure, pointer sentence, Clean row) by their testids/markers — every matrix row calls it with its full boolean vector, so a stale or mutually-exclusive block co-rendering fails the row. Rows (expectations fixture-derived):
+  - notes-only → `{notes:false, notesGroup:true, actionable:false, ignored:false, pointer:false, clean:false}`; count == info count;
+  - here-cards-only (Silent-was) → notesGroup false, actionable true, others false; extras cards INSIDE the panel-card element; heading count == here; NO seam `border-t` on extras root;
+  - both → notesGroup+actionable true, others false; Notes group before actionable groups (DOM order);
+  - ignored-only → ignored+clean true, others false; count 0; carve-out: NO count chip when `flagged` true;
+  - elsewhere-only + ign>0 → pointer+ignored true, others false;
+  - empty → clean true, all others false; "(0)" chip when not flagged.
+  - Box (panel-card element with `border`) present in EVERY row.
+  - **§4 published retirement:** every row ALSO asserts `correction-loop-callout` testid absent (folded into `expectBlocks`).
+  - **§2.5 no-cap:** one row with a 40-warning fixture (25 info + 15 here-routed) asserting rendered note-card count == 25 and amber-card count == 15 (count equality == no truncation).
 - [ ] **Step 2:** Run → FAIL. 
 - [ ] **Step 3: Implement.** In `WarningsBreakdown` published branch: replace the info-row `<li>` list with `NoteWarningCard`s under a "Notes" group eyebrow (reuse the eyebrow recipe from `sectionWarningExtras.tsx:160-165` classes); remove the published `CorrectionLoopCallout` render + `infoRowInvitesCorrection` import (wizard branch untouched); Silent `null` row replaced by nothing (cards render via extras inside box); count wiring: `BreakdownSection count={gateOn ? sheetWarningsPanelCount({ visibleInfoRows: rows.length, activeHere: here }) : rows.length}`; railCount for warnings row mirrors the same helper. In `ShowReviewSurface`: delete `suppressWarningsPanelCard` + its chrome spread; thread warnings `extrasNode` through chrome `sectionExtras` (remove exclusion), delete sibling render, drop `seamless` opt from the callback type + call. In `sectionWarningExtras.tsx`: remove `seamless` branch (single class list, no border-t). In `step3ReviewSections.tsx`: delete `Step3SectionChrome.suppressPanelCard` + `hasBody` (body always renders); pointer/clean rows unchanged inside the box. Delete `RailCountOpts` only if unused after wiring (grep).
 - [ ] **Step 4:** `pnpm vitest run tests/components/admin/sheetWarningsPanel.test.tsx tests/components/admin/parsePanelComposition.test.tsx tests/components/admin/stagedCardBaseline.test.tsx tests/components/admin/review/routedWarningsGate.test.tsx tests/components/admin/showpage/publishedWarningNoLoss.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx` → Task 1's two tests MUST pass UNMODIFIED (the wizard-unchanged proof). Fix published-surface test fallout (routedWarningsGate/publishedWarningNoLoss assert against the new in-box DOM — update their selectors, NOT their conservation semantics; identity-union assertions must still pass).
-- [ ] **Step 5:** Class-sweep: `rg -n 'suppressPanelCard|suppressWarningsPanelCard|seamless' --glob '!node_modules' --glob '!docs'` → zero code hits. 
-- [ ] **Step 6: Commit** — `feat(admin): Sheet warnings panel unification — box always renders, notes as cards, extras in-box, callout retired (spec §2, §4)`
+- [ ] **Step 5: Transition audit (spec §2.6).** In sheetWarningsPanel.test.tsx, add a source-scan test: read the `WarningsBreakdown` + `NoteWarningCard` + extras-subtree sources and assert no `AnimatePresence`, no `motion.`, and no `transition-`/`duration-`/`animate-` class literals were introduced in the published-branch block (allowlist: the pre-existing HoverHelp classes — pin by exact-match list). Plus a render-level check: toggling a matrix row's props across one rerender leaves no element carrying a transition class in the panel subtree. Enumerate the conditional blocks (N/G/A/I/P/C render sites) in a comment mapping to the spec §2.6 table.
+- [ ] **Step 6: One-helper structural proof (spec §2.3).** Source-scan test: the heading-count read site and the `warnings` row's `railCount` closure BOTH contain a `sheetWarningsPanelCount(` call, and `visibleWarningRows(` appears in NO OTHER count expression for the warnings section (regex over the two extracted function bodies). Plus behavior: invoke the registry's warnings `railCount(fixtureData, { routedWarningsRenderElsewhere: true })` directly and assert it equals the heading count rendered for the same fixture.
+- [ ] **Step 7:** Class-sweep: `rg -n 'suppressPanelCard|suppressWarningsPanelCard|seamless' --glob '!node_modules' --glob '!docs'` → zero code hits.
+- [ ] **Step 8: Discovery check.** All three new test files match `BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"]` (`vitest.projects.ts`) — verify with `pnpm vitest list 2>/dev/null | rg 'parsePanelComposition|sheetWarningsPanel|crewMatchFanout'` → all three listed (crewMatchFanout after Task 6 lands). No CI path-filter change needed: the unit workflows glob `tests/**` (confirm with `rg -n 'tests/' .github/workflows/*.yml | rg -i 'path'` and paste output into the commit body; if any filter excludes the new dirs, extend it in the same commit).
+- [ ] **Step 9: Commit** — `feat(admin): Sheet warnings panel unification — box always renders, notes as cards, extras in-box, callout retired (spec §2, §4)`
 
 ### Task 6: Crew-match derivation (spec §6.2)
 
@@ -204,45 +227,54 @@ describe("NoteWarningCard", () => {
 - Modify: `lib/adminAlerts/deriveAlertRowFields.ts` (derive `crewMatch`), `lib/admin/attentionItems.ts` (types + `toAlertItem` passthrough)
 - Test: tests/admin/crewMatchFanout.test.ts (new; derivation describe)
 
-**Interfaces:** Produces `AttentionAlertInput.crewMatch: { crewMemberIds: string[]; expectedCount: number } | null` and `AttentionItem.crewMatch` (same shape). Derivation: for `code === "AMBIGUOUS_EMAIL_BINDING"` read the PROJECTED resolution ids (`projectIdentityContext` already shape-validates `crew_member_ids`); UUID-validate each member (`UUID_RE` precedent), dedupe, `expectedCount = ids.length`; anything malformed/missing/empty/non-array/non-UUID → `null`. Every other code → `null`.
+**Interfaces:** Produces OPTIONAL `AttentionAlertInput.crewMatch?: { crewMemberIds: string[]; expectedCount: number }` and AttentionItem crewMatch (optional, same shape) — absent unless derived; spread-inserted (exactOptional). Derivation: for `code === "AMBIGUOUS_EMAIL_BINDING"` read the PROJECTED resolution ids (`projectIdentityContext` already shape-validates `crew_member_ids`); UUID-validate each member (`UUID_RE` precedent), dedupe, `expectedCount = ids.length` post-dedup (the invariant `expectedCount === crewMemberIds.length` holds by construction — it is carried so the placement layer never re-derives it); anything malformed/missing/empty/non-array/non-UUID → ABSENT. Every other code → ABSENT.
 
 - [ ] **Step 1: Failing tests** — table: valid 2 ids → match; duplicate context ids → deduped, expectedCount 2 for 3 raw entries with 1 dup; missing key → null; `[]` → null; non-UUID member → null; non-array → null; other codes with valid ids → null.
-- [ ] **Step 2:** FAIL. **Step 3:** Implement in `deriveAlertRowFields` (single derivation, both consumers — `fetchPerShowAlerts` and the dev gallery — inherit; check `lib/dev/attentionScenarios/validate.ts` for scenario-shape validators to extend). `toAlertItem` copies `crewMatch` onto the item (spread-inserted, exactOptional). **Step 4:** PASS + `pnpm vitest run tests/admin tests/adminAlerts` (registry meta-tests green — `_metaAttentionRoutes` unaffected: no new codes). **Step 5: Commit** — `feat(admin): derive crewMatch ids for AMBIGUOUS_EMAIL_BINDING (spec §6.2)`
+- [ ] **Step 1b: Failing passthrough test** (same describe): call `deriveAttentionItems`/`toAlertItem` (whichever is exported — check `lib/admin/attentionItems.ts:345-356` entry point) with an `AMBIGUOUS_EMAIL_BINDING` input carrying valid ids and assert the returned item's `crewMatch` deep-equals the input's — a dropped passthrough fails HERE, not in the e2e.
+- [ ] **Step 2:** FAIL. **Step 3:** Implement in `deriveAlertRowFields` (single derivation, both consumers — `fetchPerShowAlerts` and the dev gallery — inherit). `toAlertItem` copies `crewMatch` onto the item (spread-inserted, exactOptional). Dev-gallery scenario validator (`lib/dev/attentionScenarios/validate.ts`): add `crewMatch` as an OPTIONAL validated field mirroring the derived shape (ids array of UUID strings + expectedCount number) so gallery fixtures can exercise fan-out; validator rejects a present-but-malformed field. **Step 4:** PASS + `pnpm vitest run tests/admin tests/adminAlerts` (registry meta-tests green — `_metaAttentionRoutes` unaffected: no new codes). **Step 5: Commit** — `feat(admin): derive crewMatch ids for AMBIGUOUS_EMAIL_BINDING (spec §6.2)`
 
 ### Task 7: Fan-out placement (spec §6.3)
 
 **Files:**
-- Modify: `lib/admin/sectionAttention.ts` — `SectionAttentionBucket.byRowIndex?: Map<number, ReactNode[]>`; `BucketOpts.crewRowIndexesForIds?: (ids: readonly string[]) => number[] | null` (returns shown-row indexes iff `hits(id) === 1` for EVERY id, else null); placement branch: crew section + `item.crewMatch` + resolver returns indexes → one card per index into `byRowIndex`; resolver null/absent → `sectionTop` (existing branch).
+- Create: lib/admin/crewRowMatch.ts (new) — the REAL resolver, exported pure: `crewRowIndexesForIds(expected: { crewMemberIds: readonly string[]; expectedCount: number }, shownCrewIds: readonly string[]): number[] | null` — computes `hits(id)` over `shownCrewIds`; returns the matched indexes iff `hits(id) === 1` for EVERY id AND `matchedIndexes.length === expected.expectedCount`; else null. (`expectedCount` is CONSUMED here — the placement layer never re-derives it from the ids array.)
+- Modify: `lib/admin/sectionAttention.ts` — `SectionAttentionBucket.byRowIndex?: Map<number, ReactNode[]>`; `BucketOpts.crewRowIndexesForIds?: (m: { crewMemberIds: readonly string[]; expectedCount: number }) => number[] | null` (the modal partially applies the pure resolver over its roster); placement branch: crew section + `item.crewMatch` + resolver returns indexes → one card per index into `byRowIndex`; null/absent resolver or null result → `sectionTop` (existing branch). Never both channels for one item.
 - Modify: `components/admin/review/ShowReviewSurface.tsx` — `CrewAttention` gains `byIndex?: ReadonlyMap<number, ReactNode[]>`; thread `crewBucket?.byRowIndex`.
-- Modify: `components/admin/wizard/step3ReviewSections.tsx` `CrewBreakdown` — row `i` renders `[...(crewAttention?.byIndex?.get(i) ?? []), …existing byCrewKey stack]` inside the `<li>` below row content (same wrapper the byCrewKey stack uses at `1596-1600`).
-- Modify: `app/admin/_showReviewModal.tsx` — supply `crewRowIndexesForIds`: over the SHOWN roster slice (`members.slice(0, CREW_CAP)` order, index-aligned `crewIds`), compute `hits(id)`; return indexes iff all `hits === 1`.
-- Test: tests/admin/crewMatchFanout.test.ts (placement describe — drive `bucketAttention` directly with a fake resolver + items)
+- Modify: `components/admin/wizard/step3ReviewSections.tsx` `CrewBreakdown` — row `i` renders `[...(crewAttention?.byIndex?.get(i) ?? []), …existing byCrewKey stack]` inside the `<li>` below row content (same wrapper as the byCrewKey stack at `components/admin/wizard/step3ReviewSections.tsx:1596-1600`).
+- Modify: `app/admin/_showReviewModal.tsx` — supply `crewRowIndexesForIds: (m) => crewRowIndexesForIds(m, shownCrewIds)` where `shownCrewIds = crewIds.slice(0, CREW_CAP)` (index-aligned with the shown roster slice).
+- Test: tests/admin/crewMatchFanout.test.ts (resolver + placement describes) AND a jsdom integration describe in the same file.
 
-- [ ] **Step 1: Failing tests** — all-hit-1 → `byRowIndex` has one node per index, `sectionTop` empty for the item; some `hits==0` → sectionTop only; duplicate rendered ids (`hits==2`) → sectionTop; resolver absent (staged) → sectionTop; conservation: never both channels for one item, node count == matched indexes when fanned out; same-name different-id rows: resolver keyed by id so only the involved index appears.
-- [ ] **Step 2:** FAIL. **Step 3:** Implement the three seams + modal resolver. **Step 4:** PASS + rerun Task 5 suite (crew section untouched for non-match path). **Step 5: Commit** — `feat(admin): id-matched crew-row alert fan-out with all-or-nothing placement (spec §6.3)`
+- [ ] **Step 1: Failing resolver tests (the REAL function, not a fake):** expected `[A,B]` vs shown `[A,B,C]` → `[0,1]`; vs `[A,A,B]` → null (`hits(A)==2`); vs `[A,C]` → null (`hits(B)==0`); vs `[]` → null; expectedCount mismatch (ids `[A,B]`, expectedCount 3 — malformed caller) → null; same-name-different-id is inexpressible here (resolver sees only ids) — noted as the reason names cannot mis-place.
+- [ ] **Step 2: Failing placement tests:** drive `bucketAttention` with the REAL resolver partially applied over a fixture roster; assert: fan-out → `byRowIndex` has exactly one node per matched index and `sectionTop` gained nothing for the item; null-result → sectionTop only; resolver absent (staged) → sectionTop; conservation (never both; node count == matched count).
+- [ ] **Step 3: Failing jsdom integration test:** render `CrewBreakdown` inside a chrome provider whose `crewAttention.byIndex` maps index 1 to a marker node; assert the marker renders inside the SECOND row's `<li>` below the row content and in no other row; a `byCrewKey`-only control case still renders (regression).
+- [ ] **Step 4:** All three describes FAIL. **Step 5:** Implement (lib resolver → sectionAttention branch → surface threading → CrewBreakdown consumption → modal wiring). **Step 6:** PASS + rerun Task 5 suite. **Step 7: Commit** — `feat(admin): id-matched crew-row alert fan-out with all-or-nothing placement (spec §6.3)`
 
 ### Task 8: e2e un-skip + extend (spec §6.4)
 
 **Files:** Modify `tests/e2e/published-show-attention.spec.ts:120-135` — un-skip; seed an `AMBIGUOUS_EMAIL_BINDING` alert whose `crew_member_ids` match two seeded roster rows (reuse the file's existing seeding helpers; loopback `TEST_DATABASE_URL` override per e2e harness memory).
 
+This task is a cross-layer VERIFICATION pass over units already TDD'd in Tasks 6-7 (declared exemption from red-first: the e2e exercises a live server, so its red phase is proven by bite-check, not by pre-implementation failure).
 - [ ] **Step 1:** Un-skip; extend to three assertions: banner inside EACH matched row's `<li>` below row content (2 rows); NOT at section-top when fanned out; re-seed with one id absent from roster → single section-top banner. Await the harness's row-hydration gate before asserting (never `networkidle` alone).
-- [ ] **Step 2:** `pnpm exec playwright test tests/e2e/published-show-attention.spec.ts` (prod-posture project per file header; `--no-deps` if dependency projects interfere) → PASS.
-- [ ] **Step 3: Commit** — `test(e2e): un-skip crew-row banner placement, id-matched fan-out (spec §6.4)`
+- [ ] **Step 2: Bite-check (red proof):** temporarily invert the in-row assertion (expect section-top in the fan-out case) → run → FAIL; restore → run → PASS. Both runs pasted into the commit body.
+- [ ] **Step 3:** `pnpm exec playwright test tests/e2e/published-show-attention.spec.ts` (prod-posture project per file header; `--no-deps` if dependency projects interfere) → PASS.
+- [ ] **Step 4: Commit** — `test(e2e): un-skip crew-row banner placement, id-matched fan-out (spec §6.4)`
 
 ### Task 9: DEFERRED.md reconcile (spec §7)
 
+Docs-only task — declared TDD exemption (validation = prettier + the Step-2 grep, no test artifact).
 - [ ] **Step 1:** Move items 1,2,3,4,6 full entries from `DEFERRED.md` "warning-surface-trim (2026-07-21)" to `DEFERRED-archive.md` as RESOLVED-by `feat/warning-trim-undefer` (cite spec). Item 5 re-parked in place with the frozen-digest rationale + un-defer trigger (spec §7 text). Update the "Last reconciled" header line.
 - [ ] **Step 2:** `pnpm prettier --write DEFERRED.md DEFERRED-archive.md`. **Step 3: Commit** — `docs(plan): reconcile DEFERRED.md — five warning-trim items resolved, digest re-parked with rationale`
 
 ### Task 10: Full gates
 
+Gate task — declared TDD exemption (it RUNS the suites; any behavioral fix it produces must itself land red-first as a targeted test + fix within this task's commit).
 - [ ] **Step 1:** `pnpm test` (full local suite — scoped gates miss registry suites), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`. Fix everything.
 - [ ] **Step 2:** Impeccable dual-gate on the UI diff: `/impeccable critique` then `/impeccable audit` with canonical v3 setup (context.mjs → register read). Fix P0/P1 or DEFERRED.md-entry them. Findings + dispositions recorded in the handoff notes.
 - [ ] **Step 3: Commit** any fixes — `fix(admin): impeccable dual-gate findings (warning-trim-undefer)`
 
 ### Task 11: Whole-diff review + ship
 
-- [ ] **Step 1:** Split tight-scope Codex reviews (per AGENTS.md default for large diffs): brief A = panel rebuild files (step3ReviewSections, ShowReviewSurface, sectionWarningExtras, NoteWarningCard, sheetWarningsCount + their tests); brief B = fan-out files (attentionItems, deriveAlertRowFields, sectionAttention, _showReviewModal, CrewBreakdown slice, crewMatchFanout, e2e) + rename/DEFERRED. Each brief: REVIEWER ONLY, fresh-eyes, do-not-relitigate §1.1, verdict line. Iterate to APPROVE both.
+- [ ] **Step 1:** Split tight-scope Codex reviews (per AGENTS.md default for large diffs): brief A = panel rebuild files (step3ReviewSections, ShowReviewSurface, sectionWarningExtras, NoteWarningCard, sheetWarningsCount + their tests); brief B = fan-out files (attentionItems, deriveAlertRowFields, sectionAttention, crewRowMatch, _showReviewModal, CrewBreakdown slice, crewMatchFanout, e2e) + rename/DEFERRED. Each brief: REVIEWER ONLY, fresh-eyes, do-not-relitigate §1.1, verdict line. Iterate to APPROVE both.
+- [ ] **Step 1b: Holistic integration pass** (after A and B APPROVE): a THIRD fresh-eyes brief over the cross-partition seams — the two files both partitions touch (`components/admin/wizard/step3ReviewSections.tsx`, `components/admin/review/ShowReviewSurface.tsx`), the full diff stat, the rename snapshot updates, and the combined test-inventory — explicitly hunting interactions the scoped briefs could not see. Iterate to APPROVE.
 - [ ] **Step 2:** Push; `gh pr create` (body per repo conventions, 🤖 footer); real CI green (`gh pr checks <PR#> --watch`; DIRTY/behind → merge-ref rebuild rules).
 - [ ] **Step 3:** `gh pr merge --merge`; then in MAIN checkout `git pull --ff-only` and verify `git rev-list --left-right --count main...origin/main` == `0  0`. CronDelete job `65c4c568`. Mark ship-state stage `done`.
 
