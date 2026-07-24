@@ -1587,11 +1587,18 @@ export function CrewBreakdown({
             // !archived AND this row has a persisted crew id (index-aligned).
             const crewId = actions?.enabled ? (actions.crewIds[i] ?? "") : "";
             const attentionKey = canonicalCrewKey(m.name || "");
-            const rowBanners =
+            // §6.3 id-matched fan-out banners for THIS rendered row, ahead of any
+            // name-keyed byCrewKey stack (banners first, then warning cards).
+            const indexBanners = crewAttention?.byIndex?.get(i) ?? [];
+            const nameBanners =
               crewAttention && !consumedAttentionKeys.has(attentionKey)
                 ? crewAttention.byCrewKey.get(attentionKey)
                 : undefined;
-            if (rowBanners) consumedAttentionKeys.add(attentionKey);
+            if (nameBanners) consumedAttentionKeys.add(attentionKey);
+            const rowBanners =
+              indexBanners.length > 0 || (nameBanners && nameBanners.length > 0)
+                ? [...indexBanners, ...(nameBanners ?? [])]
+                : undefined;
             // Row content is built ONCE (crew-row-controls #499 reconcile):
             // both branches below render these exact children, so the
             // non-hosting <li> stays byte-identical to the pre-attention render

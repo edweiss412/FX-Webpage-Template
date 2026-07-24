@@ -152,6 +152,9 @@ export type ExtraSection = {
  */
 export type CrewAttention = {
   byCrewKey: ReadonlyMap<string, ReactNode[]>;
+  /** §6.3: id-matched under-row banners keyed by RENDERED crew-row index. Absent
+   *  when no alert fanned out (byte-identical staged/legacy render). */
+  byIndex?: ReadonlyMap<number, ReactNode[]>;
   sectionTop: ReactNode[];
 };
 
@@ -226,7 +229,13 @@ export function ShowReviewSurface({
       : (crewBucket?.byCrewKey ?? new Map());
   const crewAttention: CrewAttention | undefined =
     crewBucket || (crewUnderRowCards && crewUnderRowCards.size > 0)
-      ? { byCrewKey: mergedCrewByKey, sectionTop: crewBucket?.sectionTop ?? [] }
+      ? {
+          byCrewKey: mergedCrewByKey,
+          sectionTop: crewBucket?.sectionTop ?? [],
+          // §6.3: thread the id-keyed fan-out map (spread-inserted so an absent
+          // map never lands as explicit undefined — exactOptionalPropertyTypes).
+          ...(crewBucket?.byRowIndex ? { byIndex: crewBucket.byRowIndex } : {}),
+        }
       : undefined;
   // The two parse notices, composed by the warnings section (§3.2). Read once so
   // the prop value is exactly NoteItem[] (not a re-narrowed Map lookup).

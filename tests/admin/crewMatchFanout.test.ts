@@ -12,6 +12,10 @@ import { deriveAlertRowFields } from "@/lib/adminAlerts/deriveAlertRowFields";
 import { deriveAttentionItems, type AttentionAlertInput } from "@/lib/admin/attentionItems";
 import { validateScenario } from "@/lib/dev/attentionScenarios/validate";
 import type { AttentionScenario } from "@/lib/dev/attentionScenarios/types";
+import { crewRowIndexesForIds, buildCrewRowResolver } from "@/lib/admin/crewRowMatch";
+import { bucketAttention, type BucketOpts } from "@/lib/admin/sectionAttention";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
+import { CREW_CAP } from "@/components/admin/wizard/step3ReviewSections";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -159,5 +163,142 @@ describe("validateScenario crewMatch field (spec §3.6 / §6.2)", () => {
       scenario({ crewMatch: { crewMemberIds: [], expectedCount: 0 } }),
     );
     expect(errors.some((e) => e.includes("crewMatch"))).toBe(true);
+  });
+});
+
+describe("crewRowIndexesForIds resolver (spec §6.3)", () => {
+  const em = (ids: string[], expectedCount = ids.length) => ({ crewMemberIds: ids, expectedCount });
+
+  it("expected [A,B] vs shown [A,B,C] → [0,1]", () => {
+    expect(crewRowIndexesForIds(em([A, B]), [A, B, C])).toEqual([0, 1]);
+  });
+
+  it("returns ascending indexes regardless of expected order", () => {
+    expect(crewRowIndexesForIds(em([B, A]), [A, B, C])).toEqual([0, 1]);
+  });
+
+  it("expected [A,B] vs shown [A,A,B] → null (hits(A)===2)", () => {
+    expect(crewRowIndexesForIds(em([A, B]), [A, A, B])).toBeNull();
+  });
+
+  it("expected [A,B] vs shown [A,C] → null (hits(B)===0)", () => {
+    expect(crewRowIndexesForIds(em([A, B]), [A, C])).toBeNull();
+  });
+
+  it("empty shown roster → null", () => {
+    expect(crewRowIndexesForIds(em([A]), [])).toBeNull();
+  });
+
+  it("expectedCount mismatch (ids [A,B], expectedCount 3) → null", () => {
+    expect(crewRowIndexesForIds({ crewMemberIds: [A, B], expectedCount: 3 }, [A, B])).toBeNull();
+  });
+
+  it("empty ids + expectedCount 0 → null (NOT [], no silent no-placement)", () => {
+    expect(crewRowIndexesForIds({ crewMemberIds: [], expectedCount: 0 }, [A, B])).toBeNull();
+  });
+
+  it("duplicate ids IN EXPECTED ([A,A], expectedCount 2) → null", () => {
+    expect(crewRowIndexesForIds({ crewMemberIds: [A, A], expectedCount: 2 }, [A, B])).toBeNull();
+  });
+});
+
+describe("buildCrewRowResolver CREW_CAP slice (spec §6.3)", () => {
+  it("matches within the cap", () => {
+    const resolve = buildCrewRowResolver([A, B, C]);
+    expect(resolve({ crewMemberIds: [A, C], expectedCount: 2 })).toEqual([0, 2]);
+  });
+
+  it("an involved row rendered BEYOND CREW_CAP → null (section-top)", () => {
+    // Roster of CREW_CAP filler ids + the involved id at index CREW_CAP (just past
+    // the cap): the resolver only sees the shown slice, so it cannot match it.
+    const filler = Array.from({ length: CREW_CAP }, (_, i) =>
+      `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+    );
+    const resolve = buildCrewRowResolver([...filler, A]);
+    expect(resolve({ crewMemberIds: [A], expectedCount: 1 })).toBeNull();
+  });
+});
+
+describe("bucketAttention byRowIndex placement (spec §6.3)", () => {
+  function crewAlertItem(
+    id: string,
+    crewMatch?: { crewMemberIds: string[]; expectedCount: number },
+  ): AttentionItem {
+    return {
+      id: `alert:${id}`,
+      kind: "alert",
+      tone: "notice",
+      sectionId: "crew",
+      crewKey: null,
+      actionable: true,
+      menuTitle: "t",
+      menuSubtitle: null,
+      ...(crewMatch ? { crewMatch } : {}),
+      alert: {
+        alertId: id,
+        code: "AMBIGUOUS_EMAIL_BINDING",
+        template: null,
+        params: {},
+        action: null,
+        helpHref: null,
+        raisedAt: "",
+        occurrenceCount: 1,
+        autoClearNote: null,
+        failedKeys: null,
+        dataGaps: null,
+        errorCode: null,
+      },
+    };
+  }
+
+  const baseOpts = (roster: string[]): BucketOpts => ({
+    renderCard: (item) => item.id,
+    sectionAvailable: () => true,
+    anchorAvailable: () => false,
+    crewRowIndexesForIds: buildCrewRowResolver(roster),
+  });
+
+  it("fan-out → byRowIndex has one node per matched index; sectionTop gained nothing", () => {
+    const map = bucketAttention(
+      [crewAlertItem("x", { crewMemberIds: [A, B], expectedCount: 2 })],
+      baseOpts([A, B, C]),
+    );
+    const crew = map.get("crew")!;
+    expect(crew.byRowIndex?.get(0)).toEqual(["alert:x"]);
+    expect(crew.byRowIndex?.get(1)).toEqual(["alert:x"]);
+    expect(crew.sectionTop).toEqual([]);
+  });
+
+  it("null result → section-top only, no byRowIndex", () => {
+    const map = bucketAttention(
+      [crewAlertItem("x", { crewMemberIds: [A, C], expectedCount: 2 })],
+      baseOpts([A, B]), // C absent → hits(C)===0 → null
+    );
+    const crew = map.get("crew")!;
+    expect(crew.sectionTop).toEqual(["alert:x"]);
+    expect(crew.byRowIndex).toBeUndefined();
+  });
+
+  it("resolver absent (staged) → section-top", () => {
+    const map = bucketAttention([crewAlertItem("x", { crewMemberIds: [A], expectedCount: 1 })], {
+      renderCard: (item) => item.id,
+      sectionAvailable: () => true,
+      anchorAvailable: () => false,
+      // no crewRowIndexesForIds
+    });
+    const crew = map.get("crew")!;
+    expect(crew.sectionTop).toEqual(["alert:x"]);
+    expect(crew.byRowIndex).toBeUndefined();
+  });
+
+  it("conservation: never both channels; node count == matched count", () => {
+    const map = bucketAttention(
+      [crewAlertItem("x", { crewMemberIds: [A, B], expectedCount: 2 })],
+      baseOpts([A, B, C]),
+    );
+    const crew = map.get("crew")!;
+    const fanned = [...(crew.byRowIndex?.values() ?? [])].flat();
+    expect(fanned).toHaveLength(2);
+    expect(crew.sectionTop).toEqual([]);
   });
 });
