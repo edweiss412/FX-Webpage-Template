@@ -760,8 +760,10 @@ const ROOT = process.cwd();
  *  Deleting a spec removes its row (the assertion below flags stale rows). */
 const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // Populated at implementation time: run the scan, copy every currently-dark
-  // spec in with the reason "pre-existing dark (BL-E2E-LIFECYCLE-SPECS-CI-DARK
-  // umbrella)" - EXCEPT tests/e2e/admin-lifecycle-layout.spec.ts, which
+  // spec in with an ACCURATE reason: "path-gated PR workflow (not PR-blocking-capable
+  // per the scanner contract); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella" for specs a
+  // paths-filtered workflow does run, and "project-only invocation, invisible to the
+  // scanner; runs on PRs via <workflow>" for help-*/dev-gate-style specs (R3 advisory) - EXCEPT tests/e2e/admin-lifecycle-layout.spec.ts, which
   // Task 6's workflow covers and MUST NOT appear here.
 };
 
