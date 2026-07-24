@@ -592,7 +592,7 @@ jobs:
         run: pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-layout.spec.ts
 ```
 
-(Write the FULL file — copy each env line and step from `crew-e2e.yml:44-105`; the comments above are the only original prose. No `paths:`. No `continue-on-error`. No `if:`.)
+(Write the FULL file - copy each env line and step from `crew-e2e.yml:44-107`, INCLUDING the trailing `if: failure()` trace-upload step (a diagnostic sibling step; the Task 7 scanner deliberately ignores `if:` on steps other than the Playwright run step). No `paths:`. No `continue-on-error` anywhere. No `if:` on the JOB or on the Playwright RUN step itself.)
 
 - [ ] **Step 2: Validate** — `pnpm exec prettier --check .github/workflows/lifecycle-layout-e2e.yml` and `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/lifecycle-layout-e2e.yml')); print('yaml ok')"` (safe_load — plain data only). Expected: both clean. (The real parse authority is the Actions run itself at close-out.)
 
@@ -648,6 +648,42 @@ type Opts = {
   packageScripts: Record<string, string>;
 };
 
+/** The `on:` block (from the `on:` line to the next top-level key). */
+function onBlock(yaml: string): string {
+  const m = yaml.match(/(^|\n)on\s*:\s*\n([\s\S]*?)(?=\n\S|$)/);
+  return m ? m[2]! : "";
+}
+
+/** The pull_request SUB-block inside `on:` - its own indented lines only, so a
+ *  `paths:` under `push:` (or anywhere else) cannot false-positive (plan R1
+ *  medium finding: the earlier unbounded regex crossed block boundaries). */
+function pullRequestBlock(on: string): string | null {
+  const m = on.match(/(^|\n)(\s*)pull_request\s*:([^\n]*)\n?((?:\2\s+[^\n]*\n?)*)/);
+  if (!m) return null;
+  return (m[3] ?? "") + "\n" + (m[4] ?? "");
+}
+
+/** Split the `jobs:` body into per-job chunks (2-space-indent job keys), and
+ *  each job into its pre-steps HEAD and its individual STEP blocks. `if:` and
+ *  `continue-on-error` are scoped to the JOB head and the RUN STEP itself -
+ *  a diagnostic sibling step (`if: failure()` trace upload, present in every
+ *  real e2e workflow here) must NOT disqualify the job (plan R1 blocking
+ *  finding: a file-level check could never count any real workflow). */
+function jobs(yaml: string): Array<{ head: string; steps: string[] }> {
+  const m = yaml.match(/(^|\n)jobs\s*:\s*\n([\s\S]*)$/);
+  if (!m) return [];
+  return m[2]!.split(/\n(?=  [\w-]+\s*:)/).map((job) => {
+    const idx = job.search(/(^|\n)\s*steps\s*:/);
+    if (idx === -1) return { head: job, steps: [] };
+    const head = job.slice(0, idx);
+    const steps = job
+      .slice(idx)
+      .split(/\n(?=\s*-\s)/)
+      .slice(1);
+    return { head, steps };
+  });
+}
+
 export function scanWorkflowCoverage({ workflows, packageScripts }: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
@@ -659,28 +695,35 @@ export function scanWorkflowCoverage({ workflows, packageScripts }: Opts): {
     const direct = cmd.match(SPEC_RE) ?? [];
     // pnpm alias resolution: `pnpm foo` / `pnpm run foo` -> scripts.foo
     const aliases = [...cmd.matchAll(/pnpm(?:\s+run)?\s+([\w:.-]+)/g)]
-      .map((m) => m[1]!)
+      .map((mm) => mm[1]!)
       .filter((name) => name in packageScripts)
       .flatMap((name) => resolveSpecs(packageScripts[name]!));
     return [...direct, ...aliases];
   };
 
   for (const [file, yaml] of Object.entries(workflows)) {
-    const hasPr = /(^|\n)\s*pull_request\s*:/.test(yaml);
-    const hasPathsFilter = /(^|\n)\s*pull_request\s*:\s*\n(\s+)[\s\S]*?\2paths\s*:/.test(yaml);
-    const hasIf = /(^|\n)\s*if\s*:/.test(yaml);
-    const hasCoe = /(^|\n)\s*continue-on-error\s*:\s*true/.test(yaml);
-    const runCmds = [...yaml.matchAll(/(^|\n)\s*run\s*:([^\n]*(?:\n\s{6,}[^\n]*)*)/g)].map(
-      (m) => m[2]!,
-    );
-    for (const cmd of runCmds) {
-      for (const spec of resolveSpecs(cmd)) {
-        if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
-        else if (hasPathsFilter) rejected.push({ file, spec, reason: "pull_request.paths filter" });
-        else if (hasIf) rejected.push({ file, spec, reason: "if: condition present" });
-        else if (hasCoe) rejected.push({ file, spec, reason: "continue-on-error" });
-        else if (SUPPRESS_RE.test(cmd)) rejected.push({ file, spec, reason: "exit-code suppression" });
-        else covered.add(spec);
+    const on = onBlock(yaml);
+    const pr = pullRequestBlock(on);
+    const hasPr = pr !== null || /(^|\n)on\s*:\s*\[[^\]\n]*pull_request/.test(yaml);
+    const hasPathsFilter = pr !== null && /(^|\n)\s*paths\s*:/.test(pr);
+
+    for (const job of jobs(yaml)) {
+      const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
+      const jobCoe = /(^|\n)\s*continue-on-error\s*:\s*true/.test(job.head);
+      for (const step of job.steps) {
+        const runMatch = step.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
+        if (!runMatch) continue;
+        const cmd = runMatch[2]!;
+        const stepIf = /(^|\n)\s*if\s*:/.test(step);
+        const stepCoe = /(^|\n)\s*continue-on-error\s*:\s*true/.test(step);
+        for (const spec of resolveSpecs(cmd)) {
+          if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
+          else if (hasPathsFilter) rejected.push({ file, spec, reason: "pull_request.paths filter" });
+          else if (jobIf || stepIf) rejected.push({ file, spec, reason: "if: condition present" });
+          else if (jobCoe || stepCoe) rejected.push({ file, spec, reason: "continue-on-error" });
+          else if (SUPPRESS_RE.test(cmd)) rejected.push({ file, spec, reason: "exit-code suppression" });
+          else covered.add(spec);
+        }
       }
     }
   }
@@ -780,9 +823,24 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
     const r = S(base(`  pull_request:\n    paths:\n      - "${spec}"`, "", `playwright test ${spec}`));
     expect(r.rejected[0]!.reason).toBe("pull_request.paths filter");
   });
-  it("rejects an if:-conditioned job/step", () => {
+  it("rejects a job-level if:", () => {
     const r = S(base("  pull_request:", "    if: false\n", `playwright test ${spec}`));
     expect(r.rejected[0]!.reason).toBe("if: condition present");
+  });
+  it("rejects an if: on the run step itself", () => {
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - if: failure()\n        run: playwright test ${spec}\n`;
+    const r = scanWorkflowCoverage({ workflows: { "w.yml": w }, packageScripts: {} });
+    expect(r.rejected[0]!.reason).toBe("if: condition present");
+  });
+  it("a diagnostic if: failure() on a SIBLING step does not disqualify the run (R1 blocking fix)", () => {
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: playwright test ${spec}\n      - if: failure()\n        uses: actions/upload-artifact@v4\n`;
+    const r = scanWorkflowCoverage({ workflows: { "w.yml": w }, packageScripts: {} });
+    expect(r.covered.has(spec)).toBe(true);
+  });
+  it("a paths: under push: does not flag an unfiltered pull_request (R1 medium fix)", () => {
+    const w = `name: x\non:\n  pull_request:\n  push:\n    paths:\n      - "lib/**"\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: playwright test ${spec}\n`;
+    const r = scanWorkflowCoverage({ workflows: { "w.yml": w }, packageScripts: {} });
+    expect(r.covered.has(spec)).toBe(true);
   });
   it("rejects continue-on-error", () => {
     const r = S(base("  pull_request:", "    continue-on-error: true\n", `playwright test ${spec}`));
@@ -795,7 +853,7 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
 });
 ```
 
-- [ ] **Step 3: Run RED-then-populate** with `pnpm exec vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`. Expected first run: FAIL listing every currently-dark spec. Copy that exact list into `LOCAL_ONLY_ALLOWLIST` with reason strings (`"pre-existing dark: BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella"`), EXCLUDING `admin-lifecycle-layout.spec.ts`. Re-run — Expected: PASS (self-tests + registry + lifecycle-covered assertion).
+- [ ] **Step 3: Run RED-then-populate** with `pnpm exec vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`. (`tests/ci/` needs no partition registration: `BASE_INCLUDE` claims it into the serial project and `vitest-projects-partition.test.ts` walks the real tree asserting exactly-one membership - run it in Task 8's full suite to confirm.) Expected first run: FAIL listing every currently-dark spec. Copy that exact list into `LOCAL_ONLY_ALLOWLIST` with reason strings (`"pre-existing dark: BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella"`), EXCLUDING `admin-lifecycle-layout.spec.ts`. Re-run — Expected: PASS (self-tests + registry + lifecycle-covered assertion).
 
 - [ ] **Step 4: Commit** `git add -A && git commit --no-verify -m "test(infra): e2e workflow-coverage meta-test; dark specs fail by default, reasoned allowlist for pre-existing"`
 
