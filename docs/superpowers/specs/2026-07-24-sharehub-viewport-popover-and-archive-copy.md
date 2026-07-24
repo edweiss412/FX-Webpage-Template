@@ -372,6 +372,26 @@ Selected chain rows (confirm -> `<html>`):
 
 `popTop - panelTop` is 347 at both 560 and 844 — the constant that makes §1.0's inequality structural.
 
-### 9.3 Post-fix prediction (confirmed by §5.3, not asserted here)
+### 9.3 Post-fix design validation (SPIKE, measured — not a prediction)
 
-At 390x560 with §2.1 applied: `bounds` = panel `84 -> 560` inset by `VIEWPORT_INSET` (8) = `92 -> 552`. `spaceBelow = 552 - 425.3 - 6 = 120.7`; `spaceAbove = 381.3 - 92 - 6 = 283.3`. The body's natural height (578) exceeds both, so `computePopoverPlacement` picks the larger side — `top` — and caps `maxHeight` at `283`, placing the body fully inside the panel with its own scroller reaching every control. Today's number for comparison: 390px of body, of which 129px is on screen.
+The design was validated in the real browser before the plan was written, by applying the predicted portal-style geometry imperatively (no source change) and re-measuring. `hitConfirm` is an `elementFromPoint` probe at the confirm's centre, so it proves true hittability rather than rect arithmetic (`BL-HOVERHELP-PORTAL`: a clipped popover still reports an unclipped box).
+
+```
+390x844 {natural:583, spaceAbove:283, spaceBelow:362, side:"bottom", maxHeight:362,
+         popRect:[474,836], bounds:[135,836], withinBounds:true, maxScroll:218, reachable:true}
+390x667 {natural:583, spaceAbove:283, spaceBelow:212, side:"top",    maxHeight:283,
+         popRect:[108,391], bounds:[108,659], withinBounds:true, maxScroll:297, reachable:true}
+390x560 {natural:583, spaceAbove:283, spaceBelow:121, side:"top",    maxHeight:283,
+         popRect:[92,375],  bounds:[92,552],  withinBounds:true, maxScroll:297, reachable:true}
+```
+
+Readings:
+
+- The popover lands **entirely inside `bounds` at every height** (`withinBounds: true`), which is the §3 T-FIT-1 invariant.
+- The side flips exactly where the arithmetic says it should: `bottom` at 844 (362px of room below beats 283 above), `top` at 667 and 560 (212 and 121 below, against 283 above).
+- The armed Confirm **and** Cancel become reachable at every height (`reachable: true`), against `false` at all five heights today (§9.2). At 667 and 560 reachability requires scrolling the popover's own scroller to its maximum, which is exactly what the retained arming handler (§2.1.5) does.
+- `natural` measures 583 (border-box height with caps cleared), not the 578 `scrollHeight` reported in §9.1 — the 5px delta is the body's top and bottom borders plus rounding. §5.1's unit case uses the border-box figure, since that is what `computePopoverPlacement`'s metric contract specifies (`lib/popover/position.ts:11-13`).
+
+At 390x560 today's comparison stands: 390px of body of which 129px is on screen and the confirm unreachable at any scroll, versus a 283px body fully on screen with every control reachable.
+
+**Caveat on what the spike does and does not prove.** It validates the geometry and the reachability outcome. It does NOT exercise the portal itself, `PopoverHostContext` host resolution, the `mounted` gate, focus/Escape behaviour across the portal boundary, or the §2.1.4 stacking change — those are implementation concerns the §5.3 and §5.4 tests own.
