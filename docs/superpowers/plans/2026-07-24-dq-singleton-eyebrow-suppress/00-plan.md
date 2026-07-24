@@ -229,6 +229,8 @@ Expected: FAIL — (unit) the suppression test finds `dq-group-label-BLOCK_DISAP
 
 - [ ] **Step 3: Implement — type field + conditional**
 
+Pre-code mechanical UI checklist (AGENTS.md "Pre-code mechanical UI gate" — run BEFORE writing the component edit; all four are trivially satisfied here but must be checked, not assumed): (1) em-dash ban — this diff adds NO user-visible copy (comments only), so no em-dash can enter rendered text; (2) apostrophe literals — no copy added; (3) 44px tap targets — no interactive element is added or resized (the chip and its `min-h-tap-min` class are untouched); (4) canonical type/token classes — no className is added or changed (the row markup is wrapped in place). Confirm each by inspection of the Step-3 diff before committing.
+
 In `components/admin/BulkIgnoreControls.tsx`, extend the type (after `bulk`):
 
 ```tsx
@@ -312,6 +314,13 @@ In `components/admin/showpage/sectionWarningExtras.tsx`, in the FINAL `.map` (th
         // spec 2026-07-24 §2.2: the number of cards actually in the slot -
         // post-crew-filter, so a partially-moved group counts only what renders here.
         itemCount: g.items.length,
+```
+
+Also update the adjacent contract comment at `components/admin/showpage/sectionWarningExtras.tsx:256-259` ("BulkIgnoreControls renders BOTH the eyebrow/chip headers AND the grouped per-warning cards"), which becomes stale for singleton chip-less groups. Append to that comment's final sentence (before "renders null when this section has no active warnings"), preserving the file's existing dash characters:
+
+```
+Lone chip-less groups render cards WITHOUT the eyebrow header
+(spec 2026-07-24-dq-singleton-eyebrow-suppress §2.1).
 ```
 
 - [ ] **Step 4: Run the same three test files — expect PASS**
@@ -421,7 +430,7 @@ git commit --no-verify -m "docs: mark DQIGNORE-6 singleton-eyebrow row supersede
 
 - [ ] **Step 1: Run `/impeccable critique` on the affected diff** (canonical v3 setup gates: impeccable v3 context load → register reference read). Scope: `components/admin/BulkIgnoreControls.tsx`, `components/admin/showpage/sectionWarningExtras.tsx`.
 - [ ] **Step 2: Run `/impeccable audit` on the same diff.**
-- [ ] **Step 3: Fix P0/P1 findings or defer via `DEFERRED.md` entry; P2/P3 at discretion.** Re-run the affected impeccable gate after any fix, then re-run the FULL Task-2 verification set (`pnpm test`, `pnpm typecheck`, `pnpm eslint .`, `pnpm format:check`, and the standalone layout command from Task 2 Step 3) before committing — a gate repair must not create a red commit boundary. Commit code fixes as `fix(admin): …`; commit a deferral as `docs: DEFERRED entry for <finding>` (a `DEFERRED.md` edit is a tracked change and gets its own commit if no code fix accompanies it).
+- [ ] **Step 3: Fix P0/P1 findings or defer via `DEFERRED.md` entry; P2/P3 at discretion.** After ANY code fix, re-run BOTH gates (`/impeccable critique` AND `/impeccable audit`) on the final diff — the invariant-8 dual-gate contract holds on the diff as committed, so a fix discovered by one gate still needs the other gate's pass over the changed bytes. Then re-run the FULL Task-2 verification set (`pnpm test`, `pnpm typecheck`, `pnpm eslint .`, `pnpm format:check`, and the standalone layout command from Task 2 Step 3) before committing — a gate repair must not create a red commit boundary. Commit code fixes as `fix(admin): …`; commit a deferral as `docs: DEFERRED entry for <finding>` (a `DEFERRED.md` edit is a tracked change and gets its own commit if no code fix accompanies it).
 - [ ] **Step 4: Record dispositions** for the PR body (findings + fixed/deferred each).
 
 ---
