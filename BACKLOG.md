@@ -46,6 +46,38 @@ Pre-existing for every HoverHelp consumer inside a scrolling admin surface; NOT 
 
 ---
 
+## BL-CREW-WARN-STACK-E2E-GEOMETRY — real-browser width-fill assertion for the crew under-row warning stack
+
+**Filed:** 2026-07-24 (retroactive — deferred in PR #534's body 2026-07-21, never filed) · **Class:** test coverage (real-browser layout) · **Effort:** S (one assertion in an existing spec)
+
+PR #534 descoped its Task 10 (real-browser layout) with: "`CrewUnderRowStack`'s parent is not fixed-dimension, so the rule's trigger doesn't apply; width-fill is unit-asserted. Deferred `BL-CREW-WARN-STACK-E2E-GEOMETRY`." The id was cited in the PR body but no row was ever added to this file, DEFERRED.md, or the archive — found by a PR-body-vs-ledger reconciliation sweep on 2026-07-24.
+
+**Mostly superseded.** PR #563 (crew-warning-attachment T5) landed real-browser geometry for this surface at `tests/e2e/published-review-modal.layout.spec.ts:1050+`: the under-row stack `[data-testid="crew-warn-stack-<key>"]` is measured inside the crew panel card's border box on all four edges, and between its member's row and the next. The residual gap is narrow: those are CONTAINMENT bounds, not the width-FILL equality the deferral named (`stack.width === row.width` within tolerance), which remains jsdom-only (`tests/admin/wizard/crewWarnStack.test.tsx`) where no layout is computed.
+
+**Work:** add a width-fill equality assertion to the existing T5 describe block, reusing its harness page (`crewwarnings.html`) and `TOL`. No new harness or config needed.
+
+**Status:** open (residual only).
+
+## BL-MODAL-REALTIME-UPDATED-CUE — freshness cue near the published modal's action clusters
+
+**Filed:** 2026-07-24 (retroactive — deferred in PR #505's body 2026-07-20, never filed) · **Class:** UI refinement · **Effort:** S
+
+Impeccable P3 from `admin-modal-realtime-refresh`: an optional "updated just now" cue near the modal's action clusters, so a realtime-driven change is attributable rather than appearing as content silently shifting under the cursor. Deferred as a future refinement — the spec ratifies the silent-by-design posture, so nothing requires it.
+
+**Un-defer signal (weak, hence backlog not DEFERRED.md):** a user reporting that modal content changed without explanation. Note the tension with the ratified posture — adding a cue is a spec decision, not a polish pass.
+
+**Status:** open.
+
+## BL-REALTIME-BROADCAST-FRAME-DROP-WATCH — ~9% local broadcast-frame loss on a healthy socket
+
+**Filed:** 2026-07-24 (retroactive — recorded in PR #505's residuals 2026-07-20, never filed) · **Class:** observability watch item · **Effort:** S (read CI history) to M (if real)
+
+PR #505 measured local realtime silently dropping ~9% of broadcast frames on an otherwise healthy socket; absorbed by CI runner retries and explicitly NOT a code defect of that diff. Filed as a watch item so the observation is not lost: if the drop rate is an artifact of the local stack it should disappear against validation/prod, and if it does not, subscriber code that assumes every broadcast arrives needs a reconcile-on-focus fallback.
+
+**Work:** sample the realtime-dependent e2e/CI history for retry frequency before deciding whether there is anything to fix.
+
+**Status:** open (watch).
+
 ## BL-SPEC-LINT — mechanize the checkable subset of spec/plan pre-review passes
 
 **Filed:** 2026-07-19 (round-burn retrospective, PRs #470–#500) · **Class:** review-round reduction (tooling) · **Effort:** M (script + wiring into review-dispatch discipline)
