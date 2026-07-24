@@ -140,16 +140,15 @@ describe("condensed rendering (spec §3)", () => {
     expect(inline.textContent).toContain("Audio");
   });
 
-  it("condensed={false} renders byte-identically to omission (spec guard, R1-F6)", () => {
-    const { container: a } = render(
-      <PerShowActionableWarnings items={[fieldWarn]} driveFileId={null} condensed={false} />,
-    );
-    const htmlA = a.innerHTML;
-    cleanup();
-    const { container: b } = render(
-      <PerShowActionableWarnings items={[fieldWarn]} driveFileId={null} />,
-    );
-    expect(htmlA).toBe(b.innerHTML);
+  it("condensed={false} behaves as full mode (spec guard, R1-F6)", () => {
+    // NOT a byte comparison: HoverHelp embeds useId() output, which differs across
+    // React roots, so innerHTML equality is false-red (plan-R2 F1). Assert the
+    // semantic contract instead - the same pair of observations that define full
+    // mode above: guidance inline, and absent from the popover description.
+    render(<PerShowActionableWarnings items={[fieldWarn]} driveFileId={null} condensed={false} />);
+    expect(screen.getByTestId("per-show-actionable-guidance").textContent).toContain(guidance);
+    const { describedEl } = popoverFor(0);
+    expect(describedEl?.textContent ?? "").not.toContain(guidance);
   });
 });
 ```
