@@ -74,6 +74,54 @@ describe("GalleryWriteGuard", () => {
     expect(real).not.toHaveBeenCalled();
   });
 
+  test("lets Supabase auth token refresh through, so the guard cannot destroy the admin session", async () => {
+    // The bug this pins: the guard blocked EVERY non-GET, including the
+    // `POST <project>.supabase.co/auth/v1/token?grant_type=refresh_token` that
+    // `createBrowserClient` fires on its own timer (the admin nav's bell mounts
+    // one via components/admin/nav/useBellBadge.ts). auth-js resolves fetch
+    // late-bound (`(...args) => fetch(...args)`), so it saw the patched fetch.
+    // A 403 is not in auth-js's NETWORK_ERROR_CODES, so it became a
+    // non-retryable AuthApiError and GoTrueClient ran `_removeSession()`,
+    // deleting the auth cookie. The operator stayed on the gallery, then hit
+    // the sign-in page on the NEXT navigation — a re-login caused by a page
+    // that is supposed to be inert.
+    const real = vi.fn(async () => new Response("{}", { status: 200 }));
+    window.fetch = real as unknown as typeof window.fetch;
+    render(<GalleryWriteGuard />);
+    await waitFor(() => expect(window.fetch).not.toBe(real));
+
+    const res = await window.fetch(
+      "https://proj.supabase.co/auth/v1/token?grant_type=refresh_token",
+      { method: "POST" },
+    );
+
+    expect(real, "session infrastructure must reach the network").toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
+  });
+
+  test("lets Supabase realtime infrastructure through as well", async () => {
+    const real = vi.fn(async () => new Response("{}", { status: 200 }));
+    window.fetch = real as unknown as typeof window.fetch;
+    render(<GalleryWriteGuard />);
+    await waitFor(() => expect(window.fetch).not.toBe(real));
+
+    await window.fetch("https://proj.supabase.co/realtime/v1/api/broadcast", { method: "POST" });
+    expect(real).toHaveBeenCalledTimes(1);
+  });
+
+  test("the exemption is Supabase-infrastructure-shaped, not an origin-wide hole", async () => {
+    // Failure mode: exempting the whole Supabase origin would also un-guard
+    // PostgREST writes. Only the auth/realtime API surfaces are ambient.
+    const real = vi.fn(async () => new Response("{}", { status: 200 }));
+    window.fetch = real as unknown as typeof window.fetch;
+    render(<GalleryWriteGuard />);
+    await waitFor(() => expect(window.fetch).not.toBe(real));
+
+    const res = await window.fetch("https://proj.supabase.co/rest/v1/shows", { method: "POST" });
+    expect(res.status).toBe(403);
+    expect(real).not.toHaveBeenCalled();
+  });
+
   test("restores the original fetch on unmount, so it cannot leak past the page", async () => {
     const real = vi.fn(async () => new Response("{}", { status: 200 }));
     window.fetch = real as unknown as typeof window.fetch;

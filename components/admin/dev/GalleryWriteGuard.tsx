@@ -36,6 +36,30 @@ import { useEffect } from "react";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+/**
+ * Supabase API surfaces that are AMBIENT rather than gallery-originated.
+ *
+ * The guard's contract is "every mutating call ORIGINATING FROM the gallery
+ * page". `createBrowserClient` does not originate from the gallery — the admin
+ * nav's bell mounts one on every admin route (components/admin/nav/useBellBadge.ts),
+ * and it refreshes the session on its own 30s timer whenever the access token is
+ * within EXPIRY_MARGIN_MS (90s) of expiry, and again on tab refocus.
+ *
+ * Blocking that call did not merely fail an unwanted write — it destroyed the
+ * operator's session. auth-js resolves fetch late-bound (`(...args) => fetch(...args)`,
+ * @supabase/auth-js lib/helpers.js), so the refresh POST went through this patch;
+ * 403 is not in its NETWORK_ERROR_CODES, so the refusal became a non-retryable
+ * AuthApiError, and GoTrueClient ran `_removeSession()` (GoTrueClient.js:3859,
+ * :3929), deleting the auth cookie. The re-login then surfaced on the next
+ * navigation, far from the page that caused it.
+ *
+ * Matched by PATH, not by project origin: an origin allowlist would depend on
+ * NEXT_PUBLIC_SUPABASE_URL being present in the client bundle and would also
+ * un-guard PostgREST writes. These two prefixes are the auth and realtime API
+ * surfaces specifically; `/rest/v1` stays guarded.
+ */
+const AMBIENT_SUPABASE_PATHS = [/^\/auth\/v1\//, /^\/realtime\/v1\//];
+
 function methodOf(input: RequestInfo | URL, init?: RequestInit): string {
   const fromInit = init?.method;
   if (typeof fromInit === "string") return fromInit.toUpperCase();
@@ -66,6 +90,9 @@ export function GalleryWriteGuard({
       if (SAFE_METHODS.has(method)) return original(input, init);
       const url = urlOf(input);
       const path = url.replace(/^https?:\/\/[^/]+/, "");
+      // Ambient session/realtime infrastructure — see AMBIENT_SUPABASE_PATHS.
+      // Checked before scripting so no scenario script can shadow it.
+      if (AMBIENT_SUPABASE_PATHS.some((re) => re.test(path))) return original(input, init);
       const script = scripts?.find((sc) => sc.method === method && sc.pathPattern.test(path));
       if (script) {
         const n = counters.get(script.key) ?? 0;
