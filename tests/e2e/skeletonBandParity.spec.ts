@@ -26,16 +26,14 @@
  *   D  the header->subheader seam offset differs by <= 8px — one `--spacing`
  *      step, smaller than one text row (~20-28px), so it cannot mask a missing
  *      row (C catches that exactly) while absorbing bar-vs-line-box variance
- *   E  subheader band height differs by <= 4px — but only at >=sm, where the
- *      strip is `sm:flex-nowrap` and the plan's premise ("both are a single
- *      control row") actually holds. At 390px `flex-wrap` is live and the
- *      loaded strip wraps to THREE rows, so the sheet-mode case asserts the
- *      honest weaker clause instead. See the test body — this is a REPORTED
- *      finding (00-overview.md M5), not a widened tolerance.
+ *   E  subheader band height differs by <= 4px — at BOTH viewports. The
+ *      former sheet-mode weak clause is gone: the stacked mobile band (spec
+ *      docs/superpowers/specs/2026-07-24-strip-mobile-stacked-band.md §3/§6)
+ *      makes the loaded 390px band deterministic and the skeleton mirrors it
+ *      row for row, so exact parity is honestly assertable below sm too.
  *
  * If D cannot hold at 8px on a correct implementation, that is a FINDING to
  * report, not a tolerance to widen — the skeleton's bar heights are the lever.
- * D holds at ~1px at both viewports; it was E whose premise did not survive.
  *
  * STANDALONE static harness (no app boot / no Supabase / no seed), following
  * the in-repo pattern of tests/e2e/statusStripToggleLayout.spec.ts:
@@ -279,29 +277,14 @@ for (const { mode, width, height } of VIEWPORTS) {
       ).toBeLessThanOrEqual(SEAM_TOL);
     });
 
-    // E — SCOPED TO >=sm, and that scoping is a REPORTED FINDING, not a dodge.
-    //
-    // The plan's stated rationale for E's tight 4px bound is, verbatim, that
-    // "both are a single control row whose height is driven by the band's own
-    // py-2 plus a ~24px child". That premise is TRUE at >=sm, where the strip
-    // is `sm:flex-nowrap`. It is FALSE at 390px: `flex-wrap` is live there, and
-    // measured inside the panel the loaded strip wraps to THREE rows —
-    // [toggle, live] / [status, Re-sync] / [copy] — for a 149px band against
-    // the skeleton's 73px.
-    //
-    // The gap is NOT closable by tuning bar heights (the lever the plan
-    // nominates for D). The wrap point is a function of the RENDERED DATA: the
-    // status line's width depends on its relative-time strings, so "Synced 1
-    // hour ago" and "Synced 3 days ago" wrap differently. Sizing the
-    // placeholders to reproduce THIS fixture's 3-row wrap would overfit to one
-    // timestamp and assert nothing about any real show, while looking green.
-    //
-    // So the tight bound is asserted where its premise holds, and 390px gets
-    // the honest weaker clause below. The underlying cause — a control strip
-    // that wraps to three rows at phone width — is a DESIGN finding recorded as
-    // M4/M5 in 00-overview.md for the close-out impeccable gate. It is not a
-    // defect in the skeleton, and it is not something a test tolerance should
-    // paper over.
+    // E — exact at BOTH viewports. The former sheet-mode weak clause (a
+    // wrap-driven 149px loaded band vs a 73px single-row skeleton) is gone:
+    // the stacked mobile band (spec 2026-07-24-strip-mobile-stacked-band
+    // §3/§4) hard-caps every mobile row's height, and the skeleton mirrors
+    // the same row/divider/gap structure (§6), so the parity fixture's band
+    // heights agree to placeholder tolerance below sm exactly as they do at
+    // >=sm. The lever for a failing E is the skeleton's bar/min-h values —
+    // never this tolerance (spec §1.1 forbids widening).
     const bandHeights = async (page: Page) => {
       await open(page, { width, height });
       await expect(inState(page, "skeleton", "subheader")).toHaveCount(1, { timeout: 5_000 });
@@ -311,34 +294,13 @@ for (const { mode, width, height } of VIEWPORTS) {
       };
     };
 
-    if (mode === "popup") {
-      test(`E: the subheader band heights match within ${BAND_TOL}px`, async ({ page }) => {
-        const { skeleton, loaded } = await bandHeights(page);
-        expect(skeleton, "skeleton band is non-vacuous").toBeGreaterThan(0);
-        expect(
-          Math.abs(skeleton - loaded),
-          `skeleton band ${skeleton} vs loaded band ${loaded}`,
-        ).toBeLessThanOrEqual(BAND_TOL);
-      });
-    } else {
-      test("E (sheet): the skeleton band is a real control row, never a collapsed sliver", async ({
-        page,
-      }) => {
-        const { skeleton, loaded } = await bandHeights(page);
-        // What IS assertable at 390px without overfitting: the skeleton band
-        // reserves at least one full tap row plus the band's own py-2, so it
-        // reads as a control strip rather than a hairline that pops open. This
-        // catches the regression that actually matters here — a skeleton whose
-        // band collapsed because its placeholder row lost `min-h-tap-min`.
-        const TAP_ROW_PLUS_PADDING = 44 + 16;
-        expect(
-          skeleton,
-          `skeleton band ${skeleton} reserves a full tap row (loaded band is ${loaded}, wrapped)`,
-        ).toBeGreaterThanOrEqual(TAP_ROW_PLUS_PADDING);
-        // Non-vacuity in the other direction: the skeleton must never claim
-        // MORE room than the loaded band, which would snap upward.
-        expect(skeleton, "skeleton band never exceeds the loaded band").toBeLessThanOrEqual(loaded);
-      });
-    }
+    test(`E: the subheader band heights match within ${BAND_TOL}px`, async ({ page }) => {
+      const { skeleton, loaded } = await bandHeights(page);
+      expect(skeleton, "skeleton band is non-vacuous").toBeGreaterThan(0);
+      expect(
+        Math.abs(skeleton - loaded),
+        `skeleton band ${skeleton} vs loaded band ${loaded}`,
+      ).toBeLessThanOrEqual(BAND_TOL);
+    });
   });
 }

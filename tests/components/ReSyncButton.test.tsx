@@ -347,13 +347,32 @@ describe("ReSyncButton", () => {
     // The width reservation renders the inactive label as a hidden sizer, so
     // the accessible name must still be exactly one label — a sizer that leaks
     // announces "Re-syncSyncing…" to a screen reader.
+    //
+    // SCOPED to the desktop label block (stacked-band spec §9.4): jsdom
+    // computes no CSS, so the display:none-gated mobile "Sync" block cannot be
+    // excluded from toHaveAccessibleName here — real-browser accName equality
+    // ("Re-sync" @1280, "Sync" @390) is asserted by stackedBandLayout.spec.ts.
+    // What jsdom CAN pin exactly: the sizer is aria-hidden AND invisible, and
+    // the desktop block's non-sizer text is exactly one label per state.
     let resolve: (response: Response) => void = () => {};
     fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (resolve = r)));
     const { getByTestId } = render(<ReSyncButton slug="s" />);
     const button = getByTestId("admin-resync-button") as HTMLButtonElement;
-    expect(button).toHaveAccessibleName("Re-sync");
+    const desktopVisibleLabel = () => {
+      const block = getByTestId("admin-resync-desktop-label");
+      const spans = Array.from(block.querySelectorAll("span")).filter(
+        (s) => s.childElementCount === 0,
+      );
+      const sizer = spans.find((s) => s.className.includes("invisible"));
+      expect(sizer?.getAttribute("aria-hidden"), "sizer stays out of the name").toBe("true");
+      return spans
+        .filter((s) => !s.className.includes("invisible"))
+        .map((s) => s.textContent)
+        .join("");
+    };
+    expect(desktopVisibleLabel()).toBe("Re-sync");
     fireEvent.click(button);
-    await waitFor(() => expect(button).toHaveAccessibleName("Syncing…"));
+    await waitFor(() => expect(desktopVisibleLabel()).toBe("Syncing…"));
     resolve({ json: async () => ({ ok: true }) } as unknown as Response);
   });
 
@@ -533,5 +552,59 @@ describe("ReSyncButton", () => {
     // min(50vh,20rem) governs, rather than a measured value that would shrink
     // the overlay on a surface that never needed it.
     expect(panel.style.maxHeight).toBe("");
+  });
+});
+
+describe("mobile Sync skin (spec 2026-07-24-strip-mobile-stacked-band §3 R2)", () => {
+  test("one trigger; two breakpoint-gated label blocks; real 44px box; mobile paddings", () => {
+    const { getByTestId, getAllByTestId } = render(<ReSyncButton slug="s1" />);
+    expect(getAllByTestId("admin-resync-button")).toHaveLength(1);
+    const btn = getByTestId("admin-resync-button");
+    for (const cls of ["min-h-tap-min", "min-w-tap-min", "max-sm:px-0", "max-sm:ml-auto"]) {
+      expect(btn.className).toContain(cls);
+    }
+    expect(getByTestId("admin-resync-desktop-label").className).toContain("max-sm:hidden");
+    const mobile = getByTestId("admin-resync-mobile-label");
+    for (const cls of [
+      "hidden",
+      "max-sm:inline-flex",
+      "h-8",
+      "px-3",
+      "rounded-sm",
+      "border",
+      "border-border",
+    ]) {
+      expect(mobile.className).toContain(cls);
+    }
+    expect(mobile).toHaveTextContent("Sync");
+  });
+
+  test("pending: icon spins with motion-reduce escape; aria-busy on, then clears", async () => {
+    let release!: () => void;
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((r) => {
+          release = () =>
+            r({
+              json: async () => ({ ok: true, result: { outcome: "skipped" } }),
+            } as unknown as Response);
+        }),
+    );
+    const { getByTestId } = render(<ReSyncButton slug="s1" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    await waitFor(() =>
+      expect(getByTestId("admin-resync-button").getAttribute("aria-busy")).toBe("true"),
+    );
+    const icon = getByTestId("admin-resync-mobile-label").querySelector("svg");
+    expect(icon?.getAttribute("class") ?? "").toContain("animate-spin");
+    expect(icon?.getAttribute("class") ?? "").toContain("motion-reduce:animate-none");
+    release();
+    // Spin STOP (spec §8 S idle<->pending both directions): busy clears and
+    // the spin class is removed once the POST settles.
+    await waitFor(() =>
+      expect(getByTestId("admin-resync-button").getAttribute("aria-busy")).toBe("false"),
+    );
+    const settled = getByTestId("admin-resync-mobile-label").querySelector("svg");
+    expect(settled?.getAttribute("class") ?? "").not.toContain("animate-spin");
   });
 });

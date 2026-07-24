@@ -1059,3 +1059,47 @@ describe("ShareHub — two-tier focus contract (spec 2026-07-23-sharehub-focus-p
     expectTier1(screen.getByTestId(`unarchive-show-button-${SHOW_ID}`));
   });
 });
+
+describe("mobile split actions row (spec 2026-07-24-strip-mobile-stacked-band §3 R3)", () => {
+  it("root spans; primary carries the FULL §3 R3 class contract; kebab bordered square", () => {
+    renderHub();
+    const primary = screen.getByTestId("share-hub-primary");
+    for (const cls of [
+      "max-sm:flex-1",
+      "max-sm:justify-center",
+      "max-sm:min-h-tap-min",
+      "max-sm:rounded-sm",
+      "max-sm:border",
+      "max-sm:border-border",
+      "max-sm:whitespace-nowrap",
+      "max-sm:min-w-0",
+      "max-sm:overflow-hidden",
+    ]) {
+      expect(primary.className).toContain(cls);
+    }
+    const kebab = screen.getByTestId("share-hub-kebab");
+    for (const cls of [
+      "max-sm:min-h-tap-min",
+      "max-sm:min-w-tap-min",
+      "max-sm:rounded-sm",
+      "max-sm:border",
+      "max-sm:border-border",
+    ]) {
+      expect(kebab.className).toContain(cls);
+    }
+    const root = screen.getByTestId("share-hub-root");
+    expect(root.className).toContain("max-sm:w-full");
+    expect(primary.parentElement).toBe(root);
+  });
+
+  it("labels unchanged in all lifecycles", () => {
+    renderHub({ archived: false, published: true });
+    expect(screen.getByTestId("share-hub-primary")).toHaveTextContent("Share link");
+    cleanup();
+    renderHub({ archived: false, published: false });
+    expect(screen.getByTestId("share-hub-primary")).toHaveTextContent("Share link · paused");
+    cleanup();
+    renderHub({ archived: true });
+    expect(screen.getByTestId("share-hub-primary")).toHaveTextContent("Show actions");
+  });
+});

@@ -16,7 +16,7 @@
  * (anti-tautology: assertions scope INSIDE the toggle row's own subtree).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
 import { messageFor } from "@/lib/messages/lookup";
 
@@ -344,5 +344,114 @@ describe("PublishedToggle — inline variant", () => {
     for (const t of errorTokens) {
       expect(t, `forbidden geometry class ${t} on error banner`).not.toMatch(FORBIDDEN);
     }
+  });
+});
+
+describe("settings variant (spec 2026-07-24-strip-mobile-stacked-band §3 R1)", () => {
+  function renderSettings(
+    over: Partial<{
+      published: boolean;
+      finalizeOwned: boolean;
+      setPublished: (n: boolean) => Promise<{ ok: true } | { ok: false; code: string }>;
+    }> = {},
+  ) {
+    return render(
+      <PublishedToggle
+        slug="s1"
+        variant="settings"
+        published={over.published ?? true}
+        finalizeOwned={over.finalizeOwned ?? false}
+        setPublished={over.setPublished ?? (async () => ({ ok: true }) as const)}
+      />,
+    );
+  }
+
+  it("renders ONE switch; responsive container classes; both label blocks breakpoint-gated", () => {
+    renderSettings({ published: true });
+    expect(screen.getAllByTestId("published-toggle")).toHaveLength(1);
+    const container = screen.getByTestId("published-toggle-inline");
+    for (const cls of [
+      "max-sm:flex",
+      "max-sm:w-full",
+      "max-sm:min-h-tap-min",
+      "max-sm:items-center",
+      "max-sm:justify-between",
+    ]) {
+      expect(container.className).toContain(cls);
+    }
+    const desktopLabel = within(container)
+      .getAllByText("Published", { selector: "span" })
+      .find((el) => el.className.includes("max-sm:hidden"));
+    expect(desktopLabel).toBeDefined();
+    const mobileBlock = screen.getByTestId("published-toggle-sublabel").parentElement!;
+    expect(mobileBlock.className).toContain("hidden");
+    expect(mobileBlock.className).toContain("max-sm:flex");
+    expect(mobileBlock.className).toContain("max-sm:min-w-0");
+    expect(mobileBlock.className).toContain("max-sm:flex-col");
+  });
+
+  it("sublabel branches: visible / hidden / both finalize sublines; truncate; no id", () => {
+    renderSettings({ published: true });
+    const sub = screen.getByTestId("published-toggle-sublabel");
+    expect(sub.textContent).toBe("Visible to crew");
+    expect(sub.className).toContain("truncate");
+    expect(sub.hasAttribute("id")).toBe(false);
+    cleanup();
+    renderSettings({ published: false });
+    expect(screen.getByTestId("published-toggle-sublabel").textContent).toBe("Hidden from crew");
+    cleanup();
+    renderSettings({ published: true, finalizeOwned: true });
+    expect(screen.getByTestId("published-toggle-sublabel").textContent).toBe(
+      "Changes are being finalized — the switch unlocks when they commit.",
+    );
+    cleanup();
+    renderSettings({ published: false, finalizeOwned: true });
+    expect(screen.getByTestId("published-toggle-sublabel").textContent).toBe(
+      "A publish is finishing — the switch unlocks when it's done.",
+    );
+  });
+
+  it("aria-describedby rule UNCHANGED: absent normally; popover id under finalize", () => {
+    renderSettings({ published: true });
+    expect(screen.getByTestId("published-toggle").hasAttribute("aria-describedby")).toBe(false);
+    cleanup();
+    renderSettings({ published: true, finalizeOwned: true });
+    expect(screen.getByTestId("published-toggle").getAttribute("aria-describedby")).toBe(
+      "published-toggle-popover-s1",
+    );
+  });
+
+  it("finalize chip desktop-only; refusal banner class-identical to inline's", async () => {
+    renderSettings({ published: true, finalizeOwned: true });
+    expect(screen.getByTestId("published-toggle-popover").className).toContain("max-sm:hidden");
+    cleanup();
+    const failing = async () => ({ ok: false as const, code: "PUBLISH_BLOCKED_PENDING_REVIEW" });
+    renderInline({ published: true, setPublished: failing });
+    fireEvent.click(screen.getByTestId("published-toggle"));
+    const inlineCls = (await screen.findByTestId("published-toggle-popover")).className;
+    cleanup();
+    renderSettings({ published: true, setPublished: failing });
+    fireEvent.click(screen.getByTestId("published-toggle"));
+    const settingsCls = (await screen.findByTestId("published-toggle-popover")).className;
+    expect(settingsCls).toBe(inlineCls);
+  });
+
+  it("compound: switch disables during its own pending without touching sublabel copy", async () => {
+    let resolveAction!: (v: { ok: true }) => void;
+    renderSettings({
+      published: true,
+      setPublished: () =>
+        new Promise((r) => {
+          resolveAction = r;
+        }),
+    });
+    fireEvent.click(screen.getByTestId("published-toggle"));
+    await waitFor(() =>
+      expect(screen.getByTestId("published-toggle").getAttribute("aria-busy")).toBe("true"),
+    );
+    expect(screen.getByTestId("published-toggle-sublabel").textContent).toBe("Visible to crew");
+    await act(async () => {
+      resolveAction({ ok: true });
+    });
   });
 });

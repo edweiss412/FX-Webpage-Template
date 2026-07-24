@@ -154,7 +154,12 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // away when the group became UNCONDITIONAL (the hub is now Unarchive's only
   // home, so an archived show must still mount it). Verified by RUNNING the
   // scanner.
-  "components/admin/showpage/StatusStrip.tsx": 6, // archived / control-divider / live / sync / edited / re-sync
+  // stacked-band 2026-07-24 §3: 6 → 8. The two mobile divider heads joined —
+  // D1 `{!archived ? (` and D2 `{lastSyncedAt != null || !archived ? (`. Both
+  // are instant omit/mounts that follow lifecycle data (spec §8 declares the
+  // whole band instant; the badge row is UNCONDITIONAL so it adds no head).
+  // Count captured by RUNNING the scanner over the source, not by reasoning.
+  "components/admin/showpage/StatusStrip.tsx": 8, // archived / control-divider / live / sync / edited / re-sync / D1 / D2
   // share-hub T4: 4 → 3 (the share/inactive-notice head left with the relocated
   // cluster). archive-into-share-hub: 3 → 1 — the open-sheet link (a duplicate
   // of the header's sheet anchor) and the archive row (relocated into the hub's

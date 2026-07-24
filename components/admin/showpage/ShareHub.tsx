@@ -365,7 +365,11 @@ export function ShareHub({
   };
 
   return (
-    <div ref={containerRef} className={`relative flex items-center gap-2 ${open ? "z-30" : ""}`}>
+    <div
+      ref={containerRef}
+      data-testid="share-hub-root"
+      className={`relative flex items-center gap-2 max-sm:w-full ${open ? "z-30" : ""}`}
+    >
       {open && (
         <button
           type="button"
@@ -404,10 +408,14 @@ export function ShareHub({
         // here would both break that pin and dilute the one cue that means the
         // show is on air. The mock drew it orange; the project invariant wins.
         // The two arms differentiate by LABEL and weight instead.
+        // Mobile split row (spec 2026-07-24-strip-mobile-stacked-band §3 R3):
+        // flex-1 fills the band; no-wrap + shrink keeps R3 one 44px line even
+        // when the dev-capture status competes for the row; border color drops
+        // to border-border below sm (the §3 R3 skin; width stays 1px).
         className={
           published && !archived
-            ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden"
+            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden"
         }
       >
         {archived ? (
@@ -430,7 +438,7 @@ export function ShareHub({
         // lifecycle control, and on an archived show that is ALL it owns.
         aria-label="More show actions"
         onClick={() => toggle("kebab")}
-        className={`inline-flex size-tap-min items-center justify-center rounded-sm text-text-strong transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${
+        className={`inline-flex size-tap-min items-center justify-center rounded-sm text-text-strong transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:min-h-tap-min max-sm:min-w-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border ${
           open ? "bg-surface-sunken" : "bg-transparent"
         }`}
       >

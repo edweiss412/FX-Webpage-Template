@@ -1250,3 +1250,29 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/autoapplied-strip-po
 - **What (original):** a warning in the first 3 of its section's callout had two live control instances (callout preview + complete list). Recognize-role does no client refresh (2026-07-15 §8.1 timing contract), so recognizing a role via one instance left the sibling in create mode until navigation — Doug could re-submit from the sibling.
 - **Why it was deferred:** ratified keep-both (spec §2.1 / §4.6, 2026-07-16). No data risk — a stale-sibling save resolves via the action's EXISTING-ROW-first branch (set-equal → idempotent success; different grants → benign conflict notice; never a raw code). Lowest urgency.
 - **Resolution:** ✅ RESOLVED 2026-07-17 — `feat/use-raw-callout-preview-demotion` (spec + plan `docs/superpowers/{specs,plans}/2026-07-17-use-raw-callout-preview-demotion*`). Deliberately overrode the ratified keep-both: stripped the `UseRawControlBoundary` + `RoleRecognizeControlBoundary` mounts from `SectionFlagCallout`, leaving a preview (icon + title + `(fieldLabel)` + "View details" jump + "+N more"). `WarningsBreakdown` is now the SOLE actionable site, so each warning has exactly one live control instance — the two-mounted-siblings divergence is structurally impossible. Two-fixture removal proof (room-split → no `use-raw-control-callout`; role-token → no `role-recognize-control-callout`), each still mounting on the list. Follow-on UX note filed as `DEFERRED.md` §CALLOUT-PREVIEW-ACTION-CUE-1 (critique P1). Sibling deferrals USE-RAW-FULL-LIST-2 (a11y, #454) and -3 (copy) were already resolved.
+
+## Resolved 2026-07-24 — stacked mobile band
+
+The two entries below are preserved VERBATIM as historical records of the
+deferral-era posture; their "Accepted, not fixed" dispositions, weaker-clause
+rationale, and un-defer triggers are all SUPERSEDED by the resolution note at
+the end of this section. The un-defer trigger fired (deliberate mobile reflow
+shipped); nothing in these entries is active debt.
+
+### STRIP-MOBILE-WRAP-1 — RESOLVED 2026-07-24 — [P2] the control strip wraps to a second row at 390px (44px → 80px)
+
+From the impeccable close-out of `modal-header-reconciliation`. §4.5 collapses the sync/edited stack to one line, trading height for WIDTH; §4.3 simultaneously adds a Re-sync trigger to the same row. Below `sm` the strip's `flex-wrap` is live and the row breaks: **44px → 80px** at 390px (`sm:flex-nowrap` leaves ≥sm untouched, so desktop is unaffected). Spec and plan both costed the height saving and neither anticipated the width cost.
+
+**Accepted, not fixed.** Wrapping is the correct responsive behavior here and the alternatives are worse for the actual user: Doug is on a venue floor, one-handed, mid-show, and every control in the band is one he reaches for — truncating or horizontally scrolling a live publish toggle, a Re-sync, or the copy-crew-link button to protect 36px of vertical space is the wrong trade. The band is chrome, not content; the modal body still scrolls independently. The wrap is also already partly designed for: the `·` control divider is `hidden sm:block`, so it does not orphan onto row two.
+
+**Un-defer trigger:** user feedback that the mobile modal header feels tall or that controls jump between rows as status text changes length (the wrap point is data-dependent — it moves with the relative-time strings). The fix is then a deliberate mobile reflow — status line dropped to its own row by explicit `basis-full` rather than incidental wrapping — NOT tightening spacing to squeeze one row.
+
+### STRIP-SKELETON-MOBILE-BAND-1 — RESOLVED 2026-07-24 — [P2] skeleton control band cannot match the loaded band at 390px (73px vs 149px)
+
+Direct consequence of `STRIP-MOBILE-WRAP-1`, surfaced by Task 9's band-parity spec. At ≥sm the skeleton and loaded subheader bands match exactly (**E = 0.00px at 1280**), and the header→subheader seam — the invariant that actually causes the visible load-time snap — matches at **D = 0.30px at BOTH viewports** (bound ≤8px; it failed red at 45.70px/9.70px pre-fix). At 390px the loaded strip wraps to three rows (149px) against the skeleton's single-row 73px.
+
+**Accepted, not fixed, and the tolerance was NOT widened** (the plan explicitly forbids that). The plan nominated skeleton bar heights as the lever, but they cannot close this: the wrap point is a function of rendered DATA, since the status line's width depends on its relative-time strings. Sizing placeholders to reproduce one fixture's 3-row wrap was rejected as overfitting — it would go green while asserting nothing about any real show. The 390px case therefore asserts an honest weaker clause (band reserves ≥ one tap row + `py-2`, never exceeds the loaded band) and the ≤4px strictness is kept at ≥sm where its "single control row" premise actually holds.
+
+**Un-defer trigger:** resolving `STRIP-MOBILE-WRAP-1` (a deliberate mobile reflow makes the loaded mobile band deterministic, at which point exact parity becomes assertable again), or user reports of a visible header jump on mobile loads.
+
+Both resolved by spec `docs/superpowers/specs/2026-07-24-strip-mobile-stacked-band.md` (stacked mobile band below sm; skeleton mirrors row-for-row; parity spec E re-tightened to <=4px at BOTH viewports — measured 215px == 215px at 390).
