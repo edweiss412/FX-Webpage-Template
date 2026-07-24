@@ -66,6 +66,7 @@ export function SwitcherControls({
   const [showExcluded, setShowExcluded] = useState(false);
   const structural = excluded.filter((e) => e.reason === "structural");
   const cut = excluded.filter((e) => e.reason === "cut");
+  const global = excluded.filter((e) => e.reason === "global");
   const panelOpen = showExcluded && excluded.length > 0;
 
   return (
@@ -140,6 +141,12 @@ export function SwitcherControls({
             <p className="text-xs text-text-subtle">
               {cut.length} cut from the published attention surface (telemetry codes, not shown in
               this modal).
+            </p>
+          )}
+          {global.length > 0 && (
+            <p className="text-xs text-text-subtle">
+              {global.length} dashboard-level {global.length === 1 ? "alert" : "alerts"}. Never
+              attached to a show, so this modal cannot show {global.length === 1 ? "it" : "them"}.
             </p>
           )}
         </div>

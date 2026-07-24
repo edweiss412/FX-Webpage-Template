@@ -149,6 +149,7 @@ const { rendered, excluded } = partitionScenarios();
 const RENDERED_IDS = rendered.map((s) => s.id);
 const STRUCTURAL = excluded.filter((e) => e.reason === "structural");
 const CUT = excluded.filter((e) => e.reason === "cut");
+const GLOBAL = excluded.filter((e) => e.reason === "global");
 
 async function gotoScenario(page: Page, id: string): Promise<void> {
   // Bounded retry: the route is a server render whose first line is a Supabase
@@ -390,6 +391,11 @@ test.describe("attention modal switcher gallery", () => {
       await expect(controls.getByText(e.label, { exact: false })).toBeVisible();
     }
     await expect(controls.getByText(String(CUT.length), { exact: false })).toBeVisible();
+    // The global line is server-derived like the cut line; without this the new
+    // paragraph is the only excluded-reason line proven no further than jsdom.
+    expect(GLOBAL.length).toBeGreaterThan(0);
+    await expect(controls.getByText(/dashboard-level/i)).toBeVisible();
+    await expect(controls.getByText(String(GLOBAL.length), { exact: false })).toBeVisible();
     await expect(controls.getByText(/published attention surface/i)).toBeVisible();
   });
 
