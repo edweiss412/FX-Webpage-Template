@@ -280,9 +280,18 @@ badge Live/Published/Draft/Archived (B), skeleton→loaded (K), breakpoint cross
    `animate-spin` + `aria-busy`; accessible name is "Sync" below sm markup
    (visible-text naming, no aria-label); desktop grid untouched (existing
    T-RESYNC-WIDTH stays green).
-5. **Impeccable dual-gate** (invariant 8) on the diff; pre-code mechanical
+5. **statusStripToggleLayout.spec.ts migration**: invariants (a) finalize-chip
+   in-flow containment and (c) compact-chip geometry are currently measured at
+   390px (file header, lines 16-35) — below `sm` the settings variant renders
+   the finalize SUBLABEL instead of the chip, so (a)/(c) move to a ≥sm
+   viewport (chip behavior is unchanged there) and 390px gains the
+   replacement assertion: finalize state renders the sublabel copy in-flow
+   inside the publish row (no overlay, no chip). Invariant (d) error banner
+   at 390px is unchanged (the settings variant reuses `POPOVER_POSITION`).
+   Invariant (b) already measures at ≥sm — unchanged.
+6. **Impeccable dual-gate** (invariant 8) on the diff; pre-code mechanical
    checklist (44px, canonical classes, no em-dash) applied at plan time.
-6. **Meta-test inventory:** none created or extended — no new Supabase call
+7. **Meta-test inventory:** none created or extended — no new Supabase call
    sites, no tile sentinels, no admin_alert codes, no advisory locks, no new
    mutation surfaces (declaration per writing-plans rule). The §9 strip
    lexical scanner and help-label registry are UPDATED, not extended in kind.
