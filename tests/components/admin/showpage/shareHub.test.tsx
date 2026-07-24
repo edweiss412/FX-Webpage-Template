@@ -208,7 +208,7 @@ describe("ShareHub — open/close semantics", () => {
     // roster could otherwise push Rotate/Reset below the fold at 390px.
     renderHub();
     fireEvent.click(primary());
-    expect(popover().className).toMatch(/max-h-\[min\(70vh,32rem\)\]/);
+    expect(popover().className).toMatch(/max-h-\[min\(70vh,30rem\)\]/);
     expect(popover().className).toContain("overflow-y-auto");
   });
 
@@ -330,7 +330,7 @@ describe("ShareHub — caret (spec §5)", () => {
 
     // The dialog keeps its OWN scrolling - the withdrawn outer/inner split would
     // have moved it off the focused element.
-    expectClasses(popover(), { has: ["overflow-y-auto", "max-h-[min(70vh,32rem)]"] });
+    expectClasses(popover(), { has: ["overflow-y-auto", "max-h-[min(70vh,30rem)]"] });
 
     fireEvent.click(primary());
     expect(screen.queryByTestId("share-hub-caret")).toBeNull();
