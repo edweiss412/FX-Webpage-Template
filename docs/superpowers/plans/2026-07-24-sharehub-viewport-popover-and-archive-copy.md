@@ -18,7 +18,7 @@ components/admin/HoverHelp.tsx
 lib/popover/position.ts
 ```
 
-Disposition: exactly one consumer (`HoverHelp`) plus the module itself. Task 2 makes `ShareHub` the second. No other call site to keep in lockstep.
+Disposition: exactly one consumer (`HoverHelp`) plus the module itself. Task 1 makes `ShareHub` the second. No other call site to keep in lockstep.
 
 **S2 — the defect class repo-wide: anchored overlay with its OWN scroller and cap**
 
@@ -84,7 +84,7 @@ Rationale for creating it rather than relying on the e2e sweep: the defect shipp
 1. **Server boot.** Existing `mobile-safari` project against the baseline dev server (`playwright.config.ts:243-247`, `pnpm dev -H 127.0.0.1 -p $E2E_PORT`), `E2E_PORT` defaulting to 3000. Local runs use `E2E_PORT=3005` plus a loopback `TEST_DATABASE_URL` override, because the ambient value is non-loopback and the seeds mutate (`pnpm preflight` warns about exactly this).
 2. **Readiness/hydration gate.** The shipped pattern in this file: `await expect(modal).toBeVisible({timeout:30_000})` against `LOADED_REVIEW_MODAL` (which requires the title node, so the Suspense skeleton twin cannot satisfy it), then the kebab click wrapped in `expect(async () => {...}).toPass({timeout:15_000})` to absorb pre-hydration click-swallow (`admin-lifecycle-layout.spec.ts:341-346`). Never `networkidle`. Every new case reuses this gate verbatim.
 3. **Detach safety.** Placement re-measures on resize and on content change, so a `locator.evaluate` sampling a node across an arm/disarm can outlive it. All geometry sampling is done in a SINGLE `page.evaluate` that re-queries each node by testid inside the callback and returns plain data — never a held `ElementHandle` across a state change, and never `locator.evaluate` on a node the same block is about to unmount.
-4. **Environment hazard (measured this session, three times).** A process outside the run clears `app_settings.watched_folder_id`, which makes `/admin` render the onboarding wizard so the modal never mounts and every case fails on the readiness gate. Task 8 adds a `beforeEach` that re-asserts the watched folder via `sqlClient` rather than depending on seed order.
+4. **Environment hazard (measured this session, three times).** A process outside the run clears `app_settings.watched_folder_id`, which makes `/admin` render the onboarding wizard so the modal never mounts and every case fails on the readiness gate. Task 7 adds a `beforeEach` that re-asserts the watched folder via `sqlClient` rather than depending on seed order.
 
 ---
 
@@ -92,33 +92,33 @@ Rationale for creating it rather than relying on the e2e sweep: the defect shipp
 
 Every task: failing test -> minimal implementation -> passing test -> commit (invariant 1). Conventional commits, one per task (invariant 6).
 
-### Task 1 — structural guard: placement math is not hand-rolled
+### Task 1 — structural guard + portal/placement migration (ONE task, one commit)
+
+**Why these are one task, not two (plan-review R1 BLOCKING).** The guard is red on `ShareHub.tsx` by construction and only the migration can make it green. Splitting them would give Task 1 no implementation step capable of passing its own test and would leave the branch red between commits, violating the per-task `failing test -> minimal implementation -> passing test -> commit` invariant. Red-to-green happens inside this one task.
 
 **Test first.** Create a new `_metaPopoverPlacementContract` test under the showpage component test directory. It walks `components/**/*.tsx` from the filesystem (not a lexical file list), and for each file that declares an overlay in the defect shape — a className string containing `top-full` or `bottom-full` AND `overflow-y-auto` AND a `max-h-[` cap — asserts the file either imports from `@/lib/popover/position` or appears in a reasoned allowlist.
 
 Allowlist: exactly one entry, `components/admin/ReSyncButton.tsx`, with an inline reason string ("clip-safe via useFitWithinClip; full-width inset-x-0 overlay where flipping buys nothing; spec §1.1"). The test asserts the allowlist has no *unused* entries too, so deleting an overlay does not leave a stale exemption.
 
-**Failure mode it catches:** a third overlay written in this idiom without inheriting either fix — which is precisely how the share hub shipped broken after `HoverHelp` was fixed. It fails today on `ShareHub.tsx` (red), and goes green in Task 2.
+**Failure mode it catches:** a third overlay written in this idiom without inheriting either fix — which is precisely how the share hub shipped broken after `HoverHelp` was fixed. It fails on `ShareHub.tsx` when written (red), and the migration below turns it green inside this same task.
 
 **Anti-tautology:** it must NOT assert merely "ShareHub imports something"; it asserts the specific module, and the walker must be proven to see new files (the test includes a synthetic-path unit case for the classifier so an over-narrow regex cannot silently match nothing).
 
-Commit: `test(admin): structural guard that panel overlays use the shared placement module`
-
-### Task 2 — portal + placement migration
+**Then, in the same task — the migration.**
 
 **Test first (jsdom, `tests/components/admin/showpage/shareHub.test.tsx`):** with a `PopoverHostContext` provider supplying a host element, opening the hub renders the popover INSIDE the host, not inside `share-hub-root`; with no provider it renders into `document.body`. Assert via `host.contains(popover)`, not by class.
 
-**Test first, part 2 (spec §5.1, `tests/lib/popover/position.test.ts`).** Add the measured hub geometry as a decision-table case: `trigger` = the hub group at `381.3 -> 425.3`, `bounds` = the panel `84 -> 560` inset by `VIEWPORT_INSET`, natural body height 583 (border-box, per the module's metric contract at `lib/popover/position.ts:11-13`), cap 390 — asserting `side === "top"` and `maxHeight === 283`.
+**Test first, part 3 (spec §5.1, `tests/lib/popover/position.test.ts`).** Add the measured hub geometry as a decision-table case: `trigger` = the hub group at `381.3 -> 425.3`, `bounds` = the panel `84 -> 560` inset by `VIEWPORT_INSET`, natural body height 583 (border-box, per the module's metric contract at `lib/popover/position.ts:11-13`), cap 390 — asserting `side === "top"` and `maxHeight === 283`.
 
 **Failure mode it catches:** a change to the module's tie/flip ordering that still satisfies its existing synthetic cases but breaks the hub's real numbers. Grounds the adoption in the probe (spec §9.3) rather than in invented figures.
 
 **Implementation.** Per spec §2.1.1-§2.1.2: `mounted` gate flipped in an effect (`HoverHelp.tsx:146-154` pattern and rationale — `useHasMounted` is wrong here because a provider's ref is still null on the first client commit); `createPortal` to `hostRef.current ?? document.body`; measure and apply per §2.1.2, mirroring `HoverHelp.tsx:228-268` including the body-host bounds degeneration (`host === document.body` -> viewport rect) and the `toHostOffsets` conversion, which is shared by body and caret so the two cannot drift. Remove the bespoke `caretRightPx` layout effect (`ShareHub.tsx:180-211`) and the `absolute right-0 top-full` / `max-w-[calc(100vw-2rem)]` classes (`ShareHub.tsx:487`). Set `data-popover-side`. Handle `kind:"hidden"` per §2.1.2.
 
-Task 1's guard goes green here.
+The guard written above goes green here; run it as the last step before committing.
 
-Commit: `feat(admin): portal the share-hub popover and place it with the shared positioning core`
+Commit: `feat(admin): portal the share-hub popover onto the shared positioning core, with a structural guard`
 
-### Task 3 — re-measure signals, incl. the content-growth defect
+### Task 2 — re-measure signals, incl. the content-growth defect
 
 **Test first (real browser, T-REGROW, §2.1.2b).** Derive the viewport at runtime: measure the idle body's natural height and the armed body's natural height, then choose a height where the idle body fits below the trigger but the armed one does not. Arm, then assert the popover is still within `bounds` and that side or `maxHeight` changed.
 
@@ -130,7 +130,7 @@ Commit: `feat(admin): portal the share-hub popover and place it with the shared 
 
 Commit: `fix(admin): re-place the share-hub popover when its own content grows`
 
-### Task 4 — caret flip
+### Task 3 — caret flip
 
 **Test first (real browser, T-CARET-1 / T-CARET-2, §3).** The caret abuts the popover's near edge within 1px on whichever side is chosen, never overlaps the trigger, and its centre is at least `CARET_EDGE_INSET` from both popover corners.
 
@@ -138,7 +138,7 @@ Commit: `fix(admin): re-place the share-hub popover when its own content grows`
 
 Commit: `feat(admin): flip the share-hub caret with the placed side`
 
-### Task 5 — backdrop ordering
+### Task 4 — backdrop ordering
 
 **Test first (real browser).** With the header attention menu open and the hub open, clicking `share-hub-backdrop` closes the hub. Uses `elementFromPoint`, not class reads.
 
@@ -146,17 +146,17 @@ Commit: `feat(admin): flip the share-hub caret with the placed side`
 
 Commit: `fix(admin): give the share-hub backdrop an explicit order against the portaled popover`
 
-### Task 6 — stacking: remove the root `z-30`
+### Task 5 — stacking: remove the root `z-30`
 
 **Test first.** Re-run the shipped `T-HUB-ZORDER` (`tests/e2e/published-review-modal.interactions.spec.ts:871`) plus the added case from §5.4: with the hub popover OPEN, the attention menu's panel receives clicks. Both via `elementFromPoint` — the shipped test body records that a class assertion passes against a wrapper that is elevated but still loses in paint order, which is the bug.
 
 **Implementation.** Remove `open ? "z-30" : ""` from the root (`ShareHub.tsx:371`) and update the file's header comment block (`ShareHub.tsx:40-52`), which currently documents the removed mechanism and would otherwise be actively misleading.
 
-**Regression budget note (fix-round rule):** this task patches the same surface Task 5 touches. After it, re-run Task 5's assertion and the `shareHub.test.tsx` class-level `z >= 20` check named at `ShareHub.tsx:51`, and record both in the commit body.
+**Regression budget note (fix-round rule):** this task patches the same surface Task 4 touches. After it, re-run Task 4's assertion and the `shareHub.test.tsx` class-level `z >= 20` check named at `ShareHub.tsx:51`, and record both in the commit body.
 
 Commit: `refactor(admin): drop the share-hub root z-30 now that the popover portals out`
 
-### Task 7 — focus order across the portal boundary
+### Task 6 — focus order across the portal boundary
 
 **Test first (real browser, T-FOCUS, §2.1.2c).** On open, focus is inside the popover; on Escape, focus is on the trigger that opened it; both asserted with the popover placed on each side (drive the side by viewport, assert via `data-popover-side`).
 
@@ -164,7 +164,7 @@ Commit: `refactor(admin): drop the share-hub root z-30 now that the popover port
 
 Commit: `test(admin): pin share-hub focus entry and Escape restore across the portal boundary`
 
-### Task 8 — layout-dimensions task (mandatory; real-browser sweep)
+### Task 7 — layout-dimensions task (mandatory; real-browser sweep)
 
 **Test first.** Extend `tests/e2e/admin-lifecycle-layout.spec.ts`, sweeping `390 x {844, 740, 667, 620, 560}` with a Held show, hub open, Archive armed via a REAL Playwright click (the probe's `element.click()` bypassed actionability precisely because the control was unreachable; a reachability test that kept the bypass would assert nothing).
 
@@ -193,7 +193,7 @@ Also add the §3 `beforeEach` watched-folder re-assertion from the harness check
 
 Commit: `test(admin): real-browser sweep pinning share-hub placement and armed-confirm reachability`
 
-### Task 9 — transition audit (mandatory)
+### Task 8 — transition audit (mandatory)
 
 **Test first.** Enumerate every conditional render and state pair in the popover and assert each is either explicitly instant or carries the right animation props, per the spec §4 inventory reproduced here:
 
@@ -211,7 +211,7 @@ Compound cases asserted: viewport resize while armed (armed state preserved, con
 
 Commit: `test(admin): transition audit for the placed share-hub popover`
 
-### Task 10 — state-conditional Archive copy
+### Task 9 — state-conditional Archive copy
 
 **Test first (jsdom, §5.2).** Four assertions: `published:true` -> "Ends crew access and clears it off the dashboard"; `published:false` -> "Clears this wrapped show off the dashboard"; the description node is the one the button's `aria-describedby` IDREF resolves to (NOT a text query — the popover also renders the paused note, so a container-scoped text query would pass on either branch); Rotate's description unchanged in both arms.
 
@@ -221,13 +221,13 @@ Pre-code mechanical gate: no em-dash, no apostrophe literal, sentence case, no t
 
 Commit: `feat(admin): make the archive row description true in both lifecycle states`
 
-### Task 11 — ledgers + help copy
+### Task 10 — ledgers + help copy
 
 Per §2.3 and §2.4, in one commit: correct `BACKLOG.md` `BL-SHAREHUB-ARM-VIEWPORT-REVEAL` (strike the false manual-scroll mitigation, record `overflow-clip`, raise MEDIUM -> HIGH, mark closed, cross-reference `BL-HOVERHELP-PORTAL` as the same class); move both `DEFERRED.md` entries to `DEFERRED-archive.md`, the second marked REFUTED with §1.2's reasoning; add `BL-PUBLISHED-TOGGLE-OVERLAY-CLIP`; fix `app/help/admin/dashboard/page.mdx:49` to name the share hub instead of the Overview section.
 
 Commit: `docs: close the share-hub reveal and gravity-cue deferrals with corrected findings`
 
-### Task 12 — close-out
+### Task 11 — close-out
 
 Delete the throwaway probe spec. Run the full local gate set: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, then the e2e files this branch touches. Confirm the probe file is absent from the diff and that `git status` is clean.
 
@@ -237,18 +237,17 @@ Commit: `chore: remove the throwaway placement probe`
 
 ## 5. Checklist
 
-- [ ] Task 1 — structural placement guard
-- [ ] Task 2 — portal + placement migration
-- [ ] Task 3 — re-measure signals + T-REGROW
-- [ ] Task 4 — caret flip
-- [ ] Task 5 — backdrop ordering
-- [ ] Task 6 — remove root `z-30`
-- [ ] Task 7 — focus order
-- [ ] Task 8 — layout-dimensions sweep
-- [ ] Task 9 — transition audit
-- [ ] Task 10 — state-conditional copy
-- [ ] Task 11 — ledgers + help copy
-- [ ] Task 12 — close-out
+- [ ] Task 1 — structural guard + portal/placement migration
+- [ ] Task 2 — re-measure signals + T-REGROW
+- [ ] Task 3 — caret flip
+- [ ] Task 4 — backdrop ordering
+- [ ] Task 5 — remove root `z-30`
+- [ ] Task 6 — focus order
+- [ ] Task 7 — layout-dimensions sweep
+- [ ] Task 8 — transition audit
+- [ ] Task 9 — state-conditional copy
+- [ ] Task 10 — ledgers + help copy
+- [ ] Task 11 — close-out
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — mandatory gate before execution handoff. Spec §10 records four consecutive silent Codex deaths this session; if that persists, the same self-certification rung applies and is recorded here with the attempt log.
 - [ ] impeccable critique + audit (invariant 8 — UI surface)
