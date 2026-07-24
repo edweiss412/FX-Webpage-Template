@@ -52,7 +52,7 @@ For the published surface (`routedWarningsRenderElsewhere === true`):
 3. **Sub-severity ordering** inside the box: notes group first, then actionable groups, then ignored disclosure — matching today's visual order (info rows above extras).
 4. **The wizard branch renders exactly as today** — full list rows, unconditional callout, no cards. Every change in this section is gated on the published gate that already exists (`components/admin/wizard/step3ReviewSections.tsx:2763`).
 
-**Mode boundary statement:** notes-as-cards, in-box extras, and the retired callout exist ONLY in published mode. Wizard mode keeps: list rows (both severities), unconditional `CorrectionLoopCallout`, non-blocking line (`components/admin/wizard/step3ReviewSections.tsx:2886-2894`), per-row use-raw/recognize controls. Shared between modes: heading chrome, group/bulk machinery (published-only today, unchanged), catalog copy.
+**Mode boundary statement:** notes-as-cards, in-box extras, the group eyebrow / bulk-chip / ignored-disclosure machinery, and the retired callout exist ONLY in published mode (that machinery is published-only today and stays published-only). Wizard mode keeps: list rows (both severities), unconditional `CorrectionLoopCallout`, non-blocking line (`components/admin/wizard/step3ReviewSections.tsx:2886-2894`), per-row use-raw/recognize controls. Shared between modes (same code, both render): heading chrome (`ModalSectionChrome`), catalog copy, and the `correctionLoopCopy` source.
 
 ### 2.3 Count semantics (replaces trim spec §3.3 for the published surface)
 
@@ -75,7 +75,7 @@ Inputs: `notes` = parse-note lines, `info` = visibleInfoRows, `act` = activeHere
 | Elsewhere pointer sentence | `info == 0 && act == 0 && elsewhere > 0` |
 | Clean row | `info == 0 && act == 0 && elsewhere == 0` |
 
-Consequences the matrix pins: ignored-only (`info==act==elsewhere==0, ign>0`) renders Clean row + ignored disclosure together (today's semantics — "nothing NEEDS a look" stays true); pointer never coexists with local content; Clean and pointer are mutually exclusive; empty-everything renders Clean row alone. Exactly one of {pointer, Clean} or neither renders; never both.
+Consequences the matrix pins: ignored-only (`info==act==elsewhere==0, ign>0`) renders Clean row + ignored disclosure together (today's semantics — "nothing NEEDS a look" stays true); the pointer never coexists with ACTIVE local content (G or A) but CAN coexist with parse-notes and the ignored disclosure (`elsewhere>0, ign>0`) — the pointer's claim is about warnings that need a look, which ignored items are not; Clean and pointer are mutually exclusive; empty-everything renders Clean row alone. Exactly one of {pointer, Clean} renders whenever `info==0 && act==0`; neither renders otherwise.
 
 ### 2.4 Note popovers
 
@@ -100,7 +100,27 @@ Notes gain the same `?` popover affordance cards carry (`CompactAlertHelp` path,
 
 ### 2.6 Transition inventory
 
-Interior blocks (§2.3a): parse-notes (N), notes group (G), actionable groups (A), ignored disclosure (I), pointer (P), clean row (C). Every block's mount/unmount and every pairwise swap is **instant — deliberate**: the panel is a data-driven re-render; the touched tree carries no transition classes today (`components/admin/wizard/step3ReviewSections.tsx:2754-2895`) and this bundle adds none. Explicit pairs (all instant): N±, G±, A±, I±, G↔A coexistence changes, {G|A}→P, {G|A}→C, P↔C (mutually exclusive by matrix), and any simultaneous multi-block change on one refresh (single React commit — no intermediate frame). Popover open/close (note or amber card): existing HoverHelp fade, unchanged. Compound: background refresh while ANY popover (note or actionable) is open — governed by the existing PopoverHostContext teardown/reposition rules (HoverHelp specs 2026-07-22/23), unchanged; refresh that unmounts the popover's card tears the popover down with it (existing portal-host contract). Ignore/bulk-ignore actions: existing announcer + list re-render semantics (warning-announcer spec), unchanged. No `AnimatePresence` anywhere in the touched tree.
+Interior blocks (§2.3a): parse-notes (N), notes group (G), actionable groups (A), ignored disclosure (I), pointer (P), clean row (C). Six blocks → 15 pairs. Coexistence is governed by the §2.3a predicates: P and C are mutually exclusive with each other AND with G and A (both require `info == 0 && act == 0`); every other combination can occur. For each pair, the table states the treatment of any transition that changes which of the two renders (mount, unmount, or swap). ALL are **instant — deliberate**: the panel is a data-driven re-render, the touched tree carries no transition classes today (`components/admin/wizard/step3ReviewSections.tsx:2754-2895`), and this bundle adds none.
+
+| Pair | Coexist? | Transition treatment |
+|---|---|---|
+| N–G | yes | instant |
+| N–A | yes | instant |
+| N–I | yes | instant |
+| N–P | yes | instant |
+| N–C | yes | instant |
+| G–A | yes | instant |
+| G–I | yes | instant |
+| G–P | never (matrix) | swap instant |
+| G–C | never (matrix) | swap instant |
+| A–I | yes | instant |
+| A–P | never (matrix) | swap instant |
+| A–C | never (matrix) | swap instant |
+| I–P | yes | instant |
+| I–C | yes | instant |
+| P–C | never (matrix) | swap instant |
+
+Single-block mount/unmount (N±, G±, A±, I±, P±, C±): instant. Simultaneous multi-block change on one refresh: single React commit, no intermediate frame — instant by construction. Popover open/close (note or amber card): existing HoverHelp fade, unchanged. Compound: background refresh while ANY popover (note or actionable) is open — existing PopoverHostContext teardown/reposition rules (HoverHelp specs 2026-07-22/23), unchanged; a refresh that unmounts the popover's card tears the popover down with it (existing portal-host contract). Ignore/bulk-ignore actions: existing announcer + list re-render semantics (warning-announcer spec), unchanged. No `AnimatePresence` anywhere in the touched tree.
 
 ### 2.7 Dimensional invariants
 
@@ -126,7 +146,7 @@ None. The panel box and cards are auto-height flex columns with no fixed-dimensi
 
 - **Blind spot being closed:** `tests/components/admin/stagedCardBaseline.test.tsx` renders the `PerShowActionableWarnings` leaf only; wizard chrome, card ordering, wizard-only props, AND the wizard warnings-body branch are invisible to it (deferral text, repo-root deferred ledger 2026-07-21 section).
 - **Test A — ParsePanel composition** (new file tests/components/admin/parsePanelComposition.test.tsx — created by this bundle, path in prose deliberately uncited): renders `ParsePanel` (`components/admin/ParsePanel.tsx:65-77`) with a staged multi-row fixture; asserts one `StagedReviewCard` per input row in input order, each mounting the actionable-warnings leaf (`components/admin/StagedReviewCard.tsx:519-520`); serialized-structure snapshot of the wizard chrome around the first card with the (already leaf-snapshotted) card interiors pruned. Failure mode caught: wizard-chrome or ordering change that leaves the shared leaf untouched.
-- **Test B — wizard warnings-branch pin** (same new file, second describe block): renders `WarningsBreakdown` with the gate OFF (no `routedWarnings`/`renderSectionExtras` in context — the wizard mount shape) and a fixture holding warn + info rows; asserts by rendered markers: every fixture row renders as a list row (both severities, count derived from fixture), the `CorrectionLoopCallout` is present unconditionally, the non-blocking line (`…-warnings-nonblocking` testid) is present, and NO group eyebrow / bulk chip / `per-show-actionable-item` card exists in the tree. This pins the wizard branch of `components/admin/wizard/step3ReviewSections.tsx:2754-2895` directly — the branch §2 edits sit next to. (The prior draft's "published-only props absent" claim is dropped: not executable from rendered DOM; the marker assertions above are the executable equivalent.)
+- **Test B — wizard warnings-branch pin** (same new file, second describe block): renders `WarningsBreakdown` with the gate OFF (no `routedWarnings`/`renderSectionExtras` in context — the wizard mount shape) and a fixture holding warn + info rows; asserts by rendered markers: every fixture row renders as a list row (both severities, count derived from fixture), the `CorrectionLoopCallout` is present unconditionally, the non-blocking line (`…-warnings-nonblocking` testid) is present, NO group eyebrow / bulk chip / `per-show-actionable-item` card exists in the tree, AND the per-row wizard controls render non-vacuously: the fixture threads `wizardSessionId` + `dfid` and includes one `UNKNOWN_ROLE_TOKEN` row and one use-raw-eligible structural row (the trim spec's §12 fixture rule), and the test asserts each of those rows renders its control boundary (recognize-role and use-raw respectively, `components/admin/wizard/step3ReviewSections.tsx:2984-2995` mount site) with an enabled, accessibly-named control. This pins the wizard branch of `components/admin/wizard/step3ReviewSections.tsx:2754-2995` directly — including the wizard-only control wiring §2.2 promises unchanged — the branch §2 edits sit next to. (The prior draft's "published-only props absent" claim is dropped: not executable from rendered DOM; the marker assertions above are the executable equivalent.)
 - **Anti-tautology:** expected row/card counts derive from the fixture; Test B's absence assertions are scoped to the rendered `BreakdownSection` subtree, cloned with independently-rendering siblings removed.
 - **Ordering within this PR:** both tests land and pass BEFORE the §2 panel rebuild commits, then must still pass unmodified after them.
 
@@ -144,14 +164,14 @@ None. The panel box and cards are auto-height flex columns with no fixed-dimensi
 ### 6.3 Placement contract (activates published-show-alerts §5.4 by id)
 
 - `CrewBreakdown` in published mode already receives `actions.crewIds`, index-aligned with `members` (`components/admin/wizard/step3ReviewSections.tsx:1520-1523`). `ShowReviewSurface` computes, per alert item with non-null `crewMatch`, the matched rendered indexes: `matched = shownIndexes.filter(i => crewMatch.crewMemberIds.includes(crewIds[i]))` over the SHOWN slice (`members.slice(0, CREW_CAP)`, `components/admin/wizard/step3ReviewSections.tsx:1525`).
-- **Completeness rule (total):** the banner fans out in-row — one banner inside each matched row's `<li>`, below row content, per the §5.4 DOM contract (`docs/superpowers/specs/2026-07-19-published-show-alerts.md:156-172`) — iff `matched.length === crewMatch.expectedCount`. Otherwise (any involved row unrendered: beyond `CREW_CAP`, roster drift since the alert, staged mode with no `actions`, `crewMatch` null, ids not in roster) the item renders ONE section-top banner exactly as today. Never both; never a partial fan-out. This makes partial visibility impossible by construction rather than by cap tuning.
+- **Completeness rule (total, set-correspondence — NOT a count comparison):** for each expected id, `hits(id) = |{ shown index i : crewIds[i] === id }|`. The banner fans out in-row — one banner inside each matched row's `<li>`, below row content, per the §5.4 DOM contract (`docs/superpowers/specs/2026-07-19-published-show-alerts.md:156-172`) — iff `hits(id) === 1` for EVERY id in `crewMatch.crewMemberIds` (unique one-to-one correspondence). Any other outcome — some `hits(id) === 0` (row beyond `CREW_CAP`, roster drift, id not in roster) or some `hits(id) > 1` (degenerate duplicate rendered ids) — renders ONE section-top banner exactly as today. Also section-top: staged mode with no `actions`, `crewMatch` null. Never both placements; never a partial fan-out; a duplicate rendered id can never double-place (the `[A,B]`-expected vs `[A,A]`-rendered case fails `hits(B) === 0` AND `hits(A) === 2`).
 - Same alert content in every placement: existing `dougFacing` template + params, byte-identical catalog (§1.1). Menu/bell rendering unchanged (single item, single menu row).
 - **Guard table:** old alert rows lacking ids → `crewMatch` null → section-top. Duplicate ids in context → deduped before `expectedCount`. Two roster rows with identical display names → irrelevant (matching is by id). A crew member renamed in the sheet → id unchanged → still matches. `crewIds` absent (staged/archived: `actions` undefined) → section-top. Empty roster → section-top.
 
 ### 6.4 Tests
 
 - `tests/e2e/published-show-attention.spec.ts:126` un-skips; assertions: banner inside EACH matched row's `<li>` (2 rows, id-seeded fixture), absent at section-top when fanned out, section-top fallback when one involved id is absent from the roster.
-- Unit (new file tests/admin/crewMatchFanout.test.ts — created by this bundle, path in prose deliberately uncited): derivation guards (missing/malformed/empty/non-UUID/duplicate ids → null or dedup as specified); completeness rule (matched < expected → section-top; == → fan-out; expected 0 impossible by null-guard); same-name-different-id rows get exactly one banner on the involved row; involved row beyond CREW_CAP → section-top; conservation (never in-row AND section-top; banner count == matched count when fanned out).
+- Unit (new file tests/admin/crewMatchFanout.test.ts — created by this bundle, path in prose deliberately uncited): derivation guards (missing/malformed/empty/non-UUID/duplicate ids → null or dedup as specified); completeness rule (some hits(id)==0 → section-top; all hits==1 → fan-out; duplicate RENDERED ids — expected [A,B], rendered [A,A] — → section-top; expected 0 impossible by null-guard); same-name-different-id rows get exactly one banner on the involved row; involved row beyond CREW_CAP → section-top; conservation (never in-row AND section-top; banner count == matched count when fanned out).
 
 ## 7. Item 5 — DEFERRED.md reconcile
 
@@ -165,7 +185,7 @@ No new boolean flags. `suppressPanelCard` (storage: chrome object; write: ShowRe
 
 - **Extends:** `tests/admin/visibleWarningRows.test.ts` (count helper), routed-warnings gate tests (`tests/components/admin/review/routedWarningsGate.test.tsx`), `publishedWarningNoLoss.test.tsx` (no-warning-lost identity union — must hold across the in-box move), attention-routes/alert-catalog meta-tests (item 6), INFO_CODE_ACTIONABILITY scanner (item 3), stagedCardBaseline (kept; item 4 adds the composition layer above it).
 - **Creates:** the §5 parsePanelComposition test file and the §6.4 crewMatchFanout test file (both new). <!-- spec-lint: ignore — files are created by this bundle -->
-- **Not applicable:** advisory-lock topology (no lock surface touched — `upsertAdminAlert` call shape unchanged inside the existing auth path); Supabase call-boundary registry (the widened select stays inside the already-registered helper); §12.4 catalog parity (no catalog edits); email canonicalization (producer already canonicalizes, `validateGoogleSession.ts:44`).
+- **Not applicable:** advisory-lock topology (no lock surface touched — `upsertAdminAlert` call shape unchanged inside the existing auth path); Supabase call-boundary registry (NO Supabase read or write path changes anywhere in this bundle — item 6's producer and its select are byte-identical, §6.1); §12.4 catalog parity (no catalog edits); email canonicalization (producer already canonicalizes, `validateGoogleSession.ts:44`).
 
 ## 10. Test strategy summary
 
