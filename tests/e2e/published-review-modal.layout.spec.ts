@@ -1342,6 +1342,49 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
     });
   }
 
+  // T-SLOT-PAINTS is the negative-regression half of the fix, and the ONLY test
+  // that can fail if `empty:hidden` over-reaches. `:empty` matches on child-node
+  // count, so a slot with content must stay in flow — but every other assertion
+  // here is satisfied by a slot that is hidden ALWAYS, and T-NOPHANTOM
+  // specifically skips `display:none` subtrees, so an over-broad `hidden` would
+  // read as green everywhere else. The archived page is the only fixture where
+  // this slot has a child.
+  //
+  // jsdom cannot stand in: the existing unit test
+  // (tests/components/admin/showpage/overviewSection.test.tsx) proves the notice
+  // is in the DOM, which is exactly what a `display:none` regression would also
+  // allow. Only a real browser resolves the class to a computed display.
+  test("T-SLOT-PAINTS [archived] @1280: the sheet/sync slot stays in flow when it HAS content", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 1280, height: 900 }, "archived.html");
+
+    const slot = await page
+      .locator(`${MODAL} [data-testid="overview-sheet-sync"]`)
+      .evaluate((el) => {
+        const notice = el.querySelector('[data-testid="admin-show-resync-archived"]');
+        const rect = el.getBoundingClientRect();
+        return {
+          display: getComputedStyle(el).display,
+          height: rect.height,
+          childCount: el.children.length,
+          noticeText: notice?.textContent?.trim() ?? null,
+          noticeHeight: notice?.getBoundingClientRect().height ?? 0,
+        };
+      });
+
+    // Premise: the fixture really does fill the slot. Without a child, `:empty`
+    // matches legitimately and the rest of this test would be about nothing.
+    expect(slot.childCount, "archived fixture fills the sheet/sync slot").toBeGreaterThan(0);
+    expect(slot.noticeText, "the Re-sync-paused notice is the child").toContain(
+      "Re-sync is paused",
+    );
+
+    expect(slot.display, "a populated slot is NOT display:none").not.toBe("none");
+    expect(slot.height, "a populated slot has real height").toBeGreaterThan(0);
+    expect(slot.noticeHeight, "the notice itself paints").toBeGreaterThan(0);
+  });
+
   // T-NOPHANTOM is the CLASS defense, not a second look at the same element: it
   // discovers zero-extent flex/grid items anywhere in the rendered modal instead
   // of naming the one that was reported. A new always-rendered, fully-gated
