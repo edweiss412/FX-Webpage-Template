@@ -1408,86 +1408,223 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
   // T-NOPHANTOM is the CLASS defense, not a second look at the same element: it
   // discovers zero-extent flex/grid items anywhere in the rendered modal instead
   // of naming the one that was reported. A new always-rendered, fully-gated
-  // wrapper fails this the moment it lands, in any section.
+  // wrapper fails this the moment it lands, in any section. It is what surfaced
+  // the ScheduleDayRow instance, which the bug report never mentioned.
   //
-  // Axis-aware on purpose: a zero-HEIGHT item only charges a gap in a column
-  // (row-gap) direction, and a zero-WIDTH item only in a row (column-gap) one.
-  // Out-of-flow children (absolute/fixed — every `sr-only` node here) are not
-  // items and cannot be charged; `display:none` children are not items either.
-  for (const { page: htmlPath, label } of [
+  // What it is and is NOT. It is a REGRESSION DETECTOR for one bug class in one
+  // tree, not a general proof that no gap is ever mischarged. Zero item extent is
+  // a PROXY for "this item contributes nothing but is charged a gap," and the
+  // proxy has documented limits, listed here so a green run is not read as more
+  // than it is:
+  //   - GENERATED BOXES. `::before` / `::after` can be flex/grid items and can
+  //     charge gaps, and `el.children` cannot enumerate them. Out of reach for
+  //     this mechanism entirely.
+  //   - GRID TRACKS vs GRID ITEMS. Grid gaps sit between TRACKS. An empty item
+  //     stretched across a non-zero track has a positive rect while its unwanted
+  //     track and adjacent gaps remain — a false green this probe cannot see.
+  //     Catching it needs computed track sizes (`grid-template-*` resolution),
+  //     which is a different tool.
+  //   - MULTI-LINE MEMBERSHIP. On the cross axis of a wrapped container the probe
+  //     cannot tell whether a zero-extent item sits alone on its own line (where
+  //     it does create a collapsed line, and a charged gap) or shares a line with
+  //     siblings (where it does not). It reports the item and lets the reader
+  //     judge; the alternative — staying silent on the whole axis — is how the
+  //     ScheduleDayRow instance would have been missed.
+  //
+  // Design decisions, each answering a specific way the naive version was wrong:
+  //   - AXIS SELECTION follows the container. A flex column charges `row-gap`
+  //     against zero HEIGHT; a flex row charges `column-gap` against zero WIDTH
+  //     (`startsWith("column")` handles `column-reverse` and `row-reverse`).
+  //     WRAPPED containers charge BOTH: a full-width zero-height item on its own
+  //     line in a wrapped row collapses that line and still pays `row-gap`. Grid
+  //     charges both unconditionally.
+  //   - ≥2 IN-FLOW ITEMS REQUIRED. A gapped container holding ONE item realizes
+  //     no gap at all, so its lone zero-size child is not an offender — reporting
+  //     it is a false red. The count is of in-flow items, computed below.
+  //   - `display:contents` IS FLATTENED, not skipped. The wrapper is correctly not
+  //     an item, but its descendant boxes are PROMOTED into this container's
+  //     formatting context and become items themselves. Skipping the wrapper
+  //     without recursing let a promoted zero-extent item hide.
+  //   - EXTENT NEEDS BOTH RECT AND OFFSET TO BE ZERO. `getBoundingClientRect()`
+  //     returns the TRANSFORMED visual rect, so a `scale(0)` element reads 0 while
+  //     still occupying its full layout box and charging nothing extra. `offset*`
+  //     is the untransformed layout box. Requiring both to vanish keeps transforms
+  //     out of the offender list without giving up sub-pixel sanity.
+  //   - HIDDEN-ANCESTOR DETECTION WALKS `display` EXPLICITLY rather than calling
+  //     `checkVisibility()`. Both resolve the ancestor chain (needed: descendants
+  //     of a `display:none` ancestor report 0×0 rects while their own computed
+  //     display is untouched — the `lg:hidden` chip rail alone contributed 25
+  //     false positives). But `checkVisibility()` ALSO returns false under
+  //     `content-visibility: hidden`, and `app/globals.css` does transition
+  //     `content-visibility` — an element skipped for that reason can still hold a
+  //     box and charge its parent's gap. `visibility:hidden` and `opacity:0` are
+  //     deliberately still counted as items: they occupy space, so they pay.
+  //
+  // Coverage: every fixture page the harness builds, at BOTH viewports. The
+  // responsive tree genuinely differs (the `lg:hidden` rail is proof), and a
+  // wrapper populated in one state can empty out in another — restricting this to
+  // one page at one width was the probe's largest blind spot. Client-only states
+  // (mid-publish, open popovers) remain unreachable: this harness does not
+  // hydrate.
+  const NOPHANTOM_PAGES = [
     { page: "", label: "normal (published, not archived)" },
     { page: "archived.html", label: "archived" },
-  ]) {
-    test(`T-NOPHANTOM [${label}] @1280: no zero-extent flex/grid item inside any gapped container`, async ({
-      page,
-    }) => {
-      await openHarness(page, { width: 1280, height: 900 }, htmlPath);
+    { page: "capped.html", label: "capped alert count" },
+    { page: "notlive.html", label: "not live" },
+    { page: "crewwarnings.html", label: "crew warnings" },
+    { page: "crewwarningscapped.html", label: "crew warnings capped" },
+  ] as const;
 
-      const found = await page.locator(MODAL).evaluate((modal) => {
-        const offenders: { parent: string; child: string; axis: string; gap: number }[] = [];
-        let gappedContainers = 0;
-        const label = (el: Element): string => {
-          const own = el.getAttribute("data-testid");
-          if (own !== null) return own;
-          const near = el.closest("[data-testid]")?.getAttribute("data-testid") ?? "?";
-          return `<${el.tagName.toLowerCase()} in ${near}>`;
-        };
-        // `display:none` HIDES A WHOLE SUBTREE, and every descendant of a hidden
-        // ancestor reports a 0×0 rect while its OWN computed display is
-        // untouched. Without this the walk drowns in false positives from the
-        // `lg:hidden` chip rail (each chip's dot and icon read as zero-width) —
-        // and a probe that reports 25 non-bugs alongside the 1 real one is a
-        // probe nobody can act on. `checkVisibility()` resolves the ancestor
-        // chain; it deliberately does NOT check `visibility:hidden` or opacity,
-        // because those elements DO occupy space and so do charge the gap.
-        const rendered = (el: Element): boolean =>
-          typeof (el as HTMLElement).checkVisibility === "function"
-            ? (el as HTMLElement).checkVisibility()
-            : el.getClientRects().length > 0;
-        for (const el of [modal, ...Array.from(modal.querySelectorAll("*"))]) {
-          if (!rendered(el)) continue;
-          const cs = getComputedStyle(el);
-          const isFlex = cs.display === "flex" || cs.display === "inline-flex";
-          const isGrid = cs.display === "grid" || cs.display === "inline-grid";
-          if (!isFlex && !isGrid) continue;
-          const rowGap = parseFloat(cs.rowGap) || 0;
-          const colGap = parseFloat(cs.columnGap) || 0;
-          // Which axis stacks: flex reads flex-direction; grid charges both.
-          const column = isGrid || cs.flexDirection.startsWith("column");
-          const row = isGrid || !cs.flexDirection.startsWith("column");
-          const axes = [
-            ...(column && rowGap > 0 ? [{ axis: "row-gap", gap: rowGap, dim: "height" }] : []),
-            ...(row && colGap > 0 ? [{ axis: "column-gap", gap: colGap, dim: "width" }] : []),
-          ];
-          if (axes.length === 0) continue;
-          gappedContainers += 1;
-          for (const child of Array.from(el.children)) {
-            if (!rendered(child)) continue;
-            const ccs = getComputedStyle(child);
-            if (ccs.display === "contents") continue;
-            if (ccs.position === "absolute" || ccs.position === "fixed") continue;
-            const rect = child.getBoundingClientRect();
-            for (const { axis, gap, dim } of axes) {
-              const extent = dim === "height" ? rect.height : rect.width;
-              if (extent === 0) {
-                offenders.push({ parent: label(el), child: label(child), axis, gap });
+  /**
+   * KNOWN, DEFERRED instances of this class — a debt ledger, not a mute switch.
+   *
+   * Each row is subtracted from the offender list so the probe still fails on
+   * anything NEW, and each carries the reason it is not fixed here. A ledger row
+   * that gets fixed simply stops matching; the BACKLOG entry owns its removal.
+   *
+   * The one row below is PRE-EXISTING and lives in a component this branch does
+   * not touch (`components/admin/BulkIgnoreControls.tsx:179`): the warning group's
+   * decorative `h-px flex-1 bg-border` hairline. In a crowded `flex items-center
+   * gap-2` row at 375px the label and the bulk chip consume the line, `flex-1`
+   * resolves to zero width, and the row still charges `gap-2` on both sides of an
+   * invisible rule — one extra 8px, exactly this class. Fixing it is a visual
+   * decision about crowded-row behavior at narrow widths (drop the rule below some
+   * width? give it a min-width? let the row wrap?), which belongs with that
+   * component and its own before/after judgment, not bundled into this seam fix.
+   */
+  const KNOWN_PHANTOM_ITEMS: { parent: string; child: string; axis: string; why: string }[] = [
+    {
+      parent: "<div in dq-active-group-FIELD_UNREADABLE>",
+      child: "<span in dq-active-group-FIELD_UNREADABLE>",
+      axis: "column-gap",
+      why: "BulkIgnoreControls.tsx:179 decorative hairline collapses to 0 width in a crowded row at 375px — pre-existing, deferred to BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW",
+    },
+  ];
+
+  for (const { page: htmlPath, label } of NOPHANTOM_PAGES) {
+    for (const { mode, width, height: vh } of MODES) {
+      test(`T-NOPHANTOM [${label}] ${mode} @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
+        page,
+      }) => {
+        await openHarness(page, { width, height: vh }, htmlPath);
+
+        const found = await page.locator(MODAL).evaluate((modal) => {
+          const offenders: { parent: string; child: string; axis: string; gap: number }[] = [];
+          const visited: string[] = [];
+          let itemsExamined = 0;
+          const label = (el: Element): string => {
+            const own = el.getAttribute("data-testid");
+            if (own !== null) return own;
+            const near = el.closest("[data-testid]")?.getAttribute("data-testid") ?? "?";
+            return `<${el.tagName.toLowerCase()} in ${near}>`;
+          };
+          /** `display:none` anywhere up to the modal removes the whole subtree. */
+          const hidden = (el: Element): boolean => {
+            let node: Element | null = el;
+            while (node !== null) {
+              if (getComputedStyle(node).display === "none") return true;
+              if (node === modal) return false;
+              node = node.parentElement;
+            }
+            return false;
+          };
+          /** The container's real items, with `display:contents` flattened away. */
+          const itemsOf = (container: Element): Element[] => {
+            const out: Element[] = [];
+            for (const child of Array.from(container.children)) {
+              const ccs = getComputedStyle(child);
+              if (ccs.display === "none") continue;
+              if (ccs.position === "absolute" || ccs.position === "fixed") continue;
+              if (ccs.display === "contents") {
+                out.push(...itemsOf(child));
+                continue;
+              }
+              out.push(child);
+            }
+            return out;
+          };
+          /** Zero on BOTH the visual rect and the untransformed layout box. */
+          const vanishes = (el: Element, dim: "height" | "width"): boolean => {
+            const rect = el.getBoundingClientRect();
+            if ((dim === "height" ? rect.height : rect.width) !== 0) return false;
+            const offset =
+              dim === "height" ? (el as HTMLElement).offsetHeight : (el as HTMLElement).offsetWidth;
+            return typeof offset !== "number" || offset === 0;
+          };
+
+          for (const el of [modal, ...Array.from(modal.querySelectorAll("*"))]) {
+            if (hidden(el)) continue;
+            const cs = getComputedStyle(el);
+            const isFlex = cs.display === "flex" || cs.display === "inline-flex";
+            const isGrid = cs.display === "grid" || cs.display === "inline-grid";
+            if (!isFlex && !isGrid) continue;
+            const rowGap = parseFloat(cs.rowGap) || 0;
+            const colGap = parseFloat(cs.columnGap) || 0;
+            const isColumn = cs.flexDirection.startsWith("column");
+            const wraps = isFlex && cs.flexWrap !== "nowrap";
+            // Grid charges both axes; flex charges its main axis always and its
+            // cross axis only when it can produce more than one line.
+            const chargesRowGap = isGrid || isColumn || wraps;
+            const chargesColGap = isGrid || !isColumn || wraps;
+            const axes = [
+              ...(chargesRowGap && rowGap > 0
+                ? [{ axis: "row-gap", gap: rowGap, dim: "height" as const }]
+                : []),
+              ...(chargesColGap && colGap > 0
+                ? [{ axis: "column-gap", gap: colGap, dim: "width" as const }]
+                : []),
+            ];
+            if (axes.length === 0) continue;
+            const items = itemsOf(el);
+            // One item realizes no gap — nothing to mischarge.
+            if (items.length < 2) continue;
+            visited.push(label(el));
+            for (const item of items) {
+              itemsExamined += 1;
+              for (const { axis, gap, dim } of axes) {
+                if (vanishes(item, dim)) {
+                  offenders.push({ parent: label(el), child: label(item), axis, gap });
+                }
               }
             }
           }
-        }
-        return { offenders, gappedContainers };
-      });
+          return { offenders, visited, itemsExamined };
+        });
 
-      // Non-vacuity: if the walk found no gapped container at all (a selector or
-      // CSS-load regression), an empty offender list would prove nothing.
-      expect(
-        found.gappedContainers,
-        `the modal really contains gapped flex/grid containers [${label}]`,
-      ).toBeGreaterThan(10);
-      expect(
-        found.offenders,
-        `zero-extent items charge their parent's gap and show as a seam no element accounts for [${label}]`,
-      ).toEqual([]);
-    });
+        // NON-VACUITY BY NAMED ANCHOR, not by a magic container count. A count
+        // floor is satisfiable by eleven unrelated controls while the subtree that
+        // actually matters is absent or suppressed, and it fails a legitimate
+        // refactor that reduces the number of gapped containers.
+        //
+        // The anchor is the SCROLL PANE — `flex flex-col gap-6`, holding every rail
+        // section, and the container whose gap the reported bug doubled. It renders
+        // on every fixture page at every width with many items.
+        //
+        // NOT the Overview section itself, which would be wrong in an instructive
+        // way: now that the fix lands, Overview holds exactly ONE in-flow item on
+        // every non-archived page, so the ≥2-items rule correctly skips it and it
+        // never enters `visited`. An anchor that only holds while the bug is
+        // present is not an anchor.
+        expect(
+          found.visited.filter((v) => v.endsWith("-review-content")),
+          `the walk reached the section scroll pane [${label} @ ${width}]`,
+        ).not.toEqual([]);
+        expect(
+          found.itemsExamined,
+          `the walk examined real items [${label} @ ${width}]`,
+        ).toBeGreaterThan(20);
+        // Ledgered rows are subtracted, never ignored: anything NEW still fails.
+        const fresh = found.offenders.filter(
+          (o) =>
+            !KNOWN_PHANTOM_ITEMS.some(
+              (k) => k.parent === o.parent && k.child === o.child && k.axis === o.axis,
+            ),
+        );
+        expect(
+          fresh,
+          `zero-extent items charge their parent's gap and show as a seam no element accounts for [${label} @ ${width}]`,
+        ).toEqual([]);
+      });
+    }
   }
 });
