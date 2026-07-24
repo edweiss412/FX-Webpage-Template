@@ -63,7 +63,7 @@ function codesFor(s: AttentionScenario): string[] {
  * warning sections, with production's EFFECTIVE-placement fallbacks
  * (modal-state coverage §3.7):
  *  - a warning whose routed section is not rendered for this scenario's data
- *    lands in Parse warnings (`warningsBySection` parity);
+ *    lands in Sheet warnings (`warningsBySection` parity);
  *  - an anchored alert item whose anchor is absent from the data lands in
  *    Overview (the modal's unavailable-anchor redirect parity) — today that
  *    corrects exactly T2_ANCHOR_ABSENT;

@@ -199,7 +199,7 @@ export function ShowReviewSurface({
   extraSectionsAfter?: ExtraSection[]; // Phase 2: [Changes]
   renderSectionExtras?: (id: SectionId, d: SectionData, opts?: { seamless?: boolean }) => ReactNode; // Phase 2 hook: per-section warning controls
   // warning-surface-trim §3.2: ACTIVE warn counts, split into the fallback
-  // bucket rendering below the Parse warnings panel (`here`) and every other
+  // bucket rendering below the Sheet warnings panel (`here`) and every other
   // section (`elsewhere`). Passed by the published modal alongside
   // `renderSectionExtras`; the staged wizard passes neither.
   routedWarnings?: RoutedWarnings;
@@ -335,7 +335,7 @@ export function ShowReviewSurface({
       // `here` ONLY (impeccable audit P1). This dot and its sr-only
       // " — needs review" describe the WARNINGS row specifically, and after the
       // trim that row's live content is just its own bucket. Counting
-      // `elsewhere` made a screen reader announce "Parse warnings (0) — needs
+      // `elsewhere` made a screen reader announce "Sheet warnings (0) — needs
       // review" right next to the body's "Nothing else to note here." clause,
       // and those warnings already light their own sections' dots via `flagged`.
       return routedWarnings.here > 0;

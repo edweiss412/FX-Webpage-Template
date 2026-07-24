@@ -282,7 +282,7 @@ describe("the gate is the conjunction of both preconditions", () => {
         value={
           {
             Icon: (() => null) as never,
-            label: "Parse warnings",
+            label: "Sheet warnings",
             flagged: false,
             judgment: false,
             routedWarnings: { here: 1, elsewhere: 2 },

@@ -334,7 +334,7 @@ export async function ShowReviewModal({ slug, alertId }: { slug: string; alertId
   });
 
   // The §5.1 correction-loop gate that used to live here is GONE with the
-  // Overview callout it fed. The guidance now renders in the Parse warnings
+  // Overview callout it fed. The guidance now renders in the Sheet warnings
   // panel, which gates on the raw `warnings.length` it already holds — so no
   // actionable-warning partition has to be recomputed on the server and handed
   // down. Deleting the gate WITH its only consumer is deliberate: a surviving

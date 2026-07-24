@@ -47,7 +47,7 @@ describe("audience-derived code sets", () => {
     // The note states the CLEAR CONDITION only. The instruction to fix the sheet
     // is the alert body's job, and this footer used to repeat it verbatim one
     // line below — the same duplication this change removed between Overview and
-    // the Parse warnings panel, at a smaller scale.
+    // the Sheet warnings panel, at a smaller scale.
     expect(autoResolveNote("RESYNC_QUALITY_REGRESSED")).not.toContain("fix the sheet");
   });
 

@@ -4216,7 +4216,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
     },
     {
       id: "warnings",
-      label: "Parse warnings",
+      label: "Sheet warnings",
       group: "Checks",
       Icon: AlertTriangle,
       // Both severities — the rail count counts list rows (§3.3).

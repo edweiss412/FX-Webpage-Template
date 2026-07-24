@@ -450,7 +450,7 @@ describe("the warnings rail row describes its OWN content", () => {
     // of them, so a fix that only corrects one is still caught.
     const rows = screen
       .getAllByRole("button")
-      .filter((b) => (b.textContent ?? "").includes("Parse warnings"));
+      .filter((b) => (b.textContent ?? "").includes("Sheet warnings"));
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(row.textContent ?? "").not.toContain("needs review");

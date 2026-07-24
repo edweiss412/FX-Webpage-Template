@@ -21,7 +21,7 @@ export const NAV: ReadonlyArray<NavEntry> = [
   // Admin surface
   { slug: "/help/admin/dashboard", title: "Reading the dashboard", group: "admin-surface" },
   { slug: "/help/admin/review-queues", title: "Review queues", group: "admin-surface" },
-  { slug: "/help/admin/parse-warnings", title: "Parse warnings", group: "admin-surface" },
+  { slug: "/help/admin/parse-warnings", title: "Sheet warnings", group: "admin-surface" },
   { slug: "/help/admin/per-show-panel", title: "Per-show panel", group: "admin-surface" },
   { slug: "/help/admin/preview-as-crew", title: "Preview as crew", group: "admin-surface" },
   { slug: "/help/admin/sharing-links", title: "Sharing crew links", group: "admin-surface" },
