@@ -99,7 +99,57 @@ and after `landing` (~line 181):
    *  (NOOP success for prop closures; GalleryWriteGuard 403 for writes). */
   actionOutcomes?: ScenarioActionOutcomes;
 ```
-- [ ] **Step 4: validator.** `validate.ts` imports: `RESYNC_ERROR_CODES` (VALUE import from `./types`), `shapeChangeFeed` from `@/lib/sync/feed/shapeChangeFeed`, `groupIgnorableByCode` from `@/lib/dataQuality/bulkIgnoreGroups`, `deriveScenarioAttention` from `./..` (wherever validate already imports it — it does for the PARSE_ERROR check; reuse). Kind-allowlist walk as R0 (`ACTION_OUTCOME_KINDS`). Reachability via PRODUCTION derivers:
+- [ ] **Step 4: validator.** `validate.ts` imports: `RESYNC_ERROR_CODES` (VALUE import from `./types`), `shapeChangeFeed` from `@/lib/sync/feed/shapeChangeFeed`, `groupIgnorableByCode` from `@/lib/dataQuality/bulkIgnoreGroups`, `deriveScenarioAttention` from `./..` (wherever validate already imports it — it does for the PARSE_ERROR check; reuse). Kind-allowlist walk:
+
+```ts
+const ACTION_OUTCOME_KINDS: Record<string, ReadonlySet<string>> = {
+  setPublished: new Set(["success", "error", "pending"]),
+  archive: new Set(["success", "error", "pending", "not_found"]),
+  undo: new Set(["success", "error", "pending"]),
+  accept: new Set(["success", "error", "pending"]),
+  acceptAll: new Set(["success", "error", "pending"]),
+  approve: new Set(["success", "error", "pending"]),
+  reject: new Set(["success", "error", "pending"]),
+  resync: new Set(["success", "shrink_held", "error", "pending"]),
+  resolve: new Set(["success", "error", "pending"]),
+  bulkIgnore: new Set(["partial", "fail", "pending"]),
+  crewReset: new Set(["success", "not_found", "error", "pending"]),
+  rotate: new Set(["success", "error", "pending"]),
+  everyoneReset: new Set(["success", "error", "pending"]),
+};
+
+function validateActionOutcomes(s: AttentionScenario, out: string[]): void {
+  const ao = s.actionOutcomes;
+  if (!isPlainObject(ao)) { out.push("actionOutcomes: must be a plain object"); return; }
+  const keys = Object.keys(ao);
+  if (keys.length === 0) { out.push("actionOutcomes: empty object is a no-op"); return; }
+  for (const key of keys) {
+    const allowed = ACTION_OUTCOME_KINDS[key];
+    if (allowed === undefined) { out.push(`actionOutcomes: unknown key ${key}`); continue; }
+    const v = (ao as Record<string, unknown>)[key];
+    if (!isPlainObject(v) || typeof (v as { kind?: unknown }).kind !== "string" || !allowed.has((v as { kind: string }).kind)) {
+      out.push(`actionOutcomes.${key}: kind must be one of ${[...allowed].join("/")}`);
+      continue;
+    }
+    const kind = (v as { kind: string }).kind;
+    if (kind === "error" && key !== "crewReset" && key !== "rotate" && key !== "everyoneReset") {
+      const code = (v as { code?: unknown }).code;
+      if (typeof code !== "string" || code.trim() === "") {
+        out.push(`actionOutcomes.${key}: error code must be non-blank`);
+      } else if (key === "resync" && !(RESYNC_ERROR_CODES as readonly string[]).includes(code)) {
+        out.push(`actionOutcomes.resync: code must be one of ${RESYNC_ERROR_CODES.join("/")}`);
+      }
+    }
+    if (key === "resync" && kind === "shrink_held") {
+      const detail = (v as { detail?: unknown }).detail;
+      if (typeof detail !== "string" || detail.trim() === "") out.push("actionOutcomes.resync: shrink_held detail must be non-blank");
+    }
+  }
+  validateActionOutcomeReachability(s, ao as ScenarioActionOutcomes, out);
+}
+```
+
+Wire-in inside `validateModalStateFields`, after the `fixture` block: `if (tier2Only(s.actionOutcomes !== undefined, "actionOutcomes")) validateActionOutcomes(s, out);`. Reachability via PRODUCTION derivers:
 
 ```ts
 function validateActionOutcomeReachability(s: AttentionScenario, ao: ScenarioActionOutcomes, out: string[]): void {
@@ -159,7 +209,45 @@ function validateActionOutcomeReachability(s: AttentionScenario, ao: ScenarioAct
   - Import `NOOP_ACTIONS` from the new module (it is now exported; never import from the switcher).
   - Call actions with their REAL arities from the prop types (`ChangesFeed.tsx:20-33` — `useActionState`-driven actions take `(prevState, formData)`): `acts.acceptAllAction(null, new FormData())`, `acts.undoAction(null, new FormData())`; `setPublished(true)`; `archiveAction()` per its own prop type — copy each signature from `PublishedReviewModalProps` at code time; the `satisfies` pin makes a wrong arity a compile error, which IS the test's compile-time half.
   - Derived count (no literal-in-literal-out): `const ACCEPTABLE = 4; const acts = buildScriptedActions({ acceptAll: { kind: "success" } }, ACCEPTABLE); await expect(acts.acceptAllAction(null, new FormData())).resolves.toEqual({ ok: true, count: ACCEPTABLE });` — failure mode: builder hardcoding a count.
-  - Hang race, fetch-script sequencing, resync status map, channel-3 unions: as R0 (bulk `respond(0..2)` table, `heldModifiedTime` fixed literal, `PICKER_*` codes).
+  - Hang race, fetch-script sequencing, resync status map, channel-3 unions:
+
+```ts
+const HANG_TIMEOUT = 50;
+const never = (p: Promise<unknown>) =>
+  Promise.race([p.then(() => "resolved"), new Promise((r) => setTimeout(() => r("hung"), HANG_TIMEOUT))]);
+
+it("pending closures never settle", async () => {
+  const acts = buildScriptedActions({ undo: { kind: "pending" } }, 0);
+  await expect(never(acts.undoAction(null, new FormData()))).resolves.toBe("hung");
+});
+it("builds fetch scripts with sequenced bulk-ignore", () => {
+  const scripts = buildFetchScripts({ bulkIgnore: { kind: "partial", okCount: 2 },
+    resync: { kind: "shrink_held", detail: "2 crew removed" } });
+  const bulk = scripts.find((s) => s.key === "bulkIgnore")!;
+  expect(bulk.respond(0)).toEqual({ status: 200, body: { status: "ignored" } });
+  expect(bulk.respond(1)).toEqual({ status: 200, body: { status: "ignored" } });
+  expect(bulk.respond(2)).toEqual({ status: 500, body: { ok: false, code: "GALLERY_SCRIPTED_FAIL" } });
+  const resync = scripts.find((s) => s.key === "resync")!;
+  expect(resync.pathPattern.test("/api/admin/sync/gallery-show")).toBe(true);
+  expect(resync.respond(0)).toEqual({ status: 200, body: { ok: true,
+    result: { outcome: "shrink_held", detail: "2 crew removed", heldModifiedTime: "2026-06-29T00:00:00.000Z" } } });
+});
+it("maps resync error codes to route statuses", () => {
+  const s = buildFetchScripts({ resync: { kind: "error", code: "PENDING_SYNC_NOT_FOUND" } })[0]!;
+  expect(s.respond(0)).toEqual({ status: 404, body: { ok: false, error: "PENDING_SYNC_NOT_FOUND" } });
+});
+it("builds channel-3 overrides matching the real result unions", async () => {
+  const o = buildActionOverrides({ crewReset: { kind: "not_found" }, rotate: { kind: "success" } })!;
+  await expect(o.resetCrewMemberSelection!({ showId: "x", crewMemberId: "y" }))
+    .resolves.toEqual({ ok: false, code: "PICKER_CREW_MEMBER_NOT_FOUND" });
+  await expect(o.rotateShareToken!({ showId: "x" }))
+    .resolves.toEqual({ ok: true, new_share_token: "gallery-share-token-rotated", new_epoch: 2 });
+  expect(o.resetPickerEpoch).toBeUndefined();
+  expect(buildActionOverrides(null)).toBeNull();
+});
+```
+
+  (Failure modes: a settled pending closure; unsequenced bulk responses; wrong status mapping; override shape drifting from the real result unions.)
 - [ ] **Step 2:** FAIL. **Step 3: implement.** Signature `buildScriptedActions(outcomes: ScenarioActionOutcomes | null, acceptableCount: number)`. Response mappings (spec §2/§3.2 envelopes):
   - resync success → `200 { ok: true, result: { outcome: outcome ?? "applied" } }`; shrink → `200 { ok: true, result: { outcome: "shrink_held", detail, heldModifiedTime: "2026-06-29T00:00:00.000Z" } }`; error → status map `SYNC_INFRA_ERROR:500, PENDING_SYNC_NOT_FOUND:404, FINALIZE_OWNED_SHOW:409, SHOW_BUSY_RETRY:409`, body `{ ok: false, error: code }`; pending → `"hang"`.
   - resolve success → `200 { status: "resolved", id: "gallery-alert", resolved_at: "2026-07-01T00:00:00.000Z" }`; error → `500 { ok: false, code }`; pending → hang.
@@ -229,7 +317,7 @@ Call sites (one hook line + one wrap each): `const overrideReset = useDevActionO
 
 **Files:** Modify `components/admin/dev/AttentionModalSwitcher.tsx`. Test `tests/dev/attentionModalSwitcherActions.test.tsx` (new; mock `PublishedReviewModal` module, capture props).
 
-- [ ] **Step 1: failing test** — as R0 Task 6 Step 1 (scripted refusal captured on A; NOOP identity on B; context value visible to a probe consumer; guard mounted with scripts).
+- [ ] **Step 1: failing test** — render the switcher with a two-scenario fixture: scenario A scripts `setPublished: { kind: "error", code: "PUBLISH_BLOCKED_PENDING_REVIEW" }`, scenario B unscripted. Mock the `PublishedReviewModal` module (do NOT render the real modal tree in jsdom) and capture its props. Assert: (a) scenario A's captured `setPublished` resolves the scripted refusal; (b) after switching, scenario B's captured `setPublished` IS `NOOP_ACTIONS.setPublished` (identity); (c) a probe consumer of `DevActionOverrideContext` rendered inside sees the built overrides when channel-3 keys are scripted and `null` otherwise; (d) `GalleryWriteGuard` is rendered with the scenario's fetch scripts (mock it too and capture props). Failure modes: scripts leaking across scenarios; provider never mounted; guard mount lost in the relocation.
 - [ ] **Step 2:** FAIL. **Step 3: implement** — hooks CANNOT sit after the existing `total === 0` early return (`AttentionModalSwitcher.tsx:133-137`), and hoisting them makes `current` `| undefined` under `noUncheckedIndexedAccess`. Extract a child rendered only when a scenario exists; hooks live in the child, unconditional:
 
 ```tsx
