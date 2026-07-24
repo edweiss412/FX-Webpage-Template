@@ -593,7 +593,11 @@ test.describe("action outcomes (spec 2026-07-23 gallery-action-outcomes)", () =>
   // Non-egress recorder: scripted endpoints must never produce a real network
   // request — GalleryWriteGuard synthesizes the Response BEFORE dispatch, so a
   // single request event to any of these paths is a containment failure.
-  const SCRIPTED_ENDPOINTS = [/\/api\/admin\/sync\//, /\/alerts\/[^/]+\/resolve$/, /\/data-quality\/ignore$/];
+  const SCRIPTED_ENDPOINTS = [
+    /\/api\/admin\/sync\//,
+    /\/alerts\/[^/]+\/resolve$/,
+    /\/data-quality\/ignore$/,
+  ];
   let scriptedEgress: string[] = [];
   const onRequest = (req: Request) => {
     const u = new URL(req.url());
@@ -675,7 +679,9 @@ test.describe("action outcomes (spec 2026-07-23 gallery-action-outcomes)", () =>
     await chip.click(); // confirm (two-tap guard)
     const alertBox = dialog.locator('[data-testid="dq-bulk-ignore-error"]');
     await expect(alertBox).toBeVisible();
-    await expect(alertBox).toContainText(`Ignored ${okCount} of ${groupSize}. Refresh to see the rest.`);
+    await expect(alertBox).toContainText(
+      `Ignored ${okCount} of ${groupSize}. Refresh to see the rest.`,
+    );
     await expect(page.locator("html")).toHaveAttribute(
       "data-gallery-scripted-write",
       /POST .*\/data-quality\/ignore/,

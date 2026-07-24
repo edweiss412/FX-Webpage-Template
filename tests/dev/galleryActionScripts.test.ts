@@ -19,9 +19,9 @@ describe("buildScriptedActions (channel 1)", () => {
   });
 
   test("channel-2/3-only scripts also return the NOOP identity", () => {
-    expect(buildScriptedActions({ resync: { kind: "pending" }, rotate: { kind: "success" } }, 0)).toBe(
-      NOOP_ACTIONS,
-    );
+    expect(
+      buildScriptedActions({ resync: { kind: "pending" }, rotate: { kind: "success" } }, 0),
+    ).toBe(NOOP_ACTIONS);
   });
 
   test("scripted results are contract-exact; unscripted keys keep NOOP members", async () => {
@@ -36,8 +36,14 @@ describe("buildScriptedActions (channel 1)", () => {
       },
       ACCEPTABLE,
     );
-    await expect(acts.setPublished(true)).resolves.toEqual({ ok: false, code: "FINALIZE_OWNED_SHOW" });
-    await expect(acts.acceptAllAction(null, new FormData())).resolves.toEqual({ ok: true, count: ACCEPTABLE });
+    await expect(acts.setPublished(true)).resolves.toEqual({
+      ok: false,
+      code: "FINALIZE_OWNED_SHOW",
+    });
+    await expect(acts.acceptAllAction(null, new FormData())).resolves.toEqual({
+      ok: true,
+      count: ACCEPTABLE,
+    });
     await expect(acts.archiveAction()).resolves.toEqual({ ok: false, code: "show_not_found" });
     expect(acts.undoAction).toBe(NOOP_ACTIONS.undoAction);
   });
@@ -82,7 +88,9 @@ describe("buildFetchScripts (channel 2)", () => {
   });
 
   test("resync error codes map to the route's real statuses", () => {
-    const scripts = buildFetchScripts({ resync: { kind: "error", code: "PENDING_SYNC_NOT_FOUND" } });
+    const scripts = buildFetchScripts({
+      resync: { kind: "error", code: "PENDING_SYNC_NOT_FOUND" },
+    });
     expect(scripts[0]?.respond(0)).toEqual({
       status: 404,
       body: { ok: false, error: "PENDING_SYNC_NOT_FOUND" },
@@ -99,11 +107,14 @@ describe("buildFetchScripts (channel 2)", () => {
 
 describe("buildActionOverrides (channel 3)", () => {
   test("overrides match the real result unions; unscripted keys absent", async () => {
-    const o = buildActionOverrides({ crewReset: { kind: "not_found" }, rotate: { kind: "success" } });
+    const o = buildActionOverrides({
+      crewReset: { kind: "not_found" },
+      rotate: { kind: "success" },
+    });
     expect(o).not.toBeNull();
-    await expect(
-      o!.resetCrewMemberSelection!({ showId: "x", crewMemberId: "y" }),
-    ).resolves.toEqual({ ok: false, code: "PICKER_CREW_MEMBER_NOT_FOUND" });
+    await expect(o!.resetCrewMemberSelection!({ showId: "x", crewMemberId: "y" })).resolves.toEqual(
+      { ok: false, code: "PICKER_CREW_MEMBER_NOT_FOUND" },
+    );
     await expect(o!.rotateShareToken!({ showId: "x" })).resolves.toEqual({
       ok: true,
       new_share_token: "gallery-share-token-rotated",

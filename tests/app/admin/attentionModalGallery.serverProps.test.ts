@@ -338,6 +338,8 @@ describe("actionOutcomes passthrough (spec 2026-07-23 §3.1)", () => {
     }
     // At least the roster's scripted scenarios must be non-null once Task 7 lands;
     // until then this pins the null default end-to-end.
-    expect(rendered.every((r) => r.actionOutcomes === null || typeof r.actionOutcomes === "object")).toBe(true);
+    expect(
+      rendered.every((r) => r.actionOutcomes === null || typeof r.actionOutcomes === "object"),
+    ).toBe(true);
   });
 });

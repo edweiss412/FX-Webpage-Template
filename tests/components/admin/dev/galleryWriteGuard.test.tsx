@@ -91,7 +91,9 @@ describe("GalleryWriteGuard scripted responses (spec 2026-07-23 §3.2)", () => {
     document.documentElement.removeAttribute("data-gallery-blocked-write");
     const real = vi.fn(async () => new Response("{}", { status: 200 }));
     window.fetch = real as unknown as typeof window.fetch;
-    const scripts = buildFetchScripts({ resync: { kind: "shrink_held", detail: "2 crew removed" } });
+    const scripts = buildFetchScripts({
+      resync: { kind: "shrink_held", detail: "2 crew removed" },
+    });
     render(<GalleryWriteGuard scripts={scripts} />);
     await waitFor(() => expect(window.fetch).not.toBe(real));
 
@@ -108,7 +110,9 @@ describe("GalleryWriteGuard scripted responses (spec 2026-07-23 §3.2)", () => {
 
     const blocked = await window.fetch("/api/other", { method: "POST" });
     expect(blocked.status).toBe(403);
-    expect(document.documentElement.getAttribute("data-gallery-blocked-write")).toContain("/api/other");
+    expect(document.documentElement.getAttribute("data-gallery-blocked-write")).toContain(
+      "/api/other",
+    );
     expect(real).not.toHaveBeenCalled();
   });
 

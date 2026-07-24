@@ -17,9 +17,7 @@ vi.mock("@/components/admin/showpage/PublishedReviewModal", async () => {
   // The mock consumes the REAL override context so the test can observe the
   // provider value exactly where the production tree would read it.
   const { useContext } = await import("react");
-  const { DevActionOverrideContext } = await import(
-    "@/components/admin/dev/actionOverrideContext"
-  );
+  const { DevActionOverrideContext } = await import("@/components/admin/dev/actionOverrideContext");
   return {
     PublishedReviewModal: (props: Record<string, unknown>) => {
       capturedProps = props;
@@ -73,7 +71,9 @@ afterEach(() => {
 
 describe("ScenarioMount", () => {
   test("scripted closures reach the modal; unscripted scenario keeps NOOP identity", async () => {
-    render(<AttentionModalSwitcher scenarios={[SCRIPTED, UNSCRIPTED]} excluded={[]} initialId="a" />);
+    render(
+      <AttentionModalSwitcher scenarios={[SCRIPTED, UNSCRIPTED]} excluded={[]} initialId="a" />,
+    );
     const setPublished = capturedProps.setPublished as (next: boolean) => Promise<unknown>;
     await expect(setPublished(true)).resolves.toEqual({
       ok: false,
@@ -90,7 +90,9 @@ describe("ScenarioMount", () => {
   });
 
   test("override provider carries built overrides for channel-3 scripts, null otherwise", async () => {
-    render(<AttentionModalSwitcher scenarios={[SCRIPTED, UNSCRIPTED]} excluded={[]} initialId="a" />);
+    render(
+      <AttentionModalSwitcher scenarios={[SCRIPTED, UNSCRIPTED]} excluded={[]} initialId="a" />,
+    );
     expect(screen.getByTestId("mock-modal")).toBeInTheDocument();
     // crewReset scripted -> the provider value the modal subtree sees carries
     // the scripted implementation with the real result union.
@@ -98,10 +100,12 @@ describe("ScenarioMount", () => {
       resetCrewMemberSelection?: (i: { showId: string; crewMemberId: string }) => Promise<unknown>;
     } | null;
     expect(o).not.toBeNull();
-    await expect(o!.resetCrewMemberSelection!({ showId: "x", crewMemberId: "y" })).resolves.toEqual({
-      ok: false,
-      code: "PICKER_CREW_MEMBER_NOT_FOUND",
-    });
+    await expect(o!.resetCrewMemberSelection!({ showId: "x", crewMemberId: "y" })).resolves.toEqual(
+      {
+        ok: false,
+        code: "PICKER_CREW_MEMBER_NOT_FOUND",
+      },
+    );
     // switch to the unscripted scenario: provider value drops to null
     fireEvent.keyDown(document, { key: "ArrowRight" });
     expect(capturedOverrides).toBeNull();

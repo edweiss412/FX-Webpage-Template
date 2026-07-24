@@ -56,7 +56,6 @@ export function indexOfId(
   return i >= 0 ? i : 0;
 }
 
-
 type Props = {
   scenarios: GallerySwitcherScenario[];
   excluded: ExcludedScenario[];

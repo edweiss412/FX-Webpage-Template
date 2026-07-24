@@ -125,7 +125,9 @@ export function buildScriptedActions(
     scripted = true;
     acts.acceptAllAction = async () => {
       if (aa.kind === "pending") return hang();
-      return aa.kind === "success" ? { ok: true, count: acceptableCount } : { ok: false, code: aa.code };
+      return aa.kind === "success"
+        ? { ok: true, count: acceptableCount }
+        : { ok: false, code: aa.code };
     };
   }
   const ap = outcomes.approve;
@@ -163,7 +165,10 @@ export function buildFetchScripts(outcomes: ScenarioActionOutcomes | null): Gall
           case "pending":
             return "hang";
           case "success":
-            return { status: 200, body: { ok: true, result: { outcome: rs.outcome ?? "applied" } } };
+            return {
+              status: 200,
+              body: { ok: true, result: { outcome: rs.outcome ?? "applied" } },
+            };
           case "shrink_held":
             return {
               status: 200,
@@ -177,7 +182,10 @@ export function buildFetchScripts(outcomes: ScenarioActionOutcomes | null): Gall
               },
             };
           case "error":
-            return { status: RESYNC_ERROR_STATUS[rs.code] ?? 500, body: { ok: false, error: rs.code } };
+            return {
+              status: RESYNC_ERROR_STATUS[rs.code] ?? 500,
+              body: { ok: false, error: rs.code },
+            };
         }
       },
     });

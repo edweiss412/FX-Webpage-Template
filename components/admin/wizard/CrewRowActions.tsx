@@ -192,7 +192,10 @@ export function CrewRowActions({
     // app/admin/show/[slug]/PickerResetControl.tsx:161-166; no new §12.4 codes.
     startTransition(async () => {
       try {
-        const r = await (overrideReset ?? resetCrewMemberSelection)({ showId, crewMemberId: crewId });
+        const r = await (overrideReset ?? resetCrewMemberSelection)({
+          showId,
+          crewMemberId: crewId,
+        });
         if (r.ok) {
           onOutcome({ kind: "ok", message: `Reset ${name}. They'll pick again next visit.` });
         } else if (r.code === "PICKER_CREW_MEMBER_NOT_FOUND") {

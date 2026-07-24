@@ -10,7 +10,12 @@ import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import { GROUP_ORDER } from "@/lib/dev/galleryModalTypes";
 import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
-import type { AttentionScenario, ScenarioAlertRow, ScenarioHoldRow, ScenarioActionOutcomes } from "./types";
+import type {
+  AttentionScenario,
+  ScenarioAlertRow,
+  ScenarioHoldRow,
+  ScenarioActionOutcomes,
+} from "./types";
 import { RESYNC_ERROR_CODES } from "./types";
 import { buildScenarioFeed } from "@/lib/dev/deriveScenarioAttention";
 import { groupIgnorableByCode } from "@/lib/dataQuality/bulkIgnoreGroups";
@@ -710,11 +715,23 @@ function validateActionOutcomeReachability(
   };
   req(holds > 0, "approve", "needs a pending mi11 hold");
   req(holds > 0, "reject", "needs a pending mi11 hold");
-  req(acceptableCount > 0, "accept", "needs an acceptable feed entry (auto_apply/applied/unacknowledged)");
+  req(
+    acceptableCount > 0,
+    "accept",
+    "needs an acceptable feed entry (auto_apply/applied/unacknowledged)",
+  );
   req(acceptableCount > 0, "acceptAll", "needs an acceptable feed entry");
-  req(hasUndo, "undo", "needs an undo-armed feed entry (applied crew-domain individually_undoable)");
+  req(
+    hasUndo,
+    "undo",
+    "needs an undo-armed feed entry (applied crew-domain individually_undoable)",
+  );
   req(actionable, "resolve", "needs an ACTIONABLE derived attention item");
-  req(maxGroup >= 2, "bulkIgnore", "needs a bulk-ignorable group (>=2 distinct-content same-code active warnings)");
+  req(
+    maxGroup >= 2,
+    "bulkIgnore",
+    "needs a bulk-ignorable group (>=2 distinct-content same-code active warnings)",
+  );
   req(crewReachable, "crewReset", "needs published, non-archived, non-empty, non-overcap crew");
   req(fx?.share?.linkActive === true, "rotate", "needs fixture.share.linkActive");
   req(fx?.share?.linkActive === true, "everyoneReset", "needs fixture.share.linkActive");
@@ -727,6 +744,8 @@ function validateActionOutcomeReachability(
     bi.kind === "partial" &&
     (!Number.isInteger(bi.okCount) || bi.okCount < 1 || bi.okCount >= maxGroup)
   ) {
-    out.push(`actionOutcomes.bulkIgnore: okCount must be an integer in [1, ${Math.max(maxGroup - 1, 1)}]`);
+    out.push(
+      `actionOutcomes.bulkIgnore: okCount must be an integer in [1, ${Math.max(maxGroup - 1, 1)}]`,
+    );
   }
 }

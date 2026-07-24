@@ -106,7 +106,9 @@ describe("no provider (production): real imports are called", () => {
   });
 
   it("PickerResetControl calls the real resetPickerEpoch", async () => {
-    render(<PickerResetControl showId={SHOW_ID} crew={[{ id: CREW_ID, name: "Alex", role: "BO" }]} />);
+    render(
+      <PickerResetControl showId={SHOW_ID} crew={[{ id: CREW_ID, name: "Alex", role: "BO" }]} />,
+    );
     await drivePickerReset();
     await vi.waitFor(() => expect(epochMock).toHaveBeenCalledWith({ showId: SHOW_ID }));
   });
@@ -114,7 +116,9 @@ describe("no provider (production): real imports are called", () => {
 
 describe("provider mounted (gallery): overrides are called instead", () => {
   it("CrewRowActions uses the override", async () => {
-    const override = vi.fn(async () => ({ ok: true, reset_at: "2026-07-01T00:00:00.000Z" }) as const);
+    const override = vi.fn(
+      async () => ({ ok: true, reset_at: "2026-07-01T00:00:00.000Z" }) as const,
+    );
     render(withProvider({ resetCrewMemberSelection: override }, crewUi()));
     await driveCrewReset();
     await vi.waitFor(() =>
