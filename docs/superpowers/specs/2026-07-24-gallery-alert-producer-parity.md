@@ -22,7 +22,7 @@ In scope:
 2. Promote the already-exhaustive, producer-accurate context fixtures to a shared module and make both fixture families consume it (§3).
 3. Bind the gallery scenario catalog to that module so a fixture supplying keys the producer never writes fails the scenario-catalog test suite (§5).
 4. Add a context-key dimension to the EXISTING producer-scope registry and its AST guard, rather than building a second discovery mechanism (§6).
-5. Repair the two stale gallery rows and add positive fan-out coverage to the gallery (§7, §8).
+5. Repair the five stale gallery fixture rows found by class-sweep, and pin coverage of BOTH crew-banner placements by scenario id (§7, §8).
 
 Out of scope: any producer edit; any change to placement math (`lib/admin/crewRowMatch.ts`), derivation (`lib/adminAlerts/deriveAlertRowFields.ts:55-73`), or catalog copy (`lib/messages/catalog.ts:73-87`). No DB migration. No §12.4 catalog row edits.
 
@@ -33,7 +33,7 @@ Out of scope: any producer edit; any change to placement math (`lib/admin/crewRo
 - **`crewMatch` absent remains legal.** Section-top is the correct fallback, not a defect (`lib/dev/attentionScenarios/validate.ts:126-127`, `lib/admin/crewRowMatch.ts:43-46`). This spec adds a *positive* coverage requirement (§8); it does not make fan-out mandatory per scenario.
 - **`OAUTH_IDENTITY_CLAIMED` genuinely uses singular `crew_member_id`.** `app/auth/callback/route.ts:137-143` writes it; `lib/adminAlerts/alertIdentityMap.ts:71` reads it. The validator's current requirement is correct *for that code* and wrong only because `AMBIGUOUS_EMAIL_BINDING` was folded into the same case (`lib/dev/attentionScenarios/validate.ts:106-110`).
 - **The gallery is not a snapshot.** It renders the real `PublishedReviewModal` through the real derivation chain (`lib/dev/deriveScenarioAttention.ts:6-16`, an admitted second caller pinned by `tests/admin/_metaAttentionItemsTopology.test.ts`). UI/routing changes flow through automatically. Only fixture *data* drifts. Do not propose rebuilding the gallery or replacing it with snapshots.
-- **The 36 vs 45 code-count gap is expected, not drift.** `AdminAlertCode` (`lib/adminAlerts/upsertAdminAlert.ts:3-39`, 36 members) is the subset raised through `upsertAdminAlert`; `ADMIN_ALERTS_CODES` (`tests/adminAlerts/adminAlertCodes.fixture.ts:13-59`, 45 members) is the full registry and is a strict superset. The 9 extra are report/CI-monitor codes raised outside that helper. Verified: no code exists in the union but absent from the registry.
+- **The 36 vs 45 code-count gap is expected, not drift.** `AdminAlertCode` (`lib/adminAlerts/upsertAdminAlert.ts:3-39`, 36 members) is the subset raised through `upsertAdminAlert`; `ADMIN_ALERTS_CODES` (`tests/adminAlerts/adminAlertCodes.fixture.ts:13-59`, 45 members) is the full registry and is a strict superset. The 9 extra are report/CI-monitor codes raised outside that helper. Verified: no code exists in the union but absent from the registry. **This 9 is NOT the producer-discovery exempt count** — those are different sets and an earlier draft wrongly derived one from the other. Discovery also covers SQL sites, so its coverage is computed directly: 13 of the 45 codes have no `PRODUCER_SCOPE` row (§6), a figure obtained by running the set difference, not by subtracting union sizes.
 
 ---
 
@@ -45,10 +45,7 @@ The gallery's `AMBIGUOUS_EMAIL_BINDING` card renders as one section-top banner i
 
 ### 2.2 Why placement falls back
 
-`deriveCrewMatch` requires `context.crew_member_ids` to be a non-empty array of UUIDs (`lib/adminAlerts/deriveAlertRowFields.ts:60-72`). The gallery rows supply singular `crew_member_id`:
-
-- `lib/dev/attentionScenarios/tier1.ts:60-65`
-- `lib/dev/attentionScenarios/tier2.ts:808-813`
+`deriveCrewMatch` requires `context.crew_member_ids` to be a non-empty array of UUIDs (`lib/adminAlerts/deriveAlertRowFields.ts:60-72`). The gallery rows supply singular `crew_member_id` — at `lib/dev/attentionScenarios/tier1.ts:61` and `lib/dev/attentionScenarios/tier2.ts:809` among others; **§7 carries the complete class-swept inventory of five stale rows**, and the two named here are only the pair that motivated the investigation.
 
 Not an array → `crewMatch` undefined → `bucketAttention` takes the section-top branch (`lib/admin/sectionAttention.ts:138-139`). A second, independent failure is latent behind it: the declared UUID `3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f` matches no gallery roster row — the roster ids are `cccccccc-0000-4000-8000-00000000000{1..6}` (`lib/dev/publishedModalFixture.ts:106-123`) — so even with the plural key the resolver would return `null` (`lib/admin/crewRowMatch.ts:46`) and placement would still be section-top. **Both must be fixed; fixing only the key leaves the bug.**
 
@@ -72,34 +69,28 @@ Ordering evidence: `d489fb4a3` (gallery validator) predates `7349d10e0` (fan-out
 
 <!-- spec-lint: ignore — this file is created by this bundle and cannot resolve until implementation -->
 
-Create `tests/adminAlerts/producerContexts.ts` exporting `PRODUCER_CONTEXTS: Record<AdminAlertsCode, ProducerContextEntry>`.
+Create `tests/adminAlerts/producerContexts.ts` exporting a **list**, not a map — preserving the existing collection shape so the identity-matrix test's array-based assertions survive the move verbatim:
 
 ```ts
-type ProducerContextEntry = {
-  /** Producer call site, `path:line`. Verified by the §6 discovery pass. */
-  producer: string;
-  /** A representative context the producer actually writes. */
-  context: Record<string, unknown>;
-  /** Carried unchanged from the existing Fixture type so the identity-matrix
-   *  test keeps compiling after the move (see the field-preservation rule). */
+export type ProducerContextEntry = {
+  /** Unchanged from the existing local Fixture type. */
+  code: string;
   showId: string | null;
+  context: Record<string, unknown>;
   occurrenceCount?: number;
-  /** Keys the producer ALWAYS writes. Subset of Object.keys(context). */
-  requiredKeys: readonly string[];
-  /** Keys the producer writes only on some branches (spread-inserted / ternary). */
-  optionalKeys?: readonly string[];
-  /** Set when the producer builds context from a variable or helper rather than
-   *  an object literal at the call site, so §6 static discovery cannot read it.
-   *  The string is the reason + the helper's `path:line`. */
-  computed?: string;
 };
+
+export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[];
+export const PRODUCER_CONTEXT_BY_CODE: ReadonlyMap<string, ProducerContextEntry>;
 ```
 
-**Field-preservation rule (the move must be lossless).** The existing local `Fixture` type (`tests/adminAlerts/alertIdentityMatrix.test.ts:75-81`) carries `code`, `showId`, `context`, and optional `occurrenceCount`. `ProducerContextEntry` is a strict superset of it: every existing field keeps its name, type, and optionality, and the new fields are additive. `Fixture` is currently module-local and not exported; the move exports the promoted type and `alertIdentityMatrix.test.ts` imports it, so a dropped or renamed field is a compile error rather than a silent test change.
+**Ownership split (one fact, one home).** This module owns exactly one thing: a *representative context value* per code. It does **not** own key sets, producer citations, or computed-context provenance — those live on the §6 registry, keyed per `(site, code)`, which is the only place that knows a code can have several producer sites. Earlier drafts put `producer`, `requiredKeys`, `optionalKeys`, and `computed` here as well; that created two competing homes for the same facts and is withdrawn. `PRODUCER_CONTEXT_BY_CODE` is a convenience index over the list, not a second source.
 
-Seeded by **moving** the existing `FIXTURES` array out of `tests/adminAlerts/alertIdentityMatrix.test.ts:86` into this module — it is already exhaustive, already producer-annotated, and already correct. `alertIdentityMatrix.test.ts` then imports from it, keeping its 45-code totality assertion (`tests/adminAlerts/alertIdentityMatrix.test.ts:460`) unchanged. This is a move plus enrichment (`requiredKeys` / `optionalKeys` / `computed`), not a reimplementation.
+**Field-preservation rule (the move must be lossless).** The existing local `Fixture` type (`tests/adminAlerts/alertIdentityMatrix.test.ts:75-81`) carries `code`, `showId`, `context`, and optional `occurrenceCount`. `ProducerContextEntry` keeps all four with identical names, types, and optionality — including `code`, whose omission in an earlier draft would have broken compilation. `Fixture` is module-local and unexported today; after the move `alertIdentityMatrix.test.ts` imports the promoted type and binds `const FIXTURES = PRODUCER_CONTEXT_LIST`, so its 45-code totality assertion (`tests/adminAlerts/alertIdentityMatrix.test.ts:460`) and every per-code expectation run against the same array shape they run against today. A dropped or renamed field is a compile error, not a silent test change.
 
-**Guard conditions.** Empty `context` is legal (`SYNC_STALLED` writes `{}`, `lib/notify/detect/stall.ts:15`) and yields `requiredKeys: []`. `showId: null` codes are unaffected — `showId` is a column, not a context key. A code with `computed` set still carries a `context` + `requiredKeys` (hand-authored from reading the helper); `computed` suppresses only the §6 static cross-check, never the §5 gallery binding.
+**Guard conditions.** Empty `context` is legal (`SYNC_STALLED` writes `{}`, `lib/notify/detect/stall.ts:15`). `showId: null` codes are unaffected — `showId` is a column, not a context key. A code whose producer builds context from a helper still carries a hand-authored representative `context` here; its exemption from the §6 static cross-check is recorded on the registry row, never on this entry.
+
+**Declared residual risk (key names only).** Every gate in this spec compares *top-level key names*. None validates value types or nested shapes: a fixture could supply producer-valid keys whose values are of the wrong type — `claimed_at_millis` as a string, `crew_member_ids` as an array of non-UUIDs on a code where §4's per-code rule does not apply — and pass every rule here. Closing that would require a per-code value schema, which is deliberately out of scope for this bundle. Stated so it is a known bound rather than an assumed guarantee.
 
 ---
 
@@ -122,32 +113,68 @@ The `galleryIdentity` requirement diverges per code: `OAUTH_IDENTITY_CLAIMED` ke
 
 `validateAlert` (`lib/dev/attentionScenarios/validate.ts:154`) gains a generic, code-agnostic rule applied to **every** scenario alert row:
 
-- **Key-subset rule.** Every key in a scenario row's `context` MUST appear in that code's `PRODUCER_CONTEXTS[code].context`. A key the producer never writes is a test-suite failure naming the offending key and the producer's `path:line`. This is the rule that would have caught `crew_member_id` on `AMBIGUOUS_EMAIL_BINDING` on the day it was written.
+- **Key-subset rule — checked against the REGISTRY's aggregated key set, not against a representative value.** For a code with producer sites `S₁…Sₙ` on the §6 registry, define:
+
+  - `allowedKeys(code) = ⋃ᵢ (contextKeys(Sᵢ) ∪ optionalContextKeys(Sᵢ))`
+  - `guaranteedKeys(code) = ⋂ᵢ contextKeys(Sᵢ)`
+
+  Every key in a scenario row's `context` MUST be in `allowedKeys(code)`. Checking against `Object.keys(PRODUCER_CONTEXTS[code].context)` — an earlier draft's rule — would wrongly reject a legitimate key that only one site or one conditional branch writes; the representative value is a sample, not the key universe. Live example of why the aggregation is mandatory: `SHEET_UNAVAILABLE` has three sites (`lib/sync/runManualSyncForShow.ts:185`, `lib/sync/runScheduledCronSync.ts:2573`, `lib/sync/runScheduledCronSync.ts:2633`) and `failure_code` is written by only two of them, so it belongs to `allowedKeys` but not `guaranteedKeys`.
+
+  A violating key is a test-suite failure naming the offending key, the code, and every registered producer site for it. This is the rule that would have caught `crew_member_id` on `AMBIGUOUS_EMAIL_BINDING` on the day it was written.
 - **Required-key rule — scoped to RENDERER-READ keys, not to the producer's full key list.** This scoping is load-bearing, not a softening.
 
   Measured against the live catalog rather than estimated (`npx tsx` over `ALL_SCENARIOS`, run 2026-07-24): the gallery holds **163 scenarios** (88 tier-1, 71 tier-2, 4 tier-3), of which **67 carry at least one alert**, totalling **85 alert rows — and 70 of those 85 carry `context: {}`**. Tier-1 alone synthesizes one scenario per routed code with `context: override.context ?? {}` (`lib/dev/attentionScenarios/tier1.ts:87`) and only 6 of the 45 routed codes have an `ALERT_ROW_OVERRIDES` entry (`lib/dev/attentionScenarios/tier1.ts:37`), giving 39 empty-context rows there; tier-2 and tier-3 supply the rest.
 
   Both `tests/dev/attentionScenariosTier1.test.ts:31-36` (tier-1) and `tests/dev/attentionScenariosIndex.test.ts` (the `ALL_SCENARIOS` union) already assert that every scenario passes `validateScenario`, so a rule demanding every producer key would fail **70 of 85 alert rows** on the day it landed — for cards that render correctly with no context at all.
 
-  The rule therefore requires only those keys the *rendering path* actually reads for that code: the keys named by its `ALERT_IDENTITY_MAP` segments (`lib/adminAlerts/alertIdentityMap.ts:58`) plus any key backing a placeholder in its `dougFacing` catalog copy. A code whose card reads nothing from context has an empty required set and `{}` stays valid; a code whose card *does* read context cannot ship its degenerate placeholder form by omission. `requiredKeys` on the entry documents what the producer always writes; the validator intersects it with the renderer-read set.
-- **Roster-membership rule (crew-id keys).** Any UUID a scenario declares under a crew-id-bearing key (`crew_member_id`, `crew_member_ids[]`) or under `crewMatch.crewMemberIds` MUST be a member of the gallery roster (`lib/dev/publishedModalFixture.ts:106-123`). An id that cannot resolve to a rendered row is a test-suite failure — this closes §2.2's latent second failure permanently.
+  **Mechanical definition of `rendererReadKeys(code)` (no judgement calls).** Walk `ALERT_IDENTITY_MAP[code].segments` (`lib/adminAlerts/alertIdentityMap.ts:58`) and map each `SegmentSpec` to the context key it consumes, by `kind`:
+
+  | Segment `kind` | Context key it requires | Authority |
+  |---|---|---|
+  | `showName` | **none** — resolved from the row's `show_id` column, not from context | `lib/adminAlerts/resolveAlertIdentities.ts:84-86` |
+  | `email` | `EMAIL_FIELD_BY_CODE[code] ?? "email"` (so `user_email` for `OAUTH_IDENTITY_CLAIMED`, `email` for every other) | `lib/adminAlerts/resolveAlertIdentities.ts:69-72` |
+  | `crewName` | the spec's own `key` (`crew_member_id` / `stale_crew_member_id`) | `lib/adminAlerts/resolveAlertIdentities.ts:88-92` |
+  | `contextField` | the spec's own `key` | `lib/adminAlerts/resolveAlertIdentities.ts:95-96` |
+  | `count` | the **underlying** key the count is derived from, not the count key itself: `crew_member_count` → `crew_member_ids`, `role_change_count` → `changes`, `failed_sheet_names_count` → `failed_sheet_names` | `lib/adminAlerts/projectIdentityContext.ts:101`, `lib/adminAlerts/projectIdentityContext.ts:88-97` |
+
+  The `count` row is the subtle one and is why "any key backing a placeholder" was too vague to implement: `crew_member_count` never appears in any producer's context — it is projected from `crew_member_ids.length`. The derivation table above is declared here, implemented once, and pinned by a test asserting it covers every `kind` in the `SegmentSpec` union, so a new segment kind fails rather than silently contributing nothing.
+
+  `rendererReadKeys(code)` is then intersected with `allowedKeys(code)`; the result is what the scenario row must supply. A code whose card reads nothing from context has an empty required set and `{}` stays valid.
+- **Roster-membership rule (crew-id keys).** Any UUID a scenario declares under a crew-id-bearing key (`crew_member_id`, `crew_member_ids[]`) or under `crewMatch.crewMemberIds` MUST be a member of **that scenario's own rendered roster**, which is the fixture-resolved roster — not the six-row default. A scenario declaring `volumes.crew = N` (`lib/dev/publishedModalFixture.ts:484-488`) has an `N`-row roster whose generated ids are deterministic (`genCrewRow`, `lib/dev/publishedModalFixture.ts:273-279`). This distinction is load-bearing: it is what makes §8's beyond-cap fallback expressible without an exemption. An id belonging to no roster row at all remains a test-suite failure, closing §2.2's latent second failure permanently.
 
 The existing `DEV_SCENARIO_TAG_KEY` exemption (`validate.ts:159`) is preserved: the gallery's own tagging key is not a producer key and is excluded from the subset rule.
 
-**Interaction with `crewMatch`.** The gallery-only `crewMatch` override (`lib/dev/deriveScenarioAttention.ts:39-42`) stays legal and still wins over the derived value. It gains the roster-membership rule and an added consistency check: when a row declares BOTH `context.crew_member_ids` and `crewMatch`, the two id sets must agree, so the gallery cannot demo a placement its own context contradicts.
+**Interaction with `crewMatch`.** The gallery-only `crewMatch` override (`lib/dev/deriveScenarioAttention.ts:39-42`) stays legal and still wins over the derived value. Three rules constrain it, closing the "synthetic state production cannot produce" gap:
+
+1. **Code restriction.** `crewMatch` is legal ONLY on a code that production can actually fan out — today exactly `AMBIGUOUS_EMAIL_BINDING`, mirroring `deriveCrewMatch`'s own code guard (`lib/adminAlerts/deriveAlertRowFields.ts:59`). A `crewMatch` on any other code is rejected; without this, a non-fan-out code could declare roster-valid ids and demo a placement production never produces.
+2. **Context agreement.** When a row declares both `context.crew_member_ids` and `crewMatch`, the two id sets must be equal — except for the §8 fallback case, where `crewMatch` may name a beyond-cap roster member absent from `context.crew_member_ids`, and which must then be declared as such (see §8).
+3. **Identity agreement.** For `AMBIGUOUS_EMAIL_BINDING`, the declared `galleryIdentity`'s email segment must equal `context.email`, and its crew-row count segment must equal `context.crew_member_ids.length`. Without this a fixture can render a card whose copy contradicts its own data — a state no producer can emit.
 
 ---
 
 ## 6. Producer-side parity — EXTEND the existing registry, do not build a second one
 
-**The producer-discovery infrastructure this spec needs already exists.** `tests/adminAlerts/alertProducerScope.registry.ts:29` (`PRODUCER_SCOPE`, 46 rows, one per `(site, code)`) is guarded by `tests/adminAlerts/_metaAlertProducerScope.test.ts`, which performs a TypeScript-compiler-API AST walk over `lib` + `app` for any CallExpression whose callee's rightmost identifier is `upsertAdminAlert` — so the `tx.` / `deps.` / `recoveryTx.` wrapper forms are already covered — **plus** `upsert_admin_alert(` invocations in `supabase/**/*.sql`. It already fails by default on an unregistered site, already fails on a stale row, and already models dynamic sites with `dynamic: true` plus a mandatory provenance note (`tests/adminAlerts/alertProducerScope.registry.ts:17-27`).
+**The producer-discovery infrastructure this spec needs already exists.** `tests/adminAlerts/alertProducerScope.registry.ts:29` (`PRODUCER_SCOPE`, 45 rows, one per `(site, code)`, covering 33 distinct codes) is guarded by `tests/adminAlerts/_metaAlertProducerScope.test.ts`, which performs a TypeScript-compiler-API AST walk over `lib` + `app` for any CallExpression whose callee's rightmost identifier is `upsertAdminAlert` — so the `tx.` / `deps.` / `recoveryTx.` wrapper forms are already covered — **plus** `upsert_admin_alert(` invocations in `supabase/**/*.sql`. It already fails by default on an unregistered site, already fails on a stale row, and already models dynamic sites with `dynamic: true` plus a mandatory provenance note (`tests/adminAlerts/alertProducerScope.registry.ts:17-27`).
 
 Building a second walker would duplicate that guarantee and would *lose* one this spec's original design missed entirely: the SQL-side producer discovery.
 
 The change is therefore a **dimension added to the existing registry**, not a new mechanism:
 
 - Extend `ProducerScopeRow` with the context-key dimension: `contextKeys` (always written) and `optionalContextKeys` (written only on some branches — conditional spreads such as `lib/sync/runManualSyncForShow.ts:190` and `lib/sync/runScheduledCronSync.ts:2376`). A row that is already `dynamic: true` carries hand-authored keys plus its existing provenance `note` naming the helper, and is exempt from the literal cross-check.
-- Extend `_metaAlertProducerScope.test.ts`'s existing AST walk to also read the `context:` property of each discovered call site. Where that property is an object literal, assert its top-level keys equal `contextKeys ∪ optionalContextKeys` for that row. Where it is a variable or helper call, require `dynamic: true` (or a new `computedContext: true` flag for sites whose *code* is static but whose *context* is computed — `lib/drive/watch.ts:411`, `lib/sync/runScheduledCronSync.ts:378`, and the two `buildParseErrorContext(...)` sites at `lib/sync/runManualSyncForShow.ts:266` and `lib/sync/runScheduledCronSync.ts:3389`). The plan re-derives this list against live code rather than trusting it.
+- Extend `_metaAlertProducerScope.test.ts`'s existing AST walk to also read the `context:` property of each discovered call site, with an explicitly total classification:
+
+  | `context:` initializer | Classification | Registry requirement |
+  |---|---|---|
+  | `ObjectLiteralExpression`, all members `PropertyAssignment` / `ShorthandPropertyAssignment` | static | keys equal `contextKeys`; `optionalContextKeys` empty |
+  | `ObjectLiteralExpression` containing a `SpreadAssignment` over a `ConditionalExpression` (`...(cond ? { k: v } : {})`) | static-with-branches | plain members → `contextKeys`; keys appearing in **either** arm of the conditional → `optionalContextKeys` |
+  | `ObjectLiteralExpression` containing any other `SpreadAssignment` (spread of an identifier or call) | computed | `computedContext: true` + provenance `note` |
+  | `Identifier` or `CallExpression` | computed | `computedContext: true` + provenance `note` |
+
+  **How "always" vs "optionally" is proven, not assumed:** a key is `contextKeys` only if it appears as a direct property of the object literal, outside every conditional spread. A key inside a conditional spread is `optionalContextKeys` regardless of which arm it sits in, because the walker does not evaluate `cond`. This is a deliberately conservative rule — it can classify an always-written key as optional (if an author wraps it in a tautological ternary) but can never classify an optional key as guaranteed, which is the direction that matters for `guaranteedKeys` in §5.
+
+  Sites needing `computedContext` at spec time — **re-derived by the implementer against live code, not trusted from this list**: `lib/drive/watch.ts:409` and `lib/sync/runScheduledCronSync.ts:375` (bare `context` identifier), and the two `buildParseErrorContext(...)` calls at `lib/sync/runManualSyncForShow.ts:261` and `lib/sync/runScheduledCronSync.ts:3386`. Separately, `lib/sync/applyStaged.ts:1952` and `lib/sync/applyStaged.ts:1962` are already `dynamic: true` rows (their **code** is `result.adminAlertCode` / a loop variable); their `context` is the object literal `{ drive_file_id: args.driveFileId }`, so they are static on the context axis and dynamic on the code axis. The two axes are independent and the registry must model them independently — an earlier draft conflated them.
+
+- **SQL-site behavior (declared, previously undefined).** The existing walk also discovers `upsert_admin_alert(` invocations in `supabase/**/*.sql`, where the context argument is a SQL expression or a `jsonb` literal, not a TypeScript object literal. The extended check does **not** attempt SQL context-key extraction. SQL rows are classified `computedContext: true` with a provenance note naming the migration file, and are exempt from the literal cross-check while remaining subject to the existing site/code discovery. The rationale is the same as the registry's own acknowledged §3.0 residual risk (`tests/adminAlerts/alertProducerScope.registry.ts:6-14`): every such site emits health-audience codes that the gallery never renders, so the parity gap has no gallery consequence. The test asserts this classification positively rather than letting SQL rows fall through a TypeScript-shaped branch.
 - `PRODUCER_CONTEXTS` (§3) then derives its `requiredKeys` / `optionalKeys` from the registry rather than restating them, so the two cannot drift. §3's module remains the source of the *representative context value* used by fixtures; the registry remains the source of *which keys exist*. One fact, one home, each.
 
 **Explicit bound (declared, not hidden).** The AST cross-check reads object literals only. A helper-built context is verified by its hand-authored row plus the provenance note naming the helper's `path:line`; it is not mechanically verified. This bound is inherited from the existing registry's acknowledged §3.0 residual risk (`tests/adminAlerts/alertProducerScope.registry.ts:6-14`), not newly introduced here. Raw `INSERT INTO admin_alerts` sites remain undiscovered, exactly as today.
@@ -156,20 +183,36 @@ The change is therefore a **dimension added to the existing registry**, not a ne
 
 ## 7. Fixture repairs
 
-`tier1.ts:60-65` and `tier2.ts:808-813` — the same defect in two places, repaired together (class-sweep, not one instance):
+**There are FIVE stale rows, not two.** Earlier drafts named only the two that motivated this spec. A class-sweep of the whole scenario tree (`rg -n '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' lib/dev/attentionScenarios/*.ts`, run 2026-07-24) returns every one:
 
-- `context: { email: "<gallery-crew-email>", crew_member_ids: [<two gallery roster UUIDs>] }`, ids drawn from `lib/dev/publishedModalFixture.ts:107-113`.
-- `galleryIdentity` gains `Show`, email, and crew-row-count segments per §4, so both cards render real copy instead of placeholders.
+| Row | Code | Current context | Problem |
+|---|---|---|---|
+| `lib/dev/attentionScenarios/tier1.ts:61` | `AMBIGUOUS_EMAIL_BINDING` | `crew_member_id: "3f8c1e2a-…"` | wrong key **and** non-roster id |
+| `lib/dev/attentionScenarios/tier1.ts:67` | `OAUTH_IDENTITY_CLAIMED` | `crew_member_id: "7a1b2c3d-…"` | correct key, **non-roster id** |
+| `lib/dev/attentionScenarios/tier2.ts:245` | `crewCode()` — resolves to `AMBIGUOUS_EMAIL_BINDING` | `crew_member_id: "3f8c1e2a-…"` | wrong key + non-roster id, via the shared `crewAlert()` helper |
+| `lib/dev/attentionScenarios/tier2.ts:809` | `AMBIGUOUS_EMAIL_BINDING` | `crew_member_id: "3f8c1e2a-…"` | wrong key + non-roster id |
+| `lib/dev/attentionScenarios/tier3.ts:55` | `AMBIGUOUS_EMAIL_BINDING` | `crew_member_id: "3f8c1e2a-…"` | wrong key + non-roster id |
 
-Rationale for using two *real* roster ids: it makes tier-1's per-code scenario demo the fan-out — the state production actually produces, since `upsertAmbiguousEmailAlert` always writes both involved ids and the match normally succeeds.
+The `OAUTH_IDENTITY_CLAIMED` row is a genuinely distinct sub-case: its **key** is correct (that code's producer does write singular `crew_member_id`, `app/auth/callback/route.ts:137-143`), but its **id** belongs to no roster row, so §5's roster-membership rule fails it. It is repaired by swapping the id for a roster member, not by changing the key. `tier2.ts:245` is a shared helper (`crewAlert()`), so repairing it fixes every scenario that calls it — the implementer counts those call sites rather than assuming one.
+
+Repairs:
+
+- The four `AMBIGUOUS_EMAIL_BINDING` rows: `context: { email: <shared address>, crew_member_ids: [<two roster UUIDs>] }`, ids drawn from `lib/dev/publishedModalFixture.ts:107-113`, plus a `galleryIdentity` carrying Show + email + crew-row-count segments agreeing with that context per §4 and §5's identity-agreement rule.
+- The `OAUTH_IDENTITY_CLAIMED` row: `crew_member_id` swapped to a roster member id; key and identity shape otherwise unchanged.
+
+Rationale for real roster ids on the ambiguous-email rows: it makes them demo the fan-out — the state production actually produces, since `upsertAmbiguousEmailAlert` always writes both involved ids and the match normally succeeds.
 
 ---
 
 ## 8. Positive fan-out coverage
 
-One new tier-2 scenario demonstrating the **section-top fallback** (an id absent from the rendered roster, or a row beyond `CREW_CAP = 30`, `components/admin/wizard/step3ReviewSections.tsx:160`), declared via the `crewMatch` override so the fallback is exercised without a malformed context. With §7 making tier-1 the fan-out case, the gallery then shows both placements.
+**The fallback demo uses a beyond-cap roster member — no exemption, no non-roster id.** An earlier draft made this scenario impossible: §5 rejects any crew id outside the roster, yet the fallback needs an id that fails to resolve. Both hold simultaneously once the roster is grown past the cap.
 
-A meta-test asserts the gallery renders at least one fanned-out crew banner **and** at least one section-top crew banner across the scenario catalog — a positive coverage pin, so neither visual state can go dark again without a test failing. Assertion is against derived placement (`bucketAttention` output for the scenario), not against a container that could render either.
+The new tier-2 scenario declares `volumes: { crew: 35 }`, which grows the fixture roster to 35 deterministic generated rows (`lib/dev/publishedModalFixture.ts:484-488`, ids from `genCrewRow`, `lib/dev/publishedModalFixture.ts:273-279`). Its `crewMatch` names a roster member at index ≥ 30. That id **is** a roster member, so §5's membership rule passes; but `buildCrewRowResolver` slices to `CREW_CAP = 30` before matching (`lib/admin/crewRowMatch.ts:64`, `components/admin/wizard/step3ReviewSections.tsx:160`), so `hits(id) === 0` and the resolver returns `null` (`lib/admin/crewRowMatch.ts:46`) — section-top. This exercises the *real* production fallback path (an involved row rendered beyond the cap), not a synthetic malformed one.
+
+With §7 making the ambiguous-email rows fan out, the gallery then shows both placements.
+
+**Coverage pin — by scenario id, not by existence.** An existential "somewhere in the catalog there is one of each" assertion can be satisfied by an unrelated scenario after the intended one regresses. The pin therefore names its subjects: the tier-1 `AMBIGUOUS_EMAIL_BINDING` scenario id (`scenarioIdForCode("alert", "AMBIGUOUS_EMAIL_BINDING")`) must derive a **fanned-out** placement, and the new tier-2 fallback scenario id must derive a **section-top** placement. Both assertions run `bucketAttention` over the scenario's derived items and inspect which bucket the banner landed in — never a container that could render either, and never the scenario's own declaration. A third assertion keeps the existential form as a weaker backstop for the rest of the catalog.
 
 ---
 
@@ -177,15 +220,21 @@ A meta-test asserts the gallery renders at least one fanned-out crew banner **an
 
 | Condition | Behavior |
 |---|---|
-| Scenario context key absent from `PRODUCER_CONTEXTS[code].context` | Catalog-test failure (§5), message names the key + producer `path:line` |
-| Scenario omits a required key the RENDERER reads for that code | Catalog-test failure (§5) |
+| Scenario context key absent from `allowedKeys(code)` (registry union across sites) | Catalog-test failure (§5), message names the key, the code, and every registered site |
+| Key written by only some of a code's producer sites (`SHEET_UNAVAILABLE.failure_code`) | Legal — in `allowedKeys`, absent from `guaranteedKeys` (§5) |
+| Scenario omits a key in `rendererReadKeys(code) ∩ allowedKeys(code)` | Catalog-test failure (§5) |
 | Scenario carries `{}` for a code whose card reads no context (70 of 85 alert rows today) | Legal — required set is empty (§5) |
-| Scenario declares a crew UUID outside the gallery roster | Catalog-test failure (§5) |
+| Scenario declares a crew UUID belonging to no row of **that scenario's** roster | Catalog-test failure (§5) |
+| Scenario declares a crew UUID that is a roster member beyond `CREW_CAP` | Legal — this is §8's fallback demo; resolves to section-top |
+| `crewMatch` on any code other than `AMBIGUOUS_EMAIL_BINDING` | Validator reject (§5 rule 1) |
 | `crew_member_ids` length 1, or duplicate members | Validator reject (§4) |
-| `crew_member_ids` and `crewMatch` disagree | Validator reject (§5) |
-| Producer context built by helper/variable | Requires `computed` row naming the helper (§6); absent → test failure |
-| Code in registry but not raised via `upsertAdminAlert` | Declared exempt from discovery, still requires a `PRODUCER_CONTEXTS` row (§6) |
-| Producer writes `{}` (`SYNC_STALLED`) | Legal; `requiredKeys: []` (§3) |
+| `crew_member_ids` and `crewMatch` disagree (outside the §8 fallback case) | Validator reject (§5 rule 2) |
+| `galleryIdentity` email or crew-row count disagrees with `context` | Validator reject (§5 rule 3) |
+| Producer context built by helper/variable/non-conditional spread | Requires `computedContext: true` + provenance note on the REGISTRY row (§6); absent → test failure |
+| Producer site in `supabase/**/*.sql` | Classified `computedContext: true`, exempt from literal cross-check, still discovered (§6) |
+| Code with no `PRODUCER_SCOPE` row (13 today) | Declared exempt from discovery; still requires a producer-context entry (§6) |
+| Producer writes `{}` (`SYNC_STALLED`) | Legal; empty key sets (§3) |
+| Fixture supplies producer-valid keys with wrong-typed values | **Not caught** — declared residual risk (§3) |
 | Existing `crewMatch`-absent scenarios | Unchanged — section-top stays legal (§1.1) |
 
 ---
@@ -214,4 +263,4 @@ TDD per task (invariant 1). Each rule in §4/§5/§6 gets a failing test asserti
 
 ## 13. Numeric self-check
 
-36 `AdminAlertCode` union members (`lib/adminAlerts/upsertAdminAlert.ts:3-39`); 45 `ADMIN_ALERTS_CODES` registry members (`tests/adminAlerts/adminAlertCodes.fixture.ts:13-59`); 45 `ATTENTION_ROUTES` codes, hence 45 tier-1 alert scenarios; 163 gallery scenarios (88 tier-1, 71 tier-2, 4 tier-3), 67 carrying at least one alert, 85 alert rows total, 70 of them with an empty context; 6 `ALERT_ROW_OVERRIDES` entries (`lib/dev/attentionScenarios/tier1.ts:37`) leaving 39 empty-context tier-1 alert rows (§5); 9 registry codes exempt from producer discovery (45 − 36); 2 stale fixture rows repaired (§7); 2 gallery roster UUIDs per repaired row; ≥2 `crew_member_ids` required by §4; 6 gallery crew roster rows (`lib/dev/publishedModalFixture.ts:106-123`); `CREW_CAP` = 30; 1 new scenario (§8); 1 new module + 1 new coverage pin, with §6 extending the existing 46-row producer-scope registry rather than adding a file (§11); 0 migrations; 0 §12.4 edits; 0 producer edits.
+36 `AdminAlertCode` union members (`lib/adminAlerts/upsertAdminAlert.ts:3-39`); 45 `ADMIN_ALERTS_CODES` registry members (`tests/adminAlerts/adminAlertCodes.fixture.ts:13-59`); 45 `ATTENTION_ROUTES` codes, hence 45 tier-1 alert scenarios; 163 gallery scenarios (88 tier-1, 71 tier-2, 4 tier-3), 67 carrying at least one alert, 85 alert rows total, 70 of them with an empty context; 6 `ALERT_ROW_OVERRIDES` entries (`lib/dev/attentionScenarios/tier1.ts:37`) leaving 39 empty-context tier-1 alert rows (§5); 13 registry codes with no producer-scope row, computed directly rather than derived by subtraction (§6); 33 codes covered by the registry's 45 rows; 4 of those rows are SQL sites; 5 stale fixture rows repaired — 4 AMBIGUOUS_EMAIL_BINDING + 1 OAUTH_IDENTITY_CLAIMED, across 3 tier files (§7); 2 gallery roster UUIDs per repaired ambiguous-email row; 35-row roster (`volumes.crew`) in the §8 fallback scenario, whose crewMatch id sits at index ≥30; ≥2 `crew_member_ids` required by §4; 6 gallery crew roster rows (`lib/dev/publishedModalFixture.ts:106-123`); `CREW_CAP` = 30; 1 new scenario (§8); 1 new module + 1 new coverage pin, with §6 extending the existing 45-row producer-scope registry rather than adding a file (§11); 0 migrations; 0 §12.4 edits; 0 producer edits.
