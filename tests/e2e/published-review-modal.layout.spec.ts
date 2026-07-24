@@ -1324,15 +1324,35 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
         }
         const next = box.nextElementSibling;
         if (next === null) return null;
+        const nextRect = next.getBoundingClientRect();
         return {
           paneRowGap: parseFloat(getComputedStyle(pane).rowGap),
-          gap: next.getBoundingClientRect().top - box.getBoundingClientRect().bottom,
+          gap: nextRect.top - box.getBoundingClientRect().bottom,
           nextTestId: next.getAttribute("data-testid"),
+          // The IMMEDIATE sibling's own extent, asserted below. Without it this
+          // test is vulnerable to the very class it guards: a phantom pane child
+          // inserted between Overview and Venue would be measured as "the next
+          // section", report exactly one paneRowGap, and pass green while the
+          // user-visible Overview→Venue distance doubled to two gaps.
+          nextHeight: nextRect.height,
+          nextDisplay: getComputedStyle(next).display,
         };
       });
 
       expect(seam, `Overview has a following sibling section @ ${mode}`).not.toBeNull();
       expect(seam!.paneRowGap, `content pane declares a row gap @ ${mode}`).toBeGreaterThan(0);
+      // The thing on the far side of the seam must be REAL. `nextTestId` alone is
+      // diagnostic — an unnamed zero-height div satisfies the gap arithmetic.
+      expect(
+        seam!.nextDisplay,
+        `the element after Overview is in flow @ ${mode} (testid ${seam!.nextTestId})`,
+      ).not.toBe("none");
+      expect(
+        seam!.nextHeight,
+        `the element after Overview has real extent @ ${mode} — a zero-height pane child would` +
+          ` measure one gap here while charging the pane a second one below itself` +
+          ` (testid ${seam!.nextTestId})`,
+      ).toBeGreaterThan(0);
       expect(
         Math.abs(seam!.gap - seam!.paneRowGap),
         `@ ${mode}: seam to ${seam!.nextTestId} measured ${seam!.gap.toFixed(1)}px, pane gap is ${
