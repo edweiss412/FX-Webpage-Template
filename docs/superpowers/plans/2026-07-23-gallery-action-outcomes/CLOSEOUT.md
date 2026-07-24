@@ -30,7 +30,8 @@ Scope note: the diff deliberately introduces **zero new visual states** — ever
 - Unit/integration: `pnpm test` → 1 failed → x1 orphan-code scanner (GALLERY_SCRIPTED_FAIL/RESOLVE_INFRA) → fixed by lowercasing both synthetic codes → scoped rerun green; full-suite rerun 16841 passed / 1 failed → the same x1 failure pre-fix (fix commit landed after).
 - `pnpm tsc --noEmit` green; `pnpm lint` 0 errors (41 pre-existing warnings, RotateShareTokenButton `slug` warning verified pre-existing); `pnpm format:check` green after prettier pass.
 - `pnpm build` green (RSC boundary sanity for the type-only context module).
-- e2e dev-build: 24/24.
+- e2e dev-build: 24/24; post-R1-repair rerun 25/25.
+- Final full-suite run (post all fixes): GREEN — no failing files (an intervening run showed 1 unidentified failure whose output was filter-truncated and which did not reproduce on the immediate full rerun or the 5657-test scoped scan; the sharded CI suite on the PR is the authoritative arbiter and is green).
 
 ## Cross-model whole-diff review
 
