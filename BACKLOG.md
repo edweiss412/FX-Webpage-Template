@@ -4,6 +4,16 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
+## BL-PHANTOM-GAP-PROBE-OTHER-SURFACES — run the zero-extent-flex-item probe on the crew page and dashboard harnesses
+
+**Filed:** 2026-07-24 (branch `fix/overview-phantom-gap`). **Class:** layout hardening. **Effort:** S per harness.
+
+`T-NOPHANTOM` (tests/e2e/published-review-modal.layout.spec.ts) walks the rendered tree for in-flow items with zero extent on their parent's gap axis — an always-rendered wrapper whose entire content is state-gated is invisible but still charges its parent's `gap`. It found two instances on its first run: the reported Overview `overview-sheet-sync` slot (32px) and `ScheduleDayRow`'s time grid (4px per entry-less day). Both are now fixed with `empty:hidden`.
+
+The probe is scoped to the PUBLISHED MODAL tree only, so the crew page, the admin dashboard, and the wizard's own surfaces are unmeasured. A static sweep of `components/` + `app/` for the conditional-only-wrapper shape found no further true positives, but it cannot see the `{items.map(...)}` form — an empty array leaves no textual trace, and that is exactly the form the ScheduleDayRow instance took. So static coverage is not a substitute.
+
+**Work:** extract the probe into a shared helper and mount it in the existing standalone crew-page and dashboard layout harnesses. Expect false positives to need the same `checkVisibility()` treatment per surface (on the modal, the `lg:hidden` chip rail alone produced 25).
+
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
 **Status:** OPEN, raised by adversarial review of PR #517 (finding 2).
