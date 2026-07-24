@@ -211,15 +211,17 @@ test("FIELD_UNREADABLE identity folds blockRef.field; legacy field-less key is b
 
 ```ts
 const rt = w.code === "UNKNOWN_ROLE_TOKEN" && typeof w.roleToken === "string" ? w.roleToken : "";
-// NUL presence delimiter: a PRESENT-but-empty field ("\0F") stays distinct from a
+// NUL presence delimiter: a PRESENT-but-empty field stays distinct from a
 // field-less legacy warning (""), mirroring Task 2's NUL-delimited dedup fold; the
-// raw string is folded untrimmed (identity never normalizes).
+// field is folded untrimmed via injective JSON.stringify (identity never normalizes).
 const fu =
   w.code === "FIELD_UNREADABLE" && typeof w.blockRef?.field === "string"
-    ? `\0F${w.blockRef.field}`
+    ? `\0F${JSON.stringify(w.blockRef.field)}`
     : "";
 return `${w.code}|${cell}|${snippet}|${br}|${rt}${fu}`;
 ```
+
+> **AMENDED 2026-07-24 (whole-diff review R1).** The snippet above originally folded the RAW field (`` `\0F${w.blockRef.field}` ``). That shape is NUL-forgeable: `blockRef.name` crosses the unvalidated jsonb boundary raw, so a name carrying a literal NUL could fake the presence marker and collide two distinct (name, field) keys — recreating the shared-surfaceId bug this task fixes. Shipped shape (as now shown above): `` `\0F${JSON.stringify(w.blockRef.field)}` `` — JSON output contains no raw NUL, making the delimiter unforgeable while field-less legacy keys stay byte-identical. A NUL-forgery regression test (the exact collision pair + a present-vs-absent forgery pair) lives in `tests/dataQuality/warningIdentity.test.ts`. Do NOT re-implement the raw fold from an earlier revision of this plan.
 
 - [ ] **Step 4: Run — PASS.** Also `pnpm vitest run tests/dataQuality/ tests/admin/perShowActionableKeyStability.test.tsx` green.
 - [ ] **Step 5: Commit** `fix(admin): fold blockRef.field into FIELD_UNREADABLE warning identity — no shared report surfaceId for phone+email pairs`
@@ -233,7 +235,9 @@ return `${w.code}|${cell}|${snippet}|${br}|${rt}${fu}`;
 
 **Interfaces:**
 - Consumes: `blockRef.field/name`, `rawSnippet` via the USABLE rule.
-- Produces: `data-testid="per-show-actionable-field-label"` band + `per-show-actionable-field-label-value` span; `detailBand` slot = `rowLabel band ?? field band`. The staged-surface wiring test lives HERE so it is written red-first in the same TDD cycle as the band itself.
+- Produces: `data-testid="per-show-actionable-field-label"` band + `per-show-actionable-field-name` span (full/staged mode, amended R2) + `per-show-actionable-field-label-value` span (quoted value ONLY); `detailBand` slot = `rowLabel band ?? field band`. The staged-surface wiring test lives HERE so it is written red-first in the same TDD cycle as the band itself.
+
+> **AMENDED 2026-07-24 (whole-diff review R2).** This task's original snippets joined name + value into ONE value span (`.join(" · ")`). That renders two DISTINCT warnings identically when sheet data carries middot-and-quote sequences (a name or raw value embedding the separator glyph plus straight quotes). Shipped shape: name and value in SEPARATE spans. Name span `min-w-0 text-xs break-words text-text` with testid `per-show-actionable-field-name`; `aria-hidden` middot span `text-xs text-text-subtle` only when both present; value span `font-mono text-xs break-all text-text` holding exactly the quoted trimmed value. See spec §2.2 (amended) and `components/admin/PerShowActionableWarnings.tsx` as shipped; regression test "delimiter-bearing name/value pairs stay distinguishable" in `tests/components/perShowActionableWarnings.fieldBand.test.tsx`. The joined-string snippets below are retained as the historical execution record: do NOT re-implement them. Whole-band `textContent` pins changed accordingly (separator span + CSS gap, no joiner spaces).
 
 - [ ] **Step 1: Failing tests.** New file header pattern copied from `tests/components/perShowActionableWarnings.autocorrect.test.tsx` (`// @vitest-environment jsdom`, cleanup, RTL render):
 
