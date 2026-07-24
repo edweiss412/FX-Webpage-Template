@@ -201,6 +201,9 @@ export function buildSectionWarningExtras(args: {
         code: g.code,
         label: g.label,
         bulk: g.bulk,
+        // spec 2026-07-24 §2.2: the number of cards actually in the slot —
+        // post-crew-filter, so a partially-moved group counts only what renders here.
+        itemCount: g.items.length,
         // Impeccable P1b (2026-07-23 critique): a surviving bulk chip whose cards
         // ALL moved under crew rows would otherwise sit over an empty slot — a
         // bulk action on objects invisible at its location. The slot names where
@@ -255,7 +258,9 @@ export function buildSectionWarningExtras(args: {
       >
         {/* DQIGNORE-6 — the ACTIVE warnings grouped by code; each bulk "Ignore all N" chip is
             its group's eyebrow header, bound to the cards it ignores. BulkIgnoreControls renders
-            BOTH the eyebrow/chip headers AND the grouped per-warning cards; renders null when
+            BOTH the eyebrow/chip headers AND the grouped per-warning cards. Lone chip-less
+            groups render cards WITHOUT the eyebrow header
+            (spec 2026-07-24-dq-singleton-eyebrow-suppress §2.1); renders null when
             this section has no active warnings. */}
         <div data-testid={`section-warning-active-${id}`}>
           <BulkIgnoreControls slug={slug} groups={activeGroups} />

@@ -316,21 +316,29 @@ describe("buildSectionWarningExtras (per-section render, inside owning section)"
   it("groups the section's active warnings by code — one card-list + eyebrow per code, chip only on bulk-eligible (DQIGNORE-6)", () => {
     // roleWarning (lone UNKNOWN_ROLE_TOKEN) + two distinct FIELD_UNREADABLE snippets, all
     // routing to crew → two per-code groups inside the crew section.
-    const d = buildData({ warnings: [roleWarning, fieldWarningA, fieldWarningB] });
+    const fieldWarnings = [fieldWarningA, fieldWarningB];
+    const d = buildData({ warnings: [roleWarning, ...fieldWarnings] });
     render(<SurfaceHarness data={d} />);
     const crew = within(sectionEl("crew"));
     // Two distinct active codes → two group wrappers → two active card-lists.
     expect(crew.getByTestId("dq-active-group-UNKNOWN_ROLE_TOKEN")).toBeTruthy();
     expect(crew.getByTestId("dq-active-group-FIELD_UNREADABLE")).toBeTruthy();
     expect(crew.getAllByTestId("per-show-actionable-warnings")).toHaveLength(2);
-    // The bulk chip rides only the eligible group (2 distinct snippets); the lone role token has none.
-    expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe("Ignore all 2");
+    // The bulk chip rides only the eligible group; N derives from the field-warning
+    // fixture (distinct snippets), never hardcoded. The lone role token has none.
+    expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe(
+      `Ignore all ${fieldWarnings.length}`,
+    );
     expect(crew.queryByTestId("dq-bulk-ignore-UNKNOWN_ROLE_TOKEN")).toBeNull();
-    // Eyebrow label scoped to its own testid (anti-tautology: the cards also render copy) — the
-    // plain-language bulkGroupLabel path, never the raw §12.4 code (invariant 5).
-    const eyebrow = crew.getByTestId("dq-group-label-UNKNOWN_ROLE_TOKEN");
-    expect(eyebrow.textContent).toBe(messageFor("UNKNOWN_ROLE_TOKEN" as MessageCode).title);
-    expect(eyebrow.textContent).not.toContain("UNKNOWN_ROLE_TOKEN");
+    // spec 2026-07-24 §2.1: the lone UNKNOWN_ROLE_TOKEN group (1 card, no chip)
+    // suppresses its eyebrow — the card renders alone; its title carries the type.
+    expect(crew.queryByTestId("dq-group-label-UNKNOWN_ROLE_TOKEN")).toBeNull();
+    // Eyebrow label on the KEPT row, scoped to its own testid (anti-tautology: the
+    // cards also render copy) — plain-language bulkGroupLabel path, never the raw
+    // §12.4 code (invariant 5). Coverage transferred from the suppressed pin.
+    const eyebrow = crew.getByTestId("dq-group-label-FIELD_UNREADABLE");
+    expect(eyebrow.textContent).toBe(messageFor("FIELD_UNREADABLE" as MessageCode).title);
+    expect(eyebrow.textContent).not.toContain("FIELD_UNREADABLE");
   });
 });
 
