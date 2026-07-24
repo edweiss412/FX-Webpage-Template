@@ -2,6 +2,70 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## Crew warning under-row polish (2026-07-23)
+
+Three crew-warning-attachment critique deferrals (recorded 2026-07-23) resolved by
+`feat/crewwarn-underrow-polish` (spec
+`docs/superpowers/specs/2026-07-23-crewwarn-underrow-polish-design.md`, Codex spec
+review APPROVE at R5, plan APPROVE at R3; impeccable dual-gate dispositions in
+`docs/superpowers/plans/2026-07-23-crewwarn-underrow-polish-closeout.md` §12).
+
+### CREWWARN-UNDERROW-INDENT-1 — [P1, was partially fixed] — ✅ RESOLVED
+
+Original entry (full text): "From the impeccable critique of
+`feat/crew-warning-attachment` (Assessment A P1a, 2026-07-23). Measured: the
+under-row card sat 8px below its member's row but only ~10px above the NEXT row,
+full card width, zero left indent — proximity alone is a weak binding. Fixed in
+the branch: spacing asymmetry (hosting `<li>` now `pt-1 pb-2`, so the below-gap
+is visibly larger than the `mt-2` above-gap). Deferred: the indent-to-name-column
+half (`pl-13` = avatar 40px + gap 12px). `CrewUnderRowStack` is SHARED with
+attention alert banners whose full-card-width card-with-attached-banner shape is
+the ratified published-show-alerts §5.4 mock — indenting warning cards means
+either indenting ratified alert banners too or splitting the stack's layout per
+node kind. Spec beats critique (standing rule). Un-defer trigger: any milestone
+touching `CrewUnderRowStack` layout or the published-show-alerts banner design;
+decide indent-for-both vs per-kind layout there."
+
+Resolved: 24px half-indent (`pl-6`) on a
+per-node wrapper in `renderCrewUnderRowCards` — warning cards only; attention
+banners keep the ratified published-show-alerts §5.4 full width (per-kind layout,
+spec §1.1 #2). The 52px name-column indent was REJECTED by the owner against a
+phone-width mockup (guidance sentence wrapped 2→3 lines at 338px). Hop-by-hop
+real-browser width assertions pin both stack subtrees
+(`tests/e2e/published-review-modal.layout.spec.ts`, T-WARN-INDENT / T-WARN-CAP).
+
+### CREWWARN-UNDERROW-COPY-CONDENSE-1 — [P2] — ✅ RESOLVED
+
+Original entry (full text): "Assessment A P2a, same critique. The under-row card
+and the fallback group card render the identical heading+body; when both appear
+in one panel it scans like a render bug, and under a member's row the who/where
+is already carried by placement. Condensing the under-row variant (title +
+controls, explainer behind the existing '?' HoverHelp) touches the warning-card
+copy layer (warning-card-copy-restore §4.2 lockstep) — a copy-layer change out of
+scope for a placement diff. Un-defer trigger: next milestone touching
+warning-card copy or WARNING_CARD_COPY_CODES."
+
+Resolved:
+`condensed` variant on `PerShowActionableWarnings` — catalog guidance joins the
+`?` popover BODY (described run stays a superset of full mode via
+`condensedPopoverSlots`, derived from full mode's slots); instance (autocorrect)
+lines stay inline (staged-parity pinned). No catalog/§12.4 edits — render
+location only. Group, fallback, ignored, and staged surfaces unchanged.
+
+### CREWWARN-CAP-FIXTURE-1 — [P3] — ✅ RESOLVED
+
+Original entry (full text): "Assessment A P3, same critique. The 2-visible + 'N
+more' cap state has unit coverage (crewUnderRowCards node granularity) but no
+harness page, so the capped stack has never been LOOKED at with warning cards in
+it. Add a `crewWarningsCapped` harness variant when next touching the e2e
+harness. Un-defer trigger: next change to `_publishedReviewModalHarness.tsx` or
+`CrewUnderRowStack`."
+
+Resolved: `crewWarningsCapped` harness page (banner + 3 warnings on one
+member → visible = full-width banner + one indented warning, "2 more" hidden) +
+layout assertions at 1280 and 390 incl. the native-details open state; page
+inspected in both themes during the impeccable dual-gate.
+
 ## Warning announcer + elsewhere copy (2026-07-22)
 
 Four warning-panel-polish impeccable-critique deferrals (recorded 2026-07-22,

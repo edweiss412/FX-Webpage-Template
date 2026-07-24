@@ -46,6 +46,8 @@ on:
       - "lib/a11y/**"
       - "tests/e2e/published-review-modal.interactions.spec.ts"
       - "components/admin/HoverHelp.tsx"
+      - "components/admin/PerShowActionableWarnings.tsx"
+      - "components/admin/compactAlertHelp.tsx"
       - "lib/popover/position.ts"
       - "tests/e2e/published-review-modal.deeplink.spec.ts"
       - "tests/e2e/published-review-modal.layout.spec.ts"

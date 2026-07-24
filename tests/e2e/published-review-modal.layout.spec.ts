@@ -122,6 +122,7 @@ test.beforeAll(async () => {
     notLive: string;
     archived: string;
     crewWarnings: string;
+    crewWarningsCapped: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
 
@@ -133,6 +134,11 @@ test.beforeAll(async () => {
   writeFileSync(join(workDir, "archived.html"), pageHtml("out.css", pages.archived));
   // crew-warning-attachment T5: matched (under-row) + unmatched (in-card group).
   writeFileSync(join(workDir, "crewwarnings.html"), pageHtml("out.css", pages.crewWarnings));
+  // crewwarn-underrow-polish §4: capped mixed stack (banner + 3 warnings, one member).
+  writeFileSync(
+    join(workDir, "crewwarningscapped.html"),
+    pageHtml("out.css", pages.crewWarningsCapped),
+  );
 
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
@@ -141,7 +147,14 @@ test.beforeAll(async () => {
   // that page's assertion would measure unstyled markup.
   writeFileSync(
     entryCss,
-    ["harness.html", "capped.html", "notlive.html", "archived.html", "crewwarnings.html"]
+    [
+      "harness.html",
+      "capped.html",
+      "notlive.html",
+      "archived.html",
+      "crewwarnings.html",
+      "crewwarningscapped.html",
+    ]
       .map((f) => `@source "${join(workDir, f)}";\n`)
       .join("") + globals,
   );
@@ -1128,4 +1141,89 @@ test.describe("crew warning placement — containment (crew-warning-attachment T
       card.y + card.h + TOL,
     );
   });
+});
+
+// crewwarn-underrow-polish §2/§4: hop-by-hop width invariants + the capped mixed
+// stack (banner consumes a cap slot; per-kind widths in ONE stack). TOL = 0.5px.
+test.describe("crew warning indent + cap (crewwarn-underrow-polish)", () => {
+  const STACK = '[data-testid="crew-warn-stack-crew member a"]';
+  const MORE = '[data-testid="crew-warn-more-crew member a"]';
+  const CARD = '[data-testid="compact-alert-card"]';
+
+  async function widthOf(page: Page, selector: string, nth = 0): Promise<number> {
+    const box = await page.locator(selector).nth(nth).boundingBox();
+    expect(box, `no box for ${selector} [${nth}]`).not.toBeNull();
+    return box!.width;
+  }
+
+  /** Asserts the FULL visible-card chain wrapper→ul→li→card for the pl-6 wrapper
+   *  rooted at `wrapperSel` (nth), against the given parent width. */
+  async function expectCardChain(
+    page: Page,
+    wrapperSel: string,
+    nth: number,
+    parentWidth: number,
+  ): Promise<void> {
+    const w = await widthOf(page, wrapperSel, nth);
+    expect(Math.abs(w - parentWidth), `wrapper vs parent`).toBeLessThanOrEqual(TOL);
+    const ulW = await widthOf(page, `${wrapperSel} > ul`, nth);
+    expect(Math.abs(ulW - (w - 24)), `ul vs wrapper - 24`).toBeLessThanOrEqual(TOL);
+    const liW = await widthOf(page, `${wrapperSel} > ul > li`, nth);
+    expect(Math.abs(liW - ulW), `li vs ul`).toBeLessThanOrEqual(TOL);
+    const cardW = await widthOf(page, `${wrapperSel} > ul > li > ${CARD}`, nth);
+    expect(Math.abs(cardW - liW), `card vs li`).toBeLessThanOrEqual(TOL);
+  }
+
+  test("T-WARN-INDENT @1280: single-warning page, full visible chain", async ({ page }) => {
+    await openHarness(page, { width: 1280, height: 900 }, "crewwarnings.html");
+    const stackW = await widthOf(page, STACK);
+    await expect(page.locator(`${STACK} > div.pl-6`)).toHaveCount(1);
+    await expectCardChain(page, `${STACK} > div.pl-6`, 0, stackW);
+  });
+
+  for (const vp of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    test(`T-WARN-CAP @${vp.width}: banner + 1 warning visible, "2 more" hidden, per-kind widths, both subtrees hop-by-hop`, async ({
+      page,
+    }) => {
+      await openHarness(page, vp, "crewwarningscapped.html");
+      const stackW = await widthOf(page, STACK);
+
+      // Cap slots: exactly 1 banner + 1 visible warning wrapper as DIRECT children.
+      const bannerSel = `${STACK} > [data-testid^="attention-banner-"]`;
+      await expect(page.locator(bannerSel)).toHaveCount(1);
+      await expect(page.locator(`${STACK} > div.pl-6`)).toHaveCount(1);
+
+      // Per-kind widths in ONE stack (spec §1.1 #2 + §2) + full visible chain.
+      expect(Math.abs((await widthOf(page, bannerSel)) - stackW)).toBeLessThanOrEqual(TOL);
+      await expectCardChain(page, `${STACK} > div.pl-6`, 0, stackW);
+
+      // Disclosure subtree, closed state first: details spans the stack, summary
+      // spans the details, hidden wrappers exist but are NOT visible.
+      const detailsSel = `${STACK} > details`;
+      expect(Math.abs((await widthOf(page, detailsSel)) - stackW)).toBeLessThanOrEqual(TOL);
+      const summary = page.locator(`${MORE} > summary`);
+      await expect(summary).toContainText("2 more");
+      const sBox = await summary.boundingBox();
+      expect(sBox).not.toBeNull();
+      expect(sBox!.height).toBeGreaterThanOrEqual(44);
+      expect(Math.abs(sBox!.width - (await widthOf(page, detailsSel)))).toBeLessThanOrEqual(TOL);
+      await expect(page.locator(`${MORE} div.pl-6`)).toHaveCount(2);
+      await expect(page.locator(`${MORE} div.pl-6`).first()).toBeHidden();
+
+      // Open natively; disclosure body + BOTH hidden card chains (spec §2 table).
+      await summary.click();
+      const bodySel = `${MORE} > div`;
+      expect(
+        Math.abs((await widthOf(page, bodySel)) - (await widthOf(page, detailsSel))),
+      ).toBeLessThanOrEqual(TOL);
+      const bodyW = await widthOf(page, bodySel);
+      for (const nth of [0, 1]) {
+        await expect(page.locator(`${MORE} div.pl-6`).nth(nth)).toBeVisible();
+        await expectCardChain(page, `${bodySel} > div.pl-6`, nth, bodyW);
+      }
+    });
+  }
 });

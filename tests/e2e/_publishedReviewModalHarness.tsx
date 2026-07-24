@@ -250,6 +250,11 @@ export type HarnessStateOverrides = {
    *  whose raw day-restriction name strips to a RENDERED roster name (under-row
    *  placement) and one unmatched (fallback into the in-card section group). */
   withCrewWarnings?: boolean;
+  /** crewwarn-underrow-polish §4: seed THREE FIELD_UNREADABLE warnings that all
+   *  strip to "Crew Member A" (distinct blockRef.index per the live dedup key,
+   *  lib/parser/dataGaps.ts:409-435) plus the unmatched "Ghost Crew" fallback.
+   *  false ≡ omitted; takes precedence over withCrewWarnings when both are set. */
+  withCappedCrewWarnings?: boolean;
 };
 
 /** T5 fixture warnings (spec 2026-07-23-crew-warning-attachment §5.5): the
@@ -275,6 +280,58 @@ function crewWarningFixtures(): ParseWarning[] {
   ];
 }
 
+function cappedCrewWarningFixtures(): ParseWarning[] {
+  const mk = (index: number, field: string, snippet: string): ParseWarning => ({
+    severity: "warn",
+    code: "FIELD_UNREADABLE",
+    message: `Crew ${field} for row ${index + 1} couldn't be read ("${snippet}") - check the sheet.`,
+    rawSnippet: snippet,
+    blockRef: { kind: "crew", index, name: "Crew Member A (5/3 ONLY)" },
+  });
+  return [
+    mk(0, "phone", "N/A"),
+    mk(1, "email", "nope"),
+    mk(2, "cell", "???"),
+    {
+      severity: "warn",
+      code: "FIELD_UNREADABLE",
+      message: 'Crew email for row 9 couldn\'t be read as an address ("nope") - check the sheet.',
+      rawSnippet: "nope",
+      blockRef: { kind: "crew", index: 8, name: "Ghost Crew" },
+    },
+  ];
+}
+
+/** Crew-routed attention item for the capped page: no ATTENTION_ROUTES anchor for
+ *  HARNESS_FAKE_CODE, so bucketAttention lands it in byCrewKey (sectionAttention.ts:122-126)
+ *  and the modal's crewKeyRendered predicate admits the rendered roster key. */
+export function crewCappedAttentionItem(): AttentionItem {
+  return {
+    id: "alert:harness-crewcap",
+    kind: "alert" as const,
+    tone: "notice" as const,
+    sectionId: "crew" as const,
+    crewKey: "crew member a",
+    actionable: true,
+    menuTitle: "Crew attention item",
+    menuSubtitle: null,
+    alert: {
+      alertId: "harness-crewcap",
+      code: "HARNESS_FAKE_CODE",
+      template: null,
+      params: {},
+      action: null,
+      helpHref: null,
+      raisedAt: "2026-05-02T10:00:00.000Z",
+      occurrenceCount: 1,
+      autoClearNote: null,
+      failedKeys: null,
+      dataGaps: null,
+      errorCode: null,
+    },
+  };
+}
+
 export function modalElement(
   alertCount: number = HARNESS_ALERT_COUNT,
   state: HarnessStateOverrides = {},
@@ -286,10 +343,15 @@ export function modalElement(
   // T5: build the REAL section model over the fixture warnings (subprocess only —
   // buildSectionWarningModel touches node:crypto via report surface ids; the
   // HASH_FOR_LOG_PEPPER env in the spec's beforeAll satisfies its guard).
-  const bySection: SectionWarningRecord = state.withCrewWarnings
+  const wantsCrewWarnings =
+    state.withCappedCrewWarnings === true || state.withCrewWarnings === true;
+  const bySection: SectionWarningRecord = wantsCrewWarnings
     ? buildSectionWarningModel({
         slug: MODAL_SLUG,
-        warnings: crewWarningFixtures(),
+        warnings:
+          state.withCappedCrewWarnings === true
+            ? cappedCrewWarningFixtures()
+            : crewWarningFixtures(),
         ignoredFingerprints: new Set(),
         renderedSectionIds: new Set(
           renderedSectionIds({ mode: "published", agendaBaseline: [] } as never) as SectionId[],
@@ -377,6 +439,12 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
       // crew-warning-attachment T5: matched (under-row) + unmatched (in-card
       // group fallback) FIELD_UNREADABLE fixtures.
       crewWarnings: renderModalHtml(HARNESS_ALERT_COUNT, { withCrewWarnings: true }),
+      // crewwarn-underrow-polish §4: capped mixed stack - banner rides the
+      // replace-wholesale attentionItems override, defaults preserved.
+      crewWarningsCapped: renderModalHtml(HARNESS_ALERT_COUNT, {
+        withCappedCrewWarnings: true,
+        attentionItems: [...harnessAttentionItems(HARNESS_ALERT_COUNT), crewCappedAttentionItem()],
+      }),
     }),
   );
 }
