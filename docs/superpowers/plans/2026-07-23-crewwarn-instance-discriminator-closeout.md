@@ -27,7 +27,18 @@
 
 ## 12. Impeccable dual-gate dispositions
 
-(Filled at Task 7 Step 2 — critique + audit findings, each with fix commit or DEFERRED.md entry; explicit "no findings" entry if both gates pass clean.)
+Both gates run 2026-07-24 with canonical v3 setup (context.mjs load from skill base dir, product register reference) on the branch UI diff (`components/admin/PerShowActionableWarnings.tsx`, `components/admin/BulkIgnoreControls.tsx`).
+
+**Critique** (dual-agent, detector exit 0 / findings `[]`, browser overlay skipped — admin-auth surface, no dev server; real-browser evidence supplied instead by the Task 5 standalone spec): **37/40**, zero P0/P1. Snapshot: `.impeccable/critique/2026-07-24T06-10-23Z__components-admin-pershowactionablewarnings-tsx.md`.
+
+**Audit** (5-dimension technical): **19/20 Excellent**, anti-patterns PASS, zero P0/P1/P2. Contrast derived from runtime tokens, both themes: label `text-warning-text`/`warning-bg` 8.8:1 light / 9.6:1 dark; value `text-text` 15.6:1 / 10.7:1 — AAA throughout. Eyebrow dimension verified by the green `tests/e2e/bulk-ignore-eyebrow.layout.spec.ts` 390px run (idle+armed).
+
+**Findings + dispositions (all P3 — no fix required by invariant 8; recorded, deferred to a future polish/sweep pass, no DEFERRED.md entry needed at P3):**
+
+| # | Gate | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | critique P3 | Full-mode `bandName` joins into the value span (`PerShowActionableWarnings.tsx:220,233`), so a human name renders `font-mono` + `break-all`. | Deferred. Spec §2.2 ratified byte-parity with the sibling Sheet-row band; splitting the name into its own `break-words` span is a §2.2 amendment for a future polish pass. Verified real against code before recording. |
+| 2 | audit P3 | Eyebrow recipe fork: band label uses `tracking-wider` + `text-[10px]` (parity with `:247` sibling and 12 pre-existing uses) while the token family uses `tracking-eyebrow`. | Deferred. Parity was the ratified choice; candidate repo-wide eyebrow-recipe consolidation sweep (BACKLOG-class, not this diff). |
 
 ## 13. Whole-diff review
 
