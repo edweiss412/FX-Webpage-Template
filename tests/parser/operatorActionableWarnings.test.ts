@@ -169,3 +169,47 @@ describe("PULL_SHEET_ON_ARCHIVED_TAB decision pin (spec 2026-07-23 §2.2)", () =
     expect(OPERATOR_ACTIONABLE_ANCHORED.has("PULL_SHEET_ON_ARCHIVED_TAB")).toBe(false);
   });
 });
+
+describe("FIELD_UNREADABLE field fold (crewwarn-instance-discriminator §2.1)", () => {
+  const cell = { title: "II", gid: 7, a1: "B9" };
+  const base = {
+    severity: "warn" as const,
+    code: "FIELD_UNREADABLE" as const,
+    message: "m",
+    sourceCell: cell,
+  };
+
+  it("same-member phone+email with one shared anchor BOTH survive (field fold)", () => {
+    const ws: ParseWarning[] = [
+      { ...base, rawSnippet: "no digits", blockRef: { kind: "crew", index: 2, name: "Jordan", field: "phone" } },
+      { ...base, rawSnippet: "no at", blockRef: { kind: "crew", index: 2, name: "Jordan", field: "email" } },
+    ];
+    expect(operatorActionableWarnings(ws)).toHaveLength(2);
+  });
+
+  it("fold uses the RAW field string untrimmed: padded vs unpadded field both survive", () => {
+    const ws: ParseWarning[] = [
+      { ...base, rawSnippet: "x", blockRef: { kind: "crew", index: 2, name: "J", field: "phone" } },
+      { ...base, rawSnippet: "y", blockRef: { kind: "crew", index: 2, name: "J", field: " phone " } },
+    ];
+    // Raw-string fold (identity/dedup keys never trim); a trimming implementation collapses these.
+    expect(operatorActionableWarnings(ws)).toHaveLength(2);
+  });
+
+  it("legacy field-less pair keeps today's collapse (backward compat)", () => {
+    const ws: ParseWarning[] = [
+      { ...base, rawSnippet: "x", blockRef: { kind: "crew", index: 2, name: "Jordan" } },
+      { ...base, rawSnippet: "y", blockRef: { kind: "crew", index: 2, name: "Jordan" } },
+    ];
+    expect(operatorActionableWarnings(ws)).toHaveLength(1);
+  });
+
+  it("presence delimiter: field-less vs present-but-empty field are distinct keys (both survive)", () => {
+    const ws: ParseWarning[] = [
+      { ...base, rawSnippet: "x", blockRef: { kind: "crew", index: 2, name: "Jordan" } },
+      { ...base, rawSnippet: "y", blockRef: { kind: "crew", index: 2, name: "Jordan", field: "" } },
+    ];
+    // The NUL delimiter makes "" a PRESENT discriminator; without it this pair aliases and collapses.
+    expect(operatorActionableWarnings(ws)).toHaveLength(2);
+  });
+});
