@@ -679,7 +679,13 @@ function jobs(yaml: string): Array<{ head: string; steps: string[] }> {
     const steps = job
       .slice(idx)
       .split(/\n(?=\s*-\s)/)
-      .slice(1);
+      .slice(1)
+      // Normalize the list marker so `- run:` / `- if:` inline forms match the
+      // same line-anchored regexes as the two-line `- name:` + `run:` form
+      // (plan R2 blocking finding: without this, inline `- run:` steps were
+      // INVISIBLE - the exact silently-matches-nothing class this guard cites
+      // _rowWrapperScan to prevent).
+      .map((st) => st.replace(/^(\s*)-\s*/, "$1"));
     return { head, steps };
   });
 }
@@ -800,8 +806,13 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
   const S = (w: string, scripts: Record<string, string> = {}) =>
     scanWorkflowCoverage({ workflows: { "w.yml": w }, packageScripts: scripts });
 
-  it("counts a clean pull_request workflow with a direct invocation", () => {
+  it("counts a clean pull_request workflow with an INLINE `- run:` invocation", () => {
     const r = S(base("  pull_request:\n  workflow_dispatch:", "", `pnpm exec playwright test ${spec}`));
+    expect(r.covered.has(spec)).toBe(true);
+  });
+  it("counts the two-line `- name:` + `run:` step form (the shape real workflows here use)", () => {
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: Run e2e\n        run: pnpm exec playwright test ${spec}\n`;
+    const r = scanWorkflowCoverage({ workflows: { "w.yml": w }, packageScripts: {} });
     expect(r.covered.has(spec)).toBe(true);
   });
   it("resolves a pnpm script alias through package.json", () => {
@@ -827,8 +838,13 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
     const r = S(base("  pull_request:", "    if: false\n", `playwright test ${spec}`));
     expect(r.rejected[0]!.reason).toBe("if: condition present");
   });
-  it("rejects an if: on the run step itself", () => {
+  it("rejects an INLINE `- if:` on the run step (marker-normalized)", () => {
     const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - if: failure()\n        run: playwright test ${spec}\n`;
+    const r = scanWorkflowCoverage({ workflows: { "w.yml": w }, packageScripts: {} });
+    expect(r.rejected[0]!.reason).toBe("if: condition present");
+  });
+  it("rejects an own-line if: on the run step", () => {
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: gated\n        if: github.event_name == 'push'\n        run: playwright test ${spec}\n`;
     const r = scanWorkflowCoverage({ workflows: { "w.yml": w }, packageScripts: {} });
     expect(r.rejected[0]!.reason).toBe("if: condition present");
   });
