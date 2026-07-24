@@ -1194,7 +1194,7 @@ rule: badge resolver arms (4), D1/D2 conditions, `isSettings` blocks (3),
 mobile/desktop label blocks (toggle + resync), spin className ternary.
 
 ```bash
-git diff origin/main...HEAD -- 'components/**' | grep -nE "\? \(|\? "|isSettings|!archived|lastSyncedAt"
+git diff origin/main...HEAD -- 'components/**' | grep -nE '[?] [(]|isSettings|!archived|lastSyncedAt'
 ```
 
 Record the mapping as a checklist in the Task 11 close-out doc (one line per
