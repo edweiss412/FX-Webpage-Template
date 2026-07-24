@@ -644,7 +644,9 @@ describe("stacked mobile band (spec 2026-07-24-strip-mobile-stacked-band §3)", 
     for (const c of cases) {
       renderStrip({ archived: c.archived, isLive: c.isLive, published: c.published });
       const badge = screen.getByTestId("strip-state-badge");
-      expect(badge.textContent).toContain(c.label);
+      // Exact match: the dot span is aria-hidden and textless, so the badge's
+      // whole text content IS the label (superstring renders would leak here).
+      expect(badge.textContent?.trim()).toBe(c.label);
       expect(badge.className).toContain("h-6");
       expect(badge.className).toContain("rounded-pill");
       cleanup();
@@ -658,6 +660,23 @@ describe("stacked mobile band (spec 2026-07-24-strip-mobile-stacked-band §3)", 
       expect(row.className).toContain(cls);
     }
     expect(row.parentElement).toBe(screen.getByTestId("show-status-strip"));
+  });
+
+  it("Published/Draft pill recipe: the contrast-pinned sunken pair, tokened dots", () => {
+    // Links the component to tests/styles/status-token-contrast.test.ts's
+    // text-subtle-on-surface-sunken row: without this pin a token swap on the
+    // pill would pass the contrast test vacuously.
+    renderStrip({ isLive: false, published: true });
+    const pub = screen.getByTestId("strip-state-badge");
+    expect(pub.className).toContain("bg-surface-sunken");
+    expect(pub.className).toContain("text-text-subtle");
+    expect(pub.querySelector("span[aria-hidden]")?.className).toContain("bg-status-positive");
+    cleanup();
+    renderStrip({ isLive: false, published: false });
+    const draft = screen.getByTestId("strip-state-badge");
+    expect(draft.className).toContain("bg-surface-sunken");
+    expect(draft.className).toContain("text-text-subtle");
+    expect(draft.querySelector("span[aria-hidden]")?.className).toContain("bg-text-faint");
   });
 
   it("Live badge recipe: pinned accent-tint pair, accent-on-bg dot", () => {

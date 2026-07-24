@@ -211,7 +211,12 @@ test("rows, caps, clip priority, containment — worst-case vs fixture-typical",
   expect(r2Bottom - r2Top).toBeGreaterThanOrEqual(44);
   expect(r2Bottom - r2Top).toBeLessThanOrEqual(48);
   expect(worst["strip-sync-age"]!.height).toBeLessThanOrEqual(r2Bottom - r2Top + 0.5);
-  for (const n of ["share-hub-group", "share-hub-primary", "share-hub-kebab"] as const) {
+  for (const n of [
+    "share-hub-group",
+    "share-hub-primary",
+    "share-hub-kebab",
+    "admin-resync-button",
+  ] as const) {
     expect(worst[n]!.height, n).toBeGreaterThanOrEqual(44);
     expect(worst[n]!.height, n).toBeLessThanOrEqual(48);
   }
