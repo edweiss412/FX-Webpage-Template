@@ -184,6 +184,31 @@ alert-watch-channel-orphaned
 export type ExcludedScenario = { id: string; label: string; reason: "structural" | "cut" | "global" };
 ```
 
+### 4.5 The composite instance (class sweep)
+
+The tier-1 cards are not the only place a global code reaches a show modal. A class sweep over every scenario tier found exactly one more:
+
+```
+$ node -e '<grep each of the nine global-only codes across lib/dev/attentionScenarios/tier{1,2,3}.ts>'
+tier3.ts:114  SYNC_STALLED   | { code: "SYNC_STALLED", context: {}, raised_at: AT, occurrence_count: 3 },
+```
+
+`T3_FULL_SPLIT` combines `SHEET_UNAVAILABLE`, `RESYNC_QUALITY_REGRESSED`, `SYNC_STALLED`, and `DRIVE_FETCH_FAILED` with one hold (`lib/dev/attentionScenarios/tier3.ts:97-133`). It is a mixed scenario, so §4.1 keeps its card — correctly, because the composite exercises a real modal state. But the state it exercises is the wrong one.
+
+`SELF_HEALING_CODE_LIST` has exactly three members (`lib/adminAlerts/audience.ts:75-79`):
+
+```
+DRIVE_FETCH_FAILED      per-show-reachable
+SYNC_STALLED            global-only
+WATCH_CHANNEL_ORPHANED  global-only
+```
+
+Two of the three are global-only, so a real show modal's Monitoring group can hold **at most one distinct code**: `DRIVE_FETCH_FAILED`. `T3_FULL_SPLIT`'s comment claims "two genuinely self-healing codes -> the Monitoring summary reads 2" (`lib/dev/attentionScenarios/tier3.ts:113`), and the rendered pill's `visibleText` is pinned to a plural monitoring segment (`tests/dev/fullSplitCompositeRender.test.tsx:56`). Production cannot produce a plural Monitoring group.
+
+**Resolution.** The `SYNC_STALLED` row is removed from `T3_FULL_SPLIT`. There is no per-show-reachable substitute — the plural state is unreachable by construction, not merely unfixtured — so the composite pill becomes `1 to confirm · 2 to review · 1 monitoring`. Fidelity beats coverage of an impossible state; a composite that teaches an operator a count production cannot produce is the same defect as a tier-1 card for an unreachable code, one layer up.
+
+After the removal the composite still derives: 1 actionable (the hold), 2 needs-look (`SHEET_UNAVAILABLE`, `RESYNC_QUALITY_REGRESSED`), 1 self-heal (`DRIVE_FETCH_FAILED`) — so every group in the split remains non-empty and the scenario keeps its purpose.
+
 ---
 
 ## 5. UI
@@ -246,6 +271,7 @@ TDD per invariant 1: failing test, minimal implementation, passing test, commit,
 | 5 | `partitionScenarios`: `EXPECTED_CUT_IDS` still matches exactly, and no id appears under two reasons | the ordering contract in §4.3; a reordering that relabels the five health globals fails here |
 | 6 | `partitionScenarios`: the rendered id set equals today's rendered set minus exactly the four | the §4.2 extraction is behavior-preserving; a carrier-list typo that drops an unrelated scenario fails here |
 | 7 | `switcherControls.test.tsx`: global-only panel shows only the global line; mixed shows all three; the count text reflects the global list length | a paragraph gated on the wrong list, or on `excluded.length` instead of its own |
+| 8 | `fullSplitComposite.test.ts` / `fullSplitCompositeRender.test.tsx`: `T3_FULL_SPLIT` derives 1 actionable / 2 needs-look / 1 self-heal, and the pill reads `1 to confirm · 2 to review · 1 monitoring` | the §4.5 removal; a revert that re-adds a global code to the composite fails the derived-count assertion, not just the rendered string |
 
 **Anti-tautology notes.** Test 4 derives its expectation from a checked-in id list, never from `GLOBAL_SCOPE_CODES` (deriving it from the same constant the implementation reads would pass no matter what the predicate does). Test 6 captures the baseline rendered set from the committed pre-change output, not by re-running the new code. Test 3 asserts against synthetic scenarios with explicitly constructed carriers, so a predicate that returns a constant fails at least one row.
 
@@ -265,6 +291,9 @@ TDD per invariant 1: failing test, minimal implementation, passing test, commit,
 | `tests/app/admin/attentionModalGallery.serverProps.test.ts` | add `EXPECTED_GLOBAL_IDS` pin; keep `EXPECTED_CUT_IDS` unchanged; add the no-double-reason and rendered-set-delta tests |
 | `tests/components/admin/dev/switcherControls.test.tsx` | global-line cases |
 | `tests/admin/attentionExclusionSet.test.ts:110-122` | swap the `LIVE_ROW_CONFLICT` control for a `FROZEN_REACHABLE` code |
+| `lib/dev/attentionScenarios/tier3.ts:113-114` | remove the `SYNC_STALLED` row from `T3_FULL_SPLIT` and its stale comment (§4.5) |
+| `tests/dev/fullSplitComposite.test.ts:28` | drop `SYNC_STALLED` from the code list; self-heal count 2 → 1 |
+| `tests/dev/fullSplitCompositeRender.test.tsx:53-56` | pill text and monitoring-row count 2 → 1 |
 
 `tests/app/admin/attentionGalleryPage.test.tsx:26` builds its `EXCLUDED` fixture with `reason: "cut" as const`; widening the union does not break it and it needs no edit. `tests/admin/dev/filesMembership.test.ts` walks `app/admin/dev/` for ROUTE_FILES (`page.tsx`, `actions.ts`, `route.ts`, `layout.tsx`); `buildSwitcherScenarios.ts` is a helper module, not a route file, and no new route file is added, so no registration is needed.
 
@@ -279,4 +308,5 @@ TDD per invariant 1: failing test, minimal implementation, passing test, commit,
 - Any change to production alert routing, producer scopes, or `fetchPerShowAlerts`.
 - The `PRODUCER_SCOPE` §3.0 residual risk (raw `INSERT INTO admin_alerts` sites are not discovered). Those sites all emit health-audience codes, which the gallery cuts on the audience axis regardless, so the residual does not affect this change.
 - The 13 routed codes with no producer row at all. They are health-audience and already cut; classifying them by scope would require closing the residual above.
+- **The near-vestigial Monitoring group.** §4.5 establishes that only `DRIVE_FETCH_FAILED` of the three `SELF_HEALING_CODE_LIST` members is per-show-reachable, so a real show modal's Monitoring group holds at most one distinct code. Whether that group earns its dedicated pill segment, heading, and row list is a product question, not a correctness one. Recorded here so a future reviewer does not re-derive it; not addressed by this spec.
 - Bell, dashboard, and health surfaces. Global alerts render correctly there and this spec does not touch them.
