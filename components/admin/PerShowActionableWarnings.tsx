@@ -64,12 +64,32 @@ export function resolveGuidance(
   return { kind: "catalog", markup: warningCardCopyFields(entry).guidance };
 }
 
+/** Condensed popover slots (spec 2026-07-23-crewwarn-underrow-polish §3): DERIVED
+ *  from full mode's two slots so the described set is {movedGuidance} ∪ full mode's
+ *  described set in every row — fullBody keeps its described position, followUp
+ *  keeps its full-mode slot. Pure + exported so the 8-row table is unit-testable. */
+export function condensedPopoverSlots(args: {
+  movedGuidance: string | null;
+  context: string | null;
+  followUp: string | null;
+}): { popoverBody: string | null; afterBodyText: string | null } {
+  const { movedGuidance, context, followUp } = args;
+  const fullBody = context ?? followUp;
+  const fullAfter = context !== null ? followUp : null;
+  const popoverBody =
+    movedGuidance !== null && fullBody !== null
+      ? `${movedGuidance} ${fullBody}`
+      : (movedGuidance ?? fullBody);
+  return { popoverBody, afterBodyText: fullAfter };
+}
+
 export function PerShowActionableWarnings({
   items,
   driveFileId,
   renderItemControls,
   tone = "warning",
   followUpCopy,
+  condensed,
 }: {
   items: ParseWarning[];
   driveFileId: string | null;
@@ -90,6 +110,11 @@ export function PerShowActionableWarnings({
    *  above): trimmed, and an empty result is treated as absent, so a
    *  whitespace-only value cannot manufacture an empty popover. */
   followUpCopy?: string;
+  /** Under-row placement (spec 2026-07-23-crewwarn-underrow-polish §3): the catalog
+   *  guidance line moves into the `?` popover BODY; instance (autocorrect) guidance
+   *  stays inline. Switches on `condensed === true`; false ≡ omitted. Group,
+   *  fallback, ignored, and staged surfaces omit this — full copy unchanged. */
+  condensed?: boolean;
 }) {
   if (items.length === 0) return null;
   // Order-independent keys so an ignore-driven refresh does not remount surviving
@@ -144,8 +169,17 @@ export function PerShowActionableWarnings({
         // case — so the card keeps a described popover instead of losing its
         // trigger entirely. `context` is already `string | null` (the
         // warningCardCopyFields ternary above), the one nullable sentinel.
-        const popoverBody = context ?? followUp;
-        const afterBodyText: string | null = context !== null ? followUp : null;
+        const isCondensed = condensed === true;
+        const movedGuidance =
+          isCondensed && guidanceResult.kind === "catalog" ? guidanceResult.markup : null;
+        // Full mode: movedGuidance is null, so this degenerates to exactly the
+        // two expressions it replaced (body = context ?? followUp; after =
+        // context !== null ? followUp : null) — byte-identical output.
+        const { popoverBody, afterBodyText } = condensedPopoverSlots({
+          movedGuidance,
+          context,
+          followUp,
+        });
 
         // Branch on the RESULT, never on `sourceCell` alone: a non-null cell with a
         // null driveFileId still yields no link (spec §5.2).
@@ -227,7 +261,7 @@ export function PerShowActionableWarnings({
                       {/* Plain text — sheet-derived params are never parsed as markup (§4.4). */}
                       {guidanceResult.text}
                     </span>
-                  ) : guidanceResult.markup ? (
+                  ) : !isCondensed && guidanceResult.markup ? (
                     <span
                       data-testid="per-show-actionable-guidance"
                       className={`text-xs/relaxed font-normal ${tone === "muted" ? "text-text-subtle" : "text-warning-text"}`}
