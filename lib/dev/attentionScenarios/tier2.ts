@@ -871,10 +871,13 @@ export function modalStateScenarios(): AttentionScenario[] {
       // (PublishedToggle.tsx:116), which renders plain retry copy, no catalog.
       actionOutcomes: { setPublished: { kind: "error", code: "infra_error" } },
     }),
-    scenario("t2-act-archive-refusal", "Archive: finalize-owned refusal", {
+    // No finalizeOwned fixture: the finalize-owned window OMITS the lifecycle
+    // section entirely (ShareHub.tsx:573), so the button would never mount.
+    // The refusal demonstrated here is the SERVER-side race: finalize takes
+    // ownership after this tab rendered, and the archive action refuses.
+    scenario("t2-act-archive-refusal", "Archive: finalize-owned refusal (stale tab)", {
       alerts: [],
       holds: [],
-      fixture: { finalizeOwned: true },
       landing: "actions",
       actionOutcomes: { archive: { kind: "error", code: "FINALIZE_OWNED_SHOW" } },
     }),

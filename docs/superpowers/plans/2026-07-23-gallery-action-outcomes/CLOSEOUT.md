@@ -34,4 +34,11 @@ Scope note: the diff deliberately introduces **zero new visual states** — ever
 
 ## Cross-model whole-diff review
 
-(recorded when dispatched — see spec TRIAGE for the wedge ladder used on spec/plan rounds)
+- **R1 (Codex, fresh-eyes): NEEDS-ATTENTION, 6 findings — all verified real, all repaired:**
+  - F1 (P1) archive-refusal scenario was unreachable: `finalizeOwned: true` omits the whole ShareHub lifecycle section (`ShareHub.tsx:573`), so the archive button never mounted. Repair: scenario re-scripted as the SERVER-side stale-tab race (no finalizeOwned fixture); validator archive-reachability now also requires `finalizeOwned !== true`; regression test added.
+  - F2 (P2) resolve reachability accepted actionable HOLDS, which never mount `PerShowAlertResolveButton`. Repair: predicate narrowed to `kind === "alert" && actionable`; hold-only regression test added.
+  - F3 (P2) malformed-payload gaps: resync success `outcome` now validated against its closed union; a malformed kind sets a flag that skips reachability (no more `bi.kind` dereference on garbage); no-throw regression test added.
+  - F4 (P2) sweep could not detect an unreachable scripted control. Repair: the corrected validator IS the structural guard for this class (a control that cannot mount fails validation at build time); plus a new e2e test clicks the archive control on the repaired scenario and asserts the refusal copy (proves mount).
+  - F5 (P3) shrink e2e test now asserts `data-gallery-scripted-write` like its siblings.
+  - F6 (P2) final full-suite green evidence recorded below.
+- Post-repair verification: e2e dev-build 25/25 (new archive test included); scoped suites green; full-suite final run recorded in the Verification ledger.

@@ -649,6 +649,10 @@ test.describe("action outcomes (spec 2026-07-23 gallery-action-outcomes)", () =>
         : "";
     expect(detail.length).toBeGreaterThan(0);
     await expect(confirm).toContainText(detail);
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-gallery-scripted-write",
+      /POST \/api\/admin\/sync\//,
+    );
   });
 
   test("publish-toggle refusal popover renders the cataloged refusal", async ({ page }) => {
@@ -697,6 +701,21 @@ test.describe("action outcomes (spec 2026-07-23 gallery-action-outcomes)", () =>
     const banner = dialog.locator('[data-testid="crew-row-reset-error"]');
     await expect(banner).toBeVisible();
     await expect(banner).toContainText("no longer on the roster");
+  });
+
+  test("archive refusal renders catalog copy from the scripted stale-tab race (R1-F1/F4)", async ({
+    page,
+  }) => {
+    // Proves the archive control MOUNTS on this scenario (the R1-F1 class:
+    // an unreachable scripted control) AND its refusal copy renders.
+    await gotoScenario(page, "t2-act-archive-refusal");
+    const dialog = dialogOf(page);
+    await dialog.locator('[data-testid="share-hub-kebab"]').click();
+    await dialog.locator('[data-testid="archive-show-button"]').click();
+    await dialog.locator('[data-testid="archive-show-confirm-button"]').click();
+    const err = dialog.locator('[data-testid="archive-show-error"]');
+    await expect(err).toBeVisible();
+    expect((await err.innerText()).trim().length).toBeGreaterThan(20);
   });
 
   test("share-hub rotate success reveals the rotated link state", async ({ page }) => {

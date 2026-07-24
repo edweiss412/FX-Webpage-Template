@@ -658,6 +658,7 @@ function validateActionOutcomes(s: AttentionScenario, out: string[]): void {
     out.push("actionOutcomes: empty object is a no-op");
     return;
   }
+  let malformed = false;
   for (const key of keys) {
     const allowed = ACTION_OUTCOME_KINDS[key];
     if (allowed === undefined) {
@@ -667,6 +668,7 @@ function validateActionOutcomes(s: AttentionScenario, out: string[]): void {
     const v = (ao as Record<string, unknown>)[key];
     if (!isPlainObject(v) || typeof v.kind !== "string" || !allowed.has(v.kind)) {
       out.push(`actionOutcomes.${key}: kind must be one of ${[...allowed].join("/")}`);
+      malformed = true;
       continue;
     }
     if (v.kind === "error" && !CODELESS_ERROR_KEYS.has(key)) {
@@ -681,8 +683,16 @@ function validateActionOutcomes(s: AttentionScenario, out: string[]): void {
         out.push("actionOutcomes.resync: shrink_held detail must be non-blank");
       }
     }
+    if (key === "resync" && v.kind === "success" && v.outcome !== undefined) {
+      const OUTCOMES = ["applied", "stage", "skipped", "asset_recovery"];
+      if (typeof v.outcome !== "string" || !OUTCOMES.includes(v.outcome)) {
+        out.push(`actionOutcomes.resync: success outcome must be one of ${OUTCOMES.join("/")}`);
+      }
+    }
   }
-  validateActionOutcomeReachability(s, ao as ScenarioActionOutcomes, out);
+  // A malformed payload already failed the walk; reachability reads payload
+  // fields and must not dereference garbage (whole-diff R1 F3b).
+  if (!malformed) validateActionOutcomeReachability(s, ao as ScenarioActionOutcomes, out);
 }
 
 function validateActionOutcomeReachability(
@@ -698,7 +708,9 @@ function validateActionOutcomeReachability(
   const acceptableCount = entries.filter((e) => e.acceptable).length;
   const hasUndo = entries.some((e) => e.action === "undo");
   const holds = Array.isArray(s.holds) ? s.holds.length : 0;
-  const actionable = deriveScenarioAttention(s).some((it) => it.actionable);
+  // ALERT items only: holds are actionable but never mount the resolve button
+  // (lib/admin/sectionAttention.ts hold exclusion; AttentionBanner alert cards).
+  const actionable = deriveScenarioAttention(s).some((it) => it.kind === "alert" && it.actionable);
   const ignored = new Set(s.ignoreWarningIndexes ?? []);
   const activeWarnings = (s.warnings ?? []).filter((_, i) => !ignored.has(i));
   const groups = groupIgnorableByCode(activeWarnings);
@@ -737,7 +749,11 @@ function validateActionOutcomeReachability(
   req(fx?.share?.linkActive === true, "everyoneReset", "needs fixture.share.linkActive");
   req(!archived, "resync", "archived shows have no re-sync control");
   req(!archived && fx?.finalizeOwned !== true, "setPublished", "toggle absent/disabled");
-  req(!archived, "archive", "already archived");
+  req(
+    !archived && fx?.finalizeOwned !== true,
+    "archive",
+    "archive control absent (archived, or lifecycle section omitted while finalize-owned - ShareHub.tsx:573)",
+  );
   const bi = ao.bulkIgnore;
   if (
     bi !== undefined &&
