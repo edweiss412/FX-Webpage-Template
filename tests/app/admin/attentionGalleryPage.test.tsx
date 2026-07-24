@@ -80,12 +80,15 @@ describe("AttentionGalleryPage (server route)", () => {
     expect(partitionScenarios).not.toHaveBeenCalled();
   });
 
-  test("switcher gets serializable scenarios/excluded/initialId; write guard present", async () => {
+  test("switcher gets serializable scenarios/excluded/initialId; guard is switcher-owned", async () => {
     const tree = await AttentionGalleryPage({
       searchParams: Promise.resolve({ scenario: "b" }),
     });
+    // Guard mount moved into the client switcher (spec 2026-07-23 §3.2) so
+    // scenario fetch scripts can reach it; the page must NOT double-mount it
+    // (two fetch patches would stack).
     const guard = findByName(tree, "GalleryWriteGuard");
-    expect(guard, "GalleryWriteGuard must be rendered").not.toBeNull();
+    expect(guard, "GalleryWriteGuard is switcher-owned now").toBeNull();
 
     const switcher = findByName(tree, "AttentionModalSwitcher");
     expect(switcher, "AttentionModalSwitcher must be rendered").not.toBeNull();

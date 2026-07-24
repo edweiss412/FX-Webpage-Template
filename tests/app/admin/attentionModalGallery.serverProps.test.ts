@@ -313,3 +313,33 @@ describe("partitionScenarios - shareToken stamping", () => {
     }
   });
 });
+
+describe("actionOutcomes passthrough (spec 2026-07-23 §3.1)", () => {
+  test("a scripted-only tier-2 scenario is visible and its script survives partition verbatim", () => {
+    const scripted: AttentionScenario = {
+      id: "t2-passthrough-probe",
+      tier: 2,
+      label: "probe",
+      alerts: [],
+      holds: [],
+      landing: "actions",
+      actionOutcomes: { resync: { kind: "pending" } },
+    };
+    // Carrier contract: actionOutcomes alone must make the modal visible
+    // (failure mode: scripted-only scenarios silently excluded).
+    expect(isModalVisible(scripted)).toBe(true);
+  });
+
+  test("rendered entries carry actionOutcomes verbatim or null", () => {
+    const { rendered } = partitionScenarios();
+    for (const r of rendered) {
+      const src = scenarioById(r.id);
+      expect(r.actionOutcomes, r.id).toEqual(src?.actionOutcomes ?? null);
+    }
+    // At least the roster's scripted scenarios must be non-null once Task 7 lands;
+    // until then this pins the null default end-to-end.
+    expect(
+      rendered.every((r) => r.actionOutcomes === null || typeof r.actionOutcomes === "object"),
+    ).toBe(true);
+  });
+});

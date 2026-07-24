@@ -68,6 +68,7 @@ function scenario(
     label: id,
     group,
     shareToken: null,
+    actionOutcomes: null,
     codes: [id.toUpperCase()],
     // The mocked modal ignores all but `title`; a lightweight cast keeps the
     // fixture from having to construct all ~20 real data props.
@@ -209,6 +210,7 @@ describe("per-scenario ShareTokenProvider (modal-state coverage)", () => {
   const tok = (id: string, title: string, shareToken: string | null): GallerySwitcherScenario => ({
     ...scenario(id, title),
     shareToken,
+    actionOutcomes: null,
   });
 
   test("active-token scenario -> null-token scenario drops the token (provider remounts)", () => {

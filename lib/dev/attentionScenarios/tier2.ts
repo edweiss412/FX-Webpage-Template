@@ -95,6 +95,21 @@ export const T2_REQUIRED_IDS: readonly string[] = [
   "t2-attention-extras",
   "t2-ignored-warnings",
   "t2-all-ignored",
+  "t2-act-resync-error",
+  "t2-act-resync-shrink",
+  "t2-act-resync-success",
+  "t2-act-publish-refusal",
+  "t2-act-publish-generic",
+  "t2-act-archive-refusal",
+  "t2-act-archive-notfound",
+  "t2-act-feed-errors",
+  "t2-act-resolve-error",
+  "t2-act-bulkignore-partial",
+  "t2-act-bulkignore-fail",
+  "t2-act-crewreset-notfound",
+  "t2-act-share-errors",
+  "t2-act-share-success",
+  "t2-act-pending",
 ];
 
 /**
@@ -820,6 +835,151 @@ export function modalStateScenarios(): AttentionScenario[] {
       warnings: [ignorableWarning("Loading dck"), ignorableWarning("Foyer stge")],
       ignoreWarningIndexes: [0, 1],
       landing: "warnings",
+    }),
+    // ── Action outcomes (spec 2026-07-23 gallery-action-outcomes §3.5) ──────
+    // Click-driven scripted outcomes; every scripted control passes the
+    // reachability validator (production-deriver mount predicates).
+    scenario("t2-act-resync-error", "Re-sync: infra error", {
+      alerts: [],
+      holds: [],
+      landing: "actions",
+      actionOutcomes: { resync: { kind: "error", code: "SYNC_INFRA_ERROR" } },
+    }),
+    scenario("t2-act-resync-shrink", "Re-sync: shrink held for confirmation", {
+      alerts: [],
+      holds: [],
+      landing: "actions",
+      actionOutcomes: { resync: { kind: "shrink_held", detail: "2 crew members removed" } },
+    }),
+    scenario("t2-act-resync-success", "Re-sync: success", {
+      alerts: [],
+      holds: [],
+      landing: "actions",
+      actionOutcomes: { resync: { kind: "success" } },
+    }),
+    scenario("t2-act-publish-refusal", "Publish toggle: known refusal", {
+      alerts: [],
+      holds: [],
+      landing: "actions",
+      actionOutcomes: { setPublished: { kind: "error", code: "PUBLISH_BLOCKED_PENDING_REVIEW" } },
+    }),
+    scenario("t2-act-publish-generic", "Publish toggle: generic error", {
+      alerts: [],
+      holds: [],
+      landing: "actions",
+      // Deliberately outside KNOWN_REFUSAL_CODES: demonstrates the generic arm
+      // (PublishedToggle.tsx:116), which renders plain retry copy, no catalog.
+      actionOutcomes: { setPublished: { kind: "error", code: "infra_error" } },
+    }),
+    // No finalizeOwned fixture: the finalize-owned window OMITS the lifecycle
+    // section entirely (ShareHub.tsx:573), so the button would never mount.
+    // The refusal demonstrated here is the SERVER-side race: finalize takes
+    // ownership after this tab rendered, and the archive action refuses.
+    scenario("t2-act-archive-refusal", "Archive: finalize-owned refusal (stale tab)", {
+      alerts: [],
+      holds: [],
+      landing: "actions",
+      actionOutcomes: { archive: { kind: "error", code: "FINALIZE_OWNED_SHOW" } },
+    }),
+    scenario("t2-act-archive-notfound", "Archive: show since deleted", {
+      alerts: [],
+      holds: [],
+      landing: "actions",
+      actionOutcomes: { archive: { kind: "not_found" } },
+    }),
+    scenario("t2-act-feed-errors", "Changes feed: every action errors", {
+      alerts: [],
+      holds: [hold("Casey Brooks")],
+      changeLog: [
+        // Acceptable arm (auto_apply/applied/unacknowledged is logRow's default).
+        logRow(1, { summary: "Crew phone updated" }),
+        // Undo arm: crew-domain, individually undoable, mi11_approve source so
+        // it is undo-only (not also acceptable).
+        logRow(2, {
+          summary: "Dana Reed added",
+          change_kind: "crew_added",
+          individually_undoable: true,
+          source: "mi11_approve",
+        }),
+      ],
+      // All codes cataloged (invariant 5): MI11_* and UNDO_NOT_FOUND are the
+      // components' real error codes; SYNC_INFRA_ERROR is what the accept
+      // actions actually emit (app/admin/_actions/autoApplied.ts:51,86).
+      actionOutcomes: {
+        approve: { kind: "error", code: "MI11_TARGET_MOVED" },
+        reject: { kind: "error", code: "MI11_DRIVE_RECHECK_FAILED" },
+        accept: { kind: "error", code: "SYNC_INFRA_ERROR" },
+        acceptAll: { kind: "error", code: "SYNC_INFRA_ERROR" },
+        undo: { kind: "error", code: "UNDO_NOT_FOUND" },
+      },
+    }),
+    scenario("t2-act-resolve-error", "Alert resolve: error", {
+      alerts: [alert(pickByDerivedClass("actionable"))],
+      holds: [],
+      // Uncataloged BY DESIGN: exercises the resolve button's defensive
+      // fallback copy (PerShowAlertResolveButton.tsx:52 not-subject comment).
+      actionOutcomes: { resolve: { kind: "error", code: "gallery_resolve_infra" } },
+    }),
+    scenario("t2-act-bulkignore-partial", "Bulk ignore: partial success", {
+      alerts: [],
+      holds: [],
+      warnings: [
+        ignorableWarning("Loading dck"),
+        ignorableWarning("Foyer stge"),
+        ignorableWarning("Ballrm B"),
+      ],
+      actionOutcomes: { bulkIgnore: { kind: "partial", okCount: 2 } },
+    }),
+    scenario("t2-act-bulkignore-fail", "Bulk ignore: total failure", {
+      alerts: [],
+      holds: [],
+      warnings: [ignorableWarning("Loading dck"), ignorableWarning("Foyer stge")],
+      actionOutcomes: { bulkIgnore: { kind: "fail" } },
+    }),
+    scenario("t2-act-crewreset-notfound", "Crew reset: roster changed underneath", {
+      alerts: [],
+      holds: [],
+      landing: "actions",
+      actionOutcomes: { crewReset: { kind: "not_found" } },
+    }),
+    scenario("t2-act-share-errors", "Share hub: rotate + reset errors", {
+      alerts: [],
+      holds: [],
+      fixture: { share: { linkActive: true, crewEmails: 3 } },
+      landing: "actions",
+      actionOutcomes: { rotate: { kind: "error" }, everyoneReset: { kind: "error" } },
+    }),
+    scenario("t2-act-share-success", "Share hub: rotate/reset/crew-reset success", {
+      alerts: [],
+      holds: [],
+      fixture: { share: { linkActive: true, crewEmails: 3 } },
+      landing: "actions",
+      actionOutcomes: {
+        rotate: { kind: "success" },
+        everyoneReset: { kind: "success" },
+        crewReset: { kind: "success" },
+      },
+    }),
+    scenario("t2-act-pending", "In-flight: every control hangs", {
+      alerts: [],
+      holds: [hold("Riley Sloane")],
+      changeLog: [
+        logRow(3, {
+          summary: "Riley Sloane added",
+          change_kind: "crew_added",
+          individually_undoable: true,
+          source: "mi11_approve",
+        }),
+      ],
+      fixture: { share: { linkActive: true, crewEmails: 3 } },
+      actionOutcomes: {
+        resync: { kind: "pending" },
+        setPublished: { kind: "pending" },
+        approve: { kind: "pending" },
+        undo: { kind: "pending" },
+        crewReset: { kind: "pending" },
+        rotate: { kind: "pending" },
+      },
     }),
   ];
 }

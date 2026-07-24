@@ -28,22 +28,23 @@
  * The control bar is portaled to `document.body` so it escapes the admin
  * `[data-inert-root]` the open modal inerts (spec §3.4) and stays operable.
  */
+import {
+  buildActionOverrides,
+  buildFetchScripts,
+  buildScriptedActions,
+  countAcceptableEntries,
+} from "@/lib/dev/galleryActionScripts";
+import { DevActionOverrideContext } from "@/components/admin/dev/actionOverrideContext";
+import { GalleryWriteGuard } from "@/components/admin/dev/GalleryWriteGuard";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  PublishedReviewModal,
-  type PublishedReviewModalProps,
-} from "@/components/admin/showpage/PublishedReviewModal";
+import { PublishedReviewModal } from "@/components/admin/showpage/PublishedReviewModal";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { useHasMounted } from "@/lib/a11y/useHasMounted";
 import { SwitcherControls, type SwitcherGroupEntry } from "@/components/admin/dev/SwitcherControls";
 import { GROUP_LABELS } from "@/lib/dev/galleryModalTypes";
-import type {
-  ActionKeys,
-  ExcludedScenario,
-  GallerySwitcherScenario,
-} from "@/lib/dev/galleryModalTypes";
+import type { ExcludedScenario, GallerySwitcherScenario } from "@/lib/dev/galleryModalTypes";
 
 /** Starting index from a deep-link id; unknown/null → 0 (the switcher's origin). */
 export function indexOfId(
@@ -54,25 +55,6 @@ export function indexOfId(
   const i = scenarios.findIndex((s) => s.id === initialId);
   return i >= 0 ? i : 0;
 }
-
-/**
- * Eight no-op action closures. Each resolves to its action's contracted result
- * so the modal's `useActionState` reducers stay consistent, and NONE writes.
- * `unarchiveAction` is typed `(showId) => Promise<void>`, so its contracted
- * result IS `undefined` — that is correct, not an omission. `satisfies` pins
- * every shape to the real prop types (a drift is a compile error) while keeping
- * the concrete literal types for callers.
- */
-const NOOP_ACTIONS = {
-  setPublished: async () => ({ ok: true }) as const,
-  archiveAction: async () => ({ ok: true }) as const,
-  unarchiveAction: async () => {},
-  undoAction: async () => ({ ok: true }) as const,
-  acceptAction: async () => ({ ok: true, count: 0 }) as const,
-  acceptAllAction: async () => ({ ok: true, count: 0 }) as const,
-  approveAction: async () => ({ ok: true }) as const,
-  rejectAction: async () => ({ ok: true }) as const,
-} satisfies Pick<PublishedReviewModalProps, ActionKeys>;
 
 type Props = {
   scenarios: GallerySwitcherScenario[];
@@ -156,20 +138,52 @@ export function AttentionModalSwitcher({ scenarios, excluded, initialId }: Props
 
   return (
     <>
-      {/* key on the PROVIDER, not just the modal: it preserves its current token
-          across same-epoch initialToken changes (ShareTokenContext.tsx:44-69),
-          so an un-keyed provider would leak scenario A's token into scenario B
-          and keep an active token on null-token scenarios. */}
-      <ShareTokenProvider
-        key={current.id}
-        initialToken={current.shareToken ?? null}
-        initialEpoch={0}
-      >
-        {/* key={current.id}: a fresh modal per scenario, so no client state
-            (open holds, expanded sections) bleeds across a scenario switch. */}
-        <PublishedReviewModal key={current.id} {...current.data} {...NOOP_ACTIONS} />
-      </ShareTokenProvider>
+      {/* Guard owned by the switcher so scenario scripts reach it; keyed per
+          scenario so bulk-ignore call counters reset (spec 2026-07-23 §3.2). */}
+      <ScenarioMount key={current.id} scenario={current} />
       {controls}
+    </>
+  );
+}
+
+/**
+ * One scenario's mounted modal tree (spec 2026-07-23 §3.1-§3.3). A child
+ * component so its hooks are unconditional: the parent early-returns on an
+ * empty catalog before `current` exists, and hoisting these memos above that
+ * return would make `current` possibly-undefined under noUncheckedIndexedAccess.
+ * Keyed by scenario id at the call site, so every scenario gets fresh closures,
+ * fresh guard counters, and fresh modal state.
+ */
+function ScenarioMount({ scenario }: { scenario: GallerySwitcherScenario }) {
+  // acceptAll success count derives from the REAL shaped feed entries the
+  // scenario carries - never re-derived, never hardcoded.
+  const acceptableCount = useMemo(() => countAcceptableEntries(scenario.data.feed), [scenario]);
+  const scripted = useMemo(
+    () => buildScriptedActions(scenario.actionOutcomes, acceptableCount),
+    [scenario, acceptableCount],
+  );
+  const overrides = useMemo(() => buildActionOverrides(scenario.actionOutcomes), [scenario]);
+  const fetchScripts = useMemo(() => buildFetchScripts(scenario.actionOutcomes), [scenario]);
+  return (
+    <>
+      {/* Guard owned by the switcher so scenario scripts reach it; keyed mount
+          (call site) resets bulk-ignore call counters per scenario (spec §3.2). */}
+      <GalleryWriteGuard scripts={fetchScripts} />
+      <DevActionOverrideContext.Provider value={overrides}>
+        {/* key on the PROVIDER, not just the modal: it preserves its current token
+            across same-epoch initialToken changes (ShareTokenContext.tsx:44-69),
+            so an un-keyed provider would leak scenario A's token into scenario B
+            and keep an active token on null-token scenarios. */}
+        <ShareTokenProvider
+          key={scenario.id}
+          initialToken={scenario.shareToken ?? null}
+          initialEpoch={0}
+        >
+          {/* key={scenario.id}: a fresh modal per scenario, so no client state
+              (open holds, expanded sections) bleeds across a scenario switch. */}
+          <PublishedReviewModal key={scenario.id} {...scenario.data} {...scripted} />
+        </ShareTokenProvider>
+      </DevActionOverrideContext.Provider>
     </>
   );
 }

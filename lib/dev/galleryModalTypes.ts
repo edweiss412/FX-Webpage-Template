@@ -14,6 +14,7 @@
  * type-level assertions below make a stray function prop a COMPILE error.
  */
 import type { PublishedReviewModalProps } from "@/components/admin/showpage/PublishedReviewModal";
+import type { ScenarioActionOutcomes } from "@/lib/dev/attentionScenarios/types";
 
 /** The 8 server-action prop names — the only non-serializable keys. */
 export type ActionKeys =
@@ -41,6 +42,8 @@ export type GallerySwitcherScenario = {
    *  crew link inactive. The PROVIDER (not just the modal) is keyed per scenario
    *  because it preserves its token across same-epoch initialToken changes. */
   shareToken: string | null;
+  /** Per-scenario action-outcome script (spec 2026-07-23 §3.1); null = all defaults. */
+  actionOutcomes: ScenarioActionOutcomes | null;
 };
 
 /**
@@ -101,6 +104,7 @@ export type ScenarioGroupId =
   | "changes"
   | "warnings"
   | "mixed"
+  | "actions"
   | "baseline";
 
 export const GROUP_ORDER: readonly ScenarioGroupId[] = [
@@ -110,6 +114,7 @@ export const GROUP_ORDER: readonly ScenarioGroupId[] = [
   "event",
   "changes",
   "warnings",
+  "actions",
   "mixed",
   "baseline",
 ];
@@ -122,5 +127,6 @@ export const GROUP_LABELS: Record<ScenarioGroupId, string> = {
   changes: "Changes",
   warnings: "Warnings",
   mixed: "Mixed",
+  actions: "Action outcomes",
   baseline: "Baseline",
 };
