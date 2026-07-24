@@ -4,7 +4,7 @@ Open deferral queue — work intentionally deferred with a concrete un-defer tri
 
 **Resolved / stale / N/A entries live in [DEFERRED-archive.md](./DEFERRED-archive.md)** — full provenance kept there, NOT in this working queue. When an item below ships, move its full entry to the archive.
 
-Last reconciled: 2026-07-23 (three CREWWARN under-row entries — INDENT-1, COPY-CONDENSE-1, CAP-FIXTURE-1 — graduated to the archive, RESOLVED by `feat/crewwarn-underrow-polish`: 24px per-kind half-indent, condensed under-row variant, capped mixed-stack harness page; impeccable dual-gate dispositions in `docs/superpowers/plans/2026-07-23-crewwarn-underrow-polish-closeout.md` §12, which also records the new CREWWARN-INSTANCE-DISCRIMINATOR-1 deferral above. Earlier same day: SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE graduated to the archive — P2 focus-ring inconsistency RESOLVED by `feat/sharehub-focus-pass` (two-tier recipe, spec `2026-07-23-sharehub-focus-pass` §2: rows/cancels/triggers plain ring, armed destructive confirms carry the surface-offset pair); P3 caret shadow RATIFIED no-shadow. Earlier: 2026-07-22 four warning-panel-polish critique deferrals RESOLVED by the warning-announcer-copy bundle and graduated to the archive, replaced by the VOICEOVER-ANNOUNCER-SPOTCHECK owner action. Earlier same day: seven warning-surface-trim items RESOLVED by the warning-panel-polish bundle and graduated to the archive; the six stay-parked items re-confirmed by 2026-07-21 owner decisions. Same day: WARNCARD-POPOVER-OVERLAP-1 graduated to the archive — resolved by `feat/hoverhelp-smart-position` collision-aware placement; and ATTN-GALLERY-CONTROLBAR-OVERLAP-1 SHIPPED via `2026-07-21-gallery-switcher-slim-bar` — slim single-row switcher bar, footnotes behind a collapsed disclosure; entry graduated to the archive. Earlier: 2026-07-21 SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
+Last reconciled: 2026-07-23 (five warning-surface-trim stay-parked items — heading-count "(0)" suppression, "Parse warnings" title, staged byte-identical guarantee, correction-sentence double-reach, and the zero-producer in-row crew banner — graduated to the archive under "Warning trim un-defer (2026-07-23)", RESOLVED by `feat/warning-trim-undefer` (spec `docs/superpowers/specs/2026-07-23-warning-trim-undefer-design.md` §2/§3/§4/§5/§6): Sheet-warnings panel unification, panel rename, wizard-branch pins, published callout retirement, and id-matched crew-row fan-out. The sixth (first-publish data-gaps digest) re-parked bell-only per spec §7 with the frozen-digest rationale. Earlier same day: three CREWWARN under-row entries — INDENT-1, COPY-CONDENSE-1, CAP-FIXTURE-1 — graduated to the archive, RESOLVED by `feat/crewwarn-underrow-polish`: 24px per-kind half-indent, condensed under-row variant, capped mixed-stack harness page; impeccable dual-gate dispositions in `docs/superpowers/plans/2026-07-23-crewwarn-underrow-polish-closeout.md` §12, which also records the new CREWWARN-INSTANCE-DISCRIMINATOR-1 deferral above. Earlier same day: SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE graduated to the archive — P2 focus-ring inconsistency RESOLVED by `feat/sharehub-focus-pass` (two-tier recipe, spec `2026-07-23-sharehub-focus-pass` §2: rows/cancels/triggers plain ring, armed destructive confirms carry the surface-offset pair); P3 caret shadow RATIFIED no-shadow. Earlier: 2026-07-22 four warning-panel-polish critique deferrals RESOLVED by the warning-announcer-copy bundle and graduated to the archive, replaced by the VOICEOVER-ANNOUNCER-SPOTCHECK owner action. Earlier same day: seven warning-surface-trim items RESOLVED by the warning-panel-polish bundle and graduated to the archive; the six stay-parked items re-confirmed by 2026-07-21 owner decisions. Same day: WARNCARD-POPOVER-OVERLAP-1 graduated to the archive — resolved by `feat/hoverhelp-smart-position` collision-aware placement; and ATTN-GALLERY-CONTROLBAR-OVERLAP-1 SHIPPED via `2026-07-21-gallery-switcher-slim-bar` — slim single-row switcher bar, footnotes behind a collapsed disclosure; entry graduated to the archive. Earlier: 2026-07-21 SHAREHUB-ROW-ANATOMY-1 graduated to the archive — it was already marked RESOLVED-in-queue by `share-hub-fidelity-fixes`; the SHAREHUB-FIDELITY-IMPECCABLE-RESIDUE cross-reference was repointed from "above" to the archive. Earlier: 2026-07-19 MODAL-SKELETON-CLOSE-1 SHIPPED via `2026-07-19-modal-skeleton-close` — skeleton default nav-close at dismiss-commit + real X; the already-resolved MODAL-CLOSE-EXIT-ANIM-1 block moved to the archive in the same pass. Earlier same day: BELL-HELP-POPOVER-OVERFLOW-1 + BELL-SLOT-WIDTH-1 shipped via the 28px chevron gutter + HoverHelp display:none fix; ALERT-COPY-EMDASH-1 via EMDASH-1; ALERT-COPY-IDENTITY-BOLD-1 / ALERT-CHEVRON-HINT-1 / ALERT-MULTI-CHANGE-TONE-1 / PERSHOW-LINK-TAPTARGET-1 via alert-surface-ui ARC-2.)
 
 ---
 
@@ -56,51 +56,25 @@ automated halves (impeccable audit a11y dimension; role/mutation structural
 tests) shipped pre-merge. Un-defer trigger: owner performs and records the
 pass.
 
-## warning-surface-trim (2026-07-21) — remaining deferrals after the 2026-07-22 polish bundle
+## warning-surface-trim (2026-07-21) — remaining deferrals after the 2026-07-23 un-defer bundle
 
 Seven of the thirteen items recorded here on 2026-07-21 were RESOLVED by the
-warning-panel-polish bundle (`docs/superpowers/specs/2026-07-22-warning-panel-polish-design.md`, owner-ratified 2026-07-21) — their full
-entries are archived in [DEFERRED-archive.md](./DEFERRED-archive.md) under
-"Warning panel polish (2026-07-22)". The six below stay parked, each
-re-confirmed by an explicit owner decision on 2026-07-21 (spec §1.1 records the
-ratifications).
+warning-panel-polish bundle (`docs/superpowers/specs/2026-07-22-warning-panel-polish-design.md`, owner-ratified 2026-07-21), archived under "Warning panel polish
+(2026-07-22)". Five of the six that stayed parked were then RESOLVED by
+`feat/warning-trim-undefer` (spec
+`docs/superpowers/specs/2026-07-23-warning-trim-undefer-design.md`) — panel title
+rename, heading-count unification, staged byte-identical pins, published
+correction-callout retirement, and the id-matched in-row crew banner — archived
+under "Warning trim un-defer (2026-07-23)". Only the item below stays parked.
 
-- **[P1] Heading count reads no "(0)" in the Silent state (suppression carve-out).** Owner
-  re-confirmed 2026-07-21: keep the suppression; the heading count does NOT include the
-  routed-card bucket, and the rail semantics are unchanged (trim spec §3.3; polish spec §1.1
-  item 1). Un-defer trigger: a future owner decision to redefine §3.3's count semantics.
-
-- **[P3] The panel is still titled "Parse warnings".** Owner re-confirmed 2026-07-21 (polish
-  spec §1.1 item 2). **Noted, not changed.**
-
-- **[MEDIUM] The staged-mode byte-identical guarantee rests on a leaf render plus a card-level
-  snapshot.** `tests/components/admin/stagedCardBaseline.test.tsx` renders `StagedReviewCard`
-  directly and snapshots the card `<li>` elements, so a change to the surrounding wizard chrome,
-  to card ordering relative to other content, or to a wizard-only prop is invisible to it. The
-  polish bundle's gate-off ABSENCE assertions (polish spec §8.7) narrow but do not close this.
-  **Noted, not changed.** Un-defer trigger: any change that touches the wizard's Step-3
-  composition rather than only the shared registry (polish spec §1.1 item 6).
-
-- **[MEDIUM] The alert cut is discoverable only through the bell.** Owner accepted bell-only on
-  2026-07-21 (polish spec §1.1 item 3), with the sharpening fact that role-flag DELTAS remain
-  visible on the show modal via the Sheet changes feed rows built in
-  `lib/sync/changeLog/fieldChanges.ts:154-181`; only the first-publish data-gaps digest is
-  bell-only, by the ratified intent of `2026-07-04-alert-audience-split` §3. **Noted, not
-  changed.** Un-defer trigger: an owner decision to rehome the data-gaps digest onto the show
-  modal.
-
-- **[P2] The correction sentence is reachable twice on one screen in the List state.** Owner
-  chose keep-both on 2026-07-21 (polish spec §1.1 item 5): each site covers a state the other
-  cannot — cards exist without the callout in the Silent state; the callout covers info rows
-  that never become cards; the overlap is List-state-only and the popover copy is on-demand.
-  **Noted, not changed.**
-
-- **[MEDIUM] `published-show-alerts` §5.4's in-row crew banner has zero producers.** Owner chose
-  to leave it dormant on 2026-07-21 (polish spec §1.1 item 4): no code change, and the placement
-  test at `tests/e2e/published-show-attention.spec.ts:126` stays SKIPPED (not deleted) as the
-  contract that un-skips the moment a crew-routed, non-health, actionable code carrying a
-  `crewName` exists. Sharpening fact: role-flag deltas already reach the modal via the Sheet
-  changes feed, so banner dormancy loses event visibility on no surface. **Noted, not changed.**
+- **[MEDIUM] The first-publish alert cut is discoverable only through the bell.** Owner
+  re-confirmed bell-only on 2026-07-23 (warning-trim-undefer spec §7): the digest is a frozen
+  publish-time count of warnings the modal already renders live, so a banner would add only the
+  publish-event notice, not new content; role-flag DELTAS remain visible on the show modal via
+  the Sheet changes feed rows built in `lib/sync/changeLog/fieldChanges.ts:154-181`; only the
+  first-publish data-gaps digest is bell-only, by the ratified intent of
+  `2026-07-04-alert-audience-split` §3. **Noted, not changed.** Un-defer trigger: the owner asks
+  for a publish-event banner (with or without the digest).
 
 ## modal-state-coverage (2026-07-22) — class 6 deferral
 
