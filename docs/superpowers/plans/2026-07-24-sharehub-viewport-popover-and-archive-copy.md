@@ -108,6 +108,10 @@ Commit: `test(admin): structural guard that panel overlays use the shared placem
 
 **Test first (jsdom, `tests/components/admin/showpage/shareHub.test.tsx`):** with a `PopoverHostContext` provider supplying a host element, opening the hub renders the popover INSIDE the host, not inside `share-hub-root`; with no provider it renders into `document.body`. Assert via `host.contains(popover)`, not by class.
 
+**Test first, part 2 (spec §5.1, `tests/lib/popover/position.test.ts`).** Add the measured hub geometry as a decision-table case: `trigger` = the hub group at `381.3 -> 425.3`, `bounds` = the panel `84 -> 560` inset by `VIEWPORT_INSET`, natural body height 583 (border-box, per the module's metric contract at `lib/popover/position.ts:11-13`), cap 390 — asserting `side === "top"` and `maxHeight === 283`.
+
+**Failure mode it catches:** a change to the module's tie/flip ordering that still satisfies its existing synthetic cases but breaks the hub's real numbers. Grounds the adoption in the probe (spec §9.3) rather than in invented figures.
+
 **Implementation.** Per spec §2.1.1-§2.1.2: `mounted` gate flipped in an effect (`HoverHelp.tsx:146-154` pattern and rationale — `useHasMounted` is wrong here because a provider's ref is still null on the first client commit); `createPortal` to `hostRef.current ?? document.body`; measure and apply per §2.1.2, mirroring `HoverHelp.tsx:228-268` including the body-host bounds degeneration (`host === document.body` -> viewport rect) and the `toHostOffsets` conversion, which is shared by body and caret so the two cannot drift. Remove the bespoke `caretRightPx` layout effect (`ShareHub.tsx:180-211`) and the `absolute right-0 top-full` / `max-w-[calc(100vw-2rem)]` classes (`ShareHub.tsx:487`). Set `data-popover-side`. Handle `kind:"hidden"` per §2.1.2.
 
 Task 1's guard goes green here.
