@@ -193,11 +193,13 @@ additions: `max-sm:*` classes, the hidden mobile label block, and the chip's
 - Sync-age group (222-266): gains `max-sm:shrink max-sm:min-w-0
   max-sm:overflow-hidden` (the existing `shrink-0` stays for `≥sm`; `max-sm:`
   variants override below it). Its status line (246) gains `max-sm:min-w-0
-  max-sm:overflow-hidden`. Clip PRIORITY (R2 finding 4): the health/synced
-  span (`strip-synced-line`, 248) gains `whitespace-nowrap shrink-0` — it is
-  never sacrificed IN FAVOR OF the Edited clause; the Edited span (261) gains
-  `whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden
-  max-sm:text-ellipsis` and clips first. Boundary honesty (R3 finding 2):
+  max-sm:overflow-hidden`. Clip PRIORITY (R2 finding 4; scoping per R4
+  finding 1): the health/synced span (`strip-synced-line`, 248) gains
+  `max-sm:whitespace-nowrap max-sm:shrink-0` — never sacrificed IN FAVOR OF
+  the Edited clause; the Edited span (261) gains `max-sm:whitespace-nowrap
+  max-sm:min-w-0 max-sm:overflow-hidden max-sm:text-ellipsis` and clips
+  first. Every clip/priority class is `max-sm:`-scoped — desktop computed
+  styles are untouched. Boundary honesty (R3 finding 2):
   every CATALOG label (bounded, max "Re-sync held (data loss)") fits
   unclipped; a PATHOLOGICAL synced string (an unparseable ISO rendered
   verbatim, §10) can exceed the row and is then clipped at the row edge by
@@ -244,7 +246,11 @@ Full-width chain (every intermediate link named — R1 finding 4):
   (ShareHub.tsx:368): + `max-sm:w-full` only — it is already the flex context
   for the triggers.
 - Primary trigger: + `max-sm:flex-1 max-sm:justify-center
-  max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border`.
+  max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border
+  max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden` — the
+  no-wrap + shrink contract keeps R3 at exactly one 44px line even when the
+  dev-capture status (up to 192px) competes for the row: the label truncates
+  horizontally instead of wrapping vertically (R4 finding 2).
 - Kebab: + `max-sm:min-h-tap-min max-sm:min-w-tap-min max-sm:rounded-sm
   max-sm:border max-sm:border-border`.
 
@@ -253,11 +259,13 @@ group's right edge — the popover/caret anchor datum (ShareHub.tsx:172-211) —
 remains the band's content right edge; the 390px popover-alignment assertion
 (published-review-modal.interactions.spec.ts:804) must stay green unmodified.
 The in-flow dev-capture status element (ShareHub.tsx:443-450) stays ON the
-trigger line (the root has no `flex-wrap`) and already self-bounds via its
-existing `max-w-48 truncate`; it cannot grow the band (R2 finding 7). Below
-`sm` with `flex-1` on the primary, the status competes for the same line —
-acceptable for a dev-only transient, and its truncation keeps R3's height
-fixed.
+trigger line (the root has no `flex-wrap`) and self-bounds via its existing
+`max-w-48 truncate`; with the primary's no-wrap + shrink contract above, its
+appearance shortens the primary's label horizontally and NEVER adds a line —
+R3's height is fixed at 44px in all states (R4 finding 2). The parity
+harness renders a non-developer viewer (status absent); the jsdom suite pins
+the primary's no-wrap classes so the contract is executable without a
+dev-capture browser fixture.
 
 ## §4 Dimensional invariants (`<sm`, 390×844)
 
@@ -270,10 +278,10 @@ fixed.
 | R0 badge | fixed 24px | `h-6` |
 | R1 container | full width, ≥44px, centered | `max-sm:w-full max-sm:min-h-tap-min max-sm:items-center` on the toggle container; `max-sm:w-full` on its strip wrapper |
 | R1 label block | shrinkable column, one-line sublabel | `max-sm:min-w-0 max-sm:flex-col`, sublabel `truncate` |
-| R2 sync-age | shrinks + clips, never wraps rows | `max-sm:shrink max-sm:min-w-0 max-sm:overflow-hidden`, nowrap + ellipsis on text spans |
+| R2 sync-age | shrinks + clips, never wraps rows | `max-sm:shrink max-sm:min-w-0 max-sm:overflow-hidden`; `max-sm:`-scoped nowrap + ellipsis on text spans |
 | R2 Sync trigger | ≥44×44 real box, right edge | `min-h-tap-min min-w-tap-min` (existing) + `max-sm:ml-auto` |
 | R3 root chain | full width at every link | `max-sm:w-full` on group AND ShareHub root |
-| R3 primary | fills remaining width | `max-sm:flex-1` |
+| R3 primary | fills remaining width, single line always | `max-sm:flex-1 max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden` |
 | R3 kebab | ≥44×44 | `max-sm:min-h-tap-min max-sm:min-w-tap-min` |
 
 Row heights below `sm` are hard-capped: R0 = 24 (`h-6`), R1 = max(44,
