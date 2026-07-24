@@ -88,7 +88,12 @@ No fixed-height parent is introduced; the popover is width-fixed (`w-[308px]`, `
 | wrapper → row button | `w-full` in `ROW_TOKENS` |
 | button → label/description column | `min-w-0` (`COLUMN_CLASSES`) — shrinkable, not stretched |
 
-Real-browser proof (a fixed-WIDTH parent with flex children IS in the layout-dimensions rule's scope, so jsdom class checks are not sufficient): extend `tests/e2e/admin-lifecycle-layout.spec.ts` (which already opens the hub popover at 390px and desktop widths, `tests/e2e/admin-lifecycle-layout.spec.ts:215-260`) with an IDLE-state assertion, before the arming click: `getBoundingClientRect()` width of `archive-show-button` equals the width of `admin-rotate-share-token-button` (rendered in the same popover for a held/unpublished show — the Careful section renders regardless of published state, `ShareHub.tsx:543-558`) within 0.5px. Equality against the sibling row is the direct statement of "one idiom": both chains resolve against the same popover content box. The existing armed-morph containment assertions (`admin-lifecycle-layout.spec.ts:230-260`) continue unchanged.
+Real-browser proof (a fixed-WIDTH parent with flex children IS in the layout-dimensions rule's scope, so jsdom class checks are not sufficient): extend `tests/e2e/admin-lifecycle-layout.spec.ts` (which already opens the hub popover at 390px and desktop widths, `tests/e2e/admin-lifecycle-layout.spec.ts:215-260`) with IDLE-state assertions, before the arming click, at every swept viewport:
+
+1. **Primary — anchor to the parent, not a sibling** (R3 adversarial finding): compute the popover's CONTENT width as `getBoundingClientRect().width` minus `getComputedStyle` `paddingLeft` + `paddingRight` on `share-hub-popover`, and assert the `archive-show-button` `getBoundingClientRect()` width equals it within 0.5px. A shared regression that narrows every row equally cannot pass this; it restates the parent fidelity-fixes contract's rows-measure-against-the-panel-content-box posture.
+2. **Secondary — sibling equality**: archive row width equals `admin-rotate-share-token-button` width within 0.5px (rendered in the same popover for a held/unpublished show — the Careful section renders whenever the show is not archived, `ShareHub.tsx:484` and `ShareHub.tsx:543-558`). This is the "one idiom" statement, kept as an additional check only.
+
+The existing armed-morph containment assertions (`admin-lifecycle-layout.spec.ts:230-260`) continue unchanged.
 
 ## 6. Tests (TDD)
 
