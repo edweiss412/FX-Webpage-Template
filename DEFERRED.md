@@ -127,3 +127,8 @@ ratifications).
   deferred on 2026-07-22 ("1-5: all static states, 6 to deferred.md"). Un-defer trigger: an
   owner ask to review action-outcome UX in the gallery, at which point the gallery's client
   action closures gain a scripted-outcome mode per control.
+
+  **Un-deferred 2026-07-23** by `docs/superpowers/specs/2026-07-23-gallery-action-outcomes-design.md`
+  (this PR): all six surfaces plus share-token rotate, everyone-reset, and archive outcomes are
+  click-demonstrable via the scripted-outcome layer (tier-2 `actionOutcomes` scenarios, scripted
+  `GalleryWriteGuard` responses, and the null-default dev action override seam).
