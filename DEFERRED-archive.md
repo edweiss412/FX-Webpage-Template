@@ -1235,7 +1235,13 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/autoapplied-strip-po
 
 ## Resolved 2026-07-24 — stacked mobile band
 
-### STRIP-MOBILE-WRAP-1 — RESOLVED — [P2] the control strip wraps to a second row at 390px (44px → 80px)
+The two entries below are preserved VERBATIM as historical records of the
+deferral-era posture; their "Accepted, not fixed" dispositions, weaker-clause
+rationale, and un-defer triggers are all SUPERSEDED by the resolution note at
+the end of this section. The un-defer trigger fired (deliberate mobile reflow
+shipped); nothing in these entries is active debt.
+
+### STRIP-MOBILE-WRAP-1 — RESOLVED 2026-07-24 — [P2] the control strip wraps to a second row at 390px (44px → 80px)
 
 From the impeccable close-out of `modal-header-reconciliation`. §4.5 collapses the sync/edited stack to one line, trading height for WIDTH; §4.3 simultaneously adds a Re-sync trigger to the same row. Below `sm` the strip's `flex-wrap` is live and the row breaks: **44px → 80px** at 390px (`sm:flex-nowrap` leaves ≥sm untouched, so desktop is unaffected). Spec and plan both costed the height saving and neither anticipated the width cost.
 
@@ -1243,7 +1249,7 @@ From the impeccable close-out of `modal-header-reconciliation`. §4.5 collapses 
 
 **Un-defer trigger:** user feedback that the mobile modal header feels tall or that controls jump between rows as status text changes length (the wrap point is data-dependent — it moves with the relative-time strings). The fix is then a deliberate mobile reflow — status line dropped to its own row by explicit `basis-full` rather than incidental wrapping — NOT tightening spacing to squeeze one row.
 
-### STRIP-SKELETON-MOBILE-BAND-1 — RESOLVED — [P2] skeleton control band cannot match the loaded band at 390px (73px vs 149px)
+### STRIP-SKELETON-MOBILE-BAND-1 — RESOLVED 2026-07-24 — [P2] skeleton control band cannot match the loaded band at 390px (73px vs 149px)
 
 Direct consequence of `STRIP-MOBILE-WRAP-1`, surfaced by Task 9's band-parity spec. At ≥sm the skeleton and loaded subheader bands match exactly (**E = 0.00px at 1280**), and the header→subheader seam — the invariant that actually causes the visible load-time snap — matches at **D = 0.30px at BOTH viewports** (bound ≤8px; it failed red at 45.70px/9.70px pre-fix). At 390px the loaded strip wraps to three rows (149px) against the skeleton's single-row 73px.
 
