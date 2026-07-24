@@ -213,6 +213,12 @@ describe("§5 active↔ignored variant flip (both directions)", () => {
     expect(within(ignored).getAllByTestId("per-show-actionable-guidance").length).toBeGreaterThan(
       0,
     );
+    // Identity: the IGNORED list holds W3 specifically (whole-diff R2 F1 - the
+    // moved card must be the one that left the stack, not merely "some card").
+    const ignoredIds = Array.from(
+      ignored.querySelectorAll('[data-testid^="per-show-actionable-help-"]'),
+    ).map((el) => el.getAttribute("data-testid") ?? "");
+    expect(hasId(ignoredIds, W3)).toBe(true);
   });
 
   it("ignoring a VISIBLE warning of a capped stack promotes hidden[0] (flip + promotion compose)", () => {
@@ -228,6 +234,14 @@ describe("§5 active↔ignored variant flip (both directions)", () => {
     expect(hasId(after, W1)).toBe(false);
     expect(hasId(after, W3)).toBe(true);
     expect(detailsEl()).toBeNull();
+    // Identity: W1 landed in the IGNORED list (whole-diff R2 F1 - promotion must
+    // not silently DROP the ignored card).
+    const ignoredIds = Array.from(
+      screen
+        .getByTestId("section-ignored-list-crew")
+        .querySelectorAll('[data-testid^="per-show-actionable-help-"]'),
+    ).map((el) => el.getAttribute("data-testid") ?? "");
+    expect(hasId(ignoredIds, W1)).toBe(true);
   });
 
   it("ignored card renders FULL copy, muted, unindented in the group; under-row card unmounts", () => {

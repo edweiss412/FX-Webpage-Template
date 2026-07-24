@@ -8,7 +8,7 @@ Branch `feat/crewwarn-underrow-polish` · spec `docs/superpowers/specs/2026-07-2
 2. **CREWWARN-UNDERROW-COPY-CONDENSE-1 (P2):** `condensed` variant on `PerShowActionableWarnings` — catalog guidance joins the `?` popover BODY via `condensedPopoverSlots` (described set stays a superset of full mode in every slot row); instance autocorrect lines stay inline; no catalog/§12.4 edits; group/ignored/staged surfaces byte-unchanged.
 3. **CREWWARN-CAP-FIXTURE-1 (P3):** `crewWarningsCapped` harness page (crew-keyed banner + 3 same-member warnings → banner + 1 indented card visible, "2 more" hidden) + layout assertions incl. native-details open state; visually inspected in both themes during the dual-gate.
 
-Suites: unit 12/12 condensed + 7/7 indent/membership; layout spec 27/27 (standalone config); full local suite 16830 passed; typecheck/lint/format clean.
+Suites: unit 12/12 condensed + 9/9 indent/membership; layout spec 27/27 (standalone config); full local suite 16830 passed; typecheck/lint/format clean.
 
 ## §12 Impeccable dual-gate — findings + dispositions
 
