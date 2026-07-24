@@ -68,3 +68,35 @@ describe("warningIdentityKey / buildReportSurfaceId (AC-14)", () => {
     expect(buildReportSurfaceId("rpas", d)).toBe(buildReportSurfaceId("rpas", { ...d }));
   });
 });
+
+describe("FIELD_UNREADABLE field fold (crewwarn-instance-discriminator §2.1)", () => {
+  const mk = (field?: string): ParseWarning =>
+    w("FIELD_UNREADABLE", "n/a", 7, "B9", {
+      kind: "crew",
+      index: 2,
+      name: "Jordan",
+      ...(field !== undefined ? { field } : {}),
+    });
+
+  test("folds blockRef.field; legacy field-less key is byte-identical to today's shape", () => {
+    // Byte-literal pin of the PRE-change key format for a field-less warning. If the
+    // implementation changes the shared shape (e.g. appends a new "|" slot), this fails.
+    expect(warningIdentityKey(mk())).toBe("FIELD_UNREADABLE|7:B9|n/a|crew:2::Jordan|");
+    expect(warningIdentityKey(mk("phone"))).not.toBe(warningIdentityKey(mk("email")));
+    // RAW fold, presence-delimited: empty, whitespace, and padded fields are each distinct
+    // from the field-less key AND from each other (a trimming implementation, or one that
+    // appends without a presence delimiter, fails this).
+    const legacy = warningIdentityKey(mk());
+    const variants = [mk(""), mk(" "), mk("phone"), mk(" phone ")].map(warningIdentityKey);
+    expect(new Set([legacy, ...variants]).size).toBe(5);
+    // Downstream wiring: report surfaceIds diverge too (no shared report draft).
+    expect(buildReportSurfaceId("showx", mk("phone"))).not.toBe(
+      buildReportSurfaceId("showx", mk("email")),
+    );
+    // stableWarningKeys: field-bearing pair needs no occurrence suffix.
+    const keys = stableWarningKeys([mk("phone"), mk("email")]);
+    expect(new Set(keys).size).toBe(2);
+    expect(keys[0]).not.toMatch(/#\d+$/);
+    expect(keys[1]).not.toMatch(/#\d+$/);
+  });
+});

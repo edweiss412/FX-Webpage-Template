@@ -21,7 +21,17 @@ export function warningIdentityKey(w: IdentityFields): string {
   // state can migrate between the two recognize controls). Legacy warnings without
   // roleToken keep the token-free key (unchanged).
   const rt = w.code === "UNKNOWN_ROLE_TOKEN" && typeof w.roleToken === "string" ? w.roleToken : "";
-  return `${w.code}|${cell}|${snippet}|${br}|${rt}`;
+  // Fold blockRef.field for FIELD_UNREADABLE (crewwarn-instance-discriminator §2.1): a member
+  // whose phone AND email carry the SAME unusable value would otherwise share one identity —
+  // occurrence-suffixed React keys and one report surfaceId (shared draft/idempotency state).
+  // Shares the tail slot with the roleToken fold (codes are disjoint), so every other key stays
+  // byte-identical. NUL presence delimiter: present-but-empty stays distinct from field-less
+  // legacy warnings. RAW string, never trimmed (identity semantics, not render semantics).
+  const fu =
+    w.code === "FIELD_UNREADABLE" && typeof w.blockRef?.field === "string"
+      ? `\0F${w.blockRef.field}`
+      : "";
+  return `${w.code}|${cell}|${snippet}|${br}|${rt}${fu}`;
 }
 
 /** Per-render UNIQUE React keys; identity + occurrence suffix for perfect duplicates.
