@@ -45,7 +45,7 @@ Every file, symbol, and line this plan names was grepped in the worktree before 
 
 ## Task 1 — `Open` link accessible name (closes finding 1)
 
-**Files:** modify `components/admin/settings/DevToolsRow.tsx`; modify `tests/components/admin/settings/DevToolsRow.test.tsx`. **No new test file is created by any task in this plan**, and `tests/components/admin/settings/DevToolsRow.absent.test.tsx` is never edited — it asserts an empty DOM and has no text assertions to update.
+**Files:** modify `components/admin/settings/DevToolsRow.tsx`; modify `tests/components/admin/settings/DevToolsRow.test.tsx`. **This task creates no new test file** (Task 5 creates exactly one — the ledger guard, R4 F5), and `tests/components/admin/settings/DevToolsRow.absent.test.tsx` is never edited by any task — it asserts an empty DOM and has no text assertions to update.
 
 **Red.** In the existing `describe` block, replace the two stale `Open` text assertions and add the three new ones (T1, T1b, T2). The stale assertions at `tests/components/admin/settings/DevToolsRow.test.tsx:38` and `tests/components/admin/settings/DevToolsRow.test.tsx:51` MUST go in this task — `toHaveTextContent` normalizes and INCLUDES `sr-only` text, so `/^Open$/` fails the moment the suffix lands; leaving them would make the task's own red state ambiguous.
 
@@ -230,7 +230,7 @@ Path resolution is `new URL(..., import.meta.url)`, NOT `process.cwd()`, so the 
 
 ## Task 5 — ledger + spec amendment (docs only)
 
-**Files:** modify the repo-root `DEFERRED.md`, `DEFERRED-archive.md`, `docs/superpowers/specs/2026-07-21-settings-attention-gallery-link.md`, `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md`.
+**Files:** CREATE tests/docs/_metaDeferralLedgerGraduation.test.ts (step 5a); modify `vitest.projects.ts` (step 5a, runner wiring); modify the repo-root `DEFERRED.md`, `DEFERRED-archive.md`, `docs/superpowers/specs/2026-07-21-settings-attention-gallery-link.md`, and `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md` (step 5b).
 
 1. `docs/superpowers/specs/2026-07-21-settings-attention-gallery-link.md` — append a dated amendment note to the "Row copy unchanged" bullet (lines 29-31) recording that the freeze is superseded by `docs/superpowers/specs/2026-07-24-settings-devrow-copy-close.md`, with the new description string inline.
 2. `DEFERRED.md` — delete the `SETTINGS-DEVROW-GALLERY-RESIDUE-1` entry and update the "Last reconciled" line.
@@ -249,11 +249,12 @@ import { describe, expect, it } from "vitest";
 
 const DEFERRAL_ID = /^### ([A-Z0-9][A-Z0-9-]+)/gm;
 
-/** Graduations this repo has performed. One row per archived entry. */
+/**
+ * Deferrals graduated to the archive since this guard shipped. NOT a mirror of
+ * the ~130 historical archive entries: those predate the guard and are covered
+ * only by the no-overlap invariant above, not by per-id presence.
+ */
 const GRADUATED = ["SETTINGS-DEVROW-GALLERY-RESIDUE-1"] as const;
-
-/** Plan directories whose plan.md declares an invariant-8 gate. */
-const INVARIANT8_PLANS = ["docs/superpowers/plans/2026-07-24-settings-devrow-copy-close"] as const;
 
 const read = (rel: string): string => readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
 const idsIn = (rel: string): Set<string> =>
@@ -275,21 +276,14 @@ describe("deferral ledger graduation", () => {
       expect(active.has(id), `${id} still in DEFERRED.md`).toBe(false);
     }
   });
-
-  it("every invariant-8 plan has a closeout recording both gate halves", () => {
-    for (const dir of INVARIANT8_PLANS) {
-      const closeout = read(`${dir}/closeout.md`);
-      expect(closeout).toMatch(/^##\s*12\b/m);
-      expect(closeout.toLowerCase()).toContain("critique");
-      expect(closeout.toLowerCase()).toContain("audit");
-    }
-  });
 });
 ```
 
-Run it and **record the failure**: assertion 1 passes (verified today: 4 active ids, 130 archived, 0 overlap), assertion 2 fails on `SETTINGS-DEVROW-GALLERY-RESIDUE-1 missing from DEFERRED-archive.md`, assertion 3 fails on `ENOENT` for the closeout that Task 6 creates. That is the red state. **Confirm assertion 3's failure is `ENOENT` on the closeout path and not on `DEFERRED.md`** — a wrong relative base would make every assertion fail for the wrong reason.
+**Wire the new directory into a vitest project in the same step (R4 F7).** `PARALLEL_TEST_GLOBS` in `vitest.projects.ts` is an explicit per-directory allowlist; an unlisted directory falls to the serial DB-bound project. This guard is pure filesystem reads, so add `"tests/docs/**/*.test.{ts,tsx}"` to that array. Then run `pnpm vitest run tests/cross-cutting/vitest-projects-partition.test.ts` and confirm it still passes — that meta-test walks the real `tests/` tree and asserts every file is claimed by exactly one project, so it is the proof the guard is discovered rather than silently unrun.
 
-**Step 5b — the ledger edits (GREEN for assertion 2).** Items 1-4 below. After them, assertions 1 and 2 pass; assertion 3 still fails until Task 6 writes the closeout, so **this task's commit is green on the two ledger assertions and the closeout assertion is Task 6's red state.** Commit with the guard file plus the ledger edits together, and note in the commit body which assertion remains red and which task turns it green.
+Run the guard and **record the failure**: assertion 1 passes (verified today: 4 active ids, 130 archived, 0 overlap) and assertion 2 fails on `SETTINGS-DEVROW-GALLERY-RESIDUE-1 missing from DEFERRED-archive.md`. That is the red state. **Confirm the failure names the archive assertion and not an `ENOENT`** — a wrong relative base in `read()` would make every assertion fail for the wrong reason, which is a false red.
+
+**Step 5b — the ledger edits (GREEN).** Items 1-4 below. After them both assertions pass. **The suite is fully green at this task's commit boundary** — the closeout assertion Task 6 needs is deliberately NOT written here, because committing a knowingly-failing assertion would trade the TDD invariant for a red trunk. Task 6 adds that third assertion as its own red-then-green step. Commit the guard file and the ledger edits together.
 
 Run `pnpm format` — `DEFERRED.md` conflicts and prettier drift after a resolution are a known trap on this repo.
 
@@ -303,7 +297,30 @@ Run `pnpm format` — `DEFERRED.md` conflicts and prettier drift after a resolut
 
 **Findings + dispositions land in a NEW `closeout.md` created by this task under `docs/superpowers/plans/2026-07-24-settings-devrow-copy-close/`, section 12** (R2 F7). Explicitly NOT the 2026-07-21 closeout, which Task 5 edits and which records a different change's gate run. This new file is not part of the "four doc/ledger updates" count in spec §8; it is this plan's own artifact, counted separately in spec §11.
 
-**Red first (R3 F1).** Task 5 left assertion 3 of tests/docs/_metaDeferralLedgerGraduation.test.ts failing (`ENOENT` on this plan's `closeout.md`). Re-run that test at the START of this task and record the failure — that is this task's red state, and it is a genuine one: the file the task must produce does not exist. Writing the closeout with a `## 12` section recording both gate halves turns it green.
+**Red first (R3 F1).** Extend tests/docs/_metaDeferralLedgerGraduation.test.ts with a third assertion and a second registry, then run it and record the `ENOENT` failure — a genuine red state, because the file the assertion demands does not exist yet:
+
+```ts
+/** Plan directories whose plan.md declares an invariant-8 gate. */
+const INVARIANT8_PLANS = ["docs/superpowers/plans/2026-07-24-settings-devrow-copy-close"] as const;
+
+it("every invariant-8 plan has a closeout whose section 12 records both gate halves", () => {
+  for (const dir of INVARIANT8_PLANS) {
+    const closeout = read(`${dir}/closeout.md`);
+    // Slice the BODY of section 12, heading to next heading. Searching the whole
+    // document would pass on an EMPTY section 12 whenever the words appear in a
+    // title, a checklist, or boilerplate elsewhere (R4 F3).
+    const start = /^##\s*12\b.*$/m.exec(closeout);
+    expect(start, `${dir}/closeout.md has no "## 12" section`).not.toBeNull();
+    const after = closeout.slice(start!.index + start![0].length);
+    const next = /^##\s/m.exec(after);
+    const body = (next ? after.slice(0, next.index) : after).toLowerCase();
+    expect(body).toContain("critique");
+    expect(body).toContain("audit");
+  }
+});
+```
+
+Writing the closeout with a `## 12` section recording both gate halves turns it green. Splitting the assertion out of Task 5 keeps every commit boundary green (R3 F1 follow-through): a task never commits a knowingly-failing assertion for a later task to fix.
 
 The four pre-push gates below are validation, not the red state; each is run, its output recorded, and the task is not green until all four exit 0 (checking `$?`, not the printed summary line — vitest exits 1 on uncaught errors while still printing a passing Tests line).
 
@@ -319,7 +336,7 @@ pnpm format:check
 `pnpm test` excludes env-bound and e2e projects by design. Additionally run the two directly-affected files and the settings-page test:
 
 ```
-pnpm vitest run tests/components/admin/settings/DevToolsRow.test.tsx tests/components/admin/settings/DevToolsRow.absent.test.tsx tests/app/admin/settings-developer-visibility.test.tsx
+pnpm vitest run tests/components/admin/settings/DevToolsRow.test.tsx tests/components/admin/settings/DevToolsRow.absent.test.tsx tests/app/admin/settings-developer-visibility.test.tsx tests/docs/_metaDeferralLedgerGraduation.test.ts tests/cross-cutting/vitest-projects-partition.test.ts
 ```
 
 **Commit:** `chore(admin): impeccable dual-gate for the dev-tools row copy close-out`

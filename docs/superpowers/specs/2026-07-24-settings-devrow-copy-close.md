@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-24
 **Status:** Draft (autonomous `/ship-feature` run; owner copy ratification given in-session)
-**Scope:** three user-visible text changes across two files (row description, hidden `sr-only` qualifier, destination heading), two Tailwind utility classes on one shared literal (`transition-colors`, `duration-fast`), four updates to EXISTING docs/ledgers (§8), plus this plan's own new `closeout.md`. No DB, no routes, no new props, no new design tokens.
+**Scope:** three user-visible text changes across two files (row description, hidden `sr-only` qualifier, destination heading), two Tailwind utility classes on one shared literal (`transition-colors`, `duration-fast`), four updates to EXISTING docs/ledgers (§8), plus two new files (this change's own `closeout.md` and one structural guard test — §1.0, §3.3). No DB, no routes, no new props, no new design tokens.
 
 ## 1. What
 
@@ -41,8 +41,9 @@ table against the body rather than restating figures.
 | Tailwind utility classes added | 2 | `transition-colors`, `duration-fast`, both on the one shared literal (§3.1a) |
 | Updates to EXISTING docs/ledgers | 4 | §8 items 1-4 |
 | New files created | 2 | this change's own `closeout.md`, and one new test file (§3.3) |
-| Test contracts | 8 | T1, T1b, T2-T7 (§9) |
-| Test files touched | 2 | the existing `DevToolsRow.test.tsx` (edited) and the new ledger-graduation guard (§3.3) |
+| Test contracts | 9 | T1, T1b, T2-T8 (§9). T8 is a contract like any other; living in a different file does not make it one less (R4 F6). |
+| Test files touched | 2 | the existing `DevToolsRow.test.tsx` (edited, carries T1-T7) and the new ledger-graduation guard (created, carries T8) |
+| Vitest config files touched | 1 | `vitest.projects.ts` — the new test directory must be claimed by exactly one project (§9 T8, R4 F7) |
 
 ### 1.1 Resolved scope — do not relitigate
 
@@ -282,7 +283,7 @@ reduced-motion handling is unchanged).
 | `icon` | `undefined` (absent) | Icon span omitted; heading block still renders, copy unaffected. Unchanged. |
 | `icon` | any FALSY `ReactNode` — `null`, `false`, `""`, `0`, `NaN` | Icon span omitted. The branch is `icon ? … : null`, a truthiness test, so `0` and `NaN` are treated as "no icon" even though React would otherwise render them as the text `0` / `NaN`. **Pre-existing behavior, unchanged by this diff, and desirable here** — the wrapper span is decorative chrome, and a bare `0` inside it would be a defect, not content (R3 F3). |
 | `icon` | any truthy `ReactNode` | Rendered inside an `aria-hidden` wrapper at `size-5`. Unchanged. The sole live caller passes a fixed `<ShieldCheck aria-hidden />` element (`app/admin/settings/page.tsx:221`). |
-| `isDeveloper` | `null`, `0`, `""`, `NaN` (not type-valid, but reachable from untyped callers) | Falsy → the early return fires → `null`. Fail-closed: any non-`true` value hides the developer entrypoint. |
+| `isDeveloper` | `null`, `0`, `""`, `NaN` (not type-valid, but reachable from untyped callers) | Falsy → the early return fires → `null`. The gate is `!isDeveloper`, a truthiness test, so it fails closed on every FALSY value — but **not** on truthy non-booleans: `1`, `"false"`, `{}` and `[]` would all pass it and render the row (R4 F4). The prop is typed `boolean`, and the sole live caller passes a real boolean from `isCurrentUserDeveloper()` (`app/admin/settings/page.tsx:100`), so no such value is reachable today; the row states the actual behavior rather than an aspirational "any non-`true` value is hidden". Unchanged by this diff. |
 
 No prop carries user data — every string in this component is a literal — but
 the falsy-`ReactNode` rows above are enumerated anyway rather than dismissed on
@@ -318,10 +319,11 @@ and `null` are all type-valid inputs with a rendered behavior worth stating.
 3. `DEFERRED-archive.md` — land the full entry with a graduation note: date,
    **branch name**, which finding each change closed, and the explicit record
    that finding 3 closed on its transition half only, with the offset half
-   tracked by `BL-FOCUS-RING-CONTRAST`. The note cites the BRANCH, not a PR
-   number: the ledger update happens before the branch is pushed, so no PR
-   number exists yet (R2 F3). The PR number is backfilled in the close-out
-   task, in the same commit that opens the PR.
+   tracked by `BL-FOCUS-RING-CONTRAST`. The note cites the BRANCH permanently, never a PR
+   number (R2 F3, R3 F2, R4 F2): the ledger update happens before the branch is
+   pushed, and backfilling a number afterwards would mean the merged diff is
+   not the diff the cross-model review approved. No task edits this entry after
+   Task 5. Anyone needing the PR finds it from the merge commit for that branch.
 4. `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md`
    — annotate the three deferred dispositions (that file's lines 49, 50 and 52) as closed
    by this change so a future reader of that table is not sent to a
@@ -336,8 +338,10 @@ which records a different change's gate run.
 
 ## 9. Test plan (TDD, anti-tautology)
 
-All edits are to `tests/components/admin/settings/DevToolsRow.test.tsx`
-(jsdom). Every assertion below names the failure mode it catches.
+T1-T7 are edits to the existing `tests/components/admin/settings/DevToolsRow.test.tsx`
+(jsdom). T8 is a NEW file, tests/docs/_metaDeferralLedgerGraduation.test.ts
+(R4 F5 corrected an earlier "all edits are to one file" claim). Every assertion
+below names the failure mode it catches.
 
 **T1 — accessible-name boundary on the `Open` link.**
 `expect(open).toHaveAccessibleName("Open developer tools")` — an exact-match
@@ -451,10 +455,26 @@ red state and a durable class guard:
    red before the Task 5 edits** (the id is in the active queue and not in the
    archive), and green after. It is a registry row, so the next graduation adds
    a line rather than a file.
-3. **Closeout presence.** The registry also carries the plan directory for this
-   change; the test asserts its `closeout.md` exists and that its §12 records
-   both halves of the invariant-8 gate (the words `critique` and `audit`).
-   **Red before Task 6** (the file does not exist), green after.
+3. **Closeout presence.** A second registry carries the plan directory for this
+   change; the test asserts its `closeout.md` exists and that **the body of its
+   §12 section specifically** — sliced from the `## 12` heading to the next
+   `##` heading, not searched document-wide — names both halves of the
+   invariant-8 gate. Searching the whole document would pass on an EMPTY §12
+   whenever the words appear in a title, a checklist, or boilerplate elsewhere
+   (R4 F3), which is a false-green structural defense.
+   **Red at the start of Task 6** (the file does not exist), green after. Task 6
+ADDS this assertion; Task 5 deliberately does not, so no task commits a
+knowingly-failing assertion and the suite is green at every commit boundary
+(R4 F1).
+
+**Runner wiring (R4 F7).** A new `tests/` subdirectory is not automatically in
+the fast project: `PARALLEL_TEST_GLOBS` in `vitest.projects.ts` is an explicit
+per-directory allowlist, and anything unlisted falls to the serial DB-bound
+project. This guard is pure filesystem reads with no DB, so the change adds
+`tests/docs/**/*.test.{ts,tsx}` to that allowlist in the same task that creates
+the file. `tests/cross-cutting/vitest-projects-partition.test.ts` then asserts
+the file is claimed by exactly one project — that meta-test is the proof the
+guard is actually discovered, not merely written.
 
 Rows 2 and 3 are what give Tasks 5 and 6 an honest failing-test-first cycle;
 row 1 is what makes the file worth keeping after this change ships. The earlier
@@ -493,9 +513,10 @@ live outside it.
 §3.1c + §3.2. 2 source files = the two §3 subsections. 2 utility classes =
 `transition-colors` + `duration-fast` in §3.1a. 4 doc/ledger updates = §8 items
 1-4, which the Scope line also says. 2 new files = the closeout (§8 trailer)
-and the guard (§3.3, §9 T8). 8 test contracts = T1, T1b, T2, T3, T4, T5, T6,
-T7 in §9, plus T8 which lives in the NEW file and is therefore counted under
-"test files touched", not under the 8 contracts edited into the existing file.
+and the guard (§3.3, §9 T8). 9 test contracts = T1, T1b, T2, T3, T4, T5, T6,
+T7, T8 in §9 — 8 of them edited into the existing file and 1 in the new guard.
+The earlier "8" excluded T8 on the grounds that it lives elsewhere, which
+conflated two independent categories (R4 F6).
 
 **Numbers not in §1.0:**
 
