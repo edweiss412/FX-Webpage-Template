@@ -104,6 +104,7 @@ import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeCo
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
+import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
 import { infoRowInvitesCorrection } from "@/lib/admin/infoCodeActionability";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
@@ -2683,36 +2684,12 @@ function HotelCard({ h, flat = false }: { h: HotelReservationRow; flat?: boolean
   );
 }
 
-/**
- * Hardened warning-title derivation (spec §8, invariant 5). Order:
- *   1. Cataloged code with a non-null catalog title → that title.
- *   2. `w.message` ONLY when, after trim, it is non-empty AND does not
- *      contain the raw code token (case-insensitive — catches exact
- *      equality, embedded codes, whitespace and case variants) AND is not
- *      itself machine-token-shaped (`/^[A-Z0-9_]{2,}$/`).
- *   3. Otherwise the generic human fallback.
- *
- * Rationale: persisted warnings exist whose `message` IS the raw code
- * (`reelWarning`, lib/sync/phase2.ts — e.g. OPENING_REEL_UNREADABLE); the
- * per-show page already pins the no-raw-code rule. A cataloged code with a
- * NULL title (some §12.4 rows are title-less) falls through to the same
- * message guards rather than rendering an empty title.
- */
-export function reviewWarningTitle(w: ParseWarning): string {
-  if (isMessageCode(w.code)) {
-    const title = messageFor(w.code as MessageCode).title;
-    if (title) return title;
-  }
-  const msg = (w.message ?? "").trim();
-  if (
-    msg.length > 0 &&
-    !msg.toLowerCase().includes(w.code.toLowerCase()) &&
-    !/^[A-Z0-9_]{2,}$/.test(msg)
-  ) {
-    return msg;
-  }
-  return "A parse issue was recorded for this sheet.";
-}
+// Hardened warning-title derivation (spec §8, invariant 5) MOVED to
+// lib/admin/reviewWarningTitle.ts (warning-trim un-defer spec §2.4) to break the
+// step3ReviewSections → NoteWarningCard → step3ReviewSections import cycle.
+// Re-exported here so the existing test consumers keep their import path; the
+// local import keeps the in-module call sites bound.
+export { reviewWarningTitle };
 
 /**
  * Parse-warnings breakdown (plan Task 4; Task 3 restyle + hardening). The full
