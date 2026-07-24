@@ -49,7 +49,7 @@ In `PerShowActionableWarnings`, alongside the existing UNKNOWN_FIELD `rowLabel` 
 - Separator is the middle dot `·` (em-dash ban, AGENTS.md pre-code mechanical gate). Quotes are straight double quotes, matching the producer's own message quoting (`lib/parser/warnings.ts:93`).
 - `data-testid`: `per-show-actionable-field-label` (band) and `per-show-actionable-field-label-value` (value span), mirroring the row-label pair at `components/admin/PerShowActionableWarnings.tsx:205` and `components/admin/PerShowActionableWarnings.tsx:212`.
 - Band is non-interactive text — no tap-target requirement.
-- Long values: the band container is the existing `CompactAlertCard` detail band (`components/admin/CompactAlertCard.tsx:115-120`); the value span gets `break-all` so an arbitrarily long unusable cell value wraps inside the card instead of overflowing (cap behavior — no truncation, wrap).
+- Long values: the band container is the existing `CompactAlertCard` detail band (`components/admin/CompactAlertCard.tsx:115-120`); BOTH the label span AND the value span get `break-all` so an arbitrarily long unusable cell value — or an arbitrarily long junk `blockRef.field` label from the unvalidated jsonb boundary — wraps inside the card instead of overflowing (cap behavior — no truncation, wrap; the known labels "Phone"/"Email" never wrap in practice).
 
 ### 2.3 Surfaces affected (mode boundaries)
 
@@ -90,7 +90,20 @@ Label mapping for USABLE field: `"phone"` → `Phone`, `"email"` → `Email`, an
 
 Compound: band change while the ignore-refresh is in flight — the card list has no `AnimatePresence`/exit animations (`PerShowActionableWarnings` is a server component, plain `<ul>`), so there is no mid-transition state to compound with.
 
-**Eyebrow row (`BulkIgnoreControls`: idle / armed / running / error — pre-existing).** The wrap change adds NO state; all 6 existing pairs stay governed by the existing transition-audit suite (`tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx`). One NEW geometric interaction: the armed morph lengthens the chip text ("Ignore all N" → "Confirm ignore all N", `BulkIgnoreControls.tsx:146-150`), which changes the row's width allocation and therefore the wrapped eyebrow's line count at 390px. The §3 browser assertion covers BOTH idle and armed chip states (no horizontal overflow, no overlap) — instant morph, no animation (existing behavior, `transition-colors`/`transition-opacity` only).
+**Eyebrow row (`BulkIgnoreControls`: idle / armed / running / error — pre-existing states, per-group).** The wrap change adds NO state. Full pair table (treatments are the EXISTING behavior, restated per the inventory rule; the transition-audit suite `tests/components/admin/bulkIgnoreControlsTransitionAudit.test.tsx` remains the executable pin):
+
+| Pair | Reachable? | Treatment |
+| --- | --- | --- |
+| idle ↔ armed | yes (click arm; 4s timer or cross-group re-arm reverts) | instant text/class morph; `transition-colors` (idle skin) / `transition-opacity` (armed skin) on hover only, no layout animation |
+| armed → running | yes (confirm click) | instant ("Ignoring…" + disabled) |
+| idle → running | no (running is entered only from armed; other groups' chips just disable) | n/a |
+| running → idle | yes (all-ok completion) | instant (state reset before `router.refresh()`) |
+| running → error | yes (partial/total failure) | instant; `role="alert"` notice mounts below cards, no animation |
+| error → idle | indirect only: a CONFIRM on any group replaces the error state with `running` (`ignoreGroup` sets state unconditionally, `BulkIgnoreControls.tsx:86`); arming alone does not clear the notice | instant |
+| error ↔ armed | yes (re-arm while a previous error notice is shown — the compound state: notice visible + chip armed) | instant morph; notice unaffected |
+| idle ↔ error | covered by running → error and error → idle above; no direct idle → error edge exists | n/a |
+
+One NEW geometric interaction from this spec: the armed morph lengthens the chip text ("Ignore all N" → "Confirm ignore all N", `BulkIgnoreControls.tsx:146-150`), which changes the row's width allocation and therefore the wrapped eyebrow's line count at 390px. The §3 browser assertion covers BOTH idle and armed chip states.
 
 ### 2.7 Dimensional invariants
 
@@ -105,7 +118,8 @@ None new — no fixed-dimension parent introduced. The band lives inside the exi
 3. **Component (condensed):** same fixtures with `condensed` ⇒ name absent from band text (assert band textContent does NOT contain the fixture name), value present.
 4. **UNKNOWN_FIELD exclusivity:** UNKNOWN_FIELD card keeps its `Sheet row` band; FIELD_UNREADABLE never renders both bands.
 5. **Staged surface:** `stagedCardBaseline` snapshot asserted UNCHANGED (fixture carries no FIELD_UNREADABLE — §2.3); NEW direct `StagedReviewCard` render test with a FIELD_UNREADABLE operatorActionable fixture asserts the full-mode band (field label + name + value) appears on the staged card.
-6. **Eyebrow:** component assertion that the eyebrow span's class list has no `truncate`; real-browser layout assertion at 390px (standalone config, `tests/e2e/standalone.config.ts --project=standalone-chromium`, harness extended to mount `BulkIgnoreControls` — no existing e2e harness renders it) that the full eyebrow text is not ellipsized (scrollWidth ≤ clientWidth) and the row has no horizontal overflow, in BOTH chip states: idle ("Ignore all N") and armed ("Confirm ignore all N", entered by one real click) — jsdom cannot compute this.
+6. **Eyebrow:** component assertion that the eyebrow span's class list has no `truncate`; real-browser layout assertion at 390px (standalone config, `tests/e2e/standalone.config.ts --project=standalone-chromium`, harness extended to mount `BulkIgnoreControls` — no existing e2e harness renders it; the new spec file must be added to that config's explicit `testMatch` allow-list) asserting, in BOTH chip states (idle "Ignore all N"; armed "Confirm ignore all N", entered by one real click): (a) eyebrow not ellipsized — `scrollWidth ≤ clientWidth` on the eyebrow span; (b) no row horizontal overflow — row `scrollWidth ≤ clientWidth`; (c) no overlap — pairwise `getBoundingClientRect` intersection between eyebrow span and chip button is empty (width or height of the intersection ≤ 0, with 0.5px tolerance); (d) full eyebrow text content equals the catalog title (proves wrap, not clip). jsdom cannot compute any of these.
+6b. **Long junk field label:** component test — FIELD_UNREADABLE with a 200-char no-space `blockRef.field` renders a band whose label span carries the wrap class (`break-all`), no throw (pairs with the §2.4 unknown-field row; real overflow geometry is covered by the (b) row assertion pattern at the component-class level, not a new browser run).
 7. **Meta-test inventory:** none created/extended — no new Supabase call boundary, no admin mutation surface, no advisory lock, no catalog code. The existing structural guards (x1/x2 code scanners) are unaffected: no new `code:` literal.
 
 ## 4. Out of scope
