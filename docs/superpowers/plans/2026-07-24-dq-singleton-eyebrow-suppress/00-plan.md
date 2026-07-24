@@ -163,11 +163,23 @@ test("a group with one visible card but a live bulk chip keeps the eyebrow row (
 
 `within` is imported from `@testing-library/react` — extend the existing import if not present.
 
-(d) Update the integration pin (production build site) in `tests/components/admin/showpage/sectionWarningControls.test.tsx`, DQIGNORE-6 test (line ~316): the lone `UNKNOWN_ROLE_TOKEN` group's eyebrow will be suppressed; transfer its label/invariant-5 assertions to the kept `FIELD_UNREADABLE` row (spec §4.5). Replace the final block of that test:
+(d) Update the integration pin (production build site) in `tests/components/admin/showpage/sectionWarningControls.test.tsx`, DQIGNORE-6 test (line ~316): the lone `UNKNOWN_ROLE_TOKEN` group's eyebrow will be suppressed; transfer its label/invariant-5 assertions to the kept `FIELD_UNREADABLE` row (spec §4.5). First hoist the test's field-warning fixture into a named array so the chip count derives from it (anti-tautology — this is an EDITED assertion, so the fixture-derived rule applies):
 
 ```tsx
-    // The bulk chip rides only the eligible group (2 distinct snippets); the lone role token has none.
-    expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe("Ignore all 2");
+    // roleWarning (lone UNKNOWN_ROLE_TOKEN) + two distinct FIELD_UNREADABLE snippets, all
+    // routing to crew -> two per-code groups inside the crew section.
+    const fieldWarnings = [fieldWarningA, fieldWarningB];
+    const d = buildData({ warnings: [roleWarning, ...fieldWarnings] });
+```
+
+then replace the final block of that test:
+
+```tsx
+    // The bulk chip rides only the eligible group; N derives from the field-warning
+    // fixture (distinct snippets), never hardcoded. The lone role token has none.
+    expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe(
+      `Ignore all ${fieldWarnings.length}`,
+    );
     expect(crew.queryByTestId("dq-bulk-ignore-UNKNOWN_ROLE_TOKEN")).toBeNull();
     // spec 2026-07-24 §2.1: the lone UNKNOWN_ROLE_TOKEN group (1 card, no chip)
     // suppresses its eyebrow - the card renders alone; its title carries the type.
@@ -279,7 +291,7 @@ and replace the unconditional header `<div className="flex items-center gap-2">�
             ) : null}
 ```
 
-(The inner markup is byte-identical to today's `BulkIgnoreControls.tsx:157-187`; only the `showEyebrowRow` wrapper is new. The sr-only live region sits inside the row, which is only removable when `bulk === null` — no chip, no pending announcement, so no announcement is droppable.)
+(Implementation note: do NOT retype the inner markup from this fence — wrap the EXISTING header div in place, changing only indentation, so the inner bytes stay identical to today's `BulkIgnoreControls.tsx:157-187`. This plan's fences cannot carry em-dashes (spec-lint COPY_EM_DASH), so the sr-only comment above shows an ASCII hyphen where the live file at `BulkIgnoreControls.tsx:180-181` has an em-dash; the live file's characters win. The sr-only live region sits inside the row, which is only removable when `bulk === null` — no chip, no pending announcement, so no announcement is droppable.)
 
 Also update the component's JSDoc (`components/admin/BulkIgnoreControls.tsx:43-51`), which currently states every group renders an eyebrow. NOTE: the live comment uses an em-dash after "DQIGNORE-6" (this plan's fences cannot reproduce it — spec-lint bans em-dashes in fenced copy); anchor the edit on the stable phrase `grouped by code. Each group renders an` and preserve the file's existing dash characters verbatim. Replace the sentence spanning "Each group renders an eyebrow (plain-language type label + hairline rule) and, when bulk-eligible, an inline" so the comment reads (dashes as in the live file):
 
@@ -385,10 +397,9 @@ Run (the spec's own prescribed standalone config, `tests/e2e/bulk-ignore-eyebrow
 ```bash
 set -a; source .env.local; set +a
 node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/bulk-ignore-eyebrow.layout.spec.ts
-echo "playwright exit: $?"
 ```
 
-Expected: exit 0 (no `tail` pipe — the exit code is the proof; the spec measures only the `FIELD_UNREADABLE` group, which kept its eyebrow). If the harness build chokes on the fixture edit, the failure is in this branch's diff — fix before commit.
+Expected: the playwright command itself exits 0 (it is the LAST command, so the shell's exit status IS playwright's — no `echo`, no pipe, nothing after it to mask a failure; the spec measures only the `FIELD_UNREADABLE` group, which kept its eyebrow). If the harness build chokes on the fixture edit, the failure is in this branch's diff — fix before commit.
 
 - [ ] **Step 4: Commit**
 
@@ -420,4 +431,4 @@ git commit --no-verify -m "docs: mark DQIGNORE-6 singleton-eyebrow row supersede
 1. **Spec coverage:** §2.1 predicate → Task 1 Step 3; §2.2 threading → Task 1 Step 3; §2.3 guard rows → covered by predicate + §4 tests (type-guaranteed rows need no runtime code per spec); §2.5 transition (instant) → transition-audit test authored pre-implementation in Task 1 Step 1(e); §3 table → every row has a task line (crewWarningAttachment = verify-unmodified, Task 1 Step 6); §4.1-4.7 tests → Task 1 Steps 1/2/5/6 (ALL behavioral tests authored in Step 1, before the Step 3 implementation — TDD invariant 1); supersession note → Task 2; impeccable → Task 3. No gaps.
 2. **Placeholder scan:** no TBD/TODO/"similar to"; every code step shows code.
 3. **Type consistency:** `itemCount: number` required, same name in type/build-site/fixtures; `showEyebrowRow` local only. Snippets checked against strict tsconfig: no indexed access added, no optional-property writes; `within` import called out.
-4. **Pre-existing-failure baseline:** if any Task 2 full-suite failure looks unrelated to this diff, verify it at the ACTUAL merge-base (Task 1 is already committed, so `git stash` cannot reach it): `git worktree add ../FX-worktrees/mb-check $(git merge-base HEAD origin/main)` → `pnpm install && pnpm worktree:link-env` there → rerun the failing suite → compare → `git worktree remove ../FX-worktrees/mb-check`. Only a failure reproduced at merge-base may be classified pre-existing.
+4. **Pre-existing-failure baseline:** if any Task 2 full-suite failure looks unrelated to this diff, verify it at the ACTUAL merge-base (Task 1 is already committed, so `git stash` cannot reach it): `git worktree add ../mb-check $(git merge-base HEAD origin/main)` (the feature worktree already lives inside `FX-worktrees/`, so the sibling path is `../mb-check`, i.e. `FX-worktrees/mb-check`) → `pnpm install && pnpm worktree:link-env` there → rerun the failing suite → compare → `git worktree remove ../mb-check`. Only a failure reproduced at merge-base may be classified pre-existing.
