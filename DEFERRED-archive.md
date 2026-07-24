@@ -2,6 +2,52 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## CREWWARN instance discriminator + eyebrow wrap (2026-07-23)
+
+Two deferrals resolved by `feat/crewwarn-instance-discriminator` (spec
+`docs/superpowers/specs/2026-07-23-crewwarn-instance-discriminator-design.md`, Codex spec
+review APPROVE at R3, plan APPROVE at R5; impeccable dual-gate dispositions in
+docs/superpowers/plans/2026-07-23-crewwarn-instance-discriminator-closeout.md §12).
+
+### CREWWARN-INSTANCE-DISCRIMINATOR-1 — [P1] — ✅ RESOLVED
+
+Original entry (full text): "From the impeccable critique of `feat/crewwarn-underrow-polish`
+(dual-gate 2026-07-23, dispositions in `docs/superpowers/plans/2026-07-23-crewwarn-underrow-polish-closeout.md` §12).
+A member with e.g. phone AND email unreadable renders multiple FIELD_UNREADABLE cards whose
+visible content is identical (same catalog title; the instance-specific `message` is displaced
+by the title per invariant 5, and the detail-band row label renders only for UNKNOWN_FIELD).
+Report/Ignore then act on a target Doug cannot visually distinguish. PRE-EXISTING grain issue —
+full-mode group cards have the same ambiguity — surfaced louder by the capped under-row stack;
+a fix needs its own copy/identity spec (candidate designs: per-field detail-band discriminator
+sourced from the producer, or merging same-code instances into one card with a field list). Out
+of scope for the placement/condense diff (spec §1.1 #4: no catalog edits). Un-defer trigger:
+next milestone touching warning-card copy, warning identity, or `PerShowActionableWarnings`
+card anatomy."
+
+Resolved: context-aware detail band (owner-ratified Option B via mockup review) — the producer
+now writes `blockRef.field` (`emitFieldUnreadable`), and FIELD_UNREADABLE cards render a
+field-label band: condensed (under-row) `PHONE "value"`; full/staged
+`PHONE name · "value"` (split spans; the only middot separator sits between name and value). Two latent bugs fixed in the same diff: the `operatorActionableWarnings`
+dedup key and `warningIdentityKey` both fold `blockRef.field` (NUL presence-delimited, raw
+untrimmed), so a member's phone+email pair is no longer dedup-hidden when anchored to one crew
+cell, and no longer shares one report surfaceId (ReportModal draft/idempotency state).
+
+### CREWWARN-INCARD-MOBILE-EYEBROW-1 — [P2] — ✅ RESOLVED
+
+Original entry (full text): "Assessment A P2b, same critique. Inside the padded panel card the
+group loses ~2x `p-tile-pad` of width; at 390px the eyebrow ellipsizes (\"PHONE OR EMAIL WE
+COUL...\") and the \"Ignore all 2\" chip wraps to two lines (no overlap, still legible). Fix lands
+in shared `BulkIgnoreControls` (eyebrow wrap instead of truncate, or shorter chip copy) whose
+other call sites (wizard step3 groups) would also reflow — beyond this diff's blast radius.
+Un-defer trigger: any BulkIgnoreControls change, or user feedback on the truncated eyebrow."
+
+Resolved: eyebrow wraps (dropped `truncate`, kept `min-w-0`); chip wrap behavior unchanged
+(ratified — armed morph needs the headroom). The "wizard step3 groups" call-site claim was
+stale: `BulkIgnoreControls` has exactly one call site (`components/admin/showpage/sectionWarningExtras.tsx`).
+Pinned by a real-browser 390px spec (idle + armed chip states; wrap, no overflow, disjoint
+bboxes, full catalog title) at tests/e2e/bulk-ignore-eyebrow.layout.spec.ts, plus a jsdom class
+pin.
+
 ## Crew warning under-row polish (2026-07-23)
 
 Three crew-warning-attachment critique deferrals (recorded 2026-07-23) resolved by

@@ -422,7 +422,12 @@ export function operatorActionableWarnings(
       // collapsed into one line. Other codes keep the a1-only key (idx32/#154).
       const rowDisc =
         w.code === FIELD_UNREADABLE && w.blockRef?.index != null
-          ? `\0${w.blockRef.index}`
+          ? // Fold the field discriminator too (crewwarn-instance-discriminator §2.1): phone +
+            // email for ONE member share the name-resolved crew cell AND the row index, so
+            // without it the second warning is dedup-hidden. NUL-delimited so a present-but-
+            // empty field stays distinct from a legacy field-less warning; RAW string, never
+            // trimmed (identity semantics, not render semantics).
+            `\0${w.blockRef.index}${typeof w.blockRef.field === "string" ? `\0${w.blockRef.field}` : ""}`
           : w.code === "UNKNOWN_ROLE_TOKEN" && typeof w.roleToken === "string"
             ? `\0${w.roleToken}`
             : "";

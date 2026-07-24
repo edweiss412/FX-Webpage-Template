@@ -47,7 +47,7 @@ describe("emitFieldUnreadable", () => {
     expect(w.code).toBe("FIELD_UNREADABLE");
     // idx32/#154: carry the crew member's name so the resolver can anchor per-ROW
     // (distinct rows → distinct source cells → survive operatorActionableWarnings dedup).
-    expect(w.blockRef).toEqual({ kind: "crew", index: 0, name: "John Smith" });
+    expect(w.blockRef).toEqual({ kind: "crew", index: 0, name: "John Smith", field: "phone" });
     expect(w.rawSnippet).toBe("call John");
     // message must surface the raw snippet so the operator sees what dropped
     expect(w.message).toContain("call John");
@@ -63,6 +63,47 @@ describe("emitFieldUnreadable", () => {
         name: "Someone",
       }),
     ).not.toThrow();
+  });
+
+  it("stores the field discriminator on blockRef; message + rawSnippet unchanged (phone and email)", () => {
+    const agg = newAggregator();
+    emitFieldUnreadable(agg, {
+      section: "crew",
+      field: "phone",
+      rawSnippet: "call me",
+      index: 3,
+      name: "Jordan Ellis",
+    });
+    emitFieldUnreadable(agg, {
+      section: "crew",
+      field: "email",
+      rawSnippet: "jordan-at",
+      index: 3,
+      name: "Jordan Ellis",
+    });
+    expect(agg.warnings[0]?.blockRef).toEqual({
+      kind: "crew",
+      index: 3,
+      name: "Jordan Ellis",
+      field: "phone",
+    });
+    expect(agg.warnings[1]?.blockRef).toEqual({
+      kind: "crew",
+      index: 3,
+      name: "Jordan Ellis",
+      field: "email",
+    });
+    expect(agg.warnings[0]?.rawSnippet).toBe("call me");
+    expect(agg.warnings[1]?.rawSnippet).toBe("jordan-at");
+    const EM = String.fromCharCode(0x2014); // the producer's em-dash
+    expect(agg.warnings[0]?.message).toBe(
+      `Crew phone for row 4 couldn't be read as a phone number ("call me") ${EM} check the sheet.`,
+    );
+    expect(agg.warnings[1]?.message).toBe(
+      // "a email address" is the LIVE producer grammar (spec §2.1 pins message unchanged);
+      // grammar fix is a separate copy change, deliberately not smuggled into this diff.
+      `Crew email for row 4 couldn't be read as a email address ("jordan-at") ${EM} check the sheet.`,
+    );
   });
 });
 

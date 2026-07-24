@@ -448,3 +448,12 @@ describe("BulkIgnoreControls (grouped active list)", () => {
     });
   });
 });
+
+describe("eyebrow wrap (crewwarn-instance-discriminator §2.5)", () => {
+  test("eyebrow label wraps instead of truncating (no truncate class)", () => {
+    render(<BulkIgnoreControls slug="s" groups={[bulkGroup()]} />);
+    const label = screen.getByTestId("dq-group-label-UNKNOWN_FIELD");
+    expect(label.className).not.toContain("truncate");
+    expect(label.className).toContain("min-w-0");
+  });
+});
