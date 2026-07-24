@@ -48,11 +48,11 @@ describe("/help/admin/parse-warnings (E.7)", () => {
       </MDXProvider>,
     );
     const h1 = within(container).getByRole("heading", { level: 1 });
-    expect(h1).toHaveTextContent("Parse warnings");
+    expect(h1).toHaveTextContent("Sheet warnings");
   });
 
   it("has the canonical H1 in source", () => {
-    expect(src).toMatch(/^# Parse warnings\b/m);
+    expect(src).toMatch(/^# Sheet warnings\b/m);
   });
 
   it("filtered warningCodes set is non-empty (otherwise the per-code coverage loop below is a no-op)", () => {

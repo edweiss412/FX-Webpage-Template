@@ -19,6 +19,9 @@ export type SectionAttentionBucket = {
   sectionTop: ReactNode[];
   /** CREW ONLY: per-crew-member under-row banners. */
   byCrewKey?: Map<string, ReactNode[]>;
+  /** CREW ONLY (§6.3): id-matched under-row banners keyed by RENDERED row index.
+   *  Parallel to `byCrewKey` but populated by DB-id fan-out, not display name. */
+  byRowIndex?: Map<number, ReactNode[]>;
   /** Pre-rendered anchored cards, keyed by the content anchor they mount at. */
   byAnchor?: Map<string, ReactNode[]>;
   /** DOMAIN items (not nodes): the two parse notices the warnings section composes. */
@@ -36,6 +39,14 @@ export type BucketOpts = {
   /** CREW ONLY: whether a crew key maps to a rendered row (else the crew banner
    *  goes to the crew section top). Defaults to always-rendered. */
   crewKeyRendered?: (crewKey: string) => boolean;
+  /** CREW ONLY (§6.3): the modal partially applies the pure crew-row resolver
+   *  over its roster. Given an item's `crewMatch`, returns the RENDERED-row
+   *  indexes to fan the banner into, or null → section-top. Absent (staged) →
+   *  never fans out. */
+  crewRowIndexesForIds?: (expected: {
+    crewMemberIds: readonly string[];
+    expectedCount: number;
+  }) => number[] | null;
 };
 
 /** The availability predicates `bucketAttention` uses to place a card — the same
@@ -117,7 +128,23 @@ export function bucketAttention(
     const card = opts.renderCard(item);
     const b = bucket(map, section);
 
-    if (anchor && section === item.sectionId && opts.anchorAvailable(section, anchor)) {
+    // §6.3 id-matched crew fan-out: a crew item carrying a derived `crewMatch`
+    // whose ids map one-to-one onto RENDERED rows fans the banner out in-row via
+    // `byRowIndex` (one card per matched index). Any non-match — resolver absent
+    // (staged), null result (roster drift / row beyond CREW_CAP / duplicate
+    // rendered id) — falls THROUGH to the existing placement (section-top today).
+    // Never both channels: this is the first arm of the if-else chain.
+    const fanoutIndexes =
+      section === "crew" && item.crewMatch && opts.crewRowIndexesForIds
+        ? opts.crewRowIndexesForIds(item.crewMatch)
+        : null;
+
+    if (fanoutIndexes) {
+      const byRowIndex = (b.byRowIndex ??= new Map());
+      for (const idx of fanoutIndexes) {
+        byRowIndex.set(idx, [...(byRowIndex.get(idx) ?? []), card]);
+      }
+    } else if (anchor && section === item.sectionId && opts.anchorAvailable(section, anchor)) {
       (b.byAnchor ??= new Map()).set(anchor, [...(b.byAnchor.get(anchor) ?? []), card]);
     } else if (section === "crew" && item.crewKey && crewKeyRendered(item.crewKey)) {
       (b.byCrewKey ??= new Map()).set(item.crewKey, [

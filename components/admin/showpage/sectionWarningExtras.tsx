@@ -145,14 +145,10 @@ export function buildSectionWarningExtras(args: {
    *  under rows, so they are EXCLUDED from the section group here (conservation — a card
    *  never renders twice). Absent → no crew filtering (byte-identical to today). */
   renderedCrewKeys?: ReadonlySet<string>;
-}): (id: SectionId, d: SectionData, opts?: { seamless?: boolean }) => ReactNode {
+}): (id: SectionId, d: SectionData) => ReactNode {
   const { bySection, renderedCrewKeys } = args;
   // Lowercase-named (not a component): the surface calls it as a render callback per section.
-  function renderSectionExtras(
-    id: SectionId,
-    d: SectionData,
-    opts?: { seamless?: boolean },
-  ): ReactNode {
+  function renderSectionExtras(id: SectionId, d: SectionData): ReactNode {
     // §5.3 is published-only (staged warnings render through the modal's §E3 callouts +
     // Warnings section). The modal passes no renderSectionExtras anyway; this is defense.
     if (!isPublished(d)) return null;
@@ -247,12 +243,12 @@ export function buildSectionWarningExtras(args: {
     return (
       <div
         data-testid={`section-warning-controls-${id}`}
-        // Spec 2026-07-22-warning-panel-polish §3.3: in the Silent state the
-        // heading sits directly above these extras, so the border-t reads as a
-        // heading underline; the caller passes seamless exactly when the
-        // section body card is suppressed.
+        // warning-trim un-defer spec §2.2.3: the WARNINGS extras now render inside
+        // the always-present panel-card box beneath the notes group, so the box
+        // supplies the boundary — no `border-t` seam. Every OTHER section keeps
+        // its seam (its extras still sit directly under the section body).
         className={
-          opts?.seamless === true
+          id === "warnings"
             ? "flex flex-col gap-3"
             : "mt-3 flex flex-col gap-3 border-t border-border pt-3"
         }

@@ -46,6 +46,9 @@ export type AttentionAlertInput = {
   identityText: string | null;
   messageParams: MessageParams;
   crewName: string | null;
+  /** §6.2: id-matched crew fan-out target (AMBIGUOUS_EMAIL_BINDING only).
+   *  OPTIONAL — spread-inserted only when derived; absent == no match. */
+  crewMatch?: { crewMemberIds: string[]; expectedCount: number };
 };
 
 export type AttentionAlertPayload = {
@@ -76,6 +79,9 @@ type AttentionItemBase = {
   /** For non-actionable (clearing) alert items only: which clearing group.
    *  Absent on actionable items and holds. Spec 2026-07-21 §3.1. */
   clearingKind?: "self_heal" | "needs_look";
+  /** §6.2: id-matched crew fan-out target, copied from the input row. OPTIONAL —
+   *  present only on AMBIGUOUS_EMAIL_BINDING alert items with a derived match. */
+  crewMatch?: { crewMemberIds: string[]; expectedCount: number };
 };
 
 /**
@@ -272,6 +278,10 @@ function toAlertItem(
   const route = ATTENTION_ROUTES[row.code] ?? { sectionId: "overview" as const };
   const crewKey =
     route.sectionId === "crew" && row.crewName ? canonicalCrewKey(row.crewName) : null;
+  // §6.2: carry the derived crew fan-out target onto the item. Spread-inserted so
+  // an item without a match never gains an explicit `undefined` (exactOptional).
+  const crewMatchPatch: { crewMatch?: { crewMemberIds: string[]; expectedCount: number } } =
+    row.crewMatch ? { crewMatch: row.crewMatch } : {};
   return {
     id: `alert:${row.id}`,
     kind: "alert",
@@ -280,6 +290,7 @@ function toAlertItem(
     crewKey,
     actionable,
     ...clearingKindPatch,
+    ...crewMatchPatch,
     menuTitle: alertTitle(row.code),
     menuSubtitle: row.identityText,
     alert: {

@@ -36,6 +36,10 @@ function toAlertInputs(s: AttentionScenario) {
     raised_at: row.raised_at,
     occurrence_count: row.occurrence_count,
     ...deriveAlertRowFields(row, row.galleryIdentity ?? undefined),
+    // GALLERY-ONLY override (spec §6.2): a declared crewMatch demos the fan-out
+    // without a live roster; spread last so it wins over any derived value, and
+    // spread-inserted to avoid an explicit undefined (exactOptional).
+    ...(row.crewMatch ? { crewMatch: row.crewMatch } : {}),
   }));
 }
 

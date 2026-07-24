@@ -2,6 +2,89 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## Warning trim un-defer (2026-07-23)
+
+Five of the six remaining "warning-surface-trim (2026-07-21)" deferrals RESOLVED
+by `feat/warning-trim-undefer` (spec
+`docs/superpowers/specs/2026-07-23-warning-trim-undefer-design.md`, adversarial
+APPROVE at R5). The sixth — the bell-only first-publish data-gaps digest — stays
+parked in [DEFERRED.md](./DEFERRED.md) with a refreshed rationale (owner
+re-confirmed bell-only 2026-07-23).
+
+### WARNTRIM-HEADING-COUNT-SILENT-1 — [P1] — ✅ RESOLVED
+
+Original entry (full text): "**[P1] Heading count reads no "(0)" in the Silent
+state (suppression carve-out).** Owner re-confirmed 2026-07-21: keep the
+suppression; the heading count does NOT include the routed-card bucket, and the
+rail semantics are unchanged (trim spec §3.3; polish spec §1.1 item 1). Un-defer
+trigger: a future owner decision to redefine §3.3's count semantics."
+
+Resolved: the Silent-state suppression carve-out is superseded by the unified
+panel's single count predicate `sheetWarningsPanelCount({ visibleInfoRows,
+activeHere })` (spec §2.3/§2.3a) — the box always renders and the empty/clean
+state shows "(0)" when not flagged; here-routed cards count toward the heading.
+`lib/admin/sheetWarningsCount.ts` + `tests/components/admin/sheetWarningsPanel.test.tsx`.
+
+### WARNTRIM-PANEL-TITLE-1 — [P3] — ✅ RESOLVED
+
+Original entry (full text): "**[P3] The panel is still titled "Parse warnings".**
+Owner re-confirmed 2026-07-21 (polish spec §1.1 item 2). **Noted, not changed.**"
+
+Resolved: renamed to "Sheet warnings" across every user-visible display literal
+(route slug, testids, help hrefs, and catalog codes deliberately unchanged) —
+spec §3, `feat/warning-trim-undefer` Task 2.
+
+### WARNTRIM-STAGED-BYTE-IDENTICAL-1 — [MEDIUM] — ✅ RESOLVED
+
+Original entry (full text): "**[MEDIUM] The staged-mode byte-identical guarantee
+rests on a leaf render plus a card-level snapshot.**
+`tests/components/admin/stagedCardBaseline.test.tsx` renders `StagedReviewCard`
+directly and snapshots the card `<li>` elements, so a change to the surrounding
+wizard chrome, to card ordering relative to other content, or to a wizard-only
+prop is invisible to it. The polish bundle's gate-off ABSENCE assertions (polish
+spec §8.7) narrow but do not close this. **Noted, not changed.** Un-defer
+trigger: any change that touches the wizard's Step-3 composition rather than only
+the shared registry (polish spec §1.1 item 6)."
+
+Resolved: this bundle touched the shared Step-3 composition, so the gap is closed
+by the pins landed FIRST — `tests/components/admin/parsePanelComposition.test.tsx`
+asserts ParsePanel mounts one `StagedReviewCard` per row in input order with the
+actionable-warnings leaf in every row, plus a wizard-chrome snapshot and an
+unconditional-callout proof (spec §5, `feat/warning-trim-undefer` Task 1).
+
+### WARNTRIM-CORRECTION-DOUBLE-1 — [P2] — ✅ RESOLVED
+
+Original entry (full text): "**[P2] The correction sentence is reachable twice on
+one screen in the List state.** Owner chose keep-both on 2026-07-21 (polish spec
+§1.1 item 5): each site covers a state the other cannot — cards exist without the
+callout in the Silent state; the callout covers info rows that never become
+cards; the overlap is List-state-only and the popover copy is on-demand. **Noted,
+not changed.**"
+
+Resolved: the published correction callout is retired (the popover on each note
+card wins), so the sentence is no longer reachable twice on the published surface
+(spec §4, `feat/warning-trim-undefer` Task 5). The wizard (staged) callout is
+unchanged and still unconditional.
+
+### WARNTRIM-INROW-CREW-BANNER-1 — [MEDIUM] — ✅ RESOLVED
+
+Original entry (full text): "**[MEDIUM] `published-show-alerts` §5.4's in-row crew
+banner has zero producers.** Owner chose to leave it dormant on 2026-07-21
+(polish spec §1.1 item 4): no code change, and the placement test at
+`tests/e2e/published-show-attention.spec.ts:126` stays SKIPPED (not deleted) as
+the contract that un-skips the moment a crew-routed, non-health, actionable code
+carrying a `crewName` exists. Sharpening fact: role-flag deltas already reach the
+modal via the Sheet changes feed, so banner dormancy loses event visibility on no
+surface. **Noted, not changed.**"
+
+Resolved: the in-row banner now has an id-keyed producer. AMBIGUOUS_EMAIL_BINDING
+derives a `crewMatch` from `context.crew_member_ids` (spec §6.2) and the placement
+layer fans the banner into each rendered roster row whose id matches one-to-one
+(all-or-nothing; else one section-top banner — spec §6.3). Names never enter the
+match, so the original `crewName` precondition is moot. The e2e is un-skipped and
+the spec is wired into the desktop-chromium project (`feat/warning-trim-undefer`
+Tasks 6-8, `lib/admin/crewRowMatch.ts`).
+
 ## CREWWARN instance discriminator + eyebrow wrap (2026-07-23)
 
 Two deferrals resolved by `feat/crewwarn-instance-discriminator` (spec

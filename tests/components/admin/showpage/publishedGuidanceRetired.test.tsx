@@ -143,41 +143,35 @@ describe("the published panel retires its panel-level guidance", () => {
     expect(text).not.toContain(LOOP_SENTENCE);
   });
 
-  it("KEEPS it when the panel lists an ACTIONABLE info row (spec §3.4)", () => {
-    // Whole-diff review C1 lineage: info rows never become cards, so this
-    // panel is the only home for the correction advice. The 2026-07-22 polish
-    // replaced the dead sourceCell conjunct (no info emitter is anchored) with
-    // the actionability registry: DAY_RESTRICTION_DOUBLE_LOCATION's copy asks
-    // the operator to remove a duplicate, so its presence invites the loop.
-    //
-    // The fixture is info-ONLY, so nothing on this render has a popover and the
-    // sentence cannot be found in one.
+  it("DROPS the panel-level loop sentence even for an ACTIONABLE info row (spec §4 — popup wins)", () => {
+    // warning-trim un-defer §4 supersedes the §3.4 actionability gate: the
+    // published surface retires the panel-level callout OUTRIGHT. An info-only
+    // sheet whose only row is the actionable DAY_RESTRICTION_DOUBLE_LOCATION
+    // therefore shows the sentence NOWHERE at panel level — and since that row
+    // carries no sourceCell, its note popover carries no correction sentence
+    // either (notePopoverParts gates the sentence on sourceCell).
     render(<Harness warnings={[DOUBLE_LOCATION]} />);
-    const { text, removedCount } = modalTextWithoutPopovers();
-    expect(removedCount, "an info-only sheet mounts no warning-card popovers").toBe(0);
-    expect(text).toContain(LOOP_SENTENCE);
-    // Still not the non-blocking line: its "below" points at controls that are
-    // no longer below.
+    const { text } = modalTextWithoutPopovers();
+    expect(text).not.toContain(LOOP_SENTENCE);
     expect(text).not.toContain(NON_BLOCKING_SENTENCE);
   });
 
-  it("drops it when every listed info row is non-actionable (spec §3.4 - the owner's ask)", () => {
-    // A sheet whose only notes need no operator action (auto-corrected /
-    // FYI-only rows) must not prompt "Fixed it in the sheet?".
+  it("drops it for non-actionable info rows too, which still render as note cards", () => {
+    // A sheet whose only notes need no operator action must not prompt
+    // "Fixed it in the sheet?" — and never did on the published surface after §4.
     render(<Harness warnings={INFO_NON_ACTIONABLE} />);
     const { text } = modalTextWithoutPopovers();
     expect(text).not.toContain(LOOP_SENTENCE);
-    // The rows themselves still render: this gates the guidance, not the list.
-    // Without this the assertion above passes for the wrong reason on any build
-    // that renders an empty panel.
-    expect(screen.queryAllByTestId(/-warning-\d+$/).length).toBe(INFO_NON_ACTIONABLE.length);
+    // The rows themselves still render — as neutral note cards (spec §2.2.2),
+    // not list rows. This gates the guidance, not the list.
+    expect(screen.queryAllByTestId("note-warning-title").length).toBe(INFO_NON_ACTIONABLE.length);
   });
 
-  it("keeps it when only SOME listed rows are actionable", () => {
-    // The boundary: `some`, not `every`. One actionable row makes the advice
-    // applicable regardless of its non-actionable neighbors.
+  it("drops it when SOME listed rows are actionable, too (no per-row gate survives)", () => {
+    // The old `some`-actionable boundary is gone: §4 retires the panel callout
+    // regardless of which info codes are listed.
     render(<Harness warnings={[INFO_NON_ACTIONABLE[0]!, DOUBLE_LOCATION]} />);
-    expect(modalTextWithoutPopovers().text).toContain(LOOP_SENTENCE);
+    expect(modalTextWithoutPopovers().text).not.toContain(LOOP_SENTENCE);
   });
 
   it("keeps BOTH sentences on the ungated (wizard) surface, verbatim", () => {

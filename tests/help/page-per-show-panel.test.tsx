@@ -57,7 +57,7 @@ describe("/help/admin/per-show-panel (E.8)", () => {
     expect(src).toContain("/help/admin/review-queues#first-seen");
   });
 
-  it("links to /help/admin/parse-warnings (Parse warnings sub-section pointer)", () => {
+  it("links to /help/admin/parse-warnings (Sheet warnings sub-section pointer)", () => {
     expect(src).toContain("/help/admin/parse-warnings");
   });
 

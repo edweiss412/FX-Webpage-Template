@@ -1899,7 +1899,7 @@ describe("Step3ReviewModal — nav-click scroll-spy suppression (Task 10, spec �
     expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
     const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
     fireEvent.click(
-      within(callout).getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+      within(callout).getByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ }),
     );
     expect(navActiveId(q, "rail")).toBe("warnings");
     // Mid-glide frame at an unrelated position: held on 'warnings'.
@@ -2408,7 +2408,7 @@ describe("Step3ReviewModal — section flag callouts (Task 9, spec §E3)", () =>
 
     // Exactly CALLOUT_MAX_ENTRIES title rows, each with a jump button.
     const jumpButtons = within(callout).getAllByRole("button", {
-      name: /^(?:Fix|Review) in Parse warnings/,
+      name: /^(?:Fix|Review) in Sheet warnings/,
     });
     expect(jumpButtons).toHaveLength(CALLOUT_MAX_ENTRIES);
 
@@ -2416,7 +2416,7 @@ describe("Step3ReviewModal — section flag callouts (Task 9, spec §E3)", () =>
     const total = d.warnings.filter((w) => w.severity === "warn").length;
     expect(total).toBeGreaterThan(CALLOUT_MAX_ENTRIES);
     const more = within(callout).getByRole("button", {
-      name: `+${total - CALLOUT_MAX_ENTRIES} more in Parse warnings`,
+      name: `+${total - CALLOUT_MAX_ENTRIES} more in Sheet warnings`,
     });
     expect(more).toBeTruthy();
   });
@@ -2426,9 +2426,9 @@ describe("Step3ReviewModal — section flag callouts (Task 9, spec §E3)", () =>
     const { q } = renderModal({ d });
     const callout = q.getByTestId(calloutTid("crew"));
     expect(
-      within(callout).getAllByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+      within(callout).getAllByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ }),
     ).toHaveLength(CALLOUT_MAX_ENTRIES);
-    expect(within(callout).queryByText(/more in Parse warnings/)).toBeNull();
+    expect(within(callout).queryByText(/more in Sheet warnings/)).toBeNull();
   });
 
   test("the warnings section itself NEVER gets a callout (circular-callout guard)", () => {
@@ -2483,32 +2483,32 @@ describe("Step3ReviewModal — callout jump label (CALLOUT-PREVIEW-ACTION-CUE-1)
     return `wizard-step3-card-${DFID}-section-${sectionId}-flag-callout`;
   }
 
-  test("flagged + fixable (UNKNOWN_ROLE_TOKEN + token) → 'Fix in Parse warnings'", () => {
+  test("flagged + fixable (UNKNOWN_ROLE_TOKEN + token) → 'Fix in Sheet warnings'", () => {
     const d = sectionData({ warnings: [roleWarning("crew")] });
     const { q } = renderModal({ d });
     const callout = q.getByTestId(calloutTid("crew"));
-    expect(within(callout).getByRole("button", { name: /^Fix in Parse warnings\b/ })).toBeTruthy();
+    expect(within(callout).getByRole("button", { name: /^Fix in Sheet warnings\b/ })).toBeTruthy();
     expect(
-      within(callout).queryByRole("button", { name: /^Review in Parse warnings\b/ }),
+      within(callout).queryByRole("button", { name: /^Review in Sheet warnings\b/ }),
     ).toBeNull();
   });
 
-  test("flagged + NON-fixable (SOME_CODE) → 'Review in Parse warnings' (no blanket Fix)", () => {
+  test("flagged + NON-fixable (SOME_CODE) → 'Review in Sheet warnings' (no blanket Fix)", () => {
     const d = sectionData({ warnings: [warning("crew")] });
     const { q } = renderModal({ d });
     const callout = q.getByTestId(calloutTid("crew"));
     expect(
-      within(callout).getByRole("button", { name: /^Review in Parse warnings\b/ }),
+      within(callout).getByRole("button", { name: /^Review in Sheet warnings\b/ }),
     ).toBeTruthy();
-    expect(within(callout).queryByRole("button", { name: /^Fix in Parse warnings\b/ })).toBeNull();
+    expect(within(callout).queryByRole("button", { name: /^Fix in Sheet warnings\b/ })).toBeNull();
   });
 
-  test("judgment variant → 'Review in Parse warnings' (calm, even if technically fixable)", () => {
+  test("judgment variant → 'Review in Sheet warnings' (calm, even if technically fixable)", () => {
     const d = sectionData({ warnings: [judgmentWarning("rooms")] });
     const { q } = renderModal({ d });
     const callout = q.getByTestId(calloutTid("rooms"));
     expect(
-      within(callout).getByRole("button", { name: /^Review in Parse warnings\b/ }),
+      within(callout).getByRole("button", { name: /^Review in Sheet warnings\b/ }),
     ).toBeTruthy();
   });
 
@@ -2516,11 +2516,11 @@ describe("Step3ReviewModal — callout jump label (CALLOUT-PREVIEW-ACTION-CUE-1)
     const d = sectionData({ warnings: [roleWarning("crew")] });
     const { q } = renderModal({ d });
     const btn = within(q.getByTestId(calloutTid("crew"))).getByRole("button", {
-      name: /^Fix in Parse warnings\b/,
+      name: /^Fix in Sheet warnings\b/,
     });
     const clone = btn.cloneNode(true) as HTMLElement;
     clone.querySelectorAll(".sr-only").forEach((n) => n.remove());
-    expect(clone.textContent?.trim()).toBe("Fix in Parse warnings");
+    expect(clone.textContent?.trim()).toBe("Fix in Sheet warnings");
   });
 });
 
@@ -2579,7 +2579,7 @@ describe("Step3ReviewModal — warning jump-links + one-shot highlight (Task 9, 
 
     const callout = q.getByTestId(calloutTid("crew"));
     fireEvent.click(
-      within(callout).getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+      within(callout).getByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ }),
     );
 
     // aria-current moved to the warnings item on the rail (container-scoped).
@@ -2624,7 +2624,7 @@ describe("Step3ReviewModal — warning jump-links + one-shot highlight (Task 9, 
 
     const callout = q.getByTestId(calloutTid("crew"));
     const buttons = within(callout).getAllByRole("button", {
-      name: /^(?:Fix|Review) in Parse warnings/,
+      name: /^(?:Fix|Review) in Sheet warnings/,
     });
     const content = q.getByTestId(tid("content"));
     const liA = content.querySelector<HTMLElement>(`[data-warning-index="${warnIndices[0]}"]`)!;
@@ -2654,7 +2654,7 @@ describe("Step3ReviewModal — warning jump-links + one-shot highlight (Task 9, 
     const callout = q.getByTestId(calloutTid("crew"));
     fireEvent.click(
       within(callout).getByRole("button", {
-        name: `+${total - CALLOUT_MAX_ENTRIES} more in Parse warnings`,
+        name: `+${total - CALLOUT_MAX_ENTRIES} more in Sheet warnings`,
       }),
     );
 

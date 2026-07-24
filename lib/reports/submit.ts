@@ -416,7 +416,7 @@ export function buildAdminIssueBody(
     `**Reporter role snapshot:** ${reporterRole ?? "N/A - admin submission"}`,
     `**Field/section ref:** ${formatValue(body.fieldRef)}`,
     "",
-    "**Parse warnings (this section):**",
+    "**Sheet warnings (this section):**",
     "",
     formatWarnings(body.parseWarnings),
     "",

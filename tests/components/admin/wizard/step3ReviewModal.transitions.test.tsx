@@ -922,7 +922,7 @@ describe("§H compound (a): jump-link clicked during an in-flight nav glide — 
       });
       const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
       fireEvent.click(
-        within(callout).getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+        within(callout).getByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ }),
       );
       expect(navActiveId(q, "rail")).toBe("warnings"); // target replaced immediately
       // Only the LAST target releases on settle: parking at the OLD click's
@@ -956,7 +956,7 @@ describe("§H compound (a): jump-link clicked during an in-flight nav glide — 
       fireEvent.click(q.getByTestId(tid(`rail-item-${defs[defs.length - 1]!.id}`)));
       const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
       fireEvent.click(
-        within(callout).getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+        within(callout).getByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ }),
       );
       // Old target frame: held (replaced target owns the release).
       scrollAt(content, absTop(defs.length - 1) - 8);
@@ -987,7 +987,7 @@ describe("§H compound (b): unmount during an active highlight + active suppress
       const ambient = vi.getTimerCount();
       const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
       fireEvent.click(
-        within(callout).getByRole("button", { name: /^(?:Fix|Review) in Parse warnings/ }),
+        within(callout).getByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ }),
       );
       // Both §H states active: the one-shot highlight attribute is on the row
       // (its WARNING_HIGHLIGHT_MS timer pending) AND the §A2 settle timer runs.

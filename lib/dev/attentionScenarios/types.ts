@@ -123,6 +123,12 @@ export type ScenarioAlertRow = {
   occurrence_count: number;
   /** GALLERY-ONLY. Never inserted; materialize resolves the real identity (§3.3). */
   galleryIdentity?: AlertIdentity | null;
+  /** GALLERY-ONLY id-matched crew fan-out declaration (spec §6.2). Mirrors the
+   *  production-derived shape so a gallery scenario can demo the fan-out placement
+   *  without a live roster; threaded onto the derived alert input by
+   *  deriveScenarioAttention. Validated: UUID members, expectedCount ===
+   *  deduped id count. Absent → the banner stays section-top. */
+  crewMatch?: { crewMemberIds: string[]; expectedCount: number };
 };
 
 /**

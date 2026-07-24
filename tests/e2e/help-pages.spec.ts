@@ -59,7 +59,7 @@ const HELP_ROUTES: ReadonlyArray<HelpRoute> = [
   { url: "/help/whats-different", expectedH1: "What's different from Sheets" },
   { url: "/help/admin/dashboard", expectedH1: "Reading the dashboard" },
   { url: "/help/admin/review-queues", expectedH1: "Review queues" },
-  { url: "/help/admin/parse-warnings", expectedH1: "Parse warnings" },
+  { url: "/help/admin/parse-warnings", expectedH1: "Sheet warnings" },
   { url: "/help/admin/per-show-panel", expectedH1: "Per-show panel" },
   { url: "/help/admin/preview-as-crew", expectedH1: "Preview as crew" },
   { url: "/help/admin/sharing-links", expectedH1: "Sharing crew links" },

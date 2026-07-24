@@ -27,6 +27,7 @@ import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWarningExtras";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
 import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
+import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import type { SectionAttention } from "@/lib/admin/sectionAttention";
 import type { NoteItem } from "@/lib/admin/parseAttentionNote";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
@@ -187,6 +188,9 @@ export type PublishedSurfaceOpts = {
   infoRows?: readonly ParseWarning[];
   /** ACTIVE warn rows in the fallback `warnings` bucket (cards below panel). */
   here?: number;
+  /** IGNORED warn rows in the fallback `warnings` bucket (the "Ignored (N)"
+   *  disclosure — counted as `ign`, never as active `here`). */
+  ignoredHere?: number;
   /** ACTIVE warn rows routed to crew (shorthand for one elsewhere section). */
   elsewhere?: number;
   /** ACTIVE warn rows routed to crew specifically (mixed-state tests). */
@@ -267,6 +271,11 @@ export function buildPublishedSurfaceProps(
   if (opts.infoRows) warnings.push(...opts.infoRows);
   else for (let i = 0; i < (opts.listed ?? 0); i++) warnings.push(infoTypo(i));
   for (let i = 0; i < (opts.here ?? 0); i++) warnings.push(unroutedWarn(i));
+  // Ignored warn rows share the fallback bucket but sit in its disclosure. Use a
+  // disjoint index range so their fingerprints never collide with active `here`.
+  const ignoredHereRows: ParseWarning[] = [];
+  for (let i = 0; i < (opts.ignoredHere ?? 0); i++) ignoredHereRows.push(unroutedWarn(500 + i));
+  warnings.push(...ignoredHereRows);
   const crewCount = (opts.elsewhere ?? 0) + (opts.elsewhereInCrew ?? 0);
   for (let i = 0; i < crewCount; i++) warnings.push(SECTION_WARN.Crew!.make(i));
   // Production pointer overflow is CAP overflow — every elsewhere section is a
@@ -290,10 +299,13 @@ export function buildPublishedSurfaceProps(
   };
   if (opts.gateOff === true) return base as ComponentProps<typeof ShowReviewSurface>;
 
+  const ignoredFingerprints = new Set<string>(
+    ignoredHereRows.map((w) => warningFingerprint(w)).filter((fp): fp is string => fp !== null),
+  );
   const bySection = buildSectionWarningModel({
     slug: SLUG,
     warnings,
-    ignoredFingerprints: new Set<string>(),
+    ignoredFingerprints,
     renderedSectionIds: publishedSectionIds(data),
   });
   const routedWarnings = deriveRoutedWarnings(bySection);

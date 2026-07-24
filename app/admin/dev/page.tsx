@@ -279,7 +279,7 @@ function HardFailCodes({ result }: { result: ParseAndStageResult }) {
 function ParseWarnings({ result }: { result: ParseAndStageResult }) {
   return (
     <section className="mb-3" data-testid="parse-warnings">
-      <h3 className="font-bold">Parse warnings ({result.parseWarnings.length})</h3>
+      <h3 className="font-bold">Sheet warnings ({result.parseWarnings.length})</h3>
       {result.parseWarnings.length === 0 ? (
         <p className="text-xs text-gray-600">— none —</p>
       ) : (

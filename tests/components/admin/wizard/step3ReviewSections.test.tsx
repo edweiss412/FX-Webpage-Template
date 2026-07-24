@@ -299,7 +299,7 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
     rooms: "Rooms & scope",
     packlist: "Pack list",
     billing: "Billing & docs",
-    warnings: "Parse warnings",
+    warnings: "Sheet warnings",
     report: "Report an issue",
   };
   const GROUPS: Record<string, string> = {
@@ -317,7 +317,7 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
     warnings: "Checks",
     report: "Checks",
   };
-  // Owner decision (2026-07-05): only Crew, Contacts, Rooms, and Parse warnings
+  // Owner decision (2026-07-05): only Crew, Contacts, Rooms, and Sheet warnings
   // carry a count — nav rail AND card title. Everything else drops it.
   const COUNTED = ["crew", "contacts", "rooms", "warnings"];
 

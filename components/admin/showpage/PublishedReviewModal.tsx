@@ -59,6 +59,7 @@ import {
 } from "@/components/admin/showpage/sectionWarningExtras";
 import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
 import { CREW_CAP, dateSummarySegments } from "@/components/admin/wizard/step3ReviewSections";
+import { buildCrewRowResolver } from "@/lib/admin/crewRowMatch";
 import { StatusStrip } from "@/components/admin/showpage/StatusStrip";
 import { buildPublishedSnapshot } from "@/components/admin/dev/snapshots";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
@@ -542,10 +543,16 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // section, and the nav dots — so a card routed to an absent anchor falls back to
   // Overview (no drop, never a dead rooms/event sectionTop) and its dot + jump
   // agree with where it renders.
+  // §6.3 id-matched crew fan-out resolver over THIS show's roster ids
+  // (index-aligned with the rendered crew rows via previewRoster). The resolver
+  // applies the CREW_CAP slice internally; an over-cap-blanked previewRoster (the
+  // loader empties it past the roster cap) yields no matches → section-top.
+  const crewRowResolver = buildCrewRowResolver((data.previewRoster ?? []).map((r) => r.id));
   const sectionAttention = bucketAttention(attentionItems, {
     renderCard: bannerFor,
     ...placement, // the SAME pair resolveEffectiveSection uses (single source)
     crewKeyRendered: (key) => renderedKeys.has(key),
+    crewRowIndexesForIds: crewRowResolver,
   });
   const overviewBanners = sectionAttention.get("overview")?.sectionTop ?? [];
 

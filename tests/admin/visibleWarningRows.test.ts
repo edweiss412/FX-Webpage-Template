@@ -7,7 +7,7 @@ import type { ParseWarning } from "@/lib/parser/types";
  * (plan docs/superpowers/plans/2026-07-20-warning-surface-trim/plan.md Task 1;
  *  spec docs/superpowers/specs/2026-07-20-warning-surface-trim-design.md §3.2)
  *
- * The single predicate both the Parse warnings panel body and its rail count
+ * The single predicate both the Sheet warnings panel body and its rail count
  * consume. Two readers, one filter, so the two can never disagree.
  *
  * Anti-tautology: the fixture carries ASYMMETRIC severity counts (2 info, 3

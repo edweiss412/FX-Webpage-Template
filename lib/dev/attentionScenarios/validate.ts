@@ -123,6 +123,34 @@ function validateCodeContext(row: ScenarioAlertRow, where: string, out: string[]
   }
 }
 
+/** Optional §6.2 crew fan-out declaration: UUID members, dedup-consistent
+ *  expectedCount. Absent is legal (banner stays section-top). */
+function validateCrewMatch(row: ScenarioAlertRow, where: string, out: string[]): void {
+  const cm = row.crewMatch;
+  if (cm === undefined) return;
+  if (!isPlainObject(cm)) {
+    out.push(`${where}: crewMatch must be an object`);
+    return;
+  }
+  const ids = cm.crewMemberIds;
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    !ids.every((v) => typeof v === "string" && UUID_RE.test(v))
+  ) {
+    out.push(`${where}: crewMatch.crewMemberIds must be a non-empty array of UUID strings`);
+    return;
+  }
+  if (typeof cm.expectedCount !== "number") {
+    out.push(`${where}: crewMatch.expectedCount must be a number`);
+    return;
+  }
+  const deduped = new Set(ids).size;
+  if (cm.expectedCount !== deduped) {
+    out.push(`${where}: crewMatch.expectedCount must equal the deduped id count`);
+  }
+}
+
 function validateAlert(row: ScenarioAlertRow, i: number, out: string[]): void {
   const where = `alerts[${i}]`;
   if (isBlank(row.code) || !CODE_RE.test(row.code)) out.push(`${where}: malformed code`);
@@ -141,6 +169,7 @@ function validateAlert(row: ScenarioAlertRow, i: number, out: string[]): void {
     }
   }
   if (isPlainObject(row.context)) validateCodeContext(row, where, out);
+  validateCrewMatch(row, where, out);
 }
 
 function validateHold(row: ScenarioHoldRow, i: number, out: string[]): void {

@@ -37,14 +37,14 @@ const CREW_NAME = "Alice Cooper";
 // (lib/adminAlerts/audience.ts:34) and no longer reaches the modal's attention
 // surface, by the ratified intent of `2026-07-04-alert-audience-split` §3.
 //
-// CONSEQUENCE, deliberately recorded here: `ROLE_FLAGS_NOTICE` was the ONLY
-// live producer of a crew-routed alert carrying a `crewName`
-// (`crewNameFor` special-cases it at lib/adminAlerts/fetchPerShowAlerts.ts:63;
-// every other crew-routed code with a "Crew" identity segment is a health code
-// already filtered upstream at fetchPerShowAlerts.ts:103). `crewKey` is null
-// without a `crewName` (lib/admin/attentionItems.ts:257), so the in-row crew
-// banner of published-show-alerts §5.4 now has NO live producer and its
-// placement test below is skipped with cause. See DEFERRED.md.
+// IN-ROW PLACEMENT, re-activated by warning-trim-undefer §6.3: the crew banner
+// no longer depends on a name-keyed `crewKey` (still null here without a
+// `crewName`). AMBIGUOUS_EMAIL_BINDING now derives an id-keyed `crewMatch` from
+// `context.crew_member_ids`, and the placement layer fans the banner INTO each
+// rendered roster row whose id matches (all-or-nothing; else one section-top
+// banner). The base seed below carries NO `crew_member_ids` (section-top, as the
+// sibling scroll/resolve tests expect); the fan-out test seeds the ids itself and
+// restores the base context so serial order is unaffected.
 const CREW_CODE = "AMBIGUOUS_EMAIL_BINDING";
 // Not in the production registry → overview fallback route; unknown codes are
 // actionable by classification (not inbox-routed, not auto-resolving) — the
@@ -124,31 +124,60 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     expect(visible).toBe("2 to confirm");
   });
 
-  // SKIPPED, not deleted: the assertions are still the correct contract for the
-  // in-row banner, and this is the test that should un-skip the moment a
-  // crew-routed, non-health, actionable code carrying a `crewName` exists again.
-  // Deleting it would lose the contract; leaving it failing would be noise.
-  test.skip("crew banner renders INSIDE the matching roster row's <li>, below the row content", async ({
+  // Un-skipped by warning-trim-undefer §6.3/§6.4: id-matched fan-out. Seeds the
+  // two roster ids onto the crew alert so it fans into BOTH rows, asserts in-row
+  // (not section-top) placement, then re-seeds with one id absent to prove the
+  // section-top fallback. Restores the base context in `finally` so the sibling
+  // scroll/resolve tests (which run after, serial) see the original section-top.
+  test("crew banner fans out INSIDE each matched roster row's <li>, id-matched (spec §6.3)", async ({
     page,
   }) => {
-    await openModal(page);
-    const banner = page.locator(`${MODAL} [data-testid="attention-banner-${crewAlertId}"]`);
-    await expect(banner).toHaveCount(1);
-    const placement = await banner.evaluate((el, crewName) => {
-      const li = el.closest("li");
-      if (!li) return { inLi: false, nameInRow: false, belowRow: false };
-      const clone = li.cloneNode(true) as HTMLElement;
-      clone.querySelector("[data-attention-anchor]")?.remove();
-      const rowContent = li.firstElementChild!;
-      return {
-        inLi: true,
-        nameInRow: (clone.textContent ?? "").includes(crewName),
-        belowRow: el.getBoundingClientRect().top >= rowContent.getBoundingClientRect().bottom - 0.5,
-      };
-    }, CREW_NAME);
-    expect(placement.inLi, "banner is a descendant of a roster <li>").toBe(true);
-    expect(placement.nameInRow, "the host row names the crew member").toBe(true);
-    expect(placement.belowRow, "banner sits below the row content").toBe(true);
+    const aliceId = show.crew[0]!.id;
+    const bobId = show.crew[1]!.id;
+    const ABSENT_ID = "00000000-0000-4000-8000-0000000000ff";
+    const setCrewContext = async (context: Record<string, unknown>) => {
+      const { error } = await admin.from("admin_alerts").update({ context }).eq("id", crewAlertId);
+      if (error) throw new Error(`fan-out context update failed: ${error.message}`);
+    };
+    const bannerLoc = () =>
+      page.locator(`${MODAL} [data-testid="attention-banner-${crewAlertId}"]`);
+    try {
+      // ── Fan-out: both involved ids match rendered rows → one banner per row.
+      await setCrewContext({ email: "alice@fxav.test", crew_member_ids: [aliceId, bobId] });
+      await openModal(page);
+      const banners = bannerLoc();
+      await expect(banners).toHaveCount(2);
+      const placements = await banners.evaluateAll((els) =>
+        els.map((el) => {
+          const li = el.closest("li");
+          const rowContent = li?.firstElementChild ?? null;
+          return {
+            inLi: !!li,
+            name: li?.textContent ?? "",
+            belowRow: rowContent
+              ? el.getBoundingClientRect().top >= rowContent.getBoundingClientRect().bottom - 0.5
+              : false,
+          };
+        }),
+      );
+      // EACH banner is inside a roster <li>, below the row content (so NONE at
+      // section-top, which renders outside the <ul>); the two host rows name the
+      // two involved members.
+      expect(placements.every((p) => p.inLi && p.belowRow)).toBe(true);
+      const names = placements.map((p) => p.name);
+      expect(names.some((n) => n.includes(CREW_NAME))).toBe(true); // Alice Cooper
+      expect(names.some((n) => n.includes("Bob Fields"))).toBe(true);
+
+      // ── Fallback: one involved id absent from the roster → one section-top banner.
+      await setCrewContext({ email: "alice@fxav.test", crew_member_ids: [aliceId, ABSENT_ID] });
+      await openModal(page);
+      await expect(bannerLoc()).toHaveCount(1);
+      const atSectionTop = await bannerLoc().evaluate((el) => el.closest("li") === null);
+      expect(atSectionTop, "unmatched fan-out renders one section-top banner").toBe(true);
+    } finally {
+      // Restore the base section-top context for the serial siblings that follow.
+      await setCrewContext({ email: "alice@fxav.test", crew_member_count: 2 });
+    }
   });
 
   // Retitled: without a `crewKey` the anchor is the CREW SECTION rather than a
