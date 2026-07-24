@@ -152,12 +152,15 @@ async function noHorizontalOverflow(page: import("@playwright/test").Page): Prom
 }
 
 test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () => {
-  test("(a) the in-flow finalize chip is contained in the strip (no overlay) and does not grow the strip at ≥sm", async ({
+  test("(a) @>=sm: the in-flow finalize chip is contained in the strip (no overlay) and does not grow the strip", async ({
     page,
   }) => {
-    // CI-1 (390px): the chip's box is fully WITHIN the strip's box — proves in-flow, no overhang
-    // over the rail content below the sticky strip (the pre-change absolute banner had bottom > strip.bottom).
-    await page.setViewportSize(MOBILE);
+    // CI-1 (MOVED to >=sm — spec 2026-07-24-strip-mobile-stacked-band §9.5):
+    // below sm the settings variant renders the finalize SUBLABEL instead of
+    // the chip (`max-sm:hidden`), so chip geometry is a >=sm-only subject.
+    // The chip's box is fully WITHIN the strip's box — proves in-flow, no
+    // overhang over the rail content below the sticky strip.
+    await page.setViewportSize({ width: 800, height: 900 });
     await page.goto(`${baseUrl}finalizeShort.html`);
     const stripBox = await page.getByTestId("show-status-strip").evaluate((n) => {
       const r = n.getBoundingClientRect();
@@ -226,10 +229,12 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     expect(cardH - inlineH, `card ${cardH} vs inline ${inlineH}`).toBeGreaterThan(20);
   });
 
-  test("(c) the finalize chip is a compact in-viewport pill right of the switch (not a full-strip banner)", async ({
+  test("(c) @>=sm: the finalize chip is a compact in-viewport pill right of the switch (not a full-strip banner)", async ({
     page,
   }) => {
-    await page.setViewportSize(MOBILE);
+    // MOVED to >=sm with (a): the chip is `max-sm:hidden` under the settings
+    // variant (spec 2026-07-24-strip-mobile-stacked-band §9.5).
+    await page.setViewportSize({ width: 800, height: 900 });
     await page.goto(`${baseUrl}finalizeShort.html`);
     const chip = await page.getByTestId("published-toggle-popover").evaluate((n) => {
       const r = n.getBoundingClientRect();
@@ -241,12 +246,26 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     });
     // CI-2: in-viewport, no page h-scroll.
     expect(chip.left, "chip left in viewport").toBeGreaterThanOrEqual(0);
-    expect(chip.right, "chip right in viewport").toBeLessThanOrEqual(390);
+    expect(chip.right, "chip right in viewport").toBeLessThanOrEqual(800);
     expect(await noHorizontalOverflow(page), "no document h-scroll").toBe(true);
     // CI-3: sits after the switch in flow, and is a compact pill (NOT the >300px full-strip
     // banner the old finalize skin was).
     expect(chip.left, "chip sits right of the switch").toBeGreaterThanOrEqual(sw.right - 0.5);
     expect(chip.width, "chip is a compact pill, not a full-strip banner").toBeLessThan(200);
+  });
+
+  test("finalize @390: sublabel in-flow, no chip, row stays one line", async ({ page }) => {
+    // Spec 2026-07-24-strip-mobile-stacked-band §9.5: below sm the settings
+    // variant carries finalize copy in the truncated sublabel; the chip is
+    // max-sm:hidden and R1 stays a single capped row.
+    await page.setViewportSize(MOBILE);
+    await page.goto(`${baseUrl}finalizeShort.html`);
+    await expect(page.getByTestId("published-toggle-popover")).not.toBeVisible();
+    await expect(page.getByTestId("published-toggle-sublabel")).toBeVisible();
+    const row = await page
+      .getByTestId("published-toggle-inline")
+      .evaluate((el) => el.getBoundingClientRect().height);
+    expect(row).toBeLessThanOrEqual(48);
   });
 
   test("(d) the real error-popover content stays in the viewport as a full-width banner", async ({
