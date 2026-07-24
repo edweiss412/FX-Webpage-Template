@@ -11,7 +11,7 @@ Six previously deferred items, owner-decided 2026-07-23:
 
 | # | Item | Decision |
 |---|------|----------|
-| 1 | Silent-state "(0)" suppression | **Option D + ii**: panel box returns; warnings-homed cards render inside it; notes become white cards; heading + rail count include the panel's own cards |
+| 1 | Silent-state "(0)" suppression | **Option D + ii**: panel box returns; warnings-homed cards render inside it; notes become white cards; heading + rail count include the panel's own ACTIVE cards (ignored stay uncounted, as today) |
 | 2 | Panel title | Rename **"Parse warnings" → "Sheet warnings"** (title only; help slug and error-code URLs unchanged) |
 | 3 | Correction-sentence double-reach | **Popup wins**: published callout strip retired; sentence lives once per card "?" popover (notes included) |
 | 4 | Staged byte-identical blind spot | New **wizard Step-3 composition test** (ParsePanel-level), landing in this PR as the wizard-unchanged proof |
@@ -81,7 +81,7 @@ Consequences the matrix pins: ignored-only (`info==act==elsewhere==0, ign>0`) re
 
 Notes gain the same `?` popover affordance cards carry (`CompactAlertHelp` path, `PerShowActionableWarnings.tsx:240-247`). Assembly rule (total truth table):
 
-- `copy` = catalog `longExplanation ?? helpfulContext` for the code, where a missing catalog row, `null`, empty, or whitespace-only string all count as ABSENT.
+- `copy` = the FIRST NON-BLANK of catalog `longExplanation`, then `helpfulContext` (blank = `null`, empty, or whitespace-only; a blank `longExplanation` falls through to `helpfulContext` — this is NOT nullish coalescing); a missing catalog row or both blank → copy ABSENT. The §5/§6.4-adjacent unit scope adds this boundary case (blank longExplanation + present helpfulContext → trigger with helpfulContext).
 - `sentence` = `correctionLoopCopy("resync")` iff `w.sourceCell` is non-null (same gate as cards, `components/admin/PerShowActionableWarnings.tsx:125-138`).
 - Popover body = the present members of `[copy, sentence]` in that order; trigger renders iff the body is non-empty.
 
@@ -92,11 +92,11 @@ Notes gain the same `?` popover affordance cards carry (`CompactAlertHelp` path,
 | absent | present | yes | sentence only |
 | absent | absent | no | — |
 
-**Note-card guards:** `reviewWarningTitle` falls back to the code string for unknown codes today (unchanged) — a note card's message line is therefore always non-empty. The guidance line renders iff the row's context string is present (null/empty/whitespace → omitted, no empty element). The Notes group (eyebrow included) renders iff `info > 0` (§2.3a) — no empty group chrome. "Open in Sheet ↗" renders iff `buildSheetDeepLink` yields a href (result-gated, never `sourceCell`-gated alone — `components/admin/PerShowActionableWarnings.tsx:150-152` precedent).
+**Note-card guards:** `reviewWarningTitle` (`components/admin/wizard/step3ReviewSections.tsx:2701-2715`) already satisfies the no-raw-error-codes contract: catalog title first, then the warning's own message ONLY when it is neither code-containing nor code-shaped (`^[A-Z0-9_]{2,}$` rejected), else the generic "A parse issue was recorded for this sheet." — it can never return a raw code, and this bundle reuses it unchanged, so a note card's message line is always non-empty and always user-safe. The guidance line renders iff the row's context string is present (null/empty/whitespace → omitted, no empty element). The Notes group (eyebrow included) renders iff `info > 0` (§2.3a) — no empty group chrome. "Open in Sheet ↗" renders iff `buildSheetDeepLink` yields a href (result-gated, never `sourceCell`-gated alone — `components/admin/PerShowActionableWarnings.tsx:150-152` precedent).
 
 ### 2.5 Cap behavior
 
-**Explicit no-cap decision.** The warnings list is uncapped today (`rows.map`, `components/admin/wizard/step3ReviewSections.tsx:2895-2896`) and the card lists are uncapped; this bundle keeps both uncapped. Rationale: the operator must see every warning, and §2.3 pins count == rendered cards — a cap would break that identity. Boundary behavior = the review modal's existing vertical scroll. `CREW_CAP` (crew section, `components/admin/wizard/step3ReviewSections.tsx:158`) is untouched. Parse-note lines: bounded upstream (two codes max, attention-alert-routing §3.2), unchanged.
+**Explicit no-cap decision.** The warnings list is uncapped today (`rows.map`, `components/admin/wizard/step3ReviewSections.tsx:2895-2896`) and the card lists are uncapped; this bundle keeps both uncapped. Rationale: the operator must see every warning, and §2.3 pins count == rendered NON-IGNORED cards (notes + active amber; the collapsed ignored disclosure is deliberately outside the count, exactly as its list rows are outside today's rail count) — a cap would break that identity. Boundary behavior = the review modal's existing vertical scroll. `CREW_CAP` (crew section, `components/admin/wizard/step3ReviewSections.tsx:158`) is untouched. Parse-note lines: bounded upstream (two codes max, attention-alert-routing §3.2), unchanged.
 
 ### 2.6 Transition inventory
 
