@@ -1227,3 +1227,201 @@ test.describe("crew warning indent + cap (crewwarn-underrow-polish)", () => {
     });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phantom-gap invariants (overview-phantom-gap fix, 2026-07-24).
+//
+// A wrapper that ALWAYS renders but whose entire content is state-gated becomes a
+// ZERO-HEIGHT flex item when the gate is false. A zero-height item is invisible,
+// but it is still an item: its parent's `gap` is charged for it, so the surface
+// shows a doubled seam that no element accounts for. Reported against the
+// published modal's Overview section: `overview-sheet-sync` renders empty on every
+// non-archived show, adding a full `--spacing-section-gap` (32px) on top of the
+// content pane's own `gap-6`, so the alert card sat 56px from the Venue heading
+// where every other section pair sits 24px apart.
+//
+// jsdom cannot see this at all — it computes no layout, so the empty wrapper has
+// no box and no gap either way, and a class-presence assertion would only restate
+// the fix. Both tests below measure real geometry.
+test.describe("phantom gap — zero-height flex items charge their parent's gap", () => {
+  const OVERVIEW = `${MODAL} #overview`;
+
+  for (const { mode, width, height: vh } of MODES) {
+    // T-OVERVIEW-TIGHT. The section's bottom edge must sit on its last VISIBLE
+    // content, not on a zero-height slot below it.
+    //
+    // Deliberately NOT "section height === sum of child heights + gaps": every
+    // zero-height child contributes 0 to that sum AND extends the section by a
+    // gap, so the equation is satisfiable by the bug. Deliberately NOT "the
+    // section's last child's bottom === the section's bottom" either — the empty
+    // wrapper IS the last child and its rect bottom sits exactly on the section
+    // bottom, so that form passes against the bug too. What is measured is the
+    // slack between the last child with REAL EXTENT and the section's own edge.
+    test(`T-OVERVIEW-TIGHT ${mode} @ ${width}: no vertical slack below the Overview section's last visible content`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height: vh });
+
+      const probe = await page.locator(OVERVIEW).evaluate((section) => {
+        const kids = Array.from(section.children) as HTMLElement[];
+        const boxes = kids.map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            testId: el.getAttribute("data-testid") ?? el.tagName.toLowerCase(),
+            display: getComputedStyle(el).display,
+            height: r.height,
+            bottom: r.bottom,
+          };
+        });
+        const visible = boxes.filter((b) => b.display !== "none" && b.height > 0);
+        return {
+          rowGap: parseFloat(getComputedStyle(section).rowGap),
+          sectionBottom: section.getBoundingClientRect().bottom,
+          sectionHeight: section.getBoundingClientRect().height,
+          childCount: kids.length,
+          boxes,
+          visible,
+        };
+      });
+
+      // Non-vacuity: the fixture is a non-archived show WITH attention items, so
+      // the section has real content and its own row gap is live. Without both,
+      // "no slack" would hold trivially.
+      expect(probe.visible.length, `Overview has visible content @ ${mode}`).toBeGreaterThan(0);
+      expect(probe.rowGap, `Overview's own row gap is live @ ${mode}`).toBeGreaterThan(0);
+      expect(probe.sectionHeight, `Overview has real height @ ${mode}`).toBeGreaterThan(0);
+
+      const lastVisibleBottom = Math.max(...probe.visible.map((b) => b.bottom));
+      expect(
+        probe.sectionBottom - lastVisibleBottom,
+        `@ ${mode}: Overview bottom ${probe.sectionBottom} sits ${(
+          probe.sectionBottom - lastVisibleBottom
+        ).toFixed(1)}px below its last visible content — children: ${JSON.stringify(probe.boxes)}`,
+      ).toBeLessThanOrEqual(TOL);
+    });
+
+    // The seam between Overview and the section after it is the content pane's
+    // OWN gap and nothing more. This is the user-visible symptom, measured
+    // against the pane's computed gap rather than a hardcoded 24 — a token change
+    // must not be able to turn this test red.
+    test(`T-OVERVIEW-SEAM ${mode} @ ${width}: the Overview→next-section seam equals the content pane's gap`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height: vh });
+
+      const seam = await page.locator(OVERVIEW).evaluate((section) => {
+        // The scroll pane is the gapped flex column; Overview is wrapped in a
+        // ref-carrying box that is one of its children (ShowReviewSurface's
+        // renderExtraPanel), so walk up to the child whose parent is the pane.
+        const pane = section.closest('[data-testid$="-review-content"]');
+        if (pane === null) return null;
+        let box: HTMLElement = section;
+        while (box.parentElement !== null && box.parentElement !== pane) {
+          box = box.parentElement;
+        }
+        const next = box.nextElementSibling;
+        if (next === null) return null;
+        return {
+          paneRowGap: parseFloat(getComputedStyle(pane).rowGap),
+          gap: next.getBoundingClientRect().top - box.getBoundingClientRect().bottom,
+          nextTestId: next.getAttribute("data-testid"),
+        };
+      });
+
+      expect(seam, `Overview has a following sibling section @ ${mode}`).not.toBeNull();
+      expect(seam!.paneRowGap, `content pane declares a row gap @ ${mode}`).toBeGreaterThan(0);
+      expect(
+        Math.abs(seam!.gap - seam!.paneRowGap),
+        `@ ${mode}: seam to ${seam!.nextTestId} measured ${seam!.gap.toFixed(1)}px, pane gap is ${
+          seam!.paneRowGap
+        }px`,
+      ).toBeLessThanOrEqual(TOL);
+    });
+  }
+
+  // T-NOPHANTOM is the CLASS defense, not a second look at the same element: it
+  // discovers zero-extent flex/grid items anywhere in the rendered modal instead
+  // of naming the one that was reported. A new always-rendered, fully-gated
+  // wrapper fails this the moment it lands, in any section.
+  //
+  // Axis-aware on purpose: a zero-HEIGHT item only charges a gap in a column
+  // (row-gap) direction, and a zero-WIDTH item only in a row (column-gap) one.
+  // Out-of-flow children (absolute/fixed — every `sr-only` node here) are not
+  // items and cannot be charged; `display:none` children are not items either.
+  for (const { page: htmlPath, label } of [
+    { page: "", label: "normal (published, not archived)" },
+    { page: "archived.html", label: "archived" },
+  ]) {
+    test(`T-NOPHANTOM [${label}] @1280: no zero-extent flex/grid item inside any gapped container`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width: 1280, height: 900 }, htmlPath);
+
+      const found = await page.locator(MODAL).evaluate((modal) => {
+        const offenders: { parent: string; child: string; axis: string; gap: number }[] = [];
+        let gappedContainers = 0;
+        const label = (el: Element): string => {
+          const own = el.getAttribute("data-testid");
+          if (own !== null) return own;
+          const near = el.closest("[data-testid]")?.getAttribute("data-testid") ?? "?";
+          return `<${el.tagName.toLowerCase()} in ${near}>`;
+        };
+        // `display:none` HIDES A WHOLE SUBTREE, and every descendant of a hidden
+        // ancestor reports a 0×0 rect while its OWN computed display is
+        // untouched. Without this the walk drowns in false positives from the
+        // `lg:hidden` chip rail (each chip's dot and icon read as zero-width) —
+        // and a probe that reports 25 non-bugs alongside the 1 real one is a
+        // probe nobody can act on. `checkVisibility()` resolves the ancestor
+        // chain; it deliberately does NOT check `visibility:hidden` or opacity,
+        // because those elements DO occupy space and so do charge the gap.
+        const rendered = (el: Element): boolean =>
+          typeof (el as HTMLElement).checkVisibility === "function"
+            ? (el as HTMLElement).checkVisibility()
+            : el.getClientRects().length > 0;
+        for (const el of [modal, ...Array.from(modal.querySelectorAll("*"))]) {
+          if (!rendered(el)) continue;
+          const cs = getComputedStyle(el);
+          const isFlex = cs.display === "flex" || cs.display === "inline-flex";
+          const isGrid = cs.display === "grid" || cs.display === "inline-grid";
+          if (!isFlex && !isGrid) continue;
+          const rowGap = parseFloat(cs.rowGap) || 0;
+          const colGap = parseFloat(cs.columnGap) || 0;
+          // Which axis stacks: flex reads flex-direction; grid charges both.
+          const column = isGrid || cs.flexDirection.startsWith("column");
+          const row = isGrid || !cs.flexDirection.startsWith("column");
+          const axes = [
+            ...(column && rowGap > 0 ? [{ axis: "row-gap", gap: rowGap, dim: "height" }] : []),
+            ...(row && colGap > 0 ? [{ axis: "column-gap", gap: colGap, dim: "width" }] : []),
+          ];
+          if (axes.length === 0) continue;
+          gappedContainers += 1;
+          for (const child of Array.from(el.children)) {
+            if (!rendered(child)) continue;
+            const ccs = getComputedStyle(child);
+            if (ccs.display === "contents") continue;
+            if (ccs.position === "absolute" || ccs.position === "fixed") continue;
+            const rect = child.getBoundingClientRect();
+            for (const { axis, gap, dim } of axes) {
+              const extent = dim === "height" ? rect.height : rect.width;
+              if (extent === 0) {
+                offenders.push({ parent: label(el), child: label(child), axis, gap });
+              }
+            }
+          }
+        }
+        return { offenders, gappedContainers };
+      });
+
+      // Non-vacuity: if the walk found no gapped container at all (a selector or
+      // CSS-load regression), an empty offender list would prove nothing.
+      expect(
+        found.gappedContainers,
+        `the modal really contains gapped flex/grid containers [${label}]`,
+      ).toBeGreaterThan(10);
+      expect(
+        found.offenders,
+        `zero-extent items charge their parent's gap and show as a seam no element accounts for [${label}]`,
+      ).toEqual([]);
+    });
+  }
+});
