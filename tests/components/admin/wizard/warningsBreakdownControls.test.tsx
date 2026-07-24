@@ -324,11 +324,11 @@ describe("SectionFlagCallout preview — no controls (USE-RAW-FULL-LIST-1 demoti
     expect(within(box).queryByTestId("role-recognize-control-callout")).toBeNull();
     expect(within(box).queryByTestId("role-recognize-trigger-callout")).toBeNull();
     expect(within(box).queryByTestId("role-recognize-panel-callout")).toBeNull();
-    // Anti-overstrip: the preview STILL renders the entry title + Review in Parse warnings jump.
+    // Anti-overstrip: the preview STILL renders the entry title + Review in Sheet warnings jump.
     expect(
       within(box).getAllByText(reviewWarningTitle(w), { exact: false }).length,
     ).toBeGreaterThan(0);
-    expect(within(box).getByText(/^Review in Parse warnings/)).toBeTruthy();
+    expect(within(box).getByText(/^Review in Sheet warnings/)).toBeTruthy();
     cleanup();
     // List = sole actionable site; still mounts the recognize-role control.
     const list = renderBreakdown([w], { decisions: [] });
@@ -418,11 +418,11 @@ describe("cross-site testid distinctness (spec 2026-07-17 §10.3)", () => {
     const callout = render(localCalloutHost([{ warning: w, index: 0 }]));
     const box = callout.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
     expect(within(box).queryByTestId("use-raw-control-callout")).toBeNull();
-    // Anti-overstrip: preview still renders title + Review in Parse warnings for this fixture too.
+    // Anti-overstrip: preview still renders title + Review in Sheet warnings for this fixture too.
     expect(
       within(box).getAllByText(reviewWarningTitle(w), { exact: false }).length,
     ).toBeGreaterThan(0);
-    expect(within(box).getByText(/^Review in Parse warnings/)).toBeTruthy();
+    expect(within(box).getByText(/^Review in Sheet warnings/)).toBeTruthy();
   });
 });
 

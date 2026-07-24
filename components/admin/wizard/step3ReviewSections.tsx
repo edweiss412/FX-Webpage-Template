@@ -647,7 +647,7 @@ function SectionFlagCallout({
         // (spec 2026-07-07 §7.3). Missing/false offersFix fail-safes to
         // "Review" — never a false "Fix".
         const jumpLabel =
-          isJudgment || offersFix !== true ? "Review in Parse warnings" : "Fix in Parse warnings";
+          isJudgment || offersFix !== true ? "Review in Sheet warnings" : "Fix in Sheet warnings";
         return (
           <div key={entryKeys[k]} className="flex flex-col gap-0.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -678,7 +678,7 @@ function SectionFlagCallout({
           onClick={() => onJump(null)}
           className="inline-flex min-h-tap-min items-center self-start font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
-          +{extra} more in Parse warnings
+          +{extra} more in Sheet warnings
         </button>
       ) : null}
     </div>
