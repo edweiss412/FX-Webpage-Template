@@ -710,6 +710,33 @@ This pointer became load-bearing in #516. Before that change, the Overview secti
 
 **Trigger:** next milestone touching §12.4 alert rows, the attention surface, or `CompactAlertCard` affordances.
 
+## BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a §12 closeout
+
+Descoped out of the 2026-07-24 dev-row copy close-out after three consecutive whole-diff
+review rounds on the same vector. The change shipped
+`tests/docs/_metaDeferralLedgerGraduation.test.ts`, whose ledger invariants (no id both
+active and archived; every graduated id archive-only) are enforceable and true. A third
+assertion — every plan declaring an invariant-8 (impeccable) gate carries a `## 12`
+closeout section — was removed, because it cannot be made both fail-by-default and
+honest against the tree as it stands.
+
+**Measured 2026-07-24.** `docs/superpowers/plans/` holds 33 flat `*.md` plans and 274
+nested files that mention invariant 8 or impeccable. Plan files are variously
+`plan.md`, `00-plan.md`, `PLAN.md`; closeouts are variously `closeout.md` inside a plan
+directory or a sibling `<name>-closeout.md`. Of the 13 plan DIRECTORIES that declare the
+gate, 12 have no `## 12` closeout section. There is therefore no rule that locates a
+closeout for an arbitrary plan, so a filesystem walk silently under-reports; and a
+registry-based version is an opt-in list, which is precisely the fail-by-default hole a
+structural guard exists to close.
+
+**Work when prioritized:** (1) ratify one closeout location convention; (2) migrate or
+explicitly debt-list the existing plans; (3) restore the assertion as a default-deny
+walk over that convention, requiring both gate halves named AND an affirmative P0/P1
+disposition (a lexical check must reject hedges — "skipped", "pending", "not run",
+"TBD" — since the earlier draft passed on "Critique skipped. Audit pending."). Note the
+honest ceiling: any text assertion verifies SHAPE, not that a human actually ran the
+gate.
+
 ## BL-FOCUS-RING-CONTRAST — compute + meta-test `--color-focus-ring` contrast against every backdrop family
 
 From the impeccable critique of `feat/sharehub-focus-pass` (Assessment A P2, 2026-07-23). `--color-focus-ring` is translucent orange (`rgba(255,140,26,0.55)` light / `rgba(255,160,71,0.65)` dark, DESIGN.md token table). Naive alpha-blend puts the light-mode ring around ~1.6:1 against white `--color-surface` — under the WCAG 2.2 SC 2.4.13 Focus Appearance ≥3:1 expectation — while dark mode lands ~4.5:1. Pre-existing and app-wide (every `focus-visible:ring-focus-ring` control), NOT introduced by the focus pass; the pass actually improved perceptibility where the offset gap now separates ring from fill. Work: compute real ratios per backdrop family (surface, surface-sunken, warning-text fill, accent fill), decide whether the light token needs a darker/opaque variant, and pin the outcome with a contrast meta-test (the `status-token-contrast` pattern). Owner decision needed on token change vs accepted-as-brand. Same sweep should reconcile the ~90 pre-existing BARE `ring-offset-2` usages (no color companion) outside the share-hub components with the DESIGN.md token-table rule the focus pass added ("never bare ring-offset-2") — each is a latent dark-mode white halo.

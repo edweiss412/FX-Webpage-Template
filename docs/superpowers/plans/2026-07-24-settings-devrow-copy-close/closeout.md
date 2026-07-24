@@ -120,7 +120,30 @@ accepted and repaired:
 | MEDIUM | `row.title ?? row.slug` falls back only on `null`/`undefined`, so an empty or whitespace-only title normalized the accessible name straight back to a bare "Open" — recreating the defect. | `row.title?.trim()` with a `||` fallback to `row.slug`, plus a dedicated test case seeding a whitespace-only title and asserting the name falls back to the slug. |
 | MEDIUM | The `§12` check accepted the substrings "critique" and "audit", so text like "critique not run" satisfied it. | The assertion now also requires a stated P0/P1 disposition and explicitly rejects a "<gate> … not run" phrasing. This closeout states its disposition accordingly. |
 
-R2: APPROVE.
+**R2 (3 findings) triggered a descope, not a fourth patch.** R2 found that the R1 repair
+still under-discovered (flat and nested plan files are invisible to a
+`plans/*/plan.md` walk), that the §12 wording check still passed on
+"Critique skipped. Audit pending.", and that `/^##\s*12\b/` also matches `## 12.4`.
+Three consecutive rounds on one vector is the project's stop signal, so the
+comprehensive re-analysis ran instead of another spot fix.
+
+**What it found:** `docs/superpowers/plans/` holds 33 flat `*.md` plans and 274 nested
+files mentioning the gate, with plan files named `plan.md`, `00-plan.md` and `PLAN.md`,
+and closeouts living either inside a plan directory or as a sibling
+`<name>-closeout.md`. 12 of the 13 plan directories that declare the gate have no §12
+section. There is no rule that locates a closeout for an arbitrary plan, so a walk
+silently under-reports and a registry is an opt-in list — the exact hole R1 flagged.
+The assertion cannot be made both fail-by-default and honest without first ratifying a
+convention across ~300 documents.
+
+**Disposition: the closeout assertion is REMOVED from this guard** and filed as
+`BL-INVARIANT8-CLOSEOUT-ENFORCEMENT` in BACKLOG.md, carrying the measurements and the
+three-step path (ratify a convention, migrate or debt-list, then restore as a
+default-deny walk). What ships is the half that is enforceable and true: the two ledger
+invariants. Task 6's red-to-green cycle was genuine when it ran; this section records
+that the assertion it used no longer ships, so the trail is not silently rewritten.
+
+R3: APPROVE.
 
 ## 13. Verification
 
