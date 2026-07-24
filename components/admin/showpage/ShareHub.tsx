@@ -589,7 +589,14 @@ export function ShareHub({
                   P3). Falls back to the wrapper before the confirm mounts. */}
               <div
                 data-testid="share-hub-show-section"
-                className="px-0.5"
+                // w-full is load-bearing, not cosmetic (spec §2.3): this div is
+                // a flex child of the fixed-width popover column, and this
+                // project's Tailwind v4 does NOT default flex children to
+                // cross-axis stretch — without it the section can shrink-wrap
+                // and the row's inner w-full chain resolves against a narrower
+                // box. The old px-0.5 inset is gone so the archive row's hover
+                // plane spans the same content width as the Careful rows.
+                className="w-full"
                 onClick={(e) => {
                   const el = e.currentTarget;
                   requestAnimationFrame(() => {

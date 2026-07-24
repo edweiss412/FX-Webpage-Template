@@ -456,6 +456,35 @@ describe("ShareHub — Careful section wiring", () => {
     });
   });
 
+  it("archive idle state is ONE §4.1 menu row anchored to the full section width (spec §2.1/§2.3)", () => {
+    renderHub();
+    fireEvent.click(primary());
+
+    const archive = screen.getByTestId("archive-show-button");
+    expect(archive.tagName).toBe("BUTTON");
+    expectClasses(archive, {
+      exactly: ROW_TOKENS,
+      forbids: [NO_BORDER, NO_REST_BACKGROUND, /(?:^|:)focus-visible:ring-offset-/],
+    });
+    expectRowText(archive, popover(), {
+      label: "Archive show",
+      description: "Crew links stop working immediately",
+    });
+    const icon = archive.querySelector("svg")!;
+    expect(icon.getAttribute("width")).toBe("16");
+    expect(icon.getAttribute("height")).toBe("16");
+    expectClasses(icon, { has: ["shrink-0", "text-text-subtle", "lucide-archive"] });
+    expect(within(popover()).queryByRole("button", { name: "Archive" })).toBeNull();
+    expectClasses(archive.parentElement!, { exactly: WRAPPER_CLASSES });
+    expectRowBoundary(archive, {
+      scope: popover(),
+      descriptionId: archive.getAttribute("aria-describedby"),
+    });
+    // §2.3 width-chain link: the Show-section host div is w-full with NO inset.
+    const section = screen.getByTestId("share-hub-show-section");
+    expectClasses(section, { exactly: ["w-full"] });
+  });
+
   it("rotate row carries its label + description and follows published for isCrewLinkActive", () => {
     renderHub({ published: true });
     fireEvent.click(primary());

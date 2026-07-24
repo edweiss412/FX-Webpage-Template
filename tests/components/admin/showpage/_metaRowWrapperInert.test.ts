@@ -25,6 +25,7 @@ import { scanRowWrappers, WRAPPER_CLASS_VALUE } from "./_rowWrapperScan";
 const FILES = [
   "app/admin/show/[slug]/RotateShareTokenButton.tsx",
   "app/admin/show/[slug]/PickerResetControl.tsx",
+  "components/admin/ArchiveShowButton.tsx",
 ] as const;
 
 const CLEAN = `const C = () => <div className="${WRAPPER_CLASS_VALUE}">{rowButton}</div>;`;
