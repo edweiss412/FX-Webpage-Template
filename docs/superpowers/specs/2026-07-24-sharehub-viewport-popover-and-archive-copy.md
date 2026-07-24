@@ -138,6 +138,31 @@ Returned `viewport.x/y` are applied as `position: fixed; left; top`; `maxHeight`
 
 This replaces, and deletes, the bespoke `caretRightPx` layout effect (`ShareHub.tsx:180-211`) and the `absolute right-0 top-full` / `max-w-[calc(100vw-2rem)]` positioning classes (`ShareHub.tsx:487`).
 
+#### 2.1.2b Re-measure triggers (the content-growth defect)
+
+Placement is recomputed on **four** signals, not just viewport resize:
+
+1. popover open (layout effect, before paint)
+2. `window` resize
+3. a `ResizeObserver` on the **host** (the panel can change height)
+4. a `ResizeObserver` on the **popover body itself**
+
+Signal 4 is load-bearing and is the one a naive port of `HoverHelp` would miss. `HoverHelp`'s body content is static once open; the hub's is not — arming Archive swaps a 44px row for the confirm block, and the probe measured the body's natural height growing from ~477 idle to 583 armed. Email rows, outcome banners, and the paused note move it too.
+
+The failure that omission produces: at a viewport where the IDLE body fits below the trigger, `computePopoverPlacement` returns `side: "bottom"` with `maxHeight: null` (no cap needed). Arming then grows the body past the space that justified that decision, and the popover overhangs the clip edge again — reintroducing exactly the defect this spec exists to close, in the one interaction the spec is about. It does not reproduce at 390x560 (the idle body already exceeds both sides there, so a cap is always applied), which is precisely why a sweep anchored only on the measured phone heights would miss it.
+
+`ResizeObserver` is feature-detected and never constructed when absent — jsdom has none, and an unguarded construction takes the component down (`components/admin/ReSyncButton.tsx:137-141` documents this exact trap). Re-measures are coalesced into a single `requestAnimationFrame` so a content change plus a resize in the same frame does not place twice.
+
+§5.3 gains **T-REGROW**: at a viewport chosen so the idle body fits below but the armed body does not, assert the popover is still inside `bounds` after arming, and that the side/`maxHeight` changed. The viewport is derived at runtime from the measured idle and armed natural heights, not hardcoded.
+
+#### 2.1.2c Focus order across the portal boundary
+
+The popover keeps its current focus contract: it receives focus itself on open (`tabIndex={-1}` on a `role="dialog"`, `ShareHub.tsx:351-353`) and Escape restores focus to whichever trigger opened it (`ShareHub.tsx:326-344`, `ShareHub.tsx:271-274`).
+
+What the portal changes is **Tab order after the last control**. Today the popover is a DOM child of the hub root, so Tab past its final control continues into the status strip. Portaled into the panel it is appended at the panel's tail, so Tab past the final control continues from there instead. This is the same posture the shipped `HoverHelp` portal already has, and it is acceptable for the same reason: the popover is opened deliberately, announces itself as a dialog, and Escape is the ratified way out with focus restored.
+
+It is NOT left unasserted. §5.3 adds **T-FOCUS**: on open, focus is inside the popover; on Escape, focus is on the opening trigger; and both hold with the popover placed on either side.
+
 #### 2.1.3 Caret
 
 The caret keeps its current **visual** — a 10px rotated square (`size-2.5 rotate-45`) with two borders (`ShareHub.tsx:687`) — because it is the shipped hub look and is not what this fix is about.
@@ -224,6 +249,8 @@ Tailwind v4 here does not default `.flex` to `align-items: stretch`, and jsdom c
 | caret -> popover near edge | abuts within 1px on whichever side is chosen; never overlaps the trigger | T-CARET-1 |
 | caret -> popover corner | caret centre is at least `CARET_EDGE_INSET` from both popover corners (stays on the straight edge run) | T-CARET-2 |
 | popover width | 308px at every viewport, unchanged by the migration | T-FIT-3 |
+| armed body -> `bounds` | after the idle->armed content growth, the popover is still inside `bounds`; placement re-runs on a body-content resize | T-REGROW |
+| open/Escape -> focus | focus enters the popover on open and returns to the opening trigger on Escape, on either side | T-FOCUS |
 | hub triggers -> attention menu | the attention menu's panel remains clickable with the hub open (the `z-30` removal in §2.1.4) | T-HUB-ZORDER |
 
 ---
@@ -277,7 +304,10 @@ jsdom computes no layout, so §5.2 asserts copy and wiring only; no geometry cla
 
 Sweep `390 x {844, 740, 667, 620, 560}` — the heights §9 measured, so a regression at any fails. Held show, hub open, Archive armed, real Playwright clicks (the §9 probe used `element.click()` to bypass actionability precisely because the control was unreachable; a reachability test keeping that bypass would assert nothing):
 
-T-FIT-1, T-FIT-2, T-FIT-3, T-SIDE-1, T-REACH-1, T-REACH-2, T-CARET-1, T-CARET-2 per §3.
+T-FIT-1, T-FIT-2, T-FIT-3, T-SIDE-1, T-REACH-1, T-REACH-2, T-CARET-1, T-CARET-2 per §3, plus:
+
+- **T-REGROW** (§2.1.2b) — at a viewport derived at runtime so the IDLE body fits below the trigger but the ARMED body does not, assert the popover remains inside `bounds` after arming and that `data-popover-side` / `maxHeight` changed. Catches the content-growth defect a placement that only re-measures on viewport resize would ship.
+- **T-FOCUS** (§2.1.2c) — on open focus is inside the popover; on Escape focus is on the opening trigger; both asserted with the popover placed on each side.
 
 Containment is asserted with `elementFromPoint` at the confirm's centre, not `getBoundingClientRect` alone — `BL-HOVERHELP-PORTAL` records that a clipped popover still reports an unclipped box, "so a naive assertion passes". `tests/e2e/published-review-modal.interactions.spec.ts` T4a is the shipped template for this kill-shot.
 
@@ -412,3 +442,30 @@ Readings:
 At 390x560 today's comparison stands: 390px of body of which 129px is on screen and the confirm unreachable at any scroll, versus a 283px body fully on screen with every control reachable.
 
 **Caveat on what the spike does and does not prove.** It validates the geometry and the reachability outcome. It does NOT exercise the portal itself, `PopoverHostContext` host resolution, the `mounted` gate, focus/Escape behaviour across the portal boundary, or the §2.1.4 stacking change — those are implementation concerns the §5.3 and §5.4 tests own.
+
+---
+
+## 10. Cross-model review status (self-certification)
+
+The autonomous pipeline requires a cross-model adversarial review to APPROVE before the plan is written. **That gate could not be satisfied in this session, and this section records why, per the skip/self-review ladder in `AGENTS.md`.**
+
+Four dispatches, all against a live Codex CLI (a `codex exec` smoke prompt returned `PONG`, so the tool itself was reachable and authenticated):
+
+| # | mechanism | outcome |
+| - | --------- | ------- |
+| 1 | `codex-guard review --brief ... --out ...` | exit 0, **no result JSON written**, 0-byte transcript |
+| 2 | `codex-guard review --fallback --artifact <spec>` (inlined artifact, the documented app-server wedge rescue) | exit 0, **no result JSON written**, 0-byte transcript |
+| 3 | direct `codex exec` with brief + full spec inlined, stdin closed | exit 0, read source files for ~1000 log lines, then terminated with **no final assistant message** |
+| 4 | direct `codex exec`, tightly-bounded brief (4 questions, ~15 tool-call budget, verdict-first instruction) | exit 0, 3010 log lines of genuine file research, then terminated with **no final assistant message** |
+
+The failure signature is consistent: Codex performs the work and exits cleanly without emitting the final message that carries the verdict. This is the documented silent-death class for this repo's Codex integration; the ladder prescribes self-certification after three deaths, and this is four.
+
+**What was done instead.** Two full self-review passes, the second explicitly adversarial (attacking the design as a skeptic rather than proof-reading it). The second pass found a genuine design defect that no proof-reading pass would have caught — the content-growth case now specified in §2.1.2b, where a placement that re-measures only on viewport resize reintroduces the exact defect this spec closes, in the one interaction the spec is about. It also produced §2.1.2c (focus order across the portal boundary) and §2.1.5 (backdrop placement).
+
+**What self-certification does NOT substitute for.** A same-model self-review shares the author's blind spots by construction. The specific risks that remain unreviewed by an independent model:
+
+1. Whether the portal migration is the right call at all versus the smaller in-place fit (§1.1 argues it; nobody has argued against it).
+2. Whether §2.1.4's `z-30` removal is safe in every composition, not just the ones tested.
+3. Whether the caret carve-out (§2.1.3) is drift.
+
+Mitigation: all three are pinned by executable real-browser assertions (T-HUB-ZORDER plus the §5.4 backdrop case, T-CARET-1/2, and the full §5.3 sweep), so a wrong judgement fails a test rather than shipping silently. The whole-diff cross-model review at the end of the pipeline is the next opportunity for independent review; if Codex is healthy by then, it gets the whole diff including this spec.
