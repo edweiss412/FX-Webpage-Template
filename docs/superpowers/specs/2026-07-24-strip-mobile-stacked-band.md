@@ -42,7 +42,7 @@ different row membership. The skeleton's single 73px row cannot match either.
 
 | Decision | Ratification |
 | --- | --- |
-| Visual source is the user's 1B card; a taller band (~214px vs today's 149px wrap) is ACCEPTED — height was traded for clarity + determinism explicitly. | User approval 2026-07-24 (conversation; mock artifact `46d1a087`) |
+| Visual source is the user's 1B card; a taller band (215px vs today's 149px wrap) is ACCEPTED — height was traded for clarity + determinism explicitly. | User approval 2026-07-24 (conversation; mock artifact `46d1a087`) |
 | Phones only: every change is `max-sm:`-scoped or `sm:hidden`. `≥sm` layout/labels/behavior unchanged. | User answer "Phones only" 2026-07-24 |
 | Badge states: "Live" only when `isLive` (page-computed `published && isShowLiveOnDate` passed as a prop, StatusStrip.tsx:43-45,80-81); "Published" when published and not live; "Draft" when unpublished; "Archived" when archived. NOT the 1B binary Live/Draft. | User answer 2026-07-24 |
 | Sublabel copy: "Visible to crew" / "Hidden from crew". | User answer 2026-07-24 |
@@ -158,19 +158,23 @@ INTERNALLY (one form, one SwitchButton, one error/finalize state):
 - Mobile label block, `hidden max-sm:flex max-sm:min-w-0 max-sm:flex-col`:
   heading "Published" (`text-sm font-semibold text-text-strong`) + sublabel
   `data-testid="published-toggle-sublabel"` (`truncate text-xs
-  text-text-subtle`, id `published-toggle-popover-${slug}-sublabel`). Sublabel
+  text-text-subtle`; NO id — plain adjacent text, see the switch's
+  describedby rule below). Sublabel
   text: `finalizeOwned` → the existing finalize sublines verbatim
   (PublishedToggle.tsx:97-101); else `published` → "Visible to crew"; else →
   "Hidden from crew". `truncate` caps R1 at one sublabel line — the long
   finalize sublines clip visually; assistive tech still receives the full
   string (visual clipping does not alter text alternatives).
 - Switch: the existing `<form>` + `SwitchButton`, unchanged semantics/testid/
-  aria-label. `aria-describedby` in the settings variant is a SINGLE dynamic
-  token, mirroring the inline variant's conditional pattern
-  (PublishedToggle.tsx:131): `showError` → `popoverId` (the error banner);
-  otherwise → `${popoverId}-sublabel`. The description is therefore always
-  exactly one visible element — never the error-plus-state concatenation a
-  static two-token list would produce (R2 finding 6).
+  aria-label. `aria-describedby` logic is UNCHANGED from today's inline rule
+  verbatim: `showFinalize ? popoverId : undefined` (PublishedToggle.tsx:131)
+  — any other rule would alter the DESKTOP switch's accessible description
+  (an IDREF-referenced element contributes its text even while CSS-hidden,
+  so an unconditional sublabel reference would leak into ≥sm — R3 finding 1,
+  violating phones-only). During mobile finalize the referenced chip is
+  `max-sm:hidden` but, being directly referenced, still supplies the
+  description text — the same finalize copy the sublabel shows visibly. The
+  sublabel carries NO id and no wiring; it is plain adjacent text.
 - Error/generic-retry: the existing `POPOVER_POSITION` band-anchored banner,
   unchanged, ONE instance. The FINALIZE_CHIP renders `max-sm:hidden` (desktop
   ≥sm keeps today's chip exactly); below `sm` finalize copy is carried by the
@@ -181,8 +185,8 @@ INTERNALLY (one form, one SwitchButton, one error/finalize state):
   below `sm` and D1 is omitted.
 
 `≥sm` renders byte-identically to today's inline variant EXCEPT the inert
-additions: `max-sm:*` classes, the hidden mobile label block, the extra
-(non-rendered) describedby token, and the chip's `max-sm:hidden`.
+additions: `max-sm:*` classes, the hidden mobile label block, and the chip's
+`max-sm:hidden` — the describedby wiring is bit-identical to today.
 
 ### R2 Meta row
 
@@ -191,9 +195,14 @@ additions: `max-sm:*` classes, the hidden mobile label block, the extra
   variants override below it). Its status line (246) gains `max-sm:min-w-0
   max-sm:overflow-hidden`. Clip PRIORITY (R2 finding 4): the health/synced
   span (`strip-synced-line`, 248) gains `whitespace-nowrap shrink-0` — it is
-  NEVER truncated; the Edited span (261) gains `whitespace-nowrap
-  max-sm:min-w-0 max-sm:overflow-hidden max-sm:text-ellipsis` — the Edited
-  tail is the only sacrificial text. The row NEVER grows vertically. Honest
+  never sacrificed IN FAVOR OF the Edited clause; the Edited span (261) gains
+  `whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden
+  max-sm:text-ellipsis` and clips first. Boundary honesty (R3 finding 2):
+  every CATALOG label (bounded, max "Re-sync held (data loss)") fits
+  unclipped; a PATHOLOGICAL synced string (an unparseable ISO rendered
+  verbatim, §10) can exceed the row and is then clipped at the row edge by
+  the ancestor `overflow-hidden` — height still immutable, garbage text
+  partially hidden, accepted. The row NEVER grows vertically. Honest
   worst-case math (incl. the trigger's real box — R2 finding 5): the
   trigger's existing outer `px-2` becomes `max-sm:px-0` so the inner skin
   owns all padding; item width ≈ 81 (15 icon + ~6 gap + "Sync" ~34 + 24
@@ -269,14 +278,17 @@ fixed.
 
 Row heights below `sm` are hard-capped: R0 = 24 (`h-6`), R1 = max(44,
 heading 20 + sublabel 16.8) ≈ 44 (truncate caps the sublabel at one line),
-R2 = 44 when the trigger renders / ≈17 when only the status line does
-(archived), R3 = 44, dividers = 1px, one `gap-y-2` (8px) between consecutive
-lines. Full band = 24+8+44+8+1+8+44+8+1+8+44 = 198 content + 16 band `py-2`
-= **214px**, a pure function of element PRESENCE (archived / never-synced),
-never of text content. Presence variants: full (R0·R1·D1·R2·D2·R3, 214px),
-never-synced (same rows, R2 left empty, 214px), archived
-(R0·R2-status-only·D2·R3 = 24+8+17+8+1+8+44 = 110 content + 16 = 126px),
-archived+never-synced (R0·R3 = 24+8+44 = 76 content + 16 = 92px).
+R2 = 44 when the trigger renders / 15 when only the status line does
+(archived: `text-xs/tight` = 12px × 1.25 — StatusStrip.tsx:246; its 8px dot
+is shorter), R3 = 44, dividers = 1px, one `gap-y-2` (8px) between
+consecutive lines. Band BOX height adds the band's own `py-2` (16px) AND its
+1px `border-b` (ReviewModalShell.tsx:682; `getBoundingClientRect` includes
+the border). Full band = 24+8+44+8+1+8+44+8+1+8+44 = 198 content + 16 + 1 =
+**215px**, a pure function of element PRESENCE (archived / never-synced),
+never of text content. Presence variants: full (R0·R1·D1·R2·D2·R3, 215px),
+never-synced (same rows, R2 left empty, 215px), archived
+(R0·R2-status-only·D2·R3 = 24+8+15+8+1+8+44 = 108 content + 17 = 125px),
+archived+never-synced (R0·R3 = 24+8+44 = 76 content + 17 = 93px).
 
 ## §5 Breakpoint × lifecycle mode boundaries
 
@@ -311,15 +323,16 @@ The subHeader placeholder mirrors the loaded band per breakpoint:
 Widths are cosmetic; HEIGHTS and the row/divider/gap skeleton mirror §4's
 caps exactly, so E ≤4px is assertable at 390 for the parity fixture.
 
-**Scope honesty (R1 finding 5; numbers corrected per R2 finding 2):** the
-skeleton has no lifecycle input (ShowReviewModalSkeleton.tsx:32) and always
-renders the full-band 214px placeholder. Exact parity is asserted FOR THE
-PARITY FIXTURE'S LIFECYCLE (published, non-archived, non-finalize — the
-overwhelmingly common load). Residuals for the other lifecycles, from the §4
-variant table: archived 214−126 = **88px** over-reserve; archived +
-never-synced 214−92 = **122px**. The band shrinks when such content arrives;
-this is a bounded, documented residual, not a parity-spec subject. (Desktop
-archived has the same class of residual today and is likewise untested.)
+**Scope honesty (R1 finding 5; numbers corrected per R2 finding 2 / R3
+finding 3):** the skeleton has no lifecycle input
+(ShowReviewModalSkeleton.tsx:32) and always renders the full-band 215px
+placeholder. Exact parity is asserted FOR THE PARITY FIXTURE'S LIFECYCLE
+(published, non-archived, non-finalize — the overwhelmingly common load).
+Residuals for the other lifecycles, from the §4 variant table: archived
+215−125 = **90px** over-reserve; archived + never-synced 215−93 = **122px**.
+The band shrinks when such content arrives; this is a bounded, documented
+residual, not a parity-spec subject. (Desktop archived has the same class of
+residual today and is likewise untested.)
 
 ## §7 DESIGN.md delta
 
@@ -405,7 +418,9 @@ single-instance — they persist and keep full-band width.
    `(false, true, false) → "Live"` documented as garbage-in — an enumerated
    table in the test body, never a mirrored precedence function (R1 finding
    9c). Sublabel strings for all four branches (published / hidden / both
-   finalize sublines). `aria-describedby` token list. Existing direct-parent,
+   finalize sublines). `aria-describedby` UNCHANGED-rule assertion: attribute
+   present iff `showFinalize`, exactly today's value (both variants).
+   Existing direct-parent,
    DOM-order, and class-presence tests stay green unmodified (the architecture
    guarantees it — that IS the assertion).
 4. **Browser a11y/naming**: at 390 the Sync trigger's accessible name is
@@ -473,9 +488,11 @@ verified by §9.2 no-overflow assertion (§3 R2); ~369 > 350 worst-case row 2 �
 ~19px Edited-tail clip; ~150+16+81=247 health-label floor (§3 R2); 44 tap
 floor `--spacing-tap-min` (§2); 4/8 E/D tolerances (§2); 24 badge height
 `h-6`, 8px `size-2` badge dot (§3 R0); 16.8 text-xs line box (§2); 32/`h-8`
-Sync visual skin (§3 R2); [44,48] row-height test band (§9.2); 214 full band
-= 198 content + 16 `py-2`, 126 archived, 92 archived+never-synced (§4);
-88/122 archived skeleton over-reserves = 214−126 / 214−92 (§6); 390×844 /
+Sync visual skin (§3 R2); [44,48] row-height test band (§9.2); 215 full band
+box = 198 content + 16 `py-2` + 1 `border-b`, 125 archived, 93
+archived+never-synced (§4); 15 archived status-line height = 12 × 1.25
+`text-xs/tight` (§4); 90/122 archived skeleton over-reserves = 215−125 /
+215−93 (§6); 390×844 /
 1280×900 parity viewports (§2); 48×28 switch real rect (§2); 15 lucide icon
 literal (precedent ShareHub.tsx:414-416) (§3 R2); 1px dividers (§3); ~48
 max-w-48 dev-capture truncation = 192px (§3 R3, existing).
