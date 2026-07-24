@@ -625,3 +625,109 @@ describe("validateScenario - modal-state fields: tier and cross-field guards", (
     expect(vs(mscBase({ landing: "changes", changeLog: [logRow()] }))).toEqual([]);
   });
 });
+
+describe("validateScenario - actionOutcomes", () => {
+  const warn = (rawSnippet: string, code = "TYPO_NORMALIZED") => ({
+    severity: "warn" as const,
+    code,
+    message: "m",
+    rawSnippet,
+  });
+
+  test("tier 2 only", () => {
+    const s = { ...mscBase({}), tier: 1, actionOutcomes: { resync: { kind: "pending" } } } as MSCScenario;
+    expect(vs(s)).toContainEqual(expect.stringContaining("actionOutcomes: tier 2 only"));
+  });
+
+  test("empty object is a no-op script", () => {
+    expect(vs(mscBase({ actionOutcomes: {} }))).toContainEqual(
+      expect.stringContaining("actionOutcomes: empty object is a no-op"),
+    );
+  });
+
+  test("unknown keys and bad kinds are hard errors", () => {
+    expect(vs(mscBase({ actionOutcomes: { typo: { kind: "pending" } } as never }))).toContainEqual(
+      expect.stringContaining("actionOutcomes: unknown key typo"),
+    );
+    expect(vs(mscBase({ actionOutcomes: { setPublished: { kind: "nope" } } as never }))).toContainEqual(
+      expect.stringContaining("actionOutcomes.setPublished: kind"),
+    );
+  });
+
+  test("error codes must be non-blank; resync codes closed-union", () => {
+    expect(
+      vs(mscBase({ actionOutcomes: { setPublished: { kind: "error", code: "  " } } })),
+    ).toContainEqual(expect.stringContaining("actionOutcomes.setPublished: error code must be non-blank"));
+    expect(
+      vs(mscBase({ actionOutcomes: { resync: { kind: "error", code: "MADE_UP" } } as never })),
+    ).toContainEqual(expect.stringContaining("actionOutcomes.resync: code must be one of"));
+    expect(
+      vs(mscBase({ actionOutcomes: { resync: { kind: "shrink_held", detail: " " } } })),
+    ).toContainEqual(expect.stringContaining("shrink_held detail must be non-blank"));
+  });
+
+  test("feed-arm reachability uses the real shaper, not raw status", () => {
+    // status:"pending" row is NOT acceptable (acceptable = auto_apply + applied + unacknowledged)
+    expect(
+      vs(mscBase({ changeLog: [logRow({ status: "pending" })], actionOutcomes: { accept: { kind: "pending" } } })),
+    ).toContainEqual(expect.stringContaining("actionOutcomes.accept: unreachable"));
+    // default logRow IS acceptable
+    expect(
+      vs(mscBase({ changeLog: [logRow()], actionOutcomes: { accept: { kind: "pending" }, acceptAll: { kind: "pending" } } })),
+    ).toEqual([]);
+    // acceptable-but-not-undoable row cannot script undo
+    expect(
+      vs(mscBase({ changeLog: [logRow({ change_kind: "use_raw_stale" })], actionOutcomes: { undo: { kind: "pending" } } })),
+    ).toContainEqual(expect.stringContaining("actionOutcomes.undo: unreachable"));
+    // undo-armed row can
+    expect(
+      vs(mscBase({
+        changeLog: [logRow({ change_kind: "crew_added", individually_undoable: true })],
+        actionOutcomes: { undo: { kind: "pending" } },
+      })),
+    ).toEqual([]);
+  });
+
+  test("approve/reject need a pending hold; resolve needs an ACTIONABLE item", () => {
+    expect(vs(mscBase({ actionOutcomes: { approve: { kind: "pending" } } }))).toContainEqual(
+      expect.stringContaining("actionOutcomes.approve: unreachable"),
+    );
+    expect(vs(mscBase({ actionOutcomes: { resolve: { kind: "pending" } } }))).toContainEqual(
+      expect.stringContaining("actionOutcomes.resolve: unreachable"),
+    );
+  });
+
+  test("bulkIgnore needs a >=2 distinct-content group; okCount in range", () => {
+    // identical snippets collapse to one fingerprint -> group size 1 -> unreachable
+    expect(
+      vs(mscBase({ warnings: [warn("same"), warn("same")], actionOutcomes: { bulkIgnore: { kind: "fail" } } })),
+    ).toContainEqual(expect.stringContaining("actionOutcomes.bulkIgnore: unreachable"));
+    expect(
+      vs(mscBase({ warnings: [warn("a"), warn("b"), warn("c")], actionOutcomes: { bulkIgnore: { kind: "partial", okCount: 3 } } })),
+    ).toContainEqual(expect.stringContaining("okCount"));
+    expect(
+      vs(mscBase({ warnings: [warn("a"), warn("b"), warn("c")], actionOutcomes: { bulkIgnore: { kind: "partial", okCount: 2 } } })),
+    ).toEqual([]);
+  });
+
+  test("lifecycle + share reachability", () => {
+    expect(
+      vs(mscBase({ fixture: { archived: true }, actionOutcomes: { resync: { kind: "pending" } } })),
+    ).toContainEqual(expect.stringContaining("actionOutcomes.resync: unreachable"));
+    expect(
+      vs(mscBase({ fixture: { finalizeOwned: true }, actionOutcomes: { setPublished: { kind: "pending" } } })),
+    ).toContainEqual(expect.stringContaining("actionOutcomes.setPublished: unreachable"));
+    expect(
+      vs(mscBase({ fixture: { volumes: { crew: 40 } }, actionOutcomes: { crewReset: { kind: "pending" } } })),
+    ).toContainEqual(expect.stringContaining("actionOutcomes.crewReset: unreachable"));
+    expect(vs(mscBase({ actionOutcomes: { rotate: { kind: "error" } } }))).toContainEqual(
+      expect.stringContaining("actionOutcomes.rotate: unreachable"),
+    );
+    expect(
+      vs(mscBase({
+        fixture: { share: { linkActive: true, crewEmails: 3 } },
+        actionOutcomes: { rotate: { kind: "success" }, everyoneReset: { kind: "success" }, crewReset: { kind: "success" } },
+      })),
+    ).toEqual([]);
+  });
+});

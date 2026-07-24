@@ -10,7 +10,10 @@ import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import { GROUP_ORDER } from "@/lib/dev/galleryModalTypes";
 import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
-import type { AttentionScenario, ScenarioAlertRow, ScenarioHoldRow } from "./types";
+import type { AttentionScenario, ScenarioAlertRow, ScenarioHoldRow, ScenarioActionOutcomes } from "./types";
+import { RESYNC_ERROR_CODES } from "./types";
+import { buildScenarioFeed } from "@/lib/dev/deriveScenarioAttention";
+import { groupIgnorableByCode } from "@/lib/dataQuality/bulkIgnoreGroups";
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{2,47}$/;
 const CODE_RE = /^[A-Z][A-Z0-9_]*$/;
@@ -450,6 +453,10 @@ function validateModalStateFields(s: AttentionScenario, out: string[]): void {
     }
   }
 
+  if (tier2Only(s.actionOutcomes !== undefined, "actionOutcomes")) {
+    validateActionOutcomes(s, out);
+  }
+
   if (tier2Only(s.fixture !== undefined, "fixture")) {
     const fx = s.fixture;
     if (!isPlainObject(fx)) {
@@ -614,4 +621,112 @@ function validateIgnoreIndexes(s: AttentionScenario, out: string[]): void {
       out.push(`ignoreWarningIndexes: active warnings[${i}] shares an ignored fingerprint`);
     }
   });
+}
+
+const ACTION_OUTCOME_KINDS: Record<string, ReadonlySet<string>> = {
+  setPublished: new Set(["success", "error", "pending"]),
+  archive: new Set(["success", "error", "pending", "not_found"]),
+  undo: new Set(["success", "error", "pending"]),
+  accept: new Set(["success", "error", "pending"]),
+  acceptAll: new Set(["success", "error", "pending"]),
+  approve: new Set(["success", "error", "pending"]),
+  reject: new Set(["success", "error", "pending"]),
+  resync: new Set(["success", "shrink_held", "error", "pending"]),
+  resolve: new Set(["success", "error", "pending"]),
+  bulkIgnore: new Set(["partial", "fail", "pending"]),
+  crewReset: new Set(["success", "not_found", "error", "pending"]),
+  rotate: new Set(["success", "error", "pending"]),
+  everyoneReset: new Set(["success", "error", "pending"]),
+};
+
+/** Controls whose error arm carries a fixed internal code, not a scripted one. */
+const CODELESS_ERROR_KEYS = new Set(["crewReset", "rotate", "everyoneReset"]);
+
+function validateActionOutcomes(s: AttentionScenario, out: string[]): void {
+  const ao = s.actionOutcomes;
+  if (!isPlainObject(ao)) {
+    out.push("actionOutcomes: must be a plain object");
+    return;
+  }
+  const keys = Object.keys(ao);
+  if (keys.length === 0) {
+    out.push("actionOutcomes: empty object is a no-op");
+    return;
+  }
+  for (const key of keys) {
+    const allowed = ACTION_OUTCOME_KINDS[key];
+    if (allowed === undefined) {
+      out.push(`actionOutcomes: unknown key ${key}`);
+      continue;
+    }
+    const v = (ao as Record<string, unknown>)[key];
+    if (!isPlainObject(v) || typeof v.kind !== "string" || !allowed.has(v.kind)) {
+      out.push(`actionOutcomes.${key}: kind must be one of ${[...allowed].join("/")}`);
+      continue;
+    }
+    if (v.kind === "error" && !CODELESS_ERROR_KEYS.has(key)) {
+      if (typeof v.code !== "string" || v.code.trim() === "") {
+        out.push(`actionOutcomes.${key}: error code must be non-blank`);
+      } else if (key === "resync" && !(RESYNC_ERROR_CODES as readonly string[]).includes(v.code)) {
+        out.push(`actionOutcomes.resync: code must be one of ${RESYNC_ERROR_CODES.join("/")}`);
+      }
+    }
+    if (key === "resync" && v.kind === "shrink_held") {
+      if (typeof v.detail !== "string" || v.detail.trim() === "") {
+        out.push("actionOutcomes.resync: shrink_held detail must be non-blank");
+      }
+    }
+  }
+  validateActionOutcomeReachability(s, ao as ScenarioActionOutcomes, out);
+}
+
+function validateActionOutcomeReachability(
+  s: AttentionScenario,
+  ao: ScenarioActionOutcomes,
+  out: string[],
+): void {
+  const fx = s.fixture;
+  const archived = fx?.archived === true;
+  // Feed arms from the REAL shaper via buildScenarioFeed - zero predicate drift.
+  const feed = buildScenarioFeed(s);
+  const entries = feed?.entries ?? [];
+  const acceptableCount = entries.filter((e) => e.acceptable).length;
+  const hasUndo = entries.some((e) => e.action === "undo");
+  const holds = Array.isArray(s.holds) ? s.holds.length : 0;
+  const actionable = deriveScenarioAttention(s).some((it) => it.actionable);
+  const ignored = new Set(s.ignoreWarningIndexes ?? []);
+  const activeWarnings = (s.warnings ?? []).filter((_, i) => !ignored.has(i));
+  const groups = groupIgnorableByCode(activeWarnings);
+  const maxGroup = groups.reduce((m, g) => Math.max(m, g.items.length), 0);
+  const crewReachable =
+    !archived &&
+    fx?.published !== false &&
+    !(fx?.empty ?? []).includes("crew") &&
+    fx?.volumes?.crew === undefined;
+  const req = (cond: boolean, key: keyof ScenarioActionOutcomes, why: string): void => {
+    if (ao[key] !== undefined && !cond) {
+      out.push(`actionOutcomes.${String(key)}: unreachable - ${why}`);
+    }
+  };
+  req(holds > 0, "approve", "needs a pending mi11 hold");
+  req(holds > 0, "reject", "needs a pending mi11 hold");
+  req(acceptableCount > 0, "accept", "needs an acceptable feed entry (auto_apply/applied/unacknowledged)");
+  req(acceptableCount > 0, "acceptAll", "needs an acceptable feed entry");
+  req(hasUndo, "undo", "needs an undo-armed feed entry (applied crew-domain individually_undoable)");
+  req(actionable, "resolve", "needs an ACTIONABLE derived attention item");
+  req(maxGroup >= 2, "bulkIgnore", "needs a bulk-ignorable group (>=2 distinct-content same-code active warnings)");
+  req(crewReachable, "crewReset", "needs published, non-archived, non-empty, non-overcap crew");
+  req(fx?.share?.linkActive === true, "rotate", "needs fixture.share.linkActive");
+  req(fx?.share?.linkActive === true, "everyoneReset", "needs fixture.share.linkActive");
+  req(!archived, "resync", "archived shows have no re-sync control");
+  req(!archived && fx?.finalizeOwned !== true, "setPublished", "toggle absent/disabled");
+  req(!archived, "archive", "already archived");
+  const bi = ao.bulkIgnore;
+  if (
+    bi !== undefined &&
+    bi.kind === "partial" &&
+    (!Number.isInteger(bi.okCount) || bi.okCount < 1 || bi.okCount >= maxGroup)
+  ) {
+    out.push(`actionOutcomes.bulkIgnore: okCount must be an integer in [1, ${Math.max(maxGroup - 1, 1)}]`);
+  }
 }
