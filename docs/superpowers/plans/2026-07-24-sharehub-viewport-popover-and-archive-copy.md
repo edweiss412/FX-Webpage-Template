@@ -139,7 +139,7 @@ Six files — dropping the cap dimension does NOT produce an unmanageable regist
 | `components/admin/HoverHelp.tsx` | `placement-module` | migrated 2026-07-22 |
 | `components/admin/showpage/ShareHub.tsx` | `placement-module` | migrated by this task |
 | `components/admin/ReSyncButton.tsx` | `fit-within-clip` | clip-safe via `useFitWithinClip`; full-width `inset-x-0` overlay where flipping buys nothing |
-| `components/admin/FinalizeButton.tsx` | `not-clip-constrained` | portals out (`components/admin/FinalizeButton.tsx:741`), so the panel is not an ancestor |
+| `components/admin/FinalizeButton.tsx` | `not-clip-constrained` | portals out (`components/admin/FinalizeButton.tsx:741`), so the panel is not an ancestor. Also a benign over-match: the anchor and scroller hints occur on different surfaces in the file (plan-review R4 A). Over-matches are the intended cost of the broad predicate — one reasoned row, never a silent pass |
 | `components/admin/BellPanel.tsx` | `not-clip-constrained` | mounts in the nav bell (`components/admin/nav/NotifBell.tsx:97`), outside the review-modal panel |
 | `components/admin/showpage/AttentionMenu.tsx` | `unverified-gap` | **see below** |
 
