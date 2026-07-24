@@ -27,6 +27,23 @@ That ratification is the amendment the entry's own un-defer trigger requires
 (`DEFERRED.md`, un-defer line of that entry: any spec amendment reopening the
 settings dev-row copy).
 
+### 1.0 Change inventory (canonical counts — every other section references this)
+
+Round 2 and round 3 both surfaced count drift, so the numbers live here ONCE and
+nowhere else states a count independently (R3 F4). §11's sweep verifies this
+table against the body rather than restating figures.
+
+| What | Count | Where |
+| --- | --- | --- |
+| Deferred findings closed | 4 | §1 items 1-4 |
+| User-visible text changes | 3 | row description, hidden `sr-only` qualifier, destination heading (§3.1b, §3.1c, §3.2) |
+| Source files changed | 2 | `components/admin/settings/DevToolsRow.tsx`, `app/admin/dev/attention-gallery/page.tsx` |
+| Tailwind utility classes added | 2 | `transition-colors`, `duration-fast`, both on the one shared literal (§3.1a) |
+| Updates to EXISTING docs/ledgers | 4 | §8 items 1-4 |
+| New files created | 2 | this change's own `closeout.md`, and one new test file (§3.3) |
+| Test contracts | 8 | T1, T1b, T2-T7 (§9) |
+| Test files touched | 2 | the existing `DevToolsRow.test.tsx` (edited) and the new ledger-graduation guard (§3.3) |
+
 ### 1.1 Resolved scope — do not relitigate
 
 - **The owner picked each copy option; the options are closed.** Ratified
@@ -175,13 +192,26 @@ Line 54: `<h1 …>Attention modal gallery</h1>` → `<h1 …>Attention gallery</
 Classes, structure, and the following description paragraph are unchanged. The
 paragraph does not repeat the heading string, so no cascade.
 
-### 3.3 Nothing else changes
+### 3.3 What else the change adds
 
-No new file, no new token, and **no new test file**. Every test edit lands in
-the single existing file `tests/components/admin/settings/DevToolsRow.test.tsx`
-(§9); `tests/components/admin/settings/DevToolsRow.absent.test.tsx` is NOT
-touched — it asserts an empty DOM and has no text assertions to update. No
-`data-testid` is added or removed.
+**No new design token, no new component, no new route, no new prop, and no
+`data-testid` added or removed.** Two new files ARE created, both listed in the
+§1.0 inventory (R3 F4 corrected an earlier "no new file" claim that contradicted
+§8):
+
+1. This change's own `closeout.md` under
+   `docs/superpowers/plans/2026-07-24-settings-devrow-copy-close/`, carrying the
+   invariant-8 evidence (§8).
+2. tests/docs/_metaDeferralLedgerGraduation.test.ts — the ledger-graduation
+   guard described in §9 T8. It exists because R2 F1 and R3 F1 both landed on
+   the same vector: a ledger/doc task with no genuine red state. Per the
+   structural-defense rule, the second occurrence ships the defense rather than
+   another prose patch.
+
+All edits to EXISTING tests land in the single file
+`tests/components/admin/settings/DevToolsRow.test.tsx` (§9).
+`tests/components/admin/settings/DevToolsRow.absent.test.tsx` is NOT touched —
+it asserts an empty DOM and has no text assertions to update.
 
 ### 3.4 Dimensional Invariants
 
@@ -249,11 +279,15 @@ reduced-motion handling is unchanged).
 | `DEV_PANEL_PRESENT` | `false` (committed default) | `null` — nothing renders; no copy is reachable. Unchanged. |
 | `isDeveloper` | `false` | `null`. Unchanged. |
 | `isDeveloper` | absent/`undefined` | `null` (safe default). Unchanged. |
-| `icon` | absent/`undefined` | Icon span omitted; heading block still renders, copy unaffected. Unchanged. |
-| `icon` | provided | Rendered `aria-hidden` at `size-5`. Unchanged. |
+| `icon` | `undefined` (absent) | Icon span omitted; heading block still renders, copy unaffected. Unchanged. |
+| `icon` | any FALSY `ReactNode` — `null`, `false`, `""`, `0`, `NaN` | Icon span omitted. The branch is `icon ? … : null`, a truthiness test, so `0` and `NaN` are treated as "no icon" even though React would otherwise render them as the text `0` / `NaN`. **Pre-existing behavior, unchanged by this diff, and desirable here** — the wrapper span is decorative chrome, and a bare `0` inside it would be a defect, not content (R3 F3). |
+| `icon` | any truthy `ReactNode` | Rendered inside an `aria-hidden` wrapper at `size-5`. Unchanged. The sole live caller passes a fixed `<ShieldCheck aria-hidden />` element (`app/admin/settings/page.tsx:221`). |
+| `isDeveloper` | `null`, `0`, `""`, `NaN` (not type-valid, but reachable from untyped callers) | Falsy → the early return fires → `null`. Fail-closed: any non-`true` value hides the developer entrypoint. |
 
-No prop accepts user data, so there is no null/empty/NaN/zero content path: all
-strings in this component are literals.
+No prop carries user data — every string in this component is a literal — but
+the falsy-`ReactNode` rows above are enumerated anyway rather than dismissed on
+that basis (R3 F3): `icon` is typed `ReactNode`, so `0`, `NaN`, `""`, `false`
+and `null` are all type-valid inputs with a rendered behavior worth stating.
 
 ## 7. Explicitly out of scope
 
@@ -400,6 +434,34 @@ and `tests/components/admin/settings/DevToolsRow.test.tsx:51` (`toHaveTextConten
 hidden suffix is added, because `toHaveTextContent` normalizes and includes
 `sr-only` text. T1+T2 replace them with strictly stronger contracts.
 
+**T8 — ledger-graduation guard (new file, closes the R2 F1 / R3 F1 vector).**
+Two consecutive rounds landed on the same defect: the ledger and closeout tasks
+had no genuine failing state, only post-hoc checks that were already green.
+Rather than patch the prose a third time, this spec ships the structural
+defense (tests/docs/_metaDeferralLedgerGraduation.test.ts), which has a real
+red state and a durable class guard:
+
+1. **Durable class invariant.** No `### <ID>` deferral heading may appear in
+   BOTH the repo-root `DEFERRED.md` and `DEFERRED-archive.md`. A graduation
+   that copies without deleting, or a re-opened entry left in the archive, is
+   the recurring shape this catches. Verified to hold today: 4 active ids, 130
+   archived, zero overlap.
+2. **This graduation, specifically.** `SETTINGS-DEVROW-GALLERY-RESIDUE-1` must
+   be ABSENT from `DEFERRED.md` and PRESENT in `DEFERRED-archive.md`. **This is
+   red before the Task 5 edits** (the id is in the active queue and not in the
+   archive), and green after. It is a registry row, so the next graduation adds
+   a line rather than a file.
+3. **Closeout presence.** The registry also carries the plan directory for this
+   change; the test asserts its `closeout.md` exists and that its §12 records
+   both halves of the invariant-8 gate (the words `critique` and `audit`).
+   **Red before Task 6** (the file does not exist), green after.
+
+Rows 2 and 3 are what give Tasks 5 and 6 an honest failing-test-first cycle;
+row 1 is what makes the file worth keeping after this change ships. The earlier
+claim that an archived condition "can never regress" was wrong (R3 F1) — a
+later edit can restore the active entry or corrupt the archive record, and row
+1 is exactly the assertion that catches it.
+
 **Not covered by unit tests, deliberately:** jsdom applies no CSS, so
 `transition-colors duration-fast` is asserted as class membership (T4), not as
 computed style. That is the same shape every sibling settings button uses; a
@@ -413,7 +475,7 @@ layout-dimensions task does **not** apply (§10).
 | --- | --- |
 | Layout-dimensions task (real-browser `getBoundingClientRect`) | **No.** No fixed-height/width parent is introduced or changed. The row is content-height `flex flex-wrap` with `gap-3`; the action group is `flex flex-wrap gap-2`. Nothing in this diff sets a dimension. |
 | Transition-audit task | **Yes, and it is discharged in §5 rather than deferred to a separate plan task (R1 F1).** No `AnimatePresence` and no new conditional block is added — the single new animated property is a CSS `transition-colors` on a persistently-mounted link — but the component does contain two pre-existing conditional-render branches (the null gate and `icon ? … : null`). §5's structural-states table enumerates both, plus the compound case, each with an explicit instant-and-unreachable declaration. The plan carries a step that re-walks every `AnimatePresence`, ternary render, and conditional block in the two touched files against that table; T4 pins the CSS tokens. |
-| Meta-test inventory | **None created or extended.** No Supabase call boundary, no `admin_alerts` code, no advisory lock, no new mutation surface, no `§12.4` catalog row, no new admin route/table. T5 is a local assertion in the component's own test, not a registry. |
+| Meta-test inventory | **One created: tests/docs/_metaDeferralLedgerGraduation.test.ts** (§9 T8) — a registry-style structural guard over the deferral ledgers, shipped as the structural defense for the twice-recurring red-state vector (R2 F1, R3 F1). None of the existing registries is extended: no Supabase call boundary, no `admin_alerts` code, no advisory lock, no new mutation surface, no `§12.4` catalog row, no new admin route/table. T5 remains a local assertion in the component's own test, not a registry. |
 | Advisory-lock topology | **N/A** — no `pg_advisory*` in the diff. |
 | DB/tier×domain matrix, CHECK/enum matrix, migration parity | **N/A** — no DB surface. |
 | Flag lifecycle table | **N/A** — no new flag. `DEV_PANEL_PRESENT` and `isDeveloper` are unchanged and already documented in the 2026-07-21 spec. |
@@ -423,17 +485,20 @@ layout-dimensions task does **not** apply (§10).
 
 ## 11. Numeric sweep
 
-Every number in this document, cross-checked against the body it describes:
+Counts are declared ONCE in §1.0 (R3 F4). This section verifies that table
+against the body rather than restating figures, and covers the numbers that
+live outside it.
 
-- **4** findings closed — matches the four numbered items in the `DEFERRED.md`
-  entry and the four entries in §1.
-- **3** edit sites in §3 inside `components/admin/settings/DevToolsRow.tsx`
-  (the class literal, the description, the Open link's children) plus **1** in
-  `app/admin/dev/attention-gallery/page.tsx` = **2 files** changed in
-  §3, consistent with §1's "two component/page copy edits".
-- **4** doc/ledger updates in §8 — matches the four numbered items there AND
-  the count in the document Scope line (R1 F4: those two disagreed at R1).
-- **7** tests T1-T7 in §9 — matches the seven numbered paragraphs.
+**Verified against §1.0:** 4 findings = §1 items 1-4. 3 text changes = §3.1b +
+§3.1c + §3.2. 2 source files = the two §3 subsections. 2 utility classes =
+`transition-colors` + `duration-fast` in §3.1a. 4 doc/ledger updates = §8 items
+1-4, which the Scope line also says. 2 new files = the closeout (§8 trailer)
+and the guard (§3.3, §9 T8). 8 test contracts = T1, T1b, T2, T3, T4, T5, T6,
+T7 in §9, plus T8 which lives in the NEW file and is therefore counted under
+"test files touched", not under the 8 contracts edited into the existing file.
+
+**Numbers not in §1.0:**
+
 - **~90** bare ring offsets — quoted from `BL-FOCUS-RING-CONTRAST` in
   `BACKLOG.md`, not independently recounted; §7 and the `DEFERRED.md` entry use
   the same figure.
@@ -449,23 +514,12 @@ Every number in this document, cross-checked against the body it describes:
   the `<h1>` this spec edits, **2** are ledger/closeout prose that §8 rewrites.
 - **3** JSX forms measured by the §3.1(c) probe; **1** produces the correct
   accessible name.
-- **8** tests (T1, T1b, T2-T7), all in **1** test file
-  (`tests/components/admin/settings/DevToolsRow.test.tsx`); **0** new test files
-  (§3.3, R1 F5; T1b added at R2 F6).
-- **Edit-count reconciliation (R2 F8).** The Scope line counts what it says it
-  counts: **3** user-visible text changes (row description, hidden qualifier,
-  destination heading) across **2** source files, **2** Tailwind utility classes
-  (`transition-colors`, `duration-fast`) on **1** shared literal, **4** updates
-  to existing docs/ledgers (§8), and **1** new `closeout.md` belonging to this
-  plan. Earlier drafts said "two copy edits" and "one className token"; both
-  undercounted, and §11 certified them anyway. The doc/ledger count of 4 covers
-  EXISTING documents only — this plan's own closeout is a new artifact, not a
-  ledger update, and is counted separately here and in §8 so the two can never
-  be conflated (R2 F7).
+- **4** active and **130** archived deferral ids at the time §9 T8's durable
+  invariant was verified, with **0** overlap.
 
 ## 12. Risk
 
-Lowest-risk class in the repo: literal copy and one Tailwind token, on a
-surface that renders only in a developer build behind two gates. The single
+Lowest-risk class in the repo: literal copy and two Tailwind utility classes
+(§1.0), on a surface that renders only in a developer build behind two gates. The single
 non-obvious failure mode is the accessible-name whitespace trim (§3.1c),
 which T1 pins with an exact-match assertion rather than a substring.

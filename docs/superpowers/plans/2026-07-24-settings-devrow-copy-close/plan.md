@@ -24,7 +24,7 @@ Every file, symbol, and line this plan names was grepped in the worktree before 
 
 ## 1. Meta-test inventory
 
-**None created; none extended.** No Supabase call boundary, no `admin_alerts` code, no `§12.4` catalog row, no advisory lock, no new mutation surface, no new admin route or table, no new sentinel/tile. `tests/styles/_metaBgAccentInventory.test.ts` has no `DevToolsRow` row and this diff adds no accent background, so it is not touched. The one guard this plan adds (Task 3 T5, no bare ring offset) is a local assertion inside the component's own test file, deliberately NOT a registry — spec §7 explains why the app-wide sweep belongs to `BL-FOCUS-RING-CONTRAST`.
+**One created — tests/docs/_metaDeferralLedgerGraduation.test.ts (Task 5 step 5a, spec §9 T8)**, a registry-style guard over the deferral ledgers, shipped as the structural defense for the twice-recurring red-state vector (R2 F1, R3 F1). **No existing registry is extended.** No Supabase call boundary, no `admin_alerts` code, no `§12.4` catalog row, no advisory lock, no new mutation surface, no new admin route or table, no new sentinel/tile. `tests/styles/_metaBgAccentInventory.test.ts` has no `DevToolsRow` row and this diff adds no accent background, so it is not touched. The one guard this plan adds (Task 3 T5, no bare ring offset) is a local assertion inside the component's own test file, deliberately NOT a registry — spec §7 explains why the app-wide sweep belongs to `BL-FOCUS-RING-CONTRAST`.
 
 ## 2. Advisory-lock topology
 
@@ -47,7 +47,7 @@ Every file, symbol, and line this plan names was grepped in the worktree before 
 
 **Files:** modify `components/admin/settings/DevToolsRow.tsx`; modify `tests/components/admin/settings/DevToolsRow.test.tsx`. **No new test file is created by any task in this plan**, and `tests/components/admin/settings/DevToolsRow.absent.test.tsx` is never edited — it asserts an empty DOM and has no text assertions to update.
 
-**Red.** In the existing `describe` block, replace the two stale `Open` text assertions and add the two new ones. The stale assertions at `tests/components/admin/settings/DevToolsRow.test.tsx:38` and `tests/components/admin/settings/DevToolsRow.test.tsx:51` MUST go in this task — `toHaveTextContent` normalizes and INCLUDES `sr-only` text, so `/^Open$/` fails the moment the suffix lands; leaving them would make the task's own red state ambiguous.
+**Red.** In the existing `describe` block, replace the two stale `Open` text assertions and add the three new ones (T1, T1b, T2). The stale assertions at `tests/components/admin/settings/DevToolsRow.test.tsx:38` and `tests/components/admin/settings/DevToolsRow.test.tsx:51` MUST go in this task — `toHaveTextContent` normalizes and INCLUDES `sr-only` text, so `/^Open$/` fails the moment the suffix lands; leaving them would make the task's own red state ambiguous.
 
 ```tsx
 // T1: accessible-name boundary (spec §4). Exact match, not a substring: the
@@ -65,9 +65,9 @@ expect(open).toHaveAccessibleName("Open developer tools");
 // regress while T1 and T2 both stayed green.
 expect(open).not.toHaveAttribute("aria-label");
 expect(open).not.toHaveAttribute("aria-labelledby");
-const hidden = open.querySelectorAll(".sr-only");
+const hidden = Array.from(open.querySelectorAll(".sr-only"));
 expect(hidden).toHaveLength(1);
-expect(hidden[0]!.textContent).toBe("developer tools");
+expect(hidden[0]?.textContent).toBe("developer tools");
 
 // T2: the visible label is still exactly `Open` (spec §1.1: the rejected
 // option was a visible rename). Clone-and-strip, because the live node's
@@ -93,10 +93,10 @@ The separator is a visible text node on the SAME line as the `<span>`. Do not mo
 **Also in this task:** grep to confirm no locator anywhere selects this link by text or accessible name:
 
 ```
-rg -n 'getByRole\(.*link.*name.*Open|getByText\(.*"Open"' tests/ app/ components/
+rg -nU --pcre2 '(get|find|query)(All)?By(Role|Text|LabelText)\s*\([\s\S]{0,200}?Open' tests/ app/ components/
 ```
 
-Record the output in the commit body. Expected: no hit that resolves to this link.
+`-U` for multiline calls and the full `get`/`find`/`query` × `All?` × `Role`/`Text`/`LabelText` matrix, because the R2-era command missed every one of those forms (R3 F5). Record the output in the commit body and disposition each hit. This is **corroboration** of the already-run live verification (`tests/e2e/admin-dev.spec.ts:59-61` locates both links by `data-testid` only, and no accessible-name locator for them exists), not the primary evidence — a grep cannot prove a negative over arbitrary locator APIs, and the plan does not claim it does.
 
 **Commit:** `fix(admin): name the settings dev-tools Open link for screen readers`
 
@@ -234,20 +234,62 @@ Path resolution is `new URL(..., import.meta.url)`, NOT `process.cwd()`, so the 
 
 1. `docs/superpowers/specs/2026-07-21-settings-attention-gallery-link.md` — append a dated amendment note to the "Row copy unchanged" bullet (lines 29-31) recording that the freeze is superseded by `docs/superpowers/specs/2026-07-24-settings-devrow-copy-close.md`, with the new description string inline.
 2. `DEFERRED.md` — delete the `SETTINGS-DEVROW-GALLERY-RESIDUE-1` entry and update the "Last reconciled" line.
-3. `DEFERRED-archive.md` — land the full entry plus a graduation note: date, **branch name** (`fix/settings-devrow-gallery-residue`), which change closed each finding, and the explicit record that finding 3 closed on its transition half ONLY, with the offset half tracked by `BL-FOCUS-RING-CONTRAST`. **Cite the branch, not a PR number** — this task runs before the branch is pushed, so no PR number exists yet (R2 F3). Task 7 backfills the PR number into this entry in the commit that opens the PR.
+3. `DEFERRED-archive.md` — land the full entry plus a graduation note: date, **branch name** (`fix/settings-devrow-gallery-residue`), which change closed each finding, and the explicit record that finding 3 closed on its transition half ONLY, with the offset half tracked by `BL-FOCUS-RING-CONTRAST`. **Cite the branch, never a PR number** (R2 F3, R3 F2). The branch name is stable and known now; a PR number is not, and backfilling one after the cross-model review would mean the merged diff is not the diff that was reviewed. The archive entry therefore cites `fix/settings-devrow-gallery-residue` permanently and no later task edits it. Anyone needing the PR finds it from the merge commit for that branch.
 4. `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md` — annotate the dispositions on that file's lines 49, 50 and 52 as closed by this change, so a reader is not sent to a `DEFERRED.md` entry that no longer exists.
 
-**Red/green for a non-code task (R2 F1).** Plan-wide invariant 1 admits no docs-only exception, so this task carries a real mechanical red-to-green cycle rather than claiming exemption. The check is a two-command ledger assertion, run and recorded in the commit body BEFORE and AFTER the edits:
+**Red first, via a new structural guard (R3 F1).** R2 F1 and R3 F1 both landed on this vector: the ledger task had no genuine failing state, only post-hoc checks that were already green. The R2 repair (an `rg -c` pair) was correctly rejected — `rg -c` succeeds in both the before and after state because the id merely moves between two files, and `spec:lint` was green before the edits too. So this task now **creates a real test file first and watches it fail**, and it is the structural defense for the class, not another prose patch.
 
+**Step 5a — write the guard (RED).** Create tests/docs/_metaDeferralLedgerGraduation.test.ts with three assertions (spec §9 T8):
+
+```ts
+// Structural guard over the deferral ledgers. Shipped as the class defense for
+// the twice-recurring "docs task has no red state" vector (R2 F1, R3 F1).
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+const DEFERRAL_ID = /^### ([A-Z0-9][A-Z0-9-]+)/gm;
+
+/** Graduations this repo has performed. One row per archived entry. */
+const GRADUATED = ["SETTINGS-DEVROW-GALLERY-RESIDUE-1"] as const;
+
+/** Plan directories whose plan.md declares an invariant-8 gate. */
+const INVARIANT8_PLANS = ["docs/superpowers/plans/2026-07-24-settings-devrow-copy-close"] as const;
+
+const read = (rel: string): string => readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
+const idsIn = (rel: string): Set<string> =>
+  new Set(Array.from(read(rel).matchAll(DEFERRAL_ID), (m) => m[1]!));
+
+describe("deferral ledger graduation", () => {
+  it("no id is both active and archived", () => {
+    const active = idsIn("DEFERRED.md");
+    const archived = idsIn("DEFERRED-archive.md");
+    const both = [...active].filter((id) => archived.has(id));
+    expect(both).toEqual([]);
+  });
+
+  it("every graduated id is archive-only", () => {
+    const active = idsIn("DEFERRED.md");
+    const archived = idsIn("DEFERRED-archive.md");
+    for (const id of GRADUATED) {
+      expect(archived.has(id), `${id} missing from DEFERRED-archive.md`).toBe(true);
+      expect(active.has(id), `${id} still in DEFERRED.md`).toBe(false);
+    }
+  });
+
+  it("every invariant-8 plan has a closeout recording both gate halves", () => {
+    for (const dir of INVARIANT8_PLANS) {
+      const closeout = read(`${dir}/closeout.md`);
+      expect(closeout).toMatch(/^##\s*12\b/m);
+      expect(closeout.toLowerCase()).toContain("critique");
+      expect(closeout.toLowerCase()).toContain("audit");
+    }
+  });
+});
 ```
-rg -c 'SETTINGS-DEVROW-GALLERY-RESIDUE-1' DEFERRED.md DEFERRED-archive.md
-pnpm spec:lint docs/superpowers/specs/2026-07-21-settings-attention-gallery-link.md
-```
 
-- **Red (before):** the entry is present in `DEFERRED.md` and absent from `DEFERRED-archive.md` — the state this task exists to invert.
-- **Green (after):** absent from `DEFERRED.md`, present in `DEFERRED-archive.md`, and `spec:lint` on the amended 2026-07-21 spec still reports 0 hard findings (the amendment note adds citations, which is exactly what that linter checks).
+Run it and **record the failure**: assertion 1 passes (verified today: 4 active ids, 130 archived, 0 overlap), assertion 2 fails on `SETTINGS-DEVROW-GALLERY-RESIDUE-1 missing from DEFERRED-archive.md`, assertion 3 fails on `ENOENT` for the closeout that Task 6 creates. That is the red state. **Confirm assertion 3's failure is `ENOENT` on the closeout path and not on `DEFERRED.md`** — a wrong relative base would make every assertion fail for the wrong reason.
 
-The assertion is a recorded command pair rather than a committed test file because the condition is one-shot: once the entry is archived it can never regress, so a permanent test would be dead weight. Both outputs go in the commit body.
+**Step 5b — the ledger edits (GREEN for assertion 2).** Items 1-4 below. After them, assertions 1 and 2 pass; assertion 3 still fails until Task 6 writes the closeout, so **this task's commit is green on the two ledger assertions and the closeout assertion is Task 6's red state.** Commit with the guard file plus the ledger edits together, and note in the commit body which assertion remains red and which task turns it green.
 
 Run `pnpm format` — `DEFERRED.md` conflicts and prettier drift after a resolution are a known trap on this repo.
 
@@ -261,7 +303,9 @@ Run `pnpm format` — `DEFERRED.md` conflicts and prettier drift after a resolut
 
 **Findings + dispositions land in a NEW `closeout.md` created by this task under `docs/superpowers/plans/2026-07-24-settings-devrow-copy-close/`, section 12** (R2 F7). Explicitly NOT the 2026-07-21 closeout, which Task 5 edits and which records a different change's gate run. This new file is not part of the "four doc/ledger updates" count in spec §8; it is this plan's own artifact, counted separately in spec §11.
 
-**Red/green (R2 F1).** The gate commands themselves are the cycle: each of the four listed gates is run and its output recorded, and the task is not green until all four exit 0 (checking `$?`, not the printed summary line). Any gate that fails is fixed and re-run before the commit.
+**Red first (R3 F1).** Task 5 left assertion 3 of tests/docs/_metaDeferralLedgerGraduation.test.ts failing (`ENOENT` on this plan's `closeout.md`). Re-run that test at the START of this task and record the failure — that is this task's red state, and it is a genuine one: the file the task must produce does not exist. Writing the closeout with a `## 12` section recording both gate halves turns it green.
+
+The four pre-push gates below are validation, not the red state; each is run, its output recorded, and the task is not green until all four exit 0 (checking `$?`, not the printed summary line — vitest exits 1 on uncaught errors while still printing a passing Tests line).
 
 **Pre-push gates, all of which must be green and whose output goes in the PR body:**
 
@@ -286,7 +330,7 @@ pnpm vitest run tests/components/admin/settings/DevToolsRow.test.tsx tests/compo
 
 Fresh-eyes Codex review of the whole diff (REVIEWER ONLY brief, do-not-relitigate list from spec §1.1 and §7, file list inlined per the split-tight-scope rule). Iterate to APPROVE; triage findings by deferral discipline.
 
-Then push and open the PR. **In the same commit that opens the PR, backfill the PR number into the `DEFERRED-archive.md` graduation note Task 5 left citing only the branch** (R2 F3) — then push that commit too, so the archived entry is complete before the merge.
+Then push and open the PR. **No commit is made after the cross-model review** (R3 F2): the reviewed diff and the merged diff are byte-identical. The `DEFERRED-archive.md` note cites the branch permanently, so there is nothing to backfill. If a review round produces findings, the repair commits land BEFORE the next review round, and the final round reviews the final tree.
 
 Wait for **real GitHub Actions green** (not local green), `gh pr merge --merge`, fast-forward local `main`, and verify `git rev-list --left-right --count main...origin/main` is `0  0`.
 
