@@ -28,6 +28,7 @@ import {
   NO_BORDER,
   NO_REST_BACKGROUND,
   WRAPPER_CLASSES,
+  ROW_TOKENS,
 } from "./_rowAssertions";
 import { ShareHub } from "@/components/admin/showpage/ShareHub";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
@@ -418,22 +419,6 @@ describe("ShareHub — unpublished arm", () => {
 });
 
 /** The prescribed row class list (spec §4.1), shared by both Careful rows. */
-const ROW_TOKENS = [
-  "flex",
-  "w-full",
-  "items-center",
-  "gap-2",
-  "rounded-sm",
-  "min-h-tap-min",
-  "p-2",
-  "text-left",
-  "hover:bg-surface-sunken",
-  "transition-colors",
-  "duration-fast",
-  "focus-visible:outline-none",
-  "focus-visible:ring-2",
-  "focus-visible:ring-focus-ring",
-] as const;
 
 describe("ShareHub — Careful section wiring", () => {
   it("rotate idle state is ONE borderless full-width menu row", () => {

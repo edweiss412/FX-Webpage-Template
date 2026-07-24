@@ -159,6 +159,25 @@ export const COLUMN_CLASSES = ["flex", "min-w-0", "flex-col"] as const;
 /** The row's outer wrapper (spec §4.6 width chain link 1). Unconditional: it
  *  does not vary with whether a description is present. */
 export const WRAPPER_CLASSES = ["flex", "w-full", "flex-col", "gap-2"] as const;
+/** The §4.1 row-button token set (spec 2026-07-24-archive-row-menu-idiom §2.1;
+ *  moved here from shareHub.test.tsx so the ArchiveShowButton suite shares one
+ *  source). Asserted with `exactly` — an overriding extra must FAIL. */
+export const ROW_TOKENS = [
+  "flex",
+  "w-full",
+  "items-center",
+  "gap-2",
+  "rounded-sm",
+  "min-h-tap-min",
+  "p-2",
+  "text-left",
+  "hover:bg-surface-sunken",
+  "transition-colors",
+  "duration-fast",
+  "focus-visible:outline-none",
+  "focus-visible:ring-2",
+  "focus-visible:ring-focus-ring",
+] as const;
 
 /** The prescribed row topology: an icon, then the column, and nothing else.
  *  Asserting the pieces individually is not enough: label and description can
