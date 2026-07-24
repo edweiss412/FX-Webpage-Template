@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-24
 **Status:** Draft (autonomous `/ship-feature` run; owner copy ratification given in-session)
-**Scope:** two component/page copy edits, one className token, four doc/ledger updates (§8). No DB, no routes, no new props, no new tokens.
+**Scope:** three user-visible text changes across two files (row description, hidden `sr-only` qualifier, destination heading), two Tailwind utility classes on one shared literal (`transition-colors`, `duration-fast`), four updates to EXISTING docs/ledgers (§8), plus this plan's own new `closeout.md`. No DB, no routes, no new props, no new design tokens.
 
 ## 1. What
 
@@ -282,13 +282,23 @@ strings in this component are literals.
    inline.
 2. `DEFERRED.md` — remove the `SETTINGS-DEVROW-GALLERY-RESIDUE-1` entry.
 3. `DEFERRED-archive.md` — land the full entry with a graduation note: date,
-   PR, which finding each change closed, and the explicit record that finding
-   3 closed on its transition half only, with the offset half tracked by
-   `BL-FOCUS-RING-CONTRAST`.
+   **branch name**, which finding each change closed, and the explicit record
+   that finding 3 closed on its transition half only, with the offset half
+   tracked by `BL-FOCUS-RING-CONTRAST`. The note cites the BRANCH, not a PR
+   number: the ledger update happens before the branch is pushed, so no PR
+   number exists yet (R2 F3). The PR number is backfilled in the close-out
+   task, in the same commit that opens the PR.
 4. `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md`
    — annotate the three deferred dispositions (that file's lines 49, 50 and 52) as closed
    by this change so a future reader of that table is not sent to a
    `DEFERRED.md` entry that no longer exists.
+
+**Separately from those four**, this change writes its own `closeout.md` under
+`docs/superpowers/plans/2026-07-24-settings-devrow-copy-close/`, whose §12 carries the invariant-8 impeccable findings and dispositions. That is
+a NEW artifact belonging to this change, not an update to an existing ledger,
+which is why the "four doc/ledger updates" count excludes it (R2 F7). The
+invariant-8 evidence goes in THAT file — never in the 2026-07-21 closeout,
+which records a different change's gate run.
 
 ## 9. Test plan (TDD, anti-tautology)
 
@@ -298,8 +308,17 @@ All edits are to `tests/components/admin/settings/DevToolsRow.test.tsx`
 **T1 — accessible-name boundary on the `Open` link.**
 `expect(open).toHaveAccessibleName("Open developer tools")` — an exact-match
 accessible name, not a substring. _Catches:_ the whitespace-trim defect
-(`Opendeveloper tools`) that a `toContain`/substring assertion cannot see, and
-a missing/misplaced `sr-only` span.
+(`Opendeveloper tools`) that a `toContain`/substring assertion cannot see.
+
+**T1b — the name comes from a hidden text node, not from `aria-label`
+(R2 F6).** T1 alone is satisfied by `<Link aria-label="Open developer tools">`,
+which has the right name but no hidden qualifier and violates §4's explicit
+no-`aria-label` decision — so the ratified mechanism could regress while every
+other assertion stayed green. Assert all three: the link has no `aria-label`
+and no `aria-labelledby` attribute, and it contains exactly one `.sr-only`
+descendant whose `textContent` is `developer tools`. _Catches:_ silently
+swapping the hidden span for an `aria-label`, which would put WCAG 2.5.3
+label-in-name at risk on the next visible-copy edit.
 
 **T2 — the visible label is still exactly `Open`.** Clone the link node, remove
 every `.sr-only` descendant from the clone, assert
@@ -320,11 +339,15 @@ _Catches:_ (a) adding the transition to only one link, which would break the
 shared-literal invariant; (b) satisfying parity by dropping the tap-target or
 focus-ring from both.
 
-**T5 — no bare ring offset sneaks in.** Assert the class list contains no token
-matching `/^(?:[a-z-]+:)*focus-visible:ring-offset-\d/` without a companion
-`focus-visible:ring-offset-<name>` token. _Catches:_ a future "parity" pass
-copying the sibling's bare offset, which `DESIGN.md:40` bans. This pins §7's
-deliberate omission so it reads as a decision, not an oversight.
+**T5 — no bare ring offset sneaks in.** Both halves of the predicate are
+scoped to the `focus-visible` variant (R2 F5): collect only class tokens
+beginning `focus-visible:ring-offset-`, then fail if any of them ends in a
+number while none of them ends in a name. An unscoped predicate has two defects
+this shape avoids — `focus-visible:ring-offset-2 hover:ring-offset-bg` would
+pass on the unrelated hover token, and a lone `hover:ring-offset-2` would fail
+despite being outside the banned configuration. _Catches:_ a future "parity"
+pass copying the sibling's bare offset, which `DESIGN.md:40` bans. Vacuous
+today by construction; kept so §7's deliberate omission reads as a decision.
 
 **T6 — the row description names the gallery.** Assert the description element
 (scoped to the row's heading block, NOT the whole row — the row also contains a
@@ -426,9 +449,19 @@ Every number in this document, cross-checked against the body it describes:
   the `<h1>` this spec edits, **2** are ledger/closeout prose that §8 rewrites.
 - **3** JSX forms measured by the §3.1(c) probe; **1** produces the correct
   accessible name.
-- **7** tests, all in **1** test file
+- **8** tests (T1, T1b, T2-T7), all in **1** test file
   (`tests/components/admin/settings/DevToolsRow.test.tsx`); **0** new test files
-  (§3.3, R1 F5).
+  (§3.3, R1 F5; T1b added at R2 F6).
+- **Edit-count reconciliation (R2 F8).** The Scope line counts what it says it
+  counts: **3** user-visible text changes (row description, hidden qualifier,
+  destination heading) across **2** source files, **2** Tailwind utility classes
+  (`transition-colors`, `duration-fast`) on **1** shared literal, **4** updates
+  to existing docs/ledgers (§8), and **1** new `closeout.md` belonging to this
+  plan. Earlier drafts said "two copy edits" and "one className token"; both
+  undercounted, and §11 certified them anyway. The doc/ledger count of 4 covers
+  EXISTING documents only — this plan's own closeout is a new artifact, not a
+  ledger update, and is counted separately here and in §8 so the two can never
+  be conflated (R2 F7).
 
 ## 12. Risk
 
