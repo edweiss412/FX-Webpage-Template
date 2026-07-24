@@ -90,7 +90,14 @@ async function open390(page: Page): Promise<void> {
   });
 }
 
-type Box = { name: string; top: number; bottom: number; height: number; right: number; width: number };
+type Box = {
+  name: string;
+  top: number;
+  bottom: number;
+  height: number;
+  right: number;
+  width: number;
+};
 
 const MEASURED = [
   "strip-state-badge-row",
@@ -112,7 +119,14 @@ async function boxes(page: Page): Promise<Record<string, Box>> {
     const r = await page
       .locator(S(name))
       .evaluate((el) => el.getBoundingClientRect().toJSON() as DOMRect);
-    out[name] = { name, top: r.top, bottom: r.bottom, height: r.height, right: r.right, width: r.width };
+    out[name] = {
+      name,
+      top: r.top,
+      bottom: r.bottom,
+      height: r.height,
+      right: r.right,
+      width: r.width,
+    };
   }
   return out;
 }
@@ -126,7 +140,12 @@ function membership(all: Record<string, Box>, names: readonly string[]): string[
     if (line) line.push(b);
     else lines.push([b]);
   }
-  return lines.map((l) => l.map((b) => b.name).sort().join("+"));
+  return lines.map((l) =>
+    l
+      .map((b) => b.name)
+      .sort()
+      .join("+"),
+  );
 }
 
 async function readStatusText(page: Page): Promise<{ health: string; edited: string }> {
@@ -255,7 +274,11 @@ test("badge flush + single state signal + accessible names per breakpoint", asyn
     .evaluate((el) => el.getBoundingClientRect().right);
   const contentRight = await page.locator(BAND).evaluate((el) => {
     const cs = getComputedStyle(el);
-    return el.getBoundingClientRect().right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+    return (
+      el.getBoundingClientRect().right -
+      parseFloat(cs.paddingRight) -
+      parseFloat(cs.borderRightWidth)
+    );
   });
   expect(Math.abs(badgeRight - contentRight)).toBeLessThanOrEqual(1);
   await expect(page.locator(S("strip-live-badge"))).not.toBeVisible();

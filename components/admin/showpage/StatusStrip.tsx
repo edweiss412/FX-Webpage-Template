@@ -78,7 +78,8 @@ function stateBadge(archived: boolean, isLive: boolean, published: boolean): Sta
       pill: "border border-border bg-surface text-text-subtle",
       dot: "bg-text-faint",
     };
-  if (isLive) return { label: "Live", pill: "bg-accent-tint text-accent-on-bg", dot: "bg-accent-on-bg" };
+  if (isLive)
+    return { label: "Live", pill: "bg-accent-tint text-accent-on-bg", dot: "bg-accent-on-bg" };
   if (published)
     return {
       label: "Published",
@@ -308,7 +309,10 @@ export function StatusStrip({
             {/* Clip priority (spec §3 R2): the health/synced span is never
                 sacrificed in favor of the Edited clause; the Edited tail
                 clips first. All max-sm scoped — desktop untouched. */}
-            <span data-testid="strip-synced-line" className="max-sm:whitespace-nowrap max-sm:shrink-0">
+            <span
+              data-testid="strip-synced-line"
+              className="max-sm:whitespace-nowrap max-sm:shrink-0"
+            >
               {syncLabel}
             </span>
             {/* The bullet is the collapse's ONLY new orphan risk: with the
@@ -323,10 +327,7 @@ export function StatusStrip({
                   data-testid="strip-status-bullet"
                   className="size-[3px] shrink-0 rounded-pill bg-border-strong"
                 />
-                <span
-                  data-testid="strip-edited-age"
-                  className="max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden max-sm:text-ellipsis"
-                >
+                <span data-testid="strip-edited-age" className="max-sm:truncate max-sm:min-w-0  ">
                   Edited {editedRel}
                 </span>
               </>
@@ -392,7 +393,10 @@ export function StatusStrip({
           the group on `!archived` would strand the only way back.
           `ml-auto` right-flushes the group against the band's content edge —
           which resolves only because the strip row is `w-full` (see above). */}
-      <div data-testid="share-hub-group" className="ml-auto flex shrink-0 items-center max-sm:w-full">
+      <div
+        data-testid="share-hub-group"
+        className="ml-auto flex shrink-0 items-center max-sm:w-full"
+      >
         <ShareHub
           slug={slug}
           showId={showId}

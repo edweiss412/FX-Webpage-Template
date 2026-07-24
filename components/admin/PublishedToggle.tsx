@@ -144,13 +144,18 @@ export function PublishedToggle({
             : "inline-flex items-center gap-2"
         }
       >
-        <span className={`text-sm font-medium text-text-strong${isSettings ? " max-sm:hidden" : ""}`}>
+        <span
+          className={`text-sm font-medium text-text-strong${isSettings ? " max-sm:hidden" : ""}`}
+        >
           Published
         </span>
         {isSettings ? (
           <span className="hidden max-sm:flex max-sm:min-w-0 max-sm:flex-col">
             <span className="text-sm font-semibold text-text-strong">Published</span>
-            <span data-testid="published-toggle-sublabel" className="truncate text-xs text-text-subtle">
+            <span
+              data-testid="published-toggle-sublabel"
+              className="truncate text-xs text-text-subtle"
+            >
               {settingsSublabel}
             </span>
           </span>

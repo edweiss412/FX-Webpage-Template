@@ -440,7 +440,10 @@ describe("settings variant (spec 2026-07-24-strip-mobile-stacked-band §3 R1)", 
     let resolveAction!: (v: { ok: true }) => void;
     renderSettings({
       published: true,
-      setPublished: () => new Promise((r) => { resolveAction = r; }),
+      setPublished: () =>
+        new Promise((r) => {
+          resolveAction = r;
+        }),
     });
     fireEvent.click(screen.getByTestId("published-toggle"));
     await waitFor(() =>

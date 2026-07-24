@@ -716,12 +716,9 @@ describe("stacked mobile band (spec 2026-07-24-strip-mobile-stacked-band §3)", 
     expect(synced.className).toContain("max-sm:whitespace-nowrap");
     expect(synced.className).toContain("max-sm:shrink-0");
     const edited = screen.getByTestId("strip-edited-age");
-    for (const cls of [
-      "max-sm:whitespace-nowrap",
-      "max-sm:min-w-0",
-      "max-sm:overflow-hidden",
-      "max-sm:text-ellipsis",
-    ]) {
+    // max-sm:truncate is the canonical form of nowrap+overflow-hidden+ellipsis
+    // (better-tailwindcss/enforce-canonical-classes).
+    for (const cls of ["max-sm:truncate", "max-sm:min-w-0"]) {
       expect(edited.className).toContain(cls);
     }
   });
@@ -773,9 +770,17 @@ describe("compound pending (spec 2026-07-24-strip-mobile-stacked-band §8)", () 
           json: async () => ({ ok: true, result: { outcome: "skipped" } }),
         } as unknown as Response);
     });
-    vi.stubGlobal("fetch", vi.fn(() => held));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => held),
+    );
     let releaseAction!: (v: { ok: true }) => void;
-    renderStrip({ setPublished: () => new Promise((r) => { releaseAction = r; }) });
+    renderStrip({
+      setPublished: () =>
+        new Promise((r) => {
+          releaseAction = r;
+        }),
+    });
     fireEvent.click(screen.getByTestId("published-toggle"));
     fireEvent.click(screen.getByTestId("admin-resync-button"));
     await waitFor(() =>

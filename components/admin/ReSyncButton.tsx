@@ -315,7 +315,10 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
             is display:none is excluded from the accessible name. */}
         <span data-testid="admin-resync-desktop-label" className="max-sm:hidden">
           <span className="grid place-items-center">
-            <span aria-hidden="true" className="invisible col-start-1 row-start-1 whitespace-nowrap">
+            <span
+              aria-hidden="true"
+              className="invisible col-start-1 row-start-1 whitespace-nowrap"
+            >
               {pending ? IDLE_LABEL : PENDING_LABEL}
             </span>
             <span className="col-start-1 row-start-1 whitespace-nowrap">
