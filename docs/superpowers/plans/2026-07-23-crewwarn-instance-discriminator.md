@@ -21,6 +21,15 @@
 - Strict tsconfig: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` — never assign `undefined` to an optional key; use conditional spread; `as const` on string-literal fixture fields assigned to union-typed properties.
 - Meta-test inventory (spec §3 test 7): none created/extended — declared "none applies" because no new Supabase boundary, admin mutation, advisory lock, or catalog code.
 
+## Stage 0 — autonomous-run setup (ALREADY EXECUTED; provenance)
+
+Completed 2026-07-23 in this session BEFORE spec drafting, per the AGENTS.md autonomous-ship gate:
+
+- Worktree `/Users/ericweiss/FX-worktrees/crewwarn-instance-discriminator` created off `origin/main` (c9abd2170) via `git worktree add -b feat/crewwarn-instance-discriminator`.
+- `pnpm install` + `pnpm worktree:link-env` (`.env.local` symlink resolves) + `pnpm preflight` → `env ✓ local DB ✓` (known WARN: non-loopback TEST_DATABASE_URL; loopback-guarded DB tests skip locally — none are in this plan's scope).
+- Hourly nudge cron REGISTERED: job id `090260d1` (`23 * * * *`), recorded in the worktree ship-state marker (.claude/ship-state.json, gitignored) under cronJobId. Task 7 Step 5's CronDelete refers to THIS job; it is deleted at that step ONLY (Stage 4.4 rule).
+- Execution start therefore begins directly at Task 1; re-verify with `pnpm preflight` if the session resumed after a pause.
+
 ---
 
 ### Task 1: Producer writes `blockRef.field`
@@ -30,7 +39,7 @@
 - Test: `tests/parser/warnings.test.ts`
 
 **Interfaces:**
-- Produces: FIELD_UNREADABLE warnings whose `blockRef` is `{ kind, index, name, field: "phone" | "email" }`. Tasks 2–5 rely on `blockRef.field`.
+- Produces: FIELD_UNREADABLE warnings whose `blockRef` is `{ kind, index, name, field: "phone" | "email" }`. Tasks 2–4 rely on `blockRef.field` (Task 5 is independent of it).
 
 - [ ] **Step 1: Write the failing test** — extend the existing `emitFieldUnreadable` describe block in `tests/parser/warnings.test.ts`. The message and rawSnippet contracts are pinned IN FULL for BOTH branches (spec §2.1 "message + rawSnippet unchanged"):
 
@@ -96,6 +105,19 @@ test("same-member phone+email FIELD_UNREADABLE with one shared anchor BOTH survi
   expect(operatorActionableWarnings(ws)).toHaveLength(2);
 });
 
+test("fold uses the RAW field string untrimmed: padded vs unpadded field both survive", () => {
+  const base = {
+    severity: "warn" as const, code: "FIELD_UNREADABLE" as const, message: "m",
+    sourceCell: { gid: 7, a1: "B9" },
+  };
+  const ws: ParseWarning[] = [
+    { ...base, rawSnippet: "x", blockRef: { kind: "crew", index: 2, name: "J", field: "phone" } },
+    { ...base, rawSnippet: "y", blockRef: { kind: "crew", index: 2, name: "J", field: " phone " } },
+  ];
+  // Raw-string fold (spec: identity/dedup keys never trim); an implementation that trims would collapse these.
+  expect(operatorActionableWarnings(ws)).toHaveLength(2);
+});
+
 test("legacy field-less pair keeps today's collapse (backward compat)", () => {
   const base = {
     severity: "warn" as const, code: "FIELD_UNREADABLE" as const, message: "m",
@@ -153,6 +175,12 @@ test("FIELD_UNREADABLE identity folds blockRef.field; legacy field-less key is b
   // implementation changes the shared shape (e.g. appends a new "|" slot), this fails.
   expect(warningIdentityKey(mk())).toBe("FIELD_UNREADABLE|7:B9|n/a|crew:2::Jordan|");
   expect(warningIdentityKey(mk("phone"))).not.toBe(warningIdentityKey(mk("email")));
+  // RAW fold, presence-delimited: empty, whitespace, and padded fields are each distinct
+  // from the field-less key AND from each other (an implementation that trims, or that
+  // appends without a presence delimiter, fails one of these).
+  const legacy = warningIdentityKey(mk());
+  const variants = [mk(""), mk(" "), mk("phone"), mk(" phone ")].map(warningIdentityKey);
+  expect(new Set([legacy, ...variants]).size).toBe(5);
   // Downstream wiring: report surfaceIds diverge too (spec 2.1, no shared report draft).
   expect(buildReportSurfaceId("showx", mk("phone"))).not.toBe(buildReportSurfaceId("showx", mk("email")));
   // stableWarningKeys: field-bearing pair needs no occurrence suffix.
@@ -170,8 +198,13 @@ test("FIELD_UNREADABLE identity folds blockRef.field; legacy field-less key is b
 
 ```ts
 const rt = w.code === "UNKNOWN_ROLE_TOKEN" && typeof w.roleToken === "string" ? w.roleToken : "";
+// NUL presence delimiter: a PRESENT-but-empty field ("\0F") stays distinct from a
+// field-less legacy warning (""), mirroring Task 2's NUL-delimited dedup fold; the
+// raw string is folded untrimmed (identity never normalizes).
 const fu =
-  w.code === "FIELD_UNREADABLE" && typeof w.blockRef?.field === "string" ? w.blockRef.field : "";
+  w.code === "FIELD_UNREADABLE" && typeof w.blockRef?.field === "string"
+    ? `\0F${w.blockRef.field}`
+    : "";
 return `${w.code}|${cell}|${snippet}|${br}|${rt}${fu}`;
 ```
 
@@ -259,6 +292,25 @@ test("all three junk at once does not throw; label alone renders", () => {
   expect(bands()[0]?.textContent).toBe("Phone");
 });
 
+test("padded known field maps to its label; padded name/value render trimmed; value testid pinned", () => {
+  const items = [fu({ rawSnippet: "  call the office  ", blockRef: { kind: "crew", index: 2, name: "  Jordan Ellis  ", field: " phone " } })];
+  render(<PerShowActionableWarnings items={items} driveFileId="df" />);
+  // trim happens BEFORE the label mapping (" phone " renders Phone, not the raw string)
+  // and the value span testid is asserted directly, not via band textContent alone
+  const value = screen.getByTestId("per-show-actionable-field-label-value");
+  expect(value.textContent).toBe(`Jordan Ellis · "call the office"`);
+  expect(bands()[0]?.textContent).toBe(`PhoneJordan Ellis · "call the office"`);
+});
+
+test("stray blockRef.field on a non-FIELD_UNREADABLE code renders no field band (code gate)", () => {
+  const stray: ParseWarning = {
+    severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "m", rawSnippet: "MYSTERY",
+    blockRef: { kind: "unknown_section", field: "phone" },
+  };
+  render(<PerShowActionableWarnings items={[stray]} driveFileId="df" />);
+  expect(screen.queryByTestId("per-show-actionable-field-label")).toBeNull();
+});
+
 test("unknown USABLE field renders trimmed as-is; 200-char junk label carries wrap class", () => {
   const junk = "x".repeat(200);
   render(<PerShowActionableWarnings items={[fu({ blockRef: { kind: "crew", index: 2, name: "J", field: ` ${junk} ` } })]} driveFileId="df" />);
@@ -296,7 +348,7 @@ test("staged card renders the full-mode field band for FIELD_UNREADABLE operator
 
 (`textContent` concatenates the label span and value span with no separator — hence `Phone${name}` with no space in expectations. Visual spacing is flex `gap`, exactly like the existing Sheet-row band.)
 
-- [ ] **Step 2: Run** `pnpm vitest run tests/components/perShowActionableWarnings.fieldBand.test.tsx tests/components/StagedReviewCard.test.tsx` — ALL new tests FAIL (testid absent), existing StagedReviewCard tests stay green.
+- [ ] **Step 2: Run** `pnpm vitest run tests/components/perShowActionableWarnings.fieldBand.test.tsx tests/components/StagedReviewCard.test.tsx` — the run is RED: every POSITIVE band test (full-mode, condensed, padded/label-mapping, value-testid, junk-label, staged wiring, and the field-band half of the exclusivity test) FAILS with the testid absent. The negative guard cases (ABSENT field/name/rawSnippet sweeps, stray-field code gate) PASS trivially pre-implementation — expected and recorded; their value is pinning the guard behavior once the band exists. Existing StagedReviewCard tests stay green.
 - [ ] **Step 3: Implement** — in `PerShowActionableWarnings.tsx`, after the `rawLabel`/`detailBand` block (line ~217), add:
 
 ```tsx
@@ -418,17 +470,19 @@ className="min-w-0 text-xs font-semibold uppercase tracking-eyebrow text-text-su
 - Modify: `DEFERRED-archive.md` (receive both full entries)
 - Create: docs/superpowers/plans/2026-07-23-crewwarn-instance-discriminator-closeout.md (new file — §12 holds impeccable findings + dispositions, filled during Task 7; refuted-claims ledger for review rounds)
 
-- [ ] **Step 1:** Write the graduation + archive entries + close-out skeleton (scope, task→commit table, review-round ledger with the spec R1-R3 and plan R1 findings and their dispositions).
+- [ ] **Step 1:** Write the graduation + archive entries + close-out skeleton (scope, task→commit table, review-round ledger covering EVERY adversarial round of both documents through their approvals — spec rounds R1 through its APPROVE, plan rounds R1 through its APPROVE — with each finding's disposition; the ledger is appended, not frozen, if later rounds occur).
 - [ ] **Step 2:** `pnpm format:check` on the touched markdown (prettier rules apply to tracked md; never prettier the master spec).
 - [ ] **Step 3: Commit** `docs: graduate CREWWARN discriminator + eyebrow deferrals; close-out ledger`
 
 ### Task 7: Gates, review, ship
 
-**Files:** fix-up edits only, each committed via the loop below.
+**Files:**
+- Modify: docs/superpowers/plans/2026-07-23-crewwarn-instance-discriminator-closeout.md (§12 impeccable findings + dispositions; review-round ledger updates)
+- Modify (conditional): `DEFERRED.md` (only if an impeccable P0/P1 is explicitly deferred), any source file a gate finding requires — each fix-up committed via the Step 3 loop.
 
 - [ ] **Step 1: Full local verification** — `pnpm test` (check `$?`, not the Tests line — Vitest exits 1 on uncaught errors with all tests passing), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, plus the standalone browser spec from Task 5. All green.
 - [ ] **Step 2: Impeccable dual-gate** (invariant 8 — UI surface touched): `/impeccable critique` AND `/impeccable audit` on the diff, canonical v3 setup gates (context.mjs PRODUCT.md + DESIGN.md → register read). P0/P1 fixed or DEFERRED.md-deferred; findings + dispositions recorded in the close-out doc §12.
-- [ ] **Step 3: Fix-up loop (applies to Steps 2 and 4):** after ANY fix-up edit — commit it (`fix(admin): <finding>` / `docs: <disposition>`), then RE-RUN Step 1 in full. The gate sequence never advances on an uncommitted or unverified tree.
+- [ ] **Step 3: Fix-up loop (applies to Steps 2 and 4):** after ANY fix-up edit — commit it (`fix(admin): <finding>` / `docs: <disposition>`), then RE-RUN Step 1 in full, AND — if the fix touched any UI file (invariant-8 surface set: `app/` non-api, `components/`, globals/tokens/DESIGN.md) — RE-RUN Step 2's impeccable dual-gate on the updated diff and refresh the close-out §12 dispositions BEFORE advancing. Only then (re)dispatch Step 4. Invariant 8 binds the FINAL UI diff, not the first one reviewed; the sequence never advances on an uncommitted, unverified, or un-recritiqued tree.
 - [ ] **Step 4: Whole-diff Codex review** (fresh-eyes posture; inline mode if repo-access attempts wedge) over the COMPLETE branch diff INCLUDING Task 6's docs edits and any Step 2 fix-ups, to APPROVE. Findings → Step 3 loop → re-dispatch.
 - [ ] **Step 5: Ship** — push, PR, real CI green (merge-ref rebuilt if behind main), `gh pr merge --merge`, fast-forward local main, verify `git rev-list --left-right --count main...origin/main` == `0 0`, CronDelete the nudge job (Stage 4.4 — the ONLY permitted delete site).
 
