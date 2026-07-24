@@ -104,6 +104,7 @@ export type ScenarioGroupId =
   | "changes"
   | "warnings"
   | "mixed"
+  | "actions"
   | "baseline";
 
 export const GROUP_ORDER: readonly ScenarioGroupId[] = [
@@ -113,6 +114,7 @@ export const GROUP_ORDER: readonly ScenarioGroupId[] = [
   "event",
   "changes",
   "warnings",
+  "actions",
   "mixed",
   "baseline",
 ];
@@ -125,5 +127,6 @@ export const GROUP_LABELS: Record<ScenarioGroupId, string> = {
   changes: "Changes",
   warnings: "Warnings",
   mixed: "Mixed",
+  actions: "Action outcomes",
   baseline: "Baseline",
 };
