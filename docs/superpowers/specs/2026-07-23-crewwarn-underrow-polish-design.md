@@ -1,7 +1,7 @@
 # Crew warning under-row polish — indent binding, condensed copy, cap fixture
 
 Date: 2026-07-23
-Status: draft (autonomous-ship pipeline; user gates waived per AGENTS.md checkpoint, approved 2026-07-23)
+Status: SHIPPED via feat/crewwarn-underrow-polish (Codex spec APPROVE R5, plan APPROVE R3; close-out: docs/superpowers/plans/2026-07-23-crewwarn-underrow-polish-closeout.md). The three findings graduated to DEFERRED-archive.md; the DEFERRED.md line cites below describe the queue as it stood at drafting time (2026-07-23) and now resolve in the archive under "Crew warning under-row polish (2026-07-23)".
 Findings addressed (DEFERRED.md, 2026-07-23 reconcile):
 
 - `CREWWARN-UNDERROW-INDENT-1` — [P1, partially fixed] under-row warning card binds to its member by spacing only (DEFERRED.md:11)

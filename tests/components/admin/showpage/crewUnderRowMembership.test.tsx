@@ -200,6 +200,36 @@ describe("§5 active↔ignored variant flip (both directions)", () => {
     return v!;
   };
 
+  it("active→ignored RERENDER: capped under-row card moves to the group full/muted; cap disclosure collapses", () => {
+    // Start ACTIVE (whole-diff R1 F1: the flip must be exercised as a rerender in
+    // THIS direction too, not mounted directly in the ignored state).
+    const { rerender } = render(<Harness warnings={[W1, W2, W3]} />);
+    expect(detailsEl()!.textContent).toContain("1 more");
+    rerender(<Harness warnings={[W1, W2, W3]} ignoredFingerprints={new Set([fp()])} />);
+    expect(detailsEl()).toBeNull();
+    expect(visibleIds()).toHaveLength(2);
+    expect(hasId(visibleIds(), W3)).toBe(false);
+    const ignored = screen.getByTestId("section-ignored-list-crew");
+    expect(within(ignored).getAllByTestId("per-show-actionable-guidance").length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("ignoring a VISIBLE warning of a capped stack promotes hidden[0] (flip + promotion compose)", () => {
+    // W1 is visible, W3 hidden. Ignoring W1 must promote W3 into the visible pair
+    // (whole-diff R1 F1: ordering-sensitive cap promotion in the ignore flow).
+    const v = warningFingerprint(W1);
+    expect(v).not.toBeNull();
+    const { rerender } = render(<Harness warnings={[W1, W2, W3]} />);
+    expect(hasId(visibleIds(), W3)).toBe(false);
+    rerender(<Harness warnings={[W1, W2, W3]} ignoredFingerprints={new Set([v!])} />);
+    const after = visibleIds();
+    expect(after).toHaveLength(2);
+    expect(hasId(after, W1)).toBe(false);
+    expect(hasId(after, W3)).toBe(true);
+    expect(detailsEl()).toBeNull();
+  });
+
   it("ignored card renders FULL copy, muted, unindented in the group; under-row card unmounts", () => {
     render(<Harness warnings={[W1, W2, W3]} ignoredFingerprints={new Set([fp()])} />);
     expect(detailsEl()).toBeNull();
