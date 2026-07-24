@@ -102,6 +102,10 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/sign-in-page.spec.ts": UNSEEN,
   "tests/e2e/skeletonBandParity.spec.ts": PATH_GATED,
   "tests/e2e/source-link-dimensional.spec.ts": UNSEEN,
+  // Landed on main via the sibling strip-mobile-stacked-band branch while this
+  // guard was in flight - part of the pre-existing inventory, not a post-guard
+  // regression.
+  "tests/e2e/stackedBandLayout.spec.ts": UNSEEN,
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": UNSEEN,
   "tests/e2e/status-financials.spec.ts": UNSEEN,
   "tests/e2e/statusStripToggleLayout.spec.ts": PATH_GATED,
