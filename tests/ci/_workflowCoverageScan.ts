@@ -110,7 +110,8 @@ export function scanWorkflowCoverage({ workflows, packageScripts }: Opts): {
         const stepCoe = /(^|\n)\s*continue-on-error\s*:\s*true/.test(step);
         for (const spec of resolveSpecs(cmd)) {
           if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
-          else if (hasPathsFilter) rejected.push({ file, spec, reason: "pull_request.paths filter" });
+          else if (hasPathsFilter)
+            rejected.push({ file, spec, reason: "pull_request.paths filter" });
           else if (jobIf || stepIf) rejected.push({ file, spec, reason: "if: condition present" });
           else if (jobCoe || stepCoe) rejected.push({ file, spec, reason: "continue-on-error" });
           else if (SUPPRESS_RE.test(cmd))

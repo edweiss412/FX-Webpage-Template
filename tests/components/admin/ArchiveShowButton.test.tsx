@@ -236,7 +236,6 @@ describe("ArchiveShowButton — row variant (hub popover)", () => {
     expect(onBusyChange).toHaveBeenLastCalledWith(false);
   });
 
-
   it("armed: consequence renders as PROSE the confirm points at, and the label stays short", async () => {
     const { getByTestId } = renderRow();
     fireEvent.click(getByTestId("archive-show-button"));

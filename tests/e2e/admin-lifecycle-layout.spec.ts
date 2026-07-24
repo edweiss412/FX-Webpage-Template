@@ -396,5 +396,4 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       geom.scrollTop + geom.clientHeight + TOL,
     );
   });
-
 });
