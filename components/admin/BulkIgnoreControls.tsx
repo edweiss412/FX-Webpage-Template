@@ -158,7 +158,7 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
               {group.label ? (
                 <span
                   data-testid={`dq-group-label-${group.code}`}
-                  className="min-w-0 truncate text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+                  className="min-w-0 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
                 >
                   {group.label}
                 </span>
