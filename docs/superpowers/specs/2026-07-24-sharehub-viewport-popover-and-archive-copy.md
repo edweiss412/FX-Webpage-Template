@@ -95,8 +95,9 @@ Verify the citation; do not re-derive the decision.
 | Archive is REVERSIBLE. Copy must not call it permanent. | `supabase/migrations/20260601000000_b2_show_lifecycle.sql:84-110`; `ShareHub.tsx:624-629` |
 | `SHAREHUB-ARCHIVE-GRAVITY-CUE-1` closes as **refuted**, not deferred-again and not fixed. | Owner decision, 2026-07-24 brainstorm |
 | The popover stays a popover. It does NOT become a bottom sheet below `sm`. | Owner decision, 2026-07-24 brainstorm (offered, declined) |
+| The caret keeps bespoke HORIZONTAL centring instead of consuming `placement.caret`. Bounded carve-out: the module's caret contract is specified for a 12px triangle while the hub caret is a 10px rotated square, so its coordinates would misalign. The carve-out still honours the module's corner constraint. | §2.1.3; `lib/popover/position.ts:18`, `lib/popover/position.ts:23`; `ShareHub.tsx:687` |
 | Rotate's and Reset's copy are UNCHANGED. The pair stops rhyming because Archive leads with what it does. | §2.2 |
-| The `scrollIntoView` arming handler (`ShareHub.tsx:608-622`) is RETAINED, not deleted. | §2.1.5 |
+| The `scrollIntoView` arming handler (`ShareHub.tsx:608-622`) is RETAINED, not deleted. | §2.1.6 |
 | The popover's `w-[308px]`, backdrop, Escape semantics, focus-on-open, and busy-gate contract are UNCHANGED. | `ShareHub.tsx:54-59`, `ShareHub.tsx:326-365`, `ShareHub.tsx:471-487` |
 | `PublishedToggle`'s overlay is out of scope with a stated reason (no internal scroller, so no stranded-tail failure mode). | §1.1 sweep table, §7 |
 
@@ -161,7 +162,18 @@ The elaborate `z-30`-only-while-open dance on the hub root (`ShareHub.tsx:40-52`
 
 Once the popover portals to the panel, the hub root no longer needs to raise itself at all: the popover is not its descendant. The root's `open ? "z-30" : ""` is therefore **removed**, and the popover carries its own z-index within the portal host. The T-HUB-ZORDER real-browser test named at `ShareHub.tsx:51` is the regression proof and must still pass; §5.3 adds the attention-menu interaction case explicitly.
 
-#### 2.1.5 The arming scroll handler is retained
+#### 2.1.5 The backdrop stays in the hub root, with an explicit order
+
+`ShareHub.tsx:373-384` renders `share-hub-backdrop` as a `fixed inset-0 z-20` button inside the hub root. It is **not** moved into the portal: it is viewport-fixed, so it needs no host, and moving it would put the dismissal surface and the dialog in the same stacking context for no gain.
+
+It does need an explicit order, because §2.1.4 removes the root's `z-30` and that changes the mechanism by which today's behavior happens:
+
+- **Today:** the root's `z-30`-while-open puts both the backdrop (`z-20` inside that context) and the popover (`z-40`, also inside) above the header attention menu's `z-20` panel (`components/admin/showpage/AttentionMenu.tsx:119`). A backdrop covering the menu while the hub is open is therefore already shipped behavior, not something this migration introduces.
+- **After:** the root establishes no stacking context, so the backdrop's `z-20` competes directly with the menu's `z-20` and resolves by tree order — the status strip comes later in the document than the modal header, so the backdrop still wins.
+
+Same outcome, different mechanism. Accidental equivalence is exactly what a later edit breaks silently, so the backdrop gets an explicit z-index ordered against the portaled popover rather than relying on document order, and §5.4 adds the assertion that a backdrop click closes the hub while the attention menu is open.
+
+#### 2.1.6 The arming scroll handler is retained
 
 The `onClick` + `requestAnimationFrame` + `scrollIntoView(confirm, { block: "end" })` handler (`ShareHub.tsx:608-622`) is unchanged. Its contract was always "scroll the popover's own scroller so the armed confirm sits at block-end", and §9 confirms it does exactly that (`after == offsetTop + offsetHeight - clientHeight`). It was never the defect — the scrollport it correctly scrolled was itself off-screen. Once §2.1.2 places the body inside `bounds`, the handler produces a visible result.
 
@@ -273,7 +285,12 @@ The existing test at `admin-lifecycle-layout.spec.ts:305` is **retained and upda
 
 ### 5.4 Regression — stacking
 
-T-HUB-ZORDER (`ShareHub.tsx:51`) must still pass after the `z-30` removal, plus an added case: with the hub popover open, the header attention menu's panel receives clicks.
+T-HUB-ZORDER (`ShareHub.tsx:51`) must still pass after the `z-30` removal, plus two added cases:
+
+1. With the hub popover open, the header attention menu's panel receives clicks.
+2. With the attention menu open, clicking `share-hub-backdrop` closes the hub (§2.1.5's explicit ordering, so the assertion does not silently depend on document order).
+
+Both use `elementFromPoint`, not computed style or class reads — `ShareHub.tsx:51` and the shipped T-HUB-ZORDER body both record that a class assertion passes against a wrapper that is elevated but still loses in paint order, which is precisely the bug.
 
 ---
 
@@ -389,7 +406,7 @@ Readings:
 
 - The popover lands **entirely inside `bounds` at every height** (`withinBounds: true`), which is the §3 T-FIT-1 invariant.
 - The side flips exactly where the arithmetic says it should: `bottom` at 844 (362px of room below beats 283 above), `top` at 667 and 560 (212 and 121 below, against 283 above).
-- The armed Confirm **and** Cancel become reachable at every height (`reachable: true`), against `false` at all five heights today (§9.2). At 667 and 560 reachability requires scrolling the popover's own scroller to its maximum, which is exactly what the retained arming handler (§2.1.5) does.
+- The armed Confirm **and** Cancel become reachable at every height (`reachable: true`), against `false` at all five heights today (§9.2). At 667 and 560 reachability requires scrolling the popover's own scroller to its maximum, which is exactly what the retained arming handler (§2.1.6) does.
 - `natural` measures 583 (border-box height with caps cleared), not the 578 `scrollHeight` reported in §9.1 — the 5px delta is the body's top and bottom borders plus rounding. §5.1's unit case uses the border-box figure, since that is what `computePopoverPlacement`'s metric contract specifies (`lib/popover/position.ts:11-13`).
 
 At 390x560 today's comparison stands: 390px of body of which 129px is on screen and the confirm unreachable at any scroll, versus a 283px body fully on screen with every control reachable.
