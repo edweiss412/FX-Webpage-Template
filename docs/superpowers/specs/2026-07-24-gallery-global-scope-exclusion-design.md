@@ -116,15 +116,17 @@ export const GLOBAL_SCOPE_CODES: ReadonlySet<string> = new Set([ /* the nine, so
 
 ```ts
 /**
- * A scenario is show-scope reachable unless its alerts are BOTH entirely
- * global-scope AND the only thing it would show. A global code riding along
- * with a fixture, warning, hold, or other carrier still exercises a real modal
- * state, so the scenario keeps its card.
+ * A scenario is show-scope reachable iff NONE of its alerts is global-scope.
+ *
+ * ANY global-scope alert makes the rendered card fiction, because
+ * `deriveScenarioAttention` derives an item for it and the modal renders that
+ * item. A carrier, a hold, or a per-show sibling alert changes what ELSE the
+ * card shows; it does not make the global alert reachable. `fetchPerShowAlerts`
+ * still filters `.eq("show_id", showId)` regardless of what else is on the show
+ * (lib/adminAlerts/fetchPerShowAlerts.ts:83).
  */
 export function isShowScopeReachable(s: AttentionScenario): boolean {
-  if (s.alerts.length === 0) return true;
-  if (!s.alerts.every((a) => GLOBAL_SCOPE_CODES.has(a.code))) return true;
-  return hasNonAlertCarrier(s) || s.holds.length > 0;
+  return !s.alerts.some((a) => GLOBAL_SCOPE_CODES.has(a.code));
 }
 ```
 
@@ -132,18 +134,25 @@ export function isShowScopeReachable(s: AttentionScenario): boolean {
 
 | input | result | why |
 | --- | --- | --- |
-| `alerts: []` | reachable (kept) | nothing alert-shaped to judge; baseline/warning/fixture scenarios are untouched |
-| all alert codes global-scope, no carrier, no holds | NOT reachable (excluded) | the four tier-1 scenarios; the card would be pure fiction |
-| all alert codes global-scope, has a carrier or holds | reachable (kept) | the carrier is the real state under review; the alert is incidental |
-| any alert code not global-scope | reachable (kept) | a mixed scenario is reproducible in production |
-| unknown / uncataloged code | reachable (kept) | absent from `GLOBAL_SCOPE_CODES`, so `every` is false; fail toward VISIBLE, matching the exclusion-not-allowlist posture at `DOUG_EXCLUDED_CODES` (`lib/adminAlerts/audience.ts:34`) |
+| `alerts: []` | reachable (kept) | nothing alert-shaped to judge; baseline, warning, hold, and fixture scenarios are untouched |
+| every alert code global-scope | NOT reachable (excluded) | the four tier-1 scenarios; the card would be pure fiction |
+| some alert code global-scope, some not | NOT reachable (excluded) | the global item still renders. §4.5 is the worked instance: `T3_FULL_SPLIT` mixed one global code with three reachable ones and a hold, and its rendered Monitoring count was a state production cannot produce |
+| every alert code per-show or unknown | reachable (kept) | nothing renders that production could not |
+| unknown / uncataloged code | reachable (kept) | absent from `GLOBAL_SCOPE_CODES`, so `some` is false; fail toward VISIBLE, matching the exclusion-not-allowlist posture at `DOUG_EXCLUDED_CODES` (`lib/adminAlerts/audience.ts:34`) |
 
-### 4.2 Carrier helper (refactor)
+**Why `some`, not `every`** (round-1 review, BLOCKING). An earlier draft kept a mixed scenario on the theory that "the carrier is the real state under review; the alert is incidental." That is wrong: the modal has no way to render a scenario partially. Every declared alert that survives `deriveAttentionItems` becomes a visible item, so one global code contaminates the whole card. The earlier draft also contradicted §4.5, which removes a global code from a mixed scenario for exactly this reason — two sections applying opposite standards to the same situation.
 
-Today `isModalVisible` inlines its carrier list (`buildSwitcherScenarios.ts:45-56`). That list is extracted verbatim into a module-local `hasNonAlertCarrier(s)` and both predicates call it, so the two can never drift:
+**Excluding a mixed scenario is a last resort, not the remedy.** Silently dropping a composite would lose the real coverage its other alerts, holds, and sections provide. The remedy is to keep global codes OUT of composites, enforced structurally rather than left to review: §6 test 5 walks the whole scenario catalogue and fails if any tier-2 or tier-3 scenario declares a global-scope code. Tier 1 is exempt by construction — its one-scenario-per-route-key fan-out is what the exclusion axis exists to handle. So in practice the `some` predicate fires only on tier-1 cards, and a composite that would be dropped fails at authoring time with a readable message instead.
+
+### 4.2 The carrier list stays where it is
+
+`isModalVisible` inlines its carrier list (`buildSwitcherScenarios.ts:45-56`). With §4.1's predicate reduced to a single `some` call there is no second consumer, so **the extraction is dropped**: it would be a one-caller indirection whose only justification (keeping two predicates in step) no longer exists. `isModalVisible` is left exactly as it is today.
+
+The list is reproduced here only so a reviewer can confirm §4.1 needs nothing from it:
 
 ```ts
-function hasNonAlertCarrier(s: AttentionScenario): boolean {
+// (reproduced from isModalVisible for reference; NOT extracted, NOT edited)
+function carrierTerms(s: AttentionScenario): boolean {
   return (
     (s.warnings?.length ?? 0) > 0 ||
     s.degraded === true ||
@@ -155,9 +164,7 @@ function hasNonAlertCarrier(s: AttentionScenario): boolean {
 }
 ```
 
-`isModalVisible` becomes `deriveScenarioAttention(s).length > 0 || hasNonAlertCarrier(s) || (s.alerts.length === 0 && s.holds.length === 0)` — semantically identical to today, term for term. This is a pure extraction: no behavior change, and §6 pins that with a test asserting the rendered set is unchanged apart from the four.
-
-`hasNonAlertCarrier` is module-local (not exported): it is an implementation detail of the two predicates, and exporting it would invite a third caller with different semantics.
+`isModalVisible` is UNCHANGED by this spec. §6 test 4 still pins the rendered set against a pre-change baseline, so an accidental edit to it fails loudly.
 
 ### 4.3 Partition order
 
@@ -207,6 +214,8 @@ Two of the three are global-only, so a real show modal's Monitoring group can ho
 
 **Resolution.** The `SYNC_STALLED` row is removed from `T3_FULL_SPLIT`. There is no per-show-reachable substitute — the plural state is unreachable by construction, not merely unfixtured — so the composite pill becomes `1 to confirm · 2 to review · 1 monitoring`. Fidelity beats coverage of an impossible state; a composite that teaches an operator a count production cannot produce is the same defect as a tier-1 card for an unreachable code, one layer up.
 
+**The catalogue rule this generalizes to.** Removing this one row fixes today's instance and nothing else. §4.1's predicate would exclude a future composite that added a global code, but excluding it silently would cost the composite's real coverage without telling anyone. So the rule is stated and enforced: **no tier-2 or tier-3 scenario may declare a global-scope alert code.** §6 test 5 walks the whole catalogue and fails by default, naming the offending scenario and code. Tier 1 is exempt by construction — its one-scenario-per-route-key fan-out is precisely what the exclusion axis handles.
+
 After the removal the composite still derives: 1 actionable (the hold), 2 needs-look (`SHEET_UNAVAILABLE`, `RESYNC_QUALITY_REGRESSED`), 1 self-heal (`DRIVE_FETCH_FAILED`) — so every group in the split remains non-empty and the scenario keeps its purpose.
 
 ---
@@ -218,11 +227,13 @@ After the removal the composite still derives: 1 actionable (the hold), 2 needs-
 ```tsx
 {global.length > 0 && (
   <p className="text-xs text-text-subtle">
-    {global.length} dashboard-level alerts. These are never attached to a show, so this modal
-    cannot show them.
+    {global.length} dashboard-level {global.length === 1 ? "alert" : "alerts"}. Never attached to
+    a show, so this modal cannot show {global.length === 1 ? "it" : "them"}.
   </p>
 )}
 ```
+
+The count can legitimately be 1 (a single global-scope code, or a future registry where only one leaks), and `1 dashboard-level alerts` is wrong, so the line pluralizes rather than assuming the plural. The sibling cut line needs no equivalent because its phrasing is already number-neutral (`{cut.length} cut from the published attention surface`, `components/admin/dev/SwitcherControls.tsx:139-143`).
 
 with `const global = excluded.filter((e) => e.reason === "global");` beside the existing two (`components/admin/dev/SwitcherControls.tsx:67-68`).
 
@@ -266,14 +277,16 @@ TDD per invariant 1: failing test, minimal implementation, passing test, commit,
 | --- | --- | --- |
 | 1 | `tests/adminAlerts/_metaGlobalScopeCodes.test.ts (new)`: `GLOBAL_SCOPE_CODES` set-equal to `globalOnlyCodes()` | a producer-scope reclassification, or a new global code, drifting from the lib-side set |
 | 2 | `globalOnlyCodes()` unit: a code with both scopes is NOT global-only; a `seed: true` global row does not make its code global-only | the two projection edge cases; derived from synthetic rows, not from `PRODUCER_SCOPE`, so it cannot pass by coincidence of today's data |
-| 3 | `isShowScopeReachable` truth table: every §4.1 guard row, using synthetic scenarios | a predicate that ignores the carrier arm, or one that excludes on ANY global code rather than ALL |
+| 3 | `isShowScopeReachable` truth table: every §4.1 guard row, using synthetic scenarios | the `every`-instead-of-`some` inversion (which would keep every mixed scenario), and a predicate that returns a constant |
 | 4 | `partitionScenarios`: `excluded.filter(reason === "global")` ids are EXACTLY the four, pinned as a checked-in list | drift in either direction, matching the `EXPECTED_CUT_IDS` pin idiom |
-| 5 | `partitionScenarios`: `EXPECTED_CUT_IDS` still matches exactly, and no id appears under two reasons | the ordering contract in §4.3; a reordering that relabels the five health globals fails here |
-| 6 | `partitionScenarios`: the rendered id set equals today's rendered set minus exactly the four | the §4.2 extraction is behavior-preserving; a carrier-list typo that drops an unrelated scenario fails here |
+| 5 | catalogue guard: NO tier-2 or tier-3 scenario declares a code in `GLOBAL_SCOPE_CODES` | the general case behind §4.5. Walks every scenario rather than checking `T3_FULL_SPLIT` by name, so a NEW composite carrying a global code fails by default instead of being silently dropped by the partition |
+| 5b | `partitionScenarios`: `EXPECTED_CUT_IDS` still matches exactly, and no id appears under two reasons | the ordering contract in §4.3; a reordering that relabels the five health globals fails here |
+| 5c | `partitionScenarios`: the rendered id set equals the pre-change baseline minus exactly the four | any unrelated scenario moving; also pins that `isModalVisible` was not disturbed |
+| 6 | e2e: the excluded panel renders the global line's count, mirroring the existing `CUT` assertion | the paragraph never reaching the real DOM (the component test renders it in isolation; only the e2e proves the server-derived list reaches the page) |
 | 7 | `switcherControls.test.tsx`: global-only panel shows only the global line; mixed shows all three; the count text reflects the global list length | a paragraph gated on the wrong list, or on `excluded.length` instead of its own |
 | 8 | `fullSplitComposite.test.ts` / `fullSplitCompositeRender.test.tsx`: `T3_FULL_SPLIT` derives 1 actionable / 2 needs-look / 1 self-heal, and the pill reads `1 to confirm · 2 to review · 1 monitoring` | the §4.5 removal; a revert that re-adds a global code to the composite fails the derived-count assertion, not just the rendered string |
 
-**Anti-tautology notes.** Test 4 derives its expectation from a checked-in id list, never from `GLOBAL_SCOPE_CODES` (deriving it from the same constant the implementation reads would pass no matter what the predicate does). Test 6 captures the baseline rendered set from the committed pre-change output, not by re-running the new code. Test 3 asserts against synthetic scenarios with explicitly constructed carriers, so a predicate that returns a constant fails at least one row.
+**Anti-tautology notes.** Test 4 derives its expectation from a checked-in id list, never from `GLOBAL_SCOPE_CODES` (deriving it from the same constant the implementation reads would pass no matter what the predicate does). Test 5c captures the baseline rendered set from the committed pre-change output, not by re-running the new code. Test 5 walks `ALL_SCENARIOS` rather than naming `T3_FULL_SPLIT`, so it fails by default for a scenario that does not exist yet. Test 3 asserts against synthetic scenarios with explicitly constructed carriers, so a predicate that returns a constant fails at least one row.
 
 ---
 
@@ -285,7 +298,7 @@ TDD per invariant 1: failing test, minimal implementation, passing test, commit,
 | `tests/adminAlerts/alertProducerScope.registry.ts` | add exported `globalOnlyCodes()` |
 | `tests/adminAlerts/_metaGlobalScopeCodes.test.ts (new)` | NEW — set-equality pin + projection unit tests |
 | `lib/dev/galleryModalTypes.ts:55` | widen `ExcludedScenario["reason"]` with `"global"` |
-| `app/admin/dev/attention-gallery/buildSwitcherScenarios.ts` | extract `hasNonAlertCarrier`; add `isShowScopeReachable`; third partition arm |
+| `app/admin/dev/attention-gallery/buildSwitcherScenarios.ts` | add `isShowScopeReachable`; third partition arm (`isModalVisible` unchanged) |
 | `components/admin/dev/SwitcherControls.tsx` | third paragraph + its filter |
 | `lib/admin/attentionItems.ts` | inline comment on the four route rows (registry-totality row; not per-show reachable) |
 | `tests/app/admin/attentionModalGallery.serverProps.test.ts` | add `EXPECTED_GLOBAL_IDS` pin; keep `EXPECTED_CUT_IDS` unchanged; add the no-double-reason and rendered-set-delta tests |
@@ -294,6 +307,7 @@ TDD per invariant 1: failing test, minimal implementation, passing test, commit,
 | `lib/dev/attentionScenarios/tier3.ts:113-114` | remove the `SYNC_STALLED` row from `T3_FULL_SPLIT` and its stale comment (§4.5) |
 | `tests/dev/fullSplitComposite.test.ts:28` | drop `SYNC_STALLED` from the code list; self-heal count 2 → 1 |
 | `tests/dev/fullSplitCompositeRender.test.tsx:53-56` | pill text and monitoring-row count 2 → 1 |
+| `tests/e2e/attention-modal-gallery.spec.ts:148-151` | derive `GLOBAL` beside `STRUCTURAL`/`CUT`; assert the global line's count renders, mirroring the existing `CUT` assertion at `tests/e2e/attention-modal-gallery.spec.ts:392` |
 
 `tests/app/admin/attentionGalleryPage.test.tsx:26` builds its `EXCLUDED` fixture with `reason: "cut" as const`; widening the union does not break it and it needs no edit. `tests/admin/dev/filesMembership.test.ts` walks `app/admin/dev/` for ROUTE_FILES (`page.tsx`, `actions.ts`, `route.ts`, `layout.tsx`); `buildSwitcherScenarios.ts` is a helper module, not a route file, and no new route file is added, so no registration is needed.
 
