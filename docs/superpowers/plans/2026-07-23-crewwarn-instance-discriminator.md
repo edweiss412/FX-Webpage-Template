@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- TDD per task: failing test → minimal implementation → passing test → commit (invariant 1). Commit per task, conventional-commits (invariant 6). Every test in this plan is written and observed RED before the production change it exercises.
+- TDD per task: failing test → minimal implementation → passing test → commit (invariant 1). Commit per task, conventional-commits (invariant 6). Every PRODUCTION change is preceded by at least one test observed RED against it; explicitly-identified guard/regression tests (each named in its task's Step 2) legitimately start green and are recorded as guards, not red evidence.
 - No catalog / §12.4 edits; no new `code:` literals (spec §1.1 #6).
 - IGNORE fingerprint (`warningFingerprint`) untouched (spec §1.1 #5).
 - USABLE rule everywhere a band segment renders: `typeof v === "string" && v.trim().length > 0`, render trimmed; anything else ⇒ segment absent; `.trim()` never runs on a non-string (spec §2.2). Render rule only — identity/dedup keys use the raw string untrimmed.
@@ -129,11 +129,24 @@ test("legacy field-less pair keeps today's collapse (backward compat)", () => {
   ];
   expect(operatorActionableWarnings(ws)).toHaveLength(1);
 });
+
+test("presence delimiter: field-less vs present-but-empty field are distinct keys (both survive)", () => {
+  const base = {
+    severity: "warn" as const, code: "FIELD_UNREADABLE" as const, message: "m",
+    sourceCell: { gid: 7, a1: "B9" },
+  };
+  const ws: ParseWarning[] = [
+    { ...base, rawSnippet: "x", blockRef: { kind: "crew", index: 2, name: "Jordan" } },
+    { ...base, rawSnippet: "y", blockRef: { kind: "crew", index: 2, name: "Jordan", field: "" } },
+  ];
+  // The NUL delimiter makes "" a PRESENT discriminator; without it this pair aliases and collapses.
+  expect(operatorActionableWarnings(ws)).toHaveLength(2);
+});
 ```
 
 (Adapt `sourceCell` construction to the file's existing anchor fixture helper if one exists.)
 
-- [ ] **Step 2: Run** `pnpm vitest run tests/parser/operatorActionableWarnings.test.ts` — first test FAILS (length 1), second passes.
+- [ ] **Step 2: Run** `pnpm vitest run tests/parser/operatorActionableWarnings.test.ts` — RED: the phone/email survival test, the padded-vs-unpadded test, and the presence-delimiter test ALL fail (each collapses to length 1 pre-fix). The legacy-collapse test starts GREEN by design — it is the backward-compat guard, recorded as such.
 - [ ] **Step 3: Implement** — in `lib/parser/dataGaps.ts`, extend the FIELD_UNREADABLE branch of `rowDisc`:
 
 ```ts
@@ -348,7 +361,7 @@ test("staged card renders the full-mode field band for FIELD_UNREADABLE operator
 
 (`textContent` concatenates the label span and value span with no separator — hence `Phone${name}` with no space in expectations. Visual spacing is flex `gap`, exactly like the existing Sheet-row band.)
 
-- [ ] **Step 2: Run** `pnpm vitest run tests/components/perShowActionableWarnings.fieldBand.test.tsx tests/components/StagedReviewCard.test.tsx` — the run is RED: every POSITIVE band test (full-mode, condensed, padded/label-mapping, value-testid, junk-label, staged wiring, and the field-band half of the exclusivity test) FAILS with the testid absent. The negative guard cases (ABSENT field/name/rawSnippet sweeps, stray-field code gate) PASS trivially pre-implementation — expected and recorded; their value is pinning the guard behavior once the band exists. Existing StagedReviewCard tests stay green.
+- [ ] **Step 2: Run** `pnpm vitest run tests/components/perShowActionableWarnings.fieldBand.test.tsx tests/components/StagedReviewCard.test.tsx` — the run is RED: every POSITIVE band test (full-mode, condensed, padded/label-mapping, value-testid, junk-label, staged wiring, and the field-band half of the exclusivity test) FAILS with the testid absent. Two groups start GREEN by design and are recorded as such: the six ABSENT-field cases and the stray-code gate (both assert the band's absence, true before the band exists). Every OTHER case fails — including the ABSENT-name and ABSENT-rawSnippet sweeps and the all-junk label-only case, whose expectations require a rendered band with partial content. Existing StagedReviewCard tests stay green.
 - [ ] **Step 3: Implement** — in `PerShowActionableWarnings.tsx`, after the `rawLabel`/`detailBand` block (line ~217), add:
 
 ```tsx
@@ -481,9 +494,9 @@ className="min-w-0 text-xs font-semibold uppercase tracking-eyebrow text-text-su
 - Modify (conditional): `DEFERRED.md` (only if an impeccable P0/P1 is explicitly deferred), any source file a gate finding requires — each fix-up committed via the Step 3 loop.
 
 - [ ] **Step 1: Full local verification** — `pnpm test` (check `$?`, not the Tests line — Vitest exits 1 on uncaught errors with all tests passing), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, plus the standalone browser spec from Task 5. All green.
-- [ ] **Step 2: Impeccable dual-gate** (invariant 8 — UI surface touched): `/impeccable critique` AND `/impeccable audit` on the diff, canonical v3 setup gates (context.mjs PRODUCT.md + DESIGN.md → register read). P0/P1 fixed or DEFERRED.md-deferred; findings + dispositions recorded in the close-out doc §12.
+- [ ] **Step 2: Impeccable dual-gate** (invariant 8 — UI surface touched): `/impeccable critique` AND `/impeccable audit` on the diff, canonical v3 setup gates (context.mjs PRODUCT.md + DESIGN.md → register read). P0/P1 fixed or DEFERRED.md-deferred; findings + dispositions recorded in the close-out doc §12 — ALWAYS, including an explicit "no findings" entry when both gates pass clean — and that §12 update is COMMITTED (`docs: impeccable dual-gate dispositions`) before Step 4 dispatches.
 - [ ] **Step 3: Fix-up loop (applies to Steps 2 and 4):** after ANY fix-up edit — commit it (`fix(admin): <finding>` / `docs: <disposition>`), then RE-RUN Step 1 in full, AND — if the fix touched any UI file (invariant-8 surface set: `app/` non-api, `components/`, globals/tokens/DESIGN.md) — RE-RUN Step 2's impeccable dual-gate on the updated diff and refresh the close-out §12 dispositions BEFORE advancing. Only then (re)dispatch Step 4. Invariant 8 binds the FINAL UI diff, not the first one reviewed; the sequence never advances on an uncommitted, unverified, or un-recritiqued tree.
-- [ ] **Step 4: Whole-diff Codex review** (fresh-eyes posture; inline mode if repo-access attempts wedge) over the COMPLETE branch diff INCLUDING Task 6's docs edits and any Step 2 fix-ups, to APPROVE. Findings → Step 3 loop → re-dispatch.
+- [ ] **Step 4: Whole-diff Codex review** (fresh-eyes posture; inline mode if repo-access attempts wedge) over the COMPLETE branch diff INCLUDING Task 6's docs edits and any Step 2 fix-ups, to APPROVE. Findings → Step 3 loop → re-dispatch. On APPROVE: append the final verdict to the close-out review ledger and COMMIT it (`docs: whole-diff review APPROVE ledger entry`) — Step 5 never starts from an uncommitted or stale close-out document.
 - [ ] **Step 5: Ship** — push, PR, real CI green (merge-ref rebuilt if behind main), `gh pr merge --merge`, fast-forward local main, verify `git rev-list --left-right --count main...origin/main` == `0 0`, CronDelete the nudge job (Stage 4.4 — the ONLY permitted delete site).
 
 ## Self-Review Notes
