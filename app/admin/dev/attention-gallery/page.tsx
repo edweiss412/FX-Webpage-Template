@@ -15,10 +15,13 @@
  * no-op action closures, and keyboard stepping.
  *
  * ── Not a live surface (§4.4, KEPT) ─────────────────────────────────────────
- * `GalleryWriteGuard` patches `window.fetch` to refuse every mutating request,
- * so the modal's real resolve control (a direct `fetch`, not a form submit) does
- * nothing against a show id that does not exist. The no-op action closures cover
- * the form-action controls; the guard covers the imperative fetch.
+ * `GalleryWriteGuard` patches `window.fetch` to refuse every mutating request the
+ * page itself originates, so the modal's real resolve control (a direct `fetch`,
+ * not a form submit) does nothing against a show id that does not exist. The
+ * no-op action closures cover the form-action controls; the guard covers the
+ * imperative fetch. Ambient Supabase auth/realtime traffic is exempt — blocking
+ * it destroyed the operator's session rather than a write (see the guard's
+ * AMBIENT_SUPABASE_PATHS note).
  *
  * ── Build-time gating (mirrors /admin/dev) ──────────────────────────────────
  * This route lives under `app/admin/dev/` and is gated build-time by
