@@ -223,12 +223,39 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
 
       // The lifecycle control moved into the status band's ShareHub popover
       // ("Show" section), so it is reachable only after opening the hub.
-      await modal.getByTestId("share-hub-kebab").click();
+      // Retry the toggle until the popover mounts: on a cold dev-server
+      // compile the first click can land before hydration attaches the
+      // handler and is silently swallowed (verified against unmodified
+      // origin/main during the archive-row spec probes; failing widths move
+      // between runs). The kebab is a toggle, so a swallowed click leaves
+      // state unchanged and the retry is idempotent.
       const popover = modal.getByTestId("share-hub-popover");
-      await expect(popover).toBeVisible();
+      await expect(async () => {
+        await modal.getByTestId("share-hub-kebab").click();
+        await expect(popover).toBeVisible({ timeout: 1500 });
+      }).toPass({ timeout: 15_000 });
 
       const restingBtn = popover.getByTestId("archive-show-button");
       await expect(restingBtn).toBeVisible();
+
+      // ── Spec §5 items 1-2 (2026-07-24-archive-row-menu-idiom): the idle row
+      // spans the popover CONTENT box (clientWidth excludes the 1px borders;
+      // bounding-box width would over-state the target by 2px), and equals the
+      // sibling rotate row — the "one idiom" statement.
+      const popContentWidth = await popover.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      });
+      const archiveRow = await rect(page, "archive-show-button");
+      expect(
+        Math.abs(archiveRow.width - popContentWidth),
+        `archive idle row width == popover content width @ ${width}px`,
+      ).toBeLessThanOrEqual(TOL);
+      const rotateRow = await rect(page, "admin-rotate-share-token-button");
+      expect(
+        Math.abs(archiveRow.width - rotateRow.width),
+        `archive row width == rotate row width @ ${width}px`,
+      ).toBeLessThanOrEqual(TOL);
 
       // ── INVARIANT 4 (REVISED for the popover host): the two-tap morph must
       // stay INSIDE the popover's content box. The old form of this invariant
@@ -274,4 +301,100 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     // tests/e2e/published-review-modal.layout.spec.ts (§6.6, standalone —
     // no dev server).
   }
+
+  test("390x560: arming scrolls the popover's OWN scroller to the confirm (spec §5 item 3)", async ({
+    page,
+  }) => {
+    // (1) Instrument BEFORE any navigation: bracketed capture attributes the
+    // scroll to the production scrollIntoView call itself — the arming
+    // cancelRef.focus() also scrolls (probe: before=212), so raw scrollTop
+    // deltas prove nothing.
+    await page.addInitScript(() => {
+      const w = window as unknown as {
+        __siv: Array<{
+          testid: string | null;
+          opts: unknown;
+          before: number | null;
+          after: number | null;
+        }>;
+      };
+      w.__siv = [];
+      const pop = () => document.querySelector('[data-testid="share-hub-popover"]');
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (this: Element, opts?: unknown) {
+        const before = pop() ? (pop() as Element).scrollTop : null;
+        const r = orig.call(this, opts as ScrollIntoViewOptions);
+        const after = pop() ? (pop() as Element).scrollTop : null;
+        w.__siv.push({ testid: this.getAttribute("data-testid"), opts, before, after });
+        return r;
+      };
+    });
+    await page.setViewportSize({ width: 390, height: 560 });
+    await page.goto(`/admin?show=${held.slug}`);
+    const modal = page.locator(LOADED_REVIEW_MODAL);
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    // Sentinel: the init script reached this document.
+    expect(
+      await page.evaluate(() => Array.isArray((window as never as { __siv: unknown[] }).__siv)),
+    ).toBe(true);
+
+    // Same hydration-retry as the per-width tests above.
+    const popover = modal.getByTestId("share-hub-popover");
+    await expect(async () => {
+      await modal.getByTestId("share-hub-kebab").click();
+      await expect(popover).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 15_000 });
+    // (2) Fresh open, untouched scroller.
+    expect(await popover.evaluate((el) => el.scrollTop)).toBe(0);
+
+    // (3) Direct DOM click — Playwright actionability scrolling never enters.
+    await popover.getByTestId("archive-show-button").evaluate((el: HTMLElement) => el.click());
+    const confirm = popover.getByTestId("archive-show-confirm-button");
+    await expect(confirm).toBeVisible();
+    // Let the handler's requestAnimationFrame settle.
+    await page.waitForTimeout(250);
+
+    // (4a) Below-fold precondition, content coordinates (probe: 483 > 390
+    // pre-restyle, ~471 post): fails loudly if the armed morph stops
+    // overflowing at this viewport.
+    const geom = await popover.evaluate((el) => {
+      const c = el.querySelector('[data-testid="archive-show-confirm-button"]') as HTMLElement;
+      return {
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        scrollTop: el.scrollTop,
+        confirmTop: c.offsetTop,
+        confirmH: c.offsetHeight,
+      };
+    });
+    expect(geom.scrollHeight).toBeGreaterThan(geom.clientHeight);
+    expect(geom.confirmTop + geom.confirmH).toBeGreaterThan(geom.clientHeight);
+
+    // (4b) Causality: the production handler's OWN call placed the scroller at
+    // the block-end target (probe: before=212 focus overshoot, after=93).
+    const calls = await page.evaluate(
+      () =>
+        (
+          window as never as {
+            __siv: Array<{
+              testid: string | null;
+              opts: { block?: string } | undefined;
+              after: number | null;
+            }>;
+          }
+        ).__siv,
+    );
+    const handlerCall = calls.find((c) => c.testid === "archive-show-confirm-button");
+    expect(handlerCall, "production scrollIntoView(confirm) must have been called").toBeTruthy();
+    expect(handlerCall!.opts?.block).toBe("end");
+    const target = geom.confirmTop + geom.confirmH - geom.clientHeight;
+    expect(Math.abs((handlerCall!.after ?? -1) - target)).toBeLessThanOrEqual(TOL);
+
+    // (4c) Geometry: confirm fully inside the popover's scroll window.
+    expect(geom.confirmTop).toBeGreaterThanOrEqual(geom.scrollTop - TOL);
+    expect(geom.confirmTop + geom.confirmH).toBeLessThanOrEqual(
+      geom.scrollTop + geom.clientHeight + TOL,
+    );
+  });
+
 });
