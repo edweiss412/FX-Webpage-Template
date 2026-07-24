@@ -95,7 +95,7 @@ export function emitFieldUnreadable(
     // scanner also keys on) so attachSourceCellAnchors resolves a per-ROW source cell.
     // Distinct crew rows → distinct anchors → they survive operatorActionableWarnings dedup
     // instead of collapsing to the single crew region anchor. (idx32/#154)
-    blockRef: { kind: params.section, index: params.index, name: params.name },
+    blockRef: { kind: params.section, index: params.index, name: params.name, field: params.field },
     rawSnippet: params.rawSnippet,
   });
 }
