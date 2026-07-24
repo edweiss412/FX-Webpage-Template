@@ -80,6 +80,10 @@ type ProducerContextEntry = {
   producer: string;
   /** A representative context the producer actually writes. */
   context: Record<string, unknown>;
+  /** Carried unchanged from the existing Fixture type so the identity-matrix
+   *  test keeps compiling after the move (see the field-preservation rule). */
+  showId: string | null;
+  occurrenceCount?: number;
   /** Keys the producer ALWAYS writes. Subset of Object.keys(context). */
   requiredKeys: readonly string[];
   /** Keys the producer writes only on some branches (spread-inserted / ternary). */
@@ -90,6 +94,8 @@ type ProducerContextEntry = {
   computed?: string;
 };
 ```
+
+**Field-preservation rule (the move must be lossless).** The existing local `Fixture` type (`tests/adminAlerts/alertIdentityMatrix.test.ts:75-81`) carries `code`, `showId`, `context`, and optional `occurrenceCount`. `ProducerContextEntry` is a strict superset of it: every existing field keeps its name, type, and optionality, and the new fields are additive. `Fixture` is currently module-local and not exported; the move exports the promoted type and `alertIdentityMatrix.test.ts` imports it, so a dropped or renamed field is a compile error rather than a silent test change.
 
 Seeded by **moving** the existing `FIXTURES` array out of `tests/adminAlerts/alertIdentityMatrix.test.ts:86` into this module — it is already exhaustive, already producer-annotated, and already correct. `alertIdentityMatrix.test.ts` then imports from it, keeping its 45-code totality assertion (`tests/adminAlerts/alertIdentityMatrix.test.ts:460`) unchanged. This is a move plus enrichment (`requiredKeys` / `optionalKeys` / `computed`), not a reimplementation.
 
@@ -117,7 +123,9 @@ The `galleryIdentity` requirement diverges per code: `OAUTH_IDENTITY_CLAIMED` ke
 `validateAlert` (`lib/dev/attentionScenarios/validate.ts:154`) gains a generic, code-agnostic rule applied to **every** scenario alert row:
 
 - **Key-subset rule.** Every key in a scenario row's `context` MUST appear in that code's `PRODUCER_CONTEXTS[code].context`. A key the producer never writes is a test-suite failure naming the offending key and the producer's `path:line`. This is the rule that would have caught `crew_member_id` on `AMBIGUOUS_EMAIL_BINDING` on the day it was written.
-- **Required-key rule.** Every key in `requiredKeys` MUST be present in the scenario row's context. A code whose card is context-dependent cannot ship its degenerate form by omission.
+- **Required-key rule — scoped to RENDERER-READ keys, not to the producer's full key list.** This scoping is load-bearing, not a softening. `tests/dev/attentionScenariosTier1.test.ts:31-36` already asserts that **every** tier-1 scenario passes `validateScenario`, and tier-1 synthesizes one scenario per routed code with `context: override.context ?? {}` (`lib/dev/attentionScenarios/tier1.ts:87`). Only 6 of the 45 routed codes have an `ALERT_ROW_OVERRIDES` entry, so **39 scenarios legitimately carry `{}`**. A rule demanding every producer key would fail all 39 on the day it landed, for cards that render correctly with no context.
+
+  The rule therefore requires only those keys the *rendering path* actually reads for that code: the keys named by its `ALERT_IDENTITY_MAP` segments (`lib/adminAlerts/alertIdentityMap.ts:58`) plus any key backing a placeholder in its `dougFacing` catalog copy. A code whose card reads nothing from context has an empty required set and `{}` stays valid; a code whose card *does* read context cannot ship its degenerate placeholder form by omission. `requiredKeys` on the entry documents what the producer always writes; the validator intersects it with the renderer-read set.
 - **Roster-membership rule (crew-id keys).** Any UUID a scenario declares under a crew-id-bearing key (`crew_member_id`, `crew_member_ids[]`) or under `crewMatch.crewMemberIds` MUST be a member of the gallery roster (`lib/dev/publishedModalFixture.ts:106-123`). An id that cannot resolve to a rendered row is a test-suite failure — this closes §2.2's latent second failure permanently.
 
 The existing `DEV_SCENARIO_TAG_KEY` exemption (`validate.ts:159`) is preserved: the gallery's own tagging key is not a producer key and is excluded from the subset rule.
@@ -165,7 +173,8 @@ A meta-test asserts the gallery renders at least one fanned-out crew banner **an
 | Condition | Behavior |
 |---|---|
 | Scenario context key absent from `PRODUCER_CONTEXTS[code].context` | Catalog-test failure (§5), message names the key + producer `path:line` |
-| Scenario omits a `requiredKeys` member | Catalog-test failure (§5) |
+| Scenario omits a required key the RENDERER reads for that code | Catalog-test failure (§5) |
+| Scenario carries `{}` for a code whose card reads no context (39 of 45 today) | Legal — required set is empty (§5) |
 | Scenario declares a crew UUID outside the gallery roster | Catalog-test failure (§5) |
 | `crew_member_ids` length 1, or duplicate members | Validator reject (§4) |
 | `crew_member_ids` and `crewMatch` disagree | Validator reject (§5) |
@@ -200,4 +209,4 @@ TDD per task (invariant 1). Each rule in §4/§5/§6 gets a failing test asserti
 
 ## 13. Numeric self-check
 
-36 `AdminAlertCode` union members (`lib/adminAlerts/upsertAdminAlert.ts:3-39`); 45 `ADMIN_ALERTS_CODES` registry members (`tests/adminAlerts/adminAlertCodes.fixture.ts:13-59`); 9 registry codes exempt from producer discovery (45 − 36); 2 stale fixture rows repaired (§7); 2 gallery roster UUIDs per repaired row; ≥2 `crew_member_ids` required by §4; 6 gallery crew roster rows (`lib/dev/publishedModalFixture.ts:106-123`); `CREW_CAP` = 30; 1 new scenario (§8); 2 new files + 1 promoted module (§11); 0 migrations; 0 §12.4 edits; 0 producer edits.
+36 `AdminAlertCode` union members (`lib/adminAlerts/upsertAdminAlert.ts:3-39`); 45 `ADMIN_ALERTS_CODES` registry members (`tests/adminAlerts/adminAlertCodes.fixture.ts:13-59`); 45 `ATTENTION_ROUTES` codes, hence 45 tier-1 alert scenarios; 6 `ALERT_ROW_OVERRIDES` entries (`lib/dev/attentionScenarios/tier1.ts:37`) and therefore 39 tier-1 scenarios carrying `{}` (§5); 9 registry codes exempt from producer discovery (45 − 36); 2 stale fixture rows repaired (§7); 2 gallery roster UUIDs per repaired row; ≥2 `crew_member_ids` required by §4; 6 gallery crew roster rows (`lib/dev/publishedModalFixture.ts:106-123`); `CREW_CAP` = 30; 1 new scenario (§8); 2 new files + 1 promoted module (§11); 0 migrations; 0 §12.4 edits; 0 producer edits.
