@@ -1322,36 +1322,57 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
         while (box.parentElement !== null && box.parentElement !== pane) {
           box = box.parentElement;
         }
-        const next = box.nextElementSibling;
+        // The seam's endpoint is the next sibling that PARTICIPATES IN THE FLEX
+        // LAYOUT. `display:none` and out-of-flow (absolute/fixed) siblings are
+        // skipped because they charge no gap and shift nothing — failing on them
+        // would reject a correct tree (an overlay host or a hidden anchor between
+        // two sections is layout-neutral). Everything else is kept, INCLUDING a
+        // zero-height in-flow child: that is a genuine phantom item and must reach
+        // the assertions below rather than be skipped past, or this test recreates
+        // the exact hole it was repaired for.
+        let next: Element | null = box.nextElementSibling;
+        const skipped: string[] = [];
+        while (next !== null) {
+          const ncs = getComputedStyle(next);
+          if (ncs.display !== "none" && ncs.position !== "absolute" && ncs.position !== "fixed") {
+            break;
+          }
+          skipped.push(next.getAttribute("data-testid") ?? `<${next.tagName.toLowerCase()}>`);
+          next = next.nextElementSibling;
+        }
         if (next === null) return null;
         const nextRect = next.getBoundingClientRect();
         return {
           paneRowGap: parseFloat(getComputedStyle(pane).rowGap),
           gap: nextRect.top - box.getBoundingClientRect().bottom,
           nextTestId: next.getAttribute("data-testid"),
-          // The IMMEDIATE sibling's own extent, asserted below. Without it this
-          // test is vulnerable to the very class it guards: a phantom pane child
-          // inserted between Overview and Venue would be measured as "the next
-          // section", report exactly one paneRowGap, and pass green while the
-          // user-visible Overview→Venue distance doubled to two gaps.
           nextHeight: nextRect.height,
-          nextDisplay: getComputedStyle(next).display,
+          skipped,
         };
       });
 
-      expect(seam, `Overview has a following sibling section @ ${mode}`).not.toBeNull();
+      expect(seam, `Overview has a following in-flow sibling @ ${mode}`).not.toBeNull();
       expect(seam!.paneRowGap, `content pane declares a row gap @ ${mode}`).toBeGreaterThan(0);
-      // The thing on the far side of the seam must be REAL. `nextTestId` alone is
-      // diagnostic — an unnamed zero-height div satisfies the gap arithmetic.
+      // IDENTITY, not merely extent. Extent alone leaves the hole this assertion
+      // exists to close: a 1px placeholder — or an empty div with padding, a
+      // border, or a min-height — is displayed, has positive height, and begins
+      // exactly one `paneRowGap` after Overview, so it satisfies every arithmetic
+      // check while Venue still starts a second gap further down and the
+      // user-visible Overview→Venue seam stays doubled. What makes the endpoint
+      // trustworthy is that it IS a rail section. Matched by shape rather than by
+      // naming `venue`, so reordering the rail cannot make this false-red.
       expect(
-        seam!.nextDisplay,
-        `the element after Overview is in flow @ ${mode} (testid ${seam!.nextTestId})`,
-      ).not.toBe("none");
+        seam!.nextTestId ?? "(no testid)",
+        `the element after Overview is a rail section @ ${mode}` +
+          (seam!.skipped.length > 0
+            ? ` (skipped layout-neutral siblings: ${seam!.skipped.join(", ")})`
+            : ""),
+      ).toMatch(/-review-section-[a-z]+$/);
+      // A rail section with no extent would still charge the pane a second gap
+      // below itself, so the endpoint must also be real.
       expect(
         seam!.nextHeight,
-        `the element after Overview has real extent @ ${mode} — a zero-height pane child would` +
-          ` measure one gap here while charging the pane a second one below itself` +
-          ` (testid ${seam!.nextTestId})`,
+        `the section after Overview has real extent @ ${mode} (testid ${seam!.nextTestId})`,
       ).toBeGreaterThan(0);
       expect(
         Math.abs(seam!.gap - seam!.paneRowGap),
