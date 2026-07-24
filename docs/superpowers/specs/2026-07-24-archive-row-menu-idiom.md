@@ -95,11 +95,10 @@ Real-browser proof (a fixed-WIDTH parent with flex children IS in the layout-dim
 
 The existing armed-morph containment assertions (`admin-lifecycle-layout.spec.ts:230-260`) continue unchanged.
 
-3. **New phone-height scrollport case** (R5 adversarial finding; contract hardened R6, corrected R7): a new test in the same spec at 390x700, where the popover's `max-h-[min(70vh,32rem)]` scroller (`ShareHub.tsx:479`) caps the panel at 490px. The IDLE hub on the seeded held show may NOT overflow — the armed morph is what adds the height — so the test models the ARM TRANSITION rather than assuming pre-arm overflow (R7 finding 1), and it does not infer handler execution from `scrollTop` (R7 finding 2 — the arming `cancelRef.current?.focus()` at `ArchiveShowButton.tsx:166-168` can itself scroll an off-screen control into view):
-   1. Before opening the hub, instrument the scroll call via `page.addInitScript`: wrap `Element.prototype.scrollIntoView` to record, per call, the element's `data-testid` and the options argument.
-   2. Open the hub; assert `scrollTop === 0` on the popover (fresh open, untouched scroller).
-   3. Arm via `locator.evaluate((el) => el.click())` on `archive-show-button` (direct DOM click — Playwright actionability scrolling stays out of the picture entirely).
-   4. After the confirm mounts and the handler's `requestAnimationFrame` settles, assert: (a) the ARMED content overflows — popover `scrollHeight > clientHeight` — and the confirm sits below the original visible bottom, reconstructed statically (`offsetTop + offsetHeight > clientHeight`, offsets resolved against the popover as scroll container); if the armed morph ever stops producing overflow at 390x700 the test FAILS here rather than passing vacuously; (b) the production handler ran: the instrumented record contains a `scrollIntoView` call on `archive-show-confirm-button` with `block: "end"` (`ShareHub.tsx:596-605`); (c) the confirm's bounding box lies fully inside the popover's visible scrollport (popover rect intersected with the viewport), within 0.5px. Causality comes from (b), geometry from (c); `scrollTop` is never used as proof of who scrolled.
+3. **New phone-height scrollport case** (R5 adversarial finding; hardened R6, corrected R7, empirically grounded R8): a new test in the same spec at **390x560**. Viewport chosen from the R8 probe (appendix §10, run on live code at 390x700): at height 700 the armed popover overflows (`scrollHeight` 602 > `clientHeight` 488) but the confirm still fits the first scrollport page (`offsetTop + offsetHeight` = 483 < 488), so 700 CANNOT force the below-fold case; at height 560 the `max-h-[min(70vh,32rem)]` cap (`ShareHub.tsx:479`) is 70vh = 392px, and the measured confirm offset (483, shifting to ~459 after this spec's −24px armed-padding collapse) sits ~65-90px below the fold — margin enough that the premise survives the restyle. The probe also showed ancestor scrolling does NOT lift the band-anchored popover into the viewport (confirm viewport-bottom stayed at 834 in a 700px viewport after the handler ran), so all containment is asserted in POPOVER CONTENT COORDINATES, never as viewport intersection. Sequence:
+   1. Register the instrumentation with `page.addInitScript` BEFORE `signInAs`/`page.goto` (probe-validated ordering — init scripts attach on navigation): wrap `Element.prototype.scrollIntoView`, preserving the original via `orig.call(this, opts)`, recording each call's `data-testid` + options into a window array; after `goto`, assert the sentinel array exists before opening the hub.
+   2. Open the hub; assert `scrollTop === 0` on the popover (fresh open, untouched scroller). Idle MAY already overflow at this height (probe: idle content 477 > 392 cap) — no idle-overflow assertion either way; the arm row (measured `offsetTop` 315 + 44 < 392) is inside the first page, and the arming click is an `locator.evaluate((el) => el.click())` direct DOM click anyway, so Playwright actionability scrolling never enters.
+   3. After the confirm mounts and the handler's `requestAnimationFrame` settles, assert: (a) BELOW-FOLD PRECONDITION, in content coordinates: popover `scrollHeight > clientHeight` AND confirm `offsetTop + offsetHeight > clientHeight` (probe-grounded: 459 vs 390 post-restyle expectation; the probe confirmed `offsetParent` is the popover itself, so `offsetTop` IS the content coordinate) — fails loudly if the armed morph stops overflowing at 390x560; (b) CAUSALITY: the instrumented record contains a `scrollIntoView` call whose element testid is `archive-show-confirm-button` with `block: "end"` (probe observed exactly this single call on live code; `ShareHub.tsx:596-605`); (c) GEOMETRY: the confirm is fully inside the popover's scroll window — `offsetTop >= scrollTop` and `offsetTop + offsetHeight <= scrollTop + clientHeight`, within 0.5px. `scrollTop` is never used as proof of WHO scrolled (the arming `cancelRef.current?.focus()` at `ArchiveShowButton.tsx:166-168` can also scroll); causality comes only from (b).
 
    This covers the armed-spacing change (§1.1 exception) at exactly the venue-floor geometry the scroll handler exists for; no existing suite exercises it (the current sweep is width-only at height 1000).
 
@@ -109,7 +108,7 @@ The existing armed-morph containment assertions (`admin-lifecycle-layout.spec.ts
 2. **`tests/components/admin/showpage/shareHub.test.tsx`** — add an archive-row §4.1 test mirroring the rotate one (`shareHub.test.tsx:438-472`): scope = popover, `ROW_TOKENS` exactly, `expectRowText`, icon identity, `expectRowBoundary`. Existing focus-contract (`shareHub.test.tsx:1030-1038`), Show-section (`shareHub.test.tsx:547-558`), and busy-gate tests unchanged.
 3. **`tests/components/admin/showpage/_metaRowWrapperInert.test.ts`** — extend `FILES` (`_metaRowWrapperInert.test.ts:25-28`) with `components/admin/ArchiveShowButton.tsx`; the new wrapper is a literal-class plain div, so the AST scan finds it and proves it inert.
 4. **`tests/styles/_metaDestructiveConfirm.test.ts`** — no registry change: the diff adds/removes no `bg-warning-text`+`text-warning-bg` literal; occurrence indices 0/1/2 for this file are stable (armed confirm literal untouched).
-5. **e2e** — `admin-lifecycle-layout.spec.ts` gains the idle-width assertions AND the 390x700 phone-height scrollport case (§5 items 1-3); `admin-lifecycle-transitions.spec.ts` keys on testids that don't change — run to confirm, don't edit.
+5. **e2e** — `admin-lifecycle-layout.spec.ts` gains the idle-width assertions AND the 390x560 phone-height scrollport case (§5 items 1-3); `admin-lifecycle-transitions.spec.ts` keys on testids that don't change — run to confirm, don't edit.
 
 Anti-tautology: every idle assertion goes through the §7.0 helpers, which were built precisely to close the assert-the-container escapes (four review rounds of history in `_rowAssertions.ts:6-23`); expected strings come from the ShareHub call-site literals, not re-derived.
 
@@ -126,3 +125,18 @@ UI surface (components/). Invariant 8 applies: `/impeccable critique` + `/impecc
 ## 9. Numeric sweep
 
 308px popover (`w-[308px]`, `ShareHub.tsx:479`) — cited twice, both from the same class. Icon 16px (three §4.1 rows precedent; was 14). `py-3` armed padding — kept once (inner), dropped once (outer). 2px = `px-0.5` inset dropped in §2.3. 4s/`ARM_REVERT_MS` — legacy variants only, unchanged.
+
+## 10. Appendix — R8 empirical probe (2026-07-24)
+
+Throwaway Playwright probe (`tests/e2e/probe-admin-lifecycle-layout.spec.ts`, mobile-safari project, E2E_PORT=3005, loopback TEST_DATABASE_URL, held show via `seedHeldShow()`), viewport 390x700, run against LIVE pre-restyle code; 1 passed. Raw result:
+
+```json
+{"idle":{"scrollHeight":477,"clientHeight":477,"clientWidth":306,"scrollTop":0},
+ "idleRow":{"offsetTop":315,"offsetHeight":44},
+ "armed":{"scrollHeight":602,"clientHeight":488,"clientWidth":306,"scrollTop":0},
+ "armedConfirm":{"offsetTop":439,"offsetHeight":44,"offsetParentTestid":"share-hub-popover",
+   "rect":{"top":790.36,"bottom":834.36}},
+ "sivCalls":[{"testid":"archive-show-confirm-button","opts":{"block":"end"}}]}
+```
+
+Readings used by §5 item 3: idle no-overflow at 700 (477 = 477); armed overflow at 700 (602 > 488) yet confirm within first page (439 + 44 = 483 < 488, `scrollTop` stayed 0); exactly one `scrollIntoView` call, on the confirm, `block: "end"`; `offsetParent` = the popover (offsets are content coordinates); ancestor scroll did not lift the popover into the 700px viewport (confirm rect bottom 834 > 700 after settle). The probe file is deleted after ratification; this appendix is the durable record.
