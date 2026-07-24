@@ -28,22 +28,16 @@
  * The control bar is portaled to `document.body` so it escapes the admin
  * `[data-inert-root]` the open modal inerts (spec §3.4) and stays operable.
  */
+import { NOOP_ACTIONS } from "@/lib/dev/galleryActionScripts";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  PublishedReviewModal,
-  type PublishedReviewModalProps,
-} from "@/components/admin/showpage/PublishedReviewModal";
+import { PublishedReviewModal } from "@/components/admin/showpage/PublishedReviewModal";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { useHasMounted } from "@/lib/a11y/useHasMounted";
 import { SwitcherControls, type SwitcherGroupEntry } from "@/components/admin/dev/SwitcherControls";
 import { GROUP_LABELS } from "@/lib/dev/galleryModalTypes";
-import type {
-  ActionKeys,
-  ExcludedScenario,
-  GallerySwitcherScenario,
-} from "@/lib/dev/galleryModalTypes";
+import type { ExcludedScenario, GallerySwitcherScenario } from "@/lib/dev/galleryModalTypes";
 
 /** Starting index from a deep-link id; unknown/null → 0 (the switcher's origin). */
 export function indexOfId(
@@ -55,24 +49,6 @@ export function indexOfId(
   return i >= 0 ? i : 0;
 }
 
-/**
- * Eight no-op action closures. Each resolves to its action's contracted result
- * so the modal's `useActionState` reducers stay consistent, and NONE writes.
- * `unarchiveAction` is typed `(showId) => Promise<void>`, so its contracted
- * result IS `undefined` — that is correct, not an omission. `satisfies` pins
- * every shape to the real prop types (a drift is a compile error) while keeping
- * the concrete literal types for callers.
- */
-const NOOP_ACTIONS = {
-  setPublished: async () => ({ ok: true }) as const,
-  archiveAction: async () => ({ ok: true }) as const,
-  unarchiveAction: async () => {},
-  undoAction: async () => ({ ok: true }) as const,
-  acceptAction: async () => ({ ok: true, count: 0 }) as const,
-  acceptAllAction: async () => ({ ok: true, count: 0 }) as const,
-  approveAction: async () => ({ ok: true }) as const,
-  rejectAction: async () => ({ ok: true }) as const,
-} satisfies Pick<PublishedReviewModalProps, ActionKeys>;
 
 type Props = {
   scenarios: GallerySwitcherScenario[];
