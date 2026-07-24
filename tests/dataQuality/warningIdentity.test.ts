@@ -99,4 +99,27 @@ describe("FIELD_UNREADABLE field fold (crewwarn-instance-discriminator §2.1)", 
     expect(keys[0]).not.toMatch(/#\d+$/);
     expect(keys[1]).not.toMatch(/#\d+$/);
   });
+
+  test("delimiter injection: a NUL-forging blockRef.name cannot collide two distinct (name, field) pairs (whole-diff R1)", () => {
+    // The jsonb boundary is unvalidated — name may carry raw NUL bytes. Without an
+    // escaped fold, (name='J', field='x|\0Fphone') and (name='J|\0Fx', field='phone')
+    // serialize to the same suffix and share a report surfaceId (the exact collision
+    // class this feature exists to eliminate). Failure mode caught: a concatenation
+    // fold that appends the raw field after user-controlled prefix bytes.
+    const withName = (name: string, field: string): ParseWarning =>
+      w("FIELD_UNREADABLE", "n/a", 7, "B9", { kind: "crew", index: 2, name, field });
+    const a = withName("J", "x|\0Fphone");
+    const b = withName("J|\0Fx", "phone");
+    expect(warningIdentityKey(a)).not.toBe(warningIdentityKey(b));
+    expect(buildReportSurfaceId("showx", a)).not.toBe(buildReportSurfaceId("showx", b));
+    // present-vs-absent forgery: a field-less warning whose name embeds a forged
+    // "\0F<json>" tail must not collide with a real field-bearing key.
+    const forgedAbsent = w("FIELD_UNREADABLE", "n/a", 7, "B9", {
+      kind: "crew",
+      index: 2,
+      name: 'Jordan|\0F"phone"',
+    });
+    const realPresent = withName("Jordan", "phone");
+    expect(warningIdentityKey(forgedAbsent)).not.toBe(warningIdentityKey(realPresent));
+  });
 });
