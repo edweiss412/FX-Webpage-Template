@@ -19,11 +19,12 @@
 import { afterAll, describe, expect, test } from "vitest";
 import postgres, { type Sql } from "postgres";
 import { randomUUID } from "node:crypto";
+import { localDestructiveDbUrl } from "./_assertLocalDestructiveTarget.js";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+// SAFETY: T1 executes reset_validation_data(), which DELETEs every show.
+// TEST_DATABASE_URL is the validation project in this repo (.env.local) and is
+// deliberately NOT honored here — see tests/db/_assertLocalDestructiveTarget.ts.
+const DB_URL = localDestructiveDbUrl("the reset serialization race (wipes all shows)");
 
 // Shared client for seed/poll/read; the race uses dedicated single connections.
 const sql: Sql = postgres(DB_URL, { max: 4, prepare: false });
