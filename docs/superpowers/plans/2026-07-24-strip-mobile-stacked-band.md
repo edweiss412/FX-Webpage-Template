@@ -264,8 +264,12 @@ test("rows, caps, clip priority, containment — worst-case vs fixture-typical",
   const band = await page.locator(BAND).evaluate((el) => {
     const cs = getComputedStyle(el);
     const r = el.getBoundingClientRect();
+    const contentLeft = r.left + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth);
+    const contentRight = r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
     return {
-      contentRight: r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth),
+      contentLeft,
+      contentRight,
+      contentWidth: contentRight - contentLeft,
       scrollW: el.scrollWidth,
       clientW: el.clientWidth,
     };
@@ -278,7 +282,10 @@ test("rows, caps, clip priority, containment — worst-case vs fixture-typical",
   // (d2) Full-width chain + anchor datum (spec §3 R3): group == root width
   // within 0.5px, and the group/kebab right edges sit at the band content
   // edge — the popover anchor datum survives the mobile layout.
-  expect(Math.abs(worst["share-hub-group"]!.width - worst["share-hub-root"]!.width)).toBeLessThanOrEqual(0.5);
+  // Every link fills the BAND CONTENT WIDTH — equal widths alone would also
+  // pass a half-width right-aligned chain (plan R3 finding 2).
+  expect(Math.abs(worst["share-hub-group"]!.width - band.contentWidth)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(worst["share-hub-root"]!.width - band.contentWidth)).toBeLessThanOrEqual(0.5);
   expect(Math.abs(worst["share-hub-group"]!.right - band.contentRight)).toBeLessThanOrEqual(0.5);
   expect(Math.abs(worst["share-hub-kebab"]!.right - band.contentRight)).toBeLessThanOrEqual(1);
 
@@ -874,6 +881,13 @@ describe("mobile Sync skin (spec 2026-07-24-strip-mobile-stacked-band §3 R2)", 
     expect(icon?.getAttribute("class") ?? "").toContain("animate-spin");
     expect(icon?.getAttribute("class") ?? "").toContain("motion-reduce:animate-none");
     release();
+    // Spin STOP (spec §8 S idle<->pending both directions): busy clears and
+    // the spin class is removed once the POST settles.
+    await waitFor(() =>
+      expect(getByTestId("admin-resync-button").getAttribute("aria-busy")).toBe("false"),
+    );
+    const settled = getByTestId("admin-resync-mobile-label").querySelector("svg");
+    expect(settled?.getAttribute("class") ?? "").not.toContain("animate-spin");
   });
 });
 ```
@@ -913,8 +927,9 @@ missing — check its existing import lines and extend, never duplicate.)
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `pnpm vitest run tests/components/ReSyncButton.test.tsx`
-Expected: FAIL — `admin-resync-mobile-label` absent.
+Run: `pnpm vitest run tests/components/ReSyncButton.test.tsx tests/components/admin/showpage/statusStrip.test.tsx`
+Expected: FAIL in BOTH files — `admin-resync-mobile-label` absent (unit tests
+and the strip-level dual-pending compound).
 
 - [ ] **Step 3: Implement** in `ReSyncButton.tsx`:
 
@@ -960,7 +975,7 @@ Expected: PASS incl. existing width-reservation tests.
 
 ```bash
 pnpm exec tsc --noEmit
-git add components/admin/ReSyncButton.tsx tests/components/ReSyncButton.test.tsx
+git add components/admin/ReSyncButton.tsx tests/components/ReSyncButton.test.tsx tests/components/admin/showpage/statusStrip.test.tsx
 git commit --no-verify -m "feat(admin): ReSyncButton mobile icon+Sync skin, single instance"
 ```
 
