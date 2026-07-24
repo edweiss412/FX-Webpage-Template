@@ -31,6 +31,7 @@
  * reviewer who clicks a control and sees nothing happen can find out why, and
  * so a real-browser test can assert containment on the live page.
  */
+import type { GalleryFetchScript } from "@/lib/dev/galleryActionScripts";
 import { useEffect } from "react";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -50,13 +51,34 @@ function urlOf(input: RequestInfo | URL): string {
   return String(input);
 }
 
-export function GalleryWriteGuard() {
+export function GalleryWriteGuard({
+  scripts,
+}: {
+  /** Scenario-scripted responses (spec 2026-07-23 §3.2); absent = 403 everything mutating. */
+  scripts?: readonly GalleryFetchScript[];
+} = {}) {
   useEffect(() => {
     const original = window.fetch;
+    // Per-mount call counters keyed by script - sequencing for partial bulk-ignore.
+    const counters = new Map<string, number>();
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const method = methodOf(input, init);
       if (SAFE_METHODS.has(method)) return original(input, init);
       const url = urlOf(input);
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      const script = scripts?.find((sc) => sc.method === method && sc.pathPattern.test(path));
+      if (script) {
+        const n = counters.get(script.key) ?? 0;
+        counters.set(script.key, n + 1);
+        // Same discoverability contract as the blocked-write marker below.
+        document.documentElement.setAttribute("data-gallery-scripted-write", `${method} ${path}`);
+        const r = script.respond(n);
+        if (r === "hang") return new Promise<Response>(() => {});
+        return new Response(JSON.stringify(r.body), {
+          status: r.status,
+          headers: { "content-type": "application/json" },
+        });
+      }
       // Recorded on the element rather than in the console: the project bans
       // console statements in shipped components, and a data attribute is also
       // assertable from a real-browser test, which a console line is not.
@@ -74,7 +96,7 @@ export function GalleryWriteGuard() {
     return () => {
       window.fetch = original;
     };
-  }, []);
+  }, [scripts]);
 
   return null;
 }

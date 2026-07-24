@@ -28,7 +28,8 @@
  * The control bar is portaled to `document.body` so it escapes the admin
  * `[data-inert-root]` the open modal inerts (spec §3.4) and stays operable.
  */
-import { NOOP_ACTIONS } from "@/lib/dev/galleryActionScripts";
+import { NOOP_ACTIONS, buildFetchScripts } from "@/lib/dev/galleryActionScripts";
+import { GalleryWriteGuard } from "@/components/admin/dev/GalleryWriteGuard";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { PublishedReviewModal } from "@/components/admin/showpage/PublishedReviewModal";
@@ -132,6 +133,9 @@ export function AttentionModalSwitcher({ scenarios, excluded, initialId }: Props
 
   return (
     <>
+      {/* Guard owned by the switcher so scenario scripts reach it; keyed per
+          scenario so bulk-ignore call counters reset (spec 2026-07-23 §3.2). */}
+      <GalleryWriteGuard key={`guard-${current.id}`} scripts={buildFetchScripts(current.actionOutcomes)} />
       {/* key on the PROVIDER, not just the modal: it preserves its current token
           across same-epoch initialToken changes (ShareTokenContext.tsx:44-69),
           so an un-keyed provider would leak scenario A's token into scenario B

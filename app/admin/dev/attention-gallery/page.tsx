@@ -29,7 +29,6 @@
  * uses, so the trust-domain auth-chain audit classifies it identically.
  */
 import { requireDeveloper } from "@/lib/auth/requireDeveloper";
-import { GalleryWriteGuard } from "@/components/admin/dev/GalleryWriteGuard";
 import { AttentionModalSwitcher } from "@/components/admin/dev/AttentionModalSwitcher";
 import { partitionScenarios, resolveInitialScenario } from "./buildSwitcherScenarios";
 
@@ -48,7 +47,6 @@ export default async function AttentionGalleryPage(props: {
   return (
     <>
       {/* Total containment for imperative writes; see the component header. */}
-      <GalleryWriteGuard />
       {/* Background chrome, mostly behind the fixed modal. The modal is always
           mounted (its native close navigates to /admin), so this is the route's
           heading landmark rather than a fallback surface. */}

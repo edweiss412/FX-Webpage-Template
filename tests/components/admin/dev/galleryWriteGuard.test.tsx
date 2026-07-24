@@ -16,6 +16,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { GalleryWriteGuard } from "@/components/admin/dev/GalleryWriteGuard";
+import { buildFetchScripts } from "@/lib/dev/galleryActionScripts";
 
 afterEach(cleanup);
 
@@ -80,5 +81,64 @@ describe("GalleryWriteGuard", () => {
     await waitFor(() => expect(window.fetch).not.toBe(real));
     unmount();
     expect(window.fetch).toBe(real);
+  });
+});
+
+describe("GalleryWriteGuard scripted responses (spec 2026-07-23 §3.2)", () => {
+  test("a matching script serves the scripted body and marks scripted-write; non-matching writes still 403", async () => {
+    // Failure modes: scripted branch leaking to the network; 403 default lost.
+    document.documentElement.removeAttribute("data-gallery-scripted-write");
+    document.documentElement.removeAttribute("data-gallery-blocked-write");
+    const real = vi.fn(async () => new Response("{}", { status: 200 }));
+    window.fetch = real as unknown as typeof window.fetch;
+    const scripts = buildFetchScripts({ resync: { kind: "shrink_held", detail: "2 crew removed" } });
+    render(<GalleryWriteGuard scripts={scripts} />);
+    await waitFor(() => expect(window.fetch).not.toBe(real));
+
+    const res = await window.fetch("/api/admin/sync/gallery-show", { method: "POST" });
+    expect(real).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; result: { outcome: string; detail: string } };
+    expect(json.ok).toBe(true);
+    expect(json.result.outcome).toBe("shrink_held");
+    expect(json.result.detail).toBe("2 crew removed");
+    expect(document.documentElement.getAttribute("data-gallery-scripted-write")).toContain(
+      "POST /api/admin/sync/gallery-show",
+    );
+
+    const blocked = await window.fetch("/api/other", { method: "POST" });
+    expect(blocked.status).toBe(403);
+    expect(document.documentElement.getAttribute("data-gallery-blocked-write")).toContain("/api/other");
+    expect(real).not.toHaveBeenCalled();
+  });
+
+  test("bulk-ignore sequencing runs per mount and GETs pass through", async () => {
+    const real = vi.fn(async () => new Response("{}", { status: 200 }));
+    window.fetch = real as unknown as typeof window.fetch;
+    const scripts = buildFetchScripts({ bulkIgnore: { kind: "partial", okCount: 1 } });
+    render(<GalleryWriteGuard scripts={scripts} />);
+    await waitFor(() => expect(window.fetch).not.toBe(real));
+
+    const r0 = await window.fetch("/api/admin/show/x/data-quality/ignore", { method: "POST" });
+    const r1 = await window.fetch("/api/admin/show/x/data-quality/ignore", { method: "POST" });
+    expect(r0.status).toBe(200);
+    expect(r1.status).toBe(500);
+
+    await window.fetch("/api/anything", { method: "GET" });
+    expect(real).toHaveBeenCalledTimes(1);
+  });
+
+  test("a hang script never settles", async () => {
+    const real = vi.fn(async () => new Response("{}", { status: 200 }));
+    window.fetch = real as unknown as typeof window.fetch;
+    render(<GalleryWriteGuard scripts={buildFetchScripts({ resolve: { kind: "pending" } })} />);
+    await waitFor(() => expect(window.fetch).not.toBe(real));
+
+    const outcome = await Promise.race([
+      window.fetch("/api/admin/show/x/alerts/y/resolve", { method: "POST" }).then(() => "resolved"),
+      new Promise((r) => setTimeout(() => r("hung"), 50)),
+    ]);
+    expect(outcome).toBe("hung");
+    expect(real).not.toHaveBeenCalled();
   });
 });
