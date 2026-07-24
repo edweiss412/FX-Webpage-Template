@@ -27,6 +27,19 @@ Every fact this plan names was grepped against the live worktree before drafting
 
 `pnpm spec:lint` on the spec: `summary: 0 hard, 0 advisory`.
 
+## 0.3 Measured baseline
+
+`partitionScenarios().rendered` currently holds **132** scenarios, and all four global ids are among them (captured by a throwaway test against the committed tree at `b4603d58`, then removed):
+
+```
+alert-live-row-conflict
+alert-onboarding-sheet-unreadable
+alert-sync-stalled
+alert-watch-channel-orphaned
+```
+
+Post-change the rendered count is **128** and `excluded` grows 31 → 35. Task 3 checks the full 132-id list in as `RENDERED_IDS_BEFORE`; Task 5 asserts the 128-id subtraction.
+
 ## 0.1 Meta-test inventory
 
 - **CREATES** `tests/adminAlerts/_metaGlobalScopeCodes.test.ts (new)` — pins `GLOBAL_SCOPE_CODES` set-equal to the `globalOnlyCodes()` projection, so a producer-scope reclassification fails CI instead of drifting the gallery.
@@ -37,7 +50,12 @@ Every fact this plan names was grepped against the live worktree before drafting
 
 - **Layout-dimensions task: N/A.** Spec §5.1 documents zero parent→child dimension relationships: the new element is a block-level `<p>` in an existing `overflow-y-auto` column with no fixed-height parent and no flex or grid child relationship. There is nothing for a `getBoundingClientRect` assertion to pin. Declared rather than skipped.
 - **Transition-audit task: Task 7.** Spec §5.2's inventory is three rows, all "instant" or "unreachable". The audit is a source scan (registry row in `transitionAudit.test.tsx`) rather than an interaction test, because the inventory contains no animated state to compound.
-- **e2e harness-readiness: N/A.** No Playwright is attached. `tests/e2e/attention-modal-gallery.spec.ts` exists but asserts nothing about the excluded panel (verified: no `excluded`, `cut`, or `structural` match in that file), so it needs no change.
+- **e2e harness-readiness: N/A for new Playwright, but the existing spec IS a consumer.** No new Playwright is attached. `tests/e2e/attention-modal-gallery.spec.ts:148-151` calls `partitionScenarios()` at module load and derives `RENDERED_IDS`, `STRUCTURAL`, and `CUT`. Analysed per assertion:
+  - `tests/e2e/attention-modal-gallery.spec.ts:372` asserts `STRUCTURAL.length` is `3`. Unaffected: the global arm runs after `cut`, and no structural scenario carries alerts.
+  - `tests/e2e/attention-modal-gallery.spec.ts:373` asserts `CUT.length > 0`, and `tests/e2e/attention-modal-gallery.spec.ts:392` asserts the controls render `String(CUT.length)` as a substring. `EXPECTED_CUT_IDS` is unchanged at 28, and the cut paragraph still renders `28`, so both hold. The toggle count moves 31 → 35 but is matched by a different assertion.
+  - `RENDERED_IDS` drops 132 → 128 (measured, see §0.3). The sweep at `tests/e2e/attention-modal-gallery.spec.ts:236` iterates whatever is rendered and `tests/e2e/attention-modal-gallery.spec.ts:194` only asserts non-empty, so both hold.
+  - **Task 7 adds** a `GLOBAL` derivation and one assertion that the global line's count renders, mirroring the existing `CUT` assertion at `tests/e2e/attention-modal-gallery.spec.ts:392`. Without it the new paragraph is the only excluded-reason line with no end-to-end proof it reaches the DOM.
+- **`tests/dev/galleryModalTypes.test.ts:51`** constructs an `ExcludedScenario` with `reason: "cut"` as a type-resolution proof. Widening the union is compatible; verified no change needed.
 
 ---
 
