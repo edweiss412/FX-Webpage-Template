@@ -208,11 +208,12 @@ expect(hasNumericFocusOffset && !hasNamedFocusOffset).toBe(false);
 // value from the only place that matters, and the blanket form would fail on a
 // comment that legitimately narrates the rename.
 // NOTE: `readFileSync` is NOT imported in the live test file. This task adds
-// `import { readFileSync } from "node:fs";` to the import block (R2 F2) -
+// `import { readFileSync } from "node:fs";` and `join` from "node:path" to
+// the import block (R2 F2) -
 // without it the red state fails to COMPILE, which is not the red state this
 // task is asserting.
 const pageSource = readFileSync(
-  new URL("../../../../app/admin/dev/attention-gallery/page.tsx", import.meta.url),
+  join(process.cwd(), "app/admin/dev/attention-gallery/page.tsx"),
   "utf8",
 );
 const h1 = /<h1[^>]*>\s*([^<]*?)\s*<\/h1>/.exec(pageSource);
@@ -220,7 +221,7 @@ expect(h1, "no <h1> found in the gallery page source").not.toBeNull();
 expect(h1![1]).toBe("Attention gallery");
 ```
 
-Path resolution is `new URL(..., import.meta.url)`, NOT `process.cwd()`, so the assertion is working-directory independent; the test file lives at `tests/components/admin/settings/DevToolsRow.test.tsx`, so the target is four levels up. **Verify the red state fails on the string comparison, not on `ENOENT`** — a path typo throws and looks like a pass-to-fail transition without testing anything. Residual limitation (accepted, stated in spec §9 T7): the regex takes the FIRST `<h1>`; the page has exactly one.
+Path resolution: **`join(process.cwd(), ...)`**, the convention `tests/cross-cutting/vitest-projects-partition.test.ts` already uses. The plan originally specified `new URL(..., import.meta.url)`; that was tried first at execution time and THROWS `TypeError: The URL must be of scheme file`, because `import.meta.url` is not a `file:` URL under vitest's transform. That is precisely the false-red this step warns about, and it was caught by the step's own requirement to confirm what the red state fails on. Under vitest, `process.cwd()` is the project root; the test file lives at `tests/components/admin/settings/DevToolsRow.test.tsx`, so the target is four levels up. **Verify the red state fails on the string comparison, not on `ENOENT`** — a path typo throws and looks like a pass-to-fail transition without testing anything. Residual limitation (accepted, stated in spec §9 T7): the regex takes the FIRST `<h1>`; the page has exactly one.
 
 **Green.** `app/admin/dev/attention-gallery/page.tsx:54`: `Attention modal gallery` → `Attention gallery`.
 
@@ -245,6 +246,8 @@ Path resolution is `new URL(..., import.meta.url)`, NOT `process.cwd()`, so the 
 // Structural guard over the deferral ledgers. Shipped as the class defense for
 // the twice-recurring "docs task has no red state" vector (R2 F1, R3 F1).
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 const DEFERRAL_ID = /^### ([A-Z0-9][A-Z0-9-]+)/gm;
@@ -256,7 +259,7 @@ const DEFERRAL_ID = /^### ([A-Z0-9][A-Z0-9-]+)/gm;
  */
 const GRADUATED = ["SETTINGS-DEVROW-GALLERY-RESIDUE-1"] as const;
 
-const read = (rel: string): string => readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
+const read = (rel: string): string => readFileSync(join(process.cwd(), rel), "utf8");
 const idsIn = (rel: string): Set<string> =>
   new Set(Array.from(read(rel).matchAll(DEFERRAL_ID), (m) => m[1]!));
 
@@ -281,7 +284,7 @@ describe("deferral ledger graduation", () => {
 
 **Wire the new directory into a vitest project in the same step (R4 F7).** `PARALLEL_TEST_GLOBS` in `vitest.projects.ts` is an explicit per-directory allowlist; an unlisted directory falls to the serial DB-bound project. This guard is pure filesystem reads, so add `"tests/docs/**/*.test.{ts,tsx}"` to that array. Then run `pnpm vitest run tests/cross-cutting/vitest-projects-partition.test.ts` and confirm it still passes — that meta-test walks the real `tests/` tree and asserts every file is claimed by exactly one project, so it is the proof the guard is discovered rather than silently unrun.
 
-Run the guard and **record the failure**: assertion 1 passes (verified today: 4 active ids, 130 archived, 0 overlap) and assertion 2 fails on `SETTINGS-DEVROW-GALLERY-RESIDUE-1 missing from DEFERRED-archive.md`. That is the red state. **Confirm the failure names the archive assertion and not an `ENOENT`** — a wrong relative base in `read()` would make every assertion fail for the wrong reason, which is a false red.
+Run the guard and **record the failure**: assertion 1 passes (verified today: 4 active ids, 130 archived, 0 overlap) and assertion 2 fails on `SETTINGS-DEVROW-GALLERY-RESIDUE-1 missing from DEFERRED-archive.md`. That is the red state. **Confirm the failure names the archive assertion and not an `ENOENT`** — a wrong base in `read()` would make every assertion fail for the wrong reason, which is a false red. (Task 4 hit exactly this: `new URL(..., import.meta.url)` throws under vitest because `import.meta.url` is not a `file:` URL, so both readers use `join(process.cwd(), ...)`.)
 
 **Step 5b — the ledger edits (GREEN).** Items 1-4 below. After them both assertions pass. **The suite is fully green at this task's commit boundary** — the closeout assertion Task 6 needs is deliberately NOT written here, because committing a knowingly-failing assertion would trade the TDD invariant for a red trunk. Task 6 adds that third assertion as its own red-then-green step. Commit the guard file and the ledger edits together.
 

@@ -15,6 +15,9 @@
 // runtime `isDeveloper` prop — a normal admin (isDeveloper=false) never sees the
 // Developer-tools entrypoint even in a dev-flag build. The false (build-time)
 // case lives in DevToolsRow.absent.test.tsx.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -158,5 +161,34 @@ describe("DevToolsRow — DEV_PANEL_PRESENT true", () => {
     const { container } = render(<DevToolsRow />);
     expect(container).toBeEmptyDOMElement();
     expect(screen.queryByTestId("admin-dev-tools-row")).toBeNull();
+  });
+});
+
+describe("attention gallery destination heading", () => {
+  it("h1 text equals the link label that reaches it", () => {
+    // T7 (2026-07-24 spec §9) - a SOURCE scan, because the page is an async
+    // Server Component whose first line is requireDeveloper(): rendering it in
+    // jsdom would mean mocking the whole auth chain to assert one string.
+    //
+    // Whitespace-tolerant, and it compares the CAPTURED heading text rather
+    // than searching the file, so prettier reflowing the heading cannot break
+    // it and a comment mentioning the phrase cannot satisfy it. No blanket
+    // not.toContain("Attention modal gallery"): asserting the captured text
+    // already excludes the old value from the only place that matters, and the
+    // blanket form would fail on a comment narrating the rename.
+    //
+    // Path resolves from process.cwd(), the repo root under vitest - the same
+    // convention tests/cross-cutting/vitest-projects-partition.test.ts uses.
+    // (import.meta.url is NOT a file: URL under vitest's transform, so
+    // readFileSync(new URL(..., import.meta.url)) throws "The URL must be of
+    // scheme file" - a false red that hides the real assertion.) Residual
+    // limitation: takes the FIRST <h1>; the page has exactly one.
+    const pageSource = readFileSync(
+      join(process.cwd(), "app/admin/dev/attention-gallery/page.tsx"),
+      "utf8",
+    );
+    const h1 = /<h1[^>]*>\s*([^<]*?)\s*<\/h1>/.exec(pageSource);
+    expect(h1, "no <h1> found in the gallery page source").not.toBeNull();
+    expect(h1![1]).toBe("Attention gallery");
   });
 });

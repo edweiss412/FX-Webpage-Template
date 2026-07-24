@@ -427,10 +427,14 @@ ever added above it. Acceptable: the page has exactly one `<h1>`
 (`app/admin/dev/attention-gallery/page.tsx:54`), and a second one would be an
 a11y defect this project would catch separately.
 
-**Path resolution** is via `new URL(..., import.meta.url)`, not
-`process.cwd()`, so the test is working-directory independent. A path typo
-surfaces as `ENOENT`, which is a false red — the task step requires confirming
-the red state fails on the string comparison, not on the file read.
+**Path resolution** is `join(process.cwd(), ...)` — under vitest, `cwd` is the
+project root, the convention
+`tests/cross-cutting/vitest-projects-partition.test.ts` already uses. An earlier
+draft specified `new URL(..., import.meta.url)`; that throws
+`TypeError: The URL must be of scheme file` under vitest's transform, because
+`import.meta.url` is not a `file:` URL there. It was caught at execution by this
+step's own rule: confirm the red state fails on the string comparison, not on
+the file read. A path typo surfaces as `ENOENT`, which is a false red.
 
 The existing assertions at `tests/components/admin/settings/DevToolsRow.test.tsx:38`
 and `tests/components/admin/settings/DevToolsRow.test.tsx:51` (`toHaveTextContent` /
