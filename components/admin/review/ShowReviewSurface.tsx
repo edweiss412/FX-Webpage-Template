@@ -41,7 +41,6 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
-import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import {
   NOOP_WARNING_ANNOUNCE,
   WarningAnnounceContext,
@@ -197,7 +196,7 @@ export function ShowReviewSurface({
   // byte-identical); the published review modal passes `syncHash` explicitly.
   extraSectionsBefore?: ExtraSection[]; // Phase 2: [Overview] — full rail items: scroll-spy + hash + chips participate
   extraSectionsAfter?: ExtraSection[]; // Phase 2: [Changes]
-  renderSectionExtras?: (id: SectionId, d: SectionData, opts?: { seamless?: boolean }) => ReactNode; // Phase 2 hook: per-section warning controls
+  renderSectionExtras?: (id: SectionId, d: SectionData) => ReactNode; // Phase 2 hook: per-section warning controls
   // warning-surface-trim §3.2: ACTIVE warn counts, split into the fallback
   // bucket rendering below the Sheet warnings panel (`here`) and every other
   // section (`elsewhere`). Passed by the published modal alongside
@@ -258,23 +257,9 @@ export function ShowReviewSurface({
   const routedWarningsRenderElsewhere =
     routedWarnings !== undefined && renderSectionExtras !== undefined;
 
-  // impeccable critique P0a: Silent (body empty, actionable cards rendering
-  // below this section) must not leave an empty bordered card behind. Same
-  // predicate the panel body uses, so the two cannot disagree about emptiness.
-  //
-  // The predicate must cover EVERYTHING the body can render, not just its warning
-  // rows. `parseNotes` also lives inside those children, and
-  // `lib/admin/sectionAttention.ts:105-110` routes PARSE_ERROR_LAST_GOOD and
-  // RESYNC_QUALITY_REGRESSED EXCLUSIVELY there (`continue` — they never become
-  // cards), so suppressing the card on a failed sync would delete "your latest
-  // changes didn't go through" with nothing else rendering it. That is a
-  // structural no-drop violation, and it is what the first version of this guard
-  // shipped.
-  const suppressWarningsPanelCard =
-    routedWarningsRenderElsewhere &&
-    visibleWarningRows(data.warnings, true).length === 0 &&
-    (warningsNotes?.length ?? 0) === 0 &&
-    (routedWarnings?.here ?? 0) > 0;
+  // warning-trim un-defer spec §2.2: the panel-card box always renders and the
+  // actionable extras now thread INTO it (below), so the Silent-suppression
+  // predicate is retired — there is no empty-tile case left to guard.
 
   // §E3 callout map: warn-severity warnings keyed by section (index = FULL
   // warnings-array position — the §E4 jump-target key). The §7.1 section-status
@@ -934,7 +919,12 @@ export function ShowReviewSurface({
                           {/* §11: instant — deliberate (rail count follows the static registry definition) */}
                           {s.railCount !== null ? (
                             <span className="shrink-0 text-xs font-medium tabular-nums text-text-subtle">
-                              {s.railCount(data, { routedWarningsRenderElsewhere })}
+                              {s.railCount(data, {
+                                routedWarningsRenderElsewhere,
+                                // spec §2.3: the warnings rail reads the shared
+                                // count helper, which needs the active here-count.
+                                activeHere: routedWarnings?.here ?? 0,
+                              })}
                             </span>
                           ) : null}
                           {/* §S3C-1: sr-only text equivalent of the status dot (WCAG 1.4.1). After
@@ -1039,16 +1029,12 @@ export function ShowReviewSurface({
             section top by rail id. Phase 1 (the modal) passes none → nothing. */}
             {extraSectionsBefore?.map(renderExtraPanel)}
             {sections.map((s) => {
-              // crew-warning-attachment §2B: extras computed ONCE per section.
-              // Non-warnings sections thread it INTO the chrome (rendered as
-              // the panel card's last child); the warnings section keeps the
-              // sibling render in BOTH suppression states (§1.1 R1-F1 — a
-              // state-conditional reparent would remount the extras subtree
-              // across Silent transitions and discard control state).
-              const extrasNode =
-                renderSectionExtras?.(s.id, data, {
-                  seamless: s.id === "warnings" && suppressWarningsPanelCard,
-                }) ?? null;
+              // crew-warning-attachment §2B: extras computed ONCE per section and
+              // threaded INTO the chrome (rendered as the panel card's last
+              // child). warning-trim un-defer spec §2.2: the warnings section now
+              // threads the same way — the box always renders, so the extras have
+              // one stable placement inside it (no state-conditional reparent).
+              const extrasNode = renderSectionExtras?.(s.id, data) ?? null;
               return (
                 <section
                   key={s.id}
@@ -1071,9 +1057,6 @@ export function ShowReviewSurface({
                       // `undefined` value.
                       routedWarningsRenderElsewhere,
                       ...(routedWarnings !== undefined ? { routedWarnings } : {}),
-                      ...(s.id === "warnings" && suppressWarningsPanelCard
-                        ? { suppressPanelCard: true }
-                        : {}),
                       flagged: flagged.has(s.id),
                       judgment: judgment.has(s.id),
                       getActiveSection,
@@ -1101,9 +1084,10 @@ export function ShowReviewSurface({
                       // crew-warning-attachment §2B: NULLISH guard (R2-F3) —
                       // null/undefined stay ABSENT (exactOptional); the factory
                       // returns element-or-null so falsy-renderables cannot occur.
-                      ...(s.id !== "warnings" && extrasNode != null
-                        ? { sectionExtras: extrasNode }
-                        : {}),
+                      // warning-trim un-defer spec §2.2: the warnings section is
+                      // no longer excluded — its extras thread in-box like every
+                      // other section (the sibling render is deleted below).
+                      ...(extrasNode != null ? { sectionExtras: extrasNode } : {}),
                       // attention-alert-routing §3.2: the two parse notices render as
                       // banner LINES atop the Parse-warnings panel; they travel as
                       // domain items so WarningsBreakdown composes them with warnings.length.
@@ -1149,15 +1133,9 @@ export function ShowReviewSurface({
                   >
                     {s.render(data)}
                   </Step3SectionChromeContext.Provider>
-                  {/* Warnings section ONLY (crew-warning-attachment §1.1 R1-F1):
-                sibling placement in BOTH suppression states — never through the
-                chrome, so the extras subtree never reparents across Silent
-                transitions. Other sections' extras render inside their panel
-                card via the chrome's sectionExtras (threaded above). seamless
-                (spec 2026-07-22 §3.3): exactly when the warnings body card is
-                suppressed, so the extras' border-t cannot read as a heading
-                underline. */}
-                  {s.id === "warnings" ? extrasNode : null}
+                  {/* warning-trim un-defer spec §2.2: the warnings section's
+                sibling extras render is DELETED — the extras now thread in-box
+                via the chrome's sectionExtras (like every other section). */}
                   {/* Announcer spec 2026-07-22 §2.2: always-mounted published
                   announce-log region. OUTSIDE the chrome-suppressible card
                   subtree (Silent unmounts panel children,

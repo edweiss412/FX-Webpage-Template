@@ -112,14 +112,34 @@ function Harness({
   );
 }
 
-/** The panel body: the breakdown container MINUS the extras subtree, which is a
- *  sibling and independently renders warning titles. */
+/** The panel body: the breakdown container (which now, per warning-trim un-defer
+ *  §2.2, holds the extras IN-box beneath the notes group). */
 function panelBody(): HTMLElement {
   return screen.getByTestId(PANEL_TESTID);
 }
 
+/** The breakdown container with the in-box extras subtree (active groups +
+ *  ignored disclosure) removed, so a warn-absence scan of the info list is not
+ *  fooled by the amber cards the extras legitimately render (they used to be a
+ *  sibling; §2.2 moved them inside). */
+function bodyWithoutExtras(): HTMLElement {
+  const clone = panelBody().cloneNode(true) as HTMLElement;
+  clone
+    .querySelectorAll(
+      '[data-testid^="section-warning-controls-"], [data-testid^="section-ignored-warnings-"]',
+    )
+    .forEach((el) => el.remove());
+  return clone;
+}
+
+/** The rows the body LISTS: published info rows render as note cards
+ *  (`note-warning-title`, §2.2.2); the ungated wizard renders `…-warning-N`
+ *  list rows. The two are mutually exclusive by mode, so the sum is the count. */
 function bodyRowCount(): number {
-  return within(panelBody()).queryAllByTestId(/warning-\d+$/).length;
+  const body = panelBody();
+  const listRows = within(body).queryAllByTestId(/warning-\d+$/).length;
+  const noteCards = within(body).queryAllByTestId("note-warning-title").length;
+  return listRows + noteCards;
 }
 
 function titleOf(w: ParseWarning): string {
@@ -137,8 +157,9 @@ describe("published panel body lists exactly the info rows", () => {
     }
     // Mode 2: row-element count equals the info count, derived from the fixture.
     expect(bodyRowCount()).toBe(INFO_WARNINGS.length);
-    // Mode 3: no warn row's title, code, or message appears anywhere in the body.
-    const text = body.textContent ?? "";
+    // Mode 3: no warn row's title, code, or message appears in the info list
+    // (the extras subtree, where the warn CARDS legitimately live, is removed).
+    const text = bodyWithoutExtras().textContent ?? "";
     for (const w of WARN_WARNINGS) {
       expect(text).not.toContain(titleOf(w));
       expect(text).not.toContain(w.code);
@@ -153,12 +174,12 @@ describe("published panel body lists exactly the info rows", () => {
 
   it("keeps every warn identity reachable in the extras after the trim (no loss, no duplicate)", () => {
     render(<Harness warnings={ALL_WARNINGS} />);
-    const body = panelBody();
+    const bodyText = bodyWithoutExtras().textContent ?? "";
     // Step 2b: the assertion that is FALSE before this task and TRUE after.
-    // Each warn row appears in the extras and NOT in the body, so the union is
-    // exact and nothing is rendered twice.
+    // Each warn row appears in the extras and NOT in the info list, so the union
+    // is exact and nothing is rendered twice.
     for (const w of WARN_WARNINGS) {
-      expect(body.textContent ?? "").not.toContain(titleOf(w));
+      expect(bodyText).not.toContain(titleOf(w));
       expect(screen.queryAllByText(new RegExp(titleOf(w), "i")).length).toBeGreaterThan(0);
     }
   });
@@ -231,6 +252,13 @@ describe("the four body-empty states", () => {
       // row's content, not stray panel copy, and including it would make the
       // List case unassertable.
       if (parent.closest("li[data-warning-index]") !== null) continue;
+      // warning-trim un-defer §2.2: the notes group (info cards) and the in-box
+      // extras (amber groups + ignored disclosure) are legitimate box content,
+      // not stray panel copy. The note popovers stay mounted (hidden) for AT.
+      if (parent.closest('[data-testid="sheet-warnings-notes-group"]') !== null) continue;
+      if (parent.closest('[data-testid^="section-warning-controls-"]') !== null) continue;
+      if (parent.closest('[data-testid^="section-ignored-warnings-"]') !== null) continue;
+      if (parent.closest('[data-testid*="-help-"]') !== null) continue;
       // warning-panel-polish §3.5: the elsewhere sentence is a MIXED paragraph
       // (text nodes interleaved with bolded section buttons), so its internal
       // text nodes are fragments. Its FULL textContent is pinned by the exact
@@ -274,20 +302,12 @@ describe("the four body-empty states", () => {
       expect(clean).toBeNull();
     }
 
-    // And nothing ELSE. `list` carries the correction-loop callout, which is
-    // panel copy the trim deliberately keeps whenever the panel still lists rows
-    // of its own (whole-diff review C1); every other state's body is exactly one
-    // line or nothing.
+    // And nothing ELSE. warning-trim un-defer §4 RETIRES the published correction
+    // callout, so `list` now carries no panel-level copy of its own (the note
+    // cards and extras are skipped as legitimate box content); every other
+    // state's body is exactly one line or nothing.
     const allowed =
-      which === "elsewhere"
-        ? [ELSEWHERE_COPY]
-        : which === "clean"
-          ? [CLEAN_COPY]
-          : which === "list"
-            ? [
-                "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-read the sheet and clear this.",
-              ]
-            : [];
+      which === "elsewhere" ? [ELSEWHERE_COPY] : which === "clean" ? [CLEAN_COPY] : [];
     expectNoStrayBodyCopy(allowed);
   }
 
@@ -332,18 +352,16 @@ describe("the four body-empty states", () => {
     expectOnly("silent");
   });
 
-  it("(b) Silent renders NO panel card at all, not an empty bordered tile", () => {
-    // impeccable critique P0a: the body is null while the actionable cards
-    // render just below, OUTSIDE this wrapper. Keeping the card chrome around
-    // zero children shipped an empty bordered, shadowed tile between an amber
-    // heading and the real cards, which reads as a failed fetch.
+  it("(b) Silent now renders the panel card WITH the extras in-box (spec §2.2)", () => {
+    // warning-trim un-defer §2.2 supersedes the old P0a suppression: the box
+    // ALWAYS renders, and the actionable cards thread INSIDE it (no empty-tile
+    // case remains, because the card is never empty — it holds the extras).
     render(<Harness warnings={SILENT} ignored={[]} />);
-    // The <section> survives (it carries the heading); the CARD wrapper inside it
-    // must not, or an empty bordered tile renders above the real cards.
     const section = screen.getByTestId(PANEL_TESTID);
-    expect(section.querySelectorAll("div.rounded-md.border.bg-surface").length).toBe(0);
-    // ...while the cards it was sitting above are present.
-    expect(screen.queryByTestId("section-warning-controls-warnings")).not.toBeNull();
+    expect(section.querySelectorAll("div.rounded-md.border.bg-surface").length).toBe(1);
+    // ...and the cards render inside that box.
+    const extras = screen.getByTestId("section-warning-controls-warnings");
+    expect(section.querySelector("div.rounded-md.border.bg-surface")!.contains(extras)).toBe(true);
   });
 
   it("List still renders its panel card, so the guard is not simply always-off", () => {

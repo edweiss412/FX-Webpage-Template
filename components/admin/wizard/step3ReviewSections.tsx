@@ -105,7 +105,8 @@ import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStat
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
-import { infoRowInvitesCorrection } from "@/lib/admin/infoCodeActionability";
+import { sheetWarningsPanelCount } from "@/lib/admin/sheetWarningsCount";
+import { NoteWarningCard } from "@/components/admin/NoteWarningCard";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import {
@@ -438,8 +439,11 @@ const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow
  * `id` attributes are emitted anywhere here (§9.4 twin-nav DOM-identity rule).
  */
 /** warning-surface-trim §3.2: the second argument every `railCount` receives.
- *  A named type so the 17 rows that ignore it stay readable. */
-export type RailCountOpts = { routedWarningsRenderElsewhere: boolean };
+ *  A named type so the 17 rows that ignore it stay readable. `activeHere`
+ *  (warning-trim un-defer spec §2.3) carries the ACTIVE here-card count so the
+ *  `warnings` rail count can call `sheetWarningsPanelCount` — the SAME helper
+ *  the heading chip reads. Absent/0 for the wizard, which counts `rows.length`. */
+export type RailCountOpts = { routedWarningsRenderElsewhere: boolean; activeHere?: number };
 
 export type Step3SectionChrome = {
   /** Spec 2026-07-22-warning-panel-polish §3.5: ordered, label-resolved
@@ -543,15 +547,6 @@ export type Step3SectionChrome = {
    *  sections (`elsewhere`). Present exactly when the gate above is true, which
    *  is what makes the four-row body-empty matrix total. */
   routedWarnings?: RoutedWarnings;
-  /** warning-surface-trim, impeccable critique P0a: the Silent state renders a
-   *  null body while its actionable cards render BELOW this section, outside the
-   *  panel card. Keeping the card chrome around zero children ships an empty
-   *  bordered, shadowed tile that reads as a failed fetch, so the surface tells
-   *  the chrome to drop the wrapper. Computed where the data lives (the surface
-   *  holds both the gate and the counts); `children` cannot be inspected for it,
-   *  because a body whose expressions all evaluate to null is still a populated
-   *  React children array. */
-  suppressPanelCard?: boolean;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -863,18 +858,11 @@ function ModalSectionChrome({
   children: React.ReactNode;
 }) {
   const { Icon, label, flagged, headingLevel = 3 } = chrome;
-  // warning-surface-trim, impeccable critique P0a: the Silent state renders a
-  // NULL body while its actionable cards render just below, OUTSIDE this
-  // wrapper. Keeping the card chrome around zero children ships an empty
-  // bordered, shadowed tile between an amber heading and the real cards, which
-  // reads as a failed fetch rather than as deliberate quiet. When there is no
-  // body, the heading sits directly on the cards; the extras block already
-  // supplies its own `border-t` seam.
-  // NOTE: chrome.sectionExtras renders ONLY under hasBody (below) — a section
-  // that suppresses its panel card drops any threaded extras. Safe by contract:
-  // only `warnings` ever suppresses, and ShowReviewSurface never threads
-  // sectionExtras for `warnings` (always sibling, crew-warning-attachment §1.1).
-  const hasBody = chrome.suppressPanelCard !== true;
+  // warning-trim un-defer spec §2.2: the panel-card box ALWAYS renders. The old
+  // panel-card-suppression / Silent-null-body path is retired — on the published
+  // Sheet warnings surface the actionable cards now thread INTO this box via
+  // `chrome.sectionExtras` (never as a sibling), and the box's floor is the
+  // Clean row, so there is no empty-tile case left to hide.
   // §7.1 judgment status (spec 2026-07-07): mutually exclusive with flagged. Drives
   // a calm info-tone icon chip + pill + callout variant, never the amber flag tone.
   const judgment = chrome.judgment === true && !flagged;
@@ -951,37 +939,41 @@ function ModalSectionChrome({
           </a>
         ) : null}
       </div>
-      {hasBody ? (
-        <div
-          className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-(--shadow-tile) ${
-            flagged ? "border-border-strong" : "border-border"
-          }`}
-        >
-          {/* §H N2: instant — deliberate (callout presence is static with the
+      {/* spec §2.2: the panel-card box always renders. */}
+      <div
+        {...(chrome.sectionId !== undefined
+          ? {
+              "data-testid": `wizard-step3-card-${chrome.dfid}-section-${chrome.sectionId}-panel-card`,
+            }
+          : {})}
+        className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-(--shadow-tile) ${
+          flagged ? "border-border-strong" : "border-border"
+        }`}
+      >
+        {/* §H N2: instant — deliberate (callout presence is static with the
             section render — no mount animation; spec §E3 first child) */}
-          {chrome.calloutEntries &&
-          chrome.calloutEntries.length > 0 &&
-          chrome.onJumpToWarning &&
-          chrome.dfid !== undefined &&
-          chrome.sectionId !== undefined ? (
-            <SectionFlagCallout
-              dfid={chrome.dfid}
-              sectionId={chrome.sectionId}
-              entries={chrome.calloutEntries}
-              onJump={chrome.onJumpToWarning}
-              variant={judgment ? "judgment" : "flagged"}
-            />
-          ) : null}
-          {children}
-          {/* crew-warning-attachment §2B: per-section warning extras as the
+        {chrome.calloutEntries &&
+        chrome.calloutEntries.length > 0 &&
+        chrome.onJumpToWarning &&
+        chrome.dfid !== undefined &&
+        chrome.sectionId !== undefined ? (
+          <SectionFlagCallout
+            dfid={chrome.dfid}
+            sectionId={chrome.sectionId}
+            entries={chrome.calloutEntries}
+            onJump={chrome.onJumpToWarning}
+            variant={judgment ? "judgment" : "flagged"}
+          />
+        ) : null}
+        {children}
+        {/* crew-warning-attachment §2B: per-section warning extras as the
               card's LAST child — inside the border they describe. Nullish
               threading is the provider's job (ShowReviewSurface); this renders
               whatever was threaded. §11: instant — deliberate (placement is
               static with the section render; the extras subtree carries no
               transition classes). */}
-          {chrome.sectionExtras}
-        </div>
-      ) : null}
+        {chrome.sectionExtras}
+      </div>
     </>
   );
 }
@@ -2751,7 +2743,14 @@ export function WarningsBreakdown({
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-warnings`}
       label="Warnings"
-      count={rows.length}
+      // spec §2.3: published count = visible info rows + active here-cards, via the
+      // single-predicate helper shared with the rail; wizard count is unchanged
+      // (`rows.length`, both severities).
+      count={
+        routedWarningsRenderElsewhere
+          ? sheetWarningsPanelCount({ visibleInfoRows: rows.length, activeHere: here })
+          : rows.length
+      }
     >
       {parseNotes && parseNotes.length > 0 ? (
         <div
@@ -2846,20 +2845,11 @@ export function WarningsBreakdown({
               The wizard keeps rendering it unconditionally: its panel lists
               every warning including the cell-bearing warn rows, and that
               surface's render is contractually unchanged. */}
-          {/* Spec 2026-07-22-warning-panel-polish §3.4: on the published
-              branch the sourceCell conjunct is RETIRED — published rows are
-              info-only (visibleWarningRows), no info code is anchored
-              (dataGaps.ts OPERATOR_ACTIONABLE_ANCHORED), so that gate could
-              never fire. The callout now renders exactly when a listed info
-              row invites a correction (actionability registry). The wizard
-              branch stays unconditional (staged contract). */}
-          {routedWarningsRenderElsewhere ? (
-            rows.some((w) => infoRowInvitesCorrection(w)) ? (
-              <CorrectionLoopCallout mode={mode} />
-            ) : null
-          ) : (
-            <CorrectionLoopCallout mode={mode} />
-          )}
+          {/* warning-trim un-defer spec §4: the published branch RETIRES the
+              correction callout outright — the sentence now lives in every card's
+              (and note's) `?` popover, so the popup wins. The wizard branch keeps
+              rendering it unconditionally (staged contract, spec §2.2). */}
+          {routedWarningsRenderElsewhere ? null : <CorrectionLoopCallout mode={mode} />}
           {routedWarningsRenderElsewhere ? null : (
             <p
               data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
@@ -2869,116 +2859,132 @@ export function WarningsBreakdown({
               apply below.
             </p>
           )}
-          <ul className="flex flex-col gap-3">
-            {rows.map((w, i) => {
-              const title = reviewWarningTitle(w);
-              const context = isMessageCode(w.code)
-                ? (messageFor(w.code as MessageCode).helpfulContext ?? null)
-                : null;
-              const isWarn = w.severity === "warn";
-              return (
-                <li
-                  key={keys[i]}
-                  data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
-                  // §E4 jump-target key: index into the RENDERED (trimmed) rows
-                  // — same index as the testid. Only consumer is the staged
-                  // jump path, which is never gated, so staged index == full
-                  // index there (published anchors jump by section, not row).
-                  // Container-scoped query hook (no `id`s, §9.4).
-                  data-warning-index={i}
-                  className="flex gap-3"
-                >
-                  {/* §8 severity icon chip: warn = warm chip, info = neutral. */}
-                  <span
-                    aria-hidden="true"
-                    className={`grid size-7 shrink-0 place-items-center rounded-sm ${
-                      isWarn ? "bg-warning-bg text-warning-text" : "bg-info-bg text-text-subtle"
-                    }`}
+          {routedWarningsRenderElsewhere ? (
+            // spec §2.2.2: published info rows render as neutral "note" cards under
+            // a "Notes" eyebrow group. Every change here is gated on the published
+            // gate — the wizard list below is contractually unchanged.
+            <div data-testid="sheet-warnings-notes-group" className="flex flex-col gap-2">
+              <h4 className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+                Notes
+              </h4>
+              <div className="flex flex-col gap-3">
+                {rows.map((w, i) => (
+                  <NoteWarningCard key={keys[i]} warning={w} driveFileId={dfid} />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {rows.map((w, i) => {
+                const title = reviewWarningTitle(w);
+                const context = isMessageCode(w.code)
+                  ? (messageFor(w.code as MessageCode).helpfulContext ?? null)
+                  : null;
+                const isWarn = w.severity === "warn";
+                return (
+                  <li
+                    key={keys[i]}
+                    data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
+                    // §E4 jump-target key: index into the RENDERED (trimmed) rows
+                    // — same index as the testid. Only consumer is the staged
+                    // jump path, which is never gated, so staged index == full
+                    // index there (published anchors jump by section, not row).
+                    // Container-scoped query hook (no `id`s, §9.4).
+                    data-warning-index={i}
+                    className="flex gap-3"
                   >
-                    {isWarn ? <AlertTriangle className="size-4" /> : <Info className="size-4" />}
-                  </span>
-                  {/* div, not span: the per-row controls (and helpfulContext) render
-                      block roots — block-valid container (spec §4.3). */}
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="flex flex-wrap items-baseline gap-x-1.5 text-sm text-text">
-                      <span
-                        aria-hidden="true"
-                        className={`size-1.5 shrink-0 self-center rounded-pill ${
-                          isWarn ? "bg-warning-text" : "bg-text-faint"
-                        }`}
-                      />
-                      <span className="wrap-break-word font-medium text-text-strong">
-                        {renderEmphasis(title)}
-                      </span>
-                      <span className="text-xs uppercase text-text-subtle">
-                        {isWarn ? "warn" : "info"}
-                      </span>
+                    {/* §8 severity icon chip: warn = warm chip, info = neutral. */}
+                    <span
+                      aria-hidden="true"
+                      className={`grid size-7 shrink-0 place-items-center rounded-sm ${
+                        isWarn ? "bg-warning-bg text-warning-text" : "bg-info-bg text-text-subtle"
+                      }`}
+                    >
+                      {isWarn ? <AlertTriangle className="size-4" /> : <Info className="size-4" />}
                     </span>
-                    {(() => {
-                      // The offending row label (from rawSnippet "<label> | <value>"): the
-                      // catalog title is generic ("Unrecognized row in sheet"), so this is
-                      // the only per-row discriminator — makes otherwise-identical entries
-                      // scannable and identifies the row when the deep link is absent.
-                      const rowLabel = labelFromRawSnippet(w.rawSnippet);
-                      return rowLabel ? (
+                    {/* div, not span: the per-row controls (and helpfulContext) render
+                      block roots — block-valid container (spec §4.3). */}
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="flex flex-wrap items-baseline gap-x-1.5 text-sm text-text">
                         <span
-                          data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
-                          className="wrap-break-word text-xs text-text-subtle"
-                        >
-                          {rowLabel}
+                          aria-hidden="true"
+                          className={`size-1.5 shrink-0 self-center rounded-pill ${
+                            isWarn ? "bg-warning-text" : "bg-text-faint"
+                          }`}
+                        />
+                        <span className="wrap-break-word font-medium text-text-strong">
+                          {renderEmphasis(title)}
                         </span>
-                      ) : null;
-                    })()}
-                    {context ? (
-                      <p className="text-xs text-text-subtle">{renderEmphasis(context)}</p>
-                    ) : null}
-                    {(() => {
-                      // Exact-cell deep link: when the scan captured the offending
-                      // source cell, offer a one-click jump to it in the Sheet. Falls
-                      // back to the base sheet URL for a non-allowlisted tab (still
-                      // useful); omitted when no anchor or no driveFileId.
-                      const href = w.sourceCell ? buildSheetDeepLink(dfid, w.sourceCell) : null;
-                      return href ? (
-                        <a
-                          data-testid={`wizard-step3-card-${dfid}-warning-${i}-open`}
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-                        >
-                          Open in Sheet <span aria-hidden="true">↗</span>
-                        </a>
-                      ) : null;
-                    })()}
-                    {/* spec 2026-07-16 §4.3: the complete-list render site for the
+                        <span className="text-xs uppercase text-text-subtle">
+                          {isWarn ? "warn" : "info"}
+                        </span>
+                      </span>
+                      {(() => {
+                        // The offending row label (from rawSnippet "<label> | <value>"): the
+                        // catalog title is generic ("Unrecognized row in sheet"), so this is
+                        // the only per-row discriminator — makes otherwise-identical entries
+                        // scannable and identifies the row when the deep link is absent.
+                        const rowLabel = labelFromRawSnippet(w.rawSnippet);
+                        return rowLabel ? (
+                          <span
+                            data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
+                            className="wrap-break-word text-xs text-text-subtle"
+                          >
+                            {rowLabel}
+                          </span>
+                        ) : null;
+                      })()}
+                      {context ? (
+                        <p className="text-xs text-text-subtle">{renderEmphasis(context)}</p>
+                      ) : null}
+                      {(() => {
+                        // Exact-cell deep link: when the scan captured the offending
+                        // source cell, offer a one-click jump to it in the Sheet. Falls
+                        // back to the base sheet URL for a non-allowlisted tab (still
+                        // useful); omitted when no anchor or no driveFileId.
+                        const href = w.sourceCell ? buildSheetDeepLink(dfid, w.sourceCell) : null;
+                        return href ? (
+                          <a
+                            data-testid={`wizard-step3-card-${dfid}-warning-${i}-open`}
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                          >
+                            Open in Sheet <span aria-hidden="true">↗</span>
+                          </a>
+                        ) : null;
+                      })()}
+                      {/* spec 2026-07-16 §4.3: the complete-list render site for the
                         use-raw + recognize-role controls (live-page parity). Since
                         2026-07-17 (USE-RAW-FULL-LIST-1) this is the SOLE actionable
                         site — the §E3 callout is a non-actionable preview. Both
                         boundaries self-hide out-of-scope warnings. */}
-                    {wizardSessionId && dfid ? (
-                      <UseRawControlBoundary
-                        surface="wizard"
-                        wizardSessionId={wizardSessionId}
-                        driveFileId={dfid}
-                        warning={w}
-                        decision={findUseRawDecision(w, useRawDecisions)}
-                        site="list"
-                      />
-                    ) : null}
-                    {wizardSessionId && dfid ? (
-                      <RoleRecognizeControlBoundary
-                        surface="wizard"
-                        wizardSessionId={wizardSessionId}
-                        driveFileId={dfid}
-                        warning={w}
-                        site="list"
-                      />
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                      {wizardSessionId && dfid ? (
+                        <UseRawControlBoundary
+                          surface="wizard"
+                          wizardSessionId={wizardSessionId}
+                          driveFileId={dfid}
+                          warning={w}
+                          decision={findUseRawDecision(w, useRawDecisions)}
+                          site="list"
+                        />
+                      ) : null}
+                      {wizardSessionId && dfid ? (
+                        <RoleRecognizeControlBoundary
+                          surface="wizard"
+                          wizardSessionId={wizardSessionId}
+                          driveFileId={dfid}
+                          warning={w}
+                          site="list"
+                        />
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </>
       )}
     </BreakdownSection>
@@ -4196,9 +4202,16 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       label: "Sheet warnings",
       group: "Checks",
       Icon: AlertTriangle,
-      // Both severities — the rail count counts list rows (§3.3).
+      // spec §2.3 single-predicate rule: the rail count reads the SAME helper as
+      // the heading chip. Published = visible info rows + active here-cards;
+      // wizard (gate off) = list rows, both severities (unchanged).
       railCount: (s, opts) =>
-        visibleWarningRows(s.warnings, opts.routedWarningsRenderElsewhere).length,
+        opts.routedWarningsRenderElsewhere
+          ? sheetWarningsPanelCount({
+              visibleInfoRows: visibleWarningRows(s.warnings, true).length,
+              activeHere: opts.activeHere ?? 0,
+            })
+          : visibleWarningRows(s.warnings, false).length,
       // spec 2026-07-16 §4.2: thread the staged decisions + session so the full
       // list renders the per-warning controls (complete render site, §4.6).
       // driveFileId is the mode-agnostic SectionCore locator (nullable); the

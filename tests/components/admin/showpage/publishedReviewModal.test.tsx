@@ -1124,19 +1124,21 @@ describe("the warning-surface trim is live end to end from this modal", () => {
     renderModal({}, [info, warn]);
 
     const panel = screen.getByTestId(`wizard-step3-card-${DRIVE_FILE_ID}-breakdown-warnings`);
-    const rows = within(panel).queryAllByTestId(
-      new RegExp(`^wizard-step3-card-${DRIVE_FILE_ID}-warning-\\d+$`),
-    );
+    // warning-trim un-defer §2.2.2: published info rows render as neutral note
+    // cards (one `note-warning-title` each), not list rows.
+    const notes = within(panel).queryAllByTestId("note-warning-title");
 
     // Exactly the info row. Identified by its own message, so a build that
     // trimmed the wrong severity fails rather than counting to one by accident.
-    expect(rows.length).toBe(1);
-    expect(rows[0]!.textContent ?? "").toContain(info.message);
+    expect(notes.length).toBe(1);
+    expect(notes[0]!.textContent ?? "").toContain(info.message);
 
-    // The warn row is gone from the body...
-    expect(panel.textContent ?? "").not.toContain(warn.message);
-    // ...and present as a card, so this is a MOVE and not a deletion. Scoped to
-    // the extras block, which is a different subtree from the panel body.
+    // The warn row is NOT in the notes group (the info-only body area)...
+    const notesGroup = within(panel).getByTestId("sheet-warnings-notes-group");
+    expect(notesGroup.textContent ?? "").not.toContain(warn.message);
+    // ...and present as a card in the extras, so this is a MOVE and not a
+    // deletion. Extras now render in-box, but as a distinct subtree from the
+    // notes group.
     const extras = screen.getByTestId("section-warning-controls-warnings");
     expect(extras.textContent ?? "").toContain(warn.message);
   });

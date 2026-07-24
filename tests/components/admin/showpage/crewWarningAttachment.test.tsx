@@ -284,10 +284,10 @@ describe("sectionExtras renders inside the panel card (spec §2B, T4)", () => {
     expect(panelCard(section).contains(group)).toBe(true);
   });
 
-  it("warnings section extras keep SIBLING placement (R1-F1 — no reparenting)", () => {
-    // An unrouted-shape warning stays in the warnings panel; its extras render
-    // outside any panel card exactly as today. blockRef-less warnings route to
-    // the warnings section.
+  it("warnings section extras render INSIDE the panel card (spec §2.2 — box always renders)", () => {
+    // warning-trim un-defer §2.2: the warnings extras now thread in-box like every
+    // other section (the sibling render is deleted). blockRef-less warnings route
+    // to the warnings section.
     const orphan: ParseWarning = {
       severity: "warn",
       code: "FIELD_UNREADABLE",
@@ -295,21 +295,12 @@ describe("sectionExtras renders inside the panel card (spec §2B, T4)", () => {
       rawSnippet: "??",
     };
     render(<AttachHarness data={buildData([orphan])} renderedCrewKeys={RENDERED} />);
-    const wsection = screen.getByTestId(
-      `wizard-step3-card-${DRIVE_FILE_ID}-review-section-warnings`,
+    const panelCard = screen.getByTestId(
+      `wizard-step3-card-${DRIVE_FILE_ID}-section-warnings-panel-card`,
     );
-    const group = within(wsection).queryByTestId("section-warning-controls-warnings");
-    if (group) {
-      // sibling contract: no bordered ancestor div between group and section
-      let el: HTMLElement | null = group.parentElement;
-      let crossedBorderedDiv = false;
-      while (el && el !== wsection) {
-        if (el.tagName === "DIV" && /(^|\s)border(\s|$)/.test(el.className))
-          crossedBorderedDiv = true;
-        el = el.parentElement;
-      }
-      expect(crossedBorderedDiv, "warnings extras must not move inside a card").toBe(false);
-    }
+    const group = within(panelCard).getByTestId("section-warning-controls-warnings");
+    // in-box contract: the extras are a DESCENDANT of the bordered panel card.
+    expect(panelCard.contains(group)).toBe(true);
   });
 });
 

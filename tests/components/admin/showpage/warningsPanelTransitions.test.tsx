@@ -149,15 +149,12 @@ describe("transition audit: nothing in the four-state path animates", () => {
     const ifs = (code.match(/\bif\s*\(/g) ?? []).length;
     const guards = (code.match(/&&/g) ?? []).length;
 
-    // 5 original ternaries (the gate read, the parse-notes guard,
-    // List-vs-empty, Silent, Elsewhere). The polish-era pointer-sentence
-    // builder's 5 ternaries + 3 ifs moved OUT of this region when the
-    // announcer spec §4 extracted `ElsewherePointerSentence` (its branch
-    // behavior — collapsed/expanded/miss/no-callback — is pinned by
-    // pointerSentence.test.tsx and the spec §4.3 matrix tests; its render is
-    // still instant, §11 precedent). 1 `&&`: the parse-notes null check.
+    // 6 ternaries: the parse-notes guard, List-vs-empty, Silent, Elsewhere, and
+    // — added by warning-trim un-defer §2.3 — the published-vs-wizard `count`
+    // expression on the BreakdownSection. All are content facts of one render
+    // (instant; §2.6 precedent). 1 `&&`: the parse-notes null check.
     expect({ ternaries, ifs, guards }, "the region's branch positions").toEqual({
-      ternaries: 5,
+      ternaries: 6,
       ifs: 0,
       guards: 1,
     });
@@ -257,12 +254,14 @@ const FIXTURES: Record<StateName, { warnings: ParseWarning[]; ignored: ParseWarn
 
 function assertState(name: StateName) {
   const panel = screen.getByTestId(PANEL);
-  const rows = within(panel).queryAllByTestId(/warning-\d+$/).length;
+  // warning-trim un-defer §2.2.2: published info rows render as neutral note
+  // cards (one `note-warning-title` each), not `…-warning-N` list rows.
+  const rows = within(panel).queryAllByTestId("note-warning-title").length;
   const elsewhere = within(panel).queryByTestId(ELSEWHERE);
   const clean = within(panel).queryByTestId(CLEAN);
 
   if (name === "List") {
-    expect(rows, "List renders the info rows").toBe(INFO_WARNINGS.length);
+    expect(rows, "List renders the info note cards").toBe(INFO_WARNINGS.length);
     expect(elsewhere).toBeNull();
     expect(clean).toBeNull();
   } else if (name === "Silent") {

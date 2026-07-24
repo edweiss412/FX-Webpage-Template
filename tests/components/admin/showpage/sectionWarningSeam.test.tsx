@@ -1,8 +1,10 @@
 // tests/components/admin/showpage/sectionWarningSeam.test.tsx
 // @vitest-environment jsdom
-/** Spec §3.3/§8.4. Catches: seam dropped in the wrong state or wrong section.
- *  Matrix: Silent -> warnings extras seamless; List -> byte-identical classes;
- *  here+parseNotes -> card AND seam stay; mixed -> only warnings seamless. */
+/** Spec §3.3/§8.4, superseded by warning-trim un-defer §2.2.3: the WARNINGS
+ *  extras are now ALWAYS seamless (they render in-box beneath the notes group, so
+ *  the box supplies the boundary), in EVERY state. Every other section keeps its
+ *  `border-t` seam. Matrix: warnings seamless in Silent/List/here+parseNotes;
+ *  mixed -> warnings seamless while crew keeps its seam in the same render. */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -32,22 +34,21 @@ describe("extras seam (spec §3.3)", () => {
     expect(extrasClass("warnings")).toBe(SEAMLESS_CLASSES);
   });
 
-  it("List state: byte-identical seam classes", () => {
+  it("List state: warnings extras stay seamless (box supplies the boundary)", () => {
     render(
       <ShowReviewSurface {...buildPublishedSurfaceProps({ listed: 1, here: 2, elsewhere: 0 })} />,
     );
-    expect(extrasClass("warnings")).toBe(SEAM_CLASSES);
+    expect(extrasClass("warnings")).toBe(SEAMLESS_CLASSES);
   });
 
-  it("here + parseNotes: card stays, seam stays", () => {
+  it("here + parseNotes: extras seamless, and the panel card is genuinely present", () => {
     render(
       <ShowReviewSurface
         {...buildPublishedSurfaceProps({ listed: 0, here: 2, elsewhere: 0, withParseNotes: true })}
       />,
     );
-    expect(extrasClass("warnings")).toBe(SEAM_CLASSES);
-    // ...and the panel CARD is genuinely present (the §8.4 claim is card AND
-    // seam): the parse-notes banner block renders inside the card body only.
+    expect(extrasClass("warnings")).toBe(SEAMLESS_CLASSES);
+    // The parse-notes banner block renders inside the card body only.
     expect(screen.getByTestId("parse-attention-notes")).toBeTruthy();
   });
 
