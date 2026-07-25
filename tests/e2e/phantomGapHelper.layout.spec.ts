@@ -96,6 +96,34 @@ test.describe("phantomGap helper — the branches no product tree exercises", ()
     ]);
   });
 
+  // The HEIGHT branch of the same rule. Both cases above resolve widths, so the
+  // block-axis calculation was unpinned and could regress on its own.
+  test("a percentage ROW gap resolves against the block content box", async ({ page }) => {
+    const found = await scan(
+      page,
+      `<div id="root" data-testid="root" style="box-sizing:border-box;height:40px;padding-block:20px;display:flex;flex-direction:column;row-gap:10%">
+         <span style="width:10px;height:0"></span>
+         <span ${ZERO}></span>
+       </div>`,
+    );
+    // Block content box is 0, so the used row gap is 0 and nothing is charged.
+    expect(found.unresolved).toEqual([]);
+    expect(found.offenders).toEqual([]);
+  });
+
+  test("a percentage ROW gap over a real block content box is charged", async ({ page }) => {
+    const found = await scan(
+      page,
+      `<div id="root" data-testid="root" style="box-sizing:border-box;height:240px;padding-block:20px;display:flex;flex-direction:column;row-gap:10%">
+         <span style="width:10px;height:20px">a</span>
+         <span data-testid="empty" ${ZERO}></span>
+       </div>`,
+    );
+    expect(found.unresolved).toEqual([]);
+    // 10% of the 200px block content box.
+    expect(found.offenders).toEqual([{ parent: "root", child: "empty", axis: "row-gap", gap: 20 }]);
+  });
+
   // A mixed length-percentage serializes as the math expression, so there is no
   // used value to read. Silently treating it as 0 dropped the axis entirely.
   test("an unreadable calc() gap is reported as unresolved, never as absent", async ({ page }) => {
@@ -137,7 +165,23 @@ test.describe("phantomGap helper — the branches no product tree exercises", ()
   // Gap axes are LOGICAL. Under a vertical writing mode `row-gap` separates rows
   // that stack horizontally, so it is measured against physical WIDTH.
   // `sideways-*` are vertical too and do not start with "vertical".
-  for (const mode of ["vertical-rl", "sideways-rl"] as const) {
+  for (const mode of ["vertical-rl", "vertical-lr", "sideways-rl", "sideways-lr"] as const) {
+    test(`${mode}: column-gap is measured against HEIGHT, and a zero-height item is the offender`, async ({
+      page,
+    }) => {
+      const found = await scan(
+        page,
+        `<div id="root" data-testid="root" style="writing-mode:${mode};display:flex;column-gap:12px;height:80px">
+           <span style="width:20px;height:10px">a</span>
+           <span data-testid="empty" style="width:20px;height:0"></span>
+         </div>`,
+      );
+      expect(found.unresolved).toEqual([]);
+      expect(found.offenders).toEqual([
+        { parent: "root", child: "empty", axis: "column-gap", gap: 12 },
+      ]);
+    });
+
     test(`${mode}: row-gap is measured against width, and a zero-WIDTH item is the offender`, async ({
       page,
     }) => {
@@ -194,14 +238,33 @@ test.describe("phantomGap helper — the branches no product tree exercises", ()
   // SVG/MathML have no `offset*` metric, so a zero rect is reported only when no
   // transform of any kind is set. `scale: 0` is the case that matters: it never
   // appears in `transform`, and Tailwind v4's `scale-*` utilities compile to it.
-  test("a transformed SVG is not reported; an untransformed zero-width one is", async ({
-    page,
-  }) => {
+  // EVERY transform input, not just `scale`. Each of `transform`, `scale`,
+  // `rotate`, and `translate` is a separate predicate, and covering one left the
+  // other three deletable with the suite still green.
+  for (const [name, css] of [
+    ["scale", "scale:0"],
+    ["transform", "transform:scaleX(0)"],
+    ["rotate", "rotate:45deg"],
+    ["translate", "translate:1px"],
+  ] as const) {
+    test(`an SVG with a \`${name}\` transform is not reported`, async ({ page }) => {
+      const found = await scan(
+        page,
+        `<div id="root" data-testid="root" style="display:flex;column-gap:12px">
+           <span style="width:20px;height:10px">a</span>
+           <svg data-testid="transformed" style="${css}" width="0" height="10"></svg>
+         </div>`,
+      );
+      expect(found.unresolved).toEqual([]);
+      expect(found.offenders).toEqual([]);
+    });
+  }
+
+  test("an untransformed zero-width SVG IS reported", async ({ page }) => {
     const found = await scan(
       page,
       `<div id="root" data-testid="root" style="display:flex;column-gap:12px">
          <span style="width:20px;height:10px">a</span>
-         <svg data-testid="scaled" style="scale:0" width="10" height="10"></svg>
          <svg data-testid="flat" width="0" height="10"></svg>
        </div>`,
     );
@@ -209,6 +272,39 @@ test.describe("phantomGap helper — the branches no product tree exercises", ()
     expect(found.offenders).toEqual([
       { parent: "root", child: "flat", axis: "column-gap", gap: 12 },
     ]);
+  });
+
+  // `content-visibility: hidden` skips the SUBTREE'S OWN layout, so its internal
+  // gaps are not rendered and zero-size descendants charge nothing. Tracked
+  // separately from `display` because the boundary element still holds a box and
+  // is still an item of ITS parent — and because `checkVisibility()` conflates
+  // the two, which is why it is not used.
+  test("a container that IS the content-visibility boundary is not measured", async ({ page }) => {
+    const found = await scan(
+      page,
+      `<div id="root" data-testid="root" style="content-visibility:hidden;display:flex;column-gap:12px">
+         <span style="width:20px;height:10px">a</span>
+         <span ${ZERO}></span>
+       </div>`,
+    );
+    expect(found.visited).toEqual([]);
+    expect(found.offenders).toEqual([]);
+  });
+
+  test("a content-visibility boundary ABOVE the scan root suppresses the walk", async ({
+    page,
+  }) => {
+    const found = await scan(
+      page,
+      `<div style="content-visibility:hidden">
+         <div id="root" data-testid="root" style="display:flex;column-gap:12px">
+           <span style="width:20px;height:10px">a</span>
+           <span ${ZERO}></span>
+         </div>
+       </div>`,
+    );
+    expect(found.visited).toEqual([]);
+    expect(found.offenders).toEqual([]);
   });
 
   // A `display:none` ancestor ABOVE the scan root removes the whole subtree from
@@ -261,6 +357,24 @@ test.describe("reconcilePhantomLedger", () => {
     expect(stale).toHaveLength(1);
   });
 
+  // IDENTITY, field by field. Every fixture above shares one triple, so deleting
+  // any single comparison from the matcher left the suite green — an unrelated
+  // offender of the same magnitude would then be silently consumed by this row.
+  for (const [field, offender] of [
+    ["parent", { ...OFFENDER, parent: "other-parent" }],
+    ["child", { ...OFFENDER, child: "other-child" }],
+    ["axis", { ...OFFENDER, axis: "column-gap" as const }],
+  ] as const) {
+    test(`an offender differing only in ${field} is NOT consumed`, () => {
+      const { remaining, stale } = reconcilePhantomLedger([offender], [ROW], {
+        surface: "s",
+        width: 390,
+      });
+      expect(remaining).toEqual([offender]);
+      expect(stale).toHaveLength(1);
+    });
+  }
+
   // The debt is the MAGNITUDE, not merely the existence of a phantom item.
   test("a ledgered gap that GREW is not consumed", () => {
     const grown = { ...OFFENDER, gap: 32 };
@@ -270,6 +384,31 @@ test.describe("reconcilePhantomLedger", () => {
     });
     expect(remaining).toEqual([grown]);
     expect(stale).toHaveLength(1);
+  });
+
+  // A one-sided comparison would let a SHRINKING gap through, and the tolerance
+  // itself has to be pinned in both directions or exact equality would satisfy
+  // the suite while rejecting legitimate sub-pixel drift.
+  test("a ledgered gap that SHRANK is not consumed", () => {
+    const shrunk = { ...OFFENDER, gap: 1 };
+    const { remaining, stale } = reconcilePhantomLedger([shrunk], [ROW], {
+      surface: "s",
+      width: 390,
+    });
+    expect(remaining).toEqual([shrunk]);
+    expect(stale).toHaveLength(1);
+  });
+
+  test("sub-pixel drift within 0.5px still matches; beyond it does not", () => {
+    const within = { ...OFFENDER, gap: 2.4 };
+    const beyond = { ...OFFENDER, gap: 2.6 };
+    expect(reconcilePhantomLedger([within], [ROW], { surface: "s", width: 390 })).toEqual({
+      remaining: [],
+      stale: [],
+    });
+    const outside = reconcilePhantomLedger([beyond], [ROW], { surface: "s", width: 390 });
+    expect(outside.remaining).toEqual([beyond]);
+    expect(outside.stale).toHaveLength(1);
   });
 
   test("rows outside the scope neither consume nor go stale", () => {
@@ -284,12 +423,17 @@ test.describe("reconcilePhantomLedger", () => {
 
   // Validation covers the WHOLE ledger, including rows outside this scope — a
   // malformed row must not wait for some later run to be noticed.
-  test("a non-positive-integer count throws, even out of scope", () => {
-    expect(() =>
-      reconcilePhantomLedger([], [{ ...ROW, width: 1280, count: 0 }], {
-        surface: "s",
-        width: 390,
-      }),
-    ).toThrow(/non-positive-integer count/);
-  });
+  // `count: 0` alone did not pin `Number.isInteger`: a fractional count silently
+  // consumed two matching offenders while reporting no stale row, hiding the
+  // surplus. Negative counts are the same class.
+  for (const count of [0, -1, 1.5, Number.NaN]) {
+    test(`count ${count} throws, even for a row outside the scope`, () => {
+      expect(() =>
+        reconcilePhantomLedger([], [{ ...ROW, width: 1280, count }], {
+          surface: "s",
+          width: 390,
+        }),
+      ).toThrow(/non-positive-integer count/);
+    });
+  }
 });
