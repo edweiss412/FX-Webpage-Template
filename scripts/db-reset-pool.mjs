@@ -4,10 +4,11 @@
 // exhaustion after a long probing session.
 //
 // WHY: one local Postgres (max_connections 100) is shared by every worktree, dev
-// server, and psql session on the box, and baseline is already ~28 backends at
-// idle from Supabase's own services (PostgREST, realtime, pg_cron, pg_net). This
-// reaps stranded connections without a full `supabase stop && start` (seconds,
-// not a container bounce). Run before the final full-suite verification pass.
+// server, and psql session on the box, and sits at ~28 backends before any test
+// runs -- mostly Supabase's own services (PostgREST, realtime, pg_cron, pg_net),
+// though that split was observed, not audited. This reaps stranded connections
+// without a full `supabase stop && start` (seconds, not a container bounce). Run
+// before the final full-suite verification pass.
 //
 // An earlier version of this comment blamed module-level postgres.js clients
 // with no idle_timeout accumulating across the serial run. That was measured
@@ -79,8 +80,11 @@ if (!LOOPBACK.test(dbUrl)) {
 const all = process.argv.includes("--all");
 
 // Terminate this DB's backends other than our own session. Default: only idle
-// ones, since a stranded connection is by definition not running a query;
-// --all also kills active.
+// ones, because a stranded connection is never mid-query -- but note the
+// converse does NOT hold: `idle` also covers healthy pools between queries, so
+// the default WILL drop a running dev server's or app pool's connections. They
+// reconnect; that is the trade this script makes. --all additionally kills
+// backends that are mid-query.
 const stateFilter = all ? "" : "and state = 'idle'";
 const sql = `
   select count(*)::int as reaped from (

@@ -13,10 +13,10 @@ import vitestConfig from "@/vitest.config";
 // and 60 of them -- spread over 59 files -- are never `.end()`ed on their own
 // binding. They are overwhelmingly the `probe` client that DB tests open to read
 // state back. 86 of the suite's 155 constructions pass no `idle_timeout`, which
-// postgres.js defaults to 0 -- "never auto-close". Nothing closes those 60, so
-// something else has to, and that something is process exit: vitest runs each
-// test file in its own worker and terminates it when the file finishes, which
-// closes its sockets.
+// postgres.js leaves `null` -- never auto-close. Nothing visibly closes those
+// 60, so something else has to, and that something is process exit: vitest runs
+// each test file in its own worker and terminates it when the file finishes,
+// which closes its sockets.
 //
 // `isolate` is the setting that governs this, and it is the ONLY one that does.
 // An earlier version of this guard also pinned `pool` away from "threads" on the
@@ -35,8 +35,10 @@ import vitestConfig from "@/vitest.config";
 //      RESOLVED runtime value, not the authored one. An earlier version read
 //      only the imported config and passed 6/6 under
 //      `--no-isolate --pool=threads`.
-//   2. `fileParallelism: true` on the serial project -- files overlap, so their
-//      peaks add instead of alternating.
+//   2. `fileParallelism: true` on the serial project -- vitest schedules files
+//      concurrently, so many pools are held at once instead of roughly one at a
+//      time. Settable in the config, from the command line, and via
+//      VITEST_MAX_WORKERS, so this is likewise checked at runtime.
 //
 // Measured 2026-07-24 against the full local suite with the sampler filtering on
 // `application_name = 'postgres.js'` (postgres.js 3.4.9 sets that by default at
@@ -90,8 +92,8 @@ function isFunctionLike(node: ts.Node): boolean {
 }
 
 // The census counts module-scope postgres.js clients whose own binding is never
-// `.end()`ed anywhere in their file -- the clients whose cleanup genuinely
-// depends on process exit, which is exactly what the isolation provides.
+// `.end()`ed anywhere in their file -- the closest syntactic proxy for "cleanup
+// depends on process exit", with the limits spelled out below.
 //
 // This walks the AST rather than matching text. A regex version of this census
 // reported 42 where the true figure is 106 module-scope clients: it missed
@@ -100,13 +102,19 @@ function isFunctionLike(node: ts.Node): boolean {
 // literals (`/^postgres(?:ql)?:\/\/.../`) that several helpers declare.
 //
 // It stays a heuristic in one half: "closed" is a source-level search for
-// `<binding>.end(`, so it would miss a teardown that goes through an alias, a
-// wrapper, or a collection, and would be fooled by the string appearing in a
-// comment or an unreachable branch. That is acceptable HERE because the census
-// exists to prove the invariant has subjects and to pin what "subject" means --
-// it is not a per-file correctness check, and every direction of error makes it
-// count MORE clients, never fewer, so the floor cannot be inflated into passing
-// by a missed teardown.
+// `<binding>.end(`, so it errs in BOTH directions. A teardown routed through an
+// alias, a wrapper, or a collection (`afterAll(() => closeSql(sql))`) is not
+// seen, and the client is counted though it is genuinely closed; conversely the
+// string appearing in a comment or an unreachable branch drops a client that is
+// not.
+//
+// So read this floor for what it is: a tripwire that the suite still contains
+// many clients with no teardown VISIBLE AT THE CONSTRUCTION SITE. It is not a
+// proof that 60 specific connections depend on process exit, and it would not
+// notice the suite migrating wholesale to wrapper teardowns -- at which point
+// the floor would still pass while the invariant had lost its subjects. What it
+// does catch is the realistic drift: clients quietly added or removed one file
+// at a time.
 function censusUnendedModuleScopeClients(): string[] {
   const found: string[] = [];
   for (const file of listTsFiles(TESTS_DIR)) {
@@ -157,17 +165,29 @@ function censusUnendedModuleScopeClients(): string[] {
   return found;
 }
 
-// Flags that defeat the invariant for the files a run covers. The runtime
-// assertions below catch these only when THIS file is part of that run, so a
-// command that runs, say, only tests/db needs catching at the source.
+// Overrides that defeat the invariant for the files a run covers. The runtime
+// assertions below catch every one of these WHEN THIS FILE IS IN THE RUN; the
+// scan exists for the runs that exclude it, e.g. a command targeting only
+// tests/db.
 //
 // Quoted spellings are matched because a shell strips the quotes before vitest
 // sees them: `--isolate="false"` arrives as `--isolate=false`.
+//
+// This is a text scan of committed run commands, and its coverage is bounded by
+// that. It cannot see a flag assembled at runtime, a value arriving from repo or
+// org CI settings, a composite action's internals, or an alternate `--config`
+// whose file sets `isolate: false` (no token here would distinguish that from
+// the ordinary `--config`/`--project` use this repo already makes). Treat it as
+// catching the obvious committed spellings, not as a proof that no committed
+// path can disable isolation.
 const ISOLATION_KILLING_FLAGS = [
   /--no-isolate\b/,
   /--isolate[= ]["']?false["']?/,
   // Re-enabling file parallelism overrides the serial project's own setting.
   /--file-?[pP]arallelism\b(?!=["']?false)/,
+  // Vitest applies VITEST_MAX_WORKERS AFTER fileParallelism:false has resolved
+  // maxWorkers to 1, so the env var alone makes serial files concurrent.
+  /VITEST_(?:MAX|MIN)_WORKERS\s*[=:]/,
 ];
 
 // Where runs are launched from. package.json and the workflows are the obvious
@@ -179,7 +199,7 @@ const ISOLATION_KILLING_FLAGS = [
 // CI bootstrap lives; a `--no-isolate` added there passed the scan clean.
 const RUN_COMMAND_SOURCES: Array<{ dir: string; match: RegExp }> = [
   { dir: ".github/workflows", match: /\.ya?ml$/ },
-  { dir: "scripts", match: /\.(mjs|ts|sh)$/ },
+  { dir: "scripts", match: /\.(m?[jt]s|cjs|mts|sh|bash)$/ },
 ];
 
 function listMatching(dir: string, match: RegExp): string[] {
@@ -263,14 +283,18 @@ describe("DB-test connection hygiene depends on per-file worker isolation", () =
     for (const { dir, match } of RUN_COMMAND_SOURCES) {
       for (const entry of listMatching(dir, match)) {
         const body = readFileSync(join(ROOT, entry), "utf8");
-        // Strip comment lines so an explanatory mention is not read as a
-        // command. `#` covers YAML and shell; `//` covers the .mjs/.ts launchers.
+        // Strip comments so an explanatory mention is not read as a command.
+        // Whole-line `#` (YAML, shell) and `//` (the .mjs/.ts launchers), plus
+        // TRAILING ` # ...` — a flag named in an end-of-line YAML comment used
+        // to false-positive. Trailing `//` is deliberately NOT stripped: it
+        // would cut every URL at its scheme.
         const commands = body
           .split("\n")
           .filter((line) => {
             const trimmed = line.trim();
             return !trimmed.startsWith("#") && !trimmed.startsWith("//");
           })
+          .map((line) => line.replace(/\s#.*$/, ""))
           .join("\n");
         if (ISOLATION_KILLING_FLAGS.some((re) => re.test(commands))) {
           offenders.push(entry);
@@ -280,7 +304,14 @@ describe("DB-test connection hygiene depends on per-file worker isolation", () =
     expect(offenders, "these run commands disable per-file isolation").toEqual([]);
   });
 
-  it("the serial project keeps files sequential, so per-file peaks alternate instead of adding", () => {
+  it("the serial project runs one test file at a time", () => {
+    // What this buys, precisely: vitest schedules one file's tasks at a time, so
+    // N files do not deliberately hold N pools at once. It is NOT a guarantee of
+    // strict non-overlap — vitest does not await worker teardown before starting
+    // the next file, so a slow-exiting worker can still hold sockets while its
+    // successor begins. That window is why the measurement reports a SAMPLED
+    // peak and a trend rather than a hard ceiling.
+    //
     // Two assertions, because the authored value and the effective value can
     // disagree: `vitest run --fileParallelism` makes the serial project
     // concurrent while `serial.fileParallelism` still reads false.
@@ -301,8 +332,8 @@ describe("DB-test connection hygiene depends on per-file worker isolation", () =
     ).toBe("serial");
     expect(
       runtimeConfig!.maxWorkers,
-      "maxWorkers must be 1 at RUNTIME — anything else means files run concurrently and " +
-        "their pools sum instead of alternating",
+      "maxWorkers must be 1 at RUNTIME — anything else lets vitest schedule files " +
+        "concurrently, so their pools are held at the same time",
     ).toBe(1);
 
     // The authored value too. Also pinned by vitest-projects-partition.test.ts
@@ -311,7 +342,7 @@ describe("DB-test connection hygiene depends on per-file worker isolation", () =
     expect(serial, "vitest.config.ts must define a `serial` project").toBeDefined();
     expect(
       serial!.fileParallelism,
-      "serial.fileParallelism must stay false — overlapping DB files sum their pools",
+      "serial.fileParallelism must stay false — concurrent DB files hold their pools at once",
     ).toBe(false);
   });
 });
