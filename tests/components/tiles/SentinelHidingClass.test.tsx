@@ -81,7 +81,13 @@ function html(container: HTMLElement): string {
 describe("§8.3 sentinel-hiding — Show notes aggregation (TodaySection)", () => {
   function renderToday(over: Parameters<typeof makeShowForViewer>[0]) {
     return render(
-      <TodaySection {...ledgerProp()} data={makeShowForViewer(over)} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+      <TodaySection
+        {...ledgerProp()}
+        data={makeShowForViewer(over)}
+        viewer={ADMIN}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     ).container;
   }
 
