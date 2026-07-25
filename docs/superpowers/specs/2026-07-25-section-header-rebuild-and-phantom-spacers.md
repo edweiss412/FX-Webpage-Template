@@ -125,7 +125,7 @@ Distance of the name's text from the header row's true horizontal centre, at 375
 
 The compensation is a NAMED token, not a raw pixel utility: `--spacing-header-link-slot: 30px` (= the link's 20px footprint + the row's 10px `gap-2.5`) is added to the `@theme` spacing block in `app/globals.css` beside `--spacing-tap-min` and documented in `DESIGN.md`, then consumed as `pr-header-link-slot`. A raw `pr-[30px]` would violate `DESIGN.md:361` ("Components MUST NOT hardcode hex values, ms values, or px spacing magic numbers"), which round 1 correctly flagged. `--spacing-confirm-box` (`app/globals.css:169`) is the precedent for a measured, commented token. Without it those two sections drift to **+19px** and **+17px** — visibly off-axis against neighbouring sections. With it they match the common case. Measured identical to a reserved 20px spacer element; padding is chosen because it adds no element (§1.1 item 6).
 
-### 3.2 The four childless pushers
+### 3.2 Three pushers plus one decorative hairline
 
 | Site | Change |
 | ---- | ------ |
@@ -230,17 +230,22 @@ Round 4 correctly noted that §4 held an input table and a link taxonomy but no 
 test 1 referred to "the §4 matrix". These are the reachable geometry classes; tests 1-3 enumerate
 exactly these rows and nothing else. The synthetic Cartesian product is NOT the test surface.
 
-| # | Class | Heading | Count | Link | Reachability |
-| - | ----- | ------- | ----- | ---- | ------------ |
-| G1 | top-level, counted, link | `h3` | shown | yes | PRODUCTION (staged + valid published: crew, contacts, rooms, warnings) |
-| G2 | top-level, uncounted, link | `h3` | none | yes | PRODUCTION (venue, event details, crew schedule, hotels, transport, pack list, billing, agenda) |
-| G3 | top-level, uncounted, linkless | `h3` | none | no | PRODUCTION — `report` only |
-| G4 | Diagrams sub-block | `h4` | suppressed | no | PRODUCTION |
-| G5 | partial / standalone provider | `h3` | suppressed | no | SUPPORTED (four cited callers) |
-| G6 | defensive `dfid === ""` | `h3` | shown or none | no | DEFENSIVE — reachable only with malformed data; includes counted/flagged/judgment variants |
+Status reachability is **per row**, verified against the live providers — not a blanket cross with
+all three values, which round 5 correctly called out as contradicting the word "reachable".
 
-Each of G1-G6 is crossed with the three status values (clean / flagged / judgment) for tests 1 and
-6; tests 2-3 measure G1-G6 at 320/375/430/1280.
+| # | Class | Heading | Count | Link | Statuses reachable | Reachability |
+| - | ----- | ------- | ----- | ---- | ------------------ | ------------ |
+| G1 | top-level, counted, link | `h3` | shown | yes | clean, flagged, judgment | PRODUCTION — crew, contacts, rooms, warnings |
+| G2 | top-level, uncounted, link | `h3` | none | yes | clean, flagged, judgment | PRODUCTION — venue, event details, crew schedule, hotels, transport, pack list, billing, agenda |
+| G3 | `report`, linkless | `h3` | none | no | **clean only** | PRODUCTION — warning routing never targets `report`; unmapped warnings go to `warnings` |
+| G4 | Diagrams sub-block | `h4` | suppressed | no | **clean only** | PRODUCTION — both providers hardcode `flagged: false` and omit `judgment` (`components/admin/wizard/step3ReviewSections.tsx:3714-3715`, `components/admin/wizard/step3ReviewSections.tsx:3769-3770`) |
+| G5 | partial / standalone provider | `h3` | suppressed | no | **clean only** | SUPPORTED — all four cited callers are clean; other statuses are type-valid but unreached, so neither tested nor promised |
+| G6a | defensive `dfid === ""`, counted | `h3` | shown | no | clean, flagged, judgment | DEFENSIVE — malformed data only |
+| G6b | defensive `dfid === ""`, uncounted | `h3` | none | no | clean, flagged, judgment | DEFENSIVE — malformed data only |
+
+G6 is split because "shown or none" is two distinct geometries and would let tests 2-3 measure only
+one. **Each browser fixture binds to exactly one (row, status) cell**, and the cell set is the sum
+of the reachable statuses above — 3+3+1+1+1+3+3 = **15 cells**, not 6x3=18.
 
 **One-prop partial providers** (`dfid` without `sectionId`, or the reverse) are **declared
 UNSUPPORTED**: both props are optional for provider-mount convenience, but no caller passes exactly
@@ -361,6 +366,11 @@ no existing probe, so item 1 alone did not cover them. Test 10(a) is what closes
 reintroduction of a childless growable elsewhere in the repo is NOT detected by this batch — that
 is exactly what the deferred backlog spike is for.
 
+**10(a) and 10(b) cover different failures; neither substitutes for the other** (round-5 finding 2).
+10(a) catches a spacer that exists or returns; 10(b) catches a missing `ml-auto`. A repair that
+deletes the spacer but forgets `ml-auto` passes 10(a) and fails 10(b); one that adds `ml-auto` while
+leaving the spacer in place passes 10(b) and fails 10(a). Both are required per site.
+
 1. The existing runtime phantom-gap probes, which measure realised extent and are indifferent to
    className syntax — the instrument that found the original defect.
 2. §9.3 test 10's trailing-alignment geometry on all three repaired pushers, which fails if a
@@ -389,7 +399,15 @@ census reconciled against a run.
 
 ## 8. Transition inventory
 
-The header has 3 pill states (flag / judgment / none) × 2 count states × 2 link states × 2 heading levels. Presence of each element follows **data**, not a user-driven state change. **The header CAN change while mounted.** `key={showId}` (`app/admin/_showReviewModal.tsx:413-419`) remounts only when the SHOW changes; `router.refresh()` reconciles fresh data for the same show under the same key in place (`components/admin/showpage/PublishedReviewModal.tsx:162-174`), so a pill or count can appear, change, or disappear on a mounted header. Rounds 1 and 2 both flagged this; the round-2 correction did not land because the edit was applied without an assertion. The treatment stays instant — but the reason is that same-key reconciliation is deliberately unanimated, NOT that the change only happens across a remount.
+**Pair inventory over REACHABLE states, not a 24-state Cartesian product** (round-5 finding 4;
+`docs/agents/spec-self-review.md:12` requires all `N*(N-1)/2` pairs plus compounds). Heading level is
+**fixed per call site** and cannot transition, so it is excluded from the state count rather than
+multiplied in. Within one mounted header the transitionable axes are status (clean / flagged /
+judgment), count (shown / absent) and link (present / absent) = **12 states, 66 pairs**. Every pair
+resolves to the same treatment — **instant, no animation** — because presence follows data and no
+element is animated in or out; the table below therefore enumerates the axis-level classes and the
+compounds, and declares the uniform treatment for all 66 pairs rather than repeating one row 66
+times. Any future pair needing a non-instant treatment must be broken out explicitly. Presence of each element follows **data**, not a user-driven state change. **The header CAN change while mounted.** `key={showId}` (`app/admin/_showReviewModal.tsx:413-419`) remounts only when the SHOW changes; `router.refresh()` reconciles fresh data for the same show under the same key in place (`components/admin/showpage/PublishedReviewModal.tsx:162-174`), so a pill or count can appear, change, or disappear on a mounted header. Rounds 1 and 2 both flagged this; the round-2 correction did not land because the edit was applied without an assertion. The treatment stays instant — but the reason is that same-key reconciliation is deliberately unanimated, NOT that the change only happens across a remount.
 
 | Transition | Treatment |
 | ---------- | --------- |
