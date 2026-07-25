@@ -856,12 +856,20 @@ it("no caller passes a components prop that could inject an anchor override", ()
         if (ts.isJsxAttribute(n) && n.name.getText() === "components") {
           offenders.push(`${rel} (jsx attribute)`);
         }
-        if (
-          (ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) &&
-          ts.isIdentifier(n.name) &&
-          n.name.text === "components"
-        ) {
-          offenders.push(`${rel} (object key)`);
+        // Identifier, string-literal, AND computed string-literal keys. A computed key
+        // is exactly how `propNameLower` was evaded earlier, so the same shape is
+        // covered here rather than waiting to be told (R14 question 2).
+        if (ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) {
+          const nm = n.name;
+          const key =
+            ts.isIdentifier(nm) || ts.isStringLiteral(nm)
+              ? nm.text
+              : ts.isComputedPropertyName(nm) &&
+                  (ts.isStringLiteral(nm.expression) ||
+                    ts.isNoSubstitutionTemplateLiteral(nm.expression))
+                ? nm.expression.text
+                : null;
+          if (key === "components") offenders.push(`${rel} (object key)`);
         }
         ts.forEachChild(n, visit);
       };
