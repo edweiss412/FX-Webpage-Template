@@ -81,7 +81,19 @@ It is listed in `tests/e2e/standalone.config.ts:36` and invoked by **no workflow
 | `tests/e2e/needs-attention-page.spec.ts` | `tests/e2e/needs-attention-page.spec.ts:243`, `tests/e2e/needs-attention-page.spec.ts:250`; plus a stale source citation in the comment at `tests/e2e/needs-attention-page.spec.ts:53` (says `PendingPanelDiscardButtons.tsx:89`; the ignore button is at `components/admin/PendingPanelDiscardButtons.tsx:120-136`) |
 | `tests/e2e/pendingDiscardReflow.layout.spec.ts` | uses its own local `data-testid="defer"` / `"ignore"`, not the component's |
 
-`tests/help/_uiLabelExceptions.ts`, `tests/help/page-dashboard.test.tsx` and `tests/messages/_metaEmphasisRenderContract.test.ts` reference the component but **not** these test ids (verified by grep) — they need no change.
+`tests/help/_uiLabelExceptions.ts`, `tests/help/page-dashboard.test.tsx` and `tests/messages/_metaEmphasisRenderContract.test.ts` reference the component but **not** these test ids (verified by grep).
+
+**Label-coupling check.** The fork renders each label twice, so any test that counts rendered label occurrences would break. Verified by grep that none does: every other reference to the strings `"Defer until modified"` / `"Permanently ignore"` is either help-page MDX prose (`app/help/admin/dashboard/page.mdx:39`, `app/help/admin/onboarding-wizard/page.mdx:96`) or a **source-text** scan of that MDX (`tests/help/page-dashboard.test.tsx:76-77`, using `expect(src).toContain(...)`), not a DOM query. `tests/help/_uiLabelExceptions.ts:135-143` declares the two labels as help-page exceptions keyed on `label` + `file`, with no count and no DOM involvement. None of these change.
+
+**Stale line citations to correct in passing.** Three registry/comment anchors already point at wrong lines, and this change shifts the file further:
+
+| Location | Says | Actual |
+|---|---|---|
+| `tests/help/_uiLabelExceptions.ts:137` | `PendingPanelDiscardButtons.tsx:85` | Defer button is at `components/admin/PendingPanelDiscardButtons.tsx:109-119` |
+| `tests/help/_uiLabelExceptions.ts:142` | `PendingPanelDiscardButtons.tsx:96` | Ignore button is at `components/admin/PendingPanelDiscardButtons.tsx:120-136` |
+| `tests/e2e/needs-attention-page.spec.ts:53` | `PendingPanelDiscardButtons.tsx:89` | as above |
+
+These are prose notes, not assertions, so nothing fails today — which is exactly why they rotted. They are corrected in the same commit that moves the lines, per the project's line-anchor discipline.
 
 ---
 
