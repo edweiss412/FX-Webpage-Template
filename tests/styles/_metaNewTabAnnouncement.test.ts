@@ -967,14 +967,22 @@ describe("R6: scanner changes are pinned", () => {
   // R9 MEDIUM 3 showed the first version was far too narrow -- it only matched
   // variables literally named `n` or `nm`, missing `attrName(a) === "Target"`,
   // `names.has("Target")`, `prop.name.text === "Target"` and more. It now covers
-  // every name-producing accessor and both set-membership helpers.
+  // every name-producing accessor and all three set-membership helpers.
+  //
+  // Stated honestly: a source-regex tripwire cannot be complete. Indirection defeats
+  // it (`const K = "Target"; attrName(a) === K`), and so would a computed comparison.
+  // It exists to catch the ACCIDENTAL case -- a camelCase literal typed by hand
+  // during a sweep, which is exactly how this class recurred once already -- not to
+  // prove the property. The lowercasing itself is what makes the code correct; this
+  // only makes a regression loud.
   it("no attribute-name comparison uses a non-lowercase literal", () => {
     const src = stripCommentsSafely(
       readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
     );
     const accessor = String.raw`(?:\b(?:n|nm|name|key)\b|attrName\([^)]*\)|jsxAttrNameLower\([^)]*\)|propNameLower\([^)]*\)|prop\.name\.text|\w+\.name\.getText\(\))`;
     const literals = [
-      ...src.matchAll(new RegExp(String.raw`${accessor}\s*(?:===|!==)\s*"([^"]+)"`, "g")),
+      // `[=!]==?` so loose equality cannot slip a camelCase literal past this.
+      ...src.matchAll(new RegExp(String.raw`${accessor}\s*[=!]==?\s*"([^"]+)"`, "g")),
       ...src.matchAll(/\b(?:names|SPREADABLE|LINK_TAGS)\.has\(\s*"([^"]+)"\s*\)/g),
       ...src.matchAll(/\bSPREADABLE\s*=\s*new Set\(\[([^\]]*)\]/g),
     ].flatMap((m) => (m[1] ?? "").split(",").map((s) => s.trim().replace(/^"|"$/g, "")));
