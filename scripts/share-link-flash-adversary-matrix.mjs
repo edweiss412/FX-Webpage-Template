@@ -735,12 +735,30 @@ function acquireLock() {
 function releaseLock() {
   // Only drop OUR lock. Unconditional removal let a second run delete the
   // holder's lock and proceed, which is the collision the lock exists to stop.
+  let held;
   try {
-    const held = readFileSync(LOCK, "utf8").trim().split("\n")[0];
-    if (held !== String(process.pid)) return;
-    rmSync(LOCK, { force: true });
-  } catch {
-    /* no lock, or unreadable — nothing to release */
+    held = readFileSync(LOCK, "utf8").trim().split("\n")[0];
+  } catch (err) {
+    // Genuinely absent is the normal case on an early exit; anything else means
+    // we cannot tell whether a lock is out there, which is worth saying.
+    if (err.code !== "ENOENT") {
+      console.error(`could not read ${LOCK} to release it: ${err.message}`);
+    }
+    return;
+  }
+  if (held !== String(process.pid)) return; // someone else's — not ours to drop
+
+  // Swallowing THIS let a successful run exit 0 while leaving its own lock
+  // behind, blocking every later run for a reason nothing reported
+  // (round-15 review).
+  try {
+    rmSync(LOCK);
+  } catch (err) {
+    console.error(
+      `FAILED to remove our own lock ${LOCK}: ${err.message}\n` +
+        `Later runs will refuse to start until it is gone. Run: rm '${LOCK}'`,
+    );
+    process.exitCode = 1;
   }
 }
 
@@ -769,6 +787,38 @@ function assertCleanTargets() {
  * work-destruction class this guard exists to prevent (round-2 review). A git
  * index lock or a killed checkout must stop the run, not be absorbed by it.
  */
+/**
+ * Turn an execFileSync failure into a verdict about WHY it failed.
+ *
+ * Collapsing every exception into a boolean lost the distinction between "tests
+ * failed", which is the expected red path, and "the process was killed, timed
+ * out, or never spawned", which is an infrastructure fault. A timed-out run
+ * whose partial report happened to contain one failing row satisfied the
+ * boolean and scored as a rejection (round-15 review).
+ *
+ * Returns "failed" for an ordinary non-zero test exit; throws otherwise.
+ */
+function classifyChildFailure(err, what) {
+  if (err?.signal) {
+    throw new Error(
+      `${what} was killed by ${err.signal} — infrastructure fault, not a coverage result`,
+    );
+  }
+  // execFileSync surfaces a timeout as ETIMEDOUT, and a spawn fault as ENOENT /
+  // EACCES with no numeric exit status.
+  if (err?.code && typeof err.code === "string") {
+    throw new Error(
+      `${what} failed to run (${err.code}) — infrastructure fault, not a coverage result`,
+    );
+  }
+  if (typeof err?.status !== "number") {
+    throw new Error(
+      `${what} produced no exit status — infrastructure fault, not a coverage result`,
+    );
+  }
+  return "failed";
+}
+
 /** Shell-safe path list. `app/admin/show/[slug]/...` is a GLOB in zsh, which is
  *  this repo's shell, so an unquoted recovery command dies with "no matches
  *  found" — an instruction that cannot be run is not a recovery (round-14). */
@@ -843,7 +893,8 @@ function runVitest() {
   let exitedNonZero = false;
   try {
     execFileSync("pnpm", args, { cwd: ROOT, stdio: "pipe", timeout: 300_000 });
-  } catch {
+  } catch (err) {
+    classifyChildFailure(err, "vitest");
     exitedNonZero = true;
   }
 
@@ -942,7 +993,8 @@ function runBrowser() {
     // still exited successfully (round-13 review). The completeness checks below
     // have to run on both paths, so the only thing the exit code decides is
     // whether any row is expected to be red.
-  } catch {
+  } catch (err) {
+    classifyChildFailure(err, "playwright");
     exitedNonZero = true;
   }
 
