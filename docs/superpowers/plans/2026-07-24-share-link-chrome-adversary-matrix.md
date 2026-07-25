@@ -22,7 +22,7 @@ proven-equivalent mutant rather than a coverage hole — see the section after t
 
 <!-- BEGIN GENERATED -->
 
-_39 adversaries · 37 rejected · 2 survived · 0 unapplied._
+_38 adversaries · 37 rejected · 1 survived · 0 unapplied._
 
 | # | Wrong implementation | Rows red |
 |---|---|---|
@@ -45,7 +45,7 @@ _39 adversaries · 37 rejected · 2 survived · 0 unapplied._
 | A17 | later duplicate keyframes win the cascade | 4 |
 | A18 | ancestor-qualified rule suppresses it in the real tree | 4 |
 | A19 | ring suppressed while the wash still works | 3 |
-| A20 | keyframes moved into the component as a rendered <style> element | 2 |
+| A20 | component renders its OWN competing keyframes in a <style> element | 2 |
 | A23 | attribute on the wrapper row, not the code block | 11 |
 | A24 | drops the !open arm | 2 |
 | A25 | constant AND CSS moved together | 6 |
@@ -62,7 +62,6 @@ _39 adversaries · 37 rejected · 2 survived · 0 unapplied._
 | A36 | seeded at mount AND never cleared, so opening the panel cues with no rotate | 11 |
 | A37 | whole cue block nested inside `@media screen`, defeating contiguity | 1 |
 | A38 | `@media screen` nesting hidden by escaped braces that balance the count | 1 |
-| A39 | urlRef written in a PASSIVE effect instead of a layout effect | SURVIVED |
 | A22 | token retuned below the ring's contrast floor | 2 |
 | A21 | renders a wrong token / Copy writes a stale one | 2 |
 
