@@ -20,7 +20,7 @@ proven-equivalent mutant rather than a coverage hole — see the section after t
 
 <!-- BEGIN GENERATED -->
 
-_38 adversaries · 37 rejected · 1 survived · 0 unapplied._
+_39 adversaries · 37 rejected · 2 survived · 0 unapplied._
 
 | # | Wrong implementation | Rows red |
 |---|---|---|
@@ -43,7 +43,7 @@ _38 adversaries · 37 rejected · 1 survived · 0 unapplied._
 | A17 | later duplicate keyframes win the cascade | 4 |
 | A18 | ancestor-qualified rule suppresses it in the real tree | 4 |
 | A19 | ring suppressed while the wash still works | 3 |
-| A20 | keyframes moved into the component as a real style element | 1 |
+| A20 | keyframes moved into the component as a rendered <style> element | 2 |
 | A23 | attribute on the wrapper row, not the code block | 11 |
 | A24 | drops the !open arm | 2 |
 | A25 | constant AND CSS moved together | 6 |
@@ -60,6 +60,7 @@ _38 adversaries · 37 rejected · 1 survived · 0 unapplied._
 | A36 | seeded at mount AND never cleared, so opening the panel cues with no rotate | 11 |
 | A37 | whole cue block nested inside `@media screen`, defeating contiguity | 1 |
 | A38 | `@media screen` nesting hidden by escaped braces that balance the count | 1 |
+| A39 | urlRef written in a PASSIVE effect instead of a layout effect | SURVIVED |
 | A22 | token retuned below the ring's contrast floor | 2 |
 | A21 | renders a wrong token / Copy writes a stale one | 2 |
 
@@ -75,7 +76,7 @@ _38 adversaries · 37 rejected · 1 survived · 0 unapplied._
 | T-FLASH-REDUCED | A1, A15, A16, A23, A27, A29, A30, A31 |
 | T-FLASH-REST | A31, A36 |
 | T-FLASH-RESTART | A1, A9, A18, A23, A28 |
-| T-FLASH-RUN | A1, A13, A14, A18, A19, A23, A25, A28, A31, A36 |
+| T-FLASH-RUN | A1, A13, A14, A18, A19, A20, A23, A25, A28, A31, A36 |
 | T-FLASH-SETTLE | A2, A25, A31, A36 |
 | T-FLASH-SOLE | A1, A18, A23, A28, A31, A36 |
 | a STRICTLY LOWER epoch is rejected, so nothing cues | A8, A36 |
