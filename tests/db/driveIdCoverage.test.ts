@@ -261,10 +261,18 @@ describe("CI fail-not-skip decision", () => {
     expect(err?.message).toContain("ECONNREFUSED");
   });
 
-  test("an empty CI value counts as not-CI", () => {
-    // GitHub sets CI=true; an empty string is the "not set meaningfully" case and must not turn a
-    // developer's missing stack into a hard failure.
-    expect(unreachableDbFailure({ ...base, dbUp: false, ci: "" })).toBeNull();
+  test("DB DOWN, CI set to an EMPTY string → still FAILS", () => {
+    // UNSET is the only skip condition. An earlier draft used `if (!opts.ci)`, so a CI wrapper
+    // exporting `CI=` would silently disable the guard while the job stayed green — presence, not
+    // truthiness (whole-diff R2 finding 1).
+    expect(unreachableDbFailure({ ...base, dbUp: false, ci: "" })).toBeInstanceOf(Error);
+  });
+
+  test('DB DOWN, CI set to "0"/"false" → still FAILS', () => {
+    // Same class: any falsy-looking-but-SET value must not read as local.
+    for (const ci of ["0", "false"]) {
+      expect(unreachableDbFailure({ ...base, dbUp: false, ci })).toBeInstanceOf(Error);
+    }
   });
 });
 

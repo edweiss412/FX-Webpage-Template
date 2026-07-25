@@ -107,7 +107,10 @@ export function unreachableDbFailure(opts: {
   error: unknown;
 }): Error | null {
   if (opts.dbUp) return null;
-  if (!opts.ci) return null;
+  // UNSET is the only skip condition (spec AC-6). Treating an empty string as "not CI" — as an
+  // earlier draft did via `if (!opts.ci)` — means a CI wrapper that exports `CI=` silently turns
+  // the guard off and the job stays green (whole-diff R2 finding 1). Presence, not truthiness.
+  if (opts.ci === undefined) return null;
   return new Error(
     `driveIdCoverage.db.test.ts: CI is set but the local database at ${opts.host} is unreachable. ` +
       "This suite is the Drive-ID coverage guard — skipping it in CI would leave the gate green " +
