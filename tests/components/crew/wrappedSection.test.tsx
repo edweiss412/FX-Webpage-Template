@@ -79,7 +79,7 @@ test("WrappedSection catches a synchronous render() throw, renders the fallback,
   // (c) the ledger carries the tileId AND the thrown message, which is what the
   //     sweep needs for context.message after this catch has returned.
   expect(ledger.attempted.has("crew:venue:diagrams")).toBe(true);
-  expect(ledger.failed.get("crew:venue:diagrams")).toBe("synthetic block throw");
+  expect(ledger.failed.get("crew:venue:diagrams")?.message).toBe("synthetic block throw");
 });
 
 test("WrappedSection renders the block output unchanged when render() succeeds (recorded clean)", () => {
@@ -155,7 +155,7 @@ test("a real section's WRAPPED block throw is contained — section does not cra
 
   // The crew-namespaced tileId for the roster block recorded the failure, with
   // the thrown message the sweep will carry into context.message.
-  expect(ledger.failed.get("crew:crew:roster")).toBe("synthetic roster-block throw");
+  expect(ledger.failed.get("crew:crew:roster")?.message).toBe("synthetic roster-block throw");
 
   vi.doUnmock("@/lib/visibility/emptyState");
 });

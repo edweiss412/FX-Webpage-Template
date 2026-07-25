@@ -23,7 +23,8 @@ const ARGS = { showId: "show-1", sheetName: "RPAS Central 2026", viewerKey: "cre
 function ledger(attempted: string[], failed: Record<string, string> = {}): TileRenderLedger {
   const l = createTileRenderLedger();
   for (const id of attempted) l.attempted.add(id);
-  for (const [id, msg] of Object.entries(failed)) l.failed.set(id, msg);
+  for (const [id, msg] of Object.entries(failed))
+    l.failed.set(id, { message: msg, error: new Error(msg) });
   return l;
 }
 

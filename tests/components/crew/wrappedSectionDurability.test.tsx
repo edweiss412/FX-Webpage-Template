@@ -39,7 +39,7 @@ describe("WrappedSection schedules no post-response work", () => {
     );
     expect(afterMock).not.toHaveBeenCalled();
     // The failure is still captured, just in the ledger rather than in a write.
-    expect(ledger.failed.get("crew:gear:scope")).toBe("scope projection blew up");
+    expect(ledger.failed.get("crew:gear:scope")?.message).toBe("scope projection blew up");
   });
 
   test("a successful render registers no after() work", () => {

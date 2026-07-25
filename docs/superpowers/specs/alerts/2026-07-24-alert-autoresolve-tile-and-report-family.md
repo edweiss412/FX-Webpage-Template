@@ -328,10 +328,20 @@ So the failure log moves into `sweepTileRenderAlerts`, which runs inside `after(
 await it: one durable, awaited record per failed tile, emitted before the upsert.
 `components/crew/WrappedSection.tsx` stops logging entirely.
 
-With that placement the worst case of a wrong resolve is a lost **nudge**, not lost evidence: the
-crash stays searchable, the alert re-raises on the affected observer's next render, and the manual
-button remains (§4.9). This is why observer keying is a completeness improvement rather than a safety
-prerequisite, and why the design does not need to be perfect to be a net gain.
+**What awaiting does and does not buy, stated precisely.** It removes the *dropped-promise* failure
+mode: the write is no longer a bare unawaited promise that a serverless freeze can discard. It does
+NOT make persistence guaranteed. `lib/log/logger.ts` deliberately swallows a failed `app_events`
+insert so logging can never break its caller, so a persistence *failure* still yields no row. Whole-
+diff review raised this against an earlier draft of this section that claimed more than the code
+delivers.
+
+So the honest bound is: a wrong resolve costs a **nudge**, and the crash is *very likely* still
+searchable rather than *guaranteed* to be. Two things carry the remaining weight. The alert row
+itself is the primary operator signal and is written by an awaited upsert that surfaces its own
+failure. And the condition, if still true, re-raises on the affected observer's next render, so the
+signal returns. Combined with the retained manual button (§4.9), that is why observer keying is a
+completeness improvement rather than a safety prerequisite, and why the design does not need to be
+perfect to be a net gain.
 
 ### 4.9 Classification: `hybrid`, and the button stays
 

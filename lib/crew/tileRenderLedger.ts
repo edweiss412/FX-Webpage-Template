@@ -11,10 +11,23 @@
  * `failed` is a Map, not a Set: the sweep runs after `WrappedSection`'s catch
  * has returned, so the thrown message must be carried, not re-derived.
  */
+/** What a failed tile recorded: the message for the alert, the Error for the log. */
+export type TileFailure = {
+  /** `err.message`, stamped into the alert's `context.message`. */
+  message: string;
+  /**
+   * The original thrown value. Carried so the sweep's `log.error` can hand the
+   * logger a real Error and get name + stack serialized. Passing only the
+   * message would strip the throwing callsite, which is most of the value of a
+   * crash catcher.
+   */
+  error: unknown;
+};
+
 export type TileRenderLedger = {
   attempted: Set<string>;
-  /** tileId -> the thrown error's message, for the alert's `context.message`. */
-  failed: Map<string, string>;
+  /** tileId -> what it threw. */
+  failed: Map<string, TileFailure>;
 };
 
 export function createTileRenderLedger(): TileRenderLedger {

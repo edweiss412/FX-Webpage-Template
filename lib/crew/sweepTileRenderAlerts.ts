@@ -24,7 +24,8 @@ export async function sweepTileRenderAlerts(
   ledger: TileRenderLedger,
   args: SweepTileRenderAlertsArgs,
 ): Promise<void> {
-  for (const [tileId, message] of ledger.failed) {
+  for (const [tileId, failure] of ledger.failed) {
+    const { message, error } = failure;
     // Durable evidence FIRST, and awaited. `lib/log` persists to app_events
     // asynchronously; WrappedSection is synchronous and could not retain that
     // promise, so a freeze there could leave a resolved alert with no record.
@@ -37,7 +38,10 @@ export async function sweepTileRenderAlerts(
         tileId,
         showId: args.showId,
         viewerKey: args.viewerKey,
-        message,
+        // The Error itself, not just its message: the logger serializes name +
+        // stack from this, which is the throwing callsite a crash catcher exists
+        // to preserve.
+        error,
       });
     } catch {
       // logging must never break the sweep

@@ -25,11 +25,20 @@ import { assertLocalDbUrl } from "./_localDbUrl";
 const LOCAL_URL = assertLocalDbUrl(
   process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
 );
+{
+  const dbHost = new URL(LOCAL_URL).hostname;
+  if (dbHost !== "127.0.0.1" && dbHost !== "localhost") {
+    throw new Error(`refusing to run a mutating DB test against DB host ${dbHost}`);
+  }
+}
 process.env.TEST_DATABASE_URL = LOCAL_URL;
 process.env.DATABASE_URL = LOCAL_URL;
 const LOCAL_SUPABASE_URL = process.env.LOCAL_SUPABASE_URL ?? "http://127.0.0.1:54321";
-if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(LOCAL_SUPABASE_URL)) {
-  throw new Error(`refusing to run a mutating DB test against REST host ${LOCAL_SUPABASE_URL}`);
+// Parse, do not prefix-match: `http://localhost:54321@prod.example` passes a
+// naive prefix regex while actually resolving to prod.example.
+const restHost = new URL(LOCAL_SUPABASE_URL).hostname;
+if (restHost !== "127.0.0.1" && restHost !== "localhost") {
+  throw new Error(`refusing to run a mutating DB test against REST host ${restHost}`);
 }
 process.env.SUPABASE_URL = LOCAL_SUPABASE_URL;
 
@@ -176,7 +185,7 @@ describe("tile alert resolution, real rows", () => {
 
     const failing = createTileRenderLedger();
     failing.attempted.add(TILE);
-    failing.failed.set(TILE, "still broken");
+    failing.failed.set(TILE, { message: "still broken", error: new Error("still broken") });
     await sweepTileRenderAlerts(failing, sweepArgs(OBSERVER_A));
     expect(openRowObserver()).toBe(OBSERVER_A);
   });

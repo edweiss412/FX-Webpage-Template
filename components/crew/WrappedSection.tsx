@@ -94,11 +94,15 @@ export function WrappedSection({
     // ledger escape as a TypeError and take the page to error.tsx instead of
     // rendering the inline fallback. Ordering is safe: cleanTileIds is
     // `attempted` minus `failed`, and the sweep iterates `failed` separately.
-    ledger.attempted.add(tileId);
+    ledger.attempted?.add(tileId);
     return render();
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
-    ledger.failed.set(tileId, err.message);
+    // Optional-chained for the same reason: the catch is the LAST line of
+    // containment, so a malformed ledger here would escape the boundary that
+    // exists to stop exactly that. Losing the record is strictly better than
+    // losing the page.
+    ledger.failed?.set(tileId, { message: err.message, error: err });
     return fallback ?? <TileErrorFallback />;
   }
 }

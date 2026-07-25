@@ -13,7 +13,8 @@ const ATTEMPTED = ["crew:today:notes", "crew:travel:transport", "crew:gear:scope
 function ledgerWith(failed: Record<string, string> = {}): TileRenderLedger {
   const ledger = createTileRenderLedger();
   for (const id of ATTEMPTED) ledger.attempted.add(id);
-  for (const [id, message] of Object.entries(failed)) ledger.failed.set(id, message);
+  for (const [id, message] of Object.entries(failed))
+    ledger.failed.set(id, { message, error: new Error(message) });
   return ledger;
 }
 
@@ -40,7 +41,7 @@ describe("tileRenderLedger", () => {
 
   test("the thrown message is retained per tile", () => {
     const ledger = ledgerWith({ "crew:gear:scope": "scope projection blew up" });
-    expect(ledger.failed.get("crew:gear:scope")).toBe("scope projection blew up");
+    expect(ledger.failed.get("crew:gear:scope")?.message).toBe("scope projection blew up");
   });
 
   test("every attempted tile is clean when nothing failed", () => {
@@ -51,7 +52,7 @@ describe("tileRenderLedger", () => {
     const a = createTileRenderLedger();
     const b = createTileRenderLedger();
     a.attempted.add("crew:gear:scope");
-    a.failed.set("crew:gear:scope", "boom");
+    a.failed.set("crew:gear:scope", { message: "boom", error: new Error("boom") });
     expect(b.attempted.size).toBe(0);
     expect(b.failed.size).toBe(0);
   });
