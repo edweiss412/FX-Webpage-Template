@@ -213,6 +213,22 @@ describe("two groups (attention-index §2.1)", () => {
   // Task 9's motion oracle targets the heading CONTAINERS (the elements whose
   // whole block unmounts on the O1<->O2 collapse), not the text spans — a text
   // locator would select the span and miss a transition on its parent.
+  // Spec test 5b (plan Task 2). Placement is PRESERVED, not normalised: the
+  // needs-you heading stays pinned above the scroll region while Monitoring
+  // scrolls with its rows. Asserted as a DOM containment relationship via
+  // element.contains, never by class name or position — a class assertion would
+  // pass if the heading moved inside a differently-styled wrapper.
+  it("heading placement: 'Needs you' is OUTSIDE the scroller, 'Monitoring' is INSIDE", () => {
+    renderMenu([
+      item("p1", "PARSE_ERROR", { actionable: true }),
+      selfHeal("p2", "Syncing has stalled"),
+    ]);
+    const scroller = document.querySelector('[class*="max-h-96"]');
+    expect(scroller).not.toBeNull();
+    expect(scroller!.contains(screen.getByTestId("attention-needsyou-heading"))).toBe(false);
+    expect(scroller!.contains(screen.getByTestId("attention-monitoring-heading"))).toBe(true);
+  });
+
   it("heading testids are on the CONTAINERS, not the text spans", () => {
     renderMenu([
       item("g1", "PARSE_ERROR", { actionable: true }),
