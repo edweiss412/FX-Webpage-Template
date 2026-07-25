@@ -4,22 +4,25 @@
 **Worktree:** `../FX-worktrees/section-header-rebuild`, branch `feat/section-header-rebuild-phantom-spacers`.
 **Closes:** `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW`, `BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW`, `BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET`.
 
-**Task classes, stated honestly** (round-4 finding 3 — the earlier blanket "every task is TDD" was false
-for several tasks, and invariant 1 is P0, so mislabelling matters):
+**Every committed task has a genuine failing contract.** Round 6 was right that classifying work as
+"infrastructure", "characterization", "documentation" or a "gate" does not waive invariant 1, which is
+non-negotiable. Each task below therefore carries a real RED — and where the obvious framing had none, a
+better contract existed and is used:
 
-- **TDD tasks** — failing test → minimal implementation → passing test → commit (invariant 1): **T1, T2,
-  T3, T4, T5, T6, T9**. Each states its exact RED command and expected failure.
-- **Infrastructure task — T0.** It adds test scaffolding and two product *seams*. It has no feature RED
-  (there is no behaviour to fail yet), but every deliverable is **proved executable** before its commit,
-  and the one product refactor it contains (the `BellActionRow` extraction) is guarded by a
-  **characterization test written and passing BEFORE the extraction**, which must stay green through it. A
-  refactor guard cannot be red first; claiming otherwise would be the dishonest option.
-- **Documentation task — T8** (`DESIGN.md`). No RED exists for prose. Its verification contract is
-  explicit instead: `pnpm format:check` plus `pnpm vitest run tests/styles` (the §7a token/contrast
-  meta-tests), and it ends in a commit.
-- **Close-out gates — T10, T11.** These are gates, not TDD tasks. Any code change a gate produces gets its
-  own RED-first sub-task before it is committed; T10 commits its disposition artifact and T11 commits the
-  merge.
+- **T0a** — an **export contract**: a test importing `BellActionRow` fails to compile/resolve before the
+  extraction exists, and passes after. That is a true RED, and it is stronger than the
+  characterization-only framing it replaces. The parity snapshot rides alongside as a behaviour guard.
+- **T0** — a **wiring contract**: create the two spec files FIRST, then run
+  `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`, which **fails** because two path-gated
+  specs exist with no `LOCAL_ONLY_ALLOWLIST` rows. Add the rows and the filters; it passes. The specs'
+  own discovery (`No tests found` → `1 passed`) is a second red-to-green in the same task.
+- **T8** — a **documentation contract**: extend the §7a site list check so it asserts every component
+  carrying `empty:hidden` appears in `DESIGN.md`'s "Current sites" list. It fails once T5 adds
+  `empty:hidden` to `TravelSection` and `DESIGN.md` has not been updated; T8's edit turns it green.
+- **T10** — a **disposition contract**: the close-out doc must exist with a §12 dispositions section, and
+  any gate-produced code change gets its own RED-first sub-task before commit.
+- **T11** — the merge gate. Its "commit" is `gh pr merge --merge`; any code change it produces takes its
+  own RED-first sub-task.
 
 One commit per task, conventional-commits style (invariant 6). All work stays in the worktree
 (invariant 11).
@@ -365,14 +368,38 @@ new specs are **discovered** and that the harness emits the 15 cells.
    4. tests/e2e/_pusherRowsHarness.tsx
    5. tests/e2e/_sectionHeaderLiveEntry.tsx
    6. tests/e2e/_sectionHeaderBundle.mjs
-   Plus two run steps. A helper is never matched by `testMatch`, so omitting any one leaves a later
-   helper-only PR CI-dark.
+   Plus **two run steps, given exactly** (round-6 finding 5 — "plus two run steps" named neither the
+   commands nor the CI-visible result), inserted after the existing standalone helper-coverage step:
+
+   ```yaml
+   - name: Section-header layout (standalone)
+     run: pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts
+   - name: Pusher alignment (standalone)
+     run: pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts tests/e2e/pusher-alignment.layout.spec.ts
+   ```
+
+   `--reporter=list` is what makes the counts CI-visible. Expected in the logs: **1 passed each at T0**
+   (the smoke cases), rising to **77 passed** for the header spec after T2 and **11 passed** for the
+   pusher spec after T3 — so a reviewer can confirm from the workflow diff and logs that the cases
+   actually ran, rather than inferring it from a green tick.
+
+   A helper is never matched by `testMatch`, so omitting any one leaves a later helper-only PR CI-dark.
 4. **Add the two mandatory `PATH_GATED` rows** to `LOCAL_ONLY_ALLOWLIST`
    (`tests/ci/_metaE2eWorkflowCoverage.test.ts:24-35`) — mandatory, not conditional (§0.1) — and **run
    the meta-test**: `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`, expected green.
 4. Commit tools/one-off/childless-growable-census.ts (§0.4 sweep A).
 5. Run the §0.7 mechanical sweep and record findings against the tasks that own them.
-6. **Proof of discovery AND execution — `--list` alone is not enough** (round-3 finding 4): a listed
+6. **Run the pusher crowding sweep and RECORD both thresholds** (round-6 finding 2 — T3 depended on a
+   T0 output that T0 never produced). Using tests/e2e/\_pusherRowsHarness.tsx, render `AdminNav` and
+   `OnboardingTopBar` with their real props and measure each row's `flex-1` spacer across 320-1280 in
+   10px steps. Record, in this plan and as named constants in the test, the widest row width at which
+   each spacer measures **0**. T3 pins its crowded fixture at or below that width and cites the number.
+   **Then prove it here:** at the chosen width, assert the spacer is zero-extent BEFORE any repair —
+   T3's RED precondition is established, not assumed.
+   **If either row cannot be driven to zero anywhere in range**, STOP and escalate a spec-level finding
+   against spec §9.3 (which assumed narrowing is monotonic for these two rows). Do NOT silently
+   substitute structural absence — that substitution is exactly what round 5 caught.
+7. **Proof of discovery AND execution — `--list` alone is not enough** (round-3 finding 4): a listed
    spec can still fail to run. Both specs must be RUN and PASS before the T0 commit:
    - `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts` → **1 passed** (the smoke case), never "No tests found".
    - `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/pusher-alignment.layout.spec.ts` → **1 passed**.
@@ -591,6 +618,16 @@ reaching 0 only at ≤215px.
    via the parent's gap, so "eyebrow height is 0" passes before the fix. For a **blank** eyebrow the
    primary line's top equals the `.tcol` stack's content-box top with **no 2px displacement**; for a
    **labelled** eyebrow the displacement equals eyebrow height **plus** the 2px `gap-0.5`.
+
+   **Row selection and non-vacuity — specified, because every row shares `data-testid="travelrow"` and
+   the eyebrow has no testid of its own** (round-6 finding 3;
+   `components/crew/sections/TravelSection.tsx:105-126`): enumerate ALL `travelrow` elements on the
+   seeded crew page, partition them by the eyebrow `<p>`'s rendered text (empty vs non-empty), **assert
+   BOTH partitions are non-empty**, assert the blank partition's size equals the count the seeded
+   fixture is known to produce (the same **2** the crew ledger row records at
+   `tests/e2e/crew-layout-dimensions.spec.ts:1037`), then run the displacement assertion on **every
+   member of both partitions** — not one representative. Without this an implementation could measure an
+   arbitrary labelled row, select zero blank rows, and still report green.
    - Command: `pnpm exec playwright test --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "eyebrow displacement"`
    - Expected failure: blank-eyebrow displacement measures 2px, expected 0.
    - **Chosen, not left open** (round-2 finding 7): the case is named
@@ -633,7 +670,16 @@ assertion and so had no red proof.
    - Anchor non-vacuity on `archived-show-row-walker-archived-2026`
      (`components/admin/ArchivedShowRow.tsx:48` is the testid template), **captured from a live `visited`
      dump** — `tests/e2e/admin-layout-dimensions.spec.ts:370-376` records why guessing fails.
-   - PASS command: same; expect **2 passing cases** (`T-NOPHANTOM-DASH [archived] @ 390` and `@ 1280`).
+   - PASS command (the new cases): same; expect **2 passing cases**
+     (`T-NOPHANTOM-DASH [archived] @ 390` and `@ 1280`).
+   - **Then the workflow-equivalent FULL admin run, before committing** (round-6 finding 4): the walker
+     seed adds several shows and dashboard data ahead of EVERY admin phantom-gap case, so wiring it into
+     the workflow can break the pre-existing active-dashboard and show-modal probes. That must be caught
+     task-locally, not at close-out:
+     `pnpm exec playwright test --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"`
+     → all cases green, the archived pair included.
+   - **Also run the advisory-lock structural pin here** (§0.2), not only in final verification:
+     `pnpm vitest run tests/db/seed-restage-fixture.test.ts` → green.
 3. Commit.
 
 ### T7 — (folded into T2)
