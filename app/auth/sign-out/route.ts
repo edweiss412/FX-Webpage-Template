@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { COOKIE_NAME as PICKER_COOKIE_NAME } from "@/lib/auth/picker/cookieEnvelope";
+import { isSupabaseAuthCookieName } from "@/lib/auth/supabaseAuthCookieNames";
 import { messageFor } from "@/lib/messages/lookup";
 import { hostRelativeRedirect } from "@/lib/http/hostRelativeRedirect";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -49,7 +50,9 @@ function teardownFailureHtml(): string {
 
 function clearSupabaseAuthCookies(request: NextRequest, response: NextResponse): void {
   for (const cookie of request.cookies.getAll()) {
-    if (!/^sb-[^-]+-auth-token(?:-code-verifier)?(?:\.\d+)?$/.test(cookie.name)) {
+    // Name test shared with the crew guest path (lib/auth/picker/clearIdentity.ts)
+    // so the two sweeps cannot drift. The Max-Age=0 emission stays inline.
+    if (!isSupabaseAuthCookieName(cookie.name)) {
       continue;
     }
     response.headers.append(
