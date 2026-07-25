@@ -24,30 +24,24 @@ name: Crew e2e (mobile-safari)
 # (real-CI-green is its own gate — the local-passes-CI-fails class).
 on:
   pull_request:
-    # COARSE ON PURPOSE. Five review rounds each found another missing leaf in an
-    # enumerated list (the last one found ~30), which is the signal that
-    # enumeration is the wrong shape here, not that the list needed one more
-    # entry. These specs drive whole rendered routes: the crew show page and the
-    # picker chain reach across app/, components/, and lib/ transitively, plus the
-    # schema the seed helpers write and the CI inputs that build the server. So
-    # the filter now names the trees rather than the files, and
-    # tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts pins these globs.
+    # INVERTED, after six review rounds each found another missing entry in an
+    # allow-list (leaf files, then whole trees, then build inputs like
+    # next.config.ts / tsconfig.json / instrumentation.ts / the pretest
+    # generators). An allow-list of "things that can affect this job" cannot be
+    # completed by inspection: these specs drive whole rendered routes and the job
+    # builds the app, so almost any code or config file can break them.
     #
-    # The cost is that this job runs on more PRs. That is the correct trade: a
-    # missing leaf means a silent regression in a suite whose whole purpose is
-    # catching regressions, while an extra run costs runner minutes.
-    paths:
-      - "app/**"
-      - "components/**"
-      - "lib/**"
-      - "supabase/**"
-      - "tests/e2e/**"
-      - "playwright.config.ts"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/crew-e2e.yml"
-      - ".github/actions/setup/**"
-      - "scripts/ci/**"
+    # paths-ignore cannot be incomplete in the DANGEROUS direction. Anything not
+    # listed here triggers the job, so a new build input, config file or module is
+    # covered the day it lands. The list holds documentation only — prose cannot
+    # change what the app does — and the pin in
+    # tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts asserts exactly that:
+    # the workflow uses paths-ignore, and every entry is a docs pattern.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "LICENSE"
   workflow_dispatch:
 
 # Cancel a superseded run when the PR branch is re-pushed — this job boots

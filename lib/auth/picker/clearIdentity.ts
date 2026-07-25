@@ -131,15 +131,20 @@ async function signOutThisDevice(showId: string): Promise<ClearIdentityResult> {
     return fail("client_construction", error);
   }
 
+  // Returned error and thrown fault are DISTINCT stages. Invariant 9 requires the
+  // two paths be distinguishable, and `if (error) throw error` collapsed them into
+  // one telemetry shape — a gateway rejecting the revocation and the client
+  // blowing up mid-call are different operational events.
+  let returnedError: unknown;
   try {
     const { error } = await supabase.auth.signOut({ scope: "local" });
-    if (error) throw error;
+    returnedError = error;
   } catch (error) {
-    // Revocation did not land, so the foreign session survives and the next
-    // render is Mode B again. The picker entry is already gone, so nothing is
-    // exposed either way.
-    return fail("sign_out", error);
+    // Revocation did not land: the foreign session survives, so the next render is
+    // Mode B again. The picker entry is already gone, so nothing is exposed.
+    return fail("sign_out_threw", error);
   }
+  if (returnedError) return fail("sign_out_returned_error", returnedError);
 
   try {
     // Belt and braces, mirroring the sign-out route: signOut's SSR adapter

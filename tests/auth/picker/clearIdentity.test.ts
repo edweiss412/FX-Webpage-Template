@@ -432,9 +432,20 @@ describe("clearIdentityAndSkip — guest sign-out (spec §4.3)", () => {
   test.each([
     ["client_construction", () => void (supabaseMock.throwOnCreate = true)],
     [
-      "sign_out",
+      // Returned error and thrown fault are separate stages: invariant 9 requires
+      // the two paths be distinguishable, and one shared stage collapsed them.
+      "sign_out_returned_error",
       () => {
         supabaseMock.signOut.mockResolvedValueOnce({ error: { message: "gateway" } });
+      },
+    ],
+    [
+      "sign_out_threw",
+      () => {
+        supabaseMock.signOut.mockImplementationOnce(async () => {
+          calls.push("signOut");
+          throw new Error("network down");
+        });
       },
     ],
   ])("the %s boundary is named in its own emit", async (stage, arrange) => {

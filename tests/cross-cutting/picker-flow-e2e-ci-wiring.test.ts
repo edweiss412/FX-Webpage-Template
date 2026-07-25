@@ -3,25 +3,21 @@
  *
  * Keeps the picker-flow e2e suite from going dark again.
  *
- * Un-skipping the three stubs is not enough on its own: `testMatch` membership in
+ * Un-skipping the three stubs was not enough on its own: `testMatch` membership in
  * playwright.config.ts is not workflow wiring, and before this change the only
- * mobile-safari CI step named exactly one spec file — so "real CI green" could
- * pass without ever executing these regressions.
+ * mobile-safari CI step named exactly one spec file — so "real CI green" could pass
+ * without ever executing these regressions. Two independent gaps also existed:
+ * `PICKER_COOKIE_SIGNING_KEY` was set in no workflow at all (so the suite would
+ * have crashed at setup rather than failing cleanly), and the trigger's path
+ * allow-list was incomplete.
  *
- * Three things nothing else covers:
- *   1. the spec is named in a `playwright test` command,
- *   2. PICKER_COOKIE_SIGNING_KEY's VALUE is 64 hex in both bare-runner workflows
- *      (presence is pinned by REQUIRED_ENV in ci-workflow-speedup.test.ts, but a
- *      malformed value still throws at lib/env/pickerCookieSigningKey.ts),
- *   3. the `pull_request.paths` filter reaches every surface the suite exercises.
- *
- * Workflows are read as text with regexes — the same approach every existing
- * workflow scanner here uses, and there is no yaml dependency in this repo.
- *
- * Scope limit, stated so this file is not mistaken for more than it is: the
- * mobile-safari job stays path-filtered, so the spec is PATH_GATED rather than
- * PR-blocking-capable. Lifting that project to unconditional coverage is
- * BL-RESURRECT-MOBILE-SAFARI-E2E.
+ * Coverage status, which the inverted trigger changed: because the workflow now
+ * filters by `paths-ignore` rather than `paths`, the scanner in
+ * tests/ci/_workflowCoverageScan.ts no longer classifies it as path-filtered, so
+ * BOTH specs it runs are genuinely PR-covered and their `PATH_GATED` allowlist
+ * rows were removed. That is a real improvement over the `PATH_GATED` state this
+ * branch first aimed for. It does not lift the REST of the mobile-safari project,
+ * which stays dark under BL-RESURRECT-MOBILE-SAFARI-E2E.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -29,6 +25,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const SPEC = "tests/e2e/picker-flow.spec.ts";
+
 const readRaw = (wf: string): string =>
   readFileSync(join(process.cwd(), ".github/workflows", wf), "utf8");
 
@@ -58,7 +55,6 @@ function stripComments(yaml: string): string {
           quote = ch;
           continue;
         }
-        // A comment starts at `#` when it opens the line or follows whitespace.
         if (ch === "#" && (i === 0 || /\s/.test(line[i - 1]!))) return line.slice(0, i);
       }
       return line;
@@ -68,64 +64,63 @@ function stripComments(yaml: string): string {
 
 const read = (wf: string): string => stripComments(readRaw(wf));
 
-/** The `pull_request.paths` block only, so a path named elsewhere cannot count. */
-function pathsBlock(wf: string): string {
+/** The `pull_request.paths-ignore` block only, so an entry elsewhere cannot count. */
+function pathsIgnoreBlock(wf: string): string {
   const yaml = read(wf);
-  const start = yaml.indexOf("paths:");
+  const start = yaml.indexOf("paths-ignore:");
   if (start === -1) return "";
   const rest = yaml.slice(start);
-  // Ends at the next key at two-space indent or shallower (e.g. `workflow_dispatch:`).
   const end = rest.slice(1).search(/\n {0,2}\S/);
   return end === -1 ? rest : rest.slice(0, end + 1);
 }
 
 /**
- * Every surface a change to which should re-run this suite. Derived by walking
- * the spec's and its helpers' imports plus the runtime surfaces the cases drive.
+ * The trigger is INVERTED: `paths-ignore`, not `paths`.
  *
- * COARSE ON PURPOSE. Five review rounds each found another missing leaf — the
- * last one about thirty — which says enumeration is the wrong shape, not that the
- * list needed one more entry. These specs drive whole rendered routes, reaching
- * across app/, components/ and lib/ transitively, plus the schema the seed helpers
- * write and the CI inputs that build the server. Naming the trees cannot be
- * incomplete in the way a leaf list kept being.
+ * Six review rounds each found another missing entry in an allow-list — leaf files,
+ * then whole trees, then build inputs like next.config.ts, tsconfig.json,
+ * instrumentation.ts and the pretest generators. An allow-list of "everything that
+ * can affect this job" cannot be completed by inspection: the job builds the app
+ * and these specs drive whole rendered routes.
+ *
+ * `paths-ignore` cannot be incomplete in the dangerous direction — anything not
+ * listed triggers the job — so the contract pinned here is narrow and checkable:
+ * the workflow must use `paths-ignore`, and every entry must be a DOCS pattern,
+ * since prose cannot change what the app does.
  */
-const REQUIRED_PATHS = [
-  "app/**",
-  "components/**",
-  "lib/**",
-  "supabase/**",
-  "tests/e2e/**",
-  "playwright.config.ts",
-  "package.json",
-  "pnpm-lock.yaml",
-  ".github/workflows/crew-e2e.yml",
-  ".github/actions/setup/**",
-  "scripts/ci/**",
-] as const;
+const DOCS_ONLY = /(\.md$|^docs\/|^\.github\/ISSUE_TEMPLATE\/|^LICENSE$)/;
 
 /** Bare-runner workflows whose webServer inherits runner-level env. */
 const KEYED_WORKFLOWS = ["crew-e2e.yml", "dev-gate-e2e.yml"] as const;
 
 describe("picker-flow e2e CI wiring", () => {
-  it("crew-e2e.yml runs the picker-flow spec under a project whose testMatch claims it", () => {
-    const commands = [...read("crew-e2e.yml").matchAll(/playwright test[^\n]*/g)].map((m) => m[0]);
+  it("crew-e2e.yml runs the spec under a project whose testMatch claims it", () => {
+    // From `run:` lines only: a step `name:` mentioning the spec must not satisfy
+    // this, which an earlier version accepted.
+    const commands = [...read("crew-e2e.yml").matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g)]
+      .map((m) => m[1]!)
+      .filter((c) => c.includes("playwright test"));
     const naming = commands.filter((c) => c.includes(SPEC));
     expect(
       naming.length,
-      `no \`playwright test\` command in crew-e2e.yml names ${SPEC}. Un-skipped cases that no ` +
+      `no \`playwright test\` run: line in crew-e2e.yml names ${SPEC}. Un-skipped cases that no ` +
         "workflow runs are dark: CI would report green without executing them.",
     ).toBeGreaterThan(0);
 
     // Naming the file is not enough: a command selecting only mobile-safari while
-    // naming picker-flow collects ZERO tests and still passes. So the command must
-    // select a project whose testMatch actually claims this spec.
+    // naming picker-flow collects ZERO tests and still passes. Split the config on
+    // project boundaries first — one lazy regex could pair a project's name with a
+    // LATER project's testMatch.
     const config = readFileSync(join(process.cwd(), "playwright.config.ts"), "utf8");
-    const claiming = [
-      ...config.matchAll(/name:\s*"([^"]+)"[\s\S]{0,4000}?testMatch:\s*\n?\s*\/\(([^/]+)\)/g),
-    ]
-      .filter(([, , alternatives]) => alternatives!.split("|").includes("picker-flow"))
-      .map(([, project]) => project!);
+    const claiming = config
+      .split(/\n\s*name:\s*"/)
+      .slice(1)
+      .map((block) => {
+        const project = block.slice(0, block.indexOf('"'));
+        const match = /testMatch:\s*\n?\s*\/\(([^/]+)\)/.exec(block);
+        return match !== null && match[1]!.split("|").includes("picker-flow") ? project : null;
+      })
+      .filter((p): p is string => p !== null);
     expect(
       claiming.length,
       "no playwright.config.ts project's testMatch includes picker-flow",
@@ -137,14 +132,38 @@ describe("picker-flow e2e CI wiring", () => {
     ).toBe(true);
   });
 
+  it("crew-e2e.yml uses paths-ignore, so a new code path cannot silently skip it", () => {
+    const yaml = read("crew-e2e.yml");
+    const trigger = yaml.slice(0, yaml.indexOf("jobs:"));
+    expect(
+      /\n\s+paths-ignore:/.test(trigger),
+      "crew-e2e.yml must filter with paths-ignore rather than paths: an allow-list of affecting " +
+        "paths was found incomplete in six consecutive review rounds, while paths-ignore cannot " +
+        "be incomplete in the direction that matters.",
+    ).toBe(true);
+    expect(
+      /\n\s+paths:/.test(trigger),
+      "a paths: allow-list re-opens the incompleteness class",
+    ).toBe(false);
+  });
+
+  it("every paths-ignore entry is a docs pattern", () => {
+    const entries = [...pathsIgnoreBlock("crew-e2e.yml").matchAll(/-\s*"([^"]+)"/g)].map(
+      (m) => m[1]!,
+    );
+    expect(entries.length, "paths-ignore is empty").toBeGreaterThan(0);
+    expect(
+      entries.filter((e) => !DOCS_ONLY.test(e)),
+      "paths-ignore may only skip documentation. A code or config pattern here means a change to " +
+        "it would NOT run the picker-flow suite, which is the failure this guard exists for.",
+    ).toEqual([]);
+  });
+
   it.each(KEYED_WORKFLOWS)("%s sets a 64-hex PICKER_COOKIE_SIGNING_KEY under env:", (wf) => {
     const yaml = read(wf);
-    // Must sit inside an `env:` mapping — a bare key elsewhere in the file reaches
-    // no process.
+    // Must sit inside an `env:` mapping — a bare key elsewhere reaches no process.
     expect(
-      /env:\s*(?:\n\s+#[^\n]*)*(?:\n\s+[A-Z_0-9]+:[^\n]*)*\n\s+PICKER_COOKIE_SIGNING_KEY:/.test(
-        yaml,
-      ),
+      /env:\s*(?:\n\s+[A-Z_0-9]+:[^\n]*)*\n\s+PICKER_COOKIE_SIGNING_KEY:/.test(yaml),
       `${wf} does not set PICKER_COOKIE_SIGNING_KEY inside an env: mapping`,
     ).toBe(true);
     const match = /PICKER_COOKIE_SIGNING_KEY:\s*"?([0-9a-fA-F]*)"?/.exec(yaml);
@@ -152,16 +171,8 @@ describe("picker-flow e2e CI wiring", () => {
     expect(
       match![1],
       `${wf}'s PICKER_COOKIE_SIGNING_KEY must be 64 hex chars — pickerCookieSigningKey() throws ` +
-        "on a malformed value, which turns the guest case into a setup crash rather than a " +
-        "clean failure.",
+        "on a malformed value, which turns the guest case into a setup crash rather than a clean " +
+        "failure.",
     ).toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  it.each(REQUIRED_PATHS)("crew-e2e.yml's pull_request.paths covers %s", (path) => {
-    expect(
-      pathsBlock("crew-e2e.yml").includes(`- "${path}"`),
-      `crew-e2e.yml's pull_request.paths omits ${path}, so a PR changing only that surface would ` +
-        "not re-run the picker-flow suite.",
-    ).toBe(true);
   });
 });

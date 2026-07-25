@@ -42,13 +42,23 @@ import { describe, expect, it } from "vitest";
 // truncated to `FLOW4-2`, which collides with the distinct real `FLOW4-2` entry —
 // so a reopened struck-through id could slip past the no-overlap invariant and two
 // different entries could be conflated.
-const DEFERRAL_ID = /^### ~{0,2}([A-Z0-9][A-Z0-9/-]*)~{0,2}/gm;
+// Ids are SHOUTY tokens of 3+ characters, optionally struck through, optionally
+// behind a bracketed priority prefix (`### [P2] SOME-ID — …`).
+//
+// The 3-character floor is deliberate. Four archived headings are prose behind a
+// priority prefix (`### [P2] Bulk ignore produced two polite announcements …`);
+// they carry no id at all. A looser pattern extracts a single leading letter from
+// them — a garbage "id" that could collide with a real one, which is worse than
+// skipping. So those headings are skipped BY CONSTRUCTION, and the no-overlap
+// invariant simply does not speak to entries that have no identifier.
+const DEFERRAL_ID = /^### (?:\[[^\]]+\]\s*)?~{0,2}([A-Z0-9][A-Z0-9/-]{2,})~{0,2}/gm;
 const BACKLOG_ID = /^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)~{0,2}/gm;
 
 /**
  * Deferrals graduated to the archive since this guard shipped. NOT a mirror of
  * the ~130 historical archive entries: those predate the guard and are covered
- * only by the no-overlap invariant below, not by per-id presence.
+ * only by the no-overlap invariant below, not by per-id presence — and that
+ * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
   "SETTINGS-DEVROW-GALLERY-RESIDUE-1",
@@ -128,7 +138,7 @@ describe("backlog ledger graduation", () => {
     }
   });
 
-  it("the archived picker-flow section names the branch that resolved it", () => {
+  it.each(BACKLOG_GRADUATED)("%s's archived section names the branch that resolved it", (id) => {
     // Provenance, scoped to the section rather than the whole archive: a global
     // substring match would pass on the branch name appearing anywhere in ~130
     // unrelated historical entries.
@@ -137,8 +147,8 @@ describe("backlog ledger graduation", () => {
     // indexOf() landing on a summary bullet above the section, with an arbitrary
     // ±4000-character window that could source the branch name from neighbouring
     // material. The section runs from its heading to the next one.
-    const heading = new RegExp(`^#{2,3} ~{0,2}${BACKLOG_GRADUATED[0]}`, "m").exec(archive);
-    expect(heading, `${BACKLOG_GRADUATED[0]} has no heading in the archive`).not.toBeNull();
+    const heading = new RegExp(`^#{2,3} ~{0,2}${id}`, "m").exec(archive);
+    expect(heading, `${id} has no heading in the archive`).not.toBeNull();
     const from = heading!.index;
     const rest = archive.slice(from);
     const nextHeading = rest.slice(1).search(/\n#{2,3} /);
