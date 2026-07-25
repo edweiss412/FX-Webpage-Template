@@ -87,8 +87,14 @@ function harnessImportGraph(entry: string): string[] {
     } catch {
       return;
     }
-    for (const m of src.matchAll(/from\s+["']([^"']+)["']|import\(["']([^"']+)["']\)/g)) {
-      const spec = m[1] ?? m[2];
+    // Three forms: `... from "x"` (covers import, import type, and export-from),
+    // dynamic `import("x")`, and side-effect `import "x"`. The last one has no
+    // `from`, so it needs its own alternative — there is no repo-local instance
+    // in the graph today, which is exactly why it would rot unnoticed.
+    for (const m of src.matchAll(
+      /from\s+["']([^"']+)["']|import\(["']([^"']+)["']\)|^\s*import\s+["']([^"']+)["']/gm,
+    )) {
+      const spec = m[1] ?? m[2] ?? m[3];
       if (!spec) continue;
       const resolved = resolveSpec(spec, file);
       if (resolved) walk(resolved);
