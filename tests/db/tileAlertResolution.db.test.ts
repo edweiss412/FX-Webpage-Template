@@ -15,16 +15,16 @@ import { execFileSync } from "node:child_process";
 
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
+import { assertLocalDbUrl } from "./_localDbUrl";
+
 // TEST_DATABASE_URL points at the VALIDATION project in this repo, so this file
 // pins BOTH the psql URL and the REST client's URL to local loopback before any
 // module that reads them is imported. The sweep reaches Postgres through the
 // service-role client (SUPABASE_URL), while the seeds go through psql; pinning
 // only one would seed one database and assert against another.
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-if (!/127\.0\.0\.1|localhost/.test(LOCAL_URL)) {
-  throw new Error(`refusing to run a mutating DB test against ${LOCAL_URL}`);
-}
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 process.env.TEST_DATABASE_URL = LOCAL_URL;
 process.env.DATABASE_URL = LOCAL_URL;
 process.env.SUPABASE_URL = process.env.LOCAL_SUPABASE_URL ?? "http://127.0.0.1:54321";
