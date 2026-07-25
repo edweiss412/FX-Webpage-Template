@@ -902,55 +902,98 @@ function ModalSectionChrome({
       : null;
   return (
     <>
-      <div className={`${sub ? "mb-2" : "mb-3"} flex items-center gap-2.5`}>
-        <span
-          aria-hidden="true"
-          className={`grid ${sub ? "size-6" : "size-7"} shrink-0 place-items-center rounded-sm ${
-            flagged
-              ? "bg-warning-bg text-warning-text"
-              : judgment
-                ? "border border-border bg-info-bg text-text"
-                : "bg-surface-sunken text-text-subtle"
-          }`}
-        >
-          <Icon className={sub ? "size-3.5" : "size-4"} />
-        </span>
-        <Heading
-          className={`min-w-0 wrap-break-word font-semibold text-text-strong ${
-            sub ? "text-sm" : "text-base"
-          }`}
-        >
-          {label}
-        </Heading>
-        {showCount ? (
-          <span className={`shrink-0 tabular-nums text-text-subtle ${sub ? "text-xs" : "text-sm"}`}>
-            ({count})
+      {/* Section header, rebuilt (spec 2026-07-25 §3.1). The old row put the name,
+          count, a childless `flex-1` pusher, the status pill and a text "In sheet"
+          link all on ONE line. On a flagged section at phone width the row ran out
+          of space and the NAME was what yielded — 3 lines at 375px, measured.
+
+          Now: a column whose first line is [icon | centred name+count | corner
+          link], and whose second line carries the status pill when there is one.
+          The pusher is gone; `justify-center` on the middle group replaces it.
+
+          `w-full` / `items-stretch` are load-bearing, not decorative: both this
+          column and its parent section are `flex-col`, and Tailwind v4 does NOT
+          default `.flex` to `align-items: stretch`, so without them the lines would
+          shrink-wrap and every centring measurement would be against the wrong box. */}
+      <div className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5`}>
+        <div className="flex w-full min-h-tap-min items-center gap-2.5">
+          <span
+            aria-hidden="true"
+            className={`grid ${sub ? "size-6" : "size-7"} shrink-0 place-items-center rounded-sm ${
+              flagged
+                ? "bg-warning-bg text-warning-text"
+                : judgment
+                  ? "border border-border bg-info-bg text-text"
+                  : "bg-surface-sunken text-text-subtle"
+            }`}
+          >
+            <Icon className={sub ? "size-3.5" : "size-4"} />
           </span>
-        ) : null}
-        <span className="flex-1" />
+          {/* Centred name + count. `pr-header-link-slot` when there is no corner link
+              (the Diagrams sub-block, "Report an issue", and the defensive empty-dfid
+              state) so the name lands on the SAME axis as a section that has one —
+              measured +4px either way, versus +19px without the compensation. The
+              token is 30px: the link's own 20px box plus the row's 10px `gap-2.5`.
+              A raw `pr-[30px]` would violate DESIGN.md §10's ban on px magic. */}
+          <div
+            className={`flex min-w-0 flex-1 items-center justify-center gap-1.5${
+              sheetHref === null ? " pr-header-link-slot" : ""
+            }`}
+          >
+            <Heading
+              className={`min-w-0 wrap-break-word font-semibold text-text-strong ${
+                sub ? "text-sm" : "text-base"
+              }`}
+            >
+              {label}
+            </Heading>
+            {/* Outside <Heading> deliberately: the heading's accessible name stays the
+                section name alone, without the count. */}
+            {showCount ? (
+              <span
+                className={`shrink-0 tabular-nums text-text-subtle ${sub ? "text-xs" : "text-sm"}`}
+              >
+                ({count})
+              </span>
+            ) : null}
+          </div>
+          {/* §11: instant — deliberate (link presence follows data, not a state transition) */}
+          {/* Icon-only, in the corner. The show card's own header already uses an
+              icon-only sheet link, so this is a consistency fix. 20px glyph with a
+              `before:-inset-3` overlay = a 44px hit area (20 + 2x12) without a 44px
+              visual box, which measured 8-29px better on centring than the boxed
+              form. `-inset-3` and not `inset-[-12px]`: tokenized, per DESIGN.md §10.
+              The aria-label is unchanged, so dropping the visible words costs
+              assistive tech nothing. */}
+          {sheetHref ? (
+            <a
+              data-testid={`wizard-step3-card-${chrome.dfid}-section-${chrome.sectionId}-sheetlink`}
+              href={sheetHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Open the source sheet for ${label}`}
+              className="relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text-subtle transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            >
+              <ExternalLink aria-hidden="true" className="size-4" />
+            </a>
+          ) : null}
+        </div>
+        {/* The pill takes its own centred line. NO wrapper is emitted when there is
+            no pill — an always-rendered empty wrapper would charge this column's
+            `gap-1.5` and recreate the very class this batch removes. */}
         {flagged ? (
-          <span className="shrink-0 rounded-pill border border-border-strong bg-warning-bg px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-warning-text">
-            Needs a look
-          </span>
+          <div className="flex w-full justify-center">
+            <span className="shrink-0 rounded-pill border border-border-strong bg-warning-bg px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-warning-text">
+              Needs a look
+            </span>
+          </div>
         ) : judgment ? (
           // §7.3: a calm judgment pill (info tone), distinct from the amber flag.
-          <span className="shrink-0 rounded-pill border border-border bg-info-bg px-2 py-0.5 text-xs font-medium whitespace-nowrap text-text-subtle">
-            Parsed with judgment
-          </span>
-        ) : null}
-        {/* §11: instant — deliberate (link presence follows data, not a state transition) */}
-        {sheetHref ? (
-          <a
-            data-testid={`wizard-step3-card-${chrome.dfid}-section-${chrome.sectionId}-sheetlink`}
-            href={sheetHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Open the source sheet for ${label}`}
-            className="inline-flex min-h-tap-min shrink-0 items-center gap-1 rounded-sm text-xs font-medium whitespace-nowrap text-text-subtle transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-          >
-            In sheet
-            <ExternalLink aria-hidden="true" className="size-3.5" />
-          </a>
+          <div className="flex w-full justify-center">
+            <span className="shrink-0 rounded-pill border border-border bg-info-bg px-2 py-0.5 text-xs font-medium whitespace-nowrap text-text-subtle">
+              Parsed with judgment
+            </span>
+          </div>
         ) : null}
       </div>
       {/* spec §2.2: the panel-card box always renders. */}

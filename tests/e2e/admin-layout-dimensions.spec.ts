@@ -497,19 +497,11 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
    * helper's `reconcilePhantomLedger` documents why no stronger identity is
    * available from the DOM here.
    */
-  const KNOWN_SHOW_MODAL_PHANTOM_ITEMS: PhantomLedgerRow[] = (["rooms", "warnings"] as const).map(
-    (section) => ({
-      surface: "/admin?show",
-      width: 375,
-      parent: `<div in wizard-step3-card-${SEED_DRIVE_FILE_ID}-breakdown-${section}>`,
-      child: `<span in wizard-step3-card-${SEED_DRIVE_FILE_ID}-breakdown-${section}>`,
-      axis: "column-gap" as const,
-      // gap-2.5 = 10px, charged on both sides of the collapsed spacer.
-      gap: 10,
-      count: 1,
-      why: "ModalSectionChrome's flex-1 header spacer collapses to 0 width in a crowded row at 375px — pre-existing, deferred to BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW",
-    }),
-  );
+  /** Known, deferred instances. EMPTY is the correct state: the two rows here
+   *  described `ModalSectionChrome`'s childless `flex-1` header spacer, which the
+   *  §3.1 rebuild deleted (spec 2026-07-25). The stale-row assertion below fails if
+   *  a repaid row is left behind. */
+  const KNOWN_SHOW_MODAL_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
 
   let slug = "";
 
