@@ -27,7 +27,11 @@ const LOCAL_URL = assertLocalDbUrl(
 );
 process.env.TEST_DATABASE_URL = LOCAL_URL;
 process.env.DATABASE_URL = LOCAL_URL;
-process.env.SUPABASE_URL = process.env.LOCAL_SUPABASE_URL ?? "http://127.0.0.1:54321";
+const LOCAL_SUPABASE_URL = process.env.LOCAL_SUPABASE_URL ?? "http://127.0.0.1:54321";
+if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(LOCAL_SUPABASE_URL)) {
+  throw new Error(`refusing to run a mutating DB test against REST host ${LOCAL_SUPABASE_URL}`);
+}
+process.env.SUPABASE_URL = LOCAL_SUPABASE_URL;
 
 const { createTileRenderLedger } = await import("@/lib/crew/tileRenderLedger");
 const { sweepTileRenderAlerts } = await import("@/lib/crew/sweepTileRenderAlerts");

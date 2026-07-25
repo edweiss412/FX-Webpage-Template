@@ -189,7 +189,7 @@ export function cleanTileIds(ledger: TileRenderLedger): string[] {
 
 `failed` is a `Map`, not a `Set`: round 1 found that a tileId-only ledger discards `err.message`,
 which the alert's `context.message` requires (it exists only as the catch-local `err.message` at
-`components/crew/WrappedSection.tsx:84-102`). The sweep runs after the catch returns, so the message
+`components/crew/WrappedSection.tsx` (pre-change catch block)). The sweep runs after the catch returns, so the message
 must be carried, not re-derived.
 
 An explicit **required** prop removes the silent-omission variant: mounting a section without a
@@ -228,19 +228,19 @@ of scope, unchanged, and the reason §6.2 does not repoint the write-site regist
 - Accept the required `ledger: TileRenderLedger` prop.
 - Before invoking `render()`: `ledger.attempted.add(tileId)`.
 - In the `catch`: `ledger.failed.set(tileId, err.message)`, **remove** the `log.error` call
-  (`components/crew/WrappedSection.tsx:86-91`, see §4.8), and **remove** the `upsertAdminAlert` call with its
-  `after()` and fire-and-forget fallback (`components/crew/WrappedSection.tsx:94-122`).
-- The fallback return (`components/crew/WrappedSection.tsx:123`) is unchanged.
+  (`components/crew/WrappedSection.tsx` (pre-change log call), see §4.8), and **remove** the `upsertAdminAlert` call with its
+  `after()` and fire-and-forget fallback (`components/crew/WrappedSection.tsx` (pre-change lines 94-122)).
+- The fallback return (`components/crew/WrappedSection.tsx` (the fallback return)) is unchanged.
 
 Both mutations are synchronous and `render()` is invoked synchronously with no await point
 (`components/crew/WrappedSection.tsx:83`), so a tile in `attempted` and absent from `failed` provably
 completed its render seam.
 
 **The durability guarantee moves, and must move with its test.** The `after()` keep-alive at
-`components/crew/WrappedSection.tsx:110-122` exists because a bare unawaited promise can be dropped
+`components/crew/WrappedSection.tsx` (pre-change lines 110-122) exists because a bare unawaited promise can be dropped
 when a serverless RSC render freezes. That guarantee now lives in the shell sweep, also
 `after()`-registered. Its existing pin
-(`tests/components/crew/wrappedSectionDurability.test.tsx:35-75`) **inverts**: post-change
+(`tests/components/crew/wrappedSectionDurability.test.tsx` (pre-change body)) **inverts**: post-change
 `WrappedSection` registers no `after()` work on either path. An equivalent assertion must be added
 for the sweep in the same commit, in the stronger returned-promise form (§4.10), or the guarantee
 silently loses its only test.
@@ -413,7 +413,7 @@ Two UI-surface files are edited (`app/show/[slug]/[shareToken]/_CrewShell.tsx`,
 `components/crew/WrappedSection.tsx`) plus a prop added to the 7 section components, which makes this
 a UI spec by the invariant-8 location rule and pulls in the impeccable dual-gate (AC18). No edit
 touches JSX output: `WrappedSection` returns `render()`'s output or
-`fallback ?? <TileErrorFallback />` (`components/crew/WrappedSection.tsx:123`) exactly as today, and
+`fallback ?? <TileErrorFallback />` (`components/crew/WrappedSection.tsx` (the fallback return)) exactly as today, and
 `_CrewShell`'s returned tree (`app/show/[slug]/[shareToken]/_CrewShell.tsx:417` onward) is untouched.
 No fixed-dimension parent to flex or grid child relationship is created, removed, or altered.
 
@@ -586,9 +586,9 @@ Rewritten in the same commit, not merely updated:
 | Test                                                          | Why                                                                                             |
 | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `tests/components/crew/wrappedSection.test.tsx:55-160`        | asserts throw renders fallback AND upserts; the upsert leaves                                     |
-| `tests/components/crew/wrappedSectionDurability.test.tsx:35-75` | premise inverts (§4.5); durability re-asserted on the sweep in returned-promise form            |
+| `tests/components/crew/wrappedSectionDurability.test.tsx` (pre-change body) | premise inverts (§4.5); durability re-asserted on the sweep in returned-promise form            |
 | `tests/components/crew/crewShellTwoDistinctAlerts.test.tsx:110-140` | constructs shell and descendants under the old ownership                                    |
-| `tests/messages/_metaEmphasisRenderContract.test.ts:162-170`  | its REASON text says `WrappedSection` produces the alert, which stops being true. The registry row itself is CORRECT and must stay: that registry tracks `.dougFacing` accessors, and `components/crew/WrappedSection.tsx:63` keeps its `.dougFacing` comment. Update the reason prose only. |
+| `tests/messages/_metaEmphasisRenderContract.test.ts:162-170`  | the `WrappedSection` row must be **removed**, not reworded. Rewriting the docstrings drops the file's last `.dougFacing` reference, so it no longer matches the accessor pattern and the registry's own stale-entry guard demands the row go. An earlier draft of this spec said to keep the row and fix its prose; the executable guard is the authority and it disagreed. |
 | `components/crew/WrappedSection.tsx:28-40`                    | the file header still describes the removed alert-upsert ownership                                |
 
 **Plus every test that constructs a crew section**, because the ledger prop is required and tests are
@@ -672,7 +672,8 @@ into a pass-through, which is why the design does not rely on it (§4.3).
 | two observers both have failures                | row names the most recent (tileId, viewerKey); only that observer's clean render clears it (§4.6)                 |
 | row names (tile T, observer A), today A renders T clean | resolves                                                                                                 |
 | row names (tile T, observer A), today B renders T clean | no match; row stays open                                                                                 |
-| section renders but its data is empty           | the seam ran without throwing, so the tile is clean and resolvable                                               |
+| section renders but its data is empty, seam still mounted | the seam ran without throwing, so the tile is clean and resolvable                                     |
+| section's wrapped block is conditionally NOT mounted (`VenueSection.tsx:330` gates the whole `<WrappedSection>` behind `hasDiagrams`) | the tile never enters `attempted`, so it is neither raised nor resolved and an existing row stays open. This is a KNOWN gap, not a regression: an alert raised by a throwing diagram is not auto-cleared by later deleting the last diagram. Acceptable because the code is `hybrid`, so the manual Resolve button remains the operator's path, and the pre-change behavior was that the row never cleared at all. Closing it properly means always mounting the seam and returning null from `render()`, which would change the rendered tree, so it is deliberately out of scope here. |
 | sweep throws (Supabase outage)                  | caught and logged; crew render unaffected; next healthy request sweeps                                           |
 | no request scope (unit test)                    | `after()` throws synchronously; registration skipped, matching the existing shape                                |
 | alert already resolved manually                 | the resolve filters `resolved_at IS NULL`; no double-write                                                       |

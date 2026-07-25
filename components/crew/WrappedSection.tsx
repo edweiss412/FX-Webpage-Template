@@ -54,12 +54,16 @@ type WrappedSectionProps = {
    * admin_alerts.context.tileId so the dashboard can tell blocks apart.
    */
   tileId: string;
-  /** Show id for the admin_alerts row's `show_id`. */
-  showId: string | null;
   /**
-   * Show title (sheet name) — stamped into admin_alerts.context.sheet_name so
-   * AlertBanner can interpolate the §12.4 `<sheet-name>` placeholder in
-   * TILE_SERVER_RENDER_FAILED.dougFacing. Defaults to null.
+   * Show id. Retained on the contract because every call site threads it and it
+   * identifies the tile's show, but this component no longer writes the alert,
+   * so it is not read here: the sweep takes `showId` from the shell.
+   */
+  showId?: string | null;
+  /**
+   * Show title (sheet name). Same status as `showId`: retained on the contract,
+   * not read here. `context.sheet_name` is stamped by the sweep from
+   * `data.show.title`, which is the same value by construction.
    */
   sheetName?: string | null;
   /**
@@ -80,14 +84,17 @@ type WrappedSectionProps = {
 
 export function WrappedSection({
   tileId,
-  showId,
-  sheetName,
   ledger,
   render,
   fallback,
 }: WrappedSectionProps): ReactNode {
-  ledger.attempted.add(tileId);
   try {
+    // INSIDE the try, deliberately. This component's whole contract is that it
+    // cannot throw past its own boundary; recording outside would let a bad
+    // ledger escape as a TypeError and take the page to error.tsx instead of
+    // rendering the inline fallback. Ordering is safe: cleanTileIds is
+    // `attempted` minus `failed`, and the sweep iterates `failed` separately.
+    ledger.attempted.add(tileId);
     return render();
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
