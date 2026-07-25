@@ -329,9 +329,9 @@ describe("buildSectionWarningExtras (per-section render, inside owning section)"
     expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe("Ignore");
     // N moved off the visible label into the accessible name (spec
     // 2026-07-24-dq-eyebrow-divider §3.3); still derived from the fixture.
-    expect(
-      crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").getAttribute("aria-label"),
-    ).toMatch(new RegExp(`^Ignore ${fieldWarnings.length}\\b`));
+    expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").getAttribute("aria-label")).toMatch(
+      new RegExp(`^Ignore ${fieldWarnings.length}\\b`),
+    );
     expect(crew.queryByTestId("dq-bulk-ignore-UNKNOWN_ROLE_TOKEN")).toBeNull();
     // spec 2026-07-24 §2.1: the lone UNKNOWN_ROLE_TOKEN group (1 card, no chip)
     // suppresses its eyebrow — the card renders alone; its title carries the type.

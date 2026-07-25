@@ -120,10 +120,10 @@ const ARMED_TEXT = "Are you sure?";
 
 async function armChip(page: Page): Promise<void> {
   await page.click(CHIP); // single real click arms the chip
-  await page.waitForFunction(
-    ([sel, text]) => document.querySelector(sel!)!.textContent === text,
-    [CHIP, ARMED_TEXT] as const,
-  );
+  await page.waitForFunction(([sel, text]) => document.querySelector(sel!)!.textContent === text, [
+    CHIP,
+    ARMED_TEXT,
+  ] as const);
 }
 
 for (const state of ["idle", "armed"] as const) {
@@ -248,9 +248,7 @@ test("DI-5 375px idle: the row keeps its one-line height (the fix costs nothing 
   const idle = await rowMetrics(page);
   // Derived, not hardcoded: the row is exactly as tall as its tallest in-flow child
   // (the tap-target-height chip), so a wrapped idle row would exceed it.
-  const chipHeight = await page
-    .locator(CHIP)
-    .evaluate((el) => el.getBoundingClientRect().height);
+  const chipHeight = await page.locator(CHIP).evaluate((el) => el.getBoundingClientRect().height);
   expect(idle.rowHeight).toBeLessThanOrEqual(chipHeight + 0.5);
 });
 
