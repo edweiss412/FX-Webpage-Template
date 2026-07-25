@@ -201,6 +201,9 @@ export function ShareHub({
   const openerRef = useRef<HTMLButtonElement | null>(null);
 
   const caretRef = useRef<HTMLSpanElement>(null);
+  /** Content height at the last placement. The body observer compares against
+   *  it so our own `max-height` write cannot retrigger placement forever. */
+  const lastContentHeightRef = useRef<number>(-1);
 
   // Portal host (spec §2.1.1). `mounted` flips in an EFFECT rather than via a
   // has-mounted hook: a provider's `panelRef.current` is still null on the
@@ -328,6 +331,10 @@ export function ShareHub({
       caret.style.left = `${caretOffsets.left}px`;
       caret.style.top = `${caretOffsets.top}px`;
     }
+
+    // Content height AFTER placing, so the body observer can tell a real
+    // content change from the size change our own max-height write causes.
+    lastContentHeightRef.current = body.scrollHeight;
   }, [hostRef]);
 
   useLayoutEffect(() => {
@@ -346,7 +353,29 @@ export function ShareHub({
     const host = hostRef?.current ?? null;
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
     if (observer && host) observer.observe(host);
+
+    // The BODY's own content changes too — arming Archive swaps a 44px row for
+    // the confirm block (~477 -> 583 measured). Without this signal, a viewport
+    // where the IDLE body fitted below keeps `side: "bottom"` with NO cap (the
+    // placement core only sets one when nothing fits, lib/popover/position.ts:127-133),
+    // and the grown body overhangs the clip edge again — the very defect this
+    // portal migration closes, back in the one interaction it is about.
+    //
+    // Compared against CONTENT height, not box height: our own `max-height`
+    // write changes the box on every pass, so observing the box alone would
+    // re-place forever. `scrollHeight` is unaffected by the cap.
+    const bodyObserver =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver(() => {
+            const node = panelRef.current;
+            if (!node) return;
+            if (node.scrollHeight === lastContentHeightRef.current) return;
+            schedule();
+          })
+        : null;
+    if (bodyObserver && panelRef.current) bodyObserver.observe(panelRef.current);
     return () => {
+      bodyObserver?.disconnect();
       if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
       window.removeEventListener("resize", schedule);
       observer?.disconnect();

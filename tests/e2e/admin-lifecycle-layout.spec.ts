@@ -109,7 +109,30 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     }
   });
 
+  /** Re-assert the watched folder. A sibling session's onboarding finalize
+   *  (app/api/admin/onboarding/finalize-cas/route.ts:232 is the only path that
+   *  nulls it) clears app_settings.watched_folder_id against the shared local
+   *  DB, and when it is null /admin renders the onboarding wizard instead of
+   *  the dashboard, so the review modal never mounts and the failure surfaces
+   *  as a misleading "element not found" on the readiness gate. Measured four
+   *  times on 2026-07-24, including MID-TEST, so a once-per-test beforeEach is
+   *  not enough: call this immediately before every navigation. */
+  async function ensureWatchedFolder() {
+    await sqlClient`
+      update public.app_settings
+         set watched_folder_id = coalesce(watched_folder_id, 'seed-fixture-folder'),
+             watched_folder_name = coalesce(watched_folder_name, 'Seed fixture folder')
+       where id = 'default'`;
+  }
+
   test.beforeEach(async ({ page }) => {
+    // A sibling session's onboarding e2e clears app_settings.watched_folder_id
+    // mid-run (measured three times on 2026-07-24). When it is null /admin
+    // renders the onboarding wizard, the review modal never mounts, and every
+    // case in this file fails on its readiness gate with a misleading
+    // "element not found". Re-assert it per test rather than depending on the
+    // seed surviving a neighbouring run.
+    await ensureWatchedFolder();
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
   });
@@ -395,5 +418,128 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     expect(geom.confirmTop + geom.confirmH).toBeLessThanOrEqual(
       geom.scrollTop + geom.clientHeight + TOL,
     );
+  });
+
+  // ── T-REGROW (spec §2.1.2b) ──────────────────────────────────────────────
+  // The hub's body is NOT static like HoverHelp's: arming Archive swaps a 44px
+  // row for the confirm block (~477 -> 583 border-box, measured). At any
+  // viewport where the IDLE body fits below the trigger, computePopoverPlacement
+  // returns side "bottom" with maxHeight null -- no cap, because none was needed
+  // -- so a placement that only re-measures on VIEWPORT resize keeps that stale
+  // answer and the grown body overhangs the clip edge again. That is the exact
+  // defect this branch exists to close, reappearing in the one interaction the
+  // branch is about, which is why it gets its own case.
+  //
+  // The viewport is FOUND, not hardcoded: a fixed height either stops isolating
+  // the case when the copy changes, or silently tests nothing.
+  test("T-REGROW: re-places when the popover's own content grows", async ({ page }) => {
+    // Each ladder rung is a full navigation plus a modal-readiness wait, and the
+    // real run adds one more, so this case needs more than the 60s default.
+    test.setTimeout(240_000);
+    const measure = () =>
+      page.evaluate(() => {
+        const body = document.querySelector(
+          '[data-testid="share-hub-popover"]',
+        ) as HTMLElement | null;
+        const trigger = document.querySelector(
+          '[data-testid="share-hub-root"]',
+        ) as HTMLElement | null;
+        const panel = document.querySelector("[data-review-modal-panel]") as HTMLElement | null;
+        if (!body || !trigger || !panel) return null;
+        // Clear the INLINE cap only. The class cap (max-h-[min(70vh,30rem)])
+        // stays active on purpose: that is exactly the metric
+        // computePopoverPlacement contracts for ("body border-box size with NO
+        // inline constraints, class caps active", lib/popover/position.ts:42-43).
+        // Measuring with `maxHeight: none` instead would report a natural height
+        // the placement core never sees, and the case would never isolate.
+        const priorMaxH = body.style.maxHeight;
+        body.style.maxHeight = "";
+        const natural = body.getBoundingClientRect().height;
+        body.style.maxHeight = priorMaxH;
+        const p = panel.getBoundingClientRect();
+        const t = trigger.getBoundingClientRect();
+        const boundsBottom = Math.min(p.bottom, window.innerHeight) - 8; // VIEWPORT_INSET
+        const boundsTop = Math.max(p.top, 0) + 8;
+        const b = body.getBoundingClientRect();
+        return {
+          natural,
+          spaceBelow: boundsBottom - t.bottom - 6, // GAP
+          boundsTop,
+          boundsBottom,
+          side: body.dataset["popoverSide"] ?? null,
+          inlineMaxHeight: body.style.maxHeight,
+          bodyTop: b.top,
+          bodyBottom: b.bottom,
+        };
+      });
+
+    const openHub = async (height: number) => {
+      await page.setViewportSize({ width: 390, height });
+      await ensureWatchedFolder();
+      await page.goto(`/admin?show=${held.slug}`);
+      const modal = page.locator(LOADED_REVIEW_MODAL);
+      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const popover = modal.getByTestId("share-hub-popover");
+      await expect(async () => {
+        await modal.getByTestId("share-hub-kebab").click();
+        await expect(popover).toBeVisible({ timeout: 1500 });
+      }).toPass({ timeout: 15_000 });
+      return { modal, popover };
+    };
+
+    // Search for a height where the idle body fits below but the armed one does
+    // not. Both numbers come from the page, so copy changes move the answer
+    // instead of breaking the test.
+    let chosen: number | null = null;
+    // The window is narrow and its location is arithmetic, not guesswork:
+    // spaceBelow grows at 0.85 per viewport px (the panel is max-h-85vh), the
+    // idle body measures ~454 and the class cap pins the armed body at 480, so
+    // "idle fits, armed does not" lives in spaceBelow within [454, 480) --
+    // roughly vh 952..982. Measured at 390x1120: idle 454, armed 480 (583
+    // uncapped), spaceBelow 597. A ladder starting at 1000 sits ENTIRELY above
+    // the window, which is how the first draft of this test silently proved
+    // nothing.
+    for (const height of [955, 965, 975]) {
+      const { modal, popover } = await openHub(height);
+      const idle = await measure();
+      if (!idle) continue;
+      await popover.getByTestId("archive-show-button").click();
+      await expect(popover.getByTestId("archive-show-confirm-button")).toBeVisible();
+      await page.waitForTimeout(250);
+      const armed = await measure();
+      if (!armed) continue;
+      if (idle.natural <= idle.spaceBelow && idle.spaceBelow < armed.natural) {
+        chosen = height;
+        break;
+      }
+      await modal.press("Escape").catch(() => {});
+    }
+    expect(
+      chosen,
+      "no swept viewport isolates 'idle fits below, armed does not'; the armed/idle height delta may have changed",
+    ).not.toBeNull();
+
+    // Real run at the found height.
+    const { popover } = await openHub(chosen!);
+    const idle = await measure();
+    expect(idle).not.toBeNull();
+    // Precondition: below was chosen and needed NO cap. This is the state that
+    // goes stale; if it ever stops holding the case below proves nothing.
+    expect(idle!.side, "idle should be placed below at the chosen height").toBe("bottom");
+
+    await popover.getByTestId("archive-show-button").click();
+    await expect(popover.getByTestId("archive-show-confirm-button")).toBeVisible();
+    await page.waitForTimeout(300);
+    const armed = await measure();
+    expect(armed).not.toBeNull();
+
+    // The invariant: still inside the clip rect after the growth.
+    expect(armed!.bodyTop).toBeGreaterThanOrEqual(armed!.boundsTop - TOL);
+    expect(armed!.bodyBottom).toBeLessThanOrEqual(armed!.boundsBottom + TOL);
+
+    // And it got there by RE-PLACING, not by a CSS cap that happened to bite:
+    // either the side flipped or a fitted max-height was written.
+    const replaced = armed!.side !== idle!.side || armed!.inlineMaxHeight !== "";
+    expect(replaced, "placement did not re-run when the body grew").toBe(true);
   });
 });
