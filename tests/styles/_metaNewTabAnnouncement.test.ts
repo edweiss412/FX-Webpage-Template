@@ -1343,6 +1343,15 @@ describe("R6: scanner changes are pinned", () => {
       unclassified,
       "each name-shaped literal in the scanner needs a casing fixture or a NOT_AN_ATTRIBUTE_NAME entry",
     ).toEqual([]);
+    // The exclusion list must not be usable to SILENCE a real attribute. Entries are keyed by
+    // literal text, so declaring `target` or `rel` a non-attribute would exempt it from casing
+    // coverage with a one-line edit and a plausible-looking reason. Cross-check against the
+    // curated link-attribute set, which is maintained for the lowercase rule and is therefore
+    // independent of this list.
+    expect(
+      [...NOT_AN_ATTRIBUTE_NAME.keys()].filter((n) => CASE_INSENSITIVE_NAMES.has(n.toLowerCase())),
+      "a known attribute name cannot be declared NOT_AN_ATTRIBUTE_NAME",
+    ).toEqual([]);
     // And the exclusions cannot rot: one that no longer appears in the source is stale, and a
     // stale exclusion is how a real attribute name later slips in under a dead entry.
     expect(

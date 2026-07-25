@@ -285,6 +285,20 @@ WITH substitutions is not. Anything outside these shapes is reported as
 
 ### 6.4 Accepted limits (ratified, not oversights)
 
+- **Casing coverage is decided by literal SHAPE, and shape has two edges.** A name-shaped literal
+  is `/^[A-Za-z][A-Za-z0-9-]{0,29}$/`, so an attribute name containing `:` or `_`, or longer than 29
+  characters, is not collected and gets no casing fixture. Every attribute this guard reads is at
+  most 15 characters (`aria-labelledby`) and hyphen-only, and the alternative — enumerating reading
+  positions — is the unbounded vector R18 closed. The second edge is that a name assembled from
+  fragments (`"al" + "pha"`) contains no literal spelling it; both edges need commit access to
+  introduce, and both are pinned as explicit expectations rather than left implied.
+- **An exclusion entry cannot silence a known attribute.** `NOT_AN_ATTRIBUTE_NAME` is keyed by
+  literal text, so a one-line edit with a plausible reason would otherwise exempt a real attribute
+  from casing coverage. Entries are cross-checked against the curated link-attribute set, which is
+  maintained for a different rule and is therefore an independent witness. A collision between a
+  genuine attribute name and an internal verdict string outside that curated set remains possible
+  in principle; no such collision exists today, and the verdict strings (`not-external`,
+  `phrase-only`, `unresolvable`, …) are not HTML attribute names.
 - **A correct-but-unusual shape is reported**, e.g. an announcing `aria-label` arriving through
   a spread. The author moves to an approved shape or adds a reasoned exemption. A false positive
   costs one comment; a false negative ships a silent link.
