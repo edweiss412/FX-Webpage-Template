@@ -335,11 +335,14 @@ export async function resolveTileAlertsForObserver(
 
   query = input.showId === null ? query.is("show_id", null) : query.eq("show_id", input.showId);
 
-  const { error } = await query.select("id");
+  const { data, error } = await query.select("id");
 
   if (error) {
     throw new Error(`tile alert resolve failed: ${error.message ?? String(error)}`);
   }
+  // `data` is the resolved rows; nothing downstream needs them, but invariant 9
+  // requires the boundary destructure both halves rather than only the error.
+  void data;
 }
 ```
 
@@ -564,6 +567,22 @@ export async function sweepTileRenderAlerts(
   args: SweepTileRenderAlertsArgs,
 ): Promise<void> {
   for (const [tileId, message] of ledger.failed) {
+    // Durable evidence FIRST, and awaited (spec 4.8). `lib/log` persists to
+    // app_events asynchronously; WrappedSection is synchronous and could not
+    // retain that promise, so a freeze could leave a resolved alert with no
+    // record. The sweep runs inside after(), so it can await it.
+    try {
+      await log.error("crew tile render threw", {
+        source: "crew.tileSweep",
+        code: "CREW_TILE_RENDER_THREW",
+        tileId,
+        showId: args.showId,
+        viewerKey: args.viewerKey,
+        message,
+      });
+    } catch {
+      // logging must never break the sweep
+    }
     try {
       await upsertAdminAlert({
         showId: args.showId,
@@ -621,133 +640,149 @@ git commit -m "feat(crew-page): add post-response tile alert sweep"
 
 ---
 
-### Task 4: `WrappedSection` records instead of raising
+### Task 4: Move alert ownership to the shell (atomic)
 
 **Files:**
 - Modify: `components/crew/WrappedSection.tsx`
-- Modify: `tests/components/crew/wrappedSection.test.tsx`
-- Modify: `tests/components/crew/wrappedSectionDurability.test.tsx`
+- Modify: all 7 files in `components/crew/sections/`
+- Modify: `app/show/[slug]/[shareToken]/_CrewShell.tsx`
+- Create: `tests/components/crew/sections/_ledgerProp.ts (new)`
+- Create: `tests/components/crew/crewShellSweep.test.tsx (new)`
+- Modify: `tests/components/crew/wrappedSection.test.tsx`, `tests/components/crew/wrappedSectionDurability.test.tsx`, `tests/components/crew/crewShellTwoDistinctAlerts.test.tsx`, plus every other section-constructing test
 
 **Interfaces:**
-- Consumes: `TileRenderLedger` (Task 1).
-- Produces: `WrappedSectionProps` gains a required `ledger: TileRenderLedger`.
+- Consumes: `TileRenderLedger`, `createTileRenderLedger` (Task 1); `sweepTileRenderAlerts` (Task 3).
+- Produces: `WrappedSectionProps` and all 7 section prop types gain a required `ledger: TileRenderLedger`.
 
-**Failure mode this catches:** a section that throws but leaves no trace in the ledger (so the sweep can neither raise nor keep the alert open), and a stale test that still asserts the removed upsert.
+**Why this is ONE task, not two.** Making `ledger` required is an atomic type change: the moment
+`WrappedSection` requires it, all 7 sections and every section-constructing test are type-invalid
+until they pass it. Splitting the component change from the threading guarantees a red tree at the
+intermediate commit, which violates "each task ends with an independently testable deliverable." A
+first draft of this plan split them and could not reach a passing state.
 
-- [ ] **Step 1: Rewrite the two existing test files**
+**Failure mode this catches:** a section wired to a ledger the sweep never reads (every prop is
+present, every mock-level test passes, and no alert is ever raised), and a sweep registered as a
+voided fire-and-forget that a serverless freeze can drop.
 
-In `tests/components/crew/wrappedSection.test.tsx`, replace every assertion about `upsertAdminAlert` with ledger assertions. The three tests at line 55, line 90 and line 105 become:
+- [ ] **Step 1: Write the failing identity test**
 
-```tsx
-test("WrappedSection catches a synchronous render() throw, renders the fallback, and records the failure", () => {
-  const ledger = createTileRenderLedger();
-  const { getByTestId } = render(
-    <WrappedSection
-      tileId="crew:gear:scope"
-      showId="show-xyz"
-      sheetName="RPAS Central 2026"
-      ledger={ledger}
-      render={() => {
-        throw new Error("scope projection blew up");
-      }}
-    />,
-  );
-  expect(getByTestId("tile-error-fallback")).toBeTruthy();
-  expect(ledger.attempted.has("crew:gear:scope")).toBe(true);
-  expect(ledger.failed.get("crew:gear:scope")).toBe("scope projection blew up");
-});
-
-test("WrappedSection renders the block output unchanged when render() succeeds, and records it clean", () => {
-  const ledger = createTileRenderLedger();
-  const { getByText } = render(
-    <WrappedSection
-      tileId="crew:gear:scope"
-      showId="show-xyz"
-      sheetName="RPAS Central 2026"
-      ledger={ledger}
-      render={() => <p>gear body</p>}
-    />,
-  );
-  expect(getByText("gear body")).toBeTruthy();
-  expect(ledger.attempted.has("crew:gear:scope")).toBe(true);
-  expect(ledger.failed.size).toBe(0);
-});
-```
-
-Add the import `import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";`. Replace `tile-error-fallback` with whatever `data-testid` `TileErrorFallback` actually renders, run `rg -n "data-testid" components/shared/TileErrorFallback.tsx` and use the real value.
-
-For the third test at line 105 (a real `CrewSection` throw), keep the containment assertion and swap the upsert assertion for `expect(ledger.failed.size).toBe(1)`.
-
-`tests/components/crew/wrappedSectionDurability.test.tsx` **inverts**. Replace its whole body with:
+This is the assertion that a mock-shaped test cannot make: the object each section receives must be
+the SAME object the sweep reads. Create `tests/components/crew/crewShellSweep.test.tsx (new)`:
 
 ```tsx
 // @vitest-environment jsdom
-//
-// Inverted premise (spec §4.5): WrappedSection no longer owns the alert write,
-// so it must register NO after() work on either path. The durability guarantee
-// moved to the shell sweep and is pinned by tests/components/crew/crewShellSweep.test.tsx.
 import { describe, expect, test, vi } from "vitest";
-import { render } from "@testing-library/react";
 
-const { afterMock } = vi.hoisted(() => ({ afterMock: vi.fn() }));
+const { afterMock, sweepMock, seen } = vi.hoisted(() => ({
+  afterMock: vi.fn(),
+  sweepMock: vi.fn(),
+  seen: [] as unknown[],
+}));
 vi.mock("next/server", () => ({ after: afterMock }));
+vi.mock("@/lib/crew/sweepTileRenderAlerts", () => ({ sweepTileRenderAlerts: sweepMock }));
 
-import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
-import { WrappedSection } from "@/components/crew/WrappedSection";
+// Each section records the ledger identity it was handed, then renders nothing.
+for (const name of [
+  "TodaySection",
+  "ScheduleSection",
+  "VenueSection",
+  "TravelSection",
+  "CrewSection",
+  "GearSection",
+  "BudgetSection",
+]) {
+  vi.mock(`@/components/crew/sections/${name}`, () => ({
+    [name]: (props: { ledger: unknown }) => {
+      seen.push(props.ledger);
+      return null;
+    },
+  }));
+}
 
-describe("WrappedSection no longer schedules post-response work", () => {
-  test("a throwing render registers no after() work", () => {
-    render(
-      <WrappedSection
-        tileId="crew:gear:scope"
-        showId="show-xyz"
-        sheetName="RPAS Central 2026"
-        ledger={createTileRenderLedger()}
-        render={() => {
-          throw new Error("boom");
-        }}
-      />,
-    );
-    expect(afterMock).not.toHaveBeenCalled();
+describe("the crew shell owns one ledger and sweeps THAT one", () => {
+  test("every section receives the object the sweep reads", async () => {
+    seen.length = 0;
+    afterMock.mockClear();
+    sweepMock.mockClear();
+
+    await renderCrewShellForTest(); // see Step 2
+
+    // Drain the registered callbacks so the sweep is actually invoked.
+    for (const [cb] of afterMock.mock.calls) await (cb as () => unknown)();
+
+    const swept = sweepMock.mock.calls[0]?.[0];
+    expect(swept, "the sweep must have run").toBeDefined();
+    expect(seen.length, "every entitled section must have received a ledger").toBeGreaterThan(0);
+    for (const received of seen) {
+      // Object.is, not toEqual: two distinct empty ledgers are deeply equal but
+      // a section writing into a throwaway would be invisible to the sweep.
+      expect(Object.is(received, swept)).toBe(true);
+    }
   });
 
-  test("a successful render registers no after() work", () => {
-    render(
-      <WrappedSection
-        tileId="crew:gear:scope"
-        showId="show-xyz"
-        sheetName="RPAS Central 2026"
-        ledger={createTileRenderLedger()}
-        render={() => <p>ok</p>}
-      />,
+  test("the registered callback RETURNS the sweep promise", async () => {
+    let settled = false;
+    sweepMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            settled = true;
+            resolve();
+          }, 0),
+        ),
     );
-    expect(afterMock).not.toHaveBeenCalled();
+    afterMock.mockClear();
+
+    await renderCrewShellForTest();
+
+    const returned = afterMock.mock.calls
+      .map(([cb]) => (cb as () => unknown)())
+      .filter((r): r is Promise<unknown> => r instanceof Promise);
+    expect(returned.length, "the sweep callback must return its promise, not void it").toBeGreaterThan(0);
+    await Promise.all(returned);
+    expect(settled).toBe(true);
   });
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Build `renderCrewShellForTest` from the existing fixture**
 
-Run: `cd /Users/ericweiss/FX-worktrees/alert-autoresolve && npx vitest run tests/components/crew/wrappedSection.test.tsx tests/components/crew/wrappedSectionDurability.test.tsx`
-Expected: FAIL, `ledger` is not a known prop.
+`renderCrewShellForTest` does not exist yet. Do NOT invent a fixture. Read
+`tests/components/crew/crewShellAlert.test.tsx` first:
 
-- [ ] **Step 3: Modify the component**
+```bash
+cd /Users/ericweiss/FX-worktrees/alert-autoresolve
+rg -n "CrewShell|const data|viewer" tests/components/crew/crewShellAlert.test.tsx | head -30
+```
+
+Copy that file's `data`/`viewer`/`showId` construction verbatim into a local helper in the new test
+file, calling `await CrewShell({...})` the same way it does. That file already solves the projection
+fixture, so reuse beats re-deriving.
+
+- [ ] **Step 3: Run the tests to verify they fail**
+
+Run: `cd /Users/ericweiss/FX-worktrees/alert-autoresolve && npx vitest run tests/components/crew/crewShellSweep.test.tsx`
+Expected: FAIL, no sweep is registered yet.
+
+- [ ] **Step 4: Modify `WrappedSection`**
 
 In `components/crew/WrappedSection.tsx`:
 
-1. Replace the `next/server` and `upsertAdminAlert` imports with `import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";`. Keep the `log` import.
-2. Add to `WrappedSectionProps` (after `sheetName`):
+1. Replace the `next/server` and `upsertAdminAlert` imports with
+   `import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";`. **Also remove the `log`
+   import** if nothing else in the file uses it, see point 4.
+2. Add to `WrappedSectionProps`, after `sheetName`:
 
 ```tsx
   /**
    * Per-request ledger this section records into. REQUIRED so a section cannot
-   * be mounted without one; §7.1 assertion 2 additionally bounds who may
-   * construct a section at all (spec §4.3).
+   * be mounted without one; the topology meta-test additionally bounds who may
+   * construct a section at all (spec 4.3, 7.1).
    */
   ledger: TileRenderLedger;
 ```
 
-3. Destructure `ledger` in the parameter list and replace the body:
+3. Replace the body:
 
 ```tsx
 export function WrappedSection({
@@ -764,118 +799,32 @@ export function WrappedSection({
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
     ledger.failed.set(tileId, err.message);
-    log.error("render threw", {
-      source: "crew.wrappedSection",
-      tileId,
-      showId,
-      error: err,
-    });
     return fallback ?? <TileErrorFallback />;
   }
 }
 ```
 
-`showId` and `sheetName` stay in the props even though this component no longer writes the alert: they remain part of the documented contract and `showId` is still logged. Do not remove them.
+4. **The `log.error` call is removed deliberately.** This component is synchronous and cannot retain
+   the logger's persistence promise, so a freeze could drop the `app_events` row that spec 4.8's cost
+   bound depends on. The sweep emits that record instead, awaited (Task 3). Do not reintroduce a log
+   call here.
 
-- [ ] **Step 4: Run tests to verify they pass**
+`showId` and `sheetName` stay in the props: they remain part of the documented contract and the sweep
+needs `sheetName`.
 
-Run: `cd /Users/ericweiss/FX-worktrees/alert-autoresolve && npx vitest run tests/components/crew/wrappedSection.test.tsx tests/components/crew/wrappedSectionDurability.test.tsx`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-cd /Users/ericweiss/FX-worktrees/alert-autoresolve
-git add components/crew/WrappedSection.tsx tests/components/crew/wrappedSection.test.tsx tests/components/crew/wrappedSectionDurability.test.tsx
-git commit -m "refactor(crew-page): WrappedSection records to the ledger instead of raising"
-```
-
----
-
-### Task 5: Thread the ledger and register the sweep
-
-**Files:**
-- Modify: `app/show/[slug]/[shareToken]/_CrewShell.tsx`
-- Modify: all 7 files in `components/crew/sections/`
-- Create: `tests/components/crew/crewShellSweep.test.tsx (new)`
-- Modify: the section-constructing test files (list derived at execution time)
-
-**Interfaces:**
-- Consumes: `createTileRenderLedger` (Task 1), `sweepTileRenderAlerts` (Task 3), `WrappedSectionProps.ledger` (Task 4).
-- Produces: each section's props type gains `ledger: TileRenderLedger`.
-
-**Failure mode this catches:** a sweep registered as `void`ed fire-and-forget (which a serverless freeze can drop), and a section wired to a ledger the sweep never reads.
-
-- [ ] **Step 1: Write the failing sweep test**
-
-Create `tests/components/crew/crewShellSweep.test.tsx (new)`:
-
-```tsx
-// @vitest-environment jsdom
-//
-// T5, durability (spec §7.2). The assertion that matters is that the callback
-// RETURNS its promise: `after(() => { void sweep() })` would satisfy a
-// "was after() called" check while still letting a serverless freeze drop the
-// write, which is the defect round 2 identified.
-import { describe, expect, test, vi } from "vitest";
-
-const { afterMock, sweepMock } = vi.hoisted(() => ({
-  afterMock: vi.fn(),
-  sweepMock: vi.fn(),
-}));
-vi.mock("next/server", () => ({ after: afterMock }));
-vi.mock("@/lib/crew/sweepTileRenderAlerts", () => ({ sweepTileRenderAlerts: sweepMock }));
-
-describe("the crew shell's tile sweep is durable", () => {
-  test("the registered callback returns the sweep promise", async () => {
-    let settled = false;
-    sweepMock.mockImplementation(
-      () =>
-        new Promise<void>((resolve) =>
-          setTimeout(() => {
-            settled = true;
-            resolve();
-          }, 0),
-        ),
-    );
-
-    // Find the sweep registration among the shell's after() calls. The shell also
-    // registers the projection-alert resolve, so filter to the one that invokes
-    // the sweep rather than assuming a call index.
-    const { runShellForTest } = await import("./_crewShellSweepHarness");
-    await runShellForTest();
-
-    const returned = afterMock.mock.calls
-      .map(([cb]) => (cb as () => unknown)())
-      .filter((r): r is Promise<unknown> => r instanceof Promise);
-
-    expect(returned.length).toBeGreaterThan(0);
-    await Promise.all(returned);
-    expect(settled).toBe(true);
-    expect(sweepMock).toHaveBeenCalled();
-  });
-});
-```
-
-**Note for the implementer:** `_crewShellSweepHarness` does not exist. Before writing this test, decide the cheapest way to exercise the registration: either (a) export the callback factory from `_CrewShell.tsx` and call it directly, or (b) render `CrewShell` with the existing fixture used by `tests/components/crew/crewShellAlert.test.tsx` and read `afterMock`. Prefer (b), reusing that file's fixture verbatim, read it first with `rg -n "CrewShell" tests/components/crew/crewShellAlert.test.tsx`, and delete the `_crewShellSweepHarness` import above in favour of the real render. The assertion body (returned promise settles, sweep called) is what must survive whichever route you take.
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `cd /Users/ericweiss/FX-worktrees/alert-autoresolve && npx vitest run tests/components/crew/crewShellSweep.test.tsx`
-Expected: FAIL, no sweep is registered yet.
-
-- [ ] **Step 3: Add the ledger prop to all 7 sections**
+- [ ] **Step 5: Thread the prop through all 7 sections**
 
 In each of `components/crew/sections/{Today,Schedule,Venue,Travel,Crew,Gear,Budget}Section.tsx`:
+add `import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";`, add
+`ledger: TileRenderLedger;` to the props type, destructure `ledger`, and pass `ledger={ledger}` to
+the `<WrappedSection>` invocation.
 
-1. Add `import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";`
-2. Add `ledger: TileRenderLedger;` to the props type.
-3. Destructure `ledger` in the parameter list.
-4. Pass `ledger={ledger}` to the `<WrappedSection>` invocation.
+Call sites verified post-rebase: `TodaySection.tsx:174`, `ScheduleSection.tsx:184`,
+`VenueSection.tsx:328`, `TravelSection.tsx:163`, `CrewSection.tsx:116`, `GearSection.tsx:163`,
+`BudgetSection.tsx:67`. Re-verify with `rg -n "<WrappedSection" components/crew/sections/` before
+editing.
 
-The exact `<WrappedSection>` line numbers are: `TodaySection.tsx:174`, `ScheduleSection.tsx:184`, `VenueSection.tsx:328`, `TravelSection.tsx:163`, `CrewSection.tsx:116`, `GearSection.tsx:163`, `BudgetSection.tsx:67`. Re-verify each with `rg -n "<WrappedSection" components/crew/sections/` before editing, line numbers drift.
-
-- [ ] **Step 4: Wire the shell**
+- [ ] **Step 6: Wire the shell**
 
 In `app/show/[slug]/[shareToken]/_CrewShell.tsx`:
 
@@ -886,75 +835,321 @@ import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { sweepTileRenderAlerts } from "@/lib/crew/sweepTileRenderAlerts";
 ```
 
-2. Immediately before `const renderOne = (id: SectionId): JSX.Element => {` (currently line 332), create the ledger and derive the observer key:
+2. Immediately before `const renderOne = (id: SectionId): JSX.Element => {` (line 332):
 
 ```tsx
-  // Per-request tile ledger (spec §4.3). Created ONCE here, in the component
+  // Per-request tile ledger (spec 4.3). Created ONCE here, in the component
   // body, never inside the after() callback, which runs after the render
   // lifecycle and would observe a different object.
   const tileLedger = createTileRenderLedger();
-  // Observer key (spec §4.6): a crew member id, or the "admin" sentinel for a
+  // Observer key (spec 4.6): a crew member id, or the "admin" sentinel for a
   // plain-admin render, whose all-flags path differs from every crew member's.
   const viewerKey = data.viewerId ?? "admin";
 ```
 
 3. Pass `ledger={tileLedger}` to all 7 section elements inside `renderOne`.
 
-4. After the `sectionNodes` assignment (currently lines 413-415) and before the `return (`, register the sweep:
+4. After the `sectionNodes` assignment (line 413) and before `return (`:
 
 ```tsx
   // Post-response reconcile for TILE_SERVER_RENDER_FAILED. Registered
-  // UNCONDITIONALLY, independent of the projection-alert branch above, whose
+  // UNCONDITIONALLY, independent of the projection-alert branch above whose
   // condition is a different observation. The callback RETURNS the promise so
-  // the runtime keeps the function alive until the write settles (spec §4.10);
+  // the runtime keeps the function alive until the write settles (spec 4.10);
   // a voided call would let a serverless freeze drop the row.
   try {
-    after(() => sweepTileRenderAlerts(tileLedger, { showId, sheetName: data.show.title, viewerKey }));
+    after(() =>
+      sweepTileRenderAlerts(tileLedger, {
+        showId,
+        sheetName: data.show.title,
+        viewerKey,
+      }),
+    );
   } catch {
     // no request scope (unit tests): skip, the next real request sweeps
   }
 ```
 
-- [ ] **Step 5: Fix every section-constructing test**
+- [ ] **Step 7: Derive the full list of tests to fix, mechanically**
 
-Run the sweep to get the current list:
+The sweep MUST cover `<WrappedSection` as well as the 7 section tags. A first draft of this plan
+searched only the section tags and missed `tests/components/crew/crewShellTwoDistinctAlerts.test.tsx`,
+which constructs `<WrappedSection>` directly inside a mocked section:
 
 ```bash
 cd /Users/ericweiss/FX-worktrees/alert-autoresolve
-for c in TodaySection ScheduleSection VenueSection TravelSection CrewSection GearSection BudgetSection; do
-  rg -l -e "<${c}\b" tests/
-done | sort -u
+{ for c in TodaySection ScheduleSection VenueSection TravelSection CrewSection GearSection BudgetSection WrappedSection; do
+    rg -l -e "<${c}\b" tests/
+  done; } | sort -u
 ```
 
-Expected: 29 files at plan time. Add a shared helper so each file takes one edit. Create `tests/components/crew/sections/_ledgerProp.ts (new)`:
+Create `tests/components/crew/sections/_ledgerProp.ts (new)`:
 
 ```ts
 import { createTileRenderLedger, type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
-/** Spread into any crew-section construction in tests: `{...ledgerProp()}`. */
+/** Spread into any crew-section or WrappedSection construction: `{...ledgerProp()}`. */
 export function ledgerProp(): { ledger: TileRenderLedger } {
   return { ledger: createTileRenderLedger() };
 }
 ```
 
-Then in each listed file, import it and spread `{...ledgerProp()}` into every section construction.
+Then add `{...ledgerProp()}` to every construction in every listed file.
 
-- [ ] **Step 6: Typecheck as the completeness oracle**
+- [ ] **Step 8: Rewrite the three ownership-asserting tests**
+
+`tests/components/crew/wrappedSection.test.tsx`: replace `upsertAdminAlert` assertions with ledger
+assertions. Construct an explicit ledger (not `ledgerProp()`) where the test inspects it:
+
+```tsx
+test("a synchronous render() throw renders the fallback and records the failure", () => {
+  const ledger = createTileRenderLedger();
+  render(
+    <WrappedSection
+      tileId="crew:gear:scope"
+      showId="show-xyz"
+      sheetName="RPAS Central 2026"
+      ledger={ledger}
+      render={() => {
+        throw new Error("scope projection blew up");
+      }}
+    />,
+  );
+  expect(ledger.attempted.has("crew:gear:scope")).toBe(true);
+  expect(ledger.failed.get("crew:gear:scope")).toBe("scope projection blew up");
+});
+
+test("a successful render is recorded clean", () => {
+  const ledger = createTileRenderLedger();
+  render(
+    <WrappedSection
+      tileId="crew:gear:scope"
+      showId="show-xyz"
+      sheetName="RPAS Central 2026"
+      ledger={ledger}
+      render={() => <p>gear body</p>}
+    />,
+  );
+  expect(ledger.attempted.has("crew:gear:scope")).toBe(true);
+  expect(ledger.failed.size).toBe(0);
+});
+```
+
+Keep the existing fallback-containment assertion; read the real testid with
+`rg -n "data-testid" components/shared/TileErrorFallback.tsx` rather than guessing.
+
+`tests/components/crew/wrappedSectionDurability.test.tsx`: its premise **inverts**. Replace the body
+so it asserts `WrappedSection` registers NO `after()` work on either path (mock `next/server`, render
+both a throwing and a succeeding block, `expect(afterMock).not.toHaveBeenCalled()`). Add a header
+comment pointing at `tests/components/crew/crewShellSweep.test.tsx (new)` as the new home of the durability guarantee.
+
+`tests/components/crew/crewShellTwoDistinctAlerts.test.tsx`: its synchronous-upsert assertions are stale once the raise moves post-response. Rewrite them to drain the `after()`
+callbacks and assert on the sweep, or to assert ledger contents. Read the file before editing.
+
+- [ ] **Step 9: Typecheck as the completeness oracle**
 
 Run: `cd /Users/ericweiss/FX-worktrees/alert-autoresolve && pnpm typecheck`
-Expected: PASS. Any remaining construction missing the prop fails here with `Property 'ledger' is missing`. Fix and re-run until clean. **Do not skip this step**, it is the only exhaustive check that every construction was updated.
+Expected: PASS. Every missed construction fails here with `Property 'ledger' is missing`. **Do not
+skip this**, it is the only exhaustive check.
 
-- [ ] **Step 7: Run the sweep test and the crew suite**
+- [ ] **Step 10: Run the crew suites**
 
 Run: `cd /Users/ericweiss/FX-worktrees/alert-autoresolve && npx vitest run tests/components/crew/ tests/crew/`
-Expected: PASS.
+Expected: PASS, including both `tests/components/crew/crewShellSweep.test.tsx (new)` cases.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 cd /Users/ericweiss/FX-worktrees/alert-autoresolve
-git add app/show/ components/crew/sections/ tests/components/crew/ tests/crew/
-git commit -m "feat(crew-page): thread the tile ledger and register the shell sweep"
+git add components/crew/ app/show/ tests/components/crew/ tests/crew/
+git commit -m "feat(crew-page): move tile alert ownership to the shell sweep"
+```
+
+---
+
+### Task 5: Row-state proof against a real database
+
+**Files:**
+- Create: `tests/adminAlerts/tileAlertResolution.db.test.ts (new)`
+
+**Interfaces:**
+- Consumes: `sweepTileRenderAlerts` (Task 3), `createTileRenderLedger` (Task 1).
+- Produces: nothing.
+
+**Why this task exists.** Spec AC1, AC2, AC3, AC5 and AC7 are bound by the spec's anti-tautology
+note to assert post-callback `admin_alerts` **row state**. Mocked call-argument assertions cannot
+discharge them: a resolver that builds a perfect query and matches nothing would pass every
+mock-based test in Tasks 2 and 3. This task is where the ACs are actually proven.
+
+**Failure mode this catches:** a `context->>'viewerKey'` filter that does not match the way the value
+was written, an `.in()` on a jsonb text extraction that silently matches nothing, and a resolve that
+clears a row belonging to a different observer.
+
+- [ ] **Step 1: Write the failing DB test**
+
+Follow the repo's `*.db.test.ts` convention: pin loopback explicitly, because `TEST_DATABASE_URL` in
+this repo points at the VALIDATION project and these tests mutate rows. Read
+`tests/onboarding/finalizeDemotedBlocksFinish.db.test.ts:28-34` for the exact idiom and
+`tests/reports/_dbHelpers.ts` for `runPsql` / `sqlString` / `seedShow`.
+
+Create `tests/adminAlerts/tileAlertResolution.db.test.ts (new)`:
+
+```ts
+import { afterAll, beforeEach, describe, expect, test } from "vitest";
+
+import { runPsql, seedShow, sqlString } from "../reports/_dbHelpers";
+import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
+import { sweepTileRenderAlerts } from "@/lib/crew/sweepTileRenderAlerts";
+
+const SHOW_ID = "7c7c7c7c-1111-4111-8111-7c7c7c7c7c7c";
+const OBSERVER_A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+const OBSERVER_B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
+const TILE = "crew:travel:transport";
+
+function seedOpenAlert(tileId: string, viewerKey: string): void {
+  runPsql(`
+    insert into public.admin_alerts (show_id, code, context)
+    values (
+      ${sqlString(SHOW_ID)}::uuid,
+      'TILE_SERVER_RENDER_FAILED',
+      jsonb_build_object(
+        'tileId', ${sqlString(tileId)},
+        'message', 'seeded',
+        'sheet_name', 'Seeded Show',
+        'viewerKey', ${sqlString(viewerKey)}
+      )
+    );
+  `);
+}
+
+/** The open row's observer, or "" when no open row remains. */
+function openRowObserver(): string {
+  return runPsql(`
+    select coalesce(context->>'viewerKey', '')
+      from public.admin_alerts
+     where show_id = ${sqlString(SHOW_ID)}::uuid
+       and code = 'TILE_SERVER_RENDER_FAILED'
+       and resolved_at is null;
+  `);
+}
+
+function resolvedByColumn(): string {
+  return runPsql(`
+    select coalesce(resolved_by, 'NULL')
+      from public.admin_alerts
+     where show_id = ${sqlString(SHOW_ID)}::uuid
+       and code = 'TILE_SERVER_RENDER_FAILED'
+       and resolved_at is not null
+     order by raised_at desc limit 1;
+  `);
+}
+
+function clean(tileIds: string[]) {
+  const ledger = createTileRenderLedger();
+  for (const id of tileIds) ledger.attempted.add(id);
+  return ledger;
+}
+
+beforeEach(() => {
+  runPsql(`delete from public.admin_alerts where show_id = ${sqlString(SHOW_ID)}::uuid;`);
+  seedShow(SHOW_ID, "tile-alert-resolution");
+});
+
+afterAll(() => {
+  runPsql(`
+    delete from public.admin_alerts where show_id = ${sqlString(SHOW_ID)}::uuid;
+    delete from public.shows where id = ${sqlString(SHOW_ID)}::uuid;
+  `);
+});
+
+describe("tile alert resolution, real rows", () => {
+  // AC1
+  test("the observer who saw it clean resolves their own row", async () => {
+    seedOpenAlert(TILE, OBSERVER_A);
+    await sweepTileRenderAlerts(clean([TILE]), {
+      showId: SHOW_ID,
+      sheetName: "Seeded Show",
+      viewerKey: OBSERVER_A,
+    });
+    expect(openRowObserver()).toBe("");
+    expect(resolvedByColumn()).toBe("NULL");
+  });
+
+  // AC2, the whole point of the observer key
+  test("a DIFFERENT observer's clean render leaves the row open", async () => {
+    seedOpenAlert(TILE, OBSERVER_A);
+    await sweepTileRenderAlerts(clean([TILE]), {
+      showId: SHOW_ID,
+      sheetName: "Seeded Show",
+      viewerKey: OBSERVER_B,
+    });
+    expect(openRowObserver()).toBe(OBSERVER_A);
+  });
+
+  // AC3, the admin sentinel is its own bucket
+  test("a plain-admin render does not clear a crew member's row", async () => {
+    seedOpenAlert(TILE, OBSERVER_A);
+    await sweepTileRenderAlerts(clean([TILE]), {
+      showId: SHOW_ID,
+      sheetName: "Seeded Show",
+      viewerKey: "admin",
+    });
+    expect(openRowObserver()).toBe(OBSERVER_A);
+  });
+
+  // AC5, a tile that never rendered is not resolvable
+  test("an unattempted tile leaves its row open", async () => {
+    seedOpenAlert("crew:budget:rows", OBSERVER_A);
+    // Budget was not entitled this render, so it never enters `attempted`.
+    await sweepTileRenderAlerts(clean([TILE]), {
+      showId: SHOW_ID,
+      sheetName: "Seeded Show",
+      viewerKey: OBSERVER_A,
+    });
+    expect(openRowObserver()).toBe(OBSERVER_A);
+  });
+
+  // AC7, the accepted race is self-healing against real rows
+  test("a spuriously resolved row is re-opened by the next failing sweep", async () => {
+    seedOpenAlert(TILE, OBSERVER_A);
+    await sweepTileRenderAlerts(clean([TILE]), {
+      showId: SHOW_ID,
+      sheetName: "Seeded Show",
+      viewerKey: OBSERVER_A,
+    });
+    expect(openRowObserver()).toBe("");
+
+    const failing = createTileRenderLedger();
+    failing.attempted.add(TILE);
+    failing.failed.set(TILE, "still broken");
+    await sweepTileRenderAlerts(failing, {
+      showId: SHOW_ID,
+      sheetName: "Seeded Show",
+      viewerKey: OBSERVER_A,
+    });
+    expect(openRowObserver()).toBe(OBSERVER_A);
+  });
+});
+```
+
+- [ ] **Step 2: Run against loopback and watch it fail first**
+
+```bash
+cd /Users/ericweiss/FX-worktrees/alert-autoresolve
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  npx vitest run tests/adminAlerts/tileAlertResolution.db.test.ts
+```
+
+Before running, deliberately break the resolver by deleting the `.eq("context->>viewerKey", ...)`
+filter and confirm the AC2 and AC3 cases FAIL. Restore it and confirm all five PASS. **If they pass
+both with and without that filter, the test is tautological, stop and fix the test.**
+
+- [ ] **Step 3: Commit**
+
+```bash
+cd /Users/ericweiss/FX-worktrees/alert-autoresolve
+git add tests/adminAlerts/tileAlertResolution.db.test.ts
+git commit -m "test(admin): prove tile alert resolution against real rows"
 ```
 
 ---
@@ -1022,29 +1217,64 @@ function walk(dir: string, acc: string[] = []): string[] {
 }
 
 const PRODUCTION_FILES = [...walk("components"), ...walk("app")];
+
+/**
+ * Source with comments removed. Non-negotiable: a raw regex over the file
+ * treats prose in a doc comment as JSX. Without this, assertion 1 reports
+ * components/crew/WrappedSection.tsx and components/shared/CardReportTrigger.tsx
+ * as call sites purely because they NAME the component in a comment.
+ */
+function codeOf(rel: string): string {
+  return readFileSync(join(ROOT, rel), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
+/** Raw source, for assertions that intentionally include comments. */
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
+
+/** The argument text of the first `after(` call, brace/paren balanced. */
+function afterCallArgument(src: string): string {
+  const at = src.indexOf("after(");
+  if (at < 0) return "";
+  let depth = 0;
+  for (let i = at + "after".length; i < src.length; i += 1) {
+    const ch = src[i];
+    if (ch === "(") depth += 1;
+    else if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) return src.slice(at, i + 1);
+    }
+  }
+  return src.slice(at);
+}
 
 describe("META tile producer topology", () => {
   test("every <WrappedSection> call site lives in components/crew/sections/", () => {
     const offenders = PRODUCTION_FILES.filter(
-      (f) => /<WrappedSection[\s/>]/.test(read(f)) && !f.startsWith(join("components", "crew", "sections")),
+      (f) =>
+        /<WrappedSection[\s/>]/.test(codeOf(f)) &&
+        !f.startsWith(join("components", "crew", "sections")),
     );
     expect(offenders, `unexpected <WrappedSection> outside the sections dir: ${offenders.join(", ")}`).toEqual([]);
   });
 
-  test("the tileId literals are exactly the documented set", () => {
-    const found = new Set<string>();
+  test("the tileId literals are exactly the documented set, each used exactly once", () => {
+    // A LIST, not a Set: set-collection cannot detect a second wrapper reusing an
+    // existing tileId, which would make two tiles share one alert identity.
+    const found: string[] = [];
     for (const f of PRODUCTION_FILES) {
-      for (const m of read(f).matchAll(/tileId="(crew:[^"]+)"/g)) found.add(m[1] as string);
+      for (const m of codeOf(f).matchAll(/tileId="(crew:[^"]+)"/g)) found.push(m[1] as string);
     }
-    expect([...found].sort()).toEqual(EXPECTED_TILE_IDS);
+    expect(found.slice().sort()).toEqual(EXPECTED_TILE_IDS);
+    expect(new Set(found).size, "a tileId is used by more than one wrapper").toBe(found.length);
   });
 
   test("sections are constructed ONLY in the crew shell", () => {
     const offenders: string[] = [];
     for (const f of PRODUCTION_FILES) {
       if (f === SHELL) continue;
-      const src = read(f);
+      const src = codeOf(f);
       for (const name of SECTION_COMPONENTS) {
         // Word boundary matters: `<CrewSection` without it also matches
         // `<CrewSections`, the client controller.
@@ -1055,19 +1285,24 @@ describe("META tile producer topology", () => {
   });
 
   test("the shell registers the sweep and RETURNS its promise", () => {
-    const src = read(SHELL);
-    expect(src).toMatch(/after\(\(\)\s*=>\s*sweepTileRenderAlerts\(/);
+    const src = codeOf(SHELL);
+    expect(src).toMatch(/after\(\s*\(\)\s*=>\s*\n?\s*sweepTileRenderAlerts\(/);
     expect(src, "the sweep promise must be returned, not voided").not.toMatch(
-      /after\(\(\)\s*=>\s*\{\s*void\s+sweepTileRenderAlerts/,
+      /after\(\s*\(\)\s*=>\s*\{\s*void\s+sweepTileRenderAlerts/,
     );
   });
 
   test("the ledger is created once, in the component body", () => {
-    const src = read(SHELL);
+    const src = codeOf(SHELL);
     expect(src.match(/createTileRenderLedger\(\)/g) ?? []).toHaveLength(1);
-    expect(src, "createTileRenderLedger() must not be called inside the after() callback").not.toMatch(
-      /after\([^)]*createTileRenderLedger/,
-    );
+    // Brace-balanced extraction, NOT /after\([^)]*.../: that character class stops
+    // at the `)` of `()` in the arrow head, so it can never see the callback body
+    // and the promised mutant would not fail.
+    const sweepCall = afterCallArgument(src.slice(src.indexOf("sweepTileRenderAlerts") - 400));
+    expect(
+      sweepCall.includes("createTileRenderLedger"),
+      "createTileRenderLedger() must not be called inside the after() callback",
+    ).toBe(false);
   });
 
   test("WrappedSection contains no alert write", () => {
@@ -1076,7 +1311,7 @@ describe("META tile producer topology", () => {
 
   test("WrappedTile has no production call site, keeping TileServerFallback dormant", () => {
     const offenders = PRODUCTION_FILES.filter(
-      (f) => f !== join("components", "shared", "WrappedTile.tsx") && /<WrappedTile[\s/>]/.test(read(f)),
+      (f) => f !== join("components", "shared", "WrappedTile.tsx") && /<WrappedTile[\s/>]/.test(codeOf(f)),
     );
     expect(offenders).toEqual([]);
   });
@@ -1154,17 +1389,26 @@ In `tests/adminAlerts/alertProducerScope.registry.ts`, add:
 
 ```ts
   {
-    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx",
-    computedContext: true,
+    site: "lib/crew/sweepTileRenderAlerts.ts:<LINE-OF-THE-upsertAdminAlert-CALL>",
     contextKeys: ["tileId", "message", "sheet_name", "viewerKey"],
     code: "TILE_SERVER_RENDER_FAILED",
     scope: "per-show",
-    dynamic: true,
-    note: "post-response sweep; viewerKey is the observer discriminator (spec 2026-07-24 §4.6)",
+    note: "post-response sweep; viewerKey is the observer discriminator (spec 2026-07-24 4.6)",
   },
 ```
 
-Re-read a neighbouring row first and match its field set exactly, if `dynamic` or `computedContext` is not present on comparable rows, drop it rather than inventing it.
+**Three things the first draft of this plan got wrong; do not repeat them:**
+
+1. **The site is the helper, not the shell.** The `upsertAdminAlert` call lives in
+   `lib/crew/sweepTileRenderAlerts.ts (new)`, and `ROOTS = ["lib", "app"]`
+   (`tests/adminAlerts/_metaAlertProducerScope.test.ts:26`) means the walker discovers it there.
+2. **`site` carries a `path:line`.** Every existing row uses `path:line`
+   (`tests/adminAlerts/alertProducerScope.registry.ts:43`, line 49). Replace the placeholder above with
+   the real line, obtained by `rg -n "upsertAdminAlert\(\{" lib/crew/sweepTileRenderAlerts.ts`.
+3. **No `dynamic`, no `computedContext`.** The code is a static string literal and the context is a
+   literal object, so the AST walker reads both directly
+   (`tests/adminAlerts/_metaAlertProducerScope.test.ts:57-115`). Declaring either flag is rejected by
+   the registry's own consistency checks (lines 148-205).
 
 - [ ] **Step 4: Correct the representative context**
 
@@ -1181,9 +1425,18 @@ In `tests/adminAlerts/producerContexts.ts:276-280`, replace the `TILE_SERVER_REN
 
 The previous `{ drive_file_id, sheet_name, section }` described a producer that does not exist; the gate at `tests/adminAlerts/producerKeyAggregation.test.ts:50-59` was dormant only because the code had no producer row.
 
-- [ ] **Step 5: Fix the stale producer claim**
+- [ ] **Step 5: Do NOT touch the emphasis registry**
 
-In `tests/messages/_metaEmphasisRenderContract.test.ts:162-170`, update the reference to `WrappedSection` as the `TILE_SERVER_RENDER_FAILED` producer to name `_CrewShell.tsx`. Read the block first, if it is a comment only, update the comment; if it is an assertion, update the asserted path.
+Spec §6.4 lists `tests/messages/_metaEmphasisRenderContract.test.ts:162-170` as needing an update.
+**That is wrong and this step exists to stop you making it.** That registry tracks
+`.dougFacing` / catalog-accessor text, including comment-only mentions
+(`tests/messages/_metaEmphasisRenderContract.test.ts:37-50`), not alert producers.
+`components/crew/WrappedSection.tsx:63` keeps its `.dougFacing` comment after this feature, so its
+entry stays correct; adding a `_CrewShell.tsx` row would create a stale entry that the executable
+stale-entry check flags (`tests/messages/_metaEmphasisRenderContract.test.ts:188-212`).
+
+Verify only: `npx vitest run tests/messages/_metaEmphasisRenderContract.test.ts` passes untouched.
+Correct spec §6.4's row in the same commit so the error is not re-derived.
 
 - [ ] **Step 6: Run every affected gate**
 
@@ -1194,14 +1447,44 @@ npx vitest run tests/messages/_metaAdminAlertCatalog.test.ts tests/adminAlerts/ 
 ```
 Expected: PASS. `producerKeyAggregation` is the one most likely to fail first; its offender list names the exact key mismatch.
 
+- [ ] **Step 6b: Guard the six report-family classifications (AC16)**
+
+AC16 has no verifying step otherwise: a report code could change class with a compensating
+class-count change and every other gate stays green. Add to
+`tests/messages/_metaAdminAlertCatalog.test.ts`:
+
+```ts
+  // AC16 (spec 2026-07-24 section 5): the report family stays manual. Named
+  // per-code, so a class change cannot hide behind a compensating count change.
+  test("the six report-family codes remain event-manual", () => {
+    for (const code of [
+      "REPORT_ORPHANED_LOST_LEASE",
+      "REPORT_LOOKUP_INCONCLUSIVE",
+      "REPORT_DUPLICATE_LIVE_MATCHES",
+      "REPORT_OPEN_ORPHAN_LABEL",
+      "REPORT_LEASE_THRASHING",
+      "STALE_ORPHAN_REPORT",
+    ] as const) {
+      expect(ADMIN_ALERTS_LIFECYCLE[code].class, `${code} must stay event-manual`).toBe(
+        "event-manual",
+      );
+    }
+  });
+```
+
+Run it, then flip one code to `"auto"` locally and confirm the test FAILS before reverting.
+
 - [ ] **Step 7: Verify the untouched invariants**
 
 Run:
 ```bash
 cd /Users/ericweiss/FX-worktrees/alert-autoresolve
-git diff --stat origin/main -- lib/adminAlerts/resolveActionLabel.ts tests/adminAlerts/resolveIntentsBaseline.json lib/messages/catalog.ts
+git diff --stat "$(git merge-base HEAD origin/main)" -- lib/adminAlerts/resolveActionLabel.ts tests/adminAlerts/resolveIntentsBaseline.json lib/messages/catalog.ts
 ```
-Expected: **empty output**. Any diff here violates a global constraint, revert it.
+Expected: **empty output**. Diffing the MERGE BASE, not `origin/main`, is deliberate: this branch
+was 113 commits behind when first reviewed and a plain `origin/main` diff reported unrelated
+upstream drift in `catalog.ts` as if this feature had touched it. Any diff against the merge base
+is genuinely this branch's, and violates a global constraint, revert it.
 
 - [ ] **Step 8: Commit**
 
@@ -1299,6 +1582,21 @@ If it returns a verdict, triage findings as usual. If it still returns `no_verdi
 - [ ] **Step 5: Whole-diff cross-model review**
 
 Dispatch a fresh-eyes review of the complete diff against `origin/main`, with the do-not-relitigate list from spec §12 inlined. Iterate to APPROVE.
+
+- [ ] **Step 5b: Commit every gate-driven fix BEFORE pushing**
+
+The impeccable gate and the cross-model review can both produce code changes. Nothing above commits
+them, so without this step the push, CI and merge would run on an older tree than the one that
+passed the gates.
+
+```bash
+cd /Users/ericweiss/FX-worktrees/alert-autoresolve
+git status --porcelain
+```
+
+If non-empty, commit the changes with a `fix(...)` message naming the gate that surfaced them, then
+re-run `pnpm test`, `pnpm typecheck`, `pnpm lint` and `pnpm format:check`. Repeat until
+`git status --porcelain` is empty. Only then continue.
 
 - [ ] **Step 6: Push and merge**
 
