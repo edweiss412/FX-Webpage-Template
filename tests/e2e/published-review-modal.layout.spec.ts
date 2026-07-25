@@ -1569,12 +1569,18 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
             }
             return false;
           };
-          /** `content-visibility: hidden` on an ancestor suppresses that subtree's
-           *  OWN internal layout, so gaps inside it are not rendered and its
-           *  descendants' zero sizes charge nothing. The boundary element itself is
-           *  still an item of ITS parent and is measured there. */
+          /**
+           * `content-visibility: hidden` skips the SUBTREE'S OWN layout, so gaps
+           * inside it are not rendered and zero-size descendants charge nothing.
+           *
+           * Starts at the element ITSELF, not its parent: a gapped container that
+           * carries the property has its own children's layout skipped, so measuring
+           * its items is exactly as false-red as measuring a descendant's. The
+           * boundary element remains an item of ITS parent and is measured there,
+           * which is why `hidden()` (display) and this check are separate.
+           */
           const contentHiddenInside = (el: Element): boolean => {
-            let node: Element | null = el.parentElement;
+            let node: Element | null = el;
             while (node !== null) {
               if (getComputedStyle(node).contentVisibility === "hidden") return true;
               if (node === modal) return false;
@@ -1646,12 +1652,22 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
             if (typeof offset === "number") return offset === 0;
             return getComputedStyle(el).transform === "none";
           };
-          /** Realized track count on one axis — `grid-template-*` resolves to a
-           *  space-separated list of used sizes, so its length is the track count. */
+          /**
+           * Realized track count on one axis. For a grid container the computed
+           * `grid-template-*` is the USED value — a space-separated list of pixel
+           * sizes — so its length is the track count. `minmax()` and `repeat()` are
+           * already resolved away, but LINE NAMES are not: Chrome reports
+           * `[full-start] 100px [full-end]`, and counting those brackets as tracks
+           * would overstate the count and pull single-track grids into examination.
+           */
           const trackCount = (cs: CSSStyleDeclaration, dim: "height" | "width"): number => {
             const tpl = dim === "height" ? cs.gridTemplateRows : cs.gridTemplateColumns;
-            if (tpl === "none" || tpl.trim() === "") return 0;
-            return tpl.trim().split(/\s+/).length;
+            if (tpl === "none" || tpl === "subgrid" || tpl.trim() === "") return 0;
+            return tpl
+              .replace(/\[[^\]]*\]/g, " ")
+              .trim()
+              .split(/\s+/)
+              .filter((t) => t !== "").length;
           };
 
           for (const el of [modal, ...Array.from(modal.querySelectorAll("*"))]) {
