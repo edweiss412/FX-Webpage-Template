@@ -314,6 +314,9 @@ export const INTERNAL_CODE_ENUMS = {
   SYNC_STEP_TIMEOUT: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  TILE_SERVER_RENDER_FAILED: {
+    source: "admin_alerts.code"
+  },
   TRAVEL_FLIGHT_AMBIGUOUS_TABLE: {
     source: "parse_warnings.code"
   },

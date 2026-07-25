@@ -52,6 +52,8 @@ import { Header } from "@/components/layout/Header";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
+import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
+import { sweepTileRenderAlerts } from "@/lib/crew/sweepTileRenderAlerts";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { log } from "@/lib/log";
 import {
@@ -329,6 +331,17 @@ export async function CrewShell({
   // admin with the previewed-viewer crewPreview context.
   const cardReport = buildCardReportContext(viewer, ctx.viewerName, ctx.viewerCrew?.role ?? null);
 
+  // Per-request tile ledger. Created ONCE here, in the component body, never
+  // inside the after() callback: that runs after the render lifecycle and would
+  // observe a different object, silently sweeping an empty ledger.
+  const tileLedger = createTileRenderLedger();
+  // Observer key: a crew member id, or the "admin" sentinel for a plain-admin
+  // render, whose all-flags path differs from every crew member's and so must
+  // not clear their rows. admin_preview resolves identically to crew
+  // (viewerContext.ts:132 sets isAdmin only for kind === "admin"), so an admin
+  // previewing as a crew member legitimately shares that member's key.
+  const viewerKey = data.viewerId ?? "admin";
+
   const renderOne = (id: SectionId): JSX.Element => {
     switch (id) {
       case "today":
@@ -338,6 +351,7 @@ export async function CrewShell({
             viewer={viewer}
             today={today}
             showId={showId}
+            ledger={tileLedger}
             cardReport={cardReport}
           />
         );
@@ -348,6 +362,7 @@ export async function CrewShell({
             viewer={viewer}
             today={today}
             showId={showId}
+            ledger={tileLedger}
             cardReport={cardReport}
           />
         );
@@ -358,6 +373,7 @@ export async function CrewShell({
             viewer={viewer}
             today={today}
             showId={showId}
+            ledger={tileLedger}
             cardReport={cardReport}
           />
         );
@@ -368,6 +384,7 @@ export async function CrewShell({
             viewer={viewer}
             today={today}
             showId={showId}
+            ledger={tileLedger}
             cardReport={cardReport}
           />
         );
@@ -378,6 +395,7 @@ export async function CrewShell({
             viewer={viewer}
             today={today}
             showId={showId}
+            ledger={tileLedger}
             cardReport={cardReport}
           />
         );
@@ -388,6 +406,7 @@ export async function CrewShell({
             viewer={viewer}
             today={today}
             showId={showId}
+            ledger={tileLedger}
             cardReport={cardReport}
           />
         );
@@ -398,6 +417,7 @@ export async function CrewShell({
             viewer={viewer}
             today={today}
             showId={showId}
+            ledger={tileLedger}
             cardReport={cardReport}
           />
         );
@@ -413,6 +433,23 @@ export async function CrewShell({
   const sectionNodes = Object.fromEntries(entitled.map((id) => [id, renderOne(id)])) as Partial<
     Record<SectionId, JSX.Element>
   >;
+
+  // Post-response reconcile for TILE_SERVER_RENDER_FAILED. Registered
+  // UNCONDITIONALLY, independent of the projection-alert branch above whose
+  // condition is a different observation. The callback RETURNS the promise so
+  // the runtime keeps the function alive until the write settles; a voided call
+  // would let a serverless freeze drop the row.
+  try {
+    after(() =>
+      sweepTileRenderAlerts(tileLedger, {
+        showId,
+        sheetName: data.show.title,
+        viewerKey,
+      }),
+    );
+  } catch {
+    // no request scope (unit tests): skip; the next real request sweeps
+  }
 
   return (
     // NOTE: `data-active-section` lives ONLY on the CrewSections controller's

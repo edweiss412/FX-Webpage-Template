@@ -17,6 +17,7 @@ import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import type { StageRestriction } from "@/lib/parser/types";
+import { ledgerProp } from "./_ledgerProp";
 
 // Task 12 per-day-meta helpers. `adminViewer` matches the none-restriction admin
 // posture; `at(iso)` freezes the clock to noon UTC of an ISO date (the show TZ is
@@ -44,6 +45,7 @@ function withRestriction(r: (typeof baseCrew)["dateRestriction"]) {
 test("unknown_asterisk → unconfirmed placeholder, ZERO day cards, NO date text for ANY of travelIn/set/showDays/travelOut", () => {
   const { container } = render(
     <ScheduleSection
+      {...ledgerProp()}
       data={withRestriction({ kind: "unknown_asterisk", days: null })}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -58,6 +60,7 @@ test("unknown_asterisk → unconfirmed placeholder, ZERO day cards, NO date text
 test("explicit → intersection against the FULL aggregate; none → all aggregate days", () => {
   const explicit = render(
     <ScheduleSection
+      {...ledgerProp()}
       data={withRestriction({ kind: "explicit", days: [DATES.travelIn, DATES.showDays[0]!] })}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -70,6 +73,7 @@ test("explicit → intersection against the FULL aggregate; none → all aggrega
   expect(explicit.container.querySelector(`[data-day="${DATES.travelIn}"]`)).toBeTruthy();
   const none = render(
     <ScheduleSection
+      {...ledgerProp()}
       data={withRestriction({ kind: "none" })}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -93,6 +97,7 @@ test("today-pin uses show timezone, not UTC date", () => {
 
   const { container } = render(
     <ScheduleSection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={boundaryDate}
@@ -135,6 +140,7 @@ function withRooms(
 test("anchors present → right column renders a 'Crew Schedule' SectionCard wrapping the key-times", () => {
   const { container } = render(
     <ScheduleSection
+      {...ledgerProp()}
       data={withRooms([
         {
           id: "r1",
@@ -173,6 +179,7 @@ test("anchors present → right column renders a 'Crew Schedule' SectionCard wra
 test("all anchors absent + no rooms error → NO card AND the grid collapses to a single full-width column", () => {
   const { container } = render(
     <ScheduleSection
+      {...ledgerProp()}
       data={withRooms([])}
       viewer={{ kind: "admin" }}
       today={TODAY}
@@ -206,7 +213,13 @@ test("bare-window day → DayCard meta = the window string from the data source"
     runOfShow: { "2026-10-08": { entries: [], showStart: null, window } },
   });
   const { container } = render(
-    <ScheduleSection data={data} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />,
+    <ScheduleSection
+      {...ledgerProp()}
+      data={data}
+      viewer={adminViewer}
+      today={at("2026-10-08")}
+      showId="s1"
+    />,
   );
   const dayCard = container
     .querySelector('[data-testid="schedule-day-today"]')!
@@ -232,7 +245,13 @@ test("Set day with dates.setupTime → DayCard meta 'Setup <time>'; sentinel/abs
     runOfShow: null,
   });
   const r = render(
-    <ScheduleSection data={data} viewer={adminViewer} today={at("2026-10-07")} showId="s1" />,
+    <ScheduleSection
+      {...ledgerProp()}
+      data={data}
+      viewer={adminViewer}
+      today={at("2026-10-07")}
+      showId="s1"
+    />,
   );
   const setCard = r.container
     .querySelector('[data-testid="schedule-day-today"]')!
@@ -252,7 +271,13 @@ test("Set day with dates.setupTime → DayCard meta 'Setup <time>'; sentinel/abs
     runOfShow: null,
   });
   const r2 = render(
-    <ScheduleSection data={data2} viewer={adminViewer} today={at("2026-10-07")} showId="s1" />,
+    <ScheduleSection
+      {...ledgerProp()}
+      data={data2}
+      viewer={adminViewer}
+      today={at("2026-10-07")}
+      showId="s1"
+    />,
   );
   expect(
     r2.container
@@ -269,7 +294,13 @@ test("fragment-day showStart / window meta is sentinel-guarded (raw 'TBD' never 
     runOfShow: { "2026-10-08": { entries: [], showStart: "TBD", showEnd: null, window: null } },
   });
   const r = render(
-    <ScheduleSection data={data} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />,
+    <ScheduleSection
+      {...ledgerProp()}
+      data={data}
+      viewer={adminViewer}
+      today={at("2026-10-08")}
+      showId="s1"
+    />,
   );
   // The day card renders, but NO meta node (sentinel showStart hidden by resolveOptionalField).
   expect(
@@ -284,7 +315,13 @@ test("fragment-day showStart / window meta is sentinel-guarded (raw 'TBD' never 
     runOfShow: { "2026-10-08": { entries: [], showStart: "8:00am", showEnd: null, window: null } },
   });
   const r2 = render(
-    <ScheduleSection data={data2} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />,
+    <ScheduleSection
+      {...ledgerProp()}
+      data={data2}
+      viewer={adminViewer}
+      today={at("2026-10-08")}
+      showId="s1"
+    />,
   );
   const today2 = r2.container.querySelector('[data-testid="schedule-day-today"]')!;
   expect(today2.querySelector('[data-slot="day-card-meta"]')).toBeNull();
@@ -314,6 +351,7 @@ test("Load In/Set stage viewer → KeyTimesStrip has NO strike anchor, Set ancho
   };
   const { container } = render(
     <ScheduleSection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}

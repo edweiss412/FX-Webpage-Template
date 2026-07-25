@@ -62,12 +62,15 @@ import {
 } from "@/lib/crew/flightDisplay";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
+import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
 type TravelSectionProps = {
   data: ShowForViewer;
   viewer: Viewer;
   today: Date;
   showId: string;
+  /** Per-request tile ledger, threaded from _CrewShell. */
+  ledger: TileRenderLedger;
   cardReport?: CardReportContext;
 };
 
@@ -149,6 +152,7 @@ export function TravelSection({
   data,
   viewer,
   showId,
+  ledger,
   today,
   cardReport = DEFAULT_CARD_REPORT,
 }: TravelSectionProps): JSX.Element {
@@ -161,6 +165,7 @@ export function TravelSection({
   return (
     <div data-testid="section-travel" className="flex flex-col gap-4">
       <WrappedSection
+        ledger={ledger}
         tileId="crew:travel:transport"
         showId={showId}
         sheetName={data.show.title}

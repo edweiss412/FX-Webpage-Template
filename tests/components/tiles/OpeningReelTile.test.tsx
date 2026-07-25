@@ -37,6 +37,7 @@ import { render } from "@testing-library/react";
 
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "../crew/sections/_ledgerProp";
 
 const SHOW_ID = "77777777-7777-4777-8777-777777777777";
 const TODAY = new Date("2026-05-14T15:00:00Z");
@@ -45,6 +46,7 @@ const VIEWER = { kind: "admin" } as const;
 function renderReel(openingReel: string | undefined, hasVideo: boolean): HTMLElement {
   return render(
     <GearSection
+      {...ledgerProp()}
       data={makeShowForViewer({
         show: {
           event_details: openingReel !== undefined ? { opening_reel: openingReel } : {},

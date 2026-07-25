@@ -26,6 +26,7 @@ import { render } from "@testing-library/react";
 
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "../crew/sections/_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -37,6 +38,7 @@ const VIEWER = { kind: "admin" } as const;
 function renderAllScopes(): HTMLElement {
   return render(
     <GearSection
+      {...ledgerProp()}
       data={makeShowForViewer({
         rooms: [
           {

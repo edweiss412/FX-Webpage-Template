@@ -5,6 +5,7 @@ import { render, cleanup, within } from "@testing-library/react";
 
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "./_ledgerProp";
 
 afterEach(cleanup);
 
@@ -51,6 +52,7 @@ test("unassigned crew see no ground-transport PII; admin sees the full field set
   });
   const crew = render(
     <TravelSection
+      {...ledgerProp()}
       data={data}
       // c1 (default fixture row) is a real roster member but NOT the driver "Pat" nor in
       // assigned_names → transport gate stays closed, PII hidden. Post-8.2 an unmatched id
@@ -63,7 +65,13 @@ test("unassigned crew see no ground-transport PII; admin sees the full field set
   for (const pii of ["Pat", "555-7", "Van", "ABC123", "Lot A"])
     expect(crew.container.textContent).not.toContain(pii);
   const admin = render(
-    <TravelSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TravelSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   for (const pii of ["Pat", "555-7", "Van", "ABC123", "Lot A"])
     expect(admin.container.textContent).toContain(pii);
@@ -110,7 +118,13 @@ function bothBlocksData() {
 
 function renderAdmin(data: ReturnType<typeof bothBlocksData>) {
   return render(
-    <TravelSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TravelSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
 }
 
@@ -285,7 +299,13 @@ test("transport legs with sentinel date/time do NOT render 'TBD' / 'N/A' in the 
     hotelReservations: [],
   });
   const { container } = render(
-    <TravelSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TravelSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const text = container.textContent ?? "";
   // The sentinels must not appear anywhere in the rendered travel DOM.
@@ -319,7 +339,13 @@ test("a leg with only sentinel sub-fields is omitted (no empty travelrow)", () =
     hotelReservations: [],
   });
   const { getAllByTestId, container } = render(
-    <TravelSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TravelSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const text = container.textContent ?? "";
   expect(text).not.toContain("TBD");

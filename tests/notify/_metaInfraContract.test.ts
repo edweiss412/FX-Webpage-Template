@@ -14,6 +14,9 @@ export const REGISTERED: { path: string }[] = [
   { path: "lib/notify/detect/recoveryResolution.ts" },
   { path: "lib/notify/detect/candidates.ts" },
   { path: "lib/adminAlerts/resolveAdminAlert.ts" },
+  // Observer-keyed tile alert resolver: destructures { data, error } and throws
+  // on a returned error, same posture as resolveAdminAlert above.
+  { path: "lib/adminAlerts/resolveTileAlertsForObserver.ts" },
   { path: "lib/notify/deliver.ts" },
   { path: "lib/notify/detect/emailDeliveryFailed.ts" },
   { path: "lib/notify/digest.ts" },

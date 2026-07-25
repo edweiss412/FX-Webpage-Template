@@ -5,6 +5,7 @@ import { render, within } from "@testing-library/react";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
+import { ledgerProp } from "./sections/_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-tech";
@@ -18,6 +19,7 @@ function renderGear(eventDetails: Record<string, string>) {
   });
   const { container } = render(
     <GearSection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
