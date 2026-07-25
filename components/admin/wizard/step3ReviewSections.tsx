@@ -2163,7 +2163,16 @@ export function EventDetailsBreakdown({
                 <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
                   {g.title}
                 </span>
-                <span aria-hidden="true" className="h-px flex-1 bg-border" />
+                {/* Decorative rule. `min-w-4` is a FLOOR, not a breakpoint hide: measured, this
+                    rule never collapses in the supported range — 22.94px at the narrowest real
+                    row (240px, being a 320px viewport's 280px pane minus `--spacing-tile-pad`
+                    each side) and 0 only at rows <=215px, because its five group titles are a
+                    closed set whose longest is "Wardrobe & key moments". Hiding a rule that
+                    draws correctly everywhere would be a regression, so it gets a floor that
+                    makes the zero state unreachable instead. 16px and not `min-w-6`: 24px
+                    exceeds the width actually available at 240px, so it would bind and wrap the
+                    label. Spec 2026-07-25 §3.2; DESIGN.md §7a. */}
+                <span aria-hidden="true" className="h-px min-w-4 flex-1 bg-border" />
               </div>
               <EventDetailGroupBody fields={g.fields} reelCards={reelCards} />
             </div>
