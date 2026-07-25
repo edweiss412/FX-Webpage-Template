@@ -29,7 +29,7 @@ const ROOT = process.cwd();
 const PATH_GATED =
   "path-gated PR workflow (runs when its filter matches, not PR-blocking-capable per the scanner contract); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
 const PATH_GATED_BY_EXCLUSION =
-  "path-gated by EXCLUSION (pull_request.paths-ignore, so it runs unless the change is docs-only — broader than an allow-list, still not PR-blocking-capable per the scanner contract); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
+  "path-gated by EXCLUSION (pull_request.paths-ignore, so it runs unless the change touches only prose no script reads — NOT docs/, which prebuild reads; broader than an allow-list, still not PR-blocking-capable per the scanner contract); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
 const UNSEEN =
   "not named in any workflow run command (project-only --project runs are invisible to the scanner, or no workflow runs it); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
 const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {

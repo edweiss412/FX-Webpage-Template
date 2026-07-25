@@ -1,4 +1,4 @@
-name: Crew e2e (mobile-safari)
+name: Crew e2e (mobile-safari + desktop-chromium)
 # Runs two crew e2e specs against a real browser + a seeded local Supabase: the
 # client-side section-toggle suite (tests/e2e/crew-section-toggle.spec.ts, under
 # mobile-safari) and the crew picker flow (tests/e2e/picker-flow.spec.ts, under

@@ -12,8 +12,10 @@
  * allow-list was incomplete.
  *
  * Coverage status, stated precisely. The trigger is now `paths-ignore`, so the job
- * runs unless a change is docs-only — broader than the old allow-list, but still
- * NOT every PR. An earlier revision of this branch claimed the specs became
+ * runs unless a change touches ONLY prose that no script reads — root-level
+ * markdown, issue templates, the licence. Note that `docs/` is deliberately not in
+ * that set, because prebuild's manifest reads the master spec and plan files.
+ * Broader than the old allow-list, but still NOT every PR. An earlier revision of this branch claimed the specs became
  * "genuinely PR-covered" because the scanner stopped classifying them as
  * path-gated; that was an artifact, not a fact: `_workflowCoverageScan.ts` matched
  * only `paths:`. The scanner now recognises `paths-ignore` as a filter (with its
@@ -125,7 +127,11 @@ function pathsIgnoreBlock(wf: string): string {
 // depends on — so a fixture-only change would have skipped the workflow while
 // breaking the suite. Root-level `*.md` (README, AGENTS, the ledgers) and docs/
 // are prose; a recursive markdown glob is not.
-const DOCS_ONLY = /^(docs\/|\.github\/ISSUE_TEMPLATE\/|LICENSE$|[^/]+\.md$)/;
+// `docs/` is NOT here on purpose: prebuild's manifest reads the master spec and
+// plan files (scripts/pretest-gen.mjs), so a docs change can alter generated
+// artifacts or fail the cold build. Reintroducing it to the ignore list must fail
+// this guard, which the previous pattern allowed.
+const DOCS_ONLY = /^(\.github\/ISSUE_TEMPLATE\/|LICENSE$|[^/]+\.md$)/;
 
 /** Bare-runner workflows whose webServer inherits runner-level env. */
 const KEYED_WORKFLOWS = ["crew-e2e.yml", "dev-gate-e2e.yml"] as const;
@@ -216,8 +222,13 @@ describe("picker-flow e2e CI wiring", () => {
       // crew-e2e keeps its secrets at JOB level (six-space indent); dev-gate keeps
       // them in the Playwright run STEP's env: block (ten spaces).
       const expectedIndent = wf === "crew-e2e.yml" ? 6 : 10;
+      // Capture the WHOLE value to end-of-line, not a hex prefix: `<64hex>zz` and
+      // `"<64hex>zz"` both satisfied a prefix capture while
+      // pickerCookieSigningKey() rejects them, so a malformed value could green the
+      // guard and crash e2e setup.
       const located = new RegExp(
-        `\\n {${expectedIndent}}PICKER_COOKIE_SIGNING_KEY:\\s*"?([0-9a-fA-F]*)"?`,
+        `\\n {${expectedIndent}}PICKER_COOKIE_SIGNING_KEY:[ \\t]*(\\S*)[ \\t]*$`,
+        "m",
       ).exec(yaml);
       expect(
         located,
@@ -230,7 +241,7 @@ describe("picker-flow e2e CI wiring", () => {
         `${wf}'s PICKER_COOKIE_SIGNING_KEY must be 64 hex chars AT THAT LOCATION — ` +
           "pickerCookieSigningKey() throws on a malformed value, turning the guest case into a " +
           "setup crash rather than a clean failure.",
-      ).toMatch(/^[0-9a-f]{64}$/);
+      ).toMatch(/^"?[0-9a-f]{64}"?$/);
     },
   );
 });

@@ -53,17 +53,43 @@ import { describe, expect, it } from "vitest";
 // it: a real entry heading is `ID — text` or `ID -` or ends there, while prose
 // continues in lower case ("Bulk ignore …" would yield "B" followed by "ulk").
 // So the token must be followed by a dash, an em dash, a bracket, or end of line.
-// A greedy SHOUTY token, rejected only if prose continues immediately after it.
+// Ids are SHOUTY. The token is captured INCLUDING any lowercase, then rejected in
+// code if it contains lowercase — no lookahead, so there is nothing to backtrack.
 //
-// The terminator list was worse than no terminator: `-` was BOTH an id character
-// and an accepted terminator, so the pattern backtracked and parsed the live
-// heading `### SHAREHUB-FIDELITY "…"` as `SHAREHUB`. Reopening that id under a
-// normal heading would then produce a different token and evade the overlap guard.
-// A negative lookahead for a lowercase letter cannot backtrack that way: the token
-// runs to the end of the SHOUTY run, and prose headings (`### [P2] Bulk ignore …`)
-// fail because `B` is followed by `u`.
-const DEFERRAL_ID = /^### (?:\[[^\]]+\]\s*)?~{0,2}([A-Z0-9][A-Z0-9/-]*)~{0,2}(?![a-z])/gm;
-const BACKLOG_ID = /^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)~{0,2}/gm;
+// Two previous attempts both failed for the same reason. A terminator list made `-`
+// both an id character and a terminator, so `### SHAREHUB-FIDELITY "…"` backtracked
+// to `SHAREHUB`. Replacing it with a negative lookahead moved the problem rather
+// than fixing it: `### BL-something` still backtracked to `BL`, and `### ABC/def` to
+// `ABC`, because giving back the `-` or `/` satisfies the lookahead. Capturing
+// greedily over a class that INCLUDES lowercase removes the escape route — the
+// match cannot end early at a boundary character, so the whole word is judged.
+const HAS_LOWERCASE = /[a-z]/;
+
+/**
+ * Ids from one ledger: SHOUTY tokens only, so prose headings yield nothing.
+ *
+ * Heading level differs by ledger and is not incidental. DEFERRED entries are
+ * level 3, and its level-2 headings are prose sections, so widening there would
+ * pull in section titles. BACKLOG entries appear at BOTH levels (`## BL-…` in the
+ * active queue, `###` for some archived ones), and its `BL-` prefix requirement is
+ * what keeps prose out.
+ */
+function shoutyIds(text: string, requirePrefix: string | null): Set<string> {
+  const level = requirePrefix === null ? "###" : "#{2,3}";
+  const re = new RegExp(
+    `^${level} (?:\\[[^\\]]+\\]\\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)~{0,2}`,
+    "gm",
+  );
+  const out = new Set<string>();
+  for (const m of text.matchAll(re)) {
+    const token = m[1]!;
+    if (HAS_LOWERCASE.test(token)) continue;
+    if (requirePrefix !== null && !token.startsWith(requirePrefix)) continue;
+    out.add(token);
+  }
+  return out;
+}
+
 
 /**
  * Deferrals graduated to the archive since this guard shipped. NOT a mirror of
@@ -102,11 +128,9 @@ const ORIGIN_GATE_ID = "BL-SERVER-ACTION-ORIGIN-GATE";
 // file" and every assertion fails for the wrong reason.
 const read = (rel: string): string => readFileSync(join(process.cwd(), rel), "utf8");
 
-const idsIn = (rel: string): Set<string> =>
-  new Set(Array.from(read(rel).matchAll(DEFERRAL_ID), (m) => m[1]!));
+const idsIn = (rel: string): Set<string> => shoutyIds(read(rel), null);
 
-const backlogIdsIn = (rel: string): Set<string> =>
-  new Set(Array.from(read(rel).matchAll(BACKLOG_ID), (m) => m[1]!));
+const backlogIdsIn = (rel: string): Set<string> => shoutyIds(read(rel), "BL-");
 
 describe("deferral ledger graduation", () => {
   it("no id is both active and archived", () => {
