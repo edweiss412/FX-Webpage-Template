@@ -566,3 +566,57 @@ the spec §3.1 states the rule.
 Each of the three fixes is mutation-proven independently: reverting any one site to `\n` fails
 a named pin, and all three restored gives 103/103 in the guard file, 221 across the styles,
 a11y and docs suites.
+
+## R18 — the retired vector was still running in the sibling check
+
+R18 was the first non-BLOCKING verdict since R4 (NEEDS-ATTENTION, one HIGH). It independently
+confirmed the R17 work: it re-derived 23 live anchors / 0 violations across 246 files, regressed
+each of the three terminator sites and watched the matching witness flip, verified through
+TypeScript's own JSX transform that all four terminators remove both a bare and a preceding
+literal-space separator while `{" "}` survives, and confirmed the new `href` fixture is decisive
+(removing `attrName` lowercasing drops `HREF` from one anchor to zero).
+
+**The HIGH: the self-maintaining casing check was regex form-enumeration.** It matched the scanner
+source for the reading forms it knew about, so `["download"].includes(name)` had no fixture and
+produced no failure. This is the vector R15 and R16 already retired — rebuilt in a sibling check in
+the same file. Retiring a vector by changing a model closes it only where the model changed; a
+model change is a claim about the whole file, and I had not swept for the old mechanism elsewhere.
+
+**The sweep found it one layer below what R18 reported.** `rel` is read through a
+`new Set([...])` bound to a const, which the position-based collector never saw either, so a
+camelCase `rel` would not have tripped the lowercase rule. Two collectors existed for one
+question, one sound and one not, and they silently disagreed about what the scanner reads.
+
+**The model change:** stop asking *which reading forms exist* (unbounded — alias, array,
+const-bound Set, switch case, property key, and the next one someone invents) and ask *which
+name-shaped literals exist* (decidable, from the AST, position-blind). Every form still contains
+the literal. Each name-shaped literal must then be classified — a casing fixture, or a
+`NOT_AN_ATTRIBUTE_NAME` entry with a reason — so a new literal fails until someone decides which it
+is. Stale exclusions fail too: an entry no longer present in the source is how a real attribute
+name later slips in under a dead classification.
+
+Both halves now run off the one collector, and the 60-line position-enumeration collector is
+**deleted** rather than left as a second opinion. That is what makes the two checks structurally
+unable to disagree, and it is the part that closes the class rather than the instance.
+
+Mutation-proven four ways: R18's `.includes` witness, a new name added to the const-bound Set, a
+renamed verdict string, and a bogus exclusion entry each fail a named assertion.
+`nameShapedLiterals` carries its own synthetic pin over ten reading forms plus the prose cases the
+shape filter must reject, and states the one genuinely undecidable form (`"al" + "pha"`) instead of
+implying it is covered.
+
+**Also merged `origin/main`** (51 commits, 11 changed `.tsx`/`.mdx` files) before pushing. Clean
+merge; the census is unchanged at 0 violations, so none of the new upstream files carries an
+unannounced anchor.
+
+### Local full-suite flakes, and why they are not this diff
+
+Two local full-suite runs on the same commit failed **disjoint** sets: 7 tests in `settingsHeader`,
+`healthAlertsPanel`, `venue`, `validation-check-seed-content-coverage` and
+`readShowChangeFeed.staleness`; then 6 different ones in the venue generator, the parseSheet
+corpus, a DURABLE lease, a rebuild outcome and a stage-converge case — with `healthAlertsPanel`
+passing the second time. A real regression fails the same tests deterministically. Both runs also
+shared the box with a `codex-guard` dispatch (a render assertion took 5289ms). CI had already been
+12/12 green on a head containing every component change in this PR, and every commit after it
+touches only `tests/styles/**` and docs, so the component failures cannot be attributed to the new
+work. CI's sharded isolated runners are the arbiter here, not a contended local box.
