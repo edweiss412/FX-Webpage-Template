@@ -73,18 +73,18 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
   },
   {
-    site: "app/api/auth/picker-bootstrap/route.ts:72",
+    site: "app/api/auth/picker-bootstrap/route.ts:73",
     code: "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
     scope: "global",
   },
   {
-    site: "app/api/auth/picker-bootstrap/route.ts:99",
+    site: "app/api/auth/picker-bootstrap/route.ts:100",
     code: "PICKER_BOOTSTRAP_RPC_FAILED",
     scope: "global",
     note: "showId hard-coded null despite context.show_id present",
   },
-  { site: "app/auth/callback/route.ts:134", code: "OAUTH_IDENTITY_CLAIMED", scope: "per-show" },
-  { site: "app/auth/callback/route.ts:163", code: "CALLBACK_CLAIM_THREW", scope: "global" },
+  { site: "app/auth/callback/route.ts:138", code: "OAUTH_IDENTITY_CLAIMED", scope: "per-show" },
+  { site: "app/auth/callback/route.ts:167", code: "CALLBACK_CLAIM_THREW", scope: "global" },
   {
     site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:160",
     code: "TILE_PROJECTION_FETCH_FAILED",
