@@ -16,6 +16,7 @@ import { cleanup, render } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "./_ledgerProp";
 
 afterEach(cleanup);
 
@@ -36,7 +37,13 @@ test("Venue homes coi_status (data-testid=coi-status), power, internet, venue no
     },
   });
   const { container } = render(
-    <VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <VenueSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   expect(container.querySelector('[data-testid="coi-status"]')!.textContent).toContain("Received");
   expect(container.textContent).toContain("200A 3-phase");
@@ -47,7 +54,13 @@ test("Venue homes coi_status (data-testid=coi-status), power, internet, venue no
   });
   expect(
     render(
-      <VenueSection data={sentinel} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+      <VenueSection
+        {...ledgerProp()}
+        data={sentinel}
+        viewer={{ kind: "admin" }}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     ).container.querySelector('[data-testid="coi-status"]'),
   ).toBeNull();
 });
@@ -69,6 +82,7 @@ test("parking renders only when transportTileVisible; map link only when isParse
   });
   const unassigned = render(
     <VenueSection
+      {...ledgerProp()}
       data={data}
       // c1 (default fixture row): a real roster member with empty flags; the transport row
       // has driver_name null → gate closed, parking PII hidden. Post-8.2 an unmatched id
@@ -82,8 +96,15 @@ test("parking renders only when transportTileVisible; map link only when isParse
   expect(unassigned.container.querySelector('a[href^="http"]')).toBeNull();
   cleanup();
   expect(
-    render(<VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />)
-      .container.textContent,
+    render(
+      <VenueSection
+        {...ledgerProp()}
+        data={data}
+        viewer={{ kind: "admin" }}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
+    ).container.textContent,
   ).toContain("Lot B");
 });
 
@@ -106,7 +127,13 @@ test("Facilities renders the .kvrow FactRows with dock/parking/wifi mini-icons (
     },
   });
   const { container } = render(
-    <VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <VenueSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const facts = container.querySelector('[data-testid="fact-rows"]');
   expect(facts).not.toBeNull();
@@ -140,7 +167,13 @@ test("Where card renders discrete Venue / City / Address rows from a structured 
     show: { venue: { name: "Center", address: "350 Fifth Ave, New York, NY 10118" } },
   });
   const { container } = render(
-    <VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <VenueSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const where = container.querySelector('[data-testid="venue-where"]')!;
   // Mock `.card-head .ico` parity: the Where card carries its leading glyph.
@@ -156,7 +189,13 @@ test("Where card omits the City + Address rows when nothing is derivable (comma-
     show: { venue: { name: "Center", address: "Pier 94" } },
   });
   const { container } = render(
-    <VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <VenueSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const where = container.querySelector('[data-testid="venue-where"]')!;
   expect(dd(where, "Venue")).toBe("Center");
@@ -173,7 +212,13 @@ test("Where card surfaces name + city for a blank-address, city-in-name venue", 
     show: { venue: { name: "Four Seasons Hotel Chicago", address: "" } },
   });
   const { container } = render(
-    <VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <VenueSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const where = container.querySelector('[data-testid="venue-where"]')!;
   expect(where).not.toBeNull(); // the card now renders (previously omitted)

@@ -22,6 +22,7 @@ import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { DiagramsTile } from "@/components/crew/DiagramsBlock";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "./crew/sections/_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -65,6 +66,7 @@ describe("agenda placement — Schedule section (Task 15)", () => {
   test("Schedule renders the agenda affordance AND the structured schedule, ABOVE the day-cards grid", () => {
     const { container } = render(
       <ScheduleSection
+        {...ledgerProp()}
         data={makeShowForViewer({ show: { dates: DATES, agenda_links: AGENDA_LINKS } })}
         viewer={VIEWER}
         today={TODAY}
@@ -88,6 +90,7 @@ describe("agenda placement — Schedule section (Task 15)", () => {
   test("no agenda links → no agenda area in Schedule", () => {
     const { container } = render(
       <ScheduleSection
+        {...ledgerProp()}
         data={makeShowForViewer({ show: { dates: DATES, agenda_links: [] } })}
         viewer={VIEWER}
         today={TODAY}
@@ -103,6 +106,7 @@ describe("agenda removed from Venue/Diagrams (Task 15)", () => {
   test("Venue does NOT render the agenda affordance", () => {
     render(
       <VenueSection
+        {...ledgerProp()}
         data={makeShowForViewer({ show: { agenda_links: AGENDA_LINKS } })}
         viewer={VIEWER}
         today={TODAY}
@@ -115,6 +119,7 @@ describe("agenda removed from Venue/Diagrams (Task 15)", () => {
   test("agenda-only show (no diagrams) renders NO Diagrams block in Venue", () => {
     render(
       <VenueSection
+        {...ledgerProp()}
         data={makeShowForViewer({ show: { agenda_links: AGENDA_LINKS }, diagrams: null })}
         viewer={VIEWER}
         today={TODAY}

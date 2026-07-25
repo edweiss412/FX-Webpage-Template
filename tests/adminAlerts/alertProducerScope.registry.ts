@@ -203,7 +203,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
   },
   {
-    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:160",
+    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:162",
     contextKeys: ["failedKeys", "message", "sheet_name", "tileId"],
     code: "TILE_PROJECTION_FETCH_FAILED",
     scope: "per-show",
@@ -218,6 +218,13 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
     dynamic: true,
     note: "const; tx.upsertAdminAlert passes no showId -> null",
+  },
+  {
+    site: "lib/crew/sweepTileRenderAlerts.ts:51",
+    contextKeys: ["tileId", "message", "sheet_name", "viewerKey"],
+    code: "TILE_SERVER_RENDER_FAILED",
+    scope: "per-show",
+    note: "post-response tile sweep; viewerKey is the observer discriminator",
   },
   {
     site: "lib/reports/submit.ts:759",

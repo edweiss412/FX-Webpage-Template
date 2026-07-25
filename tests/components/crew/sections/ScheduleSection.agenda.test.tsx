@@ -4,6 +4,7 @@ import { render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { AgendaEntry, ScheduleDay } from "@/lib/parser/types";
+import { ledgerProp } from "./_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -52,6 +53,7 @@ function renderAgenda(runOfShow: Record<string, AgendaEntry[]> | null) {
         );
   return render(
     <ScheduleSection
+      {...ledgerProp()}
       data={makeShowForViewer({ show: { dates: DATES }, runOfShow: ros })}
       viewer={VIEWER}
       today={TODAY}

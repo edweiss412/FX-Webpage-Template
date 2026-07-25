@@ -48,7 +48,7 @@ which governs only the JS producer path).
 
 Classes: **AUTO** = already auto-resolves (no change) · **NEW** = auto-resolution added by this spec ·
 **EVENT** = one-shot notice, manual by design · **DEFER** = state-based but out of scope (BACKLOG).
-Counts: 7 AUTO · 15 NEW · 18 EVENT · 2 DEFER = 42. (`GITHUB_BOT_LOGIN_MISSING` promoted DEFER→auto by
+Counts: 7 AUTO · 15 NEW · 18 EVENT · 0 DEFER = 42. (`GITHUB_BOT_LOGIN_MISSING` promoted DEFER→auto by
 `docs/superpowers/specs/alerts/2026-07-04-alert-resolve-truthing.md` §6, which supersedes its row below.)
 
 | Code | Class | Raise site(s) | Condition | Clear detection → resolution |
@@ -74,7 +74,7 @@ Counts: 7 AUTO · 15 NEW · 18 EVENT · 2 DEFER = 42. (`GITHUB_BOT_LOGIN_MISSING
 | PENDING_SNAPSHOT_ROLLBACK_STUCK | **NEW** | `promoteSnapshot.ts:132-141` | rollback threw | **S4**: at the two rollback-completion points — `clearRolledBack` (`promoteSnapshot.ts:158-175`) and `repairSnapshotRollback` repaired branch (`:410-440`) — no gc sweep (no DB predicate survives the reset) |
 | WEBHOOK_TOKEN_INVALID | **NEW** | `app/api/drive/webhook/route.ts:277,287` | channel receiving invalid deliveries | **S5**: verified delivery for same `channel_id`; watch-reconcile resolves rows for non-active channels |
 | TILE_PROJECTION_FETCH_FAILED | **NEW** | `app/show/[slug]/[shareToken]/_CrewShell.tsx:157` | projection sub-fetch failing on crew page | **S6**: healthy shell render (`failedKeys.length === 0`, `_CrewShell.tsx:153`) |
-| TILE_SERVER_RENDER_FAILED | EVENT* | `components/crew/WrappedSection.tsx:95`; `components/shared/TileServerFallback.tsx:88` | a tile's server render threw | *State-shaped but **no aggregation point**: tiles render/stream independently per-request; the open row is deduped per (show, code) with `context.tileId` replaced on re-raise, so tile A's success cannot prove tile B (which may hold the row) is healthy. Auto-resolving on any tile success would mask live failures. Manual; per-tile keyed redesign → BACKLOG. |
+| TILE_SERVER_RENDER_FAILED | ~~EVENT*~~ → **hybrid** | `lib/crew/sweepTileRenderAlerts.ts` (post-response sweep, since 2026-07-24); `components/shared/TileServerFallback.tsx:88` (dormant) | a tile's server render threw | *State-shaped but **no aggregation point**: tiles render/stream independently per-request; the open row is deduped per (show, code) with `context.tileId` replaced on re-raise, so tile A's success cannot prove tile B (which may hold the row) is healthy. Auto-resolving on any tile success would mask live failures. Manual; per-tile keyed redesign → BACKLOG. **Superseded by `2026-07-24-alert-autoresolve-tile-and-report-family.md` §4:** the row is resolved per (tileId, viewerKey) via `context`, with no schema change. The "no aggregation point" reasoning was right that tileId alone is insufficient, but for a sharper reason — permission gates inside the seam mean different viewers execute different code — so the observer is part of the key. |
 | AMBIGUOUS_EMAIL_BINDING | EVENT | `lib/auth/validateGoogleSession.ts:39-46` | duplicate canonical email seen at auth | Defensively-impossible incident alarm (master spec line 2322: MI-5b + unique index make it unreachable); firing at all means schema regression — deliberate acknowledgment required. |
 | LIVE_ROW_CONFLICT | EVENT | `lib/sync/runOnboardingScan.ts:831-843` | onboarding scan hit live-row conflict | Wizard-scoped incident; the wizard review/ignore workflow is the disposition (`Step3Review.tsx:487`). |
 | ROLE_FLAGS_NOTICE | EVENT | `lib/sync/phase2.ts:422-432` | non-LEAD role_flags auto-applied | Info-severity audit record. |
@@ -93,8 +93,8 @@ Counts: 7 AUTO · 15 NEW · 18 EVENT · 2 DEFER = 42. (`GITHUB_BOT_LOGIN_MISSING
 | REPORT_LEASE_THRASHING | EVENT | `lib/reports/submit.ts:847-848` | repeated lease races | Same. |
 | STALE_ORPHAN_REPORT | EVENT | `app/api/cron/report-reaper/route.ts:74` | stale reservation reaped | Reaper audit record. |
 | GITHUB_BOT_LOGIN_MISSING | ~~DEFER~~ → **auto** | `lib/reports/botLoginAlert.ts` (`resolveBotLoginAlertRow`, cron env-presence reconcile) + `lib/reports/submit.ts` (`resolveBotLoginAlertFailOpen`, fail-open resolve on configured submit success) | bot login env unset | **Superseded by `2026-07-04-alert-resolve-truthing.md` §6:** resolved via an explicit env-presence read, not "generic submit success", so no live-GitHub-probe dependency. |
-| BRANCH_PROTECTION_DRIFT | DEFER | `scripts/verify-branch-protection.ts:326` | branch protection drifted | STATE, but raised by a CI-side ops script outside the app runtime; BACKLOG. |
-| BRANCH_PROTECTION_MONITOR_AUTH_FAILED | DEFER | `scripts/verify-branch-protection.ts:266,286,309` | monitor auth failing | Same. |
+| BRANCH_PROTECTION_DRIFT | ~~DEFER~~ → **auto** | `scripts/verify-branch-protection.ts:326` | branch protection drifted | **Superseded by `2026-07-05-bell-notification-center-design.md` D6 / §10:** resolver `defaultResolveAlerts` (`scripts/verify-branch-protection.ts:253`), healthy-path sites at `:361-379`. Dormant in CI while the detector jobs stay `if: false`, which is intended. |
+| BRANCH_PROTECTION_MONITOR_AUTH_FAILED | ~~DEFER~~ → **auto** | `scripts/verify-branch-protection.ts:266,286,309` | monitor auth failing | Same. |
 
 ## 4. New resolution surfaces
 

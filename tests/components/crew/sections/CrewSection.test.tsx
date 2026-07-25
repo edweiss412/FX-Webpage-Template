@@ -5,6 +5,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { CrewSection, CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "./_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -48,6 +49,7 @@ describe("CrewSection", () => {
       }));
       const { container } = render(
         <CrewSection
+          {...ledgerProp()}
           data={makeShowForViewer({ crewMembers })}
           viewer={{ kind: "crew", crewMemberId: "c0" }}
           today={TODAY}
@@ -69,6 +71,7 @@ describe("CrewSection", () => {
   test("client_contact never appears in Crew", () => {
     const { container } = render(
       <CrewSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           show: {
             client_contact: { name: "CLIENT_REP", phone: "555-0", email: null },
@@ -104,6 +107,7 @@ describe("CrewSection", () => {
   test("both columns present → split-wide two-track grid (1.6fr_1fr)", () => {
     const { container } = render(
       <CrewSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           crewMembers: [
             {
@@ -139,6 +143,7 @@ describe("CrewSection", () => {
   test("crew-only (contacts empty) → single full-width column, NOT a 2-track grid", () => {
     const { container } = render(
       <CrewSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           crewMembers: [
             {
@@ -173,6 +178,7 @@ describe("CrewSection", () => {
   test("contacts-only (crew empty) → single full-width column, NOT a 2-track grid", () => {
     const { container } = render(
       <CrewSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           crewMembers: [],
           contacts: [VENUE_CONTACT],
@@ -217,6 +223,7 @@ describe("CrewSection", () => {
     ];
     const { container } = render(
       <CrewSection
+        {...ledgerProp()}
         data={makeShowForViewer({ crewMembers })}
         viewer={{ kind: "crew", crewMemberId: "c1" }}
         today={TODAY}

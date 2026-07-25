@@ -264,9 +264,11 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  *   - "auto": condition is a persistent, code-observable STATE; the system resolves it
  *     itself. Carries a non-empty resolveSites tuple pinning where that resolve happens.
  *   - "event-manual": one-shot EVENT notice; manual acknowledgment per master spec §4.6.
- *   - "state-manual-justified": STATE-shaped but structurally cannot auto-resolve safely
- *     (TILE_SERVER_RENDER_FAILED — per-tile dedup means one tile's success cannot prove
- *     another tile, which may hold the open row, is healthy; §3 row).
+ *   - "state-manual-justified": STATE-shaped but structurally cannot auto-resolve safely.
+ *     CURRENTLY EMPTY. TILE_SERVER_RENDER_FAILED held this class until spec 2026-07-24
+ *     moved it to "hybrid": the per-tile dedup problem is real but is solved by keying the
+ *     resolve on (tileId, viewerKey) from `context`, so one tile's success no longer
+ *     claims anything about another tile or another observer.
  *   - "deferred": STATE-shaped but out of scope this spec (BACKLOG).
  *
  * Counts (spec §3, incl. alert-resolve-truthing §6 + re-sync quality gate): 7 precedent AUTO +
@@ -275,9 +277,12 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  * = 26 "auto"; 17 "event-manual" (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the
  * registry splits into its own "state-manual-justified" class — Flow-1 ONBOARDING_SHEET_UNREADABLE
  * is now the "hybrid" class per spec 2026-07-16, no longer event-manual);
- * 1 "hybrid" (ONBOARDING_SHEET_UNREADABLE — self-clears yet keeps the manual button);
- * 1 "state-manual-justified"; 0 "deferred" (BRANCH_PROTECTION_* promoted by bell-notification-center §9.3).
- * 26 + 17 + 1 + 1 + 0 = 45, matching ADMIN_ALERTS_CODES.length.
+ * 2 "hybrid" (ONBOARDING_SHEET_UNREADABLE and TILE_SERVER_RENDER_FAILED — each
+ * self-clears yet keeps the manual button);
+ * 0 "state-manual-justified" (TILE_SERVER_RENDER_FAILED was the only one and became
+ * hybrid in spec 2026-07-24); 0 "deferred" (BRANCH_PROTECTION_* promoted by
+ * bell-notification-center §9.3).
+ * 26 + 17 + 2 + 0 + 0 = 45, matching ADMIN_ALERTS_CODES.length.
  */
 type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
@@ -451,10 +456,21 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
     ],
   },
 
-  // --- state-manual-justified (1): STATE-shaped, deliberately NOT auto-resolved ---
-  TILE_SERVER_RENDER_FAILED: { class: "state-manual-justified" },
+  // Hybrid lifecycle (spec 2026-07-24): self-clears when the SAME observer
+  // renders the tile clean, while the manual Resolve button legitimately stays
+  // (catalog resolution:"manual") because re-detection needs that specific
+  // observer to load the page again, which for an idle show may never happen.
+  TILE_SERVER_RENDER_FAILED: {
+    class: "hybrid",
+    resolveSites: [
+      {
+        file: "app/show/[slug]/[shareToken]/_CrewShell.tsx",
+        pattern: /sweepTileRenderAlerts/,
+      },
+    ],
+  },
 
-  // --- event-manual (18): one-shot EVENT notices, manual by design ---
+  // --- event-manual (17): one-shot EVENT notices, manual by design ---
   AMBIGUOUS_EMAIL_BINDING: { class: "event-manual" },
   LIVE_ROW_CONFLICT: { class: "event-manual" },
   // Hybrid lifecycle (spec 2026-07-16): self-clears via the clean-scan + cron
@@ -718,6 +734,28 @@ describe("META admin_alerts catalog contract", () => {
     ).toEqual(registryCodes);
   });
 
+  // AC16 (spec 2026-07-24 §5): the report family stays manual. Named per-code,
+  // so a reclassification cannot hide behind a compensating class-count change.
+  // Two auto-resolution designs for these codes were drafted and rejected: a
+  // local anti-join (it negates only one conjunct of the raise condition, the
+  // GitHub half stays unobserved) and resolve-on-fresh-lookup (sound, but not
+  // repeatable: once a URL persists, later submits short-circuit before any
+  // further lookup, so a wrong resolve is permanent with no re-raise path).
+  test("the six report-family codes remain event-manual", () => {
+    for (const code of [
+      "REPORT_ORPHANED_LOST_LEASE",
+      "REPORT_LOOKUP_INCONCLUSIVE",
+      "REPORT_DUPLICATE_LIVE_MATCHES",
+      "REPORT_OPEN_ORPHAN_LABEL",
+      "REPORT_LEASE_THRASHING",
+      "STALE_ORPHAN_REPORT",
+    ] as const) {
+      expect(ADMIN_ALERTS_LIFECYCLE[code].class, `${code} must stay event-manual`).toBe(
+        "event-manual",
+      );
+    }
+  });
+
   test("every auto/hybrid code's resolve site exists on disk and matches", () => {
     const allCodes = Object.keys(ADMIN_ALERTS_LIFECYCLE) as Array<
       (typeof ADMIN_ALERTS_CODES)[number]
@@ -732,11 +770,30 @@ describe("META admin_alerts catalog contract", () => {
       autoCodes.length,
       "spec §3 + bell-notification-center §9.3 pins 26 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED + 2 BRANCH_PROTECTION)",
     ).toBe(26);
-    // Hybrid lifecycle (spec 2026-07-16): exactly ONBOARDING_SHEET_UNREADABLE.
+    // Hybrid: ONBOARDING_SHEET_UNREADABLE (spec 2026-07-16) +
+    // TILE_SERVER_RENDER_FAILED (spec 2026-07-24).
     expect(
       hybridCodes.length,
-      "hybrid-lifecycle spec 2026-07-16 pins exactly 1 hybrid code (ONBOARDING_SHEET_UNREADABLE)",
-    ).toBe(1);
+      "2 hybrid codes: ONBOARDING_SHEET_UNREADABLE + TILE_SERVER_RENDER_FAILED",
+    ).toBe(2);
+
+    // event-manual and state-manual-justified were NEVER asserted before this
+    // feature, so a code could be reclassified between them with the auto and
+    // hybrid counts, the registry set-equality and every named per-code test all
+    // staying green. Assert them explicitly.
+    const eventManualCodes = allCodes.filter(
+      (code) => ADMIN_ALERTS_LIFECYCLE[code].class === "event-manual",
+    );
+    const stateManualCodes = allCodes.filter(
+      (code) => ADMIN_ALERTS_LIFECYCLE[code].class === "state-manual-justified",
+    );
+    expect(eventManualCodes.length, "event-manual is unchanged by the tile reclassification").toBe(
+      17,
+    );
+    expect(
+      stateManualCodes.length,
+      "TILE_SERVER_RENDER_FAILED was the only state-manual-justified code and is now hybrid",
+    ).toBe(0);
 
     // Both auto AND hybrid carry a non-empty resolveSites tuple that must exist on disk.
     const resolveSiteCodes = [...autoCodes, ...hybridCodes];

@@ -107,7 +107,7 @@ test.describe("developer-tier gating — normal admin sees NONE of the four surf
     page,
   }) => {
     await page.goto("/admin/dev/telemetry");
-    await expectDeveloperRouteDenied(page, "App event log & cron health");
+    await expectDeveloperRouteDenied(page, "App event log & scheduled-job health");
   });
 
   test("direct-nav /admin/dev is denied (http-access-fallback, no dev-panel content)", async ({
@@ -156,6 +156,12 @@ test.describe("developer-tier gating — table-backed developer sees all four su
     await page.goto("/admin/settings");
     await expect(page.getByTestId("admin-settings-maintenance-section")).toBeVisible();
     await expect(page.getByTestId("admin-settings-diagnostics-section")).toBeVisible();
+    // BL-COPY-CRON-SWEEP-2: Diagnostics copy is plain language for a
+    // non-technical developer-tier admin — "scheduled job", never "cron".
+    await expect(page.getByTestId("admin-settings-telemetry-link")).toContainText(
+      "Telemetry: app event log & scheduled-job health",
+    );
+    await expect(page.getByTestId("admin-settings-diagnostics-section")).not.toContainText(/cron/i);
     // The Developer toggle renders next to admin rows in Administrators when the
     // viewer is a developer.
     await expect(page.getByTestId("developer-toggle").first()).toBeVisible();
@@ -182,7 +188,7 @@ test.describe("developer-tier gating — table-backed developer sees all four su
     expect(new URL(page.url()).pathname).toBe("/admin/dev/telemetry");
     // The real Telemetry page content renders (anti-tautology vs the normal-admin
     // denial: developer SEES the content, no http-access-fallback).
-    await expect(page.getByText("App event log & cron health")).toBeVisible();
+    await expect(page.getByText("App event log & scheduled-job health")).toBeVisible();
     await expect(page.locator("h1.next-error-h1")).toHaveCount(0);
   });
 });

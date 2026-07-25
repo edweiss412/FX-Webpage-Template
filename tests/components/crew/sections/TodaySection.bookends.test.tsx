@@ -23,6 +23,7 @@ import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { AgendaEntry, TransportationRow } from "@/lib/parser/types";
+import { ledgerProp } from "./_ledgerProp";
 
 const SHOW_ID = "show-abc";
 const TODAY = new Date("2026-05-14T15:00:00Z");
@@ -92,7 +93,13 @@ test("when today is the set day, Today's run-of-show shows the synthesized Load 
     },
   });
   const { container } = render(
-    <TodaySection data={data} viewer={adminViewer} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={adminViewer}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const ros = container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`) as HTMLElement;
   expect(ros).not.toBeNull();
@@ -116,7 +123,13 @@ test("unassigned crew viewer is DENIED the load-out on today; the strike still s
     runOfShow: { [TODAY_ISO]: { entries, showStart: null, showEnd: null, window: null } },
   });
   const { container } = render(
-    <TodaySection data={data} viewer={crewViewer} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={crewViewer}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const ros = container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`) as HTMLElement;
   expect(ros).not.toBeNull();
@@ -143,7 +156,13 @@ test("admin AND an assigned crew viewer both see today's load-out", () => {
     });
 
   const assigned = render(
-    <TodaySection data={mk([VIEWER_NAME])} viewer={crewViewer} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={mk([VIEWER_NAME])}
+      viewer={crewViewer}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const aRos = assigned.container.querySelector(
     `[data-testid="run-of-show-${TODAY_ISO}"]`,
@@ -152,7 +171,13 @@ test("admin AND an assigned crew viewer both see today's load-out", () => {
   cleanup();
 
   const admin = render(
-    <TodaySection data={mk(["Nobody Here"])} viewer={adminViewer} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={mk(["Nobody Here"])}
+      viewer={adminViewer}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const bRos = admin.container.querySelector(
     `[data-testid="run-of-show-${TODAY_ISO}"]`,
