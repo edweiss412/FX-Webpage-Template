@@ -463,6 +463,8 @@ function rendersNothing(e: ts.Expression): boolean {
   if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
     return n.text.trim().length === 0;
   }
+  // An empty array renders nothing; a non-empty one may render anything.
+  if (ts.isArrayLiteralExpression(n)) return n.elements.length === 0;
   if (ts.isConditionalExpression(n)) {
     return rendersNothing(n.whenTrue) && rendersNothing(n.whenFalse);
   }
@@ -518,6 +520,20 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
   return false;
 }
 
+/** Elements whose content the HTML Standard never renders: script-supporting elements and
+ *  metadata content. Text inside them contributes nothing to an accessible name, and a hint
+ *  inside them is not announced. */
+const NOT_RENDERED_TAGS = new Set(["template", "script", "style", "noscript", "datalist"]);
+// Metadata elements (`head`, `title`, `meta`, `link`, `base`) are deliberately NOT here: none
+// is valid inside an `<a>`, so they add no coverage -- and `title` and `style` are also real
+// attribute names, so listing them as tag names made the guard's own classification ambiguous.
+// The anti-silencing assertion caught exactly that, which is the check working on its author.
+
+/** Elements shown only when `open` is present and truthy. `<details>` shows its `<summary>`
+ *  when closed, but a hint is never a summary, so treating the whole element as hiding is
+ *  correct here. */
+const NOT_SHOWN_UNLESS_OPEN = new Set(["details", "dialog"]);
+
 /** Is this element (or an ancestor up to the anchor) hidden from the acc name? */
 function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
   const attrs = ts.isJsxElement(el) ? el.openingElement.attributes : el.attributes;
@@ -526,10 +542,16 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
   // find it (review R21 BLOCKING 3). A `<summary>` child is still shown when closed, but
   // the hint is never a summary, so treating a closed details as hiding is correct here.
   const tag = ts.isJsxElement(el) ? el.openingElement.tagName.getText() : el.tagName.getText();
-  // `<template>` content is never rendered at all (HTML Standard: script-supporting
-  // elements are not rendered), so it hides unconditionally (review R22 BLOCKING 2).
-  if (tag === "template") return true;
-  if (tag === "details") {
+  // TAG-BASED HIDING, as two EXTERNALLY-DEFINED sets rather than a list grown one finding at
+  // a time. `<template>` came from R22; probing afterwards found `<dialog>`, `<script>`,
+  // `<style>`, `<noscript>` and `<datalist>` all fail-open the same way. Enumerating them
+  // individually is the losing shape this guard has already hit four times, so the rule is
+  // stated from the HTML Standard's own categories instead.
+  //
+  // NOT_RENDERED: content is never rendered (script-supporting and metadata elements).
+  // NOT_SHOWN_UNLESS_OPEN: rendered only when `open` is present and truthy.
+  if (NOT_RENDERED_TAGS.has(tag)) return true;
+  if (NOT_SHOWN_UNLESS_OPEN.has(tag)) {
     // `open` must be PROVABLY true. React omits the attribute for every falsy value, so
     // `open={0}`, `open={null}`, `open={undefined}` and a dynamic `open={isOpen}` can all
     // render a CLOSED details -- the earlier version only caught absence and a literal

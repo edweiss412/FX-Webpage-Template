@@ -429,6 +429,16 @@ WITH substitutions is not. Anything outside these shapes is reported as
   | a fragment (`<>Go</>`) | walked as an element and rejected by the `isJsxElement` guard |
   | `{" "}`, `{null}`, `{false}`, `{undefined}` | literals contribute nothing, yet counted as a destination |
 
+  **The tag-based half was replaced rather than extended, per the trigger stated below.** After R22
+  added `<template>`, probing found five more of the same shape — `<dialog>`, `<script>`, `<style>`,
+  `<noscript>`, `<datalist>`. Enumerating them one finding at a time is the losing pattern this guard
+  has already hit four times, so the rule now names the HTML Standard's own categories: content that
+  is **never rendered** (script-supporting and metadata elements) and elements **not shown unless
+  `open`** (`<details>`, `<dialog>`). Metadata elements are deliberately excluded from the first set:
+  none is valid inside an `<a>`, and `title` and `style` are also real attribute names, so listing
+  them as tag names made the guard's own classification ambiguous — which its anti-silencing
+  assertion caught.
+
   After those, the undecidable bucket holds exactly one thing: **a genuinely dynamic expression that
   renders nothing at runtime** (`{maybeLabel}` where the value is `""`). That is assumed to carry a
   destination, deliberately — failing closed there would report every `{label}` anchor in the tree,

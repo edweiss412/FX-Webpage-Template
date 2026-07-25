@@ -207,7 +207,14 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   // JSX tag names are case-SENSITIVE, so folding them would be a bug, not coverage.
   ["a", "intrinsic tag name"],
   ["details", "intrinsic tag name (R21: closed <details> hides its content)"],
-  ["template", "intrinsic tag name (R22: template content is never rendered)"],
+  // All intrinsic TAG names, from the two externally-defined sets in the scanner: content
+  // never rendered, or not shown unless `open`. Tag names are case-SENSITIVE in JSX, so none
+  // of these belongs in the case-insensitive attribute set.
+  ["template", "intrinsic tag name (content never rendered)"],
+  ["script", "intrinsic tag name (content never rendered)"],
+  ["noscript", "intrinsic tag name (content never rendered)"],
+  ["datalist", "intrinsic tag name (content never rendered)"],
+  ["dialog", "intrinsic tag name (not shown unless open)"],
   ["Link", "component tag name"],
   ["NewTabHint", "component tag name"],
   // Internal classification verdicts returned by the shape rules.
@@ -1658,6 +1665,40 @@ describe("R6: scanner changes are pinned", () => {
     }
   });
 
+  it("R23 tag-based hiding covers both HTML categories, not a hand-grown list", () => {
+    // Probing after R22 found five MORE fail-opens of the same shape, so the rule is stated
+    // from the HTML Standard's categories instead of extended one finding at a time:
+    // content-never-rendered, and not-shown-unless-open.
+    const hintIn = (tag: string, attrs = ""): string =>
+      `const A=()=><a href="x" target="_blank">Go <${tag}${attrs}><NewTabHint /></${tag}></a>;`;
+    const labelIn = (tag: string): string =>
+      `const A=()=><a href="x" target="_blank"><${tag}>Go</${tag}> <NewTabHint /></a>;`;
+    // A hint inside a non-rendered or not-yet-open element is not announced.
+    for (const src of [
+      hintIn("dialog"),
+      hintIn("template"),
+      hintIn("script"),
+      hintIn("noscript"),
+    ]) {
+      expect(violations(src), `must report hidden hint: ${src}`).not.toEqual([]);
+    }
+    // A label inside one contributes nothing, so the name is the phrase alone.
+    for (const tag of ["script", "style", "noscript", "datalist", "template"]) {
+      expect(violations(labelIn(tag)), `must report phrase-only label in <${tag}>`).not.toEqual([]);
+    }
+    // An open dialog shows its content.
+    expect(violations(hintIn("dialog", " open")), "an open dialog must be accepted").toEqual([]);
+    // And the `style` ATTRIBUTE is unaffected by `<style>` being a hiding TAG -- the two share
+    // a spelling, which is what made the guard's own classification ambiguous until the
+    // metadata tags were dropped.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank">Go <span style="color:red"><NewTabHint /></span></a>;',
+      ),
+      "a literal non-hiding style attribute must be accepted",
+    ).toEqual([]);
+  });
+
   it("R22 an expression that provably renders nothing is not a destination", () => {
     // The separator itself was the witness: `{" "}` satisfies the space rule AND used to
     // satisfy the destination rule, so a hidden label plus a separator plus the hint passed.
@@ -1665,6 +1706,8 @@ describe("R6: scanner changes are pinned", () => {
       'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span>{" "}<NewTabHint /></a>;',
       'const A=({c})=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {c ? null : null} <NewTabHint /></a>;',
       'const A=({c})=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {c && null} <NewTabHint /></a>;',
+      // An empty array renders nothing; a non-empty one may render anything.
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {[]} <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must report: ${src}`).not.toEqual([]);
     }
@@ -1674,6 +1717,9 @@ describe("R6: scanner changes are pinned", () => {
       'const A=({c})=><a href="x" target="_blank">{c ? "A" : "B"} <NewTabHint /></a>;',
       'const A=({c})=><a href="x" target="_blank">{c && "A"} <NewTabHint /></a>;',
       'const A=({c,l})=><a href="x" target="_blank">{c ? l : null} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank">{[<b key="1">Go</b>]} <NewTabHint /></a>;',
+      // `{0}` renders the character "0", so it IS a destination.
+      'const A=()=><a href="x" target="_blank">{0} <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
