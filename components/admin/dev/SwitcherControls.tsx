@@ -130,7 +130,7 @@ export function SwitcherControls({
         <div
           id={EXCLUDED_PANEL_ID}
           data-testid="attention-switcher-excluded-panel"
-          className="max-h-[40vh] overflow-y-auto border-t border-border pt-1"
+          className="flex max-h-[40vh] flex-col gap-1 overflow-y-auto border-t border-border pt-1"
         >
           {structural.length > 0 && (
             <p className="text-xs text-text-subtle">

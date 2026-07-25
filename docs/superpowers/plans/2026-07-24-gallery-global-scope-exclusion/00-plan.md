@@ -472,4 +472,17 @@ Task 2 must land before Tasks 3 and 5 (both read `GLOBAL_SCOPE_CODES`). Task 3 m
 
 ### 3.1 Impeccable findings
 
-_(filled in at Gate A)_
+Run 2026-07-24 against `components/admin/dev/SwitcherControls.tsx`.
+
+**Provenance: DEGRADED single-context.** The critique flow mandates two isolated sub-agents; the Agent tool is disabled by session policy, so both assessments ran inline. Declared rather than run silently, per the command's own rule.
+
+`detect.mjs --json components/admin/dev/SwitcherControls.tsx` → `[]` before and after the fix.
+
+| Severity | Finding | Disposition |
+| --- | --- | --- |
+| P0 | none | |
+| P1 | none | |
+| P2 | The three exclusion lines had no vertical rhythm. Tailwind preflight zeroes `<p>` margins and the panel set no `gap`, so with two or three reasons present the sentences ran together as one block. | FIXED — panel is `flex flex-col gap-1`. |
+| P2 | The three lines use three different sentence shapes for the same idea (structural lists labels, cut and global give counts, all three open differently). | DEFERRED — aligning them means rewriting two lines outside this diff and their pinned test matchers. Recorded rather than silently dropped; no `DEFERRED.md` entry because P2 does not require one. |
+
+Audit checks: tap-target floor intact (`min-h-tap-min` / `min-w-tap-min` on the toggle, unchanged); the new element is static text with no focus target and no new interactive affordance; copy carries no em-dash and no apostrophe; token vocabulary (`text-xs`, `text-text-subtle`) is identical to the sibling lines, so contrast is inherited rather than newly introduced; no animation added, so the reduced-motion contract is unchanged.
