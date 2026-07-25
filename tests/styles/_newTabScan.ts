@@ -42,6 +42,39 @@ const HINT = "NewTabHint";
 const EXEMPTION = "no-newtab-announcement:";
 const LINK_TAGS = new Set(["a", "Link"]);
 
+/**
+ * Is this JSX element a link-shaped candidate?
+ *
+ * Tag-name membership alone was fail-open: `<Tags.External href="x"
+ * target="_blank">` and `<UI.Link target={dest}>` were ADMITTED by the file net,
+ * then skipped with zero anchors because a member-expression tag is not in
+ * LINK_TAGS. React rendered both as real `<a target="_blank">` with the accessible
+ * name "Go" (review R8 BLOCKING 2).
+ *
+ * Two ways in now:
+ *   1. the tag is a known link, INCLUDING a member expression whose last segment
+ *      is one (`UI.Link`, `Chrome.Anchor`); or
+ *   2. the element carries BOTH `target` and `href`, whatever its tag. That pair is
+ *      what makes it URL-shaped, and anything accepting it can forward both to an
+ *      anchor.
+ *
+ * `href` is required in rule 2, not incidental: `<Tabs target="_blank" />` selects a
+ * TAB, and treating it as a link was already pinned as wrong. R8's own probe carried
+ * `href` alongside `target`, so requiring the pair catches it while leaving
+ * non-URL `target` props alone. Keying on the attributes rather than on "has a
+ * spread" is also deliberate: every `<div {...props}>` would otherwise become an
+ * unrecognized-shape violation. The residue -- a component with a member-expression
+ * tag whose ONLY target arrives through a conditional spread -- is in spec 6.4.
+ */
+function isLinkCandidate(tag: string, attrs: ts.JsxAttributes): boolean {
+  const last = tag.split(".").pop() ?? tag;
+  if (LINK_TAGS.has(tag) || LINK_TAGS.has(last) || /^(anchor|externallink)$/i.test(last)) {
+    return true;
+  }
+  const names = new Set(attrs.properties.map((a) => attrName(a)));
+  return names.has("target") && names.has("href");
+}
+
 export type Violation = { file: string; line: number; reason: string };
 export type Scan = { anchors: number; violations: Violation[] };
 
@@ -51,8 +84,23 @@ type Polarity =
   | { kind: "conditional"; text: string; negated: boolean }
   | { kind: "unresolvable" };
 
+/** Attribute name, ASCII-LOWERCASED.
+ *
+ *  HTML attribute names are case-insensitive and React forwards unknown casings to
+ *  the DOM (with a dev warning), so `TARGET="_blank"` opens a new tab and
+ *  `ARIA-HIDDEN="true"` really hides. Comparing `getText()` verbatim made
+ *  `admitsCandidate` admit all 63 non-lowercase casings of `target` while
+ *  `classifyShape` then found zero anchors -- admitted, silently skipped, no
+ *  violation (review R8 BLOCKING 1). Every name comparison in this file goes
+ *  through here; the VALUE keeps its original case (`_blank` is compared with its
+ *  own case-insensitive rule). */
 function attrName(a: ts.JsxAttributeLike): string | null {
-  return ts.isJsxAttribute(a) ? a.name.getText() : null;
+  return ts.isJsxAttribute(a) ? a.name.getText().toLowerCase() : null;
+}
+
+/** Lowercased name for a definite JsxAttribute (same rationale as attrName). */
+function jsxAttrNameLower(a: ts.JsxAttribute): string {
+  return a.name.getText().toLowerCase();
 }
 
 function stringOf(node: ts.Node): string | null {
@@ -268,7 +316,7 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
       if (n === "aria-hidden" && v === "false") continue;
       return true;
     }
-    if (n === "className") {
+    if (n === "classname") {
       // Read the raw text, not just a resolved literal: a dynamic
       // `className={hide ? "hidden" : ""}` previously resolved to null and was
       // treated as visible (review R2 HIGH 4). Any mention of a hiding class in
@@ -621,8 +669,14 @@ export function admitsCandidate(code: string): boolean {
  *  comment-separated spreads then evaded the replacement, and `@mdx-js/mdx`
  *  compiles every such form to a real JSX spread (review R7 BLOCKING 3). */
 export function mdxForbidden(code: string): boolean {
+  // Inside a tag only. A bare /target\s*=/ matched ordinary prose
+  // ("The target = 80% of the quarterly goal.") and a GFM autolink whose query
+  // string contains `target=`, neither of which compiles to a target attribute
+  // (review R8 MEDIUM 3).
+  const inTagTarget = /<[A-Za-z][^<>]*\btarget\s*=/i;
+  const inTagSpread = /<[A-Za-z][^<>]*\{\s*\.\.\./i;
   return lexicalVariants(code).some(
-    (v) => /_blank/i.test(v) || TARGET_ATTR.test(v) || JSX_SPREAD.test(v),
+    (v) => /_blank/i.test(v) || inTagTarget.test(v) || inTagSpread.test(v),
   );
 }
 
@@ -686,7 +740,7 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
   const attrs = ts.isJsxElement(el) ? el.openingElement.attributes : el.attributes;
   const spreads = attrs.properties.filter(ts.isJsxSpreadAttribute);
   const targetAttr = attrs.properties.find(
-    (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && a.name.getText() === "target",
+    (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && jsxAttrNameLower(a) === "target",
   );
 
   // Without a target attribute AND without a spread, nothing can make it external.
@@ -788,7 +842,7 @@ function hasSpreadOnHintPath(anchor: ts.JsxElement | ts.JsxSelfClosingElement): 
       const opaque = a.properties.some((attr) => {
         if (ts.isJsxSpreadAttribute(attr)) return true;
         if (!ts.isJsxAttribute(attr)) return false;
-        const nm = attr.name.getText();
+        const nm = jsxAttrNameLower(attr);
         // A wrapper carrying its OWN name replaces the subtree's contribution,
         // so the hint inside it never reaches the anchor name (review R4
         // BLOCKING 4: `<span role="img" aria-label="icon">`).
@@ -801,7 +855,7 @@ function hasSpreadOnHintPath(anchor: ts.JsxElement | ts.JsxSelfClosingElement): 
           if (v === null) return true; // dynamic role: fail closed
           return !["presentation", "none", "group", "generic"].includes(v.trim());
         }
-        if (nm !== "className" && nm !== "style") return false;
+        if (nm !== "classname" && nm !== "style") return false;
         // Undecidable values (templates, conditionals) cannot be proven
         // non-hiding.
         return attr.initializer ? !isDecidableLiteral(attr.initializer) : false;
@@ -869,7 +923,8 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
       const tag = ts.isJsxElement(node)
         ? node.openingElement.tagName.getText()
         : node.tagName.getText();
-      if (LINK_TAGS.has(tag)) {
+      const attrs = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
+      if (isLinkCandidate(tag, attrs)) {
         const shape = classifyShape(node);
         if (shape.kind !== "not-external") {
           sc.anchors += 1;
@@ -898,7 +953,7 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
           const hasLabelAttr = attrs.properties.some(
             (a) =>
               ts.isJsxAttribute(a) &&
-              (a.name.getText() === "aria-label" || a.name.getText() === "aria-labelledby"),
+              (jsxAttrNameLower(a) === "aria-label" || jsxAttrNameLower(a) === "aria-labelledby"),
           );
           const hint = findHint(node);
 

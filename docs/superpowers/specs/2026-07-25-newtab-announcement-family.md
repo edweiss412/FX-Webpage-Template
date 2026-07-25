@@ -310,6 +310,24 @@ WITH substitutions is not. Anything outside these shapes is reported as
   and would delete the rest of that line. The union can only admit MORE, which is the fail-closed
   direction. `target` matching is case-INSENSITIVE: HTML attribute names are, and React emits
   `TARGET={x}` with a warning rather than dropping it.
+- **Attribute NAMES are matched ASCII-lowercased; VALUES keep their case.** HTML attribute names
+  are case-insensitive and React forwards an unknown casing to the DOM with only a dev warning, so
+  `TARGET="_blank"` opens a tab and `ARIA-HIDDEN="true"` really hides. The candidate net was
+  case-insensitive while the classifier compared names verbatim, so all 63 non-lowercase spellings
+  of `target` were admitted and then skipped with zero anchors and zero violations (review R8
+  BLOCKING 1). A meta-test now fails if any attribute-name comparison literal is not lowercase:
+  one camelCase literal survived the first sweep and silently reopened the dynamic-`className`
+  hole.
+- **A link candidate is a known link tag (including a member expression whose last segment is one,
+  `UI.Link`) OR any element carrying BOTH `target` and `href`.** Tag membership alone missed
+  `<Tags.External href="x" target="_blank">`, which React renders as a real anchor named only
+  "Go" (review R8 BLOCKING 2). `href` is required in the second rule rather than incidental:
+  `<Tabs target="_blank" />` selects a TAB, and treating a non-URL `target` prop as a link was
+  already pinned as wrong. Residue, accepted: a component with a member-expression tag whose ONLY
+  target arrives through a conditional spread.
+- **The MDX net requires a JSX tag context.** A bare `target\s*=` matched ordinary prose ("The
+  target = 80% of the quarterly goal.") and a GFM autolink whose query string contains `target=`,
+  neither of which compiles to a target attribute (review R8 MEDIUM 3).
 - **A COMPOUND gating predicate is reported, not compared.** Only an identifier, a
   property-access chain, or `!` applied to either is an approved gate. Deciding whether two
   different compound predicates denote the same runtime condition is not something a static pass

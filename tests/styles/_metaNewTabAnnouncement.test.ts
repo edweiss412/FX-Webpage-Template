@@ -880,6 +880,70 @@ describe("R6: scanner changes are pinned", () => {
     expect(mdxForbidden("See [the docs](https://example.com/a) for details.")).toBe(false);
   });
 
+  // R8 BLOCKING 1: `admitsCandidate` was case-insensitive but `classifyShape`
+  // compared the attribute name verbatim, so all 63 non-lowercase casings of
+  // `target` were admitted and then skipped with zero anchors. React forwards them
+  // and the browser normalizes, so each really opened a new tab named only "Go".
+  it("R8 attribute names are matched case-insensitively", () => {
+    for (const spelling of ["TARGET", "Target", "tArGeT"]) {
+      expect(
+        violations(`const A=()=><a href="x" ${spelling}="_blank">Go</a>;`).join(" "),
+        `${spelling} must be classified`,
+      ).toMatch(/does not announce/);
+    }
+    // The hiding attributes matter in the OTHER direction: an uppercase spelling
+    // really hides, so missing it would ACCEPT a hint that never reaches the name.
+    for (const spelling of ["ARIA-HIDDEN", "Aria-Hidden"]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <span ${spelling}="true"><NewTabHint /></span></a>;`,
+        ).join(" "),
+        `${spelling} must still hide`,
+      ).toMatch(/hidden from the accessible name/);
+    }
+  });
+
+  // R8 BLOCKING 2: a member-expression tag is not in LINK_TAGS, so these were
+  // admitted by the file net and then never classified. React renders both as a
+  // real <a target="_blank">.
+  it("R8 member-expression link tags are classified", () => {
+    expect(
+      violations(`const A=()=><Tags.External href="x" target="_blank">Go</Tags.External>;`).join(
+        " ",
+      ),
+    ).toMatch(/does not announce/);
+    expect(
+      violations(`const A=({dest})=><UI.Link href="x" target={dest}>Go</UI.Link>;`).join(" "),
+    ).toMatch(/does not announce|unrecognized/);
+    // But `target` WITHOUT `href` is not a URL target: <Tabs target="x" /> selects a
+    // tab. Requiring the pair is what keeps that pin (line 231) true.
+    const tabs = probe(`const A = () => <Tabs target="_blank" />;`);
+    expect(tabs.anchors, "a non-URL target prop must not become an anchor").toBe(0);
+  });
+
+  // R8 MEDIUM 3: the MDX net matched `target =` anywhere, including prose and a
+  // GFM autolink query string, neither of which compiles to a target attribute.
+  it("R8 the MDX net does not flag prose or autolinks", () => {
+    expect(mdxForbidden("The target = 80% of the quarterly goal.")).toBe(false);
+    expect(mdxForbidden("Read https://example.com/search?target=crew for details.")).toBe(false);
+    // Still catches the real thing inside a tag, including across a line break.
+    expect(mdxForbidden('<a href="x" target="_blank">Go</a>')).toBe(true);
+    expect(mdxForbidden('<a\n  href="x"\n  target={dest}\n>Go</a>')).toBe(true);
+  });
+
+  // The near-miss that motivates this guard: `attrName` lowercases, so every
+  // comparison literal must be lowercase too. One camelCase literal survived the
+  // first sweep and silently reopened the dynamic-className hole.
+  it("no attribute-name comparison uses a non-lowercase literal", () => {
+    const src = stripCommentsSafely(
+      readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
+    );
+    const offenders = [...src.matchAll(/\b(?:n|nm)\s*(?:===|!==)\s*"([^"]+)"/g)]
+      .map((m) => m[1]!)
+      .filter((lit) => lit !== lit.toLowerCase());
+    expect(offenders, "attribute-name literals must be lowercase").toEqual([]);
+  });
+
   // (5) File admission: case-insensitive _blank, dynamic targets, and spreads all
   // reach the scanner. R5's filter was case-SENSITIVE, so a real `_BLANK` file was
   // never scanned even though a synthetic fixture proved the shape was rejected.
