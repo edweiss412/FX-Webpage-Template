@@ -42,6 +42,36 @@ const VITEST_SUITES = [
 ];
 
 const argv = process.argv.slice(2);
+
+const USAGE = `share-link cue adversary matrix
+
+  node scripts/share-link-flash-adversary-matrix.mjs [--quick] [--only A5,A9]
+
+  --quick        skip the browser spec (Playwright). Faster while iterating, but
+                 several adversaries are only observable in a real engine, so the
+                 RECORDED matrix must be produced without it.
+  --only IDS     comma-separated adversary ids, e.g. --only A5,A9
+  -h, --help     this text
+
+  MUTATES TRACKED FILES and restores them. Refuses to start against dirty targets
+  or while another run holds the lock.`;
+
+// An unrecognised flag must NOT fall through into a mutating run. A peer session
+// ran this with `--help` to inspect its CLI surface and it silently began
+// executing instead — the worst possible response to "what does this do?".
+const KNOWN = new Set(["--quick", "--only", "-h", "--help"]);
+const unknown = argv.filter(
+  (a, i) => a.startsWith("-") && !KNOWN.has(a) && argv[i - 1] !== "--only",
+);
+if (argv.includes("-h") || argv.includes("--help")) {
+  console.log(USAGE);
+  process.exit(0);
+}
+if (unknown.length) {
+  console.error(`unknown flag(s): ${unknown.join(", ")}\n\n${USAGE}`);
+  process.exit(2);
+}
+
 const QUICK = argv.includes("--quick");
 const ONLY = (() => {
   const i = argv.indexOf("--only");
