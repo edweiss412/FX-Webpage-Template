@@ -1113,6 +1113,34 @@ describe("R6: scanner changes are pinned", () => {
   // parser-equivalent -- the scanner cannot know a `/` starts a regex without the
   // parser's rescan. A VALID regex containing comment bytes truncated the file, so every
   // consumer silently saw a fragment. These pin both directions.
+  // Edge cases probed from R14's question 1, all against the parse-informed strip. The
+  // question was where a comment start can sit inside something the parse does not report
+  // as a literal; these are the shapes that mattered.
+  it("R14 comment stripping handles every literal position and terminates on bad input", () => {
+    // Comment-like bytes are PRESERVED inside a template with substitutions, a JSX
+    // attribute string, a type-position string, and a URL in a string.
+    for (const src of [
+      "const t = `a ${x} /* not a comment */ b`;",
+      'const A = <a title="/* not a comment */">x</a>;',
+      'type T = "/* not a comment */";',
+      'const u = "https://x.test/a";',
+    ]) {
+      const out = stripCommentsSafely(src);
+      expect(out, `must preserve: ${src}`).toBe(src);
+    }
+    // A real comment inside a JSX expression container is still removed.
+    expect(stripCommentsSafely("const A = <a>{/* gone */}x</a>;")).not.toContain("gone");
+    // Unterminated comment and unterminated regex must terminate, not hang or throw, and
+    // must not change the file length.
+    for (const src of [
+      'const a=1; /* never closed\nconst K="Keep";',
+      'const re=/abc\nconst K="Keep";',
+    ]) {
+      const out = stripCommentsSafely(src);
+      expect(out.length, `length preserved for: ${src}`).toBe(src.length);
+    }
+  });
+
   it("R13 comment stripping survives regex literals and preserves offsets", () => {
     const cases: [string, boolean][] = [
       ['const re=/[/*]/;\nconst K = "Target";', true],
