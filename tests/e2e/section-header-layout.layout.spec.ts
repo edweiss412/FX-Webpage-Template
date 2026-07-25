@@ -610,3 +610,160 @@ test("corner link carries a 44px tap target @ 375", async ({ page }) => {
   expect(m.centre, "the target's centre hits the link").toBe(true);
   expect(m.outside, "the target does not extend past its own expanded box").toBe(false);
 });
+
+/**
+ * T2 — the transition audit for spec §8.
+ *
+ * §8 enumerates 12 reachable states / 66 pairs and resolves every one of them to
+ * the SAME treatment: instant, no animation. A table saying "instant" proves
+ * nothing on its own, so this is the executable half, in two parts.
+ *
+ * PART 1 — nothing in the header subtree may animate geometry. §8's uniform
+ * "instant" verdict holds only while no transition is attached to a property that
+ * moves a box, and `transition-all` added anywhere below the header would break
+ * all 66 pairs at once while looking like a one-line hover polish. The sweep walks
+ * every element AND its `::before`/`::after`, because the sheet link's tap target
+ * IS a pseudo-element and a transition there is invisible to an element-only walk.
+ * Colour-family properties are allowed — §8's last row deliberately keeps
+ * `transition-colors duration-fast` on the link.
+ *
+ * PART 2 — both header heights belong to ONE MOUNTED node. Rounds 1 and 2 both
+ * flagged that the header changes in place: `key={showId}` remounts only when the
+ * SHOW changes, so `router.refresh()` reconciles a new pill or count under the
+ * same key (spec §8). The 44px and 72.8px figures the matrix asserts are measured
+ * on separately-loaded pages, which cannot distinguish "two states of one header"
+ * from "two headers" — this toggles the pill on a live node and gets both.
+ *
+ * WHAT PART 2 DOES NOT PROVE, established by mutation rather than assumed: it is
+ * NOT the guard against an attached transition. Adding `transition-all` to the
+ * header leaves this test green, because the height is `auto` and CSS does not
+ * transition auto heights. Part 1 caught that mutation; this one caught a fixed
+ * `min-height`, where the pill's presence stops driving the height at all and the
+ * 72.8px figure becomes a coincidence. Two mechanisms, two tests.
+ */
+const ANIMATABLE_LAYOUT_PROPS = [
+  "all",
+  "height",
+  "width",
+  "inline-size",
+  "block-size",
+  "margin",
+  "padding",
+  "inset",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "transform",
+  "translate",
+  "scale",
+  "opacity",
+  "flex",
+  "gap",
+  "font-size",
+  "line-height",
+];
+
+test("transition audit: no geometry transition anywhere in the header subtree", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 900, height: 900 });
+
+  const offenders: string[] = [];
+  for (const spec of MATRIX) {
+    await page.goto(`${baseUrl}${spec.cell}-375.html`, { waitUntil: "load" });
+    const found = await page.evaluate(
+      ({ cell, banned }) => {
+        const root = document.querySelector(`[data-cell="${cell}"]`);
+        if (!(root instanceof HTMLElement)) return { error: `cell root not found: ${cell}` };
+        const icon = root.querySelector('span[aria-hidden="true"]');
+        const header = icon?.parentElement?.parentElement;
+        if (!(header instanceof HTMLElement)) return { error: "header block not found" };
+
+        const bad: string[] = [];
+        const check = (el: Element, pseudo: string | null) => {
+          const cs = getComputedStyle(el, pseudo);
+          const where = pseudo ? `${el.tagName.toLowerCase()}${pseudo}` : el.tagName.toLowerCase();
+          const label = `${where}[${(el.className || "").toString().slice(0, 40)}]`;
+
+          // A KEYFRAME animation is a separate mechanism the transition sweep below
+          // cannot see: `animate-pulse` on the pill would animate its appearance with
+          // `transition-property: none`. §8 admits neither, so both are checked here.
+          if (cs.animationName !== "none" && parseFloat(cs.animationDuration || "0") > 0) {
+            bad.push(`${label} runs keyframe animation ${cs.animationName}`);
+          }
+
+          if (cs.transitionProperty === "none" || parseFloat(cs.transitionDuration || "0") === 0) {
+            return;
+          }
+          const props = cs.transitionProperty.split(",").map((p) => p.trim());
+          for (const p of props) {
+            if (!banned.some((b) => p === b || p.startsWith(`${b}-`))) continue;
+            bad.push(`${label} transitions ${p}`);
+          }
+        };
+        for (const el of [header, ...Array.from(header.querySelectorAll("*"))]) {
+          check(el, null);
+          check(el, "::before");
+          check(el, "::after");
+        }
+        return { error: null, bad };
+      },
+      { cell: spec.cell, banned: ANIMATABLE_LAYOUT_PROPS },
+    );
+
+    expect(found.error, `${spec.cell} fixture shape`).toBeNull();
+    if (found.error !== null) return;
+    offenders.push(...found.bad.map((b) => `${spec.cell}: ${b}`));
+  }
+
+  expect(
+    offenders,
+    "spec §8 resolves all 66 state pairs to instant; a geometry transition here breaks every one",
+  ).toEqual([]);
+});
+
+test("transition audit: the header snaps when its pill changes on a mounted node", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto(`${baseUrl}G1-flagged-375.html`, { waitUntil: "load" });
+
+  const m = await page.evaluate(() => {
+    const root = document.querySelector('[data-cell="G1-flagged"]');
+    if (!(root instanceof HTMLElement)) return { error: "cell root not found" };
+    const icon = root.querySelector('span[aria-hidden="true"]');
+    const header = icon?.parentElement?.parentElement;
+    if (!(header instanceof HTMLElement)) return { error: "header block not found" };
+    const pillRow = root.querySelector('[class*="rounded-pill"]')?.parentElement;
+    if (!(pillRow instanceof HTMLElement)) return { error: "pill row not found" };
+
+    const h = () => Math.round(header.getBoundingClientRect().height * 100) / 100;
+    const withPill = h();
+    // Measured in the SAME task as the mutation: a transitioned height would still
+    // read its start value here, so an already-final number is the proof.
+    pillRow.style.display = "none";
+    const withoutPill = h();
+    pillRow.style.display = "";
+    const restored = h();
+    return { error: null, withPill, withoutPill, restored };
+  });
+
+  expect(m.error, "fixture shape").toBeNull();
+  if (m.error !== null) return;
+
+  expect(m.withPill, "flagged header starts at its two-row height").toBeCloseTo(
+    HEADER_WITH_PILL_PX,
+    0,
+  );
+  expect(
+    m.withoutPill,
+    "removing the pill collapses to the one-line height in the same task, not on a later frame",
+  ).toBeCloseTo(HEADER_LINE_PX, 0);
+  expect(
+    m.restored,
+    "restoring the pill grows back in the same task — instant in BOTH directions",
+  ).toBeCloseTo(HEADER_WITH_PILL_PX, 0);
+});
