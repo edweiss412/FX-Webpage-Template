@@ -221,10 +221,16 @@ describe("validation-schema-parity", () => {
   // migration (no hardcoding) and asserts the validation DB contains all of them. A
   // skipped surgical validation apply → missing constraint → red CI.
   it("CHECK parity — validation has every public *_drive_file_id_nonblank CHECK the migration defines", () => {
-    const migrationSql = readFileSync(
-      join(MIGRATIONS_DIR, "20260702120200_drive_file_id_nonblank.sql"),
-      "utf8",
-    );
+    // BOTH nonblank migrations: 20260702120200 declared the original 14, and 20260725000000
+    // added the four columns it had left uncovered (3 public + 1 dev mirror). Parsing only the
+    // first is what let the second migration's constraints go unchecked against validation.
+    const NONBLANK_MIGRATIONS = [
+      "20260702120200_drive_file_id_nonblank.sql",
+      "20260725000000_secondary_drive_id_nonblank.sql",
+    ];
+    const migrationSql = NONBLANK_MIGRATIONS.map((f) =>
+      readFileSync(join(MIGRATIONS_DIR, f), "utf8"),
+    ).join("\n");
     // Scoped to `public.` so it does NOT match the `alter table if exists dev.<t>` lines.
     const expected = new Set<string>();
     const re = /alter\s+table\s+public\.\w+\s+add\s+constraint\s+(\w+)\s+check/gi;
@@ -232,9 +238,9 @@ describe("validation-schema-parity", () => {
     while ((m = re.exec(migrationSql)) !== null) expected.add(m[1]!);
 
     // Non-vacuity guard (Codex plan-R1 HIGH): a drifted/empty parse would make the
-    // superset check trivially pass and silently defeat the guard. `14` is the spec §10
-    // canonical public count and must move in lockstep with any deliberate count change.
-    expect(expected.size, "migration parse must yield exactly 14 public CHECK names").toBe(14);
+    // superset check trivially pass and silently defeat the guard. `17` is the canonical
+    // public count (14 + 3) and must move in lockstep with any deliberate count change.
+    expect(expected.size, "migration parse must yield exactly 17 public CHECK names").toBe(17);
 
     // Meaningful only against the validation target. Skip when TEST_DATABASE_URL is unset
     // (local dev) — mirror the Layer-2/set-but-empty posture above.
