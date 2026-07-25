@@ -191,7 +191,7 @@ describe("short-grant anomaly (§3.3)", () => {
     return logRecords.filter((r) => r.code === "DRIVE_WATCH_GRANT_TOO_SHORT");
   }
 
-  test("fires at exactly one sampling period (the unsafe equality case)", async () => {
+  test("fires at exactly one sampling period (well inside the unsafe band)", async () => {
     const { SAMPLING_PERIOD_MS } = await import("@/lib/drive/watchErrors");
     const hits = await grantOf(SAMPLING_PERIOD_MS);
     expect(hits).toHaveLength(1);
@@ -207,14 +207,22 @@ describe("short-grant anomaly (§3.3)", () => {
     });
   });
 
-  test("fires at the period-plus-execution-budget boundary", async () => {
+  test("fires at the full-cycle boundary, 2 * (P + T)", async () => {
     const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
-    expect(await grantOf(SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS)).toHaveLength(1);
+    expect(await grantOf(2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS))).toHaveLength(1);
   });
 
-  test("does NOT fire one millisecond past the boundary", async () => {
+  test("STILL fires one period past a single P+T — one cycle is not enough", async () => {
+    // The regression this pins: a lease with P+T+1ms at activation has only
+    // T+1ms left at its next examination, which cannot cover a files.watch
+    // round-trip plus activation. A one-cycle bound called that safe.
     const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
-    expect(await grantOf(SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS + 1)).toHaveLength(0);
+    expect(await grantOf(SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS + 1)).toHaveLength(1);
+  });
+
+  test("does NOT fire one millisecond past the full-cycle boundary", async () => {
+    const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
+    expect(await grantOf(2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS) + 1)).toHaveLength(0);
   });
 
   test("does NOT fire for the 24h lease we request", async () => {
@@ -228,10 +236,10 @@ describe("short-grant anomaly (§3.3)", () => {
     // A request-time measurement would call this safe; an activation-time one
     // must not.
     const elapsed = 120_000;
-    const hits = await grantOf(SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS, elapsed);
+    const hits = await grantOf(2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS), elapsed);
     expect(hits).toHaveLength(1);
     expect(hits[0]!.context).toMatchObject({
-      remainingMsAtActivation: SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS,
+      remainingMsAtActivation: 2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS),
     });
   });
 
@@ -241,5 +249,127 @@ describe("short-grant anomaly (§3.3)", () => {
     // defensible ceiling is pg_net's timeout_milliseconds = 300000
     // (supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22).
     expect(T_EXEC_BUDGET_MS).toBe(300_000);
+  });
+});
+
+describe("post-activation observability cannot change the outcome (§3.3)", () => {
+  // Whole-diff R1 finding 1: the anomaly clock read and its log sit AFTER a
+  // committed activation. If either throws and it is not isolated, the outer
+  // catch raises WATCH_CHANNEL_ORPHANED and returns "orphaned" for a channel
+  // that is genuinely live — and markOrphaned only touches `status='pending'`
+  // rows, so the DB would disagree with both the alert and the return value.
+
+  test("a throwing clock on the post-activation read still returns active, with no orphan alert", async () => {
+    driveMock.expiration = String(NOW_MS + 86_400_000);
+    const tx = fakeTx();
+    let orphanAlerts = 0;
+    tx.upsertAdminAlert = async () => {
+      orphanAlerts += 1;
+    };
+    let call = 0;
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "channel-1",
+      webhookSecret: () => "secret-1",
+      now: () => {
+        // First read builds the request body; the second is the activation-edge
+        // measurement, which is the one that must not be able to break us.
+        if (call++ === 0) return NOW_MS;
+        throw new Error("clock exploded after commit");
+      },
+    });
+
+    expect(result).toEqual({ outcome: "active", channelId: "channel-1" });
+    expect(orphanAlerts).toBe(0);
+  });
+
+  test("a rejecting log sink still returns active, with no orphan alert", async () => {
+    // A lease short enough to TRIGGER the anomaly, so the failing sink is
+    // actually reached rather than skipped.
+    const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
+    driveMock.expiration = String(NOW_MS + SAMPLING_PERIOD_MS);
+    const tx = fakeTx();
+    let orphanAlerts = 0;
+    tx.upsertAdminAlert = async () => {
+      orphanAlerts += 1;
+    };
+    setLogSink((record) => {
+      logRecords.push(record);
+      if (record.code === "DRIVE_WATCH_GRANT_TOO_SHORT") throw new Error("sink rejected");
+    });
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "channel-1",
+      webhookSecret: () => "secret-1",
+      now: () => NOW_MS,
+    });
+
+    expect(result).toEqual({ outcome: "active", channelId: "channel-1" });
+    expect(orphanAlerts).toBe(0);
+    // The anomaly was genuinely reached — otherwise this test proves nothing.
+    expect(logRecords.filter((r) => r.code === "DRIVE_WATCH_GRANT_TOO_SHORT")).toHaveLength(1);
+    expect(2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS)).toBeGreaterThan(SAMPLING_PERIOD_MS);
+  });
+});
+
+describe("renewalLeadMs is the single definition of the lead (§2.1)", () => {
+  // Whole-diff R1 finding 4: the helper existed with no consumer and no test,
+  // while the fake claimed to reuse it and restated the arithmetic instead.
+  test("takes the proportional term when it exceeds the floor", async () => {
+    const { renewalLeadMs, RENEWAL_LIFE_FRACTION, RENEWAL_MIN_LEAD_MS, WATCH_TTL_MS } =
+      await import("@/lib/drive/watchErrors");
+    const proportional = WATCH_TTL_MS * (1 - RENEWAL_LIFE_FRACTION);
+    expect(proportional).toBeGreaterThan(RENEWAL_MIN_LEAD_MS);
+    expect(renewalLeadMs(WATCH_TTL_MS)).toBe(proportional);
+  });
+
+  test("takes the floor when the proportional term is smaller", async () => {
+    const { renewalLeadMs, RENEWAL_LIFE_FRACTION, RENEWAL_MIN_LEAD_MS } =
+      await import("@/lib/drive/watchErrors");
+    const sixHours = 6 * 3_600_000;
+    expect(sixHours * (1 - RENEWAL_LIFE_FRACTION)).toBeLessThan(RENEWAL_MIN_LEAD_MS);
+    expect(renewalLeadMs(sixHours)).toBe(RENEWAL_MIN_LEAD_MS);
+  });
+
+  test("is total over nonsense input", async () => {
+    const { renewalLeadMs, RENEWAL_MIN_LEAD_MS } = await import("@/lib/drive/watchErrors");
+    expect(renewalLeadMs(Number.NaN)).toBe(RENEWAL_MIN_LEAD_MS);
+    expect(renewalLeadMs(Number.POSITIVE_INFINITY)).toBe(RENEWAL_MIN_LEAD_MS);
+    expect(renewalLeadMs(-1)).toBe(RENEWAL_MIN_LEAD_MS);
+    expect(renewalLeadMs(0)).toBe(RENEWAL_MIN_LEAD_MS);
+  });
+
+  test("PHASE SWEEP: a lease longer than the anomaly bound is always renewed before expiry", async () => {
+    const { renewalLeadMs, SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS, WATCH_TTL_MS } =
+      await import("@/lib/drive/watchErrors");
+    const P = SAMPLING_PERIOD_MS;
+    const T = T_EXEC_BUDGET_MS;
+    const grants = [2 * (P + T) + 1, 6 * 3_600_000, WATCH_TTL_MS];
+    const STEP = 60_000;
+
+    for (const G of grants) {
+      let worstRemaining = Number.POSITIVE_INFINITY;
+      // Activation can land at any phase relative to the fixed tick series.
+      for (let offset = 0; offset < P; offset += STEP) {
+        const activatedAt = offset;
+        const expiresAt = activatedAt + G;
+        const dueAt = expiresAt - renewalLeadMs(G);
+        // First tick strictly after `dueAt`, plus the worst-case delay before
+        // this row is reached within that run.
+        const firstTickAfterDue = Math.ceil(dueAt / P) * P;
+        const examinedAt = firstTickAfterDue + T;
+        expect(examinedAt).toBeLessThan(expiresAt);
+        worstRemaining = Math.min(worstRemaining, expiresAt - examinedAt);
+      }
+      // The infimum, not an attained minimum: assert it stays above the bound
+      // rather than equalling it (the discontinuity at the tick prevents
+      // equality, so an exact-equality assertion would fail a correct impl).
+      expect(worstRemaining).toBeGreaterThan(0);
+      expect(worstRemaining).toBeGreaterThanOrEqual(Math.min(G, renewalLeadMs(G)) - P - T);
+    }
   });
 });

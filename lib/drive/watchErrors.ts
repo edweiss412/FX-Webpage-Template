@@ -54,12 +54,19 @@ export function renewalLeadMs(grantedMs: number): number {
  * only 60 usable minutes. Measuring at request time would suppress the anomaly
  * for exactly the leases that need it.
  *
- * The bound is `<=`, not `<`: a lease of exactly one sampling period, activated
- * just after a tick, expires AT the next examination rather than strictly
- * before it.
+ * The bound is a FULL renewal cycle, `2 * (P + T)`, not one (whole-diff R1
+ * finding 2). One period is not enough: a lease with `P + T + 1ms` remaining at
+ * activation emits no anomaly, yet at its next examination it has only
+ * `T + 1ms` left — and `T` is the delay until an attempt STARTS, while the
+ * renewal must also complete a `files.watch` round-trip (no per-call timeout,
+ * lib/drive/client.ts) and a DB activation before expiry. Requiring the lease
+ * to survive being seen, missed once, and seen again makes "reliable" true
+ * rather than marginal.
+ *
+ * `<=` rather than `<` so the exact-boundary lease is treated as unsafe.
  */
 export function isGrantTooShort(remainingMsAtActivation: number): boolean {
-  return !(remainingMsAtActivation > SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS);
+  return !(remainingMsAtActivation > 2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS));
 }
 
 const CONFIG_PATTERNS = [

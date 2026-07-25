@@ -65,8 +65,10 @@ the remaining-life threshold at which a channel becomes due. A channel activated
 
 | Granted life | Classification | Guarantee |
 |---|---|---|
-| `G <= P + T` | **anomalous** | none is claimed — a lease no longer than the sampling interval cannot be reliably renewed by any sampler at that cadence. Logged (§3.3). |
-| `G > P + T` | **guaranteed** | the channel is examined-and-due strictly before `expires_at` at every phase |
+| `G <= 2 * (P + T)` | **anomalous** | none is claimed. One period is not enough (whole-diff R1 finding 2): a lease with `P + T + 1ms` at activation has only `T + 1ms` left at its next examination, and `T` is the delay until an attempt *starts* — the renewal must still complete a `files.watch` round-trip and a DB activation. The bound is a full renewal cycle so the lease survives being seen, missed once, and seen again. Logged (§3.3). |
+| `G > 2 * (P + T)` | **guaranteed** | the channel is examined-and-due strictly before `expires_at` at every phase, asserted by a phase sweep over activation offsets |
+
+**Post-activation observability is isolated** (whole-diff R1 finding 1). The anomaly's clock read and its log run *after* a committed activation, inside their own try/catch. Without that isolation a throwing clock or a rejecting sink would fall into the activation catch, raise `WATCH_CHANNEL_ORPHANED`, and return `orphaned` for a channel that is genuinely live — while `markOrphaned` (which only touches `status='pending'`) left the DB disagreeing with both the alert and the return value, and the previous channel already superseded. Two tests pin it: a throwing second clock read, and a sink that rejects only the anomaly code.
 
 **Worst-case remaining life at the renewing execution** is `min(G, L(G)) - P - T`, **not** `G - P - T`. The distinction matters and an earlier draft got it wrong: for the 24h grant we request, `L(G) = 6h`, so the true worst case is `6h - 1h - 5m = 4h55m` of remaining lease when the renewal actually runs — not 22h55m. Still ample; the point is that the margin comes from the *lead*, not the *lifetime*.
 
@@ -113,7 +115,7 @@ Behavior across grants (this table is the §5.2 test fixture set):
 
 **Guard conditions.**
 - `expires_at is null` → **unreachable for `status='active'`**: `drive_watch_channels_active_requires_drive_state` forbids it (`supabase/migrations/20260501001000_internal_and_admin.sql:298-300`) and the query filters on `status='active'`. No fixture is written for it, because the row cannot be constructed.
-- `expires_at <= created_at` (clock skew, zero-length grant) → the proportional term is ≤ 0, `greatest` selects the floor, the predicate is true → due immediately. Correct: a nonsense lease is replaced at the first opportunity.
+- `expires_at <= created_at` (clock skew, inverted or zero-length grant) → matched by an **explicit disjunct**, not by the floor. Whole-diff R1 finding 3: with `created_at > expires_at > now + floor` the proportional term is negative, `greatest` picks the 2h floor, and the row would NOT be selected despite being exactly the nonsense the contract says to replace. The predicate therefore reads `expires_at <= created_at OR <the lead test>`, and the DB suite carries a future-expiring inverted fixture that fails when the disjunct is removed.
 - A channel already past `expires_at` remains due. **Note:** such a row also stays `status='active'` forever and is retried on every tick — a **pre-existing** defect this PR neither introduces nor fixes; see §7 `BL-WATCH-EXPIRED-ACTIVE-ROW`.
 
 ### 3.3 Detect pathologically short grants

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { STALE_PENDING_MAX_AGE_MS } from "@/lib/drive/watchErrors";
+import { renewalLeadMs, STALE_PENDING_MAX_AGE_MS } from "@/lib/drive/watchErrors";
 import { setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 
@@ -83,19 +83,22 @@ class FakeWatchTx {
     this.alerts.push(input);
   }
 
-  // Mirrors PostgresWatchTx.listRenewalDue. It reuses the SAME renewalLeadMs
-  // helper the production predicate is built from, rather than reimplementing
-  // the arithmetic: an independent copy here is exactly how the DB-free suite
-  // could stay green while production used different semantics.
-  async listRenewalDue(args: { nowIso: string; minLeadMs: number; lifeFraction: number }) {
+  // Mirrors PostgresWatchTx.listRenewalDue, and CALLS renewalLeadMs rather than
+  // restating its arithmetic — an independent copy here is exactly how the
+  // DB-free suite could stay green while production used different semantics.
+  // (The previous version claimed to reuse the helper and did not; whole-diff
+  // R1 finding 4.) `args` is accepted for signature parity with the port; the
+  // lead comes from the shared helper, which owns both constants.
+  async listRenewalDue(_args: { nowIso: string; minLeadMs: number; lifeFraction: number }) {
     this.operations.push("listRenewalDue");
-    const nowMs = Date.parse(args.nowIso);
+    const nowMs = Date.parse(_args.nowIso);
     return this.rows.filter((row) => {
       if (row.status !== "active" || row.expiresAt === null) return false;
       const expiresMs = Date.parse(row.expiresAt);
       const createdMs = row.createdAt === undefined ? expiresMs : Date.parse(row.createdAt);
-      const lead = Math.max(args.minLeadMs, (expiresMs - createdMs) * args.lifeFraction);
-      return nowMs >= expiresMs - lead;
+      // Inverted/zero-length lease: due immediately, matching the SQL's first arm.
+      if (expiresMs <= createdMs) return true;
+      return nowMs >= expiresMs - renewalLeadMs(expiresMs - createdMs);
     });
   }
 

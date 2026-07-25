@@ -136,6 +136,21 @@ describe("renewal predicate, through the production path (§3.2)", () => {
     expect(await foldersProductionWouldRenew()).toEqual(["renewpred-skew"]);
   });
 
+  test("an inverted lease expiring in the FUTURE is also due immediately", async () => {
+    // Whole-diff R1 finding 3: the earlier fixture used expires = NOW, so it
+    // proved only that an ALREADY-EXPIRED inverted lease is due. With
+    // created_at > expires_at > NOW + the floor, the proportional term is
+    // negative, greatest() picks the 2h floor, and the row would NOT be
+    // selected — despite being exactly the nonsense the contract says to
+    // replace at the first opportunity.
+    const expires = new Date(NOW.getTime() + 24 * HOUR);
+    const created = new Date(NOW.getTime() + 30 * HOUR); // created AFTER expiry
+    expect(expires.getTime() - NOW.getTime()).toBeGreaterThan(RENEWAL_MIN_LEAD_MS);
+    await insertActive("rp-inv-future", "renewpred-inv-future", created, expires);
+
+    expect(await foldersProductionWouldRenew()).toEqual(["renewpred-inv-future"]);
+  });
+
   test("non-active rows are never renewed regardless of expiry", async () => {
     const created = new Date(NOW.getTime() - 25 * HOUR);
     const expires = new Date(NOW.getTime() - HOUR);

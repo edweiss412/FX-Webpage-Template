@@ -231,10 +231,18 @@ class PostgresWatchTx implements WatchTx {
         select id, status, watched_folder_id, webhook_secret, resource_id, expires_at
           from public.drive_watch_channels
          where status = 'active'
-           and $1::timestamptz >= expires_at - greatest(
-                 make_interval(secs => $2::double precision / 1000),
-                 (expires_at - created_at) * $3::double precision
-               )
+           and (
+             -- An inverted/zero-length lease is nonsense; replace it at the
+             -- first opportunity. This arm is NOT redundant with the floor
+             -- (whole-diff R1 finding 3): for created_at > expires_at > now +
+             -- floor, the proportional term is negative, greatest() picks the
+             -- floor, and the row would NOT be selected despite being garbage.
+             expires_at <= created_at
+             or $1::timestamptz >= expires_at - greatest(
+                  make_interval(secs => $2::double precision / 1000),
+                  (expires_at - created_at) * $3::double precision
+                )
+           )
       `,
       [args.nowIso, args.minLeadMs, args.lifeFraction],
     );
@@ -508,25 +516,36 @@ export async function subscribeToWatchedFolder(
       watchedFolderId: folderId,
       expiresAt: watch.expiration,
     });
-    // A lease whose REMAINING life at activation is no longer than one sampling
-    // period cannot be renewed reliably at any phase (spec §2.1) — no lead value
-    // fixes that, so surface it rather than absorb it. We request WATCH_TTL_MS
-    // and Drive's floor for an unspecified request is 1h, so this should be
-    // unreachable; if it fires, the cron cadence needs revisiting.
-    //
-    // Measured at ACTIVATION, not at request time: the pending insert and the
-    // Drive round-trip both consume lease life, so a nominal 62-minute grant
-    // that took two minutes to obtain has only 60 usable minutes. Reading the
-    // clock again here rather than reusing `nowMs` is the whole point.
-    const remainingMs = Date.parse(watch.expiration) - (deps.now ?? (() => Date.now()))();
-    if (Number.isFinite(remainingMs) && isGrantTooShort(remainingMs)) {
-      await log.error("drive watch grant too short to renew reliably", {
-        source: "drive.watch",
-        code: "DRIVE_WATCH_GRANT_TOO_SHORT",
-        watchedFolderId: folderId,
-        channelId: watch.id,
-        remainingMsAtActivation: remainingMs,
-      });
+    // The activation is COMMITTED at this point. Everything below is
+    // observability, so it runs in its own try/catch and can never change the
+    // outcome (whole-diff R1 finding 1): if the clock read or the sink threw
+    // here, the outer catch would raise WATCH_CHANNEL_ORPHANED and return
+    // "orphaned" for a channel that is genuinely live — and markOrphaned only
+    // touches `status='pending'` rows, so the DB would disagree with both the
+    // alert and the return value while the previous channel stayed superseded.
+    try {
+      // A lease whose REMAINING life at activation is too short cannot be
+      // renewed reliably at any phase (spec §2.1) — no lead value fixes that,
+      // so surface it rather than absorb it. We request WATCH_TTL_MS and
+      // Drive's floor for an unspecified request is 1h, so this should be
+      // unreachable; if it fires, the cron cadence needs revisiting.
+      //
+      // Measured at ACTIVATION, not at request time: the pending insert and the
+      // Drive round-trip both consume lease life, so a nominal grant that took
+      // two minutes to obtain has two fewer usable minutes.
+      const remainingMs = Date.parse(watch.expiration) - (deps.now ?? (() => Date.now()))();
+      if (Number.isFinite(remainingMs) && isGrantTooShort(remainingMs)) {
+        await log.error("drive watch grant too short to renew reliably", {
+          source: "drive.watch",
+          code: "DRIVE_WATCH_GRANT_TOO_SHORT",
+          watchedFolderId: folderId,
+          channelId: watch.id,
+          remainingMsAtActivation: remainingMs,
+        });
+      }
+    } catch {
+      // Post-commit observability is best-effort by contract. Losing the
+      // anomaly log must never convert a successful activation into an orphan.
     }
     return activated;
   } catch (err) {
