@@ -1,432 +1,10 @@
-/**
- * tests/styles/_metaNewTabAnnouncement.test.ts
- *
- * Structural guard for spec 2026-07-25-newtab-announcement-family §6: every
- * external link under components/ and app/ must announce that it opens a new
- * tab, per anchor -- not per file.
- *
- * WHY PER-ANCHOR AST RATHER THAN A LEXICAL FILE SCAN (§6): after the sweep every
- * family file contains a qualifying token, so a per-file check would pass a NEW
- * unannounced anchor added to any of them -- the most probable regression.
- * step3ReviewSections.tsx alone holds six external anchors, where one import
- * would satisfy the whole file.
- *
- * WHY `_blank` AS A VALUE RATHER THAN `target="_blank"` AS AN ATTRIBUTE LITERAL:
- * four of the family's anchors apply the attribute through a conditional spread,
- * so an attribute-literal matcher misses exactly the anchors the backlog item is
- * about. That undercount (18 vs 23) is the defect this guard exists to prevent.
- *
- * The scanner is exposed through the `scanSource` seam so the synthetic
- * self-tests below can drive every accept/reject branch. Live-tree coverage is
- * NOT sufficient: the tree exercises only literal targets and true-polarity
- * spreads, so a scanner supporting today's shapes and nothing else would pass
- * every other assertion while failing open on the rest. Seam precedent:
- * tests/admin/_metaInfoCodeActionability.test.ts:121.
- */
-import { readdirSync, readFileSync, statSync } from "node:fs";
+// Structural guard: see tests/styles/_newTabScan.ts for the scanner itself.
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-/** Recursive walk, matching the repo idiom in tests/styles/_classScanUtils.ts. */
-function walkFiles(dir: string, ext: RegExp): string[] {
-  return readdirSync(dir).flatMap((e) => {
-    const p = join(dir, e);
-    if (statSync(p).isDirectory()) return walkFiles(p, ext);
-    return ext.test(e) ? [p] : [];
-  });
-}
-
-const PHRASE = "opens in a new tab";
-const HINT = "NewTabHint";
-const EXEMPTION = "no-newtab-announcement:";
-const LINK_TAGS = new Set(["a", "Link"]);
-
-export type Violation = { file: string; line: number; reason: string };
-export type Scan = { anchors: number; violations: Violation[] };
-
-/** Effective `_blank` predicate for an anchor's target (§6 requirement 5). */
-type Polarity =
-  | { kind: "static" } // unconditionally external
-  | { kind: "conditional"; text: string; negated: boolean }
-  | { kind: "unresolvable" };
-
-function attrName(a: ts.JsxAttributeLike): string | null {
-  return ts.isJsxAttribute(a) ? a.name.getText() : null;
-}
-
-function stringOf(node: ts.Node): string | null {
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-  if (ts.isJsxExpression(node) && node.expression) return stringOf(node.expression);
-  if (ts.isTemplateExpression(node)) {
-    // Template with substitutions: concatenate the literal spans so a phrase
-    // inside static text is still found (the substitution values are unknown).
-    return node.head.text + node.templateSpans.map((s) => s.literal.text).join("");
-  }
-  return null;
-}
-
-/**
- * Does this label expression interpolate a value? A template like
- * `${alt} (opens in a new tab)` has NO static destination text, but its
- * destination is the substitution -- so the remainder rule must not reject it.
- * Without this, the correctly-implemented diagram-link label read as
- * "phrase-only". Found while implementing the sweep, not by prose review.
- */
-function hasSubstitution(node: ts.Node): boolean {
-  const n = ts.isJsxExpression(node) && node.expression ? unparen(node.expression) : node;
-  return ts.isTemplateExpression(n) && n.templateSpans.length > 0;
-}
-
-/** Strip parentheses: the live spreads are `{...(cond ? {…} : {})}`, whose
- *  expression is a ParenthesizedExpression, not a ConditionalExpression. Missing
- *  this made the scanner blind to all four conditional-spread anchors -- caught by
- *  the synthetic self-test below, not by the live tree. */
-function unparen(node: ts.Expression): ts.Expression {
-  let n = node;
-  while (ts.isParenthesizedExpression(n)) n = n.expression;
-  return n;
-}
-
-function isBlank(node: ts.Node | undefined): boolean {
-  if (!node) return false;
-  return stringOf(node) === "_blank";
-}
-
-/** Resolve an in-file object-literal initializer for `{...IDENT}` spreads. */
-function resolveObjectLiteral(sf: ts.SourceFile, name: string): ts.ObjectLiteralExpression | null {
-  let found: ts.ObjectLiteralExpression | null = null;
-  const walk = (n: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.name.text === name &&
-      n.initializer &&
-      ts.isObjectLiteralExpression(n.initializer)
-    ) {
-      found = n.initializer;
-    }
-    ts.forEachChild(n, walk);
-  };
-  walk(sf);
-  return found;
-}
-
-function objectHasBlankTarget(obj: ts.ObjectLiteralExpression): boolean {
-  return obj.properties.some(
-    (p) =>
-      ts.isPropertyAssignment(p) &&
-      (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) &&
-      p.name.text === "target" &&
-      isBlank(p.initializer),
-  );
-}
-
-/**
- * Classify how an element becomes `target="_blank"`.
- * Returns null when the element is not an external link at all.
- */
-function classifyTarget(sf: ts.SourceFile, attrs: ts.JsxAttributes): Polarity | null {
-  for (const a of attrs.properties) {
-    // 1. Direct target attribute.
-    if (attrName(a) === "target" && ts.isJsxAttribute(a)) {
-      const init = a.initializer;
-      if (!init) continue;
-      if (isBlank(init)) return { kind: "static" };
-      if (ts.isJsxExpression(init) && init.expression) {
-        const e = unparen(init.expression);
-        if (ts.isConditionalExpression(e)) {
-          const t = isBlank(e.whenTrue);
-          const f = isBlank(e.whenFalse);
-          if (t && f) return { kind: "static" }; // both branches external
-          if (t) return { kind: "conditional", text: e.condition.getText(), negated: false };
-          if (f) return { kind: "conditional", text: e.condition.getText(), negated: true };
-          return null; // conditional, but never _blank
-        }
-        if (isBlank(e)) return { kind: "static" };
-        // A target we cannot statically resolve: fail closed.
-        return { kind: "unresolvable" };
-      }
-      continue;
-    }
-    // 2. Spread attribute carrying target: "_blank".
-    if (ts.isJsxSpreadAttribute(a)) {
-      const e = unparen(a.expression);
-      if (ts.isConditionalExpression(e)) {
-        const t = ts.isObjectLiteralExpression(e.whenTrue) && objectHasBlankTarget(e.whenTrue);
-        const f = ts.isObjectLiteralExpression(e.whenFalse) && objectHasBlankTarget(e.whenFalse);
-        if (t && f) return { kind: "static" };
-        if (t) return { kind: "conditional", text: e.condition.getText(), negated: false };
-        if (f) return { kind: "conditional", text: e.condition.getText(), negated: true };
-        continue;
-      }
-      if (ts.isObjectLiteralExpression(e)) {
-        if (objectHasBlankTarget(e)) return { kind: "static" };
-        continue;
-      }
-      if (ts.isIdentifier(e)) {
-        const obj = resolveObjectLiteral(sf, e.text);
-        if (obj) {
-          if (objectHasBlankTarget(obj)) return { kind: "static" };
-          continue;
-        }
-        // Spread of an unresolvable identifier: only fail closed if it could
-        // plausibly carry a target. We cannot know, so we do not flag it here;
-        // a spread that DOES carry _blank via an unresolvable object is caught
-        // by the lexical backstop in scanSource.
-        continue;
-      }
-    }
-  }
-  return null;
-}
-
-/** Classify one label string: does it announce, and does it keep a destination? */
-function classifyLabelText(text: string): "ok" | "phrase-only" | "none" {
-  if (!text.includes(PHRASE)) return "none";
-  // §6 req 4: the remainder must carry a destination. Strip the phrase AND
-  // punctuation/whitespace so "(opens in a new tab)" fails too.
-  const remainder = text.replace(PHRASE, "").replace(/[^\p{L}\p{N}]/gu, "");
-  return remainder.length > 0 ? "ok" : "phrase-only";
-}
-
-/**
- * A label may be a CONDITIONAL expression -- the empty-interpolation fallbacks
- * (§5) are written as ternaries. Every branch must announce, otherwise the
- * anchor is silent on whichever branch is taken at runtime. Discovered while
- * implementing the sweep: the first scanner returned "none" for any ternary
- * label and flagged six correctly-fixed anchors.
- */
-function labelAnnounces(attrs: ts.JsxAttributes): "ok" | "phrase-only" | "none" {
-  for (const a of attrs.properties) {
-    if (attrName(a) !== "aria-label" || !ts.isJsxAttribute(a) || !a.initializer) continue;
-    const init = a.initializer;
-    const expr =
-      ts.isJsxExpression(init) && init.expression ? unparen(init.expression) : (init as ts.Node);
-    if (ts.isConditionalExpression(expr)) {
-      const branches = [expr.whenTrue, expr.whenFalse].map((b) => stringOf(b));
-      if (branches.some((t) => t === null)) return "none";
-      const substituted = [expr.whenTrue, expr.whenFalse].map(hasSubstitution);
-      const verdicts = (branches as string[]).map((t, i) =>
-        substituted[i] && classifyLabelText(t) === "phrase-only" ? "ok" : classifyLabelText(t),
-      );
-      if (verdicts.includes("none")) return "none"; // a branch that never announces
-      if (verdicts.includes("phrase-only")) return "phrase-only";
-      return "ok";
-    }
-    const text = stringOf(init);
-    if (text === null) return "none";
-    const verdict = classifyLabelText(text);
-    return verdict === "phrase-only" && hasSubstitution(init) ? "ok" : verdict;
-  }
-  return "none";
-}
-
-/** Is this element (or an ancestor up to the anchor) hidden from the acc name? */
-function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
-  const attrs = ts.isJsxElement(el) ? el.openingElement.attributes : el.attributes;
-  for (const a of attrs.properties) {
-    const n = attrName(a);
-    if (!ts.isJsxAttribute(a)) continue;
-    if (n === "aria-hidden") {
-      const v = a.initializer ? stringOf(a.initializer) : "true";
-      if (v === "true" || v === null) return true;
-    }
-    // Native hidden attribute: `<span hidden>` or hidden={true}.
-    if (n === "hidden") return true;
-    if (n === "className") {
-      const v = a.initializer ? (stringOf(a.initializer) ?? "") : "";
-      if (/\bhidden\b/.test(v)) return true;
-    }
-    if (n === "style") {
-      const v = a.initializer?.getText() ?? "";
-      if (/display\s*:\s*['"]?none|visibility\s*:\s*['"]?hidden/.test(v)) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Does every NewTabHint sit immediately after a real space text node (§3.1)?
- *
- * Mutation-proven necessary: deleting the space before a hint left the entire
- * suite green, because only two anchors have an anchored accessible-name
- * assertion and the rest of the guard only checked PRESENCE. That is the
- * "detailsfor …" defect the spec says already shipped here once.
- *
- * Accepts either spelling prettier produces: a literal JSX space (`Go <Hint />`)
- * or an explicit `{" "}` expression, including when it is the last child of the
- * preceding line.
- */
-function hintHasSiblingSpace(root: ts.Node): boolean {
-  let ok = true;
-  const checkChildren = (children: ts.NodeArray<ts.JsxChild>): void => {
-    children.forEach((child, i) => {
-      const isHint =
-        (ts.isJsxSelfClosingElement(child) && child.tagName.getText() === HINT) ||
-        (ts.isJsxElement(child) && child.openingElement.tagName.getText() === HINT);
-      if (!isHint) return;
-      // Walk BACKWARDS, modelling JSX whitespace stripping: a whitespace-only
-      // text node containing a newline is removed entirely by JSX, so it neither
-      // supplies a separator nor hides the sibling behind it.
-      for (let j = i - 1; j >= 0; j -= 1) {
-        const prev = children[j]!;
-        if (ts.isJsxText(prev)) {
-          const t = prev.text;
-          const whitespaceOnly = t.trim().length === 0;
-          if (whitespaceOnly) {
-            if (/\n/.test(t)) continue; // stripped by JSX: keep looking
-            return; // a real same-line space run
-          }
-          // Text with content: only its trailing run can separate, and JSX
-          // strips that run when it contains a newline. `Go\n  <Hint />` is the
-          // prettier-wrapped shape that renders as "Go(opens in a new tab)".
-          const trailing = t.slice(t.trimEnd().length);
-          if (trailing.length > 0 && !/\n/.test(trailing)) return;
-          ok = false;
-          return;
-        }
-        if (
-          ts.isJsxExpression(prev) &&
-          prev.expression &&
-          ts.isStringLiteral(prev.expression) &&
-          /^[ \u00a0]+$/.test(prev.expression.text)
-        ) {
-          return; // explicit {" "}
-        }
-        // Any other node (element, non-space expression) is adjacent content.
-        ok = false;
-        return;
-      }
-      ok = false; // hint is the first child: nothing can separate it
-    });
-  };
-  const walk = (n: ts.Node): void => {
-    if (ts.isJsxElement(n)) checkChildren(n.children);
-    if (ts.isJsxFragment(n)) checkChildren(n.children);
-    ts.forEachChild(n, walk);
-  };
-  walk(root);
-  return ok;
-}
-
-type HintFind = { found: boolean; hidden: boolean; conditions: string[]; separated: boolean };
-
-/** Locate NewTabHint under an anchor, tracking hidden-ness and gating conditions. */
-function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
-  const out: HintFind = { found: false, hidden: false, conditions: [], separated: false };
-  if (!ts.isJsxElement(anchor)) return out;
-  const walk = (n: ts.Node, hidden: boolean, conds: string[]): void => {
-    let nextHidden = hidden;
-    const nextConds = conds;
-    if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) {
-      const tag = ts.isJsxElement(n) ? n.openingElement.tagName.getText() : n.tagName.getText();
-      if (tag === HINT) {
-        out.found = true;
-        if (hidden) out.hidden = true;
-        out.conditions = conds;
-        return;
-      }
-      if (hidesFromAccName(n)) nextHidden = true;
-    }
-    if (ts.isParenthesizedExpression(n)) {
-      walk(n.expression, nextHidden, nextConds);
-      return;
-    }
-    if (ts.isConditionalExpression(n)) {
-      // Hint in the true branch is gated by the condition; false branch by !cond.
-      walk(n.whenTrue, nextHidden, [...nextConds, n.condition.getText()]);
-      walk(n.whenFalse, nextHidden, [...nextConds, `!(${n.condition.getText()})`]);
-      return;
-    }
-    if (
-      ts.isBinaryExpression(n) &&
-      n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
-    ) {
-      walk(n.right, nextHidden, [...nextConds, n.left.getText()]);
-      return;
-    }
-    ts.forEachChild(n, (c) => walk(c, nextHidden, nextConds));
-  };
-  anchor.children.forEach((c) => walk(c, false, []));
-  if (out.found) out.separated = hintHasSiblingSpace(anchor);
-  return out;
-}
-
-function sameCondition(hintConds: string[], target: { text: string; negated: boolean }): boolean {
-  const want = target.negated ? `!(${target.text})` : target.text;
-  const norm = (s: string): string => s.replace(/\s+/g, "");
-  // Exact match only. An earlier version also accepted `!(c) === want`, which
-  // made a condition match its own NEGATION -- so a hint gated on `e` passed an
-  // anchor whose target was `e ? undefined : "_blank"`, the precise
-  // false-announcement bug requirement 5 exists to prevent. The synthetic
-  // negated-polarity self-test caught it.
-  return hintConds.some((c) => norm(c) === norm(want));
-}
-
-export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
-  const src = sf.getFullText();
-  const exempt = (line: number): boolean => {
-    const lines = src.split("\n");
-    const window = lines.slice(Math.max(0, line - 3), line + 1).join("\n");
-    return window.includes(EXEMPTION);
-  };
-
-  const visit = (node: ts.Node): void => {
-    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
-      const tag = ts.isJsxElement(node)
-        ? node.openingElement.tagName.getText()
-        : node.tagName.getText();
-      const attrs = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
-      if (LINK_TAGS.has(tag)) {
-        const polarity = classifyTarget(sf, attrs);
-        if (polarity) {
-          sc.anchors += 1;
-          const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-          const record = (reason: string): void => {
-            if (!exempt(line)) sc.violations.push({ file: path, line, reason });
-          };
-          if (polarity.kind === "unresolvable") {
-            record("target value is not statically resolvable; inline it or add an exemption");
-          } else {
-            const label = labelAnnounces(attrs);
-            const hint = findHint(node);
-            if (label === "phrase-only") {
-              record("aria-label announces but carries no destination");
-            } else if (label === "ok") {
-              if (polarity.kind === "conditional") {
-                record("static aria-label announcement on a conditional-target anchor");
-              }
-            } else if (hint.found) {
-              // Hidden is checked FIRST: a hint that never reaches the name at
-              // all is the primary defect, and its separator is moot.
-              if (hint.hidden) {
-                record("NewTabHint is hidden from the accessible name");
-              } else if (!hint.separated) {
-                record(
-                  'NewTabHint needs a real sibling space before it, else the accessible name reads "Label(opens in a new tab)"',
-                );
-              } else if (polarity.kind === "conditional") {
-                if (!sameCondition(hint.conditions, polarity)) {
-                  record("hint is not gated by the anchor's effective _blank predicate");
-                }
-              }
-            } else {
-              record("external link does not announce that it opens a new tab");
-            }
-          }
-        }
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sf);
-}
-
-function parse(path: string, code: string): ts.SourceFile {
-  return ts.createSourceFile(path, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-}
+import { parse, scanSource, walkFiles, type Scan } from "@/tests/styles/_newTabScan";
 
 // ── Synthetic scanner self-tests (§6 requirement 7) ────────────────────────
 // Without these the guard is unfalsifiable: the live tree exercises only
@@ -508,7 +86,7 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     // lines, so the intervening text node is newline-only and JSX drops it.
     ok(
       `const A = ({e}) => (
-  <a href="x" target="_blank">
+  <a href="x" {...(e ? { target: "_blank" } : {})}>
     Go
     {e ? (
       <>
@@ -637,6 +215,100 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     const sc = probe(`const A = () => <Tabs target="_blank" />;`);
     expect(sc.anchors, "non-link component must not be treated as an anchor").toBe(0);
     expect(sc.violations).toEqual([]);
+  });
+
+  // ── Regression pins for the whole-diff review R1 bypasses ───────────────
+  // Every case below PASSED the scanner before that review. They are grouped so
+  // a future refactor that reopens one fails loudly with its origin.
+
+  it("R1-1 fails closed on an unresolvable spread props object", () => {
+    rejects(
+      `const A = () => <a href="x" {...externalLinkProps}>Go</a>;`,
+      /not statically resolvable/,
+    );
+    rejects(
+      `const P = { target: "_blank" }; const A = ({e}) => <a href="x" {...(e ? P : {})}>Go</a>;`,
+      /not statically resolvable/,
+    );
+  });
+
+  it("R1-2 rejects a hint gated by a SUPERSET of the target predicate", () => {
+    // external && ready is not external: with ready=false the tab opens silent.
+    rejects(
+      `const A = ({external,ready}) => <a href="x" target={external ? "_blank" : undefined}>Go {external && ready ? <> <NewTabHint /></> : null}</a>;`,
+      /not gated by the anchor's effective _blank predicate/,
+    );
+  });
+
+  it("R1-2 rejects an unconditional hint sitting beside a correctly gated one", () => {
+    rejects(
+      `const A = ({e}) => <a href="x" target={e ? "_blank" : undefined}>Go <NewTabHint />{e ? <> <NewTabHint /></> : null}</a>;`,
+      /not gated by the anchor's effective _blank predicate/,
+    );
+  });
+
+  it("R1-2 accepts equivalent predicate spellings", () => {
+    ok(
+      `const A = ({e}) => <a href="x" target={e ? undefined : "_blank"}>Go {!e ? <> <NewTabHint /></> : null}</a>;`,
+    );
+    ok(
+      `const A = ({e}) => <a href="x" target={(e) ? "_blank" : undefined}>Go {e ? <> <NewTabHint /></> : null}</a>;`,
+    );
+  });
+
+  it("R1-3 rejects a label that is only the phrase, twice", () => {
+    rejects(
+      `const A = () => <a href="x" target="_blank" aria-label="(opens in a new tab) (opens in a new tab)">Go</a>;`,
+      /no destination/,
+    );
+  });
+
+  it("R1-3 rejects a template whose only substitution is an empty string", () => {
+    rejects(
+      'const A = () => <a href="x" target="_blank" aria-label={`${""} (opens in a new tab)`}>Go</a>;',
+      /no destination/,
+    );
+  });
+
+  it("R1-3 accepts a conditional label announcing in exactly the external branch", () => {
+    ok(
+      `const A = ({e}) => <a href="x" target={e ? "_blank" : undefined} aria-label={e ? "Go (opens in a new tab)" : "Go"}>Go</a>;`,
+    );
+  });
+
+  it("R1-4 reads the VALUE of hidden attributes", () => {
+    ok(
+      `const A = () => <a href="x" target="_blank">Go <span hidden={false}><NewTabHint /></span></a>;`,
+    );
+    ok(
+      `const A = () => <a href="x" target="_blank">Go <span aria-hidden={false}><NewTabHint /></span></a>;`,
+    );
+    rejects(
+      `const A = () => <a href="x" target="_blank">Go <span className="invisible"><NewTabHint /></span></a>;`,
+      /hidden from the accessible name/,
+    );
+    rejects(
+      `const A = () => <a href="x" target="_blank" hidden>Go <NewTabHint /></a>;`,
+      /hidden from the accessible name/,
+    );
+  });
+
+  it("R1-5 ignores a fake exemption that is not a comment, and requires a reason", () => {
+    rejects(
+      `const A = () => <a href="x" target="_blank" data-note="no-newtab-announcement:">Go</a>;`,
+      /does not announce/,
+    );
+    rejects(
+      `// no-newtab-announcement:\nconst A = () => <a href="x" target="_blank">Go</a>;`,
+      /does not announce/,
+    );
+  });
+
+  it("rejects a conditionally rendered hint on an unconditionally external anchor", () => {
+    rejects(
+      `const A = ({e}) => <a href="x" target="_blank">Go {e ? <> <NewTabHint /></> : null}</a>;`,
+      /conditionally rendered on an unconditionally external anchor/,
+    );
   });
 
   it("honors an inline exemption comment", () => {
