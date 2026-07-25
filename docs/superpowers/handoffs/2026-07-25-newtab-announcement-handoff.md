@@ -737,3 +737,66 @@ unrelated accepted-limit bullets plus the R19 amendment itself** — 11,727 char
 ~1,300. Nothing was committed; `git diff --stat` immediately after the edit caught it, and
 `git checkout` restored the file. The lesson is the check, not the luck: run `git diff --stat` after
 any scripted deletion and read the removed headings back before doing anything else.
+
+## R21 — three BLOCKING, and two were fail-opens in the SHIPPED rule
+
+Every round from R5 to R20 found defects in the guard's machinery. R21 broke that pattern: two of
+its three findings were holes in the rule the guard exists to enforce, meaning real markup could
+have shipped inaccessible and the guard would have said nothing.
+
+1. **`class` and `inert` were unhandled.** `hidesFromAccName` recognised only `className`. React
+   forwards a literal `class` to the DOM (dev warning only), so `<span class="hidden">` genuinely
+   hides — and because BOTH casings behaved the same, the casing sweep could not see it either.
+   `inert` removes its subtree from the accessibility tree per the HTML Standard, and it was already
+   in the guard's own name-affecting list while this function ignored it. That combination is worth
+   noting: a list said the attribute mattered, and the code that was supposed to act on it never
+   mentioned it. Nothing cross-checked the two.
+
+2. **A closed `<details>` hides its content, and the hiding condition is the ABSENCE of `open`.**
+   This is the only hiding condition in the model that an attribute-PRESENCE loop cannot find, which
+   is also why `open` was missing from the closed list — nothing in the code ever looked for it.
+
+3. **Phrase-only accessible name.** The guard checked whether the HINT was visible and never whether
+   the LABEL still was. `<span aria-hidden="true">Go</span> <NewTabHint />` passed, and both
+   installed accessible-name implementations compute the name as `"(opens in a new tab)"` alone —
+   strictly worse than no announcement, because the link stops saying where it goes. The `aria-label`
+   path had carried this rule as `phrase-only` since R1; the content path never did. One mechanism,
+   two paths, and only one of them enforced it.
+
+Live census stayed 23 anchors / 0 violations throughout, so no shipped anchor relied on any of these
+holes — but that is luck about current markup, not evidence the rule was sound.
+
+### The fix introduced two false positives, found by probing rather than by review
+
+`hasDestinationContent` first required literal TEXT, so both of these were reported as having no
+destination:
+
+```
+<a ...><Label /> <NewTabHint /></a>
+<a ...><img alt="Go" /> <NewTabHint /></a>
+```
+
+A component renders text the scanner cannot see, and an `<img alt>` contributes its alt to the
+computed name. The corrected rule treats any NON-HIDDEN element as opaque and therefore a possible
+destination; only a provably hidden subtree does not count. R21's witness still reports, because an
+aria-hidden or class-hidden label IS hidden and nothing outside the hint survives.
+
+A third defect in the same fix: fragments. The first attempt spread a `JsxFragment` into an object
+shaped like a `JsxElement`, which every `ts.isJsxElement` guard then rejected, so `<>Go</>` was still
+reported. The walk now runs over a child list, shared by both.
+
+All four clauses of the corrected rule are mutation-proven separately. The fourth needed a **new
+test first**: dropping the empty-expression check changed no result, which meant nothing covered
+`{/* comment */}` and the clause could have rotted into a fail-open unnoticed. A mutation that does
+not fail is information.
+
+### §6.4 premise narrowed, because it was too strong
+
+The section claimed an attribute outside the closed list "cannot change an accessible name". That is
+false: `data-*` is open-ended and `[data-state="closed"] { display: none }` hides a subtree. The true
+and sufficient statement is narrower — **HTML attribute names are ASCII case-insensitive**, so
+`DATA-STATE` and `data-state` produce identical DOM and match the same selector, and casing therefore
+cannot be the defect outside the list. That is all the sweep asserts. CSS-driven hiding is now an
+explicit accepted limit: the scanner recognises intrinsic hiding (`hidden`, `aria-hidden`, `inert`,
+closed `<details>`, hiding class tokens, inline `display:none`/`visibility:hidden`) and does not read
+the repo's stylesheets, because doing so would mean embedding a CSS engine.
