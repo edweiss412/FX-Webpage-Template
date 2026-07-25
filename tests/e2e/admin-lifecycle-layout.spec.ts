@@ -542,4 +542,81 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     const replaced = armed!.side !== idle!.side || armed!.inlineMaxHeight !== "";
     expect(replaced, "placement did not re-run when the body grew").toBe(true);
   });
+
+  // ── T-CARET-1 / T-CARET-2 (spec §3) ──────────────────────────────────────
+  // The caret is a 10px square rotated 45deg, so getBoundingClientRect returns
+  // the ~14.14px axis-aligned box of the ROTATED shape. Every assertion below
+  // is therefore on the caret's CENTRE, which rotation leaves invariant; edge
+  // comparisons would drift by ~2px per side and silently loosen the pin.
+  for (const [height, expectedSide] of [
+    [560, "top"],
+    [844, "bottom"],
+  ] as const) {
+    test(`T-CARET @ 390x${height}: caret abuts the ${expectedSide} placement and clears both corners`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height });
+      await ensureWatchedFolder();
+      await page.goto(`/admin?show=${held.slug}`);
+      const modal = page.locator(LOADED_REVIEW_MODAL);
+      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const popover = modal.getByTestId("share-hub-popover");
+      await expect(async () => {
+        await modal.getByTestId("share-hub-kebab").click();
+        await expect(popover).toBeVisible({ timeout: 1500 });
+      }).toPass({ timeout: 15_000 });
+
+      const geom = await page.evaluate(() => {
+        const body = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
+        const caret = document.querySelector('[data-testid="share-hub-caret"]') as HTMLElement;
+        const trigger = document.querySelector('[data-testid="share-hub-root"]') as HTMLElement;
+        const b = body.getBoundingClientRect();
+        const c = caret.getBoundingClientRect();
+        const t = trigger.getBoundingClientRect();
+        return {
+          side: body.dataset["popoverSide"] ?? null,
+          caretSide: caret.dataset["popoverSide"] ?? null,
+          centreX: c.left + c.width / 2,
+          centreY: c.top + c.height / 2,
+          body: { top: b.top, bottom: b.bottom, left: b.left, right: b.right },
+          trigger: { top: t.top, bottom: t.bottom },
+          caretBox: { top: c.top, bottom: c.bottom },
+        };
+      });
+
+      // The side actually chosen at this viewport. Asserted, not assumed: if the
+      // geometry ever stops producing it, this test must fail rather than
+      // quietly verify the other branch.
+      expect(geom.side, `expected placement ${expectedSide} at 390x${height}`).toBe(expectedSide);
+      // The caret must carry the SAME side, or its border faces point the wrong
+      // way while its position looks right.
+      expect(geom.caretSide).toBe(geom.side);
+
+      // T-CARET-1: the caret centre sits ON the body's near edge, so the rotated
+      // square straddles it (half inside, half out) rather than floating off it.
+      const nearEdge = geom.side === "bottom" ? geom.body.top : geom.body.bottom;
+      expect(Math.abs(geom.centreY - nearEdge)).toBeLessThanOrEqual(1);
+
+      // ...and it sits in the GAP between trigger and body rather than drifting
+      // into either. Asserted on the centre, not the bounding box: a 10px square
+      // rotated 45deg has a 7.07px half-extent against a 6px GAP, so its AABB
+      // necessarily overhangs the trigger edge by ~1px. That overhang is the
+      // straddle working as designed and cannot intercept anything -- the caret
+      // is pointer-events-none precisely because aria-hidden does not disable
+      // hit-testing.
+      if (geom.side === "bottom") {
+        expect(geom.centreY).toBeGreaterThan(geom.trigger.bottom);
+        expect(geom.centreY).toBeLessThan(geom.body.bottom);
+      } else {
+        expect(geom.centreY).toBeLessThan(geom.trigger.top);
+        expect(geom.centreY).toBeGreaterThan(geom.body.top);
+      }
+
+      // T-CARET-2: centre stays at least CARET_EDGE_INSET-equivalent (12px, the
+      // --radius-md mirror) from both corners, so the square always seats on the
+      // straight edge run instead of a rounded corner.
+      expect(geom.centreX).toBeGreaterThanOrEqual(geom.body.left + 12 - TOL);
+      expect(geom.centreX).toBeLessThanOrEqual(geom.body.right - 12 + TOL);
+    });
+  }
 });
