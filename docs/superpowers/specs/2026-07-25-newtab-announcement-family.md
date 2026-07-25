@@ -464,6 +464,14 @@ WITH substitutions is not. Anything outside these shapes is reported as
   cannot catch an `inert` or closed-`<details>` regression — only the guard can.** Do not "verify"
   either rule against the harness and conclude the guard is wrong.
 
+  **The literal-operator surface is now CLOSED, which is what acting on this section's own trigger
+  looked like.** Rather than wait for another round, the operators were enumerated directly: `&&`,
+  `||`, `??`, the conditional, and the comma (via `unparen`). `||` and `??` were both missing and
+  both fail-open. Note `??` tests NULLISH rather than falsiness — `{0 ?? "D"}` yields `0`, which
+  renders. What remains outside is opaque BY CONSTRUCTION rather than by omission: calls,
+  identifiers, member access, and templates with substitutions, none of which a static pass can
+  evaluate. That is a closed statement about the grammar, not another list to extend.
+
   After those, the undecidable bucket holds exactly one thing: **a genuinely dynamic expression that
   renders nothing at runtime** (`{maybeLabel}` where the value is `""`). That is assumed to carry a
   destination, deliberately — failing closed there would report every `{label}` anchor in the tree,

@@ -480,10 +480,32 @@ function rendersNothing(e: ts.Expression): boolean {
   }
   // `a && b` evaluates to `a` when `a` is FALSY and to `b` otherwise. Decide which operand is
   // the result before asking what it renders; give up when `a` is not a literal.
-  if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+  if (ts.isBinaryExpression(n)) {
+    const op = n.operatorToken.kind;
     const left = unparen(n.left);
-    if (isLiteralFalsy(left)) return rendersNothing(left);
-    if (isLiteralTruthy(left)) return rendersNothing(n.right);
+    // `a && b` yields `a` when falsy, else `b`.
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+      if (isLiteralFalsy(left)) return rendersNothing(left);
+      if (isLiteralTruthy(left)) return rendersNothing(n.right);
+      return false;
+    }
+    // `a || b` yields `a` when TRUTHY, else `b` -- the mirror of `&&`, and it was missing.
+    // Found by probing the operator surface after R24 rather than by a review round.
+    if (op === ts.SyntaxKind.BarBarToken) {
+      if (isLiteralTruthy(left)) return rendersNothing(left);
+      if (isLiteralFalsy(left)) return rendersNothing(n.right);
+      return false;
+    }
+    // `a ?? b` yields `b` only when `a` is null/undefined. Note this is NOT falsiness: `0 ?? x`
+    // yields `0`, which renders.
+    if (op === ts.SyntaxKind.QuestionQuestionToken) {
+      const nullish =
+        left.kind === ts.SyntaxKind.NullKeyword ||
+        (ts.isIdentifier(left) && left.text === "undefined");
+      if (nullish) return rendersNothing(n.right);
+      if (isLiteralTruthy(left) || isLiteralFalsy(left)) return rendersNothing(left);
+      return false;
+    }
     return false;
   }
   return false;

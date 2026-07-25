@@ -1730,6 +1730,12 @@ describe("R6: scanner changes are pinned", () => {
       // so the result is `null` and nothing renders. Without that clause the left operand is
       // "unknown" and this is wrongly accepted -- a mutation showed no test could tell.
       'const A=()=><a href="x" target="_blank">{[] && null} <NewTabHint /></a>;',
+      // `||` and `??` were missing entirely -- found by probing the OPERATOR SURFACE after R24
+      // rather than by a review round, which is what acting on §6.4's own replace-don't-extend
+      // trigger looks like.
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {false || null} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {true || "D"} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {null ?? false} <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must report: ${src}`).not.toEqual([]);
     }
@@ -1741,6 +1747,11 @@ describe("R6: scanner changes are pinned", () => {
       'const A=()=><a href="x" target="_blank">{[] && "Dest"} <NewTabHint /></a>;',
       // `0` is falsy but RENDERS, so `0 && null` yields "0".
       'const A=()=><a href="x" target="_blank">{0 && null} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank">{false || "Dest"} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank">{null ?? "Dest"} <NewTabHint /></a>;',
+      // `??` tests NULLISH, not falsiness: `0 ?? "D"` yields 0, which renders.
+      'const A=()=><a href="x" target="_blank">{0 ?? "D"} <NewTabHint /></a>;',
+      'const A=({d})=><a href="x" target="_blank">{d || "Dest"} <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
