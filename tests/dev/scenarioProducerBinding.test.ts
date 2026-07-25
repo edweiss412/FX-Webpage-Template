@@ -15,6 +15,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { ALL_SCENARIOS } from "@/lib/dev/attentionScenarios/index";
+import { GALLERY_BASE_COUNTS } from "@/lib/dev/attentionScenarios/types";
 import { allowedKeys, hasProducerRow } from "../adminAlerts/alertProducerScope.registry";
 
 /** Gallery-only marker keys that are not producer keys (validate.ts:159). */
@@ -25,12 +26,20 @@ const DEV_ONLY_KEYS = new Set(["__devScenarioTag"]);
  *  (lib/dev/publishedModalFixture.ts:273-279, :484-488). */
 function rosterIdsFor(scenario: { fixture?: { volumes?: { crew?: number } } }): Set<string> {
   const ids = new Set<string>();
-  for (let i = 1; i <= 6; i++) {
-    ids.add(`cccccccc-0000-4000-8000-00000000000${i}`);
-  }
   const grown = scenario.fixture?.volumes?.crew;
+  // Production TRUNCATES the base roster before growing it:
+  //   const rows = snapshot.crew_members.slice(0, vol.crew);
+  //   for (let i = rows.length; i < vol.crew; i++) rows.push(genCrewRow(i + 1));
+  // (lib/dev/publishedModalFixture.ts:484-488). A volumes.crew below the base
+  // count renders FEWER than the base rows, so seeding all of them
+  // unconditionally would accept an id that resolves to no rendered row.
+  const base = GALLERY_BASE_COUNTS.crew;
+  const baseRendered = typeof grown === "number" ? Math.min(base, grown) : base;
+  for (let i = 1; i <= baseRendered; i++) {
+    ids.add(`cccccccc-0000-4000-8000-${String(i).padStart(12, "0")}`);
+  }
   if (typeof grown === "number") {
-    for (let i = 7; i <= grown; i++) {
+    for (let i = base + 1; i <= grown; i++) {
       ids.add(`cccccccc-0000-4000-8000-${String(i).padStart(3, "0")}000000000`.slice(0, 36));
     }
   }
@@ -65,6 +74,23 @@ describe("gallery scenario contexts are bound to their producers (spec §5)", ()
     const bypassed = ALL_SCENARIOS.flatMap((s) => s.alerts).filter((a) => !hasProducerRow(a.code));
     expect(bypassed.length).toBeGreaterThan(0);
     for (const alert of bypassed) expect(allowedKeys(alert.code)).toEqual([]);
+  });
+
+  it("models production's base-roster truncation, so a below-base crew volume shrinks the id set", () => {
+    // lib/dev/publishedModalFixture.ts:484-488 slices the base roster to
+    // vol.crew BEFORE growing it, so base rows past the volume never render.
+    // Seeding all six unconditionally would let the rule below accept a crew id
+    // that resolves to no rendered row — a false-permissive in exactly the class
+    // the rule exists to catch.
+    const small = rosterIdsFor({ fixture: { volumes: { crew: 3 } } });
+    expect(small.has("cccccccc-0000-4000-8000-000000000003")).toBe(true);
+    expect(small.has("cccccccc-0000-4000-8000-000000000004")).toBe(false);
+    expect(small.size).toBe(3);
+
+    // Growth past the base count still contributes generated ids.
+    const grown = rosterIdsFor({ fixture: { volumes: { crew: 35 } } });
+    expect(grown.has("cccccccc-0000-4000-8000-031000000000")).toBe(true);
+    expect(grown.size).toBe(35);
   });
 
   it("every declared crew id resolves to a row of that scenario's own roster", () => {
