@@ -22,7 +22,7 @@ Two precisions, because the obvious stronger claims are both false. The row and 
 
 **4. Two event-shaped alerts wear a fault's button verb.** `SHOW_FIRST_PUBLISHED` ("now live for crew at its share-token URL", `lib/messages/catalog.ts:1120-1121`, `severity: "info"`, `followUp: null`) and `PICKER_EPOCH_RESET` (whose own `helpfulContext` reads "Nothing to fix; this is a record of the reset.", `lib/messages/catalog.ts:3222`) describe events that happened, not conditions to clear. Both render a button reading "Mark resolved".
 
-Note what this defect is **not**. Both codes are already excluded from the per-show index (§2.5, verified by execution), so neither reaches this panel or its badge. The wrong verb is visible in the **bell**, which shares the same label resolver. Defects 1 through 3 are about this panel; defect 4 is a copy bug that rides along because it lives in the same registry.
+Note what this defect is **not**. Both codes are already excluded from the per-show index (§2.5, verified by execution), so neither reaches this panel or its badge. The wrong verb is visible in the **bell**, which shares the same label resolver. Defects 1 through 3 are about this panel and are fixed here; **defect 4 is recorded but NOT fixed** — an append-only lifecycle contract forbids the change (§2.6). It is stated because a reader who spots the wrong verb should find the analysis rather than re-derive it.
 
 **Framing this spec adopts:** the panel is an **index of a show's issues**. Each entry points at one issue; the issue's full card renders where it is most relevant in the modal. A row's job is to take you there.
 
@@ -170,26 +170,17 @@ Two independent existing filters do it:
 
 **Consequence for the `dataGaps` field.** `dataGaps` is read onto an attention item only for `SHOW_FIRST_PUBLISHED` (`lib/admin/attentionItems.ts:307`), which never becomes an attention item, so that wiring is **already dead at HEAD** — this spec does not make it dead. Removing it is correct cleanup but it is pre-existing dead code with a 19-file test fan-out (§7.2), unrelated to the index consolidation. It is therefore **out of scope** (§10) and belongs in its own change.
 
-### 2.6 The two button verbs
+### 2.6 The two button verbs — OUT OF SCOPE, blocked by an append-only contract
 
-Both codes keep a resolve button in the bell — `resolveActionLabels` is shared by the show modal, the bell, and the developer telemetry panel (`lib/adminAlerts/resolveActionLabel.ts:4-6`). Their intent is wrong today:
+`SHOW_FIRST_PUBLISHED` and `PICKER_EPOCH_RESET` render a button reading "Mark resolved" where "Confirm" is correct by the module's own rule (`lib/adminAlerts/resolveActionLabel.ts:9-12`). An earlier draft of this spec changed both. **That change cannot be made.**
 
-| Code | Today | Becomes | Why |
-| --- | --- | --- | --- |
-| `SHOW_FIRST_PUBLISHED` (`resolveActionLabel.ts:60`) | `resolve` → "Mark resolved" | `confirm` → "Confirm" | The show went live. Nothing is broken; there is nothing to resolve. |
-| `PICKER_EPOCH_RESET` (`resolveActionLabel.ts:58`) | `resolve` → "Mark resolved" | `confirm` → "Confirm" | A deliberate reset. Its catalog `helpfulContext` says "Nothing to fix; this is a record of the reset." |
+`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` defense 5c reads the baseline from **`origin/main`**, not from the working tree, and asserts every historical `(code, intent)` pair still resolves identically (`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:118-124`). Both codes are recorded there as `resolve` (verified: `git show origin/main:tests/adminAlerts/resolveIntentsBaseline.json`, 19 rows). So the flip fails that gate no matter what is updated in-tree — updating the committed baseline and the approved-confirm list does not help, because the assertion compares against main's copy.
 
-The module's own rule: `confirm` = approving a deliberate change that already applied; `resolve` = clearing a fault (`lib/adminAlerts/resolveActionLabel.ts:9-12`). The remaining 16 resolve-eligible codes are faults and keep `resolve`.
+This is deliberate, and the test says why: "rows already in admin_alerts still render it." Intent is append-only because a persisted alert row's button label is resolved at render time, so flipping an intent retroactively relabels every open row of that code.
 
-**Where this is user-visible.** Both codes are excluded from the per-show index (§2.5), so the wrong verb does NOT appear in the show modal. It appears in the **bell**, which shares the same label resolver — one `admin_alerts` row renders in the show modal, the bell, and the developer telemetry panel, and the label is a property of the alert's intent rather than the surface (`lib/adminAlerts/resolveActionLabel.ts:4-6`). This is the only reason §2.6 is live work.
+**Therefore:** the verb defect is real, is user-visible in the bell, and is **not fixed here**. Fixing it means ratifying an amendment to the append-only lifecycle contract — deciding that a retroactive relabel is acceptable when the original label was simply wrong — which is a larger decision than a copy correction and deserves its own spec and review. Filed as `BL-RESOLVE-INTENT-WRONG-VERB` in `BACKLOG.md`.
 
-**Three lockstep updates, or CI fails.** `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` gates every intent change with defenses the change must satisfy together, in one commit:
-
-| Gate | Assertion | Required action |
-| --- | --- | --- |
-| `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:38` | "the confirm set is exactly the approved list" | Add both codes to that approved list |
-| `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:49` | "a warning-severity code is never confirm intent" | Confirm neither code is `severity: "warning"` before flipping. `SHOW_FIRST_PUBLISHED` is `severity: "info"` (`lib/messages/catalog.ts:1119`); `PICKER_EPOCH_RESET` declares no `severity` key |
-| `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:63`, `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:71` | `RESOLVE_INTENTS` agrees with a committed baseline, plus a git-history layer | Regenerate/update the committed baseline in the same commit |
+Recorded rather than dropped silently: an implementer who notices the wrong verb should find this section and the backlog entry, not re-derive the blocker.
 
 ---
 
@@ -274,11 +265,10 @@ Each bullet is a failing-test-first task.
 6. **Badge copy and pluralisation.** Assert `1 issue` at count 1, `11 issues` at 11, `99+ issues` plus an `sr-only` exact count at 120, and that the visible string is exactly `11 issues · 1 monitoring` with real text separators. Derive counts from the fixture, never hardcode.
 7. **Card chip: external.** For `SHEET_UNAVAILABLE`, assert the footer-right slot holds a `Google Sheets ↗` link with `target="_blank"` and `rel="noopener noreferrer"`, that the `autoClearNote` text is absent, and that `footerLeft` no longer carries a duplicate action link.
 8. **Card chip: self-link suppression.** For `SHOW_UNPUBLISHED` (card in Overview, action `#overview`), assert **no** chip renders and the footer holds only the "Raised …" line. This is the anti-tautology case for §2.3 — a naive implementation that always renders the chip passes test 7 and fails this one.
-9. **Card chip: null action.** With `action: null`, assert no chip and no crash.
+9. **Card chip: null action keeps ONLY the Raised line.** With `action: null`, assert no chip, no crash, **and that the `autoClearNote` text is absent**, with the footer containing only the retained "Raised …" content. The note assertion is the load-bearing half: `ASSET_RECOVERY_BYTES_EXCEEDED` is a reachable needs-look code with no registered action (§9), so an implementation that swaps the note for a chip only when an action exists would leave the note in place for that code and still pass the external and self-link tests.
 9b. **Card chip: the external-only invariant across BOTH warnings states.** A matrix, not a single case, because §2.3's derivation depends on two different mechanisms in the two states. For each of `PARSE_ERROR_LAST_GOOD` and `RESYNC_QUALITY_REGRESSED`: (a) warnings section AVAILABLE — assert `bucketAttention` puts the item in `notes` and produces no `sectionTop`/`byAnchor` card, so no chip can exist; (b) warnings section UNAVAILABLE — assert the item falls through to an Overview card (the documented no-drop fallback) AND that the rendered card carries **no** destination chip, which is the self-link guard doing the work. Case (b) is the one that matters: without it a compliant implementation passes (a) while the state the spec calls unreachable is in fact reachable.
 10. **The two event codes stay out of the index — as a REGRESSION guard, not a new behaviour.** Both are already excluded at HEAD (§2.5), so a behavioural assertion here cannot fail first and is not a TDD task. It is written instead as a characterisation test that pins the existing contract against accidental removal during this refactor, and its comment must say so. Coverage already exists (`tests/admin/attentionExclusionSet.test.ts:107-120`, `tests/admin/pickerEpochCut.test.ts:20-39`); the only new work is asserting the merged-group derivation does not resurrect them. **No `EVENT_SHAPED_CODES` export is introduced** (§1.1), so there is no new mechanism to test.
-11. **Bell still carries both codes.** Assert `bellExcludedCodes(false)` and `bellExcludedCodes(true)` exclude neither — this is what makes §2.6 live work rather than a change to a surface nobody sees.
-12. **Button verbs, with their three lifecycle gates.** `resolveActionLabels("SHOW_FIRST_PUBLISHED").idle === "Confirm"`, same for `PICKER_EPOCH_RESET`, and a fault code still reads "Mark resolved". The change is incomplete unless `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` passes in the same commit — approved-confirm list, warning-severity prohibition, and committed baseline (§2.6).
+11. **Hint takes precedence over subtitle when BOTH are present.** Build an item with a non-empty fix hint AND a non-empty `menuSubtitle`; assert the hint renders and the subtitle is absent from the row. §3 specifies this cell and no other test reaches it: test 3 checks structure, 3b covers the opposite no-hint fallback, and the existing hint fixture has `menuSubtitle: null`. Without this case, an implementation with the precedence reversed — subtitle whenever present, hint only as fallback — passes every listed test while hiding the fix hint on exactly the shape that carries both.
 13. **Warnings-channel jump.** For `PARSE_ERROR_LAST_GOOD`, assert `effectiveSectionId` resolves to `warnings` and the row's `onNavigate` payload carries it.
 14. **Focus rescue with a pressable needs-look row.** Focus a needs-look row, remove it from `items`, assert focus lands on the pill and not `<body>`. jsdom cannot prove visibility here — assert `document.activeElement` identity, not `toBeVisible()`.
 15. **Layout (real browser).** Playwright assertions for every §5 invariant: each needs-you row's height ≥ 44px, the pill's resolved tap band ≥ 44px, the scroll region clips at `max-h-96` with 12 needs-you rows, and a long title does not widen the panel past its `w-[min(400px,calc(100vw-32px))]` box.
@@ -366,8 +356,6 @@ No new colour token is introduced — the destination chip reuses the existing w
 | 3 → 2 | Rendered groups | §2.1 |
 | 3 → 2 | Pill segments | §2.4 |
 | 19 | Resolve-eligible codes registry-wide | `resolveActionLabel.ts:46-70` |
-| 18 → 16 | Codes reading "Mark resolved" after §2.6 | §2.6 |
-| 1 → 3 | Codes reading "Confirm" after §2.6 | §2.6 |
 | 12 | Entries in `NEEDS_LOOK_CODE_LIST` | `lib/adminAlerts/audience.ts:81-94` |
 | 11 | Of those, codes that can actually reach the panel | §9 reconciliation below |
 | 3 | Self-healing codes | `lib/adminAlerts/audience.ts:75-79` |
@@ -391,6 +379,7 @@ The remaining 11 reconcile as `6 + 2 + 2 + 1`: 6 external-chip; 2 notes-channel 
 ## 10. Out of scope
 
 - **Removing the dead `dataGaps` wiring.** It is dead at HEAD, not made dead by this spec (§2.5), and carries a 19-file test fan-out (§7.2). Its own change.
+- **The two wrong button verbs.** Blocked by the append-only intent contract, analysed in §2.6, filed as `BL-RESOLVE-INTENT-WRONG-VERB`.
 - **Any new exclusion mechanism.** `EVENT_SHAPED_CODES` was proposed and withdrawn; the policy already lives in `DOUG_EXCLUDED_CODES` plus the explicit picker clause (§1.1).
 
 - **Any DB migration.** No table, CHECK, enum, RPC, or trigger changes. No advisory-lock surface is touched.
