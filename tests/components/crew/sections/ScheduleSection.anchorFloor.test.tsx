@@ -4,6 +4,7 @@ import { render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { AgendaEntry, ScheduleDay } from "@/lib/parser/types";
+import { ledgerProp } from "./_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -33,6 +34,7 @@ function renderRos(
 ) {
   return render(
     <ScheduleSection
+      {...ledgerProp()}
       data={makeShowForViewer({
         show: { dates: DATES },
         runOfShow: runOfShow === null ? null : ros(runOfShow),
@@ -131,6 +133,7 @@ test("no anchors, no runOfShow → right column emitted but empty; grid falls ba
   // global getByTestId would see every mounted tree). Matches the file's pattern.
   const c = render(
     <ScheduleSection
+      {...ledgerProp()}
       data={makeShowForViewer({
         show: { dates: { showDays: ["2026-10-08"], travelIn: null, travelOut: null, set: null } },
         runOfShow: null,
@@ -154,6 +157,7 @@ test("Redefining-FI Day 2 absent from runOfShow + cross-dated room → day rende
   // Day 2 (5/14) intentionally absent (GS: ... - 6:00 PM → showStart null); room show_time dated 5/13.
   const c = render(
     <ScheduleSection
+      {...ledgerProp()}
       data={makeShowForViewer({
         show: {
           dates: {

@@ -4,6 +4,7 @@ import { render } from "@testing-library/react";
 
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "./_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -28,6 +29,7 @@ test("all scope shown to everyone; viewer's discipline first + [data-emphasis=yo
   });
   const { container } = render(
     <GearSection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -67,6 +69,7 @@ test("no-flag viewer → default order, no emphasis; all-empty → section Empty
     [
       ...render(
         <GearSection
+          {...ledgerProp()}
           data={noFlag}
           viewer={{ kind: "crew", crewMemberId: "c1" }}
           today={TODAY}
@@ -79,6 +82,7 @@ test("no-flag viewer → default order, no emphasis; all-empty → section Empty
   expect(
     render(
       <GearSection
+        {...ledgerProp()}
         data={empty}
         viewer={{ kind: "crew", crewMemberId: "c1" }}
         today={TODAY}
@@ -95,6 +99,7 @@ test("opening-reel cell is text-only (no Drive URL) AND the proxied player uses 
   });
   const { container } = render(
     <GearSection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -122,6 +127,7 @@ test("pack list omitted when isPackListVisibleToday is false", () => {
   expect(
     render(
       <GearSection
+        {...ledgerProp()}
         data={withheld}
         viewer={{ kind: "crew", crewMemberId: "c1" }}
         today={TODAY}
@@ -141,6 +147,7 @@ test("a pure-URL opening reel with no video renders NO Opening reel card (whole-
   });
   const { container } = render(
     <GearSection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -167,6 +174,7 @@ test("Scenic + Other scope cards render when populated and auto-omit when empty 
   });
   const { container } = render(
     <GearSection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -196,6 +204,7 @@ test("Scenic + Other scope cards render when populated and auto-omit when empty 
   });
   const c2 = render(
     <GearSection
+      {...ledgerProp()}
       data={sentinel}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -212,6 +221,7 @@ test("keynote requirements card renders from event_details (closes the missing-c
   });
   const { container } = render(
     <GearSection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -226,6 +236,7 @@ test("keynote requirements card renders from event_details (closes the missing-c
   expect(
     render(
       <GearSection
+        {...ledgerProp()}
         data={tbd}
         viewer={{ kind: "crew", crewMemberId: "c1" }}
         today={TODAY}
@@ -249,6 +260,7 @@ test("scope-card source link targets gear_scope (GEAR tab) when present, else ro
   });
   const a1 = render(
     <GearSection
+      {...ledgerProp()}
       data={withGear}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -264,6 +276,7 @@ test("scope-card source link targets gear_scope (GEAR tab) when present, else ro
   });
   const a2 = render(
     <GearSection
+      {...ledgerProp()}
       data={noGear}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}

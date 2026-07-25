@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const { upsertMock, resolveMock, logErrorMock } = vi.hoisted(() => ({
-  upsertMock: vi.fn(async () => null),
-  resolveMock: vi.fn(async () => undefined),
-  logErrorMock: vi.fn(async () => undefined),
+  upsertMock: vi.fn<(input: Record<string, unknown>) => Promise<string | null>>(async () => null),
+  resolveMock: vi.fn<(input: Record<string, unknown>) => Promise<void>>(async () => undefined),
+  logErrorMock: vi.fn<(message: string, fields?: Record<string, unknown>) => Promise<void>>(
+    async () => undefined,
+  ),
 }));
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({ upsertAdminAlert: upsertMock }));
 vi.mock("@/lib/adminAlerts/resolveTileAlertsForObserver", () => ({

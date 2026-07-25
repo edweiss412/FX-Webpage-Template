@@ -72,12 +72,15 @@ import {
   videoScopeVisible,
 } from "@/lib/visibility/scopeTiles";
 import type { RoleFlag } from "@/lib/parser/types";
+import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
 type GearSectionProps = {
   data: ShowForViewer;
   viewer: Viewer;
   today: Date;
   showId: string;
+  /** Per-request tile ledger, threaded from _CrewShell. */
+  ledger: TileRenderLedger;
   cardReport?: CardReportContext;
 };
 
@@ -150,6 +153,7 @@ export function GearSection({
   viewer,
   today,
   showId,
+  ledger,
   cardReport = DEFAULT_CARD_REPORT,
 }: GearSectionProps): JSX.Element {
   // Single canonical viewer resolution. admin → all-flags + none-restriction;
@@ -161,6 +165,7 @@ export function GearSection({
   return (
     <div data-testid="section-gear" className="flex flex-col gap-4">
       <WrappedSection
+        ledger={ledger}
         tileId="crew:gear:scope"
         showId={showId}
         sheetName={data.show.title}

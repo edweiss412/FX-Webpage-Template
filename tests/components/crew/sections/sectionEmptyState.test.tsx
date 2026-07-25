@@ -6,6 +6,7 @@ import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "./_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -30,7 +31,13 @@ test.each(Object.keys(SECTIONS))(
       openingReelHasVideo: false,
     });
     const { container } = render(
-      <Section data={empty} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+      <Section
+        {...ledgerProp()}
+        data={empty}
+        viewer={{ kind: "admin" }}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     );
     expect(container.querySelectorAll('[data-testid="section-empty"]').length).toBe(1);
   },

@@ -1,76 +1,59 @@
 // @vitest-environment jsdom
 //
-// Codex R3 HIGH regression pin — render-throw observability must be DURABLE.
+// INVERTED PREMISE (was: "the upsert is registered via after()").
 //
-// WrappedSection is a SYNCHRONOUS Server Component (it composes inside the
-// synchronous crew sections), so it cannot `await` the TILE_SERVER_RENDER_FAILED
-// upsert the way the async <TileServerFallback> does. A bare unawaited promise
-// can be dropped when a serverless RSC render freezes before it settles — losing
-// the durable admin_alerts row. The fix registers the upsert as post-response
-// work via next/server `after()`. This test pins that wiring: in a request scope
-// (here: `after` mocked to capture + run the callback) the upsert flows through
-// `after()`, not a bare fire-and-forget.
+// WrappedSection no longer owns the alert write. Both the upsert and the durable
+// log moved to lib/crew/sweepTileRenderAlerts.ts, which _CrewShell schedules via
+// next/server after(). Two reasons, and the second is why the old placement was
+// actively unsound: resolution is keyed on the (tile, observer) pair and only the
+// shell knows the observer; and this component is SYNCHRONOUS, so it could not
+// await lib/log's asynchronous app_events persist — a serverless freeze could
+// drop the very evidence that makes a spurious auto-resolve survivable.
 //
-// The complementary no-scope path (unit tests where `after()` throws → fall back
-// to plain fire-and-forget) is exercised by wrappedSection.test.tsx, which does
-// NOT mock next/server and still observes a synchronous upsert.
+// So the contract this file now pins is the negative one: WrappedSection
+// schedules NO post-response work on either path. The durability guarantee it
+// used to protect lives in tests/components/crew/crewShellSweep.test.tsx, which
+// asserts the shell's callback RETURNS its promise rather than voiding it.
 import { describe, expect, test, vi } from "vitest";
 import { render } from "@testing-library/react";
 
-// Capture the work `after()` is asked to defer, and run it (a request scope's
-// runtime would run it post-response). vi.hoisted so the mock factory can see it.
-const { afterMock } = vi.hoisted(() => ({
-  afterMock: vi.fn((cb: () => unknown) => {
-    void cb();
-  }),
-}));
+const { afterMock } = vi.hoisted(() => ({ afterMock: vi.fn() }));
 vi.mock("next/server", () => ({ after: afterMock }));
-vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
-  upsertAdminAlert: vi.fn().mockResolvedValue(null),
-}));
 
-import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { WrappedSection } from "@/components/crew/WrappedSection";
+import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
-describe("WrappedSection render-throw observability is durable (after())", () => {
-  test("on throw, the TILE_SERVER_RENDER_FAILED upsert is registered via after(), not a bare fire-and-forget", () => {
+describe("WrappedSection schedules no post-response work", () => {
+  test("a throwing render registers no after() work", () => {
+    const ledger = createTileRenderLedger();
     render(
       <WrappedSection
         tileId="crew:gear:scope"
         showId="show-xyz"
         sheetName="RPAS Central 2026"
+        ledger={ledger}
         render={() => {
           throw new Error("scope projection blew up");
         }}
       />,
     );
-    // The durability mechanism is wired: the upsert is handed to after() so the
-    // serverless runtime keeps the function alive until it settles.
-    expect(afterMock).toHaveBeenCalledTimes(1);
-    // And the deferred work performs exactly the TILE_SERVER_RENDER_FAILED upsert.
-    expect(upsertAdminAlert).toHaveBeenCalledTimes(1);
-    expect(upsertAdminAlert).toHaveBeenCalledWith({
-      showId: "show-xyz",
-      code: "TILE_SERVER_RENDER_FAILED",
-      context: {
-        tileId: "crew:gear:scope",
-        message: "scope projection blew up",
-        sheet_name: "RPAS Central 2026",
-      },
-    });
+    expect(afterMock).not.toHaveBeenCalled();
+    // The failure is still captured, just in the ledger rather than in a write.
+    expect(ledger.failed.get("crew:gear:scope")).toBe("scope projection blew up");
   });
 
-  test("a successful render registers no after() work and no upsert", () => {
-    afterMock.mockClear();
-    vi.mocked(upsertAdminAlert).mockClear();
+  test("a successful render registers no after() work", () => {
+    const ledger = createTileRenderLedger();
     render(
       <WrappedSection
         tileId="crew:gear:scope"
         showId="show-xyz"
-        render={() => <div data-testid="ok">fine</div>}
+        sheetName="RPAS Central 2026"
+        ledger={ledger}
+        render={() => <p>ok</p>}
       />,
     );
     expect(afterMock).not.toHaveBeenCalled();
-    expect(upsertAdminAlert).not.toHaveBeenCalled();
+    expect(ledger.failed.size).toBe(0);
   });
 });

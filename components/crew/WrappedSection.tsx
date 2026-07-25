@@ -26,28 +26,27 @@
  *   throwing work (the transform that can throw) lives inside `render`.
  *
  * ON THROW:
- *   - logs to stderr with surface metadata (parity with TileServerFallback);
- *   - fires the best-effort TILE_SERVER_RENDER_FAILED `admin_alerts` upsert.
- *     This surface is synchronous so it cannot `await` the way the async
- *     <TileServerFallback> does — instead the upsert is registered as
- *     post-response work via next/server `after()`, which keeps the serverless
- *     function alive until it settles so the durable alert row is NOT dropped
- *     when an RSC render freezes before an unawaited promise resolves (Codex
- *     R3 HIGH). The upsert's own failure is swallowed so it never masks the
- *     fallback (AGENTS.md §1.9 best-effort discipline);
+ *   - records the tileId and the thrown message in the per-request ledger;
  *   - returns the <TileErrorFallback> element (identical fallback to the tiles)
- *     so the rest of the section keeps rendering. The admin_alerts row is what
- *     surfaces the failing block to the admin dashboard / AlertBanner; crew see
- *     only the inline fallback (no raw error code — invariant 5).
+ *     so the rest of the section keeps rendering. Crew see only the inline
+ *     fallback (no raw error code — invariant 5).
+ *
+ * THIS COMPONENT NO LONGER WRITES THE ALERT OR THE LOG. Both moved to
+ * `lib/crew/sweepTileRenderAlerts.ts`, which `_CrewShell` schedules via
+ * next/server `after()`. Two reasons, and neither is stylistic:
+ *   1. Resolution must be keyed on the (tile, observer) pair, and only the shell
+ *      knows the observer, so the write had to move to a layer that does.
+ *   2. This surface is synchronous and cannot await. `lib/log` persists to
+ *      app_events asynchronously, so a log fired here could be dropped by a
+ *      serverless freeze — losing the durable evidence that makes a spurious
+ *      auto-resolve survivable. The sweep runs post-response and awaits it.
  *
  * Synchronous Server Component (no `'use client'`, no `async`).
  */
 import type { ReactElement, ReactNode } from "react";
-import { after } from "next/server";
 
 import { TileErrorFallback } from "@/components/shared/TileErrorFallback";
-import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
-import { log } from "@/lib/log";
+import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
 type WrappedSectionProps = {
   /**
@@ -64,6 +63,13 @@ type WrappedSectionProps = {
    */
   sheetName?: string | null;
   /**
+   * Per-request ledger this section records into. REQUIRED so a section cannot
+   * be mounted without one. The topology meta-test additionally bounds WHERE a
+   * section may be constructed, which is what actually guarantees the ledger
+   * reaching the sweep: a caller could otherwise type-safely pass a throwaway.
+   */
+  ledger: TileRenderLedger;
+  /**
    * The throwable block. INVOKED inside try/catch (see the H2 contract above);
    * must be a function, NOT pre-evaluated `children`.
    */
@@ -76,50 +82,16 @@ export function WrappedSection({
   tileId,
   showId,
   sheetName,
+  ledger,
   render,
   fallback,
 }: WrappedSectionProps): ReactNode {
+  ledger.attempted.add(tileId);
   try {
     return render();
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
-    log.error("render threw", {
-      source: "crew.wrappedSection",
-      tileId,
-      showId,
-      error: err,
-    });
-    // Best-effort admin_alerts upsert. The upsert's own failure must NOT mask
-    // the fallback render — swallow the rejection.
-    const fireAlert = () =>
-      upsertAdminAlert({
-        showId: showId ?? null,
-        code: "TILE_SERVER_RENDER_FAILED",
-        context: {
-          tileId,
-          message: err.message,
-          sheet_name: sheetName ?? null,
-        },
-      }).catch((alertErr: unknown) => {
-        log.error("admin_alerts upsert failed", {
-          source: "crew.wrappedSection",
-          tileId,
-          error: alertErr,
-        });
-      });
-    // Durability (Codex R3 HIGH): a bare unawaited promise can be dropped when a
-    // serverless RSC render freezes before it settles, losing the
-    // TILE_SERVER_RENDER_FAILED row this boundary owns (the async
-    // <TileServerFallback> awaited its upsert; this synchronous surface cannot).
-    // Register the upsert as post-response work via `after()` so the runtime
-    // keeps the function alive until it settles. Outside a request scope (unit
-    // tests) `after()` throws — fall back to a plain fire-and-forget so the
-    // synchronous-render contract holds.
-    try {
-      after(fireAlert);
-    } catch {
-      void fireAlert();
-    }
+    ledger.failed.set(tileId, err.message);
     return fallback ?? <TileErrorFallback />;
   }
 }

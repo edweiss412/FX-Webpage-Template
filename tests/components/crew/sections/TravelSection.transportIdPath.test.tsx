@@ -4,6 +4,7 @@ import { afterEach, expect, test } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "./_ledgerProp";
 
 afterEach(cleanup);
 const TODAY = new Date("2026-05-14T15:00:00Z");
@@ -34,6 +35,7 @@ const garbled = (ownerIds: string[]) =>
 test("id path: garbled-driver transport block RENDERS for the resolved owner via data.transportationOwnerIds", () => {
   const { container } = render(
     <TravelSection
+      {...ledgerProp()}
       data={garbled(["c1"])}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -46,6 +48,7 @@ test("id path: garbled-driver transport block RENDERS for the resolved owner via
 test("negative control: empty owner set → block hidden (proves the id path, not the name path, revealed it)", () => {
   const { container } = render(
     <TravelSection
+      {...ledgerProp()}
       data={garbled([])}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}

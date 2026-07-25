@@ -6,6 +6,7 @@ import { render, within, cleanup } from "@testing-library/react";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
+import { ledgerProp } from "./_ledgerProp";
 
 afterEach(cleanup);
 
@@ -25,7 +26,9 @@ function baseData(over: Parameters<typeof makeShowForViewer>[0] = {}): ShowForVi
 }
 
 function renderTravel(data: ShowForViewer) {
-  return render(<TravelSection data={data} viewer={VIEWER} today={TODAY} showId="s1" />);
+  return render(
+    <TravelSection {...ledgerProp()} data={data} viewer={VIEWER} today={TODAY} showId="s1" />,
+  );
 }
 
 describe("TravelSection — flight card", () => {

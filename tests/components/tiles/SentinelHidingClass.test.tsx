@@ -40,6 +40,7 @@ import { BudgetSection } from "@/components/crew/sections/BudgetSection";
 import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { ContactRow, RoleFlag } from "@/lib/parser/types";
+import { ledgerProp } from "../crew/sections/_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -80,7 +81,7 @@ function html(container: HTMLElement): string {
 describe("§8.3 sentinel-hiding — Show notes aggregation (TodaySection)", () => {
   function renderToday(over: Parameters<typeof makeShowForViewer>[0]) {
     return render(
-      <TodaySection data={makeShowForViewer(over)} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+      <TodaySection {...ledgerProp()} data={makeShowForViewer(over)} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
     ).container;
   }
 
@@ -162,6 +163,7 @@ describe("§8.3 sentinel-hiding — Dress code (TodaySection)", () => {
   function renderDress(dress: string) {
     return render(
       <TodaySection
+        {...ledgerProp()}
         data={makeShowForViewer({ show: { event_details: { dress_code: dress } } })}
         viewer={ADMIN}
         today={TODAY}
@@ -192,6 +194,7 @@ describe("§8.3 sentinel-hiding — Dress code (TodaySection)", () => {
     // satisfy.
     const c = render(
       <TodaySection
+        {...ledgerProp()}
         data={makeShowForViewer({ show: { event_details: { dress_code: "N/A" } } })}
         viewer={ADMIN}
         today={TODAY}
@@ -216,6 +219,7 @@ describe("§8.3 sentinel-hiding — Dress code (TodaySection)", () => {
     // guard still applies (covered by the single-key sentinel test above).
     const c = render(
       <TodaySection
+        {...ledgerProp()}
         data={makeShowForViewer({
           show: { event_details: { dress_code: "Black tie" } },
         })}
@@ -237,6 +241,7 @@ describe("§8.3 sentinel-hiding — Transportation (TravelSection)", () => {
   function travel(over: Record<string, unknown>) {
     return render(
       <TravelSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           transportation: {
             driver_name: null,
@@ -327,6 +332,7 @@ describe("§8.3 sentinel-hiding — Hotel reservation (TravelSection)", () => {
   function hotel(over: Record<string, unknown>) {
     return render(
       <TravelSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           hotelReservations: [
             {
@@ -391,6 +397,7 @@ describe("§8.3 sentinel-hiding — Venue (VenueSection)", () => {
   function venue(over: Record<string, unknown>) {
     return render(
       <VenueSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           show: {
             venue: {
@@ -474,6 +481,7 @@ describe("§8.3 actionable-link guard — Key contacts (CrewSection → PersonRo
     ];
     return render(
       <CrewSection
+        {...ledgerProp()}
         data={makeShowForViewer({ contacts })}
         viewer={ADMIN}
         today={TODAY}
@@ -520,6 +528,7 @@ describe("§8.3 actionable-link guard — Crew roster (CrewSection → PersonRow
   function crew(over: { phone?: string | null; email?: string | null }) {
     return render(
       <CrewSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           crewMembers: [
             {
@@ -575,6 +584,7 @@ describe("§8.3 sentinel-hiding — Scope cards (GearSection)", () => {
   function gear(rooms: Array<Record<string, unknown>>) {
     return render(
       <GearSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           rooms: rooms as never,
           crewMembers: [
@@ -638,6 +648,7 @@ describe("§8.3 sentinel-hiding — Financials (BudgetSection)", () => {
   }) {
     return render(
       <BudgetSection
+        {...ledgerProp()}
         data={makeShowForViewer({ financials })}
         viewer={ADMIN}
         today={TODAY}
@@ -693,6 +704,7 @@ describe("§8.3 sentinel-hiding — Pack-list taxonomy (GearSection)", () => {
   function pack(item: { cat?: string | null; subCat?: string | null; item?: string }) {
     return render(
       <GearSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           show: { schedule_phases: { [TODAY_ISO]: ["Set"] } },
           pullSheet: [

@@ -67,6 +67,7 @@ import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
+import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
 // Preserve the public export surface after the run-of-show predicates/renderer
 // were extracted to @/lib/crew/agendaDisplay + @/components/crew/primitives/
@@ -80,6 +81,8 @@ type ScheduleSectionProps = {
   viewer: Viewer;
   today: Date;
   showId: string;
+  /** Per-request tile ledger, threaded from _CrewShell. */
+  ledger: TileRenderLedger;
   cardReport?: CardReportContext;
 };
 
@@ -88,6 +91,7 @@ export function ScheduleSection({
   viewer,
   today,
   showId,
+  ledger,
   cardReport = DEFAULT_CARD_REPORT,
 }: ScheduleSectionProps): JSX.Element {
   // Single canonical viewer resolution: admin → none-restriction;
@@ -182,6 +186,7 @@ export function ScheduleSection({
     <div data-testid="section-schedule" className="flex flex-col gap-4">
       {agendaArea}
       <WrappedSection
+        ledger={ledger}
         tileId="crew:schedule:days"
         showId={showId}
         sheetName={data.show.title}

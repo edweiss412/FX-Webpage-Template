@@ -21,8 +21,13 @@
  * passed as already-evaluated `children` (whose throw would escape into the
  * parent before the boundary runs). On throw it (a) renders the
  * <TileErrorFallback> element (`data-testid="tile-error-fallback"`), and
- * (b) fires the best-effort TILE_SERVER_RENDER_FAILED upsert with the crew
- * tileId / showId / sheet_name.
+ * (b) records the tileId + thrown message in the per-request ledger.
+ *
+ * The alert upsert MOVED to `lib/crew/sweepTileRenderAlerts.ts`, scheduled by
+ * `_CrewShell` via after(), because resolution is keyed on the (tile, observer)
+ * pair and only the shell knows the observer. What this file pins is the
+ * containment and the RECORDING; the writing is pinned by the sweep's own tests
+ * and by tests/components/crew/crewShellSweep.test.tsx.
  *
  * Anti-tautology: the throw is forced by mocking a real section data helper
  * (resolveViewerContext) so the section's OWN throwable block — not a synthetic
@@ -33,12 +38,8 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
-vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
-  upsertAdminAlert: vi.fn().mockResolvedValue(null),
-}));
-
-import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { WrappedSection } from "@/components/crew/WrappedSection";
+import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
 afterEach(() => {
   cleanup();
@@ -52,11 +53,13 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
-test("WrappedSection catches a synchronous render() throw, renders the fallback, and upserts TILE_SERVER_RENDER_FAILED", () => {
+test("WrappedSection catches a synchronous render() throw, renders the fallback, and records the failure", () => {
+  const ledger = createTileRenderLedger();
   const { container } = render(
     <div data-testid="parent">
       <span data-testid="sibling">still here</span>
       <WrappedSection
+        ledger={ledger}
         tileId="crew:venue:diagrams"
         showId="show-abc"
         sheetName="Test Show"
@@ -73,23 +76,17 @@ test("WrappedSection catches a synchronous render() throw, renders the fallback,
   // (b) the fallback element renders in place of the throwing block.
   expect(container.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
 
-  // (c) the TILE_SERVER_RENDER_FAILED upsert fired with the crew-namespaced
-  //     tileId, the showId prop, and the show title as sheet_name.
-  expect(upsertAdminAlert).toHaveBeenCalledTimes(1);
-  expect(upsertAdminAlert).toHaveBeenCalledWith({
-    showId: "show-abc",
-    code: "TILE_SERVER_RENDER_FAILED",
-    context: {
-      tileId: "crew:venue:diagrams",
-      message: "synthetic block throw",
-      sheet_name: "Test Show",
-    },
-  });
+  // (c) the ledger carries the tileId AND the thrown message, which is what the
+  //     sweep needs for context.message after this catch has returned.
+  expect(ledger.attempted.has("crew:venue:diagrams")).toBe(true);
+  expect(ledger.failed.get("crew:venue:diagrams")).toBe("synthetic block throw");
 });
 
-test("WrappedSection renders the block output unchanged when render() succeeds (no upsert)", () => {
+test("WrappedSection renders the block output unchanged when render() succeeds (recorded clean)", () => {
+  const ledger = createTileRenderLedger();
   const { container } = render(
     <WrappedSection
+      ledger={ledger}
       tileId="crew:crew:roster"
       showId="show-abc"
       sheetName="Test Show"
@@ -99,10 +96,12 @@ test("WrappedSection renders the block output unchanged when render() succeeds (
 
   expect(container.querySelector('[data-testid="block-ok"]')!.textContent).toBe("rendered");
   expect(container.querySelector('[data-testid="tile-error-fallback"]')).toBeNull();
-  expect(upsertAdminAlert).not.toHaveBeenCalled();
+  // Attempted but NOT failed: this is what makes the tile resolvable.
+  expect(ledger.attempted.has("crew:crew:roster")).toBe(true);
+  expect(ledger.failed.size).toBe(0);
 });
 
-test("a real section's WRAPPED block throw is contained — section does not crash, fallback + upsert fire (CrewSection roster)", async () => {
+test("a real section's WRAPPED block throw is contained — section does not crash, fallback renders, failure recorded (CrewSection roster)", async () => {
   // Force a throw INSIDE the wrapped roster block (not in resolveViewerContext,
   // which is intentionally OUTSIDE the wrapper). The roster `.map` calls
   // shouldHideGenericOptional per member, so mocking it to throw drives the
@@ -138,8 +137,10 @@ test("a real section's WRAPPED block throw is contained — section does not cra
     ],
   });
 
+  const ledger = createTileRenderLedger();
   const { container } = render(
     <CrewSection
+      ledger={ledger}
       data={data}
       viewer={{ kind: "admin" }}
       today={new Date("2026-05-14T15:00:00Z")}
@@ -152,18 +153,9 @@ test("a real section's WRAPPED block throw is contained — section does not cra
   expect(container.querySelector('[data-testid="section-crew"]')).not.toBeNull();
   expect(container.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
 
-  // The crew-namespaced tileId for the roster block fired the upsert with the
-  // show title as sheet_name.
-  expect(upsertAdminAlert).toHaveBeenCalledWith(
-    expect.objectContaining({
-      showId: "show-xyz",
-      code: "TILE_SERVER_RENDER_FAILED",
-      context: expect.objectContaining({
-        tileId: "crew:crew:roster",
-        sheet_name: "Test Show",
-      }),
-    }),
-  );
+  // The crew-namespaced tileId for the roster block recorded the failure, with
+  // the thrown message the sweep will carry into context.message.
+  expect(ledger.failed.get("crew:crew:roster")).toBe("synthetic roster-block throw");
 
   vi.doUnmock("@/lib/visibility/emptyState");
 });
