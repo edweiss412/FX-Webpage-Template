@@ -17,6 +17,7 @@ describe("AMBIGUITY_CODES registry", () => {
     expect([...AMBIGUITY_CODES].sort()).toEqual([
       "CREW_COLUMN_POSITIONAL_FALLBACK",
       "DATE_ORDER_SUGGESTS_DMY",
+      "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
       "HOTEL_GUEST_SPLIT_AMBIGUOUS",
       "ROOM_HEADER_SPLIT_AMBIGUOUS",
     ]);

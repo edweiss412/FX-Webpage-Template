@@ -21,6 +21,7 @@ export const AMBIGUITY_CODES = new Set<string>([
   "ROOM_HEADER_SPLIT_AMBIGUOUS", // new, §4.1
   "HOTEL_GUEST_SPLIT_AMBIGUOUS", // new, §4.2
   "DATE_ORDER_SUGGESTS_DMY", // new, §4.3
+  "HOTEL_ADDRESS_SPLIT_AMBIGUOUS", // 2026-07-25 hotel-ambiguity-coverage §3.1 P3
 ]);
 
 export function isAmbiguityCode(code: string): boolean {

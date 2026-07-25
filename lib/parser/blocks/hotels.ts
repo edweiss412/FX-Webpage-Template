@@ -980,6 +980,6 @@ export const TRANSFORM_SITES: ReadonlyArray<
 > = [
   { site: "parseGuestCell structured glue/split", code: "HOTEL_GUEST_SPLIT_AMBIGUOUS" },
   { site: "cardinality cap (MAX_HOTELS truncation)", code: "HOTEL_CARDINALITY_EXCEEDED" },
-  { site: "inline guest paths", exempt: "deferred:BL-PARSER-HOTEL-INLINE-AMBIGUITY" },
-  { site: "splitHotelNameAddress", exempt: "deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY" },
+  { site: "inline guest paths", code: "HOTEL_GUEST_SPLIT_AMBIGUOUS" },
+  { site: "splitHotelNameAddress name/address boundary", code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS" },
 ];

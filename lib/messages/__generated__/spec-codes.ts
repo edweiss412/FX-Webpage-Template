@@ -410,6 +410,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → text Doug",
     "helpfulContext": null,
   },
+  "HOTEL_ADDRESS_SPLIT_AMBIGUOUS": {
+    "crewFacing": null,
+    "dougFacing": "A hotel line in _<sheet-name>_ may have its name and street address run together; check the hotel name and address against your sheet.",
+    "followUp": "Doug → spot-check hotel name and address",
+    "helpfulContext": "A hotel line's name and street address may not have been separated correctly. We kept every word rather than dropping any, so nothing is lost, but the dividing point may be off: part of the address may be sitting in the hotel name, or part of the name in the address. Spot-check both against your sheet.",
+  },
   "HOTEL_CARDINALITY_EXCEEDED": {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_ lists more than 4 hotels; we kept the first 4. Remove old hotel blocks from the sheet if this is wrong.",
@@ -418,9 +424,9 @@ export const SPEC_CODES = {
   },
   "HOTEL_GUEST_SPLIT_AMBIGUOUS": {
     "crewFacing": null,
-    "dougFacing": "A guest line in _<sheet-name>_'s hotel section may contain more than one person; check the hotel guest list against your sheet.",
+    "dougFacing": "A hotel guest list in _<sheet-name>_ may not have been split correctly; check the hotel guest list against your sheet.",
     "followUp": "Doug → spot-check hotel guests",
-    "helpfulContext": "A hotel guest cell looked like several people glued together, so we made a judgment call splitting them. Check the guest list in case two people were merged or one was split.",
+    "helpfulContext": "A hotel line could be read more than one way, so we made a judgment call about where each part starts and ends. Spot-check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
   },
   "IDEMPOTENCY_IN_FLIGHT": {
     "crewFacing": "Hold on, your previous report is still processing. Try again in a moment.",

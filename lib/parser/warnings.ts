@@ -336,3 +336,80 @@ export function emitUnknownField(
   });
   agg.rawUnrecognized.push({ block: opts.block, key, value });
 }
+
+/**
+ * §3.1 P3 (2026-07-25-hotel-ambiguity-coverage) — the hotel name/address
+ * boundary was a judgment. Two arms, one code:
+ *
+ *   "address-shape-unsplit"      — nothing was split, so there is nothing to
+ *                                  undo: `resolvable:false`.
+ *   "multiple-street-candidates" — a split happened at one of several
+ *                                  candidates, so undoing it is a real state
+ *                                  change: `resolvable:true`.
+ *
+ * `parsed` reports the reservation's ACTUAL current reading (passed in by the
+ * caller), never a reconstruction — the overlay reads only `replacement`, so a
+ * fabricated `parsed` would show the operator a reading that never existed.
+ *
+ * The replacement is ALWAYS confirmation-stripped. `hotel_name` is show-wide
+ * crew-readable and `stripHotelNameConf` already scrubs conf tokens from it,
+ * while this warning's stash deliberately holds the PRE-strip cell — so an
+ * unstripped replacement would re-persist a confirmation number the parser had
+ * correctly removed (ratified R2).
+ */
+export const HOTEL_ADDRESS_SPLIT_AMBIGUOUS = "HOTEL_ADDRESS_SPLIT_AMBIGUOUS";
+export function emitHotelAddressSplitAmbiguity(
+  agg: ParseAggregator | undefined,
+  params: {
+    reason: "address-shape-unsplit" | "multiple-street-candidates";
+    rawCell: string;
+    index: number;
+    name: string | null;
+    parsedName: string | null;
+    parsedAddress: string | null;
+  },
+): void {
+  if (!agg) return;
+  const rawOneLine = collapse(params.rawCell);
+  const blockRef: { kind: string; name?: string; field: string; index: number } = {
+    kind: "hotels",
+    field: "address",
+    index: params.index,
+  };
+  // exactOptionalPropertyTypes: omit the KEY when unresolved, never `undefined`.
+  if (params.name) blockRef.name = params.name;
+
+  const message =
+    params.reason === "address-shape-unsplit"
+      ? `Hotel line "${rawOneLine}" may hold a street address we did not separate out; double-check the hotel name and address.`
+      : `Hotel line "${rawOneLine}" could be split into a name and a street address in more than one place; double-check the hotel name and address.`;
+
+  let resolution: UseRawResolution;
+  if (params.reason === "address-shape-unsplit") {
+    resolution = { resolvable: false, reason: "no-split-to-undo" };
+  } else {
+    const strippedRaw = stripConfirmationTokens(params.rawCell);
+    resolution =
+      strippedRaw === ""
+        ? { resolvable: false, reason: "empty-raw" }
+        : {
+            resolvable: true,
+            contentHash: contentHashForRawSnippet(params.rawCell),
+            parsed: {
+              kind: "hotel-name",
+              hotelName: params.parsedName,
+              hotelAddress: params.parsedAddress,
+            },
+            replacement: { kind: "hotel-name", hotelName: strippedRaw, hotelAddress: null },
+          };
+  }
+
+  agg.warnings.push({
+    severity: "warn",
+    code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+    message,
+    blockRef,
+    rawSnippet: params.rawCell,
+    resolution,
+  });
+}

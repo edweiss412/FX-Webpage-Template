@@ -37,13 +37,32 @@ export type UseRawResolution =
             roomKind?: RoomKind;
           }
         | { kind: "hotels"; names: string[]; confirmationNo: string | null }
+        // The hotel name/address boundary. `parsed` is the reservation's CURRENT
+        // reading, so the operator sees what the split actually produced rather
+        // than a reconstruction.
+        | { kind: "hotel-name"; hotelName: string | null; hotelAddress: string | null }
         | { kind: "dates"; dates: DateOrderFields };
       replacement:
         | { kind: "rooms"; name: string; dimensions: null; floor: null }
         | { kind: "hotels"; names: [string]; confirmationNo: null }
+        // Undo the split: the whole line back as the name, address cleared.
+        // `hotelName` is ALWAYS confirmation-stripped — `hotel_name` is show-wide
+        // crew-readable and the parser scrubs conf tokens from it, so an
+        // unstripped replacement would re-persist what was scrubbed.
+        | { kind: "hotel-name"; hotelName: string; hotelAddress: null }
         | { kind: "dates"; dmyDates: DateOrderFields };
     }
-  | { resolvable: false; reason: "empty-raw" | "invalid-dmy" };
+  | {
+      resolvable: false;
+      reason:
+        | "empty-raw"
+        | "invalid-dmy"
+        // The inline hotel line runs hotel and booking details together, so no
+        // substring is provably guest-scoped (spec R8).
+        | "raw-not-guest-scoped"
+        // Nothing was split, so parsed and raw are byte-identical.
+        | "no-split-to-undo";
+    };
 
 export type ParseWarning = {
   severity: "info" | "warn";

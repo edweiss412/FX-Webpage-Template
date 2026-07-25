@@ -13,6 +13,7 @@ export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
   "DATE_ORDER_SUGGESTS_DMY",
   "FIELD_LABEL_AUTOCORRECTED",
   "FIELD_UNREADABLE",
+  "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
   "HOTEL_CARDINALITY_EXCEEDED",
   "HOTEL_GUEST_SPLIT_AMBIGUOUS",
   "PULL_SHEET_AMBIGUOUS_FORMAT",
@@ -62,7 +63,9 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
   FIELD_UNREADABLE:
     "Appears when a crew phone or email cell can't work as a real phone number or email address.",
   HOTEL_CARDINALITY_EXCEEDED: "Appears when the sheet has more than four hotel blocks.",
-  HOTEL_GUEST_SPLIT_AMBIGUOUS: "Appears when one guest cell seems to hold more than one name.",
+  HOTEL_ADDRESS_SPLIT_AMBIGUOUS:
+    "Appears when a hotel line's name and street address may not have been separated correctly.",
+  HOTEL_GUEST_SPLIT_AMBIGUOUS: "Appears when a hotel line could be read more than one way.",
   PULL_SHEET_AMBIGUOUS_FORMAT:
     "Appears when a PULL SHEET tab's columns don't match any layout we know.",
   PULL_SHEET_PARSE_PARTIAL: "Appears when a pull-sheet QTY cell isn't a plain number.",

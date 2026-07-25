@@ -67,7 +67,8 @@ export const GAP_CLASSES = [
   // push-worthy alert (Flow 8.3a §6/§10). Mirrors VENUE_GEOCODE_UNRESOLVED.
   { code: "VENUE_TIMEZONE_UNRESOLVED", label: "undetermined venue time zone", gateExempt: true },
   { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", label: "unclear room split" },
-  { code: "HOTEL_GUEST_SPLIT_AMBIGUOUS", label: "possibly merged hotel guests" },
+  { code: "HOTEL_GUEST_SPLIT_AMBIGUOUS", label: "hotel line may be read wrong" },
+  { code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS", label: "hotel name and address may be split wrong" },
   { code: "DATE_ORDER_SUGGESTS_DMY", label: "dates may be day-first" },
   { code: "HOTEL_CARDINALITY_EXCEEDED", label: "too many hotels" },
 ] as const;

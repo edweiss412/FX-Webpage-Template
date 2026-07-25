@@ -14,6 +14,7 @@ const RADIOGROUP_LABEL: Record<
   rooms: "Which reading crew pages use for the room split",
   hotels: "Which reading crew pages use for the hotel guest split",
   dates: "Which reading crew pages use for the show dates",
+  "hotel-name": "Hotel name and address",
 };
 
 /**
@@ -55,6 +56,7 @@ const IN_SCOPE = new Set([
   "ROOM_HEADER_SPLIT_AMBIGUOUS",
   "HOTEL_GUEST_SPLIT_AMBIGUOUS",
   "DATE_ORDER_SUGGESTS_DMY",
+  "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
 ]);
 
 /**
@@ -123,6 +125,13 @@ function parsedFields(
     return p.confirmationNo
       ? [...guests, { label: "Confirmation", value: p.confirmationNo }]
       : guests;
+  }
+  if (p.kind === "hotel-name") {
+    // Null address is OMITTED, never rendered as an empty line (mirrors rooms).
+    return [
+      { label: "Hotel", value: p.hotelName ?? "(no hotel name read)" },
+      ...(p.hotelAddress ? [{ label: "Address", value: p.hotelAddress }] : []),
+    ];
   }
   const d = p.dates;
   const fields: { label: string; value: string }[] = [];
@@ -238,6 +247,8 @@ function formatRaw(resolution: Extract<UseRawResolution, { resolvable: true }>):
   const r = resolution.replacement;
   if (r.kind === "rooms") return r.name;
   if (r.kind === "hotels") return r.names[0];
+  // Conf-stripped by construction at emit time — hotel_name is crew-readable.
+  if (r.kind === "hotel-name") return r.hotelName;
   return formatDates(r.dmyDates);
 }
 
@@ -255,7 +266,13 @@ function formatDates(d: {
   return parts.length > 0 ? parts.join(" · ") : "(no dates read)";
 }
 
-const DISABLED_REASON: Record<"empty-raw" | "invalid-dmy", string> = {
+const DISABLED_REASON: Record<
+  "empty-raw" | "invalid-dmy" | "raw-not-guest-scoped" | "no-split-to-undo",
+  string
+> = {
+  "raw-not-guest-scoped":
+    "This hotel line runs the hotel and the booking details together, so there's nothing safe to swap in.",
+  "no-split-to-undo": "We did not split this line, so there's nothing to swap back.",
   "empty-raw": "The sheet cell is blank, so there's no raw text to use here.",
   "invalid-dmy": "The raw dates don't read cleanly the other way, so we can't swap them in.",
 };
@@ -454,7 +471,9 @@ export function UseRawControl({
       ? "Exactly as the sheet says"
       : resolution.parsed.kind === "hotels"
         ? "The whole cell as one guest"
-        : "Dates read day-first";
+        : resolution.parsed.kind === "hotel-name"
+          ? "The whole line as the hotel name"
+          : "Dates read day-first";
   // "In use" only when the entity rows already reflect the choice; a pending
   // apply/revert (or in-flight toggle) reads "Selected" — crew still see the
   // other value until the next successful sync (critique P2).
