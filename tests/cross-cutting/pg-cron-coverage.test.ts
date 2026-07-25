@@ -239,11 +239,13 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
 
       // Prove the row really is refresh-watch's before trusting its timeout.
       expect(job.command).toContain("/api/cron/refresh-watch");
-      // Scope to the executable net.http_get( call before matching, so a
-      // `timeout_milliseconds` mentioned in a comment or string elsewhere in the
-      // stored command cannot stand in for the real argument (whole-diff R17).
+      // Scope to the net.http_get( call before matching, so a
+      // `timeout_milliseconds` mentioned elsewhere in the stored command cannot
+      // stand in for the real argument (whole-diff R17). This narrows WHERE the
+      // match may come from; it does not establish that the call executes —
+      // `indexOf` cannot tell a live call from a commented-out one (R19).
       const callIdx = job.command.indexOf("net.http_get(");
-      expect(callIdx, "refresh-watch command has no net.http_get( call").toBeGreaterThan(-1);
+      expect(callIdx, "refresh-watch command mentions no net.http_get( call").toBeGreaterThan(-1);
       const call = job.command.slice(callIdx);
       const timeouts = [...call.matchAll(/timeout_milliseconds\s*:?=\s*([0-9_]+)/g)];
       // Exactly one, so a second occurrence (a URL, a debug string) cannot make
