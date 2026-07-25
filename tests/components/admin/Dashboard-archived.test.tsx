@@ -216,7 +216,43 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
     // admin-show-modal Task 11 (D9): server-rendered archived row embeds its own
     // bucket context — fixed /admin?bucket=archived&show= literal.
     expect(open.getAttribute("href")).toBe("/admin?bucket=archived&show=old-show");
+    // Class sweep from the 2026-07-24 dev-row copy close-out (impeccable
+    // critique A-P2): a link whose accessible name is the bare word "Open" is
+    // useless in a screen reader's link list, and this one repeats once per
+    // archived row - "Open, Open, Open". The show title disambiguates it while
+    // the visible label stays "Open".
+    expect(open).toHaveAccessibleName("Open Old Show");
+    const visibleOnly = open.cloneNode(true) as HTMLElement;
+    visibleOnly.querySelectorAll(".sr-only").forEach((n) => n.remove());
+    expect(visibleOnly.textContent?.trim()).toBe("Open");
     expect(row.textContent).not.toMatch(/Re-sync|Rotate|Share|Copy link/i);
+  });
+
+  it("archived row with a blank title still gets a distinguishing accessible name", async () => {
+    // Whole-diff review F2: `row.title ?? row.slug` falls back only on null and
+    // undefined, so an empty or whitespace-only title would normalize the
+    // accessible name straight back to a bare "Open" - the exact repeated-link
+    // defect the qualifier exists to remove. The fallback is truthiness-based
+    // on the TRIMMED title for that reason.
+    state.seed = {
+      activeShows: [],
+      activeCount: 0,
+      archivedCount: 1,
+      archivedShows: [
+        {
+          id: "1",
+          slug: "blank-title-show",
+          title: "   ",
+          archived_at: "2026-07-01T00:00:00.000Z",
+          published: false,
+          data_gaps: null,
+          requires_resync: false,
+        },
+      ],
+    };
+    await renderDashboard("archived");
+    const open = screen.getByTestId("archived-show-open-blank-title-show");
+    expect(open).toHaveAccessibleName("Open blank-title-show");
   });
 
   it("Archived segment empty → 'No archived shows.' empty-state", async () => {

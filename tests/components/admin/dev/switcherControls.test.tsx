@@ -33,6 +33,18 @@ const base = {
 const MIXED: ExcludedScenario[] = [
   { id: "t2-section-absent", label: "Section absent", reason: "structural" },
   { id: "alert-email-delivery-failed", label: "Email delivery failed", reason: "cut" },
+  { id: "alert-live-row-conflict", label: "Live row conflict", reason: "global" },
+];
+
+/** 3 global + 2 cut: the global LINE must read 3, while the TOGGLE reads 5.
+ *  A `{excluded.length}` slip in the new paragraph renders 5 and reads correct
+ *  in every single-reason fixture, so only a mixed-count fixture catches it. */
+const COUNT_SOURCE: ExcludedScenario[] = [
+  { id: "g1", label: "G1", reason: "global" },
+  { id: "g2", label: "G2", reason: "global" },
+  { id: "g3", label: "G3", reason: "global" },
+  { id: "c1", label: "C1", reason: "cut" },
+  { id: "c2", label: "C2", reason: "cut" },
 ];
 
 const TOGGLE_TESTID = "attention-switcher-excluded-toggle";
@@ -96,7 +108,7 @@ describe("SwitcherControls", () => {
     expect(within(bar).queryByText(/structural probes/i)).toBeNull();
     expect(within(bar).queryByText(/published attention surface/i)).toBeNull();
     const toggle = within(bar).getByTestId(TOGGLE_TESTID);
-    expect(within(bar).getByRole("button", { name: /2 excluded/i })).toBe(toggle);
+    expect(within(bar).getByRole("button", { name: /3 excluded/i })).toBe(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(toggle.hasAttribute("aria-controls")).toBe(false);
     expect(within(bar).queryByTestId(PANEL_TESTID)).toBeNull();
@@ -131,6 +143,45 @@ describe("SwitcherControls", () => {
     panel = screen.getByTestId(PANEL_TESTID);
     expect(within(panel).queryByText(/structural probes/i)).toBeNull();
     expect(within(panel).getByText(/published attention surface/i)).toBeTruthy();
+  });
+
+  test("global-only panel shows only the global line", () => {
+    const globalOnly: ExcludedScenario[] = [MIXED[2]!];
+    render(<SwitcherControls {...base} excluded={globalOnly} />);
+    fireEvent.click(screen.getByTestId(TOGGLE_TESTID));
+    const panel = screen.getByTestId(PANEL_TESTID);
+    expect(within(panel).getByText(/dashboard-level/i)).toBeTruthy();
+    expect(within(panel).queryByText(/structural probes/i)).toBeNull();
+    expect(within(panel).queryByText(/cut from the published attention surface/i)).toBeNull();
+  });
+
+  test("all three lines render when all three reasons are present", () => {
+    render(<SwitcherControls {...base} excluded={MIXED} />);
+    fireEvent.click(screen.getByTestId(TOGGLE_TESTID));
+    const panel = screen.getByTestId(PANEL_TESTID);
+    expect(within(panel).getByText(/structural probes/i)).toBeTruthy();
+    expect(within(panel).getByText(/cut from the published attention surface/i)).toBeTruthy();
+    expect(within(panel).getByText(/dashboard-level/i)).toBeTruthy();
+  });
+
+  test("the global line counts the GLOBAL list, not excluded.length", () => {
+    render(<SwitcherControls {...base} excluded={COUNT_SOURCE} />);
+    const toggle = screen.getByTestId(TOGGLE_TESTID);
+    // The toggle IS excluded.length.
+    expect(toggle.textContent).toContain("5");
+    fireEvent.click(toggle);
+    const panel = screen.getByTestId(PANEL_TESTID);
+    const line = within(panel).getByText(/dashboard-level/i);
+    expect(line.textContent).toContain("3");
+    expect(line.textContent).not.toContain("5");
+  });
+
+  test("a single global entry renders the SINGULAR noun", () => {
+    render(<SwitcherControls {...base} excluded={[MIXED[2]!]} />);
+    fireEvent.click(screen.getByTestId(TOGGLE_TESTID));
+    const line = within(screen.getByTestId(PANEL_TESTID)).getByText(/dashboard-level/i);
+    expect(line.textContent).toContain("1 dashboard-level alert.");
+    expect(line.textContent).not.toContain("alerts");
   });
 
   test("no excluded scenarios: no toggle, no panel", () => {

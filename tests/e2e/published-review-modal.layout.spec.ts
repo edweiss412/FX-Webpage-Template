@@ -1227,3 +1227,565 @@ test.describe("crew warning indent + cap (crewwarn-underrow-polish)", () => {
     });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phantom-gap invariants (overview-phantom-gap fix, 2026-07-24).
+//
+// A wrapper that ALWAYS renders but whose entire content is state-gated becomes a
+// ZERO-HEIGHT flex item when the gate is false. A zero-height item is invisible,
+// but it is still an item: its parent's `gap` is charged for it, so the surface
+// shows a doubled seam that no element accounts for. Reported against the
+// published modal's Overview section: `overview-sheet-sync` renders empty on every
+// non-archived show, adding a full `--spacing-section-gap` (32px) on top of the
+// content pane's own `gap-6`, so the alert card sat 56px from the Venue heading
+// where every other section pair sits 24px apart.
+//
+// jsdom cannot see this at all — it computes no layout, so the empty wrapper has
+// no box and no gap either way, and a class-presence assertion would only restate
+// the fix. Both tests below measure real geometry.
+test.describe("phantom gap — zero-height flex items charge their parent's gap", () => {
+  const OVERVIEW = `${MODAL} #overview`;
+
+  for (const { mode, width, height: vh } of MODES) {
+    // T-OVERVIEW-TIGHT. The section's bottom edge must sit on its last VISIBLE
+    // content, not on a zero-height slot below it.
+    //
+    // Deliberately NOT "section height === sum of child heights + gaps": every
+    // zero-height child contributes 0 to that sum AND extends the section by a
+    // gap, so the equation is satisfiable by the bug. Deliberately NOT "the
+    // section's last child's bottom === the section's bottom" either — the empty
+    // wrapper IS the last child and its rect bottom sits exactly on the section
+    // bottom, so that form passes against the bug too. What is measured is the
+    // slack between the last child with REAL EXTENT and the section's own edge.
+    test(`T-OVERVIEW-TIGHT ${mode} @ ${width}: no vertical slack below the Overview section's last visible content`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height: vh });
+
+      const probe = await page.locator(OVERVIEW).evaluate((section) => {
+        const kids = Array.from(section.children) as HTMLElement[];
+        const boxes = kids.map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            testId: el.getAttribute("data-testid") ?? el.tagName.toLowerCase(),
+            display: getComputedStyle(el).display,
+            height: r.height,
+            bottom: r.bottom,
+          };
+        });
+        const visible = boxes.filter((b) => b.display !== "none" && b.height > 0);
+        return {
+          rowGap: parseFloat(getComputedStyle(section).rowGap),
+          sectionBottom: section.getBoundingClientRect().bottom,
+          sectionHeight: section.getBoundingClientRect().height,
+          childCount: kids.length,
+          boxes,
+          visible,
+        };
+      });
+
+      // Non-vacuity: the fixture is a non-archived show WITH attention items, so
+      // the section has real content and its own row gap is live. Without both,
+      // "no slack" would hold trivially.
+      expect(probe.visible.length, `Overview has visible content @ ${mode}`).toBeGreaterThan(0);
+      expect(probe.rowGap, `Overview's own row gap is live @ ${mode}`).toBeGreaterThan(0);
+      expect(probe.sectionHeight, `Overview has real height @ ${mode}`).toBeGreaterThan(0);
+
+      const lastVisibleBottom = Math.max(...probe.visible.map((b) => b.bottom));
+      expect(
+        probe.sectionBottom - lastVisibleBottom,
+        `@ ${mode}: Overview bottom ${probe.sectionBottom} sits ${(
+          probe.sectionBottom - lastVisibleBottom
+        ).toFixed(1)}px below its last visible content — children: ${JSON.stringify(probe.boxes)}`,
+      ).toBeLessThanOrEqual(TOL);
+    });
+
+    // The seam between Overview and the section after it is the content pane's
+    // OWN gap and nothing more. This is the user-visible symptom, measured
+    // against the pane's computed gap rather than a hardcoded 24 — a token change
+    // must not be able to turn this test red.
+    test(`T-OVERVIEW-SEAM ${mode} @ ${width}: the Overview→next-section seam equals the content pane's gap`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height: vh });
+
+      const seam = await page.locator(OVERVIEW).evaluate((section) => {
+        // The scroll pane is the gapped flex column; Overview is wrapped in a
+        // ref-carrying box that is one of its children (ShowReviewSurface's
+        // renderExtraPanel), so walk up to the child whose parent is the pane.
+        const pane = section.closest('[data-testid$="-review-content"]');
+        if (pane === null) return null;
+        // `Element`, not `HTMLElement`: `parentElement` widens to
+        // HTMLElement | SVGElement | MathMLElement, which does not narrow back
+        // under exactOptionalPropertyTypes. Only rects are read below.
+        let box: Element = section;
+        while (box.parentElement !== null && box.parentElement !== pane) {
+          box = box.parentElement;
+        }
+        // The seam's endpoint is the next sibling that PARTICIPATES IN THE FLEX
+        // LAYOUT. `display:none` and out-of-flow (absolute/fixed) siblings are
+        // skipped because they charge no gap and shift nothing — failing on them
+        // would reject a correct tree (an overlay host or a hidden anchor between
+        // two sections is layout-neutral). Everything else is kept, INCLUDING a
+        // zero-height in-flow child: that is a genuine phantom item and must reach
+        // the assertions below rather than be skipped past, or this test recreates
+        // the exact hole it was repaired for.
+        let next: Element | null = box.nextElementSibling;
+        const skipped: string[] = [];
+        while (next !== null) {
+          const ncs = getComputedStyle(next);
+          if (ncs.display !== "none" && ncs.position !== "absolute" && ncs.position !== "fixed") {
+            break;
+          }
+          skipped.push(next.getAttribute("data-testid") ?? `<${next.tagName.toLowerCase()}>`);
+          next = next.nextElementSibling;
+        }
+        if (next === null) return null;
+        const nextRect = next.getBoundingClientRect();
+        return {
+          paneRowGap: parseFloat(getComputedStyle(pane).rowGap),
+          gap: nextRect.top - box.getBoundingClientRect().bottom,
+          nextTestId: next.getAttribute("data-testid"),
+          nextHeight: nextRect.height,
+          skipped,
+        };
+      });
+
+      expect(seam, `Overview has a following in-flow sibling @ ${mode}`).not.toBeNull();
+      expect(seam!.paneRowGap, `content pane declares a row gap @ ${mode}`).toBeGreaterThan(0);
+      // IDENTITY, not merely extent. Extent alone leaves the hole this assertion
+      // exists to close: a 1px placeholder — or an empty div with padding, a
+      // border, or a min-height — is displayed, has positive height, and begins
+      // exactly one `paneRowGap` after Overview, so it satisfies every arithmetic
+      // check while Venue still starts a second gap further down and the
+      // user-visible Overview→Venue seam stays doubled. What makes the endpoint
+      // trustworthy is that it IS a rail section. Matched by shape rather than by
+      // naming `venue`, so reordering the rail cannot make this false-red.
+      expect(
+        seam!.nextTestId ?? "(no testid)",
+        `the element after Overview is a rail section @ ${mode}` +
+          (seam!.skipped.length > 0
+            ? ` (skipped layout-neutral siblings: ${seam!.skipped.join(", ")})`
+            : ""),
+      ).toMatch(/-review-section-[a-z]+$/);
+      // A rail section with no extent would still charge the pane a second gap
+      // below itself, so the endpoint must also be real.
+      expect(
+        seam!.nextHeight,
+        `the section after Overview has real extent @ ${mode} (testid ${seam!.nextTestId})`,
+      ).toBeGreaterThan(0);
+      expect(
+        Math.abs(seam!.gap - seam!.paneRowGap),
+        `@ ${mode}: seam to ${seam!.nextTestId} measured ${seam!.gap.toFixed(1)}px, pane gap is ${
+          seam!.paneRowGap
+        }px`,
+      ).toBeLessThanOrEqual(TOL);
+    });
+  }
+
+  // T-SLOT-PAINTS is the negative-regression half of the fix, and the ONLY test
+  // that can fail if `empty:hidden` over-reaches. `:empty` matches on child-node
+  // count, so a slot with content must stay in flow — but every other assertion
+  // here is satisfied by a slot that is hidden ALWAYS, and T-NOPHANTOM
+  // specifically skips `display:none` subtrees, so an over-broad `hidden` would
+  // read as green everywhere else. The archived page is the only fixture where
+  // this slot has a child.
+  //
+  // jsdom cannot stand in: the existing unit test
+  // (tests/components/admin/showpage/overviewSection.test.tsx) proves the notice
+  // is in the DOM, which is exactly what a `display:none` regression would also
+  // allow. Only a real browser resolves the class to a computed display.
+  test("T-SLOT-PAINTS [archived] @1280: the sheet/sync slot stays in flow when it HAS content", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 1280, height: 900 }, "archived.html");
+
+    const slot = await page
+      .locator(`${MODAL} [data-testid="overview-sheet-sync"]`)
+      .evaluate((el) => {
+        const notice = el.querySelector('[data-testid="admin-show-resync-archived"]');
+        const rect = el.getBoundingClientRect();
+        return {
+          display: getComputedStyle(el).display,
+          height: rect.height,
+          childCount: el.children.length,
+          noticeText: notice?.textContent?.trim() ?? null,
+          noticeHeight: notice?.getBoundingClientRect().height ?? 0,
+        };
+      });
+
+    // Premise: the fixture really does fill the slot. Without a child, `:empty`
+    // matches legitimately and the rest of this test would be about nothing.
+    expect(slot.childCount, "archived fixture fills the sheet/sync slot").toBeGreaterThan(0);
+    expect(slot.noticeText, "the Re-sync-paused notice is the child").toContain(
+      "Re-sync is paused",
+    );
+
+    expect(slot.display, "a populated slot is NOT display:none").not.toBe("none");
+    expect(slot.height, "a populated slot has real height").toBeGreaterThan(0);
+    expect(slot.noticeHeight, "the notice itself paints").toBeGreaterThan(0);
+  });
+
+  // T-NOPHANTOM is the CLASS defense, not a second look at the same element: it
+  // discovers zero-extent flex/grid items anywhere in the rendered modal instead
+  // of naming the one that was reported. A new always-rendered, fully-gated
+  // wrapper fails this the moment it lands, in any section. It is what surfaced
+  // the ScheduleDayRow instance, which the bug report never mentioned.
+  //
+  // What it is and is NOT. It is a REGRESSION DETECTOR for one bug class in one
+  // tree, not a general proof that no gap is ever mischarged. Zero item extent is
+  // a PROXY for "this item contributes nothing but is charged a gap," and the
+  // proxy has documented limits, listed here so a green run is not read as more
+  // than it is:
+  //   - GENERATED BOXES. `::before` / `::after` can be flex/grid items and can
+  //     charge gaps, and `el.children` cannot enumerate them. Out of reach for
+  //     this mechanism entirely.
+  //   - GRID TRACKS vs GRID ITEMS. Grid gaps sit between TRACKS. An empty item
+  //     stretched across a non-zero track has a positive rect while its unwanted
+  //     track and adjacent gaps remain — a false green this probe cannot see.
+  //     Catching it needs computed track sizes (`grid-template-*` resolution),
+  //     which is a different tool.
+  //   - MULTI-LINE MEMBERSHIP. On the cross axis of a wrapped container the probe
+  //     cannot tell whether a zero-extent item sits alone on its own line (where
+  //     it does create a collapsed line, and a charged gap) or shares a line with
+  //     siblings (where it does not). It reports the item and lets the reader
+  //     judge; the alternative — staying silent on the whole axis — is how the
+  //     ScheduleDayRow instance would have been missed.
+  //
+  // Design decisions, each answering a specific way the naive version was wrong:
+  //   - AXIS SELECTION follows the container. A flex column charges `row-gap`
+  //     against zero HEIGHT; a flex row charges `column-gap` against zero WIDTH
+  //     (`startsWith("column")` handles `column-reverse` and `row-reverse`).
+  //     WRAPPED containers charge BOTH: a full-width zero-height item on its own
+  //     line in a wrapped row collapses that line and still pays `row-gap`. Grid
+  //     charges both unconditionally.
+  //   - ≥2 IN-FLOW ITEMS REQUIRED. A gapped container holding ONE item realizes
+  //     no gap at all, so its lone zero-size child is not an offender — reporting
+  //     it is a false red. The count is of in-flow items, computed below.
+  //   - `display:contents` IS FLATTENED, not skipped. The wrapper is correctly not
+  //     an item, but its descendant boxes are PROMOTED into this container's
+  //     formatting context and become items themselves. Skipping the wrapper
+  //     without recursing let a promoted zero-extent item hide.
+  //   - EXTENT NEEDS BOTH RECT AND OFFSET TO BE ZERO. `getBoundingClientRect()`
+  //     returns the TRANSFORMED visual rect, so a `scale(0)` element reads 0 while
+  //     still occupying its full layout box and charging nothing extra. `offset*`
+  //     is the untransformed layout box. Requiring both to vanish keeps transforms
+  //     out of the offender list without giving up sub-pixel sanity.
+  //   - HIDDEN-ANCESTOR DETECTION WALKS `display` EXPLICITLY rather than calling
+  //     `checkVisibility()`. Both resolve the ancestor chain (needed: descendants
+  //     of a `display:none` ancestor report 0×0 rects while their own computed
+  //     display is untouched — the `lg:hidden` chip rail alone contributed 25
+  //     false positives). But `checkVisibility()` ALSO returns false under
+  //     `content-visibility: hidden`, and `app/globals.css` does transition
+  //     `content-visibility` — an element skipped for that reason can still hold a
+  //     box and charge its parent's gap. `visibility:hidden` and `opacity:0` are
+  //     deliberately still counted as items: they occupy space, so they pay.
+  //
+  // Coverage: every fixture page the harness builds, at BOTH viewports. The
+  // responsive tree genuinely differs (the `lg:hidden` rail is proof), and a
+  // wrapper populated in one state can empty out in another — restricting this to
+  // one page at one width was the probe's largest blind spot. Client-only states
+  // (mid-publish, open popovers) remain unreachable: this harness does not
+  // hydrate.
+  const NOPHANTOM_PAGES = [
+    { page: "", label: "normal (published, not archived)" },
+    { page: "archived.html", label: "archived" },
+    { page: "capped.html", label: "capped alert count" },
+    { page: "notlive.html", label: "not live" },
+    { page: "crewwarnings.html", label: "crew warnings" },
+    { page: "crewwarningscapped.html", label: "crew warnings capped" },
+  ] as const;
+
+  /**
+   * KNOWN, DEFERRED instances of this class — a debt ledger, not a mute switch.
+   *
+   * SCOPED AND COUNTED, deliberately. An earlier version matched with `some()` on
+   * the `parent`/`child`/`axis` triple alone, which was unsound in four ways at
+   * once: labels are derived from an element's own testid OR its nearest testid'd
+   * ANCESTOR, so the triple is NOT unique; one row therefore suppressed EVERY
+   * occurrence of that triple, a NEW offender added beside the known one, and the
+   * same triple on any other fixture page or viewport. It also could not tell a
+   * live debt from a stale row whose instance had since been fixed.
+   *
+   * So each row now pins the exact fixture page, viewport width, and OCCURRENCE
+   * COUNT it accounts for. Matching is one-to-one: exactly `count` occurrences are
+   * consumed, a surplus stays in the offender list and fails, and a shortfall fails
+   * separately as a stale row that must be deleted.
+   *
+   * The one debt below is PRE-EXISTING and lives in a component this branch does not
+   * touch (`components/admin/BulkIgnoreControls.tsx:179`): the warning group's
+   * decorative `h-px flex-1 bg-border` hairline. In a crowded `flex items-center
+   * gap-2` row at 375px the label and the bulk chip consume the line, `flex-1`
+   * resolves to zero width, and the row still charges `gap-2` on both sides of an
+   * invisible rule — one extra 8px, exactly this class. Fixing it is a visual
+   * decision about crowded-row behavior at narrow widths (drop the rule below some
+   * width? give it a min-width? let the row wrap?), which belongs with that
+   * component and its own before/after judgment, not bundled into this seam fix.
+   */
+  const KNOWN_PHANTOM_ITEMS: {
+    page: string;
+    width: number;
+    parent: string;
+    child: string;
+    axis: string;
+    count: number;
+    why: string;
+    // EMPTY. The one row this ledger ever carried — BulkIgnoreControls' eyebrow
+    // hairline collapsing to 0 width at 375px — was paid off, not re-deferred: the
+    // rule is now `hidden` below 480px (spec 2026-07-24-dq-eyebrow-divider-and-
+    // confirm-bar §3.1), so it charges no gap. A row kept past its debt masks a
+    // later offender with the same label triple, which is why the stale-row
+    // assertion below fails on one.
+  }[] = [];
+
+  for (const { page: htmlPath, label } of NOPHANTOM_PAGES) {
+    for (const { mode, width, height: vh } of MODES) {
+      test(`T-NOPHANTOM [${label}] ${mode} @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
+        page,
+      }) => {
+        await openHarness(page, { width, height: vh }, htmlPath);
+
+        const found = await page.locator(MODAL).evaluate((modal) => {
+          const offenders: { parent: string; child: string; axis: string; gap: number }[] = [];
+          const visited: string[] = [];
+          let itemsExamined = 0;
+          const label = (el: Element): string => {
+            const own = el.getAttribute("data-testid");
+            if (own !== null) return own;
+            const near = el.closest("[data-testid]")?.getAttribute("data-testid") ?? "?";
+            return `<${el.tagName.toLowerCase()} in ${near}>`;
+          };
+          /** `display:none` anywhere up to the modal removes the whole subtree. */
+          const hidden = (el: Element): boolean => {
+            let node: Element | null = el;
+            while (node !== null) {
+              if (getComputedStyle(node).display === "none") return true;
+              if (node === modal) return false;
+              node = node.parentElement;
+            }
+            return false;
+          };
+          /**
+           * `content-visibility: hidden` skips the SUBTREE'S OWN layout, so gaps
+           * inside it are not rendered and zero-size descendants charge nothing.
+           *
+           * Starts at the element ITSELF, not its parent: a gapped container that
+           * carries the property has its own children's layout skipped, so measuring
+           * its items is exactly as false-red as measuring a descendant's. The
+           * boundary element remains an item of ITS parent and is measured there,
+           * which is why `hidden()` (display) and this check are separate.
+           */
+          const contentHiddenInside = (el: Element): boolean => {
+            let node: Element | null = el;
+            while (node !== null) {
+              if (getComputedStyle(node).contentVisibility === "hidden") return true;
+              if (node === modal) return false;
+              node = node.parentElement;
+            }
+            return false;
+          };
+          /**
+           * The container's real items, with `display:contents` flattened away.
+           *
+           * ORDER MATTERS: the `contents` test comes BEFORE the out-of-flow test. A
+           * `display:contents` element generates no box at all, so `position` on it
+           * is inert — its non-positioned descendants are promoted and remain real
+           * items of this container. Discarding such a wrapper for being
+           * `position:absolute` hid every descendant it promoted and undercounted
+           * the container.
+           */
+          const itemsOf = (container: Element): Element[] => {
+            const out: Element[] = [];
+            for (const child of Array.from(container.children)) {
+              const ccs = getComputedStyle(child);
+              if (ccs.display === "none") continue;
+              if (ccs.display === "contents") {
+                out.push(...itemsOf(child));
+                continue;
+              }
+              if (ccs.position === "absolute" || ccs.position === "fixed") continue;
+              out.push(child);
+            }
+            return out;
+          };
+          /**
+           * Non-whitespace TEXT directly inside a flex/grid container generates an
+           * ANONYMOUS item. It has no element, so it can never be an offender — but
+           * it absolutely counts toward "does this container realize a gap at all",
+           * and missing it made a container of {visible text, one empty element}
+           * look like a single-item container and get skipped.
+           */
+          const anonymousItems = (container: Element): number => {
+            let n = 0;
+            for (const node of Array.from(container.childNodes)) {
+              if (node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "")
+                n += 1;
+              else if (
+                node.nodeType === Node.ELEMENT_NODE &&
+                getComputedStyle(node as Element).display === "contents"
+              ) {
+                n += anonymousItems(node as Element);
+              }
+            }
+            return n;
+          };
+          /**
+           * Zero on BOTH the visual rect and the untransformed layout box.
+           *
+           * `getBoundingClientRect()` is the TRANSFORMED rect, so `scale(0)` reads
+           * zero while the element still occupies its full layout box and charges
+           * nothing extra. `offset*` is the layout box — but it exists only on
+           * HTMLElement. For SVG and MathML items there is no offset metric, and
+           * treating its absence as zero reported a positive-size `scale(0)` SVG as
+           * an offender. For those, fall back to "no transform is in play": a
+           * genuinely zero-size SVG still reports, a transformed one does not.
+           */
+          const vanishes = (el: Element, dim: "height" | "width"): boolean => {
+            const rect = el.getBoundingClientRect();
+            if ((dim === "height" ? rect.height : rect.width) !== 0) return false;
+            const offset =
+              dim === "height" ? (el as HTMLElement).offsetHeight : (el as HTMLElement).offsetWidth;
+            if (typeof offset === "number") return offset === 0;
+            return getComputedStyle(el).transform === "none";
+          };
+          /**
+           * Realized track count on one axis. For a grid container the computed
+           * `grid-template-*` is the USED value — a space-separated list of pixel
+           * sizes — so its length is the track count. `minmax()` and `repeat()` are
+           * already resolved away, but LINE NAMES are not: Chrome reports
+           * `[full-start] 100px [full-end]`, and counting those brackets as tracks
+           * would overstate the count and pull single-track grids into examination.
+           */
+          const trackCount = (cs: CSSStyleDeclaration, dim: "height" | "width"): number => {
+            const tpl = dim === "height" ? cs.gridTemplateRows : cs.gridTemplateColumns;
+            if (tpl === "none" || tpl === "subgrid" || tpl.trim() === "") return 0;
+            return tpl
+              .replace(/\[[^\]]*\]/g, " ")
+              .trim()
+              .split(/\s+/)
+              .filter((t) => t !== "").length;
+          };
+
+          for (const el of [modal, ...Array.from(modal.querySelectorAll("*"))]) {
+            if (hidden(el)) continue;
+            // Inside a `content-visibility:hidden` subtree the browser skips the
+            // subtree's own layout, so its internal gaps are not rendered and a
+            // zero-size descendant charges nothing. Measuring in there is a false
+            // red. (The boundary element remains an item of its own parent.)
+            if (contentHiddenInside(el)) continue;
+            const cs = getComputedStyle(el);
+            const isFlex = cs.display === "flex" || cs.display === "inline-flex";
+            const isGrid = cs.display === "grid" || cs.display === "inline-grid";
+            if (!isFlex && !isGrid) continue;
+            const rowGap = parseFloat(cs.rowGap) || 0;
+            const colGap = parseFloat(cs.columnGap) || 0;
+            const isColumn = cs.flexDirection.startsWith("column");
+            const wraps = isFlex && cs.flexWrap !== "nowrap";
+            // Grid charges both axes; flex charges its main axis always and its
+            // cross axis only when it can produce more than one line.
+            const chargesRowGap = isGrid || isColumn || wraps;
+            const chargesColGap = isGrid || !isColumn || wraps;
+            const axes = [
+              ...(chargesRowGap && rowGap > 0
+                ? [{ axis: "row-gap", gap: rowGap, dim: "height" as const }]
+                : []),
+              ...(chargesColGap && colGap > 0
+                ? [{ axis: "column-gap", gap: colGap, dim: "width" as const }]
+                : []),
+            ];
+            if (axes.length === 0) continue;
+            const items = itemsOf(el);
+            // ITEM COUNT INCLUDES ANONYMOUS TEXT ITEMS — {visible text, one empty
+            // element} really is two items and really does realize a gap.
+            const itemCount = items.length + anonymousItems(el);
+            // "Fewer than two items realizes no gap" holds for FLEX only. A GRID can
+            // realize several tracks from one item — explicit templates, named areas,
+            // spans, implicit track creation — and the gaps BETWEEN those tracks are
+            // charged regardless of how many items exist. So a single-item grid is
+            // examined whenever the axis genuinely has more than one track.
+            const chargeableAxes = isGrid
+              ? axes.filter(({ dim }) => itemCount >= 2 || trackCount(cs, dim) >= 2)
+              : itemCount >= 2
+                ? axes
+                : [];
+            if (chargeableAxes.length === 0) continue;
+            visited.push(label(el));
+            for (const item of items) {
+              itemsExamined += 1;
+              for (const { axis, gap, dim } of chargeableAxes) {
+                if (vanishes(item, dim)) {
+                  offenders.push({ parent: label(el), child: label(item), axis, gap });
+                }
+              }
+            }
+          }
+          return { offenders, visited, itemsExamined };
+        });
+
+        // NON-VACUITY BY NAMED ANCHOR, not by a magic container count. A count
+        // floor is satisfiable by eleven unrelated controls while the subtree that
+        // actually matters is absent or suppressed, and it fails a legitimate
+        // refactor that reduces the number of gapped containers.
+        //
+        // The anchor is the SCROLL PANE — `flex flex-col gap-6`, holding every rail
+        // section, and the container whose gap the reported bug doubled. It renders
+        // on every fixture page at every width with many items.
+        //
+        // NOT the Overview section itself, which would be wrong in an instructive
+        // way: now that the fix lands, Overview holds exactly ONE in-flow item on
+        // every non-archived page, so the ≥2-items rule correctly skips it and it
+        // never enters `visited`. An anchor that only holds while the bug is
+        // present is not an anchor.
+        // TWO anchors, both named, no magic counts. The pane proves the walk
+        // entered the section column; a container belonging to a rail SECTION
+        // proves it descended INTO the sections rather than stopping at the top
+        // level. (An earlier `itemsExamined > 20` was just the rejected container
+        // floor in another costume: 21 unrelated items satisfy it, and a legitimate
+        // simplification breaks it.) The pane is matched with the harness's own
+        // dfid, so an unrelated future testid ending `-review-content` cannot
+        // satisfy it.
+        expect(
+          found.visited.filter((v) => v === `wizard-step3-card-${HARNESS_DFID}-review-content`),
+          `the walk reached the section scroll pane [${label} @ ${width}]`,
+        ).not.toEqual([]);
+        expect(
+          found.visited.filter((v) => /-review-section-|-section-[a-z]+-panel-card/.test(v)),
+          `the walk descended into the rail sections, not just the pane [${label} @ ${width}]`,
+        ).not.toEqual([]);
+
+        // LEDGER RECONCILIATION, one-to-one. Each row consumes exactly `count`
+        // occurrences of its triple on its own page and width. A surplus survives
+        // into `remaining` and fails as a new offender; a shortfall fails as a stale
+        // row. Neither a new instance beside a known one nor a row whose debt was
+        // repaid can hide.
+        const ledger = KNOWN_PHANTOM_ITEMS.filter((k) => k.page === htmlPath && k.width === width);
+        const remaining = [...found.offenders];
+        const stale: string[] = [];
+        for (const row of ledger) {
+          let consumed = 0;
+          for (let i = remaining.length - 1; i >= 0 && consumed < row.count; i -= 1) {
+            const o = remaining[i]!;
+            if (o.parent === row.parent && o.child === row.child && o.axis === row.axis) {
+              remaining.splice(i, 1);
+              consumed += 1;
+            }
+          }
+          if (consumed < row.count) {
+            stale.push(
+              `${row.parent} → ${row.child} (${row.axis}): ledger expects ${row.count}, found ${consumed}`,
+            );
+          }
+        }
+        expect(
+          stale,
+          `stale KNOWN_PHANTOM_ITEMS rows [${label} @ ${width}] — the instance is gone, so delete` +
+            ` the row (a row kept past its debt masks a later offender with the same label triple)`,
+        ).toEqual([]);
+        expect(
+          remaining,
+          `zero-extent items charge their parent's gap and show as a seam no element accounts for [${label} @ ${width}]`,
+        ).toEqual([]);
+      });
+    }
+  }
+});

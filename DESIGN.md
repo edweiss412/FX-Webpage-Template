@@ -311,6 +311,23 @@ This gotcha is the single most common failure mode on this project's UI work —
 
 ---
 
+## 7a. Empty state-gated slots inside gapped parents — `empty:hidden`
+
+**A childless flex/grid item still charges its parent's `gap`.** A wrapper that always renders while its entire content is state-gated paints nothing when the gate is false, but it is still an item, so the parent's `gap` is spent on it and the surface shows a seam no element accounts for. Reported 2026-07-24 as an "unnaturally large gap" between the Overview alert card and the Venue heading in the published show modal: `overview-sheet-sync` renders childless on every non-archived show, adding a full `--spacing-section-gap` (32px) on top of the content pane's own `gap-6`, so that one pair sat 56px apart where every other section pair sits 24px apart.
+
+**Rule.** Any wrapper that (a) always renders, (b) can have every child gated away, and (c) sits inside a parent with a non-zero `gap` carries `empty:hidden`. It keeps the documented slot — so the next addition has a container to land in — while costing nothing when there is nothing to show. Prefer this over collapsing the wrapper into a bare conditional.
+
+Two caveats:
+
+- `:empty` matches only when the element has NO child nodes, **text included**. JSX drops whitespace-only children, so a `{cond ? … : null}` or `{items.map(…)}` body is safe — but inserting a literal space or `{" "}` silently re-enables the gap.
+- The pattern is for elements that can only be hidden when they are genuinely empty. `display:none` on a POPULATED element is an accessibility change; this is not, because there is never content or an accessible name to remove.
+
+Verified in a real browser, never in jsdom (no layout computed there, and a class-presence assertion only restates the fix): `T-OVERVIEW-TIGHT` measures the slack below a section's last child with real extent, and `T-NOPHANTOM` walks the whole rendered modal for zero-extent in-flow items inside any gapped container — both in `tests/e2e/published-review-modal.layout.spec.ts`. Current sites: `components/admin/showpage/OverviewSection.tsx` (sheet/sync slot) and `ScheduleDayRow`'s 2-track time grid in `components/admin/wizard/step3ReviewSections.tsx`.
+
+**The zero-WIDTH sibling — same seam, different cause, and `empty:hidden` does not reach it.** A decorative `flex-1` rule between a label and a control is not childless; it is squeezed. When the row's other items fill the line, `flex-1` resolves `flex-basis: 0` with nothing left to grow into, the rule settles at 0 px, and the row still spends its `gap` on both sides of it. `:empty` never matches, so the §7a idiom above is no defense. Rule: a decorative rule in a row that can get crowded carries (a) a breakpoint that removes it from flow where it would collapse — `hidden min-[480px]:block`, the boundary MEASURED rather than assumed — and (b) a `min-w-*` floor at the widths where it is drawn, so the zero-width state is unreachable in containers the measurement never covered. Site: `components/admin/BulkIgnoreControls.tsx` (data-quality group eyebrow), where the rule measured 0 px at every width from 320 to 430 and first drew 31.4 px at 480. Spec: `docs/superpowers/specs/2026-07-24-dq-eyebrow-divider-and-confirm-bar-design.md`.
+
+---
+
 ## 8. Iconography
 
 Size tokens: `--icon-sm` (16px), `--icon-md` (20px), `--icon-base` (24px), `--icon-lg` (32px).

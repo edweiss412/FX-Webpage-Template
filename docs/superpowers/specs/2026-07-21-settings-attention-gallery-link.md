@@ -29,6 +29,14 @@ modal switcher gallery at `/admin/dev/attention-gallery`, beside the existing
 - **Row copy unchanged.** Title "Developer tools" and description "Fixture
   tester and parse diagnostics. Hidden from normal use." stay as-is. The new
   link's label is the only new user-visible copy.
+  > **AMENDED 2026-07-24 — this freeze is superseded**, by
+  > `docs/superpowers/specs/2026-07-24-settings-devrow-copy-close.md`, which
+  > closes the four impeccable findings this change deferred. The description is
+  > now "Fixture tester, parse diagnostics, and the attention gallery. Hidden
+  > from normal use."; the "Open" link gained a hidden `sr-only` qualifier so its
+  > accessible name is "Open developer tools" (visible label unchanged); and the
+  > destination heading was retitled from "Attention modal gallery" to
+  > "Attention gallery". The row TITLE and the link LABEL are still unchanged.
 - **No link added on the `/admin/dev` index page.** Out of scope; the request
   was the settings page.
 - **User review gates waived** — autonomous-ship consent given in-session

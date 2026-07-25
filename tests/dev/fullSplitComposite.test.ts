@@ -25,7 +25,6 @@ describe("t3-full-attention-split composite", () => {
     expect(s.alerts.map((a) => a.code)).toEqual([
       "SHEET_UNAVAILABLE",
       "RESYNC_QUALITY_REGRESSED",
-      "SYNC_STALLED",
       "DRIVE_FETCH_FAILED",
     ]);
     expect(s.alerts[0]?.context).toEqual({ drive_file_id: "gallery-fixture-file" });
@@ -45,12 +44,12 @@ describe("t3-full-attention-split composite", () => {
     expect("warnings" in s).toBe(false);
   });
 
-  it("derives the full split: 1 actionable (the hold), 2 needs_look, 2 self_heal", () => {
+  it("derives the full split: 1 actionable (the hold), 2 needs_look, 1 self_heal", () => {
     const items = deriveScenarioAttention(scenario());
     expect(items.filter((i) => i.actionable)).toHaveLength(1);
     expect(items.filter((i) => i.actionable)[0]?.kind).toBe("hold");
     expect(items.filter((i) => i.clearingKind === "needs_look")).toHaveLength(2);
-    expect(items.filter((i) => i.clearingKind === "self_heal")).toHaveLength(2);
+    expect(items.filter((i) => i.clearingKind === "self_heal")).toHaveLength(1);
   });
 
   it("sheet row resolves the EXTERNAL link from context.drive_file_id (gallery has no show-level id)", () => {
