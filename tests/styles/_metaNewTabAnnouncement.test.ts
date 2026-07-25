@@ -49,6 +49,10 @@ const CASE_INSENSITIVE_NAMES = new Set([
   "referrerpolicy",
   "download",
   "ping",
+  // Added at R21: hidesFromAccName now treats these as hiding, so a non-lowercase
+  // literal spelling either one would be a live defect.
+  "inert",
+  "open",
 ]);
 
 /** Attributes that can affect an element's computed accessible name or its visibility, from an
@@ -88,6 +92,9 @@ const NAME_AFFECTING_ATTRIBUTES: readonly string[] = [
   "title",
   "translate",
   "writingsuggestions",
+  // R21: <details> content is hidden when `open` is ABSENT -- the one attribute here
+  // whose absence is the hiding condition.
+  "open",
   // <a> attributes
   "href",
   "target",
@@ -192,6 +199,7 @@ export function nameShapedLiterals(src: string): string[] {
 const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   // JSX tag names are case-SENSITIVE, so folding them would be a bug, not coverage.
   ["a", "intrinsic tag name"],
+  ["details", "intrinsic tag name (R21: closed <details> hides its content)"],
   ["Link", "component tag name"],
   ["NewTabHint", "component tag name"],
   // Internal classification verdicts returned by the shape rules.
@@ -1545,6 +1553,56 @@ describe("R6: scanner changes are pinned", () => {
         violations(`const A=()=><a href="x" ${first}="_self" ${second}="_blank">Go</a>;`).join(" "),
         `duplicate ${first}/${second} must be reported`,
       ).toMatch(/case-folding|unrecognized/);
+    }
+  });
+
+  it("R21 class, inert and a closed details all hide the hint", () => {
+    const bad = [
+      // React forwards a literal `class` to the DOM, so this really hides. The scanner
+      // read only `className`, which made this a fail-open in the SHIPPED rule.
+      'const A=()=><a href="x" target="_blank">Go <span class="hidden"><NewTabHint /></span></a>;',
+      // `inert` removes the subtree from the accessibility tree (HTML Standard).
+      'const A=()=><a href="x" target="_blank">Go <span inert><NewTabHint /></span></a>;',
+      // A closed `<details>` hides its content, and ABSENCE of `open` is the condition --
+      // the only hiding condition here that a presence-scanning loop cannot find.
+      'const A=()=><a href="x" target="_blank">Go <details><NewTabHint /></details></a>;',
+      'const A=()=><a href="x" target="_blank">Go <details open={false}><NewTabHint /></details></a>;',
+    ];
+    for (const src of bad) {
+      expect(violations(src), `must report: ${src}`).not.toEqual([]);
+    }
+    // The visible forms still pass, so the fix did not simply reject everything.
+    const ok = [
+      'const A=()=><a href="x" target="_blank">Go <span class="ml-1"><NewTabHint /></span></a>;',
+      'const A=()=><a href="x" target="_blank">Go <span inert={false}><NewTabHint /></span></a>;',
+      'const A=()=><a href="x" target="_blank">Go <details open><NewTabHint /></details></a>;',
+    ];
+    for (const src of ok) {
+      expect(violations(src), `must accept: ${src}`).toEqual([]);
+    }
+  });
+
+  it("R21 a phrase-only accessible name is reported", () => {
+    // The guard checked whether the HINT was visible, never whether the LABEL still was.
+    // Both installed accessible-name implementations compute "(opens in a new tab)" alone
+    // for these -- strictly worse than no announcement, since the link stops saying where
+    // it goes. The aria-label path already had this rule; the content path did not.
+    for (const src of [
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span className="hidden">Go</span> <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must report phrase-only: ${src}`).not.toEqual([]);
+    }
+    // Conservative in the direction that matters: an aria-hidden ICON beside a visible
+    // label is the common real shape in this tree and must keep passing.
+    for (const src of [
+      'const A=()=><a href="x" target="_blank"><span>Go</span> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">B</span> Go <NewTabHint /></a>;',
+      // An interpolated label is opaque, so it must be assumed to carry a destination
+      // rather than manufacture a violation.
+      'const A=({label})=><a href="x" target="_blank">{label} <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
   });
 

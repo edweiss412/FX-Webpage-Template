@@ -413,9 +413,72 @@ function labelAnnounces(
   return "none";
 }
 
+/** Is `n` the NewTabHint element? One definition, shared by the separator walk and the
+ *  destination-content rule, so the two cannot disagree about what the hint is. */
+function isHintElement(n: ts.Node): boolean {
+  return (
+    (ts.isJsxSelfClosingElement(n) && n.tagName.getText() === HINT) ||
+    (ts.isJsxElement(n) && n.openingElement.tagName.getText() === HINT)
+  );
+}
+
+/**
+ * Does the anchor still contribute a DESTINATION to its accessible name, i.e. visible
+ * content other than the announcement itself?
+ *
+ * R21 BLOCKING 2: the guard checked whether the HINT was visible but never whether the
+ * LABEL still was. `<a ...><span aria-hidden="true">Go</span> <NewTabHint /></a>` therefore
+ * passed, and both installed accessible-name implementations compute the name as
+ * "(opens in a new tab)" alone -- strictly worse than no announcement, because the link no
+ * longer says where it goes. The `aria-label` path already had this rule as `phrase-only`;
+ * the content path did not.
+ *
+ * Deliberately conservative in the direction that matters: an aria-hidden ICON beside a
+ * visible label is the common real shape here and must keep passing, so this only reports
+ * when NOTHING outside the hint survives.
+ */
+function hasDestinationContent(anchor: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
+  if (!ts.isJsxElement(anchor)) return false;
+  let found = false;
+  const walk = (n: ts.Node, hiddenAbove: boolean): void => {
+    if (found) return;
+    if (isHintElement(n)) return; // the announcement is not a destination
+    const hidden =
+      hiddenAbove || ((ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) && hidesFromAccName(n));
+    if (ts.isJsxText(n)) {
+      if (!hiddenAbove && n.text.trim().length > 0) found = true;
+      return;
+    }
+    // An interpolated expression is opaque, so assume it CAN carry a destination: this
+    // rule must not manufacture violations on `{label}`.
+    if (ts.isJsxExpression(n) && n.expression && !hiddenAbove) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, (c) => walk(c, hidden));
+  };
+  for (const c of anchor.children) walk(c, false);
+  return found;
+}
+
 /** Is this element (or an ancestor up to the anchor) hidden from the acc name? */
 function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
   const attrs = ts.isJsxElement(el) ? el.openingElement.attributes : el.attributes;
+  // `<details>` hides its content when `open` is ABSENT -- the only attribute here whose
+  // absence is the hiding condition, which is why a presence-scanning loop could never
+  // find it (review R21 BLOCKING 3). A `<summary>` child is still shown when closed, but
+  // the hint is never a summary, so treating a closed details as hiding is correct here.
+  const tag = ts.isJsxElement(el) ? el.openingElement.tagName.getText() : el.tagName.getText();
+  if (tag === "details") {
+    const openAttr = attrs.properties.find((a) => attrName(a) === "open");
+    if (!openAttr) return true;
+    if (ts.isJsxAttribute(openAttr) && openAttr.initializer) {
+      const init = openAttr.initializer;
+      if (ts.isJsxExpression(init) && init.expression) {
+        if (unparen(init.expression).kind === ts.SyntaxKind.FalseKeyword) return true;
+      }
+    }
+  }
   for (const a of attrs.properties) {
     const n = attrName(a);
     if (!ts.isJsxAttribute(a)) continue;
@@ -439,7 +502,24 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
       if (n === "aria-hidden" && v === "false") continue;
       return true;
     }
-    if (n === "classname") {
+    // `inert` removes the subtree from the accessibility tree entirely (HTML Standard,
+    // inert subtrees), so it hides exactly like `hidden`. It was in the guard's own
+    // name-affecting list while this function did not handle it, which made the casing
+    // sweep agree on both spellings of a genuinely inaccessible announcement
+    // (review R21 BLOCKING 1). Boolean semantics, same as `hidden`.
+    if (n === "inert") {
+      if (!a.initializer) return true;
+      const init = a.initializer;
+      if (ts.isJsxExpression(init) && init.expression) {
+        if (unparen(init.expression).kind === ts.SyntaxKind.FalseKeyword) continue;
+      }
+      return true;
+    }
+    // `class` AND `className`. React forwards a literal `class` to the DOM (dev warning
+    // only), so `<span class="hidden">` really hides -- and this function used to read
+    // only `className`, so that spelling was a fail-open in the SHIPPED rule, not merely
+    // an untested one (review R21 BLOCKING 1).
+    if (n === "classname" || n === "class") {
       // Read the raw text, not just a resolved literal: a dynamic
       // `className={hide ? "hidden" : ""}` previously resolved to null and was
       // treated as visible (review R2 HIGH 4). Any mention of a hiding class in
@@ -496,9 +576,7 @@ function hintHasSiblingSpace(root: ts.Node): boolean {
     return "first"; // nothing precedes it at this level
   };
 
-  const isHint = (n: ts.Node): boolean =>
-    (ts.isJsxSelfClosingElement(n) && n.tagName.getText() === HINT) ||
-    (ts.isJsxElement(n) && n.openingElement.tagName.getText() === HINT);
+  const isHint = isHintElement;
 
   // Parent chain so a hint that HEADS a wrapper can inherit the wrapper's
   // separator: `Go <span hidden={false}><NewTabHint /></span>` is correctly
@@ -1287,6 +1365,10 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
             );
           } else if (hint.hidden) {
             record("NewTabHint is hidden from the accessible name");
+          } else if (!hasDestinationContent(node)) {
+            record(
+              'the only visible content is the announcement, so the accessible name reads "(opens in a new tab)" with no destination',
+            );
           } else if (!hint.separated) {
             record(
               'NewTabHint needs a real sibling space before it, else the accessible name reads "Label(opens in a new tab)"',

@@ -415,6 +415,26 @@ WITH substitutions is not. Anything outside these shapes is reported as
   positive and never a missed announcement. Value-casing is therefore out of scope for the sweep,
   stated here rather than left to look like an oversight.
 
+  **The closed list is closed for CASING, not for hiding — narrowed at R21.** The original wording
+  claimed an attribute outside the list "cannot change an accessible name", and that is too strong.
+  `data-*` is an open-ended family, and a CSS rule such as `[data-state="closed"] { display: none }`
+  hides a subtree through an attribute no enumeration can predict (review R21 BLOCKING 3). What is
+  actually true, and all the sweep needs, is narrower: **HTML attribute names are ASCII
+  case-insensitive, so `DATA-STATE` and `data-state` produce identical DOM and match the same
+  selector.** R21's own witness confirms it — both spellings gave the same result. Casing therefore
+  cannot be the defect for any attribute outside the list, which is exactly the property the sweep
+  asserts.
+
+  **Separately, CSS-driven hiding is an accepted limit.** The scanner recognises `hidden`,
+  `aria-hidden`, `inert`, a closed `<details>`, hiding `class`/`className` tokens, and inline
+  `display:none` / `visibility:hidden`. It does NOT read the repo's stylesheets, so a rule keyed on a
+  `data-*` attribute, or any selector-driven hide, is invisible to it. Making that visible would mean
+  embedding a CSS engine and resolving cascade order, which is a different tool. No live anchor uses
+  a `data-*` hide; the risk is a future one, and it is recorded here rather than left to look
+  handled. `open` on `<details>` was a genuine omission and is now handled — note it is the only
+  hiding condition here expressed by an attribute's ABSENCE, which is why a presence-scanning loop
+  could not have found it.
+
   **Value CONTENT is a different question, and it IS in scope.** Pinning every fixture to one
   neutral value made the sweep vacuous for any read gated on the value: a case-sensitive `class`
   read firing only when the value contains `hidden` agreed across both spellings, because a neutral
