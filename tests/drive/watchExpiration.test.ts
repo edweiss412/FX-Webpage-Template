@@ -285,6 +285,36 @@ describe("post-activation observability cannot change the outcome (§3.3)", () =
     expect(orphanAlerts).toBe(0);
   });
 
+  test("a throwing clock on the FIRST read takes the normal orphan path", async () => {
+    // R5 finding 5: moving that read back outside the watch-creation try would
+    // reject subscribeToWatchedFolder outright, leaving the pending row committed
+    // with neither the orphaned result nor the alert. No other clock test covers
+    // the first call.
+    const tx = fakeTx();
+    let orphanAlerts = 0;
+    tx.markOrphaned = async () => {};
+    tx.upsertAdminAlert = async () => {
+      orphanAlerts += 1;
+    };
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "channel-1",
+      webhookSecret: () => "secret-1",
+      now: () => {
+        throw new Error("clock exploded before the Drive call");
+      },
+    });
+
+    expect(result).toEqual({
+      outcome: "orphaned",
+      channelId: "channel-1",
+      reason: "watch_create_failed",
+    });
+    expect(orphanAlerts).toBe(1);
+  });
+
   test("a rejecting log sink still returns active, with no orphan alert", async () => {
     // A lease short enough to TRIGGER the anomaly, so the failing sink is
     // actually reached rather than skipped.

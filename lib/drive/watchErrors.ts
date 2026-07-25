@@ -30,15 +30,26 @@ export const SAMPLING_PERIOD_MS = 3_600_000;
 export const T_EXEC_BUDGET_MS = 300_000;
 
 /**
- * Remaining-life threshold at which a channel granted `grantedMs` becomes
- * renewal-due: `max(RENEWAL_MIN_LEAD_MS, grantedMs * (1 - RENEWAL_LIFE_FRACTION))`.
+ * Remaining-life threshold at which a channel becomes renewal-due:
+ * `max(minLeadMs, grantedMs * lifeFraction)`.
  *
- * Exported so the SQL predicate, the timing tests, and the short-grant check all
- * reason about one definition rather than three copies of the arithmetic.
+ * `lifeFraction` is the **remaining-life** fraction (the complement of
+ * `RENEWAL_LIFE_FRACTION`), matching what the caller passes to the port and what
+ * the SQL multiplies — the previous doc described it as the fraction already
+ * burned, which is the opposite (whole-diff R5 finding 3).
+ *
+ * Shared by the DB-free `WatchTx` fake and the timing tests. The production SQL
+ * necessarily RESTATES this arithmetic (it cannot call TypeScript); the two are
+ * held together by the real-DB production-path test, not by this function
+ * (R5 finding 4 — an earlier doc claimed SQL shared it, which is not possible).
  */
-export function renewalLeadMs(grantedMs: number): number {
-  if (!Number.isFinite(grantedMs)) return RENEWAL_MIN_LEAD_MS;
-  return Math.max(RENEWAL_MIN_LEAD_MS, grantedMs * (1 - RENEWAL_LIFE_FRACTION));
+export function renewalLeadMs(
+  grantedMs: number,
+  minLeadMs: number = RENEWAL_MIN_LEAD_MS,
+  lifeFraction: number = 1 - RENEWAL_LIFE_FRACTION,
+): number {
+  if (!Number.isFinite(grantedMs)) return minLeadMs;
+  return Math.max(minLeadMs, grantedMs * lifeFraction);
 }
 
 /**

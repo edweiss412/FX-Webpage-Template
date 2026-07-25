@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  renewalLeadMs,
   RENEWAL_LIFE_FRACTION,
   RENEWAL_MIN_LEAD_MS,
   STALE_PENDING_MAX_AGE_MS,
@@ -109,10 +110,11 @@ class FakeWatchTx {
       const createdMs = Date.parse(row.createdAt);
       // Inverted/zero-length lease: due immediately, matching the SQL's first arm.
       if (expiresMs <= createdMs) return true;
-      // Uses the CALLER'S arguments, not module constants (R4-4): a fake that
-      // ignores them stays green when the caller assembles the wrong lead or
-      // fraction, which is exactly the drift the port change could introduce.
-      const lead = Math.max(args.minLeadMs, (expiresMs - createdMs) * args.lifeFraction);
+      // Calls the SHARED helper with the CALLER'S arguments (R4-4, R5-4): a fake
+      // that restates the arithmetic, or that substitutes module constants for
+      // the caller's values, stays green when the caller assembles a wrong lead
+      // or fraction — exactly the drift the port change could introduce.
+      const lead = renewalLeadMs(expiresMs - createdMs, args.minLeadMs, args.lifeFraction);
       return nowMs >= expiresMs - lead;
     });
   }
@@ -515,6 +517,39 @@ describe("Drive watch lifecycle", () => {
       lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
     });
     expect(withoutFloor).toEqual([]);
+  });
+
+  test("renewal discriminates a wrong lifeFraction, not just a wrong floor", async () => {
+    // R5 finding 3: the floor fixture above passes under BOTH 0.25 and an
+    // inverted 0.75, so it could not catch a caller that passed the fraction
+    // uncomplemented. A 24h lease at 10h elapsed does discriminate:
+    //   correct  (0.25) -> lead 6h,  due at 18h elapsed -> NOT due
+    //   inverted (0.75) -> lead 18h, due at  6h elapsed -> due
+    // A caller regression would renew every 24h lease after 6h instead of 18h.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "fraction-probe",
+      status: "active",
+      watchedFolderId: "folder-fraction",
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      createdAt: new Date(tx.now.getTime() - 10 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(tx.now.getTime() + 14 * 60 * 60 * 1000).toISOString(),
+    });
+
+    const correct = await tx.listRenewalDue({
+      nowIso: tx.now.toISOString(),
+      minLeadMs: RENEWAL_MIN_LEAD_MS,
+      lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
+    });
+    expect(correct).toEqual([]);
+
+    const inverted = await tx.listRenewalDue({
+      nowIso: tx.now.toISOString(),
+      minLeadMs: RENEWAL_MIN_LEAD_MS,
+      lifeFraction: RENEWAL_LIFE_FRACTION, // the uncomplemented value
+    });
+    expect(inverted.map((r) => r.watchedFolderId)).toEqual(["folder-fraction"]);
   });
 
   test("refresh isolates per-row failures and classifies by orphan reason", async () => {
