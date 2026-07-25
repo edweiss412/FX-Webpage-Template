@@ -32,6 +32,8 @@ Every command below was executed at plan-authoring time in the worktree. Output 
 | V15 | Chromium probe: `@container` + `@min-[576px]:` fork at 280 / 512 / 560 / 576 / 720px, idle and armed | exactly one copy shown at every width; hidden copy `0x0` with `offsetParent === null`; safe placement in every case | The container-keyed fork works. Tailwind v4 compiles `@min-[Npx]:` to `@container (width >= Npx)` with no plugin |
 | V17 | Chromium probe: `@container` on a shrink-to-fit flex item, real card nesting | wrapper `0px`, buttons `26px`, card +18.89px taller | The containment-context trap. Forces `w-full` on the root (spec §4.1) |
 | V18 | Chromium probe: today's markup in the REAL nesting (card padding + action row + Retry sibling) | 320px rail: Ignore below Defer idle AND armed; 900px card: side by side, correct order | Confirms §2.5's premise against real DOM, not a bare container |
+| V20 | `pnpm exec playwright test --config=tests/e2e/standalone.config.ts tests/e2e/pendingDiscardReal.layout.spec.ts` against today's component | **7 failed, 4 passed** — `w-full`/`@container` absent (3), no fork so two copies display (3), and `rail320` Ignore.bottom `290.19` vs Defer.y `194.69` (Ignore BELOW Defer). Passing: tap targets, `wide900` | The real-tree spec is red for exactly the right reasons. Closes R3 finding 2 by demonstration: the `w-full` assertion reads rendered markup and fails when absent |
+| V21 | `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` after adding the new spec | **1 failed** — new spec listed as dark | The coverage registry is fail-by-default and caught it; Task 5 must wire both specs |
 | V19 | Chromium probe: `w-full @container` vs `@container` on the action row, at 320px and 900px | both avoid the collapse; `w-full` keeps full-width stacked buttons (278px) but pushes `Retry` off the line and adds ~52px card height at 900px | The accepted trade-off, flagged for the invariant-8 gate |
 | V16 | Chromium probe: armed row at the threshold | 512px leaves **20.75px** slack, 511px cleanly switches to stacked, 576px leaves **84.75px** | Threshold set to 576px, not 512px, for cross-platform font headroom (spec §4.2) |
 
@@ -177,7 +179,9 @@ Rewrite the drift-guard test (currently `tests/e2e/pendingDiscardReflow.layout.s
 
 ### Task 5 — CI wiring (spec §6.4)
 
-`package.json`: add `"test:e2e:destructive-layout": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/pendingDiscardReflow.layout.spec.ts"`.
+`package.json`: add `"test:e2e:destructive-layout"` running **both** specs under `tests/e2e/standalone.config.ts` — `tests/e2e/pendingDiscardReal.layout.spec.ts` (the real-tree proof) and `tests/e2e/pendingDiscardReflow.layout.spec.ts` (the negative controls).
+
+**Verified fail-by-default:** adding the new spec immediately turned `tests/ci/_metaE2eWorkflowCoverage.test.ts` red — `dark specs - wire a workflow or add a reasoned allowlist entry` listing `tests/e2e/pendingDiscardReal.layout.spec.ts`. That is the registry doing its job, and it means this task cannot be skipped silently. **Both** rows flip to `PATH_GATED` when the workflow lands.
 
 New workflow **.github/workflows/destructive-layout-e2e.yml**, modelled on `.github/workflows/modal-header-layout-e2e.yml`: same `actions/checkout` + `./.github/actions/setup`, same Playwright browser cache keyed on `pnpm-lock.yaml`, same `install-deps chromium` + `install chromium`, same failure-artifact upload, `workflow_dispatch:` enabled. **No `env:` block** — unlike the modal-header job, this harness renders static HTML strings and imports no server chain, so none of the `HASH_FOR_LOG_PEPPER` / Supabase demo keys are needed. `paths:` per spec §6.4.
 
