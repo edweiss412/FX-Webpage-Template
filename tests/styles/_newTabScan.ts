@@ -439,26 +439,39 @@ function isHintElement(n: ts.Node): boolean {
  */
 function hasDestinationContent(anchor: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
   if (!ts.isJsxElement(anchor)) return false;
-  let found = false;
-  const walk = (n: ts.Node, hiddenAbove: boolean): void => {
-    if (found) return;
-    if (isHintElement(n)) return; // the announcement is not a destination
-    const hidden =
-      hiddenAbove || ((ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) && hidesFromAccName(n));
-    if (ts.isJsxText(n)) {
-      if (!hiddenAbove && n.text.trim().length > 0) found = true;
-      return;
+  return childrenCarryDestination(anchor.children);
+}
+
+/** The walk itself, over a child list, so a fragment reuses it without being faked into an
+ *  element -- the first attempt spread a JsxFragment into an object shaped like a
+ *  JsxElement, which every `ts.isJsxElement` guard then rejected. */
+function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean {
+  for (const child of children) {
+    if (isHintElement(child)) continue; // the announcement is not a destination
+    if (ts.isJsxText(child)) {
+      if (child.text.trim().length > 0) return true;
+      continue;
     }
-    // An interpolated expression is opaque, so assume it CAN carry a destination: this
-    // rule must not manufacture violations on `{label}`.
-    if (ts.isJsxExpression(n) && n.expression && !hiddenAbove) {
-      found = true;
-      return;
+    // An interpolated expression is opaque: `{label}` must not be read as absent.
+    if (ts.isJsxExpression(child)) {
+      if (child.expression) return true;
+      continue;
     }
-    ts.forEachChild(n, (c) => walk(c, hidden));
-  };
-  for (const c of anchor.children) walk(c, false);
-  return found;
+    // A fragment carries no attributes, so it cannot hide; look through it.
+    if (ts.isJsxFragment(child)) {
+      if (childrenCarryDestination(child.children)) return true;
+      continue;
+    }
+    if (ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)) {
+      // A visible ELEMENT is opaque too, and this is where the first version of this rule
+      // was wrong: it required literal TEXT, so `<Label /> <NewTabHint />` and
+      // `<img alt="Go" /> <NewTabHint />` were both reported. A component renders text this
+      // scanner cannot see, and an `<img alt>` contributes its alt to the name. So any
+      // non-hidden element counts, and only a provably HIDDEN subtree does not.
+      if (!hidesFromAccName(child)) return true;
+    }
+  }
+  return false;
 }
 
 /** Is this element (or an ancestor up to the anchor) hidden from the acc name? */

@@ -1590,6 +1590,10 @@ describe("R6: scanner changes are pinned", () => {
     for (const src of [
       'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><span className="hidden">Go</span> <NewTabHint /></a>;',
+      // An EMPTY expression contributes nothing to the name. Found by mutation: dropping the
+      // `child.expression` check changed no test, which meant nothing covered this and the
+      // clause could have rotted into a fail-open unnoticed.
+      'const A=()=><a href="x" target="_blank">{/* icon later */} <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must report phrase-only: ${src}`).not.toEqual([]);
     }
@@ -1601,6 +1605,15 @@ describe("R6: scanner changes are pinned", () => {
       // An interpolated label is opaque, so it must be assumed to carry a destination
       // rather than manufacture a violation.
       'const A=({label})=><a href="x" target="_blank">{label} <NewTabHint /></a>;',
+      // FALSE POSITIVES the first version of this rule produced, found by probing my own
+      // fix rather than by review. It required literal TEXT, so a component child and an
+      // image were both read as "no destination". A component renders text this scanner
+      // cannot see, and an `<img alt>` contributes its alt to the computed name.
+      'const A=()=><a href="x" target="_blank"><Label /> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><img alt="Go" /> <NewTabHint /></a>;',
+      // Nested and fragment-wrapped labels must also survive.
+      'const A=()=><a href="x" target="_blank"><span><b>Go</b></span> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><>Go</> <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
