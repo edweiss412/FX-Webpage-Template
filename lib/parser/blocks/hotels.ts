@@ -28,7 +28,12 @@ import {
   emitHotelCardinalityExceeded,
 } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
-import { stripConfTokens, looksLikeStreetStart, STREET_ADDRESS_RE } from "./hotelConfTokens";
+import {
+  stripConfTokens,
+  looksLikeStreetStart,
+  STREET_ADDRESS_RE,
+  STREET_ADDRESS_ZIP_RE,
+} from "./hotelConfTokens";
 import { buildCol0HeaderRe, matchesSectionHeader } from "./_sectionHeaderMatch";
 import { log } from "@/lib/log";
 
@@ -258,9 +263,30 @@ export function parseGuestCell(cell: string): {
  * followed by a state+ZIP, so this can't false-split a hotel name or a guest conf#.
  */
 
+/**
+ * §3.1 P3 (2026-07-25-hotel-ambiguity-coverage) — the name/address boundary is a
+ * judgment, and this reports it WITHOUT changing it. Two disjoint arms:
+ *
+ *   P3(a) "address-shape-unsplit"      — the splitter produced NO address, yet a
+ *                                        padded read finds an address shape.
+ *   P3(b) "multiple-street-candidates" — more than one street phrase could have
+ *                                        started the address, so the split point
+ *                                        was a choice among candidates.
+ *
+ * Both arms detect against `" " + cleaned` because both regexes require leading
+ * whitespace, so a candidate at index 0 is otherwise invisible — the same reason
+ * `looksLikeStreetStart` pads. The SPLIT keeps exec'ing the unpadded string, so a
+ * position-0 street start still never becomes the boundary (ratified R1: this adds
+ * a warning, never a behavior change).
+ */
+export type AddressSplitAmbiguity = {
+  reason: "address-shape-unsplit" | "multiple-street-candidates";
+};
+
 export function splitHotelNameAddress(combined: string | null): {
   name: string | null;
   address: string | null;
+  ambiguity?: AddressSplitAmbiguity;
 } {
   if (!combined) return { name: null, address: null };
   const cleaned = combined
@@ -275,14 +301,31 @@ export function splitHotelNameAddress(combined: string | null): {
   // Chicago, IL 60601"), so it stays glued — a SAFE fallback, never a corrupted
   // name. The regex only LOCATES the boundary; the address runs to the cell end.
   const m = STREET_ADDRESS_RE.exec(cleaned);
-  if (!m) return { name: presence(cleaned), address: null };
+  // Detection only — never the split point (R1). Padded so a candidate at index 0
+  // is visible; a fresh clone each call because adding `g` to the shared
+  // STREET_ADDRESS_RE singleton would give it a persistent lastIndex and make
+  // consecutive splitter calls alternate between matching and missing.
+  const padded = " " + cleaned;
+  if (!m) {
+    // P3(a): we produced no address, but the cell looks like it holds one.
+    const looksAddressed =
+      new RegExp(STREET_ADDRESS_RE.source, STREET_ADDRESS_RE.flags).test(padded) ||
+      new RegExp(STREET_ADDRESS_ZIP_RE.source, STREET_ADDRESS_ZIP_RE.flags).test(padded);
+    return looksAddressed
+      ? { name: presence(cleaned), address: null, ambiguity: { reason: "address-shape-unsplit" } }
+      : { name: presence(cleaned), address: null };
+  }
   const splitAt = m.index;
   const name = cleaned
     .slice(0, splitAt)
     .replace(/[,\-–—\s]+$/, "")
     .trim();
   const address = cleaned.slice(splitAt).trim();
-  return { name: presence(name), address: presence(address) };
+  // P3(b): the boundary was a choice among several street phrases.
+  const counter = new RegExp(STREET_ADDRESS_RE.source, STREET_ADDRESS_RE.flags + "g");
+  const candidates = [...padded.matchAll(counter)].length;
+  const base = { name: presence(name), address: presence(address) };
+  return candidates > 1 ? { ...base, ambiguity: { reason: "multiple-street-candidates" } } : base;
 }
 
 /**

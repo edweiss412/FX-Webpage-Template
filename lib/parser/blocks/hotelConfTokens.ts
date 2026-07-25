@@ -32,7 +32,7 @@ export function looksLikeStreetStart(s: string): boolean {
   return b !== null && b.index === 0;
 }
 
-export { STREET_ADDRESS_RE };
+export { STREET_ADDRESS_RE, STREET_ADDRESS_ZIP_RE };
 
 /**
  * Remove any confirmation number from a string, alphabet-agnostic. Covers all
