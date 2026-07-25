@@ -76,7 +76,7 @@ N/A.
 | | Static harness (T0's new specs) | Real-route probe (archived bucket, T6) |
 | - | ------------------------------- | -------------------------------------- |
 | **Boot** | none — `tests/e2e/standalone.config.ts`; markup rendered by a `tsx` subprocess, CSS compiled by the Tailwind CLI, served from `node:http` | `phantom-gap-e2e.yml` boots local Supabase + the :3000 baseline server (`BASELINE_SERVER_ONLY=1`) |
-| **Readiness gate** | *Static cell/pusher harnesses:* `waitUntil: "load"` **plus** `emulateMedia({ reducedMotion: "reduce" })` so entrance animation is collapsed and geometry is final. *Live transition root (separate contract):* wait on an explicit **hydration readiness flag** the entry sets after `createRoot(...).render`, and run with **NORMAL motion** — no reduced-motion emulation, since that would suppress `motion-safe:` utilities the audit exists to catch. **Never `networkidle` alone.** | existing `expect(getByTestId("admin-dashboard")).toBeVisible()` **plus** `expect(getByTestId("archived-show-row-walker-archived-2026")).toBeAttached()` — the EXACT fixture, never a `[data-testid^=…]` prefix match (round-5 finding 9) — an empty bucket is a different tree and must fail loudly, not measure nothing |
+| **Readiness gate** | *Static cell/pusher harnesses:* `waitUntil: "load"` **plus** `emulateMedia({ reducedMotion: "reduce" })` so entrance animation is collapsed and geometry is final. *Live transition root (separate contract):* wait on an explicit **hydration readiness flag set from a mounted component's `useEffect`/`useLayoutEffect`, NOT immediately after `createRoot(...).render`** — React commits asynchronously, so code following `render()` is not a commit gate and a synchronous `page.evaluate` could measure an empty or stale root (round-5 finding 4). The test awaits **both** that flag **and** the expected root element being attached before measuring. Run with **NORMAL motion** — no reduced-motion emulation, since that would suppress `motion-safe:` utilities the audit exists to catch. **Never `networkidle` alone.** | existing `expect(getByTestId("admin-dashboard")).toBeVisible()` **plus** `expect(getByTestId("archived-show-row-walker-archived-2026")).toBeAttached()` — the EXACT fixture, never a `[data-testid^=…]` prefix match (round-5 finding 9) — an empty bucket is a different tree and must fail loudly, not measure nothing |
 | **Detach-safety** | each measurement is a single `page.evaluate` reading all rects synchronously in one pass; no `locator.evaluate` sampler that can outlive its element | anchors asserted attached before `scanForPhantomGaps` walks |
 | **Env** | `HASH_FOR_LOG_PEPPER` + `JWT_SIGNING_SECRET` required or the harness throws at import (`lib/email/hashForLog.ts:9`) | the workflow already sets both |
 
@@ -290,6 +290,25 @@ not alongside the impeccable verifier in T11: em-dash ban in user-visible copy, 
 
 ## 1. Tasks
 
+### T0a — extract `BellActionRow`  `refactor(admin):`
+
+Split out of T0 (round-5 finding 8): it is a product refactor with its own responsibility and its own
+conventional scope, and bundling it with six e2e files plus workflow wiring made a single `infra:` commit
+that mixed unrelated concerns.
+
+**Class: characterization-guarded refactor** (see the prologue) — a refactor guard cannot be red first.
+
+1. Write tests/components/admin/bellActionRowParity.test.tsx against the CURRENT `ActionCell` output,
+   rendering `BellPanel` hydrated with a stubbed feed so the cell is reachable, snapshotting the
+   accessible tree for **both** `isAutoResolving` branches including the resolving/pending state.
+   Command: `pnpm vitest run tests/components/admin/bellActionRowParity.test.tsx` → **2 passed** BEFORE
+   the extraction.
+2. Extract the exported `BellActionRow`, which **owns the `resolving` state**, the `onResolve`
+   invocation, and the pending-label selection (`components/admin/BellPanel.tsx:259-279` and `components/admin/BellPanel.tsx:332-342`);
+   `ActionCell` becomes a thin wrapper rendering it.
+3. Same command → **2 passed**, unchanged. A diff in the snapshot means the extraction changed behaviour.
+4. Commit.
+
 ### T0 — test infrastructure, so every later RED is executable  `infra:`
 
 Nothing in T0 changes product behaviour, so it has no RED step of its own; its proof is that the two
@@ -440,7 +459,17 @@ at 320px.
        72.8px with one. *Anti-tautology:* count lines from `Range.getClientRects()` on the name's own
        TEXT NODE, never the heading's bounding box — the box is inflated by the link and reports
        "1 line" even when the text wraps. Set `box-sizing: content-box` on the width-pinned wrapper.
-     - **Width chain (spec §5), ±0.5px:**
+     - **Width chain (spec §5), ±0.5px — measured on the REAL production chain, not cloned wrappers.**
+       Round 5 was right that static per-cell trees plus copied wrapper classes could pass while the
+       production upstream boundary regressed. So the chain cells mount the genuine
+       `ShowReviewSurface` → registry section → `BreakdownSection` → header/panel path from the harness,
+       and the test asserts each node's identity by its production `data-testid`
+       (`wizard-step3-card-<dfid>-review-section-<id>`, the breakdown section's `testId`, and the
+       panel-card testid) before measuring it. A synthetic wrapper carrying copied classes therefore
+       fails identity before it can pass geometry. Cells that do NOT mount the real chain (the
+       partial-provider and defensive rows, which by construction have no `ShowReviewSurface` above
+       them) are explicitly exempt from the upstream two boundaries and assert only the boundaries they
+       genuinely own.
        `registrySection.width === pane.clientWidth − paddingLeft − paddingRight` (the pane carries
        `p-tile-pad` and `clientWidth` INCLUDES padding, so a naive equality is off by 40px), then
        `breakdownSection`, `outerColumn`, `headerLine`, `pillLine`, and
@@ -657,7 +686,12 @@ contract, checked from the same place.
 that a four-entry registry could not equal the real set, and that I had miscounted what belongs in it.
 
 Scope: the `ModalSectionChrome` function body only (`components/admin/wizard/step3ReviewSections.tsx`),
-parsed with the TypeScript AST. Collected: every conditional (`?:` or `&&`) whose branches **produce JSX**.
+parsed with the TypeScript AST. Collected: **every JSX-producing conditional FORM**, not just `?:` and
+`&&` — round 5 correctly noted that `docs/agents/writing-plans.md:9` says "every ternary render and
+conditional block", so an `if`/`switch` could otherwise introduce an unregistered conditional. The
+collector matches: conditional expressions (`?:`), logical expressions (`&&`, `||`, `??`), `if`/`else`
+statements, `switch` cases, and early `return`s — in each case only when a branch **produces JSX**
+(a `JsxElement`, `JsxFragment`, or `JsxSelfClosingElement`, directly or via a returned expression).
 **Excluded, explicitly:** the status-icon tone ternary at
 `components/admin/wizard/step3ReviewSections.tsx:895`, which returns className **strings**, not JSX — so it
 is not a render conditional and cannot carry a transition prop.
@@ -668,9 +702,16 @@ collapse into one pill-line wrapper, giving an expected **four** — but the reg
 **post-rebuild** body and its exact membership is recorded in the test at implementation time, not guessed
 here. A conditional added later without a transition decision fails until registered.
 
-Named and counted: tests/components/admin/wizard/sectionHeaderConditionalInventory.test.ts, run with
-`pnpm vitest run tests/components/admin/wizard/sectionHeaderConditionalInventory.test.ts`, **2 cases**
-(set-equality, and the string-ternary exclusion). Deliberately scoped to one function — not the repo-wide
+Named, counted, **and given an explicit RED/GREEN chain inside T2** (round-5 finding 3 — it previously
+had a command but no expected failure or pass): tests/components/admin/wizard/sectionHeaderConditionalInventory.test.ts,
+**2 cases** (set-equality, and the string-ternary exclusion).
+
+- **T2 RED**, run alongside the Playwright RED:
+  `pnpm vitest run tests/components/admin/wizard/sectionHeaderConditionalInventory.test.ts` →
+  **1 failed** (set-equality). The registry declares the post-rebuild membership, and today's body still
+  has the pre-rebuild **five** conditionals, so the sets differ before the rebuild lands. The
+  string-ternary exclusion case passes in both states.
+- **T2 GREEN**, after the rebuild: same command → **2 passed**. Deliberately scoped to one function — not the repo-wide
 guard descoped in spec §6.
 
 **(h) Framer Motion is rejected at the SOURCE, because computed CSS cannot see it.** Round 4 correctly
@@ -755,7 +796,7 @@ gets its own RED-first sub-task first.
 
 ## 2. Task order and why
 
-T0 (infrastructure) → T1 (count boundary) → **T2 (header layout AND transition audit — RED, implement,
+T0a (Bell extraction) → T0 (infrastructure) → T1 (count boundary) → **T2 (header layout AND transition audit — RED, implement,
 PASS, one commit)** → T3 → T4 → T5 → T6 → T8 → T9 → T10 → T11.
 
 **No task straddles another.** The transition audit lives inside T2 because it can only be red against
