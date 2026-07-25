@@ -239,7 +239,7 @@ for (const [state, width] of Object.entries(STATES) as [StateName, number][]) {
   });
 }
 
-test("rail320 + page390: the safe action is NOT above the destructive one", async ({ page }) => {
+test("D5: rail320 + page390 — the safe action is NOT above the destructive one", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
   for (const state of ["rail320", "page390"] as StateName[]) {
@@ -247,12 +247,12 @@ test("rail320 + page390: the safe action is NOT above the destructive one", asyn
     const stacked = p.ignore.y >= p.defer.bottom - TOL || p.defer.y >= p.ignore.bottom - TOL;
     if (stacked) {
       // D5: when they stack, Ignore must be ABOVE Defer.
-      expect(p.ignore.bottom, `${state}: Ignore must sit above Defer when stacked`).toBeLessThanOrEqual(
+      expect(p.ignore.bottom, `D5 ${state}: Ignore must sit above Defer when stacked`).toBeLessThanOrEqual(
         p.defer.y + TOL,
       );
     } else {
       // D3: when they share a row, Defer must be on the LEFT.
-      expect(p.defer.x, `${state}: Defer must be left of Ignore when inline`).toBeLessThan(p.ignore.x);
+      expect(p.defer.x, `D3 ${state}: Defer must be left of Ignore when inline`).toBeLessThan(p.ignore.x);
     }
   }
 });
@@ -320,4 +320,22 @@ test("D3: inline button widths are intrinsic, not stretched", async ({ page }) =
     );
     expect(p.defer.right).toBeLessThan(p.ignore.x);
   }
+});
+
+test("D7: the shipped markup contains no basis-full or sm:basis-auto", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(baseUrl);
+  // Round 8: the basis-full-absence guard was claimed but neither measured here
+  // nor D-numbered, so M1 could not require it. Retaining `basis-full
+  // sm:basis-auto` lets a container at >=576px inside a viewport below 640px
+  // select the inline branch while both buttons keep full basis and wrap,
+  // recreating the ordering defect. Read off RENDERED markup, not source.
+  const markup = await page.evaluate(() => document.body.innerHTML);
+  expect(markup.includes("basis-full"), "D7: basis-full still present in shipped markup").toBe(
+    false,
+  );
+  expect(
+    markup.includes("sm:basis-auto"),
+    "D7: sm:basis-auto still present in shipped markup",
+  ).toBe(false);
 });

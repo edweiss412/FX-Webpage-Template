@@ -242,6 +242,7 @@ Tailwind v4 on this project does **not** default `.flex` to `align-items: stretc
 | D3 | inline container | both buttons | both share one line, widths intrinsic | container ≥ 576px guarantees the armed total of 491.25px fits | §6.3 at 576px and 720px, idle **and** armed |
 | D4 | stacked Ignore | itself, idle vs armed | box top / left / width identical across arming | full-width stack pins all three edges | §6.3 equality assertion with the pre-DESTRUCT-1 negative control retained |
 | D5 | stacked container | Ignore vs Defer | `ignore.bottom ≤ defer.top` | DOM order Ignore-first in a `flex-col` | §6.3 at 280px, against a negative control using today's markup |
+| D7 | shipped markup | itself | contains **no** `basis-full` and no `sm:basis-auto` | the fork replaces basis with full-width stacking | §6.3.a, read off rendered markup. Round 8: this was claimed in §4.5 but neither measured nor D-numbered, so M1 could not require it — and retaining basis lets a container ≥576px inside a viewport below 640px pick the inline branch while both buttons keep full basis and wrap, recreating the ordering defect |
 | D6 | inline Ignore | itself, idle vs armed | box left and top identical; width may grow rightward only | intrinsic widths with the left edge set by Defer + `gap-2` | §6.3 at 576px and 720px |
 
 **Empirical grounding.** Measured in Chromium with the compiled token CSS (arm64 macOS, 2026-07-25):
@@ -475,6 +476,7 @@ The binding therefore covers **every input to armed geometry**, each compared to
 | **Defer** `className` **and label text** | the armed row's total is Defer + gap + armed Ignore. Defer's padding or a longer label pushes that total past the threshold just as surely as the Ignore side does — this row was missing from the first draft of the binding and is exactly the same class of hole as the `gap-24` one |
 | **both branch container** `className`s | the `gap-24` hole: gap and wrap behaviour set whether the armed row fits |
 | the `@container` root `className` | `w-full` and the threshold both live here |
+| **ancestor typography classes** on the action row and card | inherited `font-*`, `tracking-*` or text-size classes change **both** button widths. The narrower idle case can still fit at 576px while the armed production row wraps, and neither declared set would mention the ancestor — so M2 cannot see it either. Bound explicitly for that reason |
 
 The rule the table encodes: **every element whose box contributes to the armed row's total width, plus every class that governs how that row wraps, is bound.** Anything measured in §6.3.b that is not in this list is unbound and therefore a false-green path.
 

@@ -218,9 +218,22 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
   const REAL_SPEC = "tests/e2e/pendingDiscardReal.layout.spec.ts";
   const TRANSCRIBED_SPEC = "tests/e2e/pendingDiscardReflow.layout.spec.ts";
 
+  /** Test titles and assertion messages ONLY — never raw source. Round 8 found M1
+   *  scanning whole files, so a `D6` mentioned in a COMMENT counted as measured
+   *  while nothing asserted it. A guard that accepts prose as proof is the very
+   *  defect this contract exists to catch. */
+  function assertionSurfaces(src: string): string {
+    const titles = [...src.matchAll(/\b(?:test|it)\(\s*(["'`])([\s\S]*?)\1/g)].map((m) => m[2]!);
+    // Second argument of expect(value, "message") — the only other place a name is
+    // a real assertion label rather than commentary.
+    const messages = [...src.matchAll(/expect\([\s\S]*?,\s*(["'`])([\s\S]*?)\1\s*\)/g)].map(
+      (m) => m[2]!,
+    );
+    return [...titles, ...messages].join("\n");
+  }
+
   it("M1: every D-invariant in the spec has a named assertion in a layout spec", () => {
     const doc = readFileSync(SPEC, "utf8");
-    // The Dimensional Invariants table rows start `| D<n> |`.
     const declared = [...doc.matchAll(/^\|\s*(D\d+)\s*\|/gm)].map((m) => m[1]!);
     expect(declared.length, "no D-invariants parsed — did the table format change?").toBeGreaterThan(
       0,
@@ -228,7 +241,7 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
     const haystack = [REAL_SPEC, TRANSCRIBED_SPEC]
       .map((f) => {
         try {
-          return readFileSync(f, "utf8");
+          return assertionSurfaces(readFileSync(f, "utf8"));
         } catch {
           return "";
         }
@@ -236,6 +249,13 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
       .join("\n");
     const unmeasured = declared.filter((d) => !new RegExp(`\\b${d}\\b`).test(haystack));
     expect(unmeasured, "invariants declared in the spec with no named assertion").toEqual([]);
+  });
+
+  it("M1 self-check: a D-name in a comment does NOT count as measured", () => {
+    // The exact round-8 defect, pinned so it cannot regress.
+    expect(assertionSurfaces("// D6 is fine\nconst x = 1;")).not.toMatch(/D6/);
+    expect(assertionSurfaces('test("D6 — pinned edge", () => {});')).toMatch(/D6/);
+    expect(assertionSurfaces('expect(a.x, "D6: left edge moved").toBe(b.x);')).toMatch(/D6/);
   });
 
   it("M2: the transcribed spec's measured elements equal the binding table's element set", () => {
@@ -261,11 +281,27 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
     const tableStart = doc.indexOf("| Bound | Why it matters to armed geometry |");
     expect(tableStart, "binding table not found in the spec").toBeGreaterThan(-1);
     const table = doc.slice(tableStart, doc.indexOf("\n\n", tableStart));
-    const bound = [...table.matchAll(/^\|\s*(?:\*\*)?([^|*]+?)(?:\*\*)?\s*\|/gm)]
-      .map((m) => m[1]!.trim())
-      .filter((x) => x !== "Bound" && !/^-+$/.test(x))
+    // Round 8: the previous regex excluded `*`, so any row whose first cell used
+    // **bold** was silently dropped — it saw 2 of 6 rows, and Task 4 could have
+    // declared those 2 and gone green with four bindings unchecked. Split on the
+    // pipe and strip markdown instead of trying to match around it.
+    const bound = table
+      .split("\n")
+      .filter((l) => l.startsWith("|"))
+      .map((l) => l.split("|")[1] ?? "")
+      .map((cell) => cell.replace(/\*\*/g, "").replace(/`/g, "").trim())
+      .filter((x) => x.length > 0 && x !== "Bound" && !/^-+$/.test(x))
       .sort();
+    expect(
+      bound.length,
+      "binding-table parser found too few rows — did the table format change?",
+    ).toBeGreaterThanOrEqual(5);
     expect(measured, `bound: ${bound.join(", ")}`).toEqual(bound);
+    // Honest limit, stated in the test itself: M2 compares the spec's declared
+    // bindings against the transcribed spec's declared measurements. An input
+    // absent from BOTH lists is invisible to it — that is why §6.3.a states the
+    // rule ("every element contributing to the armed row's width") rather than
+    // relying on this test to discover inputs.
   });
 
   it("M3: every jsdom test the spec cites by number exists in the jsdom suite", () => {
