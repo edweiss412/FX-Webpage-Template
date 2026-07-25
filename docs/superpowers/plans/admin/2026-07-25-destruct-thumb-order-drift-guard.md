@@ -27,7 +27,12 @@ Every command below was executed at plan-authoring time in the worktree. Output 
 | V11 | snippets from Tasks 1-2 extracted to a scratch test file, then `pnpm typecheck` | **exit 0, zero `error TS`** | Every pasted snippet compiles under the strict tsconfig (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`). Scratch file deleted after |
 | V12 | `pnpm vitest run` on that scratch file | **T1 failed with `expected [ …(11) ] to deeply equal [ 'lib/admin/destructiveConfirm.ts' ]`; T2 and the T2 self-check passed** | Task 1's expected failure is demonstrated, not predicted. The self-check passing proves the matcher fires on `3000`/`3_000`, does not fire on `ARM_REVERT_MS`, and that the exemption comment is invisible in stripped source — constraint C-A, proven executably rather than argued |
 
-**Real-browser probe (spec §4.6).** The proposed markup was rendered in Chromium with the compiled token CSS before this plan was written. Measurements are in spec §4.6 and are the basis for Task 4's assertions — the geometry is measured, not predicted.
+| V13 | Chromium probe: today's shipped markup in a 280px container at a 1280px viewport | Defer `y744`, Ignore `y796` (idle); Defer `y840`, Ignore `y892` (armed) | **The defect is already live on desktop.** Drove the re-key from viewport to container width (spec §2.5) |
+| V14 | `rg -n "@container\|container-type" app components` | no matches | This is the repo's first container-query usage; the plan must not assume prior art |
+| V15 | Chromium probe: `@container` + `@min-[576px]:` fork at 280 / 512 / 560 / 576 / 720px, idle and armed | exactly one copy shown at every width; hidden copy `0x0` with `offsetParent === null`; safe placement in every case | The container-keyed fork works. Tailwind v4 compiles `@min-[Npx]:` to `@container (width >= Npx)` with no plugin |
+| V16 | Chromium probe: armed row at the threshold | 512px leaves **20.75px** slack, 511px cleanly switches to stacked, 576px leaves **84.75px** | Threshold set to 576px, not 512px, for cross-platform font headroom (spec §4.2) |
+
+**Real-browser probe (spec §4.7).** The proposed markup was rendered in Chromium with the compiled token CSS before this plan was written. Measurements are in spec §4.6 and are the basis for Task 4's assertions — the geometry is measured, not predicted.
 
 ---
 
@@ -99,7 +104,7 @@ Note the root list is `["components", "app", "lib"]` — constraint C-B. `walk` 
 
 **Commit:** `refactor(admin): source ARM_REVERT_MS from one module and pin it`
 
-### Task 2 — T2 literal ban + self-checks
+### Task 2 — T2 identifier allowlist + self-checks
 
 **Test first.** Add to the same file:
 
@@ -153,37 +158,42 @@ The last two lines are the executable proof of constraint C-A: they demonstrate 
 
 **Implementation.** Header comment on the registry file documenting T1/T2/T3, the exemption idiom, and spec §5.3's honest scope limit (a surface that never adopts the recipe pair is invisible to the registry, therefore to T2).
 
-**Commit:** `test(admin): ban magic timer literals in destructive-confirm surfaces`
+**Commit:** `test(admin): require a registered timer identifier in destructive-confirm surfaces`
 
-### Task 3 — Fork the render (jsdom)
+### Task 3 — Fork the render on container width (jsdom)
 
-**Test first.** In `tests/components/admin/pendingIngestionActions.test.tsx`, retarget the existing ~10 `getByTestId` calls to the `-inline-` ids (spec §4.3), then add the nine new tests of spec §6.2. Each carries a comment naming the concrete failure mode it catches:
+**Test first.** In `tests/components/admin/pendingIngestionActions.test.tsx`, retarget the existing ~10 `getByTestId` calls to the `-inline-` ids (spec §4.4), then add the eleven tests of spec §6.2. Each carries a comment naming the concrete failure mode it catches; the table in §6.2 is the authority and is reproduced in the task body at execution time.
 
-| # | Test | Failure mode caught |
-|---|---|---|
-| 1 | four variant ids present | fork rendered only one copy |
-| 2 | idle parity: stacked vs inline Ignore have equal `textContent` and equal class token sets (compared **to each other**, never to a literal) | the two copies drift |
-| 3 | armed parity, same comparison | armed branch drifts in one copy only |
-| 4 | arming via stacked morphs inline, and vice versa | per-copy `armed` state |
-| 5 | arm on stacked, confirm on inline → exactly one POST | per-copy state makes the second tap a no-op re-arm |
-| 6 | exactly one `role="status"` node, and it is outside both copies | double screen-reader announcement |
-| 7 | container class tokens: stacked has `flex-col`/`items-stretch`/`sm:hidden`; inline has `hidden`/`sm:flex` | the Tailwind-v4 stretch default trap (jsdom half of D1) |
-| 8 | `compareDocumentPosition` order within each copy | DOM order wrong even if classes right |
-| 9 | arming while an error is displayed keeps the `role="alert"` block | a fork that resets `state` on arm swallows the failure explanation (the S5→S2 compound state, spec §4.7) |
+Two of them exist specifically because the other would not catch the bug:
 
-On test 2/3, the anti-tautology hazard is real and is handled: comparing the two nodes to each other **cannot** catch both copies drifting together, so test 7 independently pins the container classes and Task 4 independently pins the geometry. That split is deliberate and stated.
+- **2a parity** compares the two copies to each other — catches drift *apart*.
+- **2b canonical tokens** checks each button against a literal required set — catches drift *together*, which parity is structurally blind to. This was a round-1 review finding and my original reasoning about it was backwards.
 
-**Implementation.** Restructure `components/admin/PendingPanelDiscardButtons.tsx` per spec §4.1: outer column, one local `pair(variant)` helper returning the two button nodes, stacked copy rendering `[ignore, defer]`, inline copy rendering `[defer, ignore]`, live region and error block hoisted out of the row so each renders once. Remove `basis-full sm:basis-auto` (spec §4.6 note). Update `tests/e2e/needs-attention-page.spec.ts:243` and `tests/e2e/needs-attention-page.spec.ts:250` to the `-inline-` ids (its 1280px viewport is above `sm`).
+Tests 10 and 11 cover the compound `error + armed` exits that the flat five-state model missed (spec §4.8).
 
-**Commit:** `fix(admin): put the safe discard nearest the thumb when the buttons stack`
+**Implementation.** Restructure `components/admin/PendingPanelDiscardButtons.tsx` per spec §4.1: an `@container` wrapper, one local `pair(variant)` helper, stacked copy `[ignore, defer]` with `flex flex-col items-stretch gap-2 @min-[576px]:hidden`, inline copy `[defer, ignore]` with `hidden flex-wrap gap-2 @min-[576px]:flex`, live region and error block hoisted out so each renders once. Remove `basis-full sm:basis-auto`.
+
+The literal `flex` token on the stacked container is load-bearing: without it the element is `display:block` and `items-stretch` is inert while a source guard checking only `flex-col`/`items-stretch` still passes.
+
+Update `tests/e2e/needs-attention-page.spec.ts:243` and `tests/e2e/needs-attention-page.spec.ts:250` to the **stacked** ids — that spec sets `MOBILE` (390px) at `tests/e2e/needs-attention-page.spec.ts:232`, so the stacked copy is the live one. Targeting inline there would click a `display:none` node and fail on actionability, which reads as a flake rather than a wiring error.
+
+**Commit:** `fix(admin): key the discard fork on container width, safe action first`
+
+### Task 3b — Focus transfer across the fork boundary
+
+**Test first.** A real-browser assertion (jsdom cannot host it — no layout, so no crossing). Focus the stacked Ignore in a 280px wrapper, widen past 576px, assert `document.activeElement` is the inline Ignore rather than `<body>`; then the reverse direction. Also assert the negative: if focus was *outside* this component when the crossing happens, focus is not stolen.
+
+**Implementation.** A `ResizeObserver` on the wrapper; on each crossing, if `document.activeElement` is one of this component's four buttons, move focus to the same logical control in the newly-shown copy. `armed` is unaffected — it lives above both copies.
+
+**Commit:** `fix(admin): keep keyboard focus when the discard fork switches copies`
 
 ### Task 4 — Real-browser layout proof
 
-**Test first.** Rewrite `tests/e2e/pendingDiscardReflow.layout.spec.ts`'s transcribed markup to the fork, with three panel families (spec §6.3): `fork-*` (subject), `nofork-*` (today's markup — negative control for the **ordering** claim), `nobasis-*` (pre-DESTRUCT-1 — retained negative control for the **reflow** claim). Assertions are spec §6.3's list, with the exact D1–D6 invariants from spec §4.6 inlined in the file header.
+**Test first.** Rewrite `tests/e2e/pendingDiscardReflow.layout.spec.ts` to the container-keyed fork. Panels are fixed-width wrappers carrying `@container`, so one page exercises 280 / 576 / 720px without resizing the viewport — plus the `nofork-280-*` control (today's markup, which must show Ignore *below* Defer) and the retained `nobasis-280-*` reflow control. Assertions are spec §6.3's list, with the exact D1–D6 invariants from spec §4.7 inlined in the file header. Panel widths derive from one local threshold constant so a future change cannot leave a panel testing the old boundary.
 
 Both negative controls are load-bearing: without `nofork-*`, "Ignore is above Defer" could pass on a harness that renders nothing meaningful; V-probe measured `nofork` at Defer `y192` / Ignore `y244`, so the control does reproduce the defect.
 
-Rewrite the drift-guard test (currently `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`) to assert the source contains `sm:hidden`, `hidden`, `sm:flex`, `items-stretch` **and does NOT contain** `basis-full`. The negative half is what makes it bite — asserting only presence would still pass if the old markup survived alongside the new.
+Rewrite the drift-guard test (currently `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`) to assert the source contains `@container`, `flex`, `items-stretch`, `@min-[576px]:hidden`, `@min-[576px]:flex` **and does NOT contain** `basis-full` or `sm:basis-auto`. The negative half is what makes it bite — asserting only presence would still pass if the old markup survived alongside the new.
 
 **Commit:** `test(admin): prove the forked discard order in a real browser`
 
