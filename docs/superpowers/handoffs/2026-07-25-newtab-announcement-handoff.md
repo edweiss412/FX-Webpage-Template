@@ -849,3 +849,43 @@ was to label the array as what it is rather than to weaken the check.
 
 Reusable form: when a claim is refuted, add its exact wording to a guard at the same time as
 retracting it. Prose review does not reliably find the copies; a string match does.
+
+## R23 — the round that caught my own assertions being wrong
+
+R23 raised three BLOCKING and two HIGH. One (`<datalist>`) was already fixed in a commit it could
+not see. The rest were real, and two of them were **my tests asserting the wrong thing**:
+
+- A control asserted `open=""` means an OPEN `<details>`. React coerces a boolean DOM prop, so an
+  empty string is falsy and the attribute is omitted — it renders closed.
+- A pin asserted `{c && null}` is provably empty. `a && b` evaluates to **`a`** when `a` is falsy, so
+  `0 && null` renders the character `"0"`. My rule inspected only the right operand, which made it
+  wrong in BOTH directions: `false && "Dest"` renders nothing and was called a destination, while
+  `0 && null` renders "0" and was called empty, manufacturing a violation.
+
+Both encoded my belief about React rather than React's behaviour, and both survived every earlier
+round because reading a test cannot detect that. The reviewer executed React 19.2.4 and
+`computeAccessibleName`; that is what caught them. The fix was to correct the tests, not the code.
+
+`{true}` was the third: React renders nothing for BOTH booleans. It DOES render numbers, so `{0}`
+prints "0" and remains a destination.
+
+### The refuted-claim guard had a hand-written file list, which drifted exactly like prose
+
+It scanned three files and not the handoff, where the refuted assertion was alive in **four** more
+places. Its retraction test was also a vocabulary guess — any nearby "narrowed" or "superseded"
+licensed a claim, which is the same match-prose-as-text shape that had already failed twice in this
+PR. A retraction must now say `RETRACTED` literally, and the file list covers every artifact this PR
+writes prose into, with an assertion that each path exists.
+
+### Measuring instead of reasoning, as the standing response
+
+R23's lesson generalises past its own findings: any claim about accessible names should be measured.
+Rendering each shape and computing the name (§6.4 carries the table) confirmed four rules and
+revealed that **the harness models neither `inert` nor a closed `<details>`** — both compute
+`"Go (opens in a new tab)"`. Both installed implementations of `dom-accessibility-api` agree, so it
+is not a version artifact.
+
+That gap is now pinned as a test rather than left implicit, because the failure mode it invites is
+specific: someone checks one of those rules against `toHaveAccessibleName`, sees disagreement, and
+relaxes the guard to match the harness. The guard is deliberately stricter, and a
+`toHaveAccessibleName` assertion cannot catch either regression.

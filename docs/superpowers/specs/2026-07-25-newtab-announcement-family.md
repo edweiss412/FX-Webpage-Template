@@ -452,6 +452,10 @@ WITH substitutions is not. Anything outside these shapes is reported as
   | `Go <details><NewTabHint /></details>` | `Go (opens in a new tab)` |
   | `Go <span inert><NewTabHint /></span>` | `Go (opens in a new tab)` |
 
+  **Both installed implementations agree on all of these** — `dom-accessibility-api` 0.5.16 (behind
+  `@testing-library/dom`'s role-name filtering) and 0.6.3 (behind `toHaveAccessibleName`) return
+  identical strings for every row, so none of this is a version artifact.
+
   The first five confirm the rules directly. **The last two do not, and that is expected**: jsdom
   performs no rendering and `dom-accessibility-api` models neither `inert` nor a closed `<details>`,
   while the HTML Standard says inert subtrees are not exposed to accessibility APIs and closed
