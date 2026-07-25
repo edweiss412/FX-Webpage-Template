@@ -31,23 +31,66 @@ const ROOT = process.cwd();
 const GLOBALS_CSS = readFileSync(join(ROOT, "app/globals.css"), "utf8");
 const SHARE_HUB_SRC = readFileSync(join(ROOT, "components/admin/showpage/ShareHub.tsx"), "utf8");
 
-/** Split a CSS blob into its top-level rules by brace depth. */
-function splitRules(css: string): string[] {
-  const out: string[] = [];
+/** One leaf CSS rule, keyed by its at-rule context so a moved rule cannot match. */
+type Leaf = { key: string; body: string };
+
+const norm = (css: string) =>
+  css
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*([{};:,])\s*/g, "$1")
+    .trim();
+
+/** Split a CSS blob into its top-level `prelude { body }` rules by brace depth. */
+function splitRules(css: string): { prelude: string; body: string }[] {
+  const out: { prelude: string; body: string }[] = [];
   let depth = 0;
   let buf = "";
   for (const ch of css) {
-    buf += ch;
-    if (ch === "{") depth++;
-    else if (ch === "}") {
+    if (ch === "{") {
+      depth++;
+      if (depth === 1) {
+        buf += "\u0000"; // prelude/body boundary marker
+        continue;
+      }
+    } else if (ch === "}") {
       depth--;
       if (depth === 0) {
-        if (buf.trim()) out.push(buf.trim());
+        const [prelude = "", body = ""] = buf.split("\u0000");
+        if (prelude.trim() || body.trim()) out.push({ prelude: prelude.trim(), body });
         buf = "";
+        continue;
       }
     }
+    buf += ch;
   }
   return out;
+}
+
+/**
+ * Flatten CSS to context-qualified leaves.
+ *
+ * `@keyframes` is a leaf: its percent stops are not selectors, so the whole
+ * body is compared as one unit. Conditional at-rules (`@media`) recurse, and
+ * the condition is carried into each child's key — that is what makes moving a
+ * rule OUT of `prefers-reduced-motion` a mismatch instead of a silent pass.
+ */
+function flatten(css: string, context = ""): Leaf[] {
+  return splitRules(css).flatMap(({ prelude, body }) => {
+    const at = prelude.startsWith("@");
+    if (at && !/^@keyframes\b/.test(prelude)) {
+      return flatten(body, `${context}${norm(prelude)} > `);
+    }
+    return [{ key: context + norm(prelude), body: norm(body) }];
+  });
+}
+
+/** The cue's own leaves, in a stable order, from either side of the comparison. */
+function cueLeaves(css: string): string[] {
+  return flatten(css)
+    .filter((l) => `${l.key}${l.body}`.includes("share-link-flash"))
+    .map((l) => `${l.key}{${l.body}}`)
+    .sort();
 }
 
 describe("share-link cue motion contract (N0/N1)", () => {
@@ -58,39 +101,29 @@ describe("share-link cue motion contract (N0/N1)", () => {
     expect(SHARE_HUB_SRC).toMatch(/export const SHARE_LINK_FLASH_MS = 1600;/);
   });
 
-  it("N1: the shipped rules match the spec's normative block VERBATIM", () => {
-    // The spec makes that block normative *verbatim* (§9.1 N1). Fragment
-    // matching is NOT that: round-2 review showed an extra `90%` stop holding
-    // both paints would satisfy every fragment assertion while turning the
-    // ratified 45% settle into a 90% hold, and the browser suite samples only
-    // early motion and post-expiry rest so it stays green too.
+  it("N1: the shipped cue rules EQUAL the spec's normative block", () => {
+    // Set equality, not containment. Round-3 review broke the containment form:
+    // `html [data-share-link-flash]` is valid CSS that contains the normative
+    // selector as a substring, and duplicating the whole attribute rule also
+    // contains it — both passed while changing specificity / cascade. Equality
+    // over context-qualified leaves rejects extra rules, missing rules,
+    // rewritten selectors, and rules moved between at-rule contexts.
     //
-    // So compare the real thing. Whitespace is normalised because prettier owns
-    // formatting on both sides; nothing else is.
-    const norm = (css: string) =>
-      css
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/\s+/g, " ")
-        .replace(/\s*([{};:,])\s*/g, "$1")
-        .trim();
-
+    // Whitespace and comments are normalised because prettier owns formatting
+    // on both sides. Nothing else is.
     const SPEC = readFileSync(
       join(ROOT, "docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md"),
       "utf8",
     );
-    // The normative block is the §3.4 fence containing the cue's keyframes.
     const fence = [...SPEC.matchAll(/```css\n([\s\S]*?)```/g)]
       .map((m) => m[1] ?? "")
       .find((block) => block.includes("@keyframes share-link-flash-bg"));
     expect(fence, "spec §3.4 normative CSS fence not found").toBeTruthy();
 
-    // Every rule the spec declares must appear, normalised, in the stylesheet.
-    for (const rule of splitRules(fence!)) {
-      expect(
-        norm(GLOBALS_CSS),
-        `normative rule missing or altered: ${rule.slice(0, 48)}`,
-      ).toContain(norm(rule));
-    }
+    const spec = cueLeaves(fence!);
+    // Guard against a vacuous pass: an empty fence would make [] === [] true.
+    expect(spec.length).toBe(4);
+    expect(cueLeaves(GLOBALS_CSS)).toEqual(spec);
   });
 
   it("N1: both keyframes are declared exactly once", () => {

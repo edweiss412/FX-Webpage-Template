@@ -75,7 +75,24 @@ if (unknown.length) {
 const QUICK = argv.includes("--quick");
 const ONLY = (() => {
   const i = argv.indexOf("--only");
-  return i === -1 ? null : new Set(argv[i + 1].split(","));
+  if (i === -1) return null;
+  const raw = argv[i + 1];
+  // `--only --quick` silently selected ZERO adversaries and exited 0, writing a
+  // zero-row report that reads as success; bare `--only` threw. Both are
+  // false-greens on a tool whose entire job is proving coverage.
+  if (!raw || raw.startsWith("-")) {
+    console.error(`--only requires a comma-separated id list, e.g. --only A5,A9\n\n${USAGE}`);
+    process.exit(2);
+  }
+  const ids = raw
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (!ids.length) {
+    console.error(`--only received no usable ids\n\n${USAGE}`);
+    process.exit(2);
+  }
+  return new Set(ids);
 })();
 
 /** A mutation is a list of [file, find, replace]. All must apply or the
@@ -362,6 +379,41 @@ ADVERSARIES.push([
   ],
 ]);
 
+/**
+ * A29/A30 are the two implementations round-3 whole-diff review demonstrated
+ * against N1's earlier substring form. Neither is a plausible authoring
+ * mistake; both are exactly the shape a containment check cannot see, which is
+ * why they are registered permanently rather than checked once by hand.
+ *
+ * A29 keeps the declaration byte-identical and only widens the selector, so
+ * every fragment and substring assertion still matched while the rule's
+ * specificity changed. A30 changes nothing at all about the first rule — it
+ * appends a second copy, and `toContain` is satisfied by the first.
+ */
+ADVERSARIES.push([
+  "A29",
+  "selector widened to `html [data-...]` (defeats substring matching)",
+  [
+    [
+      CSS,
+      "[data-share-link-flash] {\n  animation:",
+      "html [data-share-link-flash] {\n  animation:",
+    ],
+  ],
+]);
+
+ADVERSARIES.push([
+  "A30",
+  "the attribute rule is duplicated (a later copy wins the cascade)",
+  [
+    [
+      CSS,
+      "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}",
+      "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}\n[data-share-link-flash] {\n  animation:\n    share-link-flash-bg 1600ms ease-out,\n    share-link-flash-ring 1600ms ease-out;\n}",
+    ],
+  ],
+]);
+
 ADVERSARIES.push([
   "A22",
   "token retuned below the ring's contrast floor",
@@ -424,10 +476,14 @@ function acquireLock() {
 }
 
 function releaseLock() {
+  // Only drop OUR lock. Unconditional removal let a second run delete the
+  // holder's lock and proceed, which is the collision the lock exists to stop.
   try {
+    const held = readFileSync(LOCK, "utf8").trim().split("\n")[0];
+    if (held !== String(process.pid)) return;
     rmSync(LOCK, { force: true });
   } catch {
-    /* best effort */
+    /* no lock, or unreadable — nothing to release */
   }
 }
 
@@ -526,6 +582,7 @@ function runBrowser() {
 }
 
 assertCleanTargets();
+acquireLock();
 // SIGINT alone left SIGTERM and SIGHUP able to kill the run between mutate and
 // restore (round-2 review). CI cancellation sends SIGTERM.
 for (const [sig, code] of [
