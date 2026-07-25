@@ -279,31 +279,22 @@ jsdom applies no CSS (`feedback_jsdom_no_css_tobevisible_vacuous`). `toBeVisible
 
 ### 6.2 jsdom (`tests/components/admin/pendingIngestionActions.test.tsx`)
 
-Existing tests retarget to the `-inline-` ids per §4.4 (jsdom mounts both copies, so either resolves).
+jsdom computes no layout, so it pins **structure, labels, classes and handler behaviour**; every geometric consequence is proven in §6.3.
 
-**One existing test needs more than an id swap.** The persistent-status test at `tests/components/admin/pendingIngestionActions.test.tsx:282` reaches the live region via `btn.nextElementSibling`, and re-checks that adjacency after the timer decays. §4.3 moves the region out of the row, so the inline Ignore's next sibling becomes `null` and the test fails on a null deref — not on a changed assertion. It is rewritten to locate the region by `getByRole("status")` (now unambiguous, since exactly one exists per §6.2 test 6) and keeps every behavioural assertion it already made: initially empty, populated on arm, emptied but **never unmounted** after the 4s decay. The claim "no assertion semantics change" applies to the other tests, not this one.
+Existing tests keep their assertions; only the armed-label string changes. Two adjustments were required by the reorder, both real rather than cosmetic:
 
-New tests, each stating the concrete failure mode it catches:
+- The persistent-status test reached the live region via `btn.nextElementSibling`. The reorder puts Defer between Ignore and the region, so that lookup returns the wrong node. It now addresses the region by `role="status"`, which is unambiguous because exactly one exists — and it keeps every behavioural assertion it already made: initially empty, populated on arm, emptied but **never unmounted** after the 4s decay.
+- The DESTRUCT-1 class test asserted `basis-full sm:basis-auto` were **present**. That is now inverted: D7 requires their absence.
+
+New tests:
 
 | # | Test | Failure mode caught |
 |---|---|---|
-| 1 | all four variant ids present | the fork rendered only one copy |
-| 2a | **parity:** stacked and inline Ignore have equal `textContent` and equal class token sets, compared to each other; likewise Defer | the two copies drift **apart** |
-| 2b | **canonical tokens:** each rendered button carries every token in a literal required set (`inline-flex`, `min-h-tap-min`, `items-center`, `justify-center`, `rounded-sm`, `px-3`, `text-sm`) | the two copies drift **together** — e.g. `min-h-tap-min` removed from the shared helper, which 2a cannot see because both copies lose it equally |
-| 3 | parity again after arming | the armed branch drifts in one copy only |
-| 4 | arming via stacked morphs inline, and vice versa | per-copy `armed` state instead of one shared flag |
-| 5 | arm on stacked, confirm on inline → exactly one POST with `kind: "permanent_ignore"` | per-copy state, which would make the second tap a no-op re-arm |
-| 6 | exactly one `role="status"` node, outside both copies | double screen-reader announcement |
-| 7 | stacked container carries `flex`, `flex-col`, `items-stretch`, `@min-[576px]:hidden`; inline carries `hidden`, `flex-wrap`, `@min-[576px]:flex` | the missing-`flex` trap of §4.1 — `flex-col items-stretch` without `flex` leaves `display:block` and `items-stretch` inert |
-| 8 | `compareDocumentPosition` ordering within each copy | DOM order wrong even when classes are right |
-| 9 | arming while an error is displayed keeps the `role="alert"` block, with unchanged text | a fork that resets `state` on arm, swallowing the explanation of the failure the operator is looking at |
-| 10 | from error+armed, advancing the 4s timer clears `armed` and **leaves** the error block mounted | a timer that resets `state` as well, or an inventory that assumed the compound decays to idle |
-| 11 | from error+armed: clicking Defer starts a defer; separately, a second Ignore click fires exactly one discard | the two compound-state exits (F→C, F→D), neither previously covered |
-| 12 | from a **plain** error, clicking Defer starts a defer directly | the E→C edge, omitted from every earlier draft of the inventory. Defer is one-tap and needs no arming, so this is a distinct path from F→C |
+| 2 | Ignore precedes Defer in the DOM | the entire fix — if the order regresses, a wrap puts the irreversible action nearest the thumb again. jsdom pins the order; §6.3 proves the geometry that follows from it |
+| 6 | exactly one `role="status"` region, and it still announces on arm after the reorder | a duplicated or relocated live region, which would double-announce or go silent |
+| 7 | neither button carries `basis-full` or `sm:basis-auto`, idle **or** armed | the class returning and forcing full-width stacking at every width, silently undoing the "don't stack when there's room" property |
 
-2a and 2b are deliberately complementary: parity catches divergence, the literal allowlist catches shared regression. Neither alone is sufficient, and the plan does not claim otherwise.
-
-Focus behaviour is not asserted here or anywhere: §4.9 descopes the transfer, so there is no shipped effect to assert. jsdom could not host it in any case.
+The armed label is asserted from the component's exported `IGNORE_ARMED_LABEL`, not a literal, so this suite cannot drift from the harness or the component.
 
 ### 6.3 Real browser (`tests/e2e/pendingDiscardReal.layout.spec.ts`)
 
@@ -396,11 +387,7 @@ All three original rows are gone. The family section and its preceding `---` rul
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| A screen reader announces the arm twice | low | Live region rendered once, outside both copies (§4.3); asserted by §6.2 test 6 |
-| The two copies drift apart | low | Single `pair()` helper; parity tests §6.2 tests 2a/3 |
-| The two copies drift together | low | Canonical-token allowlist, §6.2 test 2b — parity alone cannot see this |
-| Keyboard focus lost when the container crosses 576px | low, **accepted** | Not mitigated. Descoped in §4.9 and filed as `BL-DESTRUCT-FORK-FOCUS-TRANSFER`; controls stay reachable by re-tabbing, same tier as the accepted P2 on a sibling control |
-| Both copies displayed at some width | very low | `@min-[576px]:hidden` / `hidden @min-[576px]:flex` are exact complements; asserted in a real browser at 280 / 576 / 720px container widths (§6.3) |
+| A screen reader announces the arm twice | low | One live region, unchanged by the reorder; asserted by §6.2 test 6 |
 | The forked geometry fails to preserve DESTRUCT-1's zero-reflow guarantee | low | `basis-full` is deliberately **removed** — the fork replaces it with full-width stacking, so its absence is required, not a regression. D4 is what proves the guarantee survives, with the pre-DESTRUCT-1 panel as its negative control |
 | Test-id rename misses a consumer | low | Consumers enumerated in §2.4 by grep; the bare ids cease to exist, so a missed consumer fails loudly rather than matching two nodes |
 | The new workflow is itself dark | low | `workflow_dispatch:` enabled; close-out fires it with `gh workflow run` and confirms a green run before merge (§6.4) |

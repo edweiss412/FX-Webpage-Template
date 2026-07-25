@@ -301,3 +301,96 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
     expect(/\bD9\b/.test("covers D1 only")).toBe(false);
   });
 });
+
+/**
+ * T1 / T2 / T3 — the arm-revert timing contract (spec §5.2).
+ *
+ * Before the shared module, the 4s window was eleven copy-pasted literals with no
+ * definition and no guard. These pin what is pinnable and §5.3 enumerates, honestly,
+ * the six ways a determined edit still gets past them. The guard REDUCES re-drift;
+ * it does not eliminate it, and it does not claim to.
+ */
+describe("META arm-revert timing contract (spec §5.2)", () => {
+  const CONST_MODULE = "lib/admin/destructiveConfirm.ts";
+  const DECL = /(?:^|\n)\s*(?:export\s+)?const\s+ARM_REVERT_MS\s*=/;
+  /** Identifiers permitted as a scheduler delay in a destructive-confirm surface. */
+  const ALLOWED = new Set(["ARM_REVERT_MS", "SUCCESS_DISMISS_MS", "WATCHDOG_MS"]);
+  const SCHEDULERS = /\b(?:setTimeout|setInterval|requestIdleCallback)\s*\(/g;
+
+  it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
+    const declaring: string[] = [];
+    for (const root of ["components", "app", "lib"]) {
+      for (const file of walk(root)) {
+        if (DECL.test(stripComments(readFileSync(file, "utf8")))) declaring.push(file);
+      }
+    }
+    // Equality, not "at most one": `<= 1` passes on zero, which would be vacuous.
+    expect(declaring).toEqual([CONST_MODULE]);
+  });
+
+  it("T3: the shared value is the ratified 4s", async () => {
+    const mod = await import("@/lib/admin/destructiveConfirm");
+    expect(mod.ARM_REVERT_MS, "4s ratified 2026-07-17, DEFERRED-archive.md:1228").toBe(4_000);
+  });
+
+  it("T2: every scheduler delay in a registry file is an allowlisted identifier", () => {
+    const files = [...new Set(REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file))];
+    const problems: string[] = [];
+    let detected = 0;
+    for (const file of files) {
+      const raw = readFileSync(file, "utf8");
+      const src = stripComments(raw);
+      SCHEDULERS.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = SCHEDULERS.exec(src)) !== null) {
+        // Walk to the matching close paren so multiline and nested-callback calls
+        // are handled — a regex for the whole call was the round-1 fragility.
+        let depth = 1;
+        let i = m.index + m[0].length;
+        for (; i < src.length && depth > 0; i++) {
+          if (src[i] === "(") depth++;
+          else if (src[i] === ")") depth--;
+        }
+        const call = src.slice(m.index, i);
+        const lastComma = call.lastIndexOf(",");
+        if (lastComma === -1) continue; // no delay argument
+        const delay = call.slice(lastComma + 1, -1).trim().replace(/\}\s*$/, "").trim();
+        const bare = delay.replace(/^\{[\s\S]*?timeout\s*:\s*/, "").replace(/[}\s]/g, "");
+        if (!bare) continue;
+        detected++;
+        if (!ALLOWED.has(bare)) {
+          const line = src.slice(0, m.index).split("\n").length;
+          problems.push(`${file}:${line} delay \`${bare}\` is not an allowlisted identifier`);
+        }
+      }
+    }
+    expect(problems, "unapproved scheduler delays in destructive-confirm surfaces").toEqual([]);
+    // Non-vacuity (spec B4). A detector that silently stops matching would pass the
+    // assertion above forever. Eleven surfaces carry an arm timer, so anything below
+    // that means the scan broke, not that the code got cleaner.
+    expect(detected, "scheduler scan found too few calls — did the detector break?").toBeGreaterThanOrEqual(11);
+  });
+
+  it("T2 self-check: the matcher accepts allowlisted names and rejects everything else", () => {
+    const probe = (src: string) => {
+      SCHEDULERS.lastIndex = 0;
+      const m = SCHEDULERS.exec(src);
+      if (!m) return "no-match";
+      let depth = 1;
+      let i = m.index + m[0].length;
+      for (; i < src.length && depth > 0; i++) {
+        if (src[i] === "(") depth++;
+        else if (src[i] === ")") depth--;
+      }
+      const call = src.slice(m.index, i);
+      const delay = call.slice(call.lastIndexOf(",") + 1, -1).trim();
+      return ALLOWED.has(delay) ? "allowed" : "rejected";
+    };
+    expect(probe("setTimeout(() => setArmed(false), ARM_REVERT_MS)")).toBe("allowed");
+    expect(probe("setTimeout(() => setArmed(false), 3000)")).toBe("rejected");
+    expect(probe("setTimeout(() => setArmed(false), 3_000)")).toBe("rejected");
+    expect(probe("setTimeout(() => setArmed(false), CONFIRM_TIMEOUT)")).toBe("rejected");
+    // multiline + nested callback — the shape a naive regex drops
+    expect(probe("setTimeout(() => {\n  run(() => done());\n}, ARM_REVERT_MS)")).toBe("allowed");
+  });
+});
