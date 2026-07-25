@@ -1282,6 +1282,17 @@ describe("R6: scanner changes are pinned", () => {
       rawCompared,
       "compare attribute names through attrName/jsxAttrNameLower/propNameLower, which lowercase",
     ).toEqual([]);
+    // A DESTRUCTURED name bypasses the `.name.` shape entirely:
+    // `const { name } = a; name.getText() === "Target"` never touches a helper, so the
+    // lowercasing guarantee does not apply to it (R16 question 4). Reading the name that
+    // way is forbidden outright rather than pattern-matched at the comparison.
+    const destructured = [...src.matchAll(/\bconst\s*\{[^}]*\bname\b[^}]*\}\s*=/g)].map((m) =>
+      m[0].trim(),
+    );
+    expect(
+      destructured,
+      "do not destructure `name` off an attribute; call attrName/jsxAttrNameLower so it is lowercased",
+    ).toEqual([]);
     // And the helpers must actually lowercase, or the guarantee above is vacuous.
     for (const fn of ["attrName", "jsxAttrNameLower", "propNameLower"]) {
       const body = src.slice(src.indexOf(`function ${fn}`));
