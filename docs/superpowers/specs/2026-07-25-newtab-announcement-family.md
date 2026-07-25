@@ -110,6 +110,8 @@ Visible text is untouched at all three; only labels change.
 
 **Not a same-line rule.** Prettier compiles a literal JSX space and `{" "}` to the same `" "` child, and preserves the separator as `{" "}` when it wraps. The load-bearing requirement is that a real sibling space text node exists.
 
+**A space adjacent to a line break is not a separator at all.** JSX deletes a whitespace run once it contains a line terminator, so `Go \n<NewTabHint />` renders `Go(opens in a new tab)` — the space does **not** survive, and neither does any run built from `\r`, U+2028, or U+2029. Across a line break the separator must be the explicit `{" "}` form. The guard models this over all four terminators; modelling it with `\n` alone read three of them as same-line spaces and passed the very shape §3.1 exists to reject.
+
 This shape shipped undetected here once, as `View details<span className="sr-only"> for …</span>` reading `"detailsfor …"`, because tests matched substrings and never the boundary. Hence §7's anchored assertions.
 
 ## 4. Site inventory and disposition

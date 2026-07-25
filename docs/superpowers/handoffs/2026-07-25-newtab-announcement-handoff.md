@@ -516,3 +516,53 @@ The guard has also already proven itself on live upstream code: rebasing onto 82
 - Real CI green on #592 before the guard hardening (38 pass / 0 fail), re-run on each subsequent head. NOTE for anyone reading CI history on this PR: the four workflows that show `completed/failure` on head `e1d937109` had every job CANCELLED (bulk external cancel at 12:13:20Z, 11 of 15 workflows already green), and `gh run rerun --failed` is a NO-OP on cancelled jobs — it produced an empty attempt-2 with `total_count: 0` that instantly re-concluded as failure. Neither was a test failure. The `validation-schema-parity` failure visible on the superseded head `7b8e2a70a` never re-ran on a later head, so its "environmental" diagnosis is retired, not confirmed.
 - `spec:lint` 0 hard on the spec (27 advisory, all numeric literals in prose).
 - Mutation-verified pins: re-admitting binary predicates into the approved gating shape fails the R6 compound pin (1 failed); restoring gives 66/66. A pin that cannot fail proves nothing.
+
+## R17 — LF-only handling, third occurrence, and the class-sweep that priced it
+
+R17 raised one BLOCKING and one HIGH. Both were in the guard's own machinery; the live census
+was unchanged at 23 anchors / 0 violations, as it has been since R4.
+
+**BLOCKING — the casing fixture table.** Two of its three parts were already fixed in commits
+the reviewer could not see (it scoped strictly to `bb8c2b40a..9de228991`, and `aria-labelledby`
+and `style` had been added in `e8e68222e`). The third part was real and was mine: the `href`
+fixture carried a literal `target="_blank"`, which admits `<Foo>` on the explicit-target rule
+**before** `href` is ever consulted. It returned the same violation with `href` and `HREF` even
+under a case-sensitive read, so it asserted nothing. It now uses `<Foo href="x" {...p}>`, which
+reaches candidacy only through the href+spread rule; a case-sensitive read drops the anchor and
+the pin fails. This is the same defect shape as a tautological test: the fixture exercised a
+path that did not include the thing under test.
+
+**HIGH — the jsdoc reason strip split on LF only.** With a `\r` / U+2028 / U+2029 body the
+comment is one line, the single leading-decoration strip eats only the first `*`, and a second
+`*` survives as a "reason" — so an exemption with **no** reason was honored, defeating the
+reason requirement entirely.
+
+**The class-sweep found two more sites, and one was worse than the reported one.**
+`hintHasSiblingSpace` modelled JSX whitespace with `/\n/` in two places. JSX deletes a
+whitespace run once it contains **any** line terminator, so `Go\r<NewTabHint />` was read as
+separated when the rendered accessible name is `Go(opens in a new tab)` — a fail-open in the
+**shipped §3.1 rule**, not in the guard. R17 did not report it; sweeping the class did.
+
+LF-only handling has now produced three findings across three rounds (R14's `//` comment that
+ran past CR, plus both of these), so the terminator set is now one `LINE_TERMINATORS` constant
+rather than a regex spelled per site. Per the three-round rule the response is a model change,
+and this is its cheapest form: one definition that cannot be partially updated.
+
+**Two pins had to be reshaped before they could fail, and a control was factually wrong.**
+First attempts at both new pins passed under the mutation:
+
+- A jsdoc body with **one** decorative line is strip-equivalent under both readings. Only with
+  two does a `*` survive the single leading strip, which is the shape that gets honored.
+- The whitespace-only-text-node branch only diverges from `return true` when **adjacent
+  content** precedes the stripped run. After a `{" "}` both readings accept, so that shape
+  cannot discriminate.
+
+And one control asserted that `Go \r<NewTabHint />` should be accepted because "a real space
+before the terminator survives." It does not — the space and the terminator are one run, and
+JSX deletes the whole run. The scanner was right and the test was wrong; the corrected control
+now pins both halves (`Go ` + terminator is still reported, explicit `{" "}` is accepted) and
+the spec §3.1 states the rule.
+
+Each of the three fixes is mutation-proven independently: reverting any one site to `\n` fails
+a named pin, and all three restored gives 103/103 in the guard file, 221 across the styles,
+a11y and docs suites.
