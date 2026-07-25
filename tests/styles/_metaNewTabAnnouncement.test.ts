@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   PHRASE,
   admitsCandidate,
-  mdxForbidden,
+  compileMdxToJsx,
   parse,
   scanSource,
   stripCommentsSafely,
@@ -680,32 +680,84 @@ describe("every external link in the live tree announces its new tab", () => {
     );
   });
 
-  it("no .mdx file carries an external target (move such links into a .tsx component)", () => {
+  it("no .mdx file carries an unannounced external anchor (compiled, not lexed)", () => {
     const mdx = walkFiles(join(process.cwd(), "app"), /\.mdx$/).map((abs) =>
       abs.slice(process.cwd().length + 1),
     );
     expect(mdx.length, "mdx inventory should not be empty").toBeGreaterThan(0);
-    const offenders = mdx.filter((rel) =>
-      mdxForbidden(readFileSync(join(process.cwd(), rel), "utf8")),
-    );
-    expect(offenders).toEqual([]);
+    const sc: Scan = { anchors: 0, violations: [] };
+    for (const rel of mdx) {
+      const jsx = compileMdxToJsx(readFileSync(join(process.cwd(), rel), "utf8"));
+      scanSource(parse(rel, jsx), rel, sc);
+    }
+    expect(sc.violations).toEqual([]);
   });
 
   // R6 BLOCKING 2: the .mdx rule only tested /_blank/i, so `target={dest}` and
   // `{...externalProps}` evaded it -- either can resolve to _blank at runtime, and
   // MDX never reaches scanSource. MDX gets NO target attribute and NO spread at
   // all; such a link belongs in a .tsx component the scanner can classify.
-  it("R6 the .mdx rule rejects dynamic targets and spreads, not just literal _blank", () => {
-    for (const bypass of [
-      "<a target={destination}>Go</a>",
-      "<a {...externalProps}>Go</a>",
-      '<a target="_BLANK">Go</a>',
-      '<a target="_blank">Go</a>',
-    ]) {
-      expect(mdxForbidden(bypass), `MDX rule must reject: ${bypass}`).toBe(true);
-    }
-    // Ordinary internal MDX links stay legal.
-    expect(mdxForbidden('<a href="/help">Go</a>')).toBe(false);
+});
+
+// ── MDX goes through the real compiler, so one suite covers every round ─────
+// Rounds 6, 8, 9 and 10 each found a defect in hand-written MDX lexical rules --
+// prose and autolinks matched, tags ended at an inner `>`, braces inside regex
+// literals miscounted, fenced code read as live JSX, a trailing backslash ran past
+// the tag. Four rounds on one vector is the signal to change the model, so MDX is
+// compiled with @mdx-js/mdx (already a repo dependency) and the compiled JSX goes
+// through the SAME scanner as TSX. Every historical case is pinned here against that
+// one path.
+describe("MDX is compiled and scanned, not lexed", () => {
+  const scanMdx = (src: string): Scan => {
+    const sc: Scan = { anchors: 0, violations: [] };
+    scanSource(parse("/synthetic/doc.mdx", compileMdxToJsx(src)), "/synthetic/doc.mdx", sc);
+    return sc;
+  };
+  const flags = (src: string): boolean => scanMdx(src).violations.length > 0;
+
+  it("flags real external anchors, whatever supplies the target", () => {
+    expect(flags('<a href="x" target="_blank">Go</a>')).toBe(true);
+    expect(flags('<a href="x" target="_BLANK">Go</a>')).toBe(true);
+    expect(flags('export const d = "_blank"\n\n<a href="x" target={d}>Go</a>')).toBe(true);
+    // R10 finding 1: a regex literal in an earlier attribute used to break brace
+    // counting, hiding the later target entirely.
+    expect(
+      flags('export const d = "_blank"\n\n<a href="x" data-x={/}>/.test("")} target={d}>Go</a>'),
+    ).toBe(true);
+    // R9: an inner `>` or `<` in an attribute value used to end the tag early.
+    expect(flags('export const d = "_blank"\n\n<a href="x" title="1 > 0" target={d}>Go</a>')).toBe(
+      true,
+    );
+    expect(flags('export const d = "_blank"\n\n<a href="x" data-x={1 < 2} target={d}>Go</a>')).toBe(
+      true,
+    );
+  });
+
+  it("accepts an announced external anchor", () => {
+    expect(
+      flags('<a href="x" target="_blank" aria-label="Open the sheet (opens in a new tab)">Go</a>'),
+    ).toBe(false);
+  });
+
+  it("does not flag prose, autolinks, fenced code, or escaped attributes", () => {
+    // R8: prose and a query string containing `target=`.
+    expect(flags("The target = 80% of the quarterly goal, and 5 > 4.")).toBe(false);
+    expect(flags("Read https://example.com/search?target=crew for details.")).toBe(false);
+    // R10 finding 4: a fenced example is documentation, not a live anchor.
+    expect(flags('```tsx\n<a href="x" target="_blank">example</a>\n```\n\nprose')).toBe(false);
+    expect(flags('Inline `<a target="_blank">x</a>` in a sentence.')).toBe(false);
+    // R10 finding 5: a quoted attribute ending in a backslash used to swallow the
+    // following prose, which then matched `target =`.
+    expect(flags('<a href="/local" title="a\\\\">Go</a>\n\nThe target = 80% goal.')).toBe(false);
+    // R10 finding 1 reverse: an unmatched brace inside a regex literal used to make
+    // the scanner run past the tag into prose.
+    expect(
+      flags(
+        'export const x = ""\n\n<a href="/local" data-x={/[{]/.test(x)}>Go</a>\n\nThe target = 80% goal.',
+      ),
+    ).toBe(false);
+    // An ordinary internal markdown link.
+    expect(flags("See [the docs](/help) for details.")).toBe(false);
   });
 });
 
@@ -879,18 +931,6 @@ describe("R6: scanner changes are pinned", () => {
     ]) {
       expect(admitsCandidate(code), `admitsCandidate must admit: ${code}`).toBe(true);
     }
-    // MDX: @mdx-js/mdx compiles all three comment-separated forms to real spreads.
-    for (const mdx of [
-      "<a { /*c*/ ...props}>Go</a>",
-      "<a { //c\n ...props}>Go</a>",
-      "<a {\n/*c*/\n...props}>Go</a>",
-      "<a TARGET={dest}>Go</a>",
-    ]) {
-      expect(mdxForbidden(mdx), `mdxForbidden must reject: ${mdx}`).toBe(true);
-    }
-    // Ordinary MDX prose containing a URL must NOT be flagged: the `//` in
-    // `https://` is why the nets test raw text as well as a comment-stripped copy.
-    expect(mdxForbidden("See [the docs](https://example.com/a) for details.")).toBe(false);
   });
 
   // R8 BLOCKING 1: `admitsCandidate` was case-insensitive but `classifyShape`
@@ -952,13 +992,6 @@ describe("R6: scanner changes are pinned", () => {
 
   // R8 MEDIUM 3: the MDX net matched `target =` anywhere, including prose and a
   // GFM autolink query string, neither of which compiles to a target attribute.
-  it("R8 the MDX net does not flag prose or autolinks", () => {
-    expect(mdxForbidden("The target = 80% of the quarterly goal.")).toBe(false);
-    expect(mdxForbidden("Read https://example.com/search?target=crew for details.")).toBe(false);
-    // Still catches the real thing inside a tag, including across a line break.
-    expect(mdxForbidden('<a href="x" target="_blank">Go</a>')).toBe(true);
-    expect(mdxForbidden('<a\n  href="x"\n  target={dest}\n>Go</a>')).toBe(true);
-  });
 
   // The near-miss that motivates this guard: `attrName` lowercases, so every
   // comparison literal must be lowercase too. One camelCase literal survived the
@@ -975,47 +1008,44 @@ describe("R6: scanner changes are pinned", () => {
   // during a sweep, which is exactly how this class recurred once already -- not to
   // prove the property. The lowercasing itself is what makes the code correct; this
   // only makes a regression loud.
-  it("no attribute-name comparison uses a non-lowercase literal", () => {
+  it("no literal spells a known attribute name in non-lowercase", () => {
+    // R10 MEDIUM 6: the accessor-context version missed `"Target" === attrName(a)`,
+    // a template literal, a switch case, a variable hop, and `[...].includes(...)`.
+    // Accessor context was the wrong hook. This instead scans EVERY string and
+    // template literal in the file and flags any that spells a known
+    // case-insensitive attribute or property name in non-lowercase. No comparison
+    // form can evade it, because it does not look at comparisons at all.
+    //
+    // Tag names are deliberately excluded: `<Link>` and `<a>` are case-SENSITIVE in
+    // JSX, so "Link" is a correct literal.
     const src = stripCommentsSafely(
       readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
     );
-    const accessor = String.raw`(?:\b(?:n|nm|name|key)\b|attrName\([^)]*\)|jsxAttrNameLower\([^)]*\)|propNameLower\([^)]*\)|prop\.name\.text|\w+\.name\.getText\(\))`;
-    const literals = [
-      // `[=!]==?` so loose equality cannot slip a camelCase literal past this.
-      ...src.matchAll(new RegExp(String.raw`${accessor}\s*[=!]==?\s*"([^"]+)"`, "g")),
-      // NOT LINK_TAGS: JSX tag names are legitimately case-sensitive (`<Link>` the
-      // component vs `<a>` the element), so a literal "Link" there is correct and
-      // must not be flagged. Attribute and property names are the case-insensitive
-      // ones. Caught while auditing my own guard, before it produced a false
-      // positive on someone else's edit.
-      ...src.matchAll(/\b(?:names|SPREADABLE)\.has\(\s*"([^"]+)"\s*\)/g),
-      ...src.matchAll(/\bSPREADABLE\s*=\s*new Set\(\[([^\]]*)\]/g),
-    ].flatMap((m) => (m[1] ?? "").split(",").map((s) => s.trim().replace(/^"|"$/g, "")));
-    const offenders = literals.filter((lit) => lit.length > 0 && lit !== lit.toLowerCase());
+    const CASE_INSENSITIVE_NAMES = new Set([
+      "target",
+      "rel",
+      "href",
+      "hidden",
+      "aria-hidden",
+      "aria-label",
+      "aria-labelledby",
+      "role",
+      "classname",
+      "class",
+      "style",
+    ]);
+    const literals = [...src.matchAll(/"([^"\\]*)"|'([^'\\]*)'|`([^`\\$]*)`/g)].map(
+      (m) => m[1] ?? m[2] ?? m[3] ?? "",
+    );
+    const offenders = literals.filter(
+      (lit) => lit !== lit.toLowerCase() && CASE_INSENSITIVE_NAMES.has(lit.toLowerCase()),
+    );
     expect(offenders, "attribute-name literals must be lowercase").toEqual([]);
   });
 
   // R9 BLOCKING 2: `[^<>]*` ended the tag at any angle bracket inside it, so a later
   // dynamic target or spread was invisible. @mdx-js/mdx compiles all of these and
   // preserves the target.
-  it("R9 the MDX net sees past angle brackets inside a tag", () => {
-    const contexts = [
-      'title="1 > 0"',
-      'title="x < y"',
-      'data-x={1 > 0 ? "yes" : "no"}',
-      'data-x={1 < 2 ? "yes" : "no"}',
-      "data-x={<span />}",
-    ];
-    for (const ctx of contexts) {
-      for (const tail of ["target={dest}", "{...externalProps}"]) {
-        const mdx = `<a href="x" ${ctx} ${tail}>Go</a>`;
-        expect(mdxForbidden(mdx), `must reject: ${mdx}`).toBe(true);
-      }
-    }
-    // And prose is still not flagged, including a `>` in ordinary text.
-    expect(mdxForbidden("The target = 80% of the quarterly goal, so 5 > 4 holds.")).toBe(false);
-    expect(mdxForbidden("Read https://example.com/search?target=crew for details.")).toBe(false);
-  });
 
   // R9 MEDIUM 3: the approved-spread path compared property names verbatim, so an
   // uppercase-but-correct spread was reported as an unrecognized shape.
@@ -1023,6 +1053,47 @@ describe("R6: scanner changes are pinned", () => {
     expect(
       violations(
         `const A=({e})=><a href="x" {...(e?{TARGET:"_BLANK",REL:"NoOpener"}:{})}>Go {e?<> <NewTabHint /></>:null}</a>;`,
+      ),
+    ).toEqual([]);
+  });
+
+  // R10 BLOCKING 2: a RESOLVABLE inline spread carrying both props was skipped, so a
+  // forwarding component rendered a real external anchor with zero anchors counted.
+  it("R10 a resolvable inline spread supplying href+target is classified", () => {
+    for (const code of [
+      `const A=()=><Foo {...{href:"x",target:"_blank"}}>Go</Foo>;`,
+      `const A=({e})=><Foo {...(e?{href:"x",target:"_blank"}:{})}>Go</Foo>;`,
+      `const A=()=><UI.Widget {...{href:"x",target:"_blank"}}>Go</UI.Widget>;`,
+      `const T="a"; const A=()=><T {...{href:"x",target:"_blank"}}>Go</T>;`,
+    ]) {
+      expect(violations(code).join(" "), `must classify: ${code}`).toMatch(
+        /does not announce|unrecognized|not gated/,
+      );
+    }
+    // An UNRESOLVABLE spread on an unknown tag stays out, which is the documented
+    // deferral and what keeps `<div {...props}>` from becoming a violation.
+    const opaque = probe(`const A=({props})=><Foo {...props}>Go</Foo>;`);
+    expect(opaque.anchors, "an unresolvable spread on an unknown tag is not a candidate").toBe(0);
+  });
+
+  // R10 BLOCKING 3: React writes `{ target, TARGET }` to ONE case-insensitive DOM
+  // attribute and the LATER value wins, so reading the first normalized match took
+  // the wrong value in both directions. Duplicates are ambiguous: fail closed.
+  it("R10 duplicate case-folded property names fail closed", () => {
+    expect(
+      violations(
+        `const A=({e})=><a href="x" {...(e?{target:"_self",TARGET:"_blank"}:{})}>Go</a>;`,
+      ).join(" "),
+    ).toMatch(/unrecognized/);
+    expect(
+      violations(
+        `const A=({e})=><a href="x" {...(e?{TARGET:"_blank","target":"_self"}:{})}>Go</a>;`,
+      ).join(" "),
+    ).toMatch(/unrecognized/);
+    // A single uppercase spelling is still accepted (R9 MEDIUM 3).
+    expect(
+      violations(
+        `const A=({e})=><a href="x" {...(e?{TARGET:"_blank",REL:"noreferrer"}:{})}>Go {e?<> <NewTabHint /></>:null}</a>;`,
       ),
     ).toEqual([]);
   });

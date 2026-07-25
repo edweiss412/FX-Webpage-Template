@@ -341,15 +341,24 @@ WITH substitutions is not. Anything outside these shapes is reported as
   exemption comment. A spread-only element with neither attribute is still not a candidate, which
   is what keeps every `<div {...props}>` out. Residue, accepted: an unknown tag where BOTH `href`
   and `target` arrive inside one unresolvable spread.
-- **The MDX net requires a JSX tag context, found by scanning rather than by regex.** A bare
-  `target\s*=` matched ordinary prose ("The target = 80% of the quarterly goal.") and a GFM autolink
-  whose query string contains `target=` (review R8 MEDIUM 3). The obvious repair -- a character
-  class excluding angle brackets -- then ended the tag at any `>` inside it, so
-  `<a href="x" title="1 > 0" target={dest}>` slipped through; `@mdx-js/mdx` compiles ten such
-  witnesses and preserves the target (review R9 BLOCKING 2). Tag boundaries are therefore scanned
-  with quote and brace-depth tracking. This matters more for MDX than for TSX: for TSX the net only
-  decides whether to run the AST pass, but for MDX the net IS the enforcement, so a false negative
-  ships silently.
+- **MDX is COMPILED and scanned, not lexed.** Four rounds went into hand-written lexical rules for
+  MDX and each produced a new defect: a bare `target\s*=` matched prose and autolink query strings
+  (R8); a character class excluding angle brackets ended the tag at any inner `>` (R9); then a
+  quote-and-brace scanner miscounted braces inside regex literals, treated fenced code as live JSX,
+  and ran past a quoted attribute ending in a backslash (R10, three separate findings). A lexer for
+  a real grammar is the wrong model. `.mdx` sources now go through `@mdx-js/mdx` (already a repo
+  devDependency) with `jsx: true`, and the compiled JSX is handed to the SAME `scanSource` used for
+  TSX. Prose and fenced code become string literals; regex literals, escapes and attribute quoting
+  become the compiler's problem. **MDX and TSX are one enforcement path now, not two**, which is
+  what removes the class rather than the instance.
+- **Duplicate case-folded property names in an approved spread fail closed.** React writes
+  `{ target: "_self", TARGET: "_blank" }` to ONE case-insensitive DOM attribute and the LATER value
+  wins, so reading the first normalized match took the wrong value in both directions (review R10
+  BLOCKING 3). Ambiguity is not resolvable statically, so the shape is reported.
+- **A RESOLVABLE inline spread contributes its property names to candidacy.**
+  `<Foo {...{href:"x", target:"_blank"}}>` and the conditional form were skipped even though both
+  props are statically visible, and a forwarding component renders a real external anchor (review
+  R10 BLOCKING 2). The residue is now only an UNRESOLVABLE spread on an unknown tag.
 - **Object-literal property names inside an approved spread are lowercased too.** They were
   compared verbatim, so `{ TARGET: "_BLANK", REL: "NoOpener" }` was reported as an unrecognized
   shape: fail-closed, but it contradicts the casing contract and rejects a correctly announced link

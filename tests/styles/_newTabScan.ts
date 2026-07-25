@@ -26,6 +26,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { compileSync } from "@mdx-js/mdx";
 import ts from "typescript";
 
 /** Recursive walk, matching the repo idiom in tests/styles/_classScanUtils.ts. */
@@ -54,23 +55,46 @@ const LINK_TAGS = new Set(["a", "Link"]);
  * Two ways in now:
  *   1. the tag is a known link, INCLUDING a member expression whose last segment
  *      is one (`UI.Link`, `Chrome.Anchor`); or
- *   2. the element carries BOTH `target` and `href`, whatever its tag. That pair is
- *      what makes it URL-shaped, and anything accepting it can forward both to an
- *      anchor.
+ *   2. the element carries an explicit `target` attribute, whatever its tag; or
+ *   3. it carries `href` plus any spread, since the spread may supply the target.
  *
- * `href` is the discriminator, not `target`: `<Tabs target="_blank" />` selects a TAB,
- * and treating it as a link was already pinned as wrong. Anchoring on `href` means a
- * `<div {...props}>` never becomes a violation, while an href-bearing element whose
- * target arrives through a SPREAD is still classified -- that case was the residue
- * this rule originally accepted, closed after a probe showed it silently produced
- * zero anchors.
+ * Attribute names for these tests come from `attrName`, so casing does not matter,
+ * and a RESOLVABLE inline spread contributes its own property names -- R10 showed
+ * `<Foo {...{href:"x", target:"_blank"}}>` was otherwise skipped even though both
+ * props are statically visible.
+ *
+ * Rule 2 accepting `target` alone REVERSED an earlier decision on purpose. That
+ * decision kept `<Tabs target="_blank" />` unclassified, reasoning that a non-URL
+ * `target` prop selects a tab rather than a window; R9 then showed the cost, because
+ * `<Foo target="_blank" {...spreadHref}>` was skipped entirely. Two reviewers pulling
+ * opposite ways on one rule is settled by which direction fails closed. A live census
+ * confirms every explicit `target` in the tree is `_blank` on an intrinsic `<a>`, so
+ * this costs nothing today, and a genuine non-URL `target` prop costs one exemption.
+ *
+ * Keying on attributes rather than "has a spread" is what keeps every
+ * `<div {...props}>` out. Residue, accepted: an UNRESOLVABLE spread on an unknown tag
+ * carrying both props.
  */
 function isLinkCandidate(tag: string, attrs: ts.JsxAttributes): boolean {
   const last = tag.split(".").pop() ?? tag;
   if (LINK_TAGS.has(tag) || LINK_TAGS.has(last) || /^(anchor|externallink)$/i.test(last)) {
     return true;
   }
-  const names = new Set(attrs.properties.map((a) => attrName(a)));
+  // Attribute names include those supplied by a RESOLVABLE inline spread. R10 showed
+  // `<Foo {...{href:"x", target:"_blank"}}>` and the conditional form skipped
+  // entirely: the props are statically visible, so they are outside the documented
+  // unresolvable-spread deferral, and a forwarding `Foo` renders a real
+  // `<a href="x" target="_blank">` named only "Go".
+  const names = new Set<string | null>(attrs.properties.map((a) => attrName(a)));
+  for (const a of attrs.properties) {
+    if (!ts.isJsxSpreadAttribute(a)) continue;
+    for (const obj of spreadObjectLiterals(a.expression)) {
+      for (const prop of obj.properties) {
+        const pn = propNameLower(prop);
+        if (pn !== null) names.add(pn);
+      }
+    }
+  }
   // An explicit `target` attribute is enough on its own. R9 showed
   // `<Foo target="_blank" {...spreadHref}>` skipped when `href` was also required,
   // and its census confirms no live component carries `target` without `href`, so
@@ -213,6 +237,18 @@ function propNameLower(prop: ts.ObjectLiteralElementLike): string | null {
   if (n === undefined) return null;
   if (ts.isIdentifier(n) || ts.isStringLiteral(n)) return n.text.toLowerCase();
   return null;
+}
+
+/** Object literals a spread expression statically resolves to: a bare literal, or
+ *  either branch of a conditional between literals. An identifier or call is NOT
+ *  resolvable and yields none, which keeps the unresolvable-spread deferral intact. */
+function spreadObjectLiterals(expr: ts.Expression): ts.ObjectLiteralExpression[] {
+  const e = unparen(expr);
+  if (ts.isObjectLiteralExpression(e)) return [e];
+  if (ts.isConditionalExpression(e)) {
+    return [unparen(e.whenTrue), unparen(e.whenFalse)].filter(ts.isObjectLiteralExpression);
+  }
+  return [];
 }
 
 function unparen(node: ts.Expression): ts.Expression {
@@ -680,55 +716,24 @@ export function admitsCandidate(code: string): boolean {
 }
 
 /**
- * Interiors of the opening tags in a chunk of MDX.
+ * Compile a `.mdx` source to JSX so the SAME AST scanner classifies it.
  *
- * A regex cannot do this: a character class excluding angle brackets stops at the
- * first `>` or `<`, so a
- * tag carrying `title="1 > 0"` or `data-x={1 < 2 ? "y" : "n"}` hid every later
- * `target={dest}` or spread from the rule -- R9 compiled ten such witnesses with
- * `@mdx-js/mdx` and each produced a real `<a target="_blank">` named only "Go"
- * (review R9 BLOCKING 2). Widening the regex to allow `<`/`>` would bring back the
- * prose false positives instead, so the tag boundary is scanned properly: quotes and
- * brace depth are tracked, and only an unquoted `>` at depth 0 ends the tag.
+ * Four rounds went into hand-written lexical rules for MDX and each produced a new
+ * defect: a bare `target\s*=` matched prose and autolinks (R8); a character class
+ * excluding angle brackets ended the tag at any `>` inside it (R9); then a
+ * quote-and-brace scanner miscounted braces inside regex literals, treated fenced
+ * code as live JSX, and ran past a quoted attribute ending in a backslash (R10,
+ * three separate findings).
+ *
+ * A lexer for a real grammar is the wrong model, so MDX now goes through the actual
+ * MDX compiler -- already a repo dependency -- and the compiled JSX is handed to
+ * `scanSource`. Prose becomes string literals, fenced code becomes string literals,
+ * and regex literals, escapes and attribute quoting become the compiler's problem.
+ * MDX and TSX are now ONE enforcement path rather than two, which is what removes
+ * the class instead of the instance.
  */
-function mdxTagInteriors(code: string): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < code.length; i += 1) {
-    if (code[i] !== "<") continue;
-    const next = code[i + 1];
-    if (next === undefined || !/[A-Za-z]/.test(next)) continue;
-    let depth = 0;
-    let quote: string | null = null;
-    let j = i + 1;
-    for (; j < code.length; j += 1) {
-      const ch = code[j]!;
-      if (quote) {
-        if (ch === quote && code[j - 1] !== "\\") quote = null;
-        continue;
-      }
-      if (ch === '"' || ch === "'" || ch === "`") {
-        quote = ch;
-        continue;
-      }
-      if (ch === "{") depth += 1;
-      else if (ch === "}") depth = Math.max(0, depth - 1);
-      else if (ch === ">" && depth === 0) break;
-    }
-    out.push(code.slice(i + 1, Math.min(j, code.length)));
-    i = j;
-  }
-  return out;
-}
-
-/** MDX cannot be classified by the scanner (it never reaches `scanSource`), so it
- *  gets no target attribute and no spread at all -- not merely no literal `_blank`.
- *  The rule IS the enforcement here, so a false negative ships silently, unlike the
- *  TSX net where over-admitting only costs scan time. */
-export function mdxForbidden(code: string): boolean {
-  return lexicalVariants(code).some((v) => {
-    if (/_blank/i.test(v)) return true;
-    return mdxTagInteriors(v).some((tag) => TARGET_ATTR.test(tag) || /\{\s*\.\.\./.test(tag));
-  });
+export function compileMdxToJsx(source: string): string {
+  return String(compileSync(source, { jsx: true }));
 }
 
 export const MDX_FORBIDDEN = /_blank|target\s*=|\{\s*\.\.\./i;
@@ -835,7 +840,22 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
   // allowlist let a spread carry aria-labelledby / aria-hidden / hidden /
   // className / style / a competing aria-label (review R4 BLOCKING 2).
   const SPREADABLE = new Set(["target", "rel"]);
+  // Duplicate case-folded names are AMBIGUOUS and must fail closed. React writes both
+  // `{ target: "_self", TARGET: "_blank" }` to one case-insensitive DOM attribute and
+  // the LATER value wins, so reading the first normalized match gave the wrong value
+  // in both directions (review R10 BLOCKING 3).
+  const hasDuplicateFoldedName = (o: ts.ObjectLiteralExpression): boolean => {
+    const seen = new Set<string>();
+    for (const prop of o.properties) {
+      const pn = propNameLower(prop);
+      if (pn === null) continue;
+      if (seen.has(pn)) return true;
+      seen.add(pn);
+    }
+    return false;
+  };
   const plain = (o: ts.ObjectLiteralExpression): boolean =>
+    !hasDuplicateFoldedName(o) &&
     o.properties.every(
       (prop) =>
         ts.isPropertyAssignment(prop) &&
