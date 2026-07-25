@@ -142,7 +142,7 @@ export function isShowScopeReachable(s: AttentionScenario): boolean {
 
 **Why `some`, not `every`** (round-1 review, BLOCKING). An earlier draft kept a mixed scenario on the theory that "the carrier is the real state under review; the alert is incidental." That is wrong: the modal has no way to render a scenario partially. Every declared alert that survives `deriveAttentionItems` becomes a visible item, so one global code contaminates the whole card. The earlier draft also contradicted §4.5, which removes a global code from a mixed scenario for exactly this reason — two sections applying opposite standards to the same situation.
 
-**The partition applies the predicate to TIER 1 ONLY.** A tier-1 scenario IS its code: the one-card-per-route-key fan-out exists to show that code's card, so a card for an unreachable code is fiction with nothing else in it. A tier-2 or tier-3 composite uses codes as INGREDIENTS to demonstrate a structural state (the actionable class, occurrence counts, identity absence); its subject is the state, not the code. Excluding a composite would delete real coverage to fix an ingredient, so the partition does not. See §4.5 for what the composites actually do today and the decision that remains open.
+**The partition applies the predicate to every tier.** In practice it fires only on tier-1 cards, because the catalogue no longer contains a composite that picks a global-scope code: every tier-2 picker filters `GLOBAL_SCOPE_CODES` (§4.5). That ordering matters. A tier-1 scenario IS its code, so excluding it is the whole point. A composite uses codes as INGREDIENTS to demonstrate a structural state, so excluding one would delete real coverage to fix an ingredient — which is why the composites are fixed at the source rather than dropped here. If this arm ever fires on a composite, the catalogue regressed; §6 test 5 fails first and names it.
 
 ### 4.2 The carrier list stays where it is
 
@@ -224,16 +224,19 @@ t2-occurrence-many     t2-single           t3-full-attention-split
 
 They are pinned as a checked-in list in `tests/app/admin/attentionModalGallery.serverProps.test.ts` so the set is visible and a NEW composite picking a global code fails rather than passing unnoticed.
 
-**Teaching the pickers to skip global codes was attempted and reverted.** Adding `!GLOBAL_SCOPE_CODES.has(c)` to every tier-2 picker breaks `pickCode("actionable")` and `pickByDerivedClass("actionable")` outright. Measured against the live catalogue, among context-free non-cut codes:
+**Every picker now filters by scope, and three axes had to be rebuilt.** Adding `!GLOBAL_SCOPE_CODES.has(c)` to all six tier-2 pickers is necessary but not sufficient — it empties two axes outright, which is itself the finding. Measured against the live catalogue, among codes that survive the audience cut and need no context:
 
-```
-ASSET_RECOVERY_BYTES_EXCEEDED   auto=1  global=0     LIVE_ROW_CONFLICT             auto=0  global=1
-DRIVE_FETCH_FAILED              auto=1  global=0     ONBOARDING_SHEET_UNREADABLE   auto=0  global=1
-EMBEDDED_ASSET_DRIFTED          auto=1  global=0     SYNC_STALLED                  auto=1  global=1
-... every other reachable code   auto=1  global=0     WATCH_CHANNEL_ORPHANED        auto=1  global=1
-```
+| derived class | reachable codes available |
+| --- | --- |
+| needs-look | 9 (`SHEET_UNAVAILABLE`, `RESYNC_SHRINK_HELD`, `PARSE_ERROR_LAST_GOOD`, the reel and asset codes, …) |
+| monitoring (self-heal) | **1** — `DRIVE_FETCH_FAILED` |
+| actionable | **0** |
 
-**Every context-free, per-show-reachable code is auto-resolving.** The only context-free actionable codes are the two global ones. So the gallery's "actionable" axis has no reachable context-free code to pick at all: on a real show modal, an actionable alert is reached only through the crew-domain code, which carries context. Making the composites scope-faithful therefore means changing what that axis demonstrates — a product decision about gallery coverage, not a mechanical fix, and out of scope for this change. **OPEN DECISION**, recorded in §8.
+1. **Actionable.** Every context-free per-show-reachable code is auto-resolving. The only context-free actionable codes are `LIVE_ROW_CONFLICT` and `ONBOARDING_SHEET_UNREADABLE`, both global. On a real show modal an actionable alert is reached ONLY through the crew-domain code, which carries context. `actionableAlert()` is that shape; `pickCode` loses its `"actionable"` kind entirely.
+2. **Monitoring.** `SELF_HEALING_CODE_LIST` has three members and two are global-scope (`lib/adminAlerts/audience.ts:75-79`), so a real show's Monitoring group can never hold more than one distinct code. `T2_MONITORING_ONLY`'s two-code "2 monitoring" pill and `T3_FULL_SPLIT`'s second monitoring row were both unreachable. The badge is now exercised with a repeat count on the one reachable code.
+3. **Identity-absent.** The crew code cannot express it: `validateScenario` requires exactly one Crew identity segment, the opposite of the axis. The menu subtitle keys off resolved identity rather than pill class, so a needs-look code with no declared identity exercises the same absence.
+
+None of these is a gallery bug being papered over. Each is the catalogue telling us what a real show modal can actually contain, and the previews now say the same thing.
 
 After the removal the composite still derives: 1 actionable (the hold), 2 needs-look (`SHEET_UNAVAILABLE`, `RESYNC_QUALITY_REGRESSED`), 1 self-heal (`DRIVE_FETCH_FAILED`) — so every group in the split remains non-empty and the scenario keeps its purpose.
 
@@ -298,8 +301,8 @@ TDD per invariant 1: failing test, minimal implementation, passing test, commit,
 | 2 | `globalOnlyCodes()` unit: a code with both scopes is NOT global-only; a `seed: true` global row does not make its code global-only | the two projection edge cases; derived from synthetic rows, not from `PRODUCER_SCOPE`, so it cannot pass by coincidence of today's data |
 | 3 | `isShowScopeReachable` truth table: every §4.1 guard row, using synthetic scenarios | the `every`-instead-of-`some` inversion (which would keep every mixed scenario), and a predicate that returns a constant |
 | 4 | `partitionScenarios`: `excluded.filter(reason === "global")` ids are EXACTLY the four, pinned as a checked-in list | drift in either direction, matching the `EXPECTED_CUT_IDS` pin idiom |
-| 5 | catalogue pin: the tier-2/3 scenarios carrying a global-scope code are EXACTLY the checked-in nine | §4.5's measured reality. Walks every scenario rather than naming `T3_FULL_SPLIT`, so a NEW composite picking a global code fails here instead of passing unnoticed |
-| 5a | no rendered tier-1 scenario carries a global-scope code | the tier-1 scoping in §4.1; a partition arm that checked the wrong tier fails here |
+| 5 | catalogue guard: NO tier-2 or tier-3 scenario declares a global-scope code | §4.5. Walks every scenario rather than naming `T3_FULL_SPLIT`, so a NEW composite picking one fails by default |
+| 5a | no rendered tier-1 scenario carries a global-scope code, and no COMPOSITE is excluded as global | the two halves end to end: the partition removes the tier-1 cards, and the catalogue guard holds so no composite reaches the arm |
 | 5b | `partitionScenarios`: `EXPECTED_CUT_IDS` still matches exactly, and no id appears under two reasons | the ordering contract in §4.3; a reordering that relabels the five health globals fails here |
 | 5c | `partitionScenarios`: the rendered id set equals the pre-change baseline minus exactly the four | any unrelated scenario moving; also pins that `isModalVisible` was not disturbed |
 | 6 | e2e: the excluded panel renders the global line's count, mirroring the existing `CUT` assertion | the paragraph never reaching the real DOM (the component test renders it in isolation; only the e2e proves the server-derived list reaches the page) |
@@ -342,6 +345,5 @@ TDD per invariant 1: failing test, minimal implementation, passing test, commit,
 - Any change to production alert routing, producer scopes, or `fetchPerShowAlerts`.
 - The `PRODUCER_SCOPE` §3.0 residual risk (raw `INSERT INTO admin_alerts` sites are not discovered). Those sites all emit health-audience codes, which the gallery cuts on the audience axis regardless, so the residual does not affect this change.
 - The 13 routed codes with no producer row at all. They are health-audience and already cut; classifying them by scope would require closing the residual above.
-- **The near-vestigial Monitoring group.** §4.5 establishes that only `DRIVE_FETCH_FAILED` of the three `SELF_HEALING_CODE_LIST` members is per-show-reachable, so a real show modal's Monitoring group holds at most one distinct code. Whether that group earns its dedicated pill segment, heading, and row list is a product question, not a correctness one. Recorded here so a future reviewer does not re-derive it; not addressed by this spec.
-- **OPEN DECISION — scope-faithfulness of the nine composites (§4.5).** The tier-2 pickers select by audience and context, not scope, so nine composites demonstrate their structural state using a code no show modal can carry. Fixing it requires deciding what the gallery's "actionable" axis should demonstrate, because no context-free per-show-reachable actionable code exists. Deliberately not decided here.
+- **The near-unreachable Monitoring group.** §4.5 establishes that only `DRIVE_FETCH_FAILED` of the three `SELF_HEALING_CODE_LIST` members is per-show reachable, so a real show's Monitoring group holds at most one distinct code. Whether that group still earns its dedicated pill segment, heading, and row list is a product question, not a correctness one. Recorded so a future reviewer does not re-derive it; not addressed here.
 - Bell, dashboard, and health surfaces. Global alerts render correctly there and this spec does not touch them.

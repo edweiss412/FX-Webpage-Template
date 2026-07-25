@@ -385,7 +385,7 @@ Plus the two existing composite pins, updated to their post-removal values:
 
 **Commit:** `fix(admin-dev): no composite may carry a global-scope code; drop SYNC_STALLED from T3_FULL_SPLIT`
 
-> **STATUS: BLOCKED, awaiting a decision.** Implementation revealed that `T3_FULL_SPLIT` is not the only composite carrying a global code — nine do, because the tier-2 pickers select by audience and context but never by scope. Adding a scope filter to those pickers breaks the "actionable" axis outright: every context-free per-show-reachable code is auto-resolving, so there is no reachable code to pick. See spec §4.5. Task 4 shipped with the partition scoped to tier 1, so the nine composites keep their cards and are pinned as a visible list; this task waits on the decision about what the gallery's actionable axis should demonstrate. Removing `SYNC_STALLED` from `T3_FULL_SPLIT` alone would fix one of nine and leave the class open, which is the drip-feed pattern the project rules forbid.
+> **RESOLVED — Option B.** Implementation revealed that `T3_FULL_SPLIT` was not the only composite carrying a global code: nine did, because the tier-2 pickers select by audience and context but never by scope. The decision was to make every composite scope-faithful. All six pickers now filter `GLOBAL_SCOPE_CODES`, which emptied two axes and forced three rebuilds (actionable onto the crew code, monitoring down to the one reachable self-healing code, identity-absent onto a needs-look code). See spec §4.5 for the measured matrix. The catalogue guard flipped from "these nine are known" to "there are none", and the partition arm dropped its tier-1 restriction.
 
 ---
 
