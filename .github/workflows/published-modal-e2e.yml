@@ -59,6 +59,9 @@ on:
       - "components/realtime/ShowRealtimeBridge.tsx"
       - "components/admin/wizard/step3ReviewSections.tsx"
       - "components/admin/wizard/CrewRowActions.tsx"
+      # T-NOPHANTOM walks this component's eyebrow row; its ledger is empty, so a
+      # regression here shows up as a new offender rather than a stale row.
+      - "components/admin/BulkIgnoreControls.tsx"
       - "tests/e2e/_publishedReviewModalHarness.tsx"
       - "tests/e2e/helpers/**"
       - "playwright.config.ts"

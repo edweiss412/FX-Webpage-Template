@@ -1,0 +1,62 @@
+name: Bulk-ignore eyebrow geometry e2e (standalone harness)
+# Runs the standalone real-browser eyebrow-row spec
+# (tests/e2e/bulk-ignore-eyebrow.layout.spec.ts, standalone-chromium project) in
+# real Chromium. The spec is FULLY self-contained: its beforeAll esbuild-bundles
+# the live entry, compiles the token CSS with the Tailwind CLI, and serves it over
+# its OWN node:http server — no app boot, no Supabase, no :3000-:3004.
+#
+# Why its own job: standalone.config.ts is an explicit allow-list that NO general
+# CI workflow invokes, so this spec proved nothing on main from the day it landed
+# (2026-07-23) until this workflow. Its DI-1..DI-5 assertions are the only gate on
+# the phantom-gap fix (spec 2026-07-24-dq-eyebrow-divider-and-confirm-bar §3.6):
+# the rule leaving flow below 480px, the min-w-6 floor above it, the armed chip's
+# full-width/inline split, and the idle row staying one line. jsdom computes none
+# of it. workflow_dispatch so close-out can fire it via `gh workflow run`.
+on:
+  pull_request:
+    paths:
+      - "tests/e2e/bulk-ignore-eyebrow.layout.spec.ts"
+      - "tests/e2e/_bulkIgnoreEyebrowLiveEntry.tsx"
+      - "tests/e2e/standalone.config.ts"
+      - "tsconfig.json"
+      - "components/admin/BulkIgnoreControls.tsx"
+      - "lib/dataQuality/bulkIgnoreGroups.ts"
+      - "lib/messages/catalog.ts"
+      - "app/globals.css"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/bulk-ignore-eyebrow-e2e.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  bulk-ignore-eyebrow-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
+      - name: Run bulk-ignore eyebrow standalone spec (no webServer)
+        run: pnpm test:e2e:bulk-ignore-eyebrow
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bulk-ignore-eyebrow-e2e-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
