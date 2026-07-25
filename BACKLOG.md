@@ -281,21 +281,45 @@ The Step-3 "Review & publish" Variant-B redesign (spec/plan `2026-07-04-step3-re
 
 ### BL-DBTEST-LOOPBACK-EVAL-GUARD — retrofit module-eval loopback guard onto pre-existing db tests
 
-**Status:** OPEN · **Severity:** low · **Class:** TEST SAFETY
+**Status:** CLOSED (2026-07-25, `test/safety-hardening-batch`) · **Severity:** low · **Class:** TEST SAFETY
+
+**Shipped:** all 37 files reading `LOCAL_TEST_DATABASE_URL` now route it through `assertLocalDbUrl` (or `assertLocalDbUrlIfSet` for the one validation-capable suite, which is guarded on its LOCAL leg rather than exempted). The guard moved to the side-effect-free `tests/db/_localDbUrl.ts` and redacts DSN credentials. `tests/db/_metaLocalDbUrlGuard.test.ts` walks `tests/**` and fails any unguarded read, recognising bracket / parenthesized / `process["env"]` / aliased / destructured spellings; exempt set is empty and pinned by equality.
 
 The finalize-resume-deadlock whole-diff R1 review surfaced (and fixed, for the 3 suites in that diff) a latent pattern shared by ~20 pre-existing `tests/onboarding/*.db.test.ts` files: `LOCAL_URL = process.env.LOCAL_TEST_DATABASE_URL ?? <loopback default>` is consumed by a probe `beforeAll` that opens `postgres(LOCAL_URL)` and sets `dbUp = true` BEFORE the loopback assertion (`expect(LOCAL_URL).toMatch(/127…/)`) runs in a later `beforeAll`. If `LOCAL_TEST_DATABASE_URL` is mispointed to a remote host (`TEST_DATABASE_URL` is the validation project), the probe connects remote and `dbUp` flips true; even when the later assertion throws, `afterAll`'s `if (dbUp)` teardown still issues DELETE/UPDATE against the remote. The default is loopback so this only bites on an explicit remote override, hence low severity. **Fix (when prioritized):** wrap each file's `LOCAL_URL` in `assertLocalDbUrl(...)` from `tests/db/_remediationHelpers.ts` (synchronous module-eval throw on non-loopback host, before any handle) — the proven pattern in `cleanupReapCrossSession.db.test.ts` + 7 others and now the 3 finalize-resume-deadlock suites. Consider a structural meta-test that fails any `*.db.test.ts` opening `postgres(...)` on a URL not passed through `assertLocalDbUrl`.
 
 ### BL-RESCAN-PREPARE-ERROR-GRANULARITY — distinguish parse vs Drive-fetch failure in re-scan fail-closed paths
 
-**Status:** OPEN · **Severity:** low · **Class:** TELEMETRY GRANULARITY
+**Status:** CLOSED (2026-07-25, `test/safety-hardening-batch`) · **Severity:** low · **Class:** TELEMETRY GRANULARITY
+
+**Shipped:** `prepareOnboardingFiles` throws a discriminated `PrepareOnboardingFileError`, classified by error IDENTITY first — `WorkbookSynthesisError` (new, tagged at `synthesizeMarkdownFromXlsx`) is a parse fault even when raised inside the Drive export, which no call-site rule can see. Both fail-closed sites map `kind:"parse"` to the EXISTING `STAGED_PARSE_FAILED` row (no new §12.4 code), and the live first-seen retry route was swept for the same conflation. The row's copy was rewritten path-agnostically under the three-way lockstep. Deliberately NOT reclassified: post-parse internal helper faults (see `BL-PREPARE-INTERNAL-FAULT-KIND`).
 
 Both re-scan fail-closed catch sites — the finalize inline auto-heal (`app/api/admin/onboarding/finalize/route.ts`, the `prepareOnboardingFiles` try/catch) and the standalone `rescanWizardSheet` (`lib/onboarding/rescanWizardSheet.ts:127`) — map ANY `prepareOnboardingFiles` throw to `DRIVE_FETCH_FAILED`. Because `prepareOnboardingFiles` does export AND parse, a parser/schema failure or malformed-workbook fault is reported to Doug as a Drive fetch failure, and telemetry loses the export-vs-parse distinction. The recovery path is identical (both demote fail-closed to the re-apply page), so this is a wrong-reason/observability issue, not a correctness bug — surfaced by whole-diff R5. **Fix (when prioritized):** have `prepareOnboardingFiles` throw a discriminated error (e.g. `{ kind: 'drive_fetch' | 'parse' }`) and map each to a distinct §12.4 code at BOTH call sites (new code needs the full 3-way lockstep + CI touchpoints). Deferred to keep the two sites consistent and avoid a new catalog code mid-feature.
 
 ### BL-STEP3-STAGED-LINK-GUARD-HELPER-BYPASS — deletion-safety Link guard misses helper-built hrefs
 
-**Status:** OPEN · **Severity:** low · **Class:** TEST COVERAGE
+**Status:** CLOSED (2026-07-25, `test/safety-hardening-batch`) · **Severity:** low · **Class:** TEST COVERAGE
+
+**Shipped:** the same-line predicate is replaced by four layers over `app/` + `components/` + `lib/` + `next.config.ts` + `app/**/*.mdx` — an occurrence allow-list pinned by position KIND (so a ratified comment cannot become code at an unchanged count), AST resolution of `<Link>`/`<a>` hrefs through helpers, arrow helpers, consts, object properties, `+`, `join()` and `concat()`, an assembled-literal scan, and a raw scan for MDX. Primitives live in `tests/admin/stagedPageRefScan.ts` and are exercised against synthetic sources.
 
 The Step-3 consolidation deletion-safety guard (`tests/admin/step3DeletionSafety.test.ts`, the "no in-app `<Link href>` out to the retired staged page" test) matches only a literal `/admin/onboarding/staged/` substring on the SAME source line as `href`. A helper-built href (`href={buildStagedUrl(id)}` where the path lives in a const or is assembled elsewhere) could reintroduce a link to the retired staged page without tripping the guard — surfaced by whole-diff R5 (LOW). A blanket "path appears anywhere" scan is NOT a clean fix: the path is LEGITIMATELY referenced by the finalize race-row `re_apply_url` builder and the `next.config.ts` 307 redirect source (both ratified in spec §4.6 — they now 307 to /admin), so a stricter guard false-positives on those. **Fix (when prioritized):** a JSX-aware check that resolves `<Link>`/`<a>` href expressions (including one-hop helper returns) to a URL and asserts none resolve under `/admin/onboarding/staged/`, while allow-listing the ratified non-Link string references. Low value + false-positive risk mid-feature, so deferred; the literal same-line guard plus the retired-import guard already cover the common regressions.
+
+### BL-SOURCE-NUL-BYTE-STEP3REVIEW — a committed NUL byte makes one source file invisible to grep
+
+**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** SOURCE HYGIENE
+
+`components/admin/wizard/Step3Review.tsx` carries a raw U+0000 at byte offset 53375 — `uncheckedCleanNames.join("<NUL>")`, committed as a literal NUL instead of the two-character escape `\u0000` (commit `fc75a9bcd`). `file(1)` reports the file as `data`, so **`grep` skips it silently**: no match, no "Binary file matches" line, no error. Any grep-based audit of `components/**` under-reports by this file, and one such audit did exactly that while enumerating references for the Step-3 deletion guard. Guards that read with `readFileSync` are unaffected. **Fix (when prioritized):** replace the raw byte with the escape sequence. Deferred rather than fixed inline because `components/**` is a UI surface, so a zero-behavior byte change would trigger the invariant-8 impeccable dual-gate.
+
+### BL-PREPARE-INTERNAL-FAULT-KIND — a third fault kind for post-parse internal helpers
+
+**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY
+
+`PrepareOnboardingFileError` has two kinds, `drive_fetch` and `parse`, and the post-parse internal helpers (`finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun`'s fix-up, `applyRoleTokenMappings`) currently fall to `drive_fetch` — today's unchanged behavior. Neither code is right for them: a bug in the role-mapping overlay is not a Drive failure, and it is not something Doug fixes by editing his sheet either, so `STAGED_PARSE_FAILED` ("fix its structure", `warn` severity) would be a new wrong instruction. **Fix (when prioritized):** a third `internal` kind mapped to a code that tells the operator to contact the developer, with the finalize severity staying `error`. Needs a new §12.4 row and the full four-gate CI fan-out, which is why it was not folded into the batch that surfaced it.
+
+### BL-CRON-WORKBOOK-FAULT-CODE — a corrupt workbook on the cron path reports SYNC_FILE_FAILED
+
+**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY
+
+The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
 
 ### BL-ROOM-DIMS-ONLY-NOVEL-HEADER — parse a dims-only novel breakout header (no DAY-range)
 

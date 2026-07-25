@@ -1,6 +1,6 @@
 # Spec — Test-safety hardening batch (2026-07-24)
 
-**Status:** draft — revised after Codex adversarial review R1 (BLOCKING, 11 findings; all accepted, dispositions in §9)
+**Status:** implemented — revised after Codex adversarial review R1 (BLOCKING, 11 findings) and R2 (BLOCKING, 10 findings); all accepted, dispositions in §9
 **Branch:** `test/safety-hardening-batch`
 **Backlog items closed:** `BL-DBTEST-LOOPBACK-EVAL-GUARD`, `BL-STEP3-STAGED-LINK-GUARD-HELPER-BYPASS`, `BL-RESCAN-PREPARE-ERROR-GRANULARITY` (BACKLOG.md §"Test-safety hardening (2026-07-05)", lines 282–298)
 **Explicitly NOT in scope:** `BL-ROOM-DIMS-ONLY-NOVEL-HEADER` (BACKLOG.md:300) stays deferred — 14 adversarial rounds established that every dims-based admit gate reopens asset fabrication.
@@ -116,7 +116,18 @@ Constant names differ across files (`LOCAL_URL`, `DB_URL`, …); the edit preser
 
 ### 2.6 Structural meta-test — `tests/db/_metaLocalDbUrlGuard.test.ts`
 
-**Scan-set predicate (R1 finding 8).** Membership is **an AST-resolved read** of `process.env.LOCAL_TEST_DATABASE_URL` — a `PropertyAccessExpression` — not a textual "mentions". A textual predicate is self-contradictory: the helper names the variable in its error copy, and the meta-test names it in its own synthetic fixtures, so both would enter their own scan set. Under the AST predicate the helper (string literal only) and the meta-test's fixtures (string literals) are naturally outside it.
+**Scan-set predicate (R1 finding 8, R2 finding 1).** Membership is **an AST-resolved read** of the variable off `process.env`, in every spelling that reaches the same value — not a textual "mentions", and not only the canonical dot-access:
+
+| Spelling | Recognised as a read | Can be guarded in place |
+| --- | --- | --- |
+| `process.env.LOCAL_TEST_DATABASE_URL` | yes | yes |
+| `process.env["LOCAL_TEST_DATABASE_URL"]` | yes | yes |
+| `(process.env).LOCAL_TEST_DATABASE_URL` | yes | yes |
+| `process["env"].LOCAL_TEST_DATABASE_URL` | yes | yes |
+| `const env = process.env; env.LOCAL_…` (transitively aliased) | yes | yes |
+| `const { LOCAL_TEST_DATABASE_URL } = process.env` (with or without an alias) | yes | **no** — counts as unguarded by construction, which is the fail-closed direction: there is no read site to wrap, so the author is pushed to a shape the guard can protect |
+
+Recognising only the canonical form would let a future destructive suite read a remote URL through an alias while the tree scan reported every file guarded. A textual predicate is self-contradictory: the helper names the variable in its error copy, and the meta-test names it in its own synthetic fixtures, so both would enter their own scan set. Under the AST predicate the helper (string literal only) and the meta-test's fixtures (string literals) are naturally outside it.
 
 For every file in the scan set the test asserts:
 
@@ -173,11 +184,14 @@ All three run over `app/`, `components/`, `lib/`, **plus the single file `next.c
 - call of a same-file `function` declaration or `const` **arrow function** whose body is a single `return` → that return value (one hop);
 - property access on a same-file object literal → that property's value;
 - binary `+` chain → the concatenation of the statically resolvable parts;
+- `[…].join(sep)` on an array literal, and `"…".concat(…)` — the two standard alternatives to `+` (R2 finding 3). `join()` with no argument uses the real default separator (`,`), so it does not fabricate a match;
 - anything else → unresolved, ignored.
 
-Assert no resolved value contains `/admin/onboarding/staged/`. (Contains, not starts-with: a `+` chain resolves with a leading placeholder when the prefix is dynamic.)
+Assert no resolved value contains the retired path. **The `/api/` exclusion is part of the match itself, in every layer** (R2 finding 5): an occurrence preceded by `/api` is not an occurrence at all, so the legitimate endpoint templates at `components/admin/StagedReviewCard.tsx:277,282` are invisible to Layers A, B, and C alike. (Contains, not starts-with: a `+` chain resolves with a leading placeholder when the prefix is dynamic.)
 
 **Layer C — assembled-literal scan (R1 finding 5a).** Independently of JSX, walk every template literal and every `+` chain in each file, join their static parts (each substitution replaced by the same `\u0001` sentinel), and test the joined string for `/admin/onboarding/staged/`. This catches `"/admin/onboarding/" + "staged/" + id`, which contains no single matching literal and is therefore invisible to Layer A's per-literal scan and to Layer B when it is not an `href`. Hits are reported to Layer A as kind `assembled`; the ratified table contains none today, so any hit fails.
+
+**Layer D — MDX help pages (R2 finding 4).** `app/**/*.mdx` renders real `<Link>`s but is not TypeScript, so the AST layers cannot read it and the existing walker's `.ts`/`.tsx` filter excluded all 13 pages. They get a raw-text layer: **no** MDX page may name the retired path at all (there is no ratified MDX reference to carve out), plus a non-vacuity assertion that the MDX walker found files — otherwise an empty walk would pass silently.
 
 **Residual, documented limits:** a path assembled across module boundaries (segment consts imported from another file, joined at runtime), and `href` supplied via `{...props}`. Both are recorded in §7 rather than claimed closed.
 
@@ -227,24 +241,19 @@ Therefore:
    - otherwise by **site**, per the table below.
 3. **Site classification is independent of the thrown value's type** (resolving R1 finding 2's contradiction): a `string` thrown from a parse site is still `parse`. Only a throw from a site not in the table defaults to `drive_fetch`.
 
-**Complete throw-site enumeration** (every site in the live body, verified):
+**The `parse` bucket is narrow on purpose (R2 finding 7).** Only a POSITIVELY identified sheet-content fault is re-classified:
 
-| Site | Line | Kind |
+| Fault | Kind | Why |
 | --- | --- | --- |
-| `listFolder(folderId)` | 1146 | `drive_fetch` |
-| `readOverride(...)` | 1179 | `drive_fetch` (default catches internally at `:313`; only an injected stub throws) |
-| `fetchMarkdownWithBinding(...)` | 1180 | `drive_fetch`, **except** a `WorkbookSynthesisError` from within → `parse` |
-| `parseSheet(markdown, …)` | 1193 | `parse` — hoisted out of the `enrich(...)` argument so the two are separable |
-| `enrich(...)` | 1193 | `drive_fetch` |
-| `finalizeArchivedTabs(...)` | 1196 | `parse` |
-| `reconcileIncludedTab(...)` | 1204 | `parse` |
-| `discardAndRerun(...)` incl. its post-parse fix-up (`lib/sync/pullSheetOverride.ts:208-216`) | 1210 | `parse` |
-| `synthesizeMarkdownFromXlsx(bytes)` inside `reparseNoOverride` | 1214 | `parse` |
-| inner `parseSheet` + `finalizeArchivedTabs` in `reparseNoOverride` | 1216-1220 | `parse` |
-| inner `enrich(...)` in `reparseNoOverride` | 1215-1219 | `drive_fetch` |
-| `applyRoleTokenMappings(...)` | 1239 | `parse` |
-| `listSheetGids` / `extractSourceAnchors` / `attachWarningAnchors` | 1256-1283 | already caught locally; never propagate |
-| `readRoleTokenMappings` | 1161-1163 | already `.catch(() => [])`; never propagates |
+| `parseSheet(...)` throws — initial parse or the `reparseNoOverride` re-parse | `parse` | The markdown parser could not read the sheet. Doug fixes the sheet. |
+| `WorkbookSynthesisError`, wherever it surfaces — including from inside `fetchMarkdownWithBinding` and from `synthesizeMarkdownFromXlsx` in `reparseNoOverride` | `parse` | The workbook itself is unreadable. Identity, not call site: Drive already succeeded. |
+| everything else | `drive_fetch` | See below. |
+
+"Everything else" deliberately includes `listFolder`, `readOverride`, Drive transport faults inside `fetchMarkdownWithBinding`, `enrich`, **and the post-parse internal helpers** — `finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun`'s fix-up, `applyRoleTokenMappings` — plus a throwing `onProgress` or a synchronously throwing `readRoleTokenMappings` adapter (R2 finding 6: those two previously escaped the contract entirely, leaving the caller an unclassified error).
+
+A fault in the role-mapping overlay or the archived-tab finalizer is **not** something Doug can fix by editing his sheet; only a code change recovers it. Telling him "we couldn't read your sheet, fix its structure" — and, on the finalize path, downgrading the log to `warn` — would replace one wrong reason with a different wrong reason. Those faults therefore keep today's `DRIVE_FETCH_FAILED` unchanged. This is a deliberate under-reach: the wrong-but-unchanged code is preferable to a newly wrong instruction. A future third kind (`internal`) with its own code is filed as `BL-PREPARE-INTERNAL-FAULT-KIND`.
+
+Mechanically: `prepareOnboardingFiles` wraps its whole body and tags anything escaping as `drive_fetch`; the two parse statements are wrapped individually and tag as `parse`; `asPrepareError` classifies by identity first (`PrepareOnboardingFileError` passes through unchanged, `WorkbookSynthesisError` becomes `parse`) and by the site's default second, **independently of the thrown value's type** — a `string` thrown from a parse site is still `parse` (R1 finding 2). `parseSheet` is hoisted out of its `enrich(...)` argument position so the two are separable at all.
 
 ### 4.3 The third call site (class sweep)
 
@@ -301,11 +310,11 @@ Proposed copy (final wording settled at implementation, subject to these constra
 | Drive export transport failure inside `fetchMarkdownWithBinding` | `DriveFetchError` | `DRIVE_FETCH_FAILED` |
 | **corrupt XLSX inside `fetchMarkdownWithBinding`** | `WorkbookSynthesisError` | **`STAGED_PARSE_FAILED`** |
 | `parseSheet` (initial or re-parse), incl. a non-`Error` throw | site | `STAGED_PARSE_FAILED` |
-| `finalizeArchivedTabs` / `reconcileIncludedTab` / `discardAndRerun` fix-up | site | `STAGED_PARSE_FAILED` |
 | `synthesizeMarkdownFromXlsx` in `reparseNoOverride` | `WorkbookSynthesisError` | `STAGED_PARSE_FAILED` |
 | `enrichWithDrivePins` (either position) | site | `DRIVE_FETCH_FAILED` |
-| `applyRoleTokenMappings` | site | `STAGED_PARSE_FAILED` |
-| `readPullSheetOverride` / `readRoleTokenMappings` (defaults) | caught internally | never reaches a caller |
+| post-parse helpers: `finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun` fix-up, `applyRoleTokenMappings` | outer default | `DRIVE_FETCH_FAILED` (unchanged; §4.2 — not a sheet-content fault) |
+| throwing `onProgress` / synchronously throwing `readRoleTokenMappings` adapter | outer default | `DRIVE_FETCH_FAILED`, and now CLASSIFIED rather than escaping raw |
+| `readPullSheetOverride` default / a REJECTED `readRoleTokenMappings` promise | caught internally | never reaches a caller (best-effort, unchanged) |
 | throw from an unenumerated site, any value type | default | `DRIVE_FETCH_FAILED` (conservative; preserves today's behavior) |
 | corrupt XLSX in the live first-seen retry route | `WorkbookSynthesisError` | `STAGED_PARSE_FAILED` (§4.3) |
 
@@ -319,8 +328,8 @@ Every assertion names the concrete failure it catches.
 
 **WI-1**
 
-1. Helper behavioral unit: identity (`toBe`) on all four accepted hosts; throws on remote, on `""`, on `"not a url"`, and on `127.0.0.1.evil.example` (*catches a substring check*); `assertLocalDbUrlIfSet(undefined)` returns `undefined`. Every throw message asserted to **exclude** the password substring of a credentialed DSN (*catches the R1-finding-10 leak*).
-2. AST-classifier synthetic units: guarded shape → 0 unguarded reads; `assertLocalDbUrl(x) ?? process.env.LOCAL_TEST_DATABASE_URL` → 1 unguarded read (*catches the regex implementation*); env read with the import present but unused → 1 (*catches an import-presence check*); `// local-db-url-exempt:` with an empty reason → not exempt.
+1. Helper behavioral unit: identity (`toBe`) on each accepted host spelling a real DSN can produce — `127.0.0.1`, `localhost`, `[::1]` (R2 finding 10: `URL.hostname` yields the bracketed form, so a bare `::1` hostname is unreachable through a valid DSN; the set keeps it as a defensive member but no test can manufacture it); throws on remote, on `""`, on `"not a url"`, and on `127.0.0.1.evil.example` (*catches a substring check*); `assertLocalDbUrlIfSet(undefined)` returns `undefined`. Every throw message asserted to **exclude** the password substring of a credentialed DSN (*catches the R1-finding-10 leak*).
+2. AST-classifier synthetic units, one per row of §2.6's spelling table plus: guarded shape → 0 unguarded reads; `assertLocalDbUrl(x) ?? process.env.LOCAL_TEST_DATABASE_URL` → 1 unguarded read (*catches the regex implementation*); env read with the import present but unused → 1 (*catches an import-presence check*); `// local-db-url-exempt:` with an empty reason → not exempt.
 3. Tree scan: offenders `[]`; exempt set `[]`; scan-set size 53 with the composition in the failure message (*catches a walker that silently stops finding files, which would make the guard vacuous*).
 4. `tests/sync/qualityRegressionLifecycle.test.ts` specifically: with `TEST_DATABASE_URL` set, the `LOCAL_` leg is not consulted; with only a remote `LOCAL_TEST_DATABASE_URL`, module eval throws (*catches the R1-finding-3 hole*).
 5. Sweep no-regression: for the 36 swept files only (new tests excluded), the per-file pass/skip tallies match `origin/main` exactly (*catches a sweep that broke the `dbUp` skip path*). Per R1 finding 11 the comparison is scoped to the swept set, since the PR adds new passing tests.
@@ -328,20 +337,21 @@ Every assertion names the concrete failure it catches.
 **WI-2**
 
 6. Layer A `Map<path, kind[]>` deep-equality against the ratified table (*catches a new reference, a deleted ratified one, and a comment-to-code conversion at constant count*).
-7. Layer B synthetic units, one per row of §3.4 including the arrow-helper, two-hop identifier, object-property, and `+`-chain shapes (*catches the exact BACKLOG bypass and the R1-finding-5 variants*).
-8. Layer C synthetic unit: `"/admin/onboarding/" + "staged/" + id` is flagged; `"/api/admin/onboarding/" + "staged/" + id` is not.
+7. Layer B synthetic units, one per row of §3.4 including the arrow-helper, two-hop identifier, object-property, `+`-chain, `join()` and `concat()` shapes (*catches the exact BACKLOG bypass and the R1-5 / R2-3 variants*).
+8. Layer C synthetic units: `"/admin/onboarding/" + "staged/" + id`, the `join("")` form and the `concat()` form are each flagged; their `/api/` counterparts are not; `join()` with the default separator is not (*catches a flattener that ignores the separator and fabricates a match*).
+8b. Layer D: the MDX walker finds files (non-vacuity) and no MDX page names the retired path.
 9. Old-vs-new differential: the retired same-line predicate finds nothing on the helper-built-href source while the new guard flags it (*makes the rewrite's justification executable*).
 10. Negative-regression: all three layers pass on the unmodified tree (*catches a guard so strict it fails on ratified code — the reason the item was deferred*).
 
 **WI-3**
 
 11. `synthesizeMarkdownFromXlsx` unit: a corrupt buffer throws `WorkbookSynthesisError` with `cause` preserved (*catches a re-throw that drops provenance*).
-12. `prepareOnboardingFiles` unit with injected leaf deps, one case per propagating row of §4.2's table, asserting `instanceof PrepareOnboardingFileError`, `.kind`, and `.cause`. Includes: a `WorkbookSynthesisError` raised **from inside the injected `fetchMarkdownWithBinding`** → `kind:"parse"` (*R1 finding 1 — a site-only classifier fails here*); a `string` thrown from `parseSheet` → `kind:"parse"` (*R1 finding 2*); an already-`PrepareOnboardingFileError` → not re-wrapped.
+12. `prepareOnboardingFiles` unit with injected leaf deps, one case per row of §4.2, asserting `instanceof PrepareOnboardingFileError`, `.kind`, and `.cause`. Includes: a `WorkbookSynthesisError` raised **from inside the injected `fetchMarkdownWithBinding`** → `kind:"parse"` (*R1-1 — a site-only classifier fails here*); a `string` thrown from `parseSheet` → `kind:"parse"` (*R1-2*); a throwing `onProgress` and a synchronously throwing `readRoleTokenMappings` → classified, not raw (*R2-6*); an internal post-parse fault (a non-cloneable parse result, which makes `applyRoleTokenMappings` throw) → `drive_fetch`, NOT a fix-your-sheet code (*R2-7*); a REJECTED `readRoleTokenMappings` still degrades to no overlay; an already-`PrepareOnboardingFileError` → not re-wrapped.
 13. `rescanWizardSheet`: injected prepare throwing each kind → `STAGED_PARSE_FAILED` / `DRIVE_FETCH_FAILED`; `fetchDriveFileMetadata` throwing → `DRIVE_FETCH_FAILED`; a non-`Error` throw → `DRIVE_FETCH_FAILED`. Each case also asserts **no mutating statement ran** on the recording `withTx` (*catches a mapping that moves the failure past the pre-lock boundary*).
 14. Finalize inline auto-heal: a `kind:"parse"` throw yields `per_row[0].code === "STAGED_PARSE_FAILED"` **and** the demote write carries the same code (*catches response and persisted code drifting apart*).
 15. Severity: `severityForFinalizeRowCode("DRIVE_FETCH_FAILED") === "error"` and `("STAGED_PARSE_FAILED") === "warn"`, rationale cited in the test (*catches a silent flip of either*).
 16. Retry route (§4.3): a `WorkbookSynthesisError` from the export yields `STAGED_PARSE_FAILED`; a transport `DriveFetchError` still yields `DRIVE_FETCH_FAILED`.
-17. Catalog: `STAGED_PARSE_FAILED` resolves through `lib/messages/lookup.ts` to non-null Doug-facing copy, and the copy contains neither "retry path" nor "first-seen" (*catches the R1-finding-6 wording surviving the edit*). x1 parity is the structural gate.
+17. Catalog: `STAGED_PARSE_FAILED` resolves through `lib/messages/lookup.ts` to non-null Doug-facing copy, and **all four operator-visible fields** — `dougFacing`, `helpfulContext`, `title`, `longExplanation` — contain none of "retry path", "first-seen", "during retry" (*R2 finding 8: x1 covers only the first two plus `crewFacing`/`followUp`, so a partial edit could leave the retry-path wording live on the help page with every named gate green*). Plus an em-dash check on the same four fields.
 
 ---
 
@@ -367,7 +377,8 @@ No migration, so the `validation-schema-parity` post-migration checklist does no
 - WI-2 residual bypasses: a path assembled across module boundaries, and `href` via `{...props}`.
 - Splitting `DRIVE_FETCH_FAILED` further (network vs permission vs 404) — `SHEET_UNAVAILABLE` already covers moved/unshared.
 - The NUL byte itself (`BL-SOURCE-NUL-BYTE-STEP3REVIEW`).
-- **A fourth instance of the WI-3 shape, deliberately deferred.** The cron sync path also runs `synthesizeMarkdownFromXlsx` (`lib/sync/runScheduledCronSync.ts:3118,3144`) inside its export phase, and a throw there is funnelled through `markShowDriveError` into `shows.last_sync_status = 'drive_error'`, which `syncProblemCodeForStatus` (`:207-213`) maps to `DRIVE_FETCH_FAILED` — so a corrupt workbook is reported to Doug as a Drive failure on the cron path too. It is NOT swept here because that path has its own two-state classification (`drive_error` vs `parse_error` → `PARSE_ERROR_LAST_GOOD`) with different persistence (`last_sync_status`), different alert-resolution wiring (`resolveStaleSyncProblemAlerts_unlocked`, `:2663-2668`), and a different recovery contract for crew (last-good stays live). Re-pointing it is a behavior change to the live sync pipeline, not a classification fix, and belongs in its own spec. Filed as `BL-CRON-WORKBOOK-FAULT-MISCLASSIFIED`. The `WorkbookSynthesisError` type this spec introduces is what a later fix would key on, so this PR leaves that path strictly easier to correct, never harder.
+- **A fourth instance of the WI-3 shape, deliberately deferred.** The cron sync path also runs `synthesizeMarkdownFromXlsx` (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. (Correction to this spec's earlier text, per R2 finding 9: it does **not** run `markShowDriveError`, does not set `shows.last_sync_status = 'drive_error'`, and does not reach the stale-alert resolution cited before.) So a corrupt workbook on the cron path is already reported as a parse-family outcome rather than as a Drive failure — the misreport this PR fixes does not exist there in the same form, and the remaining question is only whether `SYNC_FILE_FAILED` should become `PARSE_ERROR_LAST_GOOD` for this case. That is a live-pipeline behavior change with its own crew-visible contract (last-good stays live), so it is filed as `BL-CRON-WORKBOOK-FAULT-CODE` rather than folded in here. The `WorkbookSynthesisError` type this PR introduces is the hook such a fix would key on.
+- **A third fault kind for internal post-parse helpers** (`BL-PREPARE-INTERNAL-FAULT-KIND`, §4.2): those faults keep `DRIVE_FETCH_FAILED` today because neither existing code is right for them.
 
 ---
 
@@ -399,3 +410,20 @@ No migration, so the `validation-schema-parity` post-migration checklist does no
 | 9 | MEDIUM | Accepted. `_remediationHelpers.ts` imports the symbol and re-exports it, giving the local binding its `:38` call needs. |
 | 10 | MEDIUM | Accepted. Messages redact the DSN userinfo and report only the hostname, or a content-free unparseable notice; test 1 asserts no password reaches a message. |
 | 11 | LOW | Accepted. §8 restates the 15-suites-plus-helper composition, and test 5 scopes the before/after comparison to the swept files. |
+
+## 10. R2 dispositions
+
+R2 reviewed the R1-revised spec against the tree at `705798048` and returned BLOCKING with 10 findings, all accepted. It also independently re-derived every §8 number bytewise and confirmed each, and confirmed R1-4, R1-9, R1-10, R1-11 and the §2.2 LOCAL-leg design as sound.
+
+| # | Severity | Disposition |
+| --- | --- | --- |
+| 1 | BLOCKING | Accepted. §2.6 now recognises bracket, parenthesized, `process["env"]`, transitively aliased, and destructured reads; destructuring is unguardable at the read site and so counts as unguarded (fail-closed). One synthetic unit per spelling. |
+| 2 | BLOCKING | Accepted, and confirmed empirically: `XLSX.read` tolerates arbitrary loose bytes, so the planned fixture could not go RED. The real corrupt-workbook shape is a truncated ZIP, which does throw; the tolerated-bytes behavior is now pinned as a documented boundary, and the wrapper adds NO new format validation, so nothing that parses today starts failing. |
+| 3 | HIGH | Accepted. `[…].join(sep)` and `"…".concat(…)` are flattened in both the occurrence classifier and the href resolver; `join()`'s real default separator is honored so it cannot fabricate a match. |
+| 4 | HIGH | Accepted. Layer D scans `app/**/*.mdx` as raw text with a non-vacuity check on the walker. |
+| 5 | HIGH | Accepted as a documentation defect: the `/api/` exclusion was always part of the match predicate itself, so it already applied to every layer; §3.3 now says so, and a synthetic unit pins the endpoint templates as non-occurrences. |
+| 6 | HIGH | Accepted. A throwing `onProgress` and a synchronously throwing `readRoleTokenMappings` are now classified rather than escaping the contract; both are `drive_fetch` (today's code) and both are tested. |
+| 7 | HIGH | Accepted, and the design narrowed: only `parseSheet` faults and `WorkbookSynthesisError` become `parse`. Post-parse internal helpers keep `DRIVE_FETCH_FAILED`, because a code-fix-only fault must not tell Doug to edit his sheet or be downgraded to `warn`. Filed `BL-PREPARE-INTERNAL-FAULT-KIND` for a third kind. |
+| 8 | HIGH | Accepted. `title` and `longExplanation` are updated and covered by a dedicated test; x1 reaches neither. |
+| 9 | HIGH | Accepted; §7's cron rationale was factually wrong and is corrected — an escaped throw lands in the outer file loop as `parse_error` / `SYNC_FILE_FAILED`, not `markShowDriveError`. Re-filed as `BL-CRON-WORKBOOK-FAULT-CODE` with the accurate mechanism. |
+| 10 | LOW | Accepted. The behavioral test asserts the three host spellings a valid DSN can produce; `::1` stays in the accepted set defensively with a note that `URL.hostname` yields the bracketed form. |
