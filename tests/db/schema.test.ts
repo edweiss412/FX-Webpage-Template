@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -337,6 +337,174 @@ describe("drive_file_id nonblank CHECK migration", () => {
       assertConstraint("dev", t, true);
     });
   }
+});
+
+describe("secondary Drive-ID nonblank CHECK migration", () => {
+  // Static parse of the 2026-07-25 migration (no DB) — spec
+  // docs/superpowers/specs/data-quality/2026-07-25-secondary-drive-id-nonblank.md §3.
+  // The behavioral half is tests/db/driveFileIdNonblank.db.test.ts; this proves the DDL is
+  // DECLARED in the right shape, that proves the predicate BEHAVES (anti-tautology split).
+  const migrationPath = join(
+    process.cwd(),
+    "supabase/migrations/20260725000000_secondary_drive_id_nonblank.sql",
+  );
+  const raw = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8") : "";
+  const sql = raw.replace(/\s+/g, " ");
+
+  // The four (schema, table, constraint name, column) tuples this migration must declare.
+  // U3's name deliberately DROPS the `last_processed_` column prefix: the conventional
+  // `<table>_<column>_nonblank` form is 65 bytes, past Postgres's 63-byte identifier limit,
+  // and it must ALSO keep the `_drive_file_id_nonblank` suffix that
+  // tests/db/validation-schema-parity.test.ts:261-263 filters on. Both constraints at once
+  // (spec §1.1 item 2).
+  const EXPECTED = [
+    {
+      schema: "public",
+      table: "shows",
+      name: "shows_opening_reel_drive_file_id_nonblank",
+      column: "opening_reel_drive_file_id",
+      nullable: true,
+    },
+    {
+      schema: "public",
+      table: "wizard_finalize_checkpoints",
+      name: "wizard_finalize_checkpoints_drive_file_id_nonblank",
+      column: "last_processed_drive_file_id",
+      nullable: true,
+    },
+    {
+      schema: "public",
+      table: "onboarding_rebuild_attempts",
+      name: "onboarding_rebuild_attempts_drive_file_id_nonblank",
+      column: "drive_file_id",
+      nullable: false,
+    },
+    {
+      schema: "dev",
+      table: "shows",
+      name: "shows_opening_reel_drive_file_id_nonblank",
+      column: "opening_reel_drive_file_id",
+      nullable: true,
+    },
+  ] as const;
+
+  test("migration file exists", () => {
+    expect(existsSync(migrationPath), `expected ${migrationPath}`).toBe(true);
+  });
+
+  test("wraps itself in a single transaction", () => {
+    // Spec §3: the parent migration's statements are standalone, so under the `psql -f` path
+    // each DROP commits before its ADD — a reapply briefly drops enforcement, and a failure
+    // partway leaves the schema partially migrated with a constraint already removed. DDL is
+    // transactional in Postgres, so one wrapping transaction makes the file all-or-nothing.
+    //
+    // Asserted against RAW lines with comments stripped, never the whitespace-collapsed text.
+    // Matching `/^\s*(--[^\n]*)?\s*begin;/` on collapsed text is vacuous: the `--` swallows
+    // everything to the next newline, and there are none left, so the optional comment group can
+    // consume the entire file up to any later `begin;` — a migration whose only `begin;` sits
+    // INSIDE a comment, with live DDL before it, would pass (whole-diff R1 finding 4).
+    const statements = raw
+      .split("\n")
+      .map((l) => l.replace(/--.*$/, "").trim())
+      .filter((l) => l !== "");
+    expect(statements[0], "the FIRST executable statement must be `begin;`").toMatch(/^begin;$/i);
+    expect(
+      statements[statements.length - 1],
+      "the LAST executable statement must be `commit;`",
+    ).toMatch(/^commit;$/i);
+  });
+
+  for (const c of EXPECTED) {
+    const prefix =
+      c.schema === "dev"
+        ? String.raw`alter table if exists dev\.${c.table}`
+        : String.raw`alter table public\.${c.table}`;
+
+    test(`${c.schema}.${c.table}.${c.column} gets ${c.name}`, () => {
+      // DROP-IF-EXISTS then ADD, per row — apply-twice safe. Searching for the two statements
+      // INDEPENDENTLY would accept `ADD → DROP → ADD`, which passes a first apply and every
+      // static check here, then fails on the second apply (whole-diff R1 finding 3). So the
+      // ORDER is asserted: the drop's index must precede the add's.
+      const dropRe = new RegExp(
+        `${prefix}\\s+drop\\s+constraint\\s+if\\s+exists\\s+${c.name}`,
+        "i",
+      );
+      const addIdx = sql.search(
+        new RegExp(`${prefix}\\s+add\\s+constraint\\s+${c.name}\\s+check`, "i"),
+      );
+      const dropIdx = sql.search(dropRe);
+      expect(dropIdx, `missing DROP CONSTRAINT IF EXISTS for ${c.name}`).toBeGreaterThanOrEqual(0);
+      expect(addIdx, `missing ADD CONSTRAINT for ${c.name}`).toBeGreaterThanOrEqual(0);
+      expect(dropIdx, `DROP must precede ADD for ${c.name} (apply-twice safety)`).toBeLessThan(
+        addIdx,
+      );
+      expect(sql, `missing DROP CONSTRAINT IF EXISTS for ${c.name}`).toMatch(dropRe);
+      const body = c.nullable
+        ? String.raw`${c.column}\s+is\s+null\s+or\s+${c.column}\s*~\s*'\[\^\[:space:\]\]'`
+        : String.raw`${c.column}\s*~\s*'\[\^\[:space:\]\]'`;
+      expect(sql, `missing ADD CONSTRAINT ... CHECK for ${c.name}`).toMatch(
+        new RegExp(
+          `${prefix}\\s+add\\s+constraint\\s+${c.name}\\s+check\\s*\\(\\s*${body}\\s*\\)`,
+          "i",
+        ),
+      );
+    });
+  }
+
+  test("the dev block uses `alter table if exists` (mandatory)", () => {
+    // A bare `alter table dev.shows` ERRORS on any target lacking the dev clone — notably the
+    // validation project. Same rationale as the parent migration's dev block above: a test that
+    // accepted the bare form would let that ship.
+    expect(sql).toMatch(/alter table if exists dev\.shows/i);
+    expect(sql, "dev block must never use the bare form").not.toMatch(/alter table dev\.shows/i);
+  });
+
+  test("adds no _allowed_watermark_columns row", () => {
+    // AC-13. Applying cleanly twice does NOT prove this: a migration that inserts an allowlist
+    // row before its DDL would also apply twice cleanly while silently widening the AC-X.4
+    // no-global-cursor allowlist. Asserted lexically instead.
+    expect(sql, "migration must not touch the watermark allowlist").not.toMatch(
+      /_allowed_watermark_columns/i,
+    );
+  });
+});
+
+describe("constraint identifier lengths (all migrations)", () => {
+  // AC-12. Postgres silently TRUNCATES an identifier past 63 bytes (NAMEDATALEN - 1), so a
+  // constraint whose declared name is longer is stored under a name that appears nowhere in the
+  // source it was written in — a latent collision and a debugging trap. Scoped to ALL migrations,
+  // not just the nonblank ones: scoping it narrowly would let a third migration declare a 65-byte
+  // name and pass both this scan (wrong files) and any live-name check (which sees the already-
+  // truncated name).
+  const dir = join(process.cwd(), "supabase/migrations");
+  const files = readdirSync(dir).filter((f) => f.endsWith(".sql"));
+
+  test("every declared constraint name is <= 63 bytes", () => {
+    const tooLong: string[] = [];
+    for (const f of files) {
+      const text = readFileSync(join(dir, f), "utf8");
+      // Both identifier forms: bare (which may include non-ASCII letters, so the class is
+      // "not whitespace/quote/paren/semicolon" rather than [A-Za-z_]) and DOUBLE-QUOTED, which the
+      // earlier bare-only pattern skipped entirely — a future `add constraint "<64 bytes>"` would
+      // truncate in Postgres while this scan reported green (whole-diff R1 finding 7).
+      for (const m of text.matchAll(/add\s+constraint\s+(?:"((?:[^"]|"")+)"|([^\s"(;]+))/gi)) {
+        const quoted = m[1];
+        const name = quoted !== undefined ? quoted.replace(/""/g, '"') : m[2];
+        if (name !== undefined && Buffer.byteLength(name, "utf8") > 63) {
+          tooLong.push(`${f}: ${name} (${Buffer.byteLength(name, "utf8")} bytes)`);
+        }
+      }
+    }
+    expect(
+      tooLong,
+      `constraint names past Postgres's 63-byte limit:\n${tooLong.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  test("the scan actually reads migrations (non-vacuity)", () => {
+    // Without this, a glob that matched nothing would make the assertion above trivially green.
+    expect(files.length).toBeGreaterThan(100);
+  });
 });
 
 describe("transportation loadout_* migration", () => {
