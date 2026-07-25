@@ -659,4 +659,55 @@ console.log(
   `\n${results.length} adversaries · ${results.length - survived.length - unapplied.length} rejected · ${survived.length} SURVIVED · ${unapplied.length} unapplied`,
 );
 writeFileSync(join(ROOT, "tmp", "adversary-matrix.json"), JSON.stringify(results, null, 2));
+
+// Emit the recorded tables into the report doc between markers. Hand-transcribed
+// totals are what drifted last time: a late CSS fix left the report describing a
+// shape the code no longer had, which whole-diff review caught as BLOCKING. The
+// prose around the markers stays hand-written; the data cannot disagree with the
+// run that produced it. Partial runs never write — a `--only` or `--quick` run
+// would record a truthful-looking table over an incomplete matrix.
+if (!ONLY && !QUICK) {
+  const perAdversary = [
+    "| # | Wrong implementation | Rows red |",
+    "|---|---|---|",
+    ...results.map(
+      (r) => `| ${r.id} | ${r.label} | ${r.status === "REJECTED" ? r.rows.length : r.status} |`,
+    ),
+  ].join("\n");
+
+  const byRow = new Map();
+  for (const r of results) {
+    for (const row of r.rows) {
+      if (!byRow.has(row)) byRow.set(row, []);
+      byRow.get(row).push(r.id);
+    }
+  }
+  const perTest = [
+    "| Test row | Adversaries it rejects |",
+    "|---|---|",
+    ...[...byRow.entries()].sort().map(([row, ids]) => `| ${row} | ${ids.join(", ")} |`),
+  ].join("\n");
+
+  const generated = `<!-- BEGIN GENERATED -->\n\n_${results.length} adversaries · ${results.length - survived.length - unapplied.length} rejected · ${survived.length} survived · ${unapplied.length} unapplied._\n\n${perAdversary}\n\n${perTest}\n\n<!-- END GENERATED -->`;
+  const doc = join(ROOT, "docs/superpowers/plans/2026-07-24-share-link-chrome-adversary-matrix.md");
+  const before = readFileSync(doc, "utf8");
+  const marked = /<!-- BEGIN GENERATED -->[\s\S]*<!-- END GENERATED -->/;
+  if (!marked.test(before)) {
+    console.error(`report doc is missing its GENERATED markers: ${doc}`);
+    process.exitCode = 1;
+  } else {
+    writeFileSync(doc, before.replace(marked, generated));
+    // Prettier owns markdown table alignment in this repo and format:check runs
+    // in CI, so emitting raw pipes would leave the tree failing a gate right
+    // after the matrix certified it.
+    try {
+      execFileSync("npx", ["prettier", "--write", doc], { cwd: ROOT, stdio: "pipe" });
+    } catch (e) {
+      console.error(`report written but prettier failed; run it by hand: ${e.message}`);
+      process.exitCode = 1;
+    }
+    console.log(`report tables written to ${doc}`);
+  }
+}
+
 if (survived.length || unapplied.length) process.exitCode = 1;
