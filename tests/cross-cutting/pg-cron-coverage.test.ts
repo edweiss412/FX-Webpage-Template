@@ -213,8 +213,16 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
       // heuristic. If the job changes and the constants do not, nothing breaks
       // loudly — the arithmetic just becomes wrong.
       //
-      // Asserted against `cron.job`, i.e. what PostgreSQL actually resolved and
-      // runs, NOT against the migration text. Whole-diff rounds R8-R16 all landed
+      // Asserted against `cron.job`, i.e. the schedule PostgreSQL actually
+      // resolved and runs, NOT against the migration text.
+      //
+      // SCOPE (whole-diff R18): PostgreSQL resolves the OUTER cron.schedule call
+      // only. `command` is stored verbatim, comments included, so everything
+      // below about the command is still text matching — a job whose http_get is
+      // commented out would satisfy it while performing no request. This checks
+      // that the DECLARED timeout matches the constant; proving the job actually
+      // fires is a smoke test's job, and only the sync path has one today (see
+      // the active-gate note below, and BL-PG-CRON-COVERAGE-UNRUN). Whole-diff rounds R8-R16 all landed
       // on one species: a hand-rolled scanner reading migration SQL and silently
       // getting the wrong value (comments, dollar quotes, case, quoting, name
       // resolution, stored function bodies…). The database has already done that

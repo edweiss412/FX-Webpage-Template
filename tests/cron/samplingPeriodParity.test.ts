@@ -20,9 +20,15 @@
 // `mycron.schedule`, `search_path`, and stored function bodies. Each fix widened
 // a regex and exposed the next corner, which is the signature of a wrong
 // mechanism rather than an incomplete one: a regex is not a PostgreSQL parser and
-// does not converge on becoming one. The database already does that parsing, and
-// pg-cron-coverage already reads the result — so the assertion moved there and
-// the hand-rolled lexer was deleted rather than extended a tenth time.
+// does not converge on becoming one. PostgreSQL resolves the OUTER cron.schedule
+// call — schema/name resolution, quoting, dollar quoting, which schedule wins —
+// and `cron.job` holds that result, so the schedule is read from there instead.
+//
+// Precisely what that does NOT buy (whole-diff R18): `cron.job.command` is stored
+// verbatim, comments included. PostgreSQL has not resolved anything INSIDE the
+// job body, so any assertion about the command text remains text matching. The
+// live check therefore verifies the DECLARED timeout, and does not prove the
+// command executes — that is a smoke test's job (see BL-PG-CRON-COVERAGE-UNRUN).
 //
 // DB-free: reads one committed JSON file.
 import { describe, expect, test } from "vitest";

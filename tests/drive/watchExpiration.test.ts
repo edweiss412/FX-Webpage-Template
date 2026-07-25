@@ -251,12 +251,16 @@ describe("short-grant anomaly (§3.3)", () => {
     });
   });
 
-  // T_EXEC_BUDGET_MS is pinned against the LIVE `cron.job` row in
-  // tests/cross-cutting/pg-cron-coverage.test.ts, not parsed out of the migration
-  // text here. Whole-diff rounds R8-R16 each found another lexical corner where a
-  // hand-rolled SQL scanner silently read the wrong value; the database has
-  // already resolved comments, dollar quoting, identifier case and name
-  // resolution correctly, so the assertion belongs where that result is read.
+  // T_EXEC_BUDGET_MS is pinned against the canonical registry in
+  // tests/cron/samplingPeriodParity.test.ts (DB-free, runs every PR) and
+  // cross-checked against the live `cron.job` row in
+  // tests/cross-cutting/pg-cron-coverage.test.ts. It is NOT parsed out of the
+  // migration text: whole-diff rounds R8-R17 each found another lexical corner
+  // where a hand-rolled SQL scanner silently read the wrong value.
+  //
+  // PostgreSQL resolves the OUTER cron.schedule call, not the job body, which it
+  // stores verbatim (whole-diff R18) — so the live cross-check is still text
+  // matching over `command` and does not prove the command executes.
   // This file stays DB-free and asserts only the constants' relationships.
 });
 
