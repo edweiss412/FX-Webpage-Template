@@ -542,7 +542,7 @@ reaching 0 only at ≤215px.
      `T-NOPHANTOM-CREW [eyebrow displacement]` so it is selected by the workflow's existing
      `-g "T-NOPHANTOM-CREW"` step with **no workflow edit**. T5 verifies it actually ran by checking the
      reported case count rose by 2, not merely that CI was green.
-2. **GREEN** — add `empty:hidden` to `components/crew/sections/TravelSection.tsx:121`. (Verified by
+2. **GREEN** — add `empty:hidden` to `components/crew/sections/TravelSection.tsx:124`. (Verified by
    compilation: `.empty\:hidden { &:empty { display: none } }` generates.)
    - PASS command: same; expect **2 passing cases** —
      `T-NOPHANTOM-CREW [eyebrow displacement] blank leg` and `… labelled leg`.

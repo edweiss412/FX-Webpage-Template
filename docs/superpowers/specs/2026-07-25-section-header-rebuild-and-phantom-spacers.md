@@ -38,7 +38,7 @@ Each row is a decision already taken, with its ratification. Verify the citation
 | 5 | **The name's residual off-centre spread across states (+4px to −17px) is accepted.** It follows from putting the count inside the centered group, which is decision 1. Not a defect to be engineered away with a compensating spacer. | §3.1.5. |
 | 6 | **The empty right corner is compensated with padding on the group, NOT a reserved spacer element.** Measured identical geometry (+4px / +2px) both ways; padding adds no element to a gapped row, which is this batch's whole point. | §3.1.5, measured. |
 | 7 | **`components/admin/showpage/ShowReviewModalSkeleton.tsx:152` keeps its `flex-1` Skeleton.** Its row is `flex w-full items-center gap-2` with one sibling and a `w-full` parent, so the bar always has width — it is not a collapsing pusher. The static guard that would have registered it is descoped (§6), so no registry exists; the row is documented here as the reason it is left alone. | §6. |
-| 8 | **`components/crew/sections/TravelSection.tsx:588` needs no fix — REFUTED, do not re-raise.** It looks like a second blank-eyebrow instance (identical classes) but its `<p>` always contains a `<span>` child, so the empty-element selector can never match. More importantly it is unreachable-blank: it renders only under `showStructured = seg.structured && hasContent` (`components/crew/sections/TravelSection.tsx:572`), and the `dateRaw: null` construction sets `structured: false` (`lib/crew/flightDisplay.ts:184`); structured segments always carry a `dateRaw` (`lib/crew/flightDisplay.ts:152`). | §3.3. |
+| 8 | **`components/crew/sections/TravelSection.tsx:593` needs no fix — REFUTED, do not re-raise.** It looks like a second blank-eyebrow instance (identical classes) but its `<p>` always contains a `<span>` child, so the empty-element selector can never match. More importantly it is unreachable-blank: it renders only under `showStructured = seg.structured && hasContent` (`components/crew/sections/TravelSection.tsx:577`), and the `dateRaw: null` construction sets `structured: false` (`lib/crew/flightDisplay.ts:184`); structured segments always carry a `dateRaw` (`lib/crew/flightDisplay.ts:152`). | §3.3. |
 | 9 | **No new error codes, no §12.4 catalog edits, no migrations.** This batch is presentational plus test wiring, **plus the two small `hasRenderableCount` edits in §4.2** — noted so "presentational" is not read as "no logic changes at all". The three-way §12.4 lockstep and the `validation-schema-parity` gate are therefore N/A. | §7. |
 
 ## 2. Current state (cited)
@@ -155,13 +155,13 @@ EXCEEDS the 22.94px available at a 240px row and would bind, wrapping the 207.1p
 second line. That wrap — not `width > 0` — is the discriminator between the two floors, as round 3
 correctly noted.
 
-### 3.3 TravelRow eyebrow (`components/crew/sections/TravelSection.tsx:121`)
+### 3.3 TravelRow eyebrow (`components/crew/sections/TravelSection.tsx:124`)
 
-Add `empty:hidden` to the eyebrow `<p>`. A ground leg whose stage was promoted to the primary line passes `label=""` (`components/crew/sections/TravelSection.tsx:403`), and `label` is typed `string` (`components/crew/sections/TravelSection.tsx:92`), so React renders no child node at all and the empty-element selector matches. The element keeps its documented slot and costs nothing when blank — the `DESIGN.md` §7a idiom.
+Add `empty:hidden` to the eyebrow `<p>`. A ground leg whose stage was promoted to the primary line passes `label=""` (`components/crew/sections/TravelSection.tsx:408`), and `label` is typed `string` (`components/crew/sections/TravelSection.tsx:101`), so React renders no child node at all and the empty-element selector matches. The element keeps its documented slot and costs nothing when blank — the `DESIGN.md` §7a idiom.
 
 **Caveat to carry into the plan:** a literal space or `{" "}` inside that `<p>` silently re-enables the 2px gap. The test must assert rendered geometry, not the class.
 
-`components/crew/sections/TravelSection.tsx:588` is **not** a second instance — see §1.1 item 8.
+`components/crew/sections/TravelSection.tsx:593` is **not** a second instance — see §1.1 item 8.
 
 ### 3.4 Archived-bucket probe
 
@@ -398,7 +398,7 @@ census reconciled against a run.
 - No migrations, so `pnpm gen:schema-manifest` and the validation-project apply are N/A, and `validation-schema-parity` is unaffected.
 - No change to `COUNT_SECTIONS` (`components/admin/wizard/step3ReviewSections.tsx:697`) or `buildSheetDeepLink` behaviour — the count and link *placement* changes, their *derivation* does not. **Two count-related code changes ARE in scope** (§4.2): `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708`) gains a `hasRenderableCount` call, and the legacy `BreakdownSection` count conditional (`components/admin/wizard/step3ReviewSections.tsx:1010`) is replaced by the same predicate. Neither alters membership or zero-suppression semantics.
 - `components/admin/showpage/ShowReviewModalSkeleton.tsx:152` unchanged (§1.1 item 7).
-- `components/crew/sections/TravelSection.tsx:588` unchanged (§1.1 item 8).
+- `components/crew/sections/TravelSection.tsx:593` unchanged (§1.1 item 8).
 - **The static guard (§6) is descoped** and files a backlog entry instead. Nothing in this batch claims repo-wide closure of the childless-growable class.
 - The three unmeasured pusher sites get `ml-auto` plus §9.3 test 10's trailing-alignment geometry, but **no new phantom-gap probe mount**: a probe detects a zero-extent item and therefore cannot detect a MISSING `ml-auto` (a deleted spacer leaves no offender to find), so a direct geometry assertion is the stronger instrument for this repair. Ratified deviation from BACKLOG.md:48 (root), reasoned in §9.3.
 
@@ -496,7 +496,7 @@ tautological if the expected centre is computed from the rendered name being tes
    correctly noted that an empty `<p>` can already have a zero-height box while remaining a flex
    item whose 2px gap still displaces its siblings, so "eyebrow height is 0" passes before the fix.
    Assert the parent-child relationship instead
-   (`components/crew/sections/TravelSection.tsx:120-128`): for a **blank** eyebrow the primary
+   (`components/crew/sections/TravelSection.tsx:123-131`): for a **blank** eyebrow the primary
    line's top equals the `.tcol` stack's content-box top with **no 2px displacement**; for a
    **labelled** eyebrow the displacement equals the eyebrow's height **plus** the 2px `gap-0.5`.
    That measures the defect directly and is red before the fix. Geometry, not class presence — a
@@ -579,7 +579,7 @@ per unit of cost:
   with provenance (branch + spec path), and (b) adds `BL-CHILDLESS-GROWABLE-STATIC-GUARD` to the OPEN
   queue with the R1-R3 constraints. Leaving the three in the open queue would turn it into a
   changelog, which is exactly what that file's header forbids.
-- **`DESIGN.md`:** §7a gains (a) the centered-section-header pattern with its measured offsets, and (b) an explicit note that a childless *growable* element used as a right-pusher is replaced by `ml-auto` rather than hidden at a breakpoint — the decorative-hairline rule already there does not cover pushers, which is why five sites drifted. (c) The corrected hairline guidance: measure before hiding — a rule that never collapses gets a floor, not a breakpoint. (d) **Reconcile a now-false sentence:** `DESIGN.md:327` says the decorative `flex-1` rule "is not childless" and that the empty-element selector never matches it. Both real rules — `components/admin/BulkIgnoreControls.tsx:200` and `components/admin/wizard/step3ReviewSections.tsx:2150` — ARE childless spans, so it does match. §7a needs the distinction between an intentionally PAINTED empty element (a decorative rule: must stay visible, so `empty:hidden` is exactly wrong for it) and an empty CONTENT SLOT (nothing to show: `empty:hidden` is right). (e) Document `--spacing-header-link-slot`. (f) **Update §7a's "Current sites" list** at `DESIGN.md:325`, which today names only `OverviewSection.tsx` and `ScheduleDayRow` — the TravelRow eyebrow (`components/crew/sections/TravelSection.tsx:121`) becomes a third, and the list would otherwise go stale (round-3 finding 8).
+- **`DESIGN.md`:** §7a gains (a) the centered-section-header pattern with its measured offsets, and (b) an explicit note that a childless *growable* element used as a right-pusher is replaced by `ml-auto` rather than hidden at a breakpoint — the decorative-hairline rule already there does not cover pushers, which is why five sites drifted. (c) The corrected hairline guidance: measure before hiding — a rule that never collapses gets a floor, not a breakpoint. (d) **Reconcile a now-false sentence:** `DESIGN.md:327` says the decorative `flex-1` rule "is not childless" and that the empty-element selector never matches it. Both real rules — `components/admin/BulkIgnoreControls.tsx:200` and `components/admin/wizard/step3ReviewSections.tsx:2150` — ARE childless spans, so it does match. §7a needs the distinction between an intentionally PAINTED empty element (a decorative rule: must stay visible, so `empty:hidden` is exactly wrong for it) and an empty CONTENT SLOT (nothing to show: `empty:hidden` is right). (e) Document `--spacing-header-link-slot`. (f) **Update §7a's "Current sites" list** at `DESIGN.md:325`, which today names only `OverviewSection.tsx` and `ScheduleDayRow` — the TravelRow eyebrow (`components/crew/sections/TravelSection.tsx:124`) becomes a third, and the list would otherwise go stale (round-3 finding 8).
 
 ## 11. Measurement method (reproducible)
 
@@ -612,11 +612,11 @@ So the plan can regenerate every number rather than trusting this document:
 | AdminNav pusher | `components/admin/nav/AdminNav.tsx:144` |
 | OnboardingTopBar pusher | `components/admin/nav/OnboardingTopBar.tsx:67` |
 | Skeleton bar left alone (§1.1 item 7) | `components/admin/showpage/ShowReviewModalSkeleton.tsx:152` |
-| TravelRow eyebrow | `components/crew/sections/TravelSection.tsx:121` |
-| `label` typed `string` | `components/crew/sections/TravelSection.tsx:92` |
-| stage-promoted empty label | `components/crew/sections/TravelSection.tsx:403` |
-| flight eyebrow render gate | `components/crew/sections/TravelSection.tsx:572` |
-| flight eyebrow (refuted sibling) | `components/crew/sections/TravelSection.tsx:588` |
+| TravelRow eyebrow | `components/crew/sections/TravelSection.tsx:124` |
+| `label` typed `string` | `components/crew/sections/TravelSection.tsx:101` |
+| stage-promoted empty label | `components/crew/sections/TravelSection.tsx:408` |
+| flight eyebrow render gate | `components/crew/sections/TravelSection.tsx:577` |
+| flight eyebrow (refuted sibling) | `components/crew/sections/TravelSection.tsx:593` |
 | `dateRaw` type | `lib/crew/flightDisplay.ts:24` |
 | structured segment always has `dateRaw` | `lib/crew/flightDisplay.ts:152` |
 | `structured: false` when no date | `lib/crew/flightDisplay.ts:184` |
