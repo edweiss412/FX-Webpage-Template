@@ -66,6 +66,18 @@ function stringOf(node: ts.Node): string | null {
   return null;
 }
 
+/** Is this value fully decidable at scan time? A template WITH substitutions is
+ *  not: `target={`_${suffix}`}` can be "_blank" and `className={`${h?"hidden":""}`}`
+ *  can hide, yet stringOf's literal-span concatenation makes both look literal
+ *  (review R4 BLOCKING 1 and 4). Anything undecidable must fail closed. */
+function isDecidableLiteral(node: ts.Node | undefined): boolean {
+  if (!node) return false;
+  const inner =
+    ts.isJsxExpression(node) && node.expression ? unparen(node.expression) : (node as ts.Node);
+  if (ts.isTemplateExpression(inner)) return false;
+  return stringOf(inner) !== null;
+}
+
 /**
  * Does this label expression interpolate a value? A template like
  * `${alt} (opens in a new tab)` has NO static destination text, but its
@@ -73,6 +85,26 @@ function stringOf(node: ts.Node): string | null {
  * Without this, the correctly-implemented diagram-link label read as
  * "phrase-only". Found while implementing the sweep, not by prose review.
  */
+/** Text of the expressions a template substitutes, normalized. */
+function substitutedExprs(node: ts.Node): string[] {
+  const n = ts.isJsxExpression(node) && node.expression ? unparen(node.expression) : node;
+  if (!ts.isTemplateExpression(n)) return [];
+  return n.templateSpans.map((sp) => normPredicate(sp.expression.getText()));
+}
+
+/**
+ * Does the enclosing conditional's TEST guarantee this branch's substitution is
+ * non-empty? `alt ? \`${alt} (opens…)\`` and
+ * `title.trim() ? \`… ${title.trim()} …\`` both do. Without this, the fail-closed
+ * substitution rule (review R4 BLOCKING 5) would reject the shipped diagram and
+ * modal labels, which are correct.
+ */
+function guardedSubstitution(branch: ts.Node, condition: ts.Expression): boolean {
+  const cond = normPredicate(condition.getText());
+  const bare = cond.replace(/\.trim\(\)$/, "");
+  return substitutedExprs(branch).some((e) => e === cond || e.replace(/\.trim\(\)$/, "") === bare);
+}
+
 function hasSubstitution(node: ts.Node): boolean {
   const n = ts.isJsxExpression(node) && node.expression ? unparen(node.expression) : node;
   if (!ts.isTemplateExpression(n) || n.templateSpans.length === 0) return false;
@@ -98,7 +130,10 @@ function hasSubstitution(node: ts.Node): boolean {
         return false;
       }
     }
-    return true; // unknown value: assume it names something
+    // FAIL CLOSED: an unconstrained value may be "". `${label} (opens in a new
+    // tab)` with label="" computes a phrase-only name (review R4 BLOCKING 5). A
+    // destination must come from static text, so require it there.
+    return false;
   });
 }
 
@@ -114,7 +149,9 @@ function unparen(node: ts.Expression): ts.Expression {
 
 function isBlank(node: ts.Node | undefined): boolean {
   if (!node) return false;
-  return stringOf(node) === "_blank";
+  // HTML target keywords are ASCII case-insensitive, so `_BLANK` opens a new tab
+  // just as `_blank` does (review R4 BLOCKING 1).
+  return (stringOf(node) ?? "").trim().toLowerCase() === "_blank";
 }
 
 /** Classify one label string: does it announce, and does it keep a destination? */
@@ -145,7 +182,9 @@ function labelAnnounces(
       const nodes = [expr.whenTrue, expr.whenFalse];
       const branches = nodes.map((b) => stringOf(b));
       if (branches.some((t) => t === null)) return "none";
-      const substituted = nodes.map(hasSubstitution);
+      const substituted = nodes.map(
+        (n) => hasSubstitution(n) || guardedSubstitution(n, expr.condition),
+      );
       const verdicts = (branches as string[]).map((t, i) =>
         substituted[i] && classifyLabelText(t) === "phrase-only" ? "ok" : classifyLabelText(t),
       );
@@ -353,6 +392,11 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
   };
   if (!ts.isJsxElement(anchor)) return out;
   const walk = (n: ts.Node, hidden: boolean, conds: string[]): void => {
+    // Never descend into JSX ATTRIBUTES: a hint passed as a prop
+    // (`<Wrapper hint={<NewTabHint/>}/>`) may be dropped by the callee, so a
+    // syntactic occurrence there is not an accessible descendant (review R4
+    // BLOCKING 4).
+    if (ts.isJsxAttributes(n) || ts.isJsxAttribute(n)) return;
     let nextHidden = hidden;
     const nextConds = conds;
     if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) {
@@ -511,10 +555,10 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
     if (init && ts.isJsxExpression(init) && init.expression && isBlank(unparen(init.expression))) {
       return { kind: "literal" };
     }
-    if (init && stringOf(init) !== null) return { kind: "not-external" };
+    if (init && isDecidableLiteral(init)) return { kind: "not-external" };
     return {
       kind: "unrecognized",
-      why: 'non-literal target expression; inline target="_blank" or add an exemption',
+      why: 'target is not a decidable literal (template/expression); inline target="_blank" or add an exemption',
     };
   }
 
@@ -533,12 +577,17 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
   if (!ts.isObjectLiteralExpression(whenTrue) || !ts.isObjectLiteralExpression(whenFalse)) {
     return { kind: "unrecognized", why: "both spread branches must be inline object literals" };
   }
+  // Only these props may appear in an approved spread. An open literal-valued
+  // allowlist let a spread carry aria-labelledby / aria-hidden / hidden /
+  // className / style / a competing aria-label (review R4 BLOCKING 2).
+  const SPREADABLE = new Set(["target", "rel"]);
   const plain = (o: ts.ObjectLiteralExpression): boolean =>
     o.properties.every(
       (prop) =>
         ts.isPropertyAssignment(prop) &&
         (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) &&
-        stringOf(prop.initializer) !== null,
+        SPREADABLE.has(prop.name.text) &&
+        isDecidableLiteral(prop.initializer),
     );
   if (!plain(whenTrue) || !plain(whenFalse)) {
     return {
@@ -558,13 +607,11 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
     }
     return null;
   };
-  const t = named(whenTrue, "target") === "_blank";
-  const f = named(whenFalse, "target") === "_blank";
+  const isBlankStr = (v: string | null): boolean => (v ?? "").trim().toLowerCase() === "_blank";
+  const t = isBlankStr(named(whenTrue, "target"));
+  const f = isBlankStr(named(whenFalse, "target"));
   if (t && f) return { kind: "literal" };
   if (!t && !f) return { kind: "not-external" };
-  if (named(whenTrue, "aria-label") !== null || named(whenFalse, "aria-label") !== null) {
-    return { kind: "unrecognized", why: "a spread-supplied aria-label cannot be verified here" };
-  }
   return { kind: "gated", cond: t ? e.condition.getText() : `!${e.condition.getText()}` };
 }
 
@@ -589,8 +636,14 @@ function hasSpreadOnHintPath(anchor: ts.JsxElement | ts.JsxSelfClosingElement): 
         if (ts.isJsxSpreadAttribute(attr)) return true;
         if (!ts.isJsxAttribute(attr)) return false;
         const nm = attr.name.getText();
+        // A wrapper carrying its OWN name replaces the subtree's contribution,
+        // so the hint inside it never reaches the anchor name (review R4
+        // BLOCKING 4: `<span role="img" aria-label="icon">`).
+        if (nm === "aria-label" || nm === "aria-labelledby" || nm === "role") return true;
         if (nm !== "className" && nm !== "style") return false;
-        return attr.initializer ? stringOf(attr.initializer) === null : false;
+        // Undecidable values (templates, conditionals) cannot be proven
+        // non-hiding.
+        return attr.initializer ? !isDecidableLiteral(attr.initializer) : false;
       });
       if (opaque) next = true;
     }

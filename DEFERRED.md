@@ -8,6 +8,27 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### NEWTAB-GUARD-UNDECIDABLE-2 — two statically undecidable guard limits (2026-07-25)
+
+Ratified as accepted limits in spec §6.4 of
+`docs/superpowers/specs/2026-07-25-newtab-announcement-family.md`, surfaced by whole-diff review
+R4 on `fix/newtab-announcement-family`. Neither exists in the tree today; both are recorded so a
+future reader does not mistake them for oversights.
+
+**(a) Document-level `<base target="_blank">`.** It makes every relative anchor open a new tab
+with no per-anchor syntax to inspect, so the per-anchor guard cannot see it. **Fix when
+prioritized:** a one-line lexical assertion that no `<base target=` appears under `app/` or
+`components/` (cheap, and it would make the family closed under the base-target case too).
+Un-defer trigger: anyone proposing a `<base>` element, or the next pass on this guard.
+
+**(b) An effectful predicate evaluated twice.** `{...(next() ? { target: "_blank" } : {})}` with
+`next()` also gating the hint passes, because the guard compares predicate TEXT and cannot prove
+two calls agree. R4 demonstrated it with a deterministic `next()` true only once. Statically
+undecidable in general; the approved shapes discourage it and no live predicate is effectful.
+**Fix when prioritized:** restrict approved gating predicates to pure member/identifier
+expressions (reject call expressions), which is a small classifier change if it ever matters.
+Un-defer trigger: an effectful gating predicate appearing in review.
+
 ### NEWTAB-A11Y-RESIDUE-1 — two P3s from the new-tab announcement dual gate (2026-07-25)
 
 Both surfaced by the invariant-8 gate on `fix/newtab-announcement-family`, both

@@ -33,6 +33,8 @@ import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { stripCommentsSafely } from "@/tests/styles/_newTabScan";
+
 import { cleanup, render } from "@testing-library/react";
 import type { JSX } from "react";
 
@@ -110,15 +112,30 @@ afterEach(cleanup);
 test("label expression matches the shipped source (probe-parity guard)", () => {
   // Anti-drift: the probe above is only meaningful if the real components still use
   // this exact expression. Compare the normalized source of both.
-  const norm = (t: string): string => t.replace(/\s+/g, " ");
+  // Comment-stripped and bound to the aria-label ATTRIBUTE: searching raw source
+  // let the old expression survive in a JSX comment while the real condition
+  // regressed from .trim() to a truthiness check (review R4 HIGH 6).
+  const norm = (t: string): string =>
+    stripCommentsSafely(t)
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+      .replace(/\s+/g, " ");
   for (const rel of [
     "components/admin/wizard/Step3ReviewModal.tsx",
     "components/admin/showpage/PublishedReviewModal.tsx",
   ]) {
     const src = norm(readFileSync(join(process.cwd(), rel), "utf8"));
-    expect(src, `${rel} must still guard on .trim()`).toMatch(
-      /\.trim\(\)\s*\?\s*`Open the source sheet for \$\{[a-zA-Z]+\.trim\(\)\} in Google Sheets \(opens in a new tab\)`/,
-    );
+    // The guard must appear INSIDE an aria-label attribute, not merely somewhere
+    // in the file.
+    const labelExpr = src.match(/aria-label=\{([^}]*\}[^}]*)*?\}/g) ?? [];
+    expect(labelExpr.length, `${rel} must carry an aria-label expression`).toBeGreaterThan(0);
+    expect(
+      labelExpr.some((e) =>
+        /\.trim\(\)\s*\?\s*`Open the source sheet for \$\{[a-zA-Z]+\.trim\(\)\} in Google Sheets \(opens in a new tab\)`/.test(
+          e,
+        ),
+      ),
+      `${rel} must still guard on .trim() inside its aria-label`,
+    ).toBe(true);
     expect(src, `${rel} must still carry the exact fallback`).toContain(
       '"Open the source sheet in Google Sheets (opens in a new tab)"',
     );

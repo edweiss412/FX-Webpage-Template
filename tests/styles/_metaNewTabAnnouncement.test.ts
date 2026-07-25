@@ -499,6 +499,53 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     ok(`const A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;`);
   });
 
+  // ── Regression pins for whole-diff review R4 ────────────────────────────
+  it("R4-1 target keywords are ASCII case-insensitive, templates are undecidable", () => {
+    rejects(`const A=()=><a href="x" target="_BLANK">Go</a>;`, /does not announce/);
+    rejects(`const A=()=><a href="x" target="_Blank">Go</a>;`, /does not announce/);
+    rejects('const A=({x})=><a href="x" target={`${x}`}>Go</a>;', /not a decidable literal/);
+    rejects('const A=({s})=><a href="x" target={`_${s}`}>Go</a>;', /not a decidable literal/);
+  });
+
+  it("R4-2 approved spreads may carry only target and rel", () => {
+    for (const props of [
+      '{target:"_blank","aria-labelledby":"outside"}',
+      '{target:"_blank","aria-hidden":"true"}',
+      '{target:"_blank",className:"hidden"}',
+      '{target:"_blank",style:"x"}',
+    ]) {
+      rejects(
+        `const A=({e})=><a href="x" {...(e?${props}:{})}>Go {e?<> <NewTabHint /></>:null}</a>;`,
+        /unrecognized external-link shape/,
+      );
+    }
+  });
+
+  it("R4-4 a hint must be a real child, not a prop, and not under a naming wrapper", () => {
+    rejects(
+      `const A=()=><a href="x" target="_blank">Go <Wrapper hint={<NewTabHint />} /></a>;`,
+      /does not announce/,
+    );
+    rejects(
+      `const A=()=><a href="x" target="_blank">Go <span role="img" aria-label="icon"><NewTabHint /></span></a>;`,
+      /cannot be proven non-hiding/,
+    );
+    rejects(
+      'const A=({h})=><a href="x" target="_blank">Go <span className={`${h ? "hidden" : ""}`}><NewTabHint /></span></a>;',
+      /cannot be proven non-hiding/,
+    );
+  });
+
+  it("R4-5 an unconstrained label substitution is not a destination, a guarded one is", () => {
+    rejects(
+      'const A=({label})=><a href="x" target="_blank" aria-label={`${label} (opens in a new tab)`}>Go</a>;',
+      /no destination/,
+    );
+    ok(
+      'const A=({alt})=><a href="x" target="_blank" aria-label={alt ? `${alt} (opens in a new tab)` : "Diagram (opens in a new tab)"}>Go</a>;',
+    );
+  });
+
   it("honors an inline exemption comment", () => {
     ok(
       `// no-newtab-announcement: intentionally silent for the probe\nconst A = () => <a href="x" target="_blank">Go</a>;`,

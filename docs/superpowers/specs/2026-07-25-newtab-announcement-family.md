@@ -199,53 +199,100 @@ The Group B and §2.2 changes are string-only. Therefore no real-browser layout 
 
 **None — no visual state changes.** The hint is static from first render, has no enter or exit, no hover, focus, or open state, and no animation. Group C's conditional render is driven by a per-alert data flag (`action.external`), not by an interactive state transition, so there is no pair to enumerate: an anchor's `external` value does not change while mounted. Nothing in this diff touches an `AnimatePresence`, a ternary render of competing visual states, or a `transition-*` utility.
 
-## 6. Structural guard: per-anchor AST, not per-file lexical
+## 6. Structural guard: a per-anchor SHAPE ALLOWLIST (amended R4)
 
-A new meta-test under `tests/styles/` (planned file, no citation available yet).
+**AMENDMENT (2026-07-25, ratified here per invariant 7).** This section previously specified a
+leak-hunting guard: recognize every conditional/spread form, resolve identifiers, and prove an
+anchor unannounced. Whole-diff reviews R1, R2 and R3 each found a NEW fail-open shape under
+that model — nested spreads, computed keys, shadowed identifiers and parameters,
+spread-supplied `aria-label`, spread-supplied `hidden`, partially-exhaustive ternaries, plus
+(R4) case-insensitive `_BLANK`, template-valued targets, and hints passed as props. That is not
+a run of bugs; a static pass cannot soundly resolve arbitrary TSX, so "prove it is broken"
+leaks by construction. `docs/agents/spec-self-review.md:22` caps iteration on a surviving
+vector at three rounds.
 
-**R1's per-file design was inadequate and is replaced.** After the sweep, all 17 family files contain a qualifying token, so a NEW unannounced anchor added to any of them would pass, and that is the most probable regression. `components/admin/wizard/step3ReviewSections.tsx` alone holds **six** `_blank` anchors (lines 932, 2964, 3188, 3386, 3575, 3684), where one import would satisfy the whole file. A wrong-anchor import also passes, since lint rejects only a wholly unused import.
+**The guard is therefore INVERTED and this spec now requires the inverted form.** Implemented in
+`tests/styles/_newTabScan.ts`, driven by `tests/styles/_metaNewTabAnnouncement.test.ts`.
 
-**Per-anchor analysis is well-precedented here,** so R1's "AST is out of scope" rested on a false premise: `tests/app/admin/showReviewModalLoader.test.tsx:708` parses TSX via `ts.createSourceFile` with `ts.ScriptKind.TSX` — the only existing TSX precedent, and the one this guard follows. `tests/admin/_metaInfoCodeActionability.test.ts:32` parses without a TSX script kind, and `tests/adminAlerts/producerScopeAst.test.ts:23` parses a synthetic `.ts` string with `ts.ScriptKind.TS`; both are AST-meta-test precedent but NOT evidence for TSX parsing, so they are cited only for the former. `tests/cross-cutting/no-console-exemptions.test.ts:38` and `tests/auth/developerGatingContract.test.ts:153` use ts-morph.
+### 6.1 Candidate discovery
 
-Requirements:
+Filesystem-walk `components/**/*.tsx` and `app/**/*.tsx` (never a hard-coded list). An `<a>` or
+`<Link>` is a CANDIDATE if it carries a `target` attribute or ANY spread attribute; without
+either it cannot become external and is skipped. `.mdx` gets a lexical assertion instead —
+`app/**/*.mdx` must contain no `_blank` at all — because TSX parsing cannot see those files
+(measured: a probe anchor was omitted from the AST in 9 of 13).
 
-1. **Filesystem-walk** `components/**/*.tsx` and `app/**/*.tsx` for AST analysis — never a hard-coded list, so a new anchor fails by default.
+### 6.2 Approved shapes (everything else is a finding)
 
-   **`.mdx` gets a lexical assertion instead, because the TSX parser cannot see it.** Measured on all 13 files under `app/`: each produces 45 to 692 TypeScript parse diagnostics, and after appending a valid `<a target="_blank">probe</a>` in memory, the TSX AST **omitted the probe in 9 of the 13** (reproduced independently). Failing on diagnostics would reject all 13 existing files; ignoring them would silently miss real anchors. So an AST rule here would be a guarantee in name only. Instead: assert **no `.mdx` file under `app/` contains the substring `_blank` at all.** That is exact today (zero occurrences), needs no parser, and cannot fail open. Its failure message must tell the author to move the external link into a `.tsx` component where the per-anchor rules apply, rather than to add an exemption.
-2. **Parse as TSX and detect external links by VALUE, across every normal AST shape.** Recognize `target="_blank"`, `target={"_blank"}`, `target={cond ? "_blank" : undefined}` (either branch), and spread attributes whose object literal carries a `target: "_blank"` property — including an object referenced by an in-file identifier, resolved within the file. **Fail closed:** if a `target` value or spread object cannot be statically resolved, the anchor FAILS with a message telling the author to inline it or add an exemption. Silent fall-through is what made the original census wrong.
-3. **Restrict to link elements** (`<a>`, `<Link>`) so a non-link component carrying an unrelated `target` prop is not a false positive.
-4. **Per anchor**, require one of:
-   - an `aria-label` containing `opens in a new tab` **whose remainder is non-empty after removing that phrase AND stripping punctuation and whitespace**. Removing only the phrase is insufficient: `aria-label="(opens in a new tab)"` leaves `()`, which is non-empty while carrying no destination. Both that and the bare phrase must FAIL.
-   - a `NewTabHint` descendant that is **not hidden from the accessible name**, checked against `aria-hidden="true"`, the **native `hidden` attribute** (`<span hidden>`, already a repo idiom at `components/right-now/RightNowCard.tsx:637` and `components/crew/RightNowHero.tsx:508`, and rendered by React as `hidden=""`), AND CSS hiding — a `hidden` class, `display:none`, or `visibility:hidden` — on the hint or any ancestor within the anchor. `<span aria-hidden="true"><NewTabHint /></span>` and `<span className="hidden"><NewTabHint /></span>` both contribute nothing to the name (verified against installed `dom-accessibility-api` 0.6.3: the name came back as the destination alone). No current anchor has such a descendant; this closes a future hole rather than a present bug.
-   - an inline `// no-newtab-announcement: <reason>` exemption.
-5. **Any anchor whose `target` is CONDITIONAL** — spread or direct — additionally requires its **announcement** (whichever mechanism requirement 4 accepted) to be conditional under the **effective `_blank` predicate**, defined as:
-   - the condition itself when `"_blank"` is in the TRUE branch only (all four live anchors);
-   - its **negation** when `"_blank"` is in the FALSE branch only, e.g. `target={external ? undefined : "_blank"}` requires the announcement gated on `!external`;
-   - **constant `true` when BOTH branches are `"_blank"`** (e.g. `target={external ? "_blank" : "_blank"}`, which requirement 2 accepts). The target is then unconditionally external, so a STATIC announcement is the correct implementation and the guard must accept it — supplying `external` or `!external` here would reject correct code or enforce only one branch.
+1. **Literal** — `target="_blank"` (ASCII case-insensitive per the HTML spec) with NO spread
+   attribute on the element.
+2. **Gated** — no `target` attribute, and exactly ONE spread of the form
+   `{...(COND ? { target: "_blank", rel: "…" } : {})}` where both branches are inline object
+   literals whose properties are decidable literals drawn only from `{ target, rel }`.
 
-   The guard therefore computes polarity from which branches carry `_blank`, rather than comparing condition text.
+A value is decidable only if it is a string literal or a no-substitution template; a template
+WITH substitutions is not. Anything outside these shapes is reported as
+`unrecognized external-link shape (<why>)`.
 
-   **A static phrase-bearing `aria-label` FAILS on a conditional-target anchor.** Requirement 4 accepts a label as an announcement mechanism, but a label is unconditional, so on a conditional-target anchor it would announce a new tab even when `target` is undefined — the same lie the hint gating prevents. Such an anchor must either render the hint under the effective predicate, or build the label from a conditional expression whose phrase-bearing branch matches that predicate. (This resolves R4's requirement-4-vs-5 conflict: the rule is about the announcement, not specifically about `NewTabHint`, and §2's no-dead-hint rule still forbids a hint under a label.)
+### 6.3 Announcement verification for an approved shape
 
-   Scoping this to spreads only, as R3's draft did, left a false-announcement hole:
+- An element carrying `aria-label` or `aria-labelledby` must announce IN THAT LABEL; a
+  `NewTabHint` child is inert beneath a naming override. The label's non-phrase remainder,
+  after stripping punctuation, must be non-empty, and a substitution only supplies a
+  destination when the enclosing conditional's own test guards it non-empty.
+- Otherwise a `NewTabHint` must be present in CHILD position (not passed as a prop), preceded by
+  a real sibling space (JSX whitespace-stripping modelled), not hidden by `aria-hidden`, the
+  native `hidden` attribute, or a hiding class, and not beneath any element whose attributes
+  cannot be proven non-hiding (a spread, an undecidable `className`/`style`, or its own
+  `aria-label`/`aria-labelledby`/`role`).
+- **Gated** anchors require the hint under a condition whole-expression-equal to the effective
+  `_blank` predicate, with branch polarity computed rather than compared textually.
+- **Literal** anchors require an UNCONDITIONAL hint. Proving an arbitrary conditional chain
+  exhaustive is undecidable (R3 defeated a both-branches heuristic with
+  `e ? ready && <Hint/> : <Hint/>`), so the approved shape avoids the question.
+- One inline `// no-newtab-announcement: <reason>` comment exempts exactly ONE candidate — the
+  next one it precedes, compliant or not — and requires a non-empty reason. The ship-time
+  exemption count is zero.
+- A comment-stripped copy census pins the FILE SET carrying the phrase (not an occurrence
+  count, which goes stale as fallbacks are added), stripped via the TypeScript scanner rather
+  than regexes.
+- Synthetic scanner self-tests are MANDATORY, one per accept/reject branch, because the live
+  tree exercises only the two shipped shapes.
 
-   ```tsx
-   <a target={external ? "_blank" : undefined}>Destination <NewTabHint /></a>
-   ```
+### 6.4 Accepted limits (ratified, not oversights)
 
-   That shape satisfies requirements 2 and 4 while announcing a new tab on every render, including the same-tab case. An unconditionally rendered hint on any conditional-target anchor MUST fail.
-6. **Exemption list empty** at ship time, so any future exemption is a deliberate reviewed addition.
-7. **Synthetic scanner self-tests are MANDATORY** — without them the guard is unfalsifiable. The live tree exercises only literal targets and four true-polarity conditional spreads, so a scanner that supports today's shapes and nothing else passes every other test in §7 while silently failing open on everything requirements 1 to 5 promise. The 22 accessible-name cases verify current *rendering*, not the guard's *branches*. Precedent for exactly this shape: `tests/admin/_metaInfoCodeActionability.test.ts:121` ("scanner self-test: synthetic fixtures prove discovery and each fail-closed branch") drives its visitor through a `scanSource` seam over synthetic sources; expose the same seam here.
-
-   Required synthetic cases, each asserting accept or reject: an `.mdx` source containing `_blank`; `target={"_blank"}`; a direct conditional target in true-only, false-only, and both-branch polarity; an identifier-backed spread object (resolvable) and an unresolvable one (must FAIL closed); a `<Link>` element; a non-link component carrying `target` (must NOT be flagged); a phrase-only label and a punctuation-only label (`"(opens in a new tab)"`); a hint hidden by `aria-hidden`, by the native `hidden` attribute, and by CSS; a static phrase-bearing label on a conditional-target anchor; and a conditional label whose phrase sits in the wrong branch.
-
-8. **Copy-string census, comment-stripped.** Assert set equality over the FILES that contain `(opens in a new tab)`, not a magic occurrence count. The count is not 9: every §5 empty-interpolation fallback is a second literal in the same label, so the real figure is 13 and it moves whenever a fallback is added. A count is the brittle form of this assertion — pin the file set (the NewTabHint module, the six Group B label sites, and the two pre-existing labels at `components/admin/wizard/VenueMapTile.tsx:138` and `components/admin/wizard/Step3SheetCard.tsx:152`) and strip comments before matching.
+- **A correct-but-unusual shape is reported**, e.g. an announcing `aria-label` arriving through
+  a spread. The author moves to an approved shape or adds a reasoned exemption. A false positive
+  costs one comment; a false negative ships a silent link.
+- **Document-level `<base target="_blank">` is out of scope.** It would make every relative
+  anchor external without any per-anchor syntax to inspect. None exists in the tree; a lexical
+  assertion that none is introduced is tracked in `DEFERRED.md`.
+- **An effectful predicate evaluated twice** (`{...(next() ? … )}` with `next()` also gating the
+  hint) cannot be proven consistent statically. Textual equality is the guarantee; identity of
+  side effects is not. No such predicate exists in the tree, and the approved shapes discourage
+  it.
 
 ## 7. Tests (TDD per task — failing test first)
 
 Structural coverage proves a token is present, not that the name is right. R2 demonstrated two implementations that satisfy every structural check while producing a broken name, and R1's "one site per group" minimum would have let them survive on nine untested Group A anchors. Therefore:
 
-- **Table-driven anchored accessible-name assertion for ALL 22 anchors** — the 21 being fixed PLUS `components/admin/wizard/VenueMapTile.tsx:138`, whose label §2.2 rewrites. One table, one case per anchor, `expect(link).toHaveAccessibleName(/^…\(opens in a new tab\)$/)` anchored at both ends so the §3.1 separator bug fails. A substring match would pass the buggy `"Open in Sheet(opens in a new tab)"`. `toHaveAccessibleName` is already used at `tests/components/ReSyncButton.test.tsx:418`.
+**AMENDMENT (2026-07-25, ratified here per invariant 7):** the per-anchor behavioral table
+below is REDUCED to the load-bearing subset. Cross-model review R2 judged the remaining
+fourteen assertions ritual once the guard was corrected, and named three blocks as carrying
+real risk: `BellPanel`, `HealthAlertsPanel`, and the exact empty-interpolation outputs. Those
+three are implemented; per-anchor announcement PRESENCE is carried structurally by §6, which
+fails closed on any shape it cannot verify. What remains required:
+
+- Anchored accessible-name coverage for `AttentionBanner`, `BellPanel` and `HealthAlertsPanel`
+  (positive AND `external: false` negative), since the AST rule cannot prove a runtime name.
+- Anchored coverage where a fixture already exists: `SourceLink`, `CrewPageLink`,
+  `PublishedReviewModal`, `Step3ReviewModal`, `step3ReviewSections`, `VenueMapTile`.
+- The three empty-interpolation seams RENDERED, reading the computed accessible name, plus a
+  parity guard binding the probe to the shipped `aria-label` expression.
+
+The superseded requirement, kept for provenance:
+
+- ~~**Table-driven anchored accessible-name assertion for ALL 22 anchors**~~ — the 21 being fixed PLUS `components/admin/wizard/VenueMapTile.tsx:138`, whose label §2.2 rewrites. One table, one case per anchor, `expect(link).toHaveAccessibleName(/^…\(opens in a new tab\)$/)` anchored at both ends so the §3.1 separator bug fails. A substring match would pass the buggy `"Open in Sheet(opens in a new tab)"`. `toHaveAccessibleName` is already used at `tests/components/ReSyncButton.test.tsx:418`.
 
   **VenueMapTile must be in this table, not only in the label-in-name check.** Its existing tests assert href, target, and visual presence but never the accessible name, so a "fix" of `Directions (opens in a new tab)` would satisfy the label-in-name assertion, the §6 remainder guard, and the copy census while silently dropping the Google Maps destination that §2.2 requires it to keep. Only the exact-name case catches that.
 - **Group C negative test** (highest-value test in the diff): each of the four renderers with `action.external === false`, asserting the name contains no new-tab phrasing and no `target` is set.
