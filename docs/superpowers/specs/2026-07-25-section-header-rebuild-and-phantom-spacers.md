@@ -71,13 +71,13 @@ The outer element becomes a column; the header line and the pill line are its tw
 <div className={`${sub ? "mb-2" : "mb-3"} flex flex-col gap-1.5`}>
   <div className="flex min-h-tap-min items-center gap-2.5">     ← header line
     {statusIcon}                                                 ← unchanged tones
-    <div className={`flex min-w-0 flex-1 items-center justify-center gap-1.5${sheetHref === null ? " pr-[30px]" : ""}`}>
+    <div className={`flex min-w-0 flex-1 items-center justify-center gap-1.5${linkless ? " pr-header-link-slot" : ""}`}>
       <Heading …>{label}</Heading>
       {showCount ? <span …>({count})</span> : null}
     </div>
     {sheetHref !== null ? <a … /> : null}                        ← 20px glyph, corner
   </div>
-  {pill !== null ? <div className="flex justify-center">{pill}</div> : null}
+  {pill !== null ? <div className="flex w-full justify-center">{pill}</div> : null}
 </div>
 ```
 
@@ -120,10 +120,10 @@ Distance of the name's text from the header row's true horizontal centre, at 375
 | no count, link present | venue, event details, crew schedule, hotels, transport, pack list, billing & docs | **+4px** |
 | count present, link present | crew, contacts, rooms, warnings | **−8.4px** |
 | count present, link, longest real name + 3-digit count | `Sheet warnings (128)` | **−17px** |
-| no count, no link, `pr-[30px]` | report an issue | **+4px** |
-| sub-block, no count, no link, `pr-[30px]` | diagrams | **+2px** |
+| no count, no link, `pr-header-link-slot` | report an issue | **+4px** |
+| sub-block, no count, no link, `pr-header-link-slot` | diagrams | **+2px** |
 
-`pr-[30px]` = the link's 20px footprint + the row's 10px `gap-2.5`. Without it those two sections drift to **+19px** and **+17px** — visibly off-axis against neighbouring sections. With it they match the common case. Measured identical to a reserved 20px spacer element; padding is chosen because it adds no element (§1.1 item 6).
+The compensation is a NAMED token, not a raw pixel utility: `--spacing-header-link-slot: 30px` (= the link's 20px footprint + the row's 10px `gap-2.5`) is added to the `@theme` spacing block in `app/globals.css` beside `--spacing-tap-min` and documented in `DESIGN.md`, then consumed as `pr-header-link-slot`. A raw `pr-[30px]` would violate `DESIGN.md:361` ("Components MUST NOT hardcode hex values, ms values, or px spacing magic numbers"), which round 1 correctly flagged. `--spacing-confirm-box` (`app/globals.css:169`) is the precedent for a measured, commented token. Without it those two sections drift to **+19px** and **+17px** — visibly off-axis against neighbouring sections. With it they match the common case. Measured identical to a reserved 20px spacer element; padding is chosen because it adds no element (§1.1 item 6).
 
 ### 3.2 The four childless pushers
 
@@ -164,19 +164,52 @@ Delete all four rows named in §2. The stale-row assertion in each file fails if
 
 ## 4. Mode boundaries and guard conditions
 
-`ModalSectionChrome` state space, and what each state renders:
+**There is no `sheetHref` prop.** It is a local derived at `components/admin/wizard/step3ReviewSections.tsx:884-888` from the
+OPTIONAL `chrome.dfid` and `chrome.sectionId` (both `?:` at `components/admin/wizard/step3ReviewSections.tsx:513-514`). The
+spec's round-1 wording treated it as an input; the real inputs are `dfid × sectionId × status ×
+count × headingLevel`, and the derivation is what §3.1 keys the padded geometry on. The
+implementation reads a single local `linkless = sheetHref === null`.
 
-| Input | Values | Effect on the new header |
-| ----- | ------ | ------------------------ |
-| `headingLevel` (`components/admin/wizard/step3ReviewSections.tsx:870`) | 3 (default) / 4 | 4 ⇒ `sub`: `<h4>`, `text-sm`, `size-6` icon, `mb-2`. 3 ⇒ `<h3>`, `text-base`, `size-7` icon, `mb-3`. Both use the same three-slot row and the same `gap-2.5`. |
-| `flagged` | boolean | true ⇒ amber icon chip + "Needs a look" pill on line 2 |
-| `chrome.judgment` | boolean | true **and** `!flagged` ⇒ info-tone icon chip + "Parsed with judgment" pill on line 2 |
-| neither | — | sunken icon chip, **no line 2** |
-| `count` | `number \| null` | rendered only when `shouldShowSectionCount` is true; `null`, a non-`COUNT_SECTIONS` id, an absent `sectionId`, or flagged-zero ⇒ omitted, and the group holds the name alone |
-| `sheetHref` | `string \| null` | null ⇒ no corner element **and** `pr-[30px]` on the group |
-| `label` | `string` | Empty string is not a reachable input for this component (every caller passes a literal — e.g. `label="Rooms"` at `components/admin/wizard/step3ReviewSections.tsx:1929`, `label="Warnings"` at `components/admin/wizard/step3ReviewSections.tsx:2759`). If it were empty the row would render icon + empty group + link; no crash, no layout break. |
+| Input | Values | Effect |
+| ----- | ------ | ------ |
+| `chrome.dfid` | `string \| undefined`, **and `""` is reachable** | Falsy ⇒ `sheetHref` null ⇒ linkless + padded. `""` is not hypothetical: published data carries `driveFileId: string \| null` (`components/admin/review/sectionData.ts:59`) and `components/admin/review/ShowReviewSurface.tsx:251` coerces null to `dfid = ""`. |
+| `chrome.sectionId` | `SectionId \| undefined` | `undefined` (sub-block) ⇒ no count AND no link. `"report"` ⇒ no link (excluded at `components/admin/wizard/step3ReviewSections.tsx:887`). |
+| `headingLevel` | 3 (default) / 4 | 4 ⇒ `sub`: `<h4>`, `text-sm`, `size-6` icon, `mb-2`. 3 ⇒ `<h3>`, `text-base`, `size-7` icon, `mb-3`. Same three-slot row, same `gap-2.5`. |
+| status | `flagged` / `judgment` / clean | `flagged` ⇒ amber chip + "Needs a look" pill. `judgment` (`=== true && !flagged`, `components/admin/wizard/step3ReviewSections.tsx:871`) ⇒ info chip + "Parsed with judgment" pill. Clean ⇒ sunken chip, **no pill line**. |
+| `count` | `number \| null` | Chip renders only when `shouldShowSectionCount` is true (`components/admin/wizard/step3ReviewSections.tsx:708`). |
 
-Empty/zero/null sweep: `count === 0` renders `(0)` only when not flagged; `count === null` omits the chip; `label === ""` is unreachable but degrades safely; `sheetHref === null` is the padded case; `chrome.sectionId === undefined` (sub-block) forces both count and link off, which is the `pr-[30px]` + `sub` combination — the **narrowest** geometry, and the one §3.1.5 measures at +2px.
+### 4.1 The published surface is linkless for EVERY section
+
+Because `dfid` is `""` in published mode, `sheetHref` is null for **all** top-level published
+sections — counted, flagged and judgment included. The padded geometry is therefore the
+published DEFAULT, not the two-section edge case §3.1.5's round-1 table implied. Consequences:
+
+- The geometry matrix the plan measures MUST include padded × counted, padded × flagged, and
+  padded × judgment, not only the two link-less sections named in §3.1.5.
+- §3.1.5's measured offsets remain valid for the states they name (staged surface, link present).
+  The padded-with-count states are new cells the plan measures and records.
+
+### 4.2 Invalid numbers
+
+`count: number | null` does not exclude `NaN`, `Infinity`, or `-Infinity`, and
+`shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708-714`) tests only `null`, membership, and
+`count === 0 && flagged` — so `NaN` would reach the chip and render "(NaN)".
+
+**Disposition:** the plan adds a guard so a non-finite count is treated as absent
+(`Number.isFinite(count)` gate), with a unit test passing `NaN` and `Infinity`. This is
+specified rather than dismissed as unreachable, because the count arrives from parsed sheet
+data and "prove it unreachable" is a stronger claim than the code currently supports.
+
+### 4.3 Empty/zero/null sweep
+
+`count === 0` ⇒ `(0)` renders only when not flagged. `count === null` / non-finite ⇒ chip
+omitted. `dfid === ""` or `undefined` ⇒ linkless + padded. `sectionId === undefined` ⇒ no count
+and no link, combined with `sub` in the Diagrams case — the narrowest geometry (§3.1.5, +2px).
+`label` is typed `string` (`components/admin/wizard/step3ReviewSections.tsx:855` via `chrome.label`) and reaches
+`ModalSectionChrome` dynamically from the `step3Sections` registry through
+`components/admin/review/ShowReviewSurface.tsx:1063` — **not** from the `BreakdownSection`
+`label=` literals, which round-1 §4 mis-cited. An empty label would render icon + empty group +
+link with no crash; no caller produces one.
 
 ## 5. Dimensional invariants
 
@@ -190,24 +223,95 @@ Tailwind v4 does not default `.flex` to `align-items: stretch`, so every relatio
 | header line | itself | line is ≥44px tall in every state | `min-h-tap-min` on the line |
 | centered group | heading | heading may shrink and wrap-break; never forces overflow | `min-w-0` + `wrap-break-word` on the heading |
 | centered group | count | count keeps intrinsic width | `shrink-0` |
-| outer column | pill line | pill line spans the column; pill centres within it | `flex justify-center` on the pill line |
+| section (`flex min-w-0 flex-col`) | outer column | column spans the section's inner width | `w-full` on the outer column — Tailwind v4 does NOT stretch flex children by default, so this is explicit |
+| outer column | header line | line spans the column | `items-stretch` on the column **plus** `w-full` on the header line |
+| outer column | pill line | line spans the column, so `justify-center` centres against the full width | `items-stretch` on the column **plus** `w-full` on the pill line |
 | sheet link | its hit area | ≥44×44 despite a 20px box | `relative` + `before:absolute before:inset-[-12px]` |
 
 Height invariants to assert: header line 44px in every state; whole header 44px with no pill and 72.8px with one, at 320/375/430/1280.
 
 ## 6. Static guard — childless growable elements
 
-A set-equality structural guard, allowlist-shaped rather than leak-hunting (the `#592` lesson: three rounds and 22 findings went to fail-open shapes a detector kept missing).
+Round-1 review established that the round-1 design could not satisfy its own set-equality
+contract, and that its detector had several fail-open shapes. This section is the corrected
+design; the registry below is **enumerated from an actual run of the detector**, not estimated.
 
-- **Walk** every `.tsx` under `components/` and `app/` from the filesystem, so a new file fails by default.
-- **Collect** every self-closing JSX element (and every element with no JSX children) whose `className` contains a growable token — `flex-1`, `grow`, `flex-auto`, or an arbitrary `flex-[…]` whose grow component is non-zero.
-- **Assert set equality** against a registry with exactly one row: `components/admin/showpage/ShowReviewModalSkeleton.tsx` → the `h-11 flex-1` Skeleton bar, justified per §1.1 item 7.
-- A new occurrence fails the test naming the file and the class string; the fix is either a repair or a reviewed registry row.
+### 6.1 Semantic scope (axis-aware)
 
-Why set equality and not a "no matches" assertion: the legitimate case exists, so a bare ban would be permanently red, and a per-site suppression comment is the fail-open shape `#592` was about. The registry is one reviewable place.
+The defect is: *an in-flow child of a gapped flex/grid container has zero extent along the
+container's main axis, so the container spends a gap on something invisible.* A fixed size on
+ONE axis does not rule it out — `h-px` fixes height and still collapses to zero WIDTH in a row
+(that is precisely the `components/admin/wizard/step3ReviewSections.tsx:2150` hairline), and `w-6` fixes width and still collapses to zero
+HEIGHT in a column. So the guard MUST NOT treat "has a size token" as a clearance.
 
-The guard must **not** flag fixed-size childless elements (`size-5`, `h-px`, `w-6`): those always have extent and cannot produce the invisible seam. Scope is growable tokens only — stated so a reviewer does not read the omission as a hole.
+Because the parent's axis and gap are not reliably knowable statically, the guard does not try
+to prove the defect. It asserts a **membership** contract instead: every childless element that
+carries a growable token, or whose classes cannot be shown to be growable-free, must be a known
+row. Registered rows carry a justification; anything new fails.
 
+### 6.2 What counts as childless
+
+- **DOM tags only for the automatic decision.** A self-closing *component* tag says nothing
+  about what it renders: `<FilterTextInput />` (`components/admin/telemetry/EventFilters.tsx:74`)
+  renders an `<input>`. Treating every self-closing component as childless mis-classifies it.
+- **But excluding components entirely is a hole**, because a className-forwarding wrapper is a
+  real spacer: `<Skeleton className="h-11 flex-1 rounded-sm" />`
+  (`components/admin/showpage/ShowReviewModalSkeleton.tsx:152`) forwards to a single `div`.
+  Component tags carrying a growable token are therefore ALSO registry rows — classified by hand,
+  never auto-cleared.
+- Void DOM tags (`input`, `img`, `br`, `hr`, `source`, `track`, `area`, `col`) are legitimately
+  childless and are excluded.
+
+### 6.3 Growable tokens and fail-closed shapes
+
+Recognised: `flex-1`, `grow`, `flex-auto`, `basis-full`, and arbitrary `flex-[…]`, `grow-[…]`,
+`basis-[…]`. Also `style={{ flexGrow: n }}` / `style={{ flex: n }}` for non-zero `n` — a
+className-only scan misses the style prop entirely.
+
+**Fail closed, never open.** Classes are resolved by concatenating the STATIC parts of string
+literals, template literals, ternaries, arrays, `.join(…)`, and `+` concatenation. A part that
+is an identifier, member access, or unresolvable call (an imported/shared class constant, a
+`cn()` result) makes the element **opaque**, and opaque ⇒ must be registered. Unresolvable is
+never treated as clear.
+
+### 6.4 Registry — enumerated from a detector run (current tree)
+
+**17 rows total: 13 DOM-tag + 4 component-tag.** Verified by running the detector over
+`components/**` + `app/**` (244 files, 109 childless DOM elements with a className).
+
+DOM tags — growable (8):
+
+| Site | Disposition |
+| ---- | ----------- |
+| `components/admin/wizard/step3ReviewSections.tsx:916` | REPAIRED by §3.1 — row removed |
+| `components/admin/BellPanel.tsx:323` | REPAIRED by §3.2 — row removed |
+| `components/admin/nav/AdminNav.tsx:144` | REPAIRED by §3.2 — row removed |
+| `components/admin/nav/OnboardingTopBar.tsx:67` | REPAIRED by §3.2 — row removed |
+| `components/admin/wizard/step3ReviewSections.tsx:2150` | KEEPS a row — decorative rule, floored per §3.2 |
+| `components/admin/BulkIgnoreControls.tsx:200` | KEEPS a row — the already-repaired precedent (`hidden` + `min-w-6`) |
+| `components/admin/OnboardingWizard.tsx:196` | KEEPS a row — step connector; the plan must verify it cannot reach zero extent, or floor it |
+| `components/crew/RightNowHero.tsx:549` | KEEPS a row — progress segments that share a row; the plan must verify siblings guarantee width |
+
+DOM tags — opaque (5), all fixed-size today, registered so a future growable edit fails:
+`components/admin/BellPanel.tsx:575`, `components/admin/BellPanel.tsx:611`, `components/admin/review/ShowReviewSurface.tsx:947`,
+`components/admin/review/ShowReviewSurface.tsx:1013`, `components/admin/settings/DeveloperToggleButton.tsx:96`.
+
+Component tags (4): growable — `ShowReviewModalSkeleton.tsx:152` (keeps a row, §1.1 item 7),
+`EventFilters.tsx:74` (keeps a row — renders an `<input>`, not a spacer); opaque —
+`ReSyncButton.tsx:339`, `step3ReviewSections.tsx:2061`.
+
+**Registry after the repairs: 13 rows.** The four repaired rows are deleted by the tasks that
+repair them, so a stale row is a failure exactly like a new match.
+
+### 6.5 Controls (test 9 must cover every supported syntax)
+
+Round 1 correctly noted that exercising only `flex-1` plus one fixed-size negative lets a
+`flex-1`-only implementation pass. Positive controls are required for EACH of: `flex-1`, `grow`,
+`flex-auto`, `basis-full`, `flex-[2_2_0%]`, `grow-[3]`, `style={{ flexGrow: 1 }}`, a template
+literal with a growable static part, an array/`join` with a growable element, and an opaque
+identifier className. Negative controls: a fixed-size DOM element, a void tag, and a
+self-closing component with no growable token. Plus: the walker must report a non-empty,
+named file set, so "found nothing" cannot pass.
 ## 7. Not in scope
 
 - No new §12.4 error codes, no `lib/messages/catalog.ts` edits, no `pnpm gen:spec-codes` run. Nothing here surfaces a code to a user.
@@ -236,17 +340,86 @@ No `AnimatePresence`, no ternary-rendered animated block is introduced. The one 
 
 ## 9. Tests
 
-All layout assertions run in a real browser. jsdom computes no layout, and a class-presence assertion only restates the fix.
+All layout assertions run in a real browser. jsdom computes no layout, and a class-presence
+assertion only restates the fix. **Epsilon is ±0.5px for every dimension equality** unless a
+test states otherwise.
 
-1. **Name line count + row height**, real browser, `ModalSectionChrome` at 320/375/430/1280 across the five §3.1.5 states. Assert the name occupies exactly **one** text line box in every state, header height 44px without a pill and 72.8px with one. Anti-tautology: derive the expected line count by measuring `Range.getClientRects()` on the name's own text node — **not** the heading's bounding box, which the 44px-hit-area link inflates and which reports "1 line" even when the text wraps. This exact mistake produced a wrong reading during spec measurement.
-2. **Centring**, real browser: the name's text centre sits within the §3.1.5 tolerance of the row centre in each state, and the two link-less states match the common case rather than drifting +19px/+17px. Derive expected values from measured fixture geometry, never hardcoded — a fixture whose name is short enough not to crowd cannot demonstrate the fix.
-3. **Touch target**: the sheet link's hit area is ≥44×44 despite its 20px box, asserted by geometry (including the `before:` pseudo-element overlay), not by class.
-4. **Accessible name preserved**: the link's accessible name still resolves to `Open the source sheet for <label>` after the visible text is removed, and the heading's accessible name is the section name **without** the count.
-5. **No pill ⇒ no wrapper**: assert the header emits exactly one child line when unflagged — guards §3.1.4's empty-wrapper trap.
-6. **`empty:hidden` eyebrow**, real browser: on a stage-promoted ground leg the eyebrow contributes **zero** height to the `.tcol` stack, and on a labelled leg it contributes its normal height. Asserting geometry catches the `{" "}` regression that a class assertion cannot.
-7. **Phantom-gap probes** re-run green with all four ledger rows deleted; the stale-row assertion proves the debt is actually repaid rather than re-ledgered.
-8. **Archived-bucket probe** per §3.4, with the anchor captured live.
-9. **Static guard** per §6, including a negative control: a fixture with a childless `flex-1` element is detected, and a fixed-size childless element is not.
+### 9.1 Independent oracles (round-1 finding 5)
+
+Round 1 correctly noted that "derive expected values from measured fixture geometry" becomes
+tautological if the expected centre is computed from the rendered name being tested. Two rules:
+
+- **Centring oracle is FORMULA-derived, not render-derived.** The expected name-slot centre is
+  computed from the row's content box and the KNOWN fixed widths — icon (28px top-level / 24px
+  sub), link slot (30px, or the `pr-header-link-slot` compensation when linkless), and the 10px
+  `gap-2.5` — never from the name element's own rect. The test then compares the measured text
+  centre against that independent figure, and additionally asserts the CROSS-STATE invariant:
+  the linkless-padded states land within ±1px of the link-present state, which is the property
+  `pr-header-link-slot` exists to produce.
+- **Tolerances are numbers, not a reference.** §3.1.5 lists offsets, not tolerances. The
+  contract asserted is: name text centre within **±2px** of the formula centre for a given
+  state, and the per-state offsets in §3.1.5 reproduced within **±1px**.
+
+### 9.2 The tests
+
+1. **Name line count + row height** — real browser, the §4 matrix (including the §4.1
+   padded × counted / flagged / judgment cells) × 320/375/430/1280. Assert the name occupies
+   exactly **one** text line box; header 44px with no pill, 72.8px with one.
+   *Anti-tautology:* count lines from `Range.getClientRects()` on the name's own text node, never
+   the heading's bounding box — the box is inflated by the link and reports "1 line" even when
+   the text wraps. This exact error produced a wrong reading during spec measurement.
+   Set `box-sizing: content-box` on the width-pinned wrapper (§11 item 4).
+2. **Width equalities** — the three §5 relationships (section → outer column → header/pill
+   lines), ±0.5px. Fails if `items-stretch`/`w-full` is omitted, which is what makes every
+   centring number meaningful.
+3. **Centring** — per §9.1, formula oracle + cross-state comparison.
+4. **Hit target — by hit TESTING, not by reading CSS.** An anchor's `getBoundingClientRect()`
+   stays 20×20 and does **not** include its `before:` overlay, so measuring the box cannot prove
+   44px (round-1 finding 5). Assert instead that `document.elementFromPoint` returns the link (or
+   a descendant of it) at points just inside all four edges of the intended 44×44 area, and that
+   a point just outside does not. Uses viewport coordinates. This also catches an overlay clipped
+   by an ancestor's `overflow`, which a CSS read cannot see.
+5. **Accessible names** — the link's accessible name still resolves to
+   `Open the source sheet for <label>` after the visible words are removed, and the heading's
+   accessible name is the section name **without** the count.
+6. **Pill line presence is keyed to the PILL, not to `flagged`** — round 1 correctly caught that
+   round-1 test 5 equated "unflagged" with "no pill": a judgment section is unflagged and
+   deliberately renders a pill. Assert: clean ⇒ exactly one child line and no pill wrapper in the
+   DOM; flagged ⇒ two lines with the amber pill; judgment ⇒ two lines with the info pill.
+7. **Non-finite count** — `NaN` and `Infinity` render no chip (§4.2).
+8. **`empty:hidden` eyebrow** — real browser: on a stage-promoted ground leg the eyebrow
+   contributes **zero** height to the `.tcol` stack; on a labelled leg it contributes its normal
+   height. Geometry, not class presence — a class assertion cannot catch the `{" "}` regression.
+9. **Static guard** — §6.5 controls in full: a positive control per supported syntax, negative
+   controls, and a non-empty named file set.
+
+### 9.3 Behavioural proof for the pusher repairs (round-1 finding 2)
+
+Round 1 was right that the §6 membership guard passes if an implementation merely deletes a
+spacer and forgets `ml-auto`, leaving the trailing cluster at the START edge — and that
+"nothing moves visually" was an unproven claim. BACKLOG.md:48 (root) asked for a probe mount, and
+dropping it was not ratified. It is ratified here, with a substitute that is strictly stronger
+per unit of cost:
+
+10. **Trailing-alignment geometry**, real browser, for all three repaired pushers
+    (`BellPanel` action row, `AdminNav` top bar, `OnboardingTopBar`): assert the trailing
+    cluster's **right edge is flush with the parent's content-box right edge** (±0.5px) at a wide
+    width where free space exists — which fails if `ml-auto` is missing — and that the cluster
+    does not overflow the parent at 320px. For `BellPanel` the row also wraps, so assert it in
+    both the wrapped and unwrapped states.
+    *Why this and not three new probe mounts:* the phantom-gap probes detect a zero-extent item;
+    they cannot detect a MISSING `ml-auto`, because a deleted spacer leaves no offender to find.
+    This assertion targets the actual failure mode of this repair. Recorded as a deviation from
+    BACKLOG.md:48 (root) with that reasoning.
+11. **Hairline floor boundary** — assert the hairline's width is > 0 at the narrowest real row
+    (240px) with the LONGEST real title, and that the label does **not** wrap there (which is what
+    rules out `min-w-6`; see §3.2). Round 1 warned that a permanently hidden rule would satisfy
+    the phantom-gap probes while violating the intent — this asserts the rule is still DRAWN.
+    *Anti-tautology:* a short title cannot collapse, so the longest of the five closed-set titles
+    is mandatory or the test passes vacuously.
+12. **Phantom-gap probes** re-run green with all four ledger rows deleted; the stale-row
+    assertion proves the debt is repaid rather than re-ledgered.
+13. **Archived-bucket probe** per §3.4, anchor captured live.
 
 ## 10. Invariant checklist
 
