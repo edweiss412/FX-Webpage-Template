@@ -37,7 +37,7 @@ Each row is a decision already taken, with its ratification. Verify the citation
 | 4 | **Sheet link is a 20px glyph with a `before:inset-[-12px]` expanded hit area, NOT the `size-tap-min` box the card header uses.** Deliberate deviation from `components/admin/wizard/Step3ReviewModal.tsx:409`. Measured: a 44px corner box outweighs the 28px status icon and drags the name 8–29px left; the 20px glyph holds it within 4–17px. The 44px touch target is fully preserved (20 + 2×12 = 44). Hit-area idiom precedent: `components/admin/HoverHelp.tsx:537`. | §3.1.3, measured. |
 | 5 | **The name's residual off-centre spread across states (+4px to −17px) is accepted.** It follows from putting the count inside the centered group, which is decision 1. Not a defect to be engineered away with a compensating spacer. | §3.1.5. |
 | 6 | **The empty right corner is compensated with padding on the group, NOT a reserved spacer element.** Measured identical geometry (+4px / +2px) both ways; padding adds no element to a gapped row, which is this batch's whole point. | §3.1.5, measured. |
-| 7 | **`components/admin/showpage/ShowReviewModalSkeleton.tsx:152` keeps its `flex-1` Skeleton.** Its row is `flex w-full items-center gap-2` with one sibling and a `w-full` parent, so the bar always has width — it is not a collapsing pusher. It is the single allowlisted row in the §6 guard registry. | §6. |
+| 7 | **`components/admin/showpage/ShowReviewModalSkeleton.tsx:152` keeps its `flex-1` Skeleton.** Its row is `flex w-full items-center gap-2` with one sibling and a `w-full` parent, so the bar always has width — it is not a collapsing pusher. The static guard that would have registered it is descoped (§6), so no registry exists; the row is documented here as the reason it is left alone. | §6. |
 | 8 | **`components/crew/sections/TravelSection.tsx:588` needs no fix — REFUTED, do not re-raise.** It looks like a second blank-eyebrow instance (identical classes) but its `<p>` always contains a `<span>` child, so the empty-element selector can never match. More importantly it is unreachable-blank: it renders only under `showStructured = seg.structured && hasContent` (`components/crew/sections/TravelSection.tsx:572`), and the `dateRaw: null` construction sets `structured: false` (`lib/crew/flightDisplay.ts:184`); structured segments always carry a `dateRaw` (`lib/crew/flightDisplay.ts:152`). | §3.3. |
 | 9 | **No new error codes, no §12.4 catalog edits, no migrations.** This batch is presentational plus test wiring. The three-way §12.4 lockstep and the `validation-schema-parity` gate are therefore N/A. | §7. |
 
@@ -132,11 +132,28 @@ The compensation is a NAMED token, not a raw pixel utility: `--spacing-header-li
 | `components/admin/BellPanel.tsx:323` | Delete the spacer; add `ml-auto` to the right-hand content. Right content is present iff `!entry.isHealth`, and is either the auto-note `<p>` or the resolve `<button>` — **both** get it. |
 | `components/admin/nav/AdminNav.tsx:144` | Delete the spacer; add `ml-auto` to the following action-cluster `<div>` (`components/admin/nav/AdminNav.tsx:146`). Always rendered, so no empty-state case. |
 | `components/admin/nav/OnboardingTopBar.tsx:67` | Delete the spacer; add `ml-auto` to the following action-cluster `<div>` (`components/admin/nav/OnboardingTopBar.tsx:69`). Always rendered. |
-| `components/admin/wizard/step3ReviewSections.tsx:2150` | **Not a pusher** — a decorative hairline. Apply the settled `DESIGN.md` §7a rule: `hidden min-[N]:block` plus a `min-w-*` floor, `N` **measured**, not assumed. |
+| `components/admin/wizard/step3ReviewSections.tsx:2150` | **Not a pusher** — a decorative hairline. **Measured: it never collapses in the supported range, so the treatment is a `min-w-4` floor ALONE, no breakpoint.** See below. |
 
 `ml-auto` (not `justify-between`) is the established idiom here: `components/admin/CompactAlertCard.tsx:138` records why — "a lone child under `justify-between` sits at the START edge". Nothing moves visually on any of these three; they are not crowded today.
 
-For `components/admin/wizard/step3ReviewSections.tsx:2150`, the plan measures the width at which the hairline first draws non-zero and uses that as `N`, mirroring how `components/admin/BulkIgnoreControls.tsx:202` arrived at `min-[480px]:block` with a `min-w-6` floor. **`N` is an output of the plan's measurement task, not a value this spec asserts.**
+**The `components/admin/wizard/step3ReviewSections.tsx:2150` hairline — the measurement-dependent branch, resolved.** Round 3
+correctly flagged that §3.2 demanded a breakpoint while §10 said floor-only. The branch, stated
+explicitly:
+
+- **Collapses somewhere in the supported range** → breakpoint + floor, mirroring
+  `components/admin/BulkIgnoreControls.tsx:202` (`min-[480px]:block` + `min-w-6`); tests then
+  assert BOTH sides of the breakpoint and the floor value.
+- **Never collapses** → floor only, no breakpoint — hiding a rule that draws correctly at every
+  supported width is a visual regression.
+
+**Measured: it never collapses.** Its titles are a closed set of five (`components/admin/wizard/step3ReviewSections.tsx:386-401`),
+longest "Wardrobe & key moments", and the row holds only that label plus the rule. At the narrowest
+REAL row — 240px, i.e. a 320px viewport's 280px pane minus `--spacing-tile-pad: 20px` on each side
+of the panel card — the rule draws **22.94px**, reaching 0 only at rows ≤215px, 25px narrower than
+anything reachable. **Therefore: floor only, `min-w-4` (16px).** Not `min-w-6` (24px), which
+EXCEEDS the 22.94px available at a 240px row and would bind, wrapping the 207.1px label onto a
+second line. That wrap — not `width > 0` — is the discriminator between the two floors, as round 3
+correctly noted.
 
 ### 3.3 TravelRow eyebrow (`components/crew/sections/TravelSection.tsx:121`)
 
@@ -197,7 +214,8 @@ The real taxonomy — three cases, not one:
 | Staged, and valid published | every top-level section **except** `report` | link present |
 | `report` ("Report an issue") | one | linkless — excluded at `components/admin/wizard/step3ReviewSections.tsx:887` |
 | Diagrams sub-block | one | linkless — no `dfid`, no `sectionId`, `headingLevel: 4` |
-| Defensive: malformed / null published data (`dfid === ""`) | all top-level sections | linkless — a defensive state, NOT the normal published state |
+| Defensive: malformed / null data (`dfid === ""`) | all top-level sections | linkless — a mode-agnostic defensive state, NOT the normal published state. `buildStagedSectionData` also accepts a plain string (`components/admin/review/sectionData.ts:110-168`), so it is not published-only. |
+| **Partial / standalone providers** — chrome mounted with neither `dfid` nor `sectionId` at default `headingLevel: 3` | `tests/components/admin/crewRowBannerIntegration.test.tsx:54-72`, `tests/components/admin/wizard/step3ReportIssueSection.test.tsx:111-122`, `tests/e2e/_attentionAnchorEntry.tsx:82-95`, `tests/components/admin/anchorMount.test.tsx:37-43` | linkless, padded, count-suppressed — but **top-level `h3`, NOT the Diagrams `h4` state**. Round 3 correctly caught that the round-2 taxonomy conflated "no `sectionId`" with Diagrams. **Declared SUPPORTED** (both props are optional by design, `components/admin/wizard/step3ReviewSections.tsx:513-514`) and included in the test matrix as its own geometry class. |
 
 So the padded (`pr-header-link-slot`) geometry is the **two-section case plus a defensive
 fallback**, exactly as §3.1.5 measured — not a published default. Consequences for testing:
@@ -242,10 +260,10 @@ Tailwind v4 does not default `.flex` to `align-items: stretch`, so every relatio
 | header line | itself | line is ≥44px tall in every state | `min-h-tap-min` on the line |
 | centered group | heading | heading may shrink and wrap-break; never forces overflow | `min-w-0` + `wrap-break-word` on the heading |
 | centered group | count | count keeps intrinsic width | `shrink-0` |
-| content pane | registry section (`components/admin/review/ShowReviewSurface.tsx:1055`, `flex min-w-0 flex-col`) | spans the pane's inner width | pre-existing; asserted as the chain's root so an upstream regression is attributed correctly |
-| registry section | breakdown section (`components/admin/wizard/step3ReviewSections.tsx:999`, `flex min-w-0 flex-col`) | spans the registry section | pre-existing |
-| breakdown section | outer column | column spans the breakdown section's inner width | `w-full` on the outer column — **both wrappers are `flex-col` and Tailwind v4 does NOT stretch flex children by default**, so this is explicit at every level |
-| breakdown section | panel card (`components/admin/wizard/step3ReviewSections.tsx:942`) | card spans the same width as the outer column — siblings that must not diverge | asserted: `panelCard.width === outerColumn.width` |
+| content pane (`components/admin/review/ShowReviewSurface.tsx:1030`) | registry section (`components/admin/review/ShowReviewSurface.tsx:1055`, `flex min-w-0 flex-col`) | spans the pane's inner width | **ASSERTED ONLY, not guaranteed** — see the note below |
+| registry section | breakdown section (`components/admin/wizard/step3ReviewSections.tsx:999`, `flex min-w-0 flex-col`) | spans the registry section | **ASSERTED ONLY, not guaranteed** |
+| breakdown section | outer column | column spans the breakdown section's inner width | **GUARANTEED** by `w-full` on the outer column (added by this batch). Both wrappers are `flex-col` and Tailwind v4 does not stretch flex children by default. |
+| breakdown section | panel card (`components/admin/wizard/step3ReviewSections.tsx:942`) | card spans the same width as the outer column — siblings that must not diverge | **ASSERTED ONLY** — this batch does not modify the panel card |
 | outer column | header line | line spans the column | `items-stretch` on the column **plus** `w-full` on the header line |
 | outer column | pill line | line spans the column, so `justify-center` centres against the full width | `items-stretch` on the column **plus** `w-full` on the pill line |
 | sheet link | its hit area | ≥44×44 despite a 20px box | `relative` + `before:absolute before:inset-[-12px]` |
@@ -264,126 +282,56 @@ round-2 edit silently failed to land, so it is spelled out here. The FULL chain,
 is measured against the wrong box, and a regression at the registry-section or panel-card
 boundary stays invisible and mis-attributed.
 
-## 6. Static guard — childless growable elements
+**GUARANTEED vs ASSERTED — the distinction round 3 correctly demanded.** An equality assertion
+detects a failure; it does not create the relationship. This batch **guarantees** exactly the
+boundaries it adds classes to: the outer column (`w-full` + `items-stretch`), the header line
+(`w-full`), and the pill line (`w-full`). The three upstream/sibling boundaries — pane → registry
+section, registry section → breakdown section, and breakdown section → panel card — are
+pre-existing and **NOT modified here**; they are asserted so a violation is caught and attributed
+upstream instead of being blamed on this change. The earlier "explicit at every level" phrasing
+overclaimed and is withdrawn. If an upstream assertion fails on the untouched tree, that is a
+pre-existing defect: the plan escalates it rather than quietly adding classes to code this batch
+does not own.
 
-Round-1 review established that the round-1 design could not satisfy its own set-equality
-contract, and that its detector had several fail-open shapes. This section is the corrected
-design; the registry below is **enumerated from an actual run of the detector**, not estimated.
+## 6. Static guard — DESCOPED from this batch
 
-### 6.1 Semantic scope (axis-aware)
+**The guard is removed from scope.** It survived three adversarial rounds (R1 finding 1, R2
+finding 3, R3 finding 1) without converging, which trips the explicit rule in
+`docs/agents/spec-self-review.md`: *"If a design-correctness vector survives 3 adversarial rounds,
+stop patching prose: build the probe/prototype, descope the vector, or mark it UNRATIFIED pending
+a spike."* Descoping is the prescribed action, not a concession.
 
-The defect is: *an in-flow child of a gapped flex/grid container has zero extent along the
-container's main axis, so the container spends a gap on something invisible.* A fixed size on
-ONE axis does not rule it out — `h-px` fixes height and still collapses to zero WIDTH in a row
-(that is precisely the `components/admin/wizard/step3ReviewSections.tsx:2150` hairline), and `w-6` fixes width and still collapses to zero
-HEIGHT in a column. So the guard MUST NOT treat "has a size token" as a clearance.
+Why it cannot be patched again in this spec:
 
-Because the parent's axis and gap are not reliably knowable statically, the guard does not try
-to prove the defect. It asserts a **membership** contract instead: every childless element that
-carries a growable token, or whose classes cannot be shown to be growable-free, must be a known
-row. Registered rows carry a justification; anything new fails.
+- **The written rule and a working prototype disagree on the census.** Under §6.3's stated rule
+  (any identifier, member access, or unresolved call anywhere makes an element opaque), a template
+  literal like `` `size-1.5 rounded-full ${pill.dot}` `` IS opaque, giving **27 rows now / 23
+  after repairs**. A prototype that resolves static template parts instead gives **17 / 13**. R3
+  is correct that both cannot hold, and that opacity-propagation through template literals,
+  arrays/`.join`, ternaries, and `+` concatenation was never actually pinned. That is a detector
+  design question needing its own spike, and it is on a **self-imposed extra** — no backlog item
+  in this batch asks for it.
+- Three rounds on a nice-to-have tripwire, while the three real backlog items sat finished, is
+  negative marginal value by the same rule's reasoning.
 
-**Scope claim, narrowed (round-2 finding 3).** This guard does NOT close the defect class
-repo-wide, and the spec no longer claims it does. It closes one **syntactic subset**: a
-statically-recognisable growable token, or an unresolvable className, on a syntactically
-childless element. Three shapes are explicitly OUT of the guard's reach:
+**What covers reintroduction meanwhile** (all in scope, all landing in this batch):
 
-1. **Runtime-empty, not syntactically childless** — `<span className="flex-1">{null}</span>` has a
-   JSX child expression, so the classifier does not see it as childless, yet it is zero-extent at
-   runtime.
-2. **Style-only pushers the regex cannot read** — `style={SPACER_STYLE}`, a spread
-   (`style={{ ...base }}`), or `flexBasis` supplied via an identifier. The literal
-   `style={{ flexGrow: 1 }}` form IS covered; an indirected one is not.
-3. **Shrink-to-zero items that carry no growable token at all** — a childless `basis-1/2`, or a
-   `w-*` item in a row / `h-*` item in a column with no `shrink-0` and no minimum, can still be
-   squeezed to zero because the parent axis is unknown. This is why §6.5 deliberately keeps
-   "generic fixed-size element clears" as a NEGATIVE control: treating a one-axis size token as
-   proof of extent is precisely the error §6.1 warns about, so the guard does not attempt it.
+1. The existing runtime phantom-gap probes, which measure realised extent and are indifferent to
+   className syntax — the instrument that found the original defect.
+2. §9.3 test 10's trailing-alignment geometry on all three repaired pushers, which fails if a
+   spacer is deleted and `ml-auto` forgotten — the specific failure mode a membership guard was
+   being asked to cover.
+3. §9.3 test 11's floor assertion on the decorative hairline.
+4. §3.5's four ledger deletions, whose stale-row assertions fail if a repair is faked.
 
-Those three remain covered by the runtime phantom-gap probes, which measure realised extent and
-do not care about syntax. The guard is the cheap repo-wide tripwire for the common shape; the
-probes remain the proof for the measured surfaces. Neither subsumes the other, and §7 states the
-same boundary.
+**Carried forward:** the plan files a BACKLOG entry (`BL-CHILDLESS-GROWABLE-STATIC-GUARD`)
+recording the R1–R3 constraints so a future attempt starts from them rather than rediscovering
+them: axis-awareness (a one-axis size token is not proof of extent), DOM-vs-component tags
+(`FilterTextInput` renders an `<input>`; `Skeleton` forwards to one div), runtime-empty children
+(`{null}`), style-prop and indirected-style pushers, shrink-to-zero items with no growable token,
+and — the unresolved core — how opacity must propagate through composed classNames, with the
+census reconciled against a run.
 
-### 6.2 What counts as childless
-
-- **DOM tags only for the automatic decision.** A self-closing *component* tag says nothing
-  about what it renders: `<FilterTextInput />` (`components/admin/telemetry/EventFilters.tsx:74`)
-  renders an `<input>`. Treating every self-closing component as childless mis-classifies it.
-- **But excluding components entirely is a hole**, because a className-forwarding wrapper is a
-  real spacer: `<Skeleton className="h-11 flex-1 rounded-sm" />`
-  (`components/admin/showpage/ShowReviewModalSkeleton.tsx:152`) forwards to a single `div`.
-  Component tags carrying a growable token are therefore ALSO registry rows — classified by hand,
-  never auto-cleared.
-- Void DOM tags (`input`, `img`, `br`, `hr`, `source`, `track`, `area`, `col`) are legitimately
-  childless and are excluded.
-
-### 6.3 Growable tokens and fail-closed shapes
-
-Recognised: `flex-1`, `grow`, `flex-auto`, `basis-full`, and arbitrary `flex-[…]`, `grow-[…]`,
-`basis-[…]`. Also `style={{ flexGrow: n }}` / `style={{ flex: n }}` for non-zero `n` — a
-className-only scan misses the style prop entirely.
-
-**Fail closed, never open.** Classes are resolved by concatenating the STATIC parts of string
-literals, template literals, ternaries, arrays, `.join(…)`, and `+` concatenation. A part that
-is an identifier, member access, or unresolvable call (an imported/shared class constant, a
-`cn()` result) makes the element **opaque**, and opaque ⇒ must be registered. Unresolvable is
-never treated as clear.
-
-### 6.4 Registry — enumerated from a detector run (current tree)
-
-**17 rows total: 13 DOM-tag + 4 component-tag.** Verified by running the detector over
-`components/**` + `app/**` (244 files, 109 childless DOM elements with a className).
-
-DOM tags — growable (8):
-
-| Site | Disposition |
-| ---- | ----------- |
-| `components/admin/wizard/step3ReviewSections.tsx:916` | REPAIRED by §3.1 — row removed |
-| `components/admin/BellPanel.tsx:323` | REPAIRED by §3.2 — row removed |
-| `components/admin/nav/AdminNav.tsx:144` | REPAIRED by §3.2 — row removed |
-| `components/admin/nav/OnboardingTopBar.tsx:67` | REPAIRED by §3.2 — row removed |
-| `components/admin/wizard/step3ReviewSections.tsx:2150` | KEEPS a row — decorative rule, floored per §3.2 |
-| `components/admin/BulkIgnoreControls.tsx:200` | KEEPS a row — the already-repaired precedent (`hidden` + `min-w-6`) |
-| `components/admin/OnboardingWizard.tsx:196` | KEEPS a row — step connector; the plan must verify it cannot reach zero extent, or floor it |
-| `components/crew/RightNowHero.tsx:549` | KEEPS a row — progress segments that share a row; the plan must verify siblings guarantee width |
-
-DOM tags — opaque (5), all fixed-size today, registered so a future growable edit fails:
-`components/admin/BellPanel.tsx:575`, `components/admin/BellPanel.tsx:611`, `components/admin/review/ShowReviewSurface.tsx:947`,
-`components/admin/review/ShowReviewSurface.tsx:1013`, `components/admin/settings/DeveloperToggleButton.tsx:96`.
-
-Component tags (4): growable — `ShowReviewModalSkeleton.tsx:152` (keeps a row, §1.1 item 7),
-`EventFilters.tsx:74` (keeps a row — renders an `<input>`, not a spacer); opaque —
-`ReSyncButton.tsx:339`, `step3ReviewSections.tsx:2061`.
-
-**Registry after the repairs: 13 rows.** The four repaired rows are deleted by the tasks that
-repair them, so a stale row is a failure exactly like a new match.
-
-### 6.5 Controls (test 9 must cover every supported syntax)
-
-Round 1 noted that exercising only `flex-1` plus one fixed-size negative lets a `flex-1`-only
-implementation pass; round 2 showed the follow-up list was still short of the resolver branches
-§6.3 claims. **One distinct positive control per supported form — no form may be claimed without
-one:**
-
-| Form | Control |
-| ---- | ------- |
-| `flex-1`, `grow`, `flex-auto`, `basis-full` | one each |
-| arbitrary `flex-[2_2_0%]`, `grow-[3]`, **`basis-[50%]`** | one each |
-| **variant-prefixed** `sm:flex-1` | one — and §6.3 must state whether a variant-gated growable counts (it does: it is growable at some width) |
-| `style={{ flexGrow: 1 }}` **and `style={{ flex: 1 }}`** | one each |
-| template literal with a growable static part | one |
-| array + `.join(" ")` with a growable element | one |
-| **ternary** composition | one |
-| **`+` string concatenation** | one |
-| opaque **identifier** className | one |
-| opaque **member access** (`styles.foo`) | one |
-| opaque **call** (`cn(...)`, `clsx(...)`) | one |
-| **component tag** carrying a growable token | one |
-
-Negative controls: a fixed-size DOM element (see §6.1 — this is a deliberate limitation, not a
-proof of extent), a void tag, and a self-closing component with no growable token. Plus the
-walker must report a non-empty, named file set, so "found nothing" cannot pass.
 ## 7. Not in scope
 
 - No new §12.4 error codes, no `lib/messages/catalog.ts` edits, no `pnpm gen:spec-codes` run. Nothing here surfaces a code to a user.
@@ -391,7 +339,8 @@ walker must report a non-empty, named file set, so "found nothing" cannot pass.
 - No change to `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708`), `COUNT_SECTIONS` (`components/admin/wizard/step3ReviewSections.tsx:697`), or `buildSheetDeepLink` behaviour — the count and link *placement* changes, their *derivation* does not.
 - `components/admin/showpage/ShowReviewModalSkeleton.tsx:152` unchanged (§1.1 item 7).
 - `components/crew/sections/TravelSection.tsx:588` unchanged (§1.1 item 8).
-- The three unmeasured pusher sites get `ml-auto` and the §9.3 test-10 trailing-alignment assertions, but **no new phantom-gap probe mount**. Per §6.1's narrowed scope the static guard closes only a syntactic subset — it is a tripwire, not repo-wide closure — so the boundary is stated honestly in both places: the three shapes it cannot reach stay covered by the existing runtime probes on the measured surfaces, and the pusher repairs get direct geometry assertions instead. Ratified deviation from BACKLOG.md:48 (root), reasoned in §9.3.
+- **The static guard (§6) is descoped** and files a backlog entry instead. Nothing in this batch claims repo-wide closure of the childless-growable class.
+- The three unmeasured pusher sites get `ml-auto` plus §9.3 test 10's trailing-alignment geometry, but **no new phantom-gap probe mount**: a probe detects a zero-extent item and therefore cannot detect a MISSING `ml-auto` (a deleted spacer leaves no offender to find), so a direct geometry assertion is the stronger instrument for this repair. Ratified deviation from BACKLOG.md:48 (root), reasoned in §9.3.
 
 ## 8. Transition inventory
 
@@ -405,7 +354,12 @@ The header has 3 pill states (flag / judgment / none) × 2 count states × 2 lin
 | count shown ↔ hidden | instant — deliberate; derived from `shouldShowSectionCount` |
 | link present ↔ absent | instant — deliberate; existing ratified contract at `components/admin/wizard/step3ReviewSections.tsx:927` |
 | sub ↔ top-level | not a transition — fixed per call site |
-| Compound: pill appears while a re-sync mutates the count | instant on both; no animation to interleave, so no compound case exists |
+| Compound: pill appears while the count mutates | instant on both |
+| Compound: count changes while a pill is ALREADY present | instant |
+| Compound: pill + link change together | instant |
+| Compound: count + link change together | instant |
+| Compound: pill + count + link all change | instant |
+| Can link presence change under same-key reconciliation? | **Yes in principle** — `sheetHref` derives from `chrome.dfid`/`chrome.sectionId`, so a refresh returning malformed data (`dfid === ""`) flips it. Enumerated rather than assumed away, and instant like the rest. |
 | Hover/focus on the sheet link | `transition-colors duration-fast` on colour only — preserved from the current link |
 
 No `AnimatePresence`, no ternary-rendered animated block is introduced. The one *layout* change that could be animated — the header growing 44px → 72.8px when a pill appears — is deliberately instant, and it DOES occur on a mounted header via same-key reconciliation, so the transition-audit task asserts that no layout transition is attached rather than relying on remount.
@@ -471,13 +425,12 @@ tautological if the expected centre is computed from the rendered name being tes
 8. **`empty:hidden` eyebrow** — real browser: on a stage-promoted ground leg the eyebrow
    contributes **zero** height to the `.tcol` stack; on a labelled leg it contributes its normal
    height. Geometry, not class presence — a class assertion cannot catch the `{" "}` regression.
-9. **Static guard** — §6.5 controls in full: a positive control per supported syntax, negative
-   controls, and a non-empty named file set.
+9. *(removed — the static guard is descoped, §6.)*
 
 ### 9.3 Behavioural proof for the pusher repairs (round-1 finding 2)
 
-Round 1 was right that the §6 membership guard passes if an implementation merely deletes a
-spacer and forgets `ml-auto`, leaving the trailing cluster at the START edge — and that
+Round 1 was right that a membership guard would pass if an implementation merely deleted a
+spacer and forgot `ml-auto`, leaving the trailing cluster at the START edge — and that
 "nothing moves visually" was an unproven claim. BACKLOG.md:48 (root) asked for a probe mount, and
 dropping it was not ratified. It is ratified here, with a substitute that is strictly stronger
 per unit of cost:
@@ -487,7 +440,12 @@ per unit of cost:
     cluster's **right edge is flush with the parent's content-box right edge** (±0.5px) at a wide
     width where free space exists — which fails if `ml-auto` is missing — and that the cluster
     does not overflow the parent at 320px. For `BellPanel` the row also wraps, so assert it in
-    both the wrapped and unwrapped states.
+    both the wrapped and unwrapped states, **and in BOTH of its mutually exclusive
+    trailing-content branches** — `entry.isAutoResolving` true (the auto-note `<p>`) and false (the
+    resolve `<button>`), `components/admin/BellPanel.tsx:324-338`. §3.2 puts `ml-auto` on both, so
+    the test must exercise both or an implementation can repair one branch and pass (round-3
+    finding 5). Wrapping coverage assigned explicitly: unwrapped at a wide width, wrapped at 320px,
+    for EACH branch.
     *Why this and not three new probe mounts:* the phantom-gap probes detect a zero-extent item;
     they cannot detect a MISSING `ml-auto`, because a deleted spacer leaves no offender to find.
     This assertion targets the actual failure mode of this repair. Recorded as a deviation from
@@ -506,10 +464,14 @@ per unit of cost:
 
 - **Invariant 1 (TDD):** every task is failing test → minimal implementation → passing test → commit.
 - **Invariant 5 (no raw codes in UI):** no user-visible copy changes except removing the words "In sheet"; no codes involved.
-- **Invariant 8 (UI quality gate):** `components/**` and `DESIGN.md` are touched, so `/impeccable critique` **and** `/impeccable audit` both run on the diff before close-out, with findings and dispositions recorded. Pre-code mechanical sweep: em-dash ban in user-visible copy, apostrophe literals, 44px tap targets, canonical type/token classes.
+- **Invariant 8 (UI quality gate):** `components/**` and `DESIGN.md` are touched, so `/impeccable critique` **and** `/impeccable audit` both run on the diff before close-out. **Both
+  run with the canonical v3 setup gates**, which round 3 correctly noted were missing: the skill's
+  context.mjs context load (PRODUCT.md + DESIGN.md) → register reference read (brand.md or
+  product.md), per
+  `AGENTS.md` invariant 8. Findings + dispositions go in §12 of the close-out doc. Pre-code mechanical sweep: em-dash ban in user-visible copy, apostrophe literals, 44px tap targets, canonical type/token classes.
 - **Invariant 10 (mutation-surface telemetry):** no mutating route, action, or admin surface is added or changed. N/A.
 - **Invariant 11 (worktree):** all work in `../FX-worktrees/section-header-rebuild`, branched off `origin/main`, with `pnpm install` + `pnpm worktree:link-env` + `pnpm preflight` completed before any test run.
-- **`DESIGN.md`:** §7a gains (a) the centered-section-header pattern with its measured offsets, and (b) an explicit note that a childless *growable* element used as a right-pusher is replaced by `ml-auto` rather than hidden at a breakpoint — the decorative-hairline rule already there does not cover pushers, which is why five sites drifted. (c) The corrected hairline guidance: measure before hiding — a rule that never collapses gets a floor, not a breakpoint. (d) **Reconcile a now-false sentence:** `DESIGN.md:327` says the decorative `flex-1` rule "is not childless" and that the empty-element selector never matches it. Both real rules — `components/admin/BulkIgnoreControls.tsx:200` and `components/admin/wizard/step3ReviewSections.tsx:2150` — ARE childless spans, so it does match. §7a needs the distinction between an intentionally PAINTED empty element (a decorative rule: must stay visible, so `empty:hidden` is exactly wrong for it) and an empty CONTENT SLOT (nothing to show: `empty:hidden` is right). (e) Document `--spacing-header-link-slot`.
+- **`DESIGN.md`:** §7a gains (a) the centered-section-header pattern with its measured offsets, and (b) an explicit note that a childless *growable* element used as a right-pusher is replaced by `ml-auto` rather than hidden at a breakpoint — the decorative-hairline rule already there does not cover pushers, which is why five sites drifted. (c) The corrected hairline guidance: measure before hiding — a rule that never collapses gets a floor, not a breakpoint. (d) **Reconcile a now-false sentence:** `DESIGN.md:327` says the decorative `flex-1` rule "is not childless" and that the empty-element selector never matches it. Both real rules — `components/admin/BulkIgnoreControls.tsx:200` and `components/admin/wizard/step3ReviewSections.tsx:2150` — ARE childless spans, so it does match. §7a needs the distinction between an intentionally PAINTED empty element (a decorative rule: must stay visible, so `empty:hidden` is exactly wrong for it) and an empty CONTENT SLOT (nothing to show: `empty:hidden` is right). (e) Document `--spacing-header-link-slot`. (f) **Update §7a's "Current sites" list** at `DESIGN.md:325`, which today names only `OverviewSection.tsx` and `ScheduleDayRow` — the TravelRow eyebrow (`components/crew/sections/TravelSection.tsx:121`) becomes a third, and the list would otherwise go stale (round-3 finding 8).
 
 ## 11. Measurement method (reproducible)
 
@@ -541,7 +503,7 @@ So the plan can regenerate every number rather than trusting this document:
 | BellPanel pusher | `components/admin/BellPanel.tsx:323` |
 | AdminNav pusher | `components/admin/nav/AdminNav.tsx:144` |
 | OnboardingTopBar pusher | `components/admin/nav/OnboardingTopBar.tsx:67` |
-| allowlisted Skeleton bar | `components/admin/showpage/ShowReviewModalSkeleton.tsx:152` |
+| Skeleton bar left alone (§1.1 item 7) | `components/admin/showpage/ShowReviewModalSkeleton.tsx:152` |
 | TravelRow eyebrow | `components/crew/sections/TravelSection.tsx:121` |
 | `label` typed `string` | `components/crew/sections/TravelSection.tsx:92` |
 | stage-promoted empty label | `components/crew/sections/TravelSection.tsx:403` |
