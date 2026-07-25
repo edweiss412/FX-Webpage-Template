@@ -28,6 +28,7 @@ Per `docs/agents/writing-plans.md` ("Pre-draft code-verification pass"), every f
 | Catalog row and its prose twin | `lib/messages/catalog.ts:3496`; `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3082` |
 | `AUTH_SIGNOUT_FAILED` is log-only | absent from `lib/messages/catalog.ts` and from master-spec section 12.4; used at `app/auth/sign-out/route.ts:106` and `app/auth/sign-out/route.ts:115` |
 | e2e stubs and the one that stays skipped | `tests/e2e/picker-flow.spec.ts:84`, `tests/e2e/picker-flow.spec.ts:180`, and `tests/e2e/picker-flow.spec.ts:241` un-skip; `tests/e2e/picker-flow.spec.ts:293` stays (test-infra flake, reason at `tests/e2e/picker-flow.spec.ts:286-292`) |
+| Both new unit test files need no config wiring | `BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"]` (`vitest.projects.ts:34`) already matches them. `tests/lib/**` is listed in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:77`) so tests/lib/hostRelativeRedirect.test.ts runs in the parallel phase; `tests/cross-cutting/**` is not in that list, so the new guard runs in the serial phase, which is correct for a filesystem walker |
 | Baseline audit state | `pnpm test:audit:x3-trust-domain` → 5 files, 26 tests, green, before any edit |
 
 Snippet typecheck note: the snippets embedded below are written against the repo's strict `tsconfig` (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`). Task 1 and Task 4 both run `pnpm typecheck` as part of their own gate, so a paste-time type error fails that task rather than surfacing at push.
