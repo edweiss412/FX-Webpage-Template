@@ -47,22 +47,34 @@ const sourceFiles = ROOTS.flatMap((r) => walk(join(REPO_ROOT, r), []));
  * so `import { placeWithinVisibleViewport as place }` is still discovered - a
  * call-text rule misses every alias.
  */
-const IMPORTS_PLACE = /import\s[^;]*?from\s*["']@\/lib\/popover\/place["']/;
+/**
+ * Module specifiers are matched in BOTH alias and RELATIVE form (round-3
+ * finding): a wrapper living inside `lib/popover/` can import `./position` and
+ * `./viewport` and hand-roll layout-bounded placement without ever writing the
+ * `@/lib/popover/...` alias, which an alias-only rule misses entirely.
+ */
+const spec = (mod: string): string =>
+  String.raw`["'](?:@/lib/popover/|\./|\.\./(?:popover/)?)` + mod + String.raw`["']`;
+
+const IMPORTS_PLACE = new RegExp(String.raw`import\s[^;]*?from\s*` + spec("place"));
 
 /**
  * The core may only be imported by the policy module. This matches the IMPORT,
  * not the call, so an alias (`computePopoverPlacement as compute`) and a dead
  * import are both caught; a call-text rule catches neither.
  */
-const IMPORTS_CORE_PLACEMENT =
-  /import\s*\{[^}]*\bcomputePopoverPlacement\b[^}]*\}\s*from\s*["']@\/lib\/popover\/position["']/;
+const IMPORTS_CORE_PLACEMENT = new RegExp(
+  String.raw`import\s*\{[^}]*\bcomputePopoverPlacement\b[^}]*\}\s*from\s*` + spec("position"),
+);
 
 /**
  * A NAMESPACE import reaches the same core without naming it
  * (`import * as pos from "@/lib/popover/position"; pos.computePopoverPlacement(...)`),
  * so the named-import rule alone is evadable. Whole-diff review, F3.
  */
-const IMPORTS_CORE_NAMESPACE = /import\s*\*\s*as\s+\w+\s*from\s*["']@\/lib\/popover\/position["']/;
+const IMPORTS_CORE_NAMESPACE = new RegExp(
+  String.raw`import\s*\*\s*as\s+\w+\s*from\s*` + spec("position"),
+);
 
 /**
  * NON-CIRCULAR backstop. Discovery above only sees files that already import the
@@ -143,6 +155,15 @@ describe("popover placement consumers read the visible viewport, not the layout 
   it("a NAMESPACE core import is rejected too", () => {
     const ns = `import * as pos from "@/lib/popover/position";`;
     expect(IMPORTS_CORE_NAMESPACE.test(ns)).toBe(true);
+  });
+
+  it("RELATIVE specifiers are matched, not just the @/ alias", () => {
+    // A sibling module inside lib/popover/ writes "./position", never the alias.
+    expect(
+      IMPORTS_CORE_PLACEMENT.test(`import { computePopoverPlacement } from "./position";`),
+    ).toBe(true);
+    expect(IMPORTS_CORE_NAMESPACE.test(`import * as p from "../popover/position";`)).toBe(true);
+    expect(IMPORTS_PLACE.test(`import { placeWithinVisibleViewport } from "./place";`)).toBe(true);
   });
 
   it.each(consumers.map((f) => [relative(REPO_ROOT, f), f] as const))(
