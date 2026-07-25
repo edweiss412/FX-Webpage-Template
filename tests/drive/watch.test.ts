@@ -97,8 +97,12 @@ class FakeWatchTx {
   // restating its arithmetic — an independent copy here is exactly how the
   // DB-free suite could stay green while production used different semantics.
   // (The previous version claimed to reuse the helper and did not; whole-diff
-  // R1 finding 4.) `args` is accepted for signature parity with the port; the
-  // lead comes from the shared helper, which owns both constants.
+  // R1 finding 4.) `args` is NOT decorative and NOT mere signature parity: it is
+  // threaded into `renewalLeadMs` below, which has no defaults
+  // (`lib/drive/watchErrors.ts` — deliberately, per R7 finding 2). That is what
+  // makes a wrong caller-assembled lead or fraction observable here rather than
+  // silently corrected. (The earlier wording claimed the opposite and
+  // contradicted the call site 20 lines down; whole-diff R8 finding 4.)
   async listRenewalDue(args: { nowIso: string; minLeadMs: number; lifeFraction: number }) {
     this.operations.push("listRenewalDue");
     const nowMs = Date.parse(args.nowIso);

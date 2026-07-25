@@ -214,7 +214,10 @@ class PostgresWatchTx implements WatchTx {
     // complement the caller passes, NOT the fraction already burned — or to
     // `minLeadMs`, whichever is larger. Both terms earn their place: the
     // proportional one keeps a long lease from churning every tick, and the
-    // floor keeps a short lease from being noticed only once. `greatest` over
+    // floor gives a short lease a wider due-window than its own length would
+    // grant it. Both are DESIGN MOTIVATION sized against the sampling period,
+    // not guarantees: nothing enforces that any particular row is examined on
+    // any particular tick (spec §2.1, whole-diff R8 finding 1). `greatest` over
     // the two intervals picks the larger lead.
     //
     // An inverted or zero-length lease is made due by the EXPLICIT disjunct
@@ -533,9 +536,16 @@ export async function subscribeToWatchedFolder(
     try {
       // A lease whose REMAINING life at activation is too short for renewal to
       // be plausible (spec §2.1 — a heuristic, not a bound; nothing enforces the
-      // execution budget it is sized from), so surface it rather than absorb it. We request WATCH_TTL_MS and
-      // Drive's floor for an unspecified request is 1h, so this should be
-      // unreachable; if it fires, the cron cadence needs revisiting.
+      // execution budget it is sized from), so surface it rather than absorb it.
+      //
+      // We request WATCH_TTL_MS explicitly, so this should not fire. Drive's
+      // documented 1h is the DEFAULT applied when `expiration` is omitted, NOT a
+      // minimum — the API says internal limits may yield an expiration earlier
+      // than requested. So a firing does not implicate the cron cadence (the
+      // earlier comment here claimed it did; whole-diff R8 finding 2). It means
+      // either Drive granted materially less than we asked for, or activation
+      // was slow enough to consume the lease. `remainingMsAtActivation` vs the
+      // stored `expires_at` distinguishes the two.
       //
       // Measured at ACTIVATION, not at request time: the pending insert and the
       // Drive round-trip both consume lease life, so a nominal grant that took
