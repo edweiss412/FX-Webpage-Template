@@ -1119,17 +1119,38 @@ test.describe("crew warning placement — containment (crew-warning-attachment T
     );
   });
 
-  /** The member's ROW box (the flex line holding avatar/name/contact/⋮), derived
-   *  from the rendered NAME so it can never resolve to the stack under test:
-   *  find the name span, walk up to the direct child of the hosting <li>. Guards
-   *  that the resolved node does not contain the stack — if the row and the stack
-   *  were ever collapsed into one element the equality below would be trivially
-   *  true, so the test refuses to run rather than passing vacuously. */
-  async function rowRect(
+  /** Border box AND content box (`left`/`width` only) for one element.
+   *  BOTH are needed: `box-sizing: border-box` keeps horizontal padding INSIDE
+   *  the border box, so a `pl-6` hoisted from the per-kind wrapper onto the
+   *  stack leaves `getBoundingClientRect()` byte-identical while insetting
+   *  every card by 24px. Only the content box sees it. */
+  type Span = { borderLeft: number; borderW: number; contentLeft: number; contentW: number };
+
+  /** The under-row stack's spans, plus its member ROW's spans — the row derived
+   *  from the rendered NAME (never from the stack's own parent, which would make
+   *  the equality a restatement of `display: block`): find the name span, walk up
+   *  to the direct child of the hosting <li>. Throws if the resolved row turns
+   *  out to CONTAIN the stack, so a future markup collapse fails the test instead
+   *  of satisfying it vacuously. */
+  async function stackVsRowSpans(
     page: Page,
     stackSel: string,
-  ): Promise<{ x: number; w: number; liW: number }> {
+  ): Promise<{ stack: Span; row: Span; liW: number }> {
     return page.locator(CREW_SECTION).evaluate((section, sel) => {
+      const spanOf = (el: Element): Span => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const padL = Number.parseFloat(cs.paddingLeft);
+        const padR = Number.parseFloat(cs.paddingRight);
+        const bL = Number.parseFloat(cs.borderLeftWidth);
+        const bR = Number.parseFloat(cs.borderRightWidth);
+        return {
+          borderLeft: r.x,
+          borderW: r.width,
+          contentLeft: r.x + bL + padL,
+          contentW: r.width - bL - bR - padL - padR,
+        };
+      };
       const stack = section.querySelector(sel);
       if (!stack) throw new Error(`stack ${sel} not found in crew section`);
       const li = stack.closest("li");
@@ -1145,8 +1166,11 @@ test.describe("crew warning placement — containment (crew-warning-attachment T
       if (row.contains(stack)) {
         throw new Error("resolved row CONTAINS the stack — equality would be tautological");
       }
-      const r = row.getBoundingClientRect();
-      return { x: r.x, w: r.width, liW: li.getBoundingClientRect().width };
+      return {
+        stack: spanOf(stack),
+        row: spanOf(row),
+        liW: spanOf(li).contentW,
+      };
     }, stackSel);
   }
 
@@ -1159,13 +1183,16 @@ test.describe("crew warning placement — containment (crew-warning-attachment T
     // (tests/admin/wizard/crewWarnStack.test.tsx) — jsdom computes no layout, so
     // nothing proves the class resolves to the row's extent.
     //
-    // Concrete failure modes this catches: the stack rendered `inline-flex` (or
-    // `w-fit`) shrinks to its widest card instead of filling the row; the 24px
-    // per-kind indent (crewwarn-underrow-polish §2, `pl-6` on the wrapper INSIDE
-    // the stack) hoisted onto the stack itself insets the left edge by 24 and
-    // narrows the width by 24; any horizontal padding/margin added to the
-    // hosting <li> that the row picks up but the stack does not (or vice versa).
-    test(`T-WARN-WIDTHFILL @${vp.width}: under-row stack fills its member's row (left edge + width)`, async ({
+    // Concrete failure modes this catches:
+    //   - the stack rendered `inline-flex` / `w-fit` shrinks to its widest card
+    //     instead of filling the row (border box narrows);
+    //   - the 24px per-kind indent (crewwarn-underrow-polish §2, `pl-6` on the
+    //     wrapper INSIDE the stack, so each kind opts in) hoisted onto the stack
+    //     itself, double-indenting every kind (content box only — the border box
+    //     is unchanged, which is why both spans are measured);
+    //   - a horizontal margin on the stack, or x-padding added to the hosting
+    //     <li> that the row picks up and the stack does not (or vice versa).
+    test(`T-WARN-WIDTHFILL @${vp.width}: under-row stack fills its member's row (border box + content box)`, async ({
       page,
     }) => {
       await openHarness(page, vp, "crewwarnings.html");
@@ -1173,19 +1200,32 @@ test.describe("crew warning placement — containment (crew-warning-attachment T
         1,
       );
 
-      const row = await rowRect(page, STACK);
-      const stack = (await page.locator(STACK).boundingBox())!;
+      const { stack, row, liW } = await stackVsRowSpans(page, STACK);
 
       // Anti-vacuity floor: a collapsed layout (both boxes ~0-wide) satisfies any
       // equality. The row spans the panel card, so it is a large fraction of the
       // viewport at BOTH widths measured here.
-      expect(row.w, "row has real extent").toBeGreaterThan(vp.width * 0.4);
-      expect(Math.abs(row.w - row.liW), "row itself fills the hosting li").toBeLessThanOrEqual(TOL);
-
-      expect(Math.abs(stack.x - row.x), "stack left edge === row left edge").toBeLessThanOrEqual(
+      expect(row.contentW, "row has real extent").toBeGreaterThan(vp.width * 0.4);
+      expect(Math.abs(row.borderW - liW), "row itself fills the hosting li").toBeLessThanOrEqual(
         TOL,
       );
-      expect(Math.abs(stack.width - row.w), "stack width === row width").toBeLessThanOrEqual(TOL);
+
+      expect(
+        Math.abs(stack.borderLeft - row.borderLeft),
+        "stack border-box left === row border-box left",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        Math.abs(stack.borderW - row.borderW),
+        "stack border-box width === row border-box width",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        Math.abs(stack.contentLeft - row.contentLeft),
+        "stack content-box left === row content-box left (no inset of its own)",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        Math.abs(stack.contentW - row.contentW),
+        "stack content-box width === row content-box width",
+      ).toBeLessThanOrEqual(TOL);
     });
   }
 
