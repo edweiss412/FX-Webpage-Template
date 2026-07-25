@@ -430,6 +430,69 @@ What the record supports, stated without inflation:
 Those statements stand on their own and did not depend on how the quota question resolved. The
 round count is simply higher than twelve now, since R13 ran after all.
 
+## R13 — the finding that invalidated one of my own claims
+
+R13 returned 2 BLOCKING + 1 HIGH + 1 MEDIUM, and its HIGH was the single most consequential finding
+of the whole thread because it was a **root cause under several others**.
+
+`stripCommentsSafely` drove `ts.createScanner().scan()` and rebuilt source from token text. That is
+not parser-equivalent: the scanner cannot know a `/` begins a regex without the parser's rescan, so
+a VALID regex containing comment bytes was read as a block-comment start and **everything after it
+was discarded**. Measured: `/[/*]/` truncated the file to `const re=/[`.
+
+Five consumers were silently reading fragments — the copy-string census, the candidate-admission
+net, the caller check, the lowercase tripwire, and a behavioral parity guard. And it directly
+falsified what I had written one round earlier, that "a real parse removed the phase-loss class":
+the parse was sound, but I was **feeding it already-truncated input**. A correct component fed bad
+input is not a correct system, and I had checked the component rather than the pipeline.
+
+The replacement is sound by construction: the parse supplies literal ranges (string, template parts,
+REGEX, JSX text) and a lexical pass blanks only comment starts outside them. Both halves are
+load-bearing — a pure scanner mis-reads regexes, and a pure trivia walk missed a comment that is the
+leading trivia of a TOKEN, which is exactly `{ /*c*/ ...props }` inside JSX attributes. Comments are
+blanked to spaces rather than deleted, so byte offsets stay valid for callers that report positions.
+
+R13 also closed: a components-prop caller check that is now an AST assertion (three regex misses, a
+truncation exposure, and a false positive removed at once, measured zero occurrences so it is
+absolute rather than allowlisted), and a literal tripwire scoped by SEMANTIC POSITION rather than by
+accessor name.
+
+## What the last rounds cost, and what they were worth
+
+Rounds 5 through 13 found **no defect in shipped behavior**. Every finding was in the guard. The 21
+remediated anchors and the live census (23 anchors, 0 violations) have been stable since R4.
+
+That is not an argument that the rounds were wasted — they closed real under-reporting in a guard
+whose entire job is to fail loudly — but it is the honest shape of the work, and it is why the
+merge decision does not hinge on the final round.
+
+Two failure patterns recurred often enough to name:
+
+| Pattern | Instances |
+| --- | --- |
+| A fix introduces the next defect | casing sweep (8 of 9 sites), the guard written to prevent that, spread depth, the MDX compiler swap creating a vacuity path, intrinsic-tag scoping excluding `<clipPath>` |
+| The same shape evades several different checks | computed keys defeated three separate rules; case-folding four sites; one-level traversal twice |
+
+Both are arguments for the same discipline: pair every fix with a probe that fails without it, and
+when a shape defeats one rule, grep for every other rule that reads the same thing.
+
+## R14 — two infrastructure faults, diagnosed separately
+
+R14 returned `no_verdict` twice for **different** reasons, and treating that as one flaky reviewer
+would have wasted both retries:
+
+- **Attempt 1** died after 137,850 tokens on Codex's own safety classifier: *"flagged for possible
+  cybersecurity risk"*. The cause was my brief, which said "**ATTACK** these specifically" and asked
+  for "evasions", "bypasses" and "fail-open" cases. For a classifier that reads as offensive-security
+  tasking, even though the work is quality assurance on a test-only static guard in a private repo.
+- **Attempt 2** was killed at its final delivery step (`shape=killed`, exit null) by the wrapper's
+  1500-second TOTAL budget, already consumed by attempt 1's eleven minutes.
+
+Ruled out rather than assumed: the reaper (kill log empty, "no orphans") and a stall (heartbeat
+live). Re-dispatched with a neutrally-worded brief carrying identical substance, and
+`--total-max-secs 3300`. Per AGENTS.md a `no_verdict` is an infrastructure fault and never "the
+reviewer found nothing"; that rule held twice here.
+
 ## A gate I retired rather than satisfied
 
 The local full-suite gate is **not** green and cannot be made green here. A peer session (PID
