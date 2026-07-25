@@ -298,7 +298,40 @@ function collectRawPullSheetPreviews(grid: CellGrid): string[] {
   return previews;
 }
 
+/**
+ * A fault converting already-fetched bytes into markdown: a corrupt or truncated
+ * xlsx, an unreadable grid, anything the workbook reader refuses.
+ *
+ * Why this type exists: this function is called from INSIDE the Drive dependency
+ * (`fetchSheetMarkdownWithBinding` and `fetchSheetMarkdownAndBytesAtRevision`), so
+ * a workbook fault throws after Drive has already succeeded. Callers that classify
+ * failures by call site therefore reported "we couldn't fetch this sheet from
+ * Google Drive" and told Doug to check his share settings, when the truth was that
+ * his workbook could not be read. Tagging the throw lets those callers classify by
+ * error identity instead (spec 2026-07-24-test-safety-hardening-batch §4.2).
+ */
+export class WorkbookSynthesisError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options as ErrorOptions | undefined);
+    this.name = "WorkbookSynthesisError";
+  }
+}
+
 export function synthesizeMarkdownFromXlsx(
+  buffer: ArrayBuffer,
+  opts?: { includePullSheetFromTab?: string },
+): { markdown: string; archivedPullSheetTabs: ArchivedPullSheetTab[] } {
+  try {
+    return synthesizeMarkdownFromXlsxUnguarded(buffer, opts);
+  } catch (cause) {
+    // Idempotent: a nested call that already tagged its fault keeps its own message.
+    if (cause instanceof WorkbookSynthesisError) throw cause;
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new WorkbookSynthesisError(`workbook could not be read: ${detail}`, { cause });
+  }
+}
+
+function synthesizeMarkdownFromXlsxUnguarded(
   buffer: ArrayBuffer,
   opts?: { includePullSheetFromTab?: string },
 ): { markdown: string; archivedPullSheetTabs: ArchivedPullSheetTab[] } {
