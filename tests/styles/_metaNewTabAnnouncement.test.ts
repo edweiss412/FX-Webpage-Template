@@ -1084,6 +1084,31 @@ describe("R6: scanner changes are pinned", () => {
 
   // R7 BLOCKING 2 and 3: both lexical nets were comment-blind, and the target
   // regex was case-sensitive even though HTML attribute names are not.
+  // R13 HIGH 3, the root cause under several findings: stripCommentsSafely drove
+  // ts.createScanner().scan() and rebuilt source from token text, which is NOT
+  // parser-equivalent -- the scanner cannot know a `/` starts a regex without the
+  // parser's rescan. A VALID regex containing comment bytes truncated the file, so every
+  // consumer silently saw a fragment. These pin both directions.
+  it("R13 comment stripping survives regex literals and preserves offsets", () => {
+    const cases: [string, boolean][] = [
+      ['const re=/[/*]/;\nconst K = "Target";', true],
+      ['const re=/a\\/*b/;\nconst K = "Target";', true],
+      ['const re=/\\/\\//;\nconst K = "Target";', true],
+    ];
+    for (const [src, mustKeep] of cases) {
+      const out = stripCommentsSafely(src);
+      expect(out.includes("Target"), `must not truncate: ${src}`).toBe(mustKeep);
+      // Comments are blanked, never deleted, so byte offsets stay valid for callers that
+      // report line numbers.
+      expect(out.length, "length must be preserved").toBe(src.length);
+    }
+    // Real comments are still removed, including one that is the leading trivia of a
+    // TOKEN inside JSX attributes -- a node-only trivia walk missed that shape.
+    expect(stripCommentsSafely('const a=1; // hidden\nconst K="Keep";')).not.toContain("hidden");
+    expect(stripCommentsSafely('const a=1; /* hidden */\nconst K="Keep";')).not.toContain("hidden");
+    expect(admitsCandidate('const A=({p})=><a href="x" { /*c*/ ...p}>Go</a>;')).toBe(true);
+  });
+
   it("R7 the lexical nets see through comments and attribute casing", () => {
     for (const code of [
       'const A=({dest})=><a href="x" target /*c*/ ={dest}>Go</a>;',

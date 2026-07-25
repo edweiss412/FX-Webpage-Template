@@ -1038,20 +1038,89 @@ function hasSpreadOnHintPath(anchor: ts.JsxElement | ts.JsxSelfClosingElement): 
   return found;
 }
 
+/**
+ * Blank out comments, preserving every other byte and all offsets.
+ *
+ * The previous version drove `ts.createScanner().scan()` directly and rebuilt the
+ * source from token text. That is not parser-equivalent: the scanner cannot know
+ * when a `/` starts a regex without the parser's rescan, so a VALID regex literal
+ * containing comment-like bytes -- `/[/*]/`, `/a\/*b/` -- was read as the start of a
+ * block comment and everything after it was DISCARDED. Measured: `/[/*]/` truncated
+ * the file to `const re=/[`. Every consumer then silently saw a fragment, which is
+ * how a non-lowercase attribute-name literal appended later became invisible
+ * (review R13 HIGH 3) and how a `components=` prop could hide (review R13 BLOCKING 2).
+ *
+ * A real parse knows where comments are, because they are trivia attached to tokens
+ * rather than tokens. Ranges come from `getLeadingCommentRanges` /
+ * `getTrailingCommentRanges` over the parsed tree, and each range is replaced with
+ * spaces so byte offsets and line numbers are preserved for every caller.
+ */
 export function stripCommentsSafely(src: string): string {
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, src);
-  let out = "";
-  let tok = scanner.scan();
-  while (tok !== ts.SyntaxKind.EndOfFileToken) {
+  // Strategy: the PARSE says where literals are; a simple lexical pass then blanks any
+  // comment start that is not inside one. Both halves are needed.
+  //
+  // A pure scanner pass is unsound: `ts.createScanner().scan()` cannot know a `/` begins
+  // a regex without the parser's rescan, so a VALID regex containing comment bytes --
+  // `/[/*]/`, `/a\/*b/` -- was read as a block-comment start and everything after it was
+  // DISCARDED (measured: truncated to `const re=/[`). Consumers then saw a fragment,
+  // which is how an appended non-lowercase literal became invisible (review R13 HIGH 3).
+  //
+  // A pure trivia walk is also insufficient: a comment can be the leading trivia of a
+  // TOKEN, and `{ /*c*/ ...props }` inside JSX attributes was reached by neither
+  // forEachChild nor getLeadingCommentRanges at that position.
+  //
+  // Comments are replaced with spaces, never deleted, so byte offsets and line numbers
+  // stay valid for every caller.
+  const sf = ts.createSourceFile(
+    "__strip.tsx",
+    src,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const protected_: [number, number][] = [];
+  const collect = (n: ts.Node): void => {
     if (
-      tok !== ts.SyntaxKind.SingleLineCommentTrivia &&
-      tok !== ts.SyntaxKind.MultiLineCommentTrivia
+      ts.isStringLiteral(n) ||
+      ts.isNoSubstitutionTemplateLiteral(n) ||
+      ts.isRegularExpressionLiteral(n) ||
+      ts.isTemplateHead(n) ||
+      ts.isTemplateMiddle(n) ||
+      ts.isTemplateTail(n) ||
+      ts.isJsxText(n)
     ) {
-      out += scanner.getTokenText();
+      protected_.push([n.getStart(sf), n.getEnd()]);
     }
-    tok = scanner.scan();
+    ts.forEachChild(n, collect);
+  };
+  collect(sf);
+  const inProtected = (i: number): boolean => protected_.some(([a, b]) => i >= a && i < b);
+
+  const out = src.split("");
+  for (let i = 0; i < src.length - 1; i += 1) {
+    if (src[i] !== "/" || inProtected(i)) continue;
+    if (src[i + 1] === "/") {
+      let j = i;
+      while (j < src.length && src[j] !== "\n") {
+        out[j] = " ";
+        j += 1;
+      }
+      i = j;
+    } else if (src[i + 1] === "*") {
+      let j = i;
+      while (j < src.length && !(src[j] === "*" && src[j + 1] === "/")) {
+        if (src[j] !== "\n" && src[j] !== "\r") out[j] = " ";
+        j += 1;
+      }
+      if (j < src.length) {
+        out[j] = " ";
+        out[j + 1] = " ";
+        j += 1;
+      }
+      i = j;
+    }
   }
-  return out;
+  return out.join("");
 }
 
 export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
