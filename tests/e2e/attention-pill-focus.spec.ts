@@ -592,3 +592,163 @@ test.describe("§5 dimensional invariants", () => {
     expect(clipped).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §4 transition inventory (attention-index, plan Task 9)
+//
+// Two entrance tests need the panel observed BETWEEN mount and its entrance rAF
+// flip. boot() returns once the menu is visible, by which point that frame may
+// already have run, and racing setItems against the next frame gives a test
+// decided by scheduling — green locally, flaky in CI. So the frames are held
+// explicitly and released on demand.
+//
+// Teardown rests on Playwright page isolation: each test gets a fresh page, so
+// the patch cannot leak into the focus and geometry tests above. If this spec
+// ever moves to a shared page, __releaseFrames() must also run in an afterEach,
+// since it is what reinstalls the real frame functions.
+// ---------------------------------------------------------------------------
+
+async function holdFrames(page: Page) {
+  await page.addInitScript(() => {
+    const queue = new Map<number, FrameRequestCallback>();
+    let nextId = 1 << 20; // above any real id, so a stray native cancel is a no-op
+    const realRaf = window.requestAnimationFrame.bind(window);
+    const realCancel = window.cancelAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      const id = nextId++;
+      queue.set(id, cb);
+      return id;
+    };
+    // PAIRED cancellation: the component's effect cleanup calls
+    // cancelAnimationFrame. Leaving it native would let a held callback survive
+    // a cleanup that production would have cancelled, and the remount path is
+    // exactly what the no-retrigger test discriminates.
+    window.cancelAnimationFrame = (id: number) => {
+      if (queue.delete(id)) return;
+      realCancel(id);
+    };
+    (window as unknown as { __releaseFrames: () => void }).__releaseFrames = () => {
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCancel;
+      const pending = [...queue.values()];
+      queue.clear();
+      for (const cb of pending) cb(performance.now());
+    };
+    (window as unknown as { __heldFrameCount: () => number }).__heldFrameCount = () => queue.size;
+  });
+}
+
+const releaseFrames = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __releaseFrames: () => void }).__releaseFrames());
+
+const panelClasses = (page: Page) => page.locator(MENU).evaluate((el) => el.className.split(/\s+/));
+
+test.describe("§4 entrance and compound transitions", () => {
+  test("C → O1: panel enters from scale-95 opacity-0 to scale-100 opacity-100", async ({
+    page,
+  }) => {
+    await holdFrames(page);
+    await boot(page, 1, 0, 0);
+    // pre-frame: mounted, but the entrance flip has not run
+    expect(await panelClasses(page)).toEqual(expect.arrayContaining(["scale-95", "opacity-0"]));
+    await releaseFrames(page);
+    await expect.poll(async () => (await panelClasses(page)).includes("scale-100")).toBe(true);
+    expect(await panelClasses(page)).toEqual(expect.arrayContaining(["scale-100", "opacity-100"]));
+  });
+
+  test("last needs-you item clears MID-ENTRANCE: entrance completes in O2, no re-trigger", async ({
+    page,
+  }) => {
+    await holdFrames(page);
+    await boot(page, 0, 1, 1);
+    expect(await panelClasses(page)).toEqual(expect.arrayContaining(["scale-95", "opacity-0"]));
+
+    // stamp the panel node so a REMOUNT is detectable: the final classes alone
+    // cannot discriminate, since a remounted panel reaches them too.
+    await page.locator(MENU).evaluate((el) => {
+      (el as HTMLElement).dataset.entranceProbe = "1";
+    });
+
+    await setItems(page, 0, 0, 1);
+    // commit gate WHILE frames are still held — without it the released callback
+    // can run against O1 and the test never actually observed mid-entrance.
+    await expect(page.locator(`${MENU} [data-testid="attention-needsyou-heading"]`)).toHaveCount(0);
+    await expect(page.locator(`${MENU} [data-testid="attention-monitoring-heading"]`)).toHaveCount(
+      1,
+    );
+
+    // same node, still carrying the stamp → the entrance was never re-triggered
+    expect(
+      await page.locator(MENU).evaluate((el) => (el as HTMLElement).dataset.entranceProbe),
+    ).toBe("1");
+
+    await releaseFrames(page);
+    await expect.poll(async () => (await panelClasses(page)).includes("scale-100")).toBe(true);
+    expect(await panelClasses(page)).toEqual(expect.arrayContaining(["scale-100", "opacity-100"]));
+    expect(
+      await page.locator(MENU).evaluate((el) => (el as HTMLElement).dataset.entranceProbe),
+    ).toBe("1");
+  });
+
+  test("O1↔O2 collapse is INSTANT: both motion channels, on every element that unmounts", async ({
+    page,
+  }) => {
+    await boot(page, 1, 0, 1);
+    // Derive the expected transition-colors set FROM THE FRAMEWORK. Hardcoding it
+    // couples the test to a Tailwind minor — v4.2.4 emits ten properties,
+    // including three --tw-gradient-* custom properties.
+    const expected = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.className = "transition-colors";
+      document.body.appendChild(probe);
+      const v = getComputedStyle(probe).transitionProperty;
+      probe.remove();
+      return v;
+    });
+
+    const report = await page.evaluate(() => {
+      const instant = (el: Element) => {
+        const cs = getComputedStyle(el);
+        return {
+          noTransition:
+            cs.transitionProperty === "none" ||
+            cs.transitionDuration.split(",").every((d) => parseFloat(d) === 0),
+          animationName: cs.animationName,
+        };
+      };
+      const pick = (sel: string) => document.querySelector(sel);
+      const targets = [
+        '[data-testid="attention-monitoring-group"]',
+        '[data-testid="attention-needsyou-heading"]',
+        '[data-testid="attention-monitoring-heading"]',
+      ].map((sel) => ({ sel, el: pick(sel) }));
+      const rows = [...document.querySelectorAll('[data-testid^="attention-menu-row-"]')];
+      return {
+        targets: targets.map((t) => ({
+          sel: t.sel,
+          present: !!t.el,
+          ...(t.el ? instant(t.el) : {}),
+        })),
+        rows: rows.map((el) => {
+          const cs = getComputedStyle(el);
+          return { transitionProperty: cs.transitionProperty, animationName: cs.animationName };
+        }),
+      };
+    });
+
+    for (const t of report.targets) {
+      expect(t.present, `${t.sel} present`).toBe(true);
+      // BOTH channels: zero transition duration alone would pass a keyframe
+      // animation such as animate-pulse, which leaves every duration at zero.
+      expect(t.noTransition, `${t.sel} ${JSON.stringify(t)}`).toBe(true);
+      expect(t.animationName, `${t.sel} animation`).toBe("none");
+    }
+    expect(report.rows.length).toBeGreaterThan(0);
+    for (const r of report.rows) {
+      // set equality against the probe, not a literal: robust across Tailwind
+      // versions AND against `transition-all`, whose computed value is `all`
+      expect(r.transitionProperty).toBe(expected);
+      expect(r.animationName).toBe("none");
+    }
+  });
+});
