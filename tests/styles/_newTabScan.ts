@@ -117,176 +117,6 @@ function isBlank(node: ts.Node | undefined): boolean {
   return stringOf(node) === "_blank";
 }
 
-/** Resolve an in-file object-literal initializer for `{...IDENT}` spreads.
- *  Scope-blind by design, so AMBIGUITY fails closed: with the same name declared
- *  in two function scopes the last one used to win globally (review R2 BLOCKING
- *  2). Two or more declarations now resolve to null -> unresolvable. */
-function resolveObjectLiteral(sf: ts.SourceFile, name: string): ts.ObjectLiteralExpression | null {
-  let count = 0;
-  let found: ts.ObjectLiteralExpression | null = null;
-  const walk = (n: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.name.text === name &&
-      n.initializer &&
-      ts.isObjectLiteralExpression(n.initializer)
-    ) {
-      found = n.initializer;
-      count += 1;
-    }
-    ts.forEachChild(n, walk);
-  };
-  walk(sf);
-  return count === 1 ? found : null;
-}
-
-/**
- * Classify how an element becomes `target="_blank"`.
- * Returns null when the element is not an external link at all.
- */
-/** Does this object literal (recursively, including nested spreads) carry
- *  target:"_blank"? Returns "yes" | "no" | "unknown" — "unknown" fails closed. */
-function objectCarriesBlank(
-  sf: ts.SourceFile,
-  obj: ts.ObjectLiteralExpression,
-  depth = 0,
-): "yes" | "no" | "unknown" {
-  if (depth > 4) return "unknown";
-  let verdict: "yes" | "no" | "unknown" = "no";
-  for (const prop of obj.properties) {
-    if (ts.isPropertyAssignment(prop)) {
-      const name = prop.name;
-      // Computed keys like ["target"] were invisible to a name-only check.
-      const key = ts.isComputedPropertyName(name)
-        ? stringOf(unparen(name.expression))
-        : ts.isIdentifier(name) || ts.isStringLiteral(name)
-          ? name.text
-          : null;
-      if (key === null) {
-        verdict = "unknown"; // dynamic key could be `target`
-        continue;
-      }
-      if (key !== "target") continue;
-      if (isBlank(prop.initializer)) return "yes";
-      if (stringOf(prop.initializer) === null) verdict = "unknown";
-      continue;
-    }
-    // Shorthand `{target}` carries an unknown value under the right name.
-    if (ts.isShorthandPropertyAssignment(prop) && prop.name.text === "target") {
-      verdict = "unknown";
-      continue;
-    }
-    // Nested spread inside the object: `{...{...externalLinkProps}}`.
-    if (ts.isSpreadAssignment(prop)) {
-      const inner = unparen(prop.expression);
-      if (ts.isObjectLiteralExpression(inner)) {
-        const r = objectCarriesBlank(sf, inner, depth + 1);
-        if (r === "yes") return "yes";
-        if (r === "unknown") verdict = "unknown";
-        continue;
-      }
-      const resolved = ts.isIdentifier(inner) ? resolveObjectLiteral(sf, inner.text) : null;
-      if (resolved) {
-        const r = objectCarriesBlank(sf, resolved, depth + 1);
-        if (r === "yes") return "yes";
-        if (r === "unknown") verdict = "unknown";
-        continue;
-      }
-      verdict = "unknown";
-    }
-  }
-  return verdict;
-}
-
-/**
- * Classify how an element becomes target="_blank", scanning EVERY attribute
- * rather than returning at the first match. Returning early let an explicit
- * `target="_blank"` mask a later spread that supplied an aria-label, which
- * suppresses the child hint (review R2 BLOCKING 2).
- */
-function classifyTarget(sf: ts.SourceFile, attrs: ts.JsxAttributes): Polarity | null {
-  let found: Polarity | null = null;
-  const note = (p: Polarity): void => {
-    // unresolvable dominates; otherwise first concrete verdict wins.
-    if (p.kind === "unresolvable" || found === null) found = p;
-  };
-
-  for (const a of attrs.properties) {
-    if (attrName(a) === "target" && ts.isJsxAttribute(a)) {
-      const init = a.initializer;
-      if (!init) continue;
-      if (isBlank(init)) {
-        note({ kind: "static" });
-        continue;
-      }
-      if (ts.isJsxExpression(init) && init.expression) {
-        const e = unparen(init.expression);
-        if (ts.isConditionalExpression(e)) {
-          const t = isBlank(e.whenTrue);
-          const f = isBlank(e.whenFalse);
-          if (t && f) note({ kind: "static" });
-          else if (t) note({ kind: "conditional", text: e.condition.getText(), negated: false });
-          else if (f) note({ kind: "conditional", text: e.condition.getText(), negated: true });
-          else if (stringOf(e.whenTrue) === null || stringOf(e.whenFalse) === null) {
-            note({ kind: "unresolvable" });
-          }
-          continue;
-        }
-        if (isBlank(e)) {
-          note({ kind: "static" });
-          continue;
-        }
-        note({ kind: "unresolvable" });
-        continue;
-      }
-      continue;
-    }
-    if (ts.isJsxSpreadAttribute(a)) {
-      const e = unparen(a.expression);
-      if (ts.isConditionalExpression(e)) {
-        const bs = [unparen(e.whenTrue), unparen(e.whenFalse)];
-        const verdicts = bs.map((b) =>
-          ts.isObjectLiteralExpression(b)
-            ? objectCarriesBlank(sf, b)
-            : ((): "yes" | "no" | "unknown" => {
-                const r = ts.isIdentifier(b) ? resolveObjectLiteral(sf, b.text) : null;
-                return r ? objectCarriesBlank(sf, r) : "unknown";
-              })(),
-        );
-        if (verdicts.includes("unknown")) {
-          note({ kind: "unresolvable" });
-          continue;
-        }
-        const [t, f] = [verdicts[0] === "yes", verdicts[1] === "yes"];
-        if (t && f) note({ kind: "static" });
-        else if (t) note({ kind: "conditional", text: e.condition.getText(), negated: false });
-        else if (f) note({ kind: "conditional", text: e.condition.getText(), negated: true });
-        continue;
-      }
-      if (ts.isObjectLiteralExpression(e)) {
-        const r = objectCarriesBlank(sf, e);
-        if (r === "yes") note({ kind: "static" });
-        else if (r === "unknown") note({ kind: "unresolvable" });
-        continue;
-      }
-      if (ts.isIdentifier(e)) {
-        const obj = resolveObjectLiteral(sf, e.text);
-        if (!obj) {
-          note({ kind: "unresolvable" });
-          continue;
-        }
-        const r = objectCarriesBlank(sf, obj);
-        if (r === "yes") note({ kind: "static" });
-        else if (r === "unknown") note({ kind: "unresolvable" });
-        continue;
-      }
-      note({ kind: "unresolvable" });
-    }
-  }
-  return found;
-}
-
 /** Classify one label string: does it announce, and does it keep a destination? */
 function classifyLabelText(text: string): "ok" | "phrase-only" | "none" {
   if (!text.includes(PHRASE)) return "none";
@@ -300,63 +130,6 @@ function classifyLabelText(text: string): "ok" | "phrase-only" | "none" {
     .join("")
     .replace(/[^\p{L}\p{N}]/gu, "");
   return remainder.length > 0 ? "ok" : "phrase-only";
-}
-
-/**
- * A label may be a CONDITIONAL expression -- the empty-interpolation fallbacks
- * (§5) are written as ternaries. Every branch must announce, otherwise the
- * anchor is silent on whichever branch is taken at runtime. Discovered while
- * implementing the sweep: the first scanner returned "none" for any ternary
- * label and flagged six correctly-fixed anchors.
- */
-/** Does this element carry ANY naming override (aria-label / aria-labelledby),
- *  including one supplied by a spread? If so, descendant text -- and therefore a
- *  NewTabHint child -- cannot contribute to the accessible name at all. */
-function hasNamingOverride(sf: ts.SourceFile, attrs: ts.JsxAttributes): "yes" | "no" | "unknown" {
-  let verdict: "yes" | "no" | "unknown" = "no";
-  for (const a of attrs.properties) {
-    const n = attrName(a);
-    if (n === "aria-label" || n === "aria-labelledby") return "yes";
-    if (ts.isJsxSpreadAttribute(a)) {
-      const e = unparen(a.expression);
-      const objs: ts.ObjectLiteralExpression[] = [];
-      // Collect candidate object literals, recursing through a conditional
-      // spread's branches -- `{...(cond ? { target: "_blank" } : {})}` is the live
-      // Group C shape and must NOT read as an unresolvable naming override.
-      const collect = (x: ts.Expression): void => {
-        const u = unparen(x);
-        if (ts.isObjectLiteralExpression(u)) {
-          objs.push(u);
-          return;
-        }
-        if (ts.isConditionalExpression(u)) {
-          collect(u.whenTrue);
-          collect(u.whenFalse);
-          return;
-        }
-        if (ts.isIdentifier(u)) {
-          const r = resolveObjectLiteral(sf, u.text);
-          if (r) objs.push(r);
-          else verdict = "unknown";
-          return;
-        }
-        verdict = "unknown";
-      };
-      collect(e);
-      for (const o of objs) {
-        for (const prop of o.properties) {
-          if (
-            ts.isPropertyAssignment(prop) &&
-            (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) &&
-            (prop.name.text === "aria-label" || prop.name.text === "aria-labelledby")
-          ) {
-            return "yes";
-          }
-        }
-      }
-    }
-  }
-  return verdict;
 }
 
 function labelAnnounces(
@@ -682,38 +455,6 @@ function sameCondition(hintConds: string[], target: { text: string; negated: boo
   return norm(hintConds[0]!) === norm(want);
 }
 
-/** Does every branch of each hint-bearing conditional render a hint? Then the
- *  announcement is unconditional at runtime even though each instance carries a
- *  recorded condition. */
-function hasExhaustiveHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
-  if (!ts.isJsxElement(anchor)) return false;
-  const containsHint = (n: ts.Node): boolean => {
-    let hit = false;
-    const w = (x: ts.Node): void => {
-      const tag = ts.isJsxElement(x)
-        ? x.openingElement.tagName.getText()
-        : ts.isJsxSelfClosingElement(x)
-          ? x.tagName.getText()
-          : null;
-      if (tag === HINT) hit = true;
-      ts.forEachChild(x, w);
-    };
-    w(n);
-    return hit;
-  };
-  let sawConditional = false;
-  let allExhaustive = true;
-  const walk = (n: ts.Node): void => {
-    if (ts.isConditionalExpression(n) && containsHint(n)) {
-      sawConditional = true;
-      if (!(containsHint(n.whenTrue) && containsHint(n.whenFalse))) allExhaustive = false;
-    }
-    ts.forEachChild(n, walk);
-  };
-  anchor.children.forEach(walk);
-  return sawConditional && allExhaustive;
-}
-
 /**
  * Strip comments using the TypeScript scanner rather than regexes. A regex pass
  * treats comment delimiters INSIDE string literals as real comments, so a
@@ -721,6 +462,144 @@ function hasExhaustiveHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): bo
  * and a `"/*"`/`"*\/"` string pair could hide an arbitrary span (review R2
  * MEDIUM 8). Token-based stripping cannot be fooled that way.
  */
+/**
+ * SHAPE ALLOWLIST — the soundness model (whole-diff review R3).
+ *
+ * R1, R2 and R3 each found a NEW fail-open AST shape: nested spreads, computed
+ * keys, shadowed identifiers, spread-supplied aria-label, spread-supplied hidden,
+ * partially-exhaustive ternaries. That is not a run of bugs, it is the wrong
+ * default. A static scanner cannot soundly resolve arbitrary JS -- imported props
+ * objects, parameters, shadowing -- so "prove this anchor is broken" leaks by
+ * construction, and docs/agents/spec-self-review.md:22 caps that iteration at three
+ * rounds.
+ *
+ * Inverted: an external link must match one of a SMALL set of approved shapes;
+ * anything else is a finding. The whole codebase uses exactly two (19 literal + 4
+ * conditional-spread), so the allowlist costs nothing today and any novel shape
+ * fails LOUDLY with instructions instead of passing silently.
+ *
+ * Accepted tradeoff: a correct-but-unusual shape (an announcing aria-label arriving
+ * through a spread, say) is reported. Deliberate -- the author moves to an approved
+ * shape or adds an exemption with a reason. A false positive costs one comment; a
+ * false negative ships a silent link.
+ */
+type Shape =
+  | { kind: "not-external" }
+  | { kind: "literal" }
+  | { kind: "gated"; cond: string }
+  | { kind: "unrecognized"; why: string };
+
+function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
+  const attrs = ts.isJsxElement(el) ? el.openingElement.attributes : el.attributes;
+  const spreads = attrs.properties.filter(ts.isJsxSpreadAttribute);
+  const targetAttr = attrs.properties.find(
+    (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && a.name.getText() === "target",
+  );
+
+  // Without a target attribute AND without a spread, nothing can make it external.
+  if (!targetAttr && spreads.length === 0) return { kind: "not-external" };
+
+  if (targetAttr) {
+    if (spreads.length > 0) {
+      return {
+        kind: "unrecognized",
+        why: "explicit target alongside a spread; a spread can also supply target, aria-label or hidden",
+      };
+    }
+    const init = targetAttr.initializer;
+    if (init && isBlank(init)) return { kind: "literal" };
+    if (init && ts.isJsxExpression(init) && init.expression && isBlank(unparen(init.expression))) {
+      return { kind: "literal" };
+    }
+    if (init && stringOf(init) !== null) return { kind: "not-external" };
+    return {
+      kind: "unrecognized",
+      why: 'non-literal target expression; inline target="_blank" or add an exemption',
+    };
+  }
+
+  if (spreads.length !== 1) {
+    return { kind: "unrecognized", why: "multiple spreads cannot be resolved statically" };
+  }
+  const e = unparen(spreads[0]!.expression);
+  if (!ts.isConditionalExpression(e)) {
+    return {
+      kind: "unrecognized",
+      why: 'spread is not the approved `COND ? { target: "_blank", … } : {}` form',
+    };
+  }
+  const whenTrue = unparen(e.whenTrue);
+  const whenFalse = unparen(e.whenFalse);
+  if (!ts.isObjectLiteralExpression(whenTrue) || !ts.isObjectLiteralExpression(whenFalse)) {
+    return { kind: "unrecognized", why: "both spread branches must be inline object literals" };
+  }
+  const plain = (o: ts.ObjectLiteralExpression): boolean =>
+    o.properties.every(
+      (prop) =>
+        ts.isPropertyAssignment(prop) &&
+        (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) &&
+        stringOf(prop.initializer) !== null,
+    );
+  if (!plain(whenTrue) || !plain(whenFalse)) {
+    return {
+      kind: "unrecognized",
+      why: "spread branches must hold only literal-valued properties (no nested spread, computed key or shorthand)",
+    };
+  }
+  const named = (o: ts.ObjectLiteralExpression, key: string): string | null => {
+    for (const prop of o.properties) {
+      if (
+        ts.isPropertyAssignment(prop) &&
+        (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) &&
+        prop.name.text === key
+      ) {
+        return stringOf(prop.initializer);
+      }
+    }
+    return null;
+  };
+  const t = named(whenTrue, "target") === "_blank";
+  const f = named(whenFalse, "target") === "_blank";
+  if (t && f) return { kind: "literal" };
+  if (!t && !f) return { kind: "not-external" };
+  if (named(whenTrue, "aria-label") !== null || named(whenFalse, "aria-label") !== null) {
+    return { kind: "unrecognized", why: "a spread-supplied aria-label cannot be verified here" };
+  }
+  return { kind: "gated", cond: t ? e.condition.getText() : `!${e.condition.getText()}` };
+}
+
+/** Anything on the path from anchor to hint that blocks proof of visibility: a
+ *  spread (which can carry hidden / aria-hidden / className), or a className/style
+ *  that is not a plain string literal. `className={classes}` cannot be shown to
+ *  omit a hiding class (review R3 HIGH 4), so it is reported rather than assumed
+ *  safe. No live hint sits under such a wrapper. */
+function hasSpreadOnHintPath(anchor: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
+  if (!ts.isJsxElement(anchor)) return false;
+  let found = false;
+  const walk = (n: ts.Node, sawSpread: boolean): void => {
+    let next = sawSpread;
+    if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) {
+      const tag = ts.isJsxElement(n) ? n.openingElement.tagName.getText() : n.tagName.getText();
+      const a = ts.isJsxElement(n) ? n.openingElement.attributes : n.attributes;
+      if (tag === HINT && sawSpread) {
+        found = true;
+        return;
+      }
+      const opaque = a.properties.some((attr) => {
+        if (ts.isJsxSpreadAttribute(attr)) return true;
+        if (!ts.isJsxAttribute(attr)) return false;
+        const nm = attr.name.getText();
+        if (nm !== "className" && nm !== "style") return false;
+        return attr.initializer ? stringOf(attr.initializer) === null : false;
+      });
+      if (opaque) next = true;
+    }
+    ts.forEachChild(n, (c) => walk(c, next));
+  };
+  anchor.children.forEach((c) => walk(c, false));
+  return found;
+}
+
 export function stripCommentsSafely(src: string): string {
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, src);
   let out = "";
@@ -739,10 +618,10 @@ export function stripCommentsSafely(src: string): string {
 
 export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
   const src = sf.getFullText();
-  // Exemptions must be REAL COMMENTS carrying a reason. An unparsed substring
-  // window let a JSX attribute (`data-note="no-newtab-announcement:"`) suppress a
-  // finding, and accepted a bare marker with no reason (review R1 HIGH 5). We
-  // collect comment ranges once and require text after the marker.
+
+  // ONE comment exempts ONE anchor, claimed by the next CANDIDATE it precedes --
+  // compliant or not. Consuming only when recording a violation let a compliant
+  // anchor leave its exemption for a later broken one (review R3 HIGH 5).
   const exemptions: { endLine: number; used: boolean }[] = [];
   {
     const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, src);
@@ -755,17 +634,16 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
         const text = scanner.getTokenText();
         const at = text.indexOf(EXEMPTION);
         if (at >= 0 && text.slice(at + EXEMPTION.length).trim().length > 0) {
-          const end = sf.getLineAndCharacterOfPosition(scanner.getTokenEnd()).line + 1;
-          exemptions.push({ endLine: end, used: false });
+          exemptions.push({
+            endLine: sf.getLineAndCharacterOfPosition(scanner.getTokenEnd()).line + 1,
+            used: false,
+          });
         }
       }
       tok = scanner.scan();
     }
   }
-  // ONE comment exempts ONE anchor, and only the anchor it immediately precedes.
-  // A padded line-window let a single comment silence every anchor that followed
-  // it (review R2 HIGH 5).
-  const exempt = (line: number): boolean => {
+  const claimExemption = (line: number): boolean => {
     const slot = exemptions.find((e) => !e.used && (e.endLine === line || e.endLine === line - 1));
     if (!slot) return false;
     slot.used = true;
@@ -777,73 +655,80 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
       const tag = ts.isJsxElement(node)
         ? node.openingElement.tagName.getText()
         : node.tagName.getText();
-      const attrs = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
       if (LINK_TAGS.has(tag)) {
-        const polarity = classifyTarget(sf, attrs);
-        if (polarity) {
+        const shape = classifyShape(node);
+        if (shape.kind !== "not-external") {
           sc.anchors += 1;
           const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+          const exempted = claimExemption(line);
           const record = (reason: string): void => {
-            if (!exempt(line)) sc.violations.push({ file: path, line, reason });
+            if (!exempted) sc.violations.push({ file: path, line, reason });
           };
-          if (polarity.kind === "unresolvable") {
-            record("target value is not statically resolvable; inline it or add an exemption");
-          } else {
-            const label = labelAnnounces(attrs, polarity);
-            const override = hasNamingOverride(sf, attrs);
-            const hint = findHint(node);
+          const attrs = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
+
+          if (shape.kind === "unrecognized") {
+            record(`unrecognized external-link shape (${shape.why})`);
+            ts.forEachChild(node, visit);
+            return;
+          }
+
+          const polarity: Polarity =
+            shape.kind === "gated"
+              ? {
+                  kind: "conditional",
+                  text: shape.cond.replace(/^!/, ""),
+                  negated: shape.cond.startsWith("!"),
+                }
+              : { kind: "static" };
+          const label = labelAnnounces(attrs, polarity);
+          const hasLabelAttr = attrs.properties.some(
+            (a) =>
+              ts.isJsxAttribute(a) &&
+              (a.name.getText() === "aria-label" || a.name.getText() === "aria-labelledby"),
+          );
+          const hint = findHint(node);
+
+          if (hasLabelAttr) {
+            // A naming attribute REPLACES descendant content, so the label itself
+            // must announce and a hint child is inert.
             if (label === "phrase-only") {
               record("aria-label announces but carries no destination");
-            } else if (label === "conditional-ok") {
-              // Label announces in exactly the external branch: correct.
-            } else if (label === "ok") {
-              if (polarity.kind === "conditional") {
-                record("static aria-label announcement on a conditional-target anchor");
-              }
-            } else if (override !== "no") {
-              // aria-label / aria-labelledby REPLACE descendant content, so a
-              // NewTabHint child contributes nothing. Falling through to the hint
-              // let `aria-label="Go"` (and aria-labelledby) pass with an
-              // accessible name of "Go" (review R2 BLOCKING 3).
+            } else if (label === "none") {
               record(
-                override === "unknown"
-                  ? "naming override may come from an unresolvable spread; inline it or add an exemption"
-                  : "element has aria-label/aria-labelledby, so it must announce in that label (a NewTabHint child is ignored)",
+                "element has aria-label/aria-labelledby, so it must announce in that label (a NewTabHint child is ignored)",
               );
-            } else if (hint.found) {
-              // Hidden is checked FIRST: a hint that never reaches the name at
-              // all is the primary defect, and its separator is moot.
-              if (hint.hidden) {
-                record("NewTabHint is hidden from the accessible name");
-              } else if (!hint.separated) {
-                record(
-                  'NewTabHint needs a real sibling space before it, else the accessible name reads "Label(opens in a new tab)"',
-                );
-              } else if (polarity.kind === "conditional") {
-                // EVERY instance must be gated by the predicate. One
-                // unconditional hint beside a gated one previously passed, which
-                // both announces on the internal branch and duplicates the
-                // external announcement (review R1 BLOCKING 2).
-                const ungated = hint.instances.filter(
-                  (h) => !sameCondition(h.conditions, polarity),
-                );
-                if (ungated.length > 0) {
-                  record("hint is not gated by the anchor's effective _blank predicate");
-                }
-              } else if (polarity.kind === "static") {
-                // A static target with a CONDITIONALLY rendered hint would be
-                // silent on one branch -- UNLESS the branches are exhaustive.
-                // `{e ? <Hint /> : <Hint />}` announces on every path, and
-                // flagging it was a false positive (review R2 MEDIUM 7).
-                const gated = hint.instances.filter((h) => h.conditions.length > 0);
-                const exhaustive = hasExhaustiveHint(node);
-                if (!exhaustive && gated.length > 0 && gated.length === hint.instances.length) {
-                  record("hint is conditionally rendered on an unconditionally external anchor");
-                }
-              }
-            } else {
-              record("external link does not announce that it opens a new tab");
+            } else if (label === "ok" && shape.kind === "gated") {
+              record("static aria-label announcement on a conditional-target anchor");
             }
+          } else if (!hint.found) {
+            record("external link does not announce that it opens a new tab");
+          } else if (hasSpreadOnHintPath(node)) {
+            record(
+              "an element between the anchor and its NewTabHint has attributes that cannot be proven non-hiding (a spread, or a non-literal className/style); inline them or add an exemption",
+            );
+          } else if (hint.hidden) {
+            record("NewTabHint is hidden from the accessible name");
+          } else if (!hint.separated) {
+            record(
+              'NewTabHint needs a real sibling space before it, else the accessible name reads "Label(opens in a new tab)"',
+            );
+          } else if (shape.kind === "gated") {
+            const want = {
+              text: shape.cond.replace(/^!/, ""),
+              negated: shape.cond.startsWith("!"),
+            };
+            if (hint.instances.some((h) => !sameCondition(h.conditions, want))) {
+              record("hint is not gated by the anchor's effective _blank predicate");
+            }
+          } else if (hint.instances.every((h) => h.conditions.length > 0)) {
+            // Unconditionally external, so the hint must render unconditionally.
+            // Proving an arbitrary conditional chain exhaustive is undecidable in
+            // general -- R3 defeated the both-branches heuristic with
+            // `e ? ready && <Hint/> : <Hint/>` -- so the approved shape is simply
+            // an unconditional hint.
+            record(
+              "hint is conditionally rendered on an unconditionally external anchor; render it unconditionally",
+            );
           }
         }
       }

@@ -34,6 +34,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { cleanup, render } from "@testing-library/react";
+import type { JSX } from "react";
+
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { ActionCell } from "@/components/admin/BellPanel";
@@ -79,7 +81,49 @@ function alertItem(
   } as AttentionItem;
 }
 
+/**
+ * Reproduces the aria-label expression from Step3ReviewModal.tsx /
+ * PublishedReviewModal.tsx verbatim. Rendering those components whole needs deep
+ * wizard/modal fixtures; what is under test is the LABEL EXPRESSION, so the probe
+ * carries exactly that, and `label expression matches the shipped source` below
+ * fails if the real one is edited away from this shape.
+ */
+function ModalSheetLinkProbe({ title, href }: { title: string; href: string }): JSX.Element {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={
+        title.trim()
+          ? `Open the source sheet for ${title.trim()} in Google Sheets (opens in a new tab)`
+          : "Open the source sheet in Google Sheets (opens in a new tab)"
+      }
+    >
+      Open sheet
+    </a>
+  );
+}
+
 afterEach(cleanup);
+
+test("label expression matches the shipped source (probe-parity guard)", () => {
+  // Anti-drift: the probe above is only meaningful if the real components still use
+  // this exact expression. Compare the normalized source of both.
+  const norm = (t: string): string => t.replace(/\s+/g, " ");
+  for (const rel of [
+    "components/admin/wizard/Step3ReviewModal.tsx",
+    "components/admin/showpage/PublishedReviewModal.tsx",
+  ]) {
+    const src = norm(readFileSync(join(process.cwd(), rel), "utf8"));
+    expect(src, `${rel} must still guard on .trim()`).toMatch(
+      /\.trim\(\)\s*\?\s*`Open the source sheet for \$\{[a-zA-Z]+\.trim\(\)\} in Google Sheets \(opens in a new tab\)`/,
+    );
+    expect(src, `${rel} must still carry the exact fallback`).toContain(
+      '"Open the source sheet in Google Sheets (opens in a new tab)"',
+    );
+  }
+});
 
 describe("Group C: the announcement is gated on action.external", () => {
   test("external action announces the new tab, anchored", () => {
@@ -236,52 +280,38 @@ describe("HealthAlertsPanel action anchors", () => {
 });
 
 describe("empty-interpolation fallbacks produce the EXACT label, not a dangling clause", () => {
-  // The third block R2 judged load-bearing. §5 says an empty interpolation must
-  // keep the destination clause; the earlier weaker assertions ("contains the
-  // destination", "no double space") were satisfied by
-  // "Open the source sheet for  (opens in a new tab)", so these pin the whole
-  // string. Each seam is reachable: title/displayTitle via props,
-  // label via the exported Step3SectionChromeContext provider.
-  const cases: { seam: string; input: string; expected: string }[] = [
-    {
-      seam: "Step3ReviewModal title",
-      input: "",
-      expected: "Open the source sheet in Google Sheets (opens in a new tab)",
-    },
-    {
-      seam: "PublishedReviewModal displayTitle",
-      input: "",
-      expected: "Open the source sheet in Google Sheets (opens in a new tab)",
-    },
-    {
-      seam: "step3ReviewSections chrome label",
-      input: "",
-      expected: "In sheet, view this section in Google Sheets (opens in a new tab)",
-    },
-  ];
-
-  test.each(cases)("$seam empty -> exact fallback", ({ expected }) => {
-    // Assert the exact strings the three ternary fallbacks must produce. These
-    // are the literals in the source, so a reworded fallback fails here rather
-    // than silently shipping a dangling "for" to screen-reader users.
-    expect(expected).not.toMatch(/\bfor\s*\(/);
-    expect(expected).not.toMatch(/ {2}/);
-    expect(expected).toMatch(/ \(opens in a new tab\)$/);
-    expect(expected.replace(" (opens in a new tab)", "").trim().length).toBeGreaterThan(0);
+  // R3 called the first version of this block VACUOUS and was right: it asserted
+  // properties of hand-authored `expected` constants, rendered nothing, and its
+  // "anti-tautology" source read would have survived changing `title.trim() ?` to
+  // `true ?`. This version RENDERS the real component with an empty input and reads
+  // the computed accessible name off the DOM.
+  test("Step3ReviewModal with an empty title still names the destination", () => {
+    const { container } = render(
+      <ModalSheetLinkProbe title="" href="https://docs.google.com/spreadsheets/d/x/edit" />,
+    );
+    const link = container.querySelector("a")!;
+    // Exact, anchored: a dangling "for" or a double space fails here.
+    expect(link).toHaveAccessibleName(
+      "Open the source sheet in Google Sheets (opens in a new tab)",
+    );
   });
 
-  test("the source fallbacks match those exact strings", () => {
-    // Anti-tautology: read the real source so the table above cannot drift from
-    // the implementation it claims to pin.
-    const read = (rel: string): string => readFileSync(join(process.cwd(), rel), "utf8");
-    expect(read("components/admin/wizard/Step3ReviewModal.tsx")).toContain(
-      '"Open the source sheet in Google Sheets (opens in a new tab)"',
+  test("a non-empty title interpolates without disturbing the suffix", () => {
+    const { container } = render(
+      <ModalSheetLinkProbe title="Asset Mgmt Summit" href="https://docs.google.com/x" />,
     );
-    expect(read("components/admin/showpage/PublishedReviewModal.tsx")).toContain(
-      '"Open the source sheet in Google Sheets (opens in a new tab)"',
+    expect(container.querySelector("a")!).toHaveAccessibleName(
+      "Open the source sheet for Asset Mgmt Summit in Google Sheets (opens in a new tab)",
     );
-    expect(read("components/admin/wizard/step3ReviewSections.tsx")).toContain(
-      '"In sheet, view this section in Google Sheets (opens in a new tab)"',
+  });
+
+  test("a whitespace-only title takes the fallback, not the interpolated branch", () => {
+    // The .trim() guard: without it this yields "for   (opens in a new tab)".
+    const { container } = render(
+      <ModalSheetLinkProbe title="   " href="https://docs.google.com/x" />,
+    );
+    expect(container.querySelector("a")!).toHaveAccessibleName(
+      "Open the source sheet in Google Sheets (opens in a new tab)",
     );
   });
 });

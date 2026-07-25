@@ -12,7 +12,7 @@ Every external link in `components/` and `app/` now tells screen-reader users it
 - 11 Group A anchors: sibling space + the hint. 6 Group B anchors: phrase appended to an existing `aria-label`. 4 Group C anchors: hint gated on `action.external` (they are same-app links when false).
 - 3 WCAG 2.5.3 (Level A) label-in-name failures fixed: `step3ReviewSections.tsx` and the crew-facing `SourceLink.tsx` read "In sheet" while their labels never contained it; `VenueMapTile.tsx` reads "Directions" while its label never contained that.
 - 2 bare `→` glyphs wrapped `aria-hidden` in `Step2Verify.tsx`; `rel` normalized on 3 anchors.
-- `tests/styles/_metaNewTabAnnouncement.test.ts` + `tests/styles/_newTabScan.ts` — per-anchor TSX AST guard, 39 tests.
+- `tests/styles/_metaNewTabAnnouncement.test.ts` + `tests/styles/_newTabScan.ts` — per-anchor TSX AST guard, 53 tests.
 
 ## §12 — UI close-out (impeccable v3 dual-gate)
 
@@ -47,38 +47,60 @@ Codex, fresh-eyes, on the full implementation: **BLOCKING** — 3 BLOCKING + 4 H
 
 Each is now pinned by a named regression self-test. The scanner was extracted to `tests/styles/_newTabScan.ts` so probes and the guard share one implementation — the reviewer had to transpile a test file to exercise it, which was a design smell.
 
-## Cross-model review R2 — NOT OBTAINED (upstream outage)
+## Cross-model review — three rounds, and a design change in the third
 
-**R2 has no verdict, and this is an infrastructure fault, not a clean review.** All three
-`codex-guard` attempts exited 1 against `503 Service Unavailable ... auth error code:
-biscuit_baker_service_me_circuit_open` on both the WebSocket and HTTPS transports, after
-attempt 1 burned 51k tokens. `failureShape: "nonzero_exit"` on every attempt, no `signal`, no
-`killedReason` — so this is NOT the reaper-hook silent-death class documented in
-`docs/agents/codex-silent-death-2026-07-24.md`, and not the brief-size cliff either (the brief
-was 6.1KB). AGENTS.md is explicit that `no_verdict` must not be read as "the reviewer found
-nothing".
+**R1: BLOCKING.** 3 BLOCKING + 4 HIGH + 1 MEDIUM + 1 LOW, all real, all fixed. The guard was
+failing OPEN on seven shapes, including `<a {...externalLinkProps}>` returning zero anchors.
 
-**Substitute: a self-certify pass, recorded as such.** I wrote 20 adversarial probes against
-exactly the five surfaces the R2 brief asked the reviewer to attack, and all 20 behave
-correctly:
+**R2: initially lost to an upstream outage, then obtained.** The first dispatch died with all
+three attempts exiting 1 against `503 ... biscuit_baker_service_me_circuit_open`
+(`failureShape: nonzero_exit`, no signal — so neither the reaper silent-death class nor the
+brief-size cliff). While the circuit was open I ran 20 self-certify probes on the briefed
+surfaces and promoted the useful ones to permanent tests; that pass found nothing, which is
+precisely why I re-dispatched rather than treating it as a substitute. On retry R2 returned
+**BLOCKING**: 3 BLOCKING + 3 HIGH + 2 MEDIUM + 1 LOW, all real, all fixed.
 
-| Surface | Attack | Result |
-| --- | --- | --- |
-| `normPredicate` paren peeling | can peeling equate two genuinely different predicates (`a` vs `(b)`)? can it swallow a negation mismatch? | rejected correctly; `((e))` ≡ `e` still accepted |
-| `conditional-ok` label verdict | a label announcing in exactly the INTERNAL branch (announces when the tab does NOT open) — both polarities | rejected correctly |
-| walk-up separator | fake a separator via a wrapper with none up the chain; an element sibling instead of a space | rejected correctly; space-before-wrapper still accepted |
-| comment-trivia exemption | marker inside a string literal; a real comment 9 lines away | rejected correctly; adjacent comment with a reason accepted |
-| fail-closed completeness | `target={p.target}`, `target={pick()}`, `{...build()}` | all rejected as unresolvable |
+**R3: BLOCKING** — 3 BLOCKING + 3 HIGH + 1 MEDIUM + 1 LOW. Every round confirmed the shipped
+anchors themselves are correct ("no currently shipped anchor with a demonstrably wrong
+announcement"); every finding across all three rounds was a guard or test defect.
 
-The highest-value probes are now permanent tests in the guard (the `SC ` cases), so the pass
-is repeatable rather than a one-off claim. Guard total: 44 tests.
+### The third round forced a design change, not another patch
 
-**What this does NOT cover.** A self-certify pass cannot replace fresh adversarial eyes — R1
-proved that decisively by finding seven fail-open shapes I had read past repeatedly. The
-specific open question I put to R2 is unanswered: whether structural AST coverage plus two
-behavioral anchors is sufficient, or whether particular untested anchors among the 14 carry
-risk the AST rule cannot see. **Re-dispatch R2 when the Codex circuit closes**, before or
-immediately after merge, and treat any finding as live.
+R1, R2 and R3 each found a NEW fail-open AST shape: nested spreads, computed keys, shadowed
+identifiers and parameters, spread-supplied `aria-label`, spread-supplied `hidden`,
+partially-exhaustive ternaries. That is not a run of bugs — it is the wrong default.
+`docs/agents/spec-self-review.md:22` caps prose/patch iteration on a surviving vector at three
+rounds, and this vector had survived three.
+
+So the scanner was **inverted to a shape allowlist**. Rather than trying to prove an anchor is
+broken (unsound: a static scanner cannot resolve imported props objects, parameters, or
+shadowing), an external link must match one of a small set of approved shapes and anything
+else is reported with instructions. The entire codebase uses exactly two shapes — 19 literal
+`target="_blank"` and 4 conditional spreads — so the allowlist costs nothing today and closes
+the whole class by construction.
+
+Accepted tradeoffs, deliberately:
+
+- A correct-but-unusual shape (an announcing `aria-label` arriving via spread) is reported. The
+  author moves to an approved shape or adds an exemption with a reason. A false positive costs
+  one comment; a false negative ships a silent link.
+- An unconditionally external anchor must render its hint **unconditionally**. R2 asked for
+  exhaustive ternaries to be accepted; R3 then defeated the both-branches heuristic with
+  `e ? ready && <Hint/> : <Hint/>`. Proving an arbitrary conditional chain exhaustive is
+  undecidable, so the approved shape is the simple one.
+- Anything between the anchor and its hint whose attributes cannot be proven non-hiding (a
+  spread, or a non-literal `className`/`style`) is reported.
+
+### Two of my own test defects, found by reviewers rather than by me
+
+- R3 called the empty-interpolation block **vacuous** and was right: it asserted properties of
+  hand-authored constants, rendered nothing, and its "anti-tautology" source read would have
+  survived changing `title.trim() ?` to `true ?`. It now renders and reads the computed
+  accessible name, plus a probe-parity guard that is mutation-verified to fail on exactly that
+  edit.
+- Earlier, my first `HealthAlertsPanel` test guarded its assertions behind `if (link && …)` and
+  passed while the action never resolved. Asserting existence exposed that `SHEET_UNAVAILABLE`
+  needs `context.drive_file_id`, not the `sheet_url` I had invented.
 
 ## The pattern worth carrying forward
 

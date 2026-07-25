@@ -135,9 +135,11 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
       `const A = () => <a href="x" target="_blank">Go <span className="hidden"><NewTabHint /></span></a>;`,
       /hidden from the accessible name/,
     );
+    // A non-literal style object is reported by the path-opacity rule instead: it
+    // cannot be proven non-hiding, which is the same outcome by a stronger route.
     rejects(
       `const A = () => <a href="x" target="_blank">Go <span style={{ display: "none" }}><NewTabHint /></span></a>;`,
-      /hidden from the accessible name/,
+      /cannot be proven non-hiding|hidden from the accessible name/,
     );
   });
 
@@ -146,25 +148,27 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
   });
 
   it("treats a both-branch conditional target as static and accepts a static announcement", () => {
-    ok(`const A = ({e}) => <a href="x" target={e ? "_blank" : "_blank"}>Go <NewTabHint /></a>;`);
+    ok(
+      `const A = ({e}) => <a href="x" {...(e ? { target: "_blank" } : { target: "_blank" })}>Go <NewTabHint /></a>;`,
+    );
   });
 
   it("requires matching polarity for a true-branch conditional target", () => {
     ok(
-      `const A = ({e}) => <a href="x" target={e ? "_blank" : undefined}>Go {e ? <> <NewTabHint /></> : null}</a>;`,
+      `const A = ({e}) => <a href="x" {...(e ? { target: "_blank" } : {})}>Go {e ? <> <NewTabHint /></> : null}</a>;`,
     );
     rejects(
-      `const A = ({e}) => <a href="x" target={e ? "_blank" : undefined}>Go <NewTabHint /></a>;`,
+      `const A = ({e}) => <a href="x" {...(e ? { target: "_blank" } : {})}>Go <NewTabHint /></a>;`,
       /not gated by the anchor's effective _blank predicate/,
     );
   });
 
   it("requires NEGATED polarity for a false-branch conditional target", () => {
     ok(
-      `const A = ({e}) => <a href="x" target={e ? undefined : "_blank"}>Go {!(e) ? <> <NewTabHint /></> : null}</a>;`,
+      `const A = ({e}) => <a href="x" {...(e ? {} : { target: "_blank" })}>Go {!(e) ? <> <NewTabHint /></> : null}</a>;`,
     );
     rejects(
-      `const A = ({e}) => <a href="x" target={e ? undefined : "_blank"}>Go {e ? <> <NewTabHint /></> : null}</a>;`,
+      `const A = ({e}) => <a href="x" {...(e ? {} : { target: "_blank" })}>Go {e ? <> <NewTabHint /></> : null}</a>;`,
       /not gated by the anchor's effective _blank predicate/,
     );
   });
@@ -191,7 +195,7 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
 
   it("rejects a static label announcement on a conditional-target anchor", () => {
     rejects(
-      `const A = ({e}) => <a href="x" target={e ? "_blank" : undefined} aria-label="Go (opens in a new tab)">Go</a>;`,
+      `const A = ({e}) => <a href="x" {...(e ? { target: "_blank" } : {})} aria-label="Go (opens in a new tab)">Go</a>;`,
       /static aria-label announcement on a conditional-target anchor/,
     );
   });
@@ -207,14 +211,19 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
   });
 
   it("resolves an identifier-backed spread object", () => {
+    // An identifier spread is no longer an approved shape: it cannot be resolved
+    // soundly (parameters, shadowing, imports), so it is reported as unrecognized.
     rejects(
       `const P = { target: "_blank" }; const A = () => <a href="x" {...P}>Go</a>;`,
-      /does not announce/,
+      /unrecognized external-link shape/,
     );
   });
 
   it("fails closed on an unresolvable target expression", () => {
-    rejects(`const A = ({t}) => <a href="x" target={t}>Go</a>;`, /not statically resolvable/);
+    rejects(
+      `const A = ({t}) => <a href="x" target={t}>Go</a>;`,
+      /unrecognized external-link shape/,
+    );
   });
 
   it("covers <Link> and ignores non-link components carrying target", () => {
@@ -231,43 +240,42 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
   it("R1-1 fails closed on an unresolvable spread props object", () => {
     rejects(
       `const A = () => <a href="x" {...externalLinkProps}>Go</a>;`,
-      /not statically resolvable/,
+      /unrecognized external-link shape/,
     );
-    // Once the resolver walks nested objects, a SINGLY-declared P resolves, so
-    // this is now flagged as a real unannounced external link rather than as
-    // unresolvable -- a strictly better outcome than failing closed.
+    // Under the allowlist, ANY identifier-bearing spread is unrecognized: resolving
+    // it soundly is impossible (parameters, shadowing, imports), which is exactly
+    // the class R1/R2/R3 kept finding new instances of.
     rejects(
       `const P = { target: "_blank" }; const A = ({e}) => <a href="x" {...(e ? P : {})}>Go</a>;`,
-      /does not announce/,
+      /unrecognized external-link shape/,
     );
-    // Ambiguity still fails closed: the same name declared twice is scope-blind.
     rejects(
       `function f(){ const P = { target: "_blank" }; return <a href="x" {...P}>Go</a>; } function g(){ const P = {}; return null; }`,
-      /not statically resolvable/,
+      /unrecognized external-link shape/,
     );
   });
 
   it("R1-2 rejects a hint gated by a SUPERSET of the target predicate", () => {
     // external && ready is not external: with ready=false the tab opens silent.
     rejects(
-      `const A = ({external,ready}) => <a href="x" target={external ? "_blank" : undefined}>Go {external && ready ? <> <NewTabHint /></> : null}</a>;`,
+      `const A = ({external,ready}) => <a href="x" {...(external ? { target: "_blank" } : {})}>Go {external && ready ? <> <NewTabHint /></> : null}</a>;`,
       /not gated by the anchor's effective _blank predicate/,
     );
   });
 
   it("R1-2 rejects an unconditional hint sitting beside a correctly gated one", () => {
     rejects(
-      `const A = ({e}) => <a href="x" target={e ? "_blank" : undefined}>Go <NewTabHint />{e ? <> <NewTabHint /></> : null}</a>;`,
+      `const A = ({e}) => <a href="x" {...(e ? { target: "_blank" } : {})}>Go <NewTabHint />{e ? <> <NewTabHint /></> : null}</a>;`,
       /not gated by the anchor's effective _blank predicate/,
     );
   });
 
   it("R1-2 accepts equivalent predicate spellings", () => {
     ok(
-      `const A = ({e}) => <a href="x" target={e ? undefined : "_blank"}>Go {!e ? <> <NewTabHint /></> : null}</a>;`,
+      `const A = ({e}) => <a href="x" {...(e ? {} : { target: "_blank" })}>Go {!e ? <> <NewTabHint /></> : null}</a>;`,
     );
     ok(
-      `const A = ({e}) => <a href="x" target={(e) ? "_blank" : undefined}>Go {e ? <> <NewTabHint /></> : null}</a>;`,
+      `const A = ({e}) => <a href="x" {...((e) ? { target: "_blank" } : {})}>Go {e ? <> <NewTabHint /></> : null}</a>;`,
     );
   });
 
@@ -287,7 +295,7 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
 
   it("R1-3 accepts a conditional label announcing in exactly the external branch", () => {
     ok(
-      `const A = ({e}) => <a href="x" target={e ? "_blank" : undefined} aria-label={e ? "Go (opens in a new tab)" : "Go"}>Go</a>;`,
+      `const A = ({e}) => <a href="x" {...(e ? { target: "_blank" } : {})} aria-label={e ? "Go (opens in a new tab)" : "Go"}>Go</a>;`,
     );
   });
 
@@ -335,25 +343,25 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     // The nastiest shape the new `conditional-ok` verdict could have allowed:
     // a label that announces exactly when the link does NOT open a tab.
     rejects(
-      `const A=({e})=><a href="x" target={e?"_blank":undefined} aria-label={e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
+      `const A=({e})=><a href="x" {...(e ? { target: "_blank" } : {})} aria-label={e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
       /must announce in that label|does not announce|no destination/,
     );
     rejects(
-      `const A=({e})=><a href="x" target={e?undefined:"_blank"} aria-label={e?"Go (opens in a new tab)":"Go"}>Go</a>;`,
+      `const A=({e})=><a href="x" {...(e ? {} : { target: "_blank" })} aria-label={e?"Go (opens in a new tab)":"Go"}>Go</a>;`,
       /must announce in that label|does not announce|no destination/,
     );
     ok(
-      `const A=({e})=><a href="x" target={e?undefined:"_blank"} aria-label={e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
+      `const A=({e})=><a href="x" {...(e ? {} : { target: "_blank" })} aria-label={e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
     );
   });
 
   it("SC paren peeling must not equate genuinely different predicates", () => {
     rejects(
-      `const A=({a,b})=><a href="x" target={a?"_blank":undefined}>Go {(b)?<> <NewTabHint /></>:null}</a>;`,
+      `const A=({a,b})=><a href="x" {...(a ? { target: "_blank" } : {})}>Go {(b)?<> <NewTabHint /></>:null}</a>;`,
       /not gated by the anchor's effective _blank predicate/,
     );
     ok(
-      `const A=({e})=><a href="x" target={((e))?"_blank":undefined}>Go {e?<> <NewTabHint /></>:null}</a>;`,
+      `const A=({e})=><a href="x" {...((e) ? { target: "_blank" } : {})}>Go {e?<> <NewTabHint /></>:null}</a>;`,
     );
   });
 
@@ -390,26 +398,26 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
   });
 
   it("SC fails closed on every unresolvable target expression shape", () => {
-    rejects(`const A=({p})=><a href="x" target={p.target}>Go</a>;`, /not statically resolvable/);
-    rejects(`const A=()=><a href="x" target={pick()}>Go</a>;`, /not statically resolvable/);
-    rejects(`const A=()=><a href="x" {...build()}>Go</a>;`, /not statically resolvable/);
+    rejects(`const A=({p})=><a href="x" target={p.target}>Go</a>;`, /unrecognized/);
+    rejects(`const A=()=><a href="x" target={pick()}>Go</a>;`, /unrecognized/);
+    rejects(`const A=()=><a href="x" {...build()}>Go</a>;`, /unrecognized/);
   });
 
   // ── Regression pins for whole-diff review R2 ────────────────────────────
   it("R2-1 label predicate must be the TARGET's, not any flag", () => {
     rejects(
-      `const A=({e,ready})=><a href="x" target={e?"_blank":undefined} aria-label={ready?"Go (opens in a new tab)":"Go"}>Go</a>;`,
+      `const A=({e,ready})=><a href="x" {...(e ? { target: "_blank" } : {})} aria-label={ready?"Go (opens in a new tab)":"Go"}>Go</a>;`,
       /must announce in that label|does not announce/,
     );
     // Valid inverted spelling: !e chooses the other branch, still correct.
     ok(
-      `const A=({e})=><a href="x" target={e?"_blank":undefined} aria-label={!e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
+      `const A=({e})=><a href="x" {...(e ? { target: "_blank" } : {})} aria-label={!e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
     );
   });
 
   it("R2-1 predicate normalization must not collapse whitespace inside strings", () => {
     rejects(
-      `const A=({mode})=><a href="x" target={mode === "x y" ? "_blank" : undefined}>Go {mode === "xy" ? <> <NewTabHint /></> : null}</a>;`,
+      `const A=({mode})=><a href="x" {...(mode === "x y" ? { target: "_blank" } : {})}>Go {mode === "xy" ? <> <NewTabHint /></> : null}</a>;`,
       /not gated by the anchor's effective _blank predicate/,
     );
   });
@@ -427,9 +435,11 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
   });
 
   it("R2-2 a later spread cannot mask an earlier explicit target", () => {
+    // An explicit target next to ANY spread is unrecognized now, which closes the
+    // ordering hole outright rather than trying to merge attribute sources.
     rejects(
       `const A=()=><a href="x" target="_blank" {...{ "aria-label": "Go" }}>Go <NewTabHint /></a>;`,
-      /must announce in that label|naming override/,
+      /unrecognized external-link shape/,
     );
   });
 
@@ -458,7 +468,7 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     );
     rejects(
       `const A=({hide})=><a href="x" target="_blank">Go <span className={hide ? "hidden" : ""}><NewTabHint /></span></a>;`,
-      /hidden from the accessible name/,
+      /cannot be proven non-hiding|hidden from the accessible name/,
     );
   });
 
@@ -473,8 +483,20 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     expect(sc.violations.length, "the second anchor must still be flagged").toBe(1);
   });
 
-  it("R2-7 an exhaustive ternary hint is unconditional, not a violation", () => {
-    ok(`const A=({e})=><a href="x" target="_blank">Go {e ? <NewTabHint /> : <NewTabHint />}</a>;`);
+  it("R2-7/R3-3 an unconditionally external anchor needs an UNCONDITIONAL hint", () => {
+    // R2 asked for the exhaustive ternary to be accepted; R3 then defeated the
+    // both-branches heuristic with `e ? ready && <Hint/> : <Hint/>`. Proving an
+    // arbitrary chain exhaustive is undecidable, so the approved shape is simply an
+    // unconditional hint -- and BOTH forms are now reported.
+    rejects(
+      `const A=({e})=><a href="x" target="_blank">Go {e ? <NewTabHint /> : <NewTabHint />}</a>;`,
+      /render it unconditionally/,
+    );
+    rejects(
+      `const A=({e,ready})=><a href="x" target="_blank">Go {e ? ready && <NewTabHint /> : <NewTabHint />}</a>;`,
+      /render it unconditionally/,
+    );
+    ok(`const A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;`);
   });
 
   it("honors an inline exemption comment", () => {
