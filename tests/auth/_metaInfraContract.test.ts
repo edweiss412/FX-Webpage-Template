@@ -223,6 +223,7 @@ const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
   "app/auth/callback/route.ts",
   "app/auth/sign-in/page.tsx",
   "app/auth/sign-out/route.ts",
+  "lib/auth/picker/clearIdentity.ts",
   "lib/auth/picker/resolvePickerSelection.ts",
   "lib/auth/picker/resetCrewMemberSelection.ts",
   "lib/auth/picker/resetPickerEpoch.ts",
@@ -290,6 +291,18 @@ describe("META infra-failure contract", () => {
     test("sign-out destructures signOut returned-error", () => {
       const source = readFileSync("app/auth/sign-out/route.ts", "utf8");
       expect(source).toMatch(/const\s+\{\s*error\s*\}\s*=\s*await\s+supabase\.auth\.signOut\(\)/);
+    });
+
+    test("clearIdentityAndSkip destructures the signOut returned-error", () => {
+      // The registry row above only proves the constructor sits inside a `try`.
+      // Without this, `const result = await signOut(...); result.error` would pass
+      // the registry while violating invariant 9's destructuring contract — and
+      // the `{ scope: "local" }` argument is pinned here too, because the library
+      // default is global and would revoke a colleague's other devices.
+      const source = readFileSync("lib/auth/picker/clearIdentity.ts", "utf8");
+      expect(source).toMatch(
+        /const\s+\{\s*error\s*\}\s*=\s*await\s+supabase\.auth\.signOut\(\{\s*scope:\s*"local"\s*\}\)/,
+      );
     });
 
     test("resolveShowPageAccess destructures the resolve_show_by_slug_and_token RPC boundary", () => {

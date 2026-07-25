@@ -200,6 +200,11 @@ describe("CI e2e workflows that boot a no-env-block webServer supply build-criti
   const BARE_RUNNER_WEBSERVER_WORKFLOWS = ["crew-e2e.yml", "dev-gate-e2e.yml"];
   const REQUIRED_ENV = [
     "HASH_FOR_LOG_PEPPER",
+    // pickerCookieSigningKey() THROWS when unset, so any spec that reaches the
+    // picker chain — or seeds a cookie through tests/e2e/helpers/seedPickerCookie.ts
+    // — dies at setup without it. Registered here rather than pinned per-workflow
+    // so the requirement covers both bare-runner workflows by construction.
+    "PICKER_COOKIE_SIGNING_KEY",
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
     "SUPABASE_URL",

@@ -4,6 +4,7 @@ import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
+import { hostRelativeRedirect } from "@/lib/http/hostRelativeRedirect";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { messageFor } from "@/lib/messages/lookup";
@@ -12,23 +13,34 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 type OAuthRedirectCode = "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID";
 
-function redirectTo(request: NextRequest, path: string, status = 302): NextResponse {
-  return NextResponse.redirect(new URL(path, request.url), { status });
+// Host-relative Location: `new URL(path, request.url)` would emit an absolute
+// URL whose host is whatever Next reports, not what the client typed, dropping
+// host-scoped auth cookies on the flip.
+// `redirectTo`'s leading parameter is now unused, and no scanner requires it:
+// lib/audit/authChain.ts:130 keys on the call NAME, not the signature, and that
+// audit is unreferenced dead code besides. It is kept only to avoid churning
+// every call site for a rename, and underscored so lint is honest about it.
+function redirectTo(_request: NextRequest, path: string, status = 302): NextResponse {
+  return hostRelativeRedirect(path, status);
 }
 
 function isAdminPath(path: string): boolean {
   return /^\/admin(?:\/|$)/.test(path);
 }
 
+// `signInRedirect`'s leading parameter IS load-bearing, for a live scanner:
+// tests/messages/catalog.test.ts reads the catalog code out of this function's
+// SECOND argument. Dropping the parameter would shift the code to first position
+// and silently un-cover this file in that scan. (Deliberately not writing that
+// regex's shape out here: the scanner would match the comment and extract a
+// nonexistent code, which is how this comment first broke it.)
 function signInRedirect(
-  request: NextRequest,
+  _request: NextRequest,
   code: OAuthRedirectCode,
   nextPath: string,
 ): NextResponse {
-  const url = new URL("/auth/sign-in", request.url);
-  url.searchParams.set("code", code);
-  url.searchParams.set("next", nextPath);
-  return NextResponse.redirect(url, { status: 302 });
+  const params = new URLSearchParams({ code, next: nextPath });
+  return hostRelativeRedirect(`/auth/sign-in?${params.toString()}`, 302);
 }
 
 function infraFailureResponse(): NextResponse {
