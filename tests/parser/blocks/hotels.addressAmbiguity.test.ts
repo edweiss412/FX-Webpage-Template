@@ -22,8 +22,10 @@ describe("splitHotelNameAddress — ambiguity signal", () => {
       "1515 Broadway Ave New York, NY 10036",
     ])("flags %s", (input) => {
       const out = splitHotelNameAddress(input);
-      expect(out.address, "P3(a) fires only when the splitter produced no address").toBeNull();
       expect(out.ambiguity?.reason).toBe("address-shape-unsplit");
+      // R1: assert the FULL tuple. Asserting only `address` lets a wrong
+      // implementation mutate `name` while keeping the ambiguity result.
+      expect({ name: out.name, address: out.address }).toEqual({ name: input, address: null });
     });
   });
 
@@ -32,7 +34,10 @@ describe("splitHotelNameAddress — ambiguity signal", () => {
       const out = splitHotelNameAddress("Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601");
       expect(out.ambiguity?.reason).toBe("multiple-street-candidates");
       // R1: the split itself is unchanged — still the first UNPADDED match.
-      expect(out.name).toBe("Hotel");
+      expect({ name: out.name, address: out.address }).toEqual({
+        name: "Hotel",
+        address: "71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601",
+      });
     });
 
     it("flags a candidate at position 0 that the unpadded splitter cannot see", () => {
@@ -59,24 +64,64 @@ describe("splitHotelNameAddress — ambiguity signal", () => {
       expect(out.address).toBeNull();
     });
 
-    // The 7 address-bearing strings the real corpus produces (spec §9). Each has
+    // All NINE address-bearing distinct name/address pairs the real corpus
+    // produces across BOTH fixture families (spec §9). Each has
     // exactly one candidate, so neither arm may fire. This is the no-spam guard:
     // a predicate that over-fires shows up here rather than in production.
     it.each([
-      ["Westin Michigan Ave 909 Michigan Ave, Chicago, IL 60611", "Westin Michigan Ave"],
-      ["The Drake Hotel 140 E Walton Pl Chicago, IL 60611", "The Drake Hotel"],
-      ["Park Hyatt Chicago 800 N Michigan Ave Chicago, IL 60611", "Park Hyatt Chicago"],
+      [
+        "Westin Michigan Ave 909 Michigan Ave, Chicago, IL 60611",
+        "Westin Michigan Ave",
+        "909 Michigan Ave, Chicago, IL 60611",
+      ],
+      [
+        "The Drake Hotel 140 E Walton Pl Chicago, IL 60611",
+        "The Drake Hotel",
+        "140 E Walton Pl Chicago, IL 60611",
+      ],
+      [
+        "Park Hyatt Chicago 800 N Michigan Ave Chicago, IL 60611",
+        "Park Hyatt Chicago",
+        "800 N Michigan Ave Chicago, IL 60611",
+      ],
       [
         "Four Seasons Hotel Chicago 120 E Delaware Pl Chicago, IL 60611",
         "Four Seasons Hotel Chicago",
+        "120 E Delaware Pl Chicago, IL 60611",
       ],
-      ["Holiday Inn Express 1705 Tollgate Drive Maumee, Ohio 43537", "Holiday Inn Express"],
-      ["Waldorf Astoria Chicago 11 E Walton St Chicago, IL 60611", "Waldorf Astoria Chicago"],
-      ["Kimpton Gray 122 W Monroe St Chicago, IL 60603", "Kimpton Gray"],
-    ])("stays quiet on the corpus string %s", (input, expectedName) => {
+      [
+        "Four Seasons Chicago 120 E Delaware Pl Chicago, IL 60611",
+        "Four Seasons Chicago",
+        "120 E Delaware Pl Chicago, IL 60611",
+      ],
+      [
+        "Holiday Inn Express 1705 Tollgate Drive Maumee, Ohio 43537",
+        "Holiday Inn Express",
+        "1705 Tollgate Drive Maumee, Ohio 43537",
+      ],
+      [
+        "Holiday Inn Express 13330 Cicero Avenue, Crestwood, IL 60418 United States",
+        "Holiday Inn Express",
+        "13330 Cicero Avenue, Crestwood, IL 60418 United States",
+      ],
+      [
+        "Waldorf Astoria Chicago 11 E Walton St Chicago, IL 60611",
+        "Waldorf Astoria Chicago",
+        "11 E Walton St Chicago, IL 60611",
+      ],
+      [
+        "Kimpton Gray 122 W Monroe St Chicago, IL 60603",
+        "Kimpton Gray",
+        "122 W Monroe St Chicago, IL 60603",
+      ],
+    ])("stays quiet on the corpus string %s", (input, expectedName, expectedAddress) => {
       const out = splitHotelNameAddress(input);
       expect(out.ambiguity).toBeUndefined();
-      expect(out.name).toBe(expectedName);
+      // Full tuple: an over-fire OR a split drift shows up here.
+      expect({ name: out.name, address: out.address }).toEqual({
+        name: expectedName,
+        address: expectedAddress,
+      });
     });
   });
 
