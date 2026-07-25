@@ -311,6 +311,12 @@ function unparen(node: ts.Expression): ts.Expression {
     else if (ts.isSatisfiesExpression(n)) n = n.expression;
     else if (ts.isNonNullExpression(n)) n = n.expression;
     else if (ts.isTypeAssertionExpression(n)) n = n.expression;
+    // A comma expression evaluates to its LAST operand, so `(0, {href, target})` really
+    // forwards the object -- probed from review R13's question 1 before that round
+    // reported. An IIFE and an `await` are NOT transparent (a call and a promise), so
+    // they correctly stay unresolvable residue.
+    else if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.CommaToken)
+      n = n.right;
     else return n;
   }
 }

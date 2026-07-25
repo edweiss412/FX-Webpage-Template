@@ -1375,6 +1375,25 @@ describe("R6: scanner changes are pinned", () => {
     }
   });
 
+  // Probed from R13's question 1: which wrappers are genuinely runtime-transparent?
+  it("R13 comma expressions are transparent; calls and awaits are not", () => {
+    // A comma expression evaluates to its last operand, so the object IS forwarded.
+    expect(
+      violations(`const A=()=><Foo {...(0, {href:"x",target:"_blank"})}>Go</Foo>;`).join(" "),
+    ).toMatch(/does not announce|unrecognized|not gated/);
+    // A doubled type assertion chain unwraps repeatedly.
+    expect(
+      violations(
+        `const A=()=><Foo {...({href:"x",target:"_blank"} as unknown as Record<string,string>)}>Go</Foo>;`,
+      ).join(" "),
+    ).toMatch(/does not announce|unrecognized|not gated/);
+    // An IIFE is a CALL and an await is a promise: neither is statically resolvable,
+    // so both remain the documented residue rather than false confidence.
+    expect(
+      probe(`const A=()=><Foo {...(()=>({href:"x",target:"_blank"}))()}>Go</Foo>;`).anchors,
+    ).toBe(0);
+  });
+
   // R12 MEDIUM 4: three false positives in the duplicate-fold rule.
   it("R12 the duplicate rule does not fire on legitimate shapes", () => {
     // Props on a CUSTOM component are ordinary JS keys and case-sensitive.
