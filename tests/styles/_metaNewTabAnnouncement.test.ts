@@ -1378,6 +1378,20 @@ describe("R6: scanner changes are pinned", () => {
     expect(internal.anchors, "an internal anchor is not external").toBe(0);
   });
 
+  // A camelCase SVG element IS intrinsic. `/^[a-z][a-z0-9-]*$/` excluded `<clipPath>`
+  // and `<foreignObject>`, so the duplicate rule silently skipped them. JSX's own rule
+  // is simpler: lowercase first character means intrinsic, a dot means component.
+  it("camelCase intrinsics are treated as intrinsic", () => {
+    expect(
+      violations(`const A=()=><clipPath href="x" target="_self" TARGET="_blank" />;`).join(" "),
+    ).toMatch(/case-folding|unrecognized/);
+    expect(
+      violations(
+        `const A=()=><foreignObject href="x" aria-label="a" ARIA-LABEL="b" target="_blank">Go</foreignObject>;`,
+      ).join(" "),
+    ).toMatch(/case-folding|unrecognized/);
+  });
+
   // R10 BLOCKING 3: React writes `{ target, TARGET }` to ONE case-insensitive DOM
   // attribute and the LATER value wins, so reading the first normalized match took
   // the wrong value in both directions. Duplicates are ambiguous: fail closed.

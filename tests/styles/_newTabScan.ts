@@ -874,7 +874,11 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
   //   - AFTER the not-external return, so an internal `<a>` with duplicated naming
   //     attributes is not dragged in as an external violation.
   const tagName = ts.isJsxElement(el) ? el.openingElement.tagName.getText() : el.tagName.getText();
-  const isIntrinsic = /^[a-z][a-z0-9-]*$/.test(tagName);
+  // JSX's own rule: a tag whose first character is lowercase is an intrinsic element;
+  // anything containing a dot is a member expression, hence a component. A stricter
+  // pattern wrongly excluded camelCase intrinsics like `<clipPath>` and `<foreignObject>`
+  // (review R13 question 3, probed before that round reported).
+  const isIntrinsic = /^[a-z]/.test(tagName) && !tagName.includes(".");
   if (isIntrinsic) {
     const folded = new Set<string>();
     for (const a of attrs.properties) {
