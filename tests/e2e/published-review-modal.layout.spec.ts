@@ -1569,32 +1569,98 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
             }
             return false;
           };
-          /** The container's real items, with `display:contents` flattened away. */
+          /** `content-visibility: hidden` on an ancestor suppresses that subtree's
+           *  OWN internal layout, so gaps inside it are not rendered and its
+           *  descendants' zero sizes charge nothing. The boundary element itself is
+           *  still an item of ITS parent and is measured there. */
+          const contentHiddenInside = (el: Element): boolean => {
+            let node: Element | null = el.parentElement;
+            while (node !== null) {
+              if (getComputedStyle(node).contentVisibility === "hidden") return true;
+              if (node === modal) return false;
+              node = node.parentElement;
+            }
+            return false;
+          };
+          /**
+           * The container's real items, with `display:contents` flattened away.
+           *
+           * ORDER MATTERS: the `contents` test comes BEFORE the out-of-flow test. A
+           * `display:contents` element generates no box at all, so `position` on it
+           * is inert — its non-positioned descendants are promoted and remain real
+           * items of this container. Discarding such a wrapper for being
+           * `position:absolute` hid every descendant it promoted and undercounted
+           * the container.
+           */
           const itemsOf = (container: Element): Element[] => {
             const out: Element[] = [];
             for (const child of Array.from(container.children)) {
               const ccs = getComputedStyle(child);
               if (ccs.display === "none") continue;
-              if (ccs.position === "absolute" || ccs.position === "fixed") continue;
               if (ccs.display === "contents") {
                 out.push(...itemsOf(child));
                 continue;
               }
+              if (ccs.position === "absolute" || ccs.position === "fixed") continue;
               out.push(child);
             }
             return out;
           };
-          /** Zero on BOTH the visual rect and the untransformed layout box. */
+          /**
+           * Non-whitespace TEXT directly inside a flex/grid container generates an
+           * ANONYMOUS item. It has no element, so it can never be an offender — but
+           * it absolutely counts toward "does this container realize a gap at all",
+           * and missing it made a container of {visible text, one empty element}
+           * look like a single-item container and get skipped.
+           */
+          const anonymousItems = (container: Element): number => {
+            let n = 0;
+            for (const node of Array.from(container.childNodes)) {
+              if (node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "")
+                n += 1;
+              else if (
+                node.nodeType === Node.ELEMENT_NODE &&
+                getComputedStyle(node as Element).display === "contents"
+              ) {
+                n += anonymousItems(node as Element);
+              }
+            }
+            return n;
+          };
+          /**
+           * Zero on BOTH the visual rect and the untransformed layout box.
+           *
+           * `getBoundingClientRect()` is the TRANSFORMED rect, so `scale(0)` reads
+           * zero while the element still occupies its full layout box and charges
+           * nothing extra. `offset*` is the layout box — but it exists only on
+           * HTMLElement. For SVG and MathML items there is no offset metric, and
+           * treating its absence as zero reported a positive-size `scale(0)` SVG as
+           * an offender. For those, fall back to "no transform is in play": a
+           * genuinely zero-size SVG still reports, a transformed one does not.
+           */
           const vanishes = (el: Element, dim: "height" | "width"): boolean => {
             const rect = el.getBoundingClientRect();
             if ((dim === "height" ? rect.height : rect.width) !== 0) return false;
             const offset =
               dim === "height" ? (el as HTMLElement).offsetHeight : (el as HTMLElement).offsetWidth;
-            return typeof offset !== "number" || offset === 0;
+            if (typeof offset === "number") return offset === 0;
+            return getComputedStyle(el).transform === "none";
+          };
+          /** Realized track count on one axis — `grid-template-*` resolves to a
+           *  space-separated list of used sizes, so its length is the track count. */
+          const trackCount = (cs: CSSStyleDeclaration, dim: "height" | "width"): number => {
+            const tpl = dim === "height" ? cs.gridTemplateRows : cs.gridTemplateColumns;
+            if (tpl === "none" || tpl.trim() === "") return 0;
+            return tpl.trim().split(/\s+/).length;
           };
 
           for (const el of [modal, ...Array.from(modal.querySelectorAll("*"))]) {
             if (hidden(el)) continue;
+            // Inside a `content-visibility:hidden` subtree the browser skips the
+            // subtree's own layout, so its internal gaps are not rendered and a
+            // zero-size descendant charges nothing. Measuring in there is a false
+            // red. (The boundary element remains an item of its own parent.)
+            if (contentHiddenInside(el)) continue;
             const cs = getComputedStyle(el);
             const isFlex = cs.display === "flex" || cs.display === "inline-flex";
             const isGrid = cs.display === "grid" || cs.display === "inline-grid";
@@ -1617,12 +1683,24 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
             ];
             if (axes.length === 0) continue;
             const items = itemsOf(el);
-            // One item realizes no gap — nothing to mischarge.
-            if (items.length < 2) continue;
+            // ITEM COUNT INCLUDES ANONYMOUS TEXT ITEMS — {visible text, one empty
+            // element} really is two items and really does realize a gap.
+            const itemCount = items.length + anonymousItems(el);
+            // "Fewer than two items realizes no gap" holds for FLEX only. A GRID can
+            // realize several tracks from one item — explicit templates, named areas,
+            // spans, implicit track creation — and the gaps BETWEEN those tracks are
+            // charged regardless of how many items exist. So a single-item grid is
+            // examined whenever the axis genuinely has more than one track.
+            const chargeableAxes = isGrid
+              ? axes.filter(({ dim }) => itemCount >= 2 || trackCount(cs, dim) >= 2)
+              : itemCount >= 2
+                ? axes
+                : [];
+            if (chargeableAxes.length === 0) continue;
             visited.push(label(el));
             for (const item of items) {
               itemsExamined += 1;
-              for (const { axis, gap, dim } of axes) {
+              for (const { axis, gap, dim } of chargeableAxes) {
                 if (vanishes(item, dim)) {
                   offenders.push({ parent: label(el), child: label(item), axis, gap });
                 }
