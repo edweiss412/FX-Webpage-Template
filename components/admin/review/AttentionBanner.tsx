@@ -176,7 +176,7 @@ export function AttentionBanner({
         className="inline-flex min-h-tap-min items-center gap-1 text-xs font-medium text-warning-text underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg focus-visible:outline-none"
       >
         Google Sheets
-        <span aria-hidden="true"> ↗</span>
+        <span aria-hidden="true"> ↗</span> {a.action.external ? <NewTabHint /> : null}
       </a>
     ) : null;
 

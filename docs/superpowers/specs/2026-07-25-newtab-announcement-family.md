@@ -45,6 +45,12 @@ Two reasons the narrow count undercounts:
 
 **23 anchors total = 2 that already announce + 21 to fix.** Both numbers appear throughout this spec and they are not in conflict: 23 is the family size, 21 is the fix count. After implementation the split reads 15 `NewTabHint` render sites plus 8 `aria-label` sites (the 6 Group B labels plus the 2 pre-existing ones), which also sums to 23. An independent mechanical scan reconciled to the same figures. Other external-navigation vectors, checked and absent: no `window.open(...)`, no form `target` attributes, no `<Link target=...>` in either tree. `app/` holds 13 `.mdx` files; none currently contains `_blank`, but §6 covers them so a future one cannot slip in.
 
+### 1.3 Composition changed under a rebase; the totals did not
+
+Rebasing onto 82 upstream commits swapped one family member for another, and the guard caught it. `components/admin/showpage/AttentionMenu.tsx` no longer renders an action anchor at all (upstream turned that menu into a jump-only index, so the row's exit moved to the card), which removes it from Group C. In the same window `components/admin/review/AttentionBanner.tsx` gained a NEW external anchor: a "Google Sheets" destination chip for clearing-needs-you alerts. It arrived unannounced and the per-anchor guard failed on it immediately, which is precisely the fail-by-default behavior §6 exists to provide.
+
+Net effect: still 23 anchors, 15 hint sites, 13 phrase literals; Group C is now the banner's footer action, the banner's destination chip, `BellPanel`, and `HealthAlertsPanel`. **Do not treat the unchanged totals as evidence nothing moved** — re-derive the composition from the guard rather than from this document if the branch is rebased again.
+
 ## 2. Decision: mechanism is per-site, because the two mechanisms do not compose
 
 `aria-label` **replaces** an element's accessible name — verified empirically against the installed accessible-name implementations, not assumed from spec text. An appended `sr-only` span is therefore silently ignored on any element that already has an `aria-label`:
