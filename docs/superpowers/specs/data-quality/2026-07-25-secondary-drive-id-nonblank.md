@@ -17,22 +17,20 @@ These do not exist yet, so citations to them cannot resolve; the waiver below co
 <!-- spec-lint: ignore — every path here is CREATED by this spec, so none is in the tracked set at spec time -->
 ```
 supabase/migrations/20260725000000_secondary_drive_id_nonblank.sql   "the migration"
-supabase/__generated__/drive-id-coverage.json                        "the census artifact"
-lib/driveIdCoverage/audit.ts                                         "the auditor"      (pure; §4.1)
-lib/driveIdCoverage/introspect.ts                                    "the census query" (§4.5)
-scripts/generate-drive-id-coverage.ts                                "the generator"    (pnpm gen:drive-id-coverage)
-tests/db/driveIdCoverage.test.ts                                     "the DB-free guard suite"
+lib/driveIdCoverage/audit.ts                                         "the auditor"   (pure; §4.1)
+lib/driveIdCoverage/introspect.ts                                    "the census query" (§4.1)
+tests/db/driveIdCoverage.test.ts                                     "the auditor unit tests" (DB-free)
 tests/db/driveIdCoverage.db.test.ts                                  "the local-DB guard suite"
 ```
 
-Also MODIFIED (all tracked, so cited normally elsewhere): `package.json` (the `gen:drive-id-coverage`
-script), `tests/db/schema.test.ts` (static parse of the migration), `tests/db/driveFileIdNonblank.db.test.ts`
-(behavioral probes + the 14→15 list), `tests/db/validation-schema-parity.test.ts` (Layer 3 generalization),
-`BACKLOG.md` and `BACKLOG-archive.md` (entry graduation).
+Also MODIFIED (all tracked, cited normally elsewhere): `tests/db/schema.test.ts` (static parse of the
+migration), `tests/db/driveFileIdNonblank.db.test.ts` (behavioral probes + the 14→15 list),
+`tests/db/validation-schema-parity.test.ts` (the two-line parse extension, §4.4), `BACKLOG.md` and
+`BACKLOG-archive.md` (entry graduation).
 
-The quoted short names are used throughout the rest of this document instead of repeating the paths, so
-each path has exactly one definition site. R1 finding 8 flagged the original inventory for omitting the
-auditor, the census query, and the generator — the most security-sensitive code in the change.
+**No committed census artifact and no generator script.** Both existed only to give a DB-free layer
+something to check; §4.0 explains why that layer is gone. An earlier draft of this section inventoried a generated census JSON under `supabase/__generated__/`
+and a generator under `scripts/`; neither is created.
 
 ---
 
@@ -44,9 +42,9 @@ Each of these is decided. Verify the citation; do not re-derive the decision.
 2. **`wizard_finalize_checkpoints`'s constraint deliberately breaks the `<table>_<column>_nonblank` convention.** The conventional name is **65 bytes**, past Postgres's 63-byte identifier limit, and would be silently truncated. Measured, not assumed (§3.1). The chosen name is `wizard_finalize_checkpoints_cursor_nonblank` (43 bytes). Because coverage is definition-based (item 1), the deviation costs nothing.
 3. **Both canonical CHECK forms are accepted for a column of either nullability.** §3, §4.2. A CHECK fails only on FALSE and `NULL ~ '…'` is NULL, so the bare form and the `is null or …` form are behaviorally identical. Requiring the stylistically-matching form would produce false failures with no safety gain.
 4. **`public.onboarding_rebuild_attempts.drive_file_id` (U4) is in scope even though no backlog item covers it.** It is a column named *exactly* `drive_file_id` — inside the ORIGINAL 2026-07-02 scope rule — created 16 days after that migration and never covered (§2.2, verified live §2). Landing the guard without landing U4's CHECK would ship a red gate. This is not scope creep; it is the first thing the guard found.
-5. **The exemption list ships EMPTY and that is correct.** §4.3. It is not a zombie flag: all four of its rules (§4.3) are exercised by synthetic-input unit tests (§4.4, AC-8), and the two stale-row rules are what stop an empty list from silently becoming a permanent blindfold later.
-6. **Layer 3 GENERALIZES the existing validation CHECK-parity test rather than adding a second mechanism.** §4.6. `tests/db/validation-schema-parity.test.ts:223-285` already asserts validation carries every public nonblank CHECK — but hardcoded to one migration file (`tests/db/validation-schema-parity.test.ts:224-227`) and to the literal `14` (`tests/db/validation-schema-parity.test.ts:237`), a count its own comment says must move in lockstep by hand. That literal is an instance of the drift being removed here. Separately and additionally, the schema MANIFEST records columns only (`scripts/schema-manifest/lib.ts:238-246`) and so cannot see a constraint-only migration at all. Both facts are true; the original draft of this spec conflated them and overstated the gap.
-7. **The census scans `public` + `dev` only — an allowlist of repo-owned schemas, not a vendor blocklist.** §4.5. Vendor schemas (`auth`, `storage`, `realtime`, …) cannot receive our constraints, and a blocklist naming them would go stale the moment Supabase adds a schema. (The earlier draft additionally proposed a migration-side pin asserting migrations create tables only in those two schemas; that pin died with the SQL parser it depended on — see §4.0 — and §10 records the residual exposure.)
+5. **The exemption list ships EMPTY and that is correct.** §4.3. It is not a zombie flag: all four of its rules (§4.5) are exercised by synthetic-input unit tests (§4.4, AC-8), and the two stale-row rules are what stop an empty list from silently becoming a permanent blindfold later.
+6. **The existing validation CHECK-parity test is EXTENDED, not re-architected.** §4.4. `tests/db/validation-schema-parity.test.ts:223-285` already asserts validation carries every public nonblank CHECK. Earlier drafts replaced it with a census-driven, identity-bound layer; R3 finding 1 showed that layer's identity binding was unsound (a URI's authority is not libpq's effective target). The change is now minimal: parse both nonblank migrations, move the pinned count. Separately, the schema MANIFEST records columns only (`scripts/schema-manifest/lib.ts:238-246`) and cannot see a constraint-only migration at all — a true and distinct fact that an early draft conflated with the above.
+7. **The census scans `public` + `dev` only — an allowlist of repo-owned schemas, not a vendor blocklist.** §4.1. Vendor schemas (`auth`, `storage`, `realtime`, …) cannot receive our constraints, and a blocklist naming them would go stale the moment Supabase adds a schema. §10 records the residual exposure if a third repo-owned schema ever appears.
 8. **No data-repair step, deliberately.** §3.3, §7. Zero violating rows exist on local (measured). If a target holds one, the apply must fail loudly rather than mutate operator data silently.
 9. **No JS/application behavior changes.** §7. `assertNonEmptyDriveFileId` (`lib/drive/fetch.ts:145`) and every write path are untouched; this is DB-layer defense-in-depth only.
 
@@ -152,7 +150,7 @@ $ printf '%s' wizard_finalize_checkpoints_last_processed_drive_file_id_nonblank 
 
 Postgres's identifier limit is 63 bytes (`NAMEDATALEN - 1`), so that name would be **silently truncated** to `…_drive_file_id_nonbla`. Truncation is deterministic and applied consistently to both the `drop constraint if exists` and the `add constraint`, so apply-twice safety would technically survive — but a name that does not appear anywhere in the source it was written in is a latent collision and a debugging trap. U3 therefore takes an explicit 43-byte name.
 
-This is safe precisely because **coverage is definition-based, never name-based** (§1.1 item 1, §4.2). No test derives an expected constraint name from a table/column pair; the census artifact records whatever name the database reports.
+This is safe precisely because **coverage is definition-based, never name-based** (§1.1 item 1, §4.2). No test derives an expected constraint name from a table/column pair; coverage is matched on the constraint's definition (§4.2).
 
 §4.4 pins the general form of this hazard: every constraint name declared by a nonblank migration must be ≤ 63 bytes, so the next long-named column fails at test time rather than silently truncating.
 
@@ -190,7 +188,7 @@ What this settles:
    invisible to a trigger that scans `information_schema.columns` (§3.1).
 2. **Idempotency** — a second full pass succeeds with no error.
 3. **§4.2's two canonical renderings are byte-exact on this server** — both templates appear verbatim,
-   so self-calibration (§4.2) has a measured basis.
+   so §4.2's template constants are the renderings this server actually produces.
 
 **What this probe does NOT establish, and why** (R2 finding 8): the file as specified in §3 wraps
 itself in `begin; … commit;`, and a file carrying its own `COMMIT` cannot be exercised inside an outer
@@ -270,50 +268,52 @@ Every layer the project's DB-touching checklist enumerates, per affected column:
 
 ## 4. The coverage guard
 
-### 4.0 What changed after adversarial review R1, and why
+### 4.0 The premise that was wrong, and the collapse it allows
 
-R1 returned BLOCKING on the guard's original shape. Two findings were structural rather than
-patchable, and the design below is the response, recorded here so a later reader does not
-re-derive it:
+R1 and R2 both returned BLOCKING, and R3 returned BLOCKING again with a finding that invalidates the
+architecture all three rounds had been patching. **The design assumed CI has no Postgres.** It does:
 
-- **The DB-free layer originally parsed migration SQL** to discover newly-introduced
-  `%drive_file_id%` columns. R1 enumerated the bypasses: quoted / unqualified identifiers,
-  `ONLY`, `IF [NOT] EXISTS`, comma-separated `ALTER` actions, `RENAME COLUMN`, `RENAME TABLE`,
-  `SET SCHEMA`, `CREATE TABLE AS`, top-level `SELECT INTO`, `LIKE`, `INHERITS`, `PARTITION OF`,
-  `CREATE TABLE OF`, `CREATE FOREIGN TABLE`, dynamic DDL inside `DO … EXECUTE`, plus false
-  positives from comments, string literals, and dollar-quoted bodies. That list is not
-  exhaustible by patching — a regex SQL parser cannot carry a fail-by-default guarantee.
-  **The parser is deleted, not hardened.** Layer 1 now asserts only what is genuinely provable
-  without a database, and §10 states plainly what that costs.
-- **The census predicate was `LIKE '%drive_file_id%'`,** which is wrong: SQL `LIKE` treats `_`
-  as a single-character wildcard. Measured on local, 2026-07-25:
+- `.github/workflows/unit-suite.yml:93-123` — the `unit-suite-db` job boots local Supabase via
+  `scripts/ci/supabase-local-bootstrap.sh` and runs `supabase migration up --include-all`, then runs
+  `pnpm exec vitest run --project=serial` across 8 shards.
+- `tests/db/**` is in the **serial** project: it is absent from `PARALLEL_TEST_GLOBS` and from
+  `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48-52`), and the serial project takes everything not
+  claimed by the parallel one (`vitest.config.ts:76-93`).
+- `unit-suite` is a **required** status check — stated in the workflow itself, at the pinned-CLI
+  comment: "unit-suite is a REQUIRED check, so a setup rate-limit flake would block merges."
 
-  ```
-  select 'driveXfileYid' like '%drive_file_id%',      -- t   ← matches a column that is NOT a Drive ID
-         'driveXfileYid' like '%drive\_file\_id%',    -- f
-         'driveXfileYid' ~ 'drive_file_id';           -- f
-  ```
+So an ordinary `tests/db/*.db.test.ts` runs against an all-migrations-applied database, on every PR,
+in a job that blocks the merge. Every mechanism below was invented to work around a database that was
+never missing:
 
-  The census now uses the POSIX-regex operator `~ 'drive_file_id'`, where `_` is literal. This
-  also aligns the SQL predicate with any JS-side use of the same pattern, which the `LIKE` form
-  silently did not.
+| mechanism | why it existed | status |
+| --------- | -------------- | ------ |
+| committed census artifact | give the DB-free layer something to check | **deleted** |
+| Layer 1 shape contract + hardcoded floor | stop a truncated artifact passing (R2-3, R3-4) | **deleted with the artifact** |
+| broad-predicate `broadCount` cross-check | detect a narrowed census query (R2-6, R3-2 — never actually worked) | **deleted** |
+| self-calibrated canonical templates | survive a deparser change without hardcoding (R3-3 poisoning) | **replaced by a canary, see §4.2** |
+| Layer 3 DSN identity binding | prove the validation target is validation (R3-1 override bypass) | **deleted; see §4.4** |
 
-### 4.1 Shape: a pure auditor + three layers
+What replaces them is one DB-backed test plus a two-line extension of a mechanism that already works.
+This is not a descope: the guard now runs in a **merge-blocking** check rather than the advisory
+`x-audits` job it was previously specified into, so it has strictly more teeth than the three-layer
+design did.
 
-The guard is one pure function plus three layers that feed it from different sources. The pure
-function is what gets unit-tested exhaustively; the layers are thin.
+### 4.1 The guard: one live query, one auditor, one exemption list
+
+The local-DB guard suite (§0) runs in `tests/db/`, therefore in `unit-suite-db`. It introspects the
+live database and audits it. There is no committed artifact and nothing to keep fresh.
 
 ```ts
 // lib/driveIdCoverage/audit.ts
 export type DriveIdColumn = { schema: string; table: string; column: string; nullable: boolean };
-export type DriveIdConstraint = { schema: string; table: string; name: string; definition: string };
+export type DriveIdConstraint = { schema: string; table: string; definition: string };
 export type CoverageExemption = { schema: string; table: string; column: string; reason: string };
 
 export type CoverageFinding =
   | { kind: "uncovered"; column: DriveIdColumn }
   | { kind: "stale_exemption"; exemption: CoverageExemption; why: "now_covered" | "column_absent" }
   | { kind: "empty_reason"; exemption: CoverageExemption }
-  | { kind: "duplicate_column"; key: string }
   | { kind: "duplicate_exemption"; key: string };
 
 export function auditDriveIdCoverage(
@@ -323,311 +323,141 @@ export function auditDriveIdCoverage(
 ): CoverageFinding[];
 ```
 
-A run is green iff `auditDriveIdCoverage(...)` returns `[]`. The two `duplicate_*` findings exist
-because the census is keyed on `(schema, table, column)` and every count in this spec is a count of
-DISTINCT keys — a duplicated row must never be able to satisfy a size floor (R1 finding 6).
+Green iff the result is `[]`. The auditor is pure and takes no calibrated input — R3 finding 6 flagged
+that ambiguity in the previous draft; canonical templates are now module constants (§4.2), not values
+threaded in at runtime.
 
-### 4.2 What "covered" means — canonical-definition equality, and its limits
+**Census query contract** (each clause load-bearing):
 
-A column is **covered** iff the constraint list contains, for that exact `(schema, table)`, a
-constraint whose `pg_get_constraintdef(oid)` is **string-equal** to one of the two canonical
-renderings for that column:
+- `c.column_name ~ 'drive_file_id'` — POSIX regex, `_` literal. **Not** `LIKE`: SQL `LIKE` treats `_`
+  as a wildcard, so `'driveXfileYid' LIKE '%drive_file_id%'` is TRUE. Measured 2026-07-25.
+- `c.table_schema in ('public','dev')` — the repo-owned schemas.
+- joined to `information_schema.tables` on `t.table_type = 'BASE TABLE'` — views appear in
+  `information_schema.columns` but cannot carry a table CHECK, so admitting them would manufacture
+  permanently-uncoverable rows.
+- constraints from `pg_constraint` with `contype = 'c'`, carrying `(schema, table, definition)` —
+  keyed on the table's tuple, **never on the constraint name** (§3.1.3: names are unique per table,
+  not per schema, so a name-keyed lookup can be satisfied by a different table's constraint).
+- all of it inside **one explicit transaction on one connection**, opened with
+  `set local search_path = pg_catalog, public`, asserting `current_setting('search_path')` inside that
+  transaction before trusting any rendering. `SET LOCAL` is transaction- and connection-scoped; issued
+  autocommit, or followed by a query on another pooled connection, it silently expires (R2 finding 5).
+
+**Anti-vacuity.** The suite asserts a required tuple set — `public.shows.drive_file_id`,
+`public.shows.opening_reel_drive_file_id`,
+`public.wizard_finalize_checkpoints.last_processed_drive_file_id`,
+`public.onboarding_rebuild_attempts.drive_file_id`, `dev.shows.drive_file_id`,
+`dev.shows.opening_reel_drive_file_id` — is present in the census, and that the census holds ≥ 23
+distinct `(schema, table, column)` keys. Both live in the test, and both are floors on a **live**
+query rather than on a stored file, so R3 finding 4's post-growth truncation case does not arise:
+there is no artifact to truncate. A query regression that drops a column shows up as a missing
+required tuple or a short count, against a database that still has the column.
+
+### 4.2 What "covered" means
+
+A column is covered iff some constraint on its `(schema, table)` has a `pg_get_constraintdef` exactly
+equal to one of two templates, with the column name substituted:
 
 ```
 CHECK ((<column> ~ '[^[:space:]]'::text))
 CHECK (((<column> IS NULL) OR (<column> ~ '[^[:space:]]'::text)))
 ```
 
-Both forms are accepted for a column of either nullability, because they are behaviorally identical
-on NULL (§3). Coverage is decided by the **definition**, never by the constraint's name — a
-constraint named `…_nonblank` whose body was edited to something weaker must not count.
+Both forms are accepted for a column of either nullability (§1.1 item 3). Coverage is decided by the
+**definition**, never by the constraint's name.
 
-This is equality against a rendering Postgres itself produced, not a regex over an arbitrary
-predicate. A prior 7-round review arc on this repo landed on exactly that mistake: a normalizing
-text comparison over predicates equates operator families that are not equivalent (§1.1 item 1).
+**The templates are literal constants in the module, plus a canary — not derived at runtime.** The
+previous draft derived them from live "known-good" constraints so a Postgres upgrade could not break
+every row at once. R3 finding 3 showed that hands an attacker the definition of canonicality itself: a
+poisoned `CHECK (col IS NULL OR true)` on the calibrator becomes the accepted nullable template, and
+every nullable column then passes while accepting blanks. So the direction is inverted — the templates
+are constants a reviewer sees in a diff, and two **canaries** assert that the parent migration's own
+constraints still render as those constants:
 
-**Two limits, both raised in R1 finding 4, both real:**
+| canary tuple | expected template |
+| ------------ | ----------------- |
+| `public.shows` · `drive_file_id` (`supabase/migrations/20260702120200_drive_file_id_nonblank.sql:20-22`) | bare form |
+| `public.sync_log` · `drive_file_id` (`supabase/migrations/20260702120200_drive_file_id_nonblank.sql:68-70`) | `IS NULL OR` form |
 
-1. **The rendering is deparser output, not a semantic identity.** `pg_get_constraintdef` prints the
-   operator as it is *visible* under the current `search_path`. A `public.~(text,text)` operator
-   shadowing `pg_catalog.~`, with `public` ahead of `pg_catalog`, could deparse to the same string
-   while accepting blanks. The introspection therefore pins the path — but `SET LOCAL` is
-   **transaction-scoped and connection-scoped**, so issuing it as a bare autocommit statement, or
-   letting the following query land on a different pooled connection, silently restores the ambient
-   path and voids the guarantee (R2 finding 5). The contract is therefore: **open an explicit
-   transaction, issue `set local search_path = pg_catalog, public`, run every introspection query,
-   and commit — all on one connection** — and the layer asserts `current_setting('search_path')`
-   inside that transaction before trusting any rendering.
-2. **The exact rendering is server-version dependent.** Rather than hardcoding the two strings and
-   hoping they survive a Postgres upgrade, the expected strings are **self-calibrated** from
-   constraints the repo already knows are correct. **Two calibrators are required, not one**
-   (R2 finding 4): the bare form and the `IS NULL OR` form are structurally different renderings, and
-   no column-name substitution turns one into the other. They are:
+A deparser change then fails **two named canary assertions** with a clear message instead of failing
+every column mysteriously — the diagnosis benefit calibration was for — while a poisoned constraint
+fails its canary rather than redefining the standard.
 
-   | form | calibrator | source |
-   | ---- | ---------- | ------ |
-   | bare (NOT NULL) | `public.shows` → `shows_drive_file_id_nonblank` | `supabase/migrations/20260702120200_drive_file_id_nonblank.sql:20-22` |
-   | `IS NULL OR` (nullable) | `public.sync_log` → `sync_log_drive_file_id_nonblank` | `supabase/migrations/20260702120200_drive_file_id_nonblank.sql:68-70` |
+**What this does not prove:** that any given constraint actually rejects blanks. Only execution proves
+that; §4.3 is that half, and §10 states how much of the class it covers.
 
-   Each is selected by its `(schema, table, column)` tuple, never by name (§3.1.3 — the bare name
-   `shows_drive_file_id_nonblank` also exists on `dev.shows`). Calibration itself is guarded: if
-   either calibrator is **absent**, or the tuple lookup returns **more than one** constraint, or the
-   rendering does not contain the expected column name, the layer FAILS with that as the reported
-   reason. It never falls back to a hardcoded string, because a silent fallback would defeat the
-   purpose of calibrating.
+### 4.3 Behavioral proof (anti-tautology split)
 
-**What this does NOT prove, stated plainly:** that any given constraint actually rejects blanks.
-Only execution proves that, which is why §4.7's behavioral probes exist and why they are a separate,
-non-negotiable half of the guard. Definition equality is a completeness mechanism (did every column
-get one?), not a correctness mechanism (does it work?).
+Introspection proves a constraint is **declared**, not that it **behaves**.
+`tests/db/driveFileIdNonblank.db.test.ts` holds three execution probes today — `agenda_extract_leases`,
+`shows`, and `app_events` (`tests/db/driveFileIdNonblank.db.test.ts:97-133`) — plus a fourth test
+asserting that 14 constraint **names** exist (`tests/db/driveFileIdNonblank.db.test.ts:136-147`), which
+is declaration, not behavior. So 3 of 19 constrained columns have execution proof today; 7 of 23 after
+this change. That is a deliberate sample, not full coverage, and §10 says so.
 
-Consequence, accepted deliberately: a semantically-equivalent but differently-written CHECK (e.g.
-`char_length(btrim(col)) > 0`) does not count as coverage. It must be rewritten to canonical form or
-carry an exemption. The guard's job is to make the canonical shape the only silent path.
+It gains probes for the four new columns: each rejects `""`, `"   "`, and `"\t"` with SQLSTATE `23514`
+and accepts a valid id, every probe inside an always-rolled-back transaction (the existing
+`expectRejected` / `expectAccepted` helpers enforce zero residue). That file's `PUBLIC_NONBLANK_TABLES`
+list and its `toBe(14)` assertion (`tests/db/driveFileIdNonblank.db.test.ts:147`) both move to 15,
+since `onboarding_rebuild_attempts` joins the exactly-named public class.
 
-Second consequence: the canonical rendering embeds an explicit cast to text, so a non-text column
-(say `drive_file_id_count int`) can never match and necessarily requires an exemption row. That is
-intended — a new column matching the name pattern should force a human decision.
+U3 and U4 need insert shapes satisfying their NOT NULL siblings and composite PKs; the plan pins each
+from the live table definitions rather than guessing.
 
-### 4.3 The exemption list
+### 4.4 Validation-project parity: extend what already works
+
+`tests/db/validation-schema-parity.test.ts:223-285` already asserts the validation project carries every
+public nonblank CHECK, by parsing `20260702120200_drive_file_id_nonblank.sql` for
+`alter table public.<t> add constraint <name> check` (`tests/db/validation-schema-parity.test.ts:230`), pinning the parse at 14 names
+(`tests/db/validation-schema-parity.test.ts:237`), and asserting `pg_constraint` is a superset (`tests/db/validation-schema-parity.test.ts:277-284`).
+
+The previous draft proposed replacing this with a census-driven, identity-bound Layer 3. R3 finding 1
+then showed the identity binding was unsound anyway: a URI's authority is not libpq's effective target,
+since `?host=` / `hostaddr=` query parameters (and duplicate keyword-form fields) override it, so a DSN
+displaying `postgres.<validation-ref>@…pooler.supabase.com` can connect to a loopback Postgres on port 54322 and pass
+every authority check.
+
+So this spec does **not** re-architect that test. It makes the minimal change the new migration
+requires: the parse covers **both** nonblank migration files, and the pinned count moves from 14 to 18
+(14 + the four new constraints, of which three are public — see the note below). The mechanism, its
+superset assertion, its failure message, and its `TEST_DATABASE_URL` postures are otherwise untouched,
+because they are already reviewed, already shipping, and not what this change is about.
+
+Count note: the migration declares four constraints, three on `public` (`shows`,
+`wizard_finalize_checkpoints`, `onboarding_rebuild_attempts`) and one on `dev.shows`, and the existing
+regex is scoped to `alter table public.` (`tests/db/validation-schema-parity.test.ts:228-230`), so the pinned public count becomes 14 + 3 = 17.
+The plan verifies this against the parse rather than trusting the arithmetic here.
+
+**The wrong-target problem is out of scope and stays open.** It predates this change, affects the whole
+`validation-schema-parity` job equally, and R3 finding 1 is the first time it has been articulated;
+§10 item 3 records it and the plan files it to `BACKLOG.md` rather than attempting a fix inside a
+defense-in-depth CHECK change.
+
+### 4.5 The exemption list
 
 ```ts
 export const DRIVE_ID_COVERAGE_EXEMPTIONS: CoverageExemption[] = [];
 ```
 
-Ships **empty**: after §3 lands, every one of the 23 census columns is covered.
+Ships **empty**: after §3 lands, all 23 census columns are covered. Four rules, each with a
+synthetic-input unit test: non-empty `reason`; no row for a column that IS covered
+(`stale_exemption/now_covered`); no row naming a column absent from the census
+(`stale_exemption/column_absent`); no duplicate `(schema, table, column)` key.
 
-Rules, each enforced by the auditor and each with its own unit test (§4.4):
-
-1. **Non-empty reason.** Empty or whitespace-only `reason` yields `empty_reason`.
-2. **No stale rows — now-covered.** An exemption for a column that IS covered yields
-   `stale_exemption/now_covered`, so an exemption added during a gap cannot survive the repair.
-3. **No stale rows — column absent.** An exemption naming a column not in the census yields
-   `stale_exemption/column_absent`.
-4. **No duplicate exemptions** for one `(schema, table, column)` key.
-
-**Honest limit (R1 finding 6):** none of these rules can tell whether an exemption is *justified*.
-A developer who adds a real Drive-ID column and writes `reason: "not needed"` silences the guard
-permanently, and no mechanical rule can catch that. The exemption list is therefore deliberately a
-**reviewed surface**, not a self-policing one: it ships empty, every future row appears in a diff,
-and §10 names this as a residual risk rather than pretending the rules close it.
-
-### 4.4 Layer 1 — DB-free (always runs, including CI)
-
-Layer 1 asserts what is provable with **no database and no SQL parsing**. The DB-free suite (§0):
-
-- **Auditor unit tests** over synthetic inputs, one per branch: covered-NOT-NULL, covered-NULLABLE,
-  covered-by-the-other-canonical-form, uncovered, **name matches but definition differs → uncovered**,
-  **same column name on a different table → not coverage**, exempted-with-reason, empty reason,
-  exempted-but-now-covered, exempted-column-absent, duplicate census key, duplicate exemption.
-- **Artifact shape contract.** The committed census artifact (§0) is validated against a runtime
-  schema, not merely `JSON.parse`d: it must be a non-empty array; every row must carry exactly the
-  expected fields with the expected types; `(schema, table, column)` must be unique across rows;
-  every `schema` must be `public` or `dev`; every recorded constraint name must be ≤ 63 bytes.
-  Missing file, unparseable JSON, and a valid-but-wrong shape (`[]`, missing field, wrong type,
-  duplicate key) each fail — R1 finding 6 noted the original spec covered only the first two.
-- **An artifact floor that does NOT come from the artifact** (R2 finding 3). The shape contract above
-  is satisfied by a *truncated* artifact — one well-formed row passes it, Layer 2 skips without a
-  local database, and Layer 3 would then derive an expected set and a floor of one from that same
-  file and pass. Every layer green; nothing checked. So Layer 1 additionally asserts the artifact
-  against expectations **hardcoded in the test**, independent of the file it is checking: a required
-  tuple set (at minimum `public.shows.drive_file_id`, `public.shows.opening_reel_drive_file_id`,
-  `public.wizard_finalize_checkpoints.last_processed_drive_file_id`,
-  `public.onboarding_rebuild_attempts.drive_file_id`, `dev.shows.drive_file_id`,
-  `dev.shows.opening_reel_drive_file_id`) must all be present, and the count of distinct
-  `(schema, table, column)` keys must be ≥ 23. A deliberate reduction below that floor must edit the
-  test, in the diff, on purpose — which is the whole point.
-- **Migration-declared identifier lengths — across ALL migrations** (R2 finding 7). Every
-  `add constraint <name>` appearing anywhere in `supabase/migrations/` is ≤ 63 bytes. Scoping this to
-  the two nonblank migrations, as the previous draft did, would let a third migration declare a
-  65-byte name, have Postgres truncate it to 63, and pass both this lexical scan (wrong files) and
-  the artifact's live-name check (which sees the already-truncated name). This is a *lexical* check on
-  names the repo wrote, not a semantic claim about what the migrations do — the distinction that
-  killed the parser survives, because a name written in a file either is or is not over the limit.
-
-**What Layer 1 cannot do:** notice that a NEW Drive-ID column exists. That requires a database.
-§10 states the consequence.
-
-### 4.5 Layer 2 — local DB freshness + coverage (skips when local Postgres is unreachable)
-
-The census is a **committed normative artifact** (§0), generated by `pnpm gen:drive-id-coverage`
-from the local all-migrations-applied database, recording per row
-`{schema, table, column, nullable, constraint}` — sorted deterministically and serialized byte-stably,
-exactly as `scripts/generate-schema-manifest.ts` does for the schema manifest.
-
-Census query contract (each clause load-bearing):
-
-- `c.column_name ~ 'drive_file_id'` — POSIX regex, `_` literal (§4.0). **Not** `LIKE`.
-- `c.table_schema in ('public','dev')` — the repo-owned schemas.
-- joined to `information_schema.tables` with `t.table_type = 'BASE TABLE'` — views appear in
-  `information_schema.columns` but cannot carry a table CHECK, so admitting them would manufacture
-  permanently-uncoverable rows (R1 finding 7).
-- constraints selected from `pg_constraint` with `contype = 'c'` only.
-- `set local search_path = pg_catalog, public` before introspecting (§4.2 limit 1).
-
-A column with **multiple** CHECK constraints records the one matching a canonical form; if none
-matches, the row records `null` and the auditor reports it `uncovered`. The artifact's `constraint`
-field is therefore "the constraint that establishes coverage," not "some constraint on this column"
-(R1 finding 7).
-
-**Determinism when several canonical constraints exist on one column** (R2 finding 10). Two
-equivalent CHECKs under different names are legal, and "the one matching" would then be
-order-dependent — which breaks the byte-stability the artifact promises. The contract: candidates are
-ordered by `conname` ascending and the first is recorded, so the choice is total and reproducible; and
-the auditor additionally emits a `duplicate_canonical` finding naming the column and every candidate,
-because two canonical nonblank CHECKs on one column is redundant DDL someone should collapse rather
-than a state to normalize silently.
-
-The local-DB guard suite (§0) then asserts:
-
-- **Freshness:** re-introspect local, assert byte-equality with the committed artifact.
-- **Coverage:** feed live introspection to `auditDriveIdCoverage`, assert `[]`.
-- **Anchors (vacuous-green defense):** the census must contain `public.shows.drive_file_id`,
-  `public.shows.opening_reel_drive_file_id`, and `dev.shows.drive_file_id`, and its count of
-  DISTINCT `(schema, table, column)` keys must be ≥ 23.
-- Routes `LOCAL_TEST_DATABASE_URL` through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts`), which the
-  structural half of `tests/db/_metaLocalDbUrlGuard.test.ts` requires of every `tests/db/` file that
-  reads that variable (AST scan keyed on `LOCAL_TEST_DATABASE_URL`, `tests/db/_localDbUrlScan.ts:29`).
-
-**The shared-blind-spot problem is real and only partly mitigated** (R2 finding 6). The previous draft
-claimed the coverage assertion catches a narrowed census query. It does not: coverage is computed from
-the *same* narrowed result, so a column the query stopped returning is simply absent from both sides —
-freshness matches, anchors match, coverage is vacuously satisfied for a row nobody looked at. Once the
-census legitimately grows past 23, a regression dropping one unanchored column regenerates a
-same-shaped artifact and every assertion passes.
-
-Two mitigations, and then the residue:
-
-- **An independent second predicate.** The layer separately counts columns matching the deliberately
-  broader `~ 'drive'` over the same schemas and base tables, and asserts that every column matched by
-  the narrow predicate is also matched by the broad one, and that the broad count has not *dropped*
-  relative to the artifact's recorded `broadCount`. A regression that narrows the primary predicate
-  moves the two counts apart, which is detectable even though neither count alone is.
-- **The hardcoded floor in Layer 1** (§4.4) bounds how far the census can shrink before a human must
-  edit a test.
-
-**Residue, recorded in §10:** neither mitigation catches a regression that drops a column matching
-*both* predicates while the artifact is regenerated in the same commit. Nothing short of comparing
-against an independently-derived source of truth would, and the census IS the source of truth here.
-What remains is that the shrink appears in the artifact diff as a deleted row.
-
-### 4.6 Layer 3 — validation-project coverage
-
-**The gap here is narrower than "validation is unchecked," and the original spec overstated it.**
-Two mechanisms must be told apart:
-
-- `supabase/__generated__/schema-manifest.json` records tables and columns ONLY —
-  `INTROSPECT_PUBLIC_COLUMNS_SQL` selects `c.table_name, c.column_name` and nothing else
-  (`scripts/schema-manifest/lib.ts:238-246`). A constraint-only migration adds no column, so the
-  manifest does not move and the manifest-driven layers cannot see this migration at all.
-  `pnpm gen:schema-manifest --check` is therefore expected to report "fresh" after this change; §8
-  asserts that rather than assuming it.
-- A sibling test in the same file, `tests/db/validation-schema-parity.test.ts:223-285`, DOES check
-  constraints: it parses `20260702120200_drive_file_id_nonblank.sql` for
-  `alter table public.<t> add constraint <name> check` (`tests/db/validation-schema-parity.test.ts:230`), pins the parse at exactly 14 names
-  (`tests/db/validation-schema-parity.test.ts:237`), and asserts the validation project's `pg_constraint` is a superset (`tests/db/validation-schema-parity.test.ts:277-284`).
-
-So validation CHECK parity is **not** unguarded today — it is guarded for ONE file by a
-hand-maintained count whose own comment says it "must move in lockstep with any deliberate count
-change." That literal is an instance of the drift this change exists to remove, and it is exactly the
-failure that left `onboarding_rebuild_attempts` uncovered for 16 days.
-
-**Layer 3 therefore generalizes that test rather than adding a second overlapping mechanism.** Its
-expectation comes from the census artifact instead of a hardcoded file plus a literal. The assertion's
-shape — validation must be a superset, missing entries listed in the failure message — and its
-`TEST_DATABASE_URL` postures are preserved. Because the existing assertion is a superset check, the new
-constraints do **not** break it as it stands; this is a deliberate generalization, not a repair.
-
-**What is compared: tuples and definitions, never bare names** (R2 finding 2). The previous draft said
-"the public rows' constraint names," which silently abandoned this spec's own coverage contract.
-Constraint names are unique per TABLE, not per schema (§3.1.3, measured), so a name-only superset check
-is satisfied when validation carries that name **on a different table**, or carries it on the right
-table with a **weaker predicate**. Layer 3 therefore introspects validation exactly as Layer 2
-introspects local — `(schema, table, column)` plus `pg_get_constraintdef` — and asserts that for every
-public census row, validation has a constraint on that same tuple whose definition matches a
-self-calibrated canonical form (§4.2). Calibration is performed against the validation server, so a
-deparser difference between the two servers cannot masquerade as missing coverage.
-
-**Target identity binding** (R2 finding 1). The previous draft named
-`assertSupabaseTargetMatchesProjectRef` (`scripts/lib/validation-target.ts:84-133`), which is the wrong
-tool: it validates an **HTTPS Supabase API URL** against a project ref, and rejects anything that is not
-`https://<ref>.supabase.{co,in}`. `TEST_DATABASE_URL` is a Postgres **session-pooler DSN**, so that
-helper would reject every legitimate value — and dropping the check entirely is what lets a DSN aimed
-at local, prod, a branch preview, or another clone pass while validation stays stale.
-
-The binding that actually fits the input: a Supabase session-pooler DSN carries the project ref in its
-**username**, as `postgres.<project-ref>`. Verified on this machine's configured value (shape only, no
-secret):
-
-```
-scheme postgresql · user postgres.vzakgrxqwcalbmagufjh · host aws-1-us-east-2.pooler.supabase.com · port 5432 · db postgres
-```
-
-Layer 3 parses the username, requires the `postgres.<ref>` shape, requires the host to be a
-`*.pooler.supabase.com` endpoint, and requires `<ref>` to equal the expected validation project ref —
-`vzakgrxqwcalbmagufjh`, the persistent validation project this repo has used since Phase 0 and which
-`AGENTS.md` names. A local loopback DSN has no ref in its username and fails the shape check; a
-different project's pooler DSN carries a different ref and fails the equality check. The expected ref
-is a constant in the test, not read from the same environment that supplies the DSN, so a single
-mis-set variable cannot move both sides together.
-
-**Skip-versus-fallback, resolved explicitly** (the original spec contradicted itself here):
-
-| `TEST_DATABASE_URL` | Layer 3 behavior |
-| ------------------- | ---------------- |
-| unset | **SKIP** with a reported reason. Local development; there is no validation target, and silently auditing local would be a green that proves nothing. |
-| set, empty/whitespace | **FAIL** — a GitHub Actions secret registered with an empty value, the existing posture at `tests/db/validation-schema-parity.test.ts:243-249`. |
-| set, unreachable | **FAIL** — never a skip. Matches `tests/db/validation-schema-parity.test.ts:250-255`. |
-| set, reachable, username/host/ref binding fails | **FAIL** — wrong target, named in the message. |
-| set, reachable, binding confirmed | Audit: every public census tuple must carry a canonical-form constraint live. |
-
-There is deliberately **no** local fallback. Auditing local here would compare local against a census
-generated from local — trivially green, and indistinguishable in the logs from a real validation pass.
-
-Wiring: the generalized test stays in the existing `validation-schema-parity` job, which already
-installs `psql`, holds the secret, and carries the "did the migration reach validation" mandate
-(`.github/workflows/x-audits.yml:313-346`).
-
-### 4.7 Behavioral proof (anti-tautology split)
-
-Introspection proves a constraint is **declared**. It does not prove the predicate **behaves** — and
-per §4.2's limits, definition equality is explicitly not a correctness proof.
-
-**How much behavioral proof actually exists today, corrected** (R2 finding 9). The previous draft said
-`tests/db/driveFileIdNonblank.db.test.ts` "carries the behavioral half for the original 14." It does
-not. That file holds **three** execution probes — `agenda_extract_leases`, `shows`, and `app_events`
-(`tests/db/driveFileIdNonblank.db.test.ts:97-133`) — plus a fourth test that checks only that 14
-constraint **names** exist (`tests/db/driveFileIdNonblank.db.test.ts:136-147`), which is declaration, not behavior. So 3 of 19 constrained
-columns have execution proof today; after this change, 7 of 23. That is a deliberate sampling of the
-class — one NOT NULL, one nullable, one lease table, plus every column this spec touches — not full
-coverage, and §10 states it as such rather than implying the class is behaviorally proven.
-
-The file gains probes for the four new columns:
-each rejects `""`, `"   "`, and `"\t"` with SQLSTATE `23514`, and accepts a valid id. Every probe runs
-inside a transaction that is always rolled back (by the 23514 abort or by a sentinel throw), leaving
-zero residue — the existing `expectRejected` / `expectAccepted` helpers already enforce this.
-
-That file also hardcodes `expect(PUBLIC_NONBLANK_TABLES.length).toBe(14)` (`tests/db/driveFileIdNonblank.db.test.ts:147`) over a list used to
-assert every `%_drive_file_id_nonblank` constraint exists. `onboarding_rebuild_attempts` is a 15th
-public table in that class, so the list and the literal both move to 15 — another hand-maintained
-count in the same drift family.
-
-U3 and U4 need insert shapes satisfying their NOT NULL siblings and composite PKs; the plan pins the
-exact shape for each from the live table definitions rather than guessing.
-
----
+**Honest limit:** no rule can tell whether an exemption is *justified*. Someone who adds a real
+Drive-ID column and writes `reason: "not needed"` silences the guard permanently. The list ships empty,
+every future row lands in a reviewable diff, and §10 records this rather than pretending otherwise.
 
 ## 5. Guard conditions (per input, per the spec self-review checklist)
 
 | input | empty | malformed | absent / unset |
 | ----- | ----- | --------- | -------------- |
-| `columns` census | `[]` → the anchor assertion fails loudly (§4.5); never a silent pass | duplicate `(schema,table,column)` key → `duplicate_column`, so a duplicate can never satisfy the ≥ 23 floor | — |
-| `constraints` | `[]` → every column reports `uncovered` (correct) | definition not string-equal to either self-calibrated canonical form → `uncovered` (correct; §4.2) | a column with several CHECKs records the canonical one, else `null` → `uncovered` |
-| `exemptions` | `[]` → the shipping state; auditor returns `[]` when all columns are covered | `reason` empty/whitespace → `empty_reason`; duplicate key → `duplicate_exemption` | row naming an absent column → `stale_exemption/column_absent` |
-| committed census artifact | valid JSON `[]` → **fails** the Layer 1 shape contract (non-empty required) | wrong shape, missing field, wrong type, duplicate key, `schema` outside `{public,dev}`, constraint name > 63 bytes → each fails Layer 1 | missing file or unparseable JSON → Layer 1 and Layer 2 both fail; never coerced to `[]` or `{}` |
-| `LOCAL_TEST_DATABASE_URL` | set-but-empty → `assertLocalDbUrl` refuses (unparseable) | non-loopback host → refused by `assertLocalDbUrl` | unset → loopback default; unreachable → Layer 2 **skips** (and §10 records the cost) |
-| `TEST_DATABASE_URL` | set-but-empty → **FAIL** (mis-registered CI secret) | reachable but identity check fails → **FAIL** (wrong project; §4.6) | unset → Layer 3 **SKIPS** with a reported reason. There is no local fallback — auditing local against a census generated from local is trivially green (§4.6) |
-| live server deparser output | — | renders differently after a Postgres upgrade → self-calibration moves the expectation with it (§4.2 limit 2) | `search_path` pinned to `pg_catalog, public` so the rendering is taken under a known resolution order (§4.2 limit 1) |
+| live census result | `[]` → the required-tuple assertion and the ≥ 23 floor both fail loudly; never a silent pass | duplicate `(schema,table,column)` from a bad join → the floor counts DISTINCT keys, so duplicates cannot inflate it | a column present in the DB but missed by the predicate → its required tuple is absent → fail |
+| live constraints | `[]` → every column reports `uncovered` (correct) | definition not string-equal to either template → `uncovered` (correct) | a column with several CHECKs is covered if ANY of them matches a template |
+| canonical templates | — | a deparser change → the two named canaries (§4.2) fail with a clear message, rather than every column failing | templates are module constants, so they cannot be absent |
+| `exemptions` | `[]` → the shipping state | `reason` empty/whitespace → `empty_reason`; duplicate key → `duplicate_exemption` | row naming an absent column → `stale_exemption/column_absent` |
+| `LOCAL_TEST_DATABASE_URL` | set-but-empty → `assertLocalDbUrl` refuses (unparseable) | non-loopback host → refused by `assertLocalDbUrl` | unset → loopback default; unreachable → the suite skips locally, but `unit-suite-db` always provides a database in CI (§4.0) |
+| `search_path` | — | not pinned → the layer asserts `current_setting('search_path')` inside its own transaction and fails if it is not the pinned value | `SET LOCAL` issued outside a transaction expires silently — hence the one-transaction-one-connection contract (§4.1) |
 
 ---
 
@@ -642,12 +472,12 @@ Shared values are defined once and referenced, not restated:
 - **65 bytes** — the conventional-but-too-long U3 name — appears only in §1.1 item 2 and §3.1, both citing the same `wc -c` measurement.
 - **Four constraint names** are stated once each in §3's table and referenced nowhere else by literal; §3.1 restates only U3's, as the subject of that section.
 - **14** appears only as a quotation of the EXISTING hardcoded literals being removed — `tests/db/validation-schema-parity.test.ts:237` (§1.1 item 6, §4.6) and `tests/db/driveFileIdNonblank.db.test.ts:147` (§4.7, AC-14). It is never this spec's own count. **15** is the post-change public exactly-named count, in §4.7 and AC-14 only.
-- **Acceptance criteria run AC-1 … AC-18** with no gaps and no duplicates; AC-5's scope was narrowed (not deleted) when the SQL parser was removed in §4.0, and §10 item 1 carries what it no longer claims.
+- **Acceptance criteria run AC-1 … AC-15** with no gaps and no duplicates; the set was renumbered when §4 collapsed in R3, and every AC now maps to a mechanism that still exists.
 - **Behavioral-probe counts** appear as `3 of 19` (today) and `7 of 23` (after this change) in §4.7 and §10 item 4, and nowhere else.
 - **8 / 16 / 4** — statements per pass, results across two passes, and first-pass NOTICEs — appear only in §3.1.2, all from the one measurement.
-- **The predicate** `~ '[^[:space:]]'` is spelled in the migration (§3) and in §4.2's two canonical renderings, which §4.2 additionally derives at runtime by self-calibration rather than hardcoding — so the two spellings cannot drift apart silently.
+- **The predicate** `~ '[^[:space:]]'` is spelled in the migration (§3) and in §4.2's two template constants; §4.2's two canaries assert the parent migration's constraints still render as those constants, so the spellings cannot drift apart silently.
 
-**Artifact-mutation rule (from that same arc — a later edit to a normative artifact must update the spec and any recorded proof):** the census artifact (§0) is normative. Any later edit to it must be accompanied by the migration that justifies it; the Layer 1 tripwire and Layer 2 byte-equality check are what make a hand-edit fail rather than stick.
+**Where the normative enumeration lives, after the R3 collapse:** there is no committed census file to keep honest — the census is recomputed from the live database on every run (§4.1). The enumeration is therefore normative by construction rather than by artifact discipline, which is a stronger form of the same lesson: nothing to hand-edit, nothing to go stale.
 
 ---
 
@@ -690,10 +520,9 @@ Scope of that measurement, stated honestly: it was taken on the local UTF8 stack
 Lands in the same PR as `supabase/migrations/**`:
 
 1. Apply locally + test (TDD invariant 1 already requires this).
-2. `pnpm gen:schema-manifest` — **expected to be a no-op** for a constraint-only migration (§4.6). The plan runs `pnpm gen:schema-manifest --check` and asserts "fresh", so the expectation is verified rather than assumed. If it *does* change, that is a signal something unintended landed and the run stops.
-3. `pnpm gen:drive-id-coverage` and commit the census artifact (§0).
-4. Apply surgically to the validation project — `supabase db query --linked "<SQL>"` (or `psql "$TEST_DATABASE_URL" -f …`), then `notify pgrst, 'reload schema';`. Public schema only; `dev.*` is local-seed infrastructure, not a deploy target, and the migration's `alter table if exists` makes the dev block a no-op there.
-5. Verify Layer 3 green against validation before pushing.
+2. `pnpm gen:schema-manifest` — **expected to be a no-op** for a constraint-only migration: the manifest records tables and columns only (`scripts/schema-manifest/lib.ts:238-246`) and this migration adds no column. The plan runs `pnpm gen:schema-manifest --check` and asserts "fresh", so the expectation is verified rather than assumed. If it *does* change, something unintended landed and the run stops.
+3. Apply surgically to the validation project — `supabase db query --linked "<SQL>"` (or `psql "$TEST_DATABASE_URL" -f …`), then `notify pgrst, 'reload schema';`. Public schema only; `dev.*` is local-seed infrastructure, not a deploy target, and the migration's `alter table if exists` makes the dev block a no-op there.
+4. Verify the extended `validation-schema-parity` CHECK-parity test (§4.4) is green against validation before pushing.
 
 ---
 
@@ -701,58 +530,48 @@ Lands in the same PR as `supabase/migrations/**`:
 
 - **AC-1** The migration (§0) adds all four constraints from §3, wrapped in a single `begin; … commit;`, apply-twice safe, dev block guarded by `alter table if exists`.
 - **AC-2** All four columns reject `""`, `"   "`, `"\t"` with SQLSTATE 23514 and accept a valid id, proven behaviorally against local Postgres, with zero row residue.
-- **AC-3** `auditDriveIdCoverage` is a pure function with unit tests covering every branch in §4.4, including the false-coverage traps (name matches but definition differs; same column name on a different table; **same constraint NAME on a different table in the same schema**, per §3.1.3) and the duplicate-key and `duplicate_canonical` findings.
-- **AC-4** The census artifact (§0) is committed, byte-stable, and contains all 23 census rows keyed uniquely on `(schema, table, column)`, each with the constraint that establishes its coverage.
-- **AC-5** Layer 1 fails on every artifact-shape violation in §4.4: missing file, unparseable JSON, valid-but-empty array, missing/wrong-typed field, duplicate key, schema outside `{public, dev}`, constraint name > 63 bytes. It additionally fails a TRUNCATED artifact via the test-hardcoded required-tuple set and ≥ 23 distinct-key floor, neither derived from the artifact. **Layer 1 makes no claim to detect a newly-added column** — see §10.
-- **AC-6** Layer 2 fails when the local DB and the committed census disagree; its anchor assertion fails on an empty or short census; its size floor counts DISTINCT keys.
-- **AC-7** Layer 3 audits the validation project only after confirming target identity from the pooler DSN (`postgres.<ref>` username, `*.pooler.supabase.com` host, `<ref>` equal to a test-constant project ref), compares `(schema, table, column)` tuples against self-calibrated canonical definitions rather than bare constraint names, and FAILS (never skips) on set-but-empty, unreachable, or binding failure; it SKIPS with a reported reason only when `TEST_DATABASE_URL` is unset.
-- **AC-8** The exemption list ships empty, and each of its four rules has a failing-input unit test.
-- **AC-9** `BL-OPENING-REEL-DRIVE-ID-NONBLANK` and `BL-CHECKPOINT-CURSOR-DRIVE-ID-NONBLANK` move whole to `BACKLOG-archive.md` with provenance (ids unchanged), and the U4 drift finding is recorded there as part of the closure rather than filed as a new open item.
-- **AC-10** `pnpm gen:schema-manifest --check` reports the manifest fresh (no column change), and the migration is applied to the validation project.
-- **AC-11** Every `add constraint <name>` anywhere in `supabase/migrations/` is ≤ 63 bytes, pinned by a test that walks the whole directory (§3.1, §4.4) — not just the nonblank migrations.
-- **AC-12** The migration applies cleanly to the local DB despite the `no_global_cursor_columns` `ddl_command_end` event trigger re-scanning `public` on every statement (§3.1.1), and adds no `_allowed_watermark_columns` row.
-- **AC-13** `tests/db/validation-schema-parity.test.ts`'s CHECK-parity test is driven by the census artifact rather than by `20260702120200_drive_file_id_nonblank.sql` plus the literal `14`, retains a non-vacuity floor that does NOT come from the artifact alone (§4.4), and retains its documented `TEST_DATABASE_URL` postures.
-- **AC-14** `tests/db/driveFileIdNonblank.db.test.ts`'s public list and its length assertion cover all 15 public columns named exactly `drive_file_id` (was 14), including `onboarding_rebuild_attempts`.
-- **AC-15** The census predicate is the POSIX-regex form (`~ 'drive_file_id'`), never `LIKE`, and is restricted to `BASE TABLE` relations; a test pins that `driveXfileYid` is NOT in scope.
-- **AC-16** Self-calibration derives BOTH canonical forms from two distinct calibrator tuples (§4.2), and FAILS — never falls back to a hardcoded string — when a calibrator is absent, ambiguous, or renders unexpectedly.
-- **AC-17** All introspection runs inside one explicit transaction on one connection with `set local search_path = pg_catalog, public`, and asserts `current_setting('search_path')` inside that transaction before trusting any rendering.
-- **AC-18** The census records a `broadCount` from the independent `~ 'drive'` predicate; Layer 2 fails if any narrow-predicate column is absent from the broad set, or if `broadCount` has shrunk relative to the artifact.
+- **AC-3** `auditDriveIdCoverage` is pure, takes no calibrated input, and has unit tests for every branch: covered (both forms), uncovered, definition-differs-despite-matching-name, **same constraint NAME on a different table** (§3.1.3), and all four exemption findings.
+- **AC-4** The guard suite runs in `tests/db/` and therefore in the required `unit-suite-db` job; a deliberately uncovered column makes it RED, demonstrated by a test that removes a constraint inside a rolled-back transaction and asserts the auditor reports `uncovered`.
+- **AC-5** The census query uses the POSIX-regex predicate (`~ 'drive_file_id'`), never `LIKE`, restricted to `BASE TABLE`; a test pins that `driveXfileYid` is NOT in scope.
+- **AC-6** The suite asserts the six required tuples are present and that ≥ 23 DISTINCT `(schema, table, column)` keys exist, both against the live query.
+- **AC-7** All introspection runs in one explicit transaction on one connection with `set local search_path = pg_catalog, public`, asserting `current_setting('search_path')` inside that transaction before any rendering is trusted.
+- **AC-8** The canonical templates are module constants, and two canaries (§4.2) assert the parent migration's own constraints still render as those constants — the canaries check the templates, they never derive them.
+- **AC-9** The exemption list ships empty, and each of its four rules has a failing-input unit test.
+- **AC-10** `tests/db/validation-schema-parity.test.ts`'s CHECK-parity test parses BOTH nonblank migrations and its pinned public count moves from 14 to the verified new value; its superset assertion, failure message, and `TEST_DATABASE_URL` postures are otherwise unchanged.
+- **AC-11** `tests/db/driveFileIdNonblank.db.test.ts`'s public list and length assertion cover all 15 public columns named exactly `drive_file_id` (was 14), including `onboarding_rebuild_attempts`.
+- **AC-12** Every `add constraint <name>` anywhere in `supabase/migrations/` is ≤ 63 bytes, pinned by a test that walks the whole directory (§3.1).
+- **AC-13** The migration applies cleanly to the local DB despite the `no_global_cursor_columns` `ddl_command_end` event trigger re-scanning `public` on every statement (§3.1.1), and adds no `_allowed_watermark_columns` row.
+- **AC-14** `pnpm gen:schema-manifest --check` reports the manifest fresh (constraint-only migration, no column change), and the migration is applied to the validation project.
+- **AC-15** `BL-OPENING-REEL-DRIVE-ID-NONBLANK` and `BL-CHECKPOINT-CURSOR-DRIVE-ID-NONBLANK` move whole to `BACKLOG-archive.md` with provenance (ids unchanged); the U4 drift finding is recorded there as part of the closure; and the validation wrong-target exposure (§10 item 3) is filed to `BACKLOG.md` as a new open item.
 
 ---
 
 ## 10. Known limitations (what this guard does NOT guarantee)
 
-Stated because R1 showed the original draft's claims outran its mechanism. Each item is a deliberate
-acceptance, not an oversight.
+Stated because three review rounds showed earlier drafts' claims outrunning their mechanism. Each is a
+deliberate acceptance.
 
-1. **A new Drive-ID column can merge uncovered if nobody runs the DB-backed layers.** Layer 1 is the
-   only layer that runs everywhere, and after §4.0 it cannot discover columns — that needs a database.
-   CI has **no Postgres service** (verified: no `services:` block in any workflow), so Layer 2 never
-   runs there. The practical mitigation is that Layer 2 runs in the standard `pnpm test` path for
-   anyone with a local stack — including the pre-push gate this repo's ship pipeline runs — and that
-   any migration author necessarily has one, since applying and testing a migration locally is already
-   required by TDD invariant 1. It is a real hole, and closing it properly means giving CI a database.
-2. **None of these checks BLOCK a merge.** Only `quality` is a required status check on `main`; the
-   `x-audits` jobs — including `validation-schema-parity`, where Layer 3 lives — are advisory by an
-   explicit 2026-06-22 owner decision recorded in `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md`
-   (minimal branch protection re-added requiring `quality` only; audit checks deliberately left out of
-   the required set). A red Layer 3 surfaces in the PR UI and does not stop the merge. R1 finding 3
-   raised this; it is accurate and is a property of the repo's protection posture, not of this design.
-3. **An exemption row can silence the guard permanently.** The four rules in §4.3 catch stale and
-   malformed rows, not unjustified ones. Nothing mechanical can distinguish "this column legitimately
-   cannot carry a scalar nonblank CHECK" from "I wanted the gate green." The list ships empty and every
-   future row lands in a reviewable diff; that is the whole control.
-4. **Definition equality is not a correctness proof, and behavioral proof is a SAMPLE.** §4.2's limits:
-   the deparser renders what is visible under `search_path` (pinned inside an explicit transaction, but
-   a sufficiently privileged actor controls the schema anyway), and the rendering is version-dependent
-   (mitigated by two-form self-calibration). Execution is the only proof a predicate rejects blanks, and
-   §4.7 measures that **7 of 23** constrained columns will carry an execution probe after this change —
-   up from 3 of 19, and deliberately not all of them. The remaining 16 are covered by declaration only.
-6. **A census-query regression that is regenerated in the same commit is invisible.** §4.5 adds a broad
-   second predicate and a non-shrinking `broadCount`, and §4.4 adds a hardcoded floor, but a change that
-   drops a column matching *both* predicates while regenerating the artifact leaves every assertion
-   green. The deleted row is visible in the artifact diff; that is the only control.
-5. **Schema scope is an allowlist that a new repo-owned schema would escape.** The census covers
-   `public` and `dev`. The migration-side pin that would have caught a third repo-owned schema died with
-   the SQL parser (§4.0). A migration creating tables in a new schema would put them outside the census
-   silently until someone widened it.
+1. **Behavioral proof is a SAMPLE, and definition equality is not a correctness proof.** §4.2's
+   templates prove a constraint was *declared* in canonical form; only execution proves it rejects
+   blanks. §4.3 measures that **7 of 23** constrained columns carry an execution probe after this
+   change, up from 3 of 19. The other 16 are covered by declaration only.
+2. **An exemption row can silence the guard permanently.** §4.5's four rules catch stale and malformed
+   rows, not unjustified ones. The list ships empty and every future row lands in a reviewable diff;
+   that is the whole control.
+3. **`validation-schema-parity` cannot prove which database it connected to — pre-existing, and now
+   articulated.** R3 finding 1: a libpq URI's authority is not its effective target, because `?host=` /
+   `hostaddr=` query parameters and duplicate keyword-form fields override it. A `TEST_DATABASE_URL`
+   displaying the validation project's pooler authority can therefore connect elsewhere and pass. This
+   affects the whole job, predates this change, and is explicitly NOT fixed here; the plan files it to
+   `BACKLOG.md`. An earlier draft of this spec proposed an authority-parsing identity check, which
+   would have been security theatre against exactly this bypass.
+4. **A third repo-owned schema would fall outside the census.** §4.1 scans `public` and `dev`. Nothing
+   detects a migration creating tables in a new repo-owned schema; the earlier draft's migration-side
+   schema pin depended on the SQL parser deleted in an earlier round and is not replaced.
+5. **The guard sees columns whose NAME matches `drive_file_id`.** A Drive ID stored under an unrelated
+   name is undetectable by this mechanism, and nothing here claims otherwise.
+
+**What it DOES guarantee, since three drafts understated it:** a new Drive-ID-bearing column that lands
+without a nonblank CHECK fails `unit-suite-db` — a required, merge-blocking check that boots a real
+database with all migrations applied (§4.0) — on the PR that introduces it. That is the fail-by-default
+property this work set out to deliver.
