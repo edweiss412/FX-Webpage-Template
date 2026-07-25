@@ -1041,6 +1041,24 @@ describe("R6: scanner changes are pinned", () => {
       (lit) => lit !== lit.toLowerCase() && CASE_INSENSITIVE_NAMES.has(lit.toLowerCase()),
     );
     expect(offenders, "attribute-name literals must be lowercase").toEqual([]);
+
+    // Self-maintaining half: the fixed set above only protects names it knows, so a
+    // NEW comparison against some other attribute would silently escape it. Extract
+    // the names the scanner actually compares and require the set to cover them, so
+    // adding `attrName(a) === "download"` fails HERE until the set is extended.
+    // Neither half is complete alone -- accessor context misses unusual comparison
+    // forms (R10 MEDIUM 6) and the fixed set misses unknown names -- so both run.
+    const compared = [
+      ...src.matchAll(
+        /(?:attrName\([^)]*\)|jsxAttrNameLower\([^)]*\)|propNameLower\([^)]*\)|\bn\b|\bnm\b)\s*[=!]==?\s*"([^"]+)"/g,
+      ),
+      ...src.matchAll(/\b(?:names|SPREADABLE)\.has\(\s*"([^"]+)"/g),
+    ].map((m) => m[1]!.toLowerCase());
+    const uncovered = [...new Set(compared)].filter((n) => !CASE_INSENSITIVE_NAMES.has(n));
+    expect(
+      uncovered,
+      "add these attribute names to CASE_INSENSITIVE_NAMES so the lowercase rule covers them",
+    ).toEqual([]);
   });
 
   // R9 BLOCKING 2: `[^<>]*` ended the tag at any angle bracket inside it, so a later
