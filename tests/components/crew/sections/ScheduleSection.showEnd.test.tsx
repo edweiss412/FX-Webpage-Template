@@ -4,6 +4,7 @@ import { cleanup, render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { ScheduleDay } from "@/lib/parser/types";
+import { ledgerProp } from "./_ledgerProp";
 
 afterEach(cleanup);
 
@@ -14,6 +15,7 @@ const DATES = { travelIn: null, set: null, showDays: [D], travelOut: null };
 function renderWith(day: ScheduleDay) {
   return render(
     <ScheduleSection
+      {...ledgerProp()}
       data={makeShowForViewer({
         show: { dates: DATES },
         runOfShow: { [D]: day },

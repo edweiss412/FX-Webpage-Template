@@ -59,12 +59,22 @@ vi.mock("@/components/crew/sections/GearSection", () => ({
 vi.mock("@/components/crew/sections/BudgetSection", () => ({
   BudgetSection: mockSection("section-budget"),
 }));
+const { afterMock } = vi.hoisted(() => ({ afterMock: vi.fn() }));
+vi.mock("next/server", () => ({ after: afterMock }));
+
 vi.mock("@/components/crew/sections/VenueSection", async () => {
   const { WrappedSection } = await import("@/components/crew/WrappedSection");
   return {
-    VenueSection: ({ showId }: { showId: string }) => (
+    VenueSection: ({
+      showId,
+      ledger,
+    }: {
+      showId: string;
+      ledger: import("@/lib/crew/tileRenderLedger").TileRenderLedger;
+    }) => (
       <section data-testid="section-venue">
         <WrappedSection
+          ledger={ledger}
           tileId="crew:venue:diagrams"
           showId={showId}
           sheetName="Acme Show"
@@ -118,6 +128,11 @@ describe("CrewShell: projection-fetch alert + section render-throw alert are two
     });
     render(element);
 
+    // TILE_SERVER_RENDER_FAILED is now written by the post-response sweep, not
+    // during render, so drain the scheduled callbacks first. TILE_PROJECTION_
+    // FETCH_FAILED still fires inline during the shell body.
+    for (const [cb] of afterMock.mock.calls) await (cb as () => unknown)();
+
     const codes = upsertAdminAlert.mock.calls.map((c) => (c[0] as { code: string }).code);
 
     // TWO distinct codes — one per producer.
@@ -138,5 +153,7 @@ describe("CrewShell: projection-fetch alert + section render-throw alert are two
     expect(projection.context.tileId).toBe("crew:projection-alert");
     expect(renderFail.showId).toBe("show-29");
     expect(renderFail.context.tileId).toBe("crew:venue:diagrams");
+    // The sweep stamps the observer; an admin render buckets under "admin".
+    expect((renderFail.context as { viewerKey?: unknown }).viewerKey).toBe("admin");
   });
 });
