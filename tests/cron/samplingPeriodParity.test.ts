@@ -10,10 +10,10 @@
 //
 // DB-free: reads committed files only.
 import { describe, expect, test } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SAMPLING_PERIOD_MS } from "@/lib/drive/watchErrors";
-import { stripSqlComments } from "../helpers/sqlComments";
+import { effectiveScheduleBlock, migrationFilesInApplyOrder } from "../helpers/cronSchedules";
 
 const REGISTRY = join(
   process.cwd(),
@@ -22,40 +22,29 @@ const REGISTRY = join(
 
 const JOB_NAME = "fxav_cron_refresh_watch";
 
-// Both migrations that schedule fxav_cron_* jobs, in apply order.
-const SCHEDULE_MIGRATIONS = [
-  "supabase/migrations/20260527000003_schedule_cron_jobs.sql",
-  "supabase/migrations/20260602000005_b3_schedule_notify_cron.sql",
-];
-
 /**
- * The schedule a job is ACTUALLY given by the migrations, scoped to that job's
- * own `cron.schedule` call.
+ * The schedule a job is ACTUALLY given, from its last live `cron.schedule` call
+ * across ALL migrations.
  *
  * Whole-diff R9 finding 1: the registry JSON alone was not enough. The existing
  * migration check (`tests/cross-cutting/pg-cron-coverage.test.ts:156`) asserts
  * `scheduledSql.toContain(job.schedule)` against the CONCATENATED file text, and
  * `fxav_cron_notify_digest` also runs `0 * * * *` — so changing refresh-watch's
  * migration schedule to a three-hourly one leaves that assertion green (the
- * string is still present, from the other job) and leaves this file's registry
- * comparison green (the JSON was not touched). Production would then sample every
- * three hours while SAMPLING_PERIOD_MS, the renewal lead, and the short-grant
- * heuristic all stayed hourly.
+ * string is still present, from the other job) and leaves the registry
+ * comparison green (the JSON was not touched). Verified by mutation: that check
+ * passes 7/7 under exactly that change. Production would then sample every three
+ * hours while SAMPLING_PERIOD_MS, the renewal lead, and the short-grant heuristic
+ * all stayed hourly.
  *
- * Later migrations win, matching apply order. Comments are stripped first so a
- * commented-out schedule cannot supply the answer.
+ * Whole-diff R10: discovery must not name migration files. A cadence change lands
+ * as a NEW migration, which a hard-coded path list would never read.
  */
 function scheduleFromMigrations(jobName: string): string {
-  const pattern = new RegExp(`cron\\.schedule\\('${jobName}'\\s*,\\s*'([^']*)'`, "g");
-  let found: string | undefined;
-  for (const relative of SCHEDULE_MIGRATIONS) {
-    const sql = stripSqlComments(readFileSync(join(process.cwd(), relative), "utf8"));
-    for (const match of sql.matchAll(pattern)) found = match[1];
-  }
-  if (found === undefined) {
-    throw new Error(`${jobName} is not scheduled by any known migration`);
-  }
-  return found;
+  const block = effectiveScheduleBlock(jobName);
+  const match = new RegExp(`cron\\.schedule\\('${jobName}'\\s*,\\s*'([^']*)'`).exec(block);
+  if (!match) throw new Error(`${jobName}: schedule literal not found in its own block`);
+  return match[1]!;
 }
 
 /**
@@ -129,6 +118,22 @@ describe("SAMPLING_PERIOD_MS agrees with the canonical refresh-watch schedule", 
     // refresh-watch, different job.
     expect(scheduleFromMigrations("fxav_cron_notify_digest")).toBe("0 * * * *");
     expect(() => scheduleFromMigrations("fxav_cron_not_a_job")).toThrow(/not scheduled/);
+  });
+
+  test("schedule discovery scans every migration, so a NEW one cannot be missed", () => {
+    // Whole-diff R10: this guard and the T_EXEC_BUDGET_MS guard both named
+    // migration files explicitly. Migrations are immutable by convention, so a
+    // cadence change arrives as a NEW file and a hard-coded list would keep
+    // reading the superseded value and pass. Pin the discovery itself: if anyone
+    // narrows it back to a fixed list, this fails.
+    const scanned = migrationFilesInApplyOrder();
+    const all = readdirSync(join(process.cwd(), "supabase/migrations"))
+      .filter((n: string) => n.endsWith(".sql"))
+      .sort();
+    expect(scanned).toEqual(all);
+    expect(scanned.length).toBeGreaterThan(100);
+    // apply order, not directory order
+    expect([...scanned]).toEqual([...scanned].sort());
   });
 
   test("the period parser rejects shapes it cannot reason about", () => {

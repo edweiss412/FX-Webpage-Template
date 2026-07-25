@@ -8,12 +8,11 @@
 // unit-suite-nodb on a runner with no Supabase and no psql): the WatchTx is a
 // local fake and the Drive client is mocked.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 import type { WatchTx } from "@/lib/drive/watch";
 import { stripSqlComments } from "../helpers/sqlComments";
+import { effectiveScheduleBlock } from "../helpers/cronSchedules";
 
 const driveMock = {
   watchArgs: [] as Array<{ fileId?: string; requestBody?: Record<string, unknown> }>,
@@ -259,26 +258,15 @@ describe("short-grant anomaly (§3.3)", () => {
     // never opened the migration it cited, so changing the scheduler timeout
     // while leaving the constant alone kept it green. It now parses the value.
     const { T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
-    const migration = readFileSync(
-      join(process.cwd(), "supabase/migrations/20260527000003_schedule_cron_jobs.sql"),
-      "utf8",
-    );
-    // Strip SQL comments FIRST: the migration discusses this parameter in prose,
-    // and a `-- timeout_milliseconds := …` line would otherwise satisfy the
-    // parity check while the live statement said something else.
-    const live = stripSqlComments(migration);
-    // Then scope to THIS job's schedule block. All seven jobs declare the same
-    // parameter, and the first live match belongs to fxav_cron_sync — so an
-    // edit to refresh-watch's own timeout would have left this green while the
-    // constant went stale (R7 finding 1).
-    // Anchor on the SCHEDULE call, not the bare job name: a future migration with
-    // a named `cron.unschedule('fxav_cron_refresh_watch')` would otherwise anchor
-    // the block at the unschedule and run to the NEXT schedule — silently reading
-    // a different job's timeout, which is the very bug this scoping fixes.
-    const jobIdx = live.indexOf("cron.schedule('fxav_cron_refresh_watch'");
-    expect(jobIdx, "refresh-watch is no longer scheduled in this migration").toBeGreaterThan(-1);
-    const blockEnd = live.indexOf("cron.schedule(", jobIdx + 1);
-    const block = live.slice(jobIdx, blockEnd === -1 ? undefined : blockEnd);
+    // Scoped to refresh-watch's OWN schedule block, and discovered by scanning
+    // every migration rather than naming one (whole-diff R10). All seven jobs
+    // declare the same parameter, so an unscoped match would read
+    // fxav_cron_sync's timeout (R7 finding 1); and because migrations are
+    // immutable, a timeout change arrives as a NEW file that a hard-coded path
+    // would never open. `effectiveScheduleBlock` takes the LAST live schedule
+    // for the job across all migrations, with comments stripped first so a
+    // commented-out declaration cannot supply the value (R8 finding 3).
+    const block = effectiveScheduleBlock("fxav_cron_refresh_watch");
     // And prove the block really is refresh-watch's, so a future reshuffle cannot
     // quietly hand us a neighbour's body.
     expect(block).toContain("/api/cron/refresh-watch");
