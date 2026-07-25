@@ -1183,6 +1183,24 @@ describe("R6: scanner changes are pinned", () => {
     expect(violations(`const A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;`)).toEqual(
       [],
     );
+    // A spread colliding with a direct attribute is reported in EITHER source order.
+    // React resolves those by source order, so the effective target depends on
+    // position; the guard does not guess, it reports.
+    for (const code of [
+      `const A=()=><a href="x" target="_self" {...{target:"_blank"}}>Go</a>;`,
+      `const A=()=><a href="x" {...{target:"_blank"}} target="_self">Go</a>;`,
+      `const A=()=><a href="x" TARGET="_blank" {...{target:"_self"}}>Go</a>;`,
+    ]) {
+      expect(violations(code).join(" "), `must report: ${code}`).toMatch(
+        /unrecognized|case-folding/,
+      );
+    }
+    // SCOPE BOUNDARY, deliberate: a duplicate on an element that is not a link
+    // candidate is not this guard's business. `<div aria-label ARIA-LABEL>` is a
+    // general a11y smell, not a silent new-tab link, and reporting it here would make
+    // the guard a general attribute linter.
+    const notALink = probe(`const A=()=><div aria-label="a" ARIA-LABEL="b">x</div>;`);
+    expect(notALink.anchors, "a non-link element is out of scope for this guard").toBe(0);
   });
 
   // R11 BLOCKING 2: two more resolvable-spread shapes that carried no candidacy names.
