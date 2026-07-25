@@ -31,7 +31,14 @@ const DEFERRAL_ID = /^### ([A-Z0-9][A-Z0-9-]+)/gm;
  * the ~130 historical archive entries: those predate the guard and are covered
  * only by the no-overlap invariant below, not by per-id presence.
  */
-const GRADUATED = ["SETTINGS-DEVROW-GALLERY-RESIDUE-1"] as const;
+const GRADUATED = [
+  "SETTINGS-DEVROW-GALLERY-RESIDUE-1",
+  // feat/sharehub-archive-copy-reveal (2026-07-24). The first RESOLVED by the
+  // popover placement migration; the second archived as REFUTED rather than
+  // fixed, which is still a graduation — it left the open queue.
+  "SHAREHUB-ARM-VIEWPORT-REVEAL-1",
+  "SHAREHUB-ARCHIVE-GRAVITY-CUE-1",
+] as const;
 
 // process.cwd() is the project root under vitest — the convention
 // tests/cross-cutting/vitest-projects-partition.test.ts already uses.
