@@ -440,7 +440,7 @@ Round 3 already triggered the comprehensive re-analysis. Round 4 found more of t
 **Rules for the matrix.**
 
 - Every adversary must be rejected by at least one row. An adversary nothing reds against is a coverage hole, and the fix is a new test, never a note.
-- Every row must reject at least one adversary. A row that rejects nothing is deleted, not kept for reassurance. Two exemptions, declared: the contrast pins and the typecheck gate, which are regression guards rather than red-first rows.
+- Every row must reject at least one adversary. A row that rejects nothing is deleted, not kept for reassurance. Three exemptions, declared: the contrast pins and the typecheck gate, which are regression guards rather than red-first rows; and `tests/components/admin/showpage/shareChipOrphanRemoval.test.ts`, which is a §9.4 completion guard for K1/K2 rather than a cue row — it asserts the ABSENCE of deleted code, so no mutation of the cue can red it. Exempt does not mean optional: K1/K2 require it.
 - The matrix runs against the FINAL assertion set, once, not incrementally per repair. Running it per-repair is precisely how the reduced-motion assertion regressed — a later narrowing undid an earlier widening and nothing re-checked the whole.
 - **Commit before mutating.** Reverting an injected mutation with `git checkout --` discards uncommitted work in that file.
 
