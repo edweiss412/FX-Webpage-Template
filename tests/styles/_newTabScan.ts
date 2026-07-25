@@ -38,6 +38,12 @@ export function walkFiles(dir: string, ext: RegExp): string[] {
   });
 }
 
+/** Every JavaScript line terminator. LF-only handling has now produced THREE separate
+ *  findings -- a `//` comment that ran past CR (R14), a jsdoc continuation strip that kept
+ *  its decoration (R17), and the JSX whitespace model below -- so the class lives in one
+ *  place. `\r`, U+2028 and U+2029 are line terminators to the JS grammar and to JSX. */
+const LINE_TERMINATORS = /[\n\r\u2028\u2029]/;
+
 export const PHRASE = "opens in a new tab";
 const HINT = "NewTabHint";
 const EXEMPTION = "no-newtab-announcement:";
@@ -471,11 +477,11 @@ function hintHasSiblingSpace(root: ts.Node): boolean {
       if (ts.isJsxText(prev)) {
         const t = prev.text;
         if (t.trim().length === 0) {
-          if (/\n/.test(t)) continue; // stripped by JSX: keep looking
+          if (LINE_TERMINATORS.test(t)) continue; // stripped by JSX: keep looking
           return true; // real same-line space run
         }
         const trailing = t.slice(t.trimEnd().length);
-        return trailing.length > 0 && !/\n/.test(trailing);
+        return trailing.length > 0 && !LINE_TERMINATORS.test(trailing);
       }
       if (
         ts.isJsxExpression(prev) &&
@@ -1101,8 +1107,7 @@ export function commentRanges(src: string): [number, number][] {
   // A `//` comment ends at ANY JavaScript line terminator, not only LF. CR, U+2028 and
   // U+2029 are all valid, and stopping at LF alone blanked the rest of the file
   // (review R14 BLOCKING 2).
-  const isLineTerminator = (ch: string | undefined): boolean =>
-    ch === "\n" || ch === "\r" || ch === "\u2028" || ch === "\u2029";
+  const isLineTerminator = (ch: string | undefined): boolean => LINE_TERMINATORS.test(ch ?? "");
 
   const out: [number, number][] = [];
   for (let i = from; i < src.length - 1; i += 1) {
@@ -1157,7 +1162,7 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
     const text = src
       .slice(a, b)
       .replace(/\*+\/$/, "")
-      .split("\n")
+      .split(LINE_TERMINATORS)
       .map((l) => l.replace(/^\s*\*+\s?/, ""))
       .join("\n");
     const at = text.indexOf(EXEMPTION);

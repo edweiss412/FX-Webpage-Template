@@ -1283,7 +1283,12 @@ describe("R6: scanner changes are pinned", () => {
         (n) =>
           `const A=({e})=><a href="x" {...(e?{target:"_blank",${n}:"noreferrer"}:{})}>Go {e?<> <NewTabHint /></>:null}</a>;`,
       ],
-      ["href", (n) => `const A=()=><Foo ${n}="x" target="_blank">Go</Foo>;`],
+      // Reaches candidacy THROUGH `href`: an unknown tag with a spread is admitted only by
+      // the href+spread rule, so a case-sensitive `href` read drops the anchor entirely.
+      // The old fixture carried a literal `target="_blank"`, which admits `<Foo>` before
+      // `href` is ever consulted -- it returned the same violation under a case-sensitive
+      // regression and proved nothing (R17 finding 1).
+      ["href", (n) => `const A=()=><Foo ${n}="x" {...p}>Go</Foo>;`],
       [
         "aria-label",
         (n) =>
@@ -1395,6 +1400,57 @@ describe("R6: scanner changes are pinned", () => {
       const src = `const A=({dest})=><a href="x" target //c${sep} ={dest}>Go</a>;`;
       expect(admitsCandidate(src), `must admit across separator ${JSON.stringify(sep)}`).toBe(true);
     }
+    // SAME CLASS, two more sites (R17 finding 2 + its class-sweep). LF-only handling has now
+    // produced three separate findings, so every per-line operation is pinned across all four
+    // terminators, not just the one that was reported.
+    const anchorX = 'const A=()=><a href="x" target="_blank">Go</a>;';
+    for (const sep of ["\n", "\r", "\u2028", "\u2029"]) {
+      const s = JSON.stringify(sep);
+      // (a) jsdoc decoration stripping. Splitting on LF alone left a bare `*` on the
+      // continuation line, which was then mistaken for a reason -- so an exemption with NO
+      // reason was honored, which is the whole thing the reason requirement exists to stop.
+      // TWO decorative lines, deliberately: with an LF-only split the whole body is ONE
+      // line, the single leading-decoration strip eats only the first `*`, and the second
+      // one survives as a "reason". A single decorative line is strip-equivalent under both
+      // and proves nothing -- the first version of this pin made exactly that mistake.
+      expect(
+        violations(`/**${sep} * ${EXEMPTION_TEXT}${sep} *${sep} *${sep} */${sep}${anchorX}`).length,
+        `decoration-only exemption must NOT be honored across ${s}`,
+      ).toBe(1);
+      // And a real reason still is, so the fix did not simply reject everything.
+      expect(
+        violations(`/**${sep} * ${EXEMPTION_TEXT} legacy icon${sep} */${sep}${anchorX}`),
+        `a real reason must still be honored across ${s}`,
+      ).toEqual([]);
+      // (b) the JSX whitespace model, which is a fail-open in the SHIPPED rule rather than
+      // in the guard: JSX strips a trailing whitespace run containing ANY line terminator,
+      // so the hint has no separator and the computed name is "Go(opens in a new tab)".
+      expect(
+        violations(`const A=()=><a href="x" target="_blank">Go${sep}<NewTabHint /></a>;`).length,
+        `a ${s}-only separator is stripped by JSX and must be reported`,
+      ).toBe(1);
+      // Control, and a correction worth keeping: `Go ${sep}` is NOT accepted either, because
+      // JSX strips the WHOLE trailing whitespace run once it contains a terminator -- the
+      // space does not survive. What prettier actually emits across a line break is the
+      // explicit `{" "}` form, and that is what must be accepted.
+      expect(
+        violations(`const A=()=><a href="x" target="_blank">Go ${sep}<NewTabHint /></a>;`).length,
+        `space+${s} is one stripped run, so it must still be reported`,
+      ).toBe(1);
+      expect(
+        violations(`const A=()=><a href="x" target="_blank">Go{" "}${sep}<NewTabHint /></a>;`),
+        `an explicit {" "} then ${s} must be accepted`,
+      ).toEqual([]);
+      // The whitespace-ONLY-text-node branch: a stripped run must be walked THROUGH, not
+      // treated as a space. Reachable only when adjacent content precedes it -- after a
+      // `{" "}` both readings accept, so that shape cannot discriminate.
+      expect(
+        violations(`const A=()=><a href="x" target="_blank"><b>Go</b>${sep}<NewTabHint /></a>;`)
+          .length,
+        `a stripped ${s} run after adjacent content is not a space`,
+      ).toBe(1);
+    }
+
     // A shebang is not a comment, and its content can contain `//` (a URL).
     const shebang = "#!/usr/bin/env -S https://x.test/tool\nconst x=1;";
     expect(stripCommentsSafely(shebang)).toBe(shebang);
