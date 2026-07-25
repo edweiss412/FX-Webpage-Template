@@ -13,8 +13,9 @@ import vitestConfig from "@/vitest.config";
 // no `idle_timeout`, which postgres.js leaves `null`, meaning never auto-close.
 // Nothing in those files closes those connections. What does is process exit:
 // vitest gives each test file its own worker and terminates it when the file
-// finishes. Full numbers in BACKLOG.md's withdrawn BL-TEST-PG-CLIENT-TEARDOWN
-// entry, which is where that measurement lives; this file exists to keep the
+// finishes. Full numbers in BACKLOG-archive.md's withdrawn
+// BL-TEST-PG-CLIENT-TEARDOWN entry, which is where that measurement lives (it
+// graduated out of BACKLOG.md on 2026-07-25); this file exists to keep the
 // property it depends on from being switched off.
 //
 // Two independent settings govern it. File parallelism does NOT disable
