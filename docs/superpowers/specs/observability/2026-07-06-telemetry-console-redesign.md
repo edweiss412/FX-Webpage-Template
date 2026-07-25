@@ -8,6 +8,23 @@
 
 ---
 
+## Amendment — 2026-07-25, copy supersession (BL-COPY-CRON-SWEEP-2)
+
+The word "cron" was de-jargoned out of this page's user-visible copy, because Doug holds the developer tier and reaches this page from his phone (`PRODUCT.md` design principle 5: "Plain language, never technical chrome"). Structure, tokens, testids, and `aria-labelledby` ids are unchanged; only rendered strings moved. Four pins in this document are therefore superseded:
+
+| Section | This spec says | Shipped copy |
+| --- | --- | --- |
+| §1 diagram (`AdminPageHeader sub=`) | `App event log & cron health` | `App event log & scheduled-job health` |
+| §7.2 card 3 (`infra_error` sub-line) | `Cron health unavailable` | `Health unavailable` (non-redundant under the relabelled card) |
+| §7.2 card 3 label · §7.6 `<h2>` | `Cron jobs` · `Cron health` | `Scheduled jobs` (both) |
+| page-level degraded fallback | `Couldn't load cron health right now.` | `Couldn't load scheduled-job health right now.` |
+
+"Scheduled job" rather than the 2026-07-03 catalog sweep's "automatic sync": this page reports health for 9 jobs (notify, diagram-gc, report-reaper, asset-recovery, keepalive, sync, refresh-watch, gc-watch), so a sync word would have narrowed the label to one of them.
+
+The committed design mock (`TelemetryConsole.dc.html`) still renders the old strings. It is a point-in-time visual reference for layout, not a copy source; it was deliberately not edited.
+
+---
+
 ## 1. Goal
 
 Rework `/admin/dev/telemetry` from a flat vertical stack into a real telemetry console:
