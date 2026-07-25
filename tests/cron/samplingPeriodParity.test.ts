@@ -51,9 +51,10 @@ function scheduleFromMigrations(jobName: string): string {
   // Whitespace-tolerant everywhere the call is matched (whole-diff R12): two
   // migrations already write `cron.schedule(` with the arguments on their own
   // lines, and a literal-anchored regex silently matches none of them.
-  const match = new RegExp(`cron\\s*\\.\\s*schedule\\s*\\(\\s*'${jobName}'\\s*,\\s*'([^']*)'`).exec(
-    block,
-  );
+  const match = new RegExp(
+    `"?cron"?\\s*\\.\\s*"?schedule"?\\s*\\(\\s*'${jobName}'\\s*,\\s*'([^']*)'`,
+    "i",
+  ).exec(block);
   if (!match) throw new Error(`${jobName}: schedule literal not found in its own block`);
   return match[1]!;
 }
@@ -299,6 +300,45 @@ describe("SAMPLING_PERIOD_MS agrees with the canonical refresh-watch schedule", 
         unattributableCronCalls(["perform cron.schedule(jobname, '0 * * * *', 'select 1;');"]),
       ).toHaveLength(1);
       expect(unattributableCronCalls([scheduleSql("0 * * * *")])).toEqual([]);
+    });
+
+    test("case variants and quoted identifiers are the same call (R14)", () => {
+      // Unquoted identifiers fold to lower case in PostgreSQL, and
+      // `"cron"."schedule"` is the quoted spelling of that same lower-case name.
+      // All of these are the SAME function; a scanner that sees only one spelling
+      // lets a reschedule through silently.
+      for (const spelling of [
+        `perform CRON.SCHEDULE('fxav_cron_refresh_watch', '0 */3 * * *', format($body$ select 1; $body$));`,
+        `perform "cron"."schedule"('fxav_cron_refresh_watch', '0 */3 * * *', format($body$ select 1; $body$));`,
+        `perform Cron.Schedule ('fxav_cron_refresh_watch', '0 */3 * * *', format($body$ select 1; $body$));`,
+      ]) {
+        expect(
+          effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+            scheduleSql("0 * * * *"),
+            spelling,
+          ]),
+          spelling,
+        ).toContain("0 */3 * * *");
+      }
+
+      for (const spelling of [
+        `perform CRON.UNSCHEDULE('fxav_cron_refresh_watch');`,
+        `perform "cron"."unschedule"('fxav_cron_refresh_watch');`,
+      ]) {
+        expect(
+          effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+            scheduleSql("0 * * * *"),
+            spelling,
+          ]),
+          spelling,
+        ).toBeNull();
+      }
+
+      // And the completeness scanner must see them too, or an unrecognised
+      // spelling would pass BOTH scanners — the exact hole R14 reported.
+      expect(
+        unattributableCronCalls([`perform CRON.SCHEDULE(jobname, '0 * * * *', 'select 1;');`]),
+      ).toHaveLength(1);
     });
 
     test("a commented-out unschedule does not count", () => {

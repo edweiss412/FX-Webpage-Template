@@ -95,6 +95,24 @@ function scheduleCallAt(sql: string, start: number): string {
 const escapeForRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
+ * Regex source matching a qualified `cron.<fn>(` call, in every spelling
+ * PostgreSQL treats as the same function.
+ *
+ * ONE definition, referenced by every matcher here, because R8-R14 were all the
+ * same failure: one scanner recognising a narrower set than another (or than SQL)
+ * and the difference becoming a silent false-green. Divergence is only possible
+ * if the spellings are written out more than once, so they are not.
+ *
+ * Covered, per whole-diff R14: case — unquoted identifiers fold to lower case, so
+ * `CRON.SCHEDULE` is the same function; optional double quotes — `"cron"."schedule"`
+ * is the quoted form of the same lower-case identifier; and whitespace around the
+ * dot and the paren (R12/R13). Callers add the `i` flag.
+ */
+function cronCall(fn: string): string {
+  return `"?cron"?\\s*\\.\\s*"?${fn}"?\\s*\\(`;
+}
+
+/**
  * Deliberately over-permissive scanner for ANY cron schedule/unschedule call.
  *
  * Six review rounds landed on one species: the strict matcher recognised less
@@ -109,7 +127,7 @@ const escapeForRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * `lastIndex` between calls and would alternate true/false. Callers that need
  * iteration build their own.
  */
-const LOOSE_CRON_CALL = /cron\s*\.\s*(?:un)?schedule\s*\(/;
+const LOOSE_CRON_CALL = new RegExp(cronCall("(?:un)?schedule"), "i");
 
 /**
  * Cron calls the strict matchers cannot attribute to a job.
@@ -125,10 +143,10 @@ export function unattributableCronCalls(sources: string[]): string[] {
   const found: string[] = [];
   for (const source of sources) {
     const sql = stripSqlComments(source);
-    for (const m of sql.matchAll(/cron\s*\.\s*(un)?schedule\s*\(/g)) {
+    for (const m of sql.matchAll(new RegExp(cronCall("(un)?schedule"), "gi"))) {
       if (m[1]) continue; // unschedule: literal or opaque, both covered
       const rest = sql.slice(m.index);
-      if (!/^cron\s*\.\s*schedule\s*\(\s*'[^']+'/.test(rest)) {
+      if (!new RegExp(`^${cronCall("schedule")}\\s*'[^']+'`, "i").test(rest)) {
         found.push(rest.slice(0, 80).replace(/\s+/g, " "));
       }
     }
@@ -144,9 +162,9 @@ export function cronEventsForJob(jobName: string, sources: string[]): CronEvent[
   // invisible to discovery, leaving the previous block effective while both
   // parity guards stayed green against a schedule production no longer used.
   const job = escapeForRegex(jobName);
-  const scheduleRe = new RegExp(`cron\\s*\\.\\s*schedule\\s*\\(\\s*'${job}'`, "g");
-  const unscheduleRe = new RegExp(`cron\\s*\\.\\s*unschedule\\s*\\(\\s*'${job}'`, "g");
-  const anyUnscheduleRe = /cron\s*\.\s*unschedule\s*\(\s*/g;
+  const scheduleRe = new RegExp(`${cronCall("schedule")}\\s*'${job}'`, "gi");
+  const unscheduleRe = new RegExp(`${cronCall("unschedule")}\\s*'${job}'`, "gi");
+  const anyUnscheduleRe = new RegExp(`${cronCall("unschedule")}\\s*`, "gi");
   const events: CronEvent[] = [];
 
   for (const source of sources) {
