@@ -21,9 +21,12 @@
  *   (2) STRUCTURAL (added in the next task) — every file in the tree that READS the
  *       variable routes it through the guard, so a NEW suite fails by default.
  */
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { assertLocalDbUrl, assertLocalDbUrlIfSet } from "./_localDbUrl";
+import { classifyLocalDbUrlSource, type LocalDbUrlClassification } from "./_localDbUrlScan";
 
 const LOOPBACK_DSNS = [
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
@@ -104,5 +107,119 @@ describe("assertLocalDbUrlIfSet (spec §2.2 — the qualityRegressionLifecycle l
     );
     // An empty string is a misconfiguration, not "unset".
     expect(() => assertLocalDbUrlIfSet("")).toThrow(/unparseable/i);
+  });
+});
+
+// ── (2) STRUCTURAL ────────────────────────────────────────────────────────────
+// The classifier is exercised against SYNTHETIC sources first: run only against
+// the live tree, a fail-OPEN branch is unobservable (the tree would simply have no
+// instance of the shape), and the guard would look green while accepting the very
+// bypass it exists to reject.
+
+const ENV = "process.env.LOCAL_TEST_DATABASE_URL";
+const DEFAULT_DSN = '"postgresql://postgres:postgres@127.0.0.1:54322/postgres"';
+
+describe("classifyLocalDbUrlSource — synthetic shapes (spec §2.6)", () => {
+  test("the canonical guarded shape reads once and is guarded", () => {
+    const src = `const U = assertLocalDbUrl(${ENV} ?? ${DEFAULT_DSN});`;
+    expect(classifyLocalDbUrlSource(src)).toMatchObject({ envReads: 1, unguardedReads: 0 });
+  });
+
+  test("a guard call ELSEWHERE in the expression does not launder an unguarded read", () => {
+    // The exact shape a regex ("file mentions assertLocalDbUrl near the env read")
+    // would accept: the guard runs on the fallback, the env value bypasses it.
+    const src = `const U = assertLocalDbUrl(fallback) ?? ${ENV};`;
+    expect(classifyLocalDbUrlSource(src)).toMatchObject({ envReads: 1, unguardedReads: 1 });
+  });
+
+  test("importing the guard without using it on the read is not enough", () => {
+    const src = [
+      'import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";',
+      `const U = ${ENV} ?? ${DEFAULT_DSN};`,
+    ].join("\n");
+    expect(classifyLocalDbUrlSource(src)).toMatchObject({ envReads: 1, unguardedReads: 1 });
+  });
+
+  test("assertLocalDbUrlIfSet also counts as a guard", () => {
+    const src = `const U = process.env.TEST_DATABASE_URL ?? assertLocalDbUrlIfSet(${ENV});`;
+    expect(classifyLocalDbUrlSource(src)).toMatchObject({ envReads: 1, unguardedReads: 0 });
+  });
+
+  test("the bracket spelling is a read too", () => {
+    const src = `const U = assertLocalDbUrl(process.env["LOCAL_TEST_DATABASE_URL"] ?? ${DEFAULT_DSN});`;
+    expect(classifyLocalDbUrlSource(src)).toMatchObject({ envReads: 1, unguardedReads: 0 });
+    const bare = `const U = process.env["LOCAL_TEST_DATABASE_URL"];`;
+    expect(classifyLocalDbUrlSource(bare)).toMatchObject({ envReads: 1, unguardedReads: 1 });
+  });
+
+  test("a MENTION in a comment or string is not a read (this is what keeps this file out of its own scan set)", () => {
+    const src = [
+      "// LOCAL_TEST_DATABASE_URL is documented here",
+      'const doc = "process.env.LOCAL_TEST_DATABASE_URL";',
+    ].join("\n");
+    expect(classifyLocalDbUrlSource(src)).toMatchObject({ envReads: 0, unguardedReads: 0 });
+  });
+
+  test("an exemption marker needs a reason", () => {
+    expect(classifyLocalDbUrlSource("// local-db-url-exempt:").exemptReason).toBeNull();
+    expect(
+      classifyLocalDbUrlSource("// local-db-url-exempt: validation-capable by design").exemptReason,
+    ).toBe("validation-capable by design");
+  });
+});
+
+// ── The live tree ─────────────────────────────────────────────────────────────
+
+const TESTS_ROOT = join(process.cwd(), "tests");
+
+function walkTestSources(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkTestSources(full));
+    else if (/\.tsx?$/.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
+/** Every file under tests/ that actually READS the variable, with its verdict. */
+function scanTree(): Array<{ path: string } & LocalDbUrlClassification> {
+  return walkTestSources(TESTS_ROOT)
+    .map((full) => ({
+      path: relative(process.cwd(), full),
+      ...classifyLocalDbUrlSource(readFileSync(full, "utf8"), full),
+    }))
+    .filter((row) => row.envReads > 0)
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+describe("every LOCAL_TEST_DATABASE_URL read in tests/ is guarded (spec §2.6)", () => {
+  test("no unguarded read survives anywhere in the tree", () => {
+    const offenders = scanTree()
+      .filter((row) => row.unguardedReads > 0 && row.exemptReason === null)
+      .map((row) => `${row.path} (${row.unguardedReads} unguarded)`);
+    expect(
+      offenders,
+      "these suites read LOCAL_TEST_DATABASE_URL without assertLocalDbUrl(...):\n" +
+        offenders.join("\n"),
+    ).toEqual([]);
+  });
+
+  test("nothing is exempt", () => {
+    // Set equality, not "no NEW exemptions": the first exemption must be a
+    // deliberate, reviewable edit to this expectation.
+    const exempt = scanTree()
+      .filter((row) => row.exemptReason !== null)
+      .map((row) => row.path);
+    expect(exempt).toEqual([]);
+  });
+
+  test("the walker still finds the whole scan set (a vacuous walk would pass everything above)", () => {
+    const scanned = scanTree();
+    expect(
+      scanned.length,
+      "expected 53 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
+        "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts",
+    ).toBe(53);
   });
 });
