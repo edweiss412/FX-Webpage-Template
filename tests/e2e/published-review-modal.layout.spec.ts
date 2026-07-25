@@ -1183,9 +1183,11 @@ test.describe("crew warning placement — containment (crew-warning-attachment T
     // (tests/admin/wizard/crewWarnStack.test.tsx) — jsdom computes no layout, so
     // nothing proves the class resolves to the row's extent.
     //
-    // Concrete failure modes this catches:
-    //   - the stack rendered `inline-flex` / `w-fit` shrinks to its widest card
-    //     instead of filling the row (border box narrows);
+    // Concrete failure modes this catches (each verified by mutation):
+    //   - `w-fit` on the stack shrinks it to its widest card instead of filling
+    //     the row (border-box width). Caught at 1280 only: at 390 the widest card
+    //     already fills the narrow row, so shrink-to-fit and fill are
+    //     geometrically identical there — hence BOTH viewports run;
     //   - the 24px per-kind indent (crewwarn-underrow-polish §2, `pl-6` on the
     //     wrapper INSIDE the stack, so each kind opts in) hoisted onto the stack
     //     itself, double-indenting every kind (content box only — the border box
