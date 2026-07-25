@@ -181,7 +181,7 @@ Every cell gets an action or an explicit N/A. Per the AGENTS.md three-lockstep r
 | - | ------- | ------ |
 | a | master spec §12.4 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2903` region) | New catalog row |
 | b | `lib/messages/__generated__/spec-codes.ts` | Regenerate via `pnpm gen:spec-codes`; never hand-edit |
-| c | `lib/messages/catalog.ts` | New entry mirroring `lib/messages/catalog.ts:1368-1381` (all 8 fields) |
+| c | `lib/messages/catalog.ts` | New entry mirroring `lib/messages/catalog.ts:1368-1381` — all **9** keys including `code` (C19) |
 | d | master spec `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3194` block | New `longExplanation` line |
 | e | `lib/parser/ambiguityCodes.ts:19` | Add to `AMBIGUITY_CODES` |
 | f | `tests/parser/ambiguityCodes.test.ts:17` | Extend the expected sorted list |
@@ -395,6 +395,10 @@ TDD per task (invariant 1): failing test → minimal implementation → passing 
 
 Existing tests that must pass **unchanged**: `tests/parser/blocks/hotels.ambiguity.test.ts:212` (over-cap hotel stays silent) and `tests/parser/blocks/hotels.ambiguity.test.ts:168` (at-cap boundary, guard is strictly `>`).
 
+#### Additional required cases (R7)
+
+| Test | Input | Asserts |
+| ---- | ----- | ------- |
 | **Warning envelope — REQUIRED on every new emit** (R7 finding 4) | each P1, P3(a) and P3(b) emit test | assert the FULL envelope, not just code/reason: `severity === "warn"`; `blockRef.kind === "hotels"`; `blockRef.field === "guests"` (P1) or `"address"` (P3); `blockRef.name` present and equal to the resolved hotel name when one exists; `rawSnippet` equal to the exact source string. Without these, an emit with `severity:"info"` and `{kind:"rooms", field:"guests"}` passes every other assertion — the overlay keys only on `index` (`lib/sync/useRawOverlay.ts:121-127`) — while in production it drops out of warn-only data-quality treatment, routes under Rooms, and renders the false field label "guest list" (`lib/admin/step3Buckets.ts:129-138`) |
 | **P3(a) inline callers are distinguished by `rawSnippet`** (R7 finding 5) | a P3(a) input carrying a confirmation token, routed through inline learn-K (`lib/parser/blocks/hotels.ts:734`) and inline no-guest (`lib/parser/blocks/hotels.ts:765`) | `stripHotelNameConf` (`lib/parser/blocks/hotels.ts:607`) re-invokes the splitter on `stripConfTokens(hotel_name)` and, for P3(a), gets the same unsplit name — so an implementation that ignores the ambiguity at the inline call but propagates it at `lib/parser/blocks/hotels.ts:607` still emits the expected warning. The discriminator is `rawSnippet`: assert it equals the **pre-`stripConfTokens`** string the inline caller passed, which `lib/parser/blocks/hotels.ts:607` cannot produce. P3(b) does not need this because the first split removes the candidate-bearing suffix |
 | **Simultaneous independent ambiguities — REQUIRED** (R7 finding 6) | **P1+P3(b):** `Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316` · **P1+P3(a):** `Hyatt Place Chicago 71 Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316` | **two** warnings on the one reservation, one of each code. Both inputs take learn-K and satisfy an address arm. A `commitHotels` that keeps only the first ambiguity per reservation passes every isolated test and fails only here |
@@ -505,7 +509,7 @@ Zero address cards is expected and accepted (R7). No corpus string has >1 candid
 - P1 reason strings = **4** (one per producing path)
 - New `resolvable:false` reasons = **2** (`raw-not-guest-scoped`, `no-split-to-undo`)
 - New replacement kinds = **1** (`hotel-name`)
-- Registration surfaces = **36** (§4 rows a–ii, of which 1 is an explicit N/A)
+- Registration surfaces = **35** (§4 rows a–ii, of which 1 is an explicit N/A)
 - P1 exit-path enumeration rows = **8**, of which **4** emit (§3.1)
 - Normative copy strings = **19** (§7.0 C1–C19), each with a byte-for-byte oracle (§8.5)
 - `splitHotelNameAddress` callers requiring propagation coverage = **5**, each × **2** arms
