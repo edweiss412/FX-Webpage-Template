@@ -78,7 +78,7 @@ Every task: failing test → minimal implementation → passing test → commit 
 
 **Spike output, recorded:** against today's markup at a 1280px viewport, `rail320` reproduces the defect from the real tree (`admin-pending-ignore-*` below `admin-pending-defer-*`) and `wide900` shows both on one row with `Retry` inline. This is §2.5's premise proven by the component.
 
-**Remaining in this task:** a `pendingDiscardReal.layout.spec.ts` that consumes the harness JSON, compiles token CSS, serves it, and carries the 6.3.a assertion list — starting with the two that close the round-3 findings: `w-full` and `@container` present on the **rendered** root, and the root's measured width equal to the rail width (the direct test for the 0px collapse, which cannot pass if `w-full` is dropped).
+**Remaining in this task:** a new spec file **tests/e2e/pendingDiscardReal.layout.spec.ts** that consumes the harness JSON, compiles token CSS, serves it, and carries the 6.3.a assertion list — starting with the two that close the round-3 findings: `w-full` and `@container` present on the **rendered** root, and the root's measured width equal to the rail width (the direct test for the 0px collapse, which cannot pass if `w-full` is dropped).
 
 **Commit:** `test(admin): measure the real discard tree in a browser`
 
