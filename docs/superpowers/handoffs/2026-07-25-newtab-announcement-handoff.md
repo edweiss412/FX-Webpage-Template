@@ -396,7 +396,7 @@ Every one was found by executing the new code, never by reading it. That is why 
 ships with a mutation that proves its pin fails without it — a passing suite is not evidence that a
 guard works.
 
-## The review loop stopped at R13 on an external quota limit
+## R13 first failed on a quota error that turned out to be transient
 
 R13 was dispatched against `1a497dcbb..10f6ee5aa` and returned `no_verdict` after three attempts,
 each dying in 10-20 seconds:
@@ -405,9 +405,17 @@ each dying in 10-20 seconds:
 ERROR: You've hit your usage limit. ... try again at Jul 31st, 2026 7:48 PM
 ```
 
-Per AGENTS.md a `no_verdict` is an infrastructure fault and never "the reviewer found nothing" — and
-this one is not a transient flake that clears in minutes, it is a six-day quota exhaustion. **Twelve
-rounds completed** (R1 through R12), every finding fixed or explicitly deferred with a reason.
+Per AGENTS.md a `no_verdict` is an infrastructure fault and never "the reviewer found nothing". I
+read the explicit reset date as authoritative, concluded the gate was unsatisfiable for six days, and
+escalated the merge decision to the owner. **That was wrong.** The owner said "try codex again"; a
+90-second probe (`codex exec "reply with the single word READY"`) returned available immediately, and
+the re-dispatch ran normally.
+
+The lesson is recorded in `feedback_probe_quota_before_escalating`: **availability is testable, so it
+must never be escalated.** A quota message names a date, but that date is not a fact about the next
+request — treat it like any other transient upstream fault and retry. The escalation mechanics were
+correct (answer-independent work drained first, notification in the same turn, `blockedOn` set, nudge
+left registered) and that does not make an unnecessary escalation cheap.
 
 What the record supports, stated without inflation:
 
@@ -419,8 +427,8 @@ What the record supports, stated without inflation:
 - The residual risk is a *guard* fail-open that twelve rounds did not reach — future regression
   protection, not shipped behavior.
 
-Whether to merge on that basis, wait for the quota, or route the final round to a different
-reviewer is the owner's call, not this run's, so it was escalated rather than decided.
+Those statements stand on their own and did not depend on how the quota question resolved. The
+round count is simply higher than twelve now, since R13 ran after all.
 
 ## A gate I retired rather than satisfied
 
