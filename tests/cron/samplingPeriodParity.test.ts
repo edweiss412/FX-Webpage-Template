@@ -28,7 +28,7 @@
 import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { SAMPLING_PERIOD_MS } from "@/lib/drive/watchErrors";
+import { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } from "@/lib/drive/watchErrors";
 import { cronPeriodMs } from "../helpers/cronPeriod";
 
 const REGISTRY = join(
@@ -47,6 +47,24 @@ describe("SAMPLING_PERIOD_MS agrees with the canonical refresh-watch schedule", 
     expect(job, `${JOB_NAME} missing from the canonical cron registry`).toBeDefined();
 
     expect(cronPeriodMs(job!.schedule)).toBe(SAMPLING_PERIOD_MS);
+  });
+
+  test("T_EXEC_BUDGET_MS matches the registry's declared pg_net timeout", () => {
+    // Whole-diff R17: the descope that moved this assertion onto the live
+    // `cron.job` row left T_EXEC_BUDGET_MS with NO guard that runs in CI —
+    // pg-cron-coverage is excluded from unit-suite and is not run by any x-audit
+    // (filed as BL-PG-CRON-COVERAGE-UNRUN), and every other test derives its
+    // expectation from the constant itself, so mutating it stayed green.
+    //
+    // Pinned against the canonical registry rather than the migration text: the
+    // registry is the machine-readable contract, JSON.parse is not a lexing
+    // problem, and this runs on every PR.
+    const registry = JSON.parse(readFileSync(REGISTRY, "utf8")) as { timeoutMs: number };
+    expect(
+      registry.timeoutMs,
+      "pg-cron-jobs.json must declare the pg_net timeout the constant is derived from",
+    ).toBeTypeOf("number");
+    expect(T_EXEC_BUDGET_MS).toBe(registry.timeoutMs);
   });
 
   test("the period parser rejects shapes it cannot reason about", () => {
