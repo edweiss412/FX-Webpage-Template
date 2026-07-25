@@ -23,6 +23,11 @@ import { test, expect, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
+import {
+  scanForPhantomGaps,
+  reconcilePhantomLedger,
+  type PhantomLedgerRow,
+} from "./helpers/phantomGap";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const TOL = 0.5;
@@ -311,4 +316,91 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
   // two-pane rail/content geometry inside the shell is pinned by
   // tests/e2e/step3-review-modal.layout.spec.ts §5.1.2).
   // The dashboard (/admin) tests above are UNAFFECTED by the rebuild and stay.
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phantom-gap probe on the REAL dashboard (BL-PHANTOM-GAP-PROBE-OTHER-SURFACES).
+//
+// The zero-extent-flex-item walk shipped scoped to the published review modal's
+// static harness, so every other surface was unmeasured. This is the dashboard
+// mount: same walk (tests/e2e/helpers/phantomGap.ts — read it for what the probe
+// can and cannot see), pointed at the live `/admin` tree with real seeded rows
+// instead of a fixture snapshot.
+//
+// WHY THE REAL ROUTE AND NOT A NEW STATIC HARNESS. A harness only ever renders
+// what its fixture draws, and this bug class IS a state that draws nothing — a
+// fixture chosen to look complete is exactly the fixture that cannot catch an
+// emptied-out wrapper. The live route renders whatever the seed actually holds.
+// The cost is that this file needs the e2e env, which is why the probe is wired
+// into a workflow in the same change rather than left to a manual run.
+//
+// WHAT IT ALREADY CAUGHT. The first run against this tree reported
+// `shows-table-header` charging its 16px row-gap for the trailing spacer span.
+// That was a PROBE defect, not a layout one: the header is 7 items across 7
+// column tracks in a SINGLE row (`rows=[44px]`), so no row gap is realized. The
+// walk was admitting a grid axis on item count; it now admits on realized track
+// count. Recorded here because the finding is the reason that rule changed, and
+// a later reader measuring the same header will otherwise re-derive it.
+test.describe("phantom gap — /admin dashboard (real route)", () => {
+  const DASHBOARD = '[data-testid="admin-dashboard"]';
+
+  /** Known, deferred instances. Empty is the correct state — see the helper's
+   *  `PhantomLedgerRow` for why a row is scoped and counted before adding one. */
+  const KNOWN_DASHBOARD_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
+
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  // BOTH viewports. The dashboard tree genuinely differs across the 1240px split
+  // boundary — at 390 the inbox is a mobile summary card and the shows table
+  // renders stacked meta rows; at 1280 the header row, the desktop inbox, and the
+  // auto-applied strip all appear instead. A wrapper populated in one branch can
+  // empty out in the other, so one width would measure half the surface.
+  for (const width of [390, 1280] as const) {
+    test(`T-NOPHANTOM-DASH @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto("/admin", { waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("admin-dashboard")).toBeVisible();
+      // The shows table must have rendered rows before measuring: an empty table
+      // is a different tree, and the row anchor below would fail for the wrong
+      // reason.
+      await expect(page.locator("[data-testid^='shows-table-row-']").first()).toBeAttached();
+
+      const found = await scanForPhantomGaps(page.locator(DASHBOARD));
+
+      // NON-VACUITY BY NAMED ANCHOR, never by a container count — a count floor is
+      // satisfiable by unrelated controls and breaks on a legitimate refactor.
+      // Two anchors: the stat strip proves the walk entered the dashboard body,
+      // and a shows-table ROW proves it descended into the table rather than
+      // stopping at the top-level columns. Both are present at both widths (the
+      // row label is the testid at 1280 and a nested `<div in shows-table-row-…>`
+      // at 390, so the anchor matches on the substring rather than equality).
+      expect(
+        found.visited.filter((v) => v === "stat-strip"),
+        `the walk reached the stat strip [@ ${width}]`,
+      ).not.toEqual([]);
+      expect(
+        found.visited.filter((v) => v.includes("shows-table-row-")),
+        `the walk descended into the shows table rows, not just the columns [@ ${width}]`,
+      ).not.toEqual([]);
+
+      const { remaining, stale } = reconcilePhantomLedger(
+        found.offenders,
+        KNOWN_DASHBOARD_PHANTOM_ITEMS.filter((k) => k.surface === "/admin" && k.width === width),
+      );
+      expect(
+        stale,
+        `stale ledger rows [@ ${width}] — the instance is gone, so delete the row (a row kept` +
+          ` past its debt masks a later offender with the same label triple)`,
+      ).toEqual([]);
+      expect(
+        remaining,
+        `zero-extent items charge their parent's gap and show as a seam no element accounts for [@ ${width}]`,
+      ).toEqual([]);
+    });
+  }
 });

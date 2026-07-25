@@ -42,10 +42,16 @@
  *     WRAPPED containers charge BOTH: a full-width zero-height item on its own
  *     line in a wrapped row collapses that line and still pays `row-gap`. Grid
  *     charges both unconditionally.
- *   - ≥2 IN-FLOW ITEMS REQUIRED (flex). A gapped flex container holding ONE item
- *     realizes no gap at all, so its lone zero-size child is not an offender. A
- *     GRID is examined whenever the axis genuinely has ≥2 tracks, because a grid
- *     can realize several tracks from one item.
+ *   - AXIS ADMISSION IS PER LAYOUT MODE. A gapped FLEX container holding ONE item
+ *     realizes no gap, so its lone zero-size child is not an offender. A GRID is
+ *     admitted on TRACK count alone, never on item count: grid gaps sit strictly
+ *     between tracks, so one item can realize several gaps and — the direction
+ *     that actually bit — many items can realize NONE. Admitting a grid axis on
+ *     `itemCount >= 2` reported the admin dashboard's `shows-table-header` (7
+ *     items, 7 column tracks, `rows=[44px]` — a SINGLE row track) as charging its
+ *     16px row-gap for the trailing spacer span. It charges nothing; there is no
+ *     second row for a gap to sit before. Chrome reports the USED track list,
+ *     implicit tracks included, so the count is trustworthy for both axes.
  *   - `display:contents` IS FLATTENED, not skipped. The wrapper is correctly not
  *     an item, but its descendant boxes are PROMOTED into this container's
  *     formatting context and become items themselves. Skipping the wrapper without
@@ -286,13 +292,20 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       // ITEM COUNT INCLUDES ANONYMOUS TEXT ITEMS — {visible text, one empty
       // element} really is two items and really does realize a gap.
       const itemCount = items.length + anonymousItems(el);
-      // "Fewer than two items realizes no gap" holds for FLEX only. A GRID can
-      // realize several tracks from one item — explicit templates, named areas,
-      // spans, implicit track creation — and the gaps BETWEEN those tracks are
-      // charged regardless of how many items exist. So a single-item grid is
-      // examined whenever the axis genuinely has more than one track.
+      // "Fewer than two items realizes no gap" holds for FLEX only. A GRID's gaps
+      // sit between TRACKS, and track count is independent of item count in BOTH
+      // directions: one item can span several tracks, and seven items can share a
+      // single one. So a grid axis is admitted on its realized track count alone.
       const chargeableAxes = isGrid
-        ? axes.filter(({ dim }) => itemCount >= 2 || trackCount(cs, dim) >= 2)
+        ? axes.filter(({ dim }) => {
+            const tpl = dim === "height" ? cs.gridTemplateRows : cs.gridTemplateColumns;
+            // A subgrid's tracks belong to its PARENT and are not reported here, so
+            // the track count is unknowable from this element. Fall back to the flex
+            // rule rather than skip the axis — over-reporting is recoverable, a
+            // silently unexamined axis is not.
+            if (tpl === "subgrid") return itemCount >= 2;
+            return trackCount(cs, dim) >= 2;
+          })
         : itemCount >= 2
           ? axes
           : [];
