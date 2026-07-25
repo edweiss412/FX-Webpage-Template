@@ -108,7 +108,7 @@ sites the first pass missed (one a failure message asserting "exactly 14"), and 
 eighth in the backlog entry being graduated. Command and captured output:
 
 ```
-$ grep -rn "toBe(14)\|All 14 public\|all 14 public\|exactly 14\|14 public + 5" tests/db/ BACKLOG.md supabase/migrations/20260702120200_drive_file_id_nonblank.sql
+$ grep -rn "toBe(14)\|All 14 public\|all 14 public\|exactly 14\|canonical public count\|14 public + 5" tests/db/ ./BACKLOG.md
 tests/db/driveFileIdNonblank.db.test.ts:24   // All 14 public columns named exactly `drive_file_id` …
 tests/db/driveFileIdNonblank.db.test.ts:135  test.skipIf(!dbUp)("all 14 public *_drive_file_id_nonblank …
 tests/db/driveFileIdNonblank.db.test.ts:147  expect(PUBLIC_NONBLANK_TABLES.length).toBe(14);
