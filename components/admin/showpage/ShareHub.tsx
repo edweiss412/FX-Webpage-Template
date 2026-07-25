@@ -841,7 +841,21 @@ export function ShareHub({
                         compact
                         onBusyChange={onLifecycleBusy}
                         rowLabel="Archive show"
-                        rowDescription="Crew links stop working immediately"
+                        // State-conditional (spec §2.2). The old constant
+                        // claimed "Crew links stop working immediately" in BOTH
+                        // arms, which is false on an unpublished show — the
+                        // popover is simultaneously saying the crew link is
+                        // already paused. It also rhymed with the adjacent
+                        // Rotate row ("Old link stops working immediately"), so
+                        // the two read alike at a glance despite one being far
+                        // larger, and neither said what archiving is FOR.
+                        // Archive is dashboard cleanup for a wrapped show, and
+                        // it is reversible, so neither string implies finality.
+                        rowDescription={
+                          published
+                            ? "Ends crew access and clears it off the dashboard"
+                            : "Clears this wrapped show off the dashboard"
+                        }
                       />
                     )}
                   </div>

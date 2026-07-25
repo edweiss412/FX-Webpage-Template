@@ -527,7 +527,7 @@ describe("ShareHub — Careful section wiring", () => {
     });
     expectRowText(archive, popover(), {
       label: "Archive show",
-      description: "Crew links stop working immediately",
+      description: "Ends crew access and clears it off the dashboard",
     });
     const icon = archive.querySelector("svg")!;
     expect(icon.getAttribute("width")).toBe("16");
@@ -1174,5 +1174,61 @@ describe("mobile split actions row (spec 2026-07-24-strip-mobile-stacked-band §
     cleanup();
     renderHub({ archived: true });
     expect(screen.getByTestId("share-hub-primary")).toHaveTextContent("Show actions");
+  });
+});
+
+describe("ShareHub — Archive row copy (spec §2.2)", () => {
+  /** The description node the Archive button's aria-describedby actually points
+   *  at. Resolved through the IDREF, NOT a text query: the popover also renders
+   *  the paused note, so a container-scoped text search would match on either
+   *  branch and pass for the wrong reason. */
+  const describedText = () => {
+    const btn = screen.getByTestId("archive-show-button");
+    const id = btn.getAttribute("aria-describedby");
+    expect(id, "archive row must describe itself").toBeTruthy();
+    return document.getElementById(id!)?.textContent ?? null;
+  };
+
+  it("published: names the access loss AND the purpose", () => {
+    // Live show: archiving really does end crew access, and the reason anyone
+    // reaches for it is to clear a wrapped show off the dashboard.
+    renderHub({ published: true });
+    fireEvent.click(primary());
+    expect(describedText()).toBe("Ends crew access and clears it off the dashboard");
+  });
+
+  it("held: does NOT claim to stop access that is already stopped", () => {
+    // The old copy was a constant "Ends crew access and clears it off the dashboard", which
+    // is false on an unpublished show -- the popover is simultaneously telling
+    // the operator the crew link is already paused.
+    renderHub({ published: false });
+    fireEvent.click(primary());
+    expect(describedText()).toBe("Clears this wrapped show off the dashboard");
+    expect(describedText()).not.toMatch(/stop working/i);
+  });
+
+  it("stops rhyming with the Rotate row, without touching Rotate's copy", () => {
+    // The two rows sat adjacent in one 308px popover reading "Old link stops
+    // working immediately" and "Ends crew access and clears it off the dashboard" -- same
+    // shape, same sentence, and the weaker-sounding one belonged to the larger
+    // action. Rotate is unchanged; Archive stopped mirroring it.
+    renderHub({ published: true });
+    fireEvent.click(primary());
+    const rotate = screen.getByTestId("admin-rotate-share-token-button");
+    const rotateDescId = rotate.getAttribute("aria-describedby");
+    const rotateText = document.getElementById(rotateDescId!)?.textContent ?? null;
+    expect(rotateText).toBe("Old link stops working immediately");
+    expect(describedText()).not.toBe(rotateText);
+  });
+
+  it("never calls archiving permanent, in either state", () => {
+    // Unarchive lives in this same section, so copy that implies finality would
+    // be wrong (supabase/migrations/20260601000000_b2_show_lifecycle.sql).
+    for (const published of [true, false]) {
+      const { unmount } = renderHub({ published });
+      fireEvent.click(primary());
+      expect(describedText()).not.toMatch(/permanent|forever|cannot be undone/i);
+      unmount();
+    }
   });
 });
