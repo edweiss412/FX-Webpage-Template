@@ -41,6 +41,40 @@ const norm = (css: string) =>
     .replace(/\s*([{};:,])\s*/g, "$1")
     .trim();
 
+/**
+ * Brace depth at `index`, ignoring braces inside comments and strings.
+ *
+ * This is NOT the rule parser that was deleted — it never splits or compares
+ * anything, it only counts. That matters because it carries a SELF-CHECK the
+ * parser could not: depth at end-of-file must be 0. If the scanner mishandles
+ * any construct in this stylesheet, the file stops balancing and the test fails
+ * loudly instead of passing for the wrong reason.
+ */
+function depthAt(css: string, index: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < index; i++) {
+    const ch = css[i] as string;
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "/" && css[i + 1] === "*") {
+      const close = css.indexOf("*/", i + 2);
+      i = close === -1 ? css.length : close + 1;
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") depth--;
+  }
+  return depth;
+}
+
 /** The spec's normative CSS block, read from its §3.4 fence. */
 function normativeBlock(): string {
   const spec = readFileSync(
@@ -77,6 +111,22 @@ describe("share-link cue motion contract (N0/N1)", () => {
     // is nothing to mis-tokenise in a byte comparison, and contiguity means rule
     // ORDER is pinned for free.
     expect(GLOBALS_CSS).toContain(normativeBlock());
+  });
+
+  it("N1: the block sits at TOP LEVEL, not nested in an at-rule", () => {
+    // Contiguity pins the order of rules INSIDE the block; it says nothing about
+    // what encloses it. Wrapping the whole fence in `@media screen { … }` passed
+    // the byte check, the occurrence count, both keyframe checks, and the browser
+    // suite — Playwright renders as screen media — while gating the entire cue
+    // behind a media query (round-7 review).
+    const block = normativeBlock();
+    const at = GLOBALS_CSS.indexOf(block);
+    expect(at, "normative block not found").toBeGreaterThanOrEqual(0);
+
+    // Self-check first: a scanner that miscounts would make the assertion below
+    // meaningless, so require the whole file to balance before trusting it.
+    expect(depthAt(GLOBALS_CSS, GLOBALS_CSS.length), "stylesheet braces do not balance").toBe(0);
+    expect(depthAt(GLOBALS_CSS, at), "normative block is nested inside an at-rule").toBe(0);
   });
 
   it("N1: nothing ELSE in the stylesheet mentions the cue", () => {

@@ -26,13 +26,14 @@
  * Running this against uncommitted work would discard it.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const HUB = "components/admin/showpage/ShareHub.tsx";
 const CSS = "app/globals.css";
 const CTX = "app/admin/show/[slug]/ShareTokenContext.tsx";
+const COPY = "app/admin/show/[slug]/ShareLinkCopyButton.tsx";
 
 const VITEST_SUITES = [
   "tests/components/admin/showpage/shareHubFlashState.test.tsx",
@@ -459,6 +460,92 @@ ADVERSARIES.push([
   ],
 ]);
 
+/**
+ * A32-A35 close the four rows round-7 review found rejecting nothing. Spec §9.0
+ * requires every non-exempt row to reject at least one adversary, and
+ * registering the copy-button file in VITEST_SUITES did not satisfy that — no
+ * adversary mutated the component, so its rows could never appear.
+ *
+ * A32-A34 are the exact mutations used to hand-verify those rows when they were
+ * written; registering them makes the check executable and permanent instead of
+ * a claim in a commit message.
+ */
+ADVERSARIES.push([
+  "A32",
+  "copy button: drops the captured-url check, so a stale write still confirms",
+  [[COPY, "      if (requested !== urlRef.current) return;\n", ""]],
+]);
+
+ADVERSARIES.push([
+  "A33",
+  "copy button: no reset when the url rotates after a completed copy",
+  [
+    [
+      COPY,
+      "  const [seenUrl, setSeenUrl] = useState(url);\n  if (seenUrl !== url) {\n    setSeenUrl(url);\n    if (copied) setCopied(false);\n  }",
+      "  const [seenUrl] = useState(url);\n  void seenUrl;",
+    ],
+  ],
+]);
+
+ADVERSARIES.push([
+  "A34",
+  "copy button: resets in a PASSIVE effect, painting one stale frame",
+  [
+    [
+      COPY,
+      "  const [seenUrl, setSeenUrl] = useState(url);\n  if (seenUrl !== url) {\n    setSeenUrl(url);\n    if (copied) setCopied(false);\n  }",
+      "  useEffect(() => {\n    setCopied(false);\n  }, [url]);",
+    ],
+  ],
+]);
+
+ADVERSARIES.push([
+  "A35",
+  "copy button: suppresses EVERY deferred confirmation, not only stale ones",
+  [[COPY, "      if (requested !== urlRef.current) return;", "      if (true) return;"]],
+]);
+
+/**
+ * A36 reaches the one remaining bare row: "no cue on first render or first
+ * open". A4 seeds the flash at mount but is equivalent precisely BECAUSE the
+ * visibility predicate clears it in the same pass; removing that predicate as
+ * well is what makes the seed observable, and cues a panel nobody rotated.
+ */
+ADVERSARIES.push([
+  "A36",
+  "seeded at mount AND never cleared, so opening the panel cues with no rotate",
+  [
+    [
+      HUB,
+      "const [flash, setFlash] = useState<number | null>(null);",
+      "const [flash, setFlash] = useState<number | null>(1);",
+    ],
+    [HUB, "  if ((!open || !linkActive) && flash !== null) setFlash(null);", ""],
+  ],
+]);
+
+/**
+ * A37 is the exact stylesheet round-7 review built to defeat the byte check:
+ * wrap the whole normative block in `@media screen { … }`. It passes raw
+ * containment, occurrence counting, both keyframe checks, and the browser suite
+ * (Playwright renders as screen media) while gating the cue behind a media
+ * query. Registered so the top-level-context assertion can never be removed
+ * without something going red.
+ */
+ADVERSARIES.push([
+  "A37",
+  "whole cue block nested inside `@media screen`, defeating contiguity",
+  [
+    [CSS, "@keyframes share-link-flash-bg {", "@media screen {\n@keyframes share-link-flash-bg {"],
+    [
+      CSS,
+      "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}",
+      "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}\n}",
+    ],
+  ],
+]);
+
 ADVERSARIES.push([
   "A22",
   "token retuned below the ring's contrast floor",
@@ -484,7 +571,7 @@ function git(...args) {
   return execFileSync("git", args, { cwd: ROOT, encoding: "utf8" });
 }
 
-const TARGETS = [HUB, CSS, CTX];
+const TARGETS = [HUB, CSS, CTX, COPY];
 /** Written (not mutated) by a full run, so it is NOT in TARGETS — restoring it
  *  would revert the very output the run exists to produce. Checked for
  *  cleanliness separately so a full run cannot overwrite uncommitted edits. */
@@ -556,6 +643,10 @@ function alive(pid) {
  * silently corrupt tracked files and has already survived three fixes.
  */
 function acquireLock() {
+  // `tmp/` is gitignored and absent from a fresh worktree, so every write below
+  // — lock, Playwright report, matrix JSON — failed before a single adversary
+  // ran (round-7 review).
+  mkdirSync(join(ROOT, "tmp"), { recursive: true });
   try {
     writeFileSync(LOCK, `${process.pid}\n${new Date().toISOString()}\n`, { flag: "wx" });
     return;
@@ -790,8 +881,12 @@ try {
     );
   }
 } finally {
+  // Targets are restored here, but the lock is NOT released yet: the matrix JSON
+  // and the tracked report are still to be written. Releasing here let a second
+  // run pass its cleanliness check and acquire the lock in that gap, after which
+  // this run overwrote its evidence (round-7 review). The lock covers every
+  // write, and is dropped at the very end.
   restoreTargets();
-  releaseLock();
 }
 
 const survived = results.filter((r) => r.status === "SURVIVED");
@@ -891,6 +986,19 @@ if (!ONLY && !QUICK) {
  *  full run exits 0 — failing on it made every honest rerun red (round-6). */
 const EQUIVALENT_SURVIVORS = new Set(["A4"]);
 const unexpectedSurvivors = survived.filter((r) => !EQUIVALENT_SURVIVORS.has(r.id));
+// The check has to run BOTH ways. A declared equivalent that comes back REJECTED
+// is evidence of an unrelated failure — a broken baseline, browser infra — not
+// of stronger coverage, and one-directional checking let that exit 0 reporting
+// "31 rejected, 0 survived" (round-7 review).
+const equivalentsRun = results.filter((r) => EQUIVALENT_SURVIVORS.has(r.id));
+const wronglyRejected = equivalentsRun.filter((r) => r.status !== "SURVIVED");
+if (wronglyRejected.length) {
+  process.exitCode = 1;
+  console.error(
+    `declared-equivalent adversaries were REJECTED: ${wronglyRejected.map((r) => r.id).join(", ")} — ` +
+      "they are proven to change nothing observable, so something else is failing. Do NOT read this as better coverage.",
+  );
+}
 if (unexpectedSurvivors.length || unapplied.length) process.exitCode = 1;
 if (unexpectedSurvivors.length) {
   console.error(
@@ -898,3 +1006,6 @@ if (unexpectedSurvivors.length) {
       "either the assertion set has a hole, or the adversary is equivalent and belongs in EQUIVALENT_SURVIVORS with the argument written down.",
   );
 }
+
+// Every write is done — matrix JSON and the generated report included.
+releaseLock();

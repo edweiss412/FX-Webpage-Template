@@ -19,8 +19,10 @@
  *     matching the old page whose lifecycle section only rendered for archived||held.
  *
  * The Archive-hidden-during-Publishing behavior (dropped in the Task 13 rebuild, restored
- * per the Task 13 review Finding 1) is owned by OverviewSection's `finalizeOwned` prop; the
- * strip toggle is independently frozen and the archive server action still refuses.
+ * per the Task 13 review Finding 1) is owned by `finalizeOwned`, which the lifecycle move
+ * relocated from OverviewSection to ShareHub (ShareHub.tsx:151) along with the control
+ * itself; the strip toggle is independently frozen and the archive server action still
+ * refuses.
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,13 +45,8 @@ vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
 vi.mock("@/lib/adminAlerts/fetchPerShowAlerts", () => ({
   fetchPerShowAlerts: async () => [],
 }));
-vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
-  const React = await import("react");
-  return {
-    CurrentShareLinkPanel: () =>
-      React.createElement("div", { "data-testid": "admin-current-share-link-panel" }),
-  };
-});
+// (A vi.mock for the deleted CurrentShareLinkPanel lived here. Mocking a module
+// that no longer exists is inert, so it went stale silently — round-7 review.)
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:00:00.000Z") }));
 vi.mock("@/lib/data/loadShowShareToken", () => ({
