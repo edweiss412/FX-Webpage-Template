@@ -60,14 +60,24 @@ function mkItem(
 
 const SHEET_HREF = "https://docs.google.com/spreadsheets/d/PROBEFILE/edit#gid=0";
 
-function buildItems(a: number, n: number, s: number): AttentionItem[] {
+/** A title long enough to force the row's `truncate` to engage, so the layout
+ *  probe can prove a long title ellipsises instead of widening the panel. */
+const LONG_TITLE =
+  "A crew member's row changed while a rename was still pending and nobody has picked what happens next yet";
+
+function buildItems(a: number, n: number, s: number, longTitles = false): AttentionItem[] {
+  const title = (fallback: string) => (longTitles ? LONG_TITLE : fallback);
   return [
     ...Array.from({ length: a }, (_, i) =>
-      mkItem(`a${i}`, "AMBIGUOUS_EMAIL_BINDING", { actionable: true }),
+      mkItem(`a${i}`, "AMBIGUOUS_EMAIL_BINDING", {
+        actionable: true,
+        menuTitle: title(`Probe a${i}`),
+      }),
     ),
     ...Array.from({ length: n }, (_, i) =>
       mkItem(`n${i}`, "SHEET_UNAVAILABLE", {
         clearingKind: "needs_look",
+        menuTitle: title(`Probe n${i}`),
         action: { label: "Open in Sheet", href: SHEET_HREF, external: true },
       }),
     ),
@@ -79,19 +89,29 @@ function buildItems(a: number, n: number, s: number): AttentionItem[] {
 
 declare global {
   interface Window {
-    __setItems?: (a: number, n: number, s: number, degraded: boolean) => void;
+    __setItems?: (a: number, n: number, s: number, degraded: boolean, longTitles?: boolean) => void;
     __hydrated?: boolean;
+    /** Installed by the spec's frame-hold init script, not by this entry. */
+    __releaseFrames?: () => void;
+    __heldFrameCount?: () => number;
   }
 }
 
 function App() {
-  const [state, setState] = useState({ a: 1, n: 1, s: 1, degraded: false });
+  const [state, setState] = useState({
+    a: 1,
+    n: 1,
+    s: 1,
+    degraded: false,
+    longTitles: false,
+  });
   useEffect(() => {
-    window.__setItems = (a, n, s, degraded) => setState({ a, n, s, degraded });
+    window.__setItems = (a, n, s, degraded, longTitles = false) =>
+      setState({ a, n, s, degraded, longTitles });
     window.__hydrated = true;
   }, []);
   const overrides: HarnessStateOverrides = {
-    attentionItems: buildItems(state.a, state.n, state.s),
+    attentionItems: buildItems(state.a, state.n, state.s, state.longTitles),
     alertsDegraded: state.degraded,
   };
   return modalElement(0, overrides);

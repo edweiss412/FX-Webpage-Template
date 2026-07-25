@@ -79,19 +79,19 @@ afterEach(() => {
 });
 
 describe("AttentionMenu", () => {
-  test("renders only actionable rows, in order, with titles + subtitles", () => {
+  test("renders EVERY needs-you row, in order, with titles + second lines", () => {
     renderMenu();
     const rows = screen.getAllByTestId(/^attention-menu-row-/);
+    // attention-index §2.1: one merged group, so the clearing item is a row
+    // here too — it is no longer a separate read-only shape.
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
       "attention-menu-row-hold:h1",
       "attention-menu-row-alert:a1",
+      "attention-menu-row-alert:c1",
     ]);
     expect(rows[0]!.textContent).toContain("Priya Shah's row changed");
     expect(rows[0]!.textContent).toContain("Pick what happens in Changes");
-    // Attention split §3.4: the clearing item now renders as a READ-ONLY
-    // needs-look row (fail-visible), not as an actionable menu-row button.
     expect(screen.getByText("Sheet unavailable")).toBeInTheDocument();
-    expect(screen.queryByTestId("attention-menu-row-alert:c1")).toBeNull();
   });
 
   test("tone dot classes + sr-only tier text (WCAG 1.4.1 second channel)", () => {
@@ -114,13 +114,13 @@ describe("AttentionMenu", () => {
     expect(props.onNavigate).toHaveBeenCalledWith(ALERT);
   });
 
-  test("clearing item without clearingKind renders as a needs-look row (fail-visible); footer copy retired", () => {
-    // SUPERSEDED (attention split §3.4; monitoring-badge-expand §3.2): the old
-    // aggregate footer is replaced by the needs-a-look group (per-item rows) +
-    // enumerated monitoring rows. A clearing item with NO clearingKind defaults
-    // into needs-look, never silently dark.
+  test("clearing item without clearingKind renders as a needs-you row (fail-visible); footer copy retired", () => {
+    // SUPERSEDED AGAIN (attention-index §2.1/§2.2): the needs-a-look group is
+    // merged into "Needs you" and its read-only row shape retired, so a clearing
+    // item with NO clearingKind is now a pressable row — still never silently
+    // dark, which is the property this test guards.
     renderMenu();
-    expect(screen.getByTestId("attention-needslook-row-alert:c1")).toBeInTheDocument();
+    expect(screen.getByTestId("attention-menu-row-alert:c1")).toBeInTheDocument();
     expect(screen.queryByText(/more clearing on their own/)).toBeNull();
     cleanup();
     // Explicit self_heal items render enumerated monitoring rows: title + note.
@@ -137,7 +137,9 @@ describe("AttentionMenu", () => {
     expect(within(row).getByText(selfHealItem.menuTitle)).toBeInTheDocument();
     expect(within(row).getByText(autoResolveNote("SYNC_STALLED"))).toBeInTheDocument();
     expect(screen.queryByText(/clearing on their own, no action needed/)).toBeNull();
-    expect(screen.queryByTestId(/attention-needslook-row/)).toBeNull();
+    // the self-heal item is the ONLY monitoring row, and it is NOT also a
+    // needs-you row (attention-index §2.1 counts a mistagged item once)
+    expect(screen.queryByTestId("attention-menu-row-alert:s1")).toBeNull();
   });
 
   test("Escape: closes, focuses pill, and a document BUBBLE listener never fires (capture + stopPropagation)", () => {

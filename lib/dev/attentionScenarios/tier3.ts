@@ -109,7 +109,7 @@ export function tier3Scenarios(): AttentionScenario[] {
     {
       id: T3_FULL_SPLIT,
       tier: 3,
-      label: "Everything at once: confirm, review, and monitoring",
+      label: "Everything at once: needs you and monitoring",
       alerts: [
         {
           // needs-look WITH an external link: openSheet resolves the sheet id

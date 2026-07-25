@@ -4,12 +4,15 @@
  * components/admin/showpage/AttentionMenu.tsx
  * (published-show-alerts spec §5.2)
  *
- * The "N to confirm" dropdown anchored to the header attention pill. Disclosure
+ * The "N issues" dropdown anchored to the header attention pill. Disclosure
  * pattern, NOT role="menu" (rows are plain buttons; no arrow-key contract).
- * One row per ACTIONABLE item in derivation order; the needs-a-look and
- * Monitoring groups enumerate their items as read-only rows (monitoring rows:
- * title + auto-resolve note - monitoring-badge-expand §3.2), so nothing is
- * silently dark. Row click closes FIRST,
+ *
+ * The panel is an INDEX of a show's issues (attention-index §1): each entry
+ * points at one issue, whose full card renders where it is most relevant in the
+ * modal. TWO groups — "Needs you" (every row pressable, jump-only) and
+ * "Monitoring" (read-only rows: title + auto-resolve note,
+ * monitoring-badge-expand §3.2) — so nothing is silently dark. Row click closes
+ * FIRST,
  * then navigates (the jump owns the scroll; no exit animation competes with
  * the glide — spec §9).
  *
@@ -62,9 +65,20 @@ function AttentionMenuPanel({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [entered, setEntered] = useState(false);
 
+  // Entrance flip inside the rAF callback (async — the rail-indicator idiom).
+  // MOUNT-SCOPED, deliberately separate from the listener effect below (whole-diff
+  // review 2026-07-25): `onClose` is a fresh closure on every parent render, so a
+  // combined effect re-runs on each one — cancelling the pending entrance frame
+  // and scheduling a replacement. Mid-entrance that RESTARTS the entrance, which
+  // §4's compound row says must not happen, and under rapid live updates it can
+  // starve the flip entirely. An empty dep list ties the frame to the panel's own
+  // mount lifecycle, which is what the contract actually describes.
   useEffect(() => {
-    // Entrance flip inside the rAF callback (async — the rail-indicator idiom).
     const raf = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       e.preventDefault();
@@ -85,51 +99,61 @@ function AttentionMenuPanel({
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("pointerdown", onPointerDown);
     return () => {
-      cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("pointerdown", onPointerDown);
     };
   }, [onClose, pillRef]);
 
-  const actionable = items.filter((i) => i.actionable);
-  // Attention split (spec 2026-07-21 §3.4): needs-look defaults FAIL-VISIBLE —
-  // a non-actionable item without clearingKind renders as needs-a-look, never
-  // silently dark. Only explicit self_heal items collapse to the summary row.
-  const needsLook = items.filter((i) => !i.actionable && i.clearingKind !== "self_heal");
-  // `!i.actionable` guard (spec §3.3): a mistagged actionable item renders as an
-  // actionable row only — never double-counted into the monitoring group.
-  const selfHeal = items.filter((i) => !i.actionable && i.clearingKind === "self_heal");
-  // A needs-look-only open (interactive pill without actionable rows) must not
-  // render an empty "Needs your confirmation" section; the panel takes its
-  // accessible name from the first group actually present.
-  const hasActionable = actionable.length > 0;
+  // attention-index §2.1: TWO groups. `monitoring` is the former self-heal
+  // filter verbatim; `needsYou` is its complement, which preserves the
+  // FAIL-VISIBLE default (spec 2026-07-21 §3.4) for free — a non-actionable
+  // item with no clearingKind lands in needsYou, never silently dark.
+  // The `!i.actionable` guard lives inside the monitoring predicate (spec §3.3),
+  // so a mistagged actionable item is counted once, in needsYou only.
+  const monitoring = items.filter((i) => !i.actionable && i.clearingKind === "self_heal");
+  const needsYou = items.filter((i) => !(!i.actionable && i.clearingKind === "self_heal"));
+  // Ordering needs no sort: deriveAttentionItems already returns
+  // [...holds, ...actionable, ...needsLook, ...selfHeal], so the merged group
+  // is button-clearable-first for free (§2.1 "Ordering is unchanged").
+  // A monitoring-only open must not render an empty "Needs you" section; the
+  // panel takes its accessible name from the first group actually present.
+  const hasNeedsYou = needsYou.length > 0;
 
   return (
     <div
       ref={panelRef}
       data-testid="published-show-review-attention-menu"
       role="group"
-      aria-label={
-        hasActionable
-          ? "Needs your confirmation"
-          : needsLook.length > 0
-            ? "Needs a look"
-            : "Monitoring"
-      }
+      aria-label={hasNeedsYou ? "Needs you" : "Monitoring"}
       className={`absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-lg transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}
     >
-      {hasActionable ? (
-        <div className="border-b border-border px-4 pt-3 pb-2">
+      {/* Heading placement is PRESERVED, not normalised (attention-index §2.1):
+          this one stays OUTSIDE the scroller below, so it labels the panel while
+          a long needs-you list scrolls under it. The testid is on the CONTAINER
+          — that is the element whose whole block unmounts on the O1<->O2
+          collapse, and the transition audit targets it. */}
+      {hasNeedsYou ? (
+        <div
+          data-testid="attention-needsyou-heading"
+          className="border-b border-border px-4 pt-3 pb-2"
+        >
           <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-            Needs your confirmation
+            Needs you
           </span>
         </div>
       ) : null}
       <div className="max-h-96 overflow-y-auto">
-        {actionable.map((item) => {
+        {needsYou.map((item) => {
           const tone = TONE_DOT[item.tone];
+          const code = item.kind === "alert" ? item.alert.code : null;
+          // Fix hint when the code has one; otherwise the item's identity text.
+          // NEVER both (§2.2 second-line rule) — the hint is the more actionable
+          // of the two, so it wins wherever it exists.
+          const hint =
+            code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
+          const secondLine = hint ?? item.menuSubtitle;
           return (
             <button
               key={item.id}
@@ -147,9 +171,11 @@ function AttentionMenuPanel({
                 <span className="block truncate text-sm font-medium text-text-strong">
                   {item.menuTitle}
                 </span>
-                {item.menuSubtitle ? (
-                  <span className="block truncate text-xs text-text-subtle">
-                    {item.menuSubtitle}
+                {secondLine ? (
+                  <span
+                    className={`block text-xs/relaxed text-text-subtle ${hint ? "" : "truncate"}`}
+                  >
+                    {secondLine}
                   </span>
                 ) : null}
               </span>
@@ -159,86 +185,26 @@ function AttentionMenuPanel({
             </button>
           );
         })}
-        {/* The scroll boundary wraps ALL groups (whole-diff review 2026-07-22):
-            12 needs-look rows are producible; links below the fold must scroll
-            into reach, not extend past the viewport. */}
-        {needsLook.length > 0 ? (
-          /* Needs-a-look group (spec §3.4.2): read-only rows — the ONLY interactive
-           descendant is the action <a> (when the action resolved). No row-level
-           onNavigate, no nested popover (the menu is itself a floating layer). */
-          <div className={hasActionable ? "border-t border-border" : undefined}>
-            {/* rounded-t when this group leads the panel (no confirmation section
-              above): the sunken header must not bleed past the rounded border. */}
-            <div
-              className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasActionable ? "" : "rounded-t-md"}`}
-            >
-              <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-                Needs a look
-              </span>
-            </div>
-            {needsLook.map((item) => {
-              const code = item.kind === "alert" ? item.alert.code : null;
-              const hint =
-                code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
-              const action = item.kind === "alert" ? item.alert.action : null;
-              return (
-                <div
-                  key={item.id}
-                  data-testid={`attention-needslook-row-${item.id}`}
-                  className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="mt-1.5 size-2 shrink-0 rounded-pill border-[1.5px] border-status-review bg-transparent"
-                  />
-                  {/* sr-only tone text mirrors the dot (spec §3.4.2), same string
-                    the actionable rows use for the notice tone. */}
-                  <span className="sr-only">{TONE_DOT.notice.srText}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-text-strong">
-                      {item.menuTitle}
-                    </span>
-                    {hint ? (
-                      <span className="block text-xs/relaxed text-text-subtle">{hint}</span>
-                    ) : null}
-                    {action ? (
-                      /* Menu-close on activation (spec §3.4): a same-route hash link
-                       activated inside the open dropdown would scroll its target
-                       behind the menu; external links close too, for consistency. */
-                      <a
-                        href={action.href}
-                        onClick={() => onClose()}
-                        {...(action.external
-                          ? { target: "_blank", rel: "noopener noreferrer" }
-                          : {})}
-                        className="mt-1 inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised focus-visible:outline-none"
-                      >
-                        {action.label}
-                        {action.external ? <span aria-hidden="true"> ↗</span> : null}
-                      </a>
-                    ) : null}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
-        {selfHeal.length > 0 ? (
+        {monitoring.length > 0 ? (
           /* Monitoring group (monitoring-badge-expand §3.2): one read-only row
              per item - title + auto-resolve note. No interactive descendants,
              no transitions (§3.4: instant; computed-style pinned in e2e). */
           <div
             data-testid="attention-monitoring-group"
-            className={hasActionable || needsLook.length > 0 ? "border-t border-border" : undefined}
+            className={hasNeedsYou ? "border-t border-border" : undefined}
           >
+            {/* rounded-t when this group leads the panel: the sunken header must
+                not bleed past the rounded border. Testid on the CONTAINER, per
+                the needs-you heading above. */}
             <div
-              className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasActionable || needsLook.length > 0 ? "" : "rounded-t-md"}`}
+              data-testid="attention-monitoring-heading"
+              className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasNeedsYou ? "" : "rounded-t-md"}`}
             >
               <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
                 Monitoring
               </span>
             </div>
-            {selfHeal.map((item) => (
+            {monitoring.map((item) => (
               <div
                 key={item.id}
                 data-testid={`attention-monitoring-row-${item.id}`}
