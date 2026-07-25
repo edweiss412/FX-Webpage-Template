@@ -42,7 +42,7 @@ Each of these is decided. Verify the citation; do not re-derive the decision.
 2. **`wizard_finalize_checkpoints`'s constraint shortens the conventional name, and the shortening is constrained from BOTH ends.** The conventional `<table>_<column>_nonblank` form is **65 bytes**, past Postgres's 63-byte identifier limit, and would be silently truncated (§3.1, measured). But it must ALSO keep the `_drive_file_id_nonblank` suffix, because the validation parity test's live query filters on `conname like '%\_drive\_file\_id\_nonblank'` (`tests/db/validation-schema-parity.test.ts:261-263`) — R4 finding 3 caught an earlier draft's `…_cursor_nonblank`, which would have put the parity test PERMANENTLY RED: the name would be in `expected` and could never appear in `live`. The chosen name drops the column-name prefix instead: `wizard_finalize_checkpoints_drive_file_id_nonblank`, 50 bytes, suffix intact.
 3. **Both canonical CHECK forms are accepted for a column of either nullability.** §3, §4.2. A CHECK fails only on FALSE and `NULL ~ '…'` is NULL, so the bare form and the `is null or …` form are behaviorally identical. Requiring the stylistically-matching form would produce false failures with no safety gain.
 4. **`public.onboarding_rebuild_attempts.drive_file_id` (U4) is in scope even though no backlog item covers it.** It is a column named *exactly* `drive_file_id` — inside the ORIGINAL 2026-07-02 scope rule — created 16 days after that migration and never covered (§2.2, verified live §2). Landing the guard without landing U4's CHECK would ship a red gate. This is not scope creep; it is the first thing the guard found.
-5. **The exemption list ships EMPTY and that is correct.** §4.3. It is not a zombie flag: all four of its rules (§4.5) are exercised by synthetic-input unit tests (§4.5, AC-9), and the two stale-row rules are what stop an empty list from silently becoming a permanent blindfold later.
+5. **The exemption list ships EMPTY and that is correct.** §4.5. It is not a zombie flag: all four of its rules are exercised by synthetic-input unit tests (§4.5, AC-9), and the two stale-row rules are what stop an empty list from silently becoming a permanent blindfold later.
 6. **The existing validation CHECK-parity test is EXTENDED, not re-architected.** §4.4. `tests/db/validation-schema-parity.test.ts:223-285` already asserts validation carries every public nonblank CHECK. Earlier drafts replaced it with a census-driven, identity-bound layer; R3 finding 1 showed that layer's identity binding was unsound (a URI's authority is not libpq's effective target). The change is now minimal: parse both nonblank migrations, move the pinned count. Separately, the schema MANIFEST records columns only (`scripts/schema-manifest/lib.ts:238-246`) and cannot see a constraint-only migration at all — a true and distinct fact that an early draft conflated with the above.
 7. **The census scans `public` + `dev` only — an allowlist of repo-owned schemas, not a vendor blocklist.** §4.1. Vendor schemas (`auth`, `storage`, `realtime`, …) cannot receive our constraints, and a blocklist naming them would go stale the moment Supabase adds a schema. §10 records the residual exposure if a third repo-owned schema ever appears.
 8. **No data-repair step, deliberately.** §3.3, §7. Zero violating rows exist on local (measured). If a target holds one, the apply must fail loudly rather than mutate operator data silently.
@@ -68,9 +68,9 @@ That scope rule was a reasonable line to draw once. It has two defects as a *dur
 
    (the `attempts >= 0` CHECK only — no `_drive_file_id_nonblank`).
 
-So the deliverable is not just "add the two deferred CHECKs." It is: add every missing CHECK, then replace the prose scope rule with an executable artifact that fails red when a new Drive-ID-bearing column appears uncovered.
+So the deliverable is not just "add the two deferred CHECKs." It is: add every missing CHECK, then replace the prose scope rule with an executable check that fails red when a new Drive-ID-bearing column appears uncovered — subject, after the R4 scope decision, to the limits §10 states plainly.
 
-**Framing note (durable lesson from a prior 8-round spec arc on this repo):** a prose enumeration of an executable property never completes — test bodies, adversary lists, observables, and transitions each failed the same way, one omission at a time. The fix that worked was to make the enumeration a NORMATIVE artifact and compare against it mechanically. This spec applies that lesson in its strongest available form: after the R3 collapse (§4.0) there is no committed census file at all — the enumeration is recomputed from the live database on every run, so there is nothing to hand-edit and nothing to go stale.
+**Framing note (durable lesson from a prior 8-round spec arc on this repo):** a prose enumeration of an executable property never completes — test bodies, adversary lists, observables, and transitions each failed the same way, one omission at a time. The fix that worked was to make the enumeration a NORMATIVE artifact and compare against it mechanically. This spec applies that lesson as far as it goes: after the R3 collapse (§4.0) there is no committed census file — the enumeration is recomputed from the live database on every run, so no stored list can drift from the schema. What it does NOT fix is the query that computes it; §10 item 2 owns that.
 
 ---
 
@@ -152,7 +152,7 @@ Postgres's identifier limit is 63 bytes (`NAMEDATALEN - 1`), so that name would 
 
 This is safe precisely because **coverage is definition-based, never name-based** (§1.1 item 1, §4.2). No test derives an expected constraint name from a table/column pair; coverage is matched on the constraint's definition (§4.2).
 
-§4.1's identifier-length pin covers the general form of this hazard: every constraint name declared by a nonblank migration must be ≤ 63 bytes, so the next long-named column fails at test time rather than silently truncating.
+AC-12 pins the general form of this hazard: every `add constraint <name>` anywhere in `supabase/migrations/` must be ≤ 63 bytes, so the next long-named column fails at test time rather than silently truncating.
 
 **Note on the earlier `cursor`-token name (superseded).** An earlier draft named this constraint
 `wizard_finalize_checkpoints_cursor_nonblank`; §1.1 item 2 records why it was replaced. The
@@ -188,7 +188,7 @@ ROLLBACK
 
 What this settles:
 
-1. **AC-12** — the `no_global_cursor_columns` `ddl_command_end` trigger does not reject the migration,
+1. **AC-13** — the `no_global_cursor_columns` `ddl_command_end` trigger does not reject the migration,
    and no `_allowed_watermark_columns` row is needed. The `cursor` token in a CONSTRAINT name is
    invisible to a trigger that scans `information_schema.columns` (§3.1).
 2. **Idempotency** — a second full pass succeeds with no error.
@@ -301,9 +301,9 @@ never missing:
 | Layer 3 DSN identity binding | prove the validation target is validation (R3-1 override bypass) | **deleted; see §4.4** |
 
 What replaces them is one DB-backed test plus a two-line extension of a mechanism that already works.
-This is not a descope: the guard now runs in a **merge-blocking** check rather than the advisory
-`x-audits` job it was previously specified into, so it has strictly more teeth than the three-layer
-design did.
+The guard now runs in a **merge-blocking** path rather than the advisory `x-audits` job it was
+previously specified into — a real improvement in *placement*. Its *detection surface* is not
+strictly larger, since the removed mechanisms were themselves defeatable; §10 states both halves.
 
 ### 4.1 The guard: one live query, one auditor, one exemption list
 
@@ -450,7 +450,7 @@ are matched; a formatting choice that a line-anchored pattern would have silentl
 
 **The wrong-target problem is out of scope and stays open.** It predates this change, affects the whole
 `validation-schema-parity` job equally, and R3 finding 1 is the first time it has been articulated;
-§10 item 3 records it and the plan files it to `BACKLOG.md` rather than attempting a fix inside a
+§10 item 5 records it and the plan files it to `BACKLOG.md` rather than attempting a fix inside a
 defense-in-depth CHECK change.
 
 ### 4.5 The exemption list
@@ -488,12 +488,12 @@ Shared values are defined once and referenced, not restated:
 - **The predicate** `~ '[^[:space:]]'` appears in exactly two places: the migration SQL, and a single exported constant used to construct both canonical definition strings in §4.2. No test re-spells it inline.
 - **23** — the census size as of 2026-07-25 (17 public + 6 dev) — appears in §2, §2.1/§2.2's 19+4 split, and §10 item 1's `7 of 23`. It is descriptive of today's database, not an assertion: no test pins it after the scope decision removed the count floor (§4.1).
 - **19 covered / 4 uncovered** in §2 sums to 23. After §3 lands: 23 covered, 0 uncovered, 0 exemptions.
-- **63 bytes** — the Postgres identifier limit (`NAMEDATALEN - 1`) — appears in §1.1 item 2, §3, §3.1, and §4.4, always as the same limit.
+- **63 bytes** — the Postgres identifier limit (`NAMEDATALEN - 1`) — appears in §1.1 item 2, §3, §3.1, and AC-12, always as the same limit.
 - **65 bytes** — the conventional-but-too-long U3 name — appears only in §1.1 item 2 and §3.1, both citing the same `wc -c` measurement.
-- **Four constraint names** are stated once each in §3's table and referenced nowhere else by literal; §3.1 restates only U3's, as the subject of that section.
-- **14** appears only as a quotation of the EXISTING hardcoded literals being removed — `tests/db/validation-schema-parity.test.ts:237` (§1.1 item 6, §4.4) and `tests/db/driveFileIdNonblank.db.test.ts:147` (§4.3, AC-11). It is never this spec's own count. **15** is the post-change public exactly-named count, in §4.3 and AC-11 only. **17** is the new pinned parse count, in §4.4 only.
+- **Constraint names** are defined in §3's table; U3's recurs in §1.1 item 2, §3.1, and §3.1.2, and the parent migration's two canaries recur in §4.2 — each recurrence is a deliberate cross-reference to the same definition, not an independent restatement.
+- **14** appears as a quotation of the EXISTING hardcoded literals being changed — `tests/db/validation-schema-parity.test.ts:237` (§1.1 item 6, §4.4) and `tests/db/driveFileIdNonblank.db.test.ts:147` (§4.3, AC-11). plus §2/§2.1's description of the parent migration's scope, where it is the historical count. It is never this spec's own post-change count. **15** is the post-change public exactly-named count (§4.3, AC-11). **17** is the new pinned parse count (§4.4, and §11's provenance note).
 - **Acceptance criteria run AC-1 … AC-15** with no gaps and no duplicates; the set was renumbered when §4 collapsed in R3, and every AC now maps to a mechanism that still exists.
-- **Behavioral-probe counts** appear as `3 of 19` (today) and `7 of 23` (after this change) in §4.3 and §10 item 1, and nowhere else.
+- **Behavioral-probe counts** `3 of 19` (today) and `7 of 23` (after) appear in §4.3 and §10 item 1, and are referenced again in this sweep — all from the single measurement in §4.3.
 - **8 / 16 / 4** — statements per pass, results across two passes, and first-pass NOTICEs — appear only in §3.1.2, all from the one measurement.
 - **The predicate** `~ '[^[:space:]]'` is spelled in the migration (§3) and in §4.2's two template constants; §4.2's two canaries assert the parent migration's constraints still render as those constants, so the spellings cannot drift apart silently.
 
@@ -591,8 +591,10 @@ deliberate acceptance, and each has a filed follow-up in §11 where follow-up is
    authority-parsing check would have been theatre against exactly this bypass.
 6. **Scope edges.** A third repo-owned schema falls outside the census (§4.1 scans `public`+`dev`);
    a Drive ID under an unrelated column name is undetectable by name matching; and `BASE TABLE`
-   excludes `FOREIGN` tables, which cannot carry a local CHECK anyway but are silently absent rather
-   than reported as unprotectable.
+   excludes `FOREIGN` tables. Postgres does PERMIT a CHECK on a foreign table — it simply does not
+   enforce or validate it — so this exclusion is about enforceability, not DDL legality; an earlier
+   draft said "cannot carry", which was wrong. Either way such a column is silently absent rather than
+   reported as unprotectable.
 
 **What it DOES guarantee — narrowly, because earlier drafts overclaimed in both directions:** a new
 column whose name matches `drive_file_id`, on a BASE TABLE in `public` or `dev`, landing without a
