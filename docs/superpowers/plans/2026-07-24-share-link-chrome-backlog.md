@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md` — 8 adversarial rounds, ~48 findings, all verified true and repaired. Its §9.5 records the cited decision to resolve the oracle-prose vector by construction here rather than in a 9th prose round. **The plan is where that resolution happens**, so Task 6's adversary matrix is not optional polish.
 
+> **Paths this plan DELETES appear as plain text, not code spans** — `spec:lint` resolves every code-span path against the tracked tree, so citing a removed file would make this document fail its own linter forever once the change ships.
+
 ## What the spec makes normative
 
 Read §9.1 (N0-N7), §9.2 (coverage obligations), §9.3 (the live harness and its four wiring points), §9.4 (completion obligations K1-K9), and §6.1 (the three-branch transition rule). Those are the contract. §9.1.1's adversary register is worked examples for Task 6, never a gate.
@@ -47,11 +49,11 @@ Read §9.1 (N0-N7), §9.2 (coverage obligations), §9.3 (the live harness and it
 - `components/admin/showpage/ShareHub.tsx` — additionally gains `data-testid="admin-current-share-link-row"` on the row wrapper (Task 3), without which N4's per-element selector contract is unexecutable.
 - **Comment-only edits (Sweep B).** These modify production files: `app/admin/show/[slug]/ShareTokenContext.tsx`, `app/admin/show/[slug]/RotateShareTokenButton.tsx`, `components/admin/showpage/StatusStrip.tsx`, `components/admin/showpage/ShowReviewModalSkeleton.tsx`, `app/admin/show/[slug]/ShareLinkCopyButton.tsx`. The skeleton was classified STALE in Sweep B but missing from this inventory until round 3.
 
-**Production files deleted:** `app/admin/show/[slug]/ShareChip.tsx`, `app/admin/show/[slug]/CrewPageLink.tsx`.
+**Production files deleted:** app/admin/show/[slug]/ShareChip.tsx, app/admin/show/[slug]/CrewPageLink.tsx.
 
-**Tests deleted:** `tests/components/ShareChip.test.tsx`, `tests/components/CrewPageLink.test.tsx`.
+**Tests deleted:** tests/components/ShareChip.test.tsx, tests/components/CrewPageLink.test.tsx.
 
-**Tests renamed + reworked:** `tests/components/shareTokenInstantUpdate.test.tsx` becomes tests/components/shareTokenRotateSurface.test.tsx.
+**Tests renamed + reworked:** tests/components/shareTokenInstantUpdate.test.tsx becomes tests/components/shareTokenRotateSurface.test.tsx.
 
 **Tests/CI created:** a ShareHub transitions source-scan test; a live browser spec plus its entry file; a dedicated workflow; a `testMatch` entry; a `_metaE2eWorkflowCoverage` row.
 
@@ -122,7 +124,7 @@ One occurrence, in the file being deleted. The item's "the same magic appears el
 
 - [ ] RED: add a source-scan guard asserting `rg 'ShareChip|CrewPageLink'` finds nothing under `app/` and `components/`. Red while the files exist.
 - [ ] Delete both components and their two test files.
-- [ ] Rename `tests/components/shareTokenInstantUpdate.test.tsx` → tests/components/shareTokenRotateSurface.test.tsx (new name; created by Task 1); rewrite its header (the "three token consumers" claim is false).
+- [ ] Rename tests/components/shareTokenInstantUpdate.test.tsx → tests/components/shareTokenRotateSurface.test.tsx (new name; created by Task 1); rewrite its header (the "three token consumers" claim is false).
 - [ ] Preserve verbatim, per spec §4 — this is a FLOOR, not a summary: the real two-tap Rotate driver, the mocked no-op `router.refresh()`, the exact OLD url, the exact NEW url, both clipboard payloads, the OLD-token-nowhere sweep, the lower-epoch rejection case, popover-scoped locators.
 - [ ] Repoint the stale-rotation test off the deleted chip and onto the ShareHub URL block. **Fix its TITLE** — it says "epoch <= current is rejected"; the gate accepts equal epochs (`app/admin/show/[slug]/ShareTokenContext.tsx:47`). K3a.
 - [ ] Correct every Sweep-B site.
