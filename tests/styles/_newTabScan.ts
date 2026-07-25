@@ -1146,11 +1146,12 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
     // Strip the comment DELIMITERS before reading the reason: `/* marker: */` left `*/`
     // behind, which `.trim()` counted as a non-empty reason, so a reasonless exemption
     // silently exempted an anchor (review R15 HIGH 4).
-    const text = src
-      .slice(a, b)
-      .replace(/^\/\*+/, "")
-      .replace(/\*+\/$/, "")
-      .replace(/^\/\//, "");
+    // Only the TRAILING delimiter matters: the reason is whatever follows the marker, so
+    // `/* marker: */` left `*/` behind and `.trim()` counted it as a reason (review R15
+    // HIGH 4). Stripping the LEADING delimiters was dead code -- they sit before the
+    // marker and can never reach the reason -- and a mutation proved it, so it is gone
+    // rather than kept for symmetry.
+    const text = src.slice(a, b).replace(/\*+\/$/, "");
     const at = text.indexOf(EXEMPTION);
     if (at >= 0 && text.slice(at + EXEMPTION.length).trim().length > 0) {
       exemptions.push({

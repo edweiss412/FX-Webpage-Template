@@ -1355,6 +1355,30 @@ describe("R6: scanner changes are pinned", () => {
   // bytes used to mis-locate, letting an unannounced anchor pass.
   // R15 question 2: the exemption parser was rewritten to derive line numbers from the
   // shared commentRanges(), so every attribution behaviour it had is re-pinned here.
+  // R16 question 2, probed before the round reported: can the delimiter strip empty a
+  // LEGITIMATE reason? Four shapes say no, and four empty shapes still fail to exempt.
+  it("R16 delimiter stripping keeps real reasons and rejects empty ones", () => {
+    const anchor = 'const A=()=><a href="x" target="_blank">One</a>;';
+    const exempts = [
+      `/* ${EXEMPTION_TEXT} legacy icon * */`, // reason ends in an asterisk
+      `/**\n * ${EXEMPTION_TEXT} legacy icon\n */`, // jsdoc continuation line
+      `/* ${EXEMPTION_TEXT} a*b*c */`, // inner asterisks
+      `// ${EXEMPTION_TEXT} reason   `, // trailing whitespace
+    ];
+    for (const c of exempts) {
+      expect(violations(`${c}\n${anchor}`), `must exempt: ${c}`).toEqual([]);
+    }
+    const doesNot = [
+      `/* ${EXEMPTION_TEXT} */`,
+      `/**\n * ${EXEMPTION_TEXT}\n */`,
+      `// ${EXEMPTION_TEXT}`,
+      `/* ${EXEMPTION_TEXT}    */`,
+    ];
+    for (const c of doesNot) {
+      expect(violations(`${c}\n${anchor}`).length, `must NOT exempt: ${c}`).toBe(1);
+    }
+  });
+
   it("R15 exemption attribution survives the shared-helper rewrite", () => {
     const anchor = 'const A=()=><a href="x" target="_blank">Go</a>;';
     // A single-line exemption above the anchor exempts it.
