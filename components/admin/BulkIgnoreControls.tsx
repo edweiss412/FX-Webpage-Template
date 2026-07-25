@@ -49,7 +49,6 @@ const BTN =
 const ARMED_BTN =
   "inline-flex min-h-tap-min w-full max-w-full items-center justify-center self-start whitespace-normal rounded-sm border border-transparent bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg min-[480px]:w-auto min-[480px]:justify-start";
 
-
 /**
  * DQIGNORE-6 — the ACTIVE data-quality list, grouped by code. Each group renders an
  * eyebrow (plain-language type label + a hairline rule drawn only at >=480px) UNLESS it

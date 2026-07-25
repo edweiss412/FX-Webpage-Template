@@ -239,9 +239,10 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
   it("M1: every D-invariant in the spec has a named assertion in a layout spec", () => {
     const doc = readFileSync(SPEC, "utf8");
     const declared = [...doc.matchAll(/^\|\s*(D\d+)\s*\|/gm)].map((m) => m[1]!);
-    expect(declared.length, "no D-invariants parsed — did the table format change?").toBeGreaterThan(
-      0,
-    );
+    expect(
+      declared.length,
+      "no D-invariants parsed — did the table format change?",
+    ).toBeGreaterThan(0);
     const haystack = [REAL_SPEC, TRANSCRIBED_SPEC]
       .map((f) => {
         try {
@@ -269,17 +270,19 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
     expect(assertionSurfaces('expect(a.x, "D6: left edge moved").toBe(b.x);')).toMatch(/D6/);
   });
 
-
   it("M3: every jsdom test the spec cites by number exists in the jsdom suite", () => {
     // Third surface of the same class as M1/M2. The spec's transition inventory
     // cites "§6.2 test 9/10/11/12" as the coverage for specific reachable edges;
     // nothing previously guaranteed those tests were ever written. Task 3 writes
     // them, so this is RED until then — same posture as D4 and MEASURED_ELEMENTS.
     const doc = readFileSync(SPEC, "utf8");
-    const cited = [...new Set([...doc.matchAll(/§6\.2 test (\d+)/g)].map((m) => Number(m[1])))].sort(
-      (a, b) => a - b,
-    );
-    expect(cited.length, "no §6.2 test citations parsed — did the reference format change?").toBeGreaterThan(0);
+    const cited = [
+      ...new Set([...doc.matchAll(/§6\.2 test (\d+)/g)].map((m) => Number(m[1]))),
+    ].sort((a, b) => a - b);
+    expect(
+      cited.length,
+      "no §6.2 test citations parsed — did the reference format change?",
+    ).toBeGreaterThan(0);
 
     let jsdom = "";
     try {
@@ -334,7 +337,9 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
   });
 
   it("T2: every scheduler delay in a registry file is an allowlisted identifier", () => {
-    const files = [...new Set(REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file))];
+    const files = [
+      ...new Set(REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file)),
+    ];
     const problems: string[] = [];
     let detected = 0;
     for (const file of files) {
@@ -354,7 +359,11 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
         const call = src.slice(m.index, i);
         const lastComma = call.lastIndexOf(",");
         if (lastComma === -1) continue; // no delay argument
-        const delay = call.slice(lastComma + 1, -1).trim().replace(/\}\s*$/, "").trim();
+        const delay = call
+          .slice(lastComma + 1, -1)
+          .trim()
+          .replace(/\}\s*$/, "")
+          .trim();
         const bare = delay.replace(/^\{[\s\S]*?timeout\s*:\s*/, "").replace(/[}\s]/g, "");
         if (!bare) continue;
         detected++;
@@ -368,7 +377,10 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     // Non-vacuity (spec B4). A detector that silently stops matching would pass the
     // assertion above forever. Eleven surfaces carry an arm timer, so anything below
     // that means the scan broke, not that the code got cleaner.
-    expect(detected, "scheduler scan found too few calls — did the detector break?").toBeGreaterThanOrEqual(11);
+    expect(
+      detected,
+      "scheduler scan found too few calls — did the detector break?",
+    ).toBeGreaterThanOrEqual(11);
   });
 
   it("T2 self-check: the matcher accepts allowlisted names and rejects everything else", () => {

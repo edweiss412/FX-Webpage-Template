@@ -281,7 +281,9 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     const btn = getByTestId(`admin-pending-ignore-${ID}`);
     // The live region is no longer Ignore's next sibling: the reorder puts Defer
     // between them. Address it by role, which is unambiguous (exactly one exists).
-    const region = btn.closest("div")!.parentElement!.querySelector('[role="status"]') as HTMLElement;
+    const region = btn
+      .closest("div")!
+      .parentElement!.querySelector('[role="status"]') as HTMLElement;
     expect(region).not.toBeNull();
     expect(region.getAttribute("role")).toBe("status");
     expect(region.className.split(/\s+/)).toContain("sr-only");

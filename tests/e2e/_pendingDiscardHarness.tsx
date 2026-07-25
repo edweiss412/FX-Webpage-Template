@@ -97,7 +97,12 @@ export function railHtml(width: number): string {
 /** The armed skin + label, imported from the component so the harness cannot
  *  drift from it. The component exports these precisely so this harness needs no
  *  transcription — which is what removes the need for a binding meta-test. */
-import { IGNORE_ARMED_CLASS, IGNORE_ARMED_LABEL, IGNORE_IDLE_CLASS, IGNORE_IDLE_LABEL } from "@/components/admin/PendingPanelDiscardButtons";
+import {
+  IGNORE_ARMED_CLASS,
+  IGNORE_ARMED_LABEL,
+  IGNORE_IDLE_CLASS,
+  IGNORE_IDLE_LABEL,
+} from "@/components/admin/PendingPanelDiscardButtons";
 
 /** Same tree, with the Ignore button in its armed state. Produced by substituting
  *  the component's OWN exported armed class + label into the rendered markup, so

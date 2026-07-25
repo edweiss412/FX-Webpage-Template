@@ -106,10 +106,7 @@ test.afterAll(async () => {
 type Box = { x: number; y: number; w: number; h: number; bottom: number; right: number };
 type Probe = { found: boolean; defer: Box; ignore: Box };
 
-async function probe(
-  page: import("@playwright/test").Page,
-  state: string,
-): Promise<Probe> {
+async function probe(page: import("@playwright/test").Page, state: string): Promise<Probe> {
   return page.evaluate(
     ({ state, id }) => {
       const root = document.querySelector(`[data-state="${state}"]`)!;
@@ -161,7 +158,10 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
       if (FITS[rail]) {
         // D3: where the pair fits, it must NOT stack — the whole point of the reorder
         // over an always-stack design.
-        expect(Math.abs(p.ignore.y - p.defer.y), `D3 ${state}: should share one line`).toBeLessThanOrEqual(TOL);
+        expect(
+          Math.abs(p.ignore.y - p.defer.y),
+          `D3 ${state}: should share one line`,
+        ).toBeLessThanOrEqual(TOL);
         expect(p.ignore.x, `D3 ${state}: Ignore should be left of Defer`).toBeLessThan(p.defer.x);
       } else {
         // D1: where it cannot fit, the SAFE control must be the lower one.
@@ -179,8 +179,14 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
     const armed = await probe(page, `${rail}armed`);
     // Structural: Ignore is the first flex item, so a longer armed label extends
     // rightward and pushes Defer. This is the DESTRUCT-1 guarantee without basis-full.
-    expect(Math.abs(armed.ignore.x - idle.ignore.x), `D4 ${rail}: Ignore left edge moved`).toBeLessThanOrEqual(TOL);
-    expect(Math.abs(armed.ignore.y - idle.ignore.y), `D4 ${rail}: Ignore top edge moved`).toBeLessThanOrEqual(TOL);
+    expect(
+      Math.abs(armed.ignore.x - idle.ignore.x),
+      `D4 ${rail}: Ignore left edge moved`,
+    ).toBeLessThanOrEqual(TOL);
+    expect(
+      Math.abs(armed.ignore.y - idle.ignore.y),
+      `D4 ${rail}: Ignore top edge moved`,
+    ).toBeLessThanOrEqual(TOL);
   });
 }
 
