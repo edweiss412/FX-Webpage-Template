@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  MDX_FORBIDDEN,
   PHRASE,
+  admitsCandidate,
   parse,
   scanSource,
   stripCommentsSafely,
@@ -618,7 +620,7 @@ describe("every external link in the live tree announces its new tab", () => {
       // `target="_BLANK"`, `target={t}` and `<a {...props}>` entirely, so the
       // scanner never saw the very shapes it was taught to reject (review R5
       // BLOCKING 1) -- my own inconsistency with the case-insensitive isBlank.
-      if (!/_blank/i.test(code) && !/target\s*=|\{\s*\.\.\./.test(code)) continue;
+      if (!admitsCandidate(code)) continue;
       scanSource(parse(rel, code), rel, sc);
     }
     // Anti-vacuity: the family exists, so a zero-anchor scan means the walker
@@ -671,9 +673,124 @@ describe("every external link in the live tree announces its new tab", () => {
     );
     expect(mdx.length, "mdx inventory should not be empty").toBeGreaterThan(0);
     const offenders = mdx.filter((rel) =>
-      // Case-insensitive: the same hole existed here.
-      /_blank/i.test(readFileSync(join(process.cwd(), rel), "utf8")),
+      MDX_FORBIDDEN.test(readFileSync(join(process.cwd(), rel), "utf8")),
     );
     expect(offenders).toEqual([]);
+  });
+
+  // R6 BLOCKING 2: the .mdx rule only tested /_blank/i, so `target={dest}` and
+  // `{...externalProps}` evaded it -- either can resolve to _blank at runtime, and
+  // MDX never reaches scanSource. MDX gets NO target attribute and NO spread at
+  // all; such a link belongs in a .tsx component the scanner can classify.
+  it("R6 the .mdx rule rejects dynamic targets and spreads, not just literal _blank", () => {
+    for (const bypass of [
+      "<a target={destination}>Go</a>",
+      "<a {...externalProps}>Go</a>",
+      '<a target="_BLANK">Go</a>',
+      '<a target="_blank">Go</a>',
+    ]) {
+      expect(MDX_FORBIDDEN.test(bypass), `MDX rule must reject: ${bypass}`).toBe(true);
+    }
+    // Ordinary internal MDX links stay legal.
+    expect(MDX_FORBIDDEN.test('<a href="/help">Go</a>')).toBe(false);
+  });
+});
+
+// ── R6 regression pins for the four previously-unpinned scanner changes ─────
+// R6 BLOCKING 5: the R5 delta changed four scanner behaviors with no self-test,
+// so the suite stayed green while `normPredicate` was fail-open across eleven
+// operator families. Each change now has a pin that fails if it regresses.
+describe("R6: scanner changes are pinned", () => {
+  const probe = (code: string): Scan => {
+    const sc: Scan = { anchors: 0, violations: [] };
+    scanSource(parse("/synthetic/probe.tsx", code), "/synthetic/probe.tsx", sc);
+    return sc;
+  };
+  const violations = (code: string): string[] => probe(code).violations.map((v) => v.reason);
+
+  // (1) Compound negation. `!(e && ready)` and `!e && ready` differ at
+  // e=false,ready=false: the first is TRUE (tab opens), the second FALSE (no
+  // hint). Textual normalization equated them. A compound predicate is no longer
+  // an approved shape at all, so every one of R6's eleven families fails closed.
+  it("compound predicates are unrecognized, not silently equated", () => {
+    const families = [
+      ["!(e && ready)", "!e && ready"],
+      ["!e || ready", "!(e || ready)"],
+      ["!(x === y)", "!x === y"],
+      ["!(n > 0)", "!n > 0"],
+      ["!(a & b)", "!a & b"],
+      ["!(x ?? y)", "!(x) ?? y"],
+      ["!(e ? p : q)", "!e ? p : q"],
+    ];
+    for (const [targetCond, hintCond] of families) {
+      const code =
+        `const A=({e,ready,x,y,n,a,b,p,q})=>` +
+        `<a href="x" {...(${targetCond}?{target:"_blank"}:{})}>Go {${hintCond}?<> <NewTabHint /></>:null}</a>;`;
+      expect(violations(code).join(" "), `must not accept ${targetCond} / ${hintCond}`).toMatch(
+        /unrecognized|not gated/,
+      );
+    }
+  });
+
+  // (2) A simple member predicate on both sides is still ACCEPTED -- the fix must
+  // not cost the four shipped gated anchors, which all gate on member expressions.
+  it("simple member predicates on both sides still pass", () => {
+    expect(
+      violations(
+        `const A=({action})=><a href="x" {...(action.isExternal?{target:"_blank",rel:"noreferrer"}:{})}>` +
+          `{action.label} {action.isExternal?<> <NewTabHint /></>:null}</a>;`,
+      ),
+    ).toEqual([]);
+  });
+
+  // (3) Guarded substitution stays EXACT. R6 showed `!(label && ready)` guarding
+  // `${!label && ready}` slipped through: at label="" the name is phrase-only.
+  it("a guarded substitution must be the SAME expression as its guard", () => {
+    expect(
+      violations(
+        'const A=({label,ready})=><a href="x" target="_blank" ' +
+          'aria-label={!(label && ready) ? `${!label && ready} (opens in a new tab)` : "Diagram (opens in a new tab)"}>Go</a>;',
+      ).join(" "),
+    ).toMatch(/no destination|unrecognized/);
+    // The shipped shape -- guard and substitution textually identical -- still passes.
+    expect(
+      violations(
+        'const A=({title})=><a href="x" target="_blank" ' +
+          'aria-label={title.trim() ? `${title.trim()} (opens in a new tab)` : "Diagram (opens in a new tab)"}>Go</a>;',
+      ),
+    ).toEqual([]);
+  });
+
+  // (4) The four roles R5 stopped treating as opaque naming wrappers.
+  it("presentation/none/group/generic wrappers do not hide the hint", () => {
+    for (const role of ["presentation", "none", "group", "generic"]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <span role="${role}"><NewTabHint /></span></a>;`,
+        ),
+        `role=${role} should not be treated as opaque`,
+      ).toEqual([]);
+    }
+    // A wrapper that really does rename its subtree is still rejected.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank">Go <span role="img" aria-label="icon"><NewTabHint /></span></a>;',
+      ).join(" "),
+      // Rejected by the naming-wrapper/opacity rule: a wrapper carrying its own
+      // aria-label renames the subtree, so the hint no longer reaches the name.
+    ).toMatch(/does not announce|unrecognized|cannot be proven non-hiding/);
+  });
+
+  // (5) File admission: case-insensitive _blank, dynamic targets, and spreads all
+  // reach the scanner. R5's filter was case-SENSITIVE, so a real `_BLANK` file was
+  // never scanned even though a synthetic fixture proved the shape was rejected.
+  it("candidate-file admission covers _BLANK, dynamic targets and spreads", () => {
+    for (const code of [
+      'const A=()=><a href="x" target="_BLANK">Go</a>;',
+      'const A=({t})=><a href="x" target={t}>Go</a>;',
+      'const A=({props})=><a href="x" {...props}>Go</a>;',
+    ]) {
+      expect(admitsCandidate(code), `must admit: ${code}`).toBe(true);
+    }
   });
 });

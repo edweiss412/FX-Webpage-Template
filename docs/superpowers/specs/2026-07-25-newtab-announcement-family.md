@@ -153,7 +153,7 @@ Plus the §2.2 label-in-name-only fix at `components/admin/wizard/VenueMapTile.t
 
 ### Group C — dynamic spread; announcement must be conditional (4 anchors)
 
-All four share one shape: no `aria-label`, `{action.label}`, and a `↗` already gated on the external flag.
+Three of the four share one shape: no `aria-label`, `{action.label}`, and a `↗` already gated on the external flag. The fourth is the banner's destination chip, whose visible text is the STATIC string `Google Sheets` (`components/admin/review/AttentionBanner.tsx:170`), so its computed name is `Google Sheets (opens in a new tab)`. It is gated identically; only the label source differs.
 
 **Corrected after the rebase (see §1.3):** `AttentionMenu` LEFT the family — upstream turned it
 into a jump-only index with no action anchor — and `AttentionBanner` gained a second one, its
@@ -224,9 +224,14 @@ vector at three rounds.
 
 Filesystem-walk `components/**/*.tsx` and `app/**/*.tsx` (never a hard-coded list). An `<a>` or
 `<Link>` is a CANDIDATE if it carries a `target` attribute or ANY spread attribute; without
-either it cannot become external and is skipped. `.mdx` gets a lexical assertion instead —
-`app/**/*.mdx` must contain no `_blank` at all — because TSX parsing cannot see those files
-(measured: a probe anchor was omitted from the AST in 9 of 13).
+either it cannot become external and is skipped. `.mdx` gets a lexical assertion instead, because TSX parsing cannot see those files
+(measured: a probe anchor was omitted from the AST in 9 of 13). Since MDX never reaches the
+scanner, its rule is the strictest one available: `app/**/*.mdx` must contain no `_blank` (in any
+case), **no `target` attribute, and no spread**. `target={dest}` and `{...externalProps}` both
+evaded an earlier `_blank`-only spelling and either can resolve to `_blank` at runtime (review R6
+BLOCKING 2). A doc that genuinely needs an external link puts it in a `.tsx` component the
+scanner can classify. One regex, `MDX_FORBIDDEN`, is exported and shared by the rule and its
+self-test.
 
 ### 6.2 Approved shapes (everything else is a finding)
 
@@ -257,7 +262,10 @@ WITH substitutions is not. Anything outside these shapes is reported as
   a real sibling space (JSX whitespace-stripping modelled), not hidden by `aria-hidden`, the
   native `hidden` attribute, or a hiding class, and not beneath any element whose attributes
   cannot be proven non-hiding (a spread, an undecidable `className`/`style`, or its own
-  `aria-label`/`aria-labelledby`/`role`).
+  `aria-label`/`aria-labelledby`). A `role` counts as a naming override ONLY when it is not
+  `presentation`, `none`, `group`, or `generic`: those four do not rename their subtree, and the
+  installed accessible-name implementation computes `Go (opens in a new tab)` through each, so
+  rejecting them was pure developer friction (review R5 LOW 6).
 - **Gated** anchors require the hint under a condition whole-expression-equal to the effective
   `_blank` predicate, with branch polarity computed rather than compared textually.
 - **Literal** anchors require an UNCONDITIONAL hint. Proving an arbitrary conditional chain
@@ -280,6 +288,16 @@ WITH substitutions is not. Anything outside these shapes is reported as
 - **Document-level `<base target="_blank">` is out of scope.** It would make every relative
   anchor external without any per-anchor syntax to inspect. None exists in the tree; a lexical
   assertion that none is introduced is tracked in `DEFERRED.md`.
+- **A COMPOUND gating predicate is reported, not compared.** Only an identifier, a
+  property-access chain, or `!` applied to either is an approved gate. Deciding whether two
+  different compound predicates denote the same runtime condition is not something a static pass
+  can do: six review rounds each produced a new pair that a textual normalizer wrongly equated,
+  and R6 alone enumerated eleven operator families (`!(e && ready)` vs `!e && ready`,
+  `!(x === y)` vs `!x === y`, `!(n > 0)` vs `!n > 0`, nullish, comma, bitwise, `instanceof`,
+  conditional, ...), each a state where the tab opens silently. So the question is no longer
+  asked. Predicates are compared as AST structural keys, and a compound predicate on either side
+  fails closed. All four shipped gated anchors gate on member expressions, so the present cost is
+  zero; a future compound gate costs one exemption or a named boolean.
 - **An effectful predicate evaluated twice** (`{...(next() ? … )}` with `next()` also gating the
   hint) cannot be proven consistent statically. Textual equality is the guarantee; identity of
   side effects is not. No such predicate exists in the tree, and the approved shapes discourage

@@ -89,7 +89,7 @@ function isDecidableLiteral(node: ts.Node | undefined): boolean {
 function substitutedExprs(node: ts.Node): string[] {
   const n = ts.isJsxExpression(node) && node.expression ? unparen(node.expression) : node;
   if (!ts.isTemplateExpression(n)) return [];
-  return n.templateSpans.map((sp) => normPredicate(sp.expression.getText()));
+  return n.templateSpans.map((sp) => canon(sp.expression));
 }
 
 /**
@@ -104,7 +104,10 @@ function guardedSubstitution(branch: ts.Node, condition: ts.Expression): boolean
   // `label ? `${label.trim()} (opens…)`` pass, where a whitespace-only label takes
   // the truthy branch and the substitution trims to "" -- a phrase-only name
   // (review R5 HIGH 3). The guard must prove the SAME expression non-empty.
-  const cond = normPredicate(condition.getText());
+  // Structural identity, not textual: R6 showed `!(label && ready)` guarding a
+  // `${!label && ready}` substitution slipped through, and at label="" the name
+  // is phrase-only (review R6 BLOCKING 1, third consumer).
+  const cond = canon(condition);
   return substitutedExprs(branch).some((e) => e === cond);
 }
 
@@ -203,9 +206,15 @@ function labelAnnounces(
         // with `aria-label={ready ? "…(opens…)" : "Go"}` is silent when e=true and
         // ready=false (review R2 BLOCKING 1). Index-matching alone missed that.
         const labelCond = expr.condition.getText();
-        const want = polarity.negated ? `!${polarity.text}` : polarity.text;
-        const a = normPredicate(labelCond);
-        const b = normPredicate(want);
+        const want = polarity.negated ? `!(${polarity.text})` : polarity.text;
+        // Approved simple predicates only, on BOTH sides: a compound label
+        // predicate is not compared to a compound target predicate, because a
+        // textual normalizer equated eleven distinct operator families and the
+        // AND/OR pair here was one of R6's accepted-then-refuted probes
+        // (review R6 BLOCKING 1, second consumer).
+        const a = simplePredicateKey(labelCond);
+        const b = simplePredicateKey(want);
+        if (a === null || b === null) return "none";
         const direct = a === b;
         // `!X` vs `X` in either direction is the inverted spelling. Prefixing and
         // re-normalizing produced `!!e` and missed it.
@@ -440,63 +449,117 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
   return out;
 }
 
-/** Normalize a predicate for comparison: drop whitespace, then peel redundant
- *  outer parens so `!e`, `!(e)`, and `(!e)` all compare equal (review R1
- *  BLOCKING 2 rejected valid equivalent spellings). */
-function normPredicate(text: string): string {
-  // Strip whitespace only OUTSIDE string literals: a blanket replace made
-  // `mode === "x y"` and `mode === "xy"` normalize identically, which would let a
-  // hint gate on a DIFFERENT predicate than the target (review R2 BLOCKING 1).
-  let t = "";
-  let quote: string | null = null;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i]!;
-    if (quote) {
-      t += ch;
-      if (ch === quote && text[i - 1] !== "\\") quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-      t += ch;
-      continue;
-    }
-    if (!/\s/.test(ch)) t += ch;
-  }
-  const peel = (x: string): string => {
-    while (x.startsWith("(") && x.endsWith(")")) {
-      let depth = 0;
-      let wraps = true;
-      for (let i = 0; i < x.length; i += 1) {
-        if (x[i] === "(") depth += 1;
-        else if (x[i] === ")") {
-          depth -= 1;
-          if (depth === 0 && i < x.length - 1) {
-            wraps = false;
-            break;
-          }
-        }
-      }
-      if (!wraps) break;
-      x = x.slice(1, -1);
-    }
-    return x;
-  };
-  t = peel(t);
-  if (t.startsWith("!")) {
-    const inner = t.slice(1);
-    const bare = peel(inner);
-    // Only drop the parens when the negated expression is a single atom.
-    // `!(e&&ready)` and `!e&&ready` are NOT equivalent, and peeling made them
-    // compare equal (review R5 BLOCKING 2).
-    t = /[&|?:]/.test(bare) ? `!(${bare})` : `!${bare}`;
-  }
-  return t;
+/**
+ * Parse a predicate's source text back into an expression node.
+ *
+ * The scanner passes predicates around as text (`.getText()`), but text is the
+ * wrong comparison substrate: see `simplePredicateKey`.
+ */
+function parseExprText(text: string): ts.Expression | null {
+  const sf = ts.createSourceFile(
+    "__pred.tsx",
+    `(${text});`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const st = sf.statements[0];
+  if (!st || !ts.isExpressionStatement(st)) return null;
+  return st.expression;
 }
 
+/**
+ * Canonical serialization of an expression's STRUCTURE. Redundant parens vanish;
+ * every compound node re-emits its own, so the string is determined by the AST
+ * shape and nothing else. Two expressions with the same canon are structurally
+ * identical; different canons are simply "not proven identical" (fail closed).
+ */
+function canon(e: ts.Expression): string {
+  if (ts.isParenthesizedExpression(e)) return canon(e.expression);
+  if (ts.isPrefixUnaryExpression(e)) {
+    return `${ts.tokenToString(e.operator) ?? "?"}(${canon(e.operand)})`;
+  }
+  if (ts.isBinaryExpression(e)) {
+    return `(${canon(e.left)})${e.operatorToken.getText()}(${canon(e.right)})`;
+  }
+  if (ts.isConditionalExpression(e)) {
+    return `(${canon(e.condition)})?(${canon(e.whenTrue)}):(${canon(e.whenFalse)})`;
+  }
+  if (ts.isPropertyAccessExpression(e)) {
+    return `${canon(e.expression)}${e.questionDotToken ? "?." : "."}${e.name.getText()}`;
+  }
+  if (ts.isElementAccessExpression(e)) {
+    return `${canon(e.expression)}[${canon(e.argumentExpression)}]`;
+  }
+  if (ts.isCallExpression(e)) {
+    return `${canon(e.expression)}(${e.arguments.map((a) => canon(a)).join(",")})`;
+  }
+  if (ts.isStringLiteral(e)) return JSON.stringify(e.text);
+  if (ts.isIdentifier(e) || ts.isNumericLiteral(e)) return e.text;
+  // Anything else keeps its source text with whitespace collapsed; it can only
+  // ever match itself, which is the fail-closed outcome.
+  return e.getText().replace(/\s+/g, "");
+}
+
+/**
+ * The key for a predicate that GATES something, or null when the predicate is
+ * not an approved shape.
+ *
+ * Approved: an identifier, a property-access chain over identifiers, or `!`
+ * applied to either. Nothing else -- no binary operators, ternaries, calls,
+ * commas, or element access.
+ *
+ * Why so narrow: rounds 1 through 6 each found a new pair of DIFFERENT compound
+ * predicates that a textual normalizer equated. R6 alone listed eleven operator
+ * families (`!(e && ready)` vs `!e && ready`, `!(x === y)` vs `!x === y`,
+ * `!(n > 0)` vs `!n > 0`, nullish, comma, bitwise, `instanceof`, ...). Each
+ * collision let an anchor open a new tab with no announcement while the guard
+ * reported zero violations.
+ *
+ * Deciding semantic equivalence of arbitrary predicates is not something a
+ * static pass can do, so this stops asking. A compound predicate is simply not
+ * an approved shape, and the pair is reported instead of compared. Every one of
+ * those eleven families fails closed at once, and no future family can reopen
+ * the hole. The cost is a false positive on a legitimately compound gate; the
+ * four shipped gated anchors all gate on member expressions, so today it is
+ * zero. Accepted limit, spec section 6.4.
+ */
+function simplePredicateKey(text: string): string | null {
+  const e = parseExprText(text);
+  if (!e) return null;
+  const walk = (n: ts.Expression): string | null => {
+    if (ts.isParenthesizedExpression(n)) return walk(n.expression);
+    if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
+      const inner = walk(n.operand);
+      return inner === null ? null : `!${inner}`;
+    }
+    if (ts.isIdentifier(n)) return n.text;
+    if (ts.isPropertyAccessExpression(n)) {
+      const base = walk(n.expression);
+      if (base === null || base.startsWith("!")) return null;
+      return `${base}${n.questionDotToken ? "?." : "."}${n.name.getText()}`;
+    }
+    return null;
+  };
+  return walk(e);
+}
+
+/** Does this source text contain anything that could make an external anchor?
+ *  Shared by the live-tree loop AND its self-test, so the two cannot diverge --
+ *  R5 left the loop case-SENSITIVE while the scanner was case-insensitive, so a
+ *  real `_BLANK` file was never scanned at all. */
+export function admitsCandidate(code: string): boolean {
+  return /_blank/i.test(code) || /target\s*=/.test(code) || /\{\s*\.\.\./.test(code);
+}
+
+/** MDX cannot be classified by the scanner (it never reaches `scanSource`), so
+ *  it gets no target attribute and no spread at all -- not merely no literal
+ *  `_blank`. `target={dest}` and `{...externalProps}` both evaded the older
+ *  `/_blank/i` rule and either can resolve to `_blank` (review R6 BLOCKING 2). */
+export const MDX_FORBIDDEN = /_blank|target\s*=|\{\s*\.\.\./i;
+
 function sameCondition(hintConds: string[], target: { text: string; negated: boolean }): boolean {
-  const want = target.negated ? `!${target.text}` : target.text;
-  const norm = normPredicate;
+  const want = target.negated ? `!(${target.text})` : target.text;
   // The hint's gating must be EXACTLY the predicate, not a superset. Using
   // `some` over the nesting chain let `external && ready` satisfy `external`
   // (review R1 BLOCKING 2): with external=true, ready=false the link opens a new
@@ -506,7 +569,13 @@ function sameCondition(hintConds: string[], target: { text: string; negated: boo
   // Exact match only in the other direction too: an even earlier version
   // accepted `!(c) === want`, which made a condition match its own NEGATION.
   if (hintConds.length !== 1) return false;
-  return norm(hintConds[0]!) === norm(want);
+  // Structural keys, and BOTH sides must be an approved simple predicate. A
+  // compound predicate on either side yields null and is reported rather than
+  // compared -- textual normalization equated eleven distinct operator families
+  // (review R6 BLOCKING 1).
+  const a = simplePredicateKey(hintConds[0]!);
+  const b = simplePredicateKey(want);
+  return a !== null && b !== null && a === b;
 }
 
 /**
