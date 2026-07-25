@@ -2,12 +2,14 @@ import { afterAll, describe, expect, test } from "vitest";
 import postgres from "postgres";
 import { buildMonitorDigestModel } from "@/lib/notify/monitorDigest";
 import type { DigestBuilderSql } from "@/lib/notify/digest";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 // Flow 6.2 new-show-gaps §3.2 / plan Task 2: DB-integration filter proof. Proves the
 // first-seen complement of drift — a published show with a `current` applied sync but NO
 // `baseline` row is reported; a baselined / unpublished / orphan show is excluded.
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;
 try {

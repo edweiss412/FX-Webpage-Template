@@ -2,12 +2,14 @@ import { afterAll, describe, expect, test } from "vitest";
 import postgres from "postgres";
 import { buildMonitorDigestModel } from "@/lib/notify/monitorDigest";
 import type { DigestBuilderSql } from "@/lib/notify/digest";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 // Flow 6.2 §3 / plan Task 5 Step 7: DB-integration filter proof. A fake sql cannot
 // prove the WHERE clauses; this seeds ONE eligible + FIVE excluded show_change_log
 // rows against real Postgres and asserts the query returns only the eligible one.
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;

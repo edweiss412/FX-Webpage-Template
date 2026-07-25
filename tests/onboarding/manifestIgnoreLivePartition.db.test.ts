@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import postgres from "postgres";
 
 import { handleWizardManifestIgnore } from "@/app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * DS3-1 — the C1-equivalent proof for the NO-pendingIngestionId path (the core
@@ -29,8 +30,9 @@ import { handleWizardManifestIgnore } from "@/app/api/admin/onboarding/manifest/
  * the seeded fixture values; the unresolved-count uses the production SQL.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "d531d531-1111-4111-8111-d531d531d531";
 const OTHER_SESSION = "d531d531-2222-4222-8222-d531d531d531";

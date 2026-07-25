@@ -12,6 +12,7 @@ import {
   type RescanDeps,
   type RescanResult,
 } from "@/lib/onboarding/rescanWizardSheet";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * `rescanWizardSheet` core — Flow A (review) + folder guard + lock (real DB).
@@ -33,8 +34,9 @@ import {
  *  - T-DEMOTED-CLEAN: a previously-demoted row rescanned clean clears its failure code (unblocks).
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "7e7e7e7e-1111-4111-8111-7e7e7e7e7e7e";
 const FOLDER = "rescan-wizard-folder";

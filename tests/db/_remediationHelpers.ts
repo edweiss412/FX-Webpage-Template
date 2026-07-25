@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
 
+import { assertLocalDbUrl } from "./_localDbUrl";
+
 const LOCAL_DEFAULT = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 /**
@@ -15,25 +17,14 @@ const LOCAL_DEFAULT = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
  *     (URL parse only — no connection is ever attempted on refusal).
  * Validation access for this migration lives ONLY in the plan's Task 2.5
  * surgical-apply close-out commands — never in any test run.
+ *
+ * The guard itself now lives in the side-effect-free `./_localDbUrl` (spec
+ * 2026-07-24-test-safety-hardening-batch §2.3) so the ~50 suites that need only
+ * the assertion do not import this module's eval-time postgres clients. Imported
+ * (not just re-exported) so the local `DB_URL` line below still has a binding;
+ * re-exported so this module's existing importers keep resolving the symbol.
  */
-export function assertLocalDbUrl(url: string): string {
-  let host: string;
-  try {
-    host = new URL(url).hostname;
-  } catch {
-    throw new Error(`_remediationHelpers: unparseable database URL (${url})`);
-  }
-  if (host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]" && host !== "::1") {
-    throw new Error(
-      `_remediationHelpers: REFUSING non-local database host "${host}". ` +
-        "This suite applies the destructive F2/F4 remediation migration and only " +
-        "runs against local Supabase. Set LOCAL_TEST_DATABASE_URL to a " +
-        "127.0.0.1/localhost URL (TEST_DATABASE_URL is the validation project " +
-        "and is intentionally ignored by this helper).",
-    );
-  }
-  return url;
-}
+export { assertLocalDbUrl };
 
 const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL ?? LOCAL_DEFAULT);
 

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
@@ -21,8 +22,9 @@ import {
  * request.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "c3c3c3c3-1111-4111-8111-c3c3c3c3c3c3";
 const OTHER_SESSION = "c3c3c3c3-9999-4999-8999-c3c3c3c3c3c3";

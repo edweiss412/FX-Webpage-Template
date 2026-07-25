@@ -27,7 +27,7 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 import postgres from "postgres";
 
-import { assertLocalDbUrl } from "../db/_remediationHelpers";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import type { ParseResult } from "@/lib/parser/types";
 

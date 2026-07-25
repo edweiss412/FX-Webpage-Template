@@ -3,6 +3,7 @@ import postgres from "postgres";
 
 import { PostgresOnboardingScanTx, type PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Task B2 — finalize creates a Held show for EVERY clean row (checked AND unchecked).
@@ -21,8 +22,9 @@ import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/ro
 // Phase-wide DB-connection convention: TEST_DATABASE_URL is the VALIDATION project in this
 // repo — every *.db.test.ts pins BOTH env vars to the local loopback (plan R19-1), because the
 // route's databaseUrl() prefers TEST_DATABASE_URL ?? DATABASE_URL.
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "7c7c7c7c-4444-4444-8444-7c7c7c7c7c7c";
 const FOLDER = "held-creation-folder";
