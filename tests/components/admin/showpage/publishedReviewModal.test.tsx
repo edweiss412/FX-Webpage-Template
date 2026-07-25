@@ -583,20 +583,12 @@ describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)"
     expect(anchor.hasAttribute("data-step3-warning-flash")).toBe(true);
   });
 
-  // Whole-diff review 2026-07-25 asked for a production-mount test of
-  // `effectiveSectionId`, because the card-side suite hand-injects the prop and
-  // the bucketAttention suite swaps renderCard for a plain string.
-  //
-  // Stated honestly: this test proves the chip renders through the REAL bannerFor
-  // path (a swapped-out or mis-slotted footer fails here), but it does NOT catch
-  // `bannerFor` passing `item.sectionId` instead of the resolved section —
-  // verified by mutation, which stayed green. That is not a hole in the test; it
-  // is a property of the code after the chip became external-only: the self-link
-  // guard is the prop's only consumer, and it can only ever fire on an INTERNAL
-  // action, which no longer renders a chip at all. So `effectiveSectionId` cannot
-  // change rendered output today. It is kept because §2.3 ratifies the guard as
-  // the card-side enforcement of external-only, and it becomes live again the
-  // moment an internal chip is ever specified.
+  // A production-mount test of the chip: the card-side suite renders
+  // AttentionBanner directly, so nothing else proves the modal actually slots a
+  // real banner through `bannerFor`. (An earlier version of this comment
+  // discussed an `effectiveSectionId` prop; that prop and its self-link guard
+  // were removed as provably dead — the chip's `external` gate is the whole
+  // mechanism.)
   it("bannerFor renders the chip through the real production mount", async () => {
     const ITEM = alertItem(
       { id: "alert:chip1", actionable: false, clearingKind: "needs_look" },

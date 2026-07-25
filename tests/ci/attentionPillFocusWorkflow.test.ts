@@ -16,8 +16,8 @@
  * path is not a cosmetic defect: it leaves the job dark for changes to that
  * input, which is the exact failure the gate exists to remove.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
@@ -42,27 +42,61 @@ const REQUIRED_PATHS = [
   WORKFLOW,
 ];
 
-/** Production surfaces the live harness actually executes. DERIVED from the
- *  harness's own imports rather than copied from the workflow — a REQUIRED_PATHS
- *  list that mirrors the yaml can only ever agree with it, so it could never
- *  catch the omission this test exists to catch (whole-diff review 2026-07-25).
- *  Each entry must be covered by SOME filter line, exactly or by glob prefix. */
-const HARNESS_PRODUCTION_DEPS = [
-  "components/admin/showpage/PublishedReviewModal.tsx",
-  "components/admin/showpage/AttentionMenu.tsx",
-  "components/admin/review/AttentionBanner.tsx",
-  "components/admin/review/publishedAdapter.ts",
-  "lib/admin/sectionAttention.ts",
-  "lib/admin/attentionItems.ts",
-  // direct imports of AttentionMenu itself — missing from the first draft of
-  // this list, which is why the list is now checked against a subtree glob
-  "lib/admin/needsLookHints.ts",
-  "lib/adminAlerts/audience.ts",
-];
-
 /** True when `path` is matched by a filter entry, exactly or via a `/**` glob. */
 function coveredBy(filters: string[], path: string): boolean {
   return filters.some((f) => (f.endsWith("/**") ? path.startsWith(f.slice(0, -2)) : f === path));
+}
+
+/**
+ * Walk the harness's TRANSITIVE import graph and return every repository source
+ * file it pulls in (tests/** excluded — those are covered by their own filter
+ * entries).
+ *
+ * Derived, not hand-maintained (whole-diff review rounds 2 and 3). Two
+ * successive enumerated lists both shipped with omissions — first
+ * `AttentionBanner` and `sectionAttention`, then `needsLookHints` and
+ * `audience`, then a further seven including `CompactAlertCard` and
+ * `lib/messages/lookup`. The graph is 300+ files across 40+ directories, so a
+ * list was never going to track it; the only honest check is to compute it.
+ */
+function harnessImportGraph(entry: string): string[] {
+  const EXT = [".ts", ".tsx", ".mjs", ".js"];
+  const seen = new Set<string>();
+  const repoFiles = new Set<string>();
+
+  const resolveSpec = (spec: string, from: string): string | null => {
+    let base: string;
+    if (spec.startsWith("@/")) base = join(ROOT, spec.slice(2));
+    else if (spec.startsWith(".")) base = resolve(dirname(from), spec);
+    else return null; // bare package specifier — not a repository input
+    for (const suffix of ["", ...EXT, ...EXT.map((e) => `/index${e}`)]) {
+      const candidate = base + suffix;
+      if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+    }
+    return null;
+  };
+
+  const walk = (file: string): void => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const rel = file.replace(`${ROOT}/`, "");
+    if (!rel.startsWith("tests/")) repoFiles.add(rel);
+    let src: string;
+    try {
+      src = readFileSync(file, "utf8");
+    } catch {
+      return;
+    }
+    for (const m of src.matchAll(/from\s+["']([^"']+)["']|import\(["']([^"']+)["']\)/g)) {
+      const spec = m[1] ?? m[2];
+      if (!spec) continue;
+      const resolved = resolveSpec(spec, file);
+      if (resolved) walk(resolved);
+    }
+  };
+
+  walk(join(ROOT, entry));
+  return [...repoFiles];
 }
 
 describe("attention-pill-focus CI wiring", () => {
@@ -90,19 +124,16 @@ describe("attention-pill-focus CI wiring", () => {
     expect(missing, `path filter omits: ${missing.join(", ")}`).toEqual([]);
   });
 
-  it("fires on every production surface the harness executes", () => {
-    // These are read from the harness's import graph, not from the yaml, so an
-    // omission in the workflow shows up here as a real failure.
-    const missing = HARNESS_PRODUCTION_DEPS.filter((d) => !coveredBy(filters, d));
-    expect(missing, `path filter does not cover: ${missing.join(", ")}`).toEqual([]);
-  });
-
-  it("the harness's production imports still resolve to files that exist", () => {
-    // Guards the list above from rotting into a fiction: a renamed surface must
-    // fail here rather than silently stop being checked.
-    for (const dep of HARNESS_PRODUCTION_DEPS) {
-      expect(existsSync(join(ROOT, dep)), `${dep} no longer exists`).toBe(true);
-    }
+  it("fires on EVERY production file in the harness's transitive import graph", () => {
+    const graph = harnessImportGraph("tests/e2e/_pillFocusLiveEntry.tsx");
+    // sanity: the walker actually resolved a real graph, so an empty result
+    // caused by a broken resolver can never read as "everything is covered"
+    expect(graph.length).toBeGreaterThan(100);
+    const missing = graph.filter((f) => !coveredBy(filters, f)).sort();
+    expect(
+      missing,
+      `${missing.length} bundled file(s) outside the path filter: ${missing.slice(0, 12).join(", ")}`,
+    ).toEqual([]);
   });
 
   it("is classified PATH_GATED, not UNSEEN, in the coverage registry", () => {

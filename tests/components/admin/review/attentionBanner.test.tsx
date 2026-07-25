@@ -358,8 +358,9 @@ describe("destination chip", () => {
   });
 
   // Spec test 8 — the anti-tautology case for test 7. A naive implementation
-  // that always renders the chip passes 7 and fails this.
-  test("self-link suppression: card and action both in Overview → NO chip", () => {
+  // that always renders the chip passes 7 and fails this. The mechanism is the
+  // `external` gate: this action is internal, so no chip can render.
+  test("an internal action renders NO chip (card and action both in Overview)", () => {
     renderBanner(
       needsLookItem({
         sectionId: "overview",
@@ -398,10 +399,10 @@ describe("destination chip", () => {
   // Spec test 9b, warnings-UNAVAILABLE column. The notes channel normally
   // intercepts these two codes before the card path, but when the warnings
   // section is unavailable they fall THROUGH to an Overview card — the state an
-  // earlier spec draft wrongly called unreachable. The self-link guard is what
-  // keeps them chip-less there, so this is the case that proves the invariant.
+  // earlier spec draft wrongly called unreachable. Their actions are internal,
+  // so the `external` gate keeps them chip-less there too.
   test.each(["PARSE_ERROR_LAST_GOOD", "RESYNC_QUALITY_REGRESSED"])(
-    "%s on the Overview fallback carries NO chip (self-link guard)",
+    "%s on the Overview fallback carries NO chip (internal action)",
     (code) => {
       renderBanner(
         needsLookItem({
@@ -420,11 +421,11 @@ describe("destination chip", () => {
 
   // §2.3 says an internal-destination chip is NOT implemented and would need an
   // amendment. So an internal action renders NO chip AT ALL — not a same-tab
-  // chip wearing the action's own label. Constructed so the self-link guard does
-  // NOT fire (card in warnings, action targeting overview), which is the only
-  // way to reach the branch: without this, a future implementation that falls
-  // back to `action.label` would invent unratified UX and stay green.
-  test("an internal action renders NO chip, even when the self-link guard misses", () => {
+  // chip wearing the action's own label. Deliberately uses a card section that
+  // DIFFERS from the action's target, so an implementation that only suppressed
+  // self-links (the mechanism an earlier draft shipped, since removed as dead)
+  // would render a chip here and fail.
+  test("an internal action renders NO chip even when it points at a DIFFERENT section", () => {
     renderBanner(
       needsLookItem({
         // card in warnings, action targets overview → guard does NOT suppress

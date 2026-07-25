@@ -31,14 +31,18 @@ on:
       # sectionAttention supplies bucketAttention/resolveEffectiveSection on
       # every render. Globs rather than single files: the harness mounts whole
       # subtrees, and an enumerated list silently rots as they grow.
-      - "components/admin/showpage/**"
-      - "components/admin/review/**"
-      # lib/admin and lib/adminAlerts as SUBTREES, not a file list: AttentionMenu
-      # alone imports needsLookHints and audience, and an enumerated list rots
-      # every time an import is added. Round 2 of the whole-diff review caught
-      # exactly that — two direct runtime deps were missing.
-      - "lib/admin/**"
-      - "lib/adminAlerts/**"
+      # BROAD BY MEASUREMENT, not by preference. The harness esbuild-bundles the
+      # REAL modal tree, whose transitive import graph is 321 repository files
+      # spanning 43 top-level directories (components/admin 59, lib/parser 47,
+      # lib/sync 43, ...). Two successive attempts at an enumerated list both
+      # shipped with omissions, which is the point: no hand-maintained list can
+      # track a graph that size. These globs cover it, and
+      # tests/ci/attentionPillFocusWorkflow.test.ts WALKS the graph to prove it.
+      # The job costs ~54s, so firing it broadly is cheaper than a dark harness.
+      - "components/**"
+      - "lib/**"
+      - "app/admin/**"
+      - "app/help/**"
       - "app/globals.css"
       - "package.json"
       - "pnpm-lock.yaml"
