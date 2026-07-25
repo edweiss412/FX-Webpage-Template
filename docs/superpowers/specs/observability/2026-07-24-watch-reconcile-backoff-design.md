@@ -1,7 +1,13 @@
 # Watch-Channel Reconcile: Real Renewal Slack, Dedicated Cadence, and Backoff State
 
 **Date:** 2026-07-24
-**Status:** DRAFT — autonomous ship (spec + plan user-review gates waived per the AGENTS.md brainstorming gate; cross-model APPROVE required at each stage)
+**Status:** **DEFERRED — NOT IMPLEMENTED.** Retained as the input for the deferred half of `BL-WATCH-RECONCILE-BACKOFF`, not as a description of shipped or intended-for-this-PR behavior.
+
+> **Why this is deferred.** Five cross-model adversarial rounds (R1-R5, ~55 findings, every checkable claim verified against the live tree) established that the backoff/state/cadence design cannot be built correctly on the current watch subsystem without first fixing three shipped defects: `BL-WATCH-EXPIRED-ACTIVE-ROW`, `BL-WATCH-ALERT-RAISE-NOT-ATOMIC`, and `BL-WATCH-ALERT-FOLDER-SCOPE`. The decisive one is the first: a failed renewal leaves the old channel `status='active'` past expiry, where `listExpiringActive` keeps returning it and GC never collects it, so refresh retries it on every tick — which means a backoff ladder on reconcile alone cannot deliver backoff at all, because refresh is the dominant retry path and is ungated.
+>
+> The measured defect this work started from — every lease expiring with ~1 second of slack — is shipped separately and immediately as `docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md`. Scope split ratified by the user on 2026-07-25.
+>
+> **Reading this document:** §3.1/§3.2 (the lease fix) have moved to the new spec and are authoritative there. Everything else records design work whose premises were repeatedly falsified — read §3.4a's round-by-round disposition tables before reusing any of it. The value here is the analysis and the enumerated failure modes, not the prescriptions.
 **Branch:** `feat/watch-reconcile-backoff` off `origin/main` @ `7ed193dde`
 **Closes:** `BL-WATCH-RECONCILE-BACKOFF` (the root `BACKLOG.md` entry (lines 103-107)) — Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1, plus a defect that backlog entry did not know about.
 

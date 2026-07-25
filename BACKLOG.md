@@ -100,11 +100,41 @@ Trigger to promote out of backlog: next time a full local suite exhausts the poo
 
 ---
 
-## BL-WATCH-RECONCILE-BACKOFF — dedicated reconcile cron + backoff state for watch channels
+## BL-WATCH-RECONCILE-BACKOFF — backoff state for watch channels (BLOCKED on three shipped defects)
 
-**Status:** OPEN · **Severity:** low (Approach A ships hourly reconcile; this is the richer variant) · **Surfaced:** watch-channel-health brainstorming (2026-07-01), user-ratified as backlog
+**Status:** OPEN, **blocked** · **Severity:** low · **Surfaced:** watch-channel-health brainstorming (2026-07-01) · **Re-scoped:** 2026-07-25 after five cross-model adversarial rounds
 
-Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1: a dedicated `fxav_cron_reconcile_watch` (`*/15`) plus a `drive_watch_reconcile_state` table (attempts, `next_attempt_at`, last error class) giving precise exponential backoff and faster recovery than the shipped hourly reconcile pass. Adopt if the hourly cadence proves too slow in practice (e.g., renewal failures near show start) or if escalation cadence needs sub-hour precision. Costs: new cron + migration + validation-parity surface + cronJobsParity/pg-cron registrations + more tests.
+Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1: a `drive_watch_reconcile_state` table (attempts, `next_attempt_at`, last error class) plus exponential backoff and a faster reconcile cadence.
+
+**The lease half already shipped separately** as `docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md` — that was the measured defect (every channel taking Google's 1-hour default and being renewed at the instant it expired, ~1 second of slack). It is not part of this entry any more.
+
+**Why this half is blocked.** Five adversarial rounds (~55 findings, every checkable claim verified against the live tree) established that backoff cannot be built correctly on the current watch subsystem. The full design work, including round-by-round disposition tables of what was tried and why each attempt failed, is retained at `docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md` (status DEFERRED). Start there rather than re-deriving.
+
+The decisive blocker is `BL-WATCH-EXPIRED-ACTIVE-ROW`: refresh, not reconcile, is the dominant retry path, and it is ungated. A ladder attached to reconcile therefore cannot deliver backoff at all. Fix the three entries below first.
+
+## BL-WATCH-EXPIRED-ACTIVE-ROW — a failed renewal leaves the old channel active forever, retried on every tick
+
+**Status:** OPEN · **Severity:** medium (unbounded futile Drive calls; blocks `BL-WATCH-RECONCILE-BACKOFF`) · **Surfaced:** 2026-07-25, adversarial round 5
+
+When a renewal fails, `markWatchOrphanedWithTx` marks only the **newly inserted pending** channel orphaned (`lib/drive/watch.ts:442-450`). The old channel keeps `status='active'` past its `expires_at`. `listExpiringActive` selects `where status='active' and expires_at < $1` (`lib/drive/watch.ts:206-210`), so that row stays due **forever**; GC only collects `superseded`/`orphaned` (`lib/drive/watch.ts:226-230`), so nothing ever cleans it up.
+
+Result: refresh re-attempts that folder on every cron tick indefinitely — currently 24 futile `files.watch` calls/day per stuck folder, and 96/day at any 15-minute cadence. **Repro:** force a renewal failure, then observe `drive_watch_channels` retaining an `active` row with `expires_at` in the past while `DRIVE_WATCH_RENEWAL_FAILED` repeats hourly. **Fix direction:** on renewal failure, transition the old row out of `active` (orphaned or a new `expired` state) so it leaves the renewal query and enters GC — being careful that the partial unique index `drive_watch_channels_one_active_per_folder_idx` and the supersession-in-activation path still hold.
+
+## BL-WATCH-ALERT-RAISE-NOT-ATOMIC — the alert raise is not in the transaction it appears to be in
+
+**Status:** OPEN · **Severity:** low-medium (a window where channel state and alert state disagree; blocks alert-derived health inference) · **Surfaced:** 2026-07-25, adversarial round 4
+
+`PostgresWatchTx.upsertAdminAlert` looks like a transaction-port method but calls the standalone service-role helper (`lib/drive/watch.ts:189-194`), which constructs its own Supabase client and issues an RPC over a **different connection** (`lib/adminAlerts/upsertAdminAlert.ts:47-52`) — outside the surrounding `sql.begin` (`lib/drive/watch.ts:315-318`). The alert can commit while the channel mutation rolls back, or vice versa.
+
+Nothing shipped depends on that atomicity today, which is why this is not urgent — but any design that infers "is the watch healthy" from alert state versus channel state has a window, which is what round 4 discovered. **Fix direction:** route the alert upsert through the same `sql` transaction (the RPC can be called via the pg connection), or document the non-atomicity at the call site so future designs do not assume it.
+
+## BL-WATCH-ALERT-FOLDER-SCOPE — the global watch alert cannot describe which folder failed
+
+**Status:** OPEN · **Severity:** low · **Surfaced:** 2026-07-25, adversarial rounds 3-4
+
+`WATCH_CHANNEL_ORPHANED` is global — one unresolved row for the whole system (`show_id IS NULL`, `admin_alerts_one_unresolved_idx`, `supabase/migrations/20260501001000_internal_and_admin.sql:279-280`) — and carries no folder identity. Meanwhile `refreshWatchSubscriptions` renews **every** active channel without consulting `app_settings` (`lib/drive/watch.ts:196-210`), and folder promotion supersedes nothing (`app/api/admin/onboarding/finalize-cas/route.ts:779-804`). So after a folder switch, an old folder's renewal failure raises an alert that describes the _current_ folder, and escalation reports the current folder's name for a failure that happened elsewhere.
+
+**Fix direction:** either scope the alert per folder (context key plus dedup change) or have refresh skip channels whose folder is not the configured one, letting old-folder channels expire naturally.
 
 ## BL-COPY-CRON-SWEEP-2 — de-jargon "cron" on the two non-catalog admin surfaces
 
