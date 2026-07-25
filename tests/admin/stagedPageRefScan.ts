@@ -94,6 +94,26 @@ function flatten(node: ts.Expression): string | null {
     return left + right;
   }
   if (ts.isParenthesizedExpression(node)) return flatten(node.expression);
+  // `[...].join(sep)` and `"…".concat(…)` assemble a path exactly like `+` does, and
+  // are the two standard alternatives a refactor reaches for (whole-diff R2 finding 3).
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+    const method = node.expression.name.text;
+    const receiver = node.expression.expression;
+    if (method === "join" && ts.isArrayLiteralExpression(receiver)) {
+      const [sepArg] = node.arguments;
+      const separator =
+        sepArg === undefined
+          ? "," // Array.prototype.join's default separator.
+          : (flatten(sepArg) ?? SUBSTITUTION);
+      return receiver.elements.map((el) => flatten(el) ?? SUBSTITUTION).join(separator);
+    }
+    if (method === "concat") {
+      const head = flatten(receiver);
+      if (head !== null) {
+        return head + node.arguments.map((arg) => flatten(arg) ?? SUBSTITUTION).join("");
+      }
+    }
+  }
   return null;
 }
 
@@ -132,16 +152,19 @@ export function classifyRetiredPathOccurrences(
   const visit = (node: ts.Node): void => {
     if (
       ts.isTemplateExpression(node) ||
-      (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken)
+      (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) ||
+      ts.isCallExpression(node)
     ) {
       const flat = flatten(node as ts.Expression);
       if (flat) {
         const rawInThisNode = retiredPathIndexes(node.getText(sourceFile)).length;
         const flatHits = retiredPathIndexes(flat).length;
         for (let i = 0; i < flatHits - rawInThisNode; i += 1) kinds.push("assembled");
+        // Do not descend into a chain we already flattened: its inner nodes would
+        // re-report the same assembled hit. (A call we could NOT flatten still gets
+        // walked, so its arguments are scanned normally.)
+        if (ts.isBinaryExpression(node) || ts.isCallExpression(node)) return;
       }
-      // Do not descend into a `+` chain we already flattened: its inner nodes would
-      // re-report the same assembled hit.
       if (ts.isBinaryExpression(node)) return;
     }
     ts.forEachChild(node, visit);

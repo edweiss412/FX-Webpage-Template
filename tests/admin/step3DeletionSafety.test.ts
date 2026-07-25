@@ -24,13 +24,13 @@ import {
 
 const ROOTS = ["app", "components", "lib"];
 
-function walk(dir: string): string[] {
+function walk(dir: string, pattern = /\.(ts|tsx)$/): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) {
-      out.push(...walk(full));
-    } else if (/\.(ts|tsx)$/.test(name)) {
+      out.push(...walk(full, pattern));
+    } else if (pattern.test(name)) {
       out.push(full);
     }
   }
@@ -127,6 +127,20 @@ describe("Step-3 consolidation deletion safety (spec §11)", () => {
     expect(offenders, `retired path assembled from segments in:\n${offenders.join("\n")}`).toEqual(
       [],
     );
+  });
+
+  // MDX help pages render real <Link>s but are not TypeScript, so the AST layers
+  // above cannot read them (whole-diff R2 finding 4). A raw scan is sufficient here
+  // because NO mdx page is allowed to name the retired page at all — there is no
+  // ratified reference to carve out, so any occurrence is a regression.
+  test("no MDX help page references the retired staged page", () => {
+    const mdx = walk("app", /\.mdx$/);
+    expect(
+      mdx.length,
+      "the mdx walker found nothing, so this guard would be vacuous",
+    ).toBeGreaterThan(0);
+    const offenders = mdx.filter((path) => hrefHitsRetiredPage(readFileSync(path, "utf8")));
+    expect(offenders, `retired staged-page reference in MDX:\n${offenders.join("\n")}`).toEqual([]);
   });
 
   test("CleanupAbandonedFinalizeButton is RE-HOMED, not deleted (still imported)", () => {

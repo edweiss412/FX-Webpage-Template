@@ -152,6 +152,50 @@ describe("classifyLocalDbUrlSource — synthetic shapes (spec §2.6)", () => {
     expect(classifyLocalDbUrlSource(bare)).toMatchObject({ envReads: 1, unguardedReads: 1 });
   });
 
+  test("every alternative spelling of the read is still a read (whole-diff R2 finding 1)", () => {
+    // Each of these reaches the same value as the canonical dot-access. Recognising
+    // only the canonical form would let a future destructive suite read a remote URL
+    // while the tree scan reported every file guarded.
+    const bypasses = [
+      `const U = (process.env).LOCAL_TEST_DATABASE_URL;`,
+      `const U = process["env"].LOCAL_TEST_DATABASE_URL;`,
+      `const env = process.env;\nconst U = env.LOCAL_TEST_DATABASE_URL;`,
+      `const e1 = process.env;\nconst e2 = e1;\nconst U = e2["LOCAL_TEST_DATABASE_URL"];`,
+      `const { LOCAL_TEST_DATABASE_URL } = process.env;`,
+      `const { LOCAL_TEST_DATABASE_URL: aliased } = process.env;`,
+    ];
+    for (const src of bypasses) {
+      expect(classifyLocalDbUrlSource(src), src).toMatchObject({
+        envReads: 1,
+        unguardedReads: 1,
+      });
+    }
+  });
+
+  test("an aliased read CAN be guarded, but a destructured one never is (fail-closed)", () => {
+    const aliasGuarded = `const env = process.env;\nconst U = assertLocalDbUrl(env.LOCAL_TEST_DATABASE_URL ?? ${DEFAULT_DSN});`;
+    expect(classifyLocalDbUrlSource(aliasGuarded)).toMatchObject({
+      envReads: 1,
+      unguardedReads: 0,
+    });
+    // Destructuring has no read site to wrap, so it stays unguarded by construction:
+    // the author is pushed to the one shape the guard can actually protect.
+    const destructured = `const { LOCAL_TEST_DATABASE_URL } = process.env;\nconst U = assertLocalDbUrl(LOCAL_TEST_DATABASE_URL ?? ${DEFAULT_DSN});`;
+    expect(classifyLocalDbUrlSource(destructured)).toMatchObject({ unguardedReads: 1 });
+  });
+
+  test("a read of a DIFFERENT env var is not counted", () => {
+    // Guards against an over-broad matcher that would sweep unrelated suites in.
+    expect(classifyLocalDbUrlSource("const U = process.env.TEST_DATABASE_URL;")).toMatchObject({
+      envReads: 0,
+    });
+    expect(
+      classifyLocalDbUrlSource(
+        "const notProcess = { env: {} };\nconst U = notProcess.env.LOCAL_TEST_DATABASE_URL;",
+      ),
+    ).toMatchObject({ envReads: 0 });
+  });
+
   test("a MENTION in a comment or string is not a read (this is what keeps this file out of its own scan set)", () => {
     const src = [
       "// LOCAL_TEST_DATABASE_URL is documented here",

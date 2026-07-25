@@ -57,6 +57,25 @@ describe("classifyRetiredPathOccurrences (spec §3.3 Layer A + C)", () => {
     expect(classifyRetiredPathOccurrences(src)).toEqual(["assembled"]);
   });
 
+  test("join() and concat() assembly is caught too (whole-diff R2 finding 3)", () => {
+    // The two standard alternatives to `+`. Layer A sees no complete literal and
+    // Layer B leaves a bare property-call unresolved, so without this both were green.
+    expect(
+      classifyRetiredPathOccurrences(`const u = ["/admin/onboarding", "/staged/", id].join("");`),
+    ).toEqual(["assembled"]);
+    expect(
+      classifyRetiredPathOccurrences(`const u = "/admin/onboarding/".concat("staged/", id);`),
+    ).toEqual(["assembled"]);
+  });
+
+  test("join() with the DEFAULT separator does not fabricate a match", () => {
+    // ["/admin/onboarding", "staged/"].join() inserts a comma, so it is NOT the
+    // retired path. A flattener that ignored the separator would report a hit.
+    expect(
+      classifyRetiredPathOccurrences(`const u = ["/admin/onboarding/", "staged/"].join();`),
+    ).toEqual([]);
+  });
+
   test("an assembled /api/ path stays clean", () => {
     const src = `const u = "/api/admin/onboarding/" + "staged/" + id + "/apply";`;
     expect(classifyRetiredPathOccurrences(src)).toEqual([]);
@@ -117,6 +136,13 @@ describe("resolveNavHrefs (spec §3.3 Layer B)", () => {
   test("a segmented concatenation resolves", () => {
     const src = `const A = () => <Link href={"/admin/onboarding/" + "staged/" + id}>go</Link>;`;
     expect(retiredHrefs(src)).toHaveLength(1);
+  });
+
+  test("an href assembled with join() or concat() resolves (whole-diff R2 finding 3)", () => {
+    const joined = `const A = () => <Link href={["/admin/onboarding", "/staged/", id].join("")}>go</Link>;`;
+    const concatenated = `const A = () => <Link href={"/admin/onboarding/".concat("staged/", id)}>go</Link>;`;
+    expect(retiredHrefs(joined)).toHaveLength(1);
+    expect(retiredHrefs(concatenated)).toHaveLength(1);
   });
 
   test("an /api/ href is resolved but does NOT hit the retired page", () => {
