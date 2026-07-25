@@ -26,7 +26,7 @@
  * Running this against uncommitted work would discard it.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -369,6 +369,38 @@ const TARGETS = [HUB, CSS, CTX];
  * be testing, and an interrupt between mutate and restore would leave the branch
  * holding a mutant (round-1 whole-diff review).
  */
+/**
+ * A lock, because the clean-tree guard alone is not enough.
+ *
+ * The guard checks state at START. Two runs that both start clean then interleave
+ * their mutate/restore cycles, and one strands a mutant in the other's window —
+ * observed for real when a second session was asked to run this concurrently on
+ * the same worktree. A script that writes to tracked files is single-writer by
+ * construction; say so mechanically rather than in a comment nobody reads.
+ */
+const LOCK = join(ROOT, "tmp", ".adversary-matrix.lock");
+
+function acquireLock() {
+  try {
+    writeFileSync(LOCK, `${process.pid}\n`, { flag: "wx" });
+  } catch {
+    console.error(
+      `refusing to run: ${LOCK} exists, so another matrix run holds this worktree.\n` +
+        "This script mutates tracked files; two concurrent runs strand mutants in\n" +
+        "each other's windows. Wait for it, or delete the lock if it is stale.",
+    );
+    process.exit(2);
+  }
+}
+
+function releaseLock() {
+  try {
+    rmSync(LOCK, { force: true });
+  } catch {
+    /* best effort */
+  }
+}
+
 function assertCleanTargets() {
   const dirty = git("status", "--porcelain", "--", ...TARGETS).trim();
   if (dirty) {
@@ -473,6 +505,7 @@ for (const [sig, code] of [
 ]) {
   process.on(sig, () => {
     restoreTargets({ fatal: false });
+    releaseLock();
     process.exit(code);
   });
 }
@@ -499,6 +532,7 @@ try {
   }
 } finally {
   restoreTargets();
+  releaseLock();
 }
 
 const survived = results.filter((r) => r.status === "SURVIVED");
