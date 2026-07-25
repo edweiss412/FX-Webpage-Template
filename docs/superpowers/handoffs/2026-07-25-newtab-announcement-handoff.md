@@ -644,9 +644,12 @@ read the source at all.
 `NAME_AFFECTING_ATTRIBUTES` is a closed list from an **external** authority (HTML global attributes,
 `<a>` attributes, `role`, every ARIA state/property, the JSX aliases). For each name, scanning the
 same fixture with a different case must yield the same verdict. No reading form can evade a check
-that never consults the source, and an attribute outside the list cannot change an accessible name,
-so its casing cannot cause this defect. The closed list is therefore the single highest-value thing
-to audit in the whole guard: an omission there is silent, not loud.
+that never consults the source, and an attribute outside the list behaves identically in either
+spelling, because HTML attribute names are ASCII case-insensitive -- so casing cannot cause this
+defect there. (The stronger wording this paragraph originally carried, that an outside attribute
+"cannot change an accessible name", is RETRACTED: `data-*` is open-ended and a
+`[data-state="closed"]` CSS rule hides a subtree. See §6.4.) The closed list is therefore the single
+highest-value thing to audit in the whole guard: an omission there is silent, not loud.
 
 ### Two things about my own fix
 
@@ -717,8 +720,8 @@ Mutation-proven with R20's exact witness.
 ### R20 HIGH 2 — §6.4 ratified two contradictory contracts
 
 The R19 amendment had been **appended** without deleting the shape-model bullets it superseded, so
-§6.4 simultaneously ratified "coverage is decided by literal SHAPE" and "coverage is behavioural and
-supersedes the previous model." Writing "supersedes" in prose deletes nothing. A section with two
+§6.4 simultaneously ratified "coverage is decided by literal SHAPE" (now RETRACTED) and "coverage is
+behavioural and supersedes the previous model." Writing "supersedes" in prose deletes nothing. A section with two
 contracts is worse than one with the wrong contract: the wrong one can be found and fixed, two mean
 every later citation of the section is ambiguous.
 
@@ -726,9 +729,9 @@ Three more instances of the same edit-by-addition habit, all in that section:
 
 - a sentence saying three source-reading models failed and then enumerating four (same drift in a
   test comment);
-- the R9-era claim that the tripwire "covers every name-producing accessor", surviving long after
-  R19 proved no source scan reaches a regex literal or an unquoted property key — now **explicitly
-  retracted** rather than quietly reworded, so the next reader knows it was once believed;
+- the R9-era claim that the tripwire "covers every name-producing accessor" — RETRACTED — surviving
+  long after R19 proved no source scan reaches a regex literal or an unquoted property key; retracted
+  explicitly rather than quietly reworded, so the next reader knows it was once believed;
 - a bullet presenting the literal tripwire as the guarantee.
 
 **A near-miss worth recording, because it was mine and it was destructive.** My first attempt at the
@@ -792,8 +795,8 @@ not fail is information.
 
 ### §6.4 premise narrowed, because it was too strong
 
-The section claimed an attribute outside the closed list "cannot change an accessible name". That is
-false: `data-*` is open-ended and `[data-state="closed"] { display: none }` hides a subtree. The true
+The section claimed an attribute outside the closed list "cannot change an accessible name".
+RETRACTED, because it is false: `data-*` is open-ended and `[data-state="closed"] { display: none }` hides a subtree. The true
 and sufficient statement is narrower — **HTML attribute names are ASCII case-insensitive**, so
 `DATA-STATE` and `data-state` produce identical DOM and match the same selector, and casing therefore
 cannot be the defect outside the list. That is all the sweep asserts. CSS-driven hiding is now an

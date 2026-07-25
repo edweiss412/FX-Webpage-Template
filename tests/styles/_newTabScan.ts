@@ -453,9 +453,13 @@ function hasDestinationContent(anchor: ts.JsxElement | ts.JsxSelfClosingElement)
  */
 function rendersNothing(e: ts.Expression): boolean {
   const n = unparen(e);
+  // React renders NOTHING for null, undefined, and BOTH booleans -- `true` included, which
+  // the earlier version missed (review R23 BLOCKING 1). It DOES render numbers, so `{0}`
+  // prints "0" and is a destination.
   if (
     n.kind === ts.SyntaxKind.NullKeyword ||
     n.kind === ts.SyntaxKind.FalseKeyword ||
+    n.kind === ts.SyntaxKind.TrueKeyword ||
     (ts.isIdentifier(n) && n.text === "undefined")
   ) {
     return true;
@@ -468,10 +472,25 @@ function rendersNothing(e: ts.Expression): boolean {
   if (ts.isConditionalExpression(n)) {
     return rendersNothing(n.whenTrue) && rendersNothing(n.whenFalse);
   }
-  // `cond && <thing>` renders nothing when the right side does.
+  // `a && b` evaluates to `a` when `a` is falsy, otherwise to `b`. The earlier version only
+  // looked at `b`, which was wrong in BOTH directions (review R23 BLOCKING 1 and HIGH 4):
+  // `false && "Dest"` renders nothing yet was called a destination, and `0 && null` renders
+  // the character "0" yet was called empty, manufacturing a violation. So decide it from `a`.
   if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
-    return rendersNothing(n.right);
+    const left = unparen(n.left);
+    if (rendersNothing(left) && !isProvablyTruthy(left)) return true; // result IS `a`
+    if (isProvablyTruthy(left)) return rendersNothing(n.right); // result IS `b`
+    return false; // `a` unknown: not provable either way
   }
+  return false;
+}
+
+/** Is this expression a literal that is definitely truthy? Used only to decide which side of
+ *  an `&&` is its result; anything unproven returns false and the caller gives up. */
+function isProvablyTruthy(n: ts.Expression): boolean {
+  if (n.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text.length > 0;
+  if (ts.isNumericLiteral(n)) return Number(n.text) !== 0;
   return false;
 }
 
@@ -560,7 +579,9 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
     if (!openAttr || !ts.isJsxAttribute(openAttr)) return true;
     if (!openAttr.initializer) return false; // bare `open` is true
     const init = openAttr.initializer;
-    if (ts.isStringLiteral(init)) return false; // open="" / open="open" are truthy attrs
+    // React coerces a boolean DOM prop, so `open=""` is FALSY and the attribute is omitted --
+    // the earlier version accepted it as proof of openness (review R23 BLOCKING 2).
+    if (ts.isStringLiteral(init)) return init.text.length === 0;
     if (ts.isJsxExpression(init) && init.expression) {
       if (unparen(init.expression).kind === ts.SyntaxKind.TrueKeyword) return false;
     }

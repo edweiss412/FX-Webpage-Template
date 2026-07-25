@@ -1,5 +1,5 @@
 // Structural guard: see tests/styles/_newTabScan.ts for the scanner itself.
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import ts from "typescript";
@@ -63,7 +63,7 @@ const CASE_INSENSITIVE_NAMES = new Set([
  *  closed list -- it is the one input to the casing sweep that does not depend on reading our own
  *  source, which is what makes the sweep immune to reading form.
  *
- *  NARROWED at R21/R22, and the earlier wording is deleted rather than left standing: it is NOT
+ *  RETRACTED at R21/R22, and the earlier wording is deleted rather than left standing: it is NOT
  *  true that an attribute outside this list cannot change an accessible name -- `data-*` is
  *  open-ended and a `[data-state="closed"]` CSS rule hides a subtree. What IS true, and all the
  *  sweep needs, is that HTML attribute NAMES are ASCII case-insensitive, so a spelling outside
@@ -1608,19 +1608,31 @@ describe("R6: scanner changes are pinned", () => {
   it("a refuted claim appears only in a retraction", () => {
     // The RETRACTED claims themselves. This array matched itself on its first run, which is
     // the guard finding a real instance of its own rule -- the strings live here precisely
-    // because they are retracted, and the window check below sees this comment.
+    // because they are RETRACTED, and the window check below sees this comment.
     const REFUTED = [
+      // RETRACTED claims, pinned here so prose cannot quietly restate them
       "cannot change an accessible name",
       "covers every name-producing accessor",
       "is decided by literal SHAPE",
     ];
-    const RETRACTION =
-      /too strong|NOT true|not true|retracted|superseded|narrowed|false --|false:/i;
+    // An EXPLICIT marker, not a vocabulary guess. The first version matched words like
+    // "narrowed" and "superseded", which is the same match-prose-as-text shape that failed
+    // twice elsewhere in this PR: an unrelated sentence containing one of those words would
+    // silently license a refuted claim sitting beside it. A retraction now has to say so.
+    const RETRACTION = /RETRACTED/;
+    // The HANDOFF was missing from this list, and the refuted claim was alive in it (review
+    // R23 HIGH 5). A guard with a hand-written file list has the same defect as the prose it
+    // polices: it drifts. Every artifact this PR writes prose into is listed, and the list is
+    // asserted non-empty and existent below so a typo cannot silently shrink it.
     const files = [
       "tests/styles/_newTabScan.ts",
       "tests/styles/_metaNewTabAnnouncement.test.ts",
       "docs/superpowers/specs/2026-07-25-newtab-announcement-family.md",
+      "docs/superpowers/handoffs/2026-07-25-newtab-announcement-handoff.md",
     ];
+    for (const rel of files) {
+      expect(existsSync(join(process.cwd(), rel)), `scanned file must exist: ${rel}`).toBe(true);
+    }
     const offenders: string[] = [];
     for (const rel of files) {
       const lines = readFileSync(join(process.cwd(), rel), "utf8").split(/\r?\n/);
@@ -1653,13 +1665,16 @@ describe("R6: scanner changes are pinned", () => {
       'const A=()=><a href="x" target="_blank">Go <details open={null}><NewTabHint /></details></a>;',
       'const A=()=><a href="x" target="_blank">Go <details open={undefined}><NewTabHint /></details></a>;',
       'const A=({o})=><a href="x" target="_blank">Go <details open={o}><NewTabHint /></details></a>;',
+      // `open=""` was asserted ACCEPTED here until R23: React coerces a boolean DOM prop, so
+      // an empty string is falsy and the attribute is omitted. The test encoded my belief,
+      // not React's behaviour.
+      'const A=()=><a href="x" target="_blank">Go <details open=""><NewTabHint /></details></a>;',
     ]) {
       expect(violations(src), `must report: ${src}`).not.toEqual([]);
     }
     for (const src of [
       'const A=()=><a href="x" target="_blank">Go <details open><NewTabHint /></details></a>;',
       'const A=()=><a href="x" target="_blank">Go <details open={true}><NewTabHint /></details></a>;',
-      'const A=()=><a href="x" target="_blank">Go <details open=""><NewTabHint /></details></a>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
@@ -1705,7 +1720,8 @@ describe("R6: scanner changes are pinned", () => {
     for (const src of [
       'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span>{" "}<NewTabHint /></a>;',
       'const A=({c})=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {c ? null : null} <NewTabHint /></a>;',
-      'const A=({c})=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {c && null} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {false && "Dest"} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {true} <NewTabHint /></a>;',
       // An empty array renders nothing; a non-empty one may render anything.
       'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {[]} <NewTabHint /></a>;',
     ]) {
@@ -1717,6 +1733,11 @@ describe("R6: scanner changes are pinned", () => {
       'const A=({c})=><a href="x" target="_blank">{c ? "A" : "B"} <NewTabHint /></a>;',
       'const A=({c})=><a href="x" target="_blank">{c && "A"} <NewTabHint /></a>;',
       'const A=({c,l})=><a href="x" target="_blank">{c ? l : null} <NewTabHint /></a>;',
+      // `{c && null}` was asserted REPORTED until R23. With a DYNAMIC left operand it is not
+      // provably empty at all: `a && b` evaluates to `a` when `a` is falsy, and `0 && null`
+      // renders the character "0". Emptiness must be proved, and here it cannot be.
+      'const A=({c})=><a href="x" target="_blank">{c && null} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank">{0 && null} <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank">{[<b key="1">Go</b>]} <NewTabHint /></a>;',
       // `{0}` renders the character "0", so it IS a destination.
       'const A=()=><a href="x" target="_blank">{0} <NewTabHint /></a>;',

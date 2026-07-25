@@ -447,7 +447,8 @@ WITH substitutions is not. Anything outside these shapes is reported as
   fourth defect appears there, the shape list is the thing to replace, not extend.
 
   **The closed list is closed for CASING, not for hiding — narrowed at R21.** The original wording
-  claimed an attribute outside the list "cannot change an accessible name", and that is too strong.
+  claimed an attribute outside the list "cannot change an accessible name". That wording is
+  RETRACTED: it is too strong.
   `data-*` is an open-ended family, and a CSS rule such as `[data-state="closed"] { display: none }`
   hides a subtree through an attribute no enumeration can predict (review R21 BLOCKING 3). What is
   actually true, and all the sweep needs, is narrower: **HTML attribute names are ASCII
