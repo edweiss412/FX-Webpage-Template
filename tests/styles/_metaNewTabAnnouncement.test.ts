@@ -760,14 +760,77 @@ it("no .tsx file lives outside the scanned roots", () => {
   ).toEqual([]);
 });
 
-it("the MDX components map injects no target and no anchor override", () => {
-  const src = stripCommentsSafely(readFileSync(join(process.cwd(), "mdx-components.tsx"), "utf8"));
-  expect(
+it("the MDX components map declares no anchor override", () => {
+  // R12 BLOCKING 2: three regexes over the source passed EVERY override shape --
+  // shorthand `a`, `"a": External`, `["a"]: External`, an imported-map spread, a
+  // helper-returned map, shorthand `Link`, and the existing `...components` input
+  // spread. Parse it instead and inspect the returned object's keys.
+  //
+  // What this can and cannot prove, stated plainly: it proves this FILE declares no
+  // `a`/`Link` key, in any of the shapes above. It cannot prove the map is
+  // override-free at runtime, because `...components` lets the caller's argument
+  // supply one -- so the companion assertion below pins that no caller passes a
+  // `components` prop. Together those close the injection point; separately neither
+  // does. An inline anchor in this file is caught by the live-tree scan, which now
+  // includes it.
+  const src = readFileSync(join(process.cwd(), "mdx-components.tsx"), "utf8");
+  const sf = ts.createSourceFile(
+    "mdx-components.tsx",
     src,
-    "an anchor override in the components map would bypass per-file scanning",
-  ).not.toMatch(/\ba\s*:/);
-  expect(src, "a Link override could also carry target").not.toMatch(/\bLink\s*:/);
-  expect(src, "no target may be injected for every MDX link").not.toMatch(/target/i);
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const ANCHORISH = new Set(["a", "link"]);
+  const offenders: string[] = [];
+  const nameOf = (prop: ts.ObjectLiteralElementLike): string | null => {
+    if (ts.isShorthandPropertyAssignment(prop)) return prop.name.text;
+    const n = prop.name;
+    if (n === undefined) return null;
+    if (ts.isIdentifier(n) || ts.isStringLiteral(n)) return n.text;
+    if (ts.isComputedPropertyName(n)) {
+      const e = n.expression;
+      if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
+      return "<computed>";
+    }
+    return null;
+  };
+  const visit = (n: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(n)) {
+      for (const prop of n.properties) {
+        const name = nameOf(prop);
+        if (name !== null && ANCHORISH.has(name.toLowerCase())) offenders.push(name);
+        if (name === "<computed>") offenders.push("computed key (undecidable)");
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  expect(
+    offenders,
+    "an anchor override in the MDX components map would make every help link external with nothing per-file to inspect",
+  ).toEqual([]);
+});
+
+it("no caller passes a components prop that could inject an anchor override", () => {
+  // The other half of R12 BLOCKING 2: `...components` means the ARGUMENT can carry an
+  // override, so the map's own source is not sufficient. @next/mdx is the only caller
+  // in this app and passes nothing, which this pins by asserting no source outside
+  // node_modules hands a `components=` prop to MDX content.
+  const roots = ["app", "components"];
+  const offenders: string[] = [];
+  for (const root of roots) {
+    for (const abs of walkFiles(join(process.cwd(), root), /\.tsx?$/)) {
+      const code = stripCommentsSafely(readFileSync(abs, "utf8"));
+      if (/components\s*=\s*\{/.test(code) && /MDX|mdx/.test(code)) {
+        offenders.push(abs.slice(process.cwd().length + 1));
+      }
+    }
+  }
+  expect(
+    offenders,
+    "a caller-supplied components map is outside per-file scanning; scan the override's own file or exempt it here with a reason",
+  ).toEqual([]);
 });
 
 describe("MDX is compiled and scanned, not lexed", () => {
@@ -1127,24 +1190,31 @@ describe("R6: scanner changes are pinned", () => {
       "download",
       "ping",
     ]);
-    // Tokenized, not regex-matched. A global quote-matching regex goes out of phase
-    // after an escaped literal, which hid a plain "Target" appended at end of file,
-    // and it cannot see through escapes like "\\x54arget" (review R11 MEDIUM 5).
-    // Concatenated and template-built names remain undetectable by any static scan;
-    // that limit is stated in the comment above rather than papered over.
+    // PARSED, not tokenized and not regex-matched. A global regex goes out of phase
+    // after an escaped literal; and calling ts.createScanner().scan() directly is not
+    // parser-equivalent for templates -- it fell out of phase around template
+    // expressions and swallowed large later regions, so appended literals were
+    // invisible AND an unrelated `Target${count}` fragment was reported as a
+    // violation (review R12 HIGH 3). A real parse is the only phase-correct option.
+    const sf = ts.createSourceFile(
+      "_newTabScan.ts",
+      src,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
     const literals: string[] = [];
-    const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, src);
-    for (let k = scanner.scan(); k !== ts.SyntaxKind.EndOfFileToken; k = scanner.scan()) {
-      if (
-        k === ts.SyntaxKind.StringLiteral ||
-        k === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
-        k === ts.SyntaxKind.TemplateHead ||
-        k === ts.SyntaxKind.TemplateMiddle ||
-        k === ts.SyntaxKind.TemplateTail
-      ) {
-        literals.push(scanner.getTokenValue());
+    const collect = (n: ts.Node): void => {
+      // Complete literals only. A template FRAGMENT is not a name: `Target${count}`
+      // has head text "Target", and reporting that was the overmatch half of review
+      // R12 HIGH 3. A no-substitution `` `Target` `` is a complete literal and stays
+      // covered.
+      if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
+        literals.push(n.text);
       }
-    }
+      ts.forEachChild(n, collect);
+    };
+    collect(sf);
     const offenders = literals.filter(
       (lit) => lit !== lit.toLowerCase() && CASE_INSENSITIVE_NAMES.has(lit.toLowerCase()),
     );
@@ -1270,6 +1340,42 @@ describe("R6: scanner changes are pinned", () => {
     // A genuinely opaque identifier remains the documented residue.
     const opaque = probe(`const A=({P})=><Foo {...P}>Go</Foo>;`);
     expect(opaque.anchors, "an unresolvable spread on an unknown tag is residue").toBe(0);
+  });
+
+  // R12 BLOCKING 1: type-only wrappers erase at runtime, so the object really is
+  // forwarded -- but `unparen` only stripped parentheses, leaving it invisible.
+  it("R12 type-only wrappers do not hide a resolvable spread", () => {
+    for (const wrapped of [
+      `{href:"x",target:"_blank"} as const`,
+      `{href:"x",target:"_blank"} satisfies Record<string, string>`,
+      `{href:"x",target:"_blank"}!`,
+      `{...({href:"x",target:"_blank"} as const)}`,
+    ]) {
+      expect(
+        violations(`const A=()=><Foo {...(${wrapped})}>Go</Foo>;`).join(" "),
+        `must classify: ${wrapped}`,
+      ).toMatch(/does not announce|unrecognized|not gated/);
+    }
+  });
+
+  // R12 MEDIUM 4: three false positives in the duplicate-fold rule.
+  it("R12 the duplicate rule does not fire on legitimate shapes", () => {
+    // Props on a CUSTOM component are ordinary JS keys and case-sensitive.
+    expect(
+      violations(
+        `const A=()=><UI.Link href="x" target="_blank" Mode="one" mode="two">Go <NewTabHint /></UI.Link>;`,
+      ),
+    ).toEqual([]);
+    // Unicode is not ASCII-folded, so these are distinct attributes.
+    expect(
+      violations(
+        `const A=()=><a href="x" target="_blank" data-\u03a3="1" data-\u03c3="2">Go <NewTabHint /></a>;`,
+      ),
+    ).toEqual([]);
+    // An INTERNAL anchor with duplicated naming attributes is not this guard's
+    // business: it never becomes external, so it must not be dragged in.
+    const internal = probe(`const A=()=><a href="/x" aria-label="a" ARIA-LABEL="b">Go</a>;`);
+    expect(internal.anchors, "an internal anchor is not external").toBe(0);
   });
 
   // R10 BLOCKING 3: React writes `{ target, TARGET }` to ONE case-insensitive DOM

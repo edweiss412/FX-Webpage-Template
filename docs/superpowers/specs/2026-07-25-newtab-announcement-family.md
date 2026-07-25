@@ -356,6 +356,22 @@ WITH substitutions is not. Anything outside these shapes is reported as
   TSX. Prose and fenced code become string literals; regex literals, escapes and attribute quoting
   become the compiler's problem. **MDX and TSX are one enforcement path now, not two**, which is
   what removes the class rather than the instance.
+- **Type-only wrappers are stripped alongside parentheses.** `as const`, `satisfies`, a non-null
+  `!`, and an old-style type assertion all erase at runtime, so
+  `<Foo {...({href:"x", target:"_blank"} as const)}>` really forwards both props; stripping only
+  parentheses left the object invisible (review R12 BLOCKING 1).
+- **The duplicate-fold rule applies to INTRINSIC tags only, folds ASCII only, and runs after the
+  not-external return.** Props on a custom component are ordinary JavaScript keys and
+  case-sensitive, so `<UI.Link Mode mode>` is two distinct props; `toLowerCase()` also folds
+  Unicode, which rejected distinct `Σ` and `σ`; and running before the early return dragged
+  internal anchors in as external violations (review R12 MEDIUM 4). A guard that cries wolf gets
+  deleted, so its false-positive surface is a defect and not a conservative virtue.
+- **A caller-supplied MDX components map is outside per-file scanning.** `useMDXComponents` spreads
+  its argument, so the map's own source cannot prove the runtime map is override-free. Two
+  assertions close it together: the map's returned object declares no `a`/`Link` key (parsed, not
+  regexed — seven override shapes defeated the regexes, review R12 BLOCKING 2), and no source
+  outside `node_modules` hands a `components=` prop to MDX content. Separately neither is
+  sufficient.
 - **Duplicate case-folded property names in an approved spread fail closed.** React writes
   `{ target: "_self", TARGET: "_blank" }` to ONE case-insensitive DOM attribute and the LATER value
   wins, so reading the first normalized match took the wrong value in both directions (review R10

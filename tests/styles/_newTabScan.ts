@@ -301,8 +301,18 @@ function spreadObjectLiterals(expr: ts.Expression): ts.ObjectLiteralExpression[]
 
 function unparen(node: ts.Expression): ts.Expression {
   let n = node;
-  while (ts.isParenthesizedExpression(n)) n = n.expression;
-  return n;
+  // Parentheses AND type-only wrappers. `as const`, `satisfies Props`, a non-null `!`,
+  // and an old-style type assertion all erase at runtime, so
+  // `<Foo {...({href:"x", target:"_blank"} as const)}>` really forwards both props --
+  // yet the object was invisible and the anchor scanned clean (review R12 BLOCKING 1).
+  for (;;) {
+    if (ts.isParenthesizedExpression(n)) n = n.expression;
+    else if (ts.isAsExpression(n)) n = n.expression;
+    else if (ts.isSatisfiesExpression(n)) n = n.expression;
+    else if (ts.isNonNullExpression(n)) n = n.expression;
+    else if (ts.isTypeAssertionExpression(n)) n = n.expression;
+    else return n;
+  }
 }
 
 function isBlank(node: ts.Node | undefined): boolean {
@@ -841,24 +851,6 @@ type Shape =
 function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
   const attrs = ts.isJsxElement(el) ? el.openingElement.attributes : el.attributes;
 
-  // Duplicate case-folded JSX attribute names are AMBIGUOUS at this layer too, not
-  // only inside a spread object. `<a target="_self" TARGET="_blank">` scanned clean
-  // while React applied the LATER value and really opened a new tab, and
-  // `aria-label` beside `ARIA-LABEL` let an announcing label be overwritten by a
-  // silent one (review R11 BLOCKING 3). Whichever wins, the file needs one spelling.
-  const foldedNames = new Set<string>();
-  for (const a of attrs.properties) {
-    const n = attrName(a);
-    if (n === null) continue;
-    if (foldedNames.has(n)) {
-      return {
-        kind: "unrecognized",
-        why: `two attributes share the name "${n}" after case-folding; HTML attribute names are case-insensitive and React applies the LAST one, so keep a single spelling`,
-      };
-    }
-    foldedNames.add(n);
-  }
-
   const spreads = attrs.properties.filter(ts.isJsxSpreadAttribute);
   const targetAttr = attrs.properties.find(
     (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && jsxAttrNameLower(a) === "target",
@@ -866,6 +858,38 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
 
   // Without a target attribute AND without a spread, nothing can make it external.
   if (!targetAttr && spreads.length === 0) return { kind: "not-external" };
+
+  // Duplicate case-folded attribute names are AMBIGUOUS: HTML names are
+  // case-insensitive and React applies the LAST one, so `<a target="_self"
+  // TARGET="_blank">` really opened a new tab while scanning clean, and `aria-label`
+  // beside `ARIA-LABEL` let an announcing label be replaced by a silent one
+  // (review R11 BLOCKING 3).
+  //
+  // Three guards on WHEN this applies, all from review R12 MEDIUM 4:
+  //   - INTRINSIC tags only. Props on a custom component are ordinary JavaScript
+  //     keys and case-SENSITIVE, so `<UI.Link Mode="one" mode="two">` is two distinct
+  //     props, not a duplicate.
+  //   - ASCII folding only. `toLowerCase()` also folds Unicode, which rejected
+  //     genuinely distinct `Σ` and `σ` attributes.
+  //   - AFTER the not-external return, so an internal `<a>` with duplicated naming
+  //     attributes is not dragged in as an external violation.
+  const tagName = ts.isJsxElement(el) ? el.openingElement.tagName.getText() : el.tagName.getText();
+  const isIntrinsic = /^[a-z][a-z0-9-]*$/.test(tagName);
+  if (isIntrinsic) {
+    const folded = new Set<string>();
+    for (const a of attrs.properties) {
+      if (!ts.isJsxAttribute(a)) continue;
+      const raw = a.name.getText();
+      const key = raw.replace(/[A-Z]/g, (c) => c.toLowerCase());
+      if (folded.has(key)) {
+        return {
+          kind: "unrecognized",
+          why: `two attributes share the name "${key}" after ASCII case-folding; HTML attribute names are case-insensitive and React applies the LAST one, so keep a single spelling`,
+        };
+      }
+      folded.add(key);
+    }
+  }
 
   if (targetAttr) {
     if (spreads.length > 0) {
