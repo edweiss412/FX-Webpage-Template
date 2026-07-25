@@ -711,9 +711,13 @@ function runBrowser() {
   const failed = new Set();
   const walk = (suite) => {
     for (const spec of suite.specs ?? []) {
-      const red = (spec.tests ?? []).some((t) =>
-        (t.results ?? []).some((r) => r.status !== "passed" && r.status !== "skipped"),
-      );
+      // `test.status` is Playwright's OUTCOME after retries
+      // ("expected" | "unexpected" | "flaky" | "skipped"); `results[]` is the
+      // per-attempt log. Judging on results[] counts a FLAKY row — one that
+      // failed once and passed on retry — as a rejection, which inflates
+      // coverage in the same direction as the title-scrape this replaced. A row
+      // that only sometimes catches a mutant has not rejected it.
+      const red = (spec.tests ?? []).some((t) => t.status === "unexpected");
       if (red) failed.add(spec.title.match(/^(T-FLASH-[A-Z]+)/)?.[1] ?? spec.title);
     }
     for (const child of suite.suites ?? []) walk(child);
