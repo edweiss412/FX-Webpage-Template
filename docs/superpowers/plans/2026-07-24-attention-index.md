@@ -34,7 +34,9 @@ Implementation surface, current sizes:
 | `lib/dev/attentionScenarios/tier2.ts` | — | Scenario ids and labels naming three classes |
 | `lib/dev/attentionScenarios/tier3.ts` | — | One scenario label |
 
-No change to `lib/admin/attentionItems.ts`, `lib/admin/sectionAttention.ts`, `lib/adminAlerts/*`. The derivation, the exclusion sets, and the routing table are all untouched — this is a rendering change over an unchanged item list.
+No change to `lib/admin/attentionItems.ts` or `lib/adminAlerts/*`. The derivation, the exclusion sets, and the routing table are all untouched — this is a rendering change over an unchanged item list.
+
+**One exception, and it is comment-only:** `lib/admin/sectionAttention.ts:111-115` currently ends "the warnings section is unconditional today, so the fallback is defensive." Spec §2.2 requires that line to change — under this spec the Overview fallthrough is a **correctness guarantee**, because an index entry with nowhere to land is an index that lies. No executable line in that file moves. Owned by Task 4, which is where the guarantee gets its test (plan R6 F1).
 
 ## 0.1 Meta-test inventory (mandatory declaration)
 
@@ -180,6 +182,8 @@ Plus spec test 9b, the four-cell warnings matrix, which is the load-bearing proo
 | `tests/components/admin/compactAlertCompoundTransitions.test.tsx:59` | The fixture's own `sectionId`. Lift `alertItem()` to a const first — the file currently calls the builder inline, so passing `alertItem().sectionId` would build a second, unrelated object. |
 | `tests/e2e/_compactAlertCardLiveEntry.tsx:135` | `bannerItem.sectionId` — already a module-level const. |
 
+**Comment repair, same commit (plan R6 F1).** Test 9b is what makes the warnings-unavailable fallthrough a tested guarantee rather than dead defensive code, so this task also updates `lib/admin/sectionAttention.ts:111-115`. Replace "The warnings section is unconditional today, so the fallback is defensive." with a statement that the fallthrough is a correctness guarantee under the index contract — every entry must have a landing place — citing the spec. Comment only; no executable line changes.
+
 **Do not** wire `resolveEffectiveSection` into the three test files. They mount a card directly and have no `placement` predicates to feed it; the declared route IS the effective section wherever the anchor is mounted, which is the case all three harnesses set up. `tests/e2e/_attentionAnchorEntry.tsx:27` mentions `<AttentionBanner>` in a comment only — it is a documented stand-in, not a mount, and needs no change.
 
 ### Task 5 — the badge
@@ -207,13 +211,25 @@ Class check on that last row: those are the only two exact conditional-count pin
 
 ### Task 6 — dev gallery
 
-**Test first.** `tests/dev/fullSplitComposite.test.ts:22` asserts the Tier-3 label **exactly**: `expect(s.label).toBe("Everything at once: confirm, review, and monitoring")`. Update it to the renamed label — that is this task's failing-test-first step, and it is the only test that can fail for a Tier-2/Tier-3 label change (plan R4 F7).
+**The exact strings, so no copy is invented at implementation time (plan R6 F3).** Two sites change, one does not:
+
+| Site | Current | New |
+| --- | --- | --- |
+| `lib/dev/attentionScenarios/tier2.ts:386` | `One of each pill class: confirm, review, monitoring` | `One of each pill class: needs you, monitoring` |
+| `lib/dev/attentionScenarios/tier3.ts:100` | `Everything at once: confirm, review, and monitoring` | `Everything at once: needs you and monitoring` |
+| `lib/dev/attentionScenarios/tier2.ts:376` | `Monitoring only: expandable quiet pill` | **UNCHANGED** — already the surviving vocabulary. An earlier draft told the implementer to rename it; that was wrong. |
+
+Lowercase "needs you" inside a sentence, matching how the other labels render their class names in prose; the heading itself is capitalised in the component.
+
+**Test first.** `tests/dev/fullSplitComposite.test.ts:22` asserts the Tier-3 label **exactly**. Change it to `expect(s.label).toBe("Everything at once: needs you and monitoring")` — that is this task's failing-test-first step, and it is the only test that can fail for a Tier-2/Tier-3 label change (plan R4 F7).
 
 The §7.1b sweep that produced this task searched `lib/dev/` only, which is why this consumer was missed; the corrected sweep is `grep -rn 'confirm, review' lib/dev/ tests/`. A sweep of the other retired Tier-2/Tier-3 label strings finds no further test consumer.
 
 `tests/dev/attentionScenariosTier1.test.ts:13-17` is a **regression check, not this task's oracle** — it asserts Tier-1 route-code totality and cannot fail for a label rename. Run it to confirm no id changed; do not treat it as proof the rename worked.
 
-**Implement.** `lib/dev/attentionScenarios/tier2.ts` and `tier3.ts` only (spec §7.1b): rename the class-mix labels and the `T2_MONITORING_ONLY` description to the two-group vocabulary. Rename labels, not ids, unless the id itself names a retired class — an id change breaks the totality assertion above.
+**Implement.** `lib/dev/attentionScenarios/tier2.ts` and `tier3.ts` only (spec §7.1b): apply the two label changes in the table above. **Rename labels, never ids** — `tests/dev/attentionScenariosTier1.test.ts:13-17` asserts gallery-to-`ATTENTION_ROUTES` totality by id, and `T2_MONITORING_ONLY` names a group that survives this spec, so no id names a retired class and none moves.
+
+Also update the stale pill-copy comment at `lib/dev/attentionScenarios/tier2.ts:377-378`, which expects the pill to read "2 monitoring" alongside the retired segments.
 
 ### Task 7 — wire the focus spec into CI (wiring only)
 
@@ -268,7 +284,7 @@ jsdom cannot compute layout, so all of the above must be Playwright.
 
 The correct oracle is **set equality on `transition-property`**, not a forbid-regex. Set equality is what makes it robust: a `not.toContain("opacity")` check passes against `transition-all`, which animates opacity.
 
-- Elements that appear and disappear on the O1↔O2 collapse — `[data-testid="attention-monitoring-group"]`, `[data-testid="attention-needsyou-heading"]`, `[data-testid="attention-monitoring-heading"]`: assert **effective zero duration**, NOT `transition-property: none` (plan R5 F2). An element with no transition declaration computes to CSS's initial `transition-property: all` with `transition-duration: 0s` — so an exact-`none` assertion fails all three correctly-instant elements and would push the implementer into unplanned `transition-none` styling work to satisfy a wrong oracle. The spec file already has the right helpers: `instant()` and `effectiveDurations()` (`tests/e2e/attention-pill-focus.spec.ts:440-470`), which apply CSS list repetition before checking. Reuse them rather than writing a fresh computed-style check. **The heading testids go on the container `<div>`s** (Task 1), because those are the elements whose whole block unmounts; a text locator would select the inner `<span>` and miss a `transition-all` added to the container (plan R4 F3).
+- Elements that appear and disappear on the O1↔O2 collapse — `[data-testid="attention-monitoring-group"]`, `[data-testid="attention-needsyou-heading"]`, `[data-testid="attention-monitoring-heading"]`: assert **BOTH channels**, transition AND animation. Zero transition duration alone is insufficient: a keyframe animation such as `animate-pulse` leaves every transition duration at zero and would pass (plan R6 F2). The existing probe already asserts both — `expect(t.noTransition).toBe(true)` and `expect(t.animationName).toBe("none")` (`tests/e2e/attention-pill-focus.spec.ts:486-490`) — and `instant()` returns exactly that pair (`tests/e2e/attention-pill-focus.spec.ts:433-439`). Follow it for all three targets. The jsdom source guard does not close this gap: it catches animation utility classes written on the element, but not one applied by a stylesheet selector, and the needs-you heading sits outside the monitoring subtree that guard walks. For the transition channel specifically, assert **effective zero duration**, NOT `transition-property: none` (plan R5 F2). An element with no transition declaration computes to CSS's initial `transition-property: all` with `transition-duration: 0s` — so an exact-`none` assertion fails all three correctly-instant elements and would push the implementer into unplanned `transition-none` styling work to satisfy a wrong oracle. The spec file already has the right helpers: `instant()` and `effectiveDurations()` (`tests/e2e/attention-pill-focus.spec.ts:440-470`), which apply CSS list repetition before checking. Reuse them rather than writing a fresh computed-style check. **The heading testids go on the container `<div>`s** (Task 1), because those are the elements whose whole block unmounts; a text locator would select the inner `<span>` and miss a `transition-all` added to the container (plan R4 F3).
 - Needs-you rows: computed `transition-property` equals Tailwind's `transition-colors` output.
 
 **Do not hardcode the `transition-colors` property list.** In the installed Tailwind (4.2.4) it is TEN properties — `color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to` — and it has changed across minors. A literal pinned to a vendor version breaks on the next upgrade while proving nothing about this component. Derive it from the framework instead, in the same page:
@@ -287,6 +303,29 @@ const expected = await page.evaluate(() => {
 Then assert each row's computed `transitionProperty` equals `expected`. Version-proof, and still catches `transition-all` — whose computed list is `all`, which cannot equal the probe's. This set-equality form applies **only to the rows**, which genuinely carry `transition-colors`; the three instant elements use the zero-duration oracle above.
 
 Run on the live harness (`tests/e2e/attention-pill-focus.spec.ts`), the only one that can open the menu (§0.3). The panel entrance itself IS animated and is asserted separately — do not fold it into the same assertion.
+
+**Entrance-frame control — required, and it does not exist yet (plan R6 F4).** Two of this task's assertions depend on observing the panel between mount and its entrance flip: the `scale-95 opacity-0` → `scale-100 opacity-100` transition, and the compound case "last needs-you item clears while the panel is mid-entrance." `AttentionMenu` flips `entered` inside a single `requestAnimationFrame` (`components/admin/showpage/AttentionMenu.tsx:65-67`), and `boot()` returns only after the menu is visible (`tests/e2e/attention-pill-focus.spec.ts:106-126`), by which point that frame may already have run. Racing `__setItems` against the browser's next frame yields a test whose result is set by scheduling, not behaviour — it will pass locally and flake in CI, which is worse than no test.
+
+Hold the frame explicitly:
+
+```js
+await page.addInitScript(() => {
+  const queue = [];
+  const real = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (cb) => { queue.push(cb); return queue.length; };
+  window.__releaseFrames = () => {
+    window.requestAnimationFrame = real;
+    const pending = queue.splice(0);
+    for (const cb of pending) cb(performance.now());
+  };
+});
+```
+
+`addInitScript` runs before any page script, so the patch is in place before React mounts. The panel still renders while frames are held — it mounts in its pre-frame state — so `boot()`'s visibility gate is unaffected and remains the readiness signal.
+
+Sequence for each test: `addInitScript` → `boot()` → assert `scale-95 opacity-0` → (compound case only: `__setItems` to empty the needs-you group) → `__releaseFrames()` → assert `scale-100 opacity-100`, and for the compound case that the panel completed its entrance already in O2 with no re-trigger.
+
+**Teardown is automatic but must be verified, not assumed:** Playwright gives each test a fresh page, so the patch cannot leak into the focus and geometry tests. Put these two tests in their own `test.describe` and add a comment saying the restore depends on page isolation — if this spec ever moves to a shared page, `__releaseFrames()` must be called in an `afterEach` as well, since it is what reinstalls the real `requestAnimationFrame`.
 
 **Catches:** the focused-row case is the one this change makes riskier — every needs-you row is now focusable where needs-look rows previously exposed only their inner link. The set-equality oracle catches a row that gains `transition-all` during styling cleanup, which would make removal animate and reintroduce the detach race the rescue effect exists to handle.
 
