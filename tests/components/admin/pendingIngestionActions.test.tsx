@@ -179,7 +179,7 @@ describe("pending-ingestion action buttons (live host: NeedsAttentionInbox)", ()
 // sibling "Defer until modified" stays one-tap (§7 exemption).
 describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)", () => {
   const ID = "pi-g1";
-  const ARMED_LABEL = "Tap again to confirm";
+  const ARMED_LABEL = "Confirm ignore";
 
   afterEach(() => {
     vi.useRealTimers();
@@ -289,7 +289,7 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     expect(region.className.split(/\s+/)).toContain("sr-only");
     expect(region.textContent).toBe("");
     fireEvent.click(btn); // arm
-    expect(region.textContent).toBe("Tap again to confirm.");
+    expect(region.textContent).toBe("Tap again to stop tracking this sheet permanently.");
     act(() => {
       vi.advanceTimersByTime(4_000);
     });
@@ -342,6 +342,6 @@ describe("D7: the responsive-stack basis is GONE (reorder design)", () => {
     expect(region.className.split(/\s+/)).toContain("sr-only");
     expect(region.textContent).toBe("");
     fireEvent.click(getByTestId(`admin-pending-ignore-${ID}`));
-    expect(region.textContent).toBe("Tap again to confirm.");
+    expect(region.textContent).toBe("Tap again to stop tracking this sheet permanently.");
   });
 });

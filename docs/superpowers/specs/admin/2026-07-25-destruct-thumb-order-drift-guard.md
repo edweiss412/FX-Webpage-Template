@@ -121,7 +121,9 @@ Two consequences: the fix must key on container width, not viewport width (§4.1
 
 **Goals.** (G1) Wherever the two controls stack, the safe action is the lower of the two. (G2) Wherever they genuinely fit side by side, the existing Defer-left / Ignore-right order is unchanged — note §2.5: the 280px rail never fits them, so this goal binds only on wide cards. (G3) Visual order and focus order agree at every width — no `order`, no `flex-row-reverse`, no grid line placement that would desync them. (G4) The harmonized 4s arm-revert is substantially harder to re-drift, and every remaining hole is enumerated in §5.3 rather than claimed closed. (G5) BACKLOG reflects reality.
 
-**Non-goals.** Changing any confirm label or the 4s value (R8). Touching the other ten destructive surfaces' markup — they get an import swap only. Closing the rest of `BL-STANDALONE-CONFIG-CI-DARK` (R5). Guarding non-arm timers (R6). Any DB, RPC, advisory-lock, API-route, or `§12.4` catalog change — this diff touches none.
+**Non-goals.** Changing the 4s value (R8).
+
+**Scope changed mid-run, twice, by owner decision — recorded rather than back-dated.** An earlier draft listed "changing any confirm label" as a non-goal and R2's ruled-out list included "a global DOM swap". The shipped change does **both**. That is not drift: on 2026-07-25 the owner redirected first to the container-keyed fork and then, after nine review rounds on its verification cost, to the plain reorder — and separately asked whether shortening the copy would help, which measurement showed it would. The original rule-out of a global DOM swap was made before the 278px rail was measured; the evidence that overturned it is §2.5. The impeccable critique correctly flagged the contradiction (P2) because the spec still carried the superseded wording. Touching the other ten destructive surfaces' markup — they get an import swap only. Closing the rest of `BL-STANDALONE-CONFIG-CI-DARK` (R5). Guarding non-arm timers (R6). Any DB, RPC, advisory-lock, API-route, or `§12.4` catalog change — this diff touches none.
 
 ---
 
@@ -152,14 +154,19 @@ Safe in every case, and it stacks only where the pair genuinely does not fit.
 
 ### 4.2 Armed label
 
-`"Confirm stop tracking this sheet permanently"` (328.51px) becomes **`"Tap again to confirm"`** (161.98px).
+`"Confirm stop tracking this sheet permanently"` (328.51px) becomes **`"Confirm ignore"`** (125.64px), and the live region takes the consequence: `"Tap again to stop tracking this sheet permanently."`
 
 That single change takes the armed row from 491.25px to 324.72px, which fits the 348px Needs-attention page — removing the last case where the pair stacked only because of label length.
 
-Two reasons it is the right string rather than merely a shorter one:
+**A first attempt at this got it wrong, and the impeccable critique caught it.** The label was briefly `"Tap again to confirm"` — which is *verbatim* what the live region already announced. The pair then conveyed strictly **less** than before: the instruction was stated twice and the consequence nowhere. It also broke the family idiom (`ArchiveShowButton` "Confirm archive", `ResolveAlertButton` "Confirm dismiss").
 
-- It is **already what assistive technology announces.** The persistent `role="status"` region emits exactly `"Tap again to confirm."` (`components/admin/PendingPanelDiscardButtons.tsx:141`). The visible label now matches what a screen-reader user already hears.
-- The permanence signal does not live in this label. The button is filled amber (the ratified destructive recipe), the idle label already says "Permanently ignore", and the action still needs a second deliberate tap. The armed state's job is to say *what to do next*, which "Tap again to confirm" does and the old string did not.
+The shipped split is label = **verb**, live region = **consequence**:
+
+- `"Confirm ignore"` matches the family idiom exactly and leaves 59.62px of slack on the 348px page.
+- The live region now says what dies, so a screen-reader user hears the consequence at the moment it matters.
+- For a sighted user the permanence signal is carried by the idle label they just tapped ("Permanently ignore"), the amber fill, and the second deliberate tap.
+
+`"Confirm ignore forever"` was measured (176.8px) and **rejected**: its armed row clears the 348px page by only 8.46px, the same thin cross-platform margin this spec rejected when choosing between a 512px and 576px threshold. Applying that rule inconsistently would have been the defect, not the width.
 
 The **idle** labels are unchanged. "Permanently ignore" and "Defer until modified" carry the safety words, and `tests/help/_uiLabelExceptions.ts:135-143` pins both against the help MDX — shortening them would trade real clarity for the one geometry (the 278px rail) that still cannot fit a row.
 
