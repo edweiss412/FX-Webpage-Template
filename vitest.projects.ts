@@ -101,6 +101,7 @@ export const PARALLEL_TEST_GLOBS = [
   "tests/invariants/**/*.test.{ts,tsx}",
   "tests/github/**/*.test.{ts,tsx}",
   "tests/venue/**/*.test.{ts,tsx}",
+  "tests/docs/**/*.test.{ts,tsx}",
   "tests/sample.test.ts",
 ];
 

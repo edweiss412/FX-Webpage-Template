@@ -82,7 +82,11 @@ export function ArchivedShowRow({ row, now, unarchiveAction }: ArchivedShowRowPr
           data-testid={`archived-show-open-${row.slug}`}
           className="inline-flex min-h-tap-min items-center justify-center self-center px-3 text-sm font-medium text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
-          Open
+          {/* The separating space is a VISIBLE text node on this line, not inside
+              the sr-only span: the accessible-name algorithm trims each text node
+              before concatenating, so a space inside the span is dropped and the
+              name computes as "OpenOld Show". */}
+          Open <span className="sr-only">{row.title?.trim() || row.slug}</span>
         </Link>
       </div>
     </li>

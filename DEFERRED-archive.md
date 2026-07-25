@@ -2,6 +2,51 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## Settings dev-row copy close-out (2026-07-24)
+
+All four findings of `SETTINGS-DEVROW-GALLERY-RESIDUE-1` RESOLVED by branch
+`fix/settings-devrow-gallery-residue` (spec
+`docs/superpowers/specs/2026-07-24-settings-devrow-copy-close.md`, adversarial
+APPROVE at R5). The three copy findings were owner-ratified in-session on
+2026-07-24 against a rendered mockup of every alternative, which is the spec
+amendment the entry's own un-defer trigger required. Find the PR from the merge
+commit for that branch.
+
+| Finding                                           | Closed by                                                                                                                                                                                                                                            |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — [P2] bare "Open" in a screen-reader link list | `Open <span class="sr-only">developer tools</span>`; accessible name `Open developer tools`, visible label unchanged. The separator is a visible text node on the same JSX line — measured: putting it inside the span yields `Opendeveloper tools`. |
+| 2 — [P2] link label vs destination heading        | The HEADING moved, not the link: `app/admin/dev/attention-gallery/page.tsx` `<h1>` is now `Attention gallery`. One canonical user-facing name for the surface.                                                                                       |
+| 3 — [P3] `devLinkClass` diverges from its sibling | **Transition half only.** `transition-colors duration-fast` added to the shared literal.                                                                                                                                                             |
+| 4 — [P3] description does not mention the gallery | Now `Fixture tester, parse diagnostics, and the attention gallery. Hidden from normal use.`                                                                                                                                                          |
+
+**Finding 3's offset half did NOT close here, by design.** `DESIGN.md:40` bans a
+bare `focus-visible:ring-offset-2` (an offset must carry a container-matched
+`ring-offset-<backdrop>`), so copying the `DriveConnectionPanel` siblings' bare
+offset would have added a dark-mode white gap rather than parity. The ~90
+app-wide bare offsets — those two siblings included — remain owned by
+`BL-FOCUS-RING-CONTRAST` in BACKLOG.md, which has to decide the per-backdrop
+colors first. A test in `DevToolsRow.test.tsx` pins the omission so a future
+"parity" pass cannot quietly pre-empt that sweep.
+
+The graduation itself is now guarded: tests/docs/\_metaDeferralLedgerGraduation.test.ts
+asserts no id is ever both active and archived, and that this id is archive-only.
+
+<details>
+<summary>Original entry, verbatim</summary>
+
+### SETTINGS-DEVROW-GALLERY-RESIDUE-1 — [P2/P3 ×4] impeccable residue on the settings Developer-tools row
+
+From the impeccable dual-gate of `settings-attention-gallery-link` (PR #544). Zero P0/P1; four P2/P3 findings were deferred with spec-freeze rationales and recorded ONLY in `docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/closeout.md:47-52` — never in this queue. Filed here 2026-07-24 by a PR-body-vs-ledger reconciliation sweep; all four re-verified live against `components/admin/settings/DevToolsRow.tsx` at that date.
+
+1. **[P2] "Open" label ambiguous beside a named sibling.** `DevToolsRow.tsx:53` renders `Open` next to `Attention gallery` (`:61`) in the same control cluster, so an SR link list reads a bare "Open". Deferred: renaming existing copy conflicts with spec §1.1 "row copy unchanged"; WCAG 2.4.4 is satisfied by the in-context row heading.
+2. **[P2] Link label vs destination heading mismatch.** The link reads "Attention gallery"; the destination `<h1>` reads "Attention modal gallery" (`app/admin/dev/attention-gallery/page.tsx:54`). Deferred: the label is ratified in spec §1.1/§3 (user-approved) and the h1 gives immediate confirmation on arrival.
+3. **[P3] `devLinkClass` diverges from its sibling secondary button.** `DevToolsRow.tsx:16-17` omits `transition-colors duration-fast` (and a ring offset) that `DriveConnectionPanel.tsx:244` carries. Deferred: the literal was carried verbatim per spec §3 ("className identical to the Open link"); aligning both is cross-component polish. **Fix shape corrected 2026-07-24:** close this on the `transition-colors duration-fast` half only. The offset half is superseded by the two-tier focus recipe shipped in PR #558 — DESIGN.md §1.1 now bans bare `focus-visible:ring-offset-2` (an offset MUST carry a container-matched `ring-offset-<backdrop>`, and popover surfaces reserve offsets for armed destructive confirm-go). Adding a bare offset here would introduce the dark-mode white-gap defect, not parity; the two `DriveConnectionPanel` siblings (`:244`, `:277`) carry bare offsets and are the pre-existing drift to reconcile in the same pass.
+4. **[P3] Row description does not mention the gallery action.** "Fixture tester and parse diagnostics. Hidden from normal use." (`DevToolsRow.tsx:48`) predates the second link. Deferred: spec §1.1 freezes the row description copy.
+
+**Un-defer trigger:** any spec amendment reopening the settings dev-row copy (closes 1, 2, 4), or the next cross-component focus/transition parity pass on admin settings buttons (closes 3 plus the `DriveConnectionPanel` bare-offset drift). Items 1, 2 and 4 need owner copy ratification; item 3 does not.
+
+</details>
+
 ## Warning trim un-defer (2026-07-23)
 
 Five of the six remaining "warning-surface-trim (2026-07-21)" deferrals RESOLVED
