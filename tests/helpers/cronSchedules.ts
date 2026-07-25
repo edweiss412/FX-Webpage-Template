@@ -49,6 +49,49 @@ type CronEvent = { kind: "schedule"; block: string } | { kind: "unschedule" | "o
  * unschedule a job and then reschedule it, so the events must be ordered rather
  * than merely counted.
  */
+/**
+ * The `cron.schedule(...)` call starting at `start`, bounded by its OWN closing
+ * parenthesis.
+ *
+ * Self-review after R11: bounding a block at "the next `cron.schedule(`, or end
+ * of file" meant the LAST scheduled job in a migration owned every trailing
+ * statement. `T_EXEC_BUDGET_MS` is extracted by finding the first
+ * `timeout_milliseconds` in the block, so a future migration that schedules
+ * refresh-watch last and then issues any other statement carrying that parameter
+ * would silently pin the constant against the wrong call. Bounding by the call's
+ * own parentheses removes the possibility rather than relying on job ordering.
+ *
+ * Quote-aware: `$body$…$body$` and `'…'` can both contain parentheses.
+ */
+function scheduleCallAt(sql: string, start: number): string {
+  let depth = 0;
+  let i = sql.indexOf("(", start);
+  if (i === -1) return sql.slice(start);
+  for (; i < sql.length; i += 1) {
+    const dollar = /^\$[A-Za-z_0-9]*\$/.exec(sql.slice(i));
+    if (dollar) {
+      const end = sql.indexOf(dollar[0], i + dollar[0].length);
+      i = end === -1 ? sql.length : end + dollar[0].length - 1;
+      continue;
+    }
+    if (sql[i] === "'") {
+      i += 1;
+      while (i < sql.length) {
+        if (sql[i] === "'" && sql[i + 1] === "'") i += 2;
+        else if (sql[i] === "'") break;
+        else i += 1;
+      }
+      continue;
+    }
+    if (sql[i] === "(") depth += 1;
+    else if (sql[i] === ")") {
+      depth -= 1;
+      if (depth === 0) return sql.slice(start, i + 1);
+    }
+  }
+  return sql.slice(start); // unbalanced; caller's assertions will catch it
+}
+
 export function cronEventsForJob(jobName: string, sources: string[]): CronEvent[] {
   const scheduleAnchor = `cron.schedule('${jobName}'`;
   const unscheduleAnchor = `cron.unschedule('${jobName}'`;
@@ -59,11 +102,7 @@ export function cronEventsForJob(jobName: string, sources: string[]): CronEvent[
     const found: Array<{ at: number; event: CronEvent }> = [];
 
     for (let i = sql.indexOf(scheduleAnchor); i !== -1; i = sql.indexOf(scheduleAnchor, i + 1)) {
-      const next = sql.indexOf("cron.schedule(", i + scheduleAnchor.length);
-      found.push({
-        at: i,
-        event: { kind: "schedule", block: sql.slice(i, next === -1 ? undefined : next) },
-      });
+      found.push({ at: i, event: { kind: "schedule", block: scheduleCallAt(sql, i) } });
     }
     for (
       let i = sql.indexOf(unscheduleAnchor);

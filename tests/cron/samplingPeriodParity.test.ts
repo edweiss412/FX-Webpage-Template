@@ -192,6 +192,20 @@ describe("SAMPLING_PERIOD_MS agrees with the canonical refresh-watch schedule", 
       ).toContain("0 * * * *");
     });
 
+    test("a schedule block stops at its own closing paren, not the next statement", () => {
+      // Self-review after R11: bounding at "next cron.schedule( or EOF" made the
+      // LAST scheduled job in a migration own every trailing statement, so a
+      // stray `timeout_milliseconds` after it would be read as refresh-watch's.
+      const block = effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+        `perform cron.schedule('fxav_cron_refresh_watch', '0 * * * *', format($body$
+           select net.http_get(url := %L, timeout_milliseconds := 300000);
+         $body$, 'https://x.test/api/cron/refresh-watch'));
+         perform some_other_call(timeout_milliseconds := 999999);`,
+      ]);
+      expect(block).toContain("300000");
+      expect(block).not.toContain("999999");
+    });
+
     test("a commented-out unschedule does not count", () => {
       expect(
         effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
