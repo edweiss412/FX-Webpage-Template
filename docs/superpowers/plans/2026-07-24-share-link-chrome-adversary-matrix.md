@@ -16,7 +16,7 @@ proven-equivalent mutant rather than a coverage hole — see the section after t
 
 <!-- BEGIN GENERATED -->
 
-_30 adversaries · 29 rejected · 1 survived · 0 unapplied._
+_31 adversaries · 30 rejected · 1 survived · 0 unapplied._
 
 | # | Wrong implementation | Rows red |
 |---|---|---|
@@ -48,6 +48,7 @@ _30 adversaries · 29 rejected · 1 survived · 0 unapplied._
 | A28 | ancestor rule scoped to the real modal ROOT suppresses the cue | 4 |
 | A29 | selector widened to `html [data-...]` (defeats substring matching) | 2 |
 | A30 | the attribute rule is duplicated (a later copy wins the cascade) | 2 |
+| A31 | cue ungated: the URL block animates at rest, with no attribute | 6 |
 | A22 | token retuned below the ring's contrast floor | 2 |
 | A21 | renders a wrong token / Copy writes a stale one | 2 |
 
@@ -56,12 +57,13 @@ _30 adversaries · 29 rejected · 1 survived · 0 unapplied._
 | N0: SHARE_LINK_FLASH_MS is 1600 | A25 |
 | N1: both keyframes are declared exactly once | A17 |
 | N1: the component declares no keyframes of its own | A20 |
-| N1: the shipped cue rules EQUAL the spec's normative block | A13, A14, A15, A16, A17, A18, A19, A25, A26, A27, A28, A29, A30 |
-| T-FLASH-REDUCED | A1, A15, A16, A27, A29, A30 |
+| N1: the shipped cue rules EQUAL the spec's normative block | A13, A14, A15, A16, A17, A18, A19, A25, A26, A27, A28, A29, A30, A31 |
+| T-FLASH-REDUCED | A1, A15, A16, A27, A29, A30, A31 |
+| T-FLASH-REST | A31 |
 | T-FLASH-RESTART | A1, A9, A18, A28 |
-| T-FLASH-RUN | A1, A13, A14, A18, A19, A25, A28 |
-| T-FLASH-SETTLE | A2, A25 |
-| T-FLASH-SOLE | A1, A18, A23, A28 |
+| T-FLASH-RUN | A1, A13, A14, A18, A19, A25, A28, A31 |
+| T-FLASH-SETTLE | A2, A25, A31 |
+| T-FLASH-SOLE | A1, A18, A23, A28, A31 |
 | a STRICTLY LOWER epoch is rejected, so nothing cues | A8 |
 | a change while the panel is CLOSED never reaches the DOM | A24 |
 | a live cue SURVIVES unrelated re-renders | A1 |
