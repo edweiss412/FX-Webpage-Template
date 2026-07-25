@@ -158,7 +158,7 @@ function pickCode(kind: "inbox" | "auto" | "actionable"): string {
 }
 
 /**
- * Classify a candidate by the DERIVED item's pill class (spec §3.2): probe one
+ * Classify a candidate by the DERIVED item's clearing class (spec §3.2): probe one
  * alert through the real derivation. Zero items = cut from the surface. This is
  * the pill's own actionable/clearingKind split, so isAutoResolving vs
  * isSelfHealing divergence cannot skew a pick.
@@ -264,7 +264,7 @@ function hold(entityKey: string): ScenarioHoldRow {
 
 /**
  * The realistic many-state (spec §3.3): MENU_CAP-1 DISTINCT real alerts spanning
- * rooms/event/crew plus all three pill classes, one repeat-count carrier, filled
+ * rooms/event/crew plus all three clearing classes, one repeat-count carrier, filled
  * from surviving context-free codes then context-required codes WITH their
  * tier-1 context fixtures. Throws if the catalog cannot field enough codes -
  * the matrix must be updated, never silently thinned.
@@ -383,7 +383,7 @@ export function tier2Scenarios(): AttentionScenario[] {
       })(),
       holds: [],
     }),
-    scenario(T2_CLASS_MIX, "One of each pill class: confirm, review, monitoring", {
+    scenario(T2_CLASS_MIX, "One of each pill class: issues, monitoring", {
       alerts: (() => {
         const a = pickByDerivedClass("actionable");
         const n = pickByDerivedClass("needs_look", new Set([a]));
