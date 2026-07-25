@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agenda area: what a part-time crew member sees</title>
+<style>
+  :root {
+    --page-bg: #eceae5;
+    --page-ink: #1a1b1f;
+    --page-ink-soft: #5a5b62;
+    --page-ink-faint: #8b8c92;
+    --page-rule: #d8d5ce;
+    --page-card: #ffffff;
+    --accent: #ff8c1a;
+    --accent-ink: #a65000;
+    --accent-tint: #feeede;
+
+    /* app tokens — light */
+    --surface: #ffffff;
+    --surface-sunken: #f4f3f1;
+    --text: #1a1b1f;
+    --text-strong: #0e0f12;
+    --text-subtle: #5a5b62;
+    --text-faint: #8b8c92;
+    --border: #e5e4e0;
+    --app-bg: #faf9f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page-bg: #101116;
+      --page-ink: #e8e6e0;
+      --page-ink-soft: #9c9a93;
+      --page-ink-faint: #74736d;
+      --page-rule: #2a2b30;
+      --page-card: #191a20;
+      --accent: #ff8c1a;
+      --accent-ink: #ffa047;
+      --accent-tint: #2a1e10;
+
+      --surface: #16171c;
+      --surface-sunken: #0b0c10;
+      --text: #e8e6e0;
+      --text-strong: #f5f3ee;
+      --text-subtle: #9c9a93;
+      --text-faint: #74736d;
+      --border: #2a2b30;
+      --app-bg: #0f1014;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page-bg: #101116;
+    --page-ink: #e8e6e0;
+    --page-ink-soft: #9c9a93;
+    --page-ink-faint: #74736d;
+    --page-rule: #2a2b30;
+    --page-card: #191a20;
+    --accent: #ff8c1a;
+    --accent-ink: #ffa047;
+    --accent-tint: #2a1e10;
+
+    --surface: #16171c;
+    --surface-sunken: #0b0c10;
+    --text: #e8e6e0;
+    --text-strong: #f5f3ee;
+    --text-subtle: #9c9a93;
+    --text-faint: #74736d;
+    --border: #2a2b30;
+    --app-bg: #0f1014;
+  }
+  :root[data-theme="light"] {
+    --page-bg: #eceae5;
+    --page-ink: #1a1b1f;
+    --page-ink-soft: #5a5b62;
+    --page-ink-faint: #8b8c92;
+    --page-rule: #d8d5ce;
+    --page-card: #ffffff;
+    --accent: #ff8c1a;
+    --accent-ink: #a65000;
+    --accent-tint: #feeede;
+
+    --surface: #ffffff;
+    --surface-sunken: #f4f3f1;
+    --text: #1a1b1f;
+    --text-strong: #0e0f12;
+    --text-subtle: #5a5b62;
+    --text-faint: #8b8c92;
+    --border: #e5e4e0;
+    --app-bg: #faf9f7;
+  }
+
+  body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--page-ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1560px;
+    margin: 0 auto;
+    padding: 40px 32px 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 34px;
+  }
+
+  header.lede { display: flex; flex-direction: column; gap: 12px; max-width: 68ch; }
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+  }
+  h1 {
+    margin: 0;
+    font-size: 30px;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-weight: 660;
+    text-wrap: balance;
+    color: var(--page-ink);
+  }
+  .lede p { margin: 0; color: var(--page-ink-soft); }
+  .lede strong { color: var(--page-ink); font-weight: 620; }
+
+  .scenario {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    border: 1px solid var(--page-rule);
+    border-radius: 4px;
+    background: var(--page-card);
+    overflow: hidden;
+  }
+  .scenario div {
+    padding: 12px 18px;
+    border-right: 1px solid var(--page-rule);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .scenario div:last-child { border-right: 0; }
+  .scenario dt {
+    font-size: 10.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--page-ink-faint);
+    font-weight: 620;
+  }
+  .scenario dd { margin: 0; font-size: 14px; font-weight: 560; font-variant-numeric: tabular-nums; }
+
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 26px;
+    align-items: start;
+  }
+  @media (max-width: 1180px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+
+  .opt { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .opt-head { display: flex; flex-direction: column; gap: 5px; }
+  .opt-tag {
+    align-self: flex-start;
+    font-size: 10.5px;
+    font-weight: 680;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 3px;
+    background: var(--accent-tint);
+    color: var(--accent-ink);
+  }
+  .opt-tag.now { background: transparent; color: var(--page-ink-faint); border: 1px solid var(--page-rule); }
+  .opt h2 { margin: 0; font-size: 18px; font-weight: 620; letter-spacing: -0.01em; }
+  .opt-sub { margin: 0; font-size: 13.5px; color: var(--page-ink-soft); }
+
+  /* phone frame */
+  .phone {
+    width: 100%;
+    max-width: 390px;
+    border: 1px solid var(--page-rule);
+    border-radius: 10px;
+    background: var(--app-bg);
+    padding: 14px 14px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09);
+  }
+  .phone-chrome {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+
+  .agenda-area { display: flex; flex-direction: column; gap: 12px; }
+  .h2app {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  .viewbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-strong);
+    font-size: 14px;
+    font-weight: 550;
+  }
+  .viewbtn span.ext { color: var(--text-subtle); }
+
+  .aday { display: flex; flex-direction: column; gap: 8px; }
+  .aday h3 {
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+  }
+  .aday h3 .d {
+    letter-spacing: 0;
+    text-transform: none;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+  }
+  .sessions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .sessions li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 12px; align-items: baseline; }
+  .t { font-size: 14px; font-variant-numeric: tabular-nums; color: var(--text-subtle); white-space: nowrap; }
+  .s { font-size: 14px; color: var(--text-strong); min-width: 0; overflow-wrap: break-word; }
+  .s .rm { color: var(--text-subtle); }
+  .tracks {
+    list-style: none;
+    margin: 3px 0 0;
+    padding: 0 0 0 12px;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tracks li { display: block; font-size: 14px; color: var(--text); }
+  .tracks b { color: var(--text-strong); font-weight: 550; }
+  .tracks .rm { color: var(--text-subtle); }
+
+  .agenda-stack { display: flex; flex-direction: column; gap: 16px; }
+
+  /* option C collapsed rows */
+  .collapsed {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: 4px;
+    background: var(--surface-sunken);
+    color: var(--text-subtle);
+    font-size: 13px;
+  }
+  .collapsed .lbl { letter-spacing: 0.1em; text-transform: uppercase; font-weight: 500; font-size: 11.5px; }
+  .collapsed .cnt { font-variant-numeric: tabular-nums; }
+  .collapsed .caret { color: var(--text-faint); }
+  .yourday {
+    align-self: flex-start;
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: var(--accent-tint);
+    color: var(--accent-ink);
+  }
+
+  .divider { height: 1px; background: var(--border); }
+  .daycards { display: flex; flex-direction: column; gap: 8px; }
+  .daycard {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .daycard .dc-h { font-size: 13px; font-weight: 600; color: var(--text-strong); }
+  .daycard .dc-b { font-size: 12.5px; color: var(--text-subtle); }
+  .ghost {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    text-align: center;
+    padding-bottom: 2px;
+  }
+
+  /* per-option analysis */
+  .notes { display: flex; flex-direction: column; gap: 0; border-top: 1px solid var(--page-rule); }
+  .notes div {
+    display: grid;
+    grid-template-columns: 78px minmax(0, 1fr);
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--page-rule);
+    font-size: 13.5px;
+  }
+  .notes dt {
+    font-size: 10.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--page-ink-faint);
+    font-weight: 620;
+    padding-top: 2px;
+  }
+  .notes dd { margin: 0; color: var(--page-ink-soft); }
+  .notes dd b { color: var(--page-ink); font-weight: 600; }
+
+  .footnote {
+    border-left: 2px solid var(--accent);
+    padding: 2px 0 2px 16px;
+    max-width: 84ch;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .footnote h3 { margin: 0; font-size: 15px; font-weight: 620; }
+  .footnote p { margin: 0; color: var(--page-ink-soft); font-size: 14px; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    background: var(--surface-sunken);
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="lede">
+    <p class="eyebrow">Crew schedule page · decision needed</p>
+    <h1>A crew member works one day of a four-day show. How much of the agenda should the page show them?</h1>
+    <p>
+      Today every viewer sees the <strong>whole show's</strong> agenda at the top of Schedule, even though the
+      day cards underneath are already trimmed to the days they actually work. The three columns below are the
+      same crew member's screen under each option, drawn at phone width.
+    </p>
+  </header>
+
+  <dl class="scenario">
+    <div><dt>Show</dt><dd>East Coast Roadshow</dd></div>
+    <div><dt>Show runs</dt><dd>Aug 11 – Aug 14</dd></div>
+    <div><dt>Crew member</dt><dd>Calvin R.</dd></div>
+    <div><dt>Works</dt><dd>Aug 12 only</dd></div>
+    <div><dt>Agenda PDF covers</dt><dd>All 4 days</dd></div>
+  </dl>
+
+  <div class="cols">
+    <!-- ===== A ===== -->
+    <section class="opt">
+      <div class="opt-head">
+        <span class="opt-tag now">What ships today</span>
+        <h2>A · Show him everything</h2>
+        <p class="opt-sub">The full four-day agenda, unchanged. His own day is not marked.</p>
+      </div>
+
+      <div class="phone">
+        <div class="phone-chrome"><span>Schedule</span><span>390px</span></div>
+
+        <div class="agenda-area">
+          <h2 class="h2app">Agenda</h2>
+          <div class="viewbtn">View agenda <span class="ext">↗</span></div>
+
+          <div class="agenda-stack">
+            <div class="aday">
+              <h3><span>Tuesday, August 11</span></h3>
+              <ul class="sessions">
+                <li><span class="t">7:00 AM</span><span class="s">Truck arrival &amp; unload<span class="rm"> · Dock B</span></span></li>
+                <li><span class="t">9:30 AM</span><span class="s">Rig audio &amp; LED wall<span class="rm"> · Grand Ballroom</span></span></li>
+                <li><span class="t">4:00 PM</span><span class="s">Focus &amp; cue-to-cue<span class="rm"> · Grand Ballroom</span></span></li>
+              </ul>
+            </div>
+            <div class="aday">
+              <h3><span>Wednesday, August 12</span></h3>
+              <ul class="sessions">
+                <li><span class="t">7:30 AM</span><span class="s">Doors &amp; registration<span class="rm"> · Foyer</span></span></li>
+                <li><span class="t">8:30 AM</span><span class="s">Opening keynote<span class="rm"> · Grand Ballroom</span></span></li>
+                <li>
+                  <span class="t">10:15 AM</span>
+                  <span class="s">Breakout sessions
+                    <ul class="tracks">
+                      <li><b>Track A</b> · Field service ops<span class="rm"> · Salon 3</span></li>
+                      <li><b>Track B</b> · Dealer enablement<span class="rm"> · Salon 4</span></li>
+                    </ul>
+                  </span>
+                </li>
+                <li><span class="t">5:00 PM</span><span class="s">Reception<span class="rm"> · Terrace</span></span></li>
+              </ul>
+            </div>
+            <div class="aday">
+              <h3><span>Thursday, August 13</span></h3>
+              <ul class="sessions">
+                <li><span class="t">8:00 AM</span><span class="s">General session<span class="rm"> · Grand Ballroom</span></span></li>
+                <li><span class="t">1:00 PM</span><span class="s">Product deep dives<span class="rm"> · Salon 3</span></span></li>
+                <li><span class="t">6:30 PM</span><span class="s">Awards dinner<span class="rm"> · Grand Ballroom</span></span></li>
+              </ul>
+            </div>
+            <div class="aday">
+              <h3><span>Friday, August 14</span></h3>
+              <ul class="sessions">
+                <li><span class="t">9:00 AM</span><span class="s">Closing remarks<span class="rm"> · Grand Ballroom</span></span></li>
+                <li><span class="t">11:00 AM</span><span class="s">Strike &amp; load out<span class="rm"> · Dock B</span></span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="daycards">
+          <div class="ghost">His day cards (already filtered)</div>
+          <div class="daycard">
+            <div class="dc-h">Wed, Aug 12 · Show day</div>
+            <div class="dc-b">Call 6:45 AM · Grand Ballroom · A2</div>
+          </div>
+        </div>
+      </div>
+
+      <dl class="notes">
+        <div><dt>He scans</dt><dd><b>4 days, 12 sessions</b> to find his one day</dd></div>
+        <div><dt>Loses</dt><dd>Nothing</dd></div>
+        <div><dt>Work</dt><dd><b>None.</b> Close the item as intended behavior</dd></div>
+      </dl>
+    </section>
+
+    <!-- ===== B ===== -->
+    <section class="opt">
+      <div class="opt-head">
+        <span class="opt-tag">Option</span>
+        <h2>B · Only his day</h2>
+        <p class="opt-sub">The agenda list is trimmed to the days he works, matching the day cards below it.</p>
+      </div>
+
+      <div class="phone">
+        <div class="phone-chrome"><span>Schedule</span><span>390px</span></div>
+
+        <div class="agenda-area">
+          <h2 class="h2app">Agenda</h2>
+          <div class="viewbtn">View agenda <span class="ext">↗</span></div>
+
+          <div class="agenda-stack">
+            <div class="aday">
+              <h3><span>Wednesday, August 12</span></h3>
+              <ul class="sessions">
+                <li><span class="t">7:30 AM</span><span class="s">Doors &amp; registration<span class="rm"> · Foyer</span></span></li>
+                <li><span class="t">8:30 AM</span><span class="s">Opening keynote<span class="rm"> · Grand Ballroom</span></span></li>
+                <li>
+                  <span class="t">10:15 AM</span>
+                  <span class="s">Breakout sessions
+                    <ul class="tracks">
+                      <li><b>Track A</b> · Field service ops<span class="rm"> · Salon 3</span></li>
+                      <li><b>Track B</b> · Dealer enablement<span class="rm"> · Salon 4</span></li>
+                    </ul>
+                  </span>
+                </li>
+                <li><span class="t">5:00 PM</span><span class="s">Reception<span class="rm"> · Terrace</span></span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="daycards">
+          <div class="ghost">His day cards (already filtered)</div>
+          <div class="daycard">
+            <div class="dc-h">Wed, Aug 12 · Show day</div>
+            <div class="dc-b">Call 6:45 AM · Grand Ballroom · A2</div>
+          </div>
+        </div>
+      </div>
+
+      <dl class="notes">
+        <div><dt>He scans</dt><dd><b>1 day, 4 sessions</b> — the shortest screen</dd></div>
+        <div><dt>Loses</dt><dd>On-page view of load-in and strike days. Still reachable through <b>View agenda</b></dd></div>
+        <div><dt>Work</dt><dd>Thread the visible-day set into the agenda block; filter its rows</dd></div>
+      </dl>
+    </section>
+
+    <!-- ===== C ===== -->
+    <section class="opt">
+      <div class="opt-head">
+        <span class="opt-tag">Option</span>
+        <h2>C · His day open, the rest folded</h2>
+        <p class="opt-sub">His day is marked and expanded. Other days collapse to a tappable one-line row.</p>
+      </div>
+
+      <div class="phone">
+        <div class="phone-chrome"><span>Schedule</span><span>390px</span></div>
+
+        <div class="agenda-area">
+          <h2 class="h2app">Agenda</h2>
+          <div class="viewbtn">View agenda <span class="ext">↗</span></div>
+
+          <div class="agenda-stack">
+            <div class="collapsed">
+              <span class="lbl">Tuesday, August 11</span>
+              <span><span class="cnt">3 sessions</span> <span class="caret">▾</span></span>
+            </div>
+
+            <div class="aday">
+              <span class="yourday">Your day</span>
+              <h3><span>Wednesday, August 12</span></h3>
+              <ul class="sessions">
+                <li><span class="t">7:30 AM</span><span class="s">Doors &amp; registration<span class="rm"> · Foyer</span></span></li>
+                <li><span class="t">8:30 AM</span><span class="s">Opening keynote<span class="rm"> · Grand Ballroom</span></span></li>
+                <li>
+                  <span class="t">10:15 AM</span>
+                  <span class="s">Breakout sessions
+                    <ul class="tracks">
+                      <li><b>Track A</b> · Field service ops<span class="rm"> · Salon 3</span></li>
+                      <li><b>Track B</b> · Dealer enablement<span class="rm"> · Salon 4</span></li>
+                    </ul>
+                  </span>
+                </li>
+                <li><span class="t">5:00 PM</span><span class="s">Reception<span class="rm"> · Terrace</span></span></li>
+              </ul>
+            </div>
+
+            <div class="collapsed">
+              <span class="lbl">Thursday, August 13</span>
+              <span><span class="cnt">3 sessions</span> <span class="caret">▾</span></span>
+            </div>
+            <div class="collapsed">
+              <span class="lbl">Friday, August 14</span>
+              <span><span class="cnt">2 sessions</span> <span class="caret">▾</span></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="daycards">
+          <div class="ghost">His day cards (already filtered)</div>
+          <div class="daycard">
+            <div class="dc-h">Wed, Aug 12 · Show day</div>
+            <div class="dc-b">Call 6:45 AM · Grand Ballroom · A2</div>
+          </div>
+        </div>
+      </div>
+
+      <dl class="notes">
+        <div><dt>He scans</dt><dd><b>1 open day + 3 one-line rows</b></dd></div>
+        <div><dt>Loses</dt><dd>Nothing — every other day is one tap away, on the page</dd></div>
+        <div><dt>Work</dt><dd>B's filtering, plus a fold-out row and its keyboard and screen-reader states</dd></div>
+      </dl>
+    </section>
+  </div>
+
+  <div class="footnote">
+    <h3>One rule all three options share</h3>
+    <p>
+      Matching an agenda day to a calendar date is a best-effort read of the PDF — the date is parsed out of a
+      heading like <code>Tuesday, August 12, 2026</code>, with a fall back to day order when no headings carry
+      dates. On the shows where neither works, B and C cannot tell which day is his, so both fall back to
+      showing every day (option A's screen). Nobody ever loses the agenda because the match failed.
+    </p>
+  </div>
+</div>
+</body>
+</html>

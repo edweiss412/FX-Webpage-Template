@@ -3,11 +3,28 @@
 // Postgres so a full test run stops failing on "too many clients" / pool
 // exhaustion after a long probing session.
 //
-// WHY: ~55 DB test files open module-level postgres.js clients with no
-// idle_timeout and no .end(), so in the serial DB-test worker their connections
-// accumulate for the whole run and can exhaust local Postgres max_connections
-// (~100). This reaps them without a full `supabase stop && start` (seconds, not
-// a container bounce). Run before the final full-suite verification pass.
+// WHY: one local Postgres (max_connections 100) is shared by every worktree, dev
+// server, and psql session on the box, and sits at ~28 backends before any test
+// runs -- mostly Supabase's own services (PostgREST, realtime, pg_cron, pg_net),
+// though that split was observed, not audited. This reaps stranded connections
+// without a full `supabase stop && start` (seconds, not a container bounce). Run
+// before the final full-suite verification pass.
+//
+// An earlier version of this comment blamed module-level postgres.js clients
+// with no idle_timeout accumulating across the serial run. That was measured
+// false on 2026-07-24 and the matching BL-TEST-PG-CLIENT-TEARDOWN backlog entry
+// is withdrawn: vitest terminates each file's worker when the file finishes
+// (isolate:true, the default), closing its sockets, and postgres.js opens
+// connections lazily so a `max: N` pool rarely holds N. Across the full suite
+// (1603 files) postgres.js peaked at 5 backends of 100, with no signal of
+// growth across the run.
+//
+// That removes the explanation the entry gave. It does not identify what DOES
+// strand connections here — concurrent load is the plausible remainder, not a
+// measured conclusion — and it says nothing about runs configured differently
+// (e.g. --fileParallelism). See BACKLOG.md's withdrawn entry for the numbers,
+// and tests/cross-cutting/db-test-connection-hygiene.test.ts for the guard that
+// keeps the isolation from being switched off.
 //
 // HARD SAFETY GUARD: refuses to run against anything but a loopback host. It
 // will NEVER touch the validation or prod database — even if TEST_DATABASE_URL
@@ -63,7 +80,11 @@ if (!LOOPBACK.test(dbUrl)) {
 const all = process.argv.includes("--all");
 
 // Terminate this DB's backends other than our own session. Default: only idle
-// ones (the leaked test pools sit idle); --all also kills active.
+// ones, because a stranded connection is never mid-query -- but note the
+// converse does NOT hold: `idle` also covers healthy pools between queries, so
+// the default WILL drop a running dev server's or app pool's connections. They
+// reconnect; that is the trade this script makes. --all additionally kills
+// backends that are mid-query.
 const stateFilter = all ? "" : "and state = 'idle'";
 const sql = `
   select count(*)::int as reaped from (

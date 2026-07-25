@@ -19,7 +19,7 @@ describe("t3-full-attention-split composite", () => {
   it("is a tier-3 composite: exact code sequence, contexts, label, hold shape; warnings ABSENT", () => {
     const s = scenario();
     expect(s.tier).toBe(3);
-    expect(s.label).toBe("Everything at once: confirm, review, and monitoring");
+    expect(s.label).toBe("Everything at once: needs you and monitoring");
     // exact sequence + contexts (review R1 P2: a loose count pin would accept
     // duplicate self-heal codes or a dropped sheet context)
     expect(s.alerts.map((a) => a.code)).toEqual([

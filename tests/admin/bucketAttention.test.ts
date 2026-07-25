@@ -1,6 +1,8 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bucketAttention } from "@/lib/admin/sectionAttention";
+import { bucketAttention, jumpSectionFor } from "@/lib/admin/sectionAttention";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 
 const it_ = (code: string, sectionId: string, crewKey: string | null = null): AttentionItem =>
@@ -98,5 +100,95 @@ describe("bucketAttention", () => {
       );
     // 3 alerts placed, the hold excluded (it renders in the Changes feed).
     expect(placed).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec test 12 (attention-index §2.2) — COMPOSITION, not two isolated halves.
+//
+// Whole-diff review 2026-07-25: anchorRouting covers resolveEffectiveSection
+// alone and the menu unit covers onNavigate's payload alone; neither catches a
+// break BETWEEN them. Wiring a previously-inert row to the jump path is exactly
+// where that break would appear — a regression to item.sectionId, a hardcoded
+// Overview, or a route-specific omission leaves both isolated suites green while
+// the index sends the user somewhere the card is not.
+//
+// The invariant under test: the section a row JUMPS to is the section the item's
+// card (or note) actually LANDS in, for every needs-look route family and in
+// BOTH anchor-availability states. Both sides are computed from the SAME
+// placement predicates, so this pins that they cannot diverge.
+// ---------------------------------------------------------------------------
+describe("jump target and landing place agree, per route family (spec test 12)", () => {
+  const placementWith = (available: boolean) => ({
+    sectionAvailable: (id: string) => (id === "rooms" || id === "event" ? available : true),
+    anchorAvailable: () => available,
+  });
+
+  /** Where the item's card/note actually ended up, read from the bucket map. */
+  function landedIn(item: AttentionItem, available: boolean): string {
+    const map = bucketAttention([item], {
+      renderCard: (i: AttentionItem) => `CARD:${i.alert!.code}`,
+      ...placementWith(available),
+    });
+    for (const [section, bucket] of map) {
+      // byAnchor / byCrewKey / byRowIndex are MAPS, not plain objects — an
+      // Object.values read returns [] and silently reports every anchored card
+      // as dropped, which is how this helper first lied to me.
+      const anyIn = (m?: Map<unknown, unknown[]>) =>
+        m ? [...m.values()].some((v) => v.length > 0) : false;
+      const hasCard =
+        (bucket.sectionTop?.length ?? 0) > 0 ||
+        anyIn(bucket.byAnchor) ||
+        anyIn(bucket.byCrewKey) ||
+        anyIn(bucket.byRowIndex);
+      if ((bucket.notes?.length ?? 0) > 0 || hasCard) return section;
+    }
+    throw new Error("item was DROPPED — every index entry must land somewhere");
+  }
+
+  it.each([
+    ["PARSE_ERROR_LAST_GOOD", "warnings"],
+    ["RESYNC_QUALITY_REGRESSED", "warnings"],
+    ["SHEET_UNAVAILABLE", "overview"],
+    ["SHOW_UNPUBLISHED", "overview"],
+    ["REEL_DRIFTED", "event"],
+    ["EMBEDDED_ASSET_DRIFTED", "rooms"],
+  ])("%s (routed %s): the JUMP target equals the LANDING place", (code, route) => {
+    for (const available of [true, false]) {
+      const item = it_(code, route);
+      // Jump side: the SAME EXPORTED FUNCTION `navigateTo` builds its
+      // AttentionJump.sectionId from, fed the same placement predicates the
+      // modal gives bucketAttention. Calling `resolveEffectiveSection` here
+      // instead — as two earlier versions of this test did — left production
+      // free to emit item.sectionId or a hard-coded Overview without failing
+      // anything, because nothing tied the test to the call site
+      // (whole-diff review rounds 2-4).
+      const jumpTo = jumpSectionFor(item, placementWith(available));
+      const landsIn = landedIn(item, available);
+      expect(jumpTo, `${code}, anchor ${available ? "mounted" : "absent"}`).toBe(landsIn);
+    }
+  });
+
+  // NOTE on scope: the cells above prove the DERIVATION agrees with placement.
+  // They deliberately do NOT try to prove production emits it — a structural
+  // "navigateTo mentions jumpSectionFor" assertion lived here briefly and was
+  // removed as unsound: it matched text, not data flow, so a mutation that
+  // computed the value and then emitted something else satisfied it (whole-diff
+  // review round 5). That obligation is behavioral and lives where it can
+  // actually be observed: publishedReviewModal.test.tsx presses a real row and
+  // reads the section the jump activates.
+
+  it("no needs-look route can be dropped in EITHER availability state", () => {
+    // the throw in landedIn is the real assertion; this names the contract so a
+    // future route added without a landing place fails here by construction
+    for (const [code, route] of [
+      ["PARSE_ERROR_LAST_GOOD", "warnings"],
+      ["REEL_DRIFTED", "event"],
+      ["EMBEDDED_ASSET_DRIFTED", "rooms"],
+      ["ASSET_RECOVERY_BYTES_EXCEEDED", "rooms"],
+    ] as const) {
+      expect(() => landedIn(it_(code, route), true)).not.toThrow();
+      expect(() => landedIn(it_(code, route), false)).not.toThrow();
+    }
   });
 });

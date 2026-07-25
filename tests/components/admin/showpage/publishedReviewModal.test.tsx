@@ -448,17 +448,17 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
    *  await the menu instead of asserting synchronously. */
   const findMenu = () => screen.findByTestId(`${TB}-attention-menu`);
 
-  it("To confirm: actionable items render a BUTTON pill '2 to confirm' with aria-expanded", async () => {
+  it("Issues: actionable items render a BUTTON pill '2 issues' with aria-expanded", async () => {
     renderModal({ attentionItems: twoActionable() });
     const el = pill();
     expect(el.tagName).toBe("BUTTON");
-    expect(visibleText(el)).toBe("2 to confirm");
+    expect(visibleText(el)).toBe("2 issues");
     await findMenu(); // auto-open on arrival (rAF-deferred)
     expect(el.getAttribute("aria-expanded")).toBe("true");
     expect(el.getAttribute("aria-controls")).toBeTruthy();
   });
 
-  it("Needs-look: zero actionable + needs-look>0 renders the INTERACTIVE '1 to review' pill (attention split §3.2)", () => {
+  it("Needs-look: zero actionable + needs-look>0 renders the INTERACTIVE '1 issue' pill (attention-index §2.4)", () => {
     // SUPERSEDED old contract: "N clearing" non-interactive. A non-actionable
     // item without clearingKind defaults FAIL-VISIBLE into needs-look, which is
     // interactive (menu carries its fix hint/link). Monitoring-only remains
@@ -466,7 +466,7 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
     renderModal({ attentionItems: [clearingItem()] });
     const el = pill();
     expect(el.tagName).toBe("BUTTON");
-    expect(visibleText(el)).toBe("1 to review");
+    expect(visibleText(el)).toBe("1 issue");
   });
 
   it("In sync: zero items renders the teal ring pill, non-interactive", () => {
@@ -483,23 +483,31 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
     expect(screen.getByTestId("attention-degraded-notice")).toBeTruthy();
   });
 
-  it("Degraded + one hold: the ACTIONABLE To-confirm pill wins, menu lists the hold, notice still renders (spec §5.1 degraded row)", async () => {
-    renderModal({ attentionItems: [holdItem()], alertsDegraded: true });
-    expect(visibleText(pill())).toBe("1 to confirm");
+  // Spec test 4b (attention-index). The anti-tautology guard for the degraded
+  // row: the loader zeroes only the ALERTS arm and passes the independently-read
+  // feed through, so holds still flow. An implementation that short-circuits to
+  // an empty list on alertsDegraded passes every other pill test and fails this
+  // one — while hiding a live approve/reject control, which is a P0 regression.
+  it("Degraded + one hold: pill is INTERACTIVE and reads '1 issue', menu lists the hold, notice still renders", async () => {
+    const HOLD = holdItem();
+    renderModal({ attentionItems: [HOLD], alertsDegraded: true });
+    expect(pill().tagName).toBe("BUTTON");
+    // count derived from the fixture, not a literal
+    expect(visibleText(pill())).toBe(`${[HOLD].length} issue`);
     await findMenu();
-    expect(screen.getByTestId("attention-menu-row-hold:hold-1")).toBeTruthy();
+    expect(screen.getByTestId(`attention-menu-row-${HOLD.id}`)).toBeTruthy();
     expect(screen.getByTestId("attention-degraded-notice")).toBeTruthy();
   });
 
-  it("cap: 100 actionable → visible '99+ to confirm', sr-only exact count; 99 NOT capped", () => {
+  it("cap: 100 actionable → visible '99+ issues', sr-only exact count; 99 NOT capped", () => {
     const many = (n: number) =>
       Array.from({ length: n }, (_, i) => alertItem({ id: `alert:m${i}` }));
     renderModal({ attentionItems: many(100) });
-    expect(visibleText(pill())).toBe("99+ to confirm");
-    expect(pill().textContent).toContain("(100 to confirm)");
+    expect(visibleText(pill())).toBe("99+ issues");
+    expect(pill().textContent).toContain("(100 issues)");
     cleanup();
     renderModal({ attentionItems: many(99) });
-    expect(visibleText(pill())).toBe("99 to confirm");
+    expect(visibleText(pill())).toBe("99 issues");
   });
 
   // T-ALERT-NOT-IN-STRIP — pill lives ONLY in the header; the strip never
@@ -509,7 +517,7 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
     expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
     const strip = screen.getByTestId("show-status-strip");
     expect(strip.querySelector('a[href="#overview"]')).toBeNull();
-    expect(strip.textContent).not.toContain("to confirm");
+    expect(strip.textContent).not.toContain("issues");
   });
 
   it("T-DIVIDER-ALERT-ONLY: attention-only show renders NO strip control divider", () => {
@@ -573,6 +581,78 @@ describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)"
     const anchor = document.querySelector('[data-attention-anchor="alert:nav1"]')!;
     expect(anchor).toBeTruthy();
     expect(anchor.hasAttribute("data-step3-warning-flash")).toBe(true);
+  });
+
+  // BEHAVIORAL proof that a pressed row jumps to where the card LANDS, not to
+  // the item's declared route (whole-diff review rounds 2-5; the structural
+  // assertion this replaces proved only that `jumpSectionFor` appeared as text
+  // inside navigateTo, which a mutation could satisfy while emitting a wrong
+  // sectionId anyway).
+  //
+  // Observable: ShowReviewSurface sets the active rail item from
+  // `jump.sectionId`, so `aria-current="true"` IS the emitted jump target,
+  // read through the real modal rather than from any helper.
+  it("a pressed row jumps to the section the card LANDS in, not its declared route", async () => {
+    // routed `rooms`, but the diagrams anchor is absent in this harness, so the
+    // card falls back to Overview — declared and effective sections DIFFER, which
+    // is the only shape that can tell the two apart
+    const ITEM = alertItem(
+      { id: "alert:jump1", sectionId: "rooms", actionable: false, clearingKind: "needs_look" },
+      { code: "EMBEDDED_ASSET_DRIFTED" },
+    );
+    renderModal({ attentionItems: [ITEM] });
+    const railItem = (id: string) =>
+      document.querySelector<HTMLElement>(`[data-testid$="-review-rail-item-${id}"]`)!;
+    const activeRail = () =>
+      [...document.querySelectorAll('[aria-current="true"]')]
+        .map((el) => el.getAttribute("data-testid") ?? "")
+        .filter((t) => t.includes("-review-rail-item-"))
+        .map((t) => t.replace(/^.*-review-rail-item-/, ""));
+
+    // PRECONDITION: move OFF Overview first. ShowReviewSurface initialises
+    // `active` to the first extra section, which IS Overview — so asserting
+    // "Overview is current" after the press would pass even if the row never
+    // jumped at all, including under a production guard like
+    // `if (!item.actionable) return` (whole-diff review round 6).
+    fireEvent.click(railItem("rooms"));
+    expect(activeRail(), "precondition: rail moved off Overview").toEqual(["rooms"]);
+
+    // §5.2 auto-open fires only when an ACTIONABLE item exists; this one is not,
+    // so the pill has to be opened first.
+    fireEvent.click(screen.getByTestId(`${TB}-alert-pill`));
+    fireEvent.click(await screen.findByTestId(`attention-menu-row-${ITEM.id}`));
+
+    // the press moved the rail BACK to Overview — where the card landed — rather
+    // than to `rooms`, the item's declared route
+    expect(activeRail()).toEqual(["overview"]);
+  });
+
+  // A production-mount test of the chip: the card-side suite renders
+  // AttentionBanner directly, so nothing else proves the modal actually slots a
+  // real banner through `bannerFor`. (An earlier version of this comment
+  // discussed an `effectiveSectionId` prop; that prop and its self-link guard
+  // were removed as provably dead — the chip's `external` gate is the whole
+  // mechanism.)
+  it("bannerFor renders the chip through the real production mount", async () => {
+    const ITEM = alertItem(
+      { id: "alert:chip1", actionable: false, clearingKind: "needs_look" },
+      {
+        code: "SHEET_UNAVAILABLE",
+        autoClearNote: "Clears when the sheet is reachable again.",
+        action: {
+          label: "Open in Sheet",
+          href: "https://docs.google.com/spreadsheets/d/F/edit#gid=0",
+          external: true,
+        },
+      },
+    );
+    renderModal({ attentionItems: [ITEM] });
+    // rendered by the REAL bannerFor, through the modal's own placement predicates
+    const chip = await screen.findByTestId("attention-banner-destination-chip1");
+    expect(chip.textContent).toContain("Google Sheets");
+    expect(chip).toHaveAttribute("target", "_blank");
+    // the auto-clear note is replaced, not merely hidden
+    expect(screen.queryByTestId("attention-banner-autoclear-chip1")).toBeNull();
   });
 
   it("resolve: last actionable closes the menu DESPITE a remaining monitoring item (monitoring-badge-expand §1.1 doctrine pin)", async () => {
