@@ -618,6 +618,10 @@ function git(...args) {
   return execFileSync("git", args, { cwd: ROOT, encoding: "utf8" });
 }
 
+/** Rows in tests/e2e/share-link-flash.spec.ts. A mismatch means the run was
+ *  truncated (or a row was added without updating this), and either way the
+ *  result cannot be scored — see runBrowser. */
+const BROWSER_ROW_COUNT = 7;
 const TARGETS = [HUB, CSS, CTX, COPY];
 /** Written (not mutated) by a full run, so it is NOT in TARGETS — restoring it
  *  would revert the very output the run exists to produce. Checked for
@@ -800,40 +804,51 @@ function apply(mutation) {
   return null;
 }
 
+/**
+ * Failing vitest rows, via the JSON reporter.
+ *
+ * The previous form scraped `× … ms` out of prose and then tried to spot
+ * trouble by matching error PHRASES. That is an unbounded space chased with a
+ * finite list — five phrases missed `EPERM ... mkdir` across 228 uncollected
+ * suites, and would miss import-resolution failures, worker crashes and
+ * collection-time ReferenceErrors too (round-12 review).
+ *
+ * So assert the POSITIVE thing instead: every suite in VITEST_SUITES must
+ * actually appear in the report. A run that did not execute what it was asked
+ * to execute is an infrastructure fault, whatever went wrong, and no phrase
+ * list is needed to notice. The reporter also hands over failing test names
+ * directly, so the regex scrape is gone with it.
+ */
 function runVitest() {
+  const reportPath = join(ROOT, "tmp", "vitest-report.json");
+  rmSync(reportPath, { force: true });
+  const args = ["vitest", "run", ...VITEST_SUITES, "--reporter=json", `--outputFile=${reportPath}`];
   try {
-    execFileSync("pnpm", ["vitest", "run", ...VITEST_SUITES], {
-      cwd: ROOT,
-      stdio: "pipe",
-      timeout: 300_000,
-    });
-    return [];
-  } catch (e) {
-    const out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
-    const rows = [...out.matchAll(/×\s+(.+?)\s+\d+ms/g)].map((m) => m[1].trim());
-    // A mutation that breaks the BUILD produces a non-zero exit with no `×`
-    // rows at all, which read as "nothing failed" and reported SURVIVED — the
-    // exact false-green this tool exists to prevent (round-10, found while
-    // fixing A20). A suite that could not run is an infrastructure fault, not a
-    // coverage result, so refuse to score it.
-    // A build/collection failure alongside real rows is the uncovered case
-    // (round-11 review): one scraped row made the whole run look like a clean
-    // rejection while another suite never executed. Scan for the markers
-    // regardless of how many rows came back.
-    const brokenSuite =
-      /Error: Transform failed|Failed to load|Cannot find module|SyntaxError|Unhandled error/i.test(
-        out,
-      );
-    if (!rows.length || brokenSuite) {
-      throw new Error(
-        "vitest could not run the suite set cleanly (" +
-          (rows.length ? "rows plus a build/collection error" : "no failing rows at all") +
-          "). A suite that did not execute is an infrastructure fault, not a coverage result; " +
-          "fix the adversary so it produces runnable code.",
-      );
-    }
-    return rows;
+    execFileSync("pnpm", args, { cwd: ROOT, stdio: "pipe", timeout: 300_000 });
+  } catch {
+    /* non-zero simply means rows failed; the report is the source of truth */
   }
+
+  let report;
+  try {
+    report = JSON.parse(readFileSync(reportPath, "utf8"));
+  } catch {
+    throw new Error(`vitest wrote no readable JSON report at ${reportPath} — infrastructure fault`);
+  }
+
+  const files = report.testResults ?? [];
+  if (files.length !== VITEST_SUITES.length) {
+    throw new Error(
+      `vitest reported ${files.length} suite file(s) but ${VITEST_SUITES.length} were requested — ` +
+        "the run did not execute what it was asked to. Infrastructure fault, not a coverage result.",
+    );
+  }
+
+  return files.flatMap((f) =>
+    (f.assertionResults ?? [])
+      .filter((a) => a.status === "failed")
+      .map((a) => a.fullName ?? a.title),
+  );
 }
 
 /**
@@ -885,6 +900,36 @@ function runBrowser() {
   if (Array.isArray(report.errors) && report.errors.length) {
     throw new Error(
       `browser run reported ${report.errors.length} top-level error(s) — infrastructure fault, not a coverage result`,
+    );
+  }
+
+  // Same positive check the vitest collector uses. This spec builds a bundle in
+  // `beforeAll`, and Playwright records a HOOK failure as a normal unexpected
+  // result — which the row scan below would happily credit as a rejection
+  // (round-12 review). Requiring every known row to have actually run catches
+  // that without enumerating the ways a hook can fail.
+  const seen = [];
+  const walkAll = (suite) => {
+    for (const spec of suite.specs ?? []) seen.push(spec);
+    for (const child of suite.suites ?? []) walkAll(child);
+  };
+  for (const suite of report.suites ?? []) walkAll(suite);
+
+  if (seen.length !== BROWSER_ROW_COUNT) {
+    throw new Error(
+      `browser run reported ${seen.length} spec(s) but ${BROWSER_ROW_COUNT} are known — ` +
+        "the run did not execute what it was asked to. Infrastructure fault, not a coverage result.",
+    );
+  }
+  const stalled = seen.filter(
+    (spec) =>
+      !(spec.tests ?? []).some((t) =>
+        (t.results ?? []).some((r) => ["passed", "failed", "timedOut"].includes(r.status)),
+      ),
+  );
+  if (stalled.length) {
+    throw new Error(
+      `browser rows never produced a result: ${stalled.map((s) => s.title).join(", ")} — infrastructure fault`,
     );
   }
 
@@ -960,139 +1005,140 @@ try {
       `${id}  ${all.length ? "REJECTED" : "*** SURVIVED ***"}  (${all.length} rows)  ${label}`,
     );
   }
-} catch (err) {
-  // An infrastructure throw (a mutant that will not build, an unparseable
-  // browser report) skipped the end-of-script release entirely, stranding the
-  // lock and blocking every later run until someone deleted it by hand
-  // (round-11 review). Restore, release, and re-raise.
+  // End of the mutation phase. Restore here so the tree is clean while the
+  // report is written; the `finally` repeats it as a safety net (git checkout
+  // is idempotent) for any path that throws before reaching this line.
   restoreTargets();
-  releaseLock();
-  throw err;
-} finally {
-  // Targets are restored here, but the lock is NOT released on the SUCCESS
-  // path yet: the matrix JSON and the tracked report are still to be written.
-  // Releasing here let a second run pass its cleanliness check and acquire the
-  // lock in that gap, after which this run overwrote its evidence (round-7).
-  restoreTargets();
-}
 
-const survived = results.filter((r) => r.status === "SURVIVED");
-const unapplied = results.filter((r) => r.status === "UNAPPLIED");
-console.log(
-  `\n${results.length} adversaries · ${results.length - survived.length - unapplied.length} rejected · ${survived.length} SURVIVED · ${unapplied.length} unapplied`,
-);
-writeFileSync(join(ROOT, "tmp", "adversary-matrix.json"), JSON.stringify(results, null, 2));
+  const survived = results.filter((r) => r.status === "SURVIVED");
+  const unapplied = results.filter((r) => r.status === "UNAPPLIED");
+  console.log(
+    `\n${results.length} adversaries · ${results.length - survived.length - unapplied.length} rejected · ${survived.length} SURVIVED · ${unapplied.length} unapplied`,
+  );
+  writeFileSync(join(ROOT, "tmp", "adversary-matrix.json"), JSON.stringify(results, null, 2));
 
-// Emit the recorded tables into the report doc between markers. Hand-transcribed
-// totals are what drifted last time: a late CSS fix left the report describing a
-// shape the code no longer had, which whole-diff review caught as BLOCKING. The
-// prose around the markers stays hand-written; the data cannot disagree with the
-// run that produced it. Partial runs never write — a `--only` or `--quick` run
-// would record a truthful-looking table over an incomplete matrix.
-if (!ONLY && !QUICK) {
-  // Labels and test titles are free text. A literal pipe ends the cell and a
-  // newline ends the row, so an unescaped one silently reshapes the table.
-  const cell = (v) => String(v).replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  // Emit the recorded tables into the report doc between markers. Hand-transcribed
+  // totals are what drifted last time: a late CSS fix left the report describing a
+  // shape the code no longer had, which whole-diff review caught as BLOCKING. The
+  // prose around the markers stays hand-written; the data cannot disagree with the
+  // run that produced it. Partial runs never write — a `--only` or `--quick` run
+  // would record a truthful-looking table over an incomplete matrix.
+  if (!ONLY && !QUICK) {
+    // Labels and test titles are free text. A literal pipe ends the cell and a
+    // newline ends the row, so an unescaped one silently reshapes the table.
+    const cell = (v) => String(v).replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 
-  const perAdversary = [
-    "| # | Wrong implementation | Rows red |",
-    "|---|---|---|",
-    ...results.map(
-      (r) =>
-        `| ${cell(r.id)} | ${cell(r.label)} | ${r.status === "REJECTED" ? r.rows.length : r.status} |`,
-    ),
-  ].join("\n");
+    const perAdversary = [
+      "| # | Wrong implementation | Rows red |",
+      "|---|---|---|",
+      ...results.map(
+        (r) =>
+          `| ${cell(r.id)} | ${cell(r.label)} | ${r.status === "REJECTED" ? r.rows.length : r.status} |`,
+      ),
+    ].join("\n");
 
-  const byRow = new Map();
-  for (const r of results) {
-    for (const row of r.rows) {
-      if (!byRow.has(row)) byRow.set(row, []);
-      byRow.get(row).push(r.id);
+    const byRow = new Map();
+    for (const r of results) {
+      for (const row of r.rows) {
+        if (!byRow.has(row)) byRow.set(row, []);
+        byRow.get(row).push(r.id);
+      }
     }
-  }
-  const perTest = [
-    "| Test row | Adversaries it rejects |",
-    "|---|---|",
-    ...[...byRow.entries()]
-      .sort()
-      .map(([row, ids]) => `| ${cell(row)} | ${cell(ids.join(", "))} |`),
-  ].join("\n");
+    const perTest = [
+      "| Test row | Adversaries it rejects |",
+      "|---|---|",
+      ...[...byRow.entries()]
+        .sort()
+        .map(([row, ids]) => `| ${cell(row)} | ${cell(ids.join(", "))} |`),
+    ].join("\n");
 
-  const generated = `<!-- BEGIN GENERATED -->\n\n_${results.length} adversaries · ${results.length - survived.length - unapplied.length} rejected · ${survived.length} survived · ${unapplied.length} unapplied._\n\n${perAdversary}\n\n${perTest}\n\n<!-- END GENERATED -->`;
-  const doc = join(ROOT, REPORT_DOC);
-  const before = readFileSync(doc, "utf8");
-  // Non-greedy, and the pair must be unique. A greedy match across duplicated or
-  // nested markers spans the FIRST begin to the LAST end and silently deletes
-  // every line of authored prose in between (round-4 review).
-  const begins = (before.match(/<!-- BEGIN GENERATED -->/g) ?? []).length;
-  const ends = (before.match(/<!-- END GENERATED -->/g) ?? []).length;
-  // Order matters as much as count: a REVERSED pair passes the count check, the
-  // regex then matches nothing, the replace is a silent no-op, and the run still
-  // logs "report tables written" (round-5 review).
-  const ordered =
-    before.indexOf("<!-- BEGIN GENERATED -->") < before.indexOf("<!-- END GENERATED -->");
-  if (begins !== 1 || ends !== 1 || !ordered) {
-    console.error(
-      `report doc must contain exactly one GENERATED marker pair (found ${begins} begin, ${ends} end): ${doc}`,
-    );
-    process.exitCode = 1;
-  } else {
-    // Replace with a FUNCTION, not a string: `$&`, `$1` and friends inside a
-    // string replacement are substitution patterns, and adversary labels are
-    // free text that can contain them.
-    const after = before.replace(
-      /<!-- BEGIN GENERATED -->[\s\S]*?<!-- END GENERATED -->/,
-      () => generated,
-    );
-    // Compare against the MATCH, not against the whole file: an unchanged file is
-    // the expected result of re-running a matrix whose output has not moved, and
-    // flagging it failed every correct idempotent rerun (round-6 review). What is
-    // actually worth catching is the regex matching nothing at all.
-    if (!/<!-- BEGIN GENERATED -->[\s\S]*?<!-- END GENERATED -->/.test(before)) {
-      console.error(`report marker replacement matched nothing: ${doc}`);
+    const generated = `<!-- BEGIN GENERATED -->\n\n_${results.length} adversaries · ${results.length - survived.length - unapplied.length} rejected · ${survived.length} survived · ${unapplied.length} unapplied._\n\n${perAdversary}\n\n${perTest}\n\n<!-- END GENERATED -->`;
+    const doc = join(ROOT, REPORT_DOC);
+    const before = readFileSync(doc, "utf8");
+    // Non-greedy, and the pair must be unique. A greedy match across duplicated or
+    // nested markers spans the FIRST begin to the LAST end and silently deletes
+    // every line of authored prose in between (round-4 review).
+    const begins = (before.match(/<!-- BEGIN GENERATED -->/g) ?? []).length;
+    const ends = (before.match(/<!-- END GENERATED -->/g) ?? []).length;
+    // Order matters as much as count: a REVERSED pair passes the count check, the
+    // regex then matches nothing, the replace is a silent no-op, and the run still
+    // logs "report tables written" (round-5 review).
+    const ordered =
+      before.indexOf("<!-- BEGIN GENERATED -->") < before.indexOf("<!-- END GENERATED -->");
+    if (begins !== 1 || ends !== 1 || !ordered) {
+      console.error(
+        `report doc must contain exactly one GENERATED marker pair (found ${begins} begin, ${ends} end): ${doc}`,
+      );
       process.exitCode = 1;
     } else {
-      writeFileSync(doc, after);
-      // Prettier owns markdown table alignment in this repo and format:check
-      // runs in CI, so emitting raw pipes would leave the tree failing a gate
-      // right after the matrix certified it.
-      try {
-        execFileSync("npx", ["prettier", "--write", doc], { cwd: ROOT, stdio: "pipe" });
-      } catch (e) {
-        console.error(`report written but prettier failed; run it by hand: ${e.message}`);
+      // Replace with a FUNCTION, not a string: `$&`, `$1` and friends inside a
+      // string replacement are substitution patterns, and adversary labels are
+      // free text that can contain them.
+      const after = before.replace(
+        /<!-- BEGIN GENERATED -->[\s\S]*?<!-- END GENERATED -->/,
+        () => generated,
+      );
+      // Compare against the MATCH, not against the whole file: an unchanged file is
+      // the expected result of re-running a matrix whose output has not moved, and
+      // flagging it failed every correct idempotent rerun (round-6 review). What is
+      // actually worth catching is the regex matching nothing at all.
+      if (!/<!-- BEGIN GENERATED -->[\s\S]*?<!-- END GENERATED -->/.test(before)) {
+        console.error(`report marker replacement matched nothing: ${doc}`);
         process.exitCode = 1;
+      } else {
+        writeFileSync(doc, after);
+        // Prettier owns markdown table alignment in this repo and format:check
+        // runs in CI, so emitting raw pipes would leave the tree failing a gate
+        // right after the matrix certified it.
+        try {
+          execFileSync("npx", ["prettier", "--write", doc], { cwd: ROOT, stdio: "pipe" });
+        } catch (e) {
+          console.error(`report written but prettier failed; run it by hand: ${e.message}`);
+          process.exitCode = 1;
+        }
+        console.log(`report tables written to ${doc}`);
       }
-      console.log(`report tables written to ${doc}`);
     }
   }
-}
 
-/** Survivors that are PROVEN EQUIVALENT, not coverage holes. A4 applies cleanly
- *  and changes nothing observable: `open` starts false, so the visibility clear
- *  nulls the seeded flash in the same render pass. Recorded here so a correct
- *  full run exits 0 — failing on it made every honest rerun red (round-6). */
-const EQUIVALENT_SURVIVORS = new Set(["A4"]);
-const unexpectedSurvivors = survived.filter((r) => !EQUIVALENT_SURVIVORS.has(r.id));
-// The check has to run BOTH ways. A declared equivalent that comes back REJECTED
-// is evidence of an unrelated failure — a broken baseline, browser infra — not
-// of stronger coverage, and one-directional checking let that exit 0 reporting
-// "31 rejected, 0 survived" (round-7 review).
-const equivalentsRun = results.filter((r) => EQUIVALENT_SURVIVORS.has(r.id));
-const wronglyRejected = equivalentsRun.filter((r) => r.status !== "SURVIVED");
-if (wronglyRejected.length) {
-  process.exitCode = 1;
-  console.error(
-    `declared-equivalent adversaries were REJECTED: ${wronglyRejected.map((r) => r.id).join(", ")} — ` +
-      "they are proven to change nothing observable, so something else is failing. Do NOT read this as better coverage.",
-  );
+  /** Survivors that are PROVEN EQUIVALENT, not coverage holes. A4 applies cleanly
+   *  and changes nothing observable: `open` starts false, so the visibility clear
+   *  nulls the seeded flash in the same render pass. Recorded here so a correct
+   *  full run exits 0 — failing on it made every honest rerun red (round-6). */
+  const EQUIVALENT_SURVIVORS = new Set(["A4"]);
+  const unexpectedSurvivors = survived.filter((r) => !EQUIVALENT_SURVIVORS.has(r.id));
+  // The check has to run BOTH ways. A declared equivalent that comes back REJECTED
+  // is evidence of an unrelated failure — a broken baseline, browser infra — not
+  // of stronger coverage, and one-directional checking let that exit 0 reporting
+  // "31 rejected, 0 survived" (round-7 review).
+  const equivalentsRun = results.filter((r) => EQUIVALENT_SURVIVORS.has(r.id));
+  const wronglyRejected = equivalentsRun.filter((r) => r.status !== "SURVIVED");
+  if (wronglyRejected.length) {
+    process.exitCode = 1;
+    console.error(
+      `declared-equivalent adversaries were REJECTED: ${wronglyRejected.map((r) => r.id).join(", ")} — ` +
+        "they are proven to change nothing observable, so something else is failing. Do NOT read this as better coverage.",
+    );
+  }
+  if (unexpectedSurvivors.length || unapplied.length) process.exitCode = 1;
+  if (unexpectedSurvivors.length) {
+    console.error(
+      `unexpected survivors: ${unexpectedSurvivors.map((r) => r.id).join(", ")} — ` +
+        "either the assertion set has a hole, or the adversary is equivalent and belongs in EQUIVALENT_SURVIVORS with the argument written down.",
+    );
+  }
+} finally {
+  // ONE cleanup path covering the mutation loop AND every post-loop write.
+  //
+  // Round-11 added a catch that released before the finally re-restored, which
+  // let a second run acquire the lock and have its mutant clobbered by that
+  // restore; and failures writing the matrix JSON or reading/writing the report
+  // bypassed the catch entirely and stranded the lock (round-12 review). Both
+  // are the same shape: a path that skips cleanup. There is now no such path.
+  //
+  // Ordering matters and is deliberate: restore first, release second. The lock
+  // must still be held while tracked files are being put back, or a waiting run
+  // starts against a half-restored tree.
+  restoreTargets();
+  releaseLock();
 }
-if (unexpectedSurvivors.length || unapplied.length) process.exitCode = 1;
-if (unexpectedSurvivors.length) {
-  console.error(
-    `unexpected survivors: ${unexpectedSurvivors.map((r) => r.id).join(", ")} — ` +
-      "either the assertion set has a hole, or the adversary is equivalent and belongs in EQUIVALENT_SURVIVORS with the argument written down.",
-  );
-}
-
-// Every write is done — matrix JSON and the generated report included.
-releaseLock();

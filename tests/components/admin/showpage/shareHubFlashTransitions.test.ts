@@ -31,16 +31,6 @@ const ROOT = process.cwd();
 const GLOBALS_CSS = readFileSync(join(ROOT, "app/globals.css"), "utf8");
 const SHARE_HUB_SRC = readFileSync(join(ROOT, "components/admin/showpage/ShareHub.tsx"), "utf8");
 
-/** One leaf CSS rule, keyed by its at-rule context so a moved rule cannot match. */
-type Leaf = { key: string; body: string };
-
-const norm = (css: string) =>
-  css
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\s+/g, " ")
-    .replace(/\s*([{};:,])\s*/g, "$1")
-    .trim();
-
 /**
  * Brace depth at `index`, ignoring braces inside comments and strings.
  *
