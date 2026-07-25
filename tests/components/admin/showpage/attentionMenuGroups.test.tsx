@@ -139,25 +139,94 @@ describe("needs-a-look group", () => {
   });
 });
 
-describe("group headers (impeccable critique P1: no empty-section eyebrow)", () => {
-  it("actionable-empty open: 'Needs your confirmation' header ABSENT, panel labeled by its real first group", () => {
+describe("two groups (attention-index §2.1)", () => {
+  // The eyebrow class is carried ONLY by group headings (3 sites at HEAD, 2
+  // after the merge), so counting by it cannot be satisfied by a row title that
+  // happens to match the heading text.
+  const headingTexts = (menu: HTMLElement) =>
+    [...menu.querySelectorAll('[class~="tracking-eyebrow"]')].map((el) => el.textContent);
+
+  it("one of each class: exactly two headings, 'Needs you' then 'Monitoring'; retired copy gone menu-wide", () => {
+    renderMenu([
+      item("g1", "PARSE_ERROR", { actionable: true }),
+      needsLook("g2", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
+      selfHeal("g3", "Syncing has stalled"),
+    ]);
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(headingTexts(menu)).toEqual(["Needs you", "Monitoring"]);
+    expect(within(menu).queryByText("Needs your confirmation")).toBeNull();
+    expect(within(menu).queryByText("Needs a look")).toBeNull();
+  });
+
+  // Spec test 2 (plan R4 F6). One of each cannot catch a merge that interleaves
+  // or re-sorts; two of each can. Expected order is derived from the fixture
+  // array, never a literal.
+  it("merged-group ordering: actionable-first, derivation order, under ONE heading", () => {
+    const FIXTURE = [
+      item("o1", "PARSE_ERROR", { actionable: true }),
+      item("o2", "LIVE_ROW_CONFLICT", { actionable: true }),
+      needsLook("o3", "SHEET_UNAVAILABLE", null),
+      needsLook("o4", "SHOW_UNPUBLISHED", null),
+    ];
+    renderMenu(FIXTURE);
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(headingTexts(menu)).toEqual(["Needs you"]);
+    // Spans BOTH row shapes: the two renderers are merged into one group here
+    // but only unified onto a single testid in the row-shape task, so anchoring
+    // on `attention-menu-row-` alone would silently see two of the four rows.
+    const rows = [
+      ...menu.querySelectorAll<HTMLElement>(
+        '[data-testid^="attention-menu-row-"], [data-testid^="attention-needslook-row-"]',
+      ),
+    ];
+    expect(
+      rows.map((r) => r.getAttribute("data-testid")!.replace(/^[^-]+-[^-]+-row-/, "")),
+    ).toEqual(FIXTURE.map((i) => i.id));
+  });
+
+  it("needs-you only: no Monitoring heading, aria-label 'Needs you'", () => {
+    renderMenu([item("g1", "PARSE_ERROR", { actionable: true })]);
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(within(menu).queryByText("Monitoring")).toBeNull();
+    expect(menu).toHaveAttribute("aria-label", "Needs you");
+  });
+
+  it("needs-look only (no actionable) is still 'Needs you' — the merged group, not a third name", () => {
     renderMenu([
       needsLook("h1", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
     ]);
-    expect(screen.queryByText("Needs your confirmation")).toBeNull();
-    expect(screen.getByTestId("published-show-review-attention-menu")).toHaveAttribute(
-      "aria-label",
-      "Needs a look",
-    );
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(within(menu).getByText("Needs you")).toBeInTheDocument();
+    expect(menu).toHaveAttribute("aria-label", "Needs you");
   });
 
-  it("actionable present: confirmation header renders and labels the panel", () => {
-    renderMenu([item("h2", "PARSE_ERROR", { actionable: true })]);
-    expect(screen.getByText("Needs your confirmation")).toBeInTheDocument();
-    expect(screen.getByTestId("published-show-review-attention-menu")).toHaveAttribute(
-      "aria-label",
-      "Needs your confirmation",
-    );
+  it("monitoring only: no 'Needs you' heading, aria-label 'Monitoring', group leads with rounded-t-md", () => {
+    renderMenu([selfHeal("g1", "Syncing has stalled")]);
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(within(menu).queryByText("Needs you")).toBeNull();
+    expect(menu).toHaveAttribute("aria-label", "Monitoring");
+    const group = screen.getByTestId("attention-monitoring-group");
+    expect(group.className.split(/\s+/)).not.toContain("border-t");
+    expect(group.querySelector('[class~="rounded-t-md"]')).not.toBeNull();
+  });
+
+  // Task 9's motion oracle targets the heading CONTAINERS (the elements whose
+  // whole block unmounts on the O1<->O2 collapse), not the text spans — a text
+  // locator would select the span and miss a transition on its parent.
+  it("heading testids are on the CONTAINERS, not the text spans", () => {
+    renderMenu([
+      item("g1", "PARSE_ERROR", { actionable: true }),
+      selfHeal("g2", "Syncing has stalled"),
+    ]);
+    for (const [testId, text] of [
+      ["attention-needsyou-heading", "Needs you"],
+      ["attention-monitoring-heading", "Monitoring"],
+    ] as const) {
+      const container = screen.getByTestId(testId);
+      const span = within(container).getByText(text);
+      expect(container).not.toBe(span);
+      expect(container.contains(span)).toBe(true);
+    }
   });
 });
 

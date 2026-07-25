@@ -91,44 +91,50 @@ function AttentionMenuPanel({
     };
   }, [onClose, pillRef]);
 
-  const actionable = items.filter((i) => i.actionable);
-  // Attention split (spec 2026-07-21 §3.4): needs-look defaults FAIL-VISIBLE —
-  // a non-actionable item without clearingKind renders as needs-a-look, never
-  // silently dark. Only explicit self_heal items collapse to the summary row.
-  const needsLook = items.filter((i) => !i.actionable && i.clearingKind !== "self_heal");
-  // `!i.actionable` guard (spec §3.3): a mistagged actionable item renders as an
-  // actionable row only — never double-counted into the monitoring group.
-  const selfHeal = items.filter((i) => !i.actionable && i.clearingKind === "self_heal");
-  // A needs-look-only open (interactive pill without actionable rows) must not
-  // render an empty "Needs your confirmation" section; the panel takes its
-  // accessible name from the first group actually present.
-  const hasActionable = actionable.length > 0;
+  // attention-index §2.1: TWO groups. `monitoring` is the former self-heal
+  // filter verbatim; `needsYou` is its complement, which preserves the
+  // FAIL-VISIBLE default (spec 2026-07-21 §3.4) for free — a non-actionable
+  // item with no clearingKind lands in needsYou, never silently dark.
+  // The `!i.actionable` guard lives inside the monitoring predicate (spec §3.3),
+  // so a mistagged actionable item is counted once, in needsYou only.
+  const monitoring = items.filter((i) => !i.actionable && i.clearingKind === "self_heal");
+  const needsYou = items.filter((i) => !(!i.actionable && i.clearingKind === "self_heal"));
+  // The two row RENDERERS still differ (they collapse in the next task); this
+  // partition drives render order only. deriveAttentionItems already returns
+  // actionable-first, so slicing preserves it (§2.1 "Ordering is unchanged").
+  const needsYouActionable = needsYou.filter((i) => i.actionable);
+  const needsYouClearing = needsYou.filter((i) => !i.actionable);
+  // A monitoring-only open must not render an empty "Needs you" section; the
+  // panel takes its accessible name from the first group actually present.
+  const hasNeedsYou = needsYou.length > 0;
 
   return (
     <div
       ref={panelRef}
       data-testid="published-show-review-attention-menu"
       role="group"
-      aria-label={
-        hasActionable
-          ? "Needs your confirmation"
-          : needsLook.length > 0
-            ? "Needs a look"
-            : "Monitoring"
-      }
+      aria-label={hasNeedsYou ? "Needs you" : "Monitoring"}
       className={`absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-lg transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}
     >
-      {hasActionable ? (
-        <div className="border-b border-border px-4 pt-3 pb-2">
+      {/* Heading placement is PRESERVED, not normalised (attention-index §2.1):
+          this one stays OUTSIDE the scroller below, so it labels the panel while
+          a long needs-you list scrolls under it. The testid is on the CONTAINER
+          — that is the element whose whole block unmounts on the O1<->O2
+          collapse, and the transition audit targets it. */}
+      {hasNeedsYou ? (
+        <div
+          data-testid="attention-needsyou-heading"
+          className="border-b border-border px-4 pt-3 pb-2"
+        >
           <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-            Needs your confirmation
+            Needs you
           </span>
         </div>
       ) : null}
       <div className="max-h-96 overflow-y-auto">
-        {actionable.map((item) => {
+        {needsYouActionable.map((item) => {
           const tone = TONE_DOT[item.tone];
           return (
             <button
@@ -162,21 +168,14 @@ function AttentionMenuPanel({
         {/* The scroll boundary wraps ALL groups (whole-diff review 2026-07-22):
             12 needs-look rows are producible; links below the fold must scroll
             into reach, not extend past the viewport. */}
-        {needsLook.length > 0 ? (
-          /* Needs-a-look group (spec §3.4.2): read-only rows — the ONLY interactive
-           descendant is the action <a> (when the action resolved). No row-level
-           onNavigate, no nested popover (the menu is itself a floating layer). */
-          <div className={hasActionable ? "border-t border-border" : undefined}>
-            {/* rounded-t when this group leads the panel (no confirmation section
-              above): the sunken header must not bleed past the rounded border. */}
-            <div
-              className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasActionable ? "" : "rounded-t-md"}`}
-            >
-              <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-                Needs a look
-              </span>
-            </div>
-            {needsLook.map((item) => {
+        {needsYouClearing.length > 0 ? (
+          /* Still the read-only row shape (the ONLY interactive descendant is the
+             action <a>); the next task collapses it into the pressable row. What
+             changed here is grouping: these rows now sit under the SAME "Needs
+             you" heading as the actionable rows above, with no heading of their
+             own (attention-index §2.1). */
+          <div>
+            {needsYouClearing.map((item) => {
               const code = item.kind === "alert" ? item.alert.code : null;
               const hint =
                 code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
@@ -223,22 +222,26 @@ function AttentionMenuPanel({
             })}
           </div>
         ) : null}
-        {selfHeal.length > 0 ? (
+        {monitoring.length > 0 ? (
           /* Monitoring group (monitoring-badge-expand §3.2): one read-only row
              per item - title + auto-resolve note. No interactive descendants,
              no transitions (§3.4: instant; computed-style pinned in e2e). */
           <div
             data-testid="attention-monitoring-group"
-            className={hasActionable || needsLook.length > 0 ? "border-t border-border" : undefined}
+            className={hasNeedsYou ? "border-t border-border" : undefined}
           >
+            {/* rounded-t when this group leads the panel: the sunken header must
+                not bleed past the rounded border. Testid on the CONTAINER, per
+                the needs-you heading above. */}
             <div
-              className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasActionable || needsLook.length > 0 ? "" : "rounded-t-md"}`}
+              data-testid="attention-monitoring-heading"
+              className={`bg-surface-sunken px-4 pt-2.5 pb-1.5 ${hasNeedsYou ? "" : "rounded-t-md"}`}
             >
               <span className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
                 Monitoring
               </span>
             </div>
-            {selfHeal.map((item) => (
+            {monitoring.map((item) => (
               <div
                 key={item.id}
                 data-testid={`attention-monitoring-row-${item.id}`}
