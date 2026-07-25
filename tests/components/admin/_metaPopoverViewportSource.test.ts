@@ -20,7 +20,10 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "..", "..", "..");
-const ROOTS = ["components", "app"];
+// lib/ is scanned too (round-2 F3): a component could otherwise import a lib/
+// wrapper that reads the layout viewport and calls the core, evading a
+// components-only scan entirely.
+const ROOTS = ["components", "app", "lib"];
 
 function walk(dir: string, acc: string[]): string[] {
   for (const entry of readdirSync(dir)) {
@@ -70,13 +73,38 @@ const IMPORTS_CORE_NAMESPACE = /import\s*\*\s*as\s+\w+\s*from\s*["']@\/lib\/popo
  *
  * Allowlist entries record a viewport read that is NOT placement.
  */
-const READS_LAYOUT_VIEWPORT = /window\s*\.\s*inner(Width|Height)/;
+const READS_LAYOUT_VIEWPORT = new RegExp(
+  [
+    // window.innerWidth / globalThis.innerHeight
+    String.raw`(?:window|globalThis)\s*\.\s*inner(?:Width|Height)`,
+    // window["innerWidth"]
+    String.raw`(?:window|globalThis)\s*\[\s*["']inner(?:Width|Height)["']\s*\]`,
+    // const { innerWidth } = window
+    String.raw`\{[^}]*\binner(?:Width|Height)\b[^}]*\}\s*=\s*(?:window|globalThis)`,
+    // document.documentElement.clientWidth - the same measurement by another name
+    String.raw`document\s*\.\s*documentElement\s*\.\s*client(?:Width|Height)`,
+  ].join("|"),
+);
 const LAYOUT_VIEWPORT_ALLOWLIST = new Map<string, string>([
   [
     "components/admin/dev/DevCaptureControl.tsx",
     "records the viewport size into a dev capture payload; positions nothing",
   ],
 ]);
+
+/**
+ * The placement core is reserved to the policy module, REPO-WIDE. Scanning only
+ * components/ let a lib/ wrapper call the core and read the layout viewport
+ * while the component importing it stayed clean (round-2 F3).
+ */
+const CORE_IMPORT_ALLOWLIST = new Set(["lib/popover/place.ts"]);
+
+/**
+ * Residual, recorded rather than hidden: a file that aliases the global first
+ * (`const w: Window = window; w.innerWidth`) is not matched by a lexical rule.
+ * `lib/popover/viewport.ts` legitimately reads `win.innerWidth` from an injected
+ * parameter, which is why parameter-style reads are not banned outright.
+ */
 
 const consumers = sourceFiles.filter((f) =>
   IMPORTS_PLACE.test(stripComments(readFileSync(f, "utf8"))),
@@ -92,7 +120,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
     );
   });
 
-  it("no file under components/ or app/ reads the LAYOUT viewport (import-independent)", () => {
+  it("no scanned file reads the LAYOUT viewport (import-independent, repo-wide)", () => {
     const offenders = sourceFiles
       .filter((f) => READS_LAYOUT_VIEWPORT.test(stripComments(readFileSync(f, "utf8"))))
       .map((f) => relative(REPO_ROOT, f))
@@ -128,18 +156,21 @@ describe("popover placement consumers read the visible viewport, not the layout 
   // Stronger than "uses the helper": a consumer must NOT call the placement core
   // directly, because the bounds policy (and its never-newly-hidden guarantee)
   // lives in lib/popover/place.ts. A direct core call would bypass it entirely.
-  it("no file under components/ or app/ IMPORTS the placement core", () => {
+  it("only lib/popover/place.ts imports the placement core, repo-wide", () => {
     // Scope (round-6 F3): the core is reserved to lib/popover/place.ts, which
     // owns the bounds policy and its never-newly-hidden guarantee. A UI file
     // reaching past it - by direct call, by alias, or by a dead import that a
     // later edit would use - bypasses that guarantee. A future non-viewport
     // consumer needing explicit bounds should call the core from a lib/ module,
     // not from a component, so this ban is deliberately total for UI paths.
-    const direct = sourceFiles.filter((f) => {
-      const code = stripComments(readFileSync(f, "utf8"));
-      return IMPORTS_CORE_PLACEMENT.test(code) || IMPORTS_CORE_NAMESPACE.test(code);
-    });
-    expect(direct.map((f) => relative(REPO_ROOT, f))).toEqual([]);
+    const direct = sourceFiles
+      .filter((f) => {
+        const code = stripComments(readFileSync(f, "utf8"));
+        return IMPORTS_CORE_PLACEMENT.test(code) || IMPORTS_CORE_NAMESPACE.test(code);
+      })
+      .map((f) => relative(REPO_ROOT, f))
+      .filter((rel) => !CORE_IMPORT_ALLOWLIST.has(rel));
+    expect(direct).toEqual([]);
   });
 
   it("the ban is import-based, so an ALIASED core import is still rejected", () => {

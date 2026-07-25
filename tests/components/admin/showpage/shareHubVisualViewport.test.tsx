@@ -277,6 +277,15 @@ describe("T-S1: ShareHub places inside the visible slice (body host)", () => {
     expect(pop.style.left).toBe(`${expectedLeft}px`);
     // The layout-viewport answer would NOT be clamped to the slice.
     expect(pop.style.left).not.toBe(`${TRIGGER.left + TRIGGER.width - 308}px`);
+
+    // VERTICAL too (round-2 F1): both bounds put `top` at the same place here,
+    // so a horizontal-only assertion passes even if ShareHub ignores the visual
+    // viewport's HEIGHT entirely. The slice leaves 112px below the trigger and
+    // the body is 120 tall, so the visual answer caps maxHeight; the layout
+    // answer sets no cap at all. That difference is the discriminator.
+    const boundsBottom = VV.offsetTop + VV.height - 8;
+    const expectedMaxHeight = boundsBottom - (TRIGGER.top + TRIGGER.height) - 6; // GAP
+    expect(pop.style.maxHeight).toBe(`${expectedMaxHeight}px`);
     expect(pop.style.visibility).not.toBe("hidden");
   });
 });
@@ -336,6 +345,20 @@ describe("T-S4: ShareHub panel host, non-zero border and scroll", () => {
     // Host-relative: viewport point minus host rect and border, plus host scroll.
     const expectedLeft = viewportX - HOST.left - 3 + 17;
     expect(pop.style.left).toBe(`${expectedLeft}px`);
+
+    // The TOP axis too (round-2 F2): clientTop/scrollTop are set non-zero
+    // precisely so a conversion that reuses the HORIZONTAL border/scroll fields
+    // for `top` is caught. Without this the vertical axis was unasserted.
+    const boundsTop = Math.max(HOST.top, VV.offsetTop) + 8;
+    const boundsBottom = Math.min(HOST.top + HOST.height, VV.offsetTop + VV.height) - 8;
+    const spaceBelow = Math.max(0, boundsBottom - (TRIGGER.top + TRIGGER.height) - 6);
+    const spaceAbove = Math.max(0, TRIGGER.top - boundsTop - 6);
+    const viewportY =
+      spaceBelow >= spaceAbove
+        ? TRIGGER.top + TRIGGER.height + 6
+        : TRIGGER.top - 6 - Math.min(120, spaceAbove);
+    const expectedTop = viewportY - HOST.top - 5 + 23;
+    expect(pop.style.top).toBe(`${expectedTop}px`);
     expect(pop.style.visibility).not.toBe("hidden");
   });
 });
