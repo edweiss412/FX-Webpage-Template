@@ -89,3 +89,28 @@ export function toConstraints(rows: readonly ConstraintRow[]): DriveIdConstraint
     definition: r.definition,
   }));
 }
+
+/**
+ * The CI fail-not-skip decision, extracted so it is TESTABLE (whole-diff R1 finding 2).
+ *
+ * Inline at module scope in the suite, nothing proved it: removing or inverting the throw left
+ * healthy-DB CI runs and local skip runs both green, so an outage could silently disable the guard
+ * and no test would notice. As a pure function, all four (dbUp x CI) combinations get asserted.
+ *
+ * Returns the Error to throw, or null when the run may proceed (skipping locally is fine — a
+ * developer without a stack should not face a wall of red; skipping in CI is not).
+ */
+export function unreachableDbFailure(opts: {
+  dbUp: boolean;
+  ci: string | undefined;
+  host: string;
+  error: unknown;
+}): Error | null {
+  if (opts.dbUp) return null;
+  if (!opts.ci) return null;
+  return new Error(
+    `driveIdCoverage.db.test.ts: CI is set but the local database at ${opts.host} is unreachable. ` +
+      "This suite is the Drive-ID coverage guard — skipping it in CI would leave the gate green " +
+      `while proving nothing. Underlying error: ${String(opts.error)}`,
+  );
+}

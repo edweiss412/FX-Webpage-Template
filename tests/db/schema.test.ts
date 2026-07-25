@@ -397,8 +397,21 @@ describe("secondary Drive-ID nonblank CHECK migration", () => {
     // each DROP commits before its ADD — a reapply briefly drops enforcement, and a failure
     // partway leaves the schema partially migrated with a constraint already removed. DDL is
     // transactional in Postgres, so one wrapping transaction makes the file all-or-nothing.
-    expect(sql, "migration must open a transaction").toMatch(/^\s*(--[^\n]*)?\s*begin;/i);
-    expect(raw.trimEnd(), "migration must close its transaction").toMatch(/commit;$/i);
+    //
+    // Asserted against RAW lines with comments stripped, never the whitespace-collapsed text.
+    // Matching `/^\s*(--[^\n]*)?\s*begin;/` on collapsed text is vacuous: the `--` swallows
+    // everything to the next newline, and there are none left, so the optional comment group can
+    // consume the entire file up to any later `begin;` — a migration whose only `begin;` sits
+    // INSIDE a comment, with live DDL before it, would pass (whole-diff R1 finding 4).
+    const statements = raw
+      .split("\n")
+      .map((l) => l.replace(/--.*$/, "").trim())
+      .filter((l) => l !== "");
+    expect(statements[0], "the FIRST executable statement must be `begin;`").toMatch(/^begin;$/i);
+    expect(
+      statements[statements.length - 1],
+      "the LAST executable statement must be `commit;`",
+    ).toMatch(/^commit;$/i);
   });
 
   for (const c of EXPECTED) {
@@ -408,10 +421,24 @@ describe("secondary Drive-ID nonblank CHECK migration", () => {
         : String.raw`alter table public\.${c.table}`;
 
     test(`${c.schema}.${c.table}.${c.column} gets ${c.name}`, () => {
-      // DROP-IF-EXISTS then ADD, per row — apply-twice safe.
-      expect(sql, `missing DROP CONSTRAINT IF EXISTS for ${c.name}`).toMatch(
-        new RegExp(`${prefix}\\s+drop\\s+constraint\\s+if\\s+exists\\s+${c.name}`, "i"),
+      // DROP-IF-EXISTS then ADD, per row — apply-twice safe. Searching for the two statements
+      // INDEPENDENTLY would accept `ADD → DROP → ADD`, which passes a first apply and every
+      // static check here, then fails on the second apply (whole-diff R1 finding 3). So the
+      // ORDER is asserted: the drop's index must precede the add's.
+      const dropRe = new RegExp(
+        `${prefix}\\s+drop\\s+constraint\\s+if\\s+exists\\s+${c.name}`,
+        "i",
       );
+      const addIdx = sql.search(
+        new RegExp(`${prefix}\\s+add\\s+constraint\\s+${c.name}\\s+check`, "i"),
+      );
+      const dropIdx = sql.search(dropRe);
+      expect(dropIdx, `missing DROP CONSTRAINT IF EXISTS for ${c.name}`).toBeGreaterThanOrEqual(0);
+      expect(addIdx, `missing ADD CONSTRAINT for ${c.name}`).toBeGreaterThanOrEqual(0);
+      expect(dropIdx, `DROP must precede ADD for ${c.name} (apply-twice safety)`).toBeLessThan(
+        addIdx,
+      );
+      expect(sql, `missing DROP CONSTRAINT IF EXISTS for ${c.name}`).toMatch(dropRe);
       const body = c.nullable
         ? String.raw`${c.column}\s+is\s+null\s+or\s+${c.column}\s*~\s*'\[\^\[:space:\]\]'`
         : String.raw`${c.column}\s*~\s*'\[\^\[:space:\]\]'`;
@@ -456,8 +483,13 @@ describe("constraint identifier lengths (all migrations)", () => {
     const tooLong: string[] = [];
     for (const f of files) {
       const text = readFileSync(join(dir, f), "utf8");
-      for (const m of text.matchAll(/add\s+constraint\s+([A-Za-z_][A-Za-z0-9_$]*)/gi)) {
-        const name = m[1];
+      // Both identifier forms: bare (which may include non-ASCII letters, so the class is
+      // "not whitespace/quote/paren/semicolon" rather than [A-Za-z_]) and DOUBLE-QUOTED, which the
+      // earlier bare-only pattern skipped entirely — a future `add constraint "<64 bytes>"` would
+      // truncate in Postgres while this scan reported green (whole-diff R1 finding 7).
+      for (const m of text.matchAll(/add\s+constraint\s+(?:"((?:[^"]|"")+)"|([^\s"(;]+))/gi)) {
+        const quoted = m[1];
+        const name = quoted !== undefined ? quoted.replace(/""/g, '"') : m[2];
         if (name !== undefined && Buffer.byteLength(name, "utf8") > 63) {
           tooLong.push(`${f}: ${name} (${Buffer.byteLength(name, "utf8")} bytes)`);
         }

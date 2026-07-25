@@ -85,12 +85,19 @@ export function canonicalNullable(column: string): string {
  */
 export const DRIVE_ID_COVERAGE_EXEMPTIONS: CoverageExemption[] = [];
 
+/**
+ * Keys are JSON-encoded tuples, never dot-joined strings.
+ *
+ * Postgres identifiers may contain dots when quoted, so `${schema}.${table}.${column}` is NOT
+ * injective: `public.a."b.drive_file_id"` and `public."a.b".drive_file_id` collapse to the same
+ * key, letting one exemption suppress two different columns (whole-diff R1 finding 5).
+ */
 function keyOf(t: { schema: string; table: string; column: string }): string {
-  return `${t.schema}.${t.table}.${t.column}`;
+  return JSON.stringify([t.schema, t.table, t.column]);
 }
 
 function tableKey(t: { schema: string; table: string }): string {
-  return `${t.schema}.${t.table}`;
+  return JSON.stringify([t.schema, t.table]);
 }
 
 /**
@@ -139,6 +146,15 @@ export function auditDriveIdCoverage(
   const exemptKeys = new Set<string>();
   for (const e of exemptions) {
     const k = keyOf(e);
+
+    // Reason is validated for EVERY row, before the duplicate check short-circuits. Otherwise the
+    // findings depend on array order: [valid, whitespace] reported only the duplicate while
+    // [whitespace, valid] reported both (whole-diff R1 finding 8). A malformed row is malformed
+    // whether or not another row shares its key.
+    if (e.reason.trim() === "") {
+      findings.push({ kind: "empty_reason", exemption: e });
+    }
+
     if (seen.has(k)) {
       findings.push({ kind: "duplicate_exemption", key: k });
       continue;
@@ -146,10 +162,7 @@ export function auditDriveIdCoverage(
     seen.add(k);
     exemptKeys.add(k);
 
-    if (e.reason.trim() === "") {
-      findings.push({ kind: "empty_reason", exemption: e });
-      continue;
-    }
+    if (e.reason.trim() === "") continue;
     if (!censusKeys.has(k)) {
       // The column is gone (dropped or renamed) — a live exemption for it is dead weight that
       // would silently start covering a NEW column if that name were ever reused.

@@ -35,6 +35,7 @@ import {
   CENSUS_SCHEMAS,
   toColumns,
   toConstraints,
+  unreachableDbFailure,
 } from "@/lib/driveIdCoverage/introspect";
 import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
@@ -45,8 +46,9 @@ const LOCAL_URL = assertLocalDbUrl(
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;
 let probeError: unknown = null;
+let probe: ReturnType<typeof postgres> | null = null;
 try {
-  const probe = postgres(LOCAL_URL, {
+  probe = postgres(LOCAL_URL, {
     max: 4,
     idle_timeout: 2,
     connect_timeout: 5,
@@ -57,7 +59,10 @@ try {
   dbUp = true;
 } catch (e) {
   probeError = e;
-  if (sql) await (sql as ReturnType<typeof postgres>).end().catch(() => {});
+  if (probe) await probe.end().catch(() => {});
+  // End the PROBE handle. `sql` is only assigned after the probe succeeds, so on this path it is
+  // still null and the old `if (sql)` cleanup ended nothing, leaking the handle (whole-diff R1
+  // finding 9). `probe` is scoped to the try block, so it is re-derived here via the closure.
   sql = null;
   dbUp = false;
 }
@@ -71,20 +76,19 @@ try {
  * failure would silently skip the guard and leave `unit-suite` green, which is precisely the state
  * this guard exists to prevent.
  */
-if (!dbUp && process.env.CI) {
-  const host = (() => {
+const ciFailure = unreachableDbFailure({
+  dbUp,
+  ci: process.env.CI,
+  host: (() => {
     try {
       return new URL(LOCAL_URL).host;
     } catch {
       return "<unparseable>";
     }
-  })();
-  throw new Error(
-    `driveIdCoverage.db.test.ts: CI is set but the local database at ${host} is unreachable. ` +
-      "This suite is the Drive-ID coverage guard — skipping it in CI would leave the gate green " +
-      `while proving nothing. Underlying error: ${String(probeError)}`,
-  );
-}
+  })(),
+  error: probeError,
+});
+if (ciFailure) throw ciFailure;
 
 afterAll(async () => {
   if (sql) await sql.end().catch(() => {});
@@ -161,6 +165,16 @@ describe("Drive-ID coverage guard (live)", () => {
             [],
           );
           await tx.unsafe("set local search_path = pg_catalog, public", []);
+          // Assert the pin HERE too, not just in censusInPinnedTx: this path renders constraint
+          // definitions under its own transaction, so a removed/ineffective SET would leave it
+          // reading under the ambient path while still passing (whole-diff R1 finding 6).
+          const [{ search_path: ncPath }] = (await tx.unsafe(
+            "select current_setting('search_path') as search_path",
+            [],
+          )) as unknown as [{ search_path: string }];
+          if (ncPath !== "pg_catalog, public") {
+            throw new Error(`negative control: search_path not pinned, got ${ncPath}`);
+          }
           const columnRows = await tx.unsafe(CENSUS_COLUMNS_SQL, [
             CENSUS_SCHEMAS as unknown as string[],
             CENSUS_COLUMN_PREDICATE,

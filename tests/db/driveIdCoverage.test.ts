@@ -22,6 +22,7 @@ import {
   type DriveIdColumn,
   type DriveIdConstraint,
 } from "@/lib/driveIdCoverage/audit";
+import { unreachableDbFailure } from "@/lib/driveIdCoverage/introspect";
 
 /** A nullable public.shows.opening_reel_drive_file_id-shaped column. */
 function col(over: Partial<DriveIdColumn> = {}): DriveIdColumn {
@@ -185,13 +186,85 @@ describe("exemptions", () => {
   test("duplicate exemption rows for one column are reported", () => {
     // Catches: two rows for one key, where the stale one is invisible behind the live one.
     const findings = auditDriveIdCoverage([col()], [], [exemption(), exemption()]);
-    expect(findings).toEqual([{ kind: "duplicate_exemption", key: "public.shows.drive_file_id" }]);
+    expect(findings).toEqual([
+      { kind: "duplicate_exemption", key: JSON.stringify(["public", "shows", "drive_file_id"]) },
+    ]);
+  });
+
+  test("a malformed reason is reported even when another row shares its key", () => {
+    // Catches order-dependence (whole-diff R1 finding 8): validating the reason only after the
+    // duplicate short-circuit made the findings depend on array order.
+    const good = exemption();
+    const bad = exemption({ reason: "   " });
+    const forward = auditDriveIdCoverage([col()], [], [good, bad]);
+    const reverse = auditDriveIdCoverage([col()], [], [bad, good]);
+    for (const findings of [forward, reverse]) {
+      expect(findings.map((f) => f.kind).sort()).toEqual(["duplicate_exemption", "empty_reason"]);
+    }
+  });
+
+  test("dotted quoted identifiers do not collide into one key", () => {
+    // Catches a non-injective key (whole-diff R1 finding 5): Postgres identifiers may contain dots
+    // when quoted, so `${schema}.${table}.${column}` maps these two DIFFERENT columns to one key —
+    // and a single exemption would then suppress both, hiding the second uncovered column.
+    const a: DriveIdColumn = {
+      schema: "public",
+      table: "a",
+      column: "b.drive_file_id",
+      nullable: true,
+    };
+    const b: DriveIdColumn = {
+      schema: "public",
+      table: "a.b",
+      column: "drive_file_id",
+      nullable: true,
+    };
+    const exemptA: CoverageExemption = {
+      schema: "public",
+      table: "a",
+      column: "b.drive_file_id",
+      reason: "documented",
+    };
+    // Exempting A must leave B reported.
+    expect(auditDriveIdCoverage([a, b], [], [exemptA])).toEqual([{ kind: "uncovered", column: b }]);
   });
 
   test("the shipped exemption list is empty", () => {
     // Spec §4.5: after the migration lands, all 23 census columns are covered. A non-empty
     // list here would mean someone silenced a column without this test being updated.
     expect(DRIVE_ID_COVERAGE_EXEMPTIONS).toEqual([]);
+  });
+});
+
+describe("CI fail-not-skip decision", () => {
+  // AC-6, extracted from module scope so it is testable at all (whole-diff R1 finding 2). Inline in
+  // the suite, removing or inverting the throw left healthy-DB CI runs and local skip runs both
+  // green — an outage could silently disable the guard with nothing to notice.
+  const base = { host: "127.0.0.1:54322", error: new Error("ECONNREFUSED") };
+
+  test("DB up, CI set → no failure", () => {
+    expect(unreachableDbFailure({ ...base, dbUp: true, ci: "true" })).toBeNull();
+  });
+
+  test("DB up, CI unset → no failure", () => {
+    expect(unreachableDbFailure({ ...base, dbUp: true, ci: undefined })).toBeNull();
+  });
+
+  test("DB DOWN, CI unset → no failure (local skip is correct)", () => {
+    expect(unreachableDbFailure({ ...base, dbUp: false, ci: undefined })).toBeNull();
+  });
+
+  test("DB DOWN, CI set → FAILS, naming the host and the underlying error", () => {
+    const err = unreachableDbFailure({ ...base, dbUp: false, ci: "true" });
+    expect(err).toBeInstanceOf(Error);
+    expect(err?.message).toContain("127.0.0.1:54322");
+    expect(err?.message).toContain("ECONNREFUSED");
+  });
+
+  test("an empty CI value counts as not-CI", () => {
+    // GitHub sets CI=true; an empty string is the "not set meaningfully" case and must not turn a
+    // developer's missing stack into a hard failure.
+    expect(unreachableDbFailure({ ...base, dbUp: false, ci: "" })).toBeNull();
   });
 });
 
