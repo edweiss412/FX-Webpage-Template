@@ -94,6 +94,14 @@ const NAME_AFFECTING_ATTRIBUTES: readonly string[] = [
   "hreflang",
   "type",
   "referrerpolicy",
+  // Name CONTRIBUTORS on elements that can sit inside an anchor. `alt` is the important one:
+  // an `<img alt="...">` child contributes to the anchor's computed name, and this feature's
+  // spec §1.1 already discusses the scanner's `alt` handling -- it was missing from the first
+  // version of this list, which left a real name-affecting attribute outside the sweep.
+  "alt",
+  "placeholder",
+  "value",
+  "label",
   // role + ARIA states and properties
   "role",
   "aria-activedescendant",
