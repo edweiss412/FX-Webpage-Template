@@ -18,7 +18,7 @@ Four defects follow from that shape.
 
 **3. Rows and cards duplicate the way out.** `bucketAttention` is called with the full item list, unfiltered by `actionable` (`components/admin/showpage/PublishedReviewModal.tsx:551`), so an alert is represented both in its section and as a row in the dropdown. For needs-look items the row and the card render the same `a.action` link (`components/admin/showpage/AttentionMenu.tsx:204-219` and `components/admin/review/AttentionBanner.tsx:158-171`), so the way out is stated twice.
 
-Two precisions, because the obvious stronger claims are both false. The row and the card do **not** show the same text: the row shows `item.menuTitle`, a short title (`components/admin/showpage/AttentionMenu.tsx:199`), while the card shows the full catalog sentence (`components/admin/review/AttentionBanner.tsx:239`). And **not every alert renders a card** — the notes channel intercepts exactly two codes before the card path and folds them into the Sheet-warnings panel instead (`lib/admin/parseAttentionNote.ts:23`, `lib/admin/sectionAttention.ts:116-121`). Both facts are load-bearing later: the first is why deleting the row's link loses no text, the second drives §2.3.
+Two precisions, because the obvious stronger claims are both false. The row and the card do **not** show the same text: the row shows `item.menuTitle`, a short title (`components/admin/showpage/AttentionMenu.tsx:199`), while the card shows the full catalog sentence (`components/admin/review/AttentionBanner.tsx:239`). And **not every alert renders a card** — the notes channel intercepts exactly two codes before the card path and folds them into the Sheet-warnings panel instead (`lib/admin/parseAttentionNote.ts:23`, `lib/admin/sectionAttention.ts:116-121`), though only while that panel is available: if it is not, both fall through to an Overview card so nothing is dropped (`lib/admin/sectionAttention.ts:111-128`). Both facts are load-bearing later: the first is why deleting the row's link loses no text, the second drives §2.3.
 
 **4. Two event-shaped alerts wear a fault's button verb.** `SHOW_FIRST_PUBLISHED` ("now live for crew at its share-token URL", `lib/messages/catalog.ts:1120-1121`, `severity: "info"`, `followUp: null`) and `PICKER_EPOCH_RESET` (whose own `helpfulContext` reads "Nothing to fix; this is a record of the reset.", `lib/messages/catalog.ts:3222`) describe events that happened, not conditions to clear. Both render a button reading "Mark resolved".
 
@@ -37,7 +37,7 @@ Note what this defect is **not**. Both codes are already excluded from the per-s
 | Needs-look defaults **fail-visible**: a non-actionable item with no `clearingKind` counts as needs-you, never monitoring. | `2026-07-21-attention-needs-attention-split.md` §3.4, implemented `AttentionMenu.tsx:98`, `PublishedReviewModal.tsx:310` |
 | A mistagged actionable item is counted once, in the merged group only — never doubled into monitoring. | `AttentionMenu.tsx:99-101`, `PublishedReviewModal.tsx:313-318` |
 | Holds ARE index entries but NOT card entries. They render as actionable rows in the panel (`lib/admin/attentionItems.ts:318-323`) and jump to the `changes` section, whose `Mi11GateActions` control is their landing place; `bucketAttention` skips them so they never produce a card. This spec does not change that. | `lib/admin/sectionAttention.ts:104-109`; section id at `components/admin/showpage/PublishedReviewModal.tsx:642` |
-| The Changes feed is NOT a destination for relocated alerts. It reads `show_change_log` + open `sync_holds`, and its `change_kind` values are sheet-data changes in practice (`crew_added`, `crew_renamed`, `crew_removed`, `crew_email_changed`, `field_changed`). The column has no enum to appeal to — its CHECK is only `length(change_kind) > 0` — so the semantics live in the producers, which is exactly why an app-milestone alert has no home there without inventing a kind. | `lib/sync/feed/readShowChangeFeed.ts:1-8`; producers at `lib/dev/attentionScenarios/tier2.ts:430`, `lib/dev/attentionScenarios/tier2.ts:447`, `lib/dev/attentionScenarios/tier2.ts:457`, `lib/dev/attentionScenarios/tier2.ts:470`, `lib/dev/attentionScenarios/tier2.ts:477`; CHECK at `supabase/migrations/20260608000001_show_change_log.sql:33-35` |
+| The Changes feed is NOT a home for event-shaped alerts, should anyone propose moving them there rather than leaving them excluded. It reads `show_change_log` + open `sync_holds`, and its `change_kind` values are sheet-data changes in practice (`crew_added`, `crew_renamed`, `crew_removed`, `crew_email_changed`, `field_changed`). The column has no enum to appeal to — its CHECK is only `length(change_kind) > 0` — so the semantics live in the producers, which is exactly why an app-milestone alert has no home there without inventing a kind. | `lib/sync/feed/readShowChangeFeed.ts:1-8`; producers at `lib/dev/attentionScenarios/tier2.ts:430`, `lib/dev/attentionScenarios/tier2.ts:447`, `lib/dev/attentionScenarios/tier2.ts:457`, `lib/dev/attentionScenarios/tier2.ts:470`, `lib/dev/attentionScenarios/tier2.ts:477`; CHECK at `supabase/migrations/20260608000001_show_change_log.sql:33-35` |
 | The pill stays interactive when only monitoring items exist, and keeps its quiet palette in that state. | `2026-07-22-monitoring-badge-expand.md` §3.1, implemented `PublishedReviewModal.tsx:323-324`, `components/admin/showpage/PublishedReviewModal.tsx:764-771` |
 | Separators between pill segments are real `" · "` text nodes, in the announced string as well as the visible one. | `PublishedReviewModal.tsx:803`; memory #537 space-node rule |
 | `SHOW_FIRST_PUBLISHED` and `PICKER_EPOCH_RESET` are ALREADY excluded from the index. This spec adds no exclusion mechanism and must not introduce a second registry for that policy. | Verified by execution (§2.5); `lib/adminAlerts/audience.ts:34-39` + `lib/admin/attentionItems.ts:367`; `lib/admin/attentionItems.ts:351-370`; pinned by `tests/admin/attentionExclusionSet.test.ts:107-120` and `tests/admin/pickerEpochCut.test.ts:20-39` |
@@ -164,7 +164,7 @@ Two independent existing filters do it:
 
 ### 2.6 The two button verbs
 
-Both relocated codes keep a resolve button in the bell — `resolveActionLabels` is shared by the show modal, the bell, and the developer telemetry panel (`lib/adminAlerts/resolveActionLabel.ts:4-6`). Their intent is wrong today:
+Both codes keep a resolve button in the bell — `resolveActionLabels` is shared by the show modal, the bell, and the developer telemetry panel (`lib/adminAlerts/resolveActionLabel.ts:4-6`). Their intent is wrong today:
 
 | Code | Today | Becomes | Why |
 | --- | --- | --- | --- |
@@ -293,9 +293,9 @@ Highest-value pins within that set:
 
 **Two matches are a different surface and must NOT be rewritten.** `tests/components/admin/wizard/Step3ReviewModal.test.tsx` and `publishedWarningsPanel.test.tsx` match on the per-section chip "Needs a look", which this spec does not retire (§2.1). They are listed so the implementer checks them for accidental coupling and then leaves them alone. `tests/components/admin/wizard/sectionCountChip.test.ts` is the same case.
 
-### 7.2 dataGaps sweep (19 files)
+### 7.2 dataGaps sweep (19 files) — recorded as a NO-CHANGE verification
 
-§2.5 removes `dataGaps` from the attention item, which is not a pure deletion. Files carrying the attention item's `dataGaps`:
+`dataGaps` on the attention item is dead at HEAD and its removal is **out of scope** (§1.1, §2.5, §10). Nothing in this sweep is edited by this change. It is kept only so the implementer can verify none of these files needed touching, and so the follow-up change that does remove the field starts with its fan-out already mapped. Files carrying the attention item's `dataGaps`:
 
 ```
 for f in $(grep -rl "dataGaps" tests/); do grep -q "alertId\|AttentionItem\|attentionItems" $f && echo $f; done
@@ -303,7 +303,7 @@ for f in $(grep -rl "dataGaps" tests/); do grep -q "alertId\|AttentionItem\|atte
 
 `tests/admin/anchorRouting.test.ts`, `attentionItems.test.ts`, `bucketAttention.test.ts`, `crewMatchFanout.test.ts`, `parseAttentionNote.test.ts`, `parseNoteCopy.test.ts`, `tests/components/admin/anchorMount.test.tsx`, `compactAlertCompoundTransitions.test.tsx`, `tests/components/admin/review/attentionBanner.test.tsx`, `tests/components/admin/review/showReviewSurfaceAnchors.test.tsx`, `tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx`, `tests/components/admin/showpage/attentionMenu.test.tsx`, `tests/components/admin/showpage/attentionMenuGroups.test.tsx`, `tests/components/admin/showpage/pageTransitions.test.tsx`, `tests/components/admin/showpage/publishedReviewModal.test.tsx`, `warningsPanelNotes.test.tsx`, `tests/e2e/_compactAlertCardLiveEntry.tsx`, `_pillFocusLiveEntry.tsx`, `_publishedReviewModalHarness.tsx`.
 
-Most carry `dataGaps: null` as a fixture key and only need the key dropped. Two carry **live assertions** on the detail band and must be deleted with the feature: `tests/components/admin/review/attentionBanner.test.tsx:148` and `tests/components/admin/review/attentionBanner.test.tsx:257`.
+For the future change, not this one: most carry `dataGaps: null` as a fixture key and would only need the key dropped, while two carry **live assertions** on the detail band that would have to go with the field — `tests/components/admin/review/attentionBanner.test.tsx:148` and `tests/components/admin/review/attentionBanner.test.tsx:257`. Under this spec all 19 stay exactly as they are.
 
 `tests/help/spec-citation-integrity.test.ts` verifies help-page spec citations; confirm no help page documents the retired pill copy before landing (checked at draft time: `app/help/admin/per-show-panel/page.mdx` does not).
 
@@ -329,7 +329,7 @@ No new colour token is introduced — the destination chip reuses the existing w
 | 12 | Needs-look codes | `lib/adminAlerts/audience.ts:81-94` |
 | 3 | Self-healing codes | `lib/adminAlerts/audience.ts:75-79` |
 | 6 | `openSheet` (external) needs-look codes | `alertActions.ts:163-168` |
-| 2 | Notes-channel codes: internal action, never carded, so never chipped | `lib/admin/parseAttentionNote.ts:23` |
+| 2 | Notes-channel codes: internal action; carded only when the warnings section is unavailable, chip-less in both states via the self-link guard | `lib/admin/parseAttentionNote.ts:23`, `lib/admin/sectionAttention.ts:111-128` |
 | 2 | Self-linking codes suppressed by §2.3 | `SHOW_UNPUBLISHED`, `RESYNC_SHRINK_HELD` |
 | 0 | Codes this spec removes from the index (both already excluded at HEAD) | §2.5 |
 | 2 | Codes landing on the warnings panel when it is available, and on an Overview card when it is not | §2.2, §2.3 |
@@ -339,7 +339,7 @@ No new colour token is introduced — the destination chip reuses the existing w
 | 44 | Tap-target floor in px | §5 |
 | 400 | Panel max width in px | `AttentionMenu.tsx:119` |
 
-The `6 + 2 + 2 + 2 = 12` needs-look codes reconcile: 6 external-chip; 2 notes-channel (internal action, intercepted before the card path, so never chipped); 2 self-link-suppressed; 2 with no registered action (`USE_RAW_DECISION_STALE`, `ASSET_RECOVERY_BYTES_EXCEEDED` — absent from `ALERT_ACTION_CODES`, `lib/adminAlerts/alertActions.ts:13-37`). **Only the first bucket ever renders a chip** (§2.3).
+The `6 + 2 + 2 + 2 = 12` needs-look codes reconcile: 6 external-chip; 2 notes-channel (internal action, intercepted before the card path when warnings is available and self-link-suppressed on the Overview fallback when it is not, so chip-less in both states); 2 self-link-suppressed; 2 with no registered action (`USE_RAW_DECISION_STALE`, `ASSET_RECOVERY_BYTES_EXCEEDED` — absent from `ALERT_ACTION_CODES`, `lib/adminAlerts/alertActions.ts:13-37`). **Only the first bucket ever renders a chip** (§2.3).
 
 ---
 
