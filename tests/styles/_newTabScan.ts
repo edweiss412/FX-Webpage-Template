@@ -231,6 +231,14 @@ function propNameLower(prop: ts.ObjectLiteralElementLike): string | null {
   const n = prop.name;
   if (n === undefined) return null;
   if (ts.isIdentifier(n) || ts.isStringLiteral(n)) return n.text.toLowerCase();
+  // A COMPUTED key whose expression is a string literal is just as decidable:
+  // `{["target"]: "_blank"}` reads identically at runtime, and ignoring it left
+  // `<Foo {...{["href"]:"x",["target"]:"_blank"}}>` with no candidacy names at all
+  // (review R11 BLOCKING 2).
+  if (ts.isComputedPropertyName(n)) {
+    const e = unparen(n.expression);
+    if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text.toLowerCase();
+  }
   return null;
 }
 
@@ -756,8 +764,6 @@ export function compileMdxToJsx(source: string): string {
   return String(compileSync(source, { jsx: true }));
 }
 
-export const MDX_FORBIDDEN = /_blank|target\s*=|\{\s*\.\.\./i;
-
 function sameCondition(hintConds: string[], target: { text: string; negated: boolean }): boolean {
   const want = target.negated ? `!(${target.text})` : target.text;
   // The hint's gating must be EXACTLY the predicate, not a superset. Using
@@ -814,6 +820,25 @@ type Shape =
 
 function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
   const attrs = ts.isJsxElement(el) ? el.openingElement.attributes : el.attributes;
+
+  // Duplicate case-folded JSX attribute names are AMBIGUOUS at this layer too, not
+  // only inside a spread object. `<a target="_self" TARGET="_blank">` scanned clean
+  // while React applied the LATER value and really opened a new tab, and
+  // `aria-label` beside `ARIA-LABEL` let an announcing label be overwritten by a
+  // silent one (review R11 BLOCKING 3). Whichever wins, the file needs one spelling.
+  const foldedNames = new Set<string>();
+  for (const a of attrs.properties) {
+    const n = attrName(a);
+    if (n === null) continue;
+    if (foldedNames.has(n)) {
+      return {
+        kind: "unrecognized",
+        why: `two attributes share the name "${n}" after case-folding; HTML attribute names are case-insensitive and React applies the LAST one, so keep a single spelling`,
+      };
+    }
+    foldedNames.add(n);
+  }
+
   const spreads = attrs.properties.filter(ts.isJsxSpreadAttribute);
   const targetAttr = attrs.properties.find(
     (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && jsxAttrNameLower(a) === "target",

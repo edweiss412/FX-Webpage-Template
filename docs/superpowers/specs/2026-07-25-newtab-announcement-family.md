@@ -224,15 +224,15 @@ vector at three rounds.
 
 Filesystem-walk `components/**/*.tsx` and `app/**/*.tsx` (never a hard-coded list). An `<a>` or
 `<Link>` is a CANDIDATE if it carries a `target` attribute or ANY spread attribute; without
-either it cannot become external and is skipped. `.mdx` gets a lexical assertion instead, because TSX parsing cannot see those files
-(measured: a probe anchor was omitted from the AST in 9 of 13). Since MDX never reaches the
-scanner, its rule is the strictest one available: `app/**/*.mdx` must contain no `_blank` (in any
-case), **no `target` attribute, and no spread**. `target={dest}` and `{...externalProps}` both
-evaded an earlier `_blank`-only spelling and either can resolve to `_blank` at runtime (review R6
-BLOCKING 2). A doc that genuinely needs an external link puts it in a `.tsx` component the
-scanner can classify. One predicate, `mdxForbidden()`, is exported and shared by the rule and its
-self-test. It is a function rather than a bare regex because it tests the raw text AND a
-comment-stripped copy and takes the union (review R7 BLOCKING 3).
+either it cannot become external and is skipped. `.mdx` **is compiled and then scanned by the same pass** — it does NOT get a separate lexical rule.
+`compileMdxToJsx()` runs `@mdx-js/mdx` with `jsx: true` and hands the result to `scanSource`, so MDX
+and TSX share one enforcement path. Four earlier rounds of hand-written lexical rules each produced
+a new defect (§6.4), which is why the model changed. The compiled module is walked in full, so an
+anchor bound to an `export const`, returned from an exported function, or handed to a custom
+component is classified too. The live test asserts each file compiles to real JSX before scanning
+it, so an empty compile cannot make the guard pass for the wrong reason. **Props injected through
+MDX's runtime components map are outside any per-file scan**, so a separate test pins that
+`mdx-components.tsx` declares no anchor override and injects no `target`.
 
 ### 6.2 Approved shapes (everything else is a finding)
 
@@ -317,13 +317,12 @@ WITH substitutions is not. Anything outside these shapes is reported as
   the substitution evaluated to `""` and the computed name was the bare phrase. A partial
   serializer over a full grammar cannot be made injective by adding cases, so the subset is
   explicit and everything outside it fails closed. All shipped labels are inside it.
-- **The MDX and candidate-admission nets test raw text AND a comment-stripped copy, and the union
+- **The candidate-admission net for TSX tests raw text AND a comment-stripped copy, and the union
   decides.** A raw-text-only regex missed a comment between `target` and its `=`, and between a
-  spread's brace and its dots; `@mdx-js/mdx` compiles those to real JSX spreads. Stripping alone
-  is unsafe for MDX, because prose contains `https://` and a JS lexer reads `//` as a line comment
-  and would delete the rest of that line. The union can only admit MORE, which is the fail-closed
-  direction. `target` matching is case-INSENSITIVE: HTML attribute names are, and React emits
-  `TARGET={x}` with a warning rather than dropping it.
+  spread's brace and its dots. Stripping alone would be unsafe, so the union is used: it can only
+  admit MORE, which is the fail-closed direction. `target` matching is case-INSENSITIVE, since HTML
+  attribute names are and React emits `TARGET={x}` with a warning rather than dropping it. This net
+  applies to TSX only; MDX no longer has a lexical net at all.
 - **Attribute NAMES are matched ASCII-lowercased; VALUES keep their case.** HTML attribute names
   are case-insensitive and React forwards an unknown casing to the DOM with only a dev warning, so
   `TARGET="_blank"` opens a tab and `ARIA-HIDDEN="true"` really hides. The candidate net was

@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -680,7 +681,7 @@ describe("every external link in the live tree announces its new tab", () => {
     );
   });
 
-  it("no .mdx file carries an unannounced external anchor (compiled, not lexed)", () => {
+  it("every .mdx compiles to JSX and its anchors announce", () => {
     const mdx = walkFiles(join(process.cwd(), "app"), /\.mdx$/).map((abs) =>
       abs.slice(process.cwd().length + 1),
     );
@@ -714,6 +715,20 @@ describe("every external link in the live tree announces its new tab", () => {
 // compiled with @mdx-js/mdx (already a repo dependency) and the compiled JSX goes
 // through the SAME scanner as TSX. Every historical case is pinned here against that
 // one path.
+// R11 BLOCKING 1: compiled MDX preserves component REFERENCES but not props injected
+// through the runtime components map, so an `a` override there could make every help
+// link external with nothing per-file to see. I had verified the file by hand; a
+// verified assumption with no test is one edit away from being false.
+it("the MDX components map injects no target and no anchor override", () => {
+  const src = stripCommentsSafely(readFileSync(join(process.cwd(), "mdx-components.tsx"), "utf8"));
+  expect(
+    src,
+    "an anchor override in the components map would bypass per-file scanning",
+  ).not.toMatch(/\ba\s*:/);
+  expect(src, "a Link override could also carry target").not.toMatch(/\bLink\s*:/);
+  expect(src, "no target may be injected for every MDX link").not.toMatch(/target/i);
+});
+
 describe("MDX is compiled and scanned, not lexed", () => {
   const scanMdx = (src: string): Scan => {
     const sc: Scan = { anchors: 0, violations: [] };
@@ -1061,10 +1076,33 @@ describe("R6: scanner changes are pinned", () => {
       "classname",
       "class",
       "style",
+      "referrerpolicy",
+      "download",
+      "ping",
+      "type",
+      "title",
+      "alt",
+      "id",
+      "name",
     ]);
-    const literals = [...src.matchAll(/"([^"\\]*)"|'([^'\\]*)'|`([^`\\$]*)`/g)].map(
-      (m) => m[1] ?? m[2] ?? m[3] ?? "",
-    );
+    // Tokenized, not regex-matched. A global quote-matching regex goes out of phase
+    // after an escaped literal, which hid a plain "Target" appended at end of file,
+    // and it cannot see through escapes like "\\x54arget" (review R11 MEDIUM 5).
+    // Concatenated and template-built names remain undetectable by any static scan;
+    // that limit is stated in the comment above rather than papered over.
+    const literals: string[] = [];
+    const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, src);
+    for (let k = scanner.scan(); k !== ts.SyntaxKind.EndOfFileToken; k = scanner.scan()) {
+      if (
+        k === ts.SyntaxKind.StringLiteral ||
+        k === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
+        k === ts.SyntaxKind.TemplateHead ||
+        k === ts.SyntaxKind.TemplateMiddle ||
+        k === ts.SyntaxKind.TemplateTail
+      ) {
+        literals.push(scanner.getTokenValue());
+      }
+    }
     const offenders = literals.filter(
       (lit) => lit !== lit.toLowerCase() && CASE_INSENSITIVE_NAMES.has(lit.toLowerCase()),
     );
@@ -1126,6 +1164,35 @@ describe("R6: scanner changes are pinned", () => {
     // deferral and what keeps `<div {...props}>` from becoming a violation.
     const opaque = probe(`const A=({props})=><Foo {...props}>Go</Foo>;`);
     expect(opaque.anchors, "an unresolvable spread on an unknown tag is not a candidate").toBe(0);
+  });
+
+  // R11 BLOCKING 3: the duplicate rule covered spread objects only, so DIRECT JSX
+  // duplicates walked past two consumers. React applies the LATER value, so the first
+  // case really opened a new tab and the second really replaced an announcing label
+  // with a silent one.
+  it("R11 duplicate case-folded JSX attributes fail closed", () => {
+    expect(
+      violations(`const A=()=><a href="x" target="_self" TARGET="_blank">Go</a>;`).join(" "),
+    ).toMatch(/case-folding|unrecognized/);
+    expect(
+      violations(
+        `const A=()=><a href="x" target="_blank" aria-label="Go (opens in a new tab)" ARIA-LABEL="Go">Go</a>;`,
+      ).join(" "),
+    ).toMatch(/case-folding|unrecognized/);
+    // A single spelling is untouched.
+    expect(violations(`const A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;`)).toEqual(
+      [],
+    );
+  });
+
+  // R11 BLOCKING 2: two more resolvable-spread shapes that carried no candidacy names.
+  it("R11 sibling nested spreads and computed literal keys are classified", () => {
+    expect(
+      violations(`const A=()=><Foo {...{...{href:"x"},...{target:"_blank"}}}>Go</Foo>;`).join(" "),
+    ).toMatch(/does not announce|unrecognized|not gated/);
+    expect(
+      violations(`const A=()=><Foo {...{["href"]:"x",["target"]:"_blank"}}>Go</Foo>;`).join(" "),
+    ).toMatch(/does not announce|unrecognized|not gated/);
   });
 
   // R10 BLOCKING 3: React writes `{ target, TARGET }` to ONE case-insensitive DOM
