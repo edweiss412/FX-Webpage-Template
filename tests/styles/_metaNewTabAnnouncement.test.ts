@@ -19,6 +19,9 @@ import {
   type Scan,
 } from "@/tests/styles/_newTabScan";
 
+/** The exemption marker, spelled once so these tests cannot drift from the scanner. */
+const EXEMPTION_TEXT = "no-newtab-announcement:";
+
 /** Attribute names whose CASING cannot matter at runtime, so a non-lowercase literal
  *  spelling one is a bug. Tag names are deliberately absent: JSX tag names are
  *  case-SENSITIVE. Shared by the guard below and its own behavioural pin. */
@@ -1359,6 +1362,28 @@ describe("R6: scanner changes are pinned", () => {
 
   // R14 BLOCKING 1: an exemption comment sharing a line with a regex containing comment
   // bytes used to mis-locate, letting an unannounced anchor pass.
+  // R15 question 2: the exemption parser was rewritten to derive line numbers from the
+  // shared commentRanges(), so every attribution behaviour it had is re-pinned here.
+  it("R15 exemption attribution survives the shared-helper rewrite", () => {
+    const anchor = 'const A=()=><a href="x" target="_blank">Go</a>;';
+    // A single-line exemption above the anchor exempts it.
+    expect(violations(`// ${EXEMPTION_TEXT} reason\n${anchor}`)).toEqual([]);
+    // A MULTI-LINE block comment attributes to its END line, so it still reaches the
+    // anchor below it.
+    expect(violations(`/* ${EXEMPTION_TEXT} reason\n   spanning lines */\n${anchor}`)).toEqual([]);
+    // An exemption sharing a line with code still applies to the next anchor.
+    expect(violations(`const q=1; // ${EXEMPTION_TEXT} reason\n${anchor}`)).toEqual([]);
+    // ONE comment exempts ONE anchor: the second must still be reported.
+    expect(
+      violations(
+        `// ${EXEMPTION_TEXT} reason\n${anchor}\nconst B=()=><a href="y" target="_blank">Go</a>;`,
+      ).length,
+      "one exemption must not cover two anchors",
+    ).toBe(1);
+    // A reasonless exemption is not an exemption.
+    expect(violations(`// ${EXEMPTION_TEXT}\n${anchor}`).length).toBe(1);
+  });
+
   it("R14 an exemption cannot be forged from a string after a regex", () => {
     // The phrase sits in a STRING, not a comment. The old scanner mis-read the regex as a
     // block-comment start, swallowed the string into that "comment", found the marker
