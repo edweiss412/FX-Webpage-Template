@@ -1088,14 +1088,15 @@ describe("R6: scanner changes are pinned", () => {
       "classname",
       "class",
       "style",
+      // Link-relevant attributes only. `type`, `title`, `alt`, `id` and `name` were
+      // here briefly and removed on purpose: this scanner never compares them, so
+      // they added no protection, while an exact literal "Title" or "Name" in a
+      // message or fixture would have raised a false positive. The self-maintaining
+      // half below is what keeps the set honest -- it FORCES any newly compared name
+      // in here -- so speculative entries are cost without benefit.
       "referrerpolicy",
       "download",
       "ping",
-      "type",
-      "title",
-      "alt",
-      "id",
-      "name",
     ]);
     // Tokenized, not regex-matched. A global quote-matching regex goes out of phase
     // after an escaped literal, which hid a plain "Target" appended at end of file,
