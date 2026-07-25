@@ -50,10 +50,10 @@ function mountScenario() {
 }
 
 describe("t3-full-attention-split renders the full taught state", () => {
-  it("pill: exactly '1 to confirm · 2 to review · 2 monitoring' on an interactive BUTTON", () => {
+  it("pill: exactly '1 to confirm · 2 to review · 1 monitoring' on an interactive BUTTON", () => {
     mountScenario();
     const pill = screen.getByTestId("published-show-review-alert-pill");
-    expect(visibleText(pill)).toBe("1 to confirm · 2 to review · 2 monitoring");
+    expect(visibleText(pill)).toBe("1 to confirm · 2 to review · 1 monitoring");
     expect(pill.tagName).toBe("BUTTON");
   });
 
@@ -111,9 +111,9 @@ describe("t3-full-attention-split renders the full taught state", () => {
     const selfHealCodes = deriveScenarioAttention(scenario)
       .filter((i) => i.clearingKind === "self_heal")
       .map((i) => (i.kind === "alert" ? i.alert.code : "__none__"));
-    expect(selfHealCodes).toHaveLength(2);
+    expect(selfHealCodes).toHaveLength(1);
     const rows = within(group).getAllByTestId(/attention-monitoring-row-/);
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(selfHealCodes.length);
     for (const [idx, code] of selfHealCodes.entries()) {
       const row = rows[idx]!;
       expect(within(row).getByText(messageFor(code as MessageCode).title!)).toBeInTheDocument();

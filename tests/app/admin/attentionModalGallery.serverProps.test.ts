@@ -450,31 +450,23 @@ describe("partitionScenarios", () => {
     }
   });
 
-  test("composites that pick a global-scope code are the checked-in list (cannot grow silently)", () => {
-    // The global axis is tier-1 only (see buildSwitcherScenarios). These
-    // composites reach a global code through tier-2's dynamic pickers, which
-    // select by audience and context but not by scope. They keep their cards
-    // because their subject is a structural state, not the code. Pinned so the
-    // set is visible and a NEW composite picking a global code fails here
-    // rather than passing unnoticed.
-    const offenders = ALL_SCENARIOS.filter(
-      (sc) => sc.tier !== 1 && sc.alerts.some((a) => GLOBAL_SCOPE_CODES.has(a.code)),
-    )
-      .map((sc) => sc.id)
-      .sort();
-    expect(offenders).toEqual(
-      [
-        "t2-act-resolve-error",
-        "t2-actionable",
-        "t2-class-mix",
-        "t2-identity-absent",
-        "t2-many",
-        "t2-monitoring-only",
-        "t2-occurrence-many",
-        "t2-single",
-        "t3-full-attention-split",
-      ].sort(),
+  test("NO tier-2 or tier-3 scenario declares a global-scope code", () => {
+    // Tier 1 is the one-card-per-route-key fan-out, so a global code there is
+    // expected and handled by the partition. A COMPOSITE is different: it uses
+    // codes as ingredients to demonstrate a structural state, so a global one
+    // would make it teach a state production cannot produce — and the partition
+    // would drop the whole composite, taking its per-show alerts, holds, and
+    // sections with it. Every tier-2 picker filters GLOBAL_SCOPE_CODES; this
+    // walks the catalogue so a NEW composite fails here by default.
+    const offenders = ALL_SCENARIOS.filter((sc) => sc.tier !== 1).flatMap((sc) =>
+      sc.alerts.filter((a) => GLOBAL_SCOPE_CODES.has(a.code)).map((a) => `${sc.id}: ${a.code}`),
     );
+    expect(offenders).toEqual([]);
+  });
+
+  test("no COMPOSITE is excluded as global (the guard above holds end to end)", () => {
+    const composites = excluded.filter((e) => e.reason === "global" && !e.id.startsWith("alert-"));
+    expect(composites.map((e) => e.id)).toEqual([]);
   });
 
   test("NO tier-1 scenario for a global-scope code renders", () => {

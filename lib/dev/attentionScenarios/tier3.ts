@@ -110,8 +110,11 @@ export function tier3Scenarios(): AttentionScenario[] {
         },
         // needs-look with the internal Overview anchor.
         { code: "RESYNC_QUALITY_REGRESSED", context: {}, raised_at: AT, occurrence_count: 1 },
-        // two genuinely self-healing codes -> the Monitoring summary reads "2".
-        { code: "SYNC_STALLED", context: {}, raised_at: AT, occurrence_count: 3 },
+        // ONE self-healing code, because only one is per-show reachable:
+        // SELF_HEALING_CODE_LIST has three members (lib/adminAlerts/audience.ts)
+        // and two of them are global-scope, so a real show's Monitoring group
+        // can never hold more than one distinct code. The former "2 monitoring"
+        // pill was a state production cannot produce.
         { code: "DRIVE_FETCH_FAILED", context: {}, raised_at: AT, occurrence_count: 1 },
       ],
       holds: [
