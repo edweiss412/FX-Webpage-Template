@@ -19,7 +19,7 @@ Each item below is a decision already taken, with its ratification cited. A revi
 |---|---|---|
 | R1 | `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE` and `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS` are **already implemented**. This spec deletes their BACKLOG rows; it does **not** re-implement them. | `DEFERRED-archive.md:1224-1234`; live proof `components/admin/RecentAutoAppliedStrip.tsx:551` (`data-testid` on the persistent `role="status"` region, `auto-applied-bulk-undo-status-${group.showId}`) and eleven `ARM_REVERT_MS = 4_000` declarations with zero surviving `AUTO_REVERT_MS`. |
 | R2 | The fix for `BL-DESTRUCT-STACK-THUMB-ORDER` is a **breakpoint-forked render (two DOM subtrees) keyed on CONTAINER width**, threshold 576px. The owner first chose a viewport-keyed fork on 2026-07-25 from a rendered comparison; adversarial review plus a browser probe then showed the viewport key does not fix the live 280px rail (§2.5), and the owner re-decided for the container key the same day on that evidence. Ruled out and not to be re-argued: a CSS `order` flip, `flex-row-reverse`, grid line placement (all desync visual from focus order, WCAG 2.4.3 — the original reason this was deferred rather than patched), a recolour-only fix, and a global DOM swap. | Owner decisions, 2026-07-25, this session; evidence in §2.5 and §4.2. |
-| R3 | Duplicating a destructive control is a **known, accepted cost** of R2, not an oversight. Containment is four-part and specified in §4.5: one shared render helper, a canonical-token allowlist that catches shared drift, per-copy test ids, and a real-browser proof that exactly one copy is displayed at each container width. | This spec §4.5. |
+| R3 | Duplicating a destructive control is a **known, accepted cost** of R2, not an oversight. Containment is four-part and specified in §4.5: one shared render helper, a canonical-token allowlist that catches shared drift, per-copy test ids, and a real-browser proof that exactly one copy is displayed at each of the three probed container widths. | This spec §4.5. |
 | R4 | The bare test ids `admin-pending-defer-${id}` / `admin-pending-ignore-${id}` are **retired**, not reassigned to one copy. A bare id that silently resolves to one of two live copies is precisely the ambiguity that makes a duplicated destructive control dangerous. | This spec §4.4. |
 | R5 | Wiring `tests/e2e/pendingDiscardReflow.layout.spec.ts` into CI is **in scope**, because it is this change's verification vehicle. It currently runs in no workflow (`tests/e2e/standalone.config.ts:36` lists it, but `package.json:52` names only four other specs). Note the config itself IS invoked by `.github/workflows/modal-header-layout-e2e.yml:106` — it is *this spec* that is dark, not the config, per the `BL-STANDALONE-CONFIG-CI-DARK` row in `BACKLOG.md`. A guard that runs in no CI is not a guard. This spec does **not** attempt the rest of `BL-STANDALONE-CONFIG-CI-DARK`'s ~15 other dark specs. | `AGENTS.md` cross-cutting rule "Local-passes-CI-fails is its own bug class"; that row's "Partially closed" note. |
 | R6 | The drift guard pins the **arm-revert duration only**. It does not pin `SUCCESS_DISMISS_MS` (`app/admin/show/[slug]/PickerResetControl.tsx:121`, `app/admin/show/[slug]/ResetPickerEpochButton.tsx:118`) — a success-toast dismissal is a different affordance with no ratified shared value. Widening the guard to all admin timers is out of scope. | This spec §5.3. |
@@ -101,7 +101,7 @@ These are prose notes, not assertions, so nothing fails today — which is exact
 
 This was not in the backlog and was found by measuring the real page, after adversarial review challenged the viewport-keyed design.
 
-The Needs-Attention list is a fixed rail on wide viewports: `components/admin/Dashboard.tsx:636` sets `min-[1240px]:w-80` (320px), and each card inside it carries `p-tile-pad` (`components/admin/NeedsAttentionInbox.tsx:65`), which is 20px (`app/globals.css:170`). The buttons therefore get **280px**, while side by side they need 315.95px idle and 491.25px armed.
+The Needs-Attention list is a fixed rail on wide viewports: `components/admin/Dashboard.tsx:736` sets `min-[1240px]:w-80` (320px), and each card inside it carries `p-tile-pad` (`components/admin/NeedsAttentionInbox.tsx:65`), which is 20px (`app/globals.css:170`). The buttons therefore get **280px**, while side by side they need 315.95px idle and 491.25px armed.
 
 Measured in Chromium at a 1280px viewport with today's shipped markup in the **real card nesting** — card with `p-tile-pad`, the `flex flex-wrap items-center gap-2` action row (`components/admin/NeedsAttentionInbox.tsx:72`), and the `Retry now` sibling — not a bare container:
 
@@ -214,7 +214,7 @@ Unchanged: `admin-pending-discard-error-${id}` (`components/admin/PendingPanelDi
 | The two copies drift together | Canonical-token assertion: each rendered button must carry the required token set (`min-h-tap-min`, `inline-flex`, `items-center`, `justify-center`, `rounded-sm`, `px-3`, `text-sm`) checked against a literal allowlist, **not** against the other copy | §6.2 test 2b. Parity alone cannot catch this and is not asked to |
 | The two copies drift apart | Both emitted by the single `pair()` helper | §6.2 tests 2a/3 compare the copies to each other |
 | A query resolves ambiguously | Variant-suffixed ids; the bare ids no longer exist, so a stale query fails loudly instead of matching two nodes | Mechanical, compile- and test-visible |
-| Both copies live at once, or neither | `@min-[576px]:hidden` / `hidden @min-[576px]:flex` are exact complements | §6.3 real-browser assertion at four container widths |
+| Both copies live at once, or neither | `@min-[576px]:hidden` / `hidden @min-[576px]:flex` are exact complements | §6.3 real-browser assertion at 280 / 576 / 720px, plus the production-nesting panel |
 | A future edit reverts to one subtree, or drops `flex` | Source drift-guard asserting the fork's classes are present **and** `basis-full` is absent | §6.3 drift-guard |
 
 ### 4.6 Guard conditions for the one prop
@@ -258,33 +258,38 @@ The component's visual state is **two independent dimensions**, not one flat enu
 - **`state`** ∈ { `idle`, `running-defer`, `running-ignore`, `error` } — the `State` union at `components/admin/PendingPanelDiscardButtons.tsx:22-25`
 - **`armed`** ∈ { `false`, `true` } — the separate boolean at `components/admin/PendingPanelDiscardButtons.tsx:47`
 
-Eight cells. Three are unreachable, and each unreachability is a claim checked against the live component:
+Eight cells. **Two** are unreachable, leaving **six** reachable — so the pairwise inventory is 6·5/2 = **15 unordered pairs**, not the 10 an earlier five-state draft claimed. Each unreachability is a claim checked against the live component:
 
 | | `armed: false` | `armed: true` |
 |---|---|---|
-| **idle** | resting | armed confirm showing |
-| **running-defer** | Deferring… | **unreachable** — `handleClick` disarms before setting running (`components/admin/PendingPanelDiscardButtons.tsx:76-77`) |
-| **running-ignore** | Ignoring… | **unreachable** — same disarm, `components/admin/PendingPanelDiscardButtons.tsx:66-68` |
-| **error** | error shown | **reachable** — `onGuardedIgnoreClick` arms without touching `state` (`components/admin/PendingPanelDiscardButtons.tsx:56-64`) |
+| **idle** | A — resting | B — armed confirm showing |
+| **running-defer** | C — Deferring… | **unreachable** — `handleClick` disarms before setting running (`components/admin/PendingPanelDiscardButtons.tsx:76-77`) |
+| **running-ignore** | D — Ignoring… | **unreachable** — same disarm (`components/admin/PendingPanelDiscardButtons.tsx:66-68`) |
+| **error** | E — error shown | F — error **and** armed; `onGuardedIgnoreClick` arms without touching `state` (`components/admin/PendingPanelDiscardButtons.tsx:56-64`) |
 
-Transitions between the five reachable cells:
+All 15 pairs over {A, B, C, D, E, F}:
 
-| Transition | Treatment |
-|---|---|
-| idle/false → idle/true | Recipe morph on Ignore, `transition-opacity duration-fast` (`components/admin/PendingPanelDiscardButtons.tsx:127`). Box top/left/width fixed (D4/D6). **Unchanged.** |
-| idle/true → idle/false | Same transition reversed. Fires on the 4s auto-revert (`components/admin/PendingPanelDiscardButtons.tsx:60-63`) or on a sibling mutation (`components/admin/PendingPanelDiscardButtons.tsx:76-77`). **Unchanged.** |
-| idle/false → running-defer | Instant. Label `Defer until modified` → `Deferring…` (`components/admin/PendingPanelDiscardButtons.tsx:116-118`), both buttons `disabled` (`components/admin/PendingPanelDiscardButtons.tsx:104`). |
-| idle/true → running-ignore | Instant. Label → `Ignoring…`. Disarm and run are set in one handler, so no intermediate resting frame renders. |
-| idle/true → running-defer | Instant. Tapping Defer while armed disarms and starts the defer. Pinned today at `tests/components/admin/pendingIngestionActions.test.tsx:232`. |
-| running-* → idle/false | Instant. Success resets to idle and calls `router.refresh()` (`components/admin/PendingPanelDiscardButtons.tsx:97-98`). |
-| running-* → error/false | Instant. The error block mounts below the row (`components/admin/PendingPanelDiscardButtons.tsx:144-153`). No enter animation today. **Unchanged.** |
-| error/false → error/true | Instant, and **the error block stays mounted**. It describes the previous failed attempt, which is still true. §6.2 test 9. |
-| error/true → error/false | Instant. The 4s timer clears `armed` only and leaves `state.kind === "error"` (`components/admin/PendingPanelDiscardButtons.tsx:60-63`), so the compound state decays back to plain error rather than to idle. §6.2 test 10. |
-| error/true → running-defer | Instant. Defer disarms and starts a run from the compound state; the error is replaced by the running state (`components/admin/PendingPanelDiscardButtons.tsx:78`). §6.2 test 11. |
-| error/true → running-ignore | Instant. The second Ignore tap fires the discard from the compound state. §6.2 test 11. |
-| error/false → running-* | Instant. A new attempt replaces the error state. |
-| running-defer ↔ running-ignore | **Unreachable in both directions.** `handleClick` returns early while a run is in flight (`components/admin/PendingPanelDiscardButtons.tsx:72`) and both buttons are `disabled` when running (`components/admin/PendingPanelDiscardButtons.tsx:113`, `components/admin/PendingPanelDiscardButtons.tsx:124`). One mutation at a time by construction. |
-| error/* → idle directly | **Unreachable.** Leaving error requires a new attempt, so it always passes through a running cell. |
+| Pair | Direction(s) | Treatment |
+|---|---|---|
+| A–B | both | Recipe morph on Ignore, `transition-opacity duration-fast` (`components/admin/PendingPanelDiscardButtons.tsx:127`); box top/left/width fixed (D4/D6). Reverse fires on the 4s auto-revert (`components/admin/PendingPanelDiscardButtons.tsx:60-63`) or a sibling mutation. **Unchanged.** |
+| A–C | A→C only | Instant. `Defer until modified` → `Deferring…` (`components/admin/PendingPanelDiscardButtons.tsx:116-118`), both `disabled` (`components/admin/PendingPanelDiscardButtons.tsx:104`). C→A is the success reset below. |
+| A–D | **neither directly** | A→D is unreachable: the first Ignore tap arms and returns without running (`components/admin/PendingPanelDiscardButtons.tsx:56-64`), so the path is A→B→D. D→A is the success reset. |
+| A–E | E→A only | A→E unreachable (an error needs an attempt). E→A happens only via a fresh attempt, so it passes through C or D. |
+| A–F | **neither** | Unreachable in both directions: reaching F requires an error first, and leaving F requires a run. |
+| B–C | B→C only | Instant. Tapping Defer while armed disarms and starts the defer. Pinned at `tests/components/admin/pendingIngestionActions.test.tsx:232`. |
+| B–D | B→D only | Instant. The second Ignore tap fires the discard; disarm and run set in one handler, so no resting frame renders. |
+| B–E | **neither directly** | B→E unreachable — an error can only be set by `handleClick`, which disarms first, so the path is B→D→E. E→B is the arming step, which lands in F, not B. |
+| B–F | **neither** | Unreachable: `state` cannot change from `idle` to `error` without passing through a running cell. |
+| C–D | **neither** | Unreachable both ways. `handleClick` returns early while a run is in flight (`components/admin/PendingPanelDiscardButtons.tsx:72`) and both buttons are `disabled` (`components/admin/PendingPanelDiscardButtons.tsx:113`, `components/admin/PendingPanelDiscardButtons.tsx:124`). One mutation at a time by construction. |
+| C–E | C→E only | Instant. The error block mounts below the row (`components/admin/PendingPanelDiscardButtons.tsx:144-153`). No enter animation today. **Unchanged.** |
+| C–F | **neither** | Unreachable: a run resolves into E, never into F, because it does not arm. |
+| D–E | D→E only | Instant, same as C–E. |
+| D–F | **neither** | Same reason as C–F. |
+| E–F | both | E→F: tapping Ignore while an error shows arms the button **and the error block stays mounted** — it describes the previous failed attempt, which is still true. §6.2 test 9. F→E: the 4s timer clears `armed` only and leaves `state.kind === "error"` (`components/admin/PendingPanelDiscardButtons.tsx:60-63`), so the compound decays to plain error, never to idle. §6.2 test 10. |
+
+Exits from F that are **not** pairs with A–E but matter operationally: F→C (Defer from the compound state) and F→D (second Ignore from the compound state). Both instant, both covered by §6.2 test 11.
+
+**Correction carried from review:** an earlier draft had a row claiming `error/false → running-*` was instant, with a new attempt replacing the error state. That was wrong for Ignore. From E, the first Ignore activation **arms** and returns (`components/admin/PendingPanelDiscardButtons.tsx:56-64`); only E→C (Defer) is a direct run. E→D always goes through F.
 
 **Compound transitions across the fork:**
 
@@ -296,15 +301,15 @@ Transitions between the five reachable cells:
 | 4s auto-revert fires mid-resize | No interaction; the timer is width-independent and clears one shared flag. |
 | Unmount while armed | `useEffect(() => clearArmTimer, [])` (`components/admin/PendingPanelDiscardButtons.tsx:55`) clears it. **Unchanged**; pinned at `tests/components/admin/pendingIngestionActions.test.tsx:269`. |
 
-### 4.9 Focus across the fork boundary
+### 4.9 Focus across the fork boundary — accepted limitation, not fixed here
 
-Because both copies stay mounted and the fork swaps which one is `display:none`, a container resize that crosses 576px while one of these buttons has keyboard focus drops focus to `<body>`. Triggers: window resize, device rotation, browser zoom (which changes the container's used inline size), and the dashboard's own `min-[1240px]` grid switch.
+Because both copies stay mounted and the fork swaps which one is `display:none`, a container resize that crosses the threshold while one of these buttons holds keyboard focus drops focus to `<body>`. Triggers: window resize, device rotation, browser zoom, and the dashboard's own `min-[1240px]` grid switch.
 
-**Shipped behaviour: transfer focus to the counterpart control.** A `useEffect` observing the wrapper with `ResizeObserver` checks, on each crossing, whether `document.activeElement` is one of this component's four buttons; if so it moves focus to the same logical control in the newly-shown copy. Same control, same label, no surprise — the user keeps their place.
+**This spec does NOT fix it.** An earlier draft specified a `ResizeObserver`-driven focus transfer. Adversarial review round 2 showed that contract cannot be honestly verified by the vehicle available: `tests/e2e/pendingDiscardReflow.layout.spec.ts` is a **transcribed static-HTML** harness (`tests/e2e/pendingDiscardReflow.layout.spec.ts:51`) that imports no component chain, so any `ResizeObserver` behaviour asserted there would be a transcription of the effect, not the shipped effect. The source guard checks layout classes only — never observer setup, crossing detection, cleanup, refs, or the `focus()` call — so the suite could pass with the production effect absent or broken. Shipping an untestable a11y effect is worse than shipping a documented gap, and the project's three-round cap on design-correctness vectors says to descope rather than patch prose a third time.
 
-Rejected alternative: accepting focus loss and documenting it. That is the cheaper option and would be defensible for a decorative control, but this is the entry point to an irreversible action, and a keyboard user who rotates a tablet mid-confirm would silently lose their position on it.
+**Severity and precedent.** The controls remain reachable by re-tabbing, so this is not a WCAG-A blocker; it is the same class and severity as `BL-CREWPAGE-ROTATE-FOCUS-MGMT`, an accepted P2 on a sibling control in this same family. Focus is lost only on a resize that crosses the threshold *while* one of these two buttons is focused — a narrow window.
 
-The `armed` flag is unaffected by the transfer — it lives above both copies, so a focus move never re-arms or disarms.
+**Filed, not forgotten.** A new backlog row `BL-DESTRUCT-FORK-FOCUS-TRANSFER` records the gap, the reason it was descoped (no real-component browser harness for this component), and the trigger to promote it: building a mounting harness of the kind that already exists for the Step 3 modal, or any a11y pass on the admin action rows. The `armed` flag is unaffected either way — it lives above both copies, so a crossing never re-arms or disarms.
 
 ## 5. Design — the arm-timing drift guard
 
@@ -337,7 +342,18 @@ Three new assertions (T1, T2, T3) added to `tests/styles/_metaDestructiveConfirm
 
 A site may opt out with an inline `// not-arm-revert: <reason>` comment.
 
-**Why an allowlist and not just a literal ban.** A ban on numeric literals alone is fail-open: `const CONFIRM_TIMEOUT = 3_000; setTimeout(cb, CONFIRM_TIMEOUT)` passes a literal ban (the delay is an identifier), passes T1 (it never declares `ARM_REVERT_MS`), and passes T3 (the shared value is still 4s). A registered destructive surface could therefore drift to a 3-second confirm window with every guard green. The allowlist closes that: an unrecognised identifier fails, and the author must either use the shared constant or add a row saying what the new timer is and why it is not an arm-revert. That is a human decision recorded in the repo instead of a silent divergence.
+**Why an allowlist and not just a literal ban.** A ban on numeric literals alone is fail-open: `const CONFIRM_TIMEOUT = 3_000; setTimeout(cb, CONFIRM_TIMEOUT)` passes a literal ban (the delay is an identifier), passes T1 (it never declares `ARM_REVERT_MS`), and passes T3 (the shared value is still 4s). A registered surface could drift to a 3-second window with every guard green.
+
+**Four further bypasses, each closed explicitly.** Round-2 review enumerated these; they are holes *inside* registry membership, so §5.3's "surface outside the registry" limitation does not cover them.
+
+| # | Bypass | Closure |
+|---|---|---|
+| B1 | **Import aliasing.** T1 must ignore import bindings so the eleven migrated files pass, so `import { THREE_SECONDS as ARM_REVERT_MS } from "./elsewhere"` satisfies T2 by local identifier while T1 and T3 stay green — without using the shared module | T1 additionally asserts that every file *referencing* `ARM_REVERT_MS` either declares it (the one shared module) or imports it **from `@/lib/admin/destructiveConfirm` specifically**, matched on the module specifier, with no local rename of a foreign binding to that name |
+| B2 | **Non-`setTimeout` schedulers.** `setInterval`, `AbortSignal.timeout`, a `delay()` helper, or an aliased `const t = setTimeout` all introduce a revert window T2 never inspects | T2 scans a **scheduler set** — `setTimeout`, `setInterval`, `AbortSignal.timeout`, `requestIdleCallback` with a `timeout` option — and additionally fails on any *aliasing* of those identifiers inside a registry file |
+| B3 | **Exemption scope.** A file-level raw-source check lets one legitimate `// not-arm-revert:` suppress every unrelated timer in the same file | The exemption binds to the **call**, not the file: it must appear on the scheduler call's own line or the line immediately above, and each exemption is consumed by exactly one call. Two timers need two comments |
+| B4 | **Silent zero-detection.** A regex that matches nothing passes forever; a synthetic self-check can pass while multiline or nested-callback calls are skipped | T2 asserts the **count** of detected scheduler calls per registry file against a checked-in expected count, so a detector that stops seeing real calls fails. The self-check covers single-line, multiline, and nested-callback shapes, plus a negative case per bypass above |
+
+B4's count assertion is the one that makes the rest trustworthy: without it, every other closure could silently stop matching and the suite would still be green.
 
 **T3 — value pin.** `ARM_REVERT_MS === 4_000`, with the ratification cited in the failure message so a future edit to the shared value is a loud test failure rather than a quiet change.
 
@@ -366,7 +382,9 @@ jsdom applies no CSS (`feedback_jsdom_no_css_tobevisible_vacuous`). `toBeVisible
 
 ### 6.2 jsdom (`tests/components/admin/pendingIngestionActions.test.tsx`)
 
-Existing tests retarget to the `-inline-` ids per §4.4 (jsdom mounts both copies, so either resolves). No assertion semantics change.
+Existing tests retarget to the `-inline-` ids per §4.4 (jsdom mounts both copies, so either resolves).
+
+**One existing test needs more than an id swap.** The persistent-status test at `tests/components/admin/pendingIngestionActions.test.tsx:282` reaches the live region via `btn.nextElementSibling`, and re-checks that adjacency after the timer decays. §4.3 moves the region out of the row, so the inline Ignore's next sibling becomes `null` and the test fails on a null deref — not on a changed assertion. It is rewritten to locate the region by `getByRole("status")` (now unambiguous, since exactly one exists per §6.2 test 6) and keeps every behavioural assertion it already made: initially empty, populated on arm, emptied but **never unmounted** after the 4s decay. The claim "no assertion semantics change" applies to the other tests, not this one.
 
 New tests, each stating the concrete failure mode it catches:
 
@@ -401,7 +419,8 @@ Panels:
 | `fork-576-idle`, `fork-576-armed` | 576px — exactly the threshold | subject, inline branch at its tightest |
 | `fork-720-idle`, `fork-720-armed` | 720px | subject, inline branch with slack |
 | `nofork-280-idle`, `nofork-280-armed` | 280px, **today's shipped markup** | **negative control for ordering** — must show Ignore *below* Defer, proving the harness reproduces the live defect |
-| `nobasis-280-*` | 280px, pre-DESTRUCT-1 markup | retained negative control for the reflow claim |
+| `prod-320-idle`, `prod-320-armed` | a 320px rail card transcribed with its **real nesting** — `p-tile-pad`, the `flex flex-wrap items-center gap-2` action row, and the `Retry now` sibling | **production-geometry panel.** The other panels are fixed-width wrappers, which manufacture a definite width the live tree does not hand the component. This panel proves the `w-full @container` root actually measures the card in the shape it really ships in, and that the buttons neither collapse nor overflow |
+| `nobasis-328-*` | **328px**, pre-DESTRUCT-1 markup | retained negative control for the reflow claim, at the geometry where the original defect was measured |
 
 Assertions:
 
@@ -409,7 +428,8 @@ Assertions:
 - **280px, D5:** `ignore.bottom ≤ defer.top + TOL` in idle **and** armed. The `nofork-280-idle` control asserts the opposite (`ignore.top ≥ defer.bottom - TOL`).
 - **280px, D1:** both button widths equal the container width within 0.5px.
 - **280px, D2:** both heights ≥ 44px.
-- **280px, D4:** armed stacked Ignore top/left/width equal idle's within 0.5px; height compared separately and allowed to grow. `nobasis-280-*` retained to prove the harness still reproduces a reflow.
+- **280px, D4:** armed stacked Ignore top/left/width equal idle's within 0.5px; height compared separately and allowed to grow.
+- **328px, `nobasis-328-*`:** the reflow control runs at **328px**, not 280px. At 280px the idle pair (315.95px) is already wrapped, so arming cannot reproduce the original same-row-to-new-row **relocation** — only width growth. 328px is the geometry the DESTRUCT-1 defect was measured at (`docs/superpowers/specs/admin/2026-07-17-destruct1-armed-reflow.md:24`), so the control proves what it claims to prove.
 - **576px and 720px, D3:** inline copy live, stacked measures `0×0`; `defer.right ≤ ignore.left + TOL`; and **idle and armed both occupy a single row** (`ignore.top === defer.top`). The armed assertion at exactly 576px is the threshold guard of §4.2 — if a platform's font metrics push the armed total past the threshold, this fails loudly instead of wrapping silently.
 - **576px and 720px, D6:** armed inline Ignore left and top equal idle's within 0.5px; width may grow.
 - **Focus transfer (§4.9):** focus the stacked Ignore in a 280px panel, widen the wrapper past 576px, and assert `document.activeElement` is the **inline** Ignore, not `<body>`. Then the reverse direction. This is the only place the focus contract can be proven, since it depends on real layout.
@@ -421,7 +441,8 @@ Assertions:
 
 - New `package.json` script `test:e2e:destructive-layout`, running `tests/e2e/pendingDiscardReflow.layout.spec.ts` under `tests/e2e/standalone.config.ts` (the config must be passed explicitly; Playwright's default config matches none of these specs).
 - New workflow **.github/workflows/destructive-layout-e2e.yml**, modelled directly on `.github/workflows/modal-header-layout-e2e.yml` — same `actions/setup`, same Playwright browser cache, same failure-artifact upload, same `workflow_dispatch:` so close-out can fire it with `gh workflow run`. The harness self-hosts, so no `webServer` and no Supabase are needed; unlike the modal-header job it also needs no env block, because this harness renders static HTML strings and imports no server chain.
-- `paths:` triggers on `components/admin/PendingPanelDiscardButtons.tsx`, the layout spec itself, `tests/e2e/standalone.config.ts`, `app/globals.css`, `package.json`, `pnpm-lock.yaml`, and the workflow file.
+- `paths:` triggers on `components/admin/PendingPanelDiscardButtons.tsx`, **`components/admin/NeedsAttentionInbox.tsx`** (the parent that supplies the container the query measures — a change to the action row or card padding can break the fork without touching the component), the layout spec itself, `tests/e2e/standalone.config.ts`, `app/globals.css`, `package.json`, `pnpm-lock.yaml`, and the workflow file.
+- **Coverage-registry row (mandatory companion).** `tests/ci/_metaE2eWorkflowCoverage.test.ts:84` currently records this spec as `UNSEEN`. Because the new workflow carries `pull_request.paths`, `tests/ci/_workflowCoverageScan.ts:105` classifies it as **`PATH_GATED`**, not universally covered. The row is updated to `PATH_GATED` in the same commit as the workflow. Leaving it at `UNSEEN` would keep a false claim that no workflow names the spec, while `BACKLOG.md` simultaneously says it is newly covered — the two would contradict, and the meta-test would fail.
 - The `BL-STANDALONE-CONFIG-CI-DARK` row's "Partially closed" note in `BACKLOG.md` is updated to record that one more spec is now covered and the remainder still dark.
 
 ### 6.5 Full-suite gates before push
