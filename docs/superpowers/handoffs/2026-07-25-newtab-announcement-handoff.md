@@ -795,8 +795,7 @@ not fail is information.
 
 ### §6.4 premise narrowed, because it was too strong
 
-The section claimed an attribute outside the closed list "cannot change an accessible name".
-RETRACTED, because it is false: `data-*` is open-ended and `[data-state="closed"] { display: none }` hides a subtree. The true
+The section claimed an attribute outside the closed list "cannot change an accessible name" -- RETRACTED, because it is false: `data-*` is open-ended and `[data-state="closed"] { display: none }` hides a subtree. The true
 and sufficient statement is narrower — **HTML attribute names are ASCII case-insensitive**, so
 `DATA-STATE` and `data-state` produce identical DOM and match the same selector, and casing therefore
 cannot be the defect outside the list. That is all the sweep asserts. CSS-driven hiding is now an

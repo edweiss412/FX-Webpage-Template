@@ -55,6 +55,8 @@ const CASE_INSENSITIVE_NAMES = new Set([
   "open",
   // R22: an unshown popover is not rendered, so this hides.
   "popover",
+  // R24: read to detect <input type="hidden">, which is not rendered.
+  "type",
 ]);
 
 /** Attributes that can affect an element's computed accessible name or its visibility, from an
@@ -64,7 +66,7 @@ const CASE_INSENSITIVE_NAMES = new Set([
  *  source, which is what makes the sweep immune to reading form.
  *
  *  RETRACTED at R21/R22, and the earlier wording is deleted rather than left standing: it is NOT
- *  true that an attribute outside this list cannot change an accessible name -- `data-*` is
+ *  true that an attribute outside this list cannot change an accessible name (RETRACTED) -- `data-*` is
  *  open-ended and a `[data-state="closed"]` CSS rule hides a subtree. What IS true, and all the
  *  sweep needs, is that HTML attribute NAMES are ASCII case-insensitive, so a spelling outside
  *  this list behaves identically either way and casing cannot be the defect. */
@@ -215,6 +217,7 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["noscript", "intrinsic tag name (content never rendered)"],
   ["datalist", "intrinsic tag name (content never rendered)"],
   ["dialog", "intrinsic tag name (not shown unless open)"],
+  ["input", 'intrinsic tag name (R24: type="hidden" is not rendered)'],
   ["Link", "component tag name"],
   ["NewTabHint", "component tag name"],
   // Internal classification verdicts returned by the shape rules.
@@ -1611,9 +1614,9 @@ describe("R6: scanner changes are pinned", () => {
     // because they are RETRACTED, and the window check below sees this comment.
     const REFUTED = [
       // RETRACTED claims, pinned here so prose cannot quietly restate them
-      "cannot change an accessible name",
-      "covers every name-producing accessor",
-      "is decided by literal SHAPE",
+      "cannot change an accessible name", // RETRACTED
+      "covers every name-producing accessor", // RETRACTED
+      "is decided by literal SHAPE", // RETRACTED
     ];
     // An EXPLICIT marker, not a vocabulary guess. The first version matched words like
     // "narrowed" and "superseded", which is the same match-prose-as-text shape that failed
@@ -1639,9 +1642,11 @@ describe("R6: scanner changes are pinned", () => {
       lines.forEach((line, i) => {
         for (const claim of REFUTED) {
           if (!line.includes(claim)) continue;
-          // A retraction may span the sentence, so look at a small window, not one line.
-          const window = lines.slice(Math.max(0, i - 3), i + 4).join(" ");
-          if (!RETRACTION.test(window)) offenders.push(`${rel}:${i + 1} ${claim}`);
+          // SAME LINE, not a window. A window is position-only: R24 showed an unrelated
+          // "RETRACTED: the moon-is-cheese claim" three lines away licensed a stale claim
+          // sitting beside it. Binding the marker to the claim's own line is the only form
+          // that cannot be satisfied by something else's retraction.
+          if (!RETRACTION.test(line)) offenders.push(`${rel}:${i + 1} ${claim}`);
         }
       });
     }
@@ -1649,6 +1654,22 @@ describe("R6: scanner changes are pinned", () => {
       offenders,
       "these lines state a claim this PR refuted, without retracting it -- delete them or mark the retraction",
     ).toEqual([]);
+
+    // SELF-TEST on synthetic input, because a guard that only ever runs on files it already
+    // passes cannot be shown to work. R24's witness: an unrelated retraction three lines away
+    // licensed a stale claim under the old window rule.
+    const scan = (text: string): number =>
+      text.split("\n").filter((l) => REFUTED.some((c) => l.includes(c)) && !RETRACTION.test(l))
+        .length;
+    expect(
+      scan("RETRACTED: the moon-is-cheese claim.\n\n\ncannot change an accessible name"),
+      "an unrelated retraction must NOT license a stale claim",
+    ).toBe(1);
+    expect(
+      scan("cannot change an accessible name -- RETRACTED, see §6.4"),
+      "a same-line retraction must license it",
+    ).toBe(0);
+    expect(scan("an unrelated sentence"), "unrelated prose is not an offender").toBe(0);
   });
 
   it("R22 intrinsic hiding: template, popover, and a details that is not provably open", () => {
@@ -1675,6 +1696,51 @@ describe("R6: scanner changes are pinned", () => {
     for (const src of [
       'const A=()=><a href="x" target="_blank">Go <details open><NewTabHint /></details></a>;',
       'const A=()=><a href="x" target="_blank">Go <details open={true}><NewTabHint /></details></a>;',
+    ]) {
+      expect(violations(src), `must accept: ${src}`).toEqual([]);
+    }
+  });
+
+  it("R24 a hint that may not render is not an announcement", () => {
+    for (const src of [
+      // `a || b` yields `a` when truthy, so this renders NO hint.
+      'const A=()=><a href="x" target="_blank">Go {true || <NewTabHint />}</a>;',
+      // A hint inside a callback is not proof one renders: the collection may be empty.
+      'const A=({e,xs})=><a href="x" {...(e?{target:"_blank"}:{})}>Go {e && xs.map(() => <NewTabHint />)}</a>;',
+    ]) {
+      expect(violations(src), `must report: ${src}`).not.toEqual([]);
+    }
+    for (const src of [
+      'const A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;',
+      'const A=({e})=><a href="x" {...(e?{target:"_blank"}:{})}>Go {e && <NewTabHint />}</a>;',
+    ]) {
+      expect(violations(src), `must accept: ${src}`).toEqual([]);
+    }
+  });
+
+  it("R24 a wrapper whose only content is the hint carries no destination", () => {
+    for (const src of [
+      'const A=()=><a href="x" target="_blank"><span> <NewTabHint /></span></a>;',
+      'const A=()=><a href="x" target="_blank"><input type="hidden" value="Go" /> <NewTabHint /></a>;',
+      // Falsiness and renders-nothing are ORTHOGONAL: an object is truthy but renders nothing,
+      // and an array renders the concatenation of its elements.
+      'const A=()=><a href="x" target="_blank">{({}) && null} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank">{[null]} <NewTabHint /></a>;',
+      // `[] && null` distinguishes the array-truthy clause: an array is TRUTHY however empty,
+      // so the result is `null` and nothing renders. Without that clause the left operand is
+      // "unknown" and this is wrongly accepted -- a mutation showed no test could tell.
+      'const A=()=><a href="x" target="_blank">{[] && null} <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must report: ${src}`).not.toEqual([]);
+    }
+    for (const src of [
+      'const A=()=><a href="x" target="_blank"><span>Go</span> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span><b>Go</b></span> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><input type="text" /> <NewTabHint /></a>;',
+      // `[]` is TRUTHY, so this yields "Dest" -- the earlier rule manufactured a violation.
+      'const A=()=><a href="x" target="_blank">{[] && "Dest"} <NewTabHint /></a>;',
+      // `0` is falsy but RENDERS, so `0 && null` yields "0".
+      'const A=()=><a href="x" target="_blank">{0 && null} <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }

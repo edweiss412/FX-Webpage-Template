@@ -453,9 +453,10 @@ function hasDestinationContent(anchor: ts.JsxElement | ts.JsxSelfClosingElement)
  */
 function rendersNothing(e: ts.Expression): boolean {
   const n = unparen(e);
-  // React renders NOTHING for null, undefined, and BOTH booleans -- `true` included, which
-  // the earlier version missed (review R23 BLOCKING 1). It DOES render numbers, so `{0}`
-  // prints "0" and is a destination.
+  // React renders nothing for null, undefined and BOTH booleans. It DOES render numbers, so
+  // `{0}` prints "0". Falsiness and renders-nothing are ORTHOGONAL, and conflating them was
+  // wrong in both directions (review R24 BLOCKING 3): `[]` is truthy yet renders nothing,
+  // while `0` is falsy yet renders a character.
   if (
     n.kind === ts.SyntaxKind.NullKeyword ||
     n.kind === ts.SyntaxKind.FalseKeyword ||
@@ -467,28 +468,42 @@ function rendersNothing(e: ts.Expression): boolean {
   if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
     return n.text.trim().length === 0;
   }
-  // An empty array renders nothing; a non-empty one may render anything.
-  if (ts.isArrayLiteralExpression(n)) return n.elements.length === 0;
+  // An array renders the concatenation of its elements, so it renders nothing iff every
+  // element does. `[]` and `[null]` both qualify.
+  if (ts.isArrayLiteralExpression(n)) {
+    return n.elements.every((el) => rendersNothing(el));
+  }
+  // A plain object literal is not valid React content; it renders nothing here.
+  if (ts.isObjectLiteralExpression(n)) return true;
   if (ts.isConditionalExpression(n)) {
     return rendersNothing(n.whenTrue) && rendersNothing(n.whenFalse);
   }
-  // `a && b` evaluates to `a` when `a` is falsy, otherwise to `b`. The earlier version only
-  // looked at `b`, which was wrong in BOTH directions (review R23 BLOCKING 1 and HIGH 4):
-  // `false && "Dest"` renders nothing yet was called a destination, and `0 && null` renders
-  // the character "0" yet was called empty, manufacturing a violation. So decide it from `a`.
+  // `a && b` evaluates to `a` when `a` is FALSY and to `b` otherwise. Decide which operand is
+  // the result before asking what it renders; give up when `a` is not a literal.
   if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
     const left = unparen(n.left);
-    if (rendersNothing(left) && !isProvablyTruthy(left)) return true; // result IS `a`
-    if (isProvablyTruthy(left)) return rendersNothing(n.right); // result IS `b`
-    return false; // `a` unknown: not provable either way
+    if (isLiteralFalsy(left)) return rendersNothing(left);
+    if (isLiteralTruthy(left)) return rendersNothing(n.right);
+    return false;
   }
   return false;
 }
 
-/** Is this expression a literal that is definitely truthy? Used only to decide which side of
- *  an `&&` is its result; anything unproven returns false and the caller gives up. */
-function isProvablyTruthy(n: ts.Expression): boolean {
+/** Definitely-falsy literals. `0` and `""` are falsy but `0` still RENDERS, which is why this
+ *  is separate from `rendersNothing`. */
+function isLiteralFalsy(n: ts.Expression): boolean {
+  if (n.kind === ts.SyntaxKind.FalseKeyword || n.kind === ts.SyntaxKind.NullKeyword) return true;
+  if (ts.isIdentifier(n) && n.text === "undefined") return true;
+  if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text.length === 0;
+  if (ts.isNumericLiteral(n)) return Number(n.text) === 0;
+  return false;
+}
+
+/** Definitely-truthy literals. Arrays and objects are ALWAYS truthy however empty they are --
+ *  omitting them made `[] && "Dest"` manufacture a violation (review R24 BLOCKING 3). */
+function isLiteralTruthy(n: ts.Expression): boolean {
   if (n.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (ts.isArrayLiteralExpression(n) || ts.isObjectLiteralExpression(n)) return true;
   if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text.length > 0;
   if (ts.isNumericLiteral(n)) return Number(n.text) !== 0;
   return false;
@@ -528,6 +543,14 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
       continue;
     }
     if (ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)) {
+      // RECURSE into an element with children rather than counting it wholesale. A wrapper
+      // whose only content is the hint contributes no destination -- `<span> <NewTabHint />
+      // </span>` computed to the phrase alone and was accepted (review R24 BLOCKING 2).
+      if (ts.isJsxElement(child)) {
+        if (hidesFromAccName(child)) continue;
+        if (childrenCarryDestination(child.children)) return true;
+        continue;
+      }
       // A visible ELEMENT is opaque too, and this is where the first version of this rule
       // was wrong: it required literal TEXT, so `<Label /> <NewTabHint />` and
       // `<img alt="Go" /> <NewTabHint />` were both reported. A component renders text this
@@ -570,6 +593,14 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
   // NOT_RENDERED: content is never rendered (script-supporting and metadata elements).
   // NOT_SHOWN_UNLESS_OPEN: rendered only when `open` is present and truthy.
   if (NOT_RENDERED_TAGS.has(tag)) return true;
+  // `<input type="hidden">` is not rendered, so neither its value nor anything it could name
+  // reaches the accessible name (review R24 BLOCKING 2).
+  if (tag === "input") {
+    const typeAttr = attrs.properties.find((a) => attrName(a) === "type");
+    if (typeAttr && ts.isJsxAttribute(typeAttr) && typeAttr.initializer) {
+      if (stringOf(typeAttr.initializer) === "hidden") return true;
+    }
+  }
   if (NOT_SHOWN_UNLESS_OPEN.has(tag)) {
     // `open` must be PROVABLY true. React omits the attribute for every falsy value, so
     // `open={0}`, `open={null}`, `open={undefined}` and a dynamic `open={isOpen}` can all
@@ -801,6 +832,28 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
       n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
     ) {
       walk(n.right, nextHidden, [...nextConds, n.left.getText()]);
+      return;
+    }
+    // `a || b` yields `a` when `a` is TRUTHY, so a hint in `b` renders only when `a` is falsy.
+    // Generic traversal entered both operands with no condition at all, which made
+    // `{true || <NewTabHint />}` read as an unconditional hint while React renders none
+    // (review R24 BLOCKING 1).
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
+      walk(n.left, nextHidden, nextConds);
+      walk(n.right, nextHidden, [...nextConds, `!(${n.left.getText()})`]);
+      return;
+    }
+    // A hint inside a FUNCTION BODY is not proof that a hint renders: the callback may never
+    // run. `{e && xs.map(() => <NewTabHint />)}` with an empty `xs` renders no hint, yet the
+    // hint was found and counted (review R24 BLOCKING 1). Not descending makes the anchor
+    // report "does not announce", which is the fail-closed answer -- the author moves the hint
+    // out of the callback or adds a reasoned exemption.
+    if (
+      ts.isArrowFunction(n) ||
+      ts.isFunctionExpression(n) ||
+      ts.isFunctionDeclaration(n) ||
+      ts.isMethodDeclaration(n)
+    ) {
       return;
     }
     ts.forEachChild(n, (c) => walk(c, nextHidden, nextConds));
