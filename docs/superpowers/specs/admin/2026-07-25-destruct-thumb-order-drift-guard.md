@@ -125,205 +125,74 @@ Two consequences: the fix must key on container width, not viewport width (§4.1
 
 ---
 
-## 4. Design — the container-keyed forked render
+## 4. Design — reorder, one subtree
 
-### 4.1 Structure
+### 4.1 The change
 
-The fork keys on the **width of the card the buttons sit in**, not the width of the viewport. This is the correction forced by §2.5: the viewport is not the constraint, the container is.
+Two edits to `components/admin/PendingPanelDiscardButtons.tsx`:
 
-`PendingPanelDiscardButtons` renders one `@container` wrapper holding three children:
+1. **Swap the DOM order** so Ignore precedes Defer inside the existing `flex flex-wrap gap-2` row.
+2. **Delete `basis-full sm:basis-auto`** from both buttons, so the row wraps on available width instead of being forced full-width below the `sm` viewport.
 
-1. **Stacked copy** — `<div data-testid="discard-branch-stacked-${id}" className="flex flex-col items-stretch gap-2 @min-[576px]:hidden">`, DOM order **Ignore, then Defer**.
-2. **Inline copy** — `<div data-testid="discard-branch-inline-${id}" className="hidden flex-wrap gap-2 @min-[576px]:flex">`, DOM order **Defer, then Ignore**.
+Nothing else. No container query, no fork, no second copy, no threshold, no new test ids.
 
-Both branch containers and the `@container` root carry test ids. That is not decoration: review round 5 found that a probe **inferring** the branches by DOM shape (`:scope > div > div`) matched nothing and reported `missing/missing`, so the "exactly one branch displayed" assertion stayed red no matter what shipped. A structural oracle that guesses at structure is a bug waiting to happen. The root is `<div data-testid="discard-root-${id}" className="w-full @container">`.
+**Why this works.** `flex-wrap` already decides per-container whether the pair fits. What was wrong was only the *order* it wrapped into. With Ignore first, a wrap puts Ignore on the upper line and Defer below — the safe control nearest the thumb — and where there is room, nothing wraps at all.
 
-**The action row is labelled too.** `components/admin/NeedsAttentionInbox.tsx:72` gains `data-testid="pending-action-row-${id}"`. Round 6 caught that the probe still inferred it as `discardRoot.parentElement`: an intermediate wrapper would silently become the measured "row", so the root-versus-row equality could pass while the root no longer filled the real action row — and the claim that every measured element is addressed by id was simply false. The row is the oracle for `w-full`, so it cannot be the one element left to inference.
-3. **Live region + error block** — rendered once, outside both copies.
+Measured against the real card geometry (available content widths 278 / 348 / 858px):
 
-`hidden` resolves to `display: none`, which removes the element from the accessibility tree and from hit-testing, so exactly one copy is live at any width. Within each copy DOM order **is** visual order, so focus order and visual order agree without any reordering primitive — no `order`, no `flex-row-reverse`, no grid line placement.
+| Geometry | Idle | Armed |
+|---|---|---|
+| 320px dashboard rail (278px content) | stacked, Ignore above | stacked, Ignore above |
+| 390px Needs-attention page (348px) | **side by side** | **side by side** (with §4.2's label) |
+| 900px card (858px) | **side by side** | **side by side** |
 
-Both copies come from a single local helper, so they cannot drift in label, class, handler, or disabled logic:
+Safe in every case, and it stacks only where the pair genuinely does not fit.
 
-```tsx
-function pair(variant: "stacked" | "inline") { /* returns [deferNode, ignoreNode] */ }
-```
+**D4 becomes structural.** Ignore is the first flex item, so arming can never move it: a longer armed label pushes *Defer* to the next line, while Ignore's box origin is unchanged. Measured — Ignore sits at `x37` idle and `x37` armed at both 320px and 390px. The DESTRUCT-1 invariant that needed `basis-full` to hold is now a consequence of the ordering.
 
-The helper takes only the variant (used for the test-id suffix) and closes over the component's state and handlers. The stacked copy renders `[ignore, defer]`; the inline copy renders `[defer, ignore]`.
+### 4.2 Armed label
 
-**The `@container` element must have an externally-determined width.** `container-type: inline-size` applies `contain: inline-size`, which severs the element's inline size from its contents. The component's root is a flex item in the card's `flex flex-wrap items-center gap-2` action row (`components/admin/NeedsAttentionInbox.tsx:72`), where flex items are shrink-to-fit — sized *by* their contents. Putting the containment context there without a definite width **collapses it to zero**. Measured: the wrapper resolves to `0px` and the buttons shrink to `26px`, while the card grows 18.89px taller from the wrapping. Nothing errors; the layout is just silently wrong.
+`"Confirm stop tracking this sheet permanently"` (328.51px) becomes **`"Tap again to confirm"`** (161.98px).
 
-The shipped form is therefore `w-full @container` on the component root. `w-full` gives the flex item a definite basis so containment has something to measure, and it also preserves today's full-width stacked buttons, which a content-sized root would shrink to 154.74px — a tap-target regression on exactly the surface this change exists to improve.
+That single change takes the armed row from 491.25px to 324.72px, which fits the 348px Needs-attention page — removing the last case where the pair stacked only because of label length.
 
-**Accepted cost, flagged for the impeccable gate:** `w-full` takes the whole action-row line, so on a wide card the `Retry now` sibling no longer shares a line with the discard buttons and the card grows ~52px taller (166.3px vs 114.3px measured at a 900px card). The alternative — putting `@container` on the action row itself and leaving the root content-sized — keeps `Retry` inline but costs the full-width tap targets. Ergonomics of an irreversible control won over card density; the invariant-8 critique/audit pass is the right place to challenge that call, and it is called out here so the reviewer sees a decision rather than an accident.
+Two reasons it is the right string rather than merely a shorter one:
 
-**The `flex` token is load-bearing and separately pinned.** The stacked container needs a literal `flex` class alongside `flex-col items-stretch`. Without it the element is `display: block`, `items-stretch` is inert, and D1 silently does not hold — while a source-scan guard that only checks for `flex-col`/`items-stretch` still passes. §6.2 test 7 and §6.3's source guard both require `flex` explicitly for this reason.
+- It is **already what assistive technology announces.** The persistent `role="status"` region emits exactly `"Tap again to confirm."` (`components/admin/PendingPanelDiscardButtons.tsx:141`). The visible label now matches what a screen-reader user already hears.
+- The permanence signal does not live in this label. The button is filled amber (the ratified destructive recipe), the idle label already says "Permanently ignore", and the action still needs a second deliberate tap. The armed state's job is to say *what to do next*, which "Tap again to confirm" does and the old string did not.
 
-### 4.2 The 576px threshold
+The **idle** labels are unchanged. "Permanently ignore" and "Defer until modified" carry the safety words, and `tests/help/_uiLabelExceptions.ts:135-143` pins both against the help MDX — shortening them would trade real clarity for the one geometry (the 278px rail) that still cannot fit a row.
 
-The threshold must clear the **armed** width, not the idle width. Measured in Chromium with the real compiled token CSS:
+### 4.3 What this design does not need
 
-| Content | Width used |
+Recorded because earlier drafts specified all of it, and six review rounds were spent verifying it:
+
+| Not needed | Why |
 |---|---|
-| idle Defer + gap + idle Ignore | 315.95px |
-| idle Defer + gap + **armed** Ignore | **491.25px** |
+| `@container` + `w-full` | no container query; nothing establishes a containment context, so the 0px-collapse failure cannot occur |
+| 576px threshold, 617/618px probe rails | no breakpoint of any kind |
+| Two branch subtrees, per-branch test ids, one-copy-per-width assertions | one subtree |
+| Focus transfer across a fork | no fork to cross; `BL-DESTRUCT-FORK-FOCUS-TRANSFER` is withdrawn rather than filed |
+| Variant-suffixed test ids | ids unchanged, so `tests/e2e/needs-attention-page.spec.ts` needs no retargeting |
+| Most of the armed binding table | only the armed label and the two button classNames feed the armed row's width now |
 
-A threshold sized to the idle total would put the inline copy on screen at widths where arming makes it wrap — reintroducing the defect at the exact moment the destructive confirm appears. Boundary behaviour was measured directly:
+### 4.4 Guard conditions for the one prop
 
-| Container | State | Copy shown | Wrapped | Slack |
-|---|---|---|---|---|
-| 511px | armed | stacked | no | clean switchover, no gap |
-| 512px | armed | inline | no | 20.75px |
-| 512px | idle | inline | no | 196.05px |
+`pendingIngestionId: string` (`components/admin/PendingPanelDiscardButtons.tsx:20`) is unchanged by this work: non-empty renders normally; empty degrades the test ids and fails server-side through the existing error branch (`components/admin/PendingPanelDiscardButtons.tsx:100`); `null`/`undefined` are rejected by TypeScript at the call site. No new failure mode, no new guard.
 
-512px works locally but leaves only **20.75px** (4%) of headroom on the armed row. CI renders on x64 Linux while these numbers come from arm64 macOS, and a font-metric difference inside that band would wrap the armed row silently. **576px** is therefore the shipped threshold, leaving 84.75px (17%) of headroom. §6.3 asserts no-wrap at exactly the threshold, so if a platform ever does exceed it the test fails loudly instead of the layout degrading quietly.
+### 4.5 Dimensional invariants
 
-Nothing real is lost at 576: the two live geometries are the 280px rail (stacked either way) and the full-width dashboard card below 1240px viewport (far wider than 576, inline either way).
+| # | Claim | Guaranteed by | Verified by |
+|---|---|---|---|
+| D1 | when the row wraps, `ignore.bottom ≤ defer.top` | Ignore is the first flex item | §6.3 at 278px, idle and armed |
+| D2 | both buttons ≥44px tall | `min-h-tap-min` (`app/globals.css:162`) | §6.3 at every width |
+| D3 | where the pair fits, both sit on one line with Ignore left | `flex-wrap` with no basis | §6.3 at 348px and 858px |
+| D4 | Ignore's box origin is identical idle vs armed | first flex item; a longer armed label extends rightward and pushes Defer, never Ignore | §6.3 comparing idle and armed panels |
+| D7 | shipped markup contains no `basis-full` and no `sm:basis-auto` | deleted in §4.1 | §6.3, read off rendered markup |
 
-### 4.3 Mode boundaries
+### 4.6 Transition inventory
 
-Each container is `display: none` in the other's mode. Stated per element to remove the ambiguity a single shared row invites:
-
-| Element | Container < 576px | Container ≥ 576px |
-|---|---|---|
-| Stacked container | `flex` | `none` |
-| Inline container | `none` | `flex` |
-| Defer button | in stacked copy, second | in inline copy, first |
-| Ignore button | in stacked copy, first | in inline copy, second |
-| `role="status"` sr-only region | rendered once, outside both copies — unaffected by mode |
-| `role="alert"` error block | rendered once, outside both copies — unaffected by mode |
-
-The live region moves **out** of the row (it is inside it today at `components/admin/PendingPanelDiscardButtons.tsx:140-142`). Rendering it once is required: two mounted `role="status"` nodes with identical content produce a double announcement in some screen readers, and the region is `sr-only`, so its position in the flex row carries no visual meaning.
-
-### 4.4 Test ids
-
-Per R4 the bare ids are retired. Each copy carries an explicit variant suffix:
-
-| Control | Stacked | Inline |
-|---|---|---|
-| Defer | `admin-pending-defer-stacked-${id}` | `admin-pending-defer-inline-${id}` |
-| Ignore | `admin-pending-ignore-stacked-${id}` | `admin-pending-ignore-inline-${id}` |
-
-Unchanged: `admin-pending-discard-error-${id}` (`components/admin/PendingPanelDiscardButtons.tsx:147`), rendered once.
-
-**Which copy each consumer targets is determined by the container width at that consumer's viewport, and was verified, not assumed:**
-
-- `tests/components/admin/pendingIngestionActions.test.tsx` — jsdom applies no CSS, so both copies mount and either id resolves. It targets the **inline** ids for the existing behavioural assertions, preserving the DOM order those assertions were written against. New tests cover the stacked copy.
-- `tests/e2e/needs-attention-page.spec.ts` — sets `setViewportSize(MOBILE)` at `tests/e2e/needs-attention-page.spec.ts:232`, where `MOBILE = { width: 390, height: 844 }` (`tests/e2e/needs-attention-page.spec.ts:40`). The card there is far below 576px, so the **stacked** copy is the live one. Its clicks at `tests/e2e/needs-attention-page.spec.ts:243` and `tests/e2e/needs-attention-page.spec.ts:250` retarget to the **stacked** ids. Targeting inline would click a `display:none` node and fail on Playwright actionability — a timeout that reads as a flake rather than a wiring error, which is why this is called out explicitly.
-
-### 4.5 Containment for the duplicated destructive control (R3)
-
-| Risk | Containment | Proof |
-|---|---|---|
-| The two copies drift together | Canonical-token assertion: each rendered button must carry the required token set (`min-h-tap-min`, `inline-flex`, `items-center`, `justify-center`, `rounded-sm`, `px-3`, `text-sm`) checked against a literal allowlist, **not** against the other copy | §6.2 test 2b. Parity alone cannot catch this and is not asked to |
-| The two copies drift apart | Both emitted by the single `pair()` helper | §6.2 tests 2a/3 compare the copies to each other |
-| A query resolves ambiguously | Variant-suffixed ids; the bare ids no longer exist, so a stale query fails loudly instead of matching two nodes | Mechanical, compile- and test-visible |
-| Both copies live at once, or neither | `@min-[576px]:hidden` / `hidden @min-[576px]:flex` are exact complements | §6.3 real-browser assertion at 280 / 576 / 720px, plus the production-nesting panel |
-| A future edit reverts to one subtree, or drops `flex` | Source drift-guard asserting the fork's classes are present **and** `basis-full` is absent | §6.3 drift-guard |
-
-### 4.6 Guard conditions for the one prop
-
-`pendingIngestionId: string` (`components/admin/PendingPanelDiscardButtons.tsx:20`) is the component's only input.
-
-| Value | Behaviour |
-|---|---|
-| Non-empty string | Normal. Interpolated into four test ids and, `encodeURIComponent`-escaped, into the POST URL (`components/admin/PendingPanelDiscardButtons.tsx:81`). |
-| Empty string `""` | Renders normally; ids degrade to `admin-pending-ignore-stacked-`. The POST targets `/api/admin/pending-ingestions//discard` and fails server-side, surfacing through the existing error branch (`components/admin/PendingPanelDiscardButtons.tsx:100`). **Unchanged from today** — no new failure mode, no new guard. The host always passes a row id. |
-| `null` / `undefined` | Not reachable — the prop is a required non-nullable `string`, rejected at the call site by TypeScript. No runtime guard added, matching current behaviour. |
-
-### 4.7 Dimensional invariants
-
-Tailwind v4 on this project does **not** default `.flex` to `align-items: stretch` (`docs/agents/spec-self-review.md:11`). Every parent→child relationship is therefore explicit and verified in a real browser at **container** widths, never in jsdom and never at viewport widths.
-
-| # | Parent | Child | Required relationship | Guaranteeing class | Verified by |
-|---|---|---|---|---|---|
-| D1 | stacked container | both buttons | child width == container width | `flex` **and** `items-stretch` (both explicit; `flex-col` alone leaves the element `display:block`) | §6.3 at 280px |
-| D2 | stacked container | both buttons | child height ≥ 44px | `min-h-tap-min` (`--spacing-tap-min: 44px`, `app/globals.css:162`) | §6.3 at 280px |
-| D3 | inline container | both buttons | both share one line, widths intrinsic | container ≥ 576px guarantees the armed total of 491.25px fits | §6.3 at 576px and 720px, idle **and** armed |
-| D4 | stacked Ignore | itself, idle vs armed | box top / left / width identical across arming | full-width stack pins all three edges | §6.3 equality assertion with the pre-DESTRUCT-1 negative control retained |
-| D5 | stacked container | Ignore vs Defer | `ignore.bottom ≤ defer.top` | DOM order Ignore-first in a `flex-col` | §6.3 at 280px, against a negative control using today's markup |
-| D7 | shipped markup | itself | contains **no** `basis-full` and no `sm:basis-auto` | the fork replaces basis with full-width stacking | §6.3.a, read off rendered markup. Round 8: this was claimed in §4.5 but neither measured nor D-numbered, so M1 could not require it — and retaining basis lets a container ≥576px inside a viewport below 640px pick the inline branch while both buttons keep full basis and wrap, recreating the ordering defect |
-| D6 | inline Ignore | itself, idle vs armed | box left and top identical; width may grow rightward only | intrinsic widths with the left edge set by Defer + `gap-2` | §6.3 at 576px and 720px |
-
-**Empirical grounding.** Measured in Chromium with the compiled token CSS (arm64 macOS, 2026-07-25):
-
-| Container | Copy shown | Result |
-|---|---|---|
-| 280px (the live rail) idle **and** armed | stacked | Ignore `x16 w280 h44` above Defer; hidden copy `0×0`. D1, D2, D4, D5 hold |
-| 512px armed | inline | no wrap, 491.25px used, 20.75px slack — the basis for choosing 576 instead |
-| 576px / 720px, idle and armed | inline | Defer left, same row; armed Ignore grows `153.2 → 328.51` with its left edge pinned at `x178.74`. D3, D6 hold |
-| every case | — | exactly one copy displayed; the hidden copy measures `0×0` with `offsetParent === null` |
-
-**Why D4 does not assert height equality.** The probe measured armed and idle heights equal (both 44px — the armed label fits one line at 280px here), but that is a font-metric outcome and CI is x64 Linux. A height-equality assertion would be a platform-hardcoded fixture: green locally, red in CI, for a wrap that does not violate the invariant. D4 protects what matters — the confirm target does not move out from under the finger — via top, left and width. Height may grow downward from a pinned top.
-
-### 4.8 Transition inventory
-
-The component's visual state is **two independent dimensions**, not one flat enum. Modelling it as five mutually-exclusive states was wrong: `armed` and `state` compose, and the compound cells are where the real behaviour lives.
-
-- **`state`** ∈ { `idle`, `running-defer`, `running-ignore`, `error` } — the `State` union at `components/admin/PendingPanelDiscardButtons.tsx:22-25`
-- **`armed`** ∈ { `false`, `true` } — the separate boolean at `components/admin/PendingPanelDiscardButtons.tsx:47`
-
-Eight cells. **Two** are unreachable, leaving **six** reachable — so the pairwise inventory is 6·5/2 = **15 unordered pairs**, not the 10 an earlier five-state draft claimed. Each unreachability is a claim checked against the live component:
-
-| | `armed: false` | `armed: true` |
-|---|---|---|
-| **idle** | A — resting | B — armed confirm showing |
-| **running-defer** | C — Deferring… | **unreachable** — `handleClick` disarms before setting running (`components/admin/PendingPanelDiscardButtons.tsx:76-77`) |
-| **running-ignore** | D — Ignoring… | **unreachable** — same disarm (`components/admin/PendingPanelDiscardButtons.tsx:66-68`) |
-| **error** | E — error shown | F — error **and** armed; `onGuardedIgnoreClick` arms without touching `state` (`components/admin/PendingPanelDiscardButtons.tsx:56-64`) |
-
-Pairs are the wrong unit — the earlier table conflated "these two cells are related" with "this direction is reachable", and got seven directions wrong. What follows is a **directed** edge table over the six reachable cells. All 30 ordered pairs are accounted for; only the reachable ones get a treatment.
-
-| From → To | Reachable? | Treatment |
-|---|---|---|
-| A → B | yes | Recipe morph on Ignore, `transition-opacity duration-fast` (`components/admin/PendingPanelDiscardButtons.tsx:127`); box top/left/width fixed (D4/D6) |
-| B → A | yes | The 4s auto-revert clears `armed` with `state` still `idle` (`components/admin/PendingPanelDiscardButtons.tsx:60-63`). **Only** the timer produces this edge — a sibling Defer tap goes B → C, and the confirm tap goes B → D |
-| A → C | yes | Instant. `Defer until modified` → `Deferring…` (`components/admin/PendingPanelDiscardButtons.tsx:116-118`), both `disabled` (`components/admin/PendingPanelDiscardButtons.tsx:104`) |
-| C → A | yes | Instant. Success resets to idle and calls `router.refresh()` (`components/admin/PendingPanelDiscardButtons.tsx:97-98`) |
-| A → D | **no** | The first Ignore tap arms and returns (`components/admin/PendingPanelDiscardButtons.tsx:56-64`), so the path is A → B → D |
-| D → A | yes | Instant. Same success reset as C → A |
-| A → E | **no** | An error requires an attempt, so the path is A → C/D → E |
-| E → A | **no** | Leaving error requires a new attempt; the path is E → C or E → F → D, then → A |
-| A → F, F → A | **no** | F requires an error; A requires a success reset. No direct edge either way |
-| B → C | yes | Instant. Defer while armed disarms and starts the defer. Pinned at `tests/components/admin/pendingIngestionActions.test.tsx:232` |
-| C → B | **no** | Both buttons are `disabled` while running (`components/admin/PendingPanelDiscardButtons.tsx:113`, `components/admin/PendingPanelDiscardButtons.tsx:124`) |
-| B → D | yes | Instant. The second Ignore tap fires the discard; disarm and run set in one handler, so no resting frame renders |
-| D → B | **no** | Same disabled-while-running reason |
-| B → E | **no** | `handleClick` disarms before it can set an error, so the path is B → D → E |
-| E → B | **no** | Arming from a plain error lands in F, not B — `state` is untouched |
-| B → F, F → B | **no** | `state` cannot move between `idle` and `error` without a running cell in between |
-| C → D, D → C | **no** | `handleClick` returns early while a run is in flight (`components/admin/PendingPanelDiscardButtons.tsx:72`); one mutation at a time by construction |
-| C → E | yes | Instant. The error block mounts below the row (`components/admin/PendingPanelDiscardButtons.tsx:144-153`). No enter animation today |
-| E → C | yes | Instant. Tapping Defer from a plain error starts a defer directly — Defer is one-tap and needs no arming |
-| D → E | yes | Instant, same as C → E |
-| E → D | **no** | From a plain error the first Ignore tap arms into F; only F → D fires the discard |
-| C → F, D → F | **no** | A run resolves into E, never into F, because resolving does not arm |
-| F → C | yes | Instant. Defer from the compound state disarms and starts a defer. §6.2 test 11 |
-| F → D | yes | Instant. The second Ignore tap from the compound state fires the discard. §6.2 test 11 |
-| E → F | yes | Tapping Ignore while an error shows arms the button **and the error block stays mounted** — it describes the previous failed attempt, which is still true. §6.2 test 9 |
-| F → E | yes | The 4s timer clears `armed` only, leaving `state.kind === "error"` (`components/admin/PendingPanelDiscardButtons.tsx:60-63`). The compound decays to plain error, never to idle. §6.2 test 10 |
-
-Reachable edges: A→B, B→A, A→C, C→A, D→A, B→C, B→D, C→E, E→C, D→E, F→C, F→D, E→F, F→E — **fourteen**. Every one has a treatment above; `E → C` in particular is a real edge the previous draft omitted entirely, and §6.2 test 12 covers it.
-
-**Compound transitions across the fork:**
-
-| Case | Treatment |
-|---|---|
-| Container crosses 576px while **armed** | `armed` lives above both copies, so the newly-shown copy renders already-armed. The single `armTimerRef` (`components/admin/PendingPanelDiscardButtons.tsx:48`) is shared, so no re-arm and no timer reset. Note both copies stay **mounted** throughout — this is a display swap, not a mount, and the morph transition does not replay. §6.2 test 4. |
-| Container crosses 576px while **focused** | The focused button becomes `display:none` and focus falls to `<body>`. **Not fixed by this spec** — accepted limitation, filed as `BL-DESTRUCT-FORK-FOCUS-TRANSFER` (§4.9). No test asserts a transfer, because no transfer ships. |
-| Container crosses 576px while **running** | `state` is shared, so the newly-shown copy renders `Deferring…`/`Ignoring…` and `disabled` immediately. |
-| 4s auto-revert fires mid-resize | No interaction; the timer is width-independent and clears one shared flag. |
-| Unmount while armed | `useEffect(() => clearArmTimer, [])` (`components/admin/PendingPanelDiscardButtons.tsx:55`) clears it. **Unchanged**; pinned at `tests/components/admin/pendingIngestionActions.test.tsx:269`. |
-
-### 4.9 Focus across the fork boundary — accepted limitation, not fixed here
-
-Because both copies stay mounted and the fork swaps which one is `display:none`, a container resize that crosses the threshold while one of these buttons holds keyboard focus drops focus to `<body>`. Triggers: window resize, device rotation, browser zoom, and the dashboard's own `min-[1240px]` grid switch.
-
-**This spec does NOT fix it.** An earlier draft specified a `ResizeObserver`-driven focus transfer. Adversarial review round 2 showed that contract cannot be honestly verified by the vehicle available: `tests/e2e/pendingDiscardReflow.layout.spec.ts` is a **transcribed static-HTML** harness (`tests/e2e/pendingDiscardReflow.layout.spec.ts:51`) that imports no component chain, so any `ResizeObserver` behaviour asserted there would be a transcription of the effect, not the shipped effect. The source guard checks layout classes only — never observer setup, crossing detection, cleanup, refs, or the `focus()` call — so the suite could pass with the production effect absent or broken. Shipping an untestable a11y effect is worse than shipping a documented gap, and the project's three-round cap on design-correctness vectors says to descope rather than patch prose a third time.
-
-**Severity and precedent.** The controls remain reachable by re-tabbing, so this is not a WCAG-A blocker; it is the same class and severity as `BL-CREWPAGE-ROTATE-FOCUS-MGMT`, an accepted P2 on a sibling control in this same family. Focus is lost only on a resize that crosses the threshold *while* one of these two buttons is focused — a narrow window.
-
-**Filed, not forgotten.** A new backlog row `BL-DESTRUCT-FORK-FOCUS-TRANSFER` records the gap, the reason it was descoped (no real-component browser harness for this component), and the trigger to promote it: building a mounting harness of the kind that already exists for the Step 3 modal, or any a11y pass on the admin action rows. The `armed` flag is unaffected either way — it lives above both copies, so a crossing never re-arms or disarms.
+The two-dimensional state model (`state` × `armed`) and its directed edge table are **unchanged** — that analysis was about the component's behaviour, not its layout, and it survived review in round 4. It stands as written in the appendix below.
 
 ## 5. Design — the arm-timing drift guard
 
@@ -436,89 +305,37 @@ New tests, each stating the concrete failure mode it catches:
 
 Focus behaviour is not asserted here or anywhere: §4.9 descopes the transfer, so there is no shipped effect to assert. jsdom could not host it in any case.
 
-### 6.3 Real browser — two harnesses, and why both
+### 6.3 Real browser (`tests/e2e/pendingDiscardReal.layout.spec.ts`)
 
-Review rounds 2 and 3 both landed on the same defect: a **transcribed** harness can satisfy every assertion while the shipped component differs. The concrete case is `w-full` on the `@container` root — load-bearing per §4.1, yet a transcribed panel supplies it from the harness, independently of the component. Production could drop `w-full`, collapse to 0px, and jsdom, the source scan and the browser harness would all stay green.
+The real-component mounting harness built in round 3 is **kept** — it was the right call and is the only thing that measures the shipped tree rather than a transcription. `tests/e2e/_pendingDiscardHarness.tsx` renders the real `NeedsAttentionInbox` (hence the real `PendingPanelDiscardButtons`, real card padding, real action row, real `Retry now` sibling) at rails of 320 / 390 / 900px.
 
-Patching a third round of prose would not close that. The structural fix is a **real-component mounting harness**, following the pattern already used by `tests/e2e/_statusStripToggleHarness.tsx` and `tests/e2e/_publishedReviewModalHarness.tsx`.
+What changes is how little it now has to prove. Panels:
 
-#### 6.3.a `tests/e2e/_pendingDiscardHarness.tsx` — the real tree (authoritative)
-
-`tsx` runs it out of process; it renders the **real `NeedsAttentionInbox`** with one `pending_ingestion` item, which renders the **real `PendingPanelDiscardButtons`** inside the real card padding, the real `flex flex-wrap items-center gap-2` action row and the real `Retry now` sibling. `renderToStaticMarkup` emits that tree as JSON; the spec compiles token CSS from `app/globals.css`, serves it, and measures. Every class and every nesting relationship measured comes from the component itself — nothing is transcribed, so nothing can be transcribed *wrongly*.
-
-The only harness-supplied box is a bare `<div data-testid="rail" style="width:Npx">` at 320 / 390 / 900px, standing in for the dashboard rail, the mobile Needs-attention page, and a full-width card.
-
-**Spike result (this harness, built and run before this section was written).** Against today's shipped markup at a 1280px viewport it reproduces the §2.5 defect from the real tree: at `rail320`, `admin-pending-ignore-*` sits **below** `admin-pending-defer-*`; at `wide900` they share a row with `Retry` inline. That is the §2.5 premise proven by the component, not by a transcription of it.
-
-Assertions carried here, because each needs the real tree:
-
-- **`w-full` and `@container` are present on the shipped root**, read off the rendered markup rather than the source — the assertion round 3 showed was missing everywhere.
-- **The root is not collapsed:** its measured width equals **the action row's** width, which is what `w-full` actually means. Comparing against the *rail* would be wrong by the card's 42px of borders and padding — it would reject a correct implementation, or push it toward overflow. The row is the exact oracle and needs no magic constant.
-- **Exactly one branch copy is displayed** at every rail, the hidden one measuring `0×0`.
-- **The 576px threshold is exercised directly.** Rails of **617px and 618px** put the *component* container at 575px and 576px. The 42px card inset is **measured, not computed**: rendering the real tree at 320 / 390 / 617 / 618 / 900px rails gives action-row widths of 278 / 348 / **575** / **576** / 858px — an inset of exactly 42px at every rail, with the two threshold rails landing on 575 and 576 as intended. Below the threshold must stack with Ignore above Defer; at it, one row with Defer on the left. Without these two rails nothing tested the boundary the threshold rationale rests on — the 320/390/900 rails give component widths of 278 / 348 / 858px, none of them near 576.
-- **D1 — buttons fill the stacked branch**, asserted as `button.width === stackedBranch.width` within 0.5px. Round 6 found this was *claimed* but never measured: an idle Ignore carrying `self-start` shrinks to intrinsic width while keeping every canonical token, ≥44px height, correct order and one visible branch, so the whole suite passed with D1 false. Measuring the branch is the only thing that catches it.
-- **D2** (≥44px), **D5** (Ignore above Defer when stacked).
-- **D3 — inline button widths are intrinsic**, asserted as `button.width < branch.width` for both buttons (neither may fill the row) **and** `defer.right < ignore.left`. Round 7 found D3 was measured only as shared-row placement plus left-to-right order: a change giving both inline buttons flex growth preserves the row, the ordering, the threshold switch, the tap heights and D6's pinned left edge while D3 is false. This is the identical claimed-versus-measured defect found for D1 one round earlier, which is why §6.6 now enforces the class mechanically.
-- **Not D4 or D6** — both are armed-state claims, and this harness cannot render armed at all (see the scope note below).
-- **Production nesting holds:** the action row, card padding and `Retry` sibling are the real ones, so a future change to `components/admin/NeedsAttentionInbox.tsx` that breaks the container relationship fails *this* spec.
-
-**Declared scope, and the one thing it cannot reach.** `renderToStaticMarkup` emits markup, not behaviour: it cannot click, so it can only ever render the component's **initial idle** state, and `PendingPanelDiscardButtons` exposes no prop for an armed initial state (adding one would be product API existing solely for a test). So D4 (armed box equality) and D6 (armed growth from a pinned edge) **cannot be measured here**, and this harness does not claim them.
-
-**Where armed geometry lives, and why that is still honest.** Armed geometry is measured in the transcribed spec (§6.3.b), bound to the component by a jsdom assertion. Round 5 showed the binding must cover more than the armed button: binding class tokens alone leaves a false-green path where production changes the branch container's `gap-2` to `gap-24` — idle still fits 576px so the real-tree harness passes, while the armed total exceeds 576px and wraps, with the stale transcribed panel still green.
-
-The binding therefore covers **every input to armed geometry**, each compared token-for-token or string-for-string against the harness constant:
-
-| Bound | Why it matters to armed geometry |
-|---|---|
-| **idle** Ignore `className` **and label text** | D4 and D6 compare idle **against** armed, so the idle *label* sets the idle width just as the armed label sets the armed one. A wider idle label that still fits 576px keeps the real-tree idle assertions green while the transcribed panel holds the old width. `ml-4` on the idle branch alone leaves every other bound value unchanged, so the transcribed comparison stays green while production's Ignore actually moves when armed |
-| armed Ignore `className` | the armed skin itself |
-| armed Ignore **label text** | a longer label changes the armed width, which is the whole point of D6 |
-| **Defer** `className` **and label text** | the armed row's total is Defer + gap + armed Ignore. Defer's padding or a longer label pushes that total past the threshold just as surely as the Ignore side does — this row was missing from the first draft of the binding and is exactly the same class of hole as the `gap-24` one |
-| **both branch container** `className`s | the `gap-24` hole: gap and wrap behaviour set whether the armed row fits |
-| the `@container` root `className` | `w-full` and the threshold both live here |
-| **ancestor typography classes** on the action row and card | inherited `font-*`, `tracking-*` or text-size classes change **both** button widths. The narrower idle case can still fit at 576px while the armed production row wraps, and neither declared set would mention the ancestor — so M2 cannot see it either. Bound explicitly for that reason |
-
-The rule the table encodes: **every element whose box contributes to the armed row's total width, plus every class that governs how that row wraps, is bound.** Anything measured in §6.3.b that is not in this list is unbound and therefore a false-green path.
-
-If any of those diverge from the harness constants, the binding test fails and the geometry panels are known stale. Transcription without a binding assertion is what rounds 2 and 3 rejected; transcription bound across every geometry input is a checkable indirection.
-
-Client effects (`useEffect`, timers) stay in the jsdom suite, and the descoped focus transfer stays unproven by design (§4.9).
-
-#### 6.3.b `tests/e2e/pendingDiscardReflow.layout.spec.ts` — transcribed controls (negative only)
-
-The existing transcribed spec is **kept, and narrowed to negative controls**, which is the one job transcription is legitimately good at: it must render markup the product no longer contains.
-
-| Panel | Width / markup | Role |
+| Panel | Rail | Role |
 |---|---|---|
-| `nofork-278-*` | 278px, **today's** markup | ordering control — must show Ignore *below* Defer |
-| `nobasis-328-*` | 328px, pre-DESTRUCT-1 markup | reflow control, at the geometry the original defect was measured at (`docs/superpowers/specs/admin/2026-07-17-destruct1-armed-reflow.md:24`); at 278px the idle pair is already wrapped and cannot reproduce a *relocation* |
+| `rail320` | 320px (278px content) | the pair does not fit — must stack with Ignore above |
+| `page390` | 390px (348px content) | the pair fits — must stay on one line |
+| `wide900` | 900px (858px content) | fits with slack |
 
-It also keeps the **armed** geometry panels (D4 and D6), which 6.3.a structurally cannot reach — with the §6.3.a binding assertion standing behind them. Every other positive claim moved to 6.3.a, and the drift-guard moved with them, where it reads rendered markup rather than grepping source.
+Assertions:
 
-### 6.6 Meta-test: every invariant has a measurement, every measured element is bound
+- **D1** — at `rail320`, `ignore.bottom ≤ defer.top + 0.5`, idle **and** armed.
+- **D2** — both buttons ≥44px at every rail.
+- **D3** — at `page390` and `wide900`, `ignore.y === defer.y` and `ignore.x < defer.x`.
+- **D4** — `ignore.x` and `ignore.y` are identical between the idle and armed panels at every rail. This is the DESTRUCT-1 guarantee, now structural (§4.1).
+- **D7** — the rendered markup contains no `basis-full` and no `sm:basis-auto`.
 
-Three consecutive review rounds found the same two defect shapes, each time in a different instance:
+**Armed panels are real now.** The harness gains an `armed` variant per rail. `renderToStaticMarkup` still cannot click, but it does not need to: the armed state differs only by the Ignore button's className and label, so the harness renders the component **twice per rail** and swaps that one element's props via the same `pair()` code path the component uses. Because both panels come from the real component, D4 compares real-idle against real-armed — no transcription, and therefore **no binding table, no `MEASURED_ELEMENTS`, no M2**.
 
-The class is broader than the two shapes review named — it is **a claim in the spec with no mechanism behind it**, and it has now appeared on four surfaces: unmeasured invariants, unbound measured elements, cited-but-unwritten jsdom tests, and (worst) a guard that existed only as a comment while §6.6 claimed it.
+`tests/e2e/pendingDiscardReflow.layout.spec.ts` keeps exactly one job: the negative control at 278px proving today's markup wraps Ignore *below* Defer, so D1 is not tautological.
 
-| Shape | Instances found | Rounds |
-|---|---|---|
-| A documented `D`-invariant that is *claimed* but never *measured* | D1 (`self-start` shrink), D3 (flex growth) | 6, 7 |
-| A geometry input missing from the armed binding table | Defer class+label, idle Ignore class, idle Ignore label | 5, 6, 7 |
+### 6.6 Meta-tests (reduced)
 
-Patching the named instance each round has not closed either class — each repair added one row and missed its sibling. Per the project's structural-defense calibration, the defense ships now rather than after another recurrence.
+**M1 stays** — every `D`-invariant in §4.5 must have a named assertion in a layout spec, read from test titles and `expect` messages only, never raw source or comments.
 
-**M1 — every invariant has a named measurement.** A meta-test parses the `D`-numbered rows out of §4.7's Dimensional Invariants table and asserts that for each `D<n>`, at least one of `tests/e2e/pendingDiscardReal.layout.spec.ts` or `tests/e2e/pendingDiscardReflow.layout.spec.ts` contains `D<n>` in a test title or an assertion message. A new invariant with no assertion fails at authoring time; an invariant whose assertion is deleted fails immediately. It cannot prove the assertion is *good*, only that one exists and is named — which is exactly the gap that let D1 and D3 sit unmeasured while being listed.
+**M3 stays** — every `§6.2 test N` the spec cites must exist in the jsdom suite.
 
-**M3 — every cited jsdom test exists.** The transition inventory cites "§6.2 test 9/10/11/12" as the coverage for specific reachable edges. Nothing guaranteed those tests were ever written. M3 parses every `§6.2 test N` citation out of the spec and asserts a correspondingly-numbered test (`test("[N] …")`) exists in the jsdom suite. Task 3 writes them, so M3 is red until then.
-
-**M2 — every measured element is bound.** The transcribed spec declares the elements it measures in an exported `MEASURED_ELEMENTS` array; the meta-test asserts that set equals the binding table's element set in §6.3.a. Measuring something unbound, or binding something unmeasured, fails. That is the mechanical form of the rule §6.3.a states in prose, and it is what would have caught all three binding omissions without a reviewer.
-
-Both live in `tests/styles/_metaDestructiveConfirm.test.ts` alongside the timing guards, so the whole destructive-confirm contract has one home.
-
-**All three are committed and all three are RED, by design.** M1 reports `D4` and M2 the missing `MEASURED_ELEMENTS` export (both owned by Task 4); M3 reports the cited jsdom tests (owned by Task 3). Neither may be softened to go green.
-
-That posture was itself nearly violated: M2 originally shipped as a *comment* inside M1's header block while this section claimed it as a guard. That is the identical "claimed but not implemented" shape M1 exists to catch, one level up — a section asserting a check that does not exist. It is called out here rather than quietly corrected, because the pattern across rounds 5-7 was consistently that the claim outran the mechanism.
+**M2 is withdrawn.** It existed to bind a transcribed armed panel to the component. With armed panels rendered from the real component there is nothing to bind, so the binding table, its parser, and the six holes review found in it all cease to exist rather than being fixed. This is the clearest single measure of what the simpler design bought.
 
 ### 6.4 CI wiring (R5)
 
