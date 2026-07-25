@@ -3,7 +3,10 @@ import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import { mapWithConcurrency } from "@/lib/async/mapWithConcurrency";
 import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 import { fetchDriveFileMetadata, fetchSheetMarkdownWithBinding } from "@/lib/drive/fetch";
-import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import {
+  synthesizeMarkdownFromXlsx,
+  WorkbookSynthesisError,
+} from "@/lib/drive/exportSheetToMarkdown";
 import {
   discardAndRerun,
   finalizeArchivedTabs,
@@ -1136,7 +1139,59 @@ async function verifyOnboardingScanReady(
   };
 }
 
+/**
+ * A failure of the pre-lock prepare phase, carrying WHY it failed.
+ *
+ * `kind: "parse"` means the sheet's own content could not be read: the markdown
+ * parser threw, or the workbook itself was unreadable (`WorkbookSynthesisError`,
+ * which can surface from INSIDE the Drive export — `lib/drive/fetch.ts:511,642` —
+ * and so cannot be identified by call site alone).
+ *
+ * `kind: "drive_fetch"` is everything else, deliberately including the post-parse
+ * internal helpers (`finalizeArchivedTabs`, `reconcileIncludedTab`,
+ * `discardAndRerun`'s fix-up, `applyRoleTokenMappings`), the enrichment pass, the
+ * folder listing, and a throwing `onProgress` / `readRoleTokenMappings` adapter.
+ * Those are NOT sheet-structure faults: a bug in the role-mapping overlay is fixed
+ * by a code change, not by Doug editing his sheet, so re-labelling it "we couldn't
+ * read your sheet, fix its structure" would replace one wrong reason with another.
+ * They keep today's code (whole-diff R2 finding 7). Only positively identified
+ * sheet-content faults are re-classified.
+ */
+export class PrepareOnboardingFileError extends Error {
+  readonly kind: "drive_fetch" | "parse";
+
+  constructor(kind: "drive_fetch" | "parse", message: string, options?: { cause?: unknown }) {
+    super(message, options as ErrorOptions | undefined);
+    this.name = "PrepareOnboardingFileError";
+    this.kind = kind;
+  }
+}
+
+/** Classify by error IDENTITY first, then by the site's own default. Idempotent. */
+function asPrepareError(
+  cause: unknown,
+  siteKind: "drive_fetch" | "parse",
+): PrepareOnboardingFileError {
+  if (cause instanceof PrepareOnboardingFileError) return cause;
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  const kind = cause instanceof WorkbookSynthesisError ? "parse" : siteKind;
+  return new PrepareOnboardingFileError(kind, detail, { cause });
+}
+
 export async function prepareOnboardingFiles(
+  folderId: string,
+  deps: RunOnboardingScanDeps,
+): Promise<PreparedOnboardingFile[]> {
+  try {
+    return await prepareOnboardingFilesUnclassified(folderId, deps);
+  } catch (cause) {
+    // Every fault leaves this function as a PrepareOnboardingFileError, so a caller
+    // can map `kind` to a §12.4 code without knowing the phase layout.
+    throw asPrepareError(cause, "drive_fetch");
+  }
+}
+
+async function prepareOnboardingFilesUnclassified(
   folderId: string,
   deps: RunOnboardingScanDeps,
 ): Promise<PreparedOnboardingFile[]> {
@@ -1190,7 +1245,15 @@ export async function prepareOnboardingFiles(
       // Surface DIAGRAMS-tab embedded images from the already-fetched export bytes.
       ...(bytes ? { xlsxBytes: bytes } : {}),
     };
-    let parseResult = await enrich(parseSheet(markdown, file.name), driveClient, enrichCtx);
+    // Parse is its OWN statement so a parser fault is separable from an enrichment
+    // (Drive-pin) fault; as one expression the two were indistinguishable.
+    let parsed: ParsedSheet;
+    try {
+      parsed = parseSheet(markdown, file.name);
+    } catch (cause) {
+      throw asPrepareError(cause, "parse");
+    }
+    let parseResult = await enrich(parsed, driveClient, enrichCtx);
     // §5.2/§5.9: attach the archived-tab offers + emit PULL_SHEET_ON_ARCHIVED_TAB warnings
     // for every NOT-included tab, so the staged parse_result carries them first-class.
     finalizeArchivedTabs(parseResult, archivedPullSheetTabs);
@@ -1211,12 +1274,17 @@ export async function prepareOnboardingFiles(
         reconcile: reconciled,
         overrideTabName: override.tabName,
         reparseNoOverride: async () => {
-          const noOverride = synthesizeMarkdownFromXlsx(bytes);
-          const reparsed = await enrich(
-            parseSheet(noOverride.markdown, file.name),
-            driveClient,
-            enrichCtx,
-          );
+          // synthesize + parse are both sheet-content work: a fault here is a parse
+          // fault even though it runs inside the discard-and-rerun helper.
+          let reparsedSheet: ParsedSheet;
+          let noOverride: ReturnType<typeof synthesizeMarkdownFromXlsx>;
+          try {
+            noOverride = synthesizeMarkdownFromXlsx(bytes);
+            reparsedSheet = parseSheet(noOverride.markdown, file.name);
+          } catch (cause) {
+            throw asPrepareError(cause, "parse");
+          }
+          const reparsed = await enrich(reparsedSheet, driveClient, enrichCtx);
           return finalizeArchivedTabs(reparsed, noOverride.archivedPullSheetTabs);
         },
         // The durable clear runs at staging (under the show: lock) via the cleared flag;
