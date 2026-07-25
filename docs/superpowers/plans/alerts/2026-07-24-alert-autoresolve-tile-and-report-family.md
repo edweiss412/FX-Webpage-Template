@@ -138,7 +138,7 @@ Create `lib/crew/tileRenderLedger.ts (new)`:
 /**
  * Per-request record of which crew tiles ran, and which threw.
  *
- * Threaded from `_CrewShell` to each section as a REQUIRED prop (spec §4.3) , 
+ * Threaded from `_CrewShell` to each section as a REQUIRED prop (spec §4.3) ,
  * deliberately not React `cache()`, because the React build Vitest resolves
  * turns `cache` into a pass-through, which would make the identity contract
  * untestable in exactly the place it matters.

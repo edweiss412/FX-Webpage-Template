@@ -28,16 +28,22 @@ const SECTION_COMPONENTS = [
   "BudgetSection",
 ] as const;
 
-/** One tileId per SectionId. */
-const EXPECTED_TILE_IDS = [
-  "crew:budget:rows",
-  "crew:crew:roster",
-  "crew:gear:scope",
-  "crew:schedule:days",
-  "crew:today:notes",
-  "crew:travel:transport",
-  "crew:venue:diagrams",
-];
+/**
+ * Which tileId belongs to which section FILE. Checking only the global set would
+ * let two sections swap their tile IDs and stay green, which would silently
+ * misattribute every alert those tiles raise.
+ */
+const EXPECTED_TILE_BY_FILE: Record<string, string> = {
+  "TodaySection.tsx": "crew:today:notes",
+  "ScheduleSection.tsx": "crew:schedule:days",
+  "VenueSection.tsx": "crew:venue:diagrams",
+  "TravelSection.tsx": "crew:travel:transport",
+  "CrewSection.tsx": "crew:crew:roster",
+  "GearSection.tsx": "crew:gear:scope",
+  "BudgetSection.tsx": "crew:budget:rows",
+};
+
+const EXPECTED_TILE_IDS = Object.values(EXPECTED_TILE_BY_FILE).slice().sort();
 
 function walk(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(join(ROOT, dir))) {
@@ -95,6 +101,20 @@ describe("META tile producer topology", () => {
     }
     expect(found.slice().sort()).toEqual(EXPECTED_TILE_IDS);
     expect(new Set(found).size, "a tileId is used by more than one wrapper").toBe(found.length);
+  });
+
+  test("each section file declares ITS OWN tileId", () => {
+    // The set check above cannot detect two sections swapping IDs; this can.
+    const actual: Record<string, string[]> = {};
+    for (const f of PRODUCTION_FILES) {
+      if (!f.startsWith(SECTIONS_DIR)) continue;
+      const ids = [...codeOf(f).matchAll(/tileId="(crew:[^"]+)"/g)].map((m) => m[1] as string);
+      if (ids.length > 0) actual[f.split("/").pop() as string] = ids;
+    }
+    const flattened = Object.fromEntries(
+      Object.entries(actual).map(([file, ids]) => [file, ids.join(",")]),
+    );
+    expect(flattened).toEqual(EXPECTED_TILE_BY_FILE);
   });
 
   test("crew sections are constructed ONLY in the crew shell", () => {

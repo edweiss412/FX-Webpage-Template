@@ -22,7 +22,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
-import { ledgerProp } from "./sections/_ledgerProp";
 
 const upsertAdminAlert = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({ upsertAdminAlert }));

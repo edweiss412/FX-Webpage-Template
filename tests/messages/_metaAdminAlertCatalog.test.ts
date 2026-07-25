@@ -264,9 +264,11 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  *   - "auto": condition is a persistent, code-observable STATE; the system resolves it
  *     itself. Carries a non-empty resolveSites tuple pinning where that resolve happens.
  *   - "event-manual": one-shot EVENT notice; manual acknowledgment per master spec §4.6.
- *   - "state-manual-justified": STATE-shaped but structurally cannot auto-resolve safely
- *     (TILE_SERVER_RENDER_FAILED — per-tile dedup means one tile's success cannot prove
- *     another tile, which may hold the open row, is healthy; §3 row).
+ *   - "state-manual-justified": STATE-shaped but structurally cannot auto-resolve safely.
+ *     CURRENTLY EMPTY. TILE_SERVER_RENDER_FAILED held this class until spec 2026-07-24
+ *     moved it to "hybrid": the per-tile dedup problem is real but is solved by keying the
+ *     resolve on (tileId, viewerKey) from `context`, so one tile's success no longer
+ *     claims anything about another tile or another observer.
  *   - "deferred": STATE-shaped but out of scope this spec (BACKLOG).
  *
  * Counts (spec §3, incl. alert-resolve-truthing §6 + re-sync quality gate): 7 precedent AUTO +
