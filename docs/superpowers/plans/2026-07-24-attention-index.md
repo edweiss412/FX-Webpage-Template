@@ -213,7 +213,14 @@ Plus spec test 9b, the four-cell warnings matrix, which is the load-bearing proo
 | `tests/components/admin/showpage/publishedPill.test.tsx` | the parameterised table at `tests/components/admin/showpage/publishedPill.test.tsx:69` through `tests/components/admin/showpage/publishedPill.test.tsx:75` (7 rows of exact pill strings), plus `tests/components/admin/showpage/publishedPill.test.tsx:119`, `tests/components/admin/showpage/publishedPill.test.tsx:126`, `tests/components/admin/showpage/publishedPill.test.tsx:127`, `tests/components/admin/showpage/publishedPill.test.tsx:132`, `tests/components/admin/showpage/publishedPill.test.tsx:149` | The largest pin. **Re-derive the table from the merged counts; do not string-substitute** — rows that differed only in the confirm/review split now collapse onto the same expected string, so a mechanical replace produces duplicate cases that no longer discriminate. `tests/components/admin/showpage/publishedPill.test.tsx:119`'s test name ("clearing items WITHOUT clearingKind default fail-visible into the review count") carries retired vocabulary and is renamed, not just re-stringed. `tests/components/admin/showpage/publishedPill.test.tsx:126-127` is the review-segment 99+ cap and its sr-only exact count. (An earlier draft of this table cited line 111 of the same file; that is the unchanged `"2 monitoring"` assertion and is NOT affected — plan R4 F5.) |
 | `tests/components/admin/showpage/publishedReviewModal.test.tsx` | `tests/components/admin/showpage/publishedReviewModal.test.tsx:451`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:461`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:488`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:494`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:512` | `tests/components/admin/showpage/publishedReviewModal.test.tsx:461`'s whole premise — "needs-look-only renders the INTERACTIVE '1 to review' pill" — is retired; it becomes a `1 issue` case, keeping the interactivity half of the assertion. |
 | `tests/app/admin/showReviewModalLoader.test.tsx` | `tests/app/admin/showReviewModalLoader.test.tsx:620` | Regex over `${n} to confirm`. |
-| `tests/e2e/published-show-attention.spec.ts` | `tests/e2e/published-show-attention.spec.ts:112`, `tests/e2e/published-show-attention.spec.ts:124`, `tests/e2e/published-show-attention.spec.ts:232`, `tests/e2e/published-show-attention.spec.ts:259`, and the header comment at `tests/e2e/published-show-attention.spec.ts:11` | **CI-DARK, despite being in `desktop-chromium`'s `testMatch`** (plan R9 F1). `tests/ci/_metaE2eWorkflowCoverage.test.ts:91` records it `UNSEEN`, and no workflow or package script invokes it — `testMatch` membership makes a spec locally runnable, not CI-run. So real CI green does NOT prove this task left its browser surface green: **Task 5 must run it locally** (`pnpm exec playwright test --project=desktop-chromium tests/e2e/published-show-attention.spec.ts`, which needs the dev-server harness and `pnpm preflight`) and record the result in the handoff. An earlier draft called this the one CI-wired file in the table; that was exactly inverted. |
+| `tests/e2e/published-show-attention.spec.ts` | `tests/e2e/published-show-attention.spec.ts:112`, `tests/e2e/published-show-attention.spec.ts:124`, `tests/e2e/published-show-attention.spec.ts:232`, `tests/e2e/published-show-attention.spec.ts:259`, and the header comment at `tests/e2e/published-show-attention.spec.ts:11` | **CI-DARK, despite being in `desktop-chromium`'s `testMatch`** (plan R9 F1). `tests/ci/_metaE2eWorkflowCoverage.test.ts:91` records it `UNSEEN`, and no workflow or package script invokes it — `testMatch` membership makes a spec locally runnable, not CI-run. So real CI green does NOT prove this task left its browser surface green: **Task 5 must run it locally**, and the invocation matters (plan R10 F1):
+
+```
+BASELINE_SERVER_ONLY=1 E2E_PORT=3021 pnpm exec playwright test \
+  --project=desktop-chromium tests/e2e/published-show-attention.spec.ts
+```
+
+`BASELINE_SERVER_ONLY=1` stops the config booting all five `webServer` entries when this spec needs only the baseline app. `E2E_PORT` is the load-bearing half: the baseline server defaults to port 3000 with `reuseExistingServer: !CI` (`playwright.config.ts:8`, `playwright.config.ts:249`), so a sibling worktree's live dev server would be silently reused and the spec would pass **against another checkout's code** — the config's own header calls this out (`playwright.config.ts:4-7`). Pick a free port and keep it consistent for the run. `pnpm preflight` is still required and does not prevent either problem. An earlier draft called this the one CI-wired file in the table; that was exactly inverted. |
 | `tests/e2e/published-review-modal.layout.spec.ts` | `tests/e2e/published-review-modal.layout.spec.ts:654` | `"99+ to confirm"`; Task 8a touches the same fixture. **This is the genuinely CI-wired entry** — `.github/workflows/published-modal-e2e.yml:146` invokes it, and that workflow's path filter covers both the spec and `components/admin/showpage/**` (`.github/workflows/published-modal-e2e.yml:38`, `.github/workflows/published-modal-e2e.yml:53`), so stale pins here DO fail a real PR check. |
 | `tests/dev/fullSplitCompositeRender.test.tsx` | `tests/dev/fullSplitCompositeRender.test.tsx:53`, `tests/dev/fullSplitCompositeRender.test.tsx:56` | The exact composite string. Repaired here, NOT in Task 6. |
 | `tests/e2e/_publishedReviewModalHarness.tsx` | `tests/e2e/_publishedReviewModalHarness.tsx:54` | Doc comment only; update for accuracy. |
@@ -268,14 +275,30 @@ Run the finished suite:
 npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-pill-focus.spec.ts
 ```
 
-- **Green:** wire it into a workflow (`.github/workflows/attention-anchor-e2e.yml` is the closest template — a standalone-config job with a path filter) and update `tests/ci/_metaE2eWorkflowCoverage.test.ts:49` from `UNSEEN` to `PATH_GATED` in the same commit. The path filter must include `components/admin/showpage/AttentionMenu.tsx`, `components/admin/showpage/PublishedReviewModal.tsx`, and `tests/e2e/_pillFocusLiveEntry.tsx`, or the job never fires on the changes it exists to guard.
+- **Green:** wire it into a workflow (`.github/workflows/attention-anchor-e2e.yml` is the closest template — a standalone-config job with a path filter) and update `tests/ci/_metaE2eWorkflowCoverage.test.ts:49` from `UNSEEN` to `PATH_GATED` in the same commit. The path filter must cover the **complete direct-harness input set**, not just the two production files (plan R10 F2). The focus spec executes `tests/e2e/_step3ReviewModalBundle.mjs` and compiles `app/globals.css` (`tests/e2e/attention-pill-focus.spec.ts:52-60`); the live entry imports `tests/e2e/_publishedReviewModalHarness.tsx` (`tests/e2e/_pillFocusLiveEntry.tsx:23`); collection depends on `tests/e2e/standalone.config.ts`; and the workflow must list **itself**, or a workflow-only repair never exercises the job. Full list:
+
+```
+tests/e2e/attention-pill-focus.spec.ts
+tests/e2e/_pillFocusLiveEntry.tsx
+tests/e2e/_publishedReviewModalHarness.tsx
+tests/e2e/_step3ReviewModalBundle.mjs
+tests/e2e/standalone.config.ts
+components/admin/showpage/AttentionMenu.tsx
+components/admin/showpage/PublishedReviewModal.tsx
+app/globals.css
+package.json
+pnpm-lock.yaml
+.github/workflows/<new-workflow>.yml
+```
+
+`.github/workflows/attention-anchor-e2e.yml:19-32` is the template and already demonstrates every one of these classes. Any omission leaves the new job dark for changes to that input — which is the precise failure this task exists to remove.
 
 **Test first — and the registry edit is NOT that test (plan R8 F3).** `scanWorkflowCoverage` deliberately rejects any workflow carrying a `pull_request.paths` filter (`tests/ci/_workflowCoverageScan.ts:114`), so a path-gated job leaves this spec in `LOCAL_ONLY_ALLOWLIST` exactly as before; and the meta-test only ever reads `Object.keys(LOCAL_ONLY_ALLOWLIST)` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:142`, `tests/ci/_metaE2eWorkflowCoverage.test.ts:147`, `tests/ci/_metaE2eWorkflowCoverage.test.ts:149`), never the reason values. Changing `UNSEEN` to `PATH_GATED` therefore has **zero executable effect** — the whole current surface stays green if the workflow is missing, invokes the wrong spec, or omits any dependency path.
 
 So author a structural test first that reads the new workflow file and pins:
 
 1. it invokes `tests/e2e/attention-pill-focus.spec.ts` under `tests/e2e/standalone.config.ts`;
-2. its `pull_request.paths` contains all three dependency paths above plus the spec itself;
+2. its `pull_request.paths` contains every entry in the list above — harness inputs, production surfaces, toolchain inputs, and the workflow's own path;
 3. the `LOCAL_ONLY_ALLOWLIST` reason for this spec is `PATH_GATED`, not `UNSEEN`.
 
 Without (2) in particular, a job can be green on the implementation PR — triggered by some other changed path — while a dependency stays permanently dark, which is the failure this task exists to remove. Real CI on this PR is not a substitute oracle for per-path coverage.
