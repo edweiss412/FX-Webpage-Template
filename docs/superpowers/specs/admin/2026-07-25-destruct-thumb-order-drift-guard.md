@@ -497,6 +497,8 @@ It also keeps the **armed** geometry panels (D4 and D6), which 6.3.a structurall
 
 Three consecutive review rounds found the same two defect shapes, each time in a different instance:
 
+The class is broader than the two shapes review named — it is **a claim in the spec with no mechanism behind it**, and it has now appeared on four surfaces: unmeasured invariants, unbound measured elements, cited-but-unwritten jsdom tests, and (worst) a guard that existed only as a comment while §6.6 claimed it.
+
 | Shape | Instances found | Rounds |
 |---|---|---|
 | A documented `D`-invariant that is *claimed* but never *measured* | D1 (`self-start` shrink), D3 (flex growth) | 6, 7 |
@@ -506,11 +508,13 @@ Patching the named instance each round has not closed either class — each repa
 
 **M1 — every invariant has a named measurement.** A meta-test parses the `D`-numbered rows out of §4.7's Dimensional Invariants table and asserts that for each `D<n>`, at least one of `tests/e2e/pendingDiscardReal.layout.spec.ts` or `tests/e2e/pendingDiscardReflow.layout.spec.ts` contains `D<n>` in a test title or an assertion message. A new invariant with no assertion fails at authoring time; an invariant whose assertion is deleted fails immediately. It cannot prove the assertion is *good*, only that one exists and is named — which is exactly the gap that let D1 and D3 sit unmeasured while being listed.
 
+**M3 — every cited jsdom test exists.** The transition inventory cites "§6.2 test 9/10/11/12" as the coverage for specific reachable edges. Nothing guaranteed those tests were ever written. M3 parses every `§6.2 test N` citation out of the spec and asserts a correspondingly-numbered test (`test("[N] …")`) exists in the jsdom suite. Task 3 writes them, so M3 is red until then.
+
 **M2 — every measured element is bound.** The transcribed spec declares the elements it measures in an exported `MEASURED_ELEMENTS` array; the meta-test asserts that set equals the binding table's element set in §6.3.a. Measuring something unbound, or binding something unmeasured, fails. That is the mechanical form of the rule §6.3.a states in prose, and it is what would have caught all three binding omissions without a reviewer.
 
 Both live in `tests/styles/_metaDestructiveConfirm.test.ts` alongside the timing guards, so the whole destructive-confirm contract has one home.
 
-**Both are committed and both are RED, by design.** M1 reports `D4` and M2 reports the missing `MEASURED_ELEMENTS` export — each owned by Task 4, which rewrites the transcribed spec. Neither may be softened to go green.
+**All three are committed and all three are RED, by design.** M1 reports `D4` and M2 the missing `MEASURED_ELEMENTS` export (both owned by Task 4); M3 reports the cited jsdom tests (owned by Task 3). Neither may be softened to go green.
 
 That posture was itself nearly violated: M2 originally shipped as a *comment* inside M1's header block while this section claimed it as a guard. That is the identical "claimed but not implemented" shape M1 exists to catch, one level up — a section asserting a check that does not exist. It is called out here rather than quietly corrected, because the pattern across rounds 5-7 was consistently that the claim outran the mechanism.
 

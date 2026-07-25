@@ -268,6 +268,31 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
     expect(measured, `bound: ${bound.join(", ")}`).toEqual(bound);
   });
 
+  it("M3: every jsdom test the spec cites by number exists in the jsdom suite", () => {
+    // Third surface of the same class as M1/M2. The spec's transition inventory
+    // cites "§6.2 test 9/10/11/12" as the coverage for specific reachable edges;
+    // nothing previously guaranteed those tests were ever written. Task 3 writes
+    // them, so this is RED until then — same posture as D4 and MEASURED_ELEMENTS.
+    const doc = readFileSync(SPEC, "utf8");
+    const cited = [...new Set([...doc.matchAll(/§6\.2 test (\d+)/g)].map((m) => Number(m[1])))].sort(
+      (a, b) => a - b,
+    );
+    expect(cited.length, "no §6.2 test citations parsed — did the reference format change?").toBeGreaterThan(0);
+
+    let jsdom = "";
+    try {
+      jsdom = readFileSync("tests/components/admin/pendingIngestionActions.test.tsx", "utf8");
+    } catch {
+      /* handled below */
+    }
+    // Task 3 numbers each new test `[N]` in its title so the citation is checkable.
+    const present = new Set(
+      [...jsdom.matchAll(/\btest\(\s*["'`]\[(\d+)\]/g)].map((m) => Number(m[1])),
+    );
+    const missing = cited.filter((n) => !present.has(n));
+    expect(missing, "spec cites §6.2 tests that do not exist in the jsdom suite").toEqual([]);
+  });
+
   it("M1 self-check: the matcher actually parses invariants and detects a missing one", () => {
     const rows = [...`| D1 | a |\n| D9 | b |`.matchAll(/^\|\s*(D\d+)\s*\|/gm)].map((m) => m[1]!);
     expect(rows).toEqual(["D1", "D9"]);
