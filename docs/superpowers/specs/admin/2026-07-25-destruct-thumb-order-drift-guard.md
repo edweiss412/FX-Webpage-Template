@@ -133,8 +133,10 @@ The fork keys on the **width of the card the buttons sit in**, not the width of 
 
 `PendingPanelDiscardButtons` renders one `@container` wrapper holding three children:
 
-1. **Stacked copy** — `<div className="flex flex-col items-stretch gap-2 @min-[576px]:hidden">`, DOM order **Ignore, then Defer**.
-2. **Inline copy** — `<div className="hidden flex-wrap gap-2 @min-[576px]:flex">`, DOM order **Defer, then Ignore**.
+1. **Stacked copy** — `<div data-testid="discard-branch-stacked-${id}" className="flex flex-col items-stretch gap-2 @min-[576px]:hidden">`, DOM order **Ignore, then Defer**.
+2. **Inline copy** — `<div data-testid="discard-branch-inline-${id}" className="hidden flex-wrap gap-2 @min-[576px]:flex">`, DOM order **Defer, then Ignore**.
+
+Both branch containers and the `@container` root carry test ids. That is not decoration: review round 5 found that a probe **inferring** the branches by DOM shape (`:scope > div > div`) matched nothing and reported `missing/missing`, so the "exactly one branch displayed" assertion stayed red no matter what shipped. A structural oracle that guesses at structure is a bug waiting to happen. The root is `<div data-testid="discard-root-${id}" className="w-full @container">`.
 3. **Live region + error block** — rendered once, outside both copies.
 
 `hidden` resolves to `display: none`, which removes the element from the accessibility tree and from hit-testing, so exactly one copy is live at any width. Within each copy DOM order **is** visual order, so focus order and visual order agree without any reordering primitive — no `order`, no `flex-row-reverse`, no grid line placement.
@@ -445,12 +447,23 @@ Assertions carried here, because each needs the real tree:
 - **The root is not collapsed:** its measured width equals **the action row's** width, which is what `w-full` actually means. Comparing against the *rail* would be wrong by the card's 42px of borders and padding — it would reject a correct implementation, or push it toward overflow. The row is the exact oracle and needs no magic constant.
 - **Exactly one branch copy is displayed** at every rail, the hidden one measuring `0×0`.
 - **The 576px threshold is exercised directly.** Rails of **617px and 618px** put the *component* container at 575px and 576px. The 42px card inset is **measured, not computed**: rendering the real tree at 320 / 390 / 617 / 618 / 900px rails gives action-row widths of 278 / 348 / **575** / **576** / 858px — an inset of exactly 42px at every rail, with the two threshold rails landing on 575 and 576 as intended. Below the threshold must stack with Ignore above Defer; at it, one row with Defer on the left. Without these two rails nothing tested the boundary the threshold rationale rests on — the 320/390/900 rails give component widths of 278 / 348 / 858px, none of them near 576.
-- **D1** (buttons fill the stacked branch), **D2** (≥44px), **D3/D6** (inline branch order and armed growth from a pinned left edge), **D5** (Ignore above Defer when stacked).
+- **D1** (buttons fill the stacked branch), **D2** (≥44px), **D3** (inline branch order), **D5** (Ignore above Defer when stacked). **Not D4 or D6** — both are armed-state claims, and this harness cannot render armed at all (see the scope note below).
 - **Production nesting holds:** the action row, card padding and `Retry` sibling are the real ones, so a future change to `components/admin/NeedsAttentionInbox.tsx` that breaks the container relationship fails *this* spec.
 
 **Declared scope, and the one thing it cannot reach.** `renderToStaticMarkup` emits markup, not behaviour: it cannot click, so it can only ever render the component's **initial idle** state, and `PendingPanelDiscardButtons` exposes no prop for an armed initial state (adding one would be product API existing solely for a test). So D4 (armed box equality) and D6 (armed growth from a pinned edge) **cannot be measured here**, and this harness does not claim them.
 
-**Where armed geometry lives, and why that is still honest.** Armed differs from idle by exactly one thing: the Ignore button's className and label, both produced by the same `pair()` helper. So armed geometry is measured in the transcribed spec (§6.3.b) — but the transcription is **bound to the component** by a jsdom assertion that the real rendered armed className token set equals the harness's `IGNORE_ARMED` constant, token for token. If the component's armed skin changes and the constant does not, that binding test fails and the geometry panels are known to be stale. Transcription without a binding assertion is what rounds 2 and 3 rejected; transcription *with* one is a normal, checkable indirection.
+**Where armed geometry lives, and why that is still honest.** Armed geometry is measured in the transcribed spec (§6.3.b), bound to the component by a jsdom assertion. Round 5 showed the binding must cover more than the armed button: binding class tokens alone leaves a false-green path where production changes the branch container's `gap-2` to `gap-24` — idle still fits 576px so the real-tree harness passes, while the armed total exceeds 576px and wraps, with the stale transcribed panel still green.
+
+The binding therefore covers **every input to armed geometry**, each compared token-for-token or string-for-string against the harness constant:
+
+| Bound | Why it matters to armed geometry |
+|---|---|
+| armed Ignore `className` | the armed skin itself |
+| armed Ignore **label text** | a longer label changes the armed width, which is the whole point of D6 |
+| **both branch container** `className`s | the `gap-24` hole: gap and wrap behaviour set whether the armed row fits |
+| the `@container` root `className` | `w-full` and the threshold both live here |
+
+If any of those diverge from the harness constants, the binding test fails and the geometry panels are known stale. Transcription without a binding assertion is what rounds 2 and 3 rejected; transcription bound across every geometry input is a checkable indirection.
 
 Client effects (`useEffect`, timers) stay in the jsdom suite, and the descoped focus transfer stays unproven by design (§4.9).
 

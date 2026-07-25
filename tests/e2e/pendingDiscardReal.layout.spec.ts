@@ -110,11 +110,13 @@ test.afterAll(async () => {
 
 type Box = { x: number; y: number; w: number; h: number; bottom: number; right: number };
 type Probe = {
+  found: { root: boolean; stacked: boolean; inline: boolean; buttons: boolean };
   railW: number;
   rowW: number;
   rootW: number;
   rootHasWFull: boolean;
   rootHasContainer: boolean;
+  liveBranch: "stacked" | "inline" | "none";
   stackedDisplay: string;
   inlineDisplay: string;
   defer: Box;
@@ -125,36 +127,58 @@ async function probe(page: import("@playwright/test").Page, state: StateName): P
   return page.evaluate(
     ({ state, id }) => {
       const root = document.querySelector(`[data-state="${state}"]`)!;
+      const pick = (t: string) => root.querySelector(`[data-testid="${t}-${id}"]`);
       const rail = root.querySelector('[data-testid="rail"]')!;
-      const defer = root.querySelector(`[data-testid="admin-pending-defer-${id}"]`)!;
-      const ignore = root.querySelector(`[data-testid="admin-pending-ignore-${id}"]`)!;
-      // The component's own outermost element — the one that must carry
-      // `w-full @container`. Found from a button upward, so this reads the SHIPPED
-      // tree rather than a selector the harness chose.
-      const container = defer.closest(".\\@container") as HTMLElement | null;
-      const b = (el: Element): Box => {
+
+      // Every element is ADDRESSED by test id, never inferred from DOM shape.
+      // Round 5: a probe that guessed the branches via `:scope > div > div`
+      // matched nothing and reported missing/missing, so the assertion could
+      // never go green no matter what shipped.
+      const discardRoot = pick("discard-root") as HTMLElement | null;
+      const branchStacked = pick("discard-branch-stacked") as HTMLElement | null;
+      const branchInline = pick("discard-branch-inline") as HTMLElement | null;
+      // Variant-suffixed button ids (the bare ones are retired by §4.4). Whichever
+      // branch is live owns the pair we measure.
+      const deferStacked = pick("admin-pending-defer-stacked") as HTMLElement | null;
+      const deferInline = pick("admin-pending-defer-inline") as HTMLElement | null;
+      const ignoreStacked = pick("admin-pending-ignore-stacked") as HTMLElement | null;
+      const ignoreInline = pick("admin-pending-ignore-inline") as HTMLElement | null;
+
+      const vis = (el: HTMLElement | null) =>
+        el !== null && getComputedStyle(el).display !== "none";
+      const liveStacked = vis(branchStacked);
+      const defer = liveStacked ? deferStacked : deferInline;
+      const ignore = liveStacked ? ignoreStacked : ignoreInline;
+
+      const ZERO = { x: 0, y: 0, w: 0, h: 0, bottom: 0, right: 0 };
+      const b = (el: Element | null) => {
+        if (!el) return ZERO;
         const r = el.getBoundingClientRect();
         return { x: r.left, y: r.top, w: r.width, h: r.height, bottom: r.bottom, right: r.right };
       };
-      const stacked = root.querySelector('[data-testid^="admin-pending-defer"]')!.parentElement!;
-      const siblings = container ? Array.from(container.querySelectorAll(":scope > div > div")) : [];
-      const displays = siblings.map((s) => getComputedStyle(s).display);
-      // The action row is the component root's flex PARENT. `w-full` means the root
-      // fills that row's content box, so the row is the exact oracle — no magic
-      // padding constant, which round 4 correctly rejected.
-      const row = container ? container.parentElement : null;
+      const w = (el: Element | null) => (el ? el.getBoundingClientRect().width : -1);
+      const row = discardRoot ? discardRoot.parentElement : null;
+
       return {
-        railW: rail.getBoundingClientRect().width,
-        rowW: row ? row.getBoundingClientRect().width : -1,
-        rootW: container ? container.getBoundingClientRect().width : -1,
-        rootHasWFull: container ? container.classList.contains("w-full") : false,
-        rootHasContainer: container !== null,
-        stackedDisplay: displays[0] ?? "missing",
-        inlineDisplay: displays[1] ?? "missing",
+        // `found` lets a missing element fail as a readable assertion rather than a
+        // null deref, which is how round 5's version broke.
+        found: {
+          root: discardRoot !== null,
+          stacked: branchStacked !== null,
+          inline: branchInline !== null,
+          buttons: defer !== null && ignore !== null,
+        },
+        railW: w(rail),
+        rowW: w(row),
+        rootW: w(discardRoot),
+        rootHasWFull: discardRoot ? discardRoot.classList.contains("w-full") : false,
+        rootHasContainer: discardRoot ? discardRoot.classList.contains("@container") : false,
+        liveBranch: liveStacked ? "stacked" : vis(branchInline) ? "inline" : "none",
+        stackedDisplay: branchStacked ? getComputedStyle(branchStacked).display : "missing",
+        inlineDisplay: branchInline ? getComputedStyle(branchInline).display : "missing",
         defer: b(defer),
         ignore: b(ignore),
-        _unused: stacked.tagName,
-      } as unknown as Probe;
+      };
     },
     { state, id: INGESTION_ID },
   );
@@ -168,9 +192,10 @@ for (const [state, width] of Object.entries(STATES) as [StateName, number][]) {
     await page.goto(baseUrl);
     const p = await probe(page, state);
 
+    expect(p.found.root, "discard-root-* not found — is the fork implemented?").toBe(true);
     // Read off RENDERED markup, not the source file: this is the assertion round 3
     // showed was missing everywhere, and it is why this spec exists.
-    expect(p.rootHasContainer, "shipped root must establish a container context").toBe(true);
+    expect(p.rootHasContainer, "shipped root must carry @container").toBe(true);
     expect(p.rootHasWFull, "shipped root must carry w-full").toBe(true);
 
     // The direct 0px-collapse test. `container-type: inline-size` severs inline size
@@ -187,14 +212,17 @@ for (const [state, width] of Object.entries(STATES) as [StateName, number][]) {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(baseUrl);
     const p = await probe(page, state);
+    expect(p.found.stacked && p.found.inline, "both branch containers must exist").toBe(true);
     const hiddenCount = [p.stackedDisplay, p.inlineDisplay].filter((d) => d === "none").length;
     expect(hiddenCount, `displays: ${p.stackedDisplay} / ${p.inlineDisplay}`).toBe(1);
+    expect(p.liveBranch, "exactly one branch must be live").not.toBe("none");
   });
 
   test(`${state}: tap targets clear ${TAP_MIN}px`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(baseUrl);
     const p = await probe(page, state);
+    expect(p.found.buttons, "variant-suffixed button ids not found").toBe(true);
     expect(p.defer.h).toBeGreaterThanOrEqual(TAP_MIN - TOL);
     expect(p.ignore.h).toBeGreaterThanOrEqual(TAP_MIN - TOL);
   });
@@ -226,7 +254,7 @@ test("wide900: they share one row with Defer on the left", async ({ page }) => {
   expect(p.defer.x).toBeLessThan(p.ignore.x);
 });
 
-test("the 576px threshold switches the branch, and the armed row still fits above it", async ({
+test("the 576px threshold switches which branch is live (idle markup only)", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });

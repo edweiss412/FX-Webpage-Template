@@ -82,7 +82,9 @@ Every task: failing test → minimal implementation → passing test → commit 
 
 **Remaining in this task:** a new spec file **tests/e2e/pendingDiscardReal.layout.spec.ts** that consumes the harness JSON, compiles token CSS, serves it, and carries the 6.3.a assertion list — starting with the two that close the round-3 findings: `w-full` and `@container` present on the **rendered** root, and the root's measured width equal to the rail width (the direct test for the 0px collapse, which cannot pass if `w-full` is dropped).
 
-**Armed geometry does not live here.** `renderToStaticMarkup` cannot click, and the component has no armed-initial prop, so D4/D6 stay in the transcribed spec — bound to the component by a jsdom assertion that the real rendered armed className token set equals the harness's `IGNORE_ARMED` constant. Task 3 owns that binding test.
+**Every element the probe reads is addressed by test id, never inferred from DOM shape.** Round 5 found a probe that guessed the branches via `:scope > div > div`, matched nothing, and reported `missing/missing` — an assertion that could never go green regardless of what shipped. The probe also reports a `found` map so a missing element fails as a readable assertion (`discard-root-* not found — is the fork implemented?`) rather than a null deref.
+
+**Armed geometry does not live here.** `renderToStaticMarkup` cannot click, and the component has no armed-initial prop, so D4/D6 stay in the transcribed spec — bound to the component by a jsdom assertion covering **every input to armed geometry**: the armed Ignore className, its label text, both branch container classNames, and the root className. Binding the button class alone leaves the `gap-2` → `gap-24` false-green that round 5 found. Task 3 owns that binding test.
 
 **Commit:** `test(admin): measure the real discard tree in a browser`
 
@@ -156,7 +158,7 @@ Two of them exist specifically because the other would not catch the bug:
 
 Tests 10 and 11 cover the compound `error + armed` exits that the flat five-state model missed (spec §4.8).
 
-**Implementation.** Restructure `components/admin/PendingPanelDiscardButtons.tsx` per spec §4.1: a `w-full @container` root (the `w-full` is mandatory — see below), one local `pair(variant)` helper, stacked copy `[ignore, defer]` with `flex flex-col items-stretch gap-2 @min-[576px]:hidden`, inline copy `[defer, ignore]` with `hidden flex-wrap gap-2 @min-[576px]:flex`, live region and error block hoisted out so each renders once. Remove `basis-full sm:basis-auto`.
+**Implementation.** Restructure `components/admin/PendingPanelDiscardButtons.tsx` per spec §4.1: a `w-full @container` root (the `w-full` is mandatory — see below), one local `pair(variant)` helper, a `data-testid="discard-root-${id}"` root, stacked copy `[ignore, defer]` in `data-testid="discard-branch-stacked-${id}"` with `flex flex-col items-stretch gap-2 @min-[576px]:hidden`, inline copy `[defer, ignore]` in `data-testid="discard-branch-inline-${id}"` with `hidden flex-wrap gap-2 @min-[576px]:flex`, live region and error block hoisted out so each renders once. Remove `basis-full sm:basis-auto`.
 
 Two tokens are load-bearing and each has its own failure mode:
 
