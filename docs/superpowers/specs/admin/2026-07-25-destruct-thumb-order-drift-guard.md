@@ -18,10 +18,10 @@ Each item below is a decision already taken, with its ratification cited. A revi
 | # | Resolved decision | Ratification |
 |---|---|---|
 | R1 | `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE` and `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS` are **already implemented**. This spec deletes their BACKLOG rows; it does **not** re-implement them. | `DEFERRED-archive.md:1224-1234`; live proof `components/admin/RecentAutoAppliedStrip.tsx:551` (`data-testid` on the persistent `role="status"` region, `auto-applied-bulk-undo-status-${group.showId}`) and eleven `ARM_REVERT_MS = 4_000` declarations with zero surviving `AUTO_REVERT_MS`. |
-| R2 | The fix for `BL-DESTRUCT-STACK-THUMB-ORDER` is **Option B — a breakpoint-forked render (two DOM subtrees)**. The owner chose it on 2026-07-25 from a rendered side-by-side comparison of all three candidates, with the duplication cost stated on the card he picked. Options A (recolour + gap) and C (global DOM swap) were shown and declined. | Owner decision, 2026-07-25, this session. The trap that rules out a CSS-only fix is stated in the `BL-DESTRUCT-STACK-THUMB-ORDER` row of `BACKLOG.md`. |
-| R3 | Duplicating a destructive control is a **known, accepted cost** of R2, not an oversight. Containment is three-part and specified in §4.4: one shared render helper (no copy-paste drift), per-copy test ids (no ambiguous query), and a real-browser proof that exactly one copy is displayed per breakpoint. | This spec §4.4. |
-| R4 | The bare test ids `admin-pending-defer-${id}` / `admin-pending-ignore-${id}` are **retired**, not reassigned to one copy. A bare id that silently resolves to one of two live copies is precisely the ambiguity that makes a duplicated destructive control dangerous. | This spec §4.3. |
-| R5 | Wiring `tests/e2e/pendingDiscardReflow.layout.spec.ts` into CI is **in scope**, because it is this change's verification vehicle. It currently runs in no workflow (`tests/e2e/standalone.config.ts:36` lists it; no workflow invokes that config — the `BL-STANDALONE-CONFIG-CI-DARK` row in `BACKLOG.md`). A guard that runs in no CI is not a guard. This spec does **not** attempt the rest of `BL-STANDALONE-CONFIG-CI-DARK`'s ~15 other dark specs. | `AGENTS.md` cross-cutting rule "Local-passes-CI-fails is its own bug class"; that row's "Partially closed" note. |
+| R2 | The fix for `BL-DESTRUCT-STACK-THUMB-ORDER` is a **breakpoint-forked render (two DOM subtrees) keyed on CONTAINER width**, threshold 576px. The owner first chose a viewport-keyed fork on 2026-07-25 from a rendered comparison; adversarial review plus a browser probe then showed the viewport key does not fix the live 280px rail (§2.5), and the owner re-decided for the container key the same day on that evidence. Ruled out and not to be re-argued: a CSS `order` flip, `flex-row-reverse`, grid line placement (all desync visual from focus order, WCAG 2.4.3 — the original reason this was deferred rather than patched), a recolour-only fix, and a global DOM swap. | Owner decisions, 2026-07-25, this session; evidence in §2.5 and §4.2. |
+| R3 | Duplicating a destructive control is a **known, accepted cost** of R2, not an oversight. Containment is four-part and specified in §4.5: one shared render helper, a canonical-token allowlist that catches shared drift, per-copy test ids, and a real-browser proof that exactly one copy is displayed at each container width. | This spec §4.5. |
+| R4 | The bare test ids `admin-pending-defer-${id}` / `admin-pending-ignore-${id}` are **retired**, not reassigned to one copy. A bare id that silently resolves to one of two live copies is precisely the ambiguity that makes a duplicated destructive control dangerous. | This spec §4.4. |
+| R5 | Wiring `tests/e2e/pendingDiscardReflow.layout.spec.ts` into CI is **in scope**, because it is this change's verification vehicle. It currently runs in no workflow (`tests/e2e/standalone.config.ts:36` lists it, but `package.json:52` names only four other specs). Note the config itself IS invoked by `.github/workflows/modal-header-layout-e2e.yml:106` — it is *this spec* that is dark, not the config, per the `BL-STANDALONE-CONFIG-CI-DARK` row in `BACKLOG.md`. A guard that runs in no CI is not a guard. This spec does **not** attempt the rest of `BL-STANDALONE-CONFIG-CI-DARK`'s ~15 other dark specs. | `AGENTS.md` cross-cutting rule "Local-passes-CI-fails is its own bug class"; that row's "Partially closed" note. |
 | R6 | The drift guard pins the **arm-revert duration only**. It does not pin `SUCCESS_DISMISS_MS` (`app/admin/show/[slug]/PickerResetControl.tsx:121`, `app/admin/show/[slug]/ResetPickerEpochButton.tsx:118`) — a success-toast dismissal is a different affordance with no ratified shared value. Widening the guard to all admin timers is out of scope. | This spec §5.3. |
 | R7 | `tests/styles/_metaDestructiveConfirm.test.ts` is **not replaced**. Its declared scope (`tests/styles/_metaDestructiveConfirm.test.ts:10-12`) is recipe-token growth. The new guard is a sibling assertion that reuses its registry as the discovery mechanism. | This spec §5.2. |
 | R8 | The four-second value itself is not revisited. `ARM_REVERT_MS = 4_000` was ratified on 2026-07-17 ("more react time for a venue-floor operator, one idiom"). | `DEFERRED-archive.md:1228`. |
@@ -97,27 +97,46 @@ These are prose notes, not assertions, so nothing fails today — which is exact
 
 ---
 
+### 2.5 The defect is already live on desktop
+
+This was not in the backlog and was found by measuring the real page, after adversarial review challenged the viewport-keyed design.
+
+The Needs-Attention list is a fixed rail on wide viewports: `components/admin/Dashboard.tsx:636` sets `min-[1240px]:w-80` (320px), and each card inside it carries `p-tile-pad` (`components/admin/NeedsAttentionInbox.tsx:65`), which is 20px (`app/globals.css:170`). The buttons therefore get **280px**, while side by side they need 315.95px idle and 491.25px armed.
+
+Measured in Chromium at a 1280px viewport with today's shipped markup in a 280px container:
+
+| State | Defer | Ignore | Result |
+|---|---|---|---|
+| idle | row 1 (`y744`) | row 2 (`y796`) | **Ignore below Defer** |
+| armed | row 1 (`y840`) | row 2 (`y892`), full width | **Ignore below Defer** |
+
+`sm:basis-auto` restores auto-basis at `sm` **viewport** width, but `flex-wrap` still wraps when the **container** cannot fit the row. So the mis-tap ordering the backlog records as a mobile-stacking problem is already reachable on a desktop monitor, in the surface an admin uses most.
+
+Two consequences: the fix must key on container width, not viewport width (§4.1); and the "side-by-side at `≥ sm`" layout that goal G2 protects is one this rail has never had room to display, so preserving it there is not a real constraint.
+
 ## 3. Goals / non-goals
 
-**Goals.** (G1) Below `sm`, the safe action is the lower of the two stacked controls. (G2) At `sm` and above, the existing Defer-left / Ignore-right order is unchanged. (G3) Visual order and focus order agree at every width — no `order`, no `flex-row-reverse`, no grid line placement that would desync them. (G4) The harmonized 4s arm-revert cannot silently re-drift. (G5) BACKLOG reflects reality.
+**Goals.** (G1) Wherever the two controls stack, the safe action is the lower of the two. (G2) Wherever they genuinely fit side by side, the existing Defer-left / Ignore-right order is unchanged — note §2.5: the 280px rail never fits them, so this goal binds only on wide cards. (G3) Visual order and focus order agree at every width — no `order`, no `flex-row-reverse`, no grid line placement that would desync them. (G4) The harmonized 4s arm-revert cannot silently re-drift. (G5) BACKLOG reflects reality.
 
 **Non-goals.** Changing any confirm label or the 4s value (R8). Touching the other ten destructive surfaces' markup — they get an import swap only. Closing the rest of `BL-STANDALONE-CONFIG-CI-DARK` (R5). Guarding non-arm timers (R6). Any DB, RPC, advisory-lock, API-route, or `§12.4` catalog change — this diff touches none.
 
 ---
 
-## 4. Design — the forked render
+## 4. Design — the container-keyed forked render
 
 ### 4.1 Structure
 
-`PendingPanelDiscardButtons` renders **one** outer column containing **three** children:
+The fork keys on the **width of the card the buttons sit in**, not the width of the viewport. This is the correction forced by §2.5: the viewport is not the constraint, the container is.
 
-1. **Stacked copy** — `<div className="flex flex-col items-stretch gap-2 sm:hidden">`, DOM order **Ignore, then Defer**.
-2. **Inline copy** — `<div className="hidden flex-wrap gap-2 sm:flex">`, DOM order **Defer, then Ignore**.
+`PendingPanelDiscardButtons` renders one `@container` wrapper holding three children:
+
+1. **Stacked copy** — `<div className="flex flex-col items-stretch gap-2 @min-[576px]:hidden">`, DOM order **Ignore, then Defer**.
+2. **Inline copy** — `<div className="hidden flex-wrap gap-2 @min-[576px]:flex">`, DOM order **Defer, then Ignore**.
 3. **Live region + error block** — rendered once, outside both copies.
 
-`hidden` resolves to `display: none`, which removes the element from the accessibility tree, so exactly one copy is exposed to assistive technology and to hit-testing at any width. Focus order within the displayed copy is DOM order, and DOM order is visual order in both copies — G3 holds without any reordering primitive.
+`hidden` resolves to `display: none`, which removes the element from the accessibility tree and from hit-testing, so exactly one copy is live at any width. Within each copy DOM order **is** visual order, so focus order and visual order agree without any reordering primitive — no `order`, no `flex-row-reverse`, no grid line placement.
 
-Both copies are produced by a single local helper so the two can never drift in label, class, handler, or disabled logic:
+Both copies come from a single local helper, so they cannot drift in label, class, handler, or disabled logic:
 
 ```tsx
 function pair(variant: "stacked" | "inline") { /* returns [deferNode, ignoreNode] */ }
@@ -125,19 +144,45 @@ function pair(variant: "stacked" | "inline") { /* returns [deferNode, ignoreNode
 
 The helper takes only the variant (used for the test-id suffix) and closes over the component's state and handlers. The stacked copy renders `[ignore, defer]`; the inline copy renders `[defer, ignore]`.
 
-### 4.2 Mode boundaries
+**The `flex` token is load-bearing and separately pinned.** The stacked container needs a literal `flex` class alongside `flex-col items-stretch`. Without it the element is `display: block`, `items-stretch` is inert, and D1 silently does not hold — while a source-scan guard that only checks for `flex-col`/`items-stretch` still passes. §6.2 test 7 and §6.3's source guard both require `flex` explicitly for this reason.
 
-| Element | Stacked (`< sm`) | Inline (`≥ sm`) | Rendered once (both) |
-|---|---|---|---|
-| Defer button | yes, second | yes, first | — |
-| Ignore button | yes, first | yes, second | — |
-| `role="status"` sr-only region | — | — | yes |
-| `role="alert"` error block | — | — | yes |
-| Container display | `flex` | `none` | — |
+### 4.2 The 576px threshold
 
-The live region moves **out** of the row (it is at `components/admin/PendingPanelDiscardButtons.tsx:140-142` today, inside it). Rendering it once is required: two mounted `role="status"` nodes with identical content produce a double announcement in some screen readers, and the region is `sr-only` so its position in the flex row carries no visual meaning.
+The threshold must clear the **armed** width, not the idle width. Measured in Chromium with the real compiled token CSS:
 
-### 4.3 Test ids
+| Content | Width used |
+|---|---|
+| idle Defer + gap + idle Ignore | 315.95px |
+| idle Defer + gap + **armed** Ignore | **491.25px** |
+
+A threshold sized to the idle total would put the inline copy on screen at widths where arming makes it wrap — reintroducing the defect at the exact moment the destructive confirm appears. Boundary behaviour was measured directly:
+
+| Container | State | Copy shown | Wrapped | Slack |
+|---|---|---|---|---|
+| 511px | armed | stacked | no | clean switchover, no gap |
+| 512px | armed | inline | no | 20.75px |
+| 512px | idle | inline | no | 196.05px |
+
+512px works locally but leaves only **20.75px** (4%) of headroom on the armed row. CI renders on x64 Linux while these numbers come from arm64 macOS, and a font-metric difference inside that band would wrap the armed row silently. **576px** is therefore the shipped threshold, leaving 84.75px (17%) of headroom. §6.3 asserts no-wrap at exactly the threshold, so if a platform ever does exceed it the test fails loudly instead of the layout degrading quietly.
+
+Nothing real is lost at 576: the two live geometries are the 280px rail (stacked either way) and the full-width dashboard card below 1240px viewport (far wider than 576, inline either way).
+
+### 4.3 Mode boundaries
+
+Each container is `display: none` in the other's mode. Stated per element to remove the ambiguity a single shared row invites:
+
+| Element | Container < 576px | Container ≥ 576px |
+|---|---|---|
+| Stacked container | `flex` | `none` |
+| Inline container | `none` | `flex` |
+| Defer button | in stacked copy, second | in inline copy, first |
+| Ignore button | in stacked copy, first | in inline copy, second |
+| `role="status"` sr-only region | rendered once, outside both copies — unaffected by mode |
+| `role="alert"` error block | rendered once, outside both copies — unaffected by mode |
+
+The live region moves **out** of the row (it is inside it today at `components/admin/PendingPanelDiscardButtons.tsx:140-142`). Rendering it once is required: two mounted `role="status"` nodes with identical content produce a double announcement in some screen readers, and the region is `sr-only`, so its position in the flex row carries no visual meaning.
+
+### 4.4 Test ids
 
 Per R4 the bare ids are retired. Each copy carries an explicit variant suffix:
 
@@ -146,87 +191,111 @@ Per R4 the bare ids are retired. Each copy carries an explicit variant suffix:
 | Defer | `admin-pending-defer-stacked-${id}` | `admin-pending-defer-inline-${id}` |
 | Ignore | `admin-pending-ignore-stacked-${id}` | `admin-pending-ignore-inline-${id}` |
 
-Unchanged: `admin-pending-discard-error-${id}` (`components/admin/PendingPanelDiscardButtons.tsx:147`), which is rendered once.
+Unchanged: `admin-pending-discard-error-${id}` (`components/admin/PendingPanelDiscardButtons.tsx:147`), rendered once.
 
-Consumers update as follows. jsdom tests (`tests/components/admin/pendingIngestionActions.test.tsx`) target the **inline** ids for the existing behavioural assertions — jsdom applies no CSS, so both copies mount and either would work; inline is chosen because it preserves the existing DOM order under test and therefore the meaning of the existing assertions. New parity tests (§6.2) cover the stacked copy. The Playwright spec `tests/e2e/needs-attention-page.spec.ts` runs at Playwright's default 1280px viewport, above `sm`, so it targets the **inline** ids; its stale source citation at `tests/e2e/needs-attention-page.spec.ts:53` is corrected in the same commit.
+**Which copy each consumer targets is determined by the container width at that consumer's viewport, and was verified, not assumed:**
 
-### 4.4 Containment for the duplicated destructive control (R3)
+- `tests/components/admin/pendingIngestionActions.test.tsx` — jsdom applies no CSS, so both copies mount and either id resolves. It targets the **inline** ids for the existing behavioural assertions, preserving the DOM order those assertions were written against. New tests cover the stacked copy.
+- `tests/e2e/needs-attention-page.spec.ts` — sets `setViewportSize(MOBILE)` at `tests/e2e/needs-attention-page.spec.ts:232`, where `MOBILE = { width: 390, height: 844 }` (`tests/e2e/needs-attention-page.spec.ts:40`). The card there is far below 576px, so the **stacked** copy is the live one. Its clicks at `tests/e2e/needs-attention-page.spec.ts:243` and `tests/e2e/needs-attention-page.spec.ts:250` retarget to the **stacked** ids. Targeting inline would click a `display:none` node and fail on Playwright actionability — a timeout that reads as a flake rather than a wiring error, which is why this is called out explicitly.
+
+### 4.5 Containment for the duplicated destructive control (R3)
 
 | Risk | Containment | Proof |
 |---|---|---|
-| The two copies drift in label / class / handler | Both emitted by the single `pair()` helper — there is one source expression per control | jsdom parity test asserting the stacked and inline Ignore nodes have identical `textContent` and identical class token sets, in **both** idle and armed states (§6.2) |
-| A query resolves ambiguously and a test silently exercises the wrong copy | Variant-suffixed ids; the bare ids no longer exist, so a stale query fails loudly instead of matching two nodes | The id rename is mechanical and compile/test-visible |
-| Both copies displayed at once, or neither | `sm:hidden` / `hidden sm:flex` are exact complements | Real-browser assertion at 360px and 720px that exactly one copy has a non-zero box (§6.3) |
-| A future edit reintroduces a single-subtree render | Source drift-guard extended | `pendingDiscardReflow.layout.spec.ts` drift-guard test (§6.3) |
+| The two copies drift together | Canonical-token assertion: each rendered button must carry the required token set (`min-h-tap-min`, `inline-flex`, `items-center`, `justify-center`, `rounded-sm`, `px-3`, `text-sm`) checked against a literal allowlist, **not** against the other copy | §6.2 test 2b. Parity alone cannot catch this and is not asked to |
+| The two copies drift apart | Both emitted by the single `pair()` helper | §6.2 tests 2a/3 compare the copies to each other |
+| A query resolves ambiguously | Variant-suffixed ids; the bare ids no longer exist, so a stale query fails loudly instead of matching two nodes | Mechanical, compile- and test-visible |
+| Both copies live at once, or neither | `@min-[576px]:hidden` / `hidden @min-[576px]:flex` are exact complements | §6.3 real-browser assertion at four container widths |
+| A future edit reverts to one subtree, or drops `flex` | Source drift-guard asserting the fork's classes are present **and** `basis-full` is absent | §6.3 drift-guard |
 
-### 4.5 Guard conditions for the one prop
+### 4.6 Guard conditions for the one prop
 
 `pendingIngestionId: string` (`components/admin/PendingPanelDiscardButtons.tsx:20`) is the component's only input.
 
 | Value | Behaviour |
 |---|---|
 | Non-empty string | Normal. Interpolated into four test ids and, `encodeURIComponent`-escaped, into the POST URL (`components/admin/PendingPanelDiscardButtons.tsx:81`). |
-| Empty string `""` | Renders normally; test ids degrade to `admin-pending-ignore-stacked-`. The POST would target `/api/admin/pending-ingestions//discard` and fail server-side, surfacing through the existing error branch (`components/admin/PendingPanelDiscardButtons.tsx:100`). **Unchanged from today** — this spec adds no new failure mode and no new guard. The host (`components/admin/NeedsAttentionInbox.tsx`) always passes a row id. |
-| `null` / `undefined` | Not reachable — the prop is a required non-nullable `string` and TypeScript rejects the omission at the call site. No runtime guard is added, matching current behaviour. |
+| Empty string `""` | Renders normally; ids degrade to `admin-pending-ignore-stacked-`. The POST targets `/api/admin/pending-ingestions//discard` and fails server-side, surfacing through the existing error branch (`components/admin/PendingPanelDiscardButtons.tsx:100`). **Unchanged from today** — no new failure mode, no new guard. The host always passes a row id. |
+| `null` / `undefined` | Not reachable — the prop is a required non-nullable `string`, rejected at the call site by TypeScript. No runtime guard added, matching current behaviour. |
 
-### 4.6 Dimensional invariants
+### 4.7 Dimensional invariants
 
-Tailwind v4 on this project does **not** default `.flex` to `align-items: stretch` (`AGENTS.md` cross-cutting rule; memory `feedback_tailwind_v4_flex_items_stretch`). Every parent→child dimension relationship is therefore stated explicitly and verified in a real browser, never in jsdom.
+Tailwind v4 on this project does **not** default `.flex` to `align-items: stretch` (`docs/agents/spec-self-review.md:11`). Every parent→child relationship is therefore explicit and verified in a real browser at **container** widths, never in jsdom and never at viewport widths.
 
 | # | Parent | Child | Required relationship | Guaranteeing class | Verified by |
 |---|---|---|---|---|---|
-| D1 | stacked container | both buttons | child width == container width | `items-stretch` on the container (**explicit — not inherited**) | §6.3 real-browser width equality at 360px |
-| D2 | stacked container | both buttons | child height ≥ 44px | `min-h-tap-min` on each button (`--spacing-tap-min: 44px`, `app/globals.css:162`) | §6.3 height assertion at 360px |
-| D3 | inline container | both buttons | children share one line, widths intrinsic | `flex-wrap` + no `basis-full` in this copy | §6.3 at 720px: `defer.right ≤ ignore.left` |
-| D4 | stacked Ignore | itself, idle vs armed | box top / left / width identical across the arm transition (DESTRUCT-1) | full-width stack pins all three edges; only height may change | §6.3 equality assertion, with the existing negative control retained |
-| D5 | stacked container | Ignore vs Defer | `ignore.bottom ≤ defer.top` | DOM order Ignore-first in a `flex-col` | §6.3 at 360px, against a new negative control panel using today's single-subtree markup |
-| D6 | inline container | Ignore, idle vs armed | box **left** and **top** identical across the arm transition; width may grow rightward | `flex-wrap` with intrinsic widths — the armed label extends the right edge only, because the left edge is set by the preceding Defer plus `gap-2` | §6.3 at 720px |
+| D1 | stacked container | both buttons | child width == container width | `flex` **and** `items-stretch` (both explicit; `flex-col` alone leaves the element `display:block`) | §6.3 at 280px |
+| D2 | stacked container | both buttons | child height ≥ 44px | `min-h-tap-min` (`--spacing-tap-min: 44px`, `app/globals.css:162`) | §6.3 at 280px |
+| D3 | inline container | both buttons | both share one line, widths intrinsic | container ≥ 576px guarantees the armed total of 491.25px fits | §6.3 at 576px and 720px, idle **and** armed |
+| D4 | stacked Ignore | itself, idle vs armed | box top / left / width identical across arming | full-width stack pins all three edges | §6.3 equality assertion with the pre-DESTRUCT-1 negative control retained |
+| D5 | stacked container | Ignore vs Defer | `ignore.bottom ≤ defer.top` | DOM order Ignore-first in a `flex-col` | §6.3 at 280px, against a negative control using today's markup |
+| D6 | inline Ignore | itself, idle vs armed | box left and top identical; width may grow rightward only | intrinsic widths with the left edge set by Defer + `gap-2` | §6.3 at 576px and 720px |
 
-**Empirical grounding.** These are measured, not derived. A probe rendering the proposed markup with the real compiled token CSS in Chromium (darwin arm64, 2026-07-25; body gutter 16px matching the admin `px-4`) returned:
+**Empirical grounding.** Measured in Chromium with the compiled token CSS (arm64 macOS, 2026-07-25):
 
-| Viewport | Measurement |
+| Container | Copy shown | Result |
+|---|---|---|
+| 280px (the live rail) idle **and** armed | stacked | Ignore `x16 w280 h44` above Defer; hidden copy `0×0`. D1, D2, D4, D5 hold |
+| 512px armed | inline | no wrap, 491.25px used, 20.75px slack — the basis for choosing 576 instead |
+| 576px / 720px, idle and armed | inline | Defer left, same row; armed Ignore grows `153.2 → 328.51` with its left edge pinned at `x178.74`. D3, D6 hold |
+| every case | — | exactly one copy displayed; the hidden copy measures `0×0` with `offsetParent === null` |
+
+**Why D4 does not assert height equality.** The probe measured armed and idle heights equal (both 44px — the armed label fits one line at 280px here), but that is a font-metric outcome and CI is x64 Linux. A height-equality assertion would be a platform-hardcoded fixture: green locally, red in CI, for a wrap that does not violate the invariant. D4 protects what matters — the confirm target does not move out from under the finger — via top, left and width. Height may grow downward from a pinned top.
+
+### 4.8 Transition inventory
+
+The component's visual state is **two independent dimensions**, not one flat enum. Modelling it as five mutually-exclusive states was wrong: `armed` and `state` compose, and the compound cells are where the real behaviour lives.
+
+- **`state`** ∈ { `idle`, `running-defer`, `running-ignore`, `error` } — the `State` union at `components/admin/PendingPanelDiscardButtons.tsx:22-25`
+- **`armed`** ∈ { `false`, `true` } — the separate boolean at `components/admin/PendingPanelDiscardButtons.tsx:47`
+
+Eight cells. Three are unreachable, and each unreachability is a claim checked against the live component:
+
+| | `armed: false` | `armed: true` |
+|---|---|---|
+| **idle** | resting | armed confirm showing |
+| **running-defer** | Deferring… | **unreachable** — `handleClick` disarms before setting running (`components/admin/PendingPanelDiscardButtons.tsx:76-77`) |
+| **running-ignore** | Ignoring… | **unreachable** — same disarm, `components/admin/PendingPanelDiscardButtons.tsx:66-68` |
+| **error** | error shown | **reachable** — `onGuardedIgnoreClick` arms without touching `state` (`components/admin/PendingPanelDiscardButtons.tsx:56-64`) |
+
+Transitions between the five reachable cells:
+
+| Transition | Treatment |
 |---|---|
-| 360px | stacked Ignore `x16 w328 h44`, stacked Defer `x16 y+52 w328 h44` → D1, D2, D5 hold. Container width 328 == button width 328, confirming `items-stretch` is load-bearing. |
-| 360px | every inline-copy node measures `0×0` → exactly one copy displayed. |
-| 360px | armed stacked Ignore box equals the idle box on x, y, w **and** h — the armed label fits one line in a 328px box on this host. |
-| 360px | negative control (today's shipped markup): Defer `y192`, Ignore `y244` → Ignore **below** Defer. The harness reproduces the reported defect, so D5's assertion is not tautological. |
-| 720px | stacked copy `display:none`, `offsetParent === null`, `0×0`; inline copy `display:flex`. Defer `x16 right170.74`, Ignore `x178.74` → D3 holds. |
-| 720px | armed inline Ignore grows `w153.2 → w328.51` with its **left edge pinned at x178.74** → D6 holds. Same benign "grows from a pinned edge" shape the DESTRUCT-1 analysis blessed for `components/admin/BulkIgnoreControls.tsx`. |
+| idle/false → idle/true | Recipe morph on Ignore, `transition-opacity duration-fast` (`components/admin/PendingPanelDiscardButtons.tsx:127`). Box top/left/width fixed (D4/D6). **Unchanged.** |
+| idle/true → idle/false | Same transition reversed. Fires on the 4s auto-revert (`components/admin/PendingPanelDiscardButtons.tsx:60-63`) or on a sibling mutation (`components/admin/PendingPanelDiscardButtons.tsx:76-77`). **Unchanged.** |
+| idle/false → running-defer | Instant. Label `Defer until modified` → `Deferring…` (`components/admin/PendingPanelDiscardButtons.tsx:116-118`), both buttons `disabled` (`components/admin/PendingPanelDiscardButtons.tsx:104`). |
+| idle/true → running-ignore | Instant. Label → `Ignoring…`. Disarm and run are set in one handler, so no intermediate resting frame renders. |
+| idle/true → running-defer | Instant. Tapping Defer while armed disarms and starts the defer. Pinned today at `tests/components/admin/pendingIngestionActions.test.tsx:232`. |
+| running-* → idle/false | Instant. Success resets to idle and calls `router.refresh()` (`components/admin/PendingPanelDiscardButtons.tsx:97-98`). |
+| running-* → error/false | Instant. The error block mounts below the row (`components/admin/PendingPanelDiscardButtons.tsx:144-153`). No enter animation today. **Unchanged.** |
+| error/false → error/true | Instant, and **the error block stays mounted**. It describes the previous failed attempt, which is still true. §6.2 test 9. |
+| error/true → error/false | Instant. The 4s timer clears `armed` only and leaves `state.kind === "error"` (`components/admin/PendingPanelDiscardButtons.tsx:60-63`), so the compound state decays back to plain error rather than to idle. §6.2 test 10. |
+| error/true → running-defer | Instant. Defer disarms and starts a run from the compound state; the error is replaced by the running state (`components/admin/PendingPanelDiscardButtons.tsx:78`). §6.2 test 11. |
+| error/true → running-ignore | Instant. The second Ignore tap fires the discard from the compound state. §6.2 test 11. |
+| error/false → running-* | Instant. A new attempt replaces the error state. |
+| running-defer ↔ running-ignore | **Unreachable in both directions.** `handleClick` returns early while a run is in flight (`components/admin/PendingPanelDiscardButtons.tsx:72`) and both buttons are `disabled` when running (`components/admin/PendingPanelDiscardButtons.tsx:113`, `components/admin/PendingPanelDiscardButtons.tsx:124`). One mutation at a time by construction. |
+| error/* → idle directly | **Unreachable.** Leaving error requires a new attempt, so it always passes through a running cell. |
 
-**Why D4 does not assert height equality even though the probe measured it.** The armed label fitting one line at 328px is a font-metric outcome, and CI runs x64 Linux while this measurement is arm64 macOS. A height-equality assertion would be a platform-hardcoded fixture: green locally, red in CI, for a wrap that does not violate the invariant. What D4 actually protects is that the confirm target does not move out from under the finger — top, left and width. Height is allowed to grow downward from a pinned top.
+**Compound transitions across the fork:**
 
-Note on D4: `basis-full sm:basis-auto` is **removed** from both buttons. The fork makes it redundant — the stacked copy is `flex-col` with `items-stretch` (full width by construction) and the inline copy never needs to wrap-to-full. The DESTRUCT-1 invariant it protected is preserved structurally rather than by basis, and D4 is the assertion that proves it. The layout spec's drift-guard at `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`, which currently asserts the source contains `basis-full` and `sm:basis-auto`, is rewritten to assert the fork's classes instead — see §6.3.
-
-### 4.7 Transition inventory
-
-Visual states: **S1** idle, **S2** armed, **S3** running-defer, **S4** running-ignore, **S5** error. All 10 pairs:
-
-| Pair | Treatment |
+| Case | Treatment |
 |---|---|
-| S1→S2 | Recipe morph on Ignore: `transition-opacity duration-fast` (`components/admin/PendingPanelDiscardButtons.tsx:127`). Box top/left/width fixed (D4). **Unchanged.** |
-| S2→S1 | Same transition, reverse. Fires on 4s auto-revert (`components/admin/PendingPanelDiscardButtons.tsx:60-63`) or on a sibling mutation (`components/admin/PendingPanelDiscardButtons.tsx:76-77`). **Unchanged.** |
-| S1→S3 | Instant — label swap `Defer until modified` → `Deferring…` (`components/admin/PendingPanelDiscardButtons.tsx:116-118`), `disabled` set. No animation needed. |
-| S1→S4 | Not reachable: Ignore requires arming first (`components/admin/PendingPanelDiscardButtons.tsx:57-64`). Documented as impossible, not as instant. |
-| S2→S4 | Instant — Ignore label `Confirm…` → `Ignoring…` (`components/admin/PendingPanelDiscardButtons.tsx:133-134`). The disarm and the run are set in the same handler (`components/admin/PendingPanelDiscardButtons.tsx:66-68`, `components/admin/PendingPanelDiscardButtons.tsx:76-78`), so no intermediate idle frame renders. |
-| S2→S3 | Instant — tapping Defer while Ignore is armed disarms it and starts the defer (`components/admin/PendingPanelDiscardButtons.tsx:76-77`). Both labels change in one commit. Pinned by the existing test at `tests/components/admin/pendingIngestionActions.test.tsx:232`. |
-| S3→S1, S4→S1 | Instant — success path resets to idle and calls `router.refresh()` (`components/admin/PendingPanelDiscardButtons.tsx:97-98`). |
-| S3→S5, S4→S5 | Instant — the error block mounts below the row (`components/admin/PendingPanelDiscardButtons.tsx:144-153`). No enter animation today. **Unchanged.** |
-| S5→S3, S5→S4 | Instant — a new attempt replaces the error state (`components/admin/PendingPanelDiscardButtons.tsx:78`). |
-| S5→S1 | Not reachable directly: leaving error requires a new attempt, so it passes through S3/S4. |
-| S3↔S4 | **Not reachable in either direction.** `handleClick` returns early while a run is in flight (`components/admin/PendingPanelDiscardButtons.tsx:72`), and both buttons are `disabled` when `isRunning` (`components/admin/PendingPanelDiscardButtons.tsx:104`, `components/admin/PendingPanelDiscardButtons.tsx:113`, `components/admin/PendingPanelDiscardButtons.tsx:124`). One mutation at a time by construction. |
-| S2↔S5 | **S2→S5 is not reachable directly** — an error can only be set by `handleClick`, which disarms first (`components/admin/PendingPanelDiscardButtons.tsx:76-77`), so the path is S2→S4→S5. **S5→S2 *is* reachable and is a genuine compound state:** `onGuardedIgnoreClick` (`components/admin/PendingPanelDiscardButtons.tsx:56-64`) arms without touching `state`, so tapping Ignore while an error is displayed arms the button with the `role="alert"` block still mounted below. Treatment: instant, and the error block stays — it describes the *previous* failed attempt, which is still true and still useful. **Unchanged from today**; called out here because the fork must not accidentally clear it. Asserted in §6.2 test 9. |
-| S1↔S1 | n/a |
+| Container crosses 576px while **armed** | `armed` lives above both copies, so the newly-shown copy renders already-armed. The single `armTimerRef` (`components/admin/PendingPanelDiscardButtons.tsx:48`) is shared, so no re-arm and no timer reset. Note both copies stay **mounted** throughout — this is a display swap, not a mount, and the morph transition does not replay. §6.2 test 4. |
+| Container crosses 576px while **focused** | The focused button becomes `display:none` and focus falls to `<body>`. This is a real consequence of the fork and is handled explicitly in §4.9 rather than left implicit. |
+| Container crosses 576px while **running** | `state` is shared, so the newly-shown copy renders `Deferring…`/`Ignoring…` and `disabled` immediately. |
+| 4s auto-revert fires mid-resize | No interaction; the timer is width-independent and clears one shared flag. |
+| Unmount while armed | `useEffect(() => clearArmTimer, [])` (`components/admin/PendingPanelDiscardButtons.tsx:55`) clears it. **Unchanged**; pinned at `tests/components/admin/pendingIngestionActions.test.tsx:269`. |
 
-**Compound transitions** (a second dimension changing while a state transition is live):
+### 4.9 Focus across the fork boundary
 
-| Compound case | Treatment |
-|---|---|
-| Viewport crosses `sm` while **armed** | The `armed` state lives in the component, above both copies, so the newly-displayed copy renders already-armed. No re-arm, no timer reset — the single `armTimerRef` (`components/admin/PendingPanelDiscardButtons.tsx:48`) is shared. The morph transition does not replay because the displayed node is a different element that mounts in its armed class; this is a display swap, not a state change. **Accepted and asserted** (§6.2). |
-| Viewport crosses `sm` while **running** | Same: `state` is shared, so the newly-displayed copy shows `Deferring…` / `Ignoring…` and `disabled` immediately. |
-| 4s auto-revert fires while the viewport is mid-resize | No interaction — the timer is viewport-independent and clears one shared `armed` flag. |
-| Component unmounts while armed | `useEffect(() => clearArmTimer, [])` (`components/admin/PendingPanelDiscardButtons.tsx:55`) clears the timer. **Unchanged**; pinned at `tests/components/admin/pendingIngestionActions.test.tsx:269`. |
+Because both copies stay mounted and the fork swaps which one is `display:none`, a container resize that crosses 576px while one of these buttons has keyboard focus drops focus to `<body>`. Triggers: window resize, device rotation, browser zoom (which changes the container's used inline size), and the dashboard's own `min-[1240px]` grid switch.
 
----
+**Shipped behaviour: transfer focus to the counterpart control.** A `useEffect` observing the wrapper with `ResizeObserver` checks, on each crossing, whether `document.activeElement` is one of this component's four buttons; if so it moves focus to the same logical control in the newly-shown copy. Same control, same label, no surprise — the user keeps their place.
+
+Rejected alternative: accepting focus loss and documenting it. That is the cheaper option and would be defensible for a decorative control, but this is the entry point to an irreversible action, and a keyboard user who rotates a tablet mid-confirm would silently lose their position on it.
+
+The `armed` flag is unaffected by the transfer — it lives above both copies, so a focus move never re-arms or disarms.
 
 ## 5. Design — the arm-timing drift guard
 
@@ -245,20 +314,25 @@ All 11 declarations listed in §2.2 are replaced by an import. No behavioural ch
 
 ### 5.2 Guard assertions
 
-Two new assertions added to `tests/styles/_metaDestructiveConfirm.test.ts`, which already walks `components/` and `app/` (`tests/styles/_metaDestructiveConfirm.test.ts:131-141`) and already fails-by-default on unregistered destructive-confirm surfaces (`tests/styles/_metaDestructiveConfirm.test.ts:150-166`). Reusing it means a **new** destructive surface that adopts the recipe is forced into the registry, and therefore into these assertions, with no new discovery mechanism to maintain.
+Three new assertions (T1, T2, T3) added to `tests/styles/_metaDestructiveConfirm.test.ts`, which already walks `components/` and `app/` (`tests/styles/_metaDestructiveConfirm.test.ts:131-141`) and already fails by default on unregistered destructive-confirm surfaces (`tests/styles/_metaDestructiveConfirm.test.ts:150-166`). Reusing it means a **new** destructive surface that adopts the recipe is forced into the registry, and therefore into these assertions, with no second discovery mechanism to maintain.
 
-**T1 — single declaration.** Walking `components/`, `app/` and `lib/`, exactly one file declares the identifier `ARM_REVERT_MS`, and it is the new **lib/admin/destructiveConfirm.ts**. Any other declaration fails, naming the offending file. This catches the copy-paste re-drift that produced the eleven literals.
+**T1 — single declaration.** Walking `components/`, `app/` and `lib/`, exactly one file declares the identifier `ARM_REVERT_MS`, and it is the shared module. The assertion is an equality against a one-element list, not "at most one" — the latter passes on zero, which is the vacuous-pass failure mode described in §5.2.1 (C-B).
 
-**T2 — no magic timer literals in destructive-confirm surfaces.** For every non-exempt registry row's file, every `setTimeout` delay argument is a **named identifier**, never a numeric literal. A site may opt out with an inline `// not-arm-revert: <reason>` comment, matching the project's established exemption idiom (`// not-subject-to-meta:` in invariant 9, `// no-telemetry:` in invariant 10).
+**T2 — the delay identifier must be a registered name.** For every non-exempt registry file, each `setTimeout` delay argument must be an **identifier drawn from an explicit allowlist**, never a numeric literal and never an unregistered name. The allowlist is a table in the test file: identifier → the surfaces allowed to use it → why it is not `ARM_REVERT_MS`.
 
-Measured at spec time: **zero** violations across all 18 distinct registry files — every existing `setTimeout` in a destructive-confirm surface already passes a named constant (`ARM_REVERT_MS`, `SUCCESS_DISMISS_MS`, `WATCHDOG_MS`). So T2 passes clean on landing and bites only on new code. Combined with T1 it is fail-closed for the case that matters: a new destructive surface cannot introduce an unnamed 3s revert, because the literal itself is what fails — the author must name the constant, and T1 then forces the name `ARM_REVERT_MS` to resolve to the shared module.
+| Identifier | Meaning | Allowed because |
+|---|---|---|
+| `ARM_REVERT_MS` | the 4s armed-state auto-revert | the ratified shared window (R8) |
+| `SUCCESS_DISMISS_MS` | success-toast dismissal | a different affordance; per R6 its value is deliberately not unified |
+| `WATCHDOG_MS` | stuck-request watchdog | not a confirm window at all |
 
-**Rejected detector, and why.** An earlier draft of T2 keyed on an arm-state setter (`setArmed(` / `setIgnoreArmed(` / a setter name ending `Armed`) and applied only to files that matched. Probing the eleven live declaration sites showed that detector matches **4 of 11** — only `components/admin/PendingPanelDiscardButtons.tsx`, `components/admin/StagedReviewCard.tsx`, `components/admin/ArchiveShowButton.tsx` and `components/admin/BlockedRowResolver.tsx` use a `setArmed`-shaped setter. The other seven model the armed state through a `ui` discriminated union or a differently-named boolean. A guard built on that detector would silently skip seven of the eleven files it exists to protect — fail-open, and invisible because it would still pass. The literal-based rule replaces a shape the guard must recognise with a shape it must reject, which is the direction that fails safe.
+A site may opt out with an inline `// not-arm-revert: <reason>` comment.
 
-**T3 — value pin.** `ARM_REVERT_MS === 4_000`. A one-line assertion so a silent change to the shared value is a test failure with an explicit ratification citation in its message, not a quiet edit.
+**Why an allowlist and not just a literal ban.** A ban on numeric literals alone is fail-open: `const CONFIRM_TIMEOUT = 3_000; setTimeout(cb, CONFIRM_TIMEOUT)` passes a literal ban (the delay is an identifier), passes T1 (it never declares `ARM_REVERT_MS`), and passes T3 (the shared value is still 4s). A registered destructive surface could therefore drift to a 3-second confirm window with every guard green. The allowlist closes that: an unrecognised identifier fails, and the author must either use the shared constant or add a row saying what the new timer is and why it is not an arm-revert. That is a human decision recorded in the repo instead of a silent divergence.
 
-**Matcher self-check.** Following the existing pattern at `_metaDestructiveConfirm.test.ts:143-148`, T1/T2 ship with a self-check proving the detector fires on a synthetic positive and does not fire on a synthetic negative — so the guard cannot pass vacuously.
+**T3 — value pin.** `ARM_REVERT_MS === 4_000`, with the ratification cited in the failure message so a future edit to the shared value is a loud test failure rather than a quiet change.
 
+**Matcher self-checks.** Following the existing pattern at `tests/styles/_metaDestructiveConfirm.test.ts:143-148`, T1 and T2 each ship a self-check proving the detector fires on a synthetic positive and does not fire on a synthetic negative — including, for T2, a synthetic `CONFIRM_TIMEOUT` case proving the allowlist actually rejects an unregistered identifier. Without that case the allowlist could be empty-by-accident and everything would still pass.
 ### 5.2.1 Two implementation constraints that would otherwise fail silently
 
 Both were found by reading the helpers the guard will reuse, not by reasoning about them. Each produces a guard that *passes* while doing nothing, which is the worst failure mode for a structural test.
@@ -279,46 +353,60 @@ Per R6, `SUCCESS_DISMISS_MS` keeps its own per-file value and is **not** unified
 
 ### 6.1 What jsdom cannot prove
 
-jsdom applies no CSS (`feedback_jsdom_no_css_tobevisible_vacuous`). `toBeVisible()` on a `hidden sm:flex` node is vacuous there, and `getBoundingClientRect()` returns zeros for everything. Therefore **every** claim in §4.6 — one-copy-per-breakpoint, stacked order, width stretch, box equality — is a real-browser assertion. jsdom covers only structure, labels, classes, and handler behaviour.
+jsdom applies no CSS (`feedback_jsdom_no_css_tobevisible_vacuous`). `toBeVisible()` on a `hidden @min-[576px]:flex` node is vacuous there, and `getBoundingClientRect()` returns zeros for everything. Therefore **every** claim in §4.7 — one copy per container width, stacked order, width stretch, box equality, and the focus transfer of §4.9 — is a real-browser assertion. jsdom covers only structure, labels, classes, and handler behaviour.
 
 ### 6.2 jsdom (`tests/components/admin/pendingIngestionActions.test.tsx`)
 
-Existing tests: retarget to the inline ids per §4.3. No assertion semantics change.
+Existing tests retarget to the `-inline-` ids per §4.4 (jsdom mounts both copies, so either resolves). No assertion semantics change.
 
-New tests:
+New tests, each stating the concrete failure mode it catches:
 
-1. **Both copies mount.** Four buttons present with the four variant ids.
-2. **Copy parity, idle.** Stacked and inline Ignore have identical `textContent` and identical class token sets after removing the container-level classes; likewise Defer. Derived by comparing the two nodes to each other, never against a hardcoded string — a hardcoded expectation would pass even if both copies drifted together.
-3. **Copy parity, armed.** Same, after one tap on the stacked Ignore.
-4. **Shared state across copies.** Arming via the **stacked** Ignore also morphs the **inline** Ignore (proves one state, two renders — this is the compound-transition claim in §4.7). Then the reverse: arming via inline morphs stacked.
-5. **Second tap on the *other* copy fires the discard.** Tap stacked Ignore to arm, tap inline Ignore to confirm → exactly one POST with `kind: "permanent_ignore"`. Catches a per-copy `armed` state, which would make this a no-op re-arm.
-6. **One live region.** Exactly one `role="status"` node in the tree, and it is outside both copies. Catches the double-announcement regression.
-7. **Container classes.** The stacked container carries `flex-col`, `items-stretch`, `sm:hidden`; the inline container carries `hidden`, `sm:flex`. Asserted as token-set membership. This is the jsdom half of D1 — the real half is §6.3.
-8. **DOM order per copy.** Within the stacked container, the Ignore node precedes the Defer node (`compareDocumentPosition`); within the inline container, the reverse. This is the structural claim; the geometric one is §6.3 D5.
-9. **Arming while an error is displayed keeps the error block** (the S5→S2 compound state in §4.7). Drive a 409, assert the `role="alert"` block is present, tap Ignore, then assert *both* that the Ignore label morphed to the armed copy *and* that the error block is still mounted with unchanged text. Catches a fork that resets `state` when arming — which would silently swallow the explanation of the failure the operator is currently looking at.
+| # | Test | Failure mode caught |
+|---|---|---|
+| 1 | all four variant ids present | the fork rendered only one copy |
+| 2a | **parity:** stacked and inline Ignore have equal `textContent` and equal class token sets, compared to each other; likewise Defer | the two copies drift **apart** |
+| 2b | **canonical tokens:** each rendered button carries every token in a literal required set (`inline-flex`, `min-h-tap-min`, `items-center`, `justify-center`, `rounded-sm`, `px-3`, `text-sm`) | the two copies drift **together** — e.g. `min-h-tap-min` removed from the shared helper, which 2a cannot see because both copies lose it equally |
+| 3 | parity again after arming | the armed branch drifts in one copy only |
+| 4 | arming via stacked morphs inline, and vice versa | per-copy `armed` state instead of one shared flag |
+| 5 | arm on stacked, confirm on inline → exactly one POST with `kind: "permanent_ignore"` | per-copy state, which would make the second tap a no-op re-arm |
+| 6 | exactly one `role="status"` node, outside both copies | double screen-reader announcement |
+| 7 | stacked container carries `flex`, `flex-col`, `items-stretch`, `@min-[576px]:hidden`; inline carries `hidden`, `flex-wrap`, `@min-[576px]:flex` | the missing-`flex` trap of §4.1 — `flex-col items-stretch` without `flex` leaves `display:block` and `items-stretch` inert |
+| 8 | `compareDocumentPosition` ordering within each copy | DOM order wrong even when classes are right |
+| 9 | arming while an error is displayed keeps the `role="alert"` block, with unchanged text | a fork that resets `state` on arm, swallowing the explanation of the failure the operator is looking at |
+| 10 | from error+armed, advancing the 4s timer clears `armed` and **leaves** the error block mounted | a timer that resets `state` as well, or an inventory that assumed the compound decays to idle |
+| 11 | from error+armed: clicking Defer starts a defer; separately, a second Ignore click fires exactly one discard | the two compound-state exits, neither previously covered |
 
-Failure mode each new test catches is stated in its own comment, per the project's anti-tautology rule.
+2a and 2b are deliberately complementary: parity catches divergence, the literal allowlist catches shared regression. Neither alone is sufficient, and the plan does not claim otherwise.
+
+Focus transfer (§4.9) is **not** asserted here — jsdom has no layout, so no container-width crossing can occur. It is a real-browser assertion in §6.3.
 
 ### 6.3 Real browser (`tests/e2e/pendingDiscardReflow.layout.spec.ts`)
 
-The harness is re-transcribed to the forked markup. Panels:
+The harness is re-transcribed to the fork and re-keyed from viewport widths to **container** widths: each panel is a fixed-width wrapper carrying `@container`, so one page can exercise every width without resizing the viewport.
 
-| Panel | Markup | Role |
+Panels:
+
+| Panel | Width / markup | Role |
 |---|---|---|
-| `fork-idle`, `fork-armed` | shipped fork classes | subject |
-| `nofork-idle`, `nofork-armed` | **today's** single-subtree markup (`flex flex-wrap` + `basis-full sm:basis-auto`, Defer first) | **negative control for D5** — proves at 360px that this markup puts Ignore *below* Defer, so the fork's "Ignore above" is a real change and not tautological |
-| `nobasis-idle`, `nobasis-armed` | pre-DESTRUCT-1 markup (no basis) | existing negative control for D4, retained |
+| `fork-280-idle`, `fork-280-armed` | 280px — the live rail geometry | subject, stacked branch |
+| `fork-576-idle`, `fork-576-armed` | 576px — exactly the threshold | subject, inline branch at its tightest |
+| `fork-720-idle`, `fork-720-armed` | 720px | subject, inline branch with slack |
+| `nofork-280-idle`, `nofork-280-armed` | 280px, **today's shipped markup** | **negative control for ordering** — must show Ignore *below* Defer, proving the harness reproduces the live defect |
+| `nobasis-280-*` | 280px, pre-DESTRUCT-1 markup | retained negative control for the reflow claim |
 
 Assertions:
 
-- **360px:** stacked copy has non-zero boxes; inline copy's buttons measure `width === 0 && height === 0` (display:none). Exactly one copy displayed.
-- **360px, D5:** `ignore.bottom ≤ defer.top + TOL` in `fork-idle` **and** `fork-armed`. Negative control `nofork-idle` asserts the opposite (`ignore.top ≥ defer.bottom - TOL`).
-- **360px, D1:** both buttons' widths equal the container's width within 0.5px.
-- **360px, D2:** both buttons' heights ≥ 44px.
-- **360px, D4:** `fork-armed` stacked Ignore box top / left / width equal `fork-idle`'s within 0.5px. Height compared separately and allowed to grow; the existing `nobasis` control retained to prove the harness still reproduces a reflow.
-- **720px:** inline copy displayed, stacked copy measures zero. `defer.right ≤ ignore.left + TOL` (D3, Defer on the left). Exactly one copy displayed.
-- **720px, D6:** `fork-armed` inline Ignore box left and top equal `fork-idle`'s within 0.5px; width is allowed to grow. Catches a future change that lets the armed label push the confirm target leftward under a cursor already resting on it.
-- **Drift-guard (rewritten from `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`):** the shipped source contains `sm:hidden`, `hidden`, `sm:flex`, `items-stretch`; and contains **no** `basis-full`, since §4.6 removes it. The negative half is what makes this guard bite — asserting only the presence of new classes would still pass if the old markup survived alongside.
+- **280px:** stacked copy live; every inline-copy node measures `0×0` with `offsetParent === null`. Exactly one copy displayed.
+- **280px, D5:** `ignore.bottom ≤ defer.top + TOL` in idle **and** armed. The `nofork-280-idle` control asserts the opposite (`ignore.top ≥ defer.bottom - TOL`).
+- **280px, D1:** both button widths equal the container width within 0.5px.
+- **280px, D2:** both heights ≥ 44px.
+- **280px, D4:** armed stacked Ignore top/left/width equal idle's within 0.5px; height compared separately and allowed to grow. `nobasis-280-*` retained to prove the harness still reproduces a reflow.
+- **576px and 720px, D3:** inline copy live, stacked measures `0×0`; `defer.right ≤ ignore.left + TOL`; and **idle and armed both occupy a single row** (`ignore.top === defer.top`). The armed assertion at exactly 576px is the threshold guard of §4.2 — if a platform's font metrics push the armed total past the threshold, this fails loudly instead of wrapping silently.
+- **576px and 720px, D6:** armed inline Ignore left and top equal idle's within 0.5px; width may grow.
+- **Focus transfer (§4.9):** focus the stacked Ignore in a 280px panel, widen the wrapper past 576px, and assert `document.activeElement` is the **inline** Ignore, not `<body>`. Then the reverse direction. This is the only place the focus contract can be proven, since it depends on real layout.
+- **Drift-guard (rewritten from `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`):** the shipped source contains `@container`, `flex`, `items-stretch`, `@min-[576px]:hidden`, `@min-[576px]:flex`, and contains **no** `basis-full` and no `sm:basis-auto`. The negative half is what makes the guard bite; asserting only presence would pass with the old markup still alongside.
+
+**Threshold single-sourcing.** `576` appears in the component, in the drift-guard, and in the panel widths. The spec's §4.2 table is its definition; the plan requires the harness to derive panel widths from one local constant so a future change to the threshold cannot leave a panel testing the old boundary.
 
 ### 6.4 CI wiring (R5)
 
@@ -335,11 +423,13 @@ Assertions:
 
 ## 7. BACKLOG.md changes
 
-1. Delete the `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE` and `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS` rows; the family heading gains a one-line note that both were resolved 2026-07-17 by `fix/destruct-harmonize`, citing `DEFERRED-archive.md:1224` and `DEFERRED-archive.md:1230`, so the history is not lost.
+1. Delete the `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE` and `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS` rows.
 2. Delete the `BL-DESTRUCT-STACK-THUMB-ORDER` row, resolved by this branch.
 3. Update the `BL-STANDALONE-CONFIG-CI-DARK` row per §6.4.
 
-The family section is then empty and is removed along with its heading and its preceding `---` rule.
+All three rows are now gone, so the family section and its preceding `---` rule are removed entirely.
+
+**Where the history goes.** The section is deleted, so the resolution note cannot live on its heading. Each row's disposition is recorded in this branch's PR body and in `DEFERRED-archive.md`, which already carries the 2026-07-17 resolutions at `DEFERRED-archive.md:1224` and `DEFERRED-archive.md:1230` and gains a new entry for the thumb-order row. That is the project's existing home for closed work; duplicating it into a stub BACKLOG heading would create a second source of truth.
 
 ---
 
@@ -365,10 +455,12 @@ The family section is then empty and is removed along with its heading and its p
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| A screen reader announces the arm twice | low | Live region rendered once, outside both copies (§4.2); asserted by §6.2 test 6 |
-| The two copies drift | low | Single `pair()` helper; parity tests §6.2 tests 2–3 |
-| Both copies displayed at some width | very low | `sm:hidden` / `hidden sm:flex` are exact complements; asserted in a real browser at both viewports (§6.3) |
+| A screen reader announces the arm twice | low | Live region rendered once, outside both copies (§4.3); asserted by §6.2 test 6 |
+| The two copies drift apart | low | Single `pair()` helper; parity tests §6.2 tests 2a/3 |
+| The two copies drift together | low | Canonical-token allowlist, §6.2 test 2b — parity alone cannot see this |
+| Keyboard focus lost when the container crosses 576px | medium | Focus transfer to the counterpart control (§4.9); asserted in a real browser (§6.3) |
+| Both copies displayed at some width | very low | `@min-[576px]:hidden` / `hidden @min-[576px]:flex` are exact complements; asserted in a real browser at 280 / 576 / 720px container widths (§6.3) |
 | Removing `basis-full` reintroduces the DESTRUCT-1 reflow | low | D4 assertion retained with its negative control; the rewritten drift-guard asserts `basis-full` is *absent*, so the two cannot both be true |
 | Test-id rename misses a consumer | low | Consumers enumerated in §2.4 by grep; the bare ids cease to exist, so a missed consumer fails loudly rather than matching two nodes |
 | The new workflow is itself dark | low | `workflow_dispatch:` enabled; close-out fires it with `gh workflow run` and confirms a green run before merge (§6.4) |
-| T2's arm-state detector misses a surface | medium | Self-check proves the detector fires (§5.2); scope limitation stated honestly in §5.3 rather than overclaimed |
+| T2's literal ban is bypassed by a named-but-wrong constant | medium | Closed by the T2 allowlist (§5.2): the delay identifier must be a registered name, so `CONFIRM_TIMEOUT` fails until someone adds a row and states why. Residual scope limit stated honestly in §5.3 |
