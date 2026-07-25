@@ -24,7 +24,7 @@
  *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
  *     tests/e2e/bulk-ignore-eyebrow.layout.spec.ts
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -113,6 +113,19 @@ test.afterAll(async () => {
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
 });
 
+// The armed morph's visible text (spec 2026-07-24-dq-eyebrow-divider §3.2). Pinned as
+// a literal here so a copy change fails THIS assertion rather than hanging the
+// waitForFunction below for its full timeout.
+const ARMED_TEXT = "Are you sure?";
+
+async function armChip(page: Page): Promise<void> {
+  await page.click(CHIP); // single real click arms the chip
+  await page.waitForFunction(
+    ([sel, text]) => document.querySelector(sel!)!.textContent === text,
+    [CHIP, ARMED_TEXT] as const,
+  );
+}
+
 for (const state of ["idle", "armed"] as const) {
   test(`390px eyebrow row, ${state}: wrapped, no overflow, disjoint from chip, full title`, async ({
     page,
@@ -120,13 +133,7 @@ for (const state of ["idle", "armed"] as const) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(baseUrl);
     await page.waitForSelector(CHIP);
-    if (state === "armed") {
-      await page.click(CHIP); // single real click arms the chip
-      await page.waitForFunction(
-        (sel) => document.querySelector(sel)!.textContent!.startsWith("Confirm"),
-        CHIP,
-      );
-    }
+    if (state === "armed") await armChip(page);
     const m = await page.evaluate(
       ([eyebrowSel, chipSel]) => {
         const eyebrow = document.querySelector(eyebrowSel!)!;
@@ -149,5 +156,119 @@ for (const state of ["idle", "armed"] as const) {
     expect(m.rowOverflow).toBe(false); // (b) no horizontal overflow
     expect(m.overlap).toBe(false); // (c) eyebrow x chip bboxes disjoint
     expect(m.text).toBe(EXPECTED_TITLE); // (d) catalog-drift pin (not red evidence: ellipsis clips paint, not textContent)
+  });
+}
+
+/**
+ * Dimensional invariants DI-1..DI-5 of spec 2026-07-24-dq-eyebrow-divider-and-confirm-bar
+ * §3.6. The eyebrow's decorative rule used to collapse to 0 width in a crowded row while
+ * the row still charged `gap-2` on BOTH sides of it — 8px of seam no painted element
+ * accounted for (BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW). None of this is observable in
+ * jsdom, which computes no layout.
+ */
+async function rowMetrics(page: Page) {
+  return page.evaluate(
+    ([chipSel, eyebrowSel]) => {
+      const chip = document.querySelector(chipSel!)!;
+      const eyebrow = document.querySelector(eyebrowSel!)!;
+      const row = chip.parentElement!;
+      const cs = getComputedStyle(row);
+      const rowBox = row.getBoundingClientRect();
+      const inFlow = [...row.children].filter((c) => {
+        const s = getComputedStyle(c);
+        return s.display !== "none" && s.position !== "absolute" && s.position !== "fixed";
+      });
+      const rule = row.querySelector('span[aria-hidden="true"]');
+      const ruleShown = rule !== null && getComputedStyle(rule).display !== "none";
+      const c = chip.getBoundingClientRect();
+      const e = eyebrow.getBoundingClientRect();
+      return {
+        columnGap: parseFloat(cs.columnGap === "normal" ? "0" : cs.columnGap),
+        zeroExtent: inFlow
+          .filter((el) => el.getBoundingClientRect().width < 0.5)
+          .map((el) => el.outerHTML.slice(0, 90)),
+        ruleShown,
+        ruleWidth: ruleShown ? rule!.getBoundingClientRect().width : 0,
+        rowWidth: rowBox.width,
+        rowHeight: rowBox.height,
+        contentWidth: row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
+        chipWidth: c.width,
+        // Vertical separation is what proves the chip took its own line; horizontal
+        // overlap alone would also be satisfied by a same-line chip.
+        chipBelowEyebrow: c.top >= e.bottom - 0.5,
+        overlap:
+          Math.min(e.right, c.right) - Math.max(e.left, c.left) > 0.5 &&
+          Math.min(e.bottom, c.bottom) - Math.max(e.top, c.top) > 0.5,
+      };
+    },
+    [CHIP, EYEBROW],
+  );
+}
+
+for (const state of ["idle", "armed"] as const) {
+  test(`DI-1 375px ${state}: no zero-extent in-flow child charges the row's gap`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(baseUrl);
+    await page.waitForSelector(CHIP);
+    if (state === "armed") await armChip(page);
+    const m = await rowMetrics(page);
+    // Clamp: with no column-gap there is nothing for a zero-width item to charge and
+    // the assertion below would pass vacuously.
+    expect(m.columnGap).toBeGreaterThan(0);
+    expect(m.zeroExtent).toEqual([]);
+    // The rule is the element that used to collapse — at 375px it must be OUT of flow,
+    // not merely narrow, or its two gaps are still spent.
+    expect(m.ruleShown).toBe(false);
+  });
+}
+
+test("DI-3 375px armed: the confirm bar takes the full row width on its own line", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(baseUrl);
+  await page.waitForSelector(CHIP);
+  const idle = await rowMetrics(page);
+  expect(idle.chipWidth).toBeLessThan(idle.contentWidth - 1); // idle chip is NOT full width
+  await armChip(page);
+  const armed = await rowMetrics(page);
+  expect(Math.abs(armed.chipWidth - armed.contentWidth)).toBeLessThanOrEqual(0.5);
+  expect(armed.chipBelowEyebrow).toBe(true);
+  expect(armed.overlap).toBe(false);
+});
+
+test("DI-5 375px idle: the row keeps its one-line height (the fix costs nothing at rest)", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(baseUrl);
+  await page.waitForSelector(CHIP);
+  const idle = await rowMetrics(page);
+  // Derived, not hardcoded: the row is exactly as tall as its tallest in-flow child
+  // (the tap-target-height chip), so a wrapped idle row would exceed it.
+  const chipHeight = await page
+    .locator(CHIP)
+    .evaluate((el) => el.getBoundingClientRect().height);
+  expect(idle.rowHeight).toBeLessThanOrEqual(chipHeight + 0.5);
+});
+
+for (const width of [480, 1280] as const) {
+  test(`DI-2 ${width}px: the rule is shown and never collapses to zero`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(baseUrl);
+    await page.waitForSelector(CHIP);
+    const idle = await rowMetrics(page);
+    expect(idle.ruleShown).toBe(true);
+    expect(idle.ruleWidth).toBeGreaterThanOrEqual(24); // min-w-6 floor
+    expect(idle.zeroExtent).toEqual([]);
+    await armChip(page);
+    const armed = await rowMetrics(page);
+    expect(armed.ruleWidth).toBeGreaterThanOrEqual(24);
+    // DI-4: at/above 480px the armed chip stays an inline chip on one line — a
+    // panel-wide confirm bar here is the rejected desktop treatment.
+    expect(armed.chipWidth).toBeLessThan(armed.contentWidth - 1);
+    expect(armed.chipBelowEyebrow).toBe(false);
   });
 }

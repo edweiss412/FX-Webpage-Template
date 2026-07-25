@@ -187,7 +187,16 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
                     {group.label}
                   </span>
                 ) : null}
-                <span aria-hidden="true" className="h-px flex-1 bg-border" />
+                {/* Decorative rule. Hidden below 480px: in a crowded row `flex-1` resolves
+                    to 0 width there (measured 0px at every width 320-430) and the row would
+                    still charge `gap-2` on BOTH sides of an element nobody can see. `hidden`
+                    takes it out of flow, so neither gap is spent; `min-w-6` keeps the
+                    zero-width state unreachable wherever it IS drawn. Spec
+                    2026-07-24-dq-eyebrow-divider-and-confirm-bar §3.1; DESIGN.md §7a. */}
+                <span
+                  aria-hidden="true"
+                  className="hidden h-px min-w-6 flex-1 bg-border min-[480px]:block"
+                />
                 {bulk ? (
                   <>
                     <button
