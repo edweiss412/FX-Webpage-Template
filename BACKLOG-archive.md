@@ -434,3 +434,56 @@ The authed leg redirects through `/api/auth/picker-bootstrap`, whose `NextRespon
 **Status:** OPEN (e2e stub skipped) · **Severity:** low–medium (post-sign-in return target is lost on the claimed-row recovery path) · **Class:** APP-BEHAVIOR BLOCKER
 
 The claimed-row recovery control is `<form action={signInRecoveryUrl} method="GET">` with NO hidden inputs (`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:154`; `signInRecoveryUrl = /auth/sign-in?next=<encoded>` built at :86). On a GET submit the browser DISCARDS the action URL's query string and rebuilds it from the (empty) form fields, so the navigation lands on bare `/auth/sign-in` with no `?next=`. `waitForURL(/auth/sign-in\?next=/)` therefore never matches (final page is `/auth/sign-in` with no `next`). **Fix:** carry `next` as a hidden `<input>` rather than in the action query (app fix in `_PickerInterstitial.tsx`). **Test:** un-skip `tests/e2e/picker-flow.spec.ts:234` ("Deactivated row: tapping a claimed crew member redirects through /auth/sign-in"; SKIP note at :226).
+
+---
+
+## BL-ALERT-GITHUB-BOT-LOGIN-AUTORESOLVE — auto-resolve GITHUB_BOT_LOGIN_MISSING on successful bot auth
+
+**Filed:** 2026-07-03 (admin-alert-auto-resolution spec §3, DEFER row) · **Class:** DEFERRAL · **Effort:** S
+
+The `GITHUB_BOT_LOGIN_MISSING` alert tracks that the bot login env is unset. Config state observable inside the M8 report pipeline, but the review discipline for report features requires live GitHub integration probes, so auto-resolution was deferred pending M8 shipping and validation-environment gates.
+
+**Status:** ✅ RESOLVED — already shipped before this entry was revisited. `docs/superpowers/specs/alerts/2026-07-04-alert-resolve-truthing.md` §6 superseded the DEFER row. The stated blocker did not apply: resolution is gated on an explicit env-presence read (`botLoginConfigured`, `lib/reports/botLoginAlert.ts:15`), not on "a submit succeeded", so no live-GitHub probe is needed. Two raw resolvers (the code is a NON_UPSERT producer deliberately excluded from the `AdminAlertCode` union, so the typed helper is unusable): `resolveBotLoginAlertRow` (`lib/reports/botLoginAlert.ts:45`, invoked by maintenance at `lib/notify/runNotify.ts:237-248`) and `resolveBotLoginAlertFailOpen` (`lib/reports/submit.ts`). Registry row is `class: "auto"` with both sites pinned (`tests/messages/_metaAdminAlertCatalog.test.ts:493-499`); behavioral coverage in `tests/reports/submit.botLoginResolve.test.ts` and `tests/notify/runMaintenance.botLogin.test.ts`. Confirmed live during `2026-07-24-alert-autoresolve-tile-and-report-family` §2.1, including independently by the cross-model reviewer.
+
+---
+
+## BL-ALERT-BRANCH-PROTECTION-AUTORESOLVE — auto-resolve branch-protection alerts on policy sync
+
+**Filed:** 2026-07-03 (admin-alert-auto-resolution spec §3, DEFER rows) · **Class:** DEFERRAL · **Effort:** S
+
+`BRANCH_PROTECTION_DRIFT` and `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` track state of the GitHub branch-protection CI monitor. Both are raised outside app runtime (CI-side ops script), making auto-resolution look like a separate ops-pipeline concern.
+
+**Status:** ✅ RESOLVED — already shipped by `docs/superpowers/specs/alerts/2026-07-05-bell-notification-center-design.md` D6 / §10. The bell spec ratified the conversion AHEAD of the workflow re-enable trigger deliberately: the bell surface makes premature manual resolution of these codes an attractive nuisance, so the manual button had to go even while the detector stays disabled. Resolver `defaultResolveAlerts` (`scripts/verify-branch-protection.ts:253`) with healthy-path call sites wired (`:361-379`); both codes `class: "auto"` with resolve sites pinned (`tests/messages/_metaAdminAlertCatalog.test.ts:502-513`); auto-clear copy at `lib/adminAlerts/audience.ts:118-122`.
+
+**Residual (tracked, not blocking):** the resolver is dormant in CI. Its only producer runs in the `verify-branch-protection` and `verify-branch-protection-status` jobs, both `if: false` under the X6-D-1 solo-dev variant (`.github/workflows/x-audits.yml:443`, `:474`). Re-enabling those jobs is the one remaining step, recorded at `DEFERRED-archive.md:861`; it needs no further alert-side work. Full provenance: `DEFERRED-archive.md:853-862`.
+
+---
+
+## BL-ALERT-REPORT-FAMILY-AUTORESOLVE — evaluate manual-by-design posture for report-family incidents
+
+**Filed:** 2026-07-03 (admin-alert-auto-resolution spec §3, EVENT rows) · **Class:** DEFERRAL (evaluation) · **Effort:** S
+
+The six report-family codes are incident notices and observational audit records, event-shaped by design. Revisit post-M8 if new incident classes emerge that blur the event/state boundary.
+
+**Status:** ✅ RESOLVED as EVALUATED — **no change**. Full evaluation in `docs/superpowers/specs/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md` §5. The entry asked for an evaluation; the answer is that the existing `event-manual` classification is correct for all six. Now guarded against silent drift by a named per-code test in `tests/messages/_metaAdminAlertCatalog.test.ts`.
+
+Two auto-resolution designs were drafted and **rejected on evidence**, recorded so a future session does not re-derive them:
+
+1. **Local anti-join (rejected, adversarial round 1).** Three of the six raise through a state-gated insert whose `SELECT` gate is a live predicate over `reports`, which makes them LOOK state-shaped. But they are raised only when a GitHub lookup has ALREADY returned `LookupInconclusive` (`lib/reports/submit.ts:771-819`), so the raise condition is a conjunction and the anti-join negates only the local half. `REPORT_DUPLICATE_LIVE_MATCHES` means multiple live GitHub issues share a marker; `REPORT_OPEN_ORPHAN_LABEL` means an open issue carries the orphan-cleanup label. Reaping the local report closes neither. Worse, flipping `resolution` to `"auto"` also suppresses the manual button, so the operator would lose both the signal and the control while the fix is still outstanding.
+2. **Resolve on a fresh successful lookup (rejected, adversarial round 3).** `findIssueByMarker` IS a complete fresh check for one `idempotency_key`, and the alert context carries that key, so this satisfies same-instance and whole-condition. It fails **repeatability**: once `writeRecoveredIssueUrl` persists a URL, every later submit short-circuits as a duplicate before reaching the lookup (`lib/reports/submit.ts:1073-1075`). If GitHub's state changes right after the check, the alert is already cleared and nothing will ever look again — a permanent wrong answer with no re-raise path and no independent durable record.
+
+**Durable rule extracted** (spec §3): a recovery observation may clear a row only if it identifies the same instance, re-evaluates EVERY conjunct of the raise condition, and is repeatable. A state-shaped LOCAL gate is not evidence that a code is state-shaped overall.
+
+---
+
+## BL-ALERT-TILE-RENDER-PER-TILE-KEYING — per-tile keyed auto-resolution for TILE_SERVER_RENDER_FAILED
+
+**Filed:** 2026-07-03 (admin-alert-auto-resolution spec §3) · **Class:** DEFERRAL · **Effort:** M
+
+`TILE_SERVER_RENDER_FAILED` is state-shaped but has no aggregation point: the alert row is deduped per (show, code) with `context.tileId` replaced on re-raise, so tile A's success cannot prove tile B is healthy. A per-tile-keyed redesign closes this structurally but was believed to require a schema change.
+
+**Status:** ✅ RESOLVED — shipped by `docs/superpowers/specs/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md` §4. **No schema change was needed**: keying filters on the `context->>'tileId'` the row already carries, so the dedup index is untouched and no migration ships.
+
+The entry's premise was also incomplete in a way that mattered. Keying on `tileId` alone is NOT sufficient, because permission gates live INSIDE the wrapped seam (`transportTileVisible`, `components/crew/sections/TravelSection.tsx:172-178`): different viewers execute different code for the same tileId, so a viewer who skips the failing path would clear an alert still live for the viewer who reaches it. Resolution is therefore keyed on the **(tile, observer)** pair, with `viewerKey = data.viewerId ?? "admin"`.
+
+`WrappedSection` now records outcomes into a per-request ledger; `_CrewShell` owns that ledger and schedules one post-response sweep that raises for failed tiles and resolves clean ones for that observer only. The code is `hybrid`, not `auto` — catalog `resolution` stays `"manual"` so the button survives, because re-detection needs that specific observer to load the page again. Structural defense: `tests/crew/_metaTileProducerTopology.test.ts` bounds where sections may be constructed at all, which is what actually guarantees the ledger reaches the sweep. Row-state proof against real rows: `tests/db/tileAlertResolution.db.test.ts`.
