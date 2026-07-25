@@ -46,27 +46,33 @@ export function renewalLeadMs(grantedMs: number): number {
 
 /**
  * True when a lease's REMAINING LIFE AT SUCCESSFUL ACTIVATION is too short for
- * this sampling cadence to renew reliably at any phase (spec §2.1).
+ * this sampling cadence to renew it safely.
  *
- * The measurement edge is load-bearing and is activation, not request time: the
- * pending row is inserted, Drive is called, and only then is the channel
- * activated, so a nominal 62-minute grant that took two minutes to obtain has
- * only 60 usable minutes. Measuring at request time would suppress the anomaly
- * for exactly the leases that need it.
+ * The measurement edge is activation, not request time: the pending insert and
+ * the Drive round-trip both consume lease life, so a nominal grant that took two
+ * minutes to obtain has two fewer usable minutes. Measuring at request time
+ * would suppress the anomaly for exactly the leases that need it.
  *
- * The bound is a FULL renewal cycle, `2 * (P + T)`, not one (whole-diff R1
- * finding 2). One period is not enough: a lease with `P + T + 1ms` remaining at
- * activation emits no anomaly, yet at its next examination it has only
- * `T + 1ms` left — and `T` is the delay until an attempt STARTS, while the
- * renewal must also complete a `files.watch` round-trip (no per-call timeout,
- * lib/drive/client.ts) and a DB activation before expiry. Requiring the lease
- * to survive being seen, missed once, and seen again makes "reliable" true
- * rather than marginal.
+ * THE GUARANTEE, stated as the tests verify it (whole-diff R2 finding 1). Two
+ * earlier bounds were wrong because they were tuned against an informal claim:
+ * `P + T` left only `T` at the next examination, and `2 * (P + T)` was sold as
+ * "survives missing a tick" — which the 2h floor cannot deliver, since missing a
+ * tick needs `lead > 2P + T` (125m) and the floor is 120m. Rather than tune a
+ * third time, the claim is now the weaker one that actually holds:
+ *
+ *   A due channel is examined strictly before expiry, with enough life left to
+ *   COMPLETE a renewal.
+ *
+ * Examination lands within `P + T` of becoming due (`T` = worst-case delay from
+ * the candidate query to reaching this row). Completing the renewal needs a
+ * further budget, and `T` is the same order, so the lease must satisfy
+ * `G > P + 2T`. Below that, no lead value helps: the channel is due from birth
+ * and still cannot finish in time.
  *
  * `<=` rather than `<` so the exact-boundary lease is treated as unsafe.
  */
 export function isGrantTooShort(remainingMsAtActivation: number): boolean {
-  return !(remainingMsAtActivation > 2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS));
+  return !(remainingMsAtActivation > SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS);
 }
 
 const CONFIG_PATTERNS = [

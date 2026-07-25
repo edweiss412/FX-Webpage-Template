@@ -65,8 +65,10 @@ the remaining-life threshold at which a channel becomes due. A channel activated
 
 | Granted life | Classification | Guarantee |
 |---|---|---|
-| `G <= 2 * (P + T)` | **anomalous** | none is claimed. One period is not enough (whole-diff R1 finding 2): a lease with `P + T + 1ms` at activation has only `T + 1ms` left at its next examination, and `T` is the delay until an attempt *starts* — the renewal must still complete a `files.watch` round-trip and a DB activation. The bound is a full renewal cycle so the lease survives being seen, missed once, and seen again. Logged (§3.3). |
-| `G > 2 * (P + T)` | **guaranteed** | the channel is examined-and-due strictly before `expires_at` at every phase, asserted by a phase sweep over activation offsets |
+| `G <= P + 2T` | **anomalous** | none is claimed. `P + T` is not enough (R1 finding 2): a lease with `P + T + 1ms` at activation is examined with 1ms left, and `T` is only the delay until an attempt *starts* — the renewal must still complete a `files.watch` round-trip and a DB activation, so a second `T` of budget is required. Logged (§3.3). |
+| `G > P + 2T` | **guaranteed** | the channel is examined-and-due strictly before `expires_at`, **with more than `T` of life remaining at that examination** — i.e. enough to complete the renewal, not merely to start it. Asserted by a phase sweep over activation offsets. |
+
+**What is NOT claimed** (whole-diff R2 finding 1): the design does **not** guarantee that a lease survives *missing* a renewal tick. That would require `lead > 2P + T` (125 min), and the floor is 120 min — two earlier drafts asserted a stronger property than the constants deliver, once at `P + T` and once at `2 * (P + T)`. Rather than tune the constant a third time, the claim is the weaker one the phase sweep actually verifies: examined before expiry, with a completion budget left. A lease that misses its tick is covered by the next cron pass, not by this guarantee.
 
 **Post-activation observability is isolated** (whole-diff R1 finding 1). The anomaly's clock read and its log run *after* a committed activation, inside their own try/catch. Without that isolation a throwing clock or a rejecting sink would fall into the activation catch, raise `WATCH_CHANNEL_ORPHANED`, and return `orphaned` for a channel that is genuinely live — while `markOrphaned` (which only touches `status='pending'`) left the DB disagreeing with both the alert and the return value, and the previous channel already superseded. Two tests pin it: a throwing second clock read, and a sink that rejects only the anomaly code.
 
@@ -102,7 +104,7 @@ where status = 'active'
       )
 ```
 
-`created_at` is added to the `listExpiringActive` SELECT (`lib/drive/watch.ts:206`), which currently reads `id, status, watched_folder_id, webhook_secret, resource_id, expires_at`. The `drive_watch_channels_renewal_due_idx` partial index on `(expires_at) where status='active'` (`supabase/migrations/20260501001000_internal_and_admin.sql:306`) no longer covers the predicate; with a single-digit row count for a singleton folder this is a non-issue and the index stays for the GC path. **No new index** — stated so the omission is not read as an oversight.
+`created_at` is used by the predicate. It is **not** added to the projected column list — the SELECT still returns `id, status, watched_folder_id, webhook_secret, resource_id, expires_at`, because no caller needs the value (R2 finding 3). The `drive_watch_channels_renewal_due_idx` partial index on `(expires_at) where status='active'` (`supabase/migrations/20260501001000_internal_and_admin.sql:306`) no longer covers the predicate; with a single-digit row count for a singleton folder this is a non-issue and the index stays for the GC path. **No new index** — stated so the omission is not read as an oversight.
 
 Behavior across grants (this table is the §5.2 test fixture set):
 
@@ -120,14 +122,14 @@ Behavior across grants (this table is the §5.2 test fixture set):
 
 ### 3.3 Detect pathologically short grants
 
-`subscribeToWatchedFolder` compares the granted lifetime against `SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS` on the activation path and, when the grant does not **exceed** it, emits:
+`subscribeToWatchedFolder` compares the remaining life at activation against `SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS` on the activation path and, when the grant does not **exceed** it, emits:
 
 ```ts
 await log.error("drive watch grant too short to renew reliably", {
   source: "drive.watch",
   code: "DRIVE_WATCH_GRANT_TOO_SHORT",
   watchedFolderId,
-  grantedMs,
+  remainingMsAtActivation,
 });
 ```
 
@@ -160,7 +162,7 @@ TDD per task. Each class names the failure mode it catches.
 1. **Constants and the §2.1 boundary** (`tests/drive/**`, DB-free). `L(G)` computed through the implementation for `G ∈ {P-ε, P, P+T, P+T+ε, 6h, 24h}`; the classification table asserted per row. **A phase sweep, not a formula restatement**: for each `G`, step the activation offset across a full period against a simulated fixed tick series and assert, for every `G > P+T`, that the channel is examined-and-due strictly before `expires_at` at **every** offset — and record the minimum remaining life at the renewing execution, asserting it equals `min(G, L(G)) - P - T` rather than `G - P - T`. *Catches:* the boundary being `<` instead of `<=`; the margin overstatement an earlier draft shipped; a constant edit that lets renewal be sampled after expiry.
 2. **`defaultWatchFolder` expiration** (`tests/drive/**`, DB-free). Request body carries `expiration` as a **string of milliseconds** equal to `injectedNow + WATCH_TTL_MS`, derived from the constant rather than a literal. A Drive response with a shorter expiration is stored verbatim; one already in the past is stored verbatim. *Catches:* sending seconds instead of milliseconds — the most likely silent mistake, which would request an expiry 46 years in the past.
 3. **Renewal predicate** (`tests/db/**`, real DB — this directory is the serial project; `tests/drive/**` is DB-free and would fail on the no-Supabase CI runner). Every row of the §3.2 table, each row's due-ness derived from its own `created_at`/`expires_at` and the constants, never wall-clock literals: 24h not-due at 17h and due at 19h; 6h due via the floor at 4h; 1h due immediately; `expires_at <= created_at` due immediately. **Negative control:** the same table run against a variant predicate with the `greatest(...)` floor removed must **fail** on the 1h and 6h rows, proving the fixtures discriminate. *Catches:* boundary direction, and a floor-less regression that silently reintroduces sampling-after-expiry.
-4. **Short-grant anomaly** (`tests/drive/**`, DB-free). A grant of exactly `P` and one of `P + T` both emit `DRIVE_WATCH_GRANT_TOO_SHORT` with the granted milliseconds; a grant of `P + T + 1ms` does not. Assert on the logger spy's fields, not on the message string. *Catches:* the `<` versus `<=` boundary silently flipping, which would leave the unsafe equality case undetected.
+4. **Short-grant anomaly** (`tests/drive/**`, DB-free). Remaining-at-activation of `P`, of `P + T + 1ms`, and of exactly `P + 2T` all emit `DRIVE_WATCH_GRANT_TOO_SHORT` carrying `remainingMsAtActivation`; `P + 2T + 1ms` does not. A separate case models elapsed time between the two clock reads, so a regression to request-time measurement fails. Assert on the logger spy's fields, not on the message string. *Catches:* the `<` versus `<=` boundary flipping, and the `P + T` bound returning (being *examined* is not the same as *completing*).
 5. **Existing suites pass unmodified** — `tests/drive/watch.test.ts` renewal cases (their fixtures gain `created_at`), `tests/cron/refreshWatchRoute.test.ts`, `tests/api/cron-sync.test.ts`. *Catches:* the widened SELECT or predicate breaking a caller.
 6. **Live validation probe (pre-merge).** After deploy, `pnpm observe watch --env validation` shows the next renewal producing a 24h `expiresAt` and the channel count dropping from 24/day toward 1/day.
 

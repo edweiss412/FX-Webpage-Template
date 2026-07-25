@@ -207,22 +207,22 @@ describe("short-grant anomaly (§3.3)", () => {
     });
   });
 
-  test("fires at the full-cycle boundary, 2 * (P + T)", async () => {
+  test("fires at the boundary, P + 2T", async () => {
     const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
-    expect(await grantOf(2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS))).toHaveLength(1);
+    expect(await grantOf(SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS)).toHaveLength(1);
   });
 
-  test("STILL fires one period past a single P+T — one cycle is not enough", async () => {
-    // The regression this pins: a lease with P+T+1ms at activation has only
-    // T+1ms left at its next examination, which cannot cover a files.watch
-    // round-trip plus activation. A one-cycle bound called that safe.
+  test("STILL fires at P + T — being examined is not the same as completing", async () => {
+    // The regression this pins: a lease with P+T+1ms at activation is examined
+    // with 1ms left, which cannot cover a files.watch round-trip plus
+    // activation. The completion budget is why the bound is P + 2T, not P + T.
     const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
     expect(await grantOf(SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS + 1)).toHaveLength(1);
   });
 
-  test("does NOT fire one millisecond past the full-cycle boundary", async () => {
+  test("does NOT fire one millisecond past P + 2T", async () => {
     const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
-    expect(await grantOf(2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS) + 1)).toHaveLength(0);
+    expect(await grantOf(SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS + 1)).toHaveLength(0);
   });
 
   test("does NOT fire for the 24h lease we request", async () => {
@@ -236,10 +236,10 @@ describe("short-grant anomaly (§3.3)", () => {
     // A request-time measurement would call this safe; an activation-time one
     // must not.
     const elapsed = 120_000;
-    const hits = await grantOf(2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS), elapsed);
+    const hits = await grantOf(SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS, elapsed);
     expect(hits).toHaveLength(1);
     expect(hits[0]!.context).toMatchObject({
-      remainingMsAtActivation: 2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS),
+      remainingMsAtActivation: SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS,
     });
   });
 
@@ -312,7 +312,7 @@ describe("post-activation observability cannot change the outcome (§3.3)", () =
     expect(orphanAlerts).toBe(0);
     // The anomaly was genuinely reached — otherwise this test proves nothing.
     expect(logRecords.filter((r) => r.code === "DRIVE_WATCH_GRANT_TOO_SHORT")).toHaveLength(1);
-    expect(2 * (SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS)).toBeGreaterThan(SAMPLING_PERIOD_MS);
+    expect(SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS).toBeGreaterThan(SAMPLING_PERIOD_MS);
   });
 });
 
@@ -362,13 +362,16 @@ describe("renewalLeadMs is the single definition of the lead (§2.1)", () => {
         // this row is reached within that run.
         const firstTickAfterDue = Math.ceil(dueAt / P) * P;
         const examinedAt = firstTickAfterDue + T;
+        // Not merely "before expiry" — there must be a completion budget left,
+        // which is the property the P + 2T bound actually claims (R2 finding 1).
         expect(examinedAt).toBeLessThan(expiresAt);
+        expect(expiresAt - examinedAt).toBeGreaterThan(T);
         worstRemaining = Math.min(worstRemaining, expiresAt - examinedAt);
       }
       // The infimum, not an attained minimum: assert it stays above the bound
       // rather than equalling it (the discontinuity at the tick prevents
       // equality, so an exact-equality assertion would fail a correct impl).
-      expect(worstRemaining).toBeGreaterThan(0);
+      expect(worstRemaining).toBeGreaterThan(T);
       expect(worstRemaining).toBeGreaterThanOrEqual(Math.min(G, renewalLeadMs(G)) - P - T);
     }
   });

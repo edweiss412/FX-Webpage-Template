@@ -233,11 +233,12 @@ describe("Drive watch lifecycle", () => {
     });
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
 
-    // `now` is injected and the granted lease is 25h so this fixture models a
-    // REALISTIC grant. Before the lease-slack work the expiration here was
-    // arbitrary (it predates `expiration` mattering); left as-is it is a lease
-    // in the past relative to the real clock, which now correctly trips the
-    // DRIVE_WATCH_GRANT_TOO_SHORT anomaly path and its awaited error emit.
+    // `now` is injected so this fixture no longer reads as a lease in the past
+    // against the real clock (which would trip the DRIVE_WATCH_GRANT_TOO_SHORT
+    // path this test is not about). The 25h span deliberately EXCEEDS Drive's
+    // documented 24h maximum: it is a synthetic longer-than-requested response,
+    // exercising that we store what Drive returns rather than what we asked for.
+    // It is not a claim that Drive grants 25h (whole-diff R2 finding 4).
     const result = await subscribeToWatchedFolder("folder-1", {
       tx,
       uuid: () => "new-channel",

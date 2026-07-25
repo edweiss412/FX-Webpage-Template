@@ -470,9 +470,14 @@ export async function subscribeToWatchedFolder(
 
   await runTx((tx) => subscribeWithTx(tx, folderId, channelId, webhookSecret));
 
-  const nowMs = (deps.now ?? (() => Date.now()))();
   let watch: { id: string; resourceId: string; expiration: string };
   try {
+    // Read INSIDE the try (whole-diff R2 finding 2): the pending row is already
+    // committed at this point, so a throwing injected clock out here would
+    // reject `subscribeToWatchedFolder` outright — leaving the row pending until
+    // the stale sweep, with neither the orphaned result nor the alert that every
+    // other failure on this path produces.
+    const nowMs = (deps.now ?? (() => Date.now()))();
     watch = await (deps.watchFolder ?? defaultWatchFolder)({
       folderId,
       channelId,
