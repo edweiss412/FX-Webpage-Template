@@ -335,7 +335,21 @@ export function ShareHub({
       const half = CARET_SIZE_PX / 2;
       const minLeft = bodyRect.left + CARET_CORNER_INSET_PX;
       const maxLeft = bodyRect.right - CARET_CORNER_INSET_PX - CARET_SIZE_PX;
-      const clampedLeft = Math.min(Math.max(centreX - half, minLeft), Math.max(minLeft, maxLeft));
+      // Impossible fit: a body narrower than 2*inset + caret cannot seat the
+      // square on a straight edge run at all. Clamping anyway would silently
+      // park it inside a rounded corner, or past the right edge below 22px.
+      // Suppress it instead — the same answer the shared placement contract
+      // gives for its own triangle (`placement.caret === null`,
+      // lib/popover/position.ts:60-62). The body is `w-[308px]`, so this is only
+      // reachable when placement has to cap the WIDTH against an extremely
+      // narrow host/viewport intersection.
+      if (maxLeft < minLeft) {
+        caret.style.visibility = "hidden";
+        delete caret.dataset["popoverSide"];
+        lastContentHeightRef.current = body.scrollHeight;
+        return;
+      }
+      const clampedLeft = Math.min(Math.max(centreX - half, minLeft), maxLeft);
       const caretTop = placement.side === "bottom" ? bodyRect.top - half : bodyRect.bottom - half;
       const caretOffsets = toHostOffsets({ x: clampedLeft, y: caretTop });
       caret.style.left = `${caretOffsets.left}px`;

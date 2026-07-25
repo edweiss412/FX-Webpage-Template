@@ -939,4 +939,61 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     expect(before.side).toBe("bottom");
     expect(after.side).toBe("top");
   });
+
+  // Opener discrimination (whole-diff review, finding 2). The two T-CARET cases
+  // above both open via the KEBAB, so they cannot tell correct opener-centre
+  // logic apart from an implementation that always points at the kebab, or
+  // always falls back to `bodyRect.right - 22`. Either would pass them while the
+  // caret visibly points at the wrong control whenever the PRIMARY trigger is
+  // what opened the hub. This case opens via the primary and compares against
+  // that button's centre.
+  test("T-CARET-OPENER: the caret follows whichever trigger opened the hub", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await ensureWatchedFolder();
+    await page.goto(`/admin?show=${held.slug}`);
+    const modal = page.locator(LOADED_REVIEW_MODAL);
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const popover = modal.getByTestId("share-hub-popover");
+
+    const caretCentreFor = async (openerTestId: string) => {
+      await expect(async () => {
+        await modal.getByTestId(openerTestId).click();
+        await expect(popover).toBeVisible({ timeout: 1500 });
+      }).toPass({ timeout: 15_000 });
+      const out = await page.evaluate((id) => {
+        const caret = document.querySelector('[data-testid="share-hub-caret"]') as HTMLElement;
+        const opener = document.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+        const body = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
+        const c = caret.getBoundingClientRect();
+        const o = opener.getBoundingClientRect();
+        const b = body.getBoundingClientRect();
+        return {
+          caretCentre: c.left + c.width / 2,
+          openerCentre: o.left + o.width / 2,
+          // The clamp window the caret centre is allowed to occupy.
+          min: b.left + 12 + 5,
+          max: b.right - 12 - 5,
+        };
+      }, openerTestId);
+      await page.keyboard.press("Escape");
+      await expect(popover).toBeHidden();
+      return out;
+    };
+
+    const viaKebab = await caretCentreFor("share-hub-kebab");
+    const viaPrimary = await caretCentreFor("share-hub-primary");
+
+    // Each caret centre tracks ITS opener, clamped to the straight edge run.
+    for (const m of [viaKebab, viaPrimary]) {
+      const expected = Math.min(Math.max(m.openerCentre, m.min), m.max);
+      expect(Math.abs(m.caretCentre - expected)).toBeLessThanOrEqual(1);
+    }
+
+    // And the two differ, which is what a kebab-only or fallback-only
+    // implementation could not produce. The primary is the wider, left-hand
+    // trigger, so its centre is meaningfully further left.
+    expect(viaPrimary.openerCentre).toBeLessThan(viaKebab.openerCentre - 10);
+    expect(viaPrimary.caretCentre).toBeLessThan(viaKebab.caretCentre - 10);
+  });
 });
