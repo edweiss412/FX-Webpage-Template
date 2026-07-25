@@ -289,7 +289,22 @@ Highest-value pins within that set:
 | `tests/dev/fullSplitCompositeRender.test.tsx` | Exact pill string `1 to confirm · 2 to review · 2 monitoring`, group order, needs-look rows with their links (`tests/dev/fullSplitCompositeRender.test.tsx:69-125`) |
 | `tests/components/admin/showpage/pageTransitions.test.tsx` | The "Needs your confirmation" header case at `tests/components/admin/showpage/pageTransitions.test.tsx:144` |
 | `tests/components/admin/showpage/pillFocusReconcile.test.tsx` | Focus reconciliation — extended by §6 test 14 |
-| `lib/dev/attentionScenarios/tier2.ts` | Dev scenario expectations built on the three-group split (`lib/dev/attentionScenarios/tier2.ts:150`, `lib/dev/attentionScenarios/tier2.ts:184`) |
+
+
+### 7.1b Dev-gallery sweep (2 files) — a surface the marker grep does NOT reach
+
+The §7.1 pattern returns **zero** matches in `lib/dev/attentionScenarios/`, because those files name the three classes in prose and scenario ids rather than in rendered markup or testids. They still pin the retired model and need a second, separate sweep:
+
+```
+grep -rln 'confirm, review, monitoring\|MONITORING_ONLY\|clearingKind' lib/dev/
+```
+
+| File | Pins |
+| --- | --- |
+| `lib/dev/attentionScenarios/tier2.ts` | The three-class model throughout: `T2_MONITORING_ONLY` scenario id (`lib/dev/attentionScenarios/tier2.ts:38`), `T2_CLASS_MIX` described as "One of each pill class: confirm, review, monitoring" (`lib/dev/attentionScenarios/tier2.ts:386`), a comment expecting the pill to read "2 monitoring" (`lib/dev/attentionScenarios/tier2.ts:377-378`), and the actionable/`clearingKind` split helpers (`lib/dev/attentionScenarios/tier2.ts:163`, `lib/dev/attentionScenarios/tier2.ts:184`) |
+| `lib/dev/attentionScenarios/tier3.ts` | Scenario label "Everything at once: confirm, review, and monitoring" (`lib/dev/attentionScenarios/tier3.ts:100`) |
+
+`tests/dev/attentionScenariosTier1.test.ts:13-17` asserts the gallery covers every `ATTENTION_ROUTES` code, so a scenario rename must keep that totality intact.
 
 **Two matches are a different surface and must NOT be rewritten.** `tests/components/admin/wizard/Step3ReviewModal.test.tsx` and `publishedWarningsPanel.test.tsx` match on the per-section chip "Needs a look", which this spec does not retire (§2.1). They are listed so the implementer checks them for accidental coupling and then leaves them alone. `tests/components/admin/wizard/sectionCountChip.test.ts` is the same case.
 
