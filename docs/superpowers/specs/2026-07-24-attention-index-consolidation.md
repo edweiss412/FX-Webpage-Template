@@ -312,7 +312,7 @@ Highest-value pins within that set:
 The §7.1 pattern returns **zero** matches in `lib/dev/attentionScenarios/`, because those files name the three classes in prose and scenario ids rather than in rendered markup or testids. They still pin the retired model and need a second, separate sweep:
 
 ```
-grep -rln 'confirm, review, monitoring\|MONITORING_ONLY\|clearingKind' lib/dev/
+grep -rln 'confirm, review\|MONITORING_ONLY\|clearingKind' lib/dev/
 ```
 
 | File | Pins |
@@ -366,7 +366,7 @@ No new colour token is introduced — the destination chip reuses the existing w
 | 0 | Codes this spec removes from the index (both already excluded at HEAD) | §2.5 |
 | 2 | Codes landing on the warnings panel when it is available, and on an Overview card when it is not | §2.2, §2.3 |
 | 4 | Internal-action needs-look codes, all chip-less via the self-link guard | §2.3 |
-| 3 | Codes that can reach the merged group's button-clearable half | `ROLE_FLAGS_NOTICE`, `AMBIGUOUS_EMAIL_BINDING`, `LIVE_ROW_CONFLICT` |
+| 3 | ALERT codes that can reach the merged group's button-clearable half | `ROLE_FLAGS_NOTICE`, `AMBIGUOUS_EMAIL_BINDING`, `LIVE_ROW_CONFLICT`. Holds also occupy that half but clear through the Changes section's approve/reject control, not a resolve button (§1.1) |
 | 99 | Pill visible count cap | `PublishedReviewModal.tsx:789` |
 | 44 | Tap-target floor in px | §5 |
 | 400 | Panel max width in px | `AttentionMenu.tsx:119` |
