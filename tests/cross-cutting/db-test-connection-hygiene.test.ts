@@ -174,10 +174,23 @@ const ISOLATION_KILLING_FLAGS = [
 // surfaces; scripts/ matters because scripts/test-fast.mjs spawns vitest with
 // an argv it builds in JS, so a flag added there reaches no other scanned file.
 // A computed flag would still evade this — the scan catches literals.
+//
+// Walked RECURSIVELY. A flat readdir missed scripts/ci/*.sh, which is where the
+// CI bootstrap lives; a `--no-isolate` added there passed the scan clean.
 const RUN_COMMAND_SOURCES: Array<{ dir: string; match: RegExp }> = [
   { dir: ".github/workflows", match: /\.ya?ml$/ },
   { dir: "scripts", match: /\.(mjs|ts|sh)$/ },
 ];
+
+function listMatching(dir: string, match: RegExp): string[] {
+  const out: string[] = [];
+  for (const ent of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${ent.name}`;
+    if (ent.isDirectory()) out.push(...listMatching(rel, match));
+    else if (match.test(ent.name)) out.push(rel);
+  }
+  return out;
+}
 
 describe("DB-test connection hygiene depends on per-file worker isolation", () => {
   // Anti-vacuity. Every assertion here exists to protect these clients; if the
@@ -248,9 +261,8 @@ describe("DB-test connection hygiene depends on per-file worker isolation", () =
       }
     }
     for (const { dir, match } of RUN_COMMAND_SOURCES) {
-      for (const entry of readdirSync(join(ROOT, dir))) {
-        if (!match.test(entry)) continue;
-        const body = readFileSync(join(ROOT, dir, entry), "utf8");
+      for (const entry of listMatching(dir, match)) {
+        const body = readFileSync(join(ROOT, entry), "utf8");
         // Strip comment lines so an explanatory mention is not read as a
         // command. `#` covers YAML and shell; `//` covers the .mjs/.ts launchers.
         const commands = body
@@ -261,7 +273,7 @@ describe("DB-test connection hygiene depends on per-file worker isolation", () =
           })
           .join("\n");
         if (ISOLATION_KILLING_FLAGS.some((re) => re.test(commands))) {
-          offenders.push(`${dir}/${entry}`);
+          offenders.push(entry);
         }
       }
     }
