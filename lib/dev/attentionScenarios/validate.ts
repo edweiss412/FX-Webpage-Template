@@ -103,7 +103,39 @@ function validateCodeContext(row: ScenarioAlertRow, where: string, out: string[]
       }
       return;
     }
-    case "AMBIGUOUS_EMAIL_BINDING":
+    // The two codes were validated by ONE fall-through case requiring a
+    // singular `crew_member_id`. That is right for OAUTH_IDENTITY_CLAIMED
+    // (app/auth/callback/route.ts:134) and WRONG for AMBIGUOUS_EMAIL_BINDING,
+    // whose producer writes `crew_member_ids` + `email`
+    // (lib/auth/validateGoogleSession.ts:40). The conflation meant the
+    // validator enforced a key that code's producer never writes while being
+    // unable to enforce the keys it does — so the gallery's duplicate-email
+    // card could never derive a crewMatch and always fell back to a section-top
+    // banner with placeholder copy. Split per code.
+    case "AMBIGUOUS_EMAIL_BINDING": {
+      if ("crew_member_id" in ctx) {
+        out.push(
+          `${where}: AMBIGUOUS_EMAIL_BINDING must not carry the singular context.crew_member_id — ` +
+            `that is OAUTH_IDENTITY_CLAIMED's shape; this code's producer writes crew_member_ids[]`,
+        );
+      }
+      const ids = ctx.crew_member_ids;
+      if (!Array.isArray(ids)) {
+        out.push(`${where}: AMBIGUOUS_EMAIL_BINDING requires an array context.crew_member_ids`);
+      } else if (ids.length < 2) {
+        out.push(
+          `${where}: AMBIGUOUS_EMAIL_BINDING requires >=2 crew_member_ids (the alert is about two or more rows sharing an address)`,
+        );
+      } else if (!ids.every((v) => typeof v === "string" && UUID_RE.test(v))) {
+        out.push(`${where}: AMBIGUOUS_EMAIL_BINDING requires UUID crew_member_ids members`);
+      } else if (new Set(ids).size !== ids.length) {
+        out.push(`${where}: AMBIGUOUS_EMAIL_BINDING crew_member_ids must be distinct`);
+      }
+      if (typeof ctx.email !== "string" || ctx.email.trim().length === 0) {
+        out.push(`${where}: AMBIGUOUS_EMAIL_BINDING requires a non-blank context.email`);
+      }
+      return;
+    }
     case "OAUTH_IDENTITY_CLAIMED": {
       if (typeof ctx.crew_member_id !== "string" || !UUID_RE.test(ctx.crew_member_id)) {
         out.push(`${where}: ${row.code} requires a UUID context.crew_member_id`);

@@ -29,7 +29,13 @@ describe("t3-full-attention-split composite", () => {
       "DRIVE_FETCH_FAILED",
     ]);
     expect(s.alerts[0]?.context).toEqual({ drive_file_id: "gallery-fixture-file" });
-    for (const a of s.alerts.slice(1)) expect(a.context).toEqual({});
+    // RESYNC_QUALITY_REGRESSED and SYNC_STALLED read nothing from context, so
+    // they stay empty. DRIVE_FETCH_FAILED's card interpolates a sheet name, so
+    // it now carries the key its own copy reads — without it the card renders
+    // the placeholder form (spec 2026-07-24-gallery-alert-producer-parity §5).
+    expect(s.alerts[1]?.context).toEqual({});
+    expect(s.alerts[2]?.context).toEqual({});
+    expect(s.alerts[3]?.context).toEqual({ sheet_name: "Gallery Preview Show" });
     expect(s.holds).toHaveLength(1);
     expect(s.holds[0]).toMatchObject({
       kind: "mi11_pending",

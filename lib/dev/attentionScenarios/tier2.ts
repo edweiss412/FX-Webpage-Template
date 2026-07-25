@@ -4,6 +4,7 @@
 // AUTO_RESOLVING_CODES are themselves derived from the message catalog, so a
 // hardcoded pick would silently stop representing its axis the moment the
 // catalog moved.
+import { withDefaultContext } from "@/lib/dev/attentionScenarios/defaultContext";
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { isAutoResolving, DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
@@ -214,7 +215,7 @@ function eventCode(): string {
 function alert(code: string, over: Partial<Omit<ScenarioAlertRow, "code">> = {}): ScenarioAlertRow {
   return {
     code,
-    context: over.context ?? {},
+    context: withDefaultContext(code, over.context),
     raised_at: over.raised_at ?? AT,
     occurrence_count: over.occurrence_count ?? 1,
     ...(over.galleryIdentity !== undefined ? { galleryIdentity: over.galleryIdentity } : {}),
@@ -242,7 +243,6 @@ function crewCode(): string {
 
 function crewAlert(): ScenarioAlertRow {
   return alert(crewCode(), {
-    context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
     galleryIdentity: {
       segments: [{ label: "Crew", value: "Dana Reed" }],
       global: null,
@@ -806,7 +806,6 @@ export function modalStateScenarios(): AttentionScenario[] {
           },
         }),
         alert("AMBIGUOUS_EMAIL_BINDING", {
-          context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
           galleryIdentity: {
             segments: [{ label: "Crew", value: CREW_STACK_SUBJECT }],
           } as unknown as AlertIdentity,

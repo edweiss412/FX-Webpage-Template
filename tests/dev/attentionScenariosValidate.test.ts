@@ -203,22 +203,48 @@ describe("validateScenario - per-code context contracts", () => {
     ).toEqual([]);
   });
 
-  test("identity-dependent codes need a crew_member_id and one Crew segment", () => {
-    for (const code of ["AMBIGUOUS_EMAIL_BINDING", "OAUTH_IDENTITY_CLAIMED"]) {
-      expect(validateScenario(base({ alerts: [alertRow({ code })] })), code).not.toEqual([]);
-      const ok = base({
-        alerts: [
-          alertRow({
-            code,
-            context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
-            galleryIdentity: {
-              segments: [{ label: "Crew", value: "Sam Ito" }],
-            } as never,
-          }),
-        ],
-      });
-      expect(validateScenario(ok), code).toEqual([]);
-    }
+  // The two codes were validated by ONE fall-through case demanding a singular
+  // crew_member_id. Correct for OAUTH_IDENTITY_CLAIMED; wrong for
+  // AMBIGUOUS_EMAIL_BINDING, whose producer writes crew_member_ids[] + email
+  // (lib/auth/validateGoogleSession.ts:40). Split per code.
+  test("OAUTH_IDENTITY_CLAIMED needs a UUID crew_member_id and one Crew segment", () => {
+    expect(
+      validateScenario(base({ alerts: [alertRow({ code: "OAUTH_IDENTITY_CLAIMED" })] })),
+    ).not.toEqual([]);
+    const ok = base({
+      alerts: [
+        alertRow({
+          code: "OAUTH_IDENTITY_CLAIMED",
+          context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
+          galleryIdentity: {
+            segments: [{ label: "Crew", value: "Sam Ito" }],
+          } as never,
+        }),
+      ],
+    });
+    expect(validateScenario(ok)).toEqual([]);
+  });
+
+  test("AMBIGUOUS_EMAIL_BINDING needs plural ids + email, and REJECTS the sibling's singular key", () => {
+    const A = "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f";
+    const B = "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d";
+    const withCtx = (context: Record<string, unknown>) =>
+      validateScenario(base({ alerts: [alertRow({ code: "AMBIGUOUS_EMAIL_BINDING", context })] }));
+
+    // The historical defect: this shape PASSED validation and could never
+    // derive a crewMatch, so the card always fell back to a section-top banner.
+    expect(withCtx({ crew_member_id: A }), "singular key must be rejected").not.toEqual([]);
+
+    expect(withCtx({}), "missing ids").not.toEqual([]);
+    expect(withCtx({ crew_member_ids: [A], email: "a@b.test" }), "one id").not.toEqual([]);
+    expect(withCtx({ crew_member_ids: [A, A], email: "a@b.test" }), "duplicates").not.toEqual([]);
+    expect(withCtx({ crew_member_ids: [A, "nope"], email: "a@b.test" }), "non-UUID").not.toEqual(
+      [],
+    );
+    expect(withCtx({ crew_member_ids: [A, B] }), "missing email").not.toEqual([]);
+    expect(withCtx({ crew_member_ids: [A, B], email: "   " }), "blank email").not.toEqual([]);
+
+    expect(withCtx({ crew_member_ids: [A, B], email: "shared@example.test" })).toEqual([]);
   });
 });
 
