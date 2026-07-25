@@ -20,7 +20,9 @@ Four defects follow from that shape.
 
 Two precisions, because the obvious stronger claims are both false. The row and the card do **not** show the same text: the row shows `item.menuTitle`, a short title (`components/admin/showpage/AttentionMenu.tsx:199`), while the card shows the full catalog sentence (`components/admin/review/AttentionBanner.tsx:239`). And **not every alert renders a card** — the notes channel intercepts exactly two codes before the card path and folds them into the Sheet-warnings panel instead (`lib/admin/parseAttentionNote.ts:23`, `lib/admin/sectionAttention.ts:116-121`). Both facts are load-bearing later: the first is why deleting the row's link loses no text, the second drives §2.3.
 
-**4. Two entries are not issues at all.** `SHOW_FIRST_PUBLISHED` ("now live for crew at its share-token URL", `lib/messages/catalog.ts:1120-1121`, `severity: "info"`, `followUp: null`) and `PICKER_EPOCH_RESET` (whose own `helpfulContext` reads "Nothing to fix; this is a record of the reset.", `lib/messages/catalog.ts:3222`) describe events that happened, not conditions standing between the sheet and the crew page. Today they make the badge count up when something goes *right*.
+**4. Two event-shaped alerts wear a fault's button verb.** `SHOW_FIRST_PUBLISHED` ("now live for crew at its share-token URL", `lib/messages/catalog.ts:1120-1121`, `severity: "info"`, `followUp: null`) and `PICKER_EPOCH_RESET` (whose own `helpfulContext` reads "Nothing to fix; this is a record of the reset.", `lib/messages/catalog.ts:3222`) describe events that happened, not conditions to clear. Both render a button reading "Mark resolved".
+
+Note what this defect is **not**. Both codes are already excluded from the per-show index (§2.5, verified by execution), so neither reaches this panel or its badge. The wrong verb is visible in the **bell**, which shares the same label resolver. Defects 1 through 3 are about this panel; defect 4 is a copy bug that rides along because it lives in the same registry.
 
 **Framing this spec adopts:** the panel is an **index of a show's issues**. Each entry points at one issue; the issue's full card renders where it is most relevant in the modal. A row's job is to take you there.
 
@@ -38,6 +40,8 @@ Two precisions, because the obvious stronger claims are both false. The row and 
 | The Changes feed is NOT a destination for relocated alerts. It reads `show_change_log` + open `sync_holds`, and its `change_kind` values are sheet-data changes in practice (`crew_added`, `crew_renamed`, `crew_removed`, `crew_email_changed`, `field_changed`). The column has no enum to appeal to — its CHECK is only `length(change_kind) > 0` — so the semantics live in the producers, which is exactly why an app-milestone alert has no home there without inventing a kind. | `lib/sync/feed/readShowChangeFeed.ts:1-8`; producers at `lib/dev/attentionScenarios/tier2.ts:430`, `lib/dev/attentionScenarios/tier2.ts:447`, `lib/dev/attentionScenarios/tier2.ts:457`, `lib/dev/attentionScenarios/tier2.ts:470`, `lib/dev/attentionScenarios/tier2.ts:477`; CHECK at `supabase/migrations/20260608000001_show_change_log.sql:33-35` |
 | The pill stays interactive when only monitoring items exist, and keeps its quiet palette in that state. | `2026-07-22-monitoring-badge-expand.md` §3.1, implemented `PublishedReviewModal.tsx:323-324`, `components/admin/showpage/PublishedReviewModal.tsx:764-771` |
 | Separators between pill segments are real `" · "` text nodes, in the announced string as well as the visible one. | `PublishedReviewModal.tsx:803`; memory #537 space-node rule |
+| `SHOW_FIRST_PUBLISHED` and `PICKER_EPOCH_RESET` are ALREADY excluded from the index. This spec adds no exclusion mechanism and must not introduce a second registry for that policy. | Verified by execution (§2.5); `lib/adminAlerts/audience.ts:34-39` + `lib/admin/attentionItems.ts:367`; `lib/admin/attentionItems.ts:351-370`; pinned by `tests/admin/attentionExclusionSet.test.ts:107-120` and `tests/admin/pickerEpochCut.test.ts:20-39` |
+| Removing the now-dead `dataGaps` wiring is OUT of scope. It is dead at HEAD, not made dead here. | §2.5, §10 |
 | No new §12.4 message codes. No DB migration. No advisory-lock surface. | This spec §10 |
 
 ---
@@ -102,8 +106,16 @@ For **needs-you items that are not actionable** (the former needs-look set), `fo
 
 **The chip is external-only. Every chip that can ever render reads `Google Sheets ↗`.** That is a derived fact, not a style choice, and both directions of the derivation must hold:
 
-- **From the notes side.** The only needs-look codes with an *internal* action are `PARSE_ERROR_LAST_GOOD` and `RESYNC_QUALITY_REGRESSED` (`lib/adminAlerts/alertActions.ts:169-170`) — and those are exactly the two codes the notes channel intercepts. `toNoteItem` returns non-null for those two and nothing else (`lib/admin/parseAttentionNote.ts:23`), and `bucketAttention` pushes them into `b.notes` and `continue`s before the card path (`lib/admin/sectionAttention.ts:116-121`). They never render an `AttentionBanner` card, so they can never carry a footer chip.
-- **From the card side.** The only needs-look codes with an internal action that *do* get cards are `SHOW_UNPUBLISHED` and `RESYNC_SHRINK_HELD`, and the guard below removes their chip.
+The only needs-look codes with an *internal* action are four: `PARSE_ERROR_LAST_GOOD`, `RESYNC_QUALITY_REGRESSED` (`lib/adminAlerts/alertActions.ts:169-170`), `SHOW_UNPUBLISHED` (`lib/adminAlerts/alertActions.ts:171`), and `RESYNC_SHRINK_HELD` (`lib/adminAlerts/alertActions.ts:141-149`). Each must be shown chip-less, and **all four are covered by the self-link guard below** — the notes channel is a second reason for two of them, not the primary one:
+
+| Code | Warnings section available | Warnings section unavailable |
+| --- | --- | --- |
+| `PARSE_ERROR_LAST_GOOD` | Notes channel intercepts before the card path (`lib/admin/parseAttentionNote.ts:23`, `lib/admin/sectionAttention.ts:116-121`) — no card, so no chip | Falls **through** to the card path and lands in Overview (`lib/admin/sectionAttention.ts:111-128`, pinned by `tests/admin/bucketAttention.test.ts:64-71`). Card is in Overview, action targets `#overview`, so the self-link guard suppresses the chip |
+| `RESYNC_QUALITY_REGRESSED` | Same as above | Same as above |
+| `SHOW_UNPUBLISHED` | Card in Overview, action `#overview` — self-link guard | Unchanged |
+| `RESYNC_SHRINK_HELD` | Card in Overview, action `#overview` — self-link guard | Unchanged |
+
+An earlier draft derived external-only from "the notes codes never render a card." **That premise is false in the warnings-unavailable state**, where the router deliberately falls through to Overview so nothing is dropped. The invariant survives only because `resolveEffectiveSection` returns Overview in that state (`lib/admin/sectionAttention.ts:70-85`) and both note-code actions target Overview, so the self-link guard catches them there too. The guard is therefore the load-bearing mechanism for **all four** internal codes; the notes channel is a redundancy for two.
 
 So the label rule has one live branch:
 
@@ -137,19 +149,18 @@ Retained verbatim from the current pill: the `99+` visible cap with the exact co
 
 `interactive` (`components/admin/showpage/PublishedReviewModal.tsx:323`) and `monitoringOnly` (`components/admin/showpage/PublishedReviewModal.tsx:324`) keep their current definitions, restated over the merged lists: `interactive = needsYou.length > 0 || monitoring.length > 0`; `monitoringOnly = needsYou.length === 0 && monitoring.length > 0`.
 
-### 2.5 Event-shaped codes leave the index
+### 2.5 The two event-shaped codes are ALREADY excluded — no change
 
-`SHOW_FIRST_PUBLISHED` and `PICKER_EPOCH_RESET` are excluded from the per-show attention index.
+An earlier draft of this spec proposed removing `SHOW_FIRST_PUBLISHED` and `PICKER_EPOCH_RESET` from the per-show attention index via a new `EVENT_SHAPED_CODES` set. **That work is already done in the tree.** Verified by execution, not by reading: a probe calling `deriveAttentionItems` with each code returned zero items for both, with `LIVE_ROW_CONFLICT` returning one as a control.
 
-**Mechanism.** A new exported set `EVENT_SHAPED_CODES` in `lib/adminAlerts/audience.ts`, alongside the existing `SELF_HEALING_CODE_LIST` / `NEEDS_LOOK_CODE_LIST` pair (`lib/adminAlerts/audience.ts:75-94`). `deriveAttentionItems` (`lib/admin/attentionItems.ts:332`) drops alert rows whose code is in it, before `toAlertItem` runs.
+Two independent existing filters do it:
 
-**Layer choice.** The exclusion lands in `deriveAttentionItems`, NOT in `fetchPerShowAlerts`, so the bell is untouched.
+- `DOUG_EXCLUDED_CODES` is every `severity: "info"` code UNION `HEALTH_CODES` (`lib/adminAlerts/audience.ts:34-39`), applied inside `deriveAttentionItems` at `lib/admin/attentionItems.ts:367`. `SHOW_FIRST_PUBLISHED` carries `severity: "info"` (`lib/messages/catalog.ts:1119`), so it is in the info arm. Already pinned by `tests/admin/attentionExclusionSet.test.ts:107-120`.
+- `PICKER_EPOCH_RESET` has an explicit clause in `deriveAttentionItems` (`lib/admin/attentionItems.ts:351-370`), pinned by `tests/admin/pickerEpochCut.test.ts:20-39`, which asserts the `ATTENTION_ROUTES` row "REMAINS for registry totality" while the derivation yields nothing.
 
-**Nothing is lost.** The bell excludes only inbox-routed codes, plus health codes for non-developers (`lib/admin/bellAudience.ts:8-12`). Neither code is inbox-routed and both are `audience: "doug"`, so **both already appear in the notification bell today**. This removes a duplicate from the issue index; the notice survives in the surface built for notices.
+**Therefore this spec adds no exclusion mechanism.** Introducing `EVENT_SHAPED_CODES` would put the same policy in a second registry — precisely the drift `tests/admin/attentionExclusionSet.test.ts` was written to prevent (its injected-set test proves the filter is set-driven rather than a hand-list). The remaining defect in this area is the button verb, which is §2.6.
 
-**Dead wiring removed.** `SHOW_FIRST_PUBLISHED` is the only code that reads a data-gaps digest onto an attention item (`lib/admin/attentionItems.ts:307`), and `AttentionBanner`'s `detailBand` is its only production consumer (built at `components/admin/review/AttentionBanner.tsx:136-151`, passed to the card at `components/admin/review/AttentionBanner.tsx:242`). With the code out of the index, `dataGaps` on the alert item and the `readDataGapsDigest` call are dead and are removed. The dashboard computes per-show data gaps from its own read (`components/admin/Dashboard.tsx:442-474`), so no user-visible information is lost.
-
-**Removal is not a pure deletion.** Nineteen test files carry the attention item's `dataGaps` (§7.2). Most hold `dataGaps: null` as a fixture key and only need the key dropped, but two carry live assertions on the detail band that must be deleted with the feature: `tests/components/admin/review/attentionBanner.test.tsx:148` and `tests/components/admin/review/attentionBanner.test.tsx:257`.
+**Consequence for the `dataGaps` field.** `dataGaps` is read onto an attention item only for `SHOW_FIRST_PUBLISHED` (`lib/admin/attentionItems.ts:307`), which never becomes an attention item, so that wiring is **already dead at HEAD** — this spec does not make it dead. Removing it is correct cleanup but it is pre-existing dead code with a 19-file test fan-out (§7.2), unrelated to the index consolidation. It is therefore **out of scope** (§10) and belongs in its own change.
 
 ### 2.6 The two button verbs
 
@@ -161,6 +172,16 @@ Both relocated codes keep a resolve button in the bell — `resolveActionLabels`
 | `PICKER_EPOCH_RESET` (`resolveActionLabel.ts:58`) | `resolve` → "Mark resolved" | `confirm` → "Confirm" | A deliberate reset. Its catalog `helpfulContext` says "Nothing to fix; this is a record of the reset." |
 
 The module's own rule: `confirm` = approving a deliberate change that already applied; `resolve` = clearing a fault (`lib/adminAlerts/resolveActionLabel.ts:9-12`). The remaining 16 resolve-eligible codes are faults and keep `resolve`.
+
+**Where this is user-visible.** Both codes are excluded from the per-show index (§2.5), so the wrong verb does NOT appear in the show modal. It appears in the **bell**, which shares the same label resolver — one `admin_alerts` row renders in the show modal, the bell, and the developer telemetry panel, and the label is a property of the alert's intent rather than the surface (`lib/adminAlerts/resolveActionLabel.ts:4-6`). This is the only reason §2.6 is live work.
+
+**Three lockstep updates, or CI fails.** `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` gates every intent change with defenses the change must satisfy together, in one commit:
+
+| Gate | Assertion | Required action |
+| --- | --- | --- |
+| `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:38` | "the confirm set is exactly the approved list" | Add both codes to that approved list |
+| `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:49` | "a warning-severity code is never confirm intent" | Confirm neither code is `severity: "warning"` before flipping. `SHOW_FIRST_PUBLISHED` is `severity: "info"` (`lib/messages/catalog.ts:1119`); `PICKER_EPOCH_RESET` declares no `severity` key |
+| `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:63`, `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:71` | `RESOLVE_INTENTS` agrees with a committed baseline, plus a git-history layer | Regenerate/update the committed baseline in the same commit |
 
 ---
 
@@ -236,10 +257,10 @@ Each bullet is a failing-test-first task.
 7. **Card chip: external.** For `SHEET_UNAVAILABLE`, assert the footer-right slot holds a `Google Sheets ↗` link with `target="_blank"` and `rel="noopener noreferrer"`, that the `autoClearNote` text is absent, and that `footerLeft` no longer carries a duplicate action link.
 8. **Card chip: self-link suppression.** For `SHOW_UNPUBLISHED` (card in Overview, action `#overview`), assert **no** chip renders and the footer holds only the "Raised …" line. This is the anti-tautology case for §2.3 — a naive implementation that always renders the chip passes test 7 and fails this one.
 9. **Card chip: null action.** With `action: null`, assert no chip and no crash.
-9b. **Card chip: notes-channel code renders no card at all.** For `PARSE_ERROR_LAST_GOOD` with the warnings section available, assert `bucketAttention` puts the item in `notes` and produces **no** `sectionTop`/`byAnchor` card for it — so no chip can exist. This is the second half of §2.3's external-only derivation; without it, a future change that starts carding the notes codes would silently create the internal-chip case the spec says is unreachable.
-10. **Event codes leave the index.** `deriveAttentionItems` over rows including `SHOW_FIRST_PUBLISHED` and `PICKER_EPOCH_RESET` returns neither, and returns the other rows unchanged. Assert against the returned list, not a rendered container.
-11. **Bell still carries them.** Assert `bellExcludedCodes(false)` and `bellExcludedCodes(true)` both exclude neither code — the guard that makes §2.5's "nothing is lost" claim true rather than assumed.
-12. **Button verbs.** `resolveActionLabels("SHOW_FIRST_PUBLISHED").idle === "Confirm"`, same for `PICKER_EPOCH_RESET`, and a fault code still reads "Mark resolved".
+9b. **Card chip: the external-only invariant across BOTH warnings states.** A matrix, not a single case, because §2.3's derivation depends on two different mechanisms in the two states. For each of `PARSE_ERROR_LAST_GOOD` and `RESYNC_QUALITY_REGRESSED`: (a) warnings section AVAILABLE — assert `bucketAttention` puts the item in `notes` and produces no `sectionTop`/`byAnchor` card, so no chip can exist; (b) warnings section UNAVAILABLE — assert the item falls through to an Overview card (the documented no-drop fallback) AND that the rendered card carries **no** destination chip, which is the self-link guard doing the work. Case (b) is the one that matters: without it a compliant implementation passes (a) while the state the spec calls unreachable is in fact reachable.
+10. **The two event codes stay out of the index — as a REGRESSION guard, not a new behaviour.** Both are already excluded at HEAD (§2.5), so a behavioural assertion here cannot fail first and is not a TDD task. It is written instead as a characterisation test that pins the existing contract against accidental removal during this refactor, and its comment must say so. Coverage already exists (`tests/admin/attentionExclusionSet.test.ts:107-120`, `tests/admin/pickerEpochCut.test.ts:20-39`); the only new work is asserting the merged-group derivation does not resurrect them. **No `EVENT_SHAPED_CODES` export is introduced** (§1.1), so there is no new mechanism to test.
+11. **Bell still carries both codes.** Assert `bellExcludedCodes(false)` and `bellExcludedCodes(true)` exclude neither — this is what makes §2.6 live work rather than a change to a surface nobody sees.
+12. **Button verbs, with their three lifecycle gates.** `resolveActionLabels("SHOW_FIRST_PUBLISHED").idle === "Confirm"`, same for `PICKER_EPOCH_RESET`, and a fault code still reads "Mark resolved". The change is incomplete unless `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` passes in the same commit — approved-confirm list, warning-severity prohibition, and committed baseline (§2.6).
 13. **Warnings-channel jump.** For `PARSE_ERROR_LAST_GOOD`, assert `effectiveSectionId` resolves to `warnings` and the row's `onNavigate` payload carries it.
 14. **Focus rescue with a pressable needs-look row.** Focus a needs-look row, remove it from `items`, assert focus lands on the pill and not `<body>`. jsdom cannot prove visibility here — assert `document.activeElement` identity, not `toBeVisible()`.
 15. **Layout (real browser).** Playwright assertions for every §5 invariant: each needs-you row's height ≥ 44px, the pill's resolved tap band ≥ 44px, the scroll region clips at `max-h-96` with 12 needs-you rows, and a long title does not widen the panel past its `w-[min(400px,calc(100vw-32px))]` box.
@@ -310,8 +331,10 @@ No new colour token is introduced — the destination chip reuses the existing w
 | 6 | `openSheet` (external) needs-look codes | `alertActions.ts:163-168` |
 | 2 | Notes-channel codes: internal action, never carded, so never chipped | `lib/admin/parseAttentionNote.ts:23` |
 | 2 | Self-linking codes suppressed by §2.3 | `SHOW_UNPUBLISHED`, `RESYNC_SHRINK_HELD` |
-| 2 | Codes leaving the index | §2.5 |
-| 2 | Codes landing on the warnings panel, not a card | §2.2 |
+| 0 | Codes this spec removes from the index (both already excluded at HEAD) | §2.5 |
+| 2 | Codes landing on the warnings panel when it is available, and on an Overview card when it is not | §2.2, §2.3 |
+| 4 | Internal-action needs-look codes, all chip-less via the self-link guard | §2.3 |
+| 3 | Codes that can reach the merged group's button-clearable half | `ROLE_FLAGS_NOTICE`, `AMBIGUOUS_EMAIL_BINDING`, `LIVE_ROW_CONFLICT` |
 | 99 | Pill visible count cap | `PublishedReviewModal.tsx:789` |
 | 44 | Tap-target floor in px | §5 |
 | 400 | Panel max width in px | `AttentionMenu.tsx:119` |
@@ -321,6 +344,9 @@ The `6 + 2 + 2 + 2 = 12` needs-look codes reconcile: 6 external-chip; 2 notes-ch
 ---
 
 ## 10. Out of scope
+
+- **Removing the dead `dataGaps` wiring.** It is dead at HEAD, not made dead by this spec (§2.5), and carries a 19-file test fan-out (§7.2). Its own change.
+- **Any new exclusion mechanism.** `EVENT_SHAPED_CODES` was proposed and withdrawn; the policy already lives in `DOUG_EXCLUDED_CODES` plus the explicit picker clause (§1.1).
 
 - **Any DB migration.** No table, CHECK, enum, RPC, or trigger changes. No advisory-lock surface is touched.
 - **New §12.4 message codes.** No catalog rows are added; §2.6 edits `RESOLVE_INTENTS` only, which is not the §12.4 catalog.
