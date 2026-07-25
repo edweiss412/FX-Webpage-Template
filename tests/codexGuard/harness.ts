@@ -47,6 +47,8 @@ export interface AttemptRecord {
     | "spawn_error"
     | null;
   recovery: "cache_ttl" | "cache_ttl_skipped" | "resume" | "retry" | null;
+  /** Session id scraped from THIS attempt's stderr banner (null when absent). */
+  sessionId: string | null;
   transcriptPath: string;
   stderrPath: string;
   lastMessagePath: string;
@@ -62,6 +64,10 @@ export interface GuardResult {
   attempts: AttemptRecord[];
   failureReason: "attempts_exhausted" | "total_timeout" | "wrapper_error" | "interrupted" | null;
   error: string | null;
+  /** Set when a verdict was salvaged from the session rollout after the -o write never landed. */
+  recoveredFrom: "rollout_scrape" | null;
+  /** Vendored native codex binary the guard invoked instead of the Node shim, if resolved. */
+  nativeBinaryResolved: string | null;
   startedAt: string | null;
   endedAt: string;
 }
