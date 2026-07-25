@@ -238,6 +238,36 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
     expect(unmeasured, "invariants declared in the spec with no named assertion").toEqual([]);
   });
 
+  it("M2: the transcribed spec's measured elements equal the binding table's element set", () => {
+    // Task 4 rewrites the transcribed spec and is what exports MEASURED_ELEMENTS.
+    // Until then this is RED BY DESIGN — the same posture as D4 under M1. Do not
+    // soften it to go green: a spec section (§6.6) that claims a guard which is
+    // only a comment is the exact "claimed but not implemented" defect this whole
+    // contract exists to prevent, and it nearly shipped that way.
+    let transcribed = "";
+    try {
+      transcribed = readFileSync(TRANSCRIBED_SPEC, "utf8");
+    } catch {
+      /* handled by the assertion below */
+    }
+    const exported = /export const MEASURED_ELEMENTS\s*=\s*\[([\s\S]*?)\]/.exec(transcribed);
+    expect(
+      exported,
+      "transcribed spec must export MEASURED_ELEMENTS (Task 4) so the binding set is checkable",
+    ).not.toBeNull();
+
+    const measured = [...exported![1]!.matchAll(/"([^"]+)"/g)].map((m) => m[1]!).sort();
+    const doc = readFileSync(SPEC, "utf8");
+    const tableStart = doc.indexOf("| Bound | Why it matters to armed geometry |");
+    expect(tableStart, "binding table not found in the spec").toBeGreaterThan(-1);
+    const table = doc.slice(tableStart, doc.indexOf("\n\n", tableStart));
+    const bound = [...table.matchAll(/^\|\s*(?:\*\*)?([^|*]+?)(?:\*\*)?\s*\|/gm)]
+      .map((m) => m[1]!.trim())
+      .filter((x) => x !== "Bound" && !/^-+$/.test(x))
+      .sort();
+    expect(measured, `bound: ${bound.join(", ")}`).toEqual(bound);
+  });
+
   it("M1 self-check: the matcher actually parses invariants and detects a missing one", () => {
     const rows = [...`| D1 | a |\n| D9 | b |`.matchAll(/^\|\s*(D\d+)\s*\|/gm)].map((m) => m[1]!);
     expect(rows).toEqual(["D1", "D9"]);

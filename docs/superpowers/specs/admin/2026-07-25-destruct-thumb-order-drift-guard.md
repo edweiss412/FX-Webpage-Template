@@ -510,6 +510,10 @@ Patching the named instance each round has not closed either class — each repa
 
 Both live in `tests/styles/_metaDestructiveConfirm.test.ts` alongside the timing guards, so the whole destructive-confirm contract has one home.
 
+**Both are committed and both are RED, by design.** M1 reports `D4` and M2 reports the missing `MEASURED_ELEMENTS` export — each owned by Task 4, which rewrites the transcribed spec. Neither may be softened to go green.
+
+That posture was itself nearly violated: M2 originally shipped as a *comment* inside M1's header block while this section claimed it as a guard. That is the identical "claimed but not implemented" shape M1 exists to catch, one level up — a section asserting a check that does not exist. It is called out here rather than quietly corrected, because the pattern across rounds 5-7 was consistently that the claim outran the mechanism.
+
 ### 6.4 CI wiring (R5)
 
 - New `package.json` script `test:e2e:destructive-layout`, running **both** `tests/e2e/pendingDiscardReal.layout.spec.ts` and `tests/e2e/pendingDiscardReflow.layout.spec.ts` under `tests/e2e/standalone.config.ts` (the config must be passed explicitly; Playwright's default config matches none of these specs). §6.5 depends on this script covering both — an earlier draft defined it as the reflow spec alone while §6.5 claimed both, which would have left the **authoritative** proof dark while the coverage row read `PATH_GATED`. The coverage meta-test does not validate reason text against the invoked spec list, so that contradiction would not have been caught by anything but a reader.
