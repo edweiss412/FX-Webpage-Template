@@ -76,9 +76,16 @@ function stripSqlComments(sql: string): string {
     if (dollar) {
       const tag = dollar[0];
       const end = sql.indexOf(tag, i + tag.length);
-      const stop = end === -1 ? sql.length : end + tag.length;
-      out += sql.slice(i, stop);
-      i = stop;
+      const stop = end === -1 ? sql.length : end;
+      // RECURSE into the body rather than preserving it verbatim. PostgreSQL
+      // lexes a dollar-quoted body as one opaque literal, but THIS migration
+      // uses `$body$` to carry the SQL that pg_net later executes
+      // (`timeout_milliseconds` lives inside one), and at that point a comment
+      // in the body IS a comment. Preserving the body verbatim is what let the
+      // mutation in R8 finding 3 survive even after line/block stripping was
+      // fixed: the commented-out declaration stayed visible to the regex.
+      out += tag + stripSqlComments(sql.slice(i + tag.length, stop)) + (end === -1 ? "" : tag);
+      i = end === -1 ? sql.length : end + tag.length;
       continue;
     }
     out += sql[i];
@@ -389,12 +396,27 @@ describe("short-grant anomaly (§3.3)", () => {
       expect(declaredValue(sql)).toBe("300000");
     });
 
-    test("comment markers inside string and dollar-quoted literals are data, not comments", () => {
+    test("comment markers inside single-quoted literals are data, not comments", () => {
       expect(stripSqlComments("select '-- not a comment';")).toBe("select '-- not a comment';");
-      expect(stripSqlComments("$$ -- body text /* kept */ $$")).toBe(
-        "$$ -- body text /* kept */ $$",
-      );
       expect(stripSqlComments("select 'it''s -- fine';")).toBe("select 'it''s -- fine';");
+    });
+
+    test("a declaration commented out INSIDE a dollar-quoted job body still loses", () => {
+      // The shape that actually matters, and the one that survived the first fix:
+      // every timeout in this migration sits inside `format($body$ … $body$)`.
+      // Treating that body as an opaque literal (which is how PostgreSQL lexes
+      // it, but NOT how pg_net later executes it) left the commented value
+      // visible to the regex.
+      const sql = [
+        "perform cron.schedule('fxav_cron_refresh_watch', '0 * * * *', format($body$",
+        "  select net.http_get(",
+        "    /* timeout_milliseconds := 300000 */ timeout_milliseconds := 600000",
+        "  );",
+        "$body$, vercel_url || '/api/cron/refresh-watch'));",
+      ].join("\n");
+      expect(declaredValue(sql)).toBe("600000");
+      // and the body's own string literals survive, so block scoping still works
+      expect(stripSqlComments(sql)).toContain("/api/cron/refresh-watch");
     });
   });
 });
