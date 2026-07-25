@@ -53,12 +53,15 @@ import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
 type CrewSectionProps = {
   data: ShowForViewer;
   viewer: Viewer;
   today: Date;
   showId: string;
+  /** Per-request tile ledger, threaded from _CrewShell. */
+  ledger: TileRenderLedger;
   cardReport?: CardReportContext;
 };
 
@@ -91,6 +94,7 @@ export function CrewSection({
   data,
   viewer,
   showId,
+  ledger,
   cardReport = DEFAULT_CARD_REPORT,
 }: CrewSectionProps): JSX.Element {
   // Single canonical viewer resolution. admin → all-flags + none-restriction;
@@ -114,6 +118,7 @@ export function CrewSection({
   return (
     <div data-testid="section-crew" className="flex flex-col gap-4">
       <WrappedSection
+        ledger={ledger}
         tileId="crew:crew:roster"
         showId={showId}
         sheetName={data.show.title}

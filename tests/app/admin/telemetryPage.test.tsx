@@ -51,6 +51,55 @@ describe("TelemetryPage", () => {
     expect(screen.getByText("Telemetry")).toBeInTheDocument();
     expect(screen.getByTestId("cron-health-degraded")).toBeInTheDocument();
     expect(screen.getByText(/No events match/i)).toBeInTheDocument(); // timeline empty-state still rendered
+    // BL-COPY-CRON-SWEEP-2: header sub + degraded fallback are plain language.
+    expect(screen.getByText("App event log & scheduled-job health")).toBeInTheDocument();
+    expect(screen.getByTestId("cron-health-degraded").textContent).not.toMatch(/cron/i);
+    // #601 impeccable critique P1: mid-show the only question is whether the
+    // JOBS are broken or the READOUT is. The fallback has to answer that.
+    expect(screen.getByTestId("cron-health-degraded")).toHaveTextContent(
+      "The jobs are probably still running",
+    );
+  });
+
+  // #601 impeccable critique P2. The de-jargon pass collapsed two distinct
+  // labels ("Cron jobs" / "Cron health") onto one word, so the sidebar section
+  // and the stat card said the same thing and the section lost the health axis
+  // every other string on this route keeps. Asserted where BOTH render, so a
+  // future rename that re-collides them fails here rather than shipping.
+  test("the jobs stat card and the sidebar section do not share a label", async () => {
+    vi.doMock("@/lib/admin/loadCronHealth", () => ({
+      loadCronHealth: async () => ({
+        kind: "ok",
+        jobs: [
+          {
+            jobName: "sync",
+            label: "Sheet sync",
+            cadence: "every 5 min",
+            description: "Checks each show's Google Sheet for changes",
+            staleAfterMs: 3_600_000,
+            lastRunAt: "2026-06-29T11:58:00.000Z",
+            outcome: "ok",
+            level: "info",
+            counts: null,
+          },
+        ],
+      }),
+    }));
+    vi.doMock("@/lib/admin/loadAppEvents", () => ({
+      loadAppEvents: async () => ({ kind: "ok", events: [], hasMore: false, nextCursor: null }),
+    }));
+    const { default: Page } = await import("@/app/admin/dev/telemetry/page");
+    render(await Page({ searchParams: Promise.resolve({}) }));
+
+    const heading = screen.getByRole("heading", { name: /scheduled job/i });
+    const cardLabel = screen.getByTestId("stat-cron").querySelector("span");
+
+    expect(heading).toHaveTextContent("Scheduled job health");
+    expect(cardLabel).toHaveTextContent("Scheduled jobs");
+    // The real assertion: distinct strings, not merely both non-empty.
+    expect(heading.textContent?.trim()).not.toBe(cardLabel?.textContent?.trim());
+    // And the section keeps the health axis the page subs and fallback use.
+    expect(heading.textContent).toMatch(/health/i);
   });
 
   test("passes parsed request-correlation filters into loadAppEvents (AC3: requestId + sinceHours null)", async () => {

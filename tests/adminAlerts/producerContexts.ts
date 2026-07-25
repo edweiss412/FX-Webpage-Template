@@ -110,7 +110,8 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
     showId: SHOW_ID,
     context: { snapshotRevisionId: "rev-1" },
   },
-  // 11. lib/drive/watch.ts:443-449 markWatchOrphanedWithTx — global
+  // 11. markWatchOrphanedWithTx (lib/drive/watch.ts) — global. Intentionally
+  //     unpinned: a line range here rots on every edit to that file (R3-4).
   {
     code: "WATCH_CHANNEL_ORPHANED",
     showId: null,
@@ -277,7 +278,16 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
   {
     code: "TILE_SERVER_RENDER_FAILED",
     showId: SHOW_ID,
-    context: { drive_file_id: DRIVE_FILE_ID, sheet_name: "My Sheet", section: "budget" },
+    // Matches what the sweep actually writes. The previous value
+    // ({ drive_file_id, sheet_name, section }) described a producer that never
+    // existed; it went unnoticed because the aggregation gate only runs for
+    // codes that HAVE a producer row, and this code had none until now.
+    context: {
+      tileId: "crew:gear:scope",
+      message: "scope projection blew up",
+      sheet_name: "My Sheet",
+      viewerKey: "00000000-0000-4000-8000-000000000001",
+    },
   },
   {
     code: "TILE_PROJECTION_FETCH_FAILED",

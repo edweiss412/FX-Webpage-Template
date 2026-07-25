@@ -23,6 +23,7 @@ import { cleanup, render, within } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { AgendaEntry, TransportationRow } from "@/lib/parser/types";
+import { ledgerProp } from "./_ledgerProp";
 
 afterEach(() => cleanup());
 
@@ -98,7 +99,13 @@ describe("ScheduleSection — SET synthesis + strike + transport-gated load-out 
   test("SET day renders synthesized Load In/Setup entries; the 'Setup' meta is suppressed", () => {
     const data = makeData({ assignedNames: [] });
     const { container } = render(
-      <ScheduleSection data={data} viewer={adminViewer} today={TODAY} showId={SHOW_ID} />,
+      <ScheduleSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     );
     const card = setCard(container);
     expect(card).not.toBeNull();
@@ -115,7 +122,13 @@ describe("ScheduleSection — SET synthesis + strike + transport-gated load-out 
   test("strike shows on its day for every viewer (room-sourced, ungated)", () => {
     const data = makeData({ assignedNames: [] });
     const { container } = render(
-      <ScheduleSection data={data} viewer={crewViewer} today={TODAY} showId={SHOW_ID} />,
+      <ScheduleSection
+        {...ledgerProp()}
+        data={data}
+        viewer={crewViewer}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     );
     const card = (showCard(container) ?? todayCard(container))!;
     expect(card).not.toBeNull();
@@ -127,7 +140,13 @@ describe("ScheduleSection — SET synthesis + strike + transport-gated load-out 
     // viewerName "Test Crew" is neither the driver nor in assigned_names → false.
     const data = makeData({ assignedNames: ["Nobody Here"] });
     const { container } = render(
-      <ScheduleSection data={data} viewer={crewViewer} today={TODAY} showId={SHOW_ID} />,
+      <ScheduleSection
+        {...ledgerProp()}
+        data={data}
+        viewer={crewViewer}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     );
     const card = (showCard(container) ?? todayCard(container))!;
     expect(card).not.toBeNull();
@@ -142,7 +161,13 @@ describe("ScheduleSection — SET synthesis + strike + transport-gated load-out 
     // Assigned crew: viewerName is tagged on the Pick Up Venue leg → visible.
     const assigned = makeData({ assignedNames: [VIEWER_NAME] });
     const a = render(
-      <ScheduleSection data={assigned} viewer={crewViewer} today={TODAY} showId={SHOW_ID} />,
+      <ScheduleSection
+        {...ledgerProp()}
+        data={assigned}
+        viewer={crewViewer}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     );
     const aCard = (showCard(a.container) ?? todayCard(a.container))!;
     expect(loadoutRow(aCard)).not.toBeNull();
@@ -150,7 +175,13 @@ describe("ScheduleSection — SET synthesis + strike + transport-gated load-out 
     // Admin: unconditionally visible regardless of assignment.
     const adminData = makeData({ assignedNames: ["Nobody Here"] });
     const b = render(
-      <ScheduleSection data={adminData} viewer={adminViewer} today={TODAY} showId={SHOW_ID} />,
+      <ScheduleSection
+        {...ledgerProp()}
+        data={adminData}
+        viewer={adminViewer}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     );
     const bCard = (showCard(b.container) ?? todayCard(b.container))!;
     expect(loadoutRow(bCard)).not.toBeNull();

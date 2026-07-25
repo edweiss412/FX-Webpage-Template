@@ -69,6 +69,51 @@ describe("TelemetryOverviewStrip", () => {
     expect(within(screen.getByTestId("stat-open-alerts")).getByText("0")).toBeInTheDocument();
   });
 
+  // #601 impeccable critique, minor observation: the breakdown said "1 issues".
+  // The sibling at the System-health card already pluralizes correctly, so this
+  // was the odd one out.
+  test("breakdown pluralizes: one review job reads '1 issue', two read '2 issues'", () => {
+    const reviewJob = (name: string): CronHealthRow => ({ ...job(name), outcome: "partial" });
+    const { rerender } = render(
+      <TelemetryOverviewStrip
+        alertSummary={okSummary}
+        cron={{ kind: "ok", jobs: [reviewJob("a"), job("b")] }}
+        stats={okStats}
+        now={NOW}
+      />,
+    );
+    expect(within(screen.getByTestId("stat-cron")).getByText(/\b1 issue\b/)).toBeInTheDocument();
+    expect(screen.getByTestId("stat-cron").textContent).not.toMatch(/1 issues/);
+    rerender(
+      <TelemetryOverviewStrip
+        alertSummary={okSummary}
+        cron={{ kind: "ok", jobs: [reviewJob("a"), reviewJob("b")] }}
+        stats={okStats}
+        now={NOW}
+      />,
+    );
+    expect(within(screen.getByTestId("stat-cron")).getByText(/\b2 issues\b/)).toBeInTheDocument();
+  });
+
+  // BL-COPY-CRON-SWEEP-2: the jobs card is plain language in both states.
+  test("jobs stat card is labelled 'Scheduled jobs', ok and infra_error alike", () => {
+    const { rerender } = render(
+      <TelemetryOverviewStrip alertSummary={okSummary} cron={okCron} stats={okStats} now={NOW} />,
+    );
+    expect(within(screen.getByTestId("stat-cron")).getByText("Scheduled jobs")).toBeInTheDocument();
+    expect(screen.getByTestId("stat-cron").textContent).not.toMatch(/cron/i);
+    rerender(
+      <TelemetryOverviewStrip
+        alertSummary={okSummary}
+        cron={{ kind: "infra_error", message: "x" }}
+        stats={okStats}
+        now={NOW}
+      />,
+    );
+    expect(within(screen.getByTestId("stat-cron")).getByText("Scheduled jobs")).toBeInTheDocument();
+    expect(screen.getByTestId("stat-cron").textContent).not.toMatch(/cron/i);
+  });
+
   test("notice health → Notice + N to review", () => {
     render(
       <TelemetryOverviewStrip

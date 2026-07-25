@@ -8,6 +8,29 @@
 
 ---
 
+## Amendment — 2026-07-25, copy supersession (BL-COPY-CRON-SWEEP-2)
+
+The word "cron" was de-jargoned out of this page's user-visible copy, because Doug holds the developer tier and reaches this page from his phone (`PRODUCT.md` design principle 5: "Plain language, never technical chrome"). Structure, tokens, testids, and `aria-labelledby` ids are unchanged; only rendered strings moved. Four pins in this document are therefore superseded:
+
+| Section | This spec says | Shipped copy |
+| --- | --- | --- |
+| §1 diagram (`AdminPageHeader sub=`) | `App event log & cron health` | `App event log & scheduled-job health` |
+| §7.2 card 3 (`infra_error` sub-line) | `Cron health unavailable` | `Health unavailable` (non-redundant under the relabelled card) |
+| §7.2 card 3 label | `Cron jobs` | `Scheduled jobs` (a count card, so it names the objects) |
+| §7.6 `<h2>` | `Cron health` | `Scheduled job health` |
+| page-level degraded fallback | `Couldn't load cron health right now.` | `Couldn't load scheduled-job health right now. The jobs are probably still running.` |
+| §7.2 card 3 breakdown | `N issues` | `N issue`/`N issues`, pluralized |
+
+"Scheduled job" rather than the 2026-07-03 catalog sweep's "automatic sync": this page reports health for 9 jobs (notify, diagram-gc, report-reaper, asset-recovery, keepalive, sync, refresh-watch, gc-watch), so a sync word would have narrowed the label to one of them.
+
+**Revised 2026-07-25 after the #601 impeccable gate.** The first pass set both the card label and the `<h2>` to `Scheduled jobs`, which collided the two and dropped the health axis that every other string on the route keeps (`§1` sub, the settings link, the fallback). The spec's original pairing — objects on the card, condition on the section — was right; only the words needed replacing. The card keeps `Scheduled jobs`, the section reads `Scheduled job health`, and `tests/app/admin/telemetryPage.test.tsx` now asserts the two are distinct where both render. The fallback also gained a second sentence: the audit noted it named neither a cause nor a recourse at the moment Doug's stress is highest.
+
+The settings-page entry point (`app/admin/settings/page.tsx`, outside this spec) dropped its title to plain `Telemetry` with the explanation carried by the sub, because the old title measured 320px against 286px available at 390px and wrapped on the phone the Diagnostics section exists to serve.
+
+The committed design mock (`TelemetryConsole.dc.html`) still renders the old strings. It is a point-in-time visual reference for layout, not a copy source; it was deliberately not edited.
+
+---
+
 ## 1. Goal
 
 Rework `/admin/dev/telemetry` from a flat vertical stack into a real telemetry console:

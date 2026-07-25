@@ -168,9 +168,9 @@ function OpenAlertsCard({ summary }: { summary: AlertSummary }) {
 function CronCard({ cron, now }: { cron: LoadCronHealthResult; now: Date }) {
   if (cron.kind === "infra_error") {
     return (
-      <StatCard label="Cron jobs" testId="stat-cron">
+      <StatCard label="Scheduled jobs" testId="stat-cron">
         <Unavailable />
-        <SubLine>Cron health unavailable</SubLine>
+        <SubLine>Health unavailable</SubLine>
       </StatCard>
     );
   }
@@ -178,9 +178,9 @@ function CronCard({ cron, now }: { cron: LoadCronHealthResult; now: Date }) {
   const parts: string[] = [];
   if (s.stale > 0) parts.push(`${s.stale} stale`);
   if (s.idle > 0) parts.push(`${s.idle} idle`);
-  if (s.review > 0) parts.push(`${s.review} issues`);
+  if (s.review > 0) parts.push(`${s.review} issue${s.review === 1 ? "" : "s"}`);
   return (
-    <StatCard label="Cron jobs" testId="stat-cron">
+    <StatCard label="Scheduled jobs" testId="stat-cron">
       <span className="text-2xl font-semibold tabular-nums tracking-tight text-text">
         {s.healthy}
         <span className="text-text-subtle"> / {s.total}</span>

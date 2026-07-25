@@ -5,6 +5,7 @@ import { BudgetSection } from "@/components/crew/sections/BudgetSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 import { resolveActiveSection } from "@/lib/crew/resolveActiveSection";
+import { ledgerProp } from "./_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -28,6 +29,7 @@ test("BudgetSection renders financials iff financialsVisible; the SAME predicate
   expect(
     render(
       <BudgetSection
+        {...ledgerProp()}
         data={lead}
         viewer={{ kind: "crew", crewMemberId: "c1" }}
         today={TODAY}
@@ -44,7 +46,13 @@ test("BudgetSection renders financials iff financialsVisible; the SAME predicate
 test("BudgetSection no-ops (no financials content) when data.financials is absent", () => {
   const noFin = makeShowForViewer({});
   const { container } = render(
-    <BudgetSection data={noFin} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <BudgetSection
+      {...ledgerProp()}
+      data={noFin}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   expect(container.textContent).not.toContain("PO-1");
 });

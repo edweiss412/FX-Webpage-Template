@@ -8,6 +8,81 @@ export type WatchErrorClass = "config" | "drive_api" | "db";
 export const ESCALATION_THRESHOLD = 3;
 export const STALE_PENDING_MAX_AGE_MS = 3_600_000;
 
+// Lease-slack constants (spec 2026-07-25-watch-lease-slack-design §2).
+//
+// Requested channel lifetime. Google's documented maximum for the `files`
+// resource is 86400s; omitting `expiration` yields their 1h default, which is
+// what left every lease with ~1s of renewal slack.
+export const WATCH_TTL_MS = 86_400_000;
+// A channel is renewal-due once this fraction of its GRANTED life has elapsed…
+export const RENEWAL_LIFE_FRACTION = 0.75;
+// …but never with less than this much life remaining. The floor exists because
+// the predicate is sampled on a fixed cron tick: a purely proportional trigger
+// is unsafe on short grants (spec §2.1).
+export const RENEWAL_MIN_LEAD_MS = 7_200_000;
+// How often the renewal predicate is sampled (`fxav_cron_refresh_watch`).
+export const SAMPLING_PERIOD_MS = 3_600_000;
+// A margin, NOT an enforceable bound. Renewals run sequentially with no
+// per-call timeout, and pg_net's timeout_milliseconds may be ignored outright
+// (supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22), so nothing
+// reserves this much time for reaching any particular row. It is the order of
+// magnitude of "one run's slack", used to size the anomaly heuristic below.
+export const T_EXEC_BUDGET_MS = 300_000;
+
+/**
+ * Remaining-life threshold at which a channel becomes renewal-due:
+ * `max(minLeadMs, grantedMs * lifeFraction)`.
+ *
+ * `lifeFraction` is the **remaining-life** fraction (the complement of
+ * `RENEWAL_LIFE_FRACTION`), matching what the caller passes to the port and what
+ * the SQL multiplies — the previous doc described it as the fraction already
+ * burned, which is the opposite (whole-diff R5 finding 3).
+ *
+ * Shared by the DB-free `WatchTx` fake and the timing tests. The production SQL
+ * necessarily RESTATES this arithmetic (it cannot call TypeScript); the two are
+ * held together by the real-DB production-path test, not by this function
+ * (R5 finding 4 — an earlier doc claimed SQL shared it, which is not possible).
+ */
+export function renewalLeadMs(
+  grantedMs: number,
+  // NO defaults (R7 finding 2): defaulting to the module constants let a caller
+  // that forgot to pass its arguments silently get the right answer, which is
+  // exactly the drift this helper exists to expose.
+  minLeadMs: number,
+  lifeFraction: number,
+): number {
+  if (!Number.isFinite(grantedMs)) return minLeadMs;
+  return Math.max(minLeadMs, grantedMs * lifeFraction);
+}
+
+/**
+ * Heuristic: is this lease's remaining life at activation pathologically short
+ * for the renewal cadence?
+ *
+ * **This is a detector, not a guarantee** (whole-diff R3 finding 1). Three
+ * successive rounds found the guarantee framing indefensible, each time for the
+ * same reason: any timing claim here is parameterised by `T_EXEC_BUDGET_MS`,
+ * which nothing enforces — renewals are sequential, `files.watch` has no
+ * per-call timeout, and a stalled earlier row can starve a later one no matter
+ * what threshold is chosen. The bound was widened twice (`P + T`, then
+ * `2 * (P + T)`) chasing a property the constants cannot deliver.
+ *
+ * So the claim is now only what it is: `P + 2T` is the point below which a
+ * lease is short enough that renewal is *implausible* rather than merely tight
+ * — one sampling period to be noticed, plus budget to reach the row and
+ * complete a `files.watch` round-trip. Crossing it means the cadence assumption
+ * is broken and someone should look; staying above it promises nothing.
+ *
+ * The real safety margin comes from the LEASE, not from this check: we request
+ * 24h and renew at 6h remaining, so the heuristic should never fire.
+ *
+ * Measured at activation rather than request time — the pending insert and the
+ * Drive round-trip both consume lease life.
+ */
+export function isGrantTooShort(remainingMsAtActivation: number): boolean {
+  return !(remainingMsAtActivation > SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS);
+}
+
 const CONFIG_PATTERNS = [
   /DRIVE_WEBHOOK_BASE_URL is required/i,
   /invalid_grant/i,

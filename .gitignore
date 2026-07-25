@@ -93,3 +93,6 @@ sdd/
 
 # Codex adversarial-review scratch briefs/results (never source)
 .codex-reviews/
+
+# Cross-model review artifacts (transcripts, briefs, verdicts) - never committed
+.review/

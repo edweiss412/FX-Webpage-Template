@@ -61,6 +61,7 @@ import {
 } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { AgendaEntry, ContactRow } from "@/lib/parser/types";
+import { ledgerProp } from "../crew/sections/_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -118,6 +119,7 @@ describe("§8.4 cardinality-cap — Crew roster (CREW_INLINE_CAP, CrewSection)",
   function renderCrew(count: number) {
     return render(
       <CrewSection
+        {...ledgerProp()}
         data={makeShowForViewer({ crewMembers: makeCrew(count) })}
         viewer={VIEWER}
         today={TODAY}
@@ -175,6 +177,7 @@ describe("§8.4 cardinality-cap — Key contacts (CONTACTS_INLINE_CAP, CrewSecti
   function renderContacts(count: number) {
     return render(
       <CrewSection
+        {...ledgerProp()}
         data={makeShowForViewer({ contacts: makeContacts(count) })}
         viewer={VIEWER}
         today={TODAY}
@@ -249,6 +252,7 @@ describe("§8.4 cardinality-cap — Show notes (SOURCE_CAP / TRUNCATE_AT, TodayS
   function renderNotes(count: number) {
     return render(
       <TodaySection
+        {...ledgerProp()}
         data={makeShowForViewer({ contacts: makeContactsWithNotes(count) })}
         viewer={VIEWER}
         today={TODAY}
@@ -287,6 +291,7 @@ describe("§8.4 cardinality-cap — Show notes (SOURCE_CAP / TRUNCATE_AT, TodayS
     const shortBody = "Y".repeat(10);
     const c = render(
       <TodaySection
+        {...ledgerProp()}
         data={makeShowForViewer({
           contacts: [
             { kind: "venue", name: "Long Note", email: null, phone: null, notes: longBody },
@@ -343,6 +348,7 @@ describe("§8.4 cardinality-cap — Pack list (CASE_CAP, GearSection)", () => {
   function renderPack(count: number) {
     return render(
       <GearSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           show: { schedule_phases: { [TODAY_ISO]: ["Set"] } },
           pullSheet: makeCases(count),
@@ -411,6 +417,7 @@ describe("§8.4 cardinality-cap — Run-of-show (RUN_OF_SHOW_DISPLAY_CAP, Schedu
   function renderRunOfShow(count: number) {
     return render(
       <ScheduleSection
+        {...ledgerProp()}
         data={makeShowForViewer({
           show: { dates: RS_DATES },
           runOfShow: {
