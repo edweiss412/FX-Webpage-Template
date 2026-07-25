@@ -524,9 +524,6 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       slug={slug}
       now={now}
       highlighted={item.id === highlightedItemId}
-      // Same source bucketAttention uses, so the card's chip can tell whether
-      // its action points at the section the card already landed in (§2.3).
-      effectiveSectionId={effectiveSectionId(item)}
       onResolved={onResolved}
     />
   );

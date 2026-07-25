@@ -8,7 +8,7 @@
 
 ## 1. Problem
 
-The attention dropdown groups a show's alerts into three headings: **Needs your confirmation**, **Needs a look**, **Monitoring** (`components/admin/showpage/AttentionMenu.tsx:126`, `components/admin/showpage/AttentionMenu.tsx:176`, `components/admin/showpage/AttentionMenu.tsx:238`). The pill mirrors them as three counted segments (`components/admin/showpage/PublishedReviewModal.tsx:789`, `components/admin/showpage/PublishedReviewModal.tsx:807`, `components/admin/showpage/PublishedReviewModal.tsx:829`).
+The attention dropdown groups a show's alerts into three headings: **Needs your confirmation**, **Needs a look**, **Monitoring** (the three heading blocks in `components/admin/showpage/AttentionMenu.tsx` as it stood BEFORE this change (lines 126, 176 and 238 at the merge-base; the file is shorter now that the needs-look block is gone)). The pill mirrors them as three counted segments (`components/admin/showpage/PublishedReviewModal.tsx:789`, `components/admin/showpage/PublishedReviewModal.tsx:807`, `components/admin/showpage/PublishedReviewModal.tsx:829`).
 
 Four defects follow from that shape.
 
@@ -33,7 +33,7 @@ Note what this defect is **not**. Both codes are already excluded from the per-s
 | Decision | Ratification |
 | --- | --- |
 | Three groups collapse to two. The button-here/fix-elsewhere distinction is per-row, not per-group. | This spec §2.1; rationale §1 defect 1 |
-| **Monitoring rows stay read-only** — no chevron, no jump, no interactive descendants. The group whose meaning is "nothing for you" does not get an affordance that invites action. | `2026-07-22-monitoring-badge-expand.md` §3.2, implemented `AttentionMenu.tsx:242-261`; unchanged by this spec |
+| **Monitoring rows stay read-only** — no chevron, no jump, no interactive descendants. The group whose meaning is "nothing for you" does not get an affordance that invites action. | `2026-07-22-monitoring-badge-expand.md` §3.2, implemented in `AttentionMenu.tsx`'s monitoring group (lines 242-261 pre-change); unchanged by this spec |
 | Needs-look defaults **fail-visible**: a non-actionable item with no `clearingKind` counts as needs-you, never monitoring. | `2026-07-21-attention-needs-attention-split.md` §3.4, implemented `AttentionMenu.tsx:98`, `PublishedReviewModal.tsx:310` |
 | A mistagged actionable item is counted once, in the merged group only — never doubled into monitoring. | `AttentionMenu.tsx:99-101`, `PublishedReviewModal.tsx:313-318` |
 | Holds ARE index entries but NOT card entries. They render as actionable rows in the panel (`lib/admin/attentionItems.ts:318-323`) and jump to the `changes` section, whose `Mi11GateActions` control is their landing place; `bucketAttention` skips them so they never produce a card. This spec does not change that. | `lib/admin/sectionAttention.ts:104-109`; section id at `components/admin/showpage/PublishedReviewModal.tsx:642` |
@@ -59,7 +59,7 @@ monitoring = items.filter((i) => !i.actionable && i.clearingKind === "self_heal"
 
 `monitoring` is the existing `selfHeal` filter verbatim (`AttentionMenu.tsx:101`). `needsYou` is its complement, which preserves the fail-visible default: an item with no `clearingKind` lands in `needsYou`.
 
-Headings, as rendered eyebrow text, replacing the three at `AttentionMenu.tsx:126`, `components/admin/showpage/AttentionMenu.tsx:176`, `components/admin/showpage/AttentionMenu.tsx:238`:
+Headings, as rendered eyebrow text, replacing the three pre-change heading blocks named in §1:
 
 | Group | Heading | Renders when |
 | --- | --- | --- |
@@ -136,7 +136,9 @@ An internal-destination chip is therefore **not** implemented. If a future code 
 
 The chip carries no verb. Every verb tried in design committed to an amount of work and was wrong for some member of the set ("confirm" too small, "review" too soft, "fix" wrong for a deliberate state such as `SHOW_UNPUBLISHED`). A destination name commits to nothing and stays true.
 
-**Self-link suppression (guard).** `SHOW_UNPUBLISHED` and `RESYNC_SHRINK_HELD` both route their card to the `overview` section (`lib/admin/attentionItems.ts:136`, `lib/admin/attentionItems.ts:130`) *and* point their action at `#overview` (`lib/adminAlerts/alertActions.ts:171`, `lib/adminAlerts/alertActions.ts:141-149`). The chip would point at the place the card already is. When `action.external === false` and the action's target section equals `effectiveSectionId(item)`, **no chip renders** and the footer keeps only the "Raised …" line. This guard is what makes the external-only statement true from the card side, so it is load-bearing rather than redundant with the table above.
+**Self-link suppression — SPECIFIED, then removed as provably dead (implementation review round 2, 2026-07-25).** The reasoning below is why the external-only claim is true, and it stands. But the guard it describes cannot fire in the shipped code: the chip requires `action.external`, and the guard required `!action.external`, so the two conditions are mutually exclusive. Keeping it would have kept `sectionOfHref`, the `effectiveSectionId` prop, and its four call sites alive for a branch nothing can reach. **The `external` gate is the whole mechanism.** If an internal chip is ever specified, it needs an amendment anyway, and the guard comes back with it. Retained here as the derivation, not as a description of shipped code:
+
+**Original guard text.** `SHOW_UNPUBLISHED` and `RESYNC_SHRINK_HELD` both route their card to the `overview` section (`lib/admin/attentionItems.ts:136`, `lib/admin/attentionItems.ts:130`) *and* point their action at `#overview` (`lib/adminAlerts/alertActions.ts:171`, `lib/adminAlerts/alertActions.ts:141-149`). The chip would point at the place the card already is. When `action.external === false` and the action's target section equals `effectiveSectionId(item)`, **no chip renders** and the footer keeps only the "Raised …" line. This guard is what makes the external-only statement true from the card side, so it is load-bearing rather than redundant with the table above.
 
 Actionable cards and monitoring cards are unchanged: the resolve button and the `autoClearNote` respectively.
 
@@ -189,7 +191,7 @@ Recorded rather than dropped silently: an implementer who notices the wrong verb
 | Input / state | Value | Rendered result |
 | --- | --- | --- |
 | `items` | `[]` | Panel does not mount — the pill is non-interactive and renders as a `<span>` (`PublishedReviewModal.tsx:323`, existing behaviour) |
-| `needsYou` | empty, `monitoring` non-empty | No "Needs you" heading; Monitoring group leads the panel and takes the `rounded-t-md` treatment (existing logic at `AttentionMenu.tsx:235` generalises); `aria-label` = "Monitoring" |
+| `needsYou` | empty, `monitoring` non-empty | No "Needs you" heading; Monitoring group leads the panel and takes the `rounded-t-md` treatment (existing rounded-t logic in the monitoring group generalises); `aria-label` = "Monitoring" |
 | `monitoring` | empty, `needsYou` non-empty | No Monitoring group; no separator border |
 | `item.clearingKind` | `undefined` on a non-actionable item | Counts as `needsYou` (fail-visible, §1.1) |
 | `item.actionable` | `true` **and** `clearingKind === "self_heal"` | Counted once, in `needsYou` only |
@@ -197,7 +199,7 @@ Recorded rather than dropped silently: an implementer who notices the wrong verb
 | `item.menuSubtitle` / hint | hint present, subtitle also present | Hint renders; subtitle suppressed (§2.2 second-line rule) |
 | `item.menuSubtitle` / hint | **no hint, subtitle present** | Subtitle renders. This is the fail-visible boundary shape (non-actionable, no `clearingKind`, code outside `NEEDS_LOOK_CODES`) and it is the ONE case where the merged rule changes observable output: today it renders a bare title. Deliberate (§2.2), pinned by §6 test 3b |
 | `item.menuSubtitle` / hint | hint present, subtitle `null` | Hint renders; single second line. Unchanged from today's needs-look row |
-| `item.tone` | `critical` | Filled `bg-status-degraded` dot and its existing screen-reader tone prefix, unchanged (`components/admin/showpage/AttentionMenu.tsx:42`). Reached today only by hold items, which are already pressable rows and keep their `changes` jump |
+| `item.tone` | `critical` | Filled `bg-status-degraded` dot and its existing screen-reader tone prefix, unchanged (`components/admin/showpage/AttentionMenu.tsx:41-44`). Reached today only by hold items, which are already pressable rows and keep their `changes` jump |
 | `item.kind` | `"hold"` | Row renders as today: `menuSubtitle` "Pick what happens in Changes", jump to the `changes` section, no card. Never receives a destination chip (§2.3 applies to alert items only) |
 | `a.action` | `null` (builder failed its fail-quiet guard) | No destination chip; footer keeps "Raised …" only |
 | `a.action` | internal, target section == card's `effectiveSectionId` | No chip (§2.3 self-link suppression) |

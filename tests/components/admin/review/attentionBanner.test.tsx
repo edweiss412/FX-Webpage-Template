@@ -72,10 +72,6 @@ function renderBanner(
       now={NOW}
       highlighted={false}
       onResolved={() => {}}
-      // Default is the item's DECLARED route; `over` spreads last so the
-      // warnings-unavailable cases can override it to the Overview fallback,
-      // which is the whole point of test 9b.
-      effectiveSectionId={it.sectionId}
       {...over}
     />,
   );
@@ -416,8 +412,6 @@ describe("destination chip", () => {
             action: { label: "Go to Overview", href: "/admin?show=x#overview", external: false },
           },
         }),
-        // warnings section unavailable → the card fell back to Overview
-        { effectiveSectionId: "overview" },
       );
       expect(screen.queryByTestId("attention-banner-destination-a1")).toBeNull();
       expect(screen.queryByTestId("attention-banner-autoclear-a1")).toBeNull();
@@ -441,7 +435,6 @@ describe("destination chip", () => {
           action: { label: "Go to Overview", href: "/admin?show=x#overview", external: false },
         },
       }),
-      { effectiveSectionId: "warnings" },
     );
     expect(screen.queryByTestId("attention-banner-destination-a1")).toBeNull();
     // and it does not silently fall back to the row-style inline action link

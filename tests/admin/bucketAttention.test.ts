@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { bucketAttention } from "@/lib/admin/sectionAttention";
+import { bucketAttention, resolveEffectiveSection } from "@/lib/admin/sectionAttention";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 
 const it_ = (code: string, sectionId: string, crewKey: string | null = null): AttentionItem =>
@@ -145,16 +145,24 @@ describe("jump target and landing place agree, per route family (spec test 12)",
   }
 
   it.each([
-    // [code, declared route, landing when its anchor IS mounted, and when it is NOT]
-    ["PARSE_ERROR_LAST_GOOD", "warnings", "warnings", "warnings"],
-    ["RESYNC_QUALITY_REGRESSED", "warnings", "warnings", "warnings"],
-    ["SHEET_UNAVAILABLE", "overview", "overview", "overview"],
-    ["SHOW_UNPUBLISHED", "overview", "overview", "overview"],
-    ["REEL_DRIFTED", "event", "event", "overview"],
-    ["EMBEDDED_ASSET_DRIFTED", "rooms", "rooms", "overview"],
-  ])("%s (routed %s) lands in %s when mounted, %s when not", (code, route, mounted, absent) => {
-    expect(landedIn(it_(code, route), true), `${code} with anchor mounted`).toBe(mounted);
-    expect(landedIn(it_(code, route), false), `${code} with anchor absent`).toBe(absent);
+    ["PARSE_ERROR_LAST_GOOD", "warnings"],
+    ["RESYNC_QUALITY_REGRESSED", "warnings"],
+    ["SHEET_UNAVAILABLE", "overview"],
+    ["SHOW_UNPUBLISHED", "overview"],
+    ["REEL_DRIFTED", "event"],
+    ["EMBEDDED_ASSET_DRIFTED", "rooms"],
+  ])("%s (routed %s): the JUMP target equals the LANDING place", (code, route) => {
+    for (const available of [true, false]) {
+      const item = it_(code, route);
+      // Jump side: the SAME production function navigateTo calls, fed the SAME
+      // placement predicates the modal gives bucketAttention. Both sides are
+      // DERIVED — an earlier version compared the landing place to hard-coded
+      // strings, which meant a wrong jump target could never fail it (whole-diff
+      // review round 2, 2026-07-25).
+      const jumpTo = resolveEffectiveSection(item, placementWith(available));
+      const landsIn = landedIn(item, available);
+      expect(jumpTo, `${code}, anchor ${available ? "mounted" : "absent"}`).toBe(landsIn);
+    }
   });
 
   it("no needs-look route can be dropped in EITHER availability state", () => {

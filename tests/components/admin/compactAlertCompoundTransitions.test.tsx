@@ -64,7 +64,6 @@ function renderBanner(onResolved = vi.fn()) {
       slug="test-show"
       now={NOW}
       highlighted={false}
-      effectiveSectionId={it.sectionId}
       onResolved={onResolved}
     />,
   );

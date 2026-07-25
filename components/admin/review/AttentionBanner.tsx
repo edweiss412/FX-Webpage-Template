@@ -32,7 +32,6 @@ import {
   ATTENTION_FALLBACK_TITLE,
   formatRelativeRaisedAt,
   type AttentionItem,
-  type RoutedSectionId,
 } from "@/lib/admin/attentionItems";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
@@ -48,14 +47,6 @@ export type AttentionBannerProps = {
   now: Date;
   /** Deep-link target (?alert_id) — carries aria-current. */
   highlighted: boolean;
-  /**
-   * Where this card ACTUALLY renders, which is not always `item.sectionId`: an
-   * item routed to an unmounted section falls back to Overview. Supplied by the
-   * caller so the card and `bucketAttention` share one source (§2.3), and
-   * compared against the action's target to suppress a chip that would point at
-   * the place the card already is.
-   */
-  effectiveSectionId: RoutedSectionId;
   onResolved: (id: string) => void;
 };
 
@@ -69,21 +60,6 @@ const FAILED_KEYS_CAP = 6;
  */
 function hasVisibleText(template: string): boolean {
   return template.replace(/[*_`\s]/g, "").length > 0;
-}
-
-/**
- * The section an INTERNAL action points at, read from its URL fragment.
- * Internal alert actions are built as `/admin?show=<slug>#<section>`
- * (lib/adminAlerts/alertActions.ts), so the fragment IS the target section.
- * Returns null for an absent or empty fragment, which can never equal a real
- * section id — so an unparseable href fails OPEN and keeps the chip rather than
- * silently suppressing the only way out.
- */
-function sectionOfHref(href: string): string | null {
-  const hash = href.indexOf("#");
-  if (hash < 0) return null;
-  const frag = href.slice(hash + 1).trim();
-  return frag.length > 0 ? frag : null;
 }
 
 /** Trimmed, empties dropped; null when nothing survives (§5.2). */
@@ -117,7 +93,6 @@ export function AttentionBanner({
   slug,
   now,
   highlighted,
-  effectiveSectionId,
   onResolved,
 }: AttentionBannerProps) {
   const [confirmed, setConfirmed] = useState(false);
@@ -185,20 +160,14 @@ export function AttentionBanner({
   // the row's link. Monitoring (self_heal) keeps its auto-clear note.
   const isClearingNeedsYou = !item.actionable && item.clearingKind !== "self_heal";
 
-  // The chip would point at the place the card already is. Suppressed, so the
-  // "every chip reads Google Sheets" invariant holds from the card side too —
-  // this is what makes the external-only claim true rather than coincidental.
-  const actionTargetsOwnSection =
-    a.action != null && !a.action.external && sectionOfHref(a.action.href) === effectiveSectionId;
-
   // EXTERNAL-ONLY, per §2.3: "An internal-destination chip is therefore not
-  // implemented." Gating on `external` rather than falling back to the action's
-  // own label matters — an unparseable or newly-shaped internal href would
-  // otherwise render a same-tab chip with unratified copy, inventing UX the spec
-  // says requires an amendment. The self-link guard stays as the card-side
-  // enforcement of the same invariant (whole-diff review 2026-07-25).
+  // implemented." The `external` gate is the WHOLE mechanism — an earlier draft
+  // also carried a self-link guard comparing the action's target section to the
+  // card's, but once the chip requires `external` that guard can never fire
+  // (it required `!external`), so it and the `effectiveSectionId` prop it needed
+  // were provably dead and are gone (whole-diff review round 2, 2026-07-25).
   const destinationChip: ReactNode =
-    isClearingNeedsYou && a.action?.external && !actionTargetsOwnSection ? (
+    isClearingNeedsYou && a.action?.external ? (
       <a
         href={a.action.href}
         data-testid={`attention-banner-destination-${a.alertId}`}

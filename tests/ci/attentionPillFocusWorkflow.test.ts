@@ -54,6 +54,10 @@ const HARNESS_PRODUCTION_DEPS = [
   "components/admin/review/publishedAdapter.ts",
   "lib/admin/sectionAttention.ts",
   "lib/admin/attentionItems.ts",
+  // direct imports of AttentionMenu itself — missing from the first draft of
+  // this list, which is why the list is now checked against a subtree glob
+  "lib/admin/needsLookHints.ts",
+  "lib/adminAlerts/audience.ts",
 ];
 
 /** True when `path` is matched by a filter entry, exactly or via a `/**` glob. */

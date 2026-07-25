@@ -33,8 +33,12 @@ on:
       # subtrees, and an enumerated list silently rots as they grow.
       - "components/admin/showpage/**"
       - "components/admin/review/**"
-      - "lib/admin/sectionAttention.ts"
-      - "lib/admin/attentionItems.ts"
+      # lib/admin and lib/adminAlerts as SUBTREES, not a file list: AttentionMenu
+      # alone imports needsLookHints and audience, and an enumerated list rots
+      # every time an import is added. Round 2 of the whole-diff review caught
+      # exactly that — two direct runtime deps were missing.
+      - "lib/admin/**"
+      - "lib/adminAlerts/**"
       - "app/globals.css"
       - "package.json"
       - "pnpm-lock.yaml"

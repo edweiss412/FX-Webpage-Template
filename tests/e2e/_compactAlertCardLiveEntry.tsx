@@ -137,7 +137,6 @@ function LiveHarness() {
           slug="harness-show"
           now={new Date("2026-07-19T12:00:00Z")}
           highlighted={false}
-          effectiveSectionId={bannerItem.sectionId}
           onResolved={() => {}}
         />
       </div>
