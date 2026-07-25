@@ -359,6 +359,13 @@ test.describe("phantom gap — /admin dashboard (real route)", () => {
   // auto-applied strip all appear instead. A wrapper populated in one branch can
   // empty out in the other, so one width would measure half the surface.
   //
+  // COVERAGE BOUNDARY: the ACTIVE bucket only. `/admin?bucket=archived` renders a
+  // different tree (`ArchivedShowRow`), but `pnpm db:seed` — what this workflow
+  // runs — seeds no archived shows (the archived fixture lives in the separate
+  // `seedWalkerFixtures.ts` extension seed), so a probe there would measure an
+  // empty bucket and anchor on nothing. Covering it means seeding an archived row
+  // first; carried as BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET.
+  //
   // The inbox anchor is therefore PER WIDTH, and captured from a live run rather
   // than guessed: at 390 the column's gapped container is the mobile summary
   // card, at 1280 it is the desktop inbox wrapper. `dashboard-inbox-col` itself
@@ -497,6 +504,8 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       parent: `<div in wizard-step3-card-${SEED_DRIVE_FILE_ID}-breakdown-${section}>`,
       child: `<span in wizard-step3-card-${SEED_DRIVE_FILE_ID}-breakdown-${section}>`,
       axis: "column-gap" as const,
+      // gap-2.5 = 10px, charged on both sides of the collapsed spacer.
+      gap: 10,
       count: 1,
       why: "ModalSectionChrome's flex-1 header spacer collapses to 0 width in a crowded row at 375px — pre-existing, deferred to BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW",
     }),

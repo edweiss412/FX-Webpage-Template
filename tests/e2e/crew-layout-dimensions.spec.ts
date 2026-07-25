@@ -1040,6 +1040,8 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       parent: "<div in travelrow>",
       child: "<p in travelrow>",
       axis: "row-gap" as const,
+      // gap-0.5 = 2px, the `.tcol` stack's row gap.
+      gap: 2,
       count: 2,
       why: "TravelRow's eyebrow <p> renders an empty label for a stage-promoted leg and still charges the 2px stack gap — pre-existing, deferred to BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW",
     }));

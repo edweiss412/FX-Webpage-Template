@@ -48,6 +48,8 @@ on:
       - "app/globals.css"
       - "playwright.config.ts"
       - "tests/e2e/helpers/**"
+      - "tests/e2e/phantomGapHelper.layout.spec.ts"
+      - "tests/e2e/standalone.config.ts"
       - ".github/workflows/phantom-gap-e2e.yml"
       # WHAT THE TREES ARE MADE OF, not just what renders them. Two ledger rows
       # pin exact occurrence COUNTS against the seeded show, so anything that
@@ -63,6 +65,18 @@ on:
       - "package.json"
       - "pnpm-lock.yaml"
       - "postcss.config.mjs"
+      # THE JOB'S OWN RUNTIME. A change to the composite setup action, the
+      # Supabase bootstrap script, or the migrations/config that bootstrap
+      # applies can break or silently alter the environment these readings are
+      # taken in; the build config decides what the measured pages even compile
+      # to. A required probe that skips on those is not a probe.
+      - ".github/actions/setup/**"
+      - "scripts/ci/supabase-local-bootstrap.sh"
+      - "supabase/config.toml"
+      - "supabase/migrations/**"
+      - "next.config.ts"
+      - "tsconfig.json"
+      - "pnpm-workspace.yaml"
   # Close-out verification without waiting for a matching PR (AGENTS.md:
   # "local-passes-CI-fails is its own bug class").
   workflow_dispatch:
@@ -127,6 +141,15 @@ jobs:
       # prefix and not the two names: a probe case added to this file is picked
       # up without a workflow edit, which is the failure mode that left the host
       # specs dark in the first place.
+      # The walk's OWN branch coverage. No dev server and no database — it runs
+      # under the standalone config against synthetic pages, because the product
+      # trees below contain no percentage gap, no `calc()` gap, no subgrid, no
+      # vertical writing mode, and no transformed SVG. Every rule the walk carries
+      # for those could otherwise regress silently while all ten mounted cases
+      # stayed green. Ordered FIRST: if the instrument is broken, the readings
+      # below mean nothing.
+      - name: Phantom-gap helper — branch coverage
+        run: pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts tests/e2e/phantomGapHelper.layout.spec.ts
       - name: Phantom-gap probe — /admin dashboard + show modal
         run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"
       - name: Phantom-gap probe — crew page

@@ -8,6 +8,16 @@ Last reconciled: 2026-07-24 — 30 resolved entries graduated to the archive.
 
 ---
 
+## BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET — probe the archived dashboard bucket
+
+**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, adversarial review R3 finding 1). **Class:** layout hardening (coverage). **Effort:** S (seed + one case).
+
+`T-NOPHANTOM-DASH` measures `/admin` in its ACTIVE bucket only. `/admin?bucket=archived` renders a structurally different tree — `ArchivedShowRow` (`components/admin/ArchivedShowRow.tsx`) instead of `ShowsTable` rows — so a zero-extent child introduced there triggers the `phantom-gap-e2e` workflow via `components/**` while both dashboard cases stay green.
+
+Not simply added as a third case: `pnpm db:seed` (what the workflow runs) seeds **no archived shows** — the archived fixture lives in the separate `supabase/seedWalkerFixtures.ts` extension seed — so a probe there today would measure an empty bucket, anchor on nothing, and be exactly the vacuous green the anchors exist to prevent.
+
+**Work:** seed one archived show in the phantom-gap job (either extend `seed.ts` or run the walker-fixture seed alongside it), then add a `T-NOPHANTOM-DASH [archived]` case at both widths anchored on an `archived-show-row-<slug>` container captured from a live `visited` dump.
+
 ## BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW — `empty:hidden` the TravelRow eyebrow
 
 **Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, found by `T-NOPHANTOM-CREW`). **Class:** layout hardening. **Effort:** XS (one class), plus the invariant-8 impeccable dual gate.

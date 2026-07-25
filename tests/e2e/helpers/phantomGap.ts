@@ -56,6 +56,13 @@
  *     `rotate` / `translate` therefore goes unreported — a false green, accepted
  *     because the alternative (decomposing the matrix) is defeated by individual
  *     transform properties, `matrix3d`, and rotations of degenerate boxes.
+ *   - CYCLIC PERCENTAGE GAPS. A percentage gap resolves against the container's
+ *     own content box on that axis, and when that size depends on the content
+ *     (an auto-height column flex with `row-gap: 10%`) the used gap is ZERO. The
+ *     helper reads the POST-layout box, so it would derive a positive gap there
+ *     and could report a zero-extent child that charges nothing. Detecting the
+ *     cycle needs the specified size, not the used one. No percentage gap exists
+ *     in this codebase; the branch-coverage spec pins the non-cyclic cases.
  *   - THE LIGHT DOM, NOT THE FLAT TREE. The walk uses `parentElement` and
  *     `querySelectorAll`, so it does not cross shadow boundaries: a hidden shadow
  *     HOST above the root is invisible to the suppression walks, descendant
@@ -163,6 +170,14 @@ export type PhantomLedgerRow = {
   parent: string;
   child: string;
   axis: PhantomOffender["axis"];
+  /**
+   * The gap the deferred instance charges, in px, matched within 0.5px.
+   *
+   * REQUIRED, because the debt is the MAGNITUDE and not merely the existence of
+   * a phantom item: a ledgered 2px eyebrow whose stack later moves to `gap-8`
+   * would still be consumed as accounted-for while the visible seam grew 16×.
+   */
+  gap: number;
   count: number;
   /** Why it is deferred, and the BL- id carrying it. */
   why: string;
@@ -399,11 +414,6 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       const colDim = vertical ? ("height" as const) : ("width" as const);
       const rowGapPx = gapPx(cs.rowGap, el, cs, rowDim);
       const colGapPx = gapPx(cs.columnGap, el, cs, colDim);
-      // A gap whose used value cannot be read is NOT silently treated as zero —
-      // that would drop the axis from examination with no trace. It is recorded
-      // so the caller can fail on it.
-      if (rowGapPx === null) unresolved.push(`${label(el)} row-gap: ${cs.rowGap}`);
-      if (colGapPx === null) unresolved.push(`${label(el)} column-gap: ${cs.columnGap}`);
       const rowGap = rowGapPx ?? 0;
       const colGap = colGapPx ?? 0;
       const isColumn = cs.flexDirection.startsWith("column");
@@ -420,37 +430,55 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
           ? [{ axis: "column-gap", gap: colGap, dim: colDim, tpl: cs.gridTemplateColumns }]
           : []),
       ];
-      if (axes.length === 0) continue;
+      // An axis whose gap could not be READ still has to reach the unresolved
+      // report below, and it contributes no entry to `axes` (a null gap is not
+      // `> 0`). Bailing on an empty `axes` alone therefore silently dropped the
+      // one case the report exists for.
+      const unreadable =
+        (rowGapPx === null && chargesRowGap) || (colGapPx === null && chargesColGap);
+      if (axes.length === 0 && !unreadable) continue;
       const items = itemsOf(el);
       // ITEM COUNT INCLUDES ANONYMOUS TEXT ITEMS — {visible text, one empty
       // element} really is two items and really does realize a gap.
       const itemCount = items.length + anonymousItems(el);
-      // "Fewer than two items realizes no gap" holds for FLEX only. A GRID's gaps
-      // sit between TRACKS, and track count is independent of item count in BOTH
-      // directions: one item can span several tracks, and seven items can share a
-      // single one. So a grid axis is admitted on its realized track count alone.
-      const chargeableAxes = isGrid
-        ? axes.filter(({ tpl }) => {
-            // SUBGRID. The resolved value is `subgrid` followed by ONE bracketed
-            // line-name set per used line (`subgrid [] [] []`), so the used LINE
-            // count is readable even though the track sizes live on the parent —
-            // and n lines means n-1 tracks. An `=== "subgrid"` test never fired
-            // against that serialization, and `trackCount` then stripped the
-            // brackets and counted the bare token as one track, so every subgrid
-            // axis was silently rejected. Falling back to `itemCount >= 2` was
-            // also wrong in its own right: a one-item subgrid across two parent
-            // tracks realizes the gutter between them.
-            if (tpl.startsWith("subgrid")) {
-              const lines = tpl.match(/\[[^\]]*\]/g)?.length ?? 0;
-              // lines - 1 tracks; >= 2 tracks realizes a gutter. No line sets at
-              // all (a bare `subgrid`) leaves the count unknowable — fall back.
-              return lines > 0 ? lines - 1 >= 2 : itemCount >= 2;
-            }
-            return trackCount(tpl) >= 2;
-          })
-        : itemCount >= 2
-          ? axes
-          : [];
+      /**
+       * Does this axis realize a gutter at all?
+       *
+       * "Fewer than two items realizes no gap" holds for FLEX only. A GRID's gaps
+       * sit between TRACKS, and track count is independent of item count in BOTH
+       * directions: one item can span several tracks, and seven items can share a
+       * single one. So a grid axis is admitted on its realized track count alone.
+       *
+       * SUBGRID resolves as `subgrid` followed by ONE bracketed line-name set per
+       * used line (`subgrid [] [] []`), so the used LINE count is readable even
+       * though the track SIZES live on the parent — n lines means n-1 tracks. An
+       * `=== "subgrid"` test never matched that serialization, and `trackCount`
+       * then stripped the brackets and counted the bare token as one track, so
+       * every subgrid axis was silently rejected. The `itemCount` fallback was
+       * wrong in its own right too: a one-item subgrid spanning two parent tracks
+       * realizes the gutter between them.
+       */
+      const admits = (tpl: string): boolean => {
+        if (!isGrid) return itemCount >= 2;
+        if (tpl.startsWith("subgrid")) {
+          const lines = tpl.match(/\[[^\]]*\]/g)?.length ?? 0;
+          return lines > 0 ? lines - 1 >= 2 : itemCount >= 2;
+        }
+        return trackCount(tpl) >= 2;
+      };
+      // Reported only for an axis this container would ACTUALLY have examined.
+      // Recording it before the charge + admission filters false-red'd on a
+      // `nowrap` row flex whose unreadable ROW gap can never be realized (one
+      // line, no row gutter), and on any container failing item/track admission.
+      for (const [gapValue, axisName, raw, tpl, charges] of [
+        [rowGapPx, "row-gap", cs.rowGap, cs.gridTemplateRows, chargesRowGap],
+        [colGapPx, "column-gap", cs.columnGap, cs.gridTemplateColumns, chargesColGap],
+      ] as const) {
+        if (gapValue === null && charges && admits(tpl)) {
+          unresolved.push(`${label(el)} ${axisName}: ${raw}`);
+        }
+      }
+      const chargeableAxes = axes.filter(({ tpl }) => admits(tpl));
       if (chargeableAxes.length === 0) continue;
       visited.push(label(el));
       for (const item of items) {
@@ -512,14 +540,20 @@ export function reconcilePhantomLedger(
     let consumed = 0;
     for (let i = remaining.length - 1; i >= 0 && consumed < row.count; i -= 1) {
       const o = remaining[i]!;
-      if (o.parent === row.parent && o.child === row.child && o.axis === row.axis) {
+      if (
+        o.parent === row.parent &&
+        o.child === row.child &&
+        o.axis === row.axis &&
+        Math.abs(o.gap - row.gap) <= 0.5
+      ) {
         remaining.splice(i, 1);
         consumed += 1;
       }
     }
     if (consumed < row.count) {
       stale.push(
-        `${row.parent} → ${row.child} (${row.axis}): ledger expects ${row.count}, found ${consumed}`,
+        `${row.parent} → ${row.child} (${row.axis} @ ${row.gap}px): ledger expects ${row.count},` +
+          ` found ${consumed}`,
       );
     }
   }
