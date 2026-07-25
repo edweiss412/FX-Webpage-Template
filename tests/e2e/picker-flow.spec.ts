@@ -39,6 +39,7 @@ import { seedShowWithCrew, type SeededShow } from "./helpers/seedShowWithCrew";
 import { seedPickerCookie } from "./helpers/seedPickerCookie";
 import { claimStamp } from "./helpers/claimStamp";
 import { admin } from "./helpers/supabaseAdmin";
+import { isSupabaseAuthCookieName } from "@/lib/auth/supabaseAuthCookieNames";
 
 // Canonical mobile-safari baseURL (playwright.config.ts). Overridable via
 // PICKER_E2E_BASE_URL for a focused local run against a hand-started dev server
@@ -159,16 +160,7 @@ test("Mode B shared-device: Google session matches no crew row -> 'Signed in as 
   }
 });
 
-// SKIP: app-behavior blocker. "Continue as guest" (clearIdentityAndSkip) clears
-// the stale picker entry, but the browser STILL carries the authed non-roster
-// Google session, so the post-action resolve is reason: 'google_mismatch' (NOT
-// 'first_contact'); page.tsx honors ?gate=skip only for 'first_contact', so the
-// Mode B mismatch gate re-renders and picker-interstitial-root never mounts.
-// Confirmed by direct repro: after the guest click the page stays on the Mode B
-// gate (mismatch header still visible), not the picker. Enable once the gate
-// semantics let a present-but-cleared session reach the picker via ?gate=skip
-// (app decision in app/show/[slug]/[shareToken]/page.tsx + clearIdentityAndSkip).
-test.skip("Mode B 'Continue as guest' atomically clears the stale entry and lands on the picker", async ({
+test("Mode B 'Continue as guest' atomically clears the stale entry and lands on the picker", async ({
   browser,
 }) => {
   const showA = track(
@@ -181,6 +173,9 @@ test.skip("Mode B 'Continue as guest' atomically clears the stale entry and land
   );
   const urlA = `/show/${showA.slug}/${showA.shareToken}`;
   const aliceId = showA.crew.find((c) => c.name === "Alice Cooper")!.id;
+  // Bob is unclaimed, so tapping his row selects an identity rather than routing
+  // through OAuth recovery — that is what makes the durability leg possible.
+  const bobId = showA.crew.find((c) => c.name === "Bob Marley")!.id;
 
   const ctx = await browser.newContext({ baseURL: BASE_URL });
   try {
@@ -216,6 +211,27 @@ test.skip("Mode B 'Continue as guest' atomically clears the stale entry and land
       expect(decoded).not.toContain(aliceId);
       expect(decoded).not.toContain(showA.showId);
     }
+
+    // The sign-out contract: no Supabase auth cookie survives on this device.
+    // scope: "local" ends THIS browser's session only — a colleague's other
+    // devices keep theirs — but on this one the cookies must be gone.
+    expect(cookies.filter((c) => isSupabaseAuthCookieName(c.name))).toEqual([]);
+
+    // Reaching the picker once is what the REJECTED design also achieved (spec
+    // §4.2), so the durable property is what this proves: pick the unclaimed
+    // row, land on the show body...
+    const bobRow = page.locator(
+      `[data-testid="picker-roster-row"][data-crew-member-id="${bobId}"]`,
+    );
+    await bobRow.click();
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    await expect(page.getByTestId("identity-chip")).toContainText("Bob Marley");
+
+    // ...and survive a reload carrying NO ?gate=skip. A one-request-only fix
+    // fails here, which is the whole point.
+    await page.goto(urlA, { waitUntil: "networkidle" });
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    await expect(page.getByTestId("identity-chip")).toContainText("Bob Marley");
   } finally {
     await ctx.close();
   }
