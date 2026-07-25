@@ -394,3 +394,48 @@ describe("share-hub geometry (measured, not synthetic)", () => {
     expect(p.side).toBe("bottom");
   });
 });
+
+/**
+ * Characterization pins for the visual-viewport work (spec R3/R9).
+ *
+ * NOT TDD and not claimed to be: `computePopoverPlacement` is unmodified, so
+ * these pass on first run. They are regression capture, and they close a gap the
+ * whole-diff review found — `placeWithinVisibleViewport` returns the LEGACY
+ * placement whenever a visual-bounds placement comes out `hidden`, so a core
+ * mutant that starts hiding below the irreducible floor is invisible to the
+ * property suite and to every component/e2e fixture. Only a direct core
+ * assertion catches it.
+ */
+describe("narrow and sub-floor bounds stay PLACED (spec R3/R9)", () => {
+  it("narrow bounds -> placed with BOTH caps, never hidden", () => {
+    const bounds = rect(100, 100, 120, 300);
+    const out = computePopoverPlacement(
+      input({ trigger: rect(140, 150, 20, 20), bounds, wrappedHeightAt: () => 600 }),
+    );
+    expect(out.kind).toBe("placed");
+    if (out.kind !== "placed") return;
+    expect(out.maxWidth).toBe(bounds.width);
+    expect(out.maxHeight).not.toBeNull();
+  });
+
+  it("bounds NARROWER than the popover's irreducible padding+border box -> still placed", () => {
+    // HoverHelp's box floor is 2*(14+1) = 30px (`p-3.5` + `border`). The core has
+    // no padding data, so it must not hide here; the popover is permitted to
+    // exceed such bounds (R9) rather than vanish at extreme zoom.
+    for (const width of [4, 10, 20, 29]) {
+      const out = computePopoverPlacement(
+        input({ trigger: rect(102, 150, 20, 20), bounds: rect(100, 100, width, 300) }),
+      );
+      expect(out.kind, `bounds width ${width} must stay placed`).toBe("placed");
+    }
+  });
+
+  it("layout-viewport bounds and visual-viewport bounds yield DIFFERENT placements", () => {
+    // The discrimination the whole change rests on, asserted against real
+    // placement rather than by comparing two rectangles.
+    const trigger = rect(500, 300, 20, 20);
+    const layout = computePopoverPlacement(input({ trigger, bounds: rect(8, 8, 984, 784) }));
+    const visual = computePopoverPlacement(input({ trigger, bounds: rect(408, 208, 184, 164) }));
+    expect(layout).not.toEqual(visual);
+  });
+});
