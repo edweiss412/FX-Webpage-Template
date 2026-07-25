@@ -416,6 +416,17 @@ WITH substitutions is not. Anything outside these shapes is reported as
   sweep cannot. The sweep proves coverage; the fixtures prove meaning. A meta-assertion requires
   every fixture attribute to appear in the closed list, so the sweep cannot silently skip one.
 
+- **The casing sweep varies attribute NAMES, not attribute VALUES, and that boundary is
+  deliberate.** Attribute names are ASCII case-insensitive in HTML, so a case-sensitive name read
+  is unambiguously a defect. Values are not uniform: a `className` token is genuinely
+  case-sensitive (`HIDDEN` is a different CSS class from `hidden`), so folding it would be wrong.
+  The one place a value comparison could be argued is `aria-hidden="FALSE"`, which the scanner
+  treats as hidden because it only exempts the exact literal `false`
+  (`tests/styles/_newTabScan.ts:435`, `:439`). That direction FAILS CLOSED — an invalid ARIA token
+  produces a report, not a silent pass — so the conservative reading costs a possible false
+  positive and never a missed announcement. Value-casing is therefore out of scope for the sweep,
+  stated here rather than left to look like an oversight.
+
 - **The lowercase-name literal tripwire is SECONDARY and is not a completeness proof.** It collects
   name-shaped literals from the AST and flags any non-lowercase spelling of a known attribute name.
   R19 established that source reading cannot be complete here — a regex literal and an unquoted
