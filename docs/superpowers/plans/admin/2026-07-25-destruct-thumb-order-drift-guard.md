@@ -24,6 +24,9 @@ Every command below was executed at plan-authoring time in the worktree. Output 
 | V9 | `pnpm vitest run` on the 4 affected test files at merge-base | **4 files, 28 tests, all pass** | Clean baseline; any later red is mine |
 | V10 | `head -1 tests/components/admin/pendingIngestionActions.test.tsx` | `// @vitest-environment jsdom` | Pragma already present; new tests inherit it |
 
+| V11 | snippets from Tasks 1-2 extracted to a scratch test file, then `pnpm typecheck` | **exit 0, zero `error TS`** | Every pasted snippet compiles under the strict tsconfig (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`). Scratch file deleted after |
+| V12 | `pnpm vitest run` on that scratch file | **T1 failed with `expected [ …(11) ] to deeply equal [ 'lib/admin/destructiveConfirm.ts' ]`; T2 and the T2 self-check passed** | Task 1's expected failure is demonstrated, not predicted. The self-check passing proves the matcher fires on `3000`/`3_000`, does not fire on `ARM_REVERT_MS`, and that the exemption comment is invisible in stripped source — constraint C-A, proven executably rather than argued |
+
 **Real-browser probe (spec §4.6).** The proposed markup was rendered in Chromium with the compiled token CSS before this plan was written. Measurements are in spec §4.6 and are the basis for Task 4's assertions — the geometry is measured, not predicted.
 
 ---
