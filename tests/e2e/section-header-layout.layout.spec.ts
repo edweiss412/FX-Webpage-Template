@@ -767,3 +767,92 @@ test("transition audit: the header snaps when its pill changes on a mounted node
     "restoring the pill grows back in the same task — instant in BOTH directions",
   ).toBeCloseTo(HEADER_WITH_PILL_PX, 0);
 });
+
+/**
+ * T10 (impeccable audit finding) — the focus ring's offset must match the colour
+ * actually painted behind the link.
+ *
+ * `focus-visible:ring-offset-2` paints a 2px gap between the icon and the ring,
+ * filled with `--tw-ring-offset-color`. If that token names a different surface
+ * than the one behind the element, keyboard focus draws a halo in the wrong
+ * shade. The corner link inherited `ring-offset-surface` from the "In sheet"
+ * text link it replaced, but the header block sits on the modal shell's `bg-bg`
+ * (`components/admin/review/ReviewModalShell.tsx:623`) with no intervening
+ * background — the content pane, registry section and breakdown section all set
+ * none. Light mode hides it (#ffffff on #fafaf9); dark mode does not
+ * (#16171c on #0f1014).
+ *
+ * Asserted by COMPARISON, not by naming a token: the test resolves the offset
+ * colour and the nearest actually-painted ancestor background and requires them
+ * to be equal. A future re-theme moves both together; a mismatch reintroduced by
+ * copying a class from a card context fails here regardless of which token it
+ * names.
+ */
+test("corner link's focus-ring offset matches the surface behind it", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 900, height: 900 });
+
+  for (const theme of ["light", "dark"] as const) {
+    await page.goto(`${baseUrl}G1-clean-375.html`, { waitUntil: "load" });
+    await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+
+    // FOCUS FIRST, and by keyboard. `--tw-ring-offset-color` is only assigned by
+    // the `focus-visible:` variant, so reading it on an idle link returns
+    // Tailwind's `#fff` default — which looks exactly like the bug and would go
+    // red no matter what the class said. Tab focus (not `.focus()`) is what
+    // actually matches `:focus-visible` in Chromium.
+    await page.keyboard.press("Tab");
+
+    const m = await page.evaluate(() => {
+      const link = document.querySelector('[data-cell="G1-clean"] a[href]');
+      if (!(link instanceof HTMLElement)) return { error: "corner link not found" };
+      if (document.activeElement !== link) {
+        return {
+          error: `expected the corner link to hold focus, got ${document.activeElement?.tagName}`,
+        };
+      }
+      if (!link.matches(":focus-visible")) {
+        return { error: "the link is focused but does not match :focus-visible" };
+      }
+      const offset = getComputedStyle(link).getPropertyValue("--tw-ring-offset-color").trim();
+      if (offset === "") return { error: "--tw-ring-offset-color is unset on the link" };
+
+      // The nearest ancestor that actually PAINTS a background. Walking past the
+      // transparent ones is the point: the header block, the pane and the section
+      // wrappers all set none, so the painted colour comes from further up.
+      let painted: string | null = null;
+      for (let el: HTMLElement | null = link; el !== null; el = el.parentElement) {
+        const bg = getComputedStyle(el).backgroundColor;
+        if (bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
+          painted = bg;
+          break;
+        }
+      }
+      // Normalize both through the same parser so `#fff` and `rgb(255,255,255)`
+      // compare equal — a string comparison of authored forms would be a
+      // never-compare-predicates-as-text bug.
+      const norm = (c: string) => {
+        const probe = document.createElement("span");
+        probe.style.color = c;
+        document.body.appendChild(probe);
+        const out = getComputedStyle(probe).color;
+        probe.remove();
+        return out;
+      };
+      return {
+        error: null,
+        offset: norm(offset),
+        painted: painted === null ? null : norm(painted),
+      };
+    });
+
+    expect(m.error, `${theme}: fixture shape`).toBeNull();
+    if (m.error !== null) return;
+    expect(m.painted, `${theme}: found the painted background behind the link`).not.toBeNull();
+    expect(
+      m.offset,
+      `${theme}: the ring offset paints ${m.offset} into a 2px gap over ${m.painted} —` +
+        ` a halo in the wrong shade on keyboard focus`,
+    ).toBe(m.painted);
+  }
+});

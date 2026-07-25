@@ -971,7 +971,7 @@ function ModalSectionChrome({
               target="_blank"
               rel="noopener noreferrer"
               aria-label={`Open the source sheet for ${label}`}
-              className="relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text-subtle transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              className="relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text-subtle transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
               <ExternalLink aria-hidden="true" className="size-4" />
             </a>
