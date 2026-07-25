@@ -1,6 +1,6 @@
 # Hotel ambiguity coverage (2026-07-25)
 
-**Status:** Draft → self-review → adversarial review R1–R4 (all BLOCKING, all repaired) → R5 pending
+**Status:** Draft → self-review → adversarial review R1–R5 (all BLOCKING, all repaired) → R6 pending
 **Closes:** `BL-PARSER-HOTEL-INLINE-AMBIGUITY`, `BL-PARSER-ADDRESS-SPLIT-AMBIGUITY` (BACKLOG.md §"Parser ambiguity-warning coverage (2026-07-07, ambiguity-warnings-v1)")
 **Extends:** `docs/superpowers/specs/parser/2026-07-07-ambiguity-warnings-v1-design.md` (§3.1/§3.2 registry, §4.2 guest emit, §6 transform-sites walker, §7 overlay anchors)
 
@@ -152,7 +152,9 @@ The two arms remain disjoint per invocation: P3(a) requires `address === null`, 
 const counter = new RegExp(STREET_ADDRESS_RE.source, STREET_ADDRESS_RE.flags + "g");
 ```
 
-**Required regression test:** call `splitHotelNameAddress` on the SAME address-bearing input three times consecutively and assert all three return identical `{name, address}`. Under a mutated shared singleton the second call returns a different result, so this test fails on exactly the defect it guards.
+**Required regression test:** call `splitHotelNameAddress` three times consecutively on **`"Westin Michigan Ave 909 Michigan Ave, Chicago, IL 60611"`** and assert all three return identical `{name: "Westin Michigan Ave", address: "909 Michigan Ave, Chicago, IL 60611"}`.
+
+The input MUST be one the **unpadded** splitter actually matches (R5 finding 1). A position-0 or suffixless example is useless here: a wrongly-global shared regex would miss on every call, all three results would be identical, and the test would pass vacuously. This input matches today, so a persistent `lastIndex` makes call 2 miss and return the unsplit string — the test fails on exactly the defect it guards.
 
 This does not change the split itself (R1): `splitHotelNameAddress` still execs the unpadded string, so a position-0 street start still never becomes the split point. The padding is read-only, for detection.
 
@@ -296,7 +298,9 @@ Every user-visible and accessibility-observable string the new resolvable kind i
 
 **Inline guest message text (R3 finding 4).** P1 reuses the `HOTEL_GUEST_SPLIT_AMBIGUOUS` code but MUST NOT reuse the structured emitter's message (`lib/parser/warnings.ts:262`, "may glue multiple guests together"). That sentence is false for the inline case, where the ambiguity is hotel-versus-guest, not guest-versus-guest — probe-verified on `"Hyatt Regency Eric Weiss - 110525"`, which contains exactly one guest. `message` is a per-emit string, so the inline emitter supplies its own:
 
-> `Hotel line "<raw, collapsed>" runs the hotel name and the guest names together with nothing separating them, so we worked out the guest list ourselves; double-check it.`
+> `Hotel line "<raw, collapsed>" has no labels marking which words are guest names, so we worked out the guest list ourselves; double-check it.`
+
+The earlier draft said "nothing separating them", which is false on the Pattern 3 checkout path — `Check In`/`Check Out` DO separate the hotel from the guest region in `raw/2025-05-redefining-fixed-income-private-credit` and `exporter-xlsx/redefining-fi` (R5 finding 5). What is true of every inline case is the absence of a LABEL identifying the guests.
 
 **The shared catalog copy must also be reworded (R4 finding 2).** Five fields on the existing `HOTEL_GUEST_SPLIT_AMBIGUOUS` row describe guest-versus-guest ambiguity specifically ("several people glued together", "more than one name"), which is false for the inline path — `"Hyatt Regency Eric Weiss - 110525"` contains exactly ONE guest and the ambiguity is hotel-versus-guest. Since one code now serves both paths, the copy must be true of both. This is an EDIT to an existing §12.4 row, so it carries the same three-lockstep requirement as a new row (§4 rows a, b, c).
 
@@ -306,7 +310,7 @@ Every user-visible and accessibility-observable string the new resolvable kind i
 | `title` | `A hotel guest list may be split wrong` |
 | `triggerContext` | `Appears when a hotel line's guest list could be read more than one way.` |
 | `helpfulContext` | `A hotel line's guest list could be read more than one way, so we made a judgment call. Check the guest list in case two people were merged, one was split, or part of the hotel name was read as a person.` |
-| `longExplanation` | `A hotel line's guest list could be read more than one way, so we made a judgment call about where each guest starts and ends. The guests still parsed; spot-check the list in case two people were merged, one was split, or part of the hotel name was read as a person.` |
+| `longExplanation` | `A hotel line's guest list could be read more than one way, so we made a judgment call about where each guest starts and ends. Spot-check the list in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.` |
 
 `crewFacing` stays `null`; `followUp` stays `Doug → spot-check hotel guests`; `helpHref` is unchanged.
 
@@ -321,15 +325,15 @@ Every user-visible and accessibility-observable string the new resolvable kind i
 | `followUp` | `Doug → spot-check hotel name and address` |
 | `title` | `A hotel name and address may be split wrong` |
 | `triggerContext` | `Appears when a hotel line's name and street address may not have been separated correctly.` |
-| `helpfulContext` | `A hotel line's name and street address may not have been separated correctly, so we left it the way it reads best. Check the hotel name and address in case part of one landed in the other.` |
-| `longExplanation` | `A hotel line's name and street address may not have been separated correctly. We kept every word rather than dropping any, so nothing is lost, but part of the address may be sitting in the hotel name. Spot-check the name and address against your sheet.` |
+| `helpfulContext` | `A hotel line's name and street address may not have been separated correctly. Check the hotel name and address in case part of one landed in the other.` |
+| `longExplanation` | `A hotel line's name and street address may not have been separated correctly. We kept every word rather than dropping any, so nothing is lost, but the dividing point may be off: part of the address may be sitting in the hotel name, or part of the name in the address. Spot-check both against your sheet.` |
 
 **Copy must be true of BOTH arms (R4 finding 3).** P3(a) fires when NO split happened, so any wording implying the parser "picked" among "multiple readings" is false there. The text above avoids both, and holds for P3(b) as well.
 
 **Emitted `ParseWarning.message`** — operator-visible via `warningSummary` (`lib/sync/phase1.ts:197`), so it needs an oracle. One authored string per arm:
 
 - P3(a): `Hotel line "<raw, collapsed>" looks like it holds a street address, but we could not tell where the name ends, so we left the line whole; double-check the hotel name and address.`
-- P3(b): `Hotel line "<raw, collapsed>" could be split into a name and a street address in more than one place, so we picked the most likely one; double-check the hotel name and address.`
+- P3(b): `Hotel line "<raw, collapsed>" could be split into a name and a street address in more than one place, so we split it at the first one; double-check the hotel name and address.`
 | `helpHref` | `/help/errors#HOTEL_ADDRESS_SPLIT_AMBIGUOUS` |
 | Disabled reason, P3(a) | `DISABLED_REASON`, `components/admin/UseRawControl.tsx:258` | `We left this line exactly as your sheet has it, so there's nothing to swap back.` |
 | Disabled reason, P1 | same | `We can't tell which part of this hotel line is only the guest list, so there's nothing safe to swap in.` |
@@ -371,7 +375,10 @@ TDD per task (invariant 1): failing test → minimal implementation → passing 
 | ---- | ----- | ------- |
 | **P1 fires on each producing path** — 4 cases, one per reason string | `learn-k-peel`: 2024-05 fixture · `legacy-dash-pattern`: `Hyatt Regency Eric Weiss - 110525` · `legacy-multidash-pattern`: `Hyatt Regency Eric---110525` · `titlecase-pairing`: 2025-04 fixture | one `HOTEL_GUEST_SPLIT_AMBIGUOUS` each, with the matching reason. The two synthetic inputs are probe-verified live mis-parses (`names:["Hyatt Regency Eric Weiss"]` / `["Hyatt Regency Eric"]`) that every narrow predicate in R1 and R2 missed |
 | **P1 fires on the R2 counter-examples** | `Hyatt Regency Mary Ann Smith - 110525 John Smith - 103316 Jane Doe - 103317` · `… Check Out: 5/2 Guests: Mary Ann Smith John Doe` · `Hyatt Place Check In: 5/1 Eric Weiss John Smith` | a warning for each. These are the five holes of §3.1; the unconditional predicate closes them and this test pins that |
-| **P1 quiet when inline produced no guests** | a guest-less inline cell (`Hyatt Regency - 1515 Madison Ave …`) | **zero** guest warnings — proves P1 is not "warn on every inline row" |
+| **P1 quiet when inline produced no guests** | a guest-less inline cell (`Hyatt Regency - 1515 Madison Ave …`) | **zero** guest warnings — exercises enumeration row 2 (the no-guest split return) |
+| **Row 5 vs row 6 discriminator — REQUIRED PAIR** (R5 finding 2) | **5:** `Hyatt Place Check In: 5/1 Check Out: 5/2 Eric` · **6:** `Hyatt Place Check In: 5/1 Check Out: 5/2` | Both parse to `names: []`. Row 5 MUST emit (a guest region was examined and `Eric` was dropped); row 6 MUST NOT (no guest region existed). **These two are observationally identical in output and opposite in requirement**, so they are the only assertions that separate the ratified design from two wrong implementations: `groupIndex === 0 && names.length > 0` fails row 5, and "warn on every group-0 final return" fails row 6. Neither wrong implementation fails any other test in this plan |
+| **P3(a) suffixed at position 0 — REQUIRED** (R5 finding 3) | `1515 Broadway Ave New York, NY 10036` | fires. This is the ONLY test exercising P3(a)'s `STREET_ADDRESS_RE` arm; the other two P3(a) cases are suffixless and exercise only the ZIP arm, so an implementation that omits the suffix alternative passes them all and reopens the R3 hole |
+| **P3 propagates through BOTH parser families — REQUIRED** (R5 finding 4) | the same P3(b) input routed once through the **structured** table caller (`lib/parser/blocks/hotels.ts:413`) and once through the **inline** caller (`lib/parser/blocks/hotels.ts:734`/`:765`) | a warning from each. `splitHotelNameAddress` is pure, so every caller must propagate its returned ambiguity into `PendingHotel` independently. With zero corpus address cards, wiring only one family satisfies every golden and every other synthetic assertion while leaving the other silently dark |
 | **P1 quiet on the structured path** | any structured fixture | no P1-sourced warning; the structured emit is unchanged |
 | **P3(b) quiet on a correct split** | `Hotel 71 71 E Wacker Dr Chicago, IL 60601` | **zero** address warnings; split still `{name:"Hotel 71", address:"71 E Wacker Dr …"}`. Catches R1 finding 2 |
 | **P3(b) fires on the corruption** | `Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601` | one warning, reason `"multiple-street-candidates"`, `resolvable:true` |
@@ -471,14 +478,14 @@ Zero address cards is expected and accepted (R7). No corpus string has >1 candid
 ## 10. Numeric single-source
 
 - `MAX_HOTELS` = **4** (`lib/parser/blocks/hotels.ts:47`)
-- Fixture shows = **10** in `fixtures/shows/raw/` + **8** in `fixtures/shows/exporter-xlsx/`
+- Fixture shows = **10** in `fixtures/shows/raw/` + **7** in `fixtures/shows/exporter-xlsx/`
 - New message codes = **1**
 - Predicates = **3** rows (P1, P3a, P3b) across 2 sites
 - P1 reason strings = **4** (one per producing path)
 - New `resolvable:false` reasons = **2** (`raw-not-guest-scoped`, `no-split-to-undo`)
 - New replacement kinds = **1** (`hotel-name`)
 - Registration surfaces = **34** (§4 rows a–hh, of which 1 is an explicit N/A)
-- P1 exit-path enumeration rows = **7**, of which **4** emit (§3.1)
+- P1 exit-path enumeration rows = **8**, of which **4** emit (§3.1)
 - Expected corpus cards = **9** guest (5 `raw/` + 4 `exporter-xlsx/`), **0** address (§9.3)
 - Corpus cards on a currently-wrong parse = **1**; on currently-correct parses = **8**
 - Corpus reservations across both families = **26**, distinct name/address pairs = **11** (9 with 1 street candidate, 2 with 0, none with >1)
