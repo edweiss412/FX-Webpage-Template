@@ -1204,8 +1204,12 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
       if (owner === undefined) return;
       const ownerLine = sf.getLineAndCharacterOfPosition(owner).line + 1;
       if (e.endLine !== ownerLine && e.endLine !== ownerLine - 1) return;
-      // First exemption to claim a candidate keeps it; a second pointing at the same
-      // candidate is stale and must NOT slide to a later anchor.
+      // First exemption to claim a candidate keeps it. Keying ownership BY CANDIDATE is
+      // what actually prevents a stale exemption sliding to a later anchor; this
+      // first-wins guard only decides which of two exemptions on the same candidate is
+      // consumed. Mutation testing showed it is not independently load-bearing, and it is
+      // kept for determinism rather than for safety -- said plainly so a later reader does
+      // not mistake it for the mechanism.
       if (!ownerOf.has(owner)) ownerOf.set(owner, idx);
     });
   }

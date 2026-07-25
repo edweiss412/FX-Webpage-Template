@@ -1415,6 +1415,52 @@ describe("R6: scanner changes are pinned", () => {
   // R16 question 1, probed before the round reported. Two results surprised me and BOTH
   // were my expectation being wrong rather than a defect, so the real behaviour is pinned
   // here to stop a later round reading either as a hole.
+  // R17 question 1, probed before the round reported: the positional-ownership edges.
+  // R16 BLOCKING 1's actual witness, which had only been checked in a throwaway probe:
+  // two exemptions on one line, then a COMPLIANT and a BROKEN anchor. The stale second
+  // exemption must not rescue the broken one. Mutation testing surfaced that this was
+  // unpinned, which is a better reason to add it than remembering to.
+  it("R16 a stale exemption never rescues a later anchor", () => {
+    const src =
+      `// ${EXEMPTION_TEXT} r1\n// ${EXEMPTION_TEXT} r2\n` +
+      'const A=()=><a href="x" target="_blank">Ok <NewTabHint /></a>;\n' +
+      'const B=()=><a href="y" target="_blank">BROKEN</a>;';
+    expect(
+      violations(src).length,
+      "the broken anchor must still be reported",
+    ).toBeGreaterThanOrEqual(1);
+    // And a LEADING same-line comment still owns the anchor that follows it, which line
+    // arithmetic could not express at all.
+    expect(
+      violations(`/* ${EXEMPTION_TEXT} reason */ const C=()=><a href="x" target="_blank">Go</a>;`),
+    ).toEqual([]);
+  });
+
+  it("R17 positional ownership handles inside-attrs, after-last, coincident and nested", () => {
+    // A comment INSIDE the anchor's attribute list is not BEFORE the anchor, so it cannot
+    // own it. Ownership is by position, which makes this fall out rather than need a rule.
+    expect(
+      violations(
+        `const A=()=>(\n  <a\n    href="x"\n    // ${EXEMPTION_TEXT} reason\n    target="_blank"\n  >Go</a>\n);`,
+      ).length,
+    ).toBe(1);
+    // An exemption after the last candidate owns nothing and must not throw.
+    expect(
+      violations(`const A=()=><a href="x" target="_blank">Go</a>;\n// ${EXEMPTION_TEXT} reason`)
+        .length,
+    ).toBe(1);
+    // Comment end immediately abutting the anchor start still owns it.
+    expect(
+      violations(`/* ${EXEMPTION_TEXT} reason */const A=()=><a href="x" target="_blank">Go</a>;`),
+    ).toEqual([]);
+    // Two nested candidates, one exemption: only the first is exempt.
+    expect(
+      violations(
+        `// ${EXEMPTION_TEXT} reason\nconst A=()=><Foo href="p" target="_blank"><a href="x" target="_blank">Go</a></Foo>;`,
+      ).length,
+    ).toBe(1);
+  });
+
   it("R16 exemption ordering: adjacency, element-start lines, and JSX-expression comments", () => {
     const anchor = 'const A=()=><a href="x" target="_blank">One</a>;';
     // A block comment that STARTS above and ENDS on the anchor's line still exempts.
