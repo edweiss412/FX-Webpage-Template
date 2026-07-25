@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { parseHotels, parseGuestCell } from "@/lib/parser/blocks/hotels";
 import { newAggregator } from "@/lib/parser/warnings";
 import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import { applyUseRawDecisions } from "@/lib/sync/useRawOverlay";
+import { buildParseResult } from "../../components/admin/wizard/_step3ReviewFixture";
 
 // Silence the log-only telemetry warn() so the cardinality test doesn't spam.
 vi.mock("@/lib/log", () => ({
@@ -282,14 +284,37 @@ describe("parseHotels — commitHotels invariants (T2)", () => {
       "|  | Hotel Name / Address |  |  |",
       "|  | Hotel Three |  |  |",
       "|  | Names on Reservation |  |  |",
-      "|  | John Smith Jane Doe |  |  |",
+      "|  | Doug Larson - \\#1001 Eric Weiss Jane Doe Bob Roe |  |  |",
     ].join("\n");
     const agg = newAggregator();
     const hotels = parseHotels(skippedFirst, "v4", agg);
     expect(hotels.map((h) => h.hotel_name)).toEqual(["Hotel Two", "Hotel Three"]);
     const w = agg.warnings.filter((x) => x.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS");
     expect(w).toHaveLength(1);
+    const warning = w[0]!;
     expect(w[0]!.blockRef?.index).toBe(1);
     expect(w[0]!.blockRef).toMatchObject({ kind: "hotels", name: "Hotel Three" });
+
+    // Asserting the emitted index alone is not enough (plan review R2 finding 8):
+    // an overlay branch that always rewrites reservation 0 passes it. Drive the
+    // decision through applyUseRawDecisions and prove reservation 1 alone moved.
+    const res = warning.resolution;
+    expect(res?.resolvable).toBe(true);
+    const applied = applyUseRawDecisions(
+      buildParseResult({ hotelReservations: hotels, warnings: agg.warnings }),
+      [
+        {
+          code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+          contentHash: (res as Extract<typeof res, { resolvable: true }>).contentHash,
+          target: { kind: "hotels", index: 1 },
+          preference: "raw",
+          applied: false,
+          decidedAt: "2026-07-25T00:00:00.000Z",
+          decidedBy: "test",
+        },
+      ],
+    );
+    expect(applied.result.hotelReservations[0]).toEqual(hotels[0]);
+    expect(applied.result.hotelReservations[1]!.names).not.toEqual(hotels[1]!.names);
   });
 });
