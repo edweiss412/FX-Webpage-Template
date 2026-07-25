@@ -1,0 +1,158 @@
+/**
+ * tests/admin/stagedPageRefScan.test.ts
+ * (spec docs/superpowers/specs/2026-07-24-test-safety-hardening-batch.md §3.4, §5 tests 6-9)
+ *
+ * Synthetic-source units for the retired-staged-page scanner. The guard that
+ * consumes these primitives (step3DeletionSafety.test.ts) runs only against the
+ * live tree, where none of the bypasses below exist — so if a branch here were
+ * fail-OPEN, the tree scan could not reveal it. Each case names the regression it
+ * catches.
+ */
+import { describe, expect, test } from "vitest";
+
+import {
+  classifyRetiredPathOccurrences,
+  hrefHitsRetiredPage,
+  resolveNavHrefs,
+} from "./stagedPageRefScan";
+
+/** The retired page path, assembled here so this test file is not itself an occurrence. */
+const RETIRED = "/admin/onboarding/" + "staged/";
+
+function hrefValues(src: string): string[] {
+  return resolveNavHrefs(src).map((h) => h.value);
+}
+
+function retiredHrefs(src: string): string[] {
+  return hrefValues(src).filter(hrefHitsRetiredPage);
+}
+
+describe("classifyRetiredPathOccurrences (spec §3.3 Layer A + C)", () => {
+  test("a comment occurrence classifies as comment, a code literal as string-literal", () => {
+    expect(
+      classifyRetiredPathOccurrences(`// see ${RETIRED}[session]/[file]\nconst x = 1;`),
+    ).toEqual(["comment"]);
+    expect(classifyRetiredPathOccurrences(`const u = "${RETIRED}a/b";`)).toEqual([
+      "string-literal",
+    ]);
+  });
+
+  test("an /api/ path is not an occurrence at all", () => {
+    // components/admin/StagedReviewCard.tsx:277,282 build these legitimately.
+    expect(classifyRetiredPathOccurrences(`const u = "/api${RETIRED}a/apply";`)).toEqual([]);
+  });
+
+  test("a comment turned into code changes the KIND at an unchanged count", () => {
+    // This is the R1-5b bypass: an allow-list keyed on count alone accepts the swap.
+    const asComment = classifyRetiredPathOccurrences(`// ${RETIRED}x\nexport const a = 1;`);
+    const asCode = classifyRetiredPathOccurrences(`export const a = "${RETIRED}x";`);
+    expect(asComment).toHaveLength(1);
+    expect(asCode).toHaveLength(1);
+    expect(asComment).not.toEqual(asCode);
+  });
+
+  test("a path assembled from segments is flagged even though no literal contains it", () => {
+    // R1-5a: invisible to every per-literal and raw-text scan.
+    const src = `const u = "/admin/onboarding/" + "staged/" + id;`;
+    expect(classifyRetiredPathOccurrences(src)).toEqual(["assembled"]);
+  });
+
+  test("an assembled /api/ path stays clean", () => {
+    const src = `const u = "/api/admin/onboarding/" + "staged/" + id + "/apply";`;
+    expect(classifyRetiredPathOccurrences(src)).toEqual([]);
+  });
+
+  test("a contiguous literal inside a template is counted ONCE, not twice", () => {
+    // Guards against the assembled pass double-reporting what the raw pass already saw.
+    const src = "const u = `" + RETIRED + "${a}/${b}`;";
+    expect(classifyRetiredPathOccurrences(src)).toEqual(["string-literal"]);
+  });
+});
+
+describe("resolveNavHrefs (spec §3.3 Layer B)", () => {
+  test("a literal href resolves", () => {
+    expect(retiredHrefs(`const A = () => <Link href="${RETIRED}a/b">go</Link>;`)).toEqual([
+      `${RETIRED}a/b`,
+    ]);
+  });
+
+  test("a template href resolves through its substitutions", () => {
+    const src = "const A = () => <Link href={`" + RETIRED + "${s}/${f}`}>go</Link>;";
+    expect(retiredHrefs(src)).toHaveLength(1);
+  });
+
+  test("a same-file function helper resolves — THE bypass the old guard missed", () => {
+    const src = [
+      `function buildStagedUrl(id) { return \`${RETIRED}\${id}/x\`; }`,
+      "const A = () => <Link href={buildStagedUrl(id)}>go</Link>;",
+    ].join("\n");
+    expect(retiredHrefs(src)).toHaveLength(1);
+  });
+
+  test("an ARROW helper resolves too (R1-5)", () => {
+    const src = [
+      `const buildStagedUrl = (id) => \`${RETIRED}\${id}/x\`;`,
+      "const A = () => <a href={buildStagedUrl(id)}>go</a>;",
+    ].join("\n");
+    expect(retiredHrefs(src)).toHaveLength(1);
+  });
+
+  test("a const binding resolves (two hops)", () => {
+    const src = [
+      `const BASE = "${RETIRED}a/b";`,
+      "const TARGET = BASE;",
+      "const A = () => <Link href={TARGET}>go</Link>;",
+    ].join("\n");
+    expect(retiredHrefs(src)).toHaveLength(1);
+  });
+
+  test("an object-literal property + concatenation resolves (R1-5b)", () => {
+    const src = [
+      `const routes = { staged: "${RETIRED}" };`,
+      "const A = () => <Link href={routes.staged + id}>go</Link>;",
+    ].join("\n");
+    expect(retiredHrefs(src)).toHaveLength(1);
+  });
+
+  test("a segmented concatenation resolves", () => {
+    const src = `const A = () => <Link href={"/admin/onboarding/" + "staged/" + id}>go</Link>;`;
+    expect(retiredHrefs(src)).toHaveLength(1);
+  });
+
+  test("an /api/ href is resolved but does NOT hit the retired page", () => {
+    const src = `const A = () => <Link href={"/api${RETIRED}a/apply"}>go</Link>;`;
+    expect(hrefValues(src)).toHaveLength(1);
+    expect(retiredHrefs(src)).toEqual([]);
+  });
+
+  test("an unresolvable href is skipped, not guessed", () => {
+    // No false positives: a dynamic href and a spread carry no static value.
+    expect(hrefValues("const A = ({ url }) => <Link href={url}>go</Link>;")).toEqual([]);
+    expect(hrefValues("const A = (props) => <Link {...props}>go</Link>;")).toEqual([]);
+  });
+
+  test("a non-nav element with an href-like prop is ignored", () => {
+    const src = `const A = () => <Card href="${RETIRED}a/b" />;`;
+    expect(hrefValues(src)).toEqual([]);
+  });
+});
+
+describe("the retired same-line predicate vs the new guard (spec §5 test 9)", () => {
+  // The exact predicate step3DeletionSafety.test.ts used before this change.
+  function oldSameLinePredicate(src: string): number {
+    return src
+      .split("\n")
+      .filter((line) => line.includes("href") && line.includes(RETIRED) && !line.includes("/api/"))
+      .length;
+  }
+
+  const HELPER_BUILT = [
+    `function buildStagedUrl(id) { return \`${RETIRED}\${id}/x\`; }`,
+    "const A = () => <Link href={buildStagedUrl(id)}>go</Link>;",
+  ].join("\n");
+
+  test("the old predicate is blind to it; the new resolver is not", () => {
+    expect(oldSameLinePredicate(HELPER_BUILT)).toBe(0);
+    expect(retiredHrefs(HELPER_BUILT)).toHaveLength(1);
+  });
+});
