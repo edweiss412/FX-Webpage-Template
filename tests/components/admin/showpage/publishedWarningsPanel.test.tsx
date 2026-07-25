@@ -231,7 +231,31 @@ describe("the four body-empty states", () => {
     // passed with incorrect copy visible.
     const body = panelBody();
     const heading = body.querySelector("h3, h4");
-    const headingRow = heading?.parentElement ?? null;
+    // The chrome HEADER BLOCK, not the heading's parent. Those were the same
+    // element until the §3.1 header rebuild (spec 2026-07-25) split the header
+    // into two lines: the heading's parent is now the centred name+count GROUP,
+    // and the status pill sits on a sibling line one level up. Anchoring on the
+    // heading's parent therefore stopped excluding the pill, and "Needs a look"
+    // started reading as stray panel copy in three states.
+    //
+    // Anchored on the icon chip — the header row's first child in every state —
+    // then up one to the block that holds both lines. The containment assertion
+    // below is what keeps this honest: if the structure moves again, this fails
+    // loudly instead of silently excluding the wrong subtree and making the
+    // whole stray-copy scan vacuous.
+    const iconChip = body.querySelector('span[aria-hidden="true"]');
+    const headingRow = iconChip?.parentElement?.parentElement ?? null;
+    if (heading !== null) {
+      expect(
+        headingRow !== null && headingRow.contains(heading),
+        "the chrome header block was located and contains the section heading —" +
+          " otherwise this scan excludes the wrong subtree and proves nothing",
+      ).toBe(true);
+      // ...and is not the body ITSELF. An anchor that walked up one level too far
+      // would satisfy the containment check above while excluding every text node
+      // on the surface, turning the whole scan green and vacuous.
+      expect(headingRow, "the header block is a subtree of the body, not the body").not.toBe(body);
+    }
 
     // TEXT NODES, not leaf elements (round 3): a direct text node inside an
     // element that also has element children belongs to no leaf, so
@@ -244,9 +268,9 @@ describe("the four body-empty states", () => {
       if (text.length === 0) continue;
       const parent = n.parentElement;
       if (parent === null) continue;
-      // The heading ROW (icon, title, count, pill, "In sheet" link) is chrome,
-      // not body copy, and has its own tests. Located from the heading element
-      // rather than by a testid, because the row carries none.
+      // The chrome header BLOCK (icon, title, count, sheet link on line one; the
+      // status pill on line two) is chrome, not body copy, and has its own tests.
+      // Located structurally rather than by a testid, because it carries none.
       if (headingRow !== null && headingRow.contains(parent)) continue;
       // Each listed row renders its own guidance inside its `<li>`; that is the
       // row's content, not stray panel copy, and including it would make the
