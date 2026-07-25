@@ -145,17 +145,19 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
         const armed = armedCode === group.code;
         const errored = state.kind === "error" && state.code === group.code;
         const bulk = group.bulk;
-        // Single source for the chip's VISIBLE text; the accessible name (below) mirrors it
-        // and appends the type context. Because it tracks state, the accessible name stays in
-        // sync with the visible label in every state — armed reads "Confirm ignore all N ·
-        // <type>" (WCAG 2.5.3 Label-in-Name holds across the morph, not just idle). The type
-        // moved off the chip into the eyebrow for sighted users; the aria-label restores it
-        // for screen-reader / voice-control.
-        const chipText = running
+        // The chip's VISIBLE text is short enough to sit on one line in a crowded
+        // 375px row (spec 2026-07-24-dq-eyebrow-divider §3.2); the count and the type
+        // both live in the accessible name below. `chipName` LEADS with the visible
+        // string in every state, so WCAG 2.5.3 Label-in-Name holds across the morph,
+        // not just at idle — and the label-less branch is named too, or the count
+        // would reach nobody there.
+        const count = bulk?.items.length ?? 0;
+        const chipText = running ? "Ignoring…" : armed ? "Are you sure?" : "Ignore";
+        const chipName = running
           ? "Ignoring…"
           : armed
-            ? `Confirm ignore all ${bulk?.items.length ?? 0}`
-            : `Ignore all ${bulk?.items.length ?? 0}`;
+            ? `Are you sure? Ignore ${count}`
+            : `Ignore ${count}`;
         // spec 2026-07-24 §2.1: a lone chip-less card duplicates its own title in
         // the eyebrow — suppress the whole header row. Any group with a bulk chip
         // keeps the row (the chip rides it), as does any plural group.
@@ -185,7 +187,7 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
                       onClick={() => onGuardedClick(bulk)}
                       disabled={state.kind === "running"}
                       aria-busy={running}
-                      aria-label={group.label ? `${chipText} · ${group.label}` : undefined}
+                      aria-label={group.label ? `${chipName} · ${group.label}` : chipName}
                       className={armed ? ARMED_BTN : BTN}
                     >
                       {chipText}

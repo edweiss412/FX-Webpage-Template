@@ -130,33 +130,71 @@ describe("BulkIgnoreControls (grouped active list)", () => {
     expect(screen.getByTestId("dq-group-label-FIELD_UNREADABLE").textContent).toBe(
       "Unreadable field",
     );
-    expect(screen.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe(
-      `Ignore all ${bulkItems.length}`,
-    );
+    // The count left the VISIBLE label (spec 2026-07-24-dq-eyebrow-divider §3.2); it
+    // survives in the accessible name, asserted below.
+    expect(screen.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe("Ignore");
   });
 
-  test("chip count derives from the group's distinct-content items", () => {
-    const g = bulkGroup();
-    render(<BulkIgnoreControls slug="rpas" groups={[g]} />);
+  test("chip count derives from bulk.items — NOT from itemCount", () => {
+    const g = bulkGroup(); // 2 distinct items
+    // itemCount deliberately disagrees with items.length so a name read off the
+    // wrong field cannot pass: the fixture's own 2 is otherwise indistinguishable.
+    render(<BulkIgnoreControls slug="rpas" groups={[{ ...g, itemCount: 7 }]} />);
     const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
-    expect(chip.textContent).toBe(`Ignore all ${g.bulk!.items.length}`); // no "· label" suffix now
+    expect(chip.textContent).toBe("Ignore"); // visible label carries no count at all
+    expect(chip.getAttribute("aria-label")).toBe("Ignore 2 · Unrecognized row in sheet");
   });
 
   test("chip accessible name TRACKS the visible text + appends the type (WCAG 2.5.3 across the morph)", () => {
     render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup()]} />);
     const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
-    // idle: accessible name mirrors the visible "Ignore all 2" AND carries the type context.
-    expect(chip.getAttribute("aria-label")).toBe("Ignore all 2 · Unrecognized row in sheet");
+    // idle: the visible "Ignore" is a prefix of the name, which restores the count
+    // the label dropped plus the type context.
+    expect(chip.textContent).toBe("Ignore");
+    expect(chip.getAttribute("aria-label")).toBe("Ignore 2 · Unrecognized row in sheet");
     fireEvent.click(chip); // arm
-    // armed: the name must contain the NEW visible text "Confirm ignore all 2" (not a stale
-    // "Ignore all 2"); a fixed aria-label would fail Label-in-Name in this state.
-    expect(chip.textContent).toBe("Confirm ignore all 2");
+    // armed: the name must lead with the NEW visible text "Are you sure?" (not a stale
+    // "Ignore 2"); a fixed aria-label would fail Label-in-Name in this state.
+    expect(chip.textContent).toBe("Are you sure?");
     expect(chip.getAttribute("aria-label")).toBe(
-      "Confirm ignore all 2 · Unrecognized row in sheet",
+      "Are you sure? Ignore 2 · Unrecognized row in sheet",
     );
   });
 
-  test("a group with no label omits aria-label (visible chip text is the accessible name)", () => {
+  test("armed chip goes full-width below 480px and stays inline at/above it; idle does neither", () => {
+    render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup()]} />);
+    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    // The chip and its role=status sibling share a fragment, so the button's parent
+    // IS the eyebrow row. Pin that before reading the row's classes.
+    const row = chip.parentElement!;
+    expect(row.className).toContain("items-center");
+    const idle = new Set(chip.className.split(/\s+/));
+    expect(idle.has("w-full")).toBe(false);
+    expect(new Set(row.className.split(/\s+/)).has("flex-wrap")).toBe(false);
+    fireEvent.click(chip); // arm
+    const armed = new Set(chip.className.split(/\s+/));
+    // w-full without its min-[480px] counterpart would put a full-panel confirm bar
+    // on desktop (spec §1.1 rejects that); flex-wrap without the armed guard would
+    // push the IDLE chip to its own line (+18px per group at rest).
+    expect(armed.has("w-full")).toBe(true);
+    expect(armed.has("min-[480px]:w-auto")).toBe(true);
+    expect(armed.has("justify-center")).toBe(true);
+    expect(armed.has("min-[480px]:justify-start")).toBe(true);
+    expect(new Set(row.className.split(/\s+/)).has("flex-wrap")).toBe(true);
+  });
+
+  test("arming does not move focus off the chip (same element, wrapped line)", () => {
+    render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup()]} />);
+    const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD") as HTMLButtonElement;
+    chip.focus();
+    fireEvent.click(chip);
+    // A confirm rendered as a DIFFERENT element in a different parent would unmount
+    // the focused node here and drop focus to <body>.
+    expect(document.activeElement).toBe(chip);
+    expect(chip.textContent).toBe("Are you sure?");
+  });
+
+  test("a group with no label still names the count (the label-less branch is not anonymous)", () => {
     render(
       <BulkIgnoreControls
         slug="rpas"
@@ -179,13 +217,17 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       />,
     );
     const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
-    expect(chip.getAttribute("aria-label")).toBeNull();
-    expect(chip.textContent).toBe("Ignore all 2");
+    // No type context to append, but the count still has to reach assistive tech —
+    // the visible label no longer carries it (spec §3.3, null-label column).
+    expect(chip.getAttribute("aria-label")).toBe("Ignore 2");
+    expect(chip.textContent).toBe("Ignore");
+    fireEvent.click(chip); // arm
+    expect(chip.getAttribute("aria-label")).toBe("Are you sure? Ignore 2");
     // no label → no eyebrow label span either
     expect(screen.queryByTestId("dq-group-label-UNKNOWN_FIELD")).toBeNull();
   });
 
-  test("Ignore all N fires one POST per distinct item, then refreshes; chip re-enables", async () => {
+  test("the bulk chip fires one POST per distinct item, then refreshes; chip re-enables", async () => {
     fetchMock.mockResolvedValue(okResponse());
     render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup()]} />);
     const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD") as HTMLButtonElement;
@@ -272,13 +314,13 @@ describe("BulkIgnoreControls (grouped active list)", () => {
 
     afterEach(() => vi.useRealTimers());
 
-    test("first tap arms: no fetch, Confirm label + recipe classes", () => {
+    test("first tap arms: no fetch, confirm label + recipe classes", () => {
       vi.useFakeTimers();
       render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
       const btn = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
       fireEvent.click(btn);
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(btn.textContent).toBe(`Confirm ignore all ${groupX.bulk!.items.length}`);
+      expect(btn.textContent).toBe("Are you sure?");
       expectDestructiveRecipe(btn);
     });
 
@@ -301,12 +343,12 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       fireEvent.click(btnX);
       act(() => vi.advanceTimersByTime(2_000));
       fireEvent.click(btnY);
-      expect(btnX.textContent).toBe(`Ignore all ${groupX.bulk!.items.length}`);
-      expect(btnY.textContent).toBe(`Confirm ignore all ${groupY.bulk!.items.length}`);
+      expect(btnX.textContent).toBe("Ignore");
+      expect(btnY.textContent).toBe("Are you sure?");
       act(() => vi.advanceTimersByTime(2_500)); // past X's original window, only 2.5s from Y's arm
-      expect(btnY.textContent).toContain("Confirm");
+      expect(btnY.textContent).toContain("Are you sure?");
       act(() => vi.advanceTimersByTime(1_500)); // 4s from Y's arm → disarms Y
-      expect(btnY.textContent).toBe(`Ignore all ${groupY.bulk!.items.length}`);
+      expect(btnY.textContent).toBe("Ignore");
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
@@ -316,9 +358,9 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       const btn = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
       const idleClass = btn.className;
       fireEvent.click(btn);
-      expect(btn.textContent).toContain("Confirm");
+      expect(btn.textContent).toContain("Are you sure?");
       act(() => vi.advanceTimersByTime(4_000));
-      expect(btn.textContent).toBe(`Ignore all ${groupX.bulk!.items.length}`);
+      expect(btn.textContent).toBe("Ignore");
       expect(btn.className).toBe(idleClass);
       expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -371,9 +413,9 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       fireEvent.click(btn);
       fireEvent.click(btn);
       await screen.findByRole("alert");
-      expect(btn.textContent).not.toContain("Confirm");
+      expect(btn.textContent).not.toContain("Are you sure?");
       fireEvent.click(btn);
-      expect(btn.textContent).toBe(`Confirm ignore all ${groupX.bulk!.items.length}`);
+      expect(btn.textContent).toBe("Are you sure?");
       expect(fetchMock).toHaveBeenCalledTimes(groupX.bulk!.items.length);
     });
 
