@@ -371,12 +371,27 @@ WITH substitutions is not. Anything outside these shapes is reported as
   Unicode, which rejected distinct `Σ` and `σ`; and running before the early return dragged
   internal anchors in as external violations (review R12 MEDIUM 4). A guard that cries wolf gets
   deleted, so its false-positive surface is a defect and not a conservative virtue.
+- **Comment stripping is parse-informed, because a token scan alone truncates files.**
+  `ts.createScanner().scan()` cannot know a `/` begins a regex without the parser's rescan, so a
+  VALID regex containing comment bytes (`/[/*]/`, `/a\/*b/`) was read as a block-comment start and
+  everything after it was DISCARDED — every consumer silently saw a fragment (review R13 HIGH 3).
+  The parse now supplies literal ranges (string, template parts, regex, JSX text) and a lexical pass
+  blanks only comment starts outside them. Comments become spaces rather than being deleted, so byte
+  offsets and line numbers stay valid for callers that report positions.
+- **The lowercase-name tripwire is scoped by SEMANTIC POSITION.** Accessor-name scoping was evaded
+  five ways (review R12 MEDIUM 6) and a blanket literal walk flagged type positions, enum members and
+  ordinary values (review R13 MEDIUM 4). It now collects literals only where one can change a name
+  decision: either operand of an equality comparison, a `case` clause, an argument OR array/Set
+  receiver of `.has`/`.includes`, and a property name. Concatenated and runtime-built names remain
+  undetectable by any static scan, and that limit is stated rather than implied.
 - **A caller-supplied MDX components map is outside per-file scanning.** `useMDXComponents` spreads
   its argument, so the map's own source cannot prove the runtime map is override-free. Two
   assertions close it together: the map's returned object declares no `a`/`Link` key (parsed, not
-  regexed — seven override shapes defeated the regexes, review R12 BLOCKING 2), and no source
-  outside `node_modules` hands a `components=` prop to MDX content. Separately neither is
-  sufficient.
+  regexed — seven override shapes defeated the regexes, review R12 BLOCKING 2), and no source parses to a
+  `components` JSX attribute or object key at all (a regex here missed a spread-wrapped prop, a
+  `createElement` call, and `{...props}`, and falsely flagged unrelated `components` props — review
+  R13 BLOCKING 2). A caller's `{...props}` remains undecidable residue. Separately neither assertion
+  is sufficient; the runtime check on the returned map is the third layer.
 - **Duplicate case-folded property names in an approved spread fail closed.** React writes
   `{ target: "_self", TARGET: "_blank" }` to ONE case-insensitive DOM attribute and the LATER value
   wins, so reading the first normalized match took the wrong value in both directions (review R10
