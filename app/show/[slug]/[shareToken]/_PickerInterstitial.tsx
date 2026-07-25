@@ -12,9 +12,14 @@
  *   - Roster rows are submit buttons. ACTIVE rows POST through
  *     `selectIdentity`; CLAIMED rows (claimed_via_oauth_at IS NOT NULL,
  *     P-R35 deactivated-row contract) render a lock icon, the
- *     data-claimed="true" hook, and a GET form to /auth/sign-in?next=
- *     so a tap routes the user through OAuth recovery instead of
- *     bouncing off PICKER_IDENTITY_CLAIMED at the action layer.
+ *     data-claimed="true" hook, and a GET form to /auth/sign-in that
+ *     carries `next` in a HIDDEN INPUT, so a tap routes the user through
+ *     OAuth recovery instead of bouncing off PICKER_IDENTITY_CLAIMED at
+ *     the action layer. The hidden input is not incidental: a GET submit
+ *     rebuilds the query string from the form's own fields and discards
+ *     whatever the action URL carried, so describing this as an
+ *     "/auth/sign-in?next=" action is the exact ambiguity that lost the
+ *     return target and sent crew to /admin (validateNextParam's fallback).
  *   - When roster is empty, render the PICKER_EMPTY_ROSTER cataloged
  *     copy. The page route always passes a roster (possibly empty);
  *     fail-closed render is the responsibility of the resolver / route.

@@ -436,10 +436,26 @@ Give each ledger pair its **own** matcher instead of one widened regex:
 
 ## 12. Findings and dispositions
 
-Populated during execution:
+### Impeccable dual-gate (Task 10) — complete
 
-- **Impeccable dual-gate (Task 10):** every P0 through P3 finding across the three UI-surface files, each marked fixed or deferred with its `DEFERRED.md` entry. This section stands in for the milestone-handoff §12 record, which this standalone branch does not have.
-- **Cross-model review rounds (Task 12):** each round's findings, the verification that confirmed or refuted them, and the repair. Refuted claims are recorded with their refutation so a later round does not re-derive them.
+Both commands ran as isolated subagents (the standing project requirement; inline is a degraded run). Scope was the three UI-surface files' diff: `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx`, `app/auth/callback/route.ts`, `app/auth/sign-out/route.ts`.
+
+**Result: P0 = 0, P1 = 0 from both gates.** The audit scored the diff 20/20 (a11y, perf, responsive, theming, anti-patterns) with real-browser verification in Chromium at 390px and 320px.
+
+| Tier | Finding | Disposition |
+| --- | --- | --- |
+| P3 | `_PickerInterstitial.tsx:16` docblock still described the claimed row as "a GET form to /auth/sign-in?next=" — the exact action-query-vs-field ambiguity that caused this bug | **Fixed in this task.** The docblock now states that `next` rides a hidden input and says why, naming the `/admin` fallback the old shape produced |
+| P2 | The claimed-row control has no pending affordance; a tap is three or more hops with the row visually inert, inviting a re-tap on venue wifi | **Deferred** as BL-PICKER-CLAIMED-ROW-PENDING-STATE. Not a regression, and a pending state needs a new client boundary — a change to the picker's component topology rather than a class tweak |
+| Pre-existing | `_PickerInterstitial.tsx:138` uses a bare `focus-visible:ring-offset-2` with no `ring-offset-<backdrop>`, so the offset resolves to `#fff` — which `DESIGN.md` §1.1 names as a dark-mode defect. Introduced in `4536d6b5a`, both gates flagged it as outside this diff | **Deferred** as BL-PICKER-ROW-RING-OFFSET-BACKDROP, with the sweep for other bare-offset rings |
+| Pre-existing | Lock glyph is a unicode emoji rather than lucide (`DESIGN.md` §8); claimed-hovered and active-resting row treatments converge; the lock's rationale is `aria-label`-only | Noted, not filed: all three are deliberate choices recorded in the component's own comments from the M11.5 picker work, and none is touched by this diff |
+
+No `DEFERRED.md` entry was required, since invariant 8 mandates those only for P0 and P1 findings, and there were none.
+
+**One substantive discovery from the critique**, worth recording because it makes the shipped fix more valuable than the backlog entry claimed: `validateNextParam(undefined)` returns `DEFAULT_AUTH_NEXT_PATH`, which is `/admin`. So a crew member who tapped a claimed row did not merely land on a bare sign-in page — after signing in they were sent to the **admin** page. The backlog entry described only the lost `next`.
+
+### Cross-model review rounds (Task 12)
+
+Populated during that task: each round's findings, the verification that confirmed or refuted them, and the repair. Refuted claims are recorded with their refutation so a later round does not re-derive them.
 
 Spec-round dispositions live in §10 through §14 of the spec document.
 
