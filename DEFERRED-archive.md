@@ -1276,3 +1276,60 @@ Direct consequence of `STRIP-MOBILE-WRAP-1`, surfaced by Task 9's band-parity sp
 **Un-defer trigger:** resolving `STRIP-MOBILE-WRAP-1` (a deliberate mobile reflow makes the loaded mobile band deterministic, at which point exact parity becomes assertable again), or user reports of a visible header jump on mobile loads.
 
 Both resolved by spec `docs/superpowers/specs/2026-07-24-strip-mobile-stacked-band.md` (stacked mobile band below sm; skeleton mirrors row-for-row; parity spec E re-tightened to <=4px at BOTH viewports — measured 215px == 215px at 390).
+
+## Share-hub popover placement + archive-row copy (2026-07-24)
+
+Both entries below RESOLVED by `feat/sharehub-archive-copy-reveal` (spec
+`docs/superpowers/specs/2026-07-24-sharehub-viewport-popover-and-archive-copy.md`,
+plan adversarial APPROVE at R6).
+
+### SHAREHUB-ARM-VIEWPORT-REVEAL-1 — RESOLVED, and the original finding was WRONG in two ways
+
+Filed as [P2] "armed Archive confirm settles below the viewport on short phones
+(auto-reveal stops at the popover scroller)", mitigated by "The user CAN reach
+them by scrolling the modal panel manually".
+
+**Both halves were false.** A real-browser probe measured:
+
+- `[data-review-modal-panel]` is `overflow: clip`
+  (`components/admin/review/ReviewModalShell.tsx:623`), which is NOT a scroll
+  container. It reports a `scrollHeight` larger than its `clientHeight`, which is
+  why it was read as scrollable, but assigning `scrollTop` is a no-op — the probe
+  asserted exactly that. So the recorded mitigation could never have worked.
+- No ancestor between the popover and the viewport scrolls either (`body` is
+  `overflow: hidden` under the modal scroll-lock; the wrapper is `fixed inset-0`).
+  The popover's own scroller is the only one, and its scrollport bottom is itself
+  off-screen, so its last 108-261px of content is unreachable at ANY scroll.
+- Not "short phones": unreachable at 390x844, 740, 667, 620 AND 560. The
+  geometry is structural — the anchor sits a constant 347px below the panel top,
+  and fitting requires `347 + popoverHeight <= 0.85*vh`, i.e. vh >= 973px with
+  the 30rem cap binding and never below 686px.
+
+Severity was therefore understated: a destructive control could be ARMED and
+then neither confirmed nor cancelled. Fixed by migrating the hub popover to the
+portal + `lib/popover/position.ts` stack that `HoverHelp` already used
+(`BL-HOVERHELP-PORTAL`); the hub had simply never been migrated. Reachability at
+all five heights is pinned by T-FIT/T-REACH in
+`tests/e2e/admin-lifecycle-layout.spec.ts`.
+
+### SHAREHUB-ARCHIVE-GRAVITY-CUE-1 — REFUTED, not fixed
+
+Claimed Archive is "the hub's most destructive action" wearing "its calmest idle
+framing", and proposed an amber glyph tint, a CAREFUL-weight eyebrow, or folding
+Archive under CAREFUL.
+
+**The premise does not survive what archive does.** It is dashboard cleanup for a
+wrapped show — the shipped help copy says so outright
+(`app/help/admin/dashboard/page.mdx`: "which is the point of archiving a wrapped
+show") — and it is REVERSIBLE via `unarchive_show`. So the routine, intended use
+is the end-of-lifecycle path, and every proposed cue would make the routine path
+shout. All three refused; the row keeps the shared menu-row idiom ratified in
+PR #573.
+
+What survived is a copy defect the deferral did not identify: the row's
+description was the constant "Crew links stop working immediately", which (a)
+rhymed with the adjacent Rotate row's "Old link stops working immediately", (b)
+was FALSE on a Held show, where the popover simultaneously says the crew link is
+already paused, and (c) never said what archiving is for. Now conditional on
+`published`. Recorded so a future reviewer does not re-derive the refuted
+premise.
