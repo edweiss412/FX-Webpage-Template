@@ -16,8 +16,8 @@
 // is withdrawn: vitest terminates each file's worker when the file finishes
 // (isolate:true, the default), closing its sockets, and postgres.js opens
 // connections lazily so a `max: N` pool rarely holds N. Across the full suite
-// (1603 files) postgres.js peaked at 5 backends of 100 with no growth over the
-// run.
+// (1603 files) postgres.js peaked at 5 backends of 100, with no signal of
+// growth across the run.
 //
 // That removes the explanation the entry gave. It does not identify what DOES
 // strand connections here — concurrent load is the plausible remainder, not a

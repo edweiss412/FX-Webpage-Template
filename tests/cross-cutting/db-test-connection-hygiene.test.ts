@@ -27,7 +27,9 @@ import vitestConfig from "@/vitest.config";
 // key vitest 4 removed outright -- an assertion vitest ignores cannot fail
 // meaningfully, so mutating it proved nothing.
 //
-// What DOES defeat the isolation:
+// Two settings govern how many of those connections can be alive at once. They
+// are independent -- file parallelism does NOT disable isolation, it schedules
+// several still-isolated workers at the same time:
 //
 //   1. `isolate: false` -- one worker serves many files, so those 60 unclosed
 //      clients stack up for the length of the run. Settable in the config file
@@ -108,13 +110,14 @@ function isFunctionLike(node: ts.Node): boolean {
 // string appearing in a comment or an unreachable branch drops a client that is
 // not.
 //
-// So read this floor for what it is: a tripwire that the suite still contains
-// many clients with no teardown VISIBLE AT THE CONSTRUCTION SITE. It is not a
-// proof that 60 specific connections depend on process exit, and it would not
-// notice the suite migrating wholesale to wrapper teardowns -- at which point
-// the floor would still pass while the invariant had lost its subjects. What it
-// does catch is the realistic drift: clients quietly added or removed one file
-// at a time.
+// So read this floor for what it is: a COARSE tripwire that the suite still
+// contains many clients with no teardown visible at the construction site. It is
+// not a proof that 60 specific connections depend on process exit; it would not
+// notice a wholesale migration to wrapper teardowns (every client genuinely
+// closed, every one still counted, floor still green); and at `> 25` against 60
+// it does not notice small drift either. What it does catch is the invariant
+// losing its subjects wholesale -- which is the case where this whole file
+// should be deleted rather than left passing over nothing.
 function censusUnendedModuleScopeClients(): string[] {
   const found: string[] = [];
   for (const file of listTsFiles(TESTS_DIR)) {
@@ -186,8 +189,12 @@ const ISOLATION_KILLING_FLAGS = [
   // Re-enabling file parallelism overrides the serial project's own setting.
   /--file-?[pP]arallelism\b(?!=["']?false)/,
   // Vitest applies VITEST_MAX_WORKERS AFTER fileParallelism:false has resolved
-  // maxWorkers to 1, so the env var alone makes serial files concurrent.
-  /VITEST_(?:MAX|MIN)_WORKERS\s*[=:]/,
+  // maxWorkers to 1, so the env var alone makes serial files concurrent. A
+  // quote may sit on either side of the separator (`"VITEST_MAX_WORKERS": 2` in
+  // YAML or JSON is the same instruction as `VITEST_MAX_WORKERS=2` in a shell),
+  // and a literal 1 is benign — it is what serial resolves to anyway. There is
+  // no VITEST_MIN_WORKERS in the installed vitest, so none is matched.
+  /VITEST_MAX_WORKERS["']?\s*[=:]\s*["']?(?!1\b)\d/,
 ];
 
 // Where runs are launched from. package.json and the workflows are the obvious
@@ -199,7 +206,7 @@ const ISOLATION_KILLING_FLAGS = [
 // CI bootstrap lives; a `--no-isolate` added there passed the scan clean.
 const RUN_COMMAND_SOURCES: Array<{ dir: string; match: RegExp }> = [
   { dir: ".github/workflows", match: /\.ya?ml$/ },
-  { dir: "scripts", match: /\.(m?[jt]s|cjs|mts|sh|bash)$/ },
+  { dir: "scripts", match: /\.([cm]?[jt]sx?|sh|bash)$/ },
 ];
 
 function listMatching(dir: string, match: RegExp): string[] {
@@ -230,7 +237,7 @@ describe("DB-test connection hygiene depends on per-file worker isolation", () =
   // the unended filter, or counting function-scoped constructions — only pushes
   // the count up, so the floor still passes over a census that means something
   // else entirely. These membership assertions make the classifier load-bearing.
-  it("the census counts only clients whose cleanup depends on process exit", () => {
+  it("the census counts construction-site-unclosed module-scope clients", () => {
     const census = censusUnendedModuleScopeClients();
     const files = new Set(census.map((entry) => entry.split(" ")[0]));
 
@@ -283,18 +290,22 @@ describe("DB-test connection hygiene depends on per-file worker isolation", () =
     for (const { dir, match } of RUN_COMMAND_SOURCES) {
       for (const entry of listMatching(dir, match)) {
         const body = readFileSync(join(ROOT, entry), "utf8");
-        // Strip comments so an explanatory mention is not read as a command.
-        // Whole-line `#` (YAML, shell) and `//` (the .mjs/.ts launchers), plus
-        // TRAILING ` # ...` — a flag named in an end-of-line YAML comment used
-        // to false-positive. Trailing `//` is deliberately NOT stripped: it
-        // would cut every URL at its scheme.
+        // Strip WHOLE comment lines only — `#` (YAML, shell) and `//` (the
+        // .mjs/.ts launchers) — so a paragraph explaining these flags is not
+        // read as a command.
+        //
+        // Trailing comments are deliberately NOT stripped. A previous version
+        // cut each line at ` #`, which silently hid a real offender:
+        // `spawn("vitest", ["run", "label #1", "--no-isolate"])` truncates
+        // before the flag. The cost of not stripping is the opposite error — a
+        // flag named in an end-of-line comment fails this test — and that is the
+        // side to be wrong on, since it is loud rather than silent.
         const commands = body
           .split("\n")
           .filter((line) => {
             const trimmed = line.trim();
             return !trimmed.startsWith("#") && !trimmed.startsWith("//");
           })
-          .map((line) => line.replace(/\s#.*$/, ""))
           .join("\n");
         if (ISOLATION_KILLING_FLAGS.some((re) => re.test(commands))) {
           offenders.push(entry);
