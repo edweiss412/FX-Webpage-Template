@@ -1,6 +1,6 @@
 # Hotel ambiguity coverage (2026-07-25)
 
-**Status:** Draft → self-review → adversarial review R1–R5 (all BLOCKING, all repaired) → R6 pending
+**Status:** Draft → self-review → adversarial review R1–R6 (all BLOCKING, all repaired) → R7 pending
 **Closes:** `BL-PARSER-HOTEL-INLINE-AMBIGUITY`, `BL-PARSER-ADDRESS-SPLIT-AMBIGUITY` (BACKLOG.md §"Parser ambiguity-warning coverage (2026-07-07, ambiguity-warnings-v1)")
 **Extends:** `docs/superpowers/specs/parser/2026-07-07-ambiguity-warnings-v1-design.md` (§3.1/§3.2 registry, §4.2 guest emit, §6 transform-sites walker, §7 overlay anchors)
 
@@ -296,47 +296,46 @@ Every user-visible and accessibility-observable string the new resolvable kind i
 | Radiogroup accessible label | `RADIOGROUP_LABEL`, `components/admin/UseRawControl.tsx:10` | `Hotel name and address` |
 | Raw-choice label | `rawLabel`, `components/admin/UseRawControl.tsx:452-457` | `The whole line as the hotel name` |
 
-**Inline guest message text (R3 finding 4).** P1 reuses the `HOTEL_GUEST_SPLIT_AMBIGUOUS` code but MUST NOT reuse the structured emitter's message (`lib/parser/warnings.ts:262`, "may glue multiple guests together"). That sentence is false for the inline case, where the ambiguity is hotel-versus-guest, not guest-versus-guest — probe-verified on `"Hyatt Regency Eric Weiss - 110525"`, which contains exactly one guest. `message` is a per-emit string, so the inline emitter supplies its own:
+#### Copy discipline (structural defense — R6)
 
-> `Hotel line "<raw, collapsed>" has no labels marking which words are guest names, so we worked out the guest list ourselves; double-check it.`
+Copy has produced findings in three consecutive rounds (R4 f2/f3, R5 f5/f6, R6 f1/f2/f5), always the same shape: **a user-visible string asserted something about the ALGORITHM, and some reachable case falsified it.** "Several people glued together" (false when there is one guest), "nothing separating them" (false on the checkout path), "no labels" (false on the `Guests:` case), "we split it at the first one" (false at position 0, where the unpadded splitter cannot see candidate 1).
 
-The earlier draft said "nothing separating them", which is false on the Pattern 3 checkout path — `Check In`/`Check Out` DO separate the hotel from the guest region in `raw/2025-05-redefining-fixed-income-private-credit` and `exporter-xlsx/redefining-fi` (R5 finding 5). What is true of every inline case is the absence of a LABEL identifying the guests.
+Per the same-vector rule, the fix is structural rather than another reword. **Two binding rules for every string in this feature:**
 
-**The shared catalog copy must also be reworded (R4 finding 2).** Five fields on the existing `HOTEL_GUEST_SPLIT_AMBIGUOUS` row describe guest-versus-guest ambiguity specifically ("several people glued together", "more than one name"), which is false for the inline path — `"Hyatt Regency Eric Weiss - 110525"` contains exactly ONE guest and the ambiguity is hotel-versus-guest. Since one code now serves both paths, the copy must be true of both. This is an EDIT to an existing §12.4 row, so it carries the same three-lockstep requirement as a new row (§4 rows a, b, c).
+1. **Copy states what the operator should CHECK, never what the parser DID.** No claims about labels, separators, candidate ordering, which reading was picked, or how many guests there are. Those are the claims that keep turning out false on some reachable input.
+2. **Every string below is byte-for-byte normative** and is asserted verbatim by tests (§8.5). No string in this feature may be authored at implementation time.
 
-| Field | New text |
-| ----- | -------- |
-| `dougFacing` | `A hotel guest list in _<sheet-name>_ may not have been split correctly; check the hotel guest list against your sheet.` |
-| `title` | `A hotel guest list may be split wrong` |
-| `triggerContext` | `Appears when a hotel line's guest list could be read more than one way.` |
-| `helpfulContext` | `A hotel line's guest list could be read more than one way, so we made a judgment call. Check the guest list in case two people were merged, one was split, or part of the hotel name was read as a person.` |
-| `longExplanation` | `A hotel line's guest list could be read more than one way, so we made a judgment call about where each guest starts and ends. Spot-check the list in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.` |
+#### The normative copy table
 
-`crewFacing` stays `null`; `followUp` stays `Doug → spot-check hotel guests`; `helpHref` is unchanged.
+Every user-visible and accessibility-observable string this feature introduces or changes. This table is the single source; §8.5 asserts it.
 
-**Regression guard:** the structured path's existing emit test must still pass with the reworded copy, and `tests/messages/warningCardCopyRegistry.ts:65` carries the `triggerContext` string verbatim — it changes in the same commit.
+| # | Surface | Site | Exact text |
+| - | ------- | ---- | ---------- |
+| C1 | Inline guest `ParseWarning.message` | new inline emitter | `Hotel line "<raw, collapsed>" holds the hotel and the guest names in one cell, so we worked out the guest list ourselves; double-check it.` |
+| C2 | P3(a) `ParseWarning.message` | new address emitter | `Hotel line "<raw, collapsed>" may hold a street address we did not separate out; double-check the hotel name and address.` |
+| C3 | P3(b) `ParseWarning.message` | new address emitter | `Hotel line "<raw, collapsed>" could be split into a name and a street address in more than one place; double-check the hotel name and address.` |
+| C4 | `HOTEL_GUEST_SPLIT_AMBIGUOUS.dougFacing` | `lib/messages/catalog.ts:1370` | `A hotel guest list in _<sheet-name>_ may not have been split correctly; check the hotel guest list against your sheet.` |
+| C5 | `HOTEL_GUEST_SPLIT_AMBIGUOUS.title` | same row | `A hotel guest list may be split wrong` |
+| C6 | `HOTEL_GUEST_SPLIT_AMBIGUOUS.triggerContext` | same row | `Appears when a hotel line's guest list could be read more than one way.` |
+| C7 | `HOTEL_GUEST_SPLIT_AMBIGUOUS.helpfulContext` | same row | `A hotel line's guest list could be read more than one way, so we made a judgment call. Check the guest list in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.` |
+| C8 | `HOTEL_GUEST_SPLIT_AMBIGUOUS.longExplanation` | same row | `A hotel line's guest list could be read more than one way, so we made a judgment call about where each guest starts and ends. Spot-check the list in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.` |
+| C9 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.dougFacing` | new row | `A hotel line in _<sheet-name>_ may have its name and street address run together; check the hotel name and address against your sheet.` |
+| C10 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.title` | new row | `A hotel name and address may be split wrong` |
+| C11 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.triggerContext` | new row | `Appears when a hotel line's name and street address may not have been separated correctly.` |
+| C12 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.helpfulContext` | new row | `A hotel line's name and street address may not have been separated correctly. Check the hotel name and address in case part of one landed in the other.` |
+| C13 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.longExplanation` | new row | `A hotel line's name and street address may not have been separated correctly. We kept every word rather than dropping any, so nothing is lost, but the dividing point may be off: part of the address may be sitting in the hotel name, or part of the name in the address. Spot-check both against your sheet.` |
+| C14 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.helpHref` | new row | `/help/errors#HOTEL_ADDRESS_SPLIT_AMBIGUOUS` |
+| C15 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.crewFacing` | new row | `null` |
+| C16 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.followUp` | new row | `Doug → spot-check hotel name and address` |
+| C17 | Disabled reason, P3(a) | `DISABLED_REASON`, `components/admin/UseRawControl.tsx:258` | `We left this line exactly as your sheet has it, so there's nothing to swap back.` |
+| C18 | Disabled reason, P1 | same | `This hotel line holds the hotel and the guests together, so there's nothing safe to swap in.` |
 
-**Authored catalog copy for `HOTEL_ADDRESS_SPLIT_AMBIGUOUS`** — the frozen-copy registries (§4 rows h, y, z, aa, bb) require every field, so all are fixed here:
+`HOTEL_GUEST_SPLIT_AMBIGUOUS.crewFacing` stays `null`, `.followUp` stays `Doug → spot-check hotel guests`, `.helpHref` unchanged.
 
-| Field | Text |
-| ----- | ---- |
-| `dougFacing` | `A hotel line in _<sheet-name>_ may have its name and street address run together; check the hotel name and address against your sheet.` |
-| `crewFacing` | `null` |
-| `followUp` | `Doug → spot-check hotel name and address` |
-| `title` | `A hotel name and address may be split wrong` |
-| `triggerContext` | `Appears when a hotel line's name and street address may not have been separated correctly.` |
-| `helpfulContext` | `A hotel line's name and street address may not have been separated correctly. Check the hotel name and address in case part of one landed in the other.` |
-| `longExplanation` | `A hotel line's name and street address may not have been separated correctly. We kept every word rather than dropping any, so nothing is lost, but the dividing point may be off: part of the address may be sitting in the hotel name, or part of the name in the address. Spot-check both against your sheet.` |
+**Why C1/C2/C3 are per-emit.** `message` is a per-emit string (`lib/parser/warnings.ts:262`), so the inline emitter does not reuse the structured emitter's "may glue multiple guests together" — false for the inline case, where the ambiguity is hotel-versus-guest and the cell may hold exactly one guest.
 
-**Copy must be true of BOTH arms (R4 finding 3).** P3(a) fires when NO split happened, so any wording implying the parser "picked" among "multiple readings" is false there. The text above avoids both, and holds for P3(b) as well.
+**Editing C4–C8 is an EDIT to an existing §12.4 row** and carries the same three-lockstep requirement as a new row (§4 rows a, b, c). `tests/messages/warningCardCopyRegistry.ts:65` carries C6 verbatim and changes in the same commit. The structured path's existing emit test must still pass.
 
-**Emitted `ParseWarning.message`** — operator-visible via `warningSummary` (`lib/sync/phase1.ts:197`), so it needs an oracle. One authored string per arm:
-
-- P3(a): `Hotel line "<raw, collapsed>" looks like it holds a street address, but we could not tell where the name ends, so we left the line whole; double-check the hotel name and address.`
-- P3(b): `Hotel line "<raw, collapsed>" could be split into a name and a street address in more than one place, so we split it at the first one; double-check the hotel name and address.`
-| `helpHref` | `/help/errors#HOTEL_ADDRESS_SPLIT_AMBIGUOUS` |
-| Disabled reason, P3(a) | `DISABLED_REASON`, `components/admin/UseRawControl.tsx:258` | `We left this line exactly as your sheet has it, so there's nothing to swap back.` |
-| Disabled reason, P1 | same | `We can't tell which part of this hotel line is only the guest list, so there's nothing safe to swap in.` |
 
 ### 7.1 Dimensional Invariants
 
@@ -378,7 +377,8 @@ TDD per task (invariant 1): failing test → minimal implementation → passing 
 | **P1 quiet when inline produced no guests** | a guest-less inline cell (`Hyatt Regency - 1515 Madison Ave …`) | **zero** guest warnings — exercises enumeration row 2 (the no-guest split return) |
 | **Row 5 vs row 6 discriminator — REQUIRED PAIR** (R5 finding 2) | **5:** `Hyatt Place Check In: 5/1 Check Out: 5/2 Eric` · **6:** `Hyatt Place Check In: 5/1 Check Out: 5/2` | Both parse to `names: []`. Row 5 MUST emit (a guest region was examined and `Eric` was dropped); row 6 MUST NOT (no guest region existed). **These two are observationally identical in output and opposite in requirement**, so they are the only assertions that separate the ratified design from two wrong implementations: `groupIndex === 0 && names.length > 0` fails row 5, and "warn on every group-0 final return" fails row 6. Neither wrong implementation fails any other test in this plan |
 | **P3(a) suffixed at position 0 — REQUIRED** (R5 finding 3) | `1515 Broadway Ave New York, NY 10036` | fires. This is the ONLY test exercising P3(a)'s `STREET_ADDRESS_RE` arm; the other two P3(a) cases are suffixless and exercise only the ZIP arm, so an implementation that omits the suffix alternative passes them all and reopens the R3 hole |
-| **P3 propagates through BOTH parser families — REQUIRED** (R5 finding 4) | the same P3(b) input routed once through the **structured** table caller (`lib/parser/blocks/hotels.ts:413`) and once through the **inline** caller (`lib/parser/blocks/hotels.ts:734`/`lib/parser/blocks/hotels.ts:765`) | a warning from each. `splitHotelNameAddress` is pure, so every caller must propagate its returned ambiguity into `PendingHotel` independently. With zero corpus address cards, wiring only one family satisfies every golden and every other synthetic assertion while leaving the other silently dark |
+| **P3 propagation matrix — REQUIRED, one test per caller** (R6 finding 3) | each of the 5 `splitHotelNameAddress` callers, exercised with a P3(a) input AND a P3(b) input: structured left slot (`lib/parser/blocks/hotels.ts:413`), structured right slot (`lib/parser/blocks/hotels.ts:418`), `stripHotelNameConf` (`lib/parser/blocks/hotels.ts:607`), inline learn-K (`lib/parser/blocks/hotels.ts:734`), inline no-guest split (`lib/parser/blocks/hotels.ts:765`) | a warning from every caller for both arms. The helper is pure, so each caller must propagate independently. With zero corpus address cards the goldens catch none of these; one test per caller per arm is the only coverage |
+| **R1 no-split-change — REQUIRED on every P3 test** (R6 finding 4) | every P3(a) and P3(b) input above | in addition to the warning assertion, assert the returned `{name, address}` is **byte-identical to today's**. For `71 Wacker Drive 72 Main St Chicago, IL 60601` that is `{name: "71 Wacker Drive", address: "72 Main St Chicago, IL 60601"}` — the UNPADDED read. Without this, an implementation that counts on the padded string and then also SPLITS at the padded first candidate passes every warning assertion and the consecutive-call test while silently violating R1 |
 | **P1 quiet on the structured path** | any structured fixture | no P1-sourced warning; the structured emit is unchanged |
 | **P3(b) quiet on a correct split** | `Hotel 71 71 E Wacker Dr Chicago, IL 60601` | **zero** address warnings; split still `{name:"Hotel 71", address:"71 E Wacker Dr …"}`. Catches R1 finding 2 |
 | **P3(b) fires on the corruption** | `Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601` | one warning, reason `"multiple-street-candidates"`, `resolvable:true` |
@@ -417,6 +417,20 @@ Existing tests that must pass **unchanged**: `tests/parser/blocks/hotels.ambigui
 `pnpm test` (full suite, not scoped), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm spec:lint`. Real CI green is a separate gate from local green.
 
 ---
+
+### 8.5 Copy oracles (byte-for-byte, REQUIRED)
+
+R6 finding 5: the existing registries freeze `triggerContext` and some titles, but otherwise assert presence, length and hygiene — so an implementation shipping generic-but-valid copy and wrong field labels passes every structural gate. Each row of the §7.0 normative copy table gets a verbatim assertion:
+
+| Rows | Assertion |
+| ---- | --------- |
+| C1–C3 | The emitted `ParseWarning.message` equals the authored string exactly, with `<raw, collapsed>` substituted. One assertion per arm |
+| C4–C8 | `MESSAGE_CATALOG.HOTEL_GUEST_SPLIT_AMBIGUOUS` field values equal C4–C8 exactly |
+| C9–C16 | `MESSAGE_CATALOG.HOTEL_ADDRESS_SPLIT_AMBIGUOUS` field values equal C9–C16 exactly; the row has exactly these 8 fields |
+| C17–C18 | `DISABLED_REASON` values equal C17–C18 exactly |
+| §7.0 render rows | The four `hotel-name` `parsedFields` outcomes (label `Hotel`, label `Address`, null-name placeholder, omitted-address row), the raw-option value, `RADIOGROUP_LABEL`, and `rawLabel` are each asserted verbatim in `tests/components/UseRawControl.test.tsx` (§4 row x) |
+
+Every assertion compares against a string literal in the test, not against an import of the catalog — importing the value under test makes the assertion tautological.
 
 ## 9. Corpus expectations (normative golden)
 
@@ -486,6 +500,8 @@ Zero address cards is expected and accepted (R7). No corpus string has >1 candid
 - New replacement kinds = **1** (`hotel-name`)
 - Registration surfaces = **34** (§4 rows a–hh, of which 1 is an explicit N/A)
 - P1 exit-path enumeration rows = **8**, of which **4** emit (§3.1)
+- Normative copy strings = **18** (§7.0 C1–C18), each with a byte-for-byte oracle (§8.5)
+- `splitHotelNameAddress` callers requiring propagation coverage = **5**, each × **2** arms
 - Expected corpus cards = **9** guest (5 `raw/` + 4 `exporter-xlsx/`), **0** address (§9.3)
 - Corpus cards on a currently-wrong parse = **1**; on currently-correct parses = **8**
 - Corpus reservations across both families = **26**, distinct name/address pairs = **11** (9 with 1 street candidate, 2 with 0, none with >1)
