@@ -153,8 +153,8 @@ describe("StatusStrip", () => {
   // inside the hub popover, so a "hidden when unpublished/tokenless" contract no
   // longer applies to the strip — the hub renders in both lifecycles and gates
   // its own crew-link arm (covered by shareHub.test.tsx). What the strip owes is
-  // below: the hub mounts for non-archived shows, is absent when archived, and
-  // the retired testid is gone everywhere.
+  // below: the hub group mounts UNCONDITIONALLY — archived included, because
+  // Unarchive lives in that popover — and the retired testid is gone everywhere.
   describe("share hub (share-hub T4)", () => {
     it("mounts the hub right-flushed for a published, non-archived show", () => {
       renderStrip({ published: true, archived: false }, { token: "TOK" });
@@ -229,8 +229,8 @@ describe("StatusStrip", () => {
   describe("#share-access anchor (share-hub T4)", () => {
     // lib/adminAlerts/alertActions.ts:51 builds /admin?show=<slug>#share-access.
     // The anchor moved off OverviewSection onto the strip root so it survives
-    // every lifecycle — including archived, where the hub itself is absent. A
-    // conditional host would silently dead-link the alert action.
+    // every lifecycle. Archived renders the hub with no share half, so an anchor
+    // scoped to the share affordance would land on nothing there.
     it("is on the strip root in ALL THREE lifecycles", () => {
       for (const props of [
         { published: true, archived: false },

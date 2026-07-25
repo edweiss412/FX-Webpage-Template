@@ -9,9 +9,10 @@
  * The budget was 2 (toggle + the share affordance, "everything else lives in Overview") until
  * modal-header-reconciliation §4.3, a RATIFIED amendment: Re-sync moves here, and
  * duplicating the control across the strip and Overview was explicitly rejected —
- * there is exactly ONE Re-sync. Share panel, archive/unarchive and alert detail
- * still live in the Overview rail section (mock README delta 5 — Unarchive is NOT
- * a strip control).
+ * there is exactly ONE Re-sync. Alert detail still lives in the Overview rail
+ * section. The share panel and archive/unarchive have since MOVED into the hub's
+ * popover (share-hub T4 + the lifecycle move), superseding mock README delta 5's
+ * "Unarchive is NOT a strip control".
  *
  * All data arrives as plain props (the page shell wires it); this component fetches nothing
  * and defines no server actions. The publish toggle carries its own bound action through
@@ -24,9 +25,12 @@
  *                               · sync age (if synced) · edited age (if content-edited)
  *                               · Re-sync · share hub (published + token only). The alert
  *                               badge MOVED to the modal header (§6.6).
- *   - Archived (read-only)    → archived badge · sync age · edited age. No toggle,
- *                               no share hub, no live badge, no Re-sync — zero mutating
- *                               affordances.
+ *   - Archived (read-only)    → archived badge · sync age · edited age · the hub,
+ *                               relabelled "Show actions". No toggle, no live badge, no
+ *                               Re-sync. Read-only for SHARING — the crew link, Copy,
+ *                               Email, rotate and reset are all gone — but NOT free of
+ *                               mutating affordances: Unarchive lives in that popover
+ *                               and is the only way back.
  *
  * Sync age vs edited age (2026-07-17 sync-cell): the badge shows the last-CHECKED time
  * (last successful Drive reach) for `ok`; the muted "Edited {rel}" shows the last-EDITED
@@ -190,8 +194,9 @@ export function StatusStrip({
     <div
       // share-hub T4: the #share-access deep-link target (built by
       // lib/adminAlerts/alertActions.ts:51) lives on this UNCONDITIONAL root so it
-      // survives every lifecycle — including archived, where the hub is absent.
-      // A conditional host would silently dead-link the alert action.
+      // survives every lifecycle. Archived still renders the hub, but with no
+      // share half at all, so an anchor scoped to the share affordance would
+      // land on nothing there. A conditional host would dead-link the action.
       id="share-access"
       data-testid="show-status-strip"
       // Full band width is what makes right-flush reachable (§8): `ml-auto` on

@@ -844,8 +844,9 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
   });
 
   // T-ARCHIVED-BAND: read-only mode must not degrade the band into an empty
-  // bordered seam. `archived` removes the toggle, the share hub and the live
-  // badge (StatusStrip.tsx), so the band's content is at its thinnest here — if
+  // bordered seam. `archived` removes the toggle and the live badge, and strips
+  // the hub to its lifecycle half (StatusStrip.tsx), so the band's content is
+  // at its thinnest here — if
   // the archived strip ever rendered nothing, the band would still paint its
   // border and the panel would grow a hairline for no reason.
   it("archived: the band still renders non-empty (archived badge), with no toggle or live badge", () => {

@@ -97,6 +97,8 @@ The existing confirm/resolving/banner UI of both controls is kept functionally; 
 
 The id moves from OverviewSection's wrapper to **the StatusStrip root element** (`data-testid="show-status-strip"`, `StatusStrip.tsx:150-169`) — one unconditional host that exists in all three lifecycles, including archived (where the hub itself is absent). It is NOT placed on the trigger group: that group is conditional, and a disappearing anchor would silently dead-link the alert action. Deep link scrolls the band into view (it sits at the modal top; `ShowReviewSurface.tsx:561` scroll path unchanged). The popover does NOT auto-open on deep link (auto-open guards were a #500-class bug source; descoped explicitly).
 
+> **Superseded in part (2026-07-24, share-link-chrome-backlog).** The lifecycle move put Archive/Unarchive in the hub's popover, so the hub — and its trigger group — now render UNCONDITIONALLY; an archived show gets the hub relabelled "Show actions" with no share half. The anchor's placement on the StatusStrip root is unchanged and still correct, but its justification above ("the hub itself is absent" when archived, "that group is conditional") no longer describes the code.
+
 Fan-out: `_metaAlertActionsContract.test.ts:151-155` re-points its source assertion to `components/admin/showpage/StatusStrip.tsx`; `showReviewSurfaceSyncHash.test.tsx:45` unchanged (id string same); e2e `published-review-modal.deeplink.spec.ts:199-247` re-targets the strip block (and its "block TALLER than the pane" note at :129 no longer applies to a short band — the assertion becomes plain in-viewport).
 
 ## 8. Removal & test migration

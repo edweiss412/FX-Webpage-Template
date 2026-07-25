@@ -142,30 +142,43 @@ async function rotate(page: Page) {
  * flash-only sibling using it left the delta exactly equal to the two cue tracks
  * and the check passed (round-2 review). Counting per element closes that:
  * mounting anything animated changes the census whatever it animates with.
+ *
+ * Elements are keyed by STRUCTURAL PATH, not by tag+truncated-className. The
+ * earlier identifier sliced the class list to 40 characters, which on Tailwind
+ * markup collides constantly — two different elements routinely share their
+ * first 40 characters of class, so they censused as the same entry and one
+ * could stand in for the other (round-3 review). A path is unique by
+ * construction and survives the URL block's keyed remount, which lands at the
+ * same position with a new object.
  */
 async function animationCensus(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const panel = document.querySelector("[data-review-modal-panel]");
     const out: string[] = [];
+    /** `tag:nth-child` from the panel root — unique per position, no truncation. */
+    const pathOf = (el: Element) => {
+      const parts: string[] = [];
+      for (let node: Element | null = el; node && node !== panel; node = node.parentElement) {
+        const i = node.parentElement ? Array.from(node.parentElement.children).indexOf(node) : 0;
+        parts.unshift(`${node.tagName.toLowerCase()}:${i}`);
+      }
+      return parts.join("/");
+    };
     for (const el of Array.from(panel?.querySelectorAll("*") ?? [])) {
       const n = getComputedStyle(el).animationName;
       if (!n || n === "none") continue;
-      // Identify the element, not just its animation, so two elements sharing a
-      // name are two entries.
-      const id =
-        el.getAttribute("data-testid") ??
-        `${el.tagName.toLowerCase()}.${(el.className || "").toString().slice(0, 40)}`;
-      out.push(`${id} :: ${n}`);
+      const testid = el.getAttribute("data-testid");
+      out.push(`${pathOf(el)}${testid ? `[${testid}]` : ""} :: ${n}`);
     }
     return out.sort();
   });
 }
 
-/** Multiset difference: entries present in `after` beyond their count in `before`. */
-function introduced(before: string[], after: string[]): string[] {
-  const pool = [...before];
+/** Multiset difference: entries in `a` beyond their count in `b`. */
+function diff(a: string[], b: string[]): string[] {
+  const pool = [...b];
   const extra: string[] = [];
-  for (const entry of after) {
+  for (const entry of a) {
     const i = pool.indexOf(entry);
     if (i === -1) extra.push(entry);
     else pool.splice(i, 1);
@@ -290,9 +303,23 @@ test.describe("share-link cue — resolved style", () => {
     // (DESIGN.md SYNC-PULSE-1) runs continuously — so "nothing else animates"
     // would fail on shipped, intended motion.
     //
-    // The delta is a MULTISET over elements. Comparing name-sets let a newly
-    // mounted element reusing `sync-heartbeat` hide inside an unchanged set.
-    const added = introduced(before, after);
+    // The delta is a MULTISET over elements, checked in BOTH directions.
+    // Additions alone were not enough: stopping an existing animation while
+    // mounting an identically-keyed animated node cancels out in an
+    // additions-only diff and passes (round-3 review). Requiring the removal
+    // side to be empty means the rotate may not silence shipped motion either.
+    // Non-vacuity: the removal check only means something if the census can
+    // SEE resting motion. If the harness ever stopped animating at rest, an
+    // empty `before` would make `removed` trivially empty and this assertion
+    // would pass while proving nothing.
+    expect(
+      before.length,
+      "census saw no resting motion, so removals are untestable",
+    ).toBeGreaterThan(0);
+
+    const added = diff(after, before);
+    const removed = diff(before, after);
+    expect(removed, "the rotate stopped motion that was already running").toEqual([]);
     expect(added).toHaveLength(1);
     expect(added[0]).toContain("admin-current-share-link-url");
     for (const track of TRACKS) expect(added[0]).toContain(track);

@@ -541,7 +541,7 @@ describe("show review modal loader — reset-roster serialization gate (§6, ser
 });
 
 describe("show review modal loader — archived read-only posture (§6)", () => {
-  it("archived: strip archived badge, no publish toggle, no share hub", async () => {
+  it("archived: strip archived badge, no publish toggle, hub kept but share-less", async () => {
     state.snapshot = baseSnapshot({ archived: true, published: true });
     await renderLoader();
     expect(screen.getByTestId("strip-archived-badge")).toBeTruthy();

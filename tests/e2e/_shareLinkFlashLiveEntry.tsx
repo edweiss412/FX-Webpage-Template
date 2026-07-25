@@ -81,13 +81,19 @@ function stripProps(): StatusStripProps {
 /**
  * The REAL ReviewModalShell, with the REAL StatusStrip in its subHeader slot.
  *
- * A hand-built panel carrying `data-review-modal-panel` was not enough: round-2
- * whole-diff review pointed out that a rule scoped to the shell's own
- * `-subheader` wrapper would kill the production cue while a synthetic harness
- * stayed green, because the synthetic panel reproduced only the one attribute
- * the adversary happened to target. Mounting the shell means the ancestry under
- * test is the ancestry that ships — including the subheader wrapper, the panel's
- * clip, and the PopoverHostContext the popover portals into.
+ * A hand-built panel carrying `data-review-modal-panel` was not enough: it
+ * reproduced only the one attribute an adversary happened to target, so any
+ * rule scoped to a real ancestor could suppress the production cue while the
+ * synthetic harness stayed green. Mounting the shell means the ancestry under
+ * test is the ancestry that ships — the subheader wrapper, the panel's clip,
+ * and the PopoverHostContext the popover portals into.
+ *
+ * Round-2 review proposed a SUBHEADER-scoped rule as that adversary. Running it
+ * (A28) disproved the example while confirming the gap: the popover portals OUT
+ * of the subheader into the panel, so a subheader-scoped selector cannot match
+ * the cue in production either. The reachable version is a rule scoped to the
+ * modal ROOT above the panel, which is what A28 now mutates and what this
+ * harness — unlike the synthetic one — actually has.
  */
 function Harness() {
   const focusRef = useRef<HTMLButtonElement>(null);

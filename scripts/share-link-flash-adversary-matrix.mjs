@@ -462,17 +462,48 @@ const TARGETS = [HUB, CSS, CTX];
  */
 const LOCK = join(ROOT, "tmp", ".adversary-matrix.lock");
 
+/** The pid recorded in an existing lock, or null if unreadable/malformed. */
+function lockHolder() {
+  try {
+    const pid = Number.parseInt(readFileSync(LOCK, "utf8").trim().split(/\s+/)[0] ?? "", 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0); // signal 0 tests existence without delivering anything
+    return true;
+  } catch (err) {
+    return err.code === "EPERM"; // exists, owned by another user
+  }
+}
+
 function acquireLock() {
   try {
     writeFileSync(LOCK, `${process.pid}\n`, { flag: "wx" });
+    return;
   } catch {
+    /* held — decide below whether the holder is real */
+  }
+  // A crashed or SIGKILLed run cannot clean up after itself, and an
+  // indefinitely-blocking lock is its own outage: every later run exits 2 until
+  // somebody deletes the file by hand. Take over a lock whose pid is gone.
+  const holder = lockHolder();
+  if (holder !== null && alive(holder)) {
     console.error(
-      `refusing to run: ${LOCK} exists, so another matrix run holds this worktree.\n` +
+      `refusing to run: ${LOCK} is held by live pid ${holder}.\n` +
         "This script mutates tracked files; two concurrent runs strand mutants in\n" +
-        "each other's windows. Wait for it, or delete the lock if it is stale.",
+        "each other's windows. Wait for that run to finish.",
     );
     process.exit(2);
   }
+  console.warn(
+    `note: taking over a stale lock (${holder === null ? "unreadable" : `pid ${holder} gone`}).`,
+  );
+  writeFileSync(LOCK, `${process.pid}\n`);
 }
 
 function releaseLock() {

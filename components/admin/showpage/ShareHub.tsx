@@ -645,8 +645,8 @@ export function ShareHub({
           Archived drops the crew-link half of the popover, but it must NOT drop
           down to a bare kebab: Unarchive would then be reachable only by
           guessing that a three-dot glyph is its home, in the one state where
-          the operator most needs a way back — and the hub does not even appear
-          on an archived show today, so there is no learned position either
+          the operator most needs a way back — and before this change the hub did
+          not appear on an archived show at all, so there is no learned position
           (impeccable critique P1). A labelled trigger keeps it recognition,
           not recall. */}
       <button

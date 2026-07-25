@@ -464,7 +464,9 @@ The fix is to stop paraphrasing and make the artifact itself normative:
 >
 > - the URL block (`data-testid="admin-current-share-link-url"`) resolves to a DIFFERENT element object;
 > - the Copy button, the row wrapper and the popover panel each resolve to the SAME element object, by their own selectors. Keying the whole row on the token therefore FAILS, because the Copy button re-resolves to a new object rather than dropping out of scope;
-> - no element inside the panel carries a resolved `animation-name` other than the cue's two, so an extra animated child mounted during the window is caught rather than excluded.
+> - the rotate changes the panel's animation state in exactly one place. Take a per-element census of resolved `animation-name` across the panel before and after, keyed by structural path; the multiset difference must be **empty in the removal direction** and, in the addition direction, exactly the URL block carrying the cue's two tracks. An extra animated child mounted during the window is caught, and so is a rotate that silences motion already running.
+>
+>   Stated as a delta rather than as an absolute, because an absolute is false here: the panel animates at rest. StatusStrip's synced-dot heartbeat (DESIGN.md SYNC-PULSE-1) runs continuously, so "no element carries another `animation-name`" would forbid shipped, intended motion. Both directions are required — an additions-only diff is satisfied by stopping one animation and mounting another with the same key (round-3 review).
 >
 > **N5 — Element identity across timer expiry.** Same selectors, and EVERY one of them — including the URL block — resolves to the same object it did before expiry. `key={flash}` fails here rather than escaping as a non-survivor.
 >
