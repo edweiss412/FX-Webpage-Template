@@ -1,7 +1,7 @@
 # Popover placement against the visual viewport under pinch-zoom
 
 **Date:** 2026-07-24
-**Status:** round 5. Rounds 1-4 all returned BLOCKING. Round 3 identified the **third consecutive recurrence** of one vector, which triggers the project's hard stop (`docs/agents/writing-plans.md:19-20`, `docs/agents/spec-self-review.md:22`): stop patching prose, declare the vector unresolved, descope. Round 4 descoped but its replacement rule was ALSO a boundary guess, and round 4's review refuted it with a concrete counterexample — the FOURTH occurrence of the vector. Round 5 stops guessing boundaries entirely and closes the vector with a PROPERTY (R14).
+**Status:** round 6. Rounds 1-5 all returned BLOCKING. Round 3 identified the **third consecutive recurrence** of one vector, which triggers the project's hard stop (`docs/agents/writing-plans.md:19-20`, `docs/agents/spec-self-review.md:22`): stop patching prose, declare the vector unresolved, descope. Round 4 descoped but its replacement rule was ALSO a boundary guess, and round 4's review refuted it with a concrete counterexample — the FOURTH occurrence of the vector. Round 5 stops guessing boundaries entirely and closes the vector with a PROPERTY (R14).
 **Closes:** `BL-HOVERHELP-VISUAL-VIEWPORT` (BACKLOG.md:43-49)
 **Supersedes:** `2026-07-22-hoverhelp-smart-position` §1.1 R8 (that spec's line 30)
 **Autonomy:** user approved autonomous ship-through-to-merged-PR (2026-07-24, brainstorming gate); spec + plan user-review gates waived.
@@ -38,7 +38,7 @@ Pinch-zoom does not change the layout viewport (§3.1, measured). It changes the
 | R12 | **The real-engine layer is authored RED, before any implementation** — the house pattern (`docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md` Task 1). Round 3 F3 correctly added that "red" is only evidence if it is red for the RIGHT reason: §5 now requires every setup and precondition assertion to PASS and the failure to occur specifically at the coordinate verdict | Round 2 F2/F4; round 3 F3 |
 | R13 | **Subscription and usability are separate questions.** Round 3 F4 found a recovery hole: a single predicate that gated BOTH produced a state where a `visualViewport` reporting zero/non-finite dimensions at open meant no listeners were ever attached, so its later `resize` could not restore tracking. Subscription is an ENGINE question, answered once per effect run (`isVisualViewportEngine`); usability is a PER-MEASURE question, answered on every frame inside the rect function. Listeners attach whenever the engine qualifies, regardless of the dimensions at that instant | Round 3 F4 |
 <!-- spec-lint: ignore — file created BY this spec; not tracked until implementation lands -->
-| R14 | **The vector is closed by a property test, not by prose.** Four consecutive rounds found the same class, so per the project's escalation rule the structural defense ships in THIS round's commit rather than after another recurrence. `tests/lib/popover/neverNewlyHidden.test.ts` asserts `new placement is hidden IMPLIES legacy placement is hidden` over an exhaustive four-edge overlap sweep (fully-outside through 3x`VIEWPORT_INSET`), short and narrow slices that exercise the vertical-space and irreducible-box regimes, panel hosts larger and smaller than the slice, and 2000 seeded random configurations. **It was validated by injecting round 4's refuted raw-overlap rule: all nine groups fail with `left overlap=1: zoom NEWLY hid the popover — legacy placed it`,** independently reproducing round 4's counterexample. The property is checked against the CORE's own answer, so it cannot drift from the core's semantics the way four hand-derived thresholds did | Round 4 F1; escalation rule |
+| R14 | **The vector is closed by a property test that pins the COMPLETE contract.** Round 5 F2 showed the first version was vacuous on the branch that mattered — `new hidden IMPLIES legacy hidden` says nothing when the result is `placed`, so a fallback returning an arbitrary placed value passed. The suite now asserts both arms: **visual-bounds placement hidden → result DEEP-EQUALS the legacy placement; otherwise → result DEEP-EQUALS the visual placement.** Round 5 F3 further showed the groups overclaimed their regimes, so each group now carries a NON-VACUITY witness (it must reach BOTH regimes, and must not conclude purely through legacy-hidden configs), groups are enumerated G1-G8, and the randomized generator declares its ranges and coverage floors. **The witness mechanism proved itself on first run: G6 failed with `no config exercised the FALLBACK regime`** — a group claiming a regime it never reached, which is exactly the defect F3 predicted. `lib/popover/position.ts` is never consulted for a threshold; the property is checked against the core's own answer | Round 4 F1; round 5 F2/F3 |
 
 ## §2 Current state (citations verified against worktree `fix/hoverhelp-visual-viewport`)
 
@@ -241,21 +241,30 @@ Anti-tautology governs every assertion: expected values derive from live measure
 
 **e2e — `tests/e2e/hoverhelp-geometry.spec.ts` (extend; already in the allow-list).** Chromium, via `context.newCDPSession(page)`, driven with `Emulation.setPageScaleFactor` + `Input.synthesizeScrollGesture` (`gestureSourceType: "mouse"`).
 
-Authored FIRST and demonstrated RED (R12). **Round 3 F3 is binding: a red run is evidence ONLY if every setup and precondition assertion passed and the failure landed on the coordinate verdict.** Each case therefore asserts, in order: (1) the gesture moved `visualViewport` (`scale > 1`, offsets non-zero); (2) the fixture's popover is present and open; (3) the **discrimination precondition** — the pre-zoom rect, which is exactly what the layout-viewport implementation leaves on screen because `window` scroll never fires on a zoom-pan (§3.1), is NOT inside the zoomed visual viewport; only then (4) the exact-coordinate verdict. "Old placement" is pinned to the **pre-zoom natural box**, not an implementation-constrained post-zoom box.
-- **T-VV1 (body host)** exact `left`/`top` against an in-page recomputation from the live visual rect, live trigger rect, `GAP`, `VIEWPORT_INSET`, within `TOL`.
-- **T-VV2 (panel host)** the same against the existing `PaneCase` fixture (`_hoverHelpGeometryLiveEntry.tsx:112`); bounds are `panel ∩ visible slice`.
-- **T-VV3 (pan tracking)** a second pan moves the offsets further and the popover follows.
-- **T-VV4 (unzoomed restore)** `setPageScaleFactor 1` returns the popover to its pre-zoom rect. **This case is GREEN against unmodified code by design** — it pins the R7 no-op guarantee, which the layout-viewport implementation already satisfies. The RED layer is therefore three discriminating failures plus one no-op guard, and any report claiming 4/4 red is wrong.
-- Teardown resets page scale to 1 so a failure cannot leak zoom state into later tests in this serial file.
+**Three harness constraints, each MEASURED after a wrong assumption. All three are binding on the implementation.**
+
+1. **Open with the keyboard, never by click.** `clickOpen` leaves the pointer ON the trigger; the pan is a MOUSE gesture, so moving it away fires HoverHelp's pointerleave hover-close. Measured post-pan state: `{expanded:"false", display:"none"}` — every rect is then a zero rect and the case is silently vacuous. Each case opens with focus+Enter and asserts `aria-expanded === "true"` after every zoom and pan, BEFORE reading geometry.
+2. **Chromium clamps the page scale at 3** under this project's Desktop Chrome config. Measured: requested 2→2, 3→3, 4→3, 5→3, 6→3, 8→3, with `visualViewport.width` pinned at 426.7. A helper that "derives a saturating scale" and returns more than 3 therefore produces a NON-discriminating fixture in silence. Each case asserts the ACHIEVED scale, not the requested one, and the fixture must overhang 426.7px at scale 3 — the `top` case's popover ends at x=420 and does NOT qualify, so a right-side fixture is required.
+3. **Panning and discrimination pull against each other.** A clamp assertion needs the anchor ON screen (or the layout fallback is the CORRECT answer per R4) AND the pre-zoom rect OFF screen (or nothing discriminates). Measured: a 140px pan carried the anchor off screen; a 55px pan left the pre-zoom rect inside the slice. Zoom-only satisfies both; panning belongs to the tracking case, which asserts MOVEMENT rather than exact clamping.
+
+- **T-VV1 (body host)** exact `left`/`top` against an in-page recomputation from the live visual rect, live trigger rect, `GAP`, `VIEWPORT_INSET`, within `TOL`, using the ACTUAL post-zoom popover width (not the pre-zoom natural width). Preconditions in order: achieved scale, still-open, anchor-on-screen, pre-zoom-rect-not-inside-slice.
+- **T-VV2 (panel host)** the same against the existing `PaneCase` fixture. **Already passing against the complete implementation in a real browser.**
+- **T-VV3 (pan tracking)** zoom, pan, assert the offsets moved and the popover followed and is still open.
+- **T-VV4 (unzoomed restore)** returns to the pre-zoom rect. **GREEN against unmodified code by design** — it pins the R7 no-op, which the layout-viewport implementation already satisfies.
+- Teardown resets page scale to 1.
+
+**Correction to the round 1-4 record.** Those rounds cited a RED layer with "three discriminating failures". Constraint 1 means those runs were measuring a CLOSED popover, so they were red for the wrong reason. That evidence is WITHDRAWN and must be re-established with keyboard-open, the still-open guard, and an achieved-scale assertion before it may be cited again (R12/AC-13).
 
 **Note on the harness's `getBoundingClientRect` ban.** That file bans it as a CLIPPING/visibility proof (:19-21) and uses `document.elementFromPoint`. These assertions are viewport-coordinate arithmetic, not clipping proofs, and `elementFromPoint` cannot express them — its coordinates are visual-viewport-relative under zoom while rects are layout-relative (§3.1), so mixing them would be the actual error.
 
 ## §6 CI wiring
 
-Two entries MUST be added to `.github/workflows/hoverhelp-geometry-e2e.yml`'s `pull_request` path filter in the same commit that creates or changes them, or a later edit will not fire the only gate that can catch a zoom-geometry regression:
+Three entries MUST be added to `.github/workflows/hoverhelp-geometry-e2e.yml`'s `pull_request` path filter in the same commit that creates or changes them, or a later edit will not fire the only gate that can catch a zoom-geometry regression:
 
 <!-- spec-lint: ignore — file created BY this spec; not tracked until implementation lands -->
 - `lib/popover/viewport.ts`
+<!-- spec-lint: ignore — file created BY this spec; not tracked until implementation lands -->
+- `lib/popover/place.ts` — **round 5 F4**: this is the module that owns the bounds policy, so a PR touching only it must fire the gate its mistakes are designed to catch
 - `components/admin/showpage/ShareHub.tsx`
 
 `tests/e2e/_hoverHelpGeometryLiveEntry.tsx` is already listed. ShareHub is otherwise covered by the standard vitest suite; no workflow gates it today.
@@ -275,11 +284,12 @@ Two entries MUST be added to `.github/workflows/hoverhelp-geometry-e2e.yml`'s `p
 - AC-7 Equal-dimension no-op proven by T-U7 and T-VV4; the non-equal scale-1 states are ratified as intended (R7).
 - AC-8 A degenerate-at-open visual viewport still subscribes and recovers, in BOTH consumers (T-U10, T-C7, T-S7).
 <!-- spec-lint: ignore — file created BY this spec; not tracked until implementation lands -->
-- AC-9 `lib/popover/viewport.ts` and `components/admin/showpage/ShareHub.tsx` appear in the `hoverhelp-geometry-e2e.yml` path filter.
+- AC-9 `lib/popover/viewport.ts`, `lib/popover/place.ts`, and `components/admin/showpage/ShareHub.tsx` appear in the `hoverhelp-geometry-e2e.yml` path filter.
 - AC-10 `BACKLOG.md` row marked closed citing THIS SPEC's path (the PR does not exist at that commit; the PR body carries the reverse link).
 - AC-11 `2026-07-22-hoverhelp-smart-position` §1.1 R8 carries a superseded-by pointer.
 - AC-12 The impeccable critique + audit pair has run on the diff (invariant 8), dispositions in the PR body.
-- AC-13 The real-engine layer was authored and observed RED before any implementation commit, with every setup and precondition assertion passing and the failure on the coordinate verdict (R12 / round 3 F3).
+- AC-13 The real-engine layer was authored and observed RED before any implementation commit, with EVERY precondition passing — achieved scale, still-open, anchor-on-screen, pre-zoom-not-inside — and the failure landing on the coordinate verdict (R12 / round 3 F3 / §5 constraints 1-3).
+- AC-14 The structural guard discovers both consumers through the shipped API and asserts no file under `components/` or `app/` calls `computePopoverPlacement` directly (round 5 F1).
 
 ## §8 Out of scope
 

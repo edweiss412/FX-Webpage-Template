@@ -1,11 +1,11 @@
 # Visual-Viewport Popover Placement Implementation Plan
 
-**Spec:** `docs/superpowers/specs/2026-07-24-hoverhelp-visual-viewport.md` (round 5)
+**Spec:** `docs/superpowers/specs/2026-07-24-hoverhelp-visual-viewport.md` (round 6)
 **Branch:** `fix/hoverhelp-visual-viewport`, worktree `/Users/ericweiss/FX-worktrees/hoverhelp-visual-viewport`
 **Closes:** `BL-HOVERHELP-VISUAL-VIEWPORT`
 **Autonomy:** user approved autonomous ship-through-to-merged-PR (2026-07-24 brainstorming gate); spec + plan user-review gates waived.
 
-**Round 5 closes the recurring vector with a property, not another boundary.** Round 4 descoped (deleting a whole task), but its replacement rule was still a geometric guess and round 4's review refuted it: the helper compared overlap against the RAW visual rect while the core compares the INSET one. Four guesses, four refutations. Spec R4 is now an OUTCOME test — compute with visible bounds, and if the result is `hidden`, use today's layout bounds instead — and spec R14 ships the property suite that proves it, in the same commit as the code (Task 2), per the escalation rule.
+**Round 6 hardens the property and corrects the record.** Round 5's review showed the property was vacuous on the fallback branch and that the structural guard could not even pass against the intended architecture. Both are fixed and VERIFIED by applying the complete implementation and running everything. **Round 5 closed the recurring vector with a property, not another boundary.** Round 4 descoped (deleting a whole task), but its replacement rule was still a geometric guess and round 4's review refuted it: the helper compared overlap against the RAW visual rect while the core compares the INSET one. Four guesses, four refutations. Spec R4 is now an OUTCOME test — compute with visible bounds, and if the result is `hidden`, use today's layout bounds instead — and spec R14 ships the property suite that proves it, in the same commit as the code (Task 2), per the escalation rule.
 
 ---
 
@@ -38,7 +38,10 @@ N/A: invariants 2, 3, 4, 5, 9, 10 — no DB path, no Supabase call, no mutation 
 | Sweep re-run in the worktree | exactly two consumers (spec §2) |
 | Implementation snippet typechecked | **failed first** — `Property 'CSS' does not exist on type 'Window'`; fixed with the structural `CssCarrier` accessor |
 | Unit + property suites, round-5 API | 29/29 pass, typecheck clean |
-| **Mutation: inject round 4's refuted raw-overlap rule** | **all 9 property groups red, reproducing the reviewer's counterexample** |
+| **Mutation: inject round 4's refuted raw-overlap rule** | **all property groups red, reproducing the reviewer's counterexample** |
+| **Full implementation applied end-to-end, then reverted** | **169/169 unit + component + guard + property; eslint clean; tsc clean; 28/30 e2e with T-VV2 green** |
+| Non-vacuity witness, first run | **caught G6 claiming a regime it never reached** (`no config exercised the FALLBACK regime`) |
+| Structural guard against the SHIPPED architecture | discovers both consumers via `placeWithinVisibleViewport`; passes |
 | Mutation: make subscription depend on usable dimensions (R13) | 1 test red |
 | Probe: R4 outcome rule in a real component render | anchor off-slice -> placed at trigger.bottom + GAP, NOT hidden |
 | ShareHub jsdom scaffolding smoke | mounts, kebab opens the popover, stubs take |
@@ -59,16 +62,24 @@ Extend `tests/e2e/hoverhelp-geometry.spec.ts` with T-VV1..T-VV4 (spec §5) throu
 **Round 3 F3 is binding: a red run is evidence only if it is red for the right reason.** Each case asserts, in order: (1) the gesture moved `visualViewport` — `scale > 1` and offsets non-zero; (2) the fixture's popover is open; (3) the discrimination precondition — the pre-zoom rect, which is exactly what the layout-viewport implementation leaves on screen because `window` scroll never fires on a zoom-pan, is NOT inside the zoomed visual viewport; only then (4) the exact-coordinate verdict. "Old placement" is the **pre-zoom natural box**, never an implementation-constrained post-zoom box.
 
 <!-- spec-lint: ignore — file created BY this plan; not tracked until its task lands -->
-Also add `lib/popover/viewport.ts` and `components/admin/showpage/ShareHub.tsx` to the `pull_request` path filter in `.github/workflows/hoverhelp-geometry-e2e.yml` (spec §6). Wiring lands with the tests that need it.
+Also add `lib/popover/viewport.ts`, `lib/popover/place.ts`, and `components/admin/showpage/ShareHub.tsx` to the `pull_request` path filter in `.github/workflows/hoverhelp-geometry-e2e.yml` (spec §6). Wiring lands with the tests that need it.
 
-**Already run against unmodified code. Observed:**
+**Three harness constraints, MEASURED (spec §5). All are binding:**
 
-- 26 pre-existing tests: ALL PASS — no collateral damage.
-- T-VV1 fails at `expect(after.left).toBeCloseTo(expectedLeft, 1)`; T-VV2 at `expect(insideVisual(after, v)).toBe(true)`; T-VV3 because the popover did not move with the pan.
-- **All three reached their coordinate verdicts, i.e. every setup and precondition assertion passed** — including `insideVisual(before, v) === false`. The fixture genuinely places the legacy popover outside the zoomed slice.
-- **T-VV4 PASSES against unmodified code by design** — it pins the R7 unzoomed no-op, which the layout-viewport implementation already satisfies. The layer is three discriminating failures plus one no-op guard; the commit body must say exactly that and must not claim 4/4 red.
+1. **Open with focus+Enter, never `clickOpen`.** The pan is a mouse gesture; click-open leaves the pointer on the trigger, so the pan fires the hover-close. Measured post-pan state: `{expanded:"false", display:"none"}` — zero rects, vacuous assertions. Assert `aria-expanded === "true"` after every zoom and pan before reading geometry.
+2. **Chromium clamps page scale at 3** here (measured 4→3, 5→3, 6→3, 8→3; `visualViewport.width` pinned at 426.7). Assert the ACHIEVED scale. The fixture must overhang 426.7px at scale 3 — the `top` case ends at x=420 and does NOT qualify, so a right-side fixture is required.
+3. **Zoom-only for clamp cases; pan only for tracking.** A 140px pan carried the anchor off screen (making the layout fallback correct, so a clamp assertion would assert a bug); a 55px pan left the pre-zoom rect inside the slice (non-discriminating).
 
-Record that output verbatim in the commit body.
+**Evidence status — the earlier RED citation is WITHDRAWN.** Rounds 1-4 cited "three discriminating failures", but constraint 1 means those runs measured a CLOSED popover. Task 1 must re-establish the RED with keyboard-open, the still-open guard, and an achieved-scale assertion, and record which preconditions passed.
+
+**Latest probe run (complete implementation applied, then reverted):**
+
+- 28 passed / 2 failed. All 26 pre-existing tests pass — no collateral damage.
+- **T-VV2 (panel host) PASSES with the implementation** — real-engine confirmation that panel-host clamping works.
+- T-VV4 passes (the R7 no-op guard, green by design).
+- T-VV1 and T-VV3 fail on FIXTURE preconditions (constraints 2 and 3), not on implementation behavior. Every failure diagnosed during the probe traced to the fixture, and each diagnosis confirmed the implementation matching spec — e.g. a 148 vs 270 mismatch turned out to be the R4 fallback behaving exactly as specified because the pan had carried the anchor off screen.
+
+Task 1 finishes the two fixtures under the constraints above and records which preconditions passed, per AC-13.
 
 ---
 
@@ -145,7 +156,7 @@ Both call sites change in ONE commit because the structural guard covers both; s
 
 **Commit:** `fix(admin): reposition both popovers on visualViewport scroll and resize`
 
-**RED.** Extend both component test files with T-C2/T-C3/T-C5/T-C7 and T-S2/T-S3/T-S4/T-S5. Stubs are real `EventTarget` subclasses so add/dispatch/remove are genuine.
+**RED.** Extend both component test files with T-C2/T-C3/T-C5/T-C7 and T-S2/T-S3/T-S4/T-S5/**T-S7**. Round 5 F5: T-S7 was previously mentioned only in a trailing bullet, so a task following its declared RED inventory could implement the listener and add T-S7 afterwards — violating both the accepted round-4 disposition and per-task TDD. It is named in the inventory now. Stubs are real `EventTarget` subclasses so add/dispatch/remove are genuine.
 
 - T-C5/T-S5: WebKit-shaped stub → **no listener attached at all** (`addEventListener` spy). The class swept across both consumers.
 - T-C3/T-S3: after close, dispatching both event types **on the originally captured object** schedules no frame — spying on `removeEventListener` proves nothing about which callback or target was removed.
