@@ -9,7 +9,7 @@
 >
 > **Reading this document:** §3.1/§3.2 (the lease fix) have moved to the new spec and are authoritative there. Everything else records design work whose premises were repeatedly falsified — read §3.4a's round-by-round disposition tables before reusing any of it. The value here is the analysis and the enumerated failure modes, not the prescriptions.
 **Branch:** `feat/watch-reconcile-backoff` off `origin/main` @ `7ed193dde`
-**Closes:** `BL-WATCH-RECONCILE-BACKOFF` (the root `BACKLOG.md` entry (lines 103-107)) — Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1, plus a defect that backlog entry did not know about.
+**Does NOT close `BL-WATCH-RECONCILE-BACKOFF`** — that entry stays OPEN and blocked. This document is the design input for it, retained so the follow-up starts from the analysis rather than repeating five review rounds. It extends Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1. The lease half it started from shipped separately; see the status note above.
 
 ---
 
