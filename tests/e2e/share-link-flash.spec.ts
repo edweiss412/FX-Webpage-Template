@@ -1,0 +1,282 @@
+/**
+ * tests/e2e/share-link-flash.spec.ts
+ *
+ * The share-link cue's RESOLVED style, measured in a real engine
+ * (spec 2026-07-24-share-link-chrome-backlog-design §9.2/§9.3).
+ *
+ * Why this exists at all: the source scan in shareHubFlashTransitions is a regex
+ * over CSS text. Regexes see fragments, not the cascade. A later duplicate
+ * `@keyframes`, an unconditional `animation: none`, an `animation-play-state:
+ * paused`, an `!important` on either painted property, or a rule scoped to an
+ * ancestor selector all leave every fragment intact while the cue renders
+ * nothing. Only a resolved computed style settles those.
+ *
+ * Harness: the real StatusStrip -> ShareHub tree, hydrated, inside a panel
+ * carrying ReviewModalShell's clip + PopoverHostContext — the ancestry the
+ * popover portals into in production. A bare element mount would be green
+ * against an ancestor-qualified override.
+ *
+ * Bundling goes through the PLUGIN builder, not plain esbuild: ShareHub's graph
+ * reaches `"use server"` modules through the rotate and picker-reset controls,
+ * and esbuild has no `"use server"` semantics, so it follows them as ordinary
+ * imports and fails to resolve node:crypto / node:async_hooks. See
+ * _step3ReviewModalBundle.mjs:10-32.
+ *
+ * Runs under tests/e2e/standalone.config.ts (no dev server, no Supabase):
+ *   pnpm exec playwright test --config tests/e2e/standalone.config.ts \
+ *     tests/e2e/share-link-flash.spec.ts
+ */
+import { test, expect, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createServer, type Server } from "node:http";
+
+const REPO_ROOT = resolve(__dirname, "..", "..");
+const FLASH_MS = 1600;
+
+/** Both keyframe names, in the order the shorthand declares them. */
+const TRACKS = ["share-link-flash-bg", "share-link-flash-ring"];
+
+let server: Server;
+let baseUrl: string;
+let workDir: string;
+
+test.beforeAll(async () => {
+  workDir = mkdtempSync(join(tmpdir(), "share-link-flash-"));
+  writeFileSync(
+    join(workDir, "live.html"),
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="out.css"></head>
+<body class="bg-bg"><div id="root"></div><script src="bundle.js"></script></body></html>`,
+  );
+
+  execFileSync(
+    "node",
+    [
+      join(REPO_ROOT, "tests", "e2e", "_step3ReviewModalBundle.mjs"),
+      join(REPO_ROOT, "tests", "e2e", "_shareLinkFlashLiveEntry.tsx"),
+      join(workDir, "bundle.js"),
+      join(REPO_ROOT, "tsconfig.json"),
+    ],
+    { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
+  );
+
+  // `@source` per participating file: without them Tailwind emits none of the
+  // classes these components use and the harness would measure a bare box while
+  // reporting green.
+  const entryCss = join(workDir, "entry.css");
+  const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
+  writeFileSync(
+    entryCss,
+    [
+      `@source "${join(REPO_ROOT, "components", "admin", "showpage", "ShareHub.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "showpage", "StatusStrip.tsx")}";`,
+      `@source "${join(REPO_ROOT, "app", "admin", "show", "[slug]", "ShareLinkCopyButton.tsx")}";`,
+      `@source "${join(REPO_ROOT, "app", "admin", "show", "[slug]", "RotateShareTokenButton.tsx")}";`,
+      `@source "${join(REPO_ROOT, "tests", "e2e", "_shareLinkFlashLiveEntry.tsx")}";`,
+      globals,
+    ].join("\n"),
+  );
+  execFileSync(
+    "pnpm",
+    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
+    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
+  );
+
+  server = createServer((req, res) => {
+    const url = (req.url ?? "/").split("?")[0] ?? "/";
+    const file = url === "/" || url === "" ? "live.html" : url.replace(/^\//, "");
+    try {
+      const body = readFileSync(join(workDir, file));
+      res.setHeader(
+        "content-type",
+        file.endsWith(".css") ? "text/css" : file.endsWith(".js") ? "text/javascript" : "text/html",
+      );
+      res.end(body);
+    } catch {
+      res.statusCode = 404;
+      res.end("nope");
+    }
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const addr = server.address();
+  if (addr === null || typeof addr === "string") throw new Error("no addr");
+  baseUrl = `http://127.0.0.1:${addr.port}/`;
+});
+
+test.afterAll(async () => {
+  await new Promise<void>((r) => server.close(() => r()));
+});
+
+/** Settle fonts + one frame before any computed read. No network settling: the
+ *  page inlines its stylesheet and references no remote asset. */
+async function settle(page: Page) {
+  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
+}
+
+async function openHub(page: Page) {
+  await page.goto(baseUrl);
+  await settle(page);
+  await page.getByTestId("share-hub-primary").click();
+  // The popover portals into the panel; wait for attachment rather than a
+  // network idle that means nothing here.
+  await page.getByTestId("share-hub-popover").waitFor({ state: "attached" });
+  await settle(page);
+}
+
+/** One full two-tap rotate through the REAL confirm, resolved by the override
+ *  fake. Re-resolves the buttons each time: the block is replaced by design, so
+ *  a handle held across the transition would auto-wait on a detached node. */
+async function rotate(page: Page) {
+  await page.getByTestId("admin-rotate-share-token-button").click();
+  await page.getByTestId("admin-rotate-share-token-confirm-button").click();
+}
+
+/** Every animation-name currently resolved anywhere inside the panel. */
+async function animatingNames(page: Page): Promise<Set<string>> {
+  const names = await page.evaluate(() => {
+    const panel = document.querySelector("[data-review-modal-panel]");
+    const out: string[] = [];
+    for (const el of Array.from(panel?.querySelectorAll("*") ?? [])) {
+      const n = getComputedStyle(el).animationName;
+      if (n && n !== "none") out.push(...n.split(",").map((x) => x.trim()));
+    }
+    return out;
+  });
+  return new Set(names);
+}
+
+/** Resolved style of the URL block, sampled fresh. */
+async function urlStyle(page: Page) {
+  return page.evaluate(() => {
+    const el = document.querySelector('[data-testid="admin-current-share-link-url"]');
+    if (!el) return null;
+    const cs = getComputedStyle(el);
+    const anims = el.getAnimations().map((a) => ({
+      name: (a as CSSAnimation).animationName,
+      time: typeof a.currentTime === "number" ? a.currentTime : 0,
+      state: a.playState,
+    }));
+    return {
+      animationName: cs.animationName,
+      animationDuration: cs.animationDuration,
+      animationDelay: cs.animationDelay,
+      animationPlayState: cs.animationPlayState,
+      backgroundColor: cs.backgroundColor,
+      boxShadow: cs.boxShadow,
+      hasAttr: el.hasAttribute("data-share-link-flash"),
+      anims,
+    };
+  });
+}
+
+test.describe("share-link cue — resolved style", () => {
+  test("T-FLASH-REST: no attribute means no animation and resting paint", async ({ page }) => {
+    await openHub(page);
+    const s = await urlStyle(page);
+    expect(s).not.toBeNull();
+    expect(s!.hasAttr).toBe(false);
+    expect(s!.animationName).toBe("none");
+    expect(s!.anims).toHaveLength(0);
+  });
+
+  test("T-FLASH-RUN: a rotate resolves BOTH tracks, undelayed and running", async ({ page }) => {
+    await openHub(page);
+    const rest = await urlStyle(page);
+    await rotate(page);
+    const during = await urlStyle(page);
+
+    expect(during!.hasAttr).toBe(true);
+    for (const track of TRACKS) expect(during!.animationName).toContain(track);
+    // A non-zero delay would clip the cue while leaving every duration, easing,
+    // stop, property, colour and width untouched.
+    expect(during!.animationDelay.split(",").map((s) => s.trim())).toEqual(["0s", "0s"]);
+    expect(during!.animationDuration.split(",").map((s) => s.trim())).toEqual(["1.6s", "1.6s"]);
+    expect(during!.animationPlayState).toContain("running");
+
+    // BOTH paints actually move. Sampling one cannot see the other suppressed.
+    expect(during!.backgroundColor).not.toBe(rest!.backgroundColor);
+    expect(during!.boxShadow).not.toBe(rest!.boxShadow);
+  });
+
+  test("T-FLASH-SETTLE: both paints return to rest and the attribute clears", async ({ page }) => {
+    await openHub(page);
+    const rest = await urlStyle(page);
+    await rotate(page);
+    await page.waitForTimeout(FLASH_MS + 250);
+    const after = await urlStyle(page);
+
+    expect(after!.hasAttr).toBe(false);
+    expect(after!.animationName).toBe("none");
+    expect(after!.backgroundColor).toBe(rest!.backgroundColor);
+    expect(after!.boxShadow).toBe(rest!.boxShadow);
+  });
+
+  test("T-FLASH-RESTART: a second rotate restarts the tracks from the top", async ({ page }) => {
+    await openHub(page);
+    await rotate(page);
+    await page.waitForTimeout(700);
+    const mid = await urlStyle(page);
+    expect(mid!.anims.length).toBeGreaterThan(0);
+    const elapsedBefore = Math.max(...mid!.anims.map((a) => a.time));
+    expect(elapsedBefore).toBeGreaterThan(400);
+
+    // Production restarts by REPLACING the keyed node, not by toggling the
+    // attribute on a surviving one. Driving a real second rotate exercises that
+    // transition rather than a convenient stand-in.
+    await rotate(page);
+    const restarted = await urlStyle(page);
+
+    expect(restarted!.hasAttr).toBe(true);
+    const elapsedAfter = Math.max(...restarted!.anims.map((a) => a.time));
+    expect(elapsedAfter).toBeLessThan(elapsedBefore);
+  });
+
+  test("T-FLASH-SOLE: exactly one element carries the attribute, and nothing else animates", async ({
+    page,
+  }) => {
+    await openHub(page);
+    const before = await animatingNames(page);
+    await rotate(page);
+
+    const after = await animatingNames(page);
+    const audit = await page.evaluate(() => {
+      const marked = document.querySelectorAll("[data-share-link-flash]");
+      const target = document.querySelector('[data-testid="admin-current-share-link-url"]');
+      return { markedCount: marked.length, isTarget: marked[0] === target };
+    });
+
+    expect(audit.markedCount).toBe(1);
+    expect(audit.isTarget).toBe(true);
+
+    // Compared as a DELTA against the resting page, not as an absolute set. The
+    // panel legitimately animates already — StatusStrip's synced-dot heartbeat
+    // (DESIGN.md SYNC-PULSE-1) runs continuously — so "nothing else animates"
+    // would fail on shipped, intended motion. What must hold is that the cue
+    // introduces ONLY its own two tracks, which still rejects an extra animated
+    // child mounted during the window.
+    const introduced = [...after].filter((n) => !before.has(n)).sort();
+    expect(introduced).toEqual([...TRACKS].sort());
+  });
+
+  test("T-FLASH-REDUCED: reduced motion paints nothing, with no residual ring", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openHub(page);
+    const rest = await urlStyle(page);
+    await rotate(page);
+    const during = await urlStyle(page);
+
+    // The attribute still lands — the component does not read the media query.
+    expect(during!.hasAttr).toBe(true);
+    expect(during!.animationName).toBe("none");
+    expect(during!.anims).toHaveLength(0);
+    // Neither paint moves. A steady wash or a stuck ring would be as wrong as
+    // motion here: a one-shot cue has no correct steady state.
+    expect(during!.backgroundColor).toBe(rest!.backgroundColor);
+    expect(during!.boxShadow).toBe(rest!.boxShadow);
+  });
+});
