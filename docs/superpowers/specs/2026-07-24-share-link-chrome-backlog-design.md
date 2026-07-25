@@ -79,8 +79,8 @@ The cue fires when `token` from `useShareToken()` (`components/admin/showpage/Sh
 | This admin rotates with the panel open | **yes** | the event the cue exists for |
 | Another admin's rotate arrives via `router.refresh()` with the panel open | **yes** | R7 — the URL changed under you |
 | First render / first panel open | **no** | `prevToken` seeds to `token` at mount, so there is no change to observe |
-| `null` becomes a token (transient read fault recovering) | **no** | guarded on `prevToken !== null`. `app/admin/show/[slug]/ShareTokenContext.tsx:66` returns the held state for a same-epoch null (a transient read fault), and `app/admin/show/[slug]/ShareTokenContext.tsx:68` is the branch that accepts the returning token, so this transition means "the read recovered", not "the link rotated" |
-| A token becomes `null` (show went ineligible; authoritative null at a strictly-advanced epoch) | **no** | guarded on `token !== null`; and the target element does not render at all — `linkActive` is false, so the panel shows the unavailable or paused note instead (`components/admin/showpage/ShareHub.tsx:748-764`) |
+| `null` becomes a token — a read fault recovering, OR an unarchive, OR a republish restoring eligibility | **no** | guarded on `prevToken !== null`. A same-epoch null usually produces NO context transition at all — the gate keeps the held token, so `token` never changes and there is nothing to observe; the guard earns its place on the cases that DO transition, chiefly an authoritative null at a strictly-advanced epoch followed later by a token (round-7 review). `app/admin/show/[slug]/ShareTokenContext.tsx:66` returns the held state for a same-epoch null (a transient read fault), and `app/admin/show/[slug]/ShareTokenContext.tsx:68` is the branch that accepts the returning token, so this transition means "the read recovered", not "the link rotated" |
+| A token becomes `null` (show went ineligible; authoritative null at a strictly-advanced epoch) | **no** | guarded on `token !== null`, and the target does not render either way. WHAT replaces it depends on the mode: unpublished or unavailable shows the corresponding note (`components/admin/showpage/ShareHub.tsx:748-764`), but ARCHIVED shows nothing at all — the entire share half is suppressed (`components/admin/showpage/ShareHub.tsx:704`). An earlier draft claimed a note always renders (round-7 review) |
 | `ShareHub` remounts (modal reopened; the provider is keyed by show id at its mount, `app/admin/_showReviewModal.tsx:415`, and the modal's remount-per-show behaviour is established at `app/admin/page.tsx:167-171`) | **no** | fresh mount reseeds `prevToken` |
 | Rotate on an INACTIVE crew link (unpublished or archived) | **no** | `onRotated` is not called at all when `isCrewLinkActive` is false (`app/admin/show/[slug]/RotateShareTokenButton.tsx:165`), so `token` never changes |
 | Rotation at a STRICTLY LOWER epoch, rejected by the monotonic gate (`app/admin/show/[slug]/ShareTokenContext.tsx:47`) | **no** | the gate returns the previous state object, so `token` is unchanged. Note the gate is `epoch >= held`, so an EQUAL epoch carrying a different token is ACCEPTED and correctly DOES cue — the URL really changed. Earlier drafts said `epoch <= current` is rejected, which overstates it (round-5 review, MEDIUM) |
@@ -365,10 +365,11 @@ The clear condition `(!open || !linkActive)` is deliberately written over the TA
 
 | # | Transition | Cue in flight on entry | Result |
 |---|---|---|---|
-| S1 | token unchanged, any `open`, any `linkActive` | either | no change |
+| S1 | token unchanged AND `open` unchanged AND `linkActive` unchanged | either | no change. **The added qualifiers are load-bearing**: without them S1 overlaps S9 and S12, which are token-unchanged transitions that DO clear, and the table stops being disjoint — round-7 review, HIGH. A cue in flight persists across every such render (§3.3) |
 | S2 | token A to B, `open` true, `linkActive` true | no | attribute on, element remounts, timer armed |
 | S3 | token A to B, `open` true, `linkActive` true | yes | element remounts so both keyframes restart; nonce bumps; timer re-armed |
-| S4 | token A to B, `open` false | either | `flash` set then cleared in the same render pass; nothing reaches the DOM |
+| S4 | token A to B, `open` false, any `linkActive` | either | `flash` set then cleared in the same render pass; nothing reaches the DOM |
+| S4b | token A to B, `open` true, `linkActive` FALSE | either | same: the bump is cleared by the visibility predicate in the same pass, so no attribute. The draft had no row for this combination even after declaring `linkActive` an input — round-7 review, HIGH |
 | S5 | token to null, any `open` | no | no cue; `linkActive` goes false and the block unmounts |
 | S6 | token to null, any `open` | **yes** | cue cancelled by the `!linkActive` arm — round-1 HIGH |
 | S7 | null to token, any `open` | no | no cue (both-non-null guard) |
@@ -410,7 +411,7 @@ The cue is a **rendered DOM attribute plus real CSS**, not a described intent:
 ## §9 Tests
 
 
-**This section no longer specifies test bodies.** Four review rounds proved that pre-specifying them in prose and reasoning about their vacuity does not work here; §9.0 explains the failure and the replacement. What the spec owns is the ADVERSARY REGISTER (§9.1) — the set of wrong implementations that must be rejected — plus the design-level coverage obligations in §9.2. Rows, fixtures and assertion order belong to the plan, where they are executed and mutation-proved rather than argued about.
+**This section no longer specifies test bodies.** Four review rounds proved that pre-specifying them in prose and reasoning about their vacuity does not work here; §9.0 explains the failure and the replacement. What the spec owns is the NORMATIVE CONTRACT N1 to N7 (§9.1), plus the design-level coverage obligations in §9.2 and the completion obligations in §9.4. The adversary register (§9.1.1) is worked examples for the matrix to run — useful, never authoritative. Rows, fixtures and assertion order belong to the plan, where they are executed and mutation-proved rather than argued about.
 
 TDD per plan-wide invariant 1 still applies: the implementation is written test-first. What changed is that the spec stops asserting which row catches what, a claim it has now been wrong about in four consecutive rounds.
 
@@ -424,9 +425,9 @@ Round 3 already triggered the comprehensive re-analysis. Round 4 found more of t
 
 **The convergence: invert the artifact.** Adversaries are design-level, stable, and verifiable by reading. Test bodies are executable detail, only verifiable by execution. So:
 
-- **The spec's contract is the ADVERSARY REGISTER below.** Each entry is a precise wrong implementation that MUST be rejected.
+- **The spec's contract is N1 to N7 in §9.1.** The adversary register that follows it is worked examples, not a completion gate.
 - **Test bodies are the plan's business, not the spec's.** This section no longer claims "A6 does X and therefore catches Y" — that claim form is what has failed four times.
-- **The proof obligation is executable.** The implementation ships only when every adversary in the register is REJECTED by at least one test that was actually run against it. The plan carries that matrix; its output goes in the PR body.
+- **The proof obligation is executable.** The implementation ships when N1 to N7 (§9.1) hold and every §9.4 obligation is met. The adversary matrix is EVIDENCE toward that rather than the gate itself: it demonstrates the suite has teeth. The plan carries it; its output goes in the PR body.
 
 **A note on the T-numbers below.** The round-by-round history in §11 still names rows T1 to T17. Those were the row names in earlier drafts and are retired; they are kept in the history so the review trail stays legible, and they correspond to nothing in the current contract. Forward-looking references use adversary IDs.
 
@@ -437,23 +438,29 @@ Round 3 already triggered the comprehensive re-analysis. Round 4 found more of t
 - The matrix runs against the FINAL assertion set, once, not incrementally per repair. Running it per-repair is precisely how the reduced-motion assertion regressed — a later narrowing undid an earlier widening and nothing re-checked the whole.
 - **Commit before mutating.** Reverting an injected mutation with `git checkout --` discards uncommitted work in that file.
 
-### §9.1 The observable contract (closed) — and why the register alone was not enough
+### §9.1 The observable contract — closed by REFERENCE, not by paraphrase
 
-Rounds 5 and 6 each asked "name a wrong implementation no adversary covers", and each time the answer was three or four more. That is not a defect in the answers; it is a property of the question. **The space of wrong implementations is unbounded, so an enumerated register can never be proven complete** — the same open-ended-list failure that enumerated test bodies had, one level up.
+Round 7 broke the previous version of this section, and the way it broke is the lesson. O1 to O7 tried to state the required appearance as a property list: two keyframes, these durations, this delay. An implementation can satisfy every such clause and still be wrong — `data-share-link-flash="true"` instead of the empty string, a 1px linear ring instead of 2px, a 5% wash hold instead of 45%, an extra `opacity` animation nobody asked for. Each is a property the list did not happen to mention.
 
-So the register stops being the contract. The contract is a CLOSED specification of what must be OBSERVABLE, against which any deviation is detectable by construction rather than by having been foreseen:
+That is the third time the same shape has failed: enumerated test bodies (rounds 1-4), enumerated adversaries (rounds 5-6), enumerated observable properties (round 7). **Prose enumeration of an executable property is never complete**, because completeness is judged against an unbounded space and the list is finite.
 
-| # | Observable | Must be |
-|---|---|---|
-| O1 | the set of elements carrying `data-share-link-flash` | EXACTLY the one element with `data-testid="admin-current-share-link-url"`, or empty. Never two, never a different one |
-| O2 | the set of DOM nodes whose identity changes across an accepted token change | exactly the URL block. The Copy button, the row wrapper and the panel keep theirs |
-| O3 | the set of DOM nodes whose identity changes across timer expiry | empty |
-| O4 | with the attribute present and motion allowed, the resolved style on that element | both named keyframes, each `animation-duration` equal to `SHARE_LINK_FLASH_MS`, `animation-delay` `0s`, `animation-play-state` `running`; and the painted `background-color` AND `box-shadow` at t near 0 BOTH differ from their resting values |
-| O5 | at t at or past `SHARE_LINK_FLASH_MS` | painted `background-color` and `box-shadow` both equal their resting values, and the attribute is absent |
-| O6 | under `prefers-reduced-motion: reduce` | resolved animation is `none`, and BOTH painted values equal resting at every sample |
-| O7 | the attribute is present | if and only if §6.1 says the cue is live for the transition just applied |
+The fix is to stop paraphrasing and make the artifact itself normative:
 
-O1 through O7 are total: they constrain the full observable surface — which element, which identities change, both paints, both motion arms, and the presence predicate — so an implementation deviating in ANY way fails at least one. Including the three round-6 named that the register missed: the attribute on both the `<code>` and its wrapper fails O1; `key` moved to the wrapper fails O2, because the Copy button's identity changes with it; a non-zero `animation-delay` fails O4 twice over, on the delay clause and on the paint-at-t-near-0 clause, while leaving every duration, easing, stop, property, colour and width untouched.
+> **N1 — The CSS block in §3.4 is NORMATIVE, verbatim.** The shipped `app/globals.css` contains those two `@keyframes` blocks and that `[data-share-link-flash]` rule with exactly those declarations — same properties, same stops, same colour tokens, same widths, same easing, same duration, no additional animated properties — and the reduced-motion override exactly as written. The test compares the shipped rules against the ratified block, not against a description of it. Any 1px ring, 5% hold, stray `opacity` track or altered easing fails by construction, without anyone having predicted it.
+>
+> **N2 — The attribute is exactly `data-share-link-flash=""`.** Present with the empty-string value, or absent. `"true"` is a failure.
+>
+> **N3 — Exactly one element carries it,** the one with `data-testid="admin-current-share-link-url"`.
+>
+> **N4 — Element identity across an accepted token change.** Scoped to ELEMENT nodes (not text nodes) that existed inside the popover BEFORE the change and still exist after: the URL block's element identity differs; every other such element — the Copy button, the row wrapper, the panel — is unchanged. Nodes that merely MOUNT in the same window (the result banner) are outside the comparison, since they had no prior identity to preserve.
+>
+> **N5 — Element identity across timer expiry.** Under the same scoping as N4, no element identity changes.
+>
+> **N6 — Paint.** With the attribute present and motion allowed, both `background-color` and `box-shadow` differ from their resting values early in the window and equal them again at or after `SHARE_LINK_FLASH_MS`. Under `prefers-reduced-motion: reduce`, both equal resting at every sample and the resolved `animation-name` is `none`.
+>
+> **N7 — Presence predicate.** The attribute is present exactly when §6.1's transition table says the cue is live. §6.1 is disjoint and total over its input tuple, which is what makes this delegable.
+
+N1 is what closes the class: it admits no paraphrase gap, because there is no paraphrase. N2 to N7 cover what a CSS comparison cannot see — which element, which identities, what actually painted, and when.
 
 ### §9.1.1 Adversary register — WORKED EXAMPLES, explicitly not exhaustive
 
@@ -648,7 +655,7 @@ The reviewer re-confirmed the three load-bearing claims and that the render-phas
 
 Two mattered most. T15 was vacuous a SECOND time, for a different reason than round 3 fixed: the republish is itself a lifecycle transition, so it closes the popover (`components/admin/showpage/ShareHub.tsx:490-495`) and the final absence assertion passes because the target is GONE, not because the cue was cleared. And T11 could not red against its own assigned adversary at all — removing the null-clear while keeping the visibility predicate is behaviourally identical, because a null token forces `linkActive` false. That second finding is a real simplification, now recorded in §3.2: the clearing half of the ternary is redundant, and only its guarding half is load-bearing (adversary A5).
 
-Round 3 had already triggered the mandatory comprehensive re-analysis. Round 4 found the same vector anyway, which under the project rule means that analysis was incomplete and the answer is no longer more prose. §9.0 declares the vector unresolved and inverts the artifact: the spec's contract is now the adversary register (§9.1) plus design-level coverage obligations (§9.2), and test bodies move to the plan where they are executed and mutation-proved. The spec stops making per-row claims it has been wrong about four consecutive times.
+Round 3 had already triggered the mandatory comprehensive re-analysis. Round 4 found the same vector anyway, which under the project rule means that analysis was incomplete and the answer is no longer more prose. §9.0 declares the vector unresolved and inverts the artifact: the spec's contract moved out of test bodies entirely; after round 7 it settled as the normative N1 to N7 in §9.1, with test bodies in the plan where they are executed and mutation-proved. The spec stops making per-row claims it has been wrong about four consecutive times.
 
 Also repaired from round 4: the browser spec must sample `boxShadow` as well as `backgroundColor` and must render ShareHub's production ancestry (a bare node cannot see an ancestor-qualified override) — both now obligations A18, A19 and §9.2; the workflow filter gained `pnpm-workspace.yaml` and `tsconfig.json` (`.github/workflows/phantom-gap-e2e.yml:84-85`); and three citation line numbers drifted.
 
@@ -666,23 +673,33 @@ Also repaired: §9.4 could certify incomplete work (K3 paraphrased §4's preserv
 
 Separately self-found: §9.3 named the STATIC harness (`skeletonBandParity`), which never hydrates and therefore cannot open a portaled popover at all — so the production-ancestry and real-remount obligations were unreachable through it. Corrected to the live esbuild-bundled `hoverhelp-geometry` template, including the version-pinned esbuild and the `@source` entry without which the compiled stylesheet omits the classes the cue paints over.
 
+**Round-7 adversarial review, and the third and final turn.** NEEDS-ATTENTION, six findings, all verified true. The reviewer again confirmed the three load-bearing claims, render-phase convergence, the epoch gate, the reduced-motion handling, §4's preserved coverage, and K1 to K9.
+
+The HIGH that mattered: **O1 to O7 were not closed either.** An implementation could satisfy every clause and still ship `data-share-link-flash="true"`, a 1px linear ring, a 5% wash hold and a stray `opacity` track — each a property the list did not happen to mention.
+
+That is the same shape failing a THIRD time: enumerated test bodies (rounds 1-4), enumerated adversaries (rounds 5-6), enumerated observable properties (round 7). Prose enumeration of an executable property is never complete, because the space it is judged against is unbounded and any list is finite. Two structural turns had each replaced one list with a better list.
+
+So §9.1 stops paraphrasing. **N1 makes the §3.4 CSS block itself normative, verbatim**, and the test compares shipped rules against that block rather than against a description of it. There is no paraphrase gap because there is no paraphrase; every example above fails by construction, unforeseen. N2 to N7 carry only what a CSS comparison cannot see: the exact attribute value, which element holds it, which element identities change and when, what actually painted, and the presence predicate.
+
+The other HIGHs were real precision defects in the same section: N4 now quantifies over ELEMENT nodes that existed before the change and survive it, so text nodes and freshly-mounted banner nodes stop being counterexamples; and §6.1 was neither disjoint nor total — S1 overlapped the token-unchanged transitions that DO clear, and no row covered a both-non-null change with `linkActive` false. Both fixed, which is what lets N7 delegate to it.
+
+Also repaired: §9 held two incompatible statements of what the contract IS, so a plan could not tell whether the register or the observables were the gate — the register is now unambiguously worked examples; the null-transition rows overstated how often a same-epoch null even produces a transition and omitted unarchive and republish as sources of a returning token; and the archived mode renders no note at all, which an earlier row contradicted.
+
 **Numeric sweep.** Literals in this document and where each is single-sourced:
 
-- `1600` — the cue duration, as `SHARE_LINK_FLASH_MS` in §3.2, twice in the §3.4 CSS, and referenced in §3.5, §8 and O4/O5. Adversaries A3, A14 and A25 pin it jointly: A3 and A14 force TypeScript and CSS to agree, A25 forces the agreed value to be this one.
-- `1.6` — appears only where a RESOLVED CSS value is quoted (`1.6s`), never as an independent constant.
-- `1599` — never written as a literal; expressed as `SHARE_LINK_FLASH_MS - 1`, so it cannot drift.
-- `800` — §3.2 only, the illustrative interval between two changes inside the window. The sweep's earlier claim that it appeared elsewhere was wrong.
-- `0%`, `45%`, `100%` — keyframe stops, in §3.4 and again in A26 which is what rejects moving them.
-- `2px` — ring width, in §3.4 and again in A26.
-- `0s` — the required `animation-delay`, O4 only.
-- `3` and `4.5` — the WCAG non-text and AA floors, stated in §3.7's table; §9.2 item 5 references the pairs rather than repeating the numbers.
+- `1600` — the cue duration. Declared as `SHARE_LINK_FLASH_MS` in §3.2, written twice in the normative §3.4 CSS, and referenced by N1 and N6. N1's verbatim comparison is what keeps the two in step.
+- `1.6` — appears only inside this sweep, as the seconds form of the above. No clause depends on it.
+- `800` — appears only inside this sweep, as the illustrative gap between two changes inside the window. Earlier drafts attributed it to §3.2, which no longer contains it.
+- `1599` — does not appear. Earlier drafts claimed it was expressed as `SHARE_LINK_FLASH_MS - 1`; that phrasing left the document with the test bodies in round 4.
+- `0%`, `45%`, `100%`, `2px` — keyframe geometry, stated ONCE each, in the normative §3.4 block. Nothing paraphrases them any more; N1 is why they need no second home.
+- `3` and `4.5` — the WCAG non-text and AA floors, in §3.7's table; §9.2 item 5 references the pairs without repeating the numbers.
 - `308` — panel width, §2.1, matching `components/admin/showpage/ShareHub.tsx:699`.
 - `64` — share-token length, §1, matching `supabase/migrations/20260523000002_show_share_tokens.sql:41`.
 - `5` — the uncovered contrast pairs, §3.7 and §9.2 item 5.
 - `4` — the wiring points, §9.3.
-- `7` — the observable clauses O1 to O7.
+- `7` — the normative clauses N1 to N7.
 - Contrast ratios (16.88, 14.66, 8.84, 8.42, 8.03, 7.59, 7.41, 9.65) — computed output, stated once in §3.7's table.
-- Counts on three different axes, deliberately not reconciled: §3.5 has two RENDERED states, therefore one pair; §6.1 enumerates seventeen TRANSITIONS; §9.1.1 lists twenty-seven WORKED-EXAMPLE adversaries, explicitly not a closed set.
+- Counts on three different axes, deliberately not reconciled: §3.5 has two RENDERED states, therefore one pair; §6.1 enumerates seventeen TRANSITIONS; §9.1.1 lists twenty-seven WORKED-EXAMPLE adversaries, explicitly not a closed set; §9.1 states seven NORMATIVE clauses.
 
 The draft's version of this sweep claimed `45%` and `2px` appeared only in §3.4 while A13 repeated both, and omitted `0%`, `100%` and the contrast literals while claiming to enumerate everything (round-2 review, LOW).
 
