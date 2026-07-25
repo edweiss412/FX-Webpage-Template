@@ -213,15 +213,20 @@ Class check on that last row: those are the only two exact conditional-count pin
 
 **The exact strings, so no copy is invented at implementation time (plan R6 F3).** Two sites change, one does not:
 
+**Two vocabularies, and they are not interchangeable (plan R7 F1).** The dropdown headings are **Needs you** / **Monitoring** (spec §2.1); the pill segments are **issues** / **monitoring** (spec §2.4). A label that says "pill class" must use the pill's words. An earlier draft substituted the panel heading into the pill label, which would teach a name that never appears on the pill.
+
 | Site | Current | New |
 | --- | --- | --- |
-| `lib/dev/attentionScenarios/tier2.ts:386` | `One of each pill class: confirm, review, monitoring` | `One of each pill class: needs you, monitoring` |
+| `lib/dev/attentionScenarios/tier2.ts:386` | `One of each pill class: confirm, review, monitoring` | `One of each pill class: issues, monitoring` |
 | `lib/dev/attentionScenarios/tier3.ts:100` | `Everything at once: confirm, review, and monitoring` | `Everything at once: needs you and monitoring` |
 | `lib/dev/attentionScenarios/tier2.ts:376` | `Monitoring only: expandable quiet pill` | **UNCHANGED** — already the surviving vocabulary. An earlier draft told the implementer to rename it; that was wrong. |
 
-Lowercase "needs you" inside a sentence, matching how the other labels render their class names in prose; the heading itself is capitalised in the component.
+The Tier-3 label names the two groups, not pill segments, so it correctly takes the heading vocabulary. Lowercase inside a sentence in both cases; the rendered heading is capitalised in the component.
 
-**Test first.** `tests/dev/fullSplitComposite.test.ts:22` asserts the Tier-3 label **exactly**. Change it to `expect(s.label).toBe("Everything at once: needs you and monitoring")` — that is this task's failing-test-first step, and it is the only test that can fail for a Tier-2/Tier-3 label change (plan R4 F7).
+**Test first — TWO oracles, because only one label is pinned today.**
+
+- Tier 3: `tests/dev/fullSplitComposite.test.ts:22` asserts the label exactly. Change it to `expect(s.label).toBe("Everything at once: needs you and monitoring")`.
+- Tier 2: **no test asserts `T2_CLASS_MIX`'s label**, so as written this task could ship the wrong copy — or skip the edit entirely — and stay green, violating the plan-wide TDD rule (plan R7 F1). Add the missing pin to `tests/dev/attentionScenariosTier2.test.ts`, beside the existing `T2_CLASS_MIX` derivation test at `tests/dev/attentionScenariosTier2.test.ts:263`: assert the scenario's label equals the new string. That assertion is this task's second failing-test-first step.
 
 The §7.1b sweep that produced this task searched `lib/dev/` only, which is why this consumer was missed; the corrected sweep is `grep -rn 'confirm, review' lib/dev/ tests/`. A sweep of the other retired Tier-2/Tier-3 label strings finds no further test consumer.
 
@@ -230,6 +235,14 @@ The §7.1b sweep that produced this task searched `lib/dev/` only, which is why 
 **Implement.** `lib/dev/attentionScenarios/tier2.ts` and `tier3.ts` only (spec §7.1b): apply the two label changes in the table above. **Rename labels, never ids** — `tests/dev/attentionScenariosTier1.test.ts:13-17` asserts gallery-to-`ATTENTION_ROUTES` totality by id, and `T2_MONITORING_ONLY` names a group that survives this spec, so no id names a retired class and none moves.
 
 Also update the stale pill-copy comment at `lib/dev/attentionScenarios/tier2.ts:377-378`, which expects the pill to read "2 monitoring" alongside the retired segments.
+
+**And the three remaining "pill class" claims (plan R7 F6).** Spec §7.1b says this file names the retired three-class model *throughout*, not only in its scenario labels. `grep -rn 'pill class' lib/dev/ tests/dev/` returns four hits; one is the Tier-2 label handled above, and these three are prose that becomes false once the pill collapses to `issues | monitoring`:
+
+- `lib/dev/attentionScenarios/tier2.ts:161` — calls the derived item's `actionable | needs_look | self_heal` value its "pill class", and the split "the pill's own".
+- `lib/dev/attentionScenarios/tier2.ts:267` — "all three pill classes".
+- `tests/dev/attentionScenariosTier2.test.ts:262` — test named "derives all three pill classes".
+
+**The three derivation shapes still exist and the helper and assertions stay** — what stops being true is calling them *pill* classes, since the pill no longer has three segments. Reword to name the clearing classification (`actionable` / `needs_look` / `self_heal`), which is what the code actually branches on. Leaving them would point the next gallery maintainer back at the retired model.
 
 ### Task 7 — wire the focus spec into CI (wiring only)
 
@@ -264,9 +277,16 @@ npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-
 
 **8b — live harness, the three open-menu invariants.** Add a `describe` block to `tests/e2e/attention-pill-focus.spec.ts` (`getBoundingClientRect`, 0.5px tolerance), using `boot()` + `__setItems`:
 
-- every needs-you row height ≥ 44px — `__setItems(1, 1, 0, false)`, measure both the actionable and the former-needs-look row (the latter is the one that was an unfloored `<div>`);
-- the scroll region clips at `max-h-96` with 12 needs-you rows — `__setItems(0, 12, 0, false)`, assert the scroller's own height is at its cap and its `scrollHeight` exceeds it;
+- every needs-you row height ≥ 44px — the harness's initial state already mounts one actionable and one needs-look row, which are the exact two subjects, so this case measures what `boot()` produced and needs no state change (the latter row is the one that was an unfloored `<div>`);
+- the scroll region clips at `max-h-96` with 12 needs-you rows — `__setItems(0, 12, 0, false)`;
 - a long title does not widen the panel past `w-[min(400px,calc(100vw-32px))]`.
+
+**The two cases that change state need a commit gate before measuring (plan R7 F3).** `__setItems` is a React state setter; `page.evaluate` returning proves the setter ran, not that React committed. Both the scroller and the panel are **already mounted**, so a `locator.evaluate` reads the OLD layout without ever failing — attachment is not a commit gate. Before sampling:
+
+- 12-row case: `await expect(page.locator('${MENU} [data-testid^="attention-menu-row-"]')).toHaveCount(12)` before reading `clientHeight` / `scrollHeight`.
+- long-title case: await a marker proving the long-title render committed — the row whose title matches the long string being attached — before reading the panel rect.
+
+The two-row height case is not a third instance: it never calls `__setItems`.
 
 The long-title case needs a harness knob that does not exist: `buildItems` hardcodes `menuTitle: \`Probe ${id}\`` (`tests/e2e/_pillFocusLiveEntry.tsx:41`). Add an **optional 5th parameter** `longTitles?: boolean` to `__setItems` and thread it into `buildItems`. Optional, appended last, defaulting false — so the four existing 4-argument call sites in the spec are untouched. Update the `declare global` signature (`tests/e2e/_pillFocusLiveEntry.tsx:80-85`) in the same commit or TypeScript rejects the call.
 
@@ -302,6 +322,8 @@ const expected = await page.evaluate(() => {
 
 Then assert each row's computed `transitionProperty` equals `expected`. Version-proof, and still catches `transition-all` — whose computed list is `all`, which cannot equal the probe's. This set-equality form applies **only to the rows**, which genuinely carry `transition-colors`; the three instant elements use the zero-duration oracle above.
 
+**The rows need the animation channel too (plan R7 F4).** Transition-property equality alone leaves the same hole R6 F2 closed for the containers: a keyframe animation on a needs-you row leaves `transitionProperty` exactly equal to the probe's list and passes. Assert `animationName === "none"` on every needs-you row alongside the equality, across **both** fixtures — the actionable row and the former-needs-look row — since §4's inventory gives the row exactly one intended motion (its hover colour transition) and requires it to vanish instantly on the O1→O2 collapse. Monitoring rows already get both channels through the existing `instant()` probe.
+
 Run on the live harness (`tests/e2e/attention-pill-focus.spec.ts`), the only one that can open the menu (§0.3). The panel entrance itself IS animated and is asserted separately — do not fold it into the same assertion.
 
 **Entrance-frame control — required, and it does not exist yet (plan R6 F4).** Two of this task's assertions depend on observing the panel between mount and its entrance flip: the `scale-95 opacity-0` → `scale-100 opacity-100` transition, and the compound case "last needs-you item clears while the panel is mid-entrance." `AttentionMenu` flips `entered` inside a single `requestAnimationFrame` (`components/admin/showpage/AttentionMenu.tsx:65-67`), and `boot()` returns only after the menu is visible (`tests/e2e/attention-pill-focus.spec.ts:106-126`), by which point that frame may already have run. Racing `__setItems` against the browser's next frame yields a test whose result is set by scheduling, not behaviour — it will pass locally and flake in CI, which is worse than no test.
@@ -310,22 +332,47 @@ Hold the frame explicitly:
 
 ```js
 await page.addInitScript(() => {
-  const queue = [];
-  const real = window.requestAnimationFrame.bind(window);
-  window.requestAnimationFrame = (cb) => { queue.push(cb); return queue.length; };
+  const queue = new Map();
+  let nextId = 1 << 20; // above any real id, so a stray native cancel is a no-op
+  const realRaf = window.requestAnimationFrame.bind(window);
+  const realCancel = window.cancelAnimationFrame.bind(window);
+  window.requestAnimationFrame = (cb) => {
+    const id = nextId++;
+    queue.set(id, cb);
+    return id;
+  };
+  // PAIRED cancellation (plan R7 F5): the component's effect cleanup calls
+  // cancelAnimationFrame. Leaving it native would let a held callback survive a
+  // cleanup that production would have cancelled. The remount path is exactly
+  // what the no-retrigger test discriminates, so the shim must model it.
+  window.cancelAnimationFrame = (id) => {
+    if (queue.delete(id)) return;
+    realCancel(id);
+  };
   window.__releaseFrames = () => {
-    window.requestAnimationFrame = real;
-    const pending = queue.splice(0);
+    window.requestAnimationFrame = realRaf;
+    window.cancelAnimationFrame = realCancel;
+    const pending = [...queue.values()];
+    queue.clear();
     for (const cb of pending) cb(performance.now());
   };
+  window.__heldFrameCount = () => queue.size;
 });
 ```
 
+**Declare the globals or Task 9 cannot typecheck (plan R7 F2).** This spec is under the repo's strict `tsconfig.json`, and `_pillFocusLiveEntry.tsx:80-85` declares only `__setItems` and `__hydrated`. Extend that `declare global` block with `__releaseFrames?: () => void` and `__heldFrameCount?: () => number` in the same commit — the same step Task 8 already spells out for `__setItems`' fifth parameter. Without it the assignment fails with `Property '__releaseFrames' does not exist on type 'Window'`.
+
 `addInitScript` runs before any page script, so the patch is in place before React mounts. The panel still renders while frames are held — it mounts in its pre-frame state — so `boot()`'s visibility gate is unaffected and remains the readiness signal.
 
-Sequence for each test: `addInitScript` → `boot()` → assert `scale-95 opacity-0` → (compound case only: `__setItems` to empty the needs-you group) → `__releaseFrames()` → assert `scale-100 opacity-100`, and for the compound case that the panel completed its entrance already in O2 with no re-trigger.
+**`__setItems` is a React setter, not a commit (plan R7 F3).** `page.evaluate(() => __setItems(...))` proves the setter ran, not that React committed the DOM. Every sample after it must gate on the committed result first — the pattern the existing tests in this file already use (`toHaveCount` / `toBeVisible` / `expect.poll`).
 
-**Teardown is automatic but must be verified, not assumed:** Playwright gives each test a fresh page, so the patch cannot leak into the focus and geometry tests. Put these two tests in their own `test.describe` and add a comment saying the restore depends on page isolation — if this spec ever moves to a shared page, `__releaseFrames()` must be called in an `afterEach` as well, since it is what reinstalls the real `requestAnimationFrame`.
+Sequence, entrance test: `addInitScript` → `boot()` → assert `scale-95 opacity-0` → `__releaseFrames()` → assert `scale-100 opacity-100`.
+
+Sequence, compound test: `addInitScript` → `boot()` → assert `scale-95 opacity-0` → capture panel identity (below) → `__setItems` emptying the needs-you group → **gate on O2 being committed while frames are still held** (`attention-needsyou-heading` count 0 AND `attention-monitoring-heading` count 1) → `__releaseFrames()` → assert `scale-100 opacity-100` AND the no-retrigger oracle. Without that middle gate the released callback can run while the DOM is still O1, and the test passes without ever having been mid-entrance.
+
+**"No re-trigger" needs an observable, or it asserts nothing (plan R7 F5).** The final classes alone cannot discriminate: an implementation that remounts `AttentionMenuPanel` when the group changes would cancel the first entrance, mount a fresh pre-frame panel, and reach the same `scale-100 opacity-100` on release. Pin **panel identity across the update** — stamp the panel node before `__setItems` (e.g. set a dataset marker via `locator.evaluate`) and assert after the O2 gate that the same node still carries it and is still connected. A remount loses the stamp. `__heldFrameCount()` is the corroborating signal: it must still be 1 at the O2 gate, since a remount would have cancelled the first callback and queued a second.
+
+**Teardown rests on page isolation:** Playwright gives each test a fresh page, so the patch cannot leak into the focus and geometry tests. Put these two tests in their own `test.describe` with a comment saying so — if this spec ever moves to a shared page, `__releaseFrames()` must also run in an `afterEach`, since it is what reinstalls both real frame functions.
 
 **Catches:** the focused-row case is the one this change makes riskier — every needs-you row is now focusable where needs-look rows previously exposed only their inner link. The set-equality oracle catches a row that gains `transition-all` during styling cleanup, which would make removal animate and reintroduce the detach race the rescue effect exists to handle.
 
