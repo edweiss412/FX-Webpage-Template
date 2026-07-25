@@ -951,17 +951,53 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // laid-out height first. The seeded run_of_show / share-token setup this describe
   // already owns is the other half of the reason.
   //
-  // SECTION CHOICE IS EVIDENCE-BOUND, not a wish list. Each section below has a
-  // named container confirmed present in a live run at BOTH widths, which is what
-  // makes its non-vacuity anchor real. Adding a section means capturing its anchor
-  // the same way — an unanchored section that renders nothing measurable would
-  // pass green forever while proving nothing.
+  // SECTION CHOICE IS EVIDENCE-BOUND, not a wish list. Every section carries a
+  // named non-vacuity anchor, and a section whose anchor does not appear FAILS —
+  // an unanchored section that renders nothing measurable would pass green
+  // forever while proving nothing. Adding a section means adding its anchor.
+  //
+  // ALL SIX crew sections are measured. `gotoSection` is what makes that safe
+  // rather than optimistic: it proves the section mounted with real height before
+  // any measurement, so a section that failed to render cannot report an empty
+  // offender list as success. The sections differ enough to be worth the cost —
+  // `today` renders the run-of-show timeline the seeded frozen clock activates,
+  // `gear` renders whatever the seed's room scope holds (an EMPTY state on the
+  // Waldorf rows, which is precisely the state this bug class lives in), and
+  // venue/travel carry the split-wide grids that collapse to one column at 390.
   test.describe("phantom gap — crew page sections", () => {
-    /** Section → a gapped container observed in that section's live render. */
+    /**
+     * Section → a gapped container observed in that section's live render.
+     *
+     * TWO ANCHOR SHAPES, both named. `schedule` and `crew` pin an INNER testid
+     * captured from a live run. The four sections added when the probe was
+     * widened pin the SECTION ROOT instead (`section-<name>`, a `flex flex-col
+     * gap-4` on every section component), matched as "the root itself, or a
+     * container whose nearest testid'd ancestor is the root" — the two label
+     * forms `phantomGap.ts` emits for the same place in the tree. Both shapes
+     * are section-scoped and neither is a container count.
+     *
+     * A section root only enters `visited` when it holds ≥2 in-flow items, so
+     * this anchor is NOT free: a section that collapses to a single child fails
+     * here rather than reporting an empty offender list as success. That is the
+     * intended behavior — the failure message dumps the visited labels, which is
+     * how a replacement anchor gets captured.
+     */
     const NOPHANTOM_SECTIONS = [
       { section: "schedule", anchor: "schedule-grid" },
       { section: "crew", anchor: "section-card" },
+      { section: "today", anchor: "section-today" },
+      { section: "venue", anchor: "section-venue" },
+      { section: "travel", anchor: "section-travel" },
+      { section: "gear", anchor: "section-gear" },
     ] as const;
+
+    /**
+     * `visited` labels come from an element's OWN testid, or `<tag in
+     * nearest-testid'd-ancestor>` when it has none. An anchor matches either
+     * form so a purely structural wrapper inside the anchor still counts.
+     */
+    const anchorHits = (visited: readonly string[], anchor: string): string[] =>
+      visited.filter((v) => v === anchor || v.includes(`in ${anchor}>`));
 
     /** Known, deferred instances. See the helper's `PhantomLedgerRow` for why a
      *  row is scoped and counted before adding one. */
@@ -983,8 +1019,9 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
           // mount, or a walk that stopped at the page shell, fails here rather
           // than reporting an empty offender list as success.
           expect(
-            found.visited.filter((v) => v === anchor),
-            `the walk reached ${anchor} inside section-${section} [@ ${width}]`,
+            anchorHits(found.visited, anchor),
+            `the walk reached ${anchor} inside section-${section} [@ ${width}] —` +
+              ` gapped containers visited: ${JSON.stringify(found.visited)}`,
           ).not.toEqual([]);
 
           const { remaining, stale } = reconcilePhantomLedger(
