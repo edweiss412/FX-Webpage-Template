@@ -120,24 +120,32 @@ next mutation-file-touching PR or the next post-merge nightly triage.
 
 **What the entry claimed.** ~55 test files create module-level `postgres(DB_URL, { max, prepare: false })` clients with no `idle_timeout` and no `.end()`; since postgres.js defaults `idle_timeout` to 0 (never auto-close), those pools hold their connections for the whole serial DB run and can exhaust local Postgres `max_connections` (~100) after a long session, surfacing as spurious "too many clients" failures on untouched code. The proposed fix was a shared `tests/db/testSql.ts` → `makeTestSql()` factory with `idle_timeout` plus an `endAllTestSql()` teardown, migrating ~55 files, hand-auditing the advisory-lock/concurrency tests that deliberately hold a connection, and a meta-test banning direct `postgres(` calls.
 
-**What is actually true.** The counts were partly an artifact of `grep postgres(`, which also matches the loopback-guard regex literals several helpers declare (`/^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])/`) — three of the files the entry counted as unclosed clients construct no client at all. Real figures: 162 client constructions across 122 files, 93 of them (70 files) with no `idle_timeout`, 42 files constructing at import time. But `.end(` appears 218 times against those 162 constructions, and only two files show a create/end deficit (`tests/db/_holdsHelpers.ts`, `tests/db/_remediationHelpers.ts`) — both `newConn()` factories where the caller owns the close.
+**What is actually true.** The counts were an artifact of `grep postgres(`, which matches both the loopback-guard regex literals several helpers declare (`/^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])/`) and mentions in comments. An AST walk gives the real figures: **155 constructions across 121 files**, 86 of them (64 files) with no `idle_timeout`, and **106 module-scope constructions across 101 files**. Of the 102 module-scope clients bound to a name, **60 are never `.end()`ed on their own binding** — overwhelmingly the `probe` client DB tests open to read state back. So the entry was right that many clients are never explicitly closed. It was wrong about what happens next.
 
-More decisively, the stated mechanism cannot fire. The serial project runs on vitest's forks pool with the default `isolate: true`, so **every test file gets its own child process** and the kernel closes its sockets when that process exits. Nothing carries into the next file. Verified two ways: a 3-file probe recording `process.pid` returned 3 distinct pids, and the full serial project was measured end to end.
+**The stated mechanism cannot fire.** Vitest runs each test file in its own worker and terminates that worker when the file finishes, closing its sockets — this is what `isolate: true` (the default) means, and it holds for the threads pool as much as for forks. Nothing carries into the next file. Verified with a 3-file probe recording `process.pid`: 3 distinct pids.
 
-**Measurement (2026-07-24).** Full `vitest run --project=serial` — 837 files, 7651 tests, 474s — sampling `pg_stat_activity` every 0.5s (881 samples), after `pnpm db:reset-pool` reaped 0 stale backends:
+A second reason the fear was misplaced: **postgres.js opens connections lazily.** `max: 6` is a ceiling, not a preallocation — a client running one query at a time holds one connection. So even the pools that exist are far smaller in practice than their configured maximum.
 
-|                              |       |
-| ---------------------------- | ----- |
-| `max_connections` (local)    | 100   |
-| Baseline backends            | 20    |
-| Peak total backends          | 33    |
-| **Peak held by postgres.js** | **6** |
+**Measurement (2026-07-24).** Full `pnpm test` — 1603 files, 17198 tests, 692s — sampling `pg_stat_activity` every 0.25s (2256 samples), filtering on `application_name = 'postgres.js'` (postgres.js 3.4.9 sets that by default at `node_modules/postgres/src/index.js:485`):
 
-postgres.js sets no `application_name`, so its backends are the unnamed ones; the named backends are PostgREST, realtime, `pg_cron`, and `pg_net`. Peak 6 is exactly the `max: 6` pool in `tests/db/_holdsHelpers.ts` — across 837 files the suite never exceeded a **single file's** pool, leaving 67 connections unused at peak. A 70-file `idle_timeout` sweep would have bought nothing, at the cost of churn plus real risk of dropping a held connection mid-test in the 26 advisory-lock/deadlock/concurrency files.
+|                                   |             |
+| --------------------------------- | ----------- |
+| `max_connections` (local)         | 100         |
+| Baseline backends / of them pg.js | 28 / 0      |
+| Peak total backends               | 30          |
+| **Peak held by postgres.js**      | **5**       |
+| Mean pg.js while any were open    | 1.7         |
+| Trend, first vs last third of run | 0.02 → 0.12 |
 
-**What replaced it.** The measurement is only true while the isolation holds, and three config edits would each break it silently: `isolate: false` on the serial project, `pool: "threads"` (workers share a process, so sockets outlive the file), or `fileParallelism: true` on serial. `tests/cross-cutting/db-test-connection-hygiene.test.ts` pins all three plus `poolOptions.<pool>.isolate`, and carries an import-time-client census floor so it cannot pass vacuously. All four were mutation-verified. If any of those edits ever becomes desirable, the `makeTestSql` work above becomes necessary again — that is the real trigger, not a connection count.
+The trend is the load-bearing number, not the peak: accumulation is a claim about growth over time, and a flat trend across a 692s run survives sampling gaps that a peak does not. postgres.js backends were open in only 175 of 2256 samples, and never more than 5 at once.
 
-**`db:reset-pool` stays**, for a different cause than this entry named: concurrent load from several worktrees, dev servers, and `psql` sessions sharing one local Postgres. Baseline alone is 20 of 100 with nothing running.
+An earlier pass at this measurement filtered on an EMPTY `application_name` and reported "peak 6" — those were background processes, which is why the figure sat at a constant 6 including at idle. The sampler's attribution was then validated directly: a file using the `max: 6` pool in `tests/db/_holdsHelpers.ts:47` shows up as 1-2 `postgres.js` backends, not 6, confirming both the filter and the lazy-connection behavior above.
+
+A 64-file `idle_timeout` sweep would have bought nothing against these numbers, at the cost of churn plus real risk of dropping a held connection mid-test in the 26 advisory-lock/deadlock/concurrency files.
+
+**What replaced it.** The measurement holds only while the isolation does. `tests/cross-cutting/db-test-connection-hygiene.test.ts` pins `isolate` — read from the **resolved runtime config**, so `vitest run --no-isolate` fails it rather than sliding past a config-file check — plus `fileParallelism: false` on the serial project, plus a scan of `package.json` scripts and workflow commands for isolation-killing flags, over an AST census floor of the 60 unclosed module-scope clients so it cannot pass vacuously. Every assertion is mutation-verified. If disabling isolation ever becomes desirable, the `makeTestSql` work above becomes necessary again — that is the real trigger, not a connection count.
+
+**`db:reset-pool` stays.** This measurement falsifies the DB test suite as the cause of pool exhaustion; it does not establish what the cause is. The plausible remaining source is concurrent load — one local Postgres shared across worktrees, dev servers, and `psql` sessions, on top of a baseline that is already 28 of 100 with no tests running — but that was not measured here.
 
 ---
 

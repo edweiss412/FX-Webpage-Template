@@ -4,19 +4,21 @@
 // exhaustion after a long probing session.
 //
 // WHY: one local Postgres (max_connections 100) is shared by every worktree, dev
-// server, and psql session on the box, and baseline is already ~20 backends at
-// idle from Supabase's own services (PostgREST, realtime, pg_cron, pg_net). A
-// long probing session with several of those live is what strands connections.
-// This reaps them without a full `supabase stop && start` (seconds, not a
-// container bounce). Run before the final full-suite verification pass.
+// server, and psql session on the box, and baseline is already ~28 backends at
+// idle from Supabase's own services (PostgREST, realtime, pg_cron, pg_net). This
+// reaps stranded connections without a full `supabase stop && start` (seconds,
+// not a container bounce). Run before the final full-suite verification pass.
 //
 // NOT the DB test suite. An earlier version of this comment blamed module-level
 // postgres.js clients with no idle_timeout accumulating across the serial run;
 // that was measured false on 2026-07-24 and the matching BL-TEST-PG-CLIENT-
-// TEARDOWN backlog entry is withdrawn. vitest's forks pool with the default
-// isolate:true gives every test file its own child process, so its sockets close
-// on exit. The full serial project (837 files) peaked at 6 postgres.js backends
-// of 100 — one file's pool. See BACKLOG.md's withdrawn entry for the numbers and
+// TEARDOWN backlog entry is withdrawn. Vitest terminates each file's worker when
+// the file finishes (isolate:true, the default), closing its sockets, and
+// postgres.js opens connections lazily so a `max: N` pool rarely holds N. The
+// full suite (1603 files) peaked at 5 postgres.js backends of 100, with a flat
+// trend across the run. That rules the suite OUT as the cause; it does not
+// establish what the cause IS — concurrent load is the plausible remainder, not
+// a measured conclusion. See BACKLOG.md's withdrawn entry for the numbers and
 // tests/cross-cutting/db-test-connection-hygiene.test.ts for the guard that
 // keeps the isolation from being switched off.
 //
@@ -74,7 +76,8 @@ if (!LOOPBACK.test(dbUrl)) {
 const all = process.argv.includes("--all");
 
 // Terminate this DB's backends other than our own session. Default: only idle
-// ones (the leaked test pools sit idle); --all also kills active.
+// ones, since a stranded connection is by definition not running a query;
+// --all also kills active.
 const stateFilter = all ? "" : "and state = 'idle'";
 const sql = `
   select count(*)::int as reaped from (
