@@ -341,6 +341,46 @@ describe("SAMPLING_PERIOD_MS agrees with the canonical refresh-watch schedule", 
       ).toHaveLength(1);
     });
 
+    test("another schema's cron-suffixed name is NOT this schema (R15)", () => {
+      // `mycron.schedule(...)` ends in "cron" but is a different schema. The
+      // previous pattern had no left boundary and would have attributed it here.
+      expect(
+        effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+          scheduleSql("0 * * * *"),
+          `perform mycron.schedule('fxav_cron_refresh_watch', '0 */3 * * *', format($body$ select 1; $body$));`,
+        ]),
+      ).toContain("0 * * * *");
+      expect(
+        effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+          scheduleSql("0 * * * *"),
+          `perform mycron.unschedule('fxav_cron_refresh_watch');`,
+        ]),
+      ).toContain("0 * * * *");
+    });
+
+    test('a QUOTED identifier does not case-fold, so "CRON" is not this schema (R15)', () => {
+      // Quoted identifiers are case-sensitive in PostgreSQL: "CRON"."SCHEDULE" is
+      // not cron.schedule and would fail to resolve. An `i` flag treated them as
+      // the same, which is why the case rules are in the pattern instead.
+      expect(
+        effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+          scheduleSql("0 * * * *"),
+          `perform "CRON"."SCHEDULE"('fxav_cron_refresh_watch', '0 */3 * * *', format($body$ select 1; $body$));`,
+        ]),
+      ).toContain("0 * * * *");
+    });
+
+    test("putting cron on the search_path is reported, since bare schedule() is unresolvable", () => {
+      // The one form no scanner can see. No migration does this today, so the
+      // guard is silent — but it fires the moment one would.
+      expect(
+        unattributableCronCalls([
+          "set search_path = cron, public;\nperform schedule('x', '0 * * * *', 'select 1;');",
+        ]),
+      ).not.toHaveLength(0);
+      expect(unattributableCronCalls(["set search_path = public;"])).toEqual([]);
+    });
+
     test("a commented-out unschedule does not count", () => {
       expect(
         effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
