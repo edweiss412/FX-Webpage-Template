@@ -118,11 +118,74 @@ next mutation-file-touching PR or the next post-merge nightly triage.
 
 ---
 
-## BL-WATCH-RECONCILE-BACKOFF — dedicated reconcile cron + backoff state for watch channels
+## BL-WATCH-RECONCILE-BACKOFF — backoff state for watch channels (BLOCKED on four shipped defects)
 
-**Status:** OPEN · **Severity:** low (Approach A ships hourly reconcile; this is the richer variant) · **Surfaced:** watch-channel-health brainstorming (2026-07-01), user-ratified as backlog
+**Status:** OPEN, **blocked** · **Severity:** low · **Surfaced:** watch-channel-health brainstorming (2026-07-01) · **Re-scoped:** 2026-07-25 after five cross-model adversarial rounds
 
-Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1: a dedicated `fxav_cron_reconcile_watch` (`*/15`) plus a `drive_watch_reconcile_state` table (attempts, `next_attempt_at`, last error class) giving precise exponential backoff and faster recovery than the shipped hourly reconcile pass. Adopt if the hourly cadence proves too slow in practice (e.g., renewal failures near show start) or if escalation cadence needs sub-hour precision. Costs: new cron + migration + validation-parity surface + cronJobsParity/pg-cron registrations + more tests.
+Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1: a `drive_watch_reconcile_state` table (attempts, `next_attempt_at`, last error class) plus exponential backoff and a faster reconcile cadence.
+
+**The lease half already shipped separately** as `docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md` — that was the measured defect (every channel taking Google's 1-hour default and being renewed at the instant it expired, ~1 second of slack). It is not part of this entry any more.
+
+**Why this half is blocked.** Five adversarial rounds (~55 findings, every checkable claim verified against the live tree) established that backoff cannot be built correctly on the current watch subsystem. The full design work, including round-by-round disposition tables of what was tried and why each attempt failed, is retained at `docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md` (status DEFERRED). Start there rather than re-deriving.
+
+The decisive blocker is `BL-WATCH-EXPIRED-ACTIVE-ROW`: refresh, not reconcile, is the dominant retry path, and it is ungated. A ladder attached to reconcile therefore cannot deliver backoff at all. Fix all four entries below first — including `BL-WATCH-DRIVE-CALL-TIMEOUT`, which is a prerequisite for any timing claim a backoff ladder would make. (This read "the three" while enumerating four; whole-diff R10.)
+
+## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
+
+**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
+
+`tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It is excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there says it "runs against the validation project (like validation-schema-parity)". **Nothing runs it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
+
+So every assertion in it is dead in CI, including the `active=true` gate that exists specifically because a disabled job would otherwise satisfy the name/schedule/command checks.
+
+**Fix:** give it a job in `x-audits.yml` with `PG_CRON_COVERAGE_TARGET=validation` and `TEST_DATABASE_URL` pointing at the validation project, alongside `validation-schema-parity` which already has that shape. Then correct the stale comment in `unit-suite.yml`.
+
+**Wiring it up is necessary but not sufficient** (whole-diff R18). Every assertion this suite makes about `cron.job.command` is text matching: PostgreSQL resolves the OUTER `cron.schedule` call but stores the command body verbatim, comments included. A job whose `net.http_get(...)` is commented out, followed by an executable `select 1;`, satisfies the route check, the `net.http_get(` check and the exactly-one-timeout check while issuing no request — and `active=true` does not help, because the job runs, it just does nothing. Proving a job actually fires needs a smoke test per job; only the sync path has one today. Track that with this entry rather than by adding more text assertions.
+
+## BL-CRON-REGISTRY-MIGRATION-PARITY — no CI-running check ties a new migration to the cron registry
+
+**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
+
+`pg-cron-jobs.json` is the canonical machine-readable cron contract, and constants are pinned against it. Nothing that runs in CI checks that the MIGRATIONS agree with it:
+
+- `pg-cron-coverage.test.ts` has a static migration check, but it reads two hard-coded historical paths and asserts `scheduledSql.toContain(job.schedule)` over their concatenated text — `fxav_cron_notify_digest` and `fxav_cron_refresh_watch` share `0 * * * *`, so one can change while the assertion still finds the string. It also does not run at all (`BL-PG-CRON-COVERAGE-UNRUN`).
+- Its live check reads the DEPLOYED validation row, so a migration sitting unapplied on a branch is invisible until after deploy.
+
+A hand-rolled SQL scanner was tried for exactly this and abandoned after nine review rounds of lexical corners (comments, dollar quoting, identifier case and quoting, name resolution, `search_path`, stored function bodies) — see the header of `tests/cron/samplingPeriodParity.test.ts`. **Do not reinstate regex-based SQL parsing.**
+
+**Fix direction:** apply migrations to a throwaway Postgres in CI and read `cron.job` from it, so PostgreSQL does the parsing on the BRANCH's SQL. The `supabase-local-bootstrap` path already boots a local instance; the pg_cron migrations are GUC-guarded and held aside there, so this needs a variant that enables them.
+
+## BL-WATCH-DRIVE-CALL-TIMEOUT — `files.watch` has no timeout, so one stalled call can hold the renewal loop
+
+**Status:** OPEN · **Severity:** low-medium · **Surfaced:** 2026-07-25, whole-diff review round 6
+
+`getDriveClient()` sets no global timeout and `files.watch` is called with no per-call options, so a stalled Drive request blocks the sequential renewal loop in `refreshWatchSubscriptions` for as long as the platform allows. The master spec claimed "time-boxed (default 15s)" for years; nothing implemented it, and that wording is now corrected rather than left as a false promise.
+
+This is why `2026-07-25-watch-lease-slack-design.md` claims **no** renewal-timing guarantee: every such claim would be parameterised by an execution budget nothing enforces. Adding a real per-call timeout (and a per-row deadline in the loop) is the prerequisite for making any timing guarantee defensible — including the deferred backoff work.
+
+## BL-WATCH-EXPIRED-ACTIVE-ROW — a failed renewal leaves the old channel active forever, retried on every tick
+
+**Status:** OPEN · **Severity:** medium (unbounded futile Drive calls; blocks `BL-WATCH-RECONCILE-BACKOFF`) · **Surfaced:** 2026-07-25, adversarial round 5
+
+When a renewal fails, `markWatchOrphanedWithTx` marks only the **newly inserted pending** channel orphaned. The old channel keeps `status='active'` past its `expires_at`, and the renewal query (`listRenewalDue`, which selects `status='active'` rows whose remaining life is inside the renewal lead) keeps returning it **forever**; GC only collects `superseded`/`orphaned`, so nothing ever cleans it up. Line numbers are deliberately omitted: this entry outlives any particular revision, and the method was renamed from `listExpiringActive` by the lease-slack PR.
+
+Result: refresh re-attempts that folder on every cron tick indefinitely — currently 24 futile `files.watch` calls/day per stuck folder, and 96/day at any 15-minute cadence. **Repro:** force a renewal failure, then observe `drive_watch_channels` retaining an `active` row with `expires_at` in the past while `DRIVE_WATCH_RENEWAL_FAILED` repeats hourly. **Fix direction:** on renewal failure, transition the old row out of `active` (orphaned or a new `expired` state) so it leaves the renewal query and enters GC — being careful that the partial unique index `drive_watch_channels_one_active_per_folder_idx` and the supersession-in-activation path still hold.
+
+## BL-WATCH-ALERT-RAISE-NOT-ATOMIC — the alert raise is not in the transaction it appears to be in
+
+**Status:** OPEN · **Severity:** low-medium (a window where channel state and alert state disagree; blocks alert-derived health inference) · **Surfaced:** 2026-07-25, adversarial round 4
+
+`PostgresWatchTx.upsertAdminAlert` looks like a transaction-port method but calls the standalone service-role helper (`lib/drive/watch.ts:189-194`), which constructs its own Supabase client and issues an RPC over a **different connection** (`lib/adminAlerts/upsertAdminAlert.ts:47-52`) — outside the surrounding `sql.begin` (`lib/drive/watch.ts:315-318`). The alert can commit while the channel mutation rolls back, or vice versa.
+
+Nothing shipped depends on that atomicity today, which is why this is not urgent — but any design that infers "is the watch healthy" from alert state versus channel state has a window, which is what round 4 discovered. **Fix direction:** route the alert upsert through the same `sql` transaction (the RPC can be called via the pg connection), or document the non-atomicity at the call site so future designs do not assume it.
+
+## BL-WATCH-ALERT-FOLDER-SCOPE — the global watch alert cannot describe which folder failed
+
+**Status:** OPEN · **Severity:** low · **Surfaced:** 2026-07-25, adversarial rounds 3-4
+
+`WATCH_CHANNEL_ORPHANED` is global — one unresolved row for the whole system (`show_id IS NULL`, `admin_alerts_one_unresolved_idx`, `supabase/migrations/20260501001000_internal_and_admin.sql:279-280`) — and carries no folder identity. Meanwhile `refreshWatchSubscriptions` renews **every** active channel without consulting `app_settings` (`lib/drive/watch.ts:196-210`), and folder promotion supersedes nothing (`app/api/admin/onboarding/finalize-cas/route.ts:779-804`). So after a folder switch, an old folder's renewal failure raises an alert that describes the _current_ folder, and escalation reports the current folder's name for a failure that happened elsewhere.
+
+**Fix direction:** either scope the alert per folder (context key plus dedup change) or have refresh skip channels whose folder is not the configured one, letting old-folder channels expire naturally.
 
 ## BL-SERVER-ACTION-ORIGIN-GATE — same-origin gate for the crew guest Server Action
 

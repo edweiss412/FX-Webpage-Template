@@ -870,7 +870,7 @@ describe("sync Supabase infra-failure contract", () => {
 
       const result = await refreshWatchSubscriptions({
         tx: {
-          listExpiringActive: async () => {
+          listRenewalDue: async () => {
             throw new Error("META: simulated watch renewal fault");
           },
         } as never,
