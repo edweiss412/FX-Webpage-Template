@@ -286,6 +286,12 @@ WITH substitutions is not. Anything outside these shapes is reported as
 - **A correct-but-unusual shape is reported**, e.g. an announcing `aria-label` arriving through
   a spread. The author moves to an approved shape or adds a reasoned exemption. A false positive
   costs one comment; a false negative ships a silent link.
+- **No MDX component map injects `target`, verified.** MDX resolves intrinsic tags through a
+  components map, so an anchor override there could make every help-page link external with nothing
+  per-file to inspect. Checked 2026-07-25: `mdx-components.tsx` is 34 lines and defines no anchor override, no `target`, and no `Link` — so the compiled-per-file scan is complete for this tree.
+  The compiled output routes intrinsic tags as `_components.a`, whose last segment is `a`, so the
+  existing link-tag rule classifies them without special-casing. Re-check this file if a components
+  map ever gains an anchor override.
 - **Non-JSX anchor construction is out of scope, and verified absent.** The scanner walks JSX
   elements, so `React.createElement("a", { target: "_blank" })` and an anchor injected through
   `dangerouslySetInnerHTML` are invisible to it. Verified 2026-07-25 against the live tree: the only
