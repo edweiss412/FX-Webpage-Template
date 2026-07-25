@@ -117,7 +117,7 @@ Flip both `TRANSFORM_SITES` exempts, delete both BACKLOG rows and the section he
 
 ### S10 — UI quality gate (evaluation only, no TDD)
 
-`/impeccable critique` AND `/impeccable audit` on the UI diff with the canonical v3 setup gates. P0/P1 fixed or deferred via `DEFERRED.md`. **Findings and dispositions are recorded in a new close-out doc created by this slice, `2026-07-25-hotel-ambiguity-coverage-CLOSEOUT.md`, alongside this plan, §12** (scope-B finding 6 — the first draft said "recorded" without naming a destination). This slice produces no test and is explicitly exempt from commit-per-task TDD.
+`/impeccable critique` AND `/impeccable audit` on the UI diff with the canonical v3 setup gates. P0/P1 fixed or deferred via `DEFERRED.md`. **Findings and dispositions are recorded in a new close-out doc created by this slice, named for this plan with a CLOSEOUT suffix and placed alongside it, §12** (scope-B finding 6 — the first draft said "recorded" without naming a destination). This slice produces no test and is explicitly exempt from commit-per-task TDD.
 
 ---
 
