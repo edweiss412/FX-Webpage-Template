@@ -583,6 +583,42 @@ describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)"
     expect(anchor.hasAttribute("data-step3-warning-flash")).toBe(true);
   });
 
+  // Whole-diff review 2026-07-25 asked for a production-mount test of
+  // `effectiveSectionId`, because the card-side suite hand-injects the prop and
+  // the bucketAttention suite swaps renderCard for a plain string.
+  //
+  // Stated honestly: this test proves the chip renders through the REAL bannerFor
+  // path (a swapped-out or mis-slotted footer fails here), but it does NOT catch
+  // `bannerFor` passing `item.sectionId` instead of the resolved section —
+  // verified by mutation, which stayed green. That is not a hole in the test; it
+  // is a property of the code after the chip became external-only: the self-link
+  // guard is the prop's only consumer, and it can only ever fire on an INTERNAL
+  // action, which no longer renders a chip at all. So `effectiveSectionId` cannot
+  // change rendered output today. It is kept because §2.3 ratifies the guard as
+  // the card-side enforcement of external-only, and it becomes live again the
+  // moment an internal chip is ever specified.
+  it("bannerFor renders the chip through the real production mount", async () => {
+    const ITEM = alertItem(
+      { id: "alert:chip1", actionable: false, clearingKind: "needs_look" },
+      {
+        code: "SHEET_UNAVAILABLE",
+        autoClearNote: "Clears when the sheet is reachable again.",
+        action: {
+          label: "Open in Sheet",
+          href: "https://docs.google.com/spreadsheets/d/F/edit#gid=0",
+          external: true,
+        },
+      },
+    );
+    renderModal({ attentionItems: [ITEM] });
+    // rendered by the REAL bannerFor, through the modal's own placement predicates
+    const chip = await screen.findByTestId("attention-banner-destination-chip1");
+    expect(chip.textContent).toContain("Google Sheets");
+    expect(chip).toHaveAttribute("target", "_blank");
+    // the auto-clear note is replaced, not merely hidden
+    expect(screen.queryByTestId("attention-banner-autoclear-chip1")).toBeNull();
+  });
+
   it("resolve: last actionable closes the menu DESPITE a remaining monitoring item (monitoring-badge-expand §1.1 doctrine pin)", async () => {
     // §1.1: onResolved close-on-last-actionable is UNCHANGED — the stays-open
     // contract applies only to passive live-data reconciliation, never the

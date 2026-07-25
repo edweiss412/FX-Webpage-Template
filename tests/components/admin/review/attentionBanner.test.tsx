@@ -424,12 +424,13 @@ describe("destination chip", () => {
     },
   );
 
-  // impeccable critique P2: the ↗ means "leaves this app". An internal chip
-  // opens in the same tab, so wearing the glyph would promise a new window and
-  // lie. Internal chips are unreachable today via the self-link guard, so this
-  // pins the markup directly rather than through a reachable code — otherwise
-  // nothing catches a future internal action that survives the guard.
-  test("the ↗ glyph is EXTERNAL-only; an internal chip carries no arrow", () => {
+  // §2.3 says an internal-destination chip is NOT implemented and would need an
+  // amendment. So an internal action renders NO chip AT ALL — not a same-tab
+  // chip wearing the action's own label. Constructed so the self-link guard does
+  // NOT fire (card in warnings, action targeting overview), which is the only
+  // way to reach the branch: without this, a future implementation that falls
+  // back to `action.label` would invent unratified UX and stay green.
+  test("an internal action renders NO chip, even when the self-link guard misses", () => {
     renderBanner(
       needsLookItem({
         // card in warnings, action targets overview → guard does NOT suppress
@@ -442,11 +443,9 @@ describe("destination chip", () => {
       }),
       { effectiveSectionId: "warnings" },
     );
-    const chip = screen.getByTestId("attention-banner-destination-a1");
-    expect(chip.textContent).toContain("Go to Overview");
-    expect(chip.textContent).not.toContain("↗");
-    expect(chip).not.toHaveAttribute("target");
-    expect(chip).not.toHaveAttribute("rel");
+    expect(screen.queryByTestId("attention-banner-destination-a1")).toBeNull();
+    // and it does not silently fall back to the row-style inline action link
+    expect(screen.queryByTestId("attention-banner-action-a1")).toBeNull();
   });
 
   test("monitoring (self-heal) cards are unchanged: auto-clear note, no chip", () => {

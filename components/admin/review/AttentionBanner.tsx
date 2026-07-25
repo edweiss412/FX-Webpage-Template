@@ -191,21 +191,22 @@ export function AttentionBanner({
   const actionTargetsOwnSection =
     a.action != null && !a.action.external && sectionOfHref(a.action.href) === effectiveSectionId;
 
+  // EXTERNAL-ONLY, per §2.3: "An internal-destination chip is therefore not
+  // implemented." Gating on `external` rather than falling back to the action's
+  // own label matters — an unparseable or newly-shaped internal href would
+  // otherwise render a same-tab chip with unratified copy, inventing UX the spec
+  // says requires an amendment. The self-link guard stays as the card-side
+  // enforcement of the same invariant (whole-diff review 2026-07-25).
   const destinationChip: ReactNode =
-    isClearingNeedsYou && a.action && !actionTargetsOwnSection ? (
+    isClearingNeedsYou && a.action?.external && !actionTargetsOwnSection ? (
       <a
         href={a.action.href}
         data-testid={`attention-banner-destination-${a.alertId}`}
         {...(a.action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
         className="inline-flex min-h-tap-min items-center gap-1 text-xs font-medium text-warning-text underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg focus-visible:outline-none"
       >
-        {a.action.external ? "Google Sheets" : a.action.label}
-        {/* The ↗ means "leaves this app". An internal chip opens in the SAME tab,
-            so wearing the glyph would promise a new window and lie. Internal
-            chips are unreachable today (the self-link guard catches all four
-            internal-action codes), but the markup must be honest on its own —
-            the invariant is enforced by the guard, not by this element. */}
-        {a.action.external ? <span aria-hidden="true"> ↗</span> : null}
+        Google Sheets
+        <span aria-hidden="true"> ↗</span>
       </a>
     ) : null;
 
