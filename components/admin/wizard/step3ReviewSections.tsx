@@ -1790,7 +1790,14 @@ export function ScheduleDayRow({
           {timeMeta}
         </span>
       ) : null}
-      <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5">
+      {/* `empty:hidden`: `rows` is empty on any day with no agenda entries, no
+          synthetic strike/load-out, and no synthesized Show-Start row — which is
+          every Travel/Set day in the common case. The grid then renders with no
+          children: invisible, but still a flex item of the `gap-1` <li> above,
+          so each such day row carried a phantom 4px below its date line. Same
+          class as the Overview sheet/sync slot (OverviewSection.tsx); pinned by
+          T-NOPHANTOM in tests/e2e/published-review-modal.layout.spec.ts. */}
+      <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5 empty:hidden">
         {rows.map((e, i) => {
           const isSynthetic = e.kind === "strike" || e.kind === "loadout";
           return (
