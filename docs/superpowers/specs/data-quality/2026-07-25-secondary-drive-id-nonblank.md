@@ -349,9 +349,10 @@ threaded in at runtime.
   transaction before trusting any rendering. `SET LOCAL` is transaction- and connection-scoped; issued
   autocommit, or followed by a query on another pooled connection, it silently expires (R2 finding 5).
 
-**Fail-not-skip when the database is missing** (R4 finding 2). Every existing `tests/db/` suite guards
-its tests with `test.skipIf(!dbUp)` (`tests/db/driveFileIdNonblank.db.test.ts:44-58`), which is right
-locally — a developer without a stack should not get a wall of red — but wrong in CI, where a
+**Fail-not-skip when the database is missing** (R4 finding 2). The sibling suite this one extends guards its tests with
+`test.skipIf(!dbUp)` (`tests/db/driveFileIdNonblank.db.test.ts:44-58`) — 1 of the 5
+`tests/db/*.db.test.ts` files, not a repo-wide convention; an earlier draft overstated that. The
+posture is right locally — a developer without a stack should not get a wall of red — but wrong in CI, where a
 connection failure would let the guard skip and `unit-suite` stay green. "The job provides a database"
 is not proof the guard reached it. So this suite skips only when `process.env.CI` is unset; under CI a
 failed probe **throws**, naming the DSN host (redacted) and the underlying error.
@@ -389,7 +390,7 @@ constraints still render as those constants:
 | canary tuple | expected template |
 | ------------ | ----------------- |
 | `public.shows` · `drive_file_id` (`supabase/migrations/20260702120200_drive_file_id_nonblank.sql:20-22`) | bare form |
-| `public.sync_log` · `drive_file_id` (`supabase/migrations/20260702120200_drive_file_id_nonblank.sql:68-70`) | `IS NULL OR` form |
+| `public.sync_log` · `drive_file_id` (`supabase/migrations/20260702120200_drive_file_id_nonblank.sql:69-71`) | `IS NULL OR` form |
 
 A deparser change then fails **two named canary assertions** with a clear message instead of failing
 every column mysteriously — the diagnosis benefit calibration was for — while a poisoned constraint
@@ -497,7 +498,7 @@ Shared values are defined once and referenced, not restated:
 - **8 / 16 / 4** — statements per pass, results across two passes, and first-pass NOTICEs — appear only in §3.1.2, all from the one measurement.
 - **The predicate** `~ '[^[:space:]]'` is spelled in the migration (§3) and in §4.2's two template constants; §4.2's two canaries assert the parent migration's constraints still render as those constants, so the spellings cannot drift apart silently.
 
-**Where the normative enumeration lives, after the R3 collapse:** there is no committed census file to keep honest — the census is recomputed from the live database on every run (§4.1). The enumeration is therefore normative by construction rather than by artifact discipline, which is a stronger form of the same lesson: nothing to hand-edit, nothing to go stale.
+**Where the normative enumeration lives, after the R3 collapse:** there is no committed census file to keep honest — the census is recomputed from the live database on every run (§4.1). The enumeration is therefore normative by construction rather than by artifact discipline. That removes one drift surface — no stored list can fall behind the schema — but not the other: the ~15-line query that computes the census is itself hand-written, and §10 items 2 and 6 own what happens when it narrows.
 
 ---
 
