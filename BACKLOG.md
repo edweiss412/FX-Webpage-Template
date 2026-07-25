@@ -8,6 +8,16 @@ Last reconciled: 2026-07-24 — 30 resolved entries graduated to the archive.
 
 ---
 
+## BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW — `empty:hidden` the TravelRow eyebrow
+
+**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, found by `T-NOPHANTOM-CREW`). **Class:** layout hardening. **Effort:** XS (one class), plus the invariant-8 impeccable dual gate.
+
+`TravelRow` renders its eyebrow `<p>` unconditionally inside a `flex flex-col gap-0.5` stack (`components/crew/sections/TravelSection.tsx:120-123`). A ground leg whose stage was promoted to the primary line passes `label=""` (`:403`) — deliberate, and the comment there calls the blank eyebrow "acceptable per its presentational contract". It is not free: an empty `<p>` is still a flex item, so the stack charges 2px above a line that paints nothing. Two legs on the seeded show, at both widths; ledgered in `KNOWN_CREW_PHANTOM_ITEMS` (`tests/e2e/crew-layout-dimensions.spec.ts`).
+
+**Work:** add `empty:hidden` to that `<p>` (the DESIGN.md §7a idiom — the element keeps its slot and costs nothing when empty), then delete the two ledger rows; the stale-row assertion fails if they are kept past the repair. Watch the `:empty` caveat: a stray `{" "}` in the eyebrow would silently re-enable the gap.
+
+A class sweep for the same shape (an empty STRING becoming an element's entire rendered content) found no second instance — every other `? "" :` in `components/` is a className fragment or a pluralization suffix inside larger text.
+
 ## BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW — decide crowded-row behavior for childless `flex-1` spacers
 
 **Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, found by `T-NOPHANTOM-SHOW`). **Class:** layout hardening (UI judgment). **Effort:** S per site, plus the invariant-8 impeccable dual gate.

@@ -1010,9 +1010,33 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     const anchorHits = (visited: readonly string[], anchor: string): string[] =>
       visited.filter((v) => v === anchor || v.includes(`in ${anchor}>`));
 
-    /** Known, deferred instances. See the helper's `PhantomLedgerRow` for why a
-     *  row is scoped and counted before adding one. */
-    const KNOWN_CREW_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
+    /**
+     * Known, deferred instances — see the helper's `PhantomLedgerRow` for why a
+     * row is scoped and counted before adding one.
+     *
+     * `TravelRow`'s eyebrow `<p>` renders `label` unconditionally inside a `flex
+     * flex-col gap-0.5` stack (TravelSection.tsx:120-123). A ground leg whose
+     * stage was promoted to the primary line passes `label=""`
+     * (TravelSection.tsx:403) — deliberately, and the comment there calls the
+     * blank eyebrow "acceptable per its presentational contract". It is not free:
+     * an empty `<p>` is still a flex item, so the stack charges its 2px row gap
+     * above a line that paints nothing. The seeded show has two such legs, at
+     * both widths.
+     *
+     * Deferred rather than fixed because the repair — `empty:hidden` on that `<p>`,
+     * the DESIGN.md §7a idiom — edits a crew UI component and so pulls in the
+     * invariant-8 impeccable dual gate. Carried as
+     * BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW.
+     */
+    const KNOWN_CREW_PHANTOM_ITEMS: PhantomLedgerRow[] = ([390, 1000] as const).map((w) => ({
+      surface: "travel",
+      width: w,
+      parent: "<div in travelrow>",
+      child: "<p in travelrow>",
+      axis: "row-gap" as const,
+      count: 2,
+      why: "TravelRow's eyebrow <p> renders an empty label for a stage-promoted leg and still charges the 2px stack gap — pre-existing, deferred to BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW",
+    }));
 
     for (const { section, anchor } of NOPHANTOM_SECTIONS) {
       for (const width of [390, 1000] as const) {
