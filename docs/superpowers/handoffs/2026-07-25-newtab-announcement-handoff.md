@@ -305,6 +305,61 @@ property names lowercase through one helper, and the meta-test now covers every 
 set-membership helper. A guard against a class is itself code, and it deserves the same adversarial
 attention as the thing it guards.
 
+## R10 — the MDX vector hit four rounds, so the model changed
+
+R10 returned 3 BLOCKING + 3 MEDIUM + 1 LOW. **Three of the seven were the same hand-written MDX
+lexer:** `{` and `}` inside a JavaScript regex literal corrupted brace depth, so a later `target`
+was invisible (and an unmatched `{` made the scan swallow following prose); fenced code blocks were
+read as live JSX; and a quoted attribute ending in a backslash left the scanner stuck in quote mode,
+running past the tag into text that then matched `target =`.
+
+Counting the vector honestly: R8 found prose and autolink false positives, R9 found the
+angle-bracket-excluding class ending tags early, R10 found three more. **Four rounds, each fixing
+the previous fix.** `docs/agents/spec-self-review.md:22` caps that at three, so the lexer is gone:
+
+```
+.mdx  ->  @mdx-js/mdx compileSync(src, { jsx: true })  ->  the SAME scanSource used for TSX
+```
+
+Prose and fenced code compile to string literals. Regex literals, escapes, and attribute quoting
+become the compiler's problem, which is where they belong. **MDX and TSX are one enforcement path
+now instead of two** — that is what removes the class rather than the instance, and `@mdx-js/mdx`
+was already a devDependency so it cost no new dependency.
+
+It also bought coverage a lexer could never have had: the compiled module is walked in full, so an
+anchor bound to an `export const` and rendered as `{link}`, an anchor returned from an exported
+function, and a custom component handed a `target` are all classified. Those are pinned.
+
+**And the swap introduced a vacuity risk that I found rather than the next reviewer.** With the
+guard now depending on a compiler, an upstream change returning `""` would leave `scanSource` with
+nothing to find and the live MDX test passing FOR THE WRONG REASON. The test now asserts every
+`.mdx` compiles to real JSX before scanning it, mutation-verified against a stubbed-empty compiler.
+Measured: all 13 pages compile to 2.8k-12.3k characters and 25-99 JSX tags, so the floor has
+headroom and will not flake.
+
+R10's other findings, all real: a RESOLVABLE inline spread carrying `href`+`target` was skipped
+even though both props are statically visible; duplicate case-folded property names took the wrong
+value in BOTH directions, because React collapses `{ target, TARGET }` into one attribute where the
+later value wins; and my lowercase meta-test hooked on accessor context, so `"Target" === attrName(a)`,
+a template literal, a switch case, a variable hop, and `[...].includes(...)` all evaded it.
+
+### Three fail-opens in my own fixes, found by probing them
+
+Between rounds I probed my own work rather than waiting to be told, and each probe found something:
+
+- `<Foo {...{...{href:"x", target:"_blank"}}}>` produced **zero anchors** — my R10 fix unwrapped
+  spreads one level, so the identical fail-open sat one level deeper.
+- The inverted meta-test's fixed name set only protects names it knows, so a future comparison
+  against another attribute would escape silently. It now also derives the names the scanner
+  compares and fails until the set covers them.
+- The same meta-test flagged `LINK_TAGS.has("Link")` as a violation, which is wrong: JSX **tag**
+  names are case-sensitive, unlike attribute names.
+
+That is now three separate instances on this PR of **a class recurring inside its own remediation**
+(the casing sweep fixed 8 of 9 sites; the guard written to prevent that had two defects of its own;
+spread depth). It is the strongest argument available for pairing every fix with a structural pin
+and a mutation, rather than trusting that a passing suite means a working guard.
+
 ## A gate I retired rather than satisfied
 
 The local full-suite gate is **not** green and cannot be made green here. A peer session (PID
@@ -323,7 +378,7 @@ The guard has also already proven itself on live upstream code: rebasing onto 82
 
 ## Verification
 
-- 78 guard tests (synthetic self-tests driving each accept/reject branch, plus named regression pins for every R1-R6 bypass, including all eleven R6 operator families); 167 across the guard and a11y suites. The reviewers' exact probe cases behave correctly (R1: 7 rejected / 3 valid accepted; R2: 16/16).
+- 92 guard tests (synthetic self-tests driving each accept/reject branch, plus named regression pins for every R1-R6 bypass, including all eleven R6 operator families); 167 across the guard and a11y suites. The reviewers' exact probe cases behave correctly (R1: 7 rejected / 3 valid accepted; R2: 16/16).
 - `tsc` clean; `prettier` clean; `eslint` 0 errors and 0 warnings from new files (re-verified after the R2 fixes, which had left three dead-code warnings behind).
 - Real CI green on #592 before the guard hardening (38 pass / 0 fail), re-run on each subsequent head. NOTE for anyone reading CI history on this PR: the four workflows that show `completed/failure` on head `e1d937109` had every job CANCELLED (bulk external cancel at 12:13:20Z, 11 of 15 workflows already green), and `gh run rerun --failed` is a NO-OP on cancelled jobs — it produced an empty attempt-2 with `total_count: 0` that instantly re-concluded as failure. Neither was a test failure. The `validation-schema-parity` failure visible on the superseded head `7b8e2a70a` never re-ran on a later head, so its "environmental" diagnosis is retired, not confirmed.
 - `spec:lint` 0 hard on the spec (27 advisory, all numeric literals in prose).
