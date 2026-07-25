@@ -40,9 +40,12 @@ const CASE_INSENSITIVE_NAMES = new Set([
   // Link-relevant attributes only. `type`, `title`, `alt`, `id` and `name` were
   // here briefly and removed on purpose: this scanner never compares them, so
   // they added no protection, while an exact literal "Title" or "Name" in a
-  // message or fixture would have raised a false positive. The self-maintaining
-  // half below is what keeps the set honest -- it FORCES any newly compared name
-  // in here -- so speculative entries are cost without benefit.
+  // message or fixture would have raised a false positive. The classification
+  // assertion below keeps the set honest for the literals it CAN see; the actual
+  // casing guarantee is the behavioural closed-list sweep, which does not depend
+  // on this set at all (R19). Speculative entries are cost without benefit --
+  // except where a name is plausible in a future hand-typed literal, which is why
+  // `download`, `ping`, `referrerpolicy` and `class` stay.
   "referrerpolicy",
   "download",
   "ping",
@@ -1534,10 +1537,16 @@ describe("R6: scanner changes are pinned", () => {
     }
   });
 
-  it("R18 nameShapedLiterals is blind to reading FORM, on synthetic input", () => {
-    // The point of the rewrite: every way of spelling a name-decision still contains the
-    // literal, so none of these can hide one. R18's witness is the `.includes` case; the
-    // const-bound Set is how `rel` was already hidden from the position-based collector.
+  it("R18/R19 nameShapedLiterals sees literal-bearing forms, and provably not others", () => {
+    // TITLE CORRECTED at R19. This used to claim the helper "is blind to reading FORM", which
+    // R19 disproved: a regex literal and an unquoted property key carry no string literal at
+    // all, so it cannot see them. That claim is why the coverage guarantee moved to the
+    // behavioural closed-list sweep, which reads no source. What this helper still does
+    // usefully -- catch an accidental camelCase literal -- is bounded, and the bound is now
+    // asserted below rather than described.
+    //
+    // Forms it DOES see: every one that contains the literal. R18's witness is the `.includes`
+    // case; the const-bound Set is how `rel` was hidden from the position-based collector.
     const forms = [
       'if (n === "alpha") return true;',
       'if (["alpha"].includes(n)) return true;',
@@ -1566,10 +1575,17 @@ describe("R6: scanner changes are pinned", () => {
         `prose must not be collected from: ${src}`,
       ).toEqual([]);
     }
-    // One genuinely undecidable form, stated rather than pretended away: a name assembled
-    // from fragments contains no literal spelling it. Same accepted limit as the `compo`
-    // fragment in spec 6.4, and it needs commit access to introduce.
-    expect(nameShapedLiterals('if (n === "al" + "pha") return true;')).not.toContain("alpha");
+    // Forms it does NOT see, pinned as expectations so the limit cannot be forgotten or
+    // overstated. All three were R19 findings against the previous coverage model; they are
+    // harmless here only because coverage no longer depends on this helper.
+    for (const src of [
+      'if (n === "al" + "pha") return true;', // assembled from fragments
+      "if (/^alpha$/.test(n)) return true;", // regex literal: no string literal at all
+      "const M = { alpha: true }; if (M[n]) return true;", // unquoted property key
+      "if (n === String.fromCharCode(97) + 'lpha') return true;", // runtime-built
+    ]) {
+      expect(nameShapedLiterals(src), `must NOT be claimed as seen: ${src}`).not.toContain("alpha");
+    }
   });
 
   it("R15 commentRanges distinguishes comments from division, regex and templates", () => {
