@@ -717,4 +717,161 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       await expect(modal).toBeVisible();
     });
   }
+
+  // ── T-FIT / T-SIDE / T-REACH (spec §3) ───────────────────────────────────
+  // The sweep this branch exists for. Before the portal migration the armed
+  // Archive confirm was unreachable at EVERY one of these heights: the popover
+  // overhung the panel's overflow-clip edge, and because it carries its own
+  // scroller the tail of its scroll range sat below that edge where no scroll
+  // position in any container could reach it (spec §9.2).
+  //
+  // Reachability is proved with elementFromPoint, not rect maths.
+  // BL-HOVERHELP-PORTAL records why: a clipped popover still reports an
+  // UNCLIPPED bounding box, so a rect-only assertion passes against the very
+  // bug. Arming uses a real Playwright click, because a dispatched .click()
+  // bypasses actionability and would assert nothing about reachability.
+  for (const height of [844, 740, 667, 620, 560]) {
+    test(`T-FIT/T-REACH @ 390x${height}: placed inside the clip, armed confirm reachable`, async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      await page.setViewportSize({ width: 390, height });
+      await ensureWatchedFolder();
+      await page.goto(`/admin?show=${held.slug}`);
+      const modal = page.locator(LOADED_REVIEW_MODAL);
+      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const popover = modal.getByTestId("share-hub-popover");
+      await expect(async () => {
+        await modal.getByTestId("share-hub-kebab").click();
+        await expect(popover).toBeVisible({ timeout: 1500 });
+      }).toPass({ timeout: 15_000 });
+
+      const geometry = () =>
+        page.evaluate(() => {
+          const body = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
+          const panel = document.querySelector("[data-review-modal-panel]") as HTMLElement;
+          const trigger = document.querySelector('[data-testid="share-hub-root"]') as HTMLElement;
+          const INSET = 8;
+          const p = panel.getBoundingClientRect();
+          const b = body.getBoundingClientRect();
+          const t = trigger.getBoundingClientRect();
+          return {
+            side: body.dataset["popoverSide"] ?? null,
+            body: { top: b.top, bottom: b.bottom, left: b.left, right: b.right, width: b.width },
+            trigger: { top: t.top, bottom: t.bottom },
+            bounds: {
+              top: Math.max(p.top, 0) + INSET,
+              bottom: Math.min(p.bottom, window.innerHeight) - INSET,
+              left: Math.max(p.left, 0) + INSET,
+              right: Math.min(p.right, window.innerWidth) - INSET,
+            },
+            viewportH: window.innerHeight,
+          };
+        });
+
+      const idle = await geometry();
+
+      // T-FIT-1: inside the clip rect. This is the invariant whose absence made
+      // the confirm unreachable.
+      expect(idle.body.top, "popover escapes bounds (top)").toBeGreaterThanOrEqual(
+        idle.bounds.top - TOL,
+      );
+      expect(idle.body.bottom, "popover escapes bounds (bottom)").toBeLessThanOrEqual(
+        idle.bounds.bottom + TOL,
+      );
+      expect(idle.body.left).toBeGreaterThanOrEqual(idle.bounds.left - TOL);
+      expect(idle.body.right).toBeLessThanOrEqual(idle.bounds.right + TOL);
+
+      // T-FIT-2: and inside the visual viewport.
+      expect(idle.body.top).toBeGreaterThanOrEqual(-TOL);
+      expect(idle.body.bottom).toBeLessThanOrEqual(idle.viewportH + TOL);
+
+      // T-FIT-3: the migration must not have changed the width.
+      expect(Math.abs(idle.body.width - 308)).toBeLessThanOrEqual(TOL);
+
+      // T-SIDE-1: the placed side agrees with where the body actually sits
+      // relative to the trigger. Asserted as a relationship rather than by
+      // re-running the placement algorithm, which would just restate it.
+      expect(idle.side === "top" || idle.side === "bottom").toBe(true);
+      if (idle.side === "bottom") {
+        expect(idle.body.top).toBeGreaterThanOrEqual(idle.trigger.bottom - TOL);
+      } else {
+        expect(idle.body.bottom).toBeLessThanOrEqual(idle.trigger.top + TOL);
+      }
+
+      // T-REACH-2: the idle Archive row is reachable. At 560 this was NOT true
+      // before the migration -- idle content did not overflow, so maxScroll was
+      // 0 and the row simply sat off-screen with no way to bring it up.
+      const idleRowHit = await page.evaluate(() => {
+        const body = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
+        const row = document.querySelector('[data-testid="archive-show-button"]') as HTMLElement;
+        if (!row) return { reachable: false, reason: "row missing" };
+        const max = body.scrollHeight - body.clientHeight;
+        const start = body.scrollTop;
+        for (const t of [0, max / 2, max]) {
+          body.scrollTop = t;
+          const r = row.getBoundingClientRect();
+          const hit = document.elementFromPoint(
+            Math.round(r.left + r.width / 2),
+            Math.round(r.top + r.height / 2),
+          );
+          if (hit && (hit === row || row.contains(hit))) {
+            body.scrollTop = start;
+            return { reachable: true, reason: "" };
+          }
+        }
+        body.scrollTop = start;
+        return { reachable: false, reason: "no scroll position exposes the idle row" };
+      });
+      expect(idleRowHit.reachable, idleRowHit.reason).toBe(true);
+
+      // Arm with a REAL click: this is the step that was impossible before.
+      await popover.getByTestId("archive-show-button").click();
+      await expect(popover.getByTestId("archive-show-confirm-button")).toBeVisible();
+      await page.waitForTimeout(300);
+
+      const armed = await geometry();
+      expect(armed.body.top).toBeGreaterThanOrEqual(armed.bounds.top - TOL);
+      expect(armed.body.bottom).toBeLessThanOrEqual(armed.bounds.bottom + TOL);
+
+      // T-REACH-1: Confirm AND Cancel both reachable at some scroll position.
+      // Cancel matters as much as Confirm -- an operator who armed by mistake
+      // must be able to back out.
+      const armedHit = await page.evaluate(() => {
+        const body = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
+        const confirm = document.querySelector(
+          '[data-testid="archive-show-confirm-button"]',
+        ) as HTMLElement;
+        const cancel = document.querySelector(
+          '[data-testid="archive-show-cancel-button"]',
+        ) as HTMLElement;
+        const max = body.scrollHeight - body.clientHeight;
+        const start = body.scrollTop;
+        const hits = (el: HTMLElement) => {
+          const r = el.getBoundingClientRect();
+          if (r.top < 0 || r.bottom > window.innerHeight) return false;
+          const node = document.elementFromPoint(
+            Math.round(r.left + r.width / 2),
+            Math.round(r.top + r.height / 2),
+          );
+          return !!node && (node === el || el.contains(node));
+        };
+        // Derived from the real scroll range, never a hardcoded offset.
+        const steps = [0, max * 0.25, max * 0.5, max * 0.75, max];
+        for (const t of steps) {
+          body.scrollTop = t;
+          if (hits(confirm) && hits(cancel)) {
+            body.scrollTop = start;
+            return { reachable: true, max };
+          }
+        }
+        body.scrollTop = start;
+        return { reachable: false, max };
+      });
+      expect(
+        armedHit.reachable,
+        `armed Confirm+Cancel unreachable at 390x${height} (maxScroll ${armedHit.max})`,
+      ).toBe(true);
+    });
+  }
 });
