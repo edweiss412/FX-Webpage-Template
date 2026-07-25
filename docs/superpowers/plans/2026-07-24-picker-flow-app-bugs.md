@@ -27,7 +27,7 @@
 - **CREATES** tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts — structural pin that the picker-flow spec is named in a CI workflow command and that the signing key's value is 64 hex, so the un-skipped cases cannot go dark or crash on setup (R2 finding 4).
 - **EXTENDS** `tests/cross-cutting/ci-workflow-speedup.test.ts` — `PICKER_COOKIE_SIGNING_KEY` added to `REQUIRED_ENV` (`tests/cross-cutting/ci-workflow-speedup.test.ts:201-207`), the existing registry for runner-level vars a bare-runner webServer must inherit.
 - **EXTENDS** `tests/ci/_metaE2eWorkflowCoverage.test.ts` — the picker-flow row (`tests/ci/_metaE2eWorkflowCoverage.test.ts:82`) moves from `UNSEEN` to `PATH_GATED`, which is what it becomes once a path-filtered workflow names it.
-- **CREATES** tests/docs/pickerFlowBacklogArchived.test.ts — the red phase for the backlog move in Task 9.
+- **EXTENDS** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — generalised from the `DEFERRED` ledger pair to cover `BACKLOG.md` / `BACKLOG-archive.md` as well, carrying the three graduated IDs, the no-overlap invariant for that pair, and the substance assertion for the filed follow-up. This is Task 9's red phase.
 - **EXTENDS** `tests/auth/_metaInfraContract.test.ts` — a `lib/auth/picker/clearIdentity.ts` row in `SUPABASE_CONSTRUCTOR_CONTRACT_FILES` (rows at `tests/auth/_metaInfraContract.test.ts:219-232`) **plus** a per-file destructuring assertion in the same describe, mirroring the sign-out precedent at `tests/auth/_metaInfraContract.test.ts:290-293`.
 - **Not applicable, with reasons:** advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — no `pg_advisory*` anywhere in the diff; sentinel-hiding and admin-alert-catalog meta-tests — no tile rendering, no `admin_alerts.upsert`; no-inline-email-normalization — no email handling. `tests/log/_metaMutationSurfaceObservability.test.ts` is not edited, but Task 4 changes how `clearIdentityAndSkip` satisfies it, so it is re-run in that task's gate.
 - **Layout-dimensions task:** not applicable — spec §5.1 declares no dimensional invariants (a hidden input is `display: none` and contributes no box).
@@ -322,27 +322,23 @@ So the honest goal is: move picker-flow from `UNSEEN` to `PATH_GATED`, and make 
 
 **Files:**
 
-- Create: tests/docs/pickerFlowBacklogArchived.test.ts
+- Modify: `tests/docs/_metaDeferralLedgerGraduation.test.ts`
 - Modify: root `BACKLOG.md` (the three entries and their section header, lines 129-149; plus the new BL-SERVER-ACTION-ORIGIN-GATE entry)
 - Modify: `BACKLOG-archive.md`
 
+**Extend the existing ledger guard, do not add a bespoke file.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` already exists for precisely this failure class — its own header records that it was written because "a ledger/docs task with no genuine red state, only post-hoc checks that were already green" recurred across two review rounds, "so the graduation itself became a test" (`tests/docs/_metaDeferralLedgerGraduation.test.ts:1-7`). It covers the `DEFERRED.md` / `DEFERRED-archive.md` pair with a `GRADUATED` registry plus a no-overlap invariant (`tests/docs/_metaDeferralLedgerGraduation.test.ts:33-52`). The `BACKLOG.md` / `BACKLOG-archive.md` pair is the same shape and is currently uncovered, so this task generalises that guard to both pairs rather than writing a parallel one-off.
+
+One mechanical difference to handle: the existing `DEFERRAL_ID` regex matches `### ID` only (`tests/docs/_metaDeferralLedgerGraduation.test.ts:26`), while backlog entries use both levels — the root backlog heads its entries with `##` (for example line 11) and this spec's three sit at `###` under a `##` section header, and `BACKLOG-archive.md` currently holds 28 `##` and 9 `###` entry headings. The generalised matcher must accept `##` or `###`.
+
 **Steps:**
 
-- [ ] Write the failing test first — this task is not exempt from invariant 1, and its previous `tests/docs` gate proved nothing: that suite covers `DEFERRED.md` graduation, not these entries, so it was green before and after the edit (R3 finding 5). The new test reads both files and asserts, for each of the three IDs:
-
-  ```ts
-  const ids = [
-    "BL-PICKER-BOOTSTRAP-HOST-FLIP",
-    "BL-PICKER-GATE-SKIP-MISMATCH",
-    "BL-PICKER-CLAIMED-ROW-NEXT-DROP",
-  ] as const;
-  ```
-
-  each ID appears **zero** times in `BACKLOG.md` and **at least once** in `BACKLOG-archive.md`; the archived section carries a resolution line naming this branch; and `BL-SERVER-ACTION-ORIGIN-GATE` appears in `BACKLOG.md` exactly once **with its substance intact** — a heading-only entry must fail (R4 finding 10). Assert its section body is non-trivial (a length floor) and that it names all three things spec §4.3a promises are preserved: the residual (a cross-site POST with no `Origin`), the blast radius (a device-local sign-out plus one picker-entry deletion, no read and no escalation), and the open decision (a trusted-proxy policy). Match on distinctive substrings rather than exact prose so a reworded entry still passes while an empty one cannot. Failure modes it catches: an entry deleted from one file without landing in the other (the actual risk in a two-file move), a copy that leaves the original in place, and the descoped follow-up never being filed at all — which would make spec §4.3a's "filed as" claim false.
-
-- [ ] Move the three entries and their header into the archive with a one-line resolution note naming this branch, keeping the surrounding `---` separators well-formed. Use a file edit, never `echo >>`; verify with `git diff`.
-- [ ] Add the BL-SERVER-ACTION-ORIGIN-GATE entry to root `BACKLOG.md`, carrying spec §4.3a's reasoning: what the residual is (a no-`Origin` cross-site POST can force the guest action), its blast radius (device-local logout plus one picker-entry deletion; no read, no escalation), and the open decision (a trusted-proxy policy, without which a derived origin is not sound).
-- [ ] Gate: the new test; `pnpm format:check`; `pnpm vitest run tests/docs`.
+- [ ] Write the failing test first — this task is not exempt from invariant 1, and the previous revision's `tests/docs` gate proved nothing because it covers `DEFERRED.md` graduation, not these entries (R3 finding 5). Generalise the guard so it runs over both ledger pairs, then add:
+  - the three IDs to the backlog pair's graduated registry: `BL-PICKER-BOOTSTRAP-HOST-FLIP`, `BL-PICKER-GATE-SKIP-MISMATCH`, `BL-PICKER-CLAIMED-ROW-NEXT-DROP`. Each must be archive-only, which fails right now because all three are still active — that is the red phase.
+  - the no-overlap invariant for the backlog pair, which catches the actual risk in a two-file move: an entry copied into the archive but never deleted from the active queue, or the reverse.
+  - a substance assertion for `BL-SERVER-ACTION-ORIGIN-GATE`: present in `BACKLOG.md` exactly once, **and** its section body carries real content, so a heading-only entry fails (R4 finding 10). Assert a body-length floor plus distinctive substrings for the three things spec §4.3a promises are preserved — the residual (a cross-site POST with no `Origin`), the blast radius (device-local sign-out plus one picker-entry deletion, no read and no escalation), and the open decision (a trusted-proxy policy). Match on substrings loose enough to survive rewording but not an empty entry.
+- [ ] Move the three entries and their section header into the archive with a one-line resolution note naming this branch, keeping the surrounding `---` separators well-formed. Use a file edit, never `echo >>`; verify with `git diff`.
+- [ ] Add the BL-SERVER-ACTION-ORIGIN-GATE entry to root `BACKLOG.md` carrying spec §4.3a's reasoning in full.
+- [ ] Gate: the extended guard; `pnpm format:check`; `pnpm vitest run tests/docs`.
 - [ ] Commit: `docs: archive the shipped picker-flow entries and file the origin-gate follow-up`
 
 ### Task 10: invariant-8 impeccable dual-gate
