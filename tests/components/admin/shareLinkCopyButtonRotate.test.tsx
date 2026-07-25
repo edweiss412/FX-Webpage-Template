@@ -21,9 +21,17 @@
  *
  * Anti-tautology: assertions scope to the button's own testid and to the sr-only
  * announcer separately, so a passing label cannot stand in for a passing
- * announcement. Guard 2 fails without its `urlRef` check — verified by removing
- * that line and watching this file red, not by assuming it.
+ * announcement. Both guards were verified by removing them and watching exactly
+ * one row red each, not by assuming it.
+ *
+ * KNOWN LIMIT: guard 2's `useLayoutEffect` vs passive-`useEffect` choice for
+ * `urlRef` is NOT discriminated here. Catching it needs the promise to settle
+ * between commit and passive effects, which RTL gives no hook for — `rerender`
+ * has already flushed them when it returns (round-6 review). What the ref must
+ * hold by the time an async handler reads it is argued at the call site; the
+ * browser spec is where that ordering is actually observable.
  */
+import { useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -52,6 +60,26 @@ function deferredClipboard() {
   return { writeText, release: () => release?.() };
 }
 
+/**
+ * Samples the button's label at LAYOUT time — after React commits the DOM, before
+ * passive effects run.
+ *
+ * Without this the suite could not tell a render-phase reset from a passive
+ * `useEffect([url])` one: RTL's `rerender` flushes effects before returning, so
+ * both leave identical DOM by the time an assertion looks (round-6 review). The
+ * difference is exactly one painted frame, and layout time is where it is
+ * visible from jsdom.
+ */
+function LayoutProbe({ onSample }: { onSample: (label: string) => void }) {
+  useLayoutEffect(() => {
+    onSample(
+      document.querySelector('[data-testid="admin-current-share-link-copy-button"]')?.textContent ??
+        "",
+    );
+  });
+  return null;
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -60,7 +88,14 @@ afterEach(() => {
 describe("ShareLinkCopyButton across a rotate", () => {
   it("a completed copy stops claiming Copied once the url rotates", async () => {
     const { release } = deferredClipboard();
-    const { rerender } = render(<ShareLinkCopyButton url={OLD} />);
+    const samples: string[] = [];
+    const tree = (url: string) => (
+      <>
+        <ShareLinkCopyButton url={url} />
+        <LayoutProbe onSample={(l) => samples.push(l)} />
+      </>
+    );
+    const { rerender } = render(tree(OLD));
 
     fireEvent.click(button());
     await act(async () => {
@@ -71,8 +106,14 @@ describe("ShareLinkCopyButton across a rotate", () => {
     // "proved" by a label that was never in the copied state to begin with.
     expect(announce().textContent).toBe("URL copied to clipboard");
 
-    rerender(<ShareLinkCopyButton url={NEW} />);
+    samples.length = 0;
+    rerender(tree(NEW));
 
+    // The FIRST layout sample after the rotate is the discriminating one. A
+    // render-phase reset has already cleared `copied` by the time the DOM is
+    // committed; a passive effect would leave "Copied" committed here and fix it
+    // one frame later — invisible to the post-rerender assertions below.
+    expect(samples[0]).toBe("Copy");
     expect(button().textContent).toBe("Copy");
     expect(announce().textContent).toBe("");
   });

@@ -41,151 +41,17 @@ const norm = (css: string) =>
     .replace(/\s*([{};:,])\s*/g, "$1")
     .trim();
 
-/**
- * Strip comments in a STRING-AWARE pass.
- *
- * Stripping them with a bare regex first removed literal `/*` bytes living
- * inside quoted values, so the comparison was not byte-exact the way it claimed
- * (round-5 review). Comments and strings have to be recognised in the same
- * scan, because each can contain the other's opening delimiter.
- */
-function stripComments(css: string): string {
-  let out = "";
-  let quote: string | null = null;
-  for (let i = 0; i < css.length; i++) {
-    const ch = css[i] as string;
-    if (quote) {
-      out += ch;
-      if (ch === "\\") {
-        out += css[i + 1] ?? "";
-        i++;
-      } else if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      out += ch;
-      continue;
-    }
-    if (ch === "/" && css[i + 1] === "*") {
-      const close = css.indexOf("*/", i + 2);
-      i = close === -1 ? css.length : close + 1;
-      continue;
-    }
-    out += ch;
-  }
-  return out;
-}
-
-/**
- * Split a CSS blob into its top-level `prelude { body }` rules by brace depth.
- *
- * Quote- AND url()-aware: a brace or semicolon inside a string or an UNQUOTED
- * `url(...)` is data, not structure. Missing the url() case let an unquoted URL
- * containing `{` unbalance the depth counter and drop real cue-affecting rules
- * out of the flattened leaves entirely (round-5 review).
- */
-function splitRules(css: string): { prelude: string; body: string }[] {
-  const out: { prelude: string; body: string }[] = [];
-  let depth = 0;
-  let buf = "";
-  let quote: string | null = null;
-  let inUrl = false;
-  for (let i = 0; i < css.length; i++) {
-    const ch = css[i] as string;
-    if (quote) {
-      buf += ch;
-      if (ch === "\\") {
-        buf += css[i + 1] ?? "";
-        i++;
-      } else if (ch === quote) quote = null;
-      continue;
-    }
-    if (inUrl) {
-      buf += ch;
-      if (ch === ")") inUrl = false;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      buf += ch;
-      continue;
-    }
-    if (/url\($/i.test(buf + ch)) {
-      inUrl = true;
-      buf += ch;
-      continue;
-    }
-    // A statement at-rule (`@import "tailwindcss";`) has no block, so without
-    // this it accumulates into the NEXT rule's prelude and corrupts that key.
-    if (ch === ";" && depth === 0) {
-      buf = "";
-      continue;
-    }
-    if (ch === "{") {
-      depth++;
-      if (depth === 1) {
-        buf += "\u0000"; // prelude/body boundary marker
-        continue;
-      }
-    } else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        const [prelude = "", body = ""] = buf.split("\u0000");
-        if (prelude.trim() || body.trim()) out.push({ prelude: prelude.trim(), body });
-        buf = "";
-        continue;
-      }
-    }
-    buf += ch;
-  }
-  return out;
-}
-
-/**
- * Flatten CSS to context-qualified leaves.
- *
- * `@keyframes` is a leaf: its percent stops are not selectors, so the whole
- * body is compared as one unit. Conditional at-rules (`@media`) recurse, and
- * the condition is carried into each child's key — that is what makes moving a
- * rule OUT of `prefers-reduced-motion` a mismatch instead of a silent pass.
- */
-function flatten(css: string, context = ""): Leaf[] {
-  return splitRules(css).flatMap(({ prelude, body }) => {
-    const at = prelude.startsWith("@");
-    if (at && !/^@keyframes\b/.test(prelude)) {
-      return flatten(body, `${context}${norm(prelude)} > `);
-    }
-    return [{ key: context + norm(prelude), body: norm(body) }];
-  });
-}
-
-/**
- * The cue's own leaves, in a stable order, from either side of the comparison.
- *
- * Comments are stripped BEFORE splitting, not inside `norm`. Stripping them
- * afterwards left `splitRules` walking comment text as if it were CSS, so a
- * `;` inside a comment truncated the buffer and stranded the comment's tail in
- * the next rule's prelude — with its opening `/*` already gone, nothing could
- * remove it and the key was garbage. Prose is not CSS; take it out first.
- *
- * This is also why comment differences between the spec fence and the
- * stylesheet are not failures: only the rules are normative.
- *
- * SCOPE, stated because the earlier wording overclaimed: rules are selected by
- * NAMING the cue. A rule that affects the cue without mentioning it — targeting
- * the URL block by testid, by class, or through an ancestor — is invisible here
- * and can still retune direction, iteration or fill (round-4 review). That gap
- * is closed in the browser, where `T-FLASH-RUN` pins every resolved animation
- * longhand; resolved style sees overrides regardless of how they were spelled.
- * This test owns the cue's own rules being byte-exact; it does not own, and
- * must not be read as owning, the absence of other rules.
- */
-function cueLeaves(css: string): string[] {
-  return flatten(stripComments(css))
-    .filter((l) => `${l.key}${l.body}`.includes("share-link-flash"))
-    .map((l) => `${l.key}{${l.body}}`)
-    .sort();
+/** The spec's normative CSS block, read from its §3.4 fence. */
+function normativeBlock(): string {
+  const spec = readFileSync(
+    join(ROOT, "docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md"),
+    "utf8",
+  );
+  const fence = [...spec.matchAll(/```css\n([\s\S]*?)```/g)]
+    .map((m) => m[1] ?? "")
+    .find((block) => block.includes("@keyframes share-link-flash-bg"));
+  if (!fence) throw new Error("spec §3.4 normative CSS fence not found");
+  return fence.trimEnd();
 }
 
 describe("share-link cue motion contract (N0/N1)", () => {
@@ -196,29 +62,34 @@ describe("share-link cue motion contract (N0/N1)", () => {
     expect(SHARE_HUB_SRC).toMatch(/export const SHARE_LINK_FLASH_MS = 1600;/);
   });
 
-  it("N1: the shipped cue rules EQUAL the spec's normative block", () => {
-    // Set equality, not containment. Round-3 review broke the containment form:
-    // `html [data-share-link-flash]` is valid CSS that contains the normative
-    // selector as a substring, and duplicating the whole attribute rule also
-    // contains it — both passed while changing specificity / cascade. Equality
-    // over context-qualified leaves rejects extra rules, missing rules,
-    // rewritten selectors, and rules moved between at-rule contexts.
+  it("N1: the spec's normative block appears in globals.css BYTE FOR BYTE", () => {
+    // A raw substring test over the exact bytes — no parser, no normalisation.
     //
-    // Whitespace and comments are normalised because prettier owns formatting
-    // on both sides. Nothing else is.
-    const SPEC = readFileSync(
-      join(ROOT, "docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md"),
-      "utf8",
-    );
-    const fence = [...SPEC.matchAll(/```css\n([\s\S]*?)```/g)]
-      .map((m) => m[1] ?? "")
-      .find((block) => block.includes("@keyframes share-link-flash-bg"));
-    expect(fence, "spec §3.4 normative CSS fence not found").toBeTruthy();
+    // Four review rounds went into hand-rolled CSS lexing here, and each round
+    // closed one lexical hole and revealed another: comments, then quotes, then
+    // url(), then escapes, then the fact that sorting leaves discarded rule
+    // order. That is an unbounded space being chased with a finite list, which
+    // is the same failure this milestone already hit once in prose form.
+    //
+    // So stop parsing. The spec fence is now literally the shipped bytes, which
+    // makes "normative verbatim" true by construction rather than by
+    // reconstruction. Every lexical edge case disappears with the lexer: there
+    // is nothing to mis-tokenise in a byte comparison, and contiguity means rule
+    // ORDER is pinned for free.
+    expect(GLOBALS_CSS).toContain(normativeBlock());
+  });
 
-    const spec = cueLeaves(fence!);
-    // Guard against a vacuous pass: an empty fence would make [] === [] true.
-    expect(spec.length).toBe(4);
-    expect(cueLeaves(GLOBALS_CSS)).toEqual(spec);
+  it("N1: nothing ELSE in the stylesheet mentions the cue", () => {
+    // The byte check above proves the block is present and intact; it cannot see
+    // an ADDITIONAL rule elsewhere naming the cue — a later duplicate that wins
+    // the cascade, or a second reduced-motion override. Occurrence counting
+    // does, and it is the other half of what the old set-equality bought.
+    //
+    // What neither half covers is a rule that retunes the cue WITHOUT naming it
+    // (by testid, class, or ancestor). Resolved style is the only place that is
+    // visible, and T-FLASH-RUN pins every animation longhand there.
+    const count = (hay: string) => (hay.match(/share-link-flash/g) ?? []).length;
+    expect(count(GLOBALS_CSS)).toBe(count(normativeBlock()));
   });
 
   it("N1: both keyframes are declared exactly once", () => {

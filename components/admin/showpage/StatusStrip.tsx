@@ -368,9 +368,13 @@ export function StatusStrip({
           "Copy" until the hub absorbed the standalone copy-link.)
 
           Archived shows get NO Re-sync trigger — it mutates via /api/admin/sync,
-          which an archived show must not reach. The Overview "paused while
-          archived" notice that §6.7 pointed at was retired with the share
-          cluster; the archived badge now carries that state.
+          which an archived show must not reach. Overview still states the reason
+          (§6.7): `OverviewSection` renders `admin-show-resync-archived`, "Re-sync
+          is paused while this show is archived."
+
+          (A round-5 edit here claimed that notice had been retired with the
+          share cluster. It had not — the share PANEL went, the resync notice
+          stayed.)
 
           Counted form: the MULTI-LINE `{!archived ? (` head is what §9's lexical
           scanner sees. Both `{archived ? null : …}` AND the one-line

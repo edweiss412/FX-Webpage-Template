@@ -6,7 +6,7 @@
  * is DISPLAY + 3 actions max (publish toggle, Re-sync, share hub) — the budget the
  * component's own header states. Controls reached THROUGH the hub
  * — rotate, reset, Email-crew, and since the lifecycle move Archive/Unarchive — live in its
- * popover, which portals out of the strip; that is what keeps the two-action cap true.
+ * popover, which portals out of the strip; that is what keeps the three-action cap true.
  *
  * Failure modes caught:
  *   - live badge rendered when the show is not live (spec §4 "render only when live").

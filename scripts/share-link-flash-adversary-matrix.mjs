@@ -39,6 +39,8 @@ const VITEST_SUITES = [
   "tests/components/admin/showpage/shareHubFlashTransitions.test.ts",
   "tests/components/shareTokenRotateSurface.test.tsx",
   "tests/styles/status-token-contrast.test.ts",
+
+  "tests/components/admin/shareLinkCopyButtonRotate.test.tsx",
 ];
 
 const argv = process.argv.slice(2);
@@ -101,6 +103,19 @@ const ONLY = (() => {
   }
   return new Set(ids);
 })();
+
+/**
+ * ROW GRANULARITY, stated because the report's wording implied more than it
+ * delivers: a "row" is a TEST, not an assertion. Both collectors record titles,
+ * so an adversary that reds any one of `T-FLASH-RUN`'s assertions credits the
+ * whole row. Removing a single assertion therefore need not change the matrix at
+ * all (round-6 review).
+ *
+ * This is a real limit on what the matrix proves. It shows every registered
+ * wrong implementation is caught by SOME row; it does not show each assertion is
+ * load-bearing. Assertions with a history of being vacuous were mutation-checked
+ * by hand and say so at the site.
+ */
 
 /** A mutation is a list of [file, find, replace]. All must apply or the
  *  adversary is reported UNAPPLIED rather than silently passing. */
@@ -526,61 +541,45 @@ function alive(pid) {
   }
 }
 
-/** Past this, a lock is *reported* as suspicious. It is NEVER grounds to evict:
- *  the timestamp is written once and never refreshed, and a full run can legitimately
- *  exceed any threshold worth setting. Eviction on age alone reopens concurrent
- *  tracked-file mutation, which is the entire failure this lock exists to prevent
- *  (round-5 review). */
-const SUSPICIOUS_LOCK_AGE_MS = 2 * 60 * 60 * 1000;
-
+/**
+ * Take the lock, or refuse. There is deliberately NO automatic takeover.
+ *
+ * Three review rounds went into making stale-lock takeover exclusive, and each
+ * attempt was broken by the next: write-then-verify let both contenders verify
+ * their own write; unlink-then-create let B unlink A's fresh lock. Every version
+ * has a window because "is it stale" and "claim it" cannot be made one atomic
+ * step this way.
+ *
+ * So drop the feature. `wx` create is atomic and needs no reasoning: exactly one
+ * process can create the file. A crashed run leaves a lock that a human deletes,
+ * guided by the message below — a rare manual step, traded for a race that can
+ * silently corrupt tracked files and has already survived three fixes.
+ */
 function acquireLock() {
-  const stamp = () => `${process.pid}\n${new Date().toISOString()}\n`;
   try {
-    writeFileSync(LOCK, stamp(), { flag: "wx" });
+    writeFileSync(LOCK, `${process.pid}\n${new Date().toISOString()}\n`, { flag: "wx" });
     return;
-  } catch {
-    /* held — decide below whether the holder is real */
+  } catch (err) {
+    // ONLY "already exists" means held. Treating every error as held reported a
+    // sandbox EPERM — with no lock file present at all — as a concurrent winner
+    // (round-6 review). Anything else is a real fault and must surface as one.
+    if (err.code !== "EEXIST") throw err;
   }
 
   const holder = lockHolder();
   const age = lockAgeMs();
-
-  // ONLY a dead (or unreadable) holder is stale. A live PID is respected no
-  // matter how old the lock is; if that PID was reused by an unrelated process
-  // the lock wedges, which is recoverable by deleting one file — strictly better
-  // than two mutation loops rewriting the same tracked files.
-  if (holder !== null && alive(holder)) {
-    const oldNote =
-      age !== null && age > SUSPICIOUS_LOCK_AGE_MS
-        ? `\nThe lock is ${Math.round(age / 60000)}min old. If pid ${holder} is NOT a matrix run` +
-          ` (PIDs get reused), delete ${LOCK} by hand.`
-        : "";
-    console.error(
-      `refusing to run: ${LOCK} is held by live pid ${holder}.\n` +
-        "This script mutates tracked files; two concurrent runs strand mutants in\n" +
-        `each other's windows. Wait for that run to finish.${oldNote}`,
-    );
-    process.exit(2);
-  }
-
-  // Takeover must be EXCLUSIVE, and write-then-verify is not: two contenders can
-  // each write and each re-read their own pid before either mutates (round-5
-  // review). Unlink the dead lock, then re-create with `wx` — both may reach the
-  // unlink, but the kernel lets exactly one `wx` create succeed.
-  console.warn(
-    `note: clearing a stale lock (${holder === null ? "unreadable" : `pid ${holder} gone`}).`,
+  const dead = holder !== null && !alive(holder);
+  console.error(
+    `refusing to run: ${LOCK} exists${holder === null ? "" : `, recorded pid ${holder}`}.\n` +
+      "This script mutates tracked files; two concurrent runs strand mutants in\n" +
+      "each other's windows.\n\n" +
+      (dead
+        ? `That pid is gone, so this lock is almost certainly stale — delete ${LOCK} and re-run.`
+        : `If that process is not a matrix run (PIDs get reused${
+            age === null ? "" : `; this lock is ${Math.round(age / 60000)}min old`
+          }), delete ${LOCK} and re-run.`),
   );
-  try {
-    rmSync(LOCK, { force: true });
-  } catch {
-    /* another contender already cleared it */
-  }
-  try {
-    writeFileSync(LOCK, stamp(), { flag: "wx" });
-  } catch {
-    console.error("refusing to run: lost the stale-lock takeover race to a concurrent run.");
-    process.exit(2);
-  }
+  process.exit(2);
 }
 
 function releaseLock() {
@@ -863,10 +862,11 @@ if (!ONLY && !QUICK) {
       /<!-- BEGIN GENERATED -->[\s\S]*?<!-- END GENERATED -->/,
       () => generated,
     );
-    if (after === before) {
-      // Guard against a silent no-op: if the markers somehow survive validation
-      // but the regex matches nothing, the run would report success having
-      // written nothing at all.
+    // Compare against the MATCH, not against the whole file: an unchanged file is
+    // the expected result of re-running a matrix whose output has not moved, and
+    // flagging it failed every correct idempotent rerun (round-6 review). What is
+    // actually worth catching is the regex matching nothing at all.
+    if (!/<!-- BEGIN GENERATED -->[\s\S]*?<!-- END GENERATED -->/.test(before)) {
       console.error(`report marker replacement matched nothing: ${doc}`);
       process.exitCode = 1;
     } else {
@@ -885,4 +885,16 @@ if (!ONLY && !QUICK) {
   }
 }
 
-if (survived.length || unapplied.length) process.exitCode = 1;
+/** Survivors that are PROVEN EQUIVALENT, not coverage holes. A4 applies cleanly
+ *  and changes nothing observable: `open` starts false, so the visibility clear
+ *  nulls the seeded flash in the same render pass. Recorded here so a correct
+ *  full run exits 0 — failing on it made every honest rerun red (round-6). */
+const EQUIVALENT_SURVIVORS = new Set(["A4"]);
+const unexpectedSurvivors = survived.filter((r) => !EQUIVALENT_SURVIVORS.has(r.id));
+if (unexpectedSurvivors.length || unapplied.length) process.exitCode = 1;
+if (unexpectedSurvivors.length) {
+  console.error(
+    `unexpected survivors: ${unexpectedSurvivors.map((r) => r.id).join(", ")} — ` +
+      "either the assertion set has a hole, or the adversary is equivalent and belongs in EQUIVALENT_SURVIVORS with the argument written down.",
+  );
+}

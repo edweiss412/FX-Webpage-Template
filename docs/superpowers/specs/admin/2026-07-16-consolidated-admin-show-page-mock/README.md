@@ -24,7 +24,8 @@ Spec: `docs/superpowers/specs/2026-07-16-consolidated-admin-show-page.md`
    > **Superseded in part (2026-07-24).** The lifecycle move put Archive/Unarchive in the share hub's
    > popover, so Unarchive is no longer an Overview control. The override still holds for the reason
    > it was written — Unarchive is not a bare strip button — but it is reached through the hub's
-   > popover, which portals out of the strip and so keeps the two-action cap intact.
+   > popover, which portals out of the strip and so keeps the strip's action cap intact (three:
+   > publish toggle, Re-sync, hub — see StatusStrip.tsx's own header).
 6. **Live-now badge label uses amber `#FFA047`.** Overridden: the strip reuses the canonical
    `StatusIndicator` treatment — hue carried by the `bg-status-live` dot + ping, label stays
    neutral (`text-text-subtle`) per DESIGN.md color-blind floor.

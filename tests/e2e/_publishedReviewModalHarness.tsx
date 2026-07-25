@@ -85,8 +85,9 @@ export const MODAL_DFID = "drive-pubmodal-1";
 export const MODAL_SLUG = "published-modal-layout-show";
 const SHOW_ID = "11111111-2222-4333-8444-555555555555";
 
-/** Share token for the fixture — present so the strip renders its share hub
- *  (T-COPY-FLUSH measures that button). Inert: nothing navigates here. */
+/** Share token for the fixture — present so the strip renders its share hub.
+ *  (This named T-COPY-FLUSH, a row retired with the standalone copy-link.)
+ *  Inert: nothing navigates here. */
 const HARNESS_SHARE_TOKEN = "harness-share-token";
 
 /** The modal header's h2 title (the dialog's accessible name). */

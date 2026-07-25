@@ -177,10 +177,17 @@ Placed adjacent to the existing step3 flash block (`app/globals.css:833-852`) so
 
 ```css
 /* ShareHub crew-link block: one-shot highlight after the share-token changes
-   (spec 2026-07-24 section 3). Outline plus a brief wash over
-   SHARE_LINK_FLASH_MS (1600ms; keep in sync with ShareHub.tsx). Reduced
-   motion: NO cue. A one-shot "this just changed" signal has no correct steady
-   state, and the rotate banner already announces the change via role=status. */
+   (spec 2026-07-24-share-link-chrome-backlog-design section 3.4, which makes
+   this block NORMATIVE — a test compares the shipped rules against it rather
+   than against a description of it). Outline plus a brief wash over
+   SHARE_LINK_FLASH_MS (1600ms; keep in sync with ShareHub.tsx, which a drift
+   pin enforces).
+
+   Reduced motion: NO cue. Deliberately unlike the step3 fallback above, which
+   leaves a steady tint: that is right for a persistent jump-target the user
+   must still locate, and wrong for a one-shot "this just changed" signal, which
+   has no correct steady state. The rotate banner already announces the change
+   via role=status on the local path. */
 @keyframes share-link-flash-bg {
   0%,
   45% {
@@ -303,6 +310,10 @@ The bottom-right cell is the residual. It is **not a regression** — today a re
 - Keep the popover-scoped copy-button helper (tests/components/shareTokenInstantUpdate.test.tsx:85-88); with the chip gone the `within(...)` scoping is no longer strictly required, but it stays — the popover scope is the correct assertion boundary regardless of how many surfaces exist.
 - The second test (tests/components/shareTokenInstantUpdate.test.tsx:151-169, stale-rotation rejection) currently asserts through the chip. Repoint it at the ShareHub URL block. The monotonic-gate claim it proves is independent of which consumer renders it, and it must NOT be deleted.
 - Fold the §9 cue assertions into this file — it already drives a real rotate end to end, which is precisely the fixture the cue tests need.
+
+  > **Amended in implementation (round-6 review made the gap explicit): NOT DONE, deliberately.** The cue assertions live in three dedicated files instead — `shareHubFlashState.test.tsx` (attribute lifecycle, jsdom), `shareHubFlashTransitions.test.ts` (the normative stylesheet, no DOM), and `tests/e2e/share-link-flash.spec.ts` (resolved style, real engine). The split is not incidental: jsdom applies no CSS, so a single file cannot hold both the lifecycle and the motion it triggers, and the stylesheet check needs no DOM at all. Folding them together would have forced the weakest environment on all three. `shareTokenRotateSurface.test.tsx` keeps what it is uniquely good for — a real end-to-end rotate proving instant propagation and the monotonic epoch gate.
+  >
+  > Related placement note: `shareLinkCopyButtonRotate.test.tsx` is also separate. It pins `ShareLinkCopyButton`'s own guards (§3.5), which are a component concern rather than cue assertions, and it is registered in the matrix's suite list.
 
 Rename the file to tests/components/shareTokenRotateSurface.test.tsx and update its header comment: "the three token consumers" is no longer true, and a stale header is how the next reader is misled.
 
