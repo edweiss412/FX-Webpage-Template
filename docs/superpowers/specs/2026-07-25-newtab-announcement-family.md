@@ -356,10 +356,15 @@ WITH substitutions is not. Anything outside these shapes is reported as
   TSX. Prose and fenced code become string literals; regex literals, escapes and attribute quoting
   become the compiler's problem. **MDX and TSX are one enforcement path now, not two**, which is
   what removes the class rather than the instance.
-- **Type-only wrappers are stripped alongside parentheses.** `as const`, `satisfies`, a non-null
-  `!`, and an old-style type assertion all erase at runtime, so
-  `<Foo {...({href:"x", target:"_blank"} as const)}>` really forwards both props; stripping only
-  parentheses left the object invisible (review R12 BLOCKING 1).
+- **Runtime-transparent wrappers are stripped; non-transparent ones stay residue.** Stripped:
+  parentheses, `as`, `satisfies`, non-null `!`, type assertions (including `as unknown as T` chains,
+  which unwrap repeatedly), and comma expressions — a comma expression evaluates to its LAST operand,
+  so `{...(0, {href, target})}` really forwards the object. Stripping only parentheses left every
+  other form invisible (review R12 BLOCKING 1; the comma case was probed from R13's brief). NOT
+  stripped, deliberately: an IIFE is a call and an `await` is a promise, so neither is statically
+  resolvable and treating them as transparent would be false confidence rather than coverage. Both
+  halves are pinned, so a later round neither reads the IIFE silence as a hole nor "fixes" it into
+  unsoundness.
 - **The duplicate-fold rule applies to INTRINSIC tags only, folds ASCII only, and runs after the
   not-external return.** Props on a custom component are ordinary JavaScript keys and
   case-sensitive, so `<UI.Link Mode mode>` is two distinct props; `toLowerCase()` also folds
