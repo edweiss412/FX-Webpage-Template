@@ -32,6 +32,7 @@ import {
   ATTENTION_FALLBACK_TITLE,
   formatRelativeRaisedAt,
   type AttentionItem,
+  type RoutedSectionId,
 } from "@/lib/admin/attentionItems";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
@@ -47,6 +48,14 @@ export type AttentionBannerProps = {
   now: Date;
   /** Deep-link target (?alert_id) — carries aria-current. */
   highlighted: boolean;
+  /**
+   * Where this card ACTUALLY renders, which is not always `item.sectionId`: an
+   * item routed to an unmounted section falls back to Overview. Supplied by the
+   * caller so the card and `bucketAttention` share one source (§2.3), and
+   * compared against the action's target to suppress a chip that would point at
+   * the place the card already is.
+   */
+  effectiveSectionId: RoutedSectionId;
   onResolved: (id: string) => void;
 };
 
@@ -60,6 +69,21 @@ const FAILED_KEYS_CAP = 6;
  */
 function hasVisibleText(template: string): boolean {
   return template.replace(/[*_`\s]/g, "").length > 0;
+}
+
+/**
+ * The section an INTERNAL action points at, read from its URL fragment.
+ * Internal alert actions are built as `/admin?show=<slug>#<section>`
+ * (lib/adminAlerts/alertActions.ts), so the fragment IS the target section.
+ * Returns null for an absent or empty fragment, which can never equal a real
+ * section id — so an unparseable href fails OPEN and keeps the chip rather than
+ * silently suppressing the only way out.
+ */
+function sectionOfHref(href: string): string | null {
+  const hash = href.indexOf("#");
+  if (hash < 0) return null;
+  const frag = href.slice(hash + 1).trim();
+  return frag.length > 0 ? frag : null;
 }
 
 /** Trimmed, empties dropped; null when nothing survives (§5.2). */
@@ -93,6 +117,7 @@ export function AttentionBanner({
   slug,
   now,
   highlighted,
+  effectiveSectionId,
   onResolved,
 }: AttentionBannerProps) {
   const [confirmed, setConfirmed] = useState(false);
@@ -155,9 +180,33 @@ export function AttentionBanner({
       ? a.autoClearNote
       : null;
 
+  // §2.3: a needs-you item that has no resolve button of its own. Its way out
+  // lives elsewhere, so the footer names the destination instead of repeating
+  // the row's link. Monitoring (self_heal) keeps its auto-clear note.
+  const isClearingNeedsYou = !item.actionable && item.clearingKind !== "self_heal";
+
+  // The chip would point at the place the card already is. Suppressed, so the
+  // "every chip reads Google Sheets" invariant holds from the card side too —
+  // this is what makes the external-only claim true rather than coincidental.
+  const actionTargetsOwnSection =
+    a.action != null && !a.action.external && sectionOfHref(a.action.href) === effectiveSectionId;
+
+  const destinationChip: ReactNode =
+    isClearingNeedsYou && a.action && !actionTargetsOwnSection ? (
+      <a
+        href={a.action.href}
+        data-testid={`attention-banner-destination-${a.alertId}`}
+        {...(a.action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+        className="inline-flex min-h-tap-min items-center gap-1 text-xs font-medium text-warning-text underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg focus-visible:outline-none"
+      >
+        {a.action.external ? "Google Sheets" : a.action.label}
+        <span aria-hidden="true">↗</span>
+      </a>
+    ) : null;
+
   const footerLeft: ReactNode = (
     <>
-      {a.action ? (
+      {a.action && !isClearingNeedsYou ? (
         <>
           <a
             href={a.action.href}
@@ -182,7 +231,13 @@ export function AttentionBanner({
     </>
   );
 
-  const footerRight: ReactNode = autoClearNote ? (
+  // Once the footer names a destination, "it clears when you've done it" is the
+  // only thing the note could mean — so the chip REPLACES it. And a needs-you
+  // item with no action keeps neither: a reachable needs-look code with no
+  // registered action must not be left wearing a monitoring card's note.
+  const footerRight: ReactNode = isClearingNeedsYou ? (
+    destinationChip
+  ) : autoClearNote ? (
     <span
       data-testid={`attention-banner-autoclear-${a.alertId}`}
       className="text-xs text-text-subtle italic"

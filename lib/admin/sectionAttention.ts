@@ -111,8 +111,14 @@ export function bucketAttention(
     // Notes channel: the two parse codes travel as domain items to the warnings
     // section, which composes them (the copy variant needs warnings.length). They
     // never become cards — UNLESS the warnings section is unavailable, in which
-    // case they fall through to the card path and land in Overview (no drop). The
-    // warnings section is unconditional today, so the fallback is defensive.
+    // case they fall through to the card path and land in Overview (no drop).
+    // That fallthrough is a CORRECTNESS GUARANTEE, not defensive code
+    // (2026-07-24-attention-index-consolidation §2.2): the attention panel is an
+    // index of a show's issues, and an index entry with nowhere to land is an
+    // index that lies. The warnings section is unconditional today, so the path
+    // is currently unexercised in production — but it is what makes the
+    // every-entry-has-a-destination claim true, and the card it produces is
+    // chip-less precisely because it lands in the section its action targets.
     const note = toNoteItem(item);
     if (note && item.sectionId === "warnings" && opts.sectionAvailable("warnings")) {
       const b = bucket(map, "warnings");

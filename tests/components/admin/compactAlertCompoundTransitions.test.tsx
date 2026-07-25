@@ -55,12 +55,16 @@ function alertItem(): AttentionItem {
 }
 
 function renderBanner(onResolved = vi.fn()) {
+  // one instance, referenced twice — calling the builder inline would hand the
+  // prop a DIFFERENT object's section than the one being rendered
+  const it = alertItem();
   render(
     <AttentionBanner
-      item={alertItem()}
+      item={it}
       slug="test-show"
       now={NOW}
       highlighted={false}
+      effectiveSectionId={it.sectionId}
       onResolved={onResolved}
     />,
   );
