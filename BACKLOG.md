@@ -114,18 +114,48 @@ workflow is non-required and path-filtered to `tests/parser/mutation/**`, so it 
 --project mutation`, then surgical re-bless via `reconcileLedger` (drift bucket only). Trigger: the
 next mutation-file-touching PR or the next post-merge nightly triage.
 
-## BL-TEST-PG-CLIENT-TEARDOWN — leak-proof postgres.js clients in DB tests
+## BL-TEST-PG-CLIENT-TEARDOWN — leak-proof postgres.js clients in DB tests (WITHDRAWN 2026-07-24, measured)
 
-~55 test files (`tests/db/**`, `tests/notify/**`, `tests/sync/**`, `tests/onboarding/**`, `tests/agenda/**`, `tests/show/**`, `tests/app/admin/**`) create module-level `postgres(DB_URL, { max, prepare: false })` clients with **no `idle_timeout` and no `.end()`**. postgres.js default `idle_timeout` is 0 (never auto-close), so in the serial DB-test worker these pools hold their connections for the whole run and can exhaust local Postgres `max_connections` (~100) after a long session — surfacing as spurious "too many clients" failures on untouched code (the class `pnpm db:reset-pool` mitigates at runtime, added 2026-07-06).
+**Status:** WITHDRAWN — the premise did not survive measurement. Superseded by the structural guard at `tests/cross-cutting/db-test-connection-hygiene.test.ts`. Do not implement the `makeTestSql` migration described below; it is recorded only so a future reader does not re-derive it.
 
-Structural fix (scoped, TDD, needs local DB to verify — do NOT blind-sweep):
+**What the entry claimed.** ~55 test files create module-level `postgres(DB_URL, { max, prepare: false })` clients with no `idle_timeout` and no `.end()`; since postgres.js leaves `idle_timeout` `null` (never auto-close), those pools hold their connections for the whole serial DB run and can exhaust local Postgres `max_connections` (~100) after a long session, surfacing as spurious "too many clients" failures on untouched code. The proposed fix was a shared `tests/db/testSql.ts` → `makeTestSql()` factory with `idle_timeout` plus an `endAllTestSql()` teardown, migrating ~55 files, hand-auditing the advisory-lock/concurrency tests that deliberately hold a connection, and a meta-test banning direct `postgres(` calls.
 
-1. Shared factory `tests/db/testSql.ts` → `makeTestSql(opts)` returning `postgres(url, { max: 1, idle_timeout: 1, prepare: false, ...opts })`, registered in a module-level set; export `endAllTestSql()`.
-2. Global per-file teardown: `afterAll(endAllTestSql)` (or the vitest global-teardown hook) so any factory client closes at end of each test file.
-3. Migrate the ~55 files to the factory. **Exclude / hand-audit** the connection-hold tests — `*concurrency*`, `advisoryLock*`, deadlock/lock-topology tests — where an aggressive `idle_timeout` could drop a held connection mid-test and break lock semantics. Those keep an explicit long-lived client with a manual `.end()`.
-4. Structural meta-test: fail if a `tests/**` file calls `postgres(` directly instead of `makeTestSql(` (allowlist the audited lock-hold exceptions).
+**What is actually true.** The counts were an artifact of `grep postgres(`, which matches both the loopback-guard regex literals several helpers declare (`/^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])/`) and mentions in comments. An AST walk gives the real figures: **155 constructions across 121 files**, 86 of them (64 files) with no `idle_timeout`, and **106 module-scope constructions across 101 files**. All 106 are bound to a name (102 declared and initialized in one statement, 4 assigned to a binding declared earlier), and **60 of them — across 59 files — are never `.end()`ed on that binding** — overwhelmingly the `probe` client DB tests open to read state back. So the entry was right that many clients are never explicitly closed. It was wrong about what happens next.
 
-Trigger to promote out of backlog: next time a full local suite exhausts the pool and `db:reset-pool` between runs stops being enough.
+**The stated mechanism cannot fire.** Vitest runs each test file in its own worker and terminates that worker when the file finishes, closing its sockets — this is what `isolate: true` (the default) means, and it holds for the threads pool as much as for forks. Verified with a 3-file probe recording `process.pid`: 3 distinct pids. Note this is not a strict hand-off — vitest begins a worker's termination without awaiting it before scheduling the next file, so a slow-exiting worker can briefly overlap its successor. What it rules out is connections persisting across the run, not every instant of overlap.
+
+A second reason the fear was misplaced: **postgres.js opens connections lazily.** `max: 6` is a ceiling, not a preallocation — a client running one query at a time holds one connection. So even the pools that exist are far smaller in practice than their configured maximum.
+
+**Measurement (2026-07-24).** Full `pnpm test` — 1603 files, 17198 tests, 692s — sampling `pg_stat_activity` every 0.25s (2256 samples), filtering on `application_name = 'postgres.js'` (postgres.js 3.4.9 sets that by default at `node_modules/postgres/src/index.js:485`):
+
+|                                   |             |
+| --------------------------------- | ----------- |
+| `max_connections` (local)         | 100         |
+| Baseline backends / of them pg.js | 28 / 0      |
+| Peak total backends               | 30          |
+| **Peak held by postgres.js**      | **5**       |
+| Mean pg.js while any were open    | 1.7         |
+| Trend, first vs last third of run | 0.02 → 0.12 |
+
+The trend matters more than the peak here: accumulation is a claim about growth over time, and a peak is a single sampled instant. Both thirds sit near zero and the difference between them (0.10 backends) is far below the ~5 a single file reaches, so the series carries no signal of accumulation — with means this close to zero, that is the whole of what it supports, not a growth rate and not literally "no growth". postgres.js backends were open in only 175 of 2256 samples, and no sample exceeded 5.
+
+**Scope of what this establishes.** One execution, under the current config, on one machine. It rules out persistent cross-file accumulation — the mechanism the entry named. It does not measure the suite under `--fileParallelism`, under a future `isolate: false`, or running concurrently with other worktrees against the same Postgres, all of which are outside the withdrawn entry's claim but inside the space of things that could exhaust a pool.
+
+An earlier pass at this measurement filtered on an EMPTY `application_name` and reported "peak 6" — those were background processes, which is why the figure sat at a constant 6 including at idle. The sampler's attribution was then validated directly: a file using the `max: 6` pool in `tests/db/_holdsHelpers.ts:47` shows up as 1-2 `postgres.js` backends, not 6, confirming both the filter and the lazy-connection behavior above.
+
+A 64-file `idle_timeout` sweep would have bought nothing against these numbers, at the cost of churn plus real risk of dropping a held connection mid-test in the advisory-lock, deadlock, and concurrency tests — the files that deliberately hold a connection open across statements. (An earlier draft put that at "26 files" from an ad-hoc grep; the number is not reproducible from any stated classifier, so it is dropped rather than restated.)
+
+**What replaced it.** The measurement holds only while the isolation does. `tests/cross-cutting/db-test-connection-hygiene.test.ts` reads the **resolved runtime config**, not the authored one: `isolate` directly, and file parallelism via `maxWorkers === 1` (the worker config does not carry `fileParallelism`, and a CLI `--fileParallelism` or `VITEST_MAX_WORKERS` is applied after project options — so a config-file check alone reads `false` while the run is concurrent). It also asserts the authored `serial.fileParallelism`, and scans `package.json`, workflow YAML, and every file under `scripts/` for any MENTION of the isolation knobs.
+
+That scan deliberately does not parse values. Three rounds of matching harmful spellings precisely lost in both directions — `--isolate  false` with two spaces, `=+2`, `=0` and `=foo` (which `Number.parseInt` turns into 0/NaN and vitest resolves to default parallel workers) all evaded it, while benign `01`, `1e2`, and `--fileParallelism false` were wrongly rejected. A bare token scan cannot be beaten by a spelling, and when it fires wrongly it fires loudly. There are zero occurrences in those files today, so it costs nothing until someone reaches for a knob. Every file under `scripts/` is read regardless of extension, since an extension allowlist fails open for each launcher format it does not list.
+
+Verified by 23 mutation injections — 22 turn the guard red, and the one that must not (a whole-line comment mentioning the flags) stays green. Each injection is checked for having actually landed before its result is read, after one silently-non-applying substitution produced a "green" indistinguishable from a guard failure.
+
+An AST census of unclosed clients was tried and removed. It could not do its job: a wrapper teardown (`afterAll(() => closeSql(sql))`) leaves the count unchanged though the clients are genuinely closed, and moving construction behind a factory collapses it though nothing was closed — so it could neither confirm nor deny that the invariant still had subjects, while catching none of the configuration regressions the assertions do catch. The subject count above is a measured fact with a date on it, not something to re-derive on every run.
+
+If disabling isolation ever becomes desirable, the `makeTestSql` work above becomes necessary again — that is the real trigger, not a connection count.
+
+**`db:reset-pool` stays.** This measurement removes the DB test suite as the explanation the entry gave; it does not establish what the cause is, and it does not clear the suite under configurations it did not run. The plausible remaining source is concurrent load — one local Postgres shared across worktrees, dev servers, and `psql` sessions, on top of a baseline that is already 28 of 100 with no tests running — but that was not measured here.
 
 ---
 
