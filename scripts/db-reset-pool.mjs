@@ -9,17 +9,20 @@
 // reaps stranded connections without a full `supabase stop && start` (seconds,
 // not a container bounce). Run before the final full-suite verification pass.
 //
-// NOT the DB test suite. An earlier version of this comment blamed module-level
-// postgres.js clients with no idle_timeout accumulating across the serial run;
-// that was measured false on 2026-07-24 and the matching BL-TEST-PG-CLIENT-
-// TEARDOWN backlog entry is withdrawn. Vitest terminates each file's worker when
-// the file finishes (isolate:true, the default), closing its sockets, and
-// postgres.js opens connections lazily so a `max: N` pool rarely holds N. The
-// full suite (1603 files) peaked at 5 postgres.js backends of 100, with a flat
-// trend across the run. That rules the suite OUT as the cause; it does not
-// establish what the cause IS — concurrent load is the plausible remainder, not
-// a measured conclusion. See BACKLOG.md's withdrawn entry for the numbers and
-// tests/cross-cutting/db-test-connection-hygiene.test.ts for the guard that
+// An earlier version of this comment blamed module-level postgres.js clients
+// with no idle_timeout accumulating across the serial run. That was measured
+// false on 2026-07-24 and the matching BL-TEST-PG-CLIENT-TEARDOWN backlog entry
+// is withdrawn: vitest terminates each file's worker when the file finishes
+// (isolate:true, the default), closing its sockets, and postgres.js opens
+// connections lazily so a `max: N` pool rarely holds N. Across the full suite
+// (1603 files) postgres.js peaked at 5 backends of 100 with no growth over the
+// run.
+//
+// That removes the explanation the entry gave. It does not identify what DOES
+// strand connections here — concurrent load is the plausible remainder, not a
+// measured conclusion — and it says nothing about runs configured differently
+// (e.g. --fileParallelism). See BACKLOG.md's withdrawn entry for the numbers,
+// and tests/cross-cutting/db-test-connection-hygiene.test.ts for the guard that
 // keeps the isolation from being switched off.
 //
 // HARD SAFETY GUARD: refuses to run against anything but a loopback host. It

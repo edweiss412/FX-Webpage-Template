@@ -8,11 +8,12 @@ import vitestConfig from "@/vitest.config";
 
 // Structural guard for DB-test connection hygiene.
 //
-// 102 module-scope postgres.js clients live across the test suite, and 60 of
-// them are never `.end()`ed on their own binding (they are overwhelmingly the
-// `probe` client that DB tests open to read state back). 86 of the suite's 155
-// constructions pass no `idle_timeout`, which postgres.js defaults to 0 --
-// "never auto-close". Nothing in those 60 files closes their connection, so
+// 106 module-scope postgres.js clients live across the test suite (102 declared
+// and initialized in one statement, 4 assigned to a binding declared earlier),
+// and 60 of them -- spread over 59 files -- are never `.end()`ed on their own
+// binding. They are overwhelmingly the `probe` client that DB tests open to read
+// state back. 86 of the suite's 155 constructions pass no `idle_timeout`, which
+// postgres.js defaults to 0 -- "never auto-close". Nothing closes those 60, so
 // something else has to, and that something is process exit: vitest runs each
 // test file in its own worker and terminates it when the file finishes, which
 // closes its sockets.
@@ -59,7 +60,11 @@ const serial = projects.find((p) => p.test.name === "serial")?.test;
 // config object, this reflects CLI flags and env overrides, so a run that
 // disables isolation fails the guard instead of sailing past it.
 const runtimeConfig = (
-  globalThis as Record<string, unknown> & { __vitest_worker__?: { config?: { isolate?: boolean } } }
+  globalThis as Record<string, unknown> & {
+    __vitest_worker__?: {
+      config?: { isolate?: boolean; name?: string; maxWorkers?: number };
+    };
+  }
 ).__vitest_worker__?.config;
 
 function listTsFiles(dir: string): string[] {
@@ -89,10 +94,19 @@ function isFunctionLike(node: ts.Node): boolean {
 // depends on process exit, which is exactly what the isolation provides.
 //
 // This walks the AST rather than matching text. A regex version of this census
-// reported 42 where the true figure is 102 module-scope clients: it missed
+// reported 42 where the true figure is 106 module-scope clients: it missed
 // constructions inside top-level `try` blocks, ternaries, `var` bindings, and
 // indented declarations, while separately miscounting the loopback-guard regex
 // literals (`/^postgres(?:ql)?:\/\/.../`) that several helpers declare.
+//
+// It stays a heuristic in one half: "closed" is a source-level search for
+// `<binding>.end(`, so it would miss a teardown that goes through an alias, a
+// wrapper, or a collection, and would be fooled by the string appearing in a
+// comment or an unreachable branch. That is acceptable HERE because the census
+// exists to prove the invariant has subjects and to pin what "subject" means --
+// it is not a per-file correctness check, and every direction of error makes it
+// count MORE clients, never fewer, so the floor cannot be inflated into passing
+// by a missed teardown.
 function censusUnendedModuleScopeClients(): string[] {
   const found: string[] = [];
   for (const file of listTsFiles(TESTS_DIR)) {
@@ -109,14 +123,31 @@ function censusUnendedModuleScopeClients(): string[] {
         node.expression.text === "postgres"
       ) {
         let parent: ts.Node | undefined = node.parent;
-        while (parent && !ts.isVariableDeclaration(parent) && !ts.isSourceFile(parent)) {
+        while (
+          parent &&
+          !ts.isVariableDeclaration(parent) &&
+          !ts.isBinaryExpression(parent) &&
+          !ts.isSourceFile(parent)
+        ) {
           parent = parent.parent;
         }
+        let binding: string | undefined;
         if (parent && ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
-          const binding = parent.name.text;
-          if (!new RegExp(`\\b${binding}\\s*\\.\\s*end\\s*\\(`).test(src)) {
-            found.push(`${file} [${binding}]`);
-          }
+          binding = parent.name.text;
+        } else if (
+          parent &&
+          ts.isBinaryExpression(parent) &&
+          parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          ts.isIdentifier(parent.left)
+        ) {
+          // `sql = postgres(...)` against a binding declared earlier. Four such
+          // sites exist; all four are currently closed, so this branch changes
+          // no count today — it is here so the classifier describes the shape
+          // rather than accidentally excluding it.
+          binding = parent.left.text;
+        }
+        if (binding && !new RegExp(`\\b${binding}\\s*\\.\\s*end\\s*\\(`).test(src)) {
+          found.push(`${file} [${binding}]`);
         }
       }
       ts.forEachChild(node, (child) => visit(child, nowInside));
@@ -126,10 +157,27 @@ function censusUnendedModuleScopeClients(): string[] {
   return found;
 }
 
-// Flags that switch off per-file isolation. A run command carrying one of these
-// would defeat the invariant for the files it runs; the runtime assertion below
-// only catches it when THIS file is part of that run.
-const ISOLATION_KILLING_FLAGS = [/--no-isolate\b/, /--isolate[= ]false\b/];
+// Flags that defeat the invariant for the files a run covers. The runtime
+// assertions below catch these only when THIS file is part of that run, so a
+// command that runs, say, only tests/db needs catching at the source.
+//
+// Quoted spellings are matched because a shell strips the quotes before vitest
+// sees them: `--isolate="false"` arrives as `--isolate=false`.
+const ISOLATION_KILLING_FLAGS = [
+  /--no-isolate\b/,
+  /--isolate[= ]["']?false["']?/,
+  // Re-enabling file parallelism overrides the serial project's own setting.
+  /--file-?[pP]arallelism\b(?!=["']?false)/,
+];
+
+// Where runs are launched from. package.json and the workflows are the obvious
+// surfaces; scripts/ matters because scripts/test-fast.mjs spawns vitest with
+// an argv it builds in JS, so a flag added there reaches no other scanned file.
+// A computed flag would still evade this — the scan catches literals.
+const RUN_COMMAND_SOURCES: Array<{ dir: string; match: RegExp }> = [
+  { dir: ".github/workflows", match: /\.ya?ml$/ },
+  { dir: "scripts", match: /\.(mjs|ts|sh)$/ },
+];
 
 describe("DB-test connection hygiene depends on per-file worker isolation", () => {
   // Anti-vacuity. Every assertion here exists to protect these clients; if the
@@ -199,26 +247,55 @@ describe("DB-test connection hygiene depends on per-file worker isolation", () =
         offenders.push(`package.json: ${name}`);
       }
     }
-    const workflowsDir = join(ROOT, ".github", "workflows");
-    for (const entry of readdirSync(workflowsDir)) {
-      if (!/\.ya?ml$/.test(entry)) continue;
-      const body = readFileSync(join(workflowsDir, entry), "utf8");
-      // Strip comment lines so an explanatory mention is not read as a command.
-      const commands = body
-        .split("\n")
-        .filter((line) => !line.trim().startsWith("#"))
-        .join("\n");
-      if (ISOLATION_KILLING_FLAGS.some((re) => re.test(commands))) {
-        offenders.push(`.github/workflows/${entry}`);
+    for (const { dir, match } of RUN_COMMAND_SOURCES) {
+      for (const entry of readdirSync(join(ROOT, dir))) {
+        if (!match.test(entry)) continue;
+        const body = readFileSync(join(ROOT, dir, entry), "utf8");
+        // Strip comment lines so an explanatory mention is not read as a
+        // command. `#` covers YAML and shell; `//` covers the .mjs/.ts launchers.
+        const commands = body
+          .split("\n")
+          .filter((line) => {
+            const trimmed = line.trim();
+            return !trimmed.startsWith("#") && !trimmed.startsWith("//");
+          })
+          .join("\n");
+        if (ISOLATION_KILLING_FLAGS.some((re) => re.test(commands))) {
+          offenders.push(`${dir}/${entry}`);
+        }
       }
     }
     expect(offenders, "these run commands disable per-file isolation").toEqual([]);
   });
 
   it("the serial project keeps files sequential, so per-file peaks alternate instead of adding", () => {
-    // Also pinned by vitest-projects-partition.test.ts for the DB-race reason.
-    // Asserted here for the connection-count reason so removing either guard
-    // does not silently drop the other's coverage.
+    // Two assertions, because the authored value and the effective value can
+    // disagree: `vitest run --fileParallelism` makes the serial project
+    // concurrent while `serial.fileParallelism` still reads false.
+    //
+    // The runtime side is `maxWorkers`, since the worker config does not carry
+    // `fileParallelism` itself: vitest resolves fileParallelism:false to
+    // maxWorkers 1, and `--fileParallelism` leaves maxWorkers unset. The project
+    // name is asserted alongside it so that moving this file into the parallel
+    // project — where maxWorkers 1 would NOT hold — fails loudly here instead of
+    // quietly turning the check into a false alarm.
+    expect(
+      runtimeConfig,
+      "expected vitest's worker context to expose the resolved config",
+    ).toBeDefined();
+    expect(
+      runtimeConfig!.name,
+      "this guard must run in the serial project; its maxWorkers assertion is only meaningful there",
+    ).toBe("serial");
+    expect(
+      runtimeConfig!.maxWorkers,
+      "maxWorkers must be 1 at RUNTIME — anything else means files run concurrently and " +
+        "their pools sum instead of alternating",
+    ).toBe(1);
+
+    // The authored value too. Also pinned by vitest-projects-partition.test.ts
+    // for the DB-race reason; asserted here for the connection-count reason so
+    // removing either guard does not silently drop the other's coverage.
     expect(serial, "vitest.config.ts must define a `serial` project").toBeDefined();
     expect(
       serial!.fileParallelism,
