@@ -13,6 +13,7 @@ import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SAMPLING_PERIOD_MS } from "@/lib/drive/watchErrors";
+import { stripSqlComments } from "../helpers/sqlComments";
 
 const REGISTRY = join(
   process.cwd(),
@@ -20,6 +21,42 @@ const REGISTRY = join(
 );
 
 const JOB_NAME = "fxav_cron_refresh_watch";
+
+// Both migrations that schedule fxav_cron_* jobs, in apply order.
+const SCHEDULE_MIGRATIONS = [
+  "supabase/migrations/20260527000003_schedule_cron_jobs.sql",
+  "supabase/migrations/20260602000005_b3_schedule_notify_cron.sql",
+];
+
+/**
+ * The schedule a job is ACTUALLY given by the migrations, scoped to that job's
+ * own `cron.schedule` call.
+ *
+ * Whole-diff R9 finding 1: the registry JSON alone was not enough. The existing
+ * migration check (`tests/cross-cutting/pg-cron-coverage.test.ts:156`) asserts
+ * `scheduledSql.toContain(job.schedule)` against the CONCATENATED file text, and
+ * `fxav_cron_notify_digest` also runs `0 * * * *` — so changing refresh-watch's
+ * migration schedule to a three-hourly one leaves that assertion green (the
+ * string is still present, from the other job) and leaves this file's registry
+ * comparison green (the JSON was not touched). Production would then sample every
+ * three hours while SAMPLING_PERIOD_MS, the renewal lead, and the short-grant
+ * heuristic all stayed hourly.
+ *
+ * Later migrations win, matching apply order. Comments are stripped first so a
+ * commented-out schedule cannot supply the answer.
+ */
+function scheduleFromMigrations(jobName: string): string {
+  const pattern = new RegExp(`cron\\.schedule\\('${jobName}'\\s*,\\s*'([^']*)'`, "g");
+  let found: string | undefined;
+  for (const relative of SCHEDULE_MIGRATIONS) {
+    const sql = stripSqlComments(readFileSync(join(process.cwd(), relative), "utf8"));
+    for (const match of sql.matchAll(pattern)) found = match[1];
+  }
+  if (found === undefined) {
+    throw new Error(`${jobName} is not scheduled by any known migration`);
+  }
+  return found;
+}
 
 /**
  * Period of a 5-field cron expression whose minute field is one of the shapes
@@ -65,6 +102,33 @@ describe("SAMPLING_PERIOD_MS agrees with the canonical refresh-watch schedule", 
     expect(job, `${JOB_NAME} missing from the canonical cron registry`).toBeDefined();
 
     expect(cronPeriodMs(job!.schedule)).toBe(SAMPLING_PERIOD_MS);
+  });
+
+  test("the MIGRATION's own schedule for the renewal job agrees too (R9 finding 1)", () => {
+    const registry = JSON.parse(readFileSync(REGISTRY, "utf8")) as {
+      jobs: Array<{ jobname: string; schedule: string }>;
+    };
+    const job = registry.jobs.find((j) => j.jobname === JOB_NAME);
+    expect(job, `${JOB_NAME} missing from the canonical cron registry`).toBeDefined();
+
+    // The registry is documentation; the migration is what runs. Pin both, so a
+    // change to either alone fails rather than silently splitting them.
+    const live = scheduleFromMigrations(JOB_NAME);
+    expect(live, "migration and registry disagree on the renewal cadence").toBe(job!.schedule);
+    expect(cronPeriodMs(live)).toBe(SAMPLING_PERIOD_MS);
+  });
+
+  test("the schedule extractor is scoped to the named job, not the first in the file", () => {
+    // Guards the guard: an unscoped match would return fxav_cron_sync's schedule
+    // for every job, and this file's whole reason for existing is that the
+    // existing whole-file `toContain` check cannot tell two jobs apart.
+    expect(scheduleFromMigrations("fxav_cron_sync")).toBe("*/5 * * * *");
+    expect(scheduleFromMigrations("fxav_cron_gc_watch")).toBe("15 * * * *");
+    expect(scheduleFromMigrations("fxav_cron_report_reaper")).toBe("0 6 * * *");
+    // and the one that makes the whole-file check blind — same expression as
+    // refresh-watch, different job.
+    expect(scheduleFromMigrations("fxav_cron_notify_digest")).toBe("0 * * * *");
+    expect(() => scheduleFromMigrations("fxav_cron_not_a_job")).toThrow(/not scheduled/);
   });
 
   test("the period parser rejects shapes it cannot reason about", () => {

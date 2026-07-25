@@ -390,8 +390,14 @@ async function defaultWatchFolder(args: {
       // Ask for Google's documented maximum for the `files` resource. Omitting
       // this yields their 1-hour default, which is what left every lease being
       // renewed at the instant it expired (spec §1.2). MILLISECONDS as a string
-      // — seconds here would request an expiry decades in the past and Drive
-      // would silently fall back to the default again.
+      // — seconds here would request an expiry decades in the past. Google
+      // documents the 1h default ONLY for an OMITTED expiration, so do not
+      // expect that fallback to rescue a units regression: an explicit past
+      // timestamp is undefined territory (rejection, or a channel that is
+      // already expired on arrival). Whole-diff R9 finding 3 — the earlier
+      // comment asserted the fallback and would have sent diagnosis the wrong
+      // way. The `expiration` assertion in tests/drive/watchExpiration.test.ts
+      // is what actually pins the units.
       expiration: String(args.nowMs + WATCH_TTL_MS),
     },
   });

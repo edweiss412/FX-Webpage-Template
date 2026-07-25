@@ -169,7 +169,7 @@ If disabling isolation ever becomes desirable, the `makeTestSql` work above beco
 
 ---
 
-## BL-WATCH-RECONCILE-BACKOFF — backoff state for watch channels (BLOCKED on three shipped defects)
+## BL-WATCH-RECONCILE-BACKOFF — backoff state for watch channels (BLOCKED on four shipped defects)
 
 **Status:** OPEN, **blocked** · **Severity:** low · **Surfaced:** watch-channel-health brainstorming (2026-07-01) · **Re-scoped:** 2026-07-25 after five cross-model adversarial rounds
 
