@@ -33,67 +33,121 @@ const readRaw = (wf: string): string =>
   readFileSync(join(process.cwd(), ".github/workflows", wf), "utf8");
 
 /**
- * Workflow text with comment lines removed.
+ * Strip YAML comments — WHOLE-LINE and TRAILING.
  *
- * Every assertion below runs on this, not the raw file: review found all three
- * checks passing against COMMENTED-OUT wiring, since `# run: playwright test …`,
- * `# PICKER_COOKIE_SIGNING_KEY: …` and `# - "path"` all satisfy a naive match. A
- * guard that greens on disabled wiring is worse than no guard.
+ * Review found all three assertions passing against commented-out wiring, twice.
+ * Removing only full-line comments still accepted
+ * `run: echo ok # playwright test …picker-flow.spec.ts`,
+ * `FOO: bar # PICKER_COOKIE_SIGNING_KEY: "<64hex>"` and
+ * `- "other" # - "app/auth/**"`. A guard that greens on disabled wiring is worse
+ * than no guard, so the trailing form is stripped too — quote-aware, since a `#`
+ * inside a quoted scalar is data, not a comment.
  */
-const read = (wf: string): string =>
-  readRaw(wf)
+function stripComments(yaml: string): string {
+  return yaml
     .split("\n")
-    .filter((line) => !/^\s*#/.test(line))
+    .map((line) => {
+      let quote: string | null = null;
+      for (let i = 0; i < line.length; i += 1) {
+        const ch = line[i]!;
+        if (quote !== null) {
+          if (ch === quote) quote = null;
+          continue;
+        }
+        if (ch === '"' || ch === "'") {
+          quote = ch;
+          continue;
+        }
+        // A comment starts at `#` when it opens the line or follows whitespace.
+        if (ch === "#" && (i === 0 || /\s/.test(line[i - 1]!))) return line.slice(0, i);
+      }
+      return line;
+    })
     .join("\n");
+}
+
+const read = (wf: string): string => stripComments(readRaw(wf));
+
+/** The `pull_request.paths` block only, so a path named elsewhere cannot count. */
+function pathsBlock(wf: string): string {
+  const yaml = read(wf);
+  const start = yaml.indexOf("paths:");
+  if (start === -1) return "";
+  const rest = yaml.slice(start);
+  // Ends at the next key at two-space indent or shallower (e.g. `workflow_dispatch:`).
+  const end = rest.slice(1).search(/\n {0,2}\S/);
+  return end === -1 ? rest : rest.slice(0, end + 1);
+}
 
 /**
  * Every surface a change to which should re-run this suite. Derived by walking
  * the spec's and its helpers' imports plus the runtime surfaces the cases drive.
  *
- * FOUR review rounds each caught another omission, so treat the list as
- * discovered rather than derived. The last round added the module-evaluated and
- * schema dependencies: `lib/email/hashForLog.ts`, `lib/log/**`, `lib/messages/**`
- * and `lib/adminAlerts/**` are all reached by the picker-bootstrap route the
- * first-contact case drives, and `supabase/migrations/**` defines the resolver,
- * claim and selection RPCs plus the tables the seed helpers write, so a schema
- * change can break every case in the file.
+ * COARSE ON PURPOSE. Five review rounds each found another missing leaf — the
+ * last one about thirty — which says enumeration is the wrong shape, not that the
+ * list needed one more entry. These specs drive whole rendered routes, reaching
+ * across app/, components/ and lib/ transitively, plus the schema the seed helpers
+ * write and the CI inputs that build the server. Naming the trees cannot be
+ * incomplete in the way a leaf list kept being.
  */
 const REQUIRED_PATHS = [
-  SPEC,
-  "app/auth/**",
-  "app/api/auth/**",
-  "app/api/test-auth/**",
-  "app/show/**",
-  "components/auth/**",
-  "lib/auth/**",
-  "lib/http/**",
-  "lib/crew/**",
-  "lib/supabase/server.ts",
-  "lib/email/canonicalize.ts",
-  "lib/email/hashForLog.ts",
-  "lib/env/pickerCookieSigningKey.ts",
-  "lib/log/**",
-  "lib/messages/**",
-  "lib/adminAlerts/**",
-  "supabase/migrations/**",
+  "app/**",
+  "components/**",
+  "lib/**",
+  "supabase/**",
+  "tests/e2e/**",
+  "playwright.config.ts",
+  "package.json",
+  "pnpm-lock.yaml",
+  ".github/workflows/crew-e2e.yml",
+  ".github/actions/setup/**",
+  "scripts/ci/**",
 ] as const;
 
 /** Bare-runner workflows whose webServer inherits runner-level env. */
 const KEYED_WORKFLOWS = ["crew-e2e.yml", "dev-gate-e2e.yml"] as const;
 
 describe("picker-flow e2e CI wiring", () => {
-  it("crew-e2e.yml runs the picker-flow spec in a playwright command", () => {
-    const yaml = read("crew-e2e.yml");
-    const commands = [...yaml.matchAll(/playwright test[^\n]*/g)].map((m) => m[0]);
+  it("crew-e2e.yml runs the picker-flow spec under a project whose testMatch claims it", () => {
+    const commands = [...read("crew-e2e.yml").matchAll(/playwright test[^\n]*/g)].map((m) => m[0]);
+    const naming = commands.filter((c) => c.includes(SPEC));
     expect(
-      commands.some((c) => c.includes(SPEC)),
+      naming.length,
       `no \`playwright test\` command in crew-e2e.yml names ${SPEC}. Un-skipped cases that no ` +
         "workflow runs are dark: CI would report green without executing them.",
+    ).toBeGreaterThan(0);
+
+    // Naming the file is not enough: a command selecting only mobile-safari while
+    // naming picker-flow collects ZERO tests and still passes. So the command must
+    // select a project whose testMatch actually claims this spec.
+    const config = readFileSync(join(process.cwd(), "playwright.config.ts"), "utf8");
+    const claiming = [
+      ...config.matchAll(/name:\s*"([^"]+)"[\s\S]{0,4000}?testMatch:\s*\n?\s*\/\(([^/]+)\)/g),
+    ]
+      .filter(([, , alternatives]) => alternatives!.split("|").includes("picker-flow"))
+      .map(([, project]) => project!);
+    expect(
+      claiming.length,
+      "no playwright.config.ts project's testMatch includes picker-flow",
+    ).toBeGreaterThan(0);
+    expect(
+      naming.some((c) => claiming.some((project) => c.includes(`--project=${project}`))),
+      `the command naming ${SPEC} selects no project whose testMatch claims it (claiming: ` +
+        `${claiming.join(", ")}). It would collect zero tests and still report green.`,
     ).toBe(true);
   });
 
-  it.each(KEYED_WORKFLOWS)("%s sets a 64-hex PICKER_COOKIE_SIGNING_KEY", (wf) => {
-    const match = /PICKER_COOKIE_SIGNING_KEY:\s*"?([0-9a-fA-F]*)"?/.exec(read(wf));
+  it.each(KEYED_WORKFLOWS)("%s sets a 64-hex PICKER_COOKIE_SIGNING_KEY under env:", (wf) => {
+    const yaml = read(wf);
+    // Must sit inside an `env:` mapping — a bare key elsewhere in the file reaches
+    // no process.
+    expect(
+      /env:\s*(?:\n\s+#[^\n]*)*(?:\n\s+[A-Z_0-9]+:[^\n]*)*\n\s+PICKER_COOKIE_SIGNING_KEY:/.test(
+        yaml,
+      ),
+      `${wf} does not set PICKER_COOKIE_SIGNING_KEY inside an env: mapping`,
+    ).toBe(true);
+    const match = /PICKER_COOKIE_SIGNING_KEY:\s*"?([0-9a-fA-F]*)"?/.exec(yaml);
     expect(match, `${wf} does not set PICKER_COOKIE_SIGNING_KEY at all`).not.toBeNull();
     expect(
       match![1],
@@ -104,10 +158,8 @@ describe("picker-flow e2e CI wiring", () => {
   });
 
   it.each(REQUIRED_PATHS)("crew-e2e.yml's pull_request.paths covers %s", (path) => {
-    const yaml = read("crew-e2e.yml");
-    const trigger = yaml.slice(0, yaml.indexOf("jobs:"));
     expect(
-      trigger.includes(`- "${path}"`),
+      pathsBlock("crew-e2e.yml").includes(`- "${path}"`),
       `crew-e2e.yml's pull_request.paths omits ${path}, so a PR changing only that surface would ` +
         "not re-run the picker-flow suite.",
     ).toBe(true);

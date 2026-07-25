@@ -82,6 +82,49 @@ const SCOPE_CASES: Array<[string, string, number]> = [
     1,
   ],
   [
+    // The two shapes a reviewer's probe used to refute the first scope fix, which
+    // recursed into nested blocks and so attributed a block-scoped declaration to
+    // the enclosing function.
+    "a safe url inside a nested block must not mask the dangerous outer one",
+    `function h(request: NextRequest) {
+       const url = new URL(p, request.url);
+       if (cond) {
+         const url = new URL(request.url);
+         void url;
+       }
+       return NextResponse.redirect(url);
+     }`,
+    1,
+  ],
+  [
+    "a dangerous url inside a nested block must not taint the safe outer redirect",
+    `function h(request: NextRequest) {
+       const url = "https://fixed.example/next";
+       if (cond) {
+         const url = new URL(p, request.url);
+         void url;
+       }
+       return NextResponse.redirect(url);
+     }`,
+    0,
+  ],
+  [
+    "a same-named parameter stops resolution rather than falling through",
+    `function outer(request: NextRequest) {
+       const url = new URL(p, request.url);
+       return inner(url);
+     }
+     function inner(url: URL) {
+       return NextResponse.redirect(url);
+     }`,
+    0,
+  ],
+  [
+    "request.nextUrl is the same self-origin source as request.url",
+    `return NextResponse.redirect(new URL(p, request.nextUrl));`,
+    1,
+  ],
+  [
     "a later dangerous `url` must not taint an earlier safe redirect",
     // Dangerous declaration LAST on purpose: under last-declaration-wins the
     // safe redirect in a() resolves to b()'s initializer and is falsely flagged.

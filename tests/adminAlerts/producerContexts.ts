@@ -43,7 +43,7 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
     showId: SHOW_ID,
     context: { email: "shared@gmail.com", crew_member_ids: [CREW_ID, OTHER_SHOW_CREW_ID] },
   },
-  // 2. app/auth/callback/route.ts:138-146
+  // 2. app/auth/callback/route.ts:150-158
   {
     code: "OAUTH_IDENTITY_CLAIMED",
     showId: SHOW_ID,
@@ -78,7 +78,7 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
       route: "picker-bootstrap",
     },
   },
-  // 5. app/auth/callback/route.ts:165-170 — global
+  // 5. app/auth/callback/route.ts:177-182 — global
   { code: "CALLBACK_CLAIM_THREW", showId: null, context: { error_name: "TypeError" } },
   // 6. lib/auth/picker/cleanupStaleEntry.ts:105-113
   {

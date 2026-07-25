@@ -16,14 +16,13 @@
  * would be visible in review. The job is to stop the KNOWN class from silently
  * returning, not to be a sound dataflow analysis (spec §3.4).
  *
- * Resolution IS scope-aware, though. An earlier revision keyed one file-global
- * map by identifier name with last-declaration-wins, which review found unsound
- * in both directions: two handlers in one file both using the common name `url`
- * would overwrite each other, so a dangerous declaration could be masked by a
- * later safe one (false negative) or a safe one flagged by an earlier dangerous
- * one (false positive). `app/api/auth/picker-bootstrap/route.ts` already
- * declares a safe `url`, so the collision was live, not theoretical. Lookups now
- * walk outward from the reference through its enclosing scopes.
+ * Resolution IS scope-aware, and got there in two corrections. A file-global,
+ * name-keyed map with last-declaration-wins was unsound in both directions (two
+ * handlers both using `url` overwrote each other). Walking enclosing scopes but
+ * RECURSING into them was still unsound, which a reviewer's probe demonstrated: a
+ * declaration inside a nested block was attributed to the enclosing function.
+ * Lookups now read only each scope's own statement list, walking outward, and a
+ * same-named parameter stops the walk instead of falling through.
  */
 import ts from "typescript";
 
@@ -41,11 +40,44 @@ export function parseSource(fileName: string, source: string): ts.SourceFile {
 }
 
 /**
- * Nearest-enclosing-scope lookup for `const x = <init>` by identifier.
+ * Nearest-enclosing-scope lookup for `const x = <init>`.
  *
- * Walks outward from the reference: the innermost function/block that declares
- * the name wins, so same-named locals in sibling handlers cannot collide.
+ * Only a scope's OWN statement list is inspected. An earlier revision recursed
+ * with forEachChild and so descended into nested blocks, which a reviewer's probe
+ * showed left both collision directions unsound: a safe `url` inside an `if`
+ * block was treated as the enclosing function's declaration (masking a dangerous
+ * outer one), and a dangerous nested `url` tainted a safe outer redirect. A
+ * declaration inside a nested block belongs to THAT block, and is found when
+ * resolving a reference that actually sits inside it.
+ *
+ * A parameter of the same name STOPS the walk rather than falling through to an
+ * outer initializer: the value is a parameter, whose contents this matcher cannot
+ * know, so treating it as unresolvable is the honest answer.
  */
+function statementsOf(scope: ts.Node): readonly ts.Statement[] {
+  if (ts.isSourceFile(scope) || ts.isBlock(scope)) return scope.statements;
+  if (
+    (ts.isFunctionDeclaration(scope) ||
+      ts.isFunctionExpression(scope) ||
+      ts.isArrowFunction(scope) ||
+      ts.isMethodDeclaration(scope)) &&
+    scope.body !== undefined &&
+    ts.isBlock(scope.body)
+  ) {
+    return scope.body.statements;
+  }
+  return [];
+}
+
+function parametersOf(scope: ts.Node): readonly ts.ParameterDeclaration[] {
+  return ts.isFunctionDeclaration(scope) ||
+    ts.isFunctionExpression(scope) ||
+    ts.isArrowFunction(scope) ||
+    ts.isMethodDeclaration(scope)
+    ? scope.parameters
+    : [];
+}
+
 function scopeOf(node: ts.Node): ts.Node | undefined {
   let cur: ts.Node | undefined = node.parent;
   while (cur !== undefined) {
@@ -64,34 +96,21 @@ function scopeOf(node: ts.Node): ts.Node | undefined {
   return undefined;
 }
 
-/** Declarations directly inside one scope (not nested functions' bodies). */
-function declaredIn(scope: ts.Node, name: string): ts.Expression | undefined {
-  let found: ts.Expression | undefined;
-  const visit = (node: ts.Node): void => {
-    if (found !== undefined) return;
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === name &&
-      node.initializer !== undefined
-    ) {
-      found = node.initializer;
-      return;
+/** `SHADOWED` means "declared here, initializer unknowable" — stop, do not ascend. */
+const SHADOWED = Symbol("shadowed");
+
+function declaredIn(scope: ts.Node, name: string): ts.Expression | typeof SHADOWED | undefined {
+  for (const param of parametersOf(scope)) {
+    if (ts.isIdentifier(param.name) && param.name.text === name) return SHADOWED;
+  }
+  for (const stmt of statementsOf(scope)) {
+    if (!ts.isVariableStatement(stmt)) continue;
+    for (const decl of stmt.declarationList.declarations) {
+      if (!ts.isIdentifier(decl.name) || decl.name.text !== name) continue;
+      return decl.initializer ?? SHADOWED;
     }
-    // Do not descend into a nested function: its locals are a different scope.
-    if (
-      node !== scope &&
-      (ts.isFunctionDeclaration(node) ||
-        ts.isFunctionExpression(node) ||
-        ts.isArrowFunction(node) ||
-        ts.isMethodDeclaration(node))
-    ) {
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  ts.forEachChild(scope, visit);
-  return found;
+  }
+  return undefined;
 }
 
 /** Resolve an identifier to its initializer, innermost scope first. */
@@ -99,23 +118,37 @@ function initializerFor(ref: ts.Node, name: string): ts.Expression | undefined {
   let scope = scopeOf(ref);
   while (scope !== undefined) {
     const hit = declaredIn(scope, name);
+    if (hit === SHADOWED) return undefined;
     if (hit !== undefined) return hit;
     scope = ts.isSourceFile(scope) ? undefined : scopeOf(scope);
   }
   return undefined;
 }
 
-/** True for `request.url` / `req.url`, or an identifier holding one. */
+/**
+ * True for the request's own URL: `request.url` / `req.url`, `request.nextUrl`
+ * (Next's parsed twin of the same self-origin value, which review flagged as an
+ * undocumented bypass), one hop further down that value, or an identifier holding
+ * any of them (`const base = request.url`).
+ */
 function isRequestUrl(expr: ts.Expression, hops = 0): boolean {
   if (
     ts.isPropertyAccessExpression(expr) &&
-    expr.name.text === "url" &&
+    (expr.name.text === "url" || expr.name.text === "nextUrl") &&
     ts.isIdentifier(expr.expression) &&
     (expr.expression.text === "request" || expr.expression.text === "req")
   ) {
     return true;
   }
-  // Captured base: `const base = request.url; new URL(p, base)`.
+  if (
+    ts.isPropertyAccessExpression(expr) &&
+    ts.isPropertyAccessExpression(expr.expression) &&
+    expr.expression.name.text === "nextUrl" &&
+    ts.isIdentifier(expr.expression.expression) &&
+    (expr.expression.expression.text === "request" || expr.expression.expression.text === "req")
+  ) {
+    return true;
+  }
   if (ts.isIdentifier(expr) && hops < MAX_HOPS) {
     const init = initializerFor(expr, expr.text);
     if (init !== undefined) return isRequestUrl(init, hops + 1);
@@ -123,7 +156,7 @@ function isRequestUrl(expr: ts.Expression, hops = 0): boolean {
   return false;
 }
 
-/** True for `new URL(<path>, request.url)`, or an identifier holding one. */
+/** True for `new URL(<path>, <request url>)`, or an identifier holding one. */
 function isSelfUrl(expr: ts.Expression, hops = 0): boolean {
   if (
     ts.isNewExpression(expr) &&

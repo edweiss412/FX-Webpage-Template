@@ -15,9 +15,21 @@ type OAuthRedirectCode = "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID";
 
 // Host-relative Location: `new URL(path, request.url)` would emit an absolute
 // URL whose host is whatever Next reports, not what the client typed, dropping
-// host-scoped auth cookies on the flip. The `request` parameter stays in the
-// signature — lib/audit/authChain.ts keys the next-param ordering audit on this
-// wrapper's name, and callers pass it positionally.
+// host-scoped auth cookies on the flip.
+// The leading request parameter is retained on purpose, and TWO scanners depend
+// on this shape, not one:
+//   - lib/audit/authChain.ts:130 looks up the first call NAMED `redirect`,
+//     `redirectTo`, or `signInRedirect` to assert it follows validateNextParam.
+//     (That audit is currently unreferenced dead code, so it enforces nothing
+//     today; the name is kept so it stays correct if it is ever wired up.)
+//   - tests/messages/catalog.test.ts:86 scans this file for a signInRedirect call
+//     and reads the catalog code out of its SECOND argument. Dropping the leading
+//     parameter would shift the code to first position and silently un-cover this
+//     file in that scan. This one is live. (Deliberately not writing that regex's
+//     shape out here: the scanner would match the comment and extract a
+//     nonexistent code, which is exactly how this comment first broke it.)
+// Underscore-prefixed because the value is genuinely unused now that the Location
+// is host-relative.
 function redirectTo(_request: NextRequest, path: string, status = 302): NextResponse {
   return hostRelativeRedirect(path, status);
 }
@@ -27,7 +39,7 @@ function isAdminPath(path: string): boolean {
 }
 
 function signInRedirect(
-  request: NextRequest,
+  _request: NextRequest,
   code: OAuthRedirectCode,
   nextPath: string,
 ): NextResponse {

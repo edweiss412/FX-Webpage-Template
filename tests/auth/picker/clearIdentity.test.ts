@@ -78,6 +78,9 @@ beforeEach(() => {
   supabaseMock.signOut.mockReset();
   supabaseMock.signOut.mockImplementation(async () => {
     calls.push("signOut");
+    // Distinct from "signOut": lets a test prove revocation COMPLETED rather
+    // than merely having been entered.
+    calls.push("signOutResolved");
     return { error: null };
   });
   supabaseMock.createClient.mockReset();
@@ -398,6 +401,51 @@ describe("clearIdentityAndSkip — guest sign-out (spec §4.3)", () => {
       );
     },
   );
+
+  test("a sweep failure is reported AFTER revocation completed, and named as such", async () => {
+    seedEntry();
+    cookieSet.mockImplementation((name: string) => {
+      calls.push("cookieSet");
+      if (name.startsWith("sb-")) throw new Error("cookie write forbidden");
+    });
+    await expect(clearIdentityAndSkip(fdFull())).resolves.toEqual({
+      ok: false,
+      code: "PICKER_RESOLVER_LOOKUP_FAILED",
+    });
+    // Ordering: revocation RESOLVED before the sweep threw. Without this, a
+    // version that swept BEFORE signing out would satisfy every other assertion
+    // while the test name and spec §4.3's matrix both claim revocation first.
+    expect(calls).toContain("signOutResolved");
+    expect(calls.indexOf("signOutResolved")).toBeLessThan(calls.lastIndexOf("cookieSet"));
+    // The three sign-out boundaries stay discriminable in telemetry (invariant 9):
+    // this residual state is "already revoked, cookie may linger", materially
+    // different from a revocation that never landed.
+    expect(logMock.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "AUTH_SIGNOUT_FAILED",
+        stage: "residual_cookie_sweep",
+      }),
+    );
+  });
+
+  test.each([
+    ["client_construction", () => void (supabaseMock.throwOnCreate = true)],
+    [
+      "sign_out",
+      () => {
+        supabaseMock.signOut.mockResolvedValueOnce({ error: { message: "gateway" } });
+      },
+    ],
+  ])("the %s boundary is named in its own emit", async (stage, arrange) => {
+    seedEntry();
+    arrange();
+    await clearIdentityAndSkip(fdFull());
+    expect(logMock.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "AUTH_SIGNOUT_FAILED", stage }),
+    );
+  });
 
   test("clearIdentity (non-skip) never constructs a Supabase client", async () => {
     seedEntry();

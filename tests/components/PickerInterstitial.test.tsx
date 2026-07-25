@@ -9,9 +9,11 @@
  *
  * Contracts pinned:
  *   1. Active roster rows submit via selectIdentity.
- *   2. Claimed rows render `data-claimed="true"`, a lock icon, and a
- *      GET form pointing at /auth/sign-in?next=<encoded tokenized URL>
- *      (P-R35 deactivated-row contract).
+ *   2. Claimed rows render `data-claimed="true"`, a lock icon, and a GET form
+ *      pointing at BARE /auth/sign-in with `next` in a hidden input (P-R35
+ *      deactivated-row contract). Not in the action query: a GET submit rebuilds
+ *      the query from the form's own fields and discards whatever the action
+ *      held, which is how the return target was being lost.
  *   3. Banner copy is the cataloged crewFacing string from MESSAGE_CATALOG
  *      (NOT the raw code; AGENTS.md invariant 5).
  *   4. Empty roster renders the PICKER_EMPTY_ROSTER copy.

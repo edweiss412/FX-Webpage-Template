@@ -185,7 +185,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId hard-coded null despite context.show_id present",
   },
   {
-    site: "app/auth/callback/route.ts:138",
+    site: "app/auth/callback/route.ts:150",
     contextKeys: [
       "claimed_at_millis",
       "crew_member_id",
@@ -197,7 +197,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "app/auth/callback/route.ts:167",
+    site: "app/auth/callback/route.ts:179",
     contextKeys: ["error_name"],
     code: "CALLBACK_CLAIM_THREW",
     scope: "global",

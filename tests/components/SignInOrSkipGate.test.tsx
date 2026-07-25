@@ -65,11 +65,14 @@ describe("<SignInOrSkipGate> — Mode A (first_contact)", () => {
 });
 
 describe("<SignInOrSkipGate> — Mode B (google_mismatch)", () => {
-  // Duplicated on purpose. Reading the expectation from the catalog would pass
-  // BEFORE the copy edit lands (no red phase) and could not tell a hardcoded
-  // component string from a cataloged one. The literal is the red phase; the
-  // catalog-equality assertion below is what proves the component is not
-  // hardcoding a string that has drifted from the catalog.
+  // Duplicated on purpose: the literal is the red phase, since reading the
+  // expectation from the catalog would have passed before the copy edit landed.
+  // The catalog-equality assertion beside it catches DRIFT between the two.
+  //
+  // Neither proves the component SOURCES the copy from the catalog — a component
+  // that inlined this exact sentence satisfies both. That contract is pinned
+  // separately, by mocking the lookup to a sentinel, in
+  // tests/components/SignInOrSkipGateCopySource.test.tsx.
   const EXPECTED_MISMATCH_PROMPT =
     "You're signed in with a Google account that isn't on this show's roster. " +
     "Sign in with the account for this show, or continue as guest, which signs " +

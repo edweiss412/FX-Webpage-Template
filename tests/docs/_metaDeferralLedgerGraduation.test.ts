@@ -37,8 +37,13 @@ import { describe, expect, it } from "vitest";
  * has that shape too. The `BL-` prefix is what makes the backlog matcher
  * ledger-specific.
  */
-const DEFERRAL_ID = /^### ([A-Z0-9][A-Z0-9-]+)/gm;
-const BACKLOG_ID = /^#{2,3} (BL-[A-Z0-9-]+)/gm;
+// Optional `~~strikethrough~~` around the id, and `/` inside it: review found
+// `### ~~MODAL-CLOSE-EXIT-ANIM-1~~` skipped entirely and `### FLOW4-2/3-POLISH`
+// truncated to `FLOW4-2`, which collides with the distinct real `FLOW4-2` entry —
+// so a reopened struck-through id could slip past the no-overlap invariant and two
+// different entries could be conflated.
+const DEFERRAL_ID = /^### ~{0,2}([A-Z0-9][A-Z0-9/-]*)~{0,2}/gm;
+const BACKLOG_ID = /^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)~{0,2}/gm;
 
 /**
  * Deferrals graduated to the archive since this guard shipped. NOT a mirror of
@@ -128,9 +133,16 @@ describe("backlog ledger graduation", () => {
     // substring match would pass on the branch name appearing anywhere in ~130
     // unrelated historical entries.
     const archive = read("BACKLOG-archive.md");
-    const start = archive.indexOf(BACKLOG_GRADUATED[0]);
-    expect(start, `${BACKLOG_GRADUATED[0]} not found in the archive`).toBeGreaterThan(-1);
-    const section = archive.slice(Math.max(0, start - 4000), start + 4000);
+    // Anchor on the entry HEADING, not the first mention: review found
+    // indexOf() landing on a summary bullet above the section, with an arbitrary
+    // ±4000-character window that could source the branch name from neighbouring
+    // material. The section runs from its heading to the next one.
+    const heading = new RegExp(`^#{2,3} ~{0,2}${BACKLOG_GRADUATED[0]}`, "m").exec(archive);
+    expect(heading, `${BACKLOG_GRADUATED[0]} has no heading in the archive`).not.toBeNull();
+    const from = heading!.index;
+    const rest = archive.slice(from);
+    const nextHeading = rest.slice(1).search(/\n#{2,3} /);
+    const section = nextHeading === -1 ? rest : rest.slice(0, nextHeading + 1);
     expect(section).toContain("fix/picker-flow-app-bugs");
   });
 
@@ -152,14 +164,26 @@ describe("backlog ledger graduation", () => {
     // Each pattern below therefore requires a PHRASE the entry cannot lose and
     // still carry its meaning.
     //
+    // Generic keywords were not enough: review showed a 401-character entry with
+    // "no Origin header", "logout", "no privilege", "trusted proxy" and "trigger"
+    // passing while naming neither the action nor what a forced call actually
+    // does. Each pattern below names a SUBJECT the entry cannot lose and stay
+    // actionable.
+    //
+    // WHICH action is exposed:
+    expect(body).toMatch(/clearIdentityAndSkip/);
+    // that it is a Server Action, which is why the framework default is the gate:
+    expect(body).toMatch(/Server Action/i);
     // the residual — a cross-site request arriving with no Origin header:
     expect(body).toMatch(/no\s+`?Origin`?\s+header|without\s+(that\s+|an?\s+)?`?Origin`?/i);
-    // the blast radius — what a forced call can actually do, and cannot:
+    // the blast radius, both halves: what it does...
+    expect(body).toMatch(/picker[- ]?(cookie |envelope )?entry|picker entry/i);
     expect(body).toMatch(/signs?\s+the\s+victim|logout|sign(s|ed)?\s+out/i);
+    // ...and what it does not:
     expect(body).toMatch(/no\s+(response\s+data|read)|no\s+privilege|no\s+escalation/i);
     // the open decision that has to come first:
     expect(body).toMatch(/trusted[- ]proxy/i);
-    // and the pickup trigger, so the entry stays actionable:
+    // and the pickup trigger, so it stays actionable:
     expect(body).toMatch(/trigger|pick this up|next\s+auth/i);
   });
 });

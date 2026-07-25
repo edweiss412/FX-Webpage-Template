@@ -24,37 +24,30 @@ name: Crew e2e (mobile-safari)
 # (real-CI-green is its own gate — the local-passes-CI-fails class).
 on:
   pull_request:
+    # COARSE ON PURPOSE. Five review rounds each found another missing leaf in an
+    # enumerated list (the last one found ~30), which is the signal that
+    # enumeration is the wrong shape here, not that the list needed one more
+    # entry. These specs drive whole rendered routes: the crew show page and the
+    # picker chain reach across app/, components/, and lib/ transitively, plus the
+    # schema the seed helpers write and the CI inputs that build the server. So
+    # the filter now names the trees rather than the files, and
+    # tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts pins these globs.
+    #
+    # The cost is that this job runs on more PRs. That is the correct trade: a
+    # missing leaf means a silent regression in a suite whose whole purpose is
+    # catching regressions, while an extra run costs runner minutes.
     paths:
-      - "components/crew/**"
-      - "app/show/**"
-      - "lib/crew/**"
-      - "lib/data/getShowForViewer.ts"
-      - "tests/e2e/crew-section-toggle.spec.ts"
-      - "tests/e2e/helpers/**"
+      - "app/**"
+      - "components/**"
+      - "lib/**"
+      - "supabase/**"
+      - "tests/e2e/**"
       - "playwright.config.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
       - ".github/workflows/crew-e2e.yml"
-      # picker-flow surfaces. Derived by walking the spec's and its helpers'
-      # imports plus the runtime surfaces its cases drive — an enumeration written
-      # from memory missed one of these on three separate review rounds, so the
-      # list is pinned by tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts.
-      - "tests/e2e/picker-flow.spec.ts"
-      - "app/auth/**"
-      - "app/api/auth/**"
-      - "app/api/test-auth/**"
-      - "components/auth/**"
-      - "lib/auth/**"
-      - "lib/http/**"
-      - "lib/supabase/server.ts"
-      - "lib/email/canonicalize.ts"
-      - "lib/email/hashForLog.ts"
-      - "lib/env/pickerCookieSigningKey.ts"
-      - "lib/log/**"
-      - "lib/messages/**"
-      - "lib/adminAlerts/**"
-      # The seed helpers write shows / crew_members / show_share_tokens and the
-      # chain resolves through SECURITY DEFINER RPCs, so a schema change can
-      # break every case in the spec.
-      - "supabase/migrations/**"
+      - ".github/actions/setup/**"
+      - "scripts/ci/**"
   workflow_dispatch:
 
 # Cancel a superseded run when the PR branch is re-pushed — this job boots

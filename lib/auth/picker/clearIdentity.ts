@@ -62,9 +62,10 @@ export async function clearIdentity(formData: FormData): Promise<ClearIdentityRe
  * existing `?gate=skip` guard already honors — so page.tsx is untouched.
  *
  * Order is load-bearing: the picker entry goes FIRST. If sign-out then fails,
- * the person sees Mode B again and the tap is retryable, with no stale identity
- * reachable. The reverse order would leave a live foreign session beside a stale
- * picker identity, and the next request would render the show body as that
+ * the person sees a gate again and the tap is retryable, with no stale identity
+ * reachable — Mode B while the session survives, or the first-contact welcome if
+ * revocation landed and only the cookie sweep failed. The reverse order would
+ * leave a live foreign session beside a stale picker identity, and the next request would render the show body as that
  * person — exactly what the mismatch gate exists to prevent.
  */
 export async function clearIdentityAndSkip(formData: FormData): Promise<ClearIdentityResult> {
@@ -95,10 +96,52 @@ export async function clearIdentityAndSkip(formData: FormData): Promise<ClearIde
  * The app-wide /auth/sign-out route keeps the global default deliberately.
  */
 async function signOutThisDevice(showId: string): Promise<ClearIdentityResult> {
+  // Each boundary is caught SEPARATELY and reported with its own `stage`.
+  // Invariant 9 wants faults discriminable, and these three are not the same
+  // event: a constructor throw means nothing was revoked, a signOut fault means
+  // the session is probably still live, and a sweep failure means the session IS
+  // already revoked and only a residual cookie remains. Collapsing them into one
+  // catch — the first version — logged three materially different residual states
+  // under one indistinguishable message.
+  const fail = (stage: string, error: unknown): ClearIdentityResult => {
+    // Deliberately NO redirect on any of these: redirecting would send the person
+    // onward with state half-applied. Returning re-renders a gate, which is
+    // itself the retry affordance — Mode B while the session survives, or the
+    // first-contact welcome once revocation landed (see the `sweep` stage).
+    log.error("guest sign-out failed", {
+      source: "auth.picker.clearIdentityAndSkip",
+      code: "AUTH_SIGNOUT_FAILED",
+      stage,
+      showId,
+      error,
+    });
+    // The forensic code rides the telemetry emit above, where the §12.4 producer
+    // scan strips it (lib/messages/__internal__/stripLogEmissionCalls.ts). The
+    // RETURNED code has to be a catalogued one: a `code:` literal in a returned
+    // object reads as a user-facing §12.4 producer, and AUTH_SIGNOUT_FAILED is
+    // deliberately forensic-only, with no catalog row and no crew copy.
+    return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
+  };
+
+  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
-    const supabase = await createSupabaseServerClient();
+    supabase = await createSupabaseServerClient();
+  } catch (error) {
+    // Nothing revoked: the env is misconfigured. Next render is still Mode B.
+    return fail("client_construction", error);
+  }
+
+  try {
     const { error } = await supabase.auth.signOut({ scope: "local" });
     if (error) throw error;
+  } catch (error) {
+    // Revocation did not land, so the foreign session survives and the next
+    // render is Mode B again. The picker entry is already gone, so nothing is
+    // exposed either way.
+    return fail("sign_out", error);
+  }
+
+  try {
     // Belt and braces, mirroring the sign-out route: signOut's SSR adapter
     // attempts its own cookie deletion and swallows write failures, so clear any
     // residual shard explicitly. Never touches the picker envelope.
@@ -113,24 +156,16 @@ async function signOutThisDevice(showId: string): Promise<ClearIdentityResult> {
         maxAge: 0,
       });
     }
-    return { ok: true };
   } catch (error) {
-    // Deliberately NO redirect on this path: redirecting would loop the person
-    // back to the Mode B gate with state half-applied. Returning lets the gate
-    // re-render, which is itself the retry affordance.
-    log.error("guest sign-out failed", {
-      source: "auth.picker.clearIdentityAndSkip",
-      code: "AUTH_SIGNOUT_FAILED",
-      showId,
-      error,
-    });
-    // The forensic code rides the telemetry emit above, where the §12.4 producer
-    // scan strips it (lib/messages/__internal__/stripLogEmissionCalls.ts). The
-    // RETURNED code has to be a catalogued one: a `code:` literal in a returned
-    // object reads as a user-facing §12.4 producer, and AUTH_SIGNOUT_FAILED is
-    // deliberately forensic-only, with no catalog row and no crew copy.
-    return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
+    // Revocation ALREADY LANDED here — only the belt-and-braces sweep failed. So
+    // unlike the two stages above, the next render is not necessarily Mode B: if
+    // the SSR adapter's own deletion succeeded, or once the access token expires,
+    // the chain resolves to first-contact and the welcome gate's CTA reaches the
+    // picker. Spec §4.3's matrix records both branches.
+    return fail("residual_cookie_sweep", error);
   }
+
+  return { ok: true };
 }
 
 export async function clearIdentityCore(input: ClearIdentityInput): Promise<ClearIdentityResult> {
