@@ -3,11 +3,22 @@
 // Postgres so a full test run stops failing on "too many clients" / pool
 // exhaustion after a long probing session.
 //
-// WHY: ~55 DB test files open module-level postgres.js clients with no
-// idle_timeout and no .end(), so in the serial DB-test worker their connections
-// accumulate for the whole run and can exhaust local Postgres max_connections
-// (~100). This reaps them without a full `supabase stop && start` (seconds, not
-// a container bounce). Run before the final full-suite verification pass.
+// WHY: one local Postgres (max_connections 100) is shared by every worktree, dev
+// server, and psql session on the box, and baseline is already ~20 backends at
+// idle from Supabase's own services (PostgREST, realtime, pg_cron, pg_net). A
+// long probing session with several of those live is what strands connections.
+// This reaps them without a full `supabase stop && start` (seconds, not a
+// container bounce). Run before the final full-suite verification pass.
+//
+// NOT the DB test suite. An earlier version of this comment blamed module-level
+// postgres.js clients with no idle_timeout accumulating across the serial run;
+// that was measured false on 2026-07-24 and the matching BL-TEST-PG-CLIENT-
+// TEARDOWN backlog entry is withdrawn. vitest's forks pool with the default
+// isolate:true gives every test file its own child process, so its sockets close
+// on exit. The full serial project (837 files) peaked at 6 postgres.js backends
+// of 100 — one file's pool. See BACKLOG.md's withdrawn entry for the numbers and
+// tests/cross-cutting/db-test-connection-hygiene.test.ts for the guard that
+// keeps the isolation from being switched off.
 //
 // HARD SAFETY GUARD: refuses to run against anything but a loopback host. It
 // will NEVER touch the validation or prod database — even if TEST_DATABASE_URL
