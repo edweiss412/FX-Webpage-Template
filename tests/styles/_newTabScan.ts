@@ -42,7 +42,7 @@ export function walkFiles(dir: string, ext: RegExp): string[] {
  *  findings -- a `//` comment that ran past CR (R14), a jsdoc continuation strip that kept
  *  its decoration (R17), and the JSX whitespace model below -- so the class lives in one
  *  place. `\r`, U+2028 and U+2029 are line terminators to the JS grammar and to JSX. */
-const LINE_TERMINATORS = /[\n\r\u2028\u2029]/;
+export const LINE_TERMINATORS = /[\n\r\u2028\u2029]/;
 
 export const PHRASE = "opens in a new tab";
 const HINT = "NewTabHint";
@@ -470,8 +470,19 @@ function rendersNothing(e: ts.Expression): boolean {
   }
   // An array renders the concatenation of its elements, so it renders nothing iff every
   // element does. `[]` and `[null]` both qualify.
+  // `void <anything>` evaluates to undefined (review R25 BLOCKING 3).
+  if (ts.isVoidExpression(n)) return true;
   if (ts.isArrayLiteralExpression(n)) {
-    return n.elements.every((el) => rendersNothing(el));
+    return n.elements.every((el) => {
+      // A HOLE (`[,]`) is undefined and renders nothing.
+      if (el.kind === ts.SyntaxKind.OmittedExpression) return true;
+      // A spread renders nothing iff what it spreads does; anything else is opaque.
+      if (ts.isSpreadElement(el)) {
+        const inner = unparen(el.expression);
+        return ts.isArrayLiteralExpression(inner) ? rendersNothing(inner) : false;
+      }
+      return rendersNothing(el);
+    });
   }
   // A plain object literal is not valid React content; it renders nothing here.
   if (ts.isObjectLiteralExpression(n)) return true;
@@ -578,7 +589,23 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
       // `<img alt="Go" /> <NewTabHint />` were both reported. A component renders text this
       // scanner cannot see, and an `<img alt>` contributes its alt to the name. So any
       // non-hidden element counts, and only a provably HIDDEN subtree does not.
-      if (!hidesFromAccName(child)) return true;
+      if (hidesFromAccName(child)) continue;
+      // A SELF-CLOSING element contributes a name only through an attribute. `<br />`,
+      // `<img alt="" />` and `<input type="text" />` contribute nothing yet all counted as
+      // destinations (review R25 BLOCKING 2). A component is still opaque: it renders content
+      // this scanner cannot see.
+      const tag = child.tagName.getText();
+      if (!/^[a-z]/.test(tag) || tag.includes(".")) return true; // component
+      const names = ["alt", "aria-label", "title", "aria-labelledby"];
+      for (const a of child.attributes.properties) {
+        if (!ts.isJsxAttribute(a)) continue;
+        if (!names.includes(jsxAttrNameLower(a))) continue;
+        if (!a.initializer) continue;
+        const val = stringOf(a.initializer);
+        // A dynamic value is opaque and therefore assumed to name something.
+        if (val === null || val.trim().length > 0) return true;
+      }
+      continue;
     }
   }
   return false;
@@ -620,7 +647,10 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
   if (tag === "input") {
     const typeAttr = attrs.properties.find((a) => attrName(a) === "type");
     if (typeAttr && ts.isJsxAttribute(typeAttr) && typeAttr.initializer) {
-      if (stringOf(typeAttr.initializer) === "hidden") return true;
+      // The DOM normalises `input.type`, so `type="HIDDEN"` really is a hidden input
+      // (review R25 BLOCKING 4). This is one of the few attribute VALUES that is
+      // case-insensitive; className tokens are not, which is why the fold is scoped here.
+      if ((stringOf(typeAttr.initializer) ?? "").toLowerCase() === "hidden") return true;
     }
   }
   if (NOT_SHOWN_UNLESS_OPEN.has(tag)) {
@@ -863,6 +893,25 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
     if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
       walk(n.left, nextHidden, nextConds);
       walk(n.right, nextHidden, [...nextConds, `!(${n.left.getText()})`]);
+      return;
+    }
+    // `a ?? b` renders `b` only when `a` is nullish, so a hint there is conditional
+    // (review R25 BLOCKING 1).
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+      walk(n.left, nextHidden, nextConds);
+      walk(n.right, nextHidden, [...nextConds, `${n.left.getText()} == null`]);
+      return;
+    }
+    // A comma expression evaluates to its LAST operand, so a hint in any earlier one is
+    // discarded: `(<NewTabHint />, null)` renders nothing.
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+      walk(n.right, nextHidden, nextConds);
+      return;
+    }
+    // A hint passed as a CALL ARGUMENT is not rendered by this element -- the callee decides,
+    // exactly like the JSX-attribute case above. `drop(<NewTabHint />)` announces nothing.
+    if (ts.isCallExpression(n) || ts.isNewExpression(n)) {
+      walk(n.expression, nextHidden, nextConds);
       return;
     }
     // A hint inside a FUNCTION BODY is not proof that a hint renders: the callback may never

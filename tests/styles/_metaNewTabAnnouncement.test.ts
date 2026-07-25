@@ -17,6 +17,7 @@ import {
   stripCommentsSafely,
   walkFiles,
   type Scan,
+  LINE_TERMINATORS,
 } from "@/tests/styles/_newTabScan";
 
 /** The exemption marker, spelled once so these tests cannot drift from the scanner. */
@@ -57,6 +58,9 @@ const CASE_INSENSITIVE_NAMES = new Set([
   "popover",
   // R24: read to detect <input type="hidden">, which is not rendered.
   "type",
+  // R25: read to decide whether a self-closing element names anything.
+  "alt",
+  "title",
 ]);
 
 /** Attributes that can affect an element's computed accessible name or its visibility, from an
@@ -178,6 +182,15 @@ const NAME_AFFECTING_ATTRIBUTES: readonly string[] = [
   "className",
   "htmlFor",
 ];
+
+/** Split on EVERY JavaScript line terminator, via the scanner's own constant.
+ *  This is the FOURTH line-terminator defect in this PR and the first inside a guard written to
+ *  stop drift: production split on LF/CRLF while its own synthetic self-test split on LF alone,
+ *  so a CR-only, U+2028 or U+2029 file put an unrelated retraction and a stale claim on one
+ *  "line" (review R25 HIGH 5). Sharing the constant is what stops the two diverging again. */
+function splitLines(text: string): string[] {
+  return text.split(new RegExp(LINE_TERMINATORS.source));
+}
 
 /** Every string literal in `src` whose SHAPE could be an HTML attribute name, from the AST
  *  and from every position. Deliberately position-BLIND: the sibling collector below asks
@@ -1638,7 +1651,7 @@ describe("R6: scanner changes are pinned", () => {
     }
     const offenders: string[] = [];
     for (const rel of files) {
-      const lines = readFileSync(join(process.cwd(), rel), "utf8").split(/\r?\n/);
+      const lines = splitLines(readFileSync(join(process.cwd(), rel), "utf8"));
       lines.forEach((line, i) => {
         for (const claim of REFUTED) {
           if (!line.includes(claim)) continue;
@@ -1659,7 +1672,7 @@ describe("R6: scanner changes are pinned", () => {
     // passes cannot be shown to work. R24's witness: an unrelated retraction three lines away
     // licensed a stale claim under the old window rule.
     const scan = (text: string): number =>
-      text.split("\n").filter((l) => REFUTED.some((c) => l.includes(c)) && !RETRACTION.test(l))
+      splitLines(text).filter((l) => REFUTED.some((c) => l.includes(c)) && !RETRACTION.test(l))
         .length;
     expect(
       scan("RETRACTED: the moon-is-cheese claim.\n\n\ncannot change an accessible name"),
@@ -1670,6 +1683,16 @@ describe("R6: scanner changes are pinned", () => {
       "a same-line retraction must license it",
     ).toBe(0);
     expect(scan("an unrelated sentence"), "unrelated prose is not an offender").toBe(0);
+    // EVERY line terminator, because production split on LF/CRLF while this helper split on LF
+    // alone -- so a CR-only, U+2028 or U+2029 file put an unrelated retraction and a stale claim
+    // on one "line" (review R25 HIGH 5). Fourth terminator defect in this PR, and the first
+    // inside a guard written to stop drift.
+    for (const sep of ["\n", "\r\n", "\r", "\u2028", "\u2029"]) {
+      expect(
+        scan(`RETRACTED: the moon-is-cheese claim.${sep}${sep}cannot change an accessible name`),
+        `an unrelated retraction across ${JSON.stringify(sep)} must not license a stale claim`,
+      ).toBe(1);
+    }
   });
 
   it("R22 intrinsic hiding: template, popover, and a details that is not provably open", () => {
@@ -1701,6 +1724,32 @@ describe("R6: scanner changes are pinned", () => {
     }
   });
 
+  it("R25 non-render positions: nullish, call argument, comma, and empty name attributes", () => {
+    for (const src of [
+      // `a ?? b` renders `b` only when `a` is nullish.
+      'const A=({x})=><a href="x" target="_blank">Go {x ?? <NewTabHint />}</a>;',
+      // A hint passed as a CALL ARGUMENT is the callee's to render, like a JSX attribute.
+      'const A=()=><a href="x" target="_blank">Go {drop(<NewTabHint />)}</a>;',
+      // A comma expression evaluates to its LAST operand.
+      'const A=()=><a href="x" target="_blank">Go {(<NewTabHint />, null)}</a>;',
+      // Statically-empty expression forms that fell through: spread of an empty array, an
+      // array HOLE, and `void 0`.
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {[...[]]} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {[,]} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {void 0} <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must report: ${src}`).not.toEqual([]);
+    }
+    for (const src of [
+      // A component is opaque and a dynamic `alt` may name something, so both still pass.
+      'const A=()=><a href="x" target="_blank"><Label /> <NewTabHint /></a>;',
+      'const A=({t})=><a href="x" target="_blank"><img alt={t} /> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><img alt="Go" /> <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must accept: ${src}`).toEqual([]);
+    }
+  });
+
   it("R24 a hint that may not render is not an announcement", () => {
     for (const src of [
       // `a || b` yields `a` when truthy, so this renders NO hint.
@@ -1722,6 +1771,14 @@ describe("R6: scanner changes are pinned", () => {
     for (const src of [
       'const A=()=><a href="x" target="_blank"><span> <NewTabHint /></span></a>;',
       'const A=()=><a href="x" target="_blank"><input type="hidden" value="Go" /> <NewTabHint /></a>;',
+      // These were asserted ACCEPTED until R25, wrongly: a bare void element contributes no
+      // accessible name at all, so the anchor computes to the phrase alone. `<img alt="">` is
+      // the same shape -- an EMPTY alt is explicitly "no name", not "some name".
+      'const A=()=><a href="x" target="_blank"><input type="text" /> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><br /> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><img alt="" /> <NewTabHint /></a>;',
+      // Attribute VALUES for `type` are case-insensitive in the DOM.
+      'const A=()=><a href="x" target="_blank"><input type="HIDDEN" value="Go" /> <NewTabHint /></a>;',
       // Falsiness and renders-nothing are ORTHOGONAL: an object is truthy but renders nothing,
       // and an array renders the concatenation of its elements.
       'const A=()=><a href="x" target="_blank">{({}) && null} <NewTabHint /></a>;',
@@ -1742,7 +1799,7 @@ describe("R6: scanner changes are pinned", () => {
     for (const src of [
       'const A=()=><a href="x" target="_blank"><span>Go</span> <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><span><b>Go</b></span> <NewTabHint /></a>;',
-      'const A=()=><a href="x" target="_blank"><input type="text" /> <NewTabHint /></a>;',
+
       // `[]` is TRUTHY, so this yields "Dest" -- the earlier rule manufactured a violation.
       'const A=()=><a href="x" target="_blank">{[] && "Dest"} <NewTabHint /></a>;',
       // `0` is falsy but RENDERS, so `0 && null` yields "0".
