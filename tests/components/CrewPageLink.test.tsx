@@ -33,7 +33,7 @@ describe("CrewPageLink", () => {
     wrap(true, "TOK");
     const link = screen.getByTestId("admin-show-open-crew");
     expect(link.getAttribute("href")).toContain("/show/2024-05-x/TOK");
-    expect(link.getAttribute("aria-label")).toBe("Open crew page");
+    expect(link.getAttribute("aria-label")).toBe("Open crew page (opens in a new tab)");
   });
 
   test("hidden when ineligible", () => {

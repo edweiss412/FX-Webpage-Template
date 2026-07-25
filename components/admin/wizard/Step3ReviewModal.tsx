@@ -405,7 +405,11 @@ export function Step3ReviewModal({
                   href={sheetLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label={`Open the source sheet for ${title}`}
+                  aria-label={
+                    title
+                      ? `Open the source sheet for ${title} (opens in a new tab)`
+                      : "Open the source sheet (opens in a new tab)"
+                  }
                   className="inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                 >
                   <ExternalLink aria-hidden="true" className="size-4" />

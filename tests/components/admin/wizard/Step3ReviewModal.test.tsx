@@ -268,7 +268,9 @@ describe("Step3ReviewModal — a11y-safe title (spec §9.1/§15)", () => {
     expect(link.getAttribute("href")).toBe(buildSheetDeepLink(DFID));
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(link.getAttribute("aria-label")).toBe(`Open the source sheet for ${TITLE}`);
+    expect(link.getAttribute("aria-label")).toBe(
+      `Open the source sheet for ${TITLE} (opens in a new tab)`,
+    );
     expect(link.className).toMatch(/\bsize-tap-min\b/);
   });
 });
@@ -1239,7 +1241,9 @@ describe("Step3ReviewModal — section panels (spec §6.4/§5.2/§15)", () => {
       expect(link.getAttribute("target")).toBe("_blank");
       expect(link.getAttribute("rel")).toContain("noopener");
       // Accessible name names the section, so it never collides with the header link.
-      expect(link.getAttribute("aria-label")).toBe(`Open the source sheet for ${s.label}`);
+      expect(link.getAttribute("aria-label")).toBe(
+        `In sheet, open the source sheet for ${s.label} (opens in a new tab)`,
+      );
     }
   });
 

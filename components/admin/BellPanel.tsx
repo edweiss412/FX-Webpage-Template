@@ -82,6 +82,7 @@ import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 import { resolveActionLabels } from "@/lib/adminAlerts/resolveActionLabel";
 import type { BellEntry, BellFeedResult } from "@/lib/admin/bellFeed";
@@ -306,6 +307,12 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
           >
             {action.label}
             {action.external ? <span aria-hidden="true"> ↗</span> : null}
+            {action.external ? (
+              <>
+                {" "}
+                <NewTabHint />
+              </>
+            ) : null}
           </a>
         ))
       ) : null}

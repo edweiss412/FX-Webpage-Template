@@ -38,6 +38,7 @@ import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 import { buildHelpPopoverBody, CompactAlertHelp } from "@/components/admin/compactAlertHelp";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import { isMessageCode, lookupHelpfulContext } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 
@@ -191,6 +192,12 @@ export function AttentionBanner({
           >
             {a.action.label}
             {a.action.external ? <span aria-hidden="true"> ↗</span> : null}
+            {a.action.external ? (
+              <>
+                {" "}
+                <NewTabHint />
+              </>
+            ) : null}
           </a>
           <span aria-hidden="true" className="opacity-50">
             ·

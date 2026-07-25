@@ -903,24 +903,24 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     expect(img?.getAttribute("alt")).toBe(`Diagram from ${stub.sheetTab}`);
   });
 
-  test("alt: '' (and whitespace-only) falls back for BOTH the img alt and the anchor aria-label — a persisted empty alt must never yield a nameless link (impeccable audit P2, WCAG 2.4.4/4.1.2)", () => {
+  test("alt: '' (and whitespace-only) falls back for BOTH the img alt and the anchor aria-label (which also carries the new-tab suffix) — a persisted empty alt must never yield a nameless link (impeccable audit P2, WCAG 2.4.4/4.1.2)", () => {
     for (const empty of ["", "   "]) {
       const stub = diagramStub({ alt: empty });
       const { container, scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
       const fallback = `Diagram from ${stub.sheetTab}`;
       const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
       expect(tile.tagName).toBe("A");
-      expect(tile.getAttribute("aria-label")).toBe(fallback);
+      expect(tile.getAttribute("aria-label")).toBe(`${fallback} (opens in a new tab)`);
       expect(container.querySelector("img")?.getAttribute("alt")).toBe(fallback);
       cleanup();
     }
   });
 
-  test("a real alt names both the img and the wrapping anchor (aria-label mirrors alt)", () => {
+  test("a real alt names both the img and the wrapping anchor (aria-label = alt plus the new-tab suffix)", () => {
     const stub = diagramStub({ alt: "Stage plot" });
     const { scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
     const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
-    expect(tile.getAttribute("aria-label")).toBe("Stage plot");
+    expect(tile.getAttribute("aria-label")).toBe("Stage plot (opens in a new tab)");
     expect(tile.querySelector("img")?.getAttribute("alt")).toBe("Stage plot");
   });
 

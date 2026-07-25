@@ -345,7 +345,9 @@ describe("PublishedReviewModal header (spec §6.1/§6.2)", () => {
     renderModal();
     const sheet = screen.getByTestId(`${TB}-sheetlink`);
     expect(sheet.getAttribute("href")).toBe(SHEET_HREF);
-    expect(sheet.getAttribute("aria-label")).toBe(`Open the source sheet for ${TITLE}`);
+    expect(sheet.getAttribute("aria-label")).toBe(
+      `Open the source sheet for ${TITLE} (opens in a new tab)`,
+    );
   });
 
   it("openSheetHref=null omits the sheet icon entirely (no dead anchor)", () => {

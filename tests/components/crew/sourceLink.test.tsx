@@ -48,7 +48,12 @@ test("renders a subtle <a> whose href equals the helper output, opening a new ta
   expect(anchorEl).toHaveAttribute("href", expectedHref!);
   expect(anchorEl).toHaveAttribute("target", "_blank");
   expect(anchorEl).toHaveAttribute("rel", "noopener noreferrer");
-  expect(anchorEl).toHaveAttribute("aria-label", "View this section in the source sheet");
+  expect(anchorEl).toHaveAttribute(
+    "aria-label",
+    // Label-in-name (WCAG 2.5.3): the name must contain the visible "In sheet",
+    // and announce the new tab. Both were missing before 2026-07-25.
+    "In sheet, view this section in the source sheet (opens in a new tab)",
+  );
 
   // The recessive label is present for sighted users.
   expect(anchorEl!.textContent).toContain("In sheet");

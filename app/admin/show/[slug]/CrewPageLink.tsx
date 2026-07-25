@@ -23,8 +23,8 @@ export function CrewPageLink({ slug, isEligible }: { slug: string; isEligible: b
       data-testid="admin-show-open-crew"
       href={url}
       target="_blank"
-      rel="noreferrer"
-      aria-label="Open crew page"
+      rel="noopener noreferrer"
+      aria-label="Open crew page (opens in a new tab)"
       className="inline-flex min-h-tap-min items-center text-sm font-semibold text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
     >
       Open crew page →

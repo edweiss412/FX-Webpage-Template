@@ -47,6 +47,7 @@ import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { FactRows, type FactRow } from "@/components/crew/primitives/FactRows";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import {
   BuildingIcon,
   CarIcon,
@@ -247,10 +248,10 @@ export function VenueSection({
               <a
                 href={mapHref}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="inline-flex min-h-tap-min items-center -mx-1 px-1 py-1.5 text-text underline-offset-4 transition-colors duration-fast hover:text-accent-on-bg hover:underline"
               >
-                Open in Maps
+                Open in Maps <NewTabHint />
               </a>
             ) : null}
           </SectionCard>

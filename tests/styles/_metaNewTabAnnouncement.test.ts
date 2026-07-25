@@ -67,6 +67,18 @@ function stringOf(node: ts.Node): string | null {
   return null;
 }
 
+/**
+ * Does this label expression interpolate a value? A template like
+ * `${alt} (opens in a new tab)` has NO static destination text, but its
+ * destination is the substitution -- so the remainder rule must not reject it.
+ * Without this, the correctly-implemented diagram-link label read as
+ * "phrase-only". Found while implementing the sweep, not by prose review.
+ */
+function hasSubstitution(node: ts.Node): boolean {
+  const n = ts.isJsxExpression(node) && node.expression ? unparen(node.expression) : node;
+  return ts.isTemplateExpression(n) && n.templateSpans.length > 0;
+}
+
 /** Strip parentheses: the live spreads are `{...(cond ? {…} : {})}`, whose
  *  expression is a ParenthesizedExpression, not a ConditionalExpression. Missing
  *  this made the scanner blind to all four conditional-spread anchors -- caught by
@@ -170,16 +182,43 @@ function classifyTarget(sf: ts.SourceFile, attrs: ts.JsxAttributes): Polarity | 
   return null;
 }
 
+/** Classify one label string: does it announce, and does it keep a destination? */
+function classifyLabelText(text: string): "ok" | "phrase-only" | "none" {
+  if (!text.includes(PHRASE)) return "none";
+  // §6 req 4: the remainder must carry a destination. Strip the phrase AND
+  // punctuation/whitespace so "(opens in a new tab)" fails too.
+  const remainder = text.replace(PHRASE, "").replace(/[^\p{L}\p{N}]/gu, "");
+  return remainder.length > 0 ? "ok" : "phrase-only";
+}
+
+/**
+ * A label may be a CONDITIONAL expression -- the empty-interpolation fallbacks
+ * (§5) are written as ternaries. Every branch must announce, otherwise the
+ * anchor is silent on whichever branch is taken at runtime. Discovered while
+ * implementing the sweep: the first scanner returned "none" for any ternary
+ * label and flagged six correctly-fixed anchors.
+ */
 function labelAnnounces(attrs: ts.JsxAttributes): "ok" | "phrase-only" | "none" {
   for (const a of attrs.properties) {
     if (attrName(a) !== "aria-label" || !ts.isJsxAttribute(a) || !a.initializer) continue;
-    const text = stringOf(a.initializer);
+    const init = a.initializer;
+    const expr =
+      ts.isJsxExpression(init) && init.expression ? unparen(init.expression) : (init as ts.Node);
+    if (ts.isConditionalExpression(expr)) {
+      const branches = [expr.whenTrue, expr.whenFalse].map((b) => stringOf(b));
+      if (branches.some((t) => t === null)) return "none";
+      const substituted = [expr.whenTrue, expr.whenFalse].map(hasSubstitution);
+      const verdicts = (branches as string[]).map((t, i) =>
+        substituted[i] && classifyLabelText(t) === "phrase-only" ? "ok" : classifyLabelText(t),
+      );
+      if (verdicts.includes("none")) return "none"; // a branch that never announces
+      if (verdicts.includes("phrase-only")) return "phrase-only";
+      return "ok";
+    }
+    const text = stringOf(init);
     if (text === null) return "none";
-    if (!text.includes(PHRASE)) return "none";
-    // §6 req 4: the remainder must carry a destination. Strip the phrase AND
-    // punctuation/whitespace so "(opens in a new tab)" fails too.
-    const remainder = text.replace(PHRASE, "").replace(/[^\p{L}\p{N}]/gu, "");
-    return remainder.length > 0 ? "ok" : "phrase-only";
+    const verdict = classifyLabelText(text);
+    return verdict === "phrase-only" && hasSubstitution(init) ? "ok" : verdict;
   }
   return "none";
 }
@@ -417,6 +456,26 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     rejects(
       `const A = ({e}) => <a href="x" target={e ? undefined : "_blank"}>Go {e ? <> <NewTabHint /></> : null}</a>;`,
       /not gated by the anchor's effective _blank predicate/,
+    );
+  });
+
+  it("accepts a conditional label when EVERY branch announces", () => {
+    ok(
+      `const A = ({t}) => <a href="x" target="_blank" aria-label={t ? \`Sheet for \${t} (opens in a new tab)\` : "Sheet (opens in a new tab)"}>Go</a>;`,
+    );
+  });
+
+  it("rejects a conditional label whose phrase sits in only one branch", () => {
+    rejects(
+      `const A = ({t}) => <a href="x" target="_blank" aria-label={t ? \`Sheet for \${t} (opens in a new tab)\` : "Sheet"}>Go</a>;`,
+      /does not announce/,
+    );
+  });
+
+  it("rejects a conditional label whose branch loses the destination", () => {
+    rejects(
+      `const A = ({t}) => <a href="x" target="_blank" aria-label={t ? \`Sheet for \${t} (opens in a new tab)\` : "(opens in a new tab)"}>Go</a>;`,
+      /no destination/,
     );
   });
 

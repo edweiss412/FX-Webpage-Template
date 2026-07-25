@@ -31,6 +31,7 @@ import { formatRelative } from "@/lib/time/relative";
 import { nowDate } from "@/lib/time/now";
 import { HealthAlertResolveButton } from "@/components/admin/telemetry/HealthAlertResolveButton";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -151,6 +152,12 @@ function HealthAlertRowItem({
       >
         {action.label}
         {action.external ? <span aria-hidden="true"> ↗</span> : null}
+        {action.external ? (
+          <>
+            {" "}
+            <NewTabHint />
+          </>
+        ) : null}
       </a>
     ) : null,
   ].filter(Boolean);

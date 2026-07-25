@@ -149,6 +149,7 @@ import {
   PublishedArchivedTabIncludedNote,
 } from "@/components/admin/review/PublishedArchivedTabOffer";
 import type { PullSheetOverrideWire } from "@/components/admin/review/sectionData";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
 import {
   AGENDA_CLIENT_CONCURRENCY,
@@ -931,7 +932,11 @@ function ModalSectionChrome({
             href={sheetHref}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={`Open the source sheet for ${label}`}
+            aria-label={
+              label
+                ? `In sheet, open the source sheet for ${label} (opens in a new tab)`
+                : "In sheet, open the source sheet (opens in a new tab)"
+            }
             className="inline-flex min-h-tap-min shrink-0 items-center gap-1 rounded-sm text-xs font-medium whitespace-nowrap text-text-subtle transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             In sheet
@@ -2965,7 +2970,7 @@ export function WarningsBreakdown({
                             rel="noopener noreferrer"
                             className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                           >
-                            Open in Sheet <span aria-hidden="true">↗</span>
+                            Open in Sheet <span aria-hidden="true">↗</span> <NewTabHint />
                           </a>
                         ) : null;
                       })()}
@@ -3189,7 +3194,7 @@ function AgendaItemRow({
           rel="noopener noreferrer"
           className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
-          Open PDF <span aria-hidden="true">↗</span>
+          Open PDF <span aria-hidden="true">↗</span> <NewTabHint />
         </a>
       ) : (
         // Keep the index referenced so the key is stable + lint-clean.
@@ -3387,7 +3392,7 @@ export function AgendaBreakdown({
           rel="noopener noreferrer"
           className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
-          Open the source sheet <span aria-hidden="true">↗</span>
+          Open the source sheet <span aria-hidden="true">↗</span> <NewTabHint />
         </a>
       ) : null}
     </>
@@ -3574,7 +3579,7 @@ function DiagramTile({
       href={src}
       target="_blank"
       rel="noreferrer"
-      aria-label={alt}
+      aria-label={alt ? `${alt} (opens in a new tab)` : "Staged diagram (opens in a new tab)"}
       data-testid={testId}
       className="block"
     >
@@ -3685,7 +3690,8 @@ export function DiagramsBreakdown({
               rel="noopener noreferrer"
               className="inline-flex min-h-tap-min items-center gap-1 font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
-              Open diagrams folder in Drive <ExternalLink aria-hidden="true" className="size-3.5" />
+              Open diagrams folder in Drive <ExternalLink aria-hidden="true" className="size-3.5" />{" "}
+              <NewTabHint />
             </a>
           ) : null}
           {folderItems.length > 0 ? (

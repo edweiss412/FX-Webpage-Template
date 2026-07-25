@@ -135,7 +135,7 @@ export function VenueMapTile({
       href={mapHref}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label="Open the venue in Google Maps (opens in a new tab)"
+      aria-label="Directions, open the venue in Google Maps (opens in a new tab)"
       className={`${common} focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:outline-none focus-visible:ring-inset`}
     >
       {/* anchor wraps the button visual; the inner Directions span is decorative */}
