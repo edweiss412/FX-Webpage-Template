@@ -279,7 +279,11 @@ const ADVERSARIES = [
     "A26",
     "hold stop and ring width altered, colours kept",
     [
-      [CSS, "  0%,\n  45% {", "  0%,\n  5% {"],
+      [
+        CSS,
+        "  0%,\n  45% {\n    background-color: var(--color-accent-tint);",
+        "  0%,\n  5% {\n    background-color: var(--color-accent-tint);",
+      ],
       [
         CSS,
         "box-shadow: 0 0 0 2px var(--color-accent-edge);",
@@ -325,6 +329,39 @@ ADVERSARIES.push([
 
 function git(...args) {
   return execFileSync("git", args, { cwd: ROOT, encoding: "utf8" });
+}
+
+const TARGETS = [HUB, CSS, CTX];
+
+/**
+ * Refuse to run against dirty targets, and restore them no matter how the run
+ * ends.
+ *
+ * This script writes directly into tracked files and restores with
+ * `git checkout --`, which DISCARDS uncommitted work in exactly those files. A
+ * run started on a dirty tree would silently destroy the edits it was meant to
+ * be testing, and an interrupt between mutate and restore would leave the branch
+ * holding a mutant (round-1 whole-diff review).
+ */
+function assertCleanTargets() {
+  const dirty = git("status", "--porcelain", "--", ...TARGETS).trim();
+  if (dirty) {
+    console.error(
+      "refusing to run: mutation targets have uncommitted changes, which this " +
+        "script would discard on restore.\n" +
+        dirty +
+        "\n\nCommit or stash them first.",
+    );
+    process.exit(2);
+  }
+}
+
+function restoreTargets() {
+  try {
+    git("checkout", "--", ...TARGETS);
+  } catch {
+    // Best effort: a restore failure must not mask the original error.
+  }
 }
 
 /**
@@ -387,24 +424,34 @@ function runBrowser() {
   }
 }
 
+assertCleanTargets();
+process.on("SIGINT", () => {
+  restoreTargets();
+  process.exit(130);
+});
+
 const results = [];
-for (const [id, label, mutation] of ADVERSARIES) {
-  if (ONLY && !ONLY.has(id)) continue;
-  const err = apply(mutation);
-  if (err) {
-    git("checkout", "--", HUB, CSS, CTX);
-    results.push({ id, label, status: "UNAPPLIED", detail: err, rows: [] });
-    console.log(`${id}  UNAPPLIED  ${err}`);
-    continue;
+try {
+  for (const [id, label, mutation] of ADVERSARIES) {
+    if (ONLY && !ONLY.has(id)) continue;
+    const err = apply(mutation);
+    if (err) {
+      restoreTargets();
+      results.push({ id, label, status: "UNAPPLIED", detail: err, rows: [] });
+      console.log(`${id}  UNAPPLIED  ${err}`);
+      continue;
+    }
+    const rows = runVitest();
+    const browserRows = QUICK ? [] : runBrowser();
+    restoreTargets();
+    const all = [...rows, ...browserRows];
+    results.push({ id, label, status: all.length ? "REJECTED" : "SURVIVED", rows: all });
+    console.log(
+      `${id}  ${all.length ? "REJECTED" : "*** SURVIVED ***"}  (${all.length} rows)  ${label}`,
+    );
   }
-  const rows = runVitest();
-  const browserRows = QUICK ? [] : runBrowser();
-  git("checkout", "--", HUB, CSS, CTX);
-  const all = [...rows, ...browserRows];
-  results.push({ id, label, status: all.length ? "REJECTED" : "SURVIVED", rows: all });
-  console.log(
-    `${id}  ${all.length ? "REJECTED" : "*** SURVIVED ***"}  (${all.length} rows)  ${label}`,
-  );
+} finally {
+  restoreTargets();
 }
 
 const survived = results.filter((r) => r.status === "SURVIVED");

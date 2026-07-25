@@ -20,7 +20,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
-const SCANNED_DIRS = ["app", "components"];
+// `tests` is in scope despite the guard living there: K2 deletes two TEST files,
+// and a scan stopping at app/ + components/ stays green if either is restored —
+// the guard would not cover half its own title (round-1 whole-diff review).
+const SCANNED_DIRS = ["app", "components", "tests"];
 const CODE = /\.(ts|tsx)$/;
 
 /** Every .ts/.tsx file under the scanned roots, excluding build output. */
@@ -36,6 +39,8 @@ function walk(dir: string, out: string[] = []): string[] {
 
 describe("orphaned share-chip surfaces are gone (K1/K2)", () => {
   const files = SCANNED_DIRS.flatMap((d) => walk(join(ROOT, d)));
+  /** This file names both components in its own assertions. */
+  const SELF = join(ROOT, "tests/components/admin/showpage/shareChipOrphanRemoval.test.ts");
 
   it("scans a non-trivial file set (guards against a vacuous walk)", () => {
     // Without this, a broken walk returning [] would make every assertion below
@@ -45,15 +50,17 @@ describe("orphaned share-chip surfaces are gone (K1/K2)", () => {
   });
 
   it.each(["ShareChip", "CrewPageLink"])(
-    "%s is referenced by no file under app/ or components/",
+    "%s is referenced by no file under app/, components/ or tests/",
     (name) => {
-      const offenders = files.filter((f) => readFileSync(f, "utf8").includes(name));
+      const offenders = files.filter((f) => f !== SELF && readFileSync(f, "utf8").includes(name));
       expect(offenders.map((f) => f.slice(ROOT.length + 1))).toEqual([]);
     },
   );
 
   it("the arbitrary max-w-[16rem] the backlog item named is gone with them", () => {
-    const offenders = files.filter((f) => readFileSync(f, "utf8").includes("max-w-[16rem]"));
+    const offenders = files.filter(
+      (f) => f !== SELF && readFileSync(f, "utf8").includes("max-w-[16rem]"),
+    );
     expect(offenders.map((f) => f.slice(ROOT.length + 1))).toEqual([]);
   });
 });

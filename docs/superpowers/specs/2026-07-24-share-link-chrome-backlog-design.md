@@ -189,10 +189,11 @@ Placed adjacent to the existing step3 flash block (`app/globals.css:833-852`) so
   }
 }
 @keyframes share-link-flash-ring {
-  from {
+  0%,
+  45% {
     box-shadow: 0 0 0 2px var(--color-accent-edge);
   }
-  to {
+  100% {
     box-shadow: 0 0 0 2px transparent;
   }
 }
@@ -208,7 +209,9 @@ Placed adjacent to the existing step3 flash block (`app/globals.css:833-852`) so
 }
 ```
 
-Animates `background-color` and `box-shadow` only — no layout property, so the DESIGN.md layout-property ban holds. No bounce, elastic or overshoot (DESIGN.md motion bans). The wash holds for the first 45% then fades, so the outline and the wash do not both vanish on the same curve — the outline is what carries the tail.
+Animates `background-color` and `box-shadow` only — no layout property, so the DESIGN.md layout-property ban holds. No bounce, elastic or overshoot (DESIGN.md motion bans).
+
+**Both tracks share the `0%,45%` hold.** An earlier draft held only the wash and let the ring fade from t=0, reasoning that the outline should carry the tail. Shipped, that read as TWO events rather than one cue: under `ease-out` the ring was roughly two thirds gone while the fill was still at full strength. The impeccable critique and audit reached this independently, and it is the track DESIGN.md calls the change signal itself in dark. The shared stop is now pinned by its own assertion, so the two cannot drift apart again.
 
 The `1600ms` literal appears in the CSS and as `SHARE_LINK_FLASH_MS` in TypeScript; §9 pins them equal with a source-scan test, matching how the step3 constant is pinned (`tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx:733`).
 

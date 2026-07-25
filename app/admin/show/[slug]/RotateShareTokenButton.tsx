@@ -54,15 +54,15 @@ export function RotateShareTokenButton({
    * does NOT call `onRotated` (an inactive show never surfaces a copyable URL).
    */
   isCrewLinkActive?: boolean;
-  /** Compact share-card labeled-row rendering (label/description left, button right). */
+  /** Compact labeled-row rendering inside the share hub (label/description left, button right). */
   compact?: boolean;
   rowLabel?: string;
   rowDescription?: string;
   /**
    * Called on a successful rotate of an ACTIVE crew link with the freshly-minted
    * token and its epoch (both from the atomic rotateShareToken result). The
-   * ShareTokenProvider's monotonic-epoch gate uses these to update every crew-URL
-   * surface instantly. Omitted for standalone use.
+   * ShareTokenProvider's monotonic-epoch gate uses these to update the crew-URL
+   * row instantly. Omitted for standalone use.
    */
   onRotated?: (newToken: string, newEpoch: number) => void;
   /**

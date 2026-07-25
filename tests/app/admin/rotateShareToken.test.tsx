@@ -65,7 +65,7 @@ describe("RotateShareTokenButton — canonical origin + inactive gating", () => 
     );
     await rotate();
     await waitFor(() => screen.getByTestId("admin-rotate-share-token-ok"));
-    // dedup: the banner no longer duplicates the URL / Copy the card shows.
+    // dedup: the banner no longer duplicates the URL / Copy the hub shows.
     expect(screen.queryByTestId("admin-rotate-share-token-url")).toBeNull();
     expect(screen.queryByTestId("admin-rotate-share-token-copy-button")).toBeNull();
     // the fresh token+epoch flow to the shared cache → the card/chip/link update

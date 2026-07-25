@@ -3,9 +3,10 @@
 /**
  * app/admin/show/[slug]/ShareLinkCopyButton.tsx (M11.5 §B Task F2.5)
  *
- * Isolated 'use client' Copy button for <CurrentShareLinkPanel>. The parent
- * panel is a Server Component; this button is the smallest possible client
- * island so the share-link surface keeps server-rendering chrome.
+ * Isolated 'use client' Copy button for the crew-link row in the ShareHub
+ * popover. It stays the smallest possible client island so the surrounding
+ * share surface keeps its server-rendered chrome. (It was written for
+ * CurrentShareLinkPanel, which the share-hub consolidation removed.)
  *
  * Watchpoints (kickoff brief):
  *   - The token is sensitive. Do NOT log it; do NOT hang it on a global.
@@ -77,9 +78,25 @@ export function ShareLinkCopyButton({
     if (copied) setCopied(false);
   }
 
+  // Read by the async handler to tell "still the url I wrote" from "rotated
+  // under me". Written in an effect, not during render: the compiler forbids
+  // touching a ref in the render path.
+  const urlRef = useRef(url);
+  useEffect(() => {
+    urlRef.current = url;
+  }, [url]);
+
   const onClick = async () => {
+    // Capture the url this request is FOR. `writeText` is async, so a rotate can
+    // land between the call and its resolution: without this the old promise
+    // resolves, sets `copied`, and announces success next to a url the clipboard
+    // does not contain — the dead one, already unusable for the whole crew.
+    // The render-phase reset above only handles copies that had already
+    // completed, so it cannot see this one.
+    const requested = url;
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(requested);
+      if (requested !== urlRef.current) return;
       setCopied(true);
       clearReset();
       resetRef.current = setTimeout(() => setCopied(false), 2_000);

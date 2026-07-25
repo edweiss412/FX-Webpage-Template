@@ -3,7 +3,7 @@
 Spec §9.0/§9.1.1, plan Task 6. Produced by `node scripts/share-link-flash-adversary-matrix.mjs`
 against a committed tree, full mode (browser spec included).
 
-**26 of 27 rejected · 0 unapplied · 1 proven equivalent.** 30 distinct assertions were
+**26 of 27 rejected · 0 unapplied · 1 proven equivalent.** 31 distinct assertions were
 exercised across the four vitest suites and the real-browser spec.
 
 ## Every adversary, and what rejects it
@@ -22,7 +22,7 @@ exercised across the four vitest suites and the real-browser spec.
 | A10 | uses key={flash} | 1 |
 | A11 | boolean instead of a nonce | 1 |
 | A12 | omits the effect cleanup | 2 |
-| A13 | empty keyframe bodies | 7 |
+| A13 | empty keyframe bodies | 8 |
 | A14 | CSS duration drifts from the constant | 7 |
 | A15 | no reduced-motion override | 7 |
 | A16 | override present but outranked by a later rule | 6 |
@@ -33,7 +33,7 @@ exercised across the four vitest suites and the real-browser spec.
 | A23 | attribute on the wrapper row, not the code block | 7 |
 | A24 | drops the !open arm | 2 |
 | A25 | constant AND CSS moved together | 8 |
-| A26 | hold stop and ring width altered, colours kept | 2 |
+| A26 | hold stop and ring width altered, colours kept | 3 |
 | A27 | steady wash under reduced motion | 6 |
 | A22 | token retuned below the ring's contrast floor | 2 |
 | A21 | renders a wrong token / Copy writes a stale one | 2 |
@@ -57,10 +57,11 @@ Every row rejects at least one adversary; none is vacuous.
 |---|---|
 | N0: SHARE_LINK_FLASH_MS is 1600 | A25 |
 | N1: both keyframes are declared exactly once | A17 |
+| N1: both tracks share the same 45% hold stop | A13, A26 |
 | N1: reduced motion collapses the cue, and nothing else overrides it | A15, A18 |
 | N1: the attribute runs BOTH tracks at exactly SHARE_LINK_FLASH_MS | A14, A19 |
 | N1: the component declares no keyframes of its own | A20 |
-| N1: the ring keyframe is a 2px accent-edge outline fading to transparent | A26 |
+| N1: the ring holds 2px accent-edge to 45%, matching the wash, then fades | A26 |
 | N1: the wash keyframe holds accent-tint to 45% then settles to the resting surface | A13, A26 |
 | T-FLASH-REDUCED | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27 |
 | T-FLASH-REST | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27 |
@@ -107,3 +108,14 @@ A5 (bumps on ANY token change, nulls included) was rejected by nothing. Every ro
 from a token that already existed, so none could reach the null-to-token transition — the
 guard direction where `linkActive` turns TRUE and the visibility predicate suppresses
 nothing. A row was added; A5 is now rejected.
+
+## Re-run after the whole-diff review
+
+Regenerated on the final tree. The first recorded run was taken BEFORE the
+impeccable fix moved the ring to a shared 45% hold, which made A26's anchor
+ambiguous and left the report claiming an unapplied count it no longer had.
+Round-1 whole-diff review caught the mismatch; the anchor is now unique to the
+wash track and this table is the post-fix result.
+
+The run also gained an easing adversary path: the browser probe now reads
+, which nothing asserted before.

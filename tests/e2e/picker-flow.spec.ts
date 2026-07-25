@@ -305,17 +305,22 @@ test.skip("Admin Reset + Rotate flow: changing the share-token invalidates the o
     const page = await ctx.newPage();
     await signInAs(page, ADMIN_FIXTURE, { baseUrl: BASE_URL });
 
-    // 3+4: the admin review modal renders the current share-link panel with the
-    // URL (admin-show-modal: /admin?show=<slug> replaced the per-show page).
+    // 3+4: the crew URL now lives in the ShareHub POPOVER, which must be opened
+    // first — the standalone share-link panel this used to wait on was removed by
+    // the share-hub consolidation, so `admin-current-share-link-panel` matches
+    // nothing and this step could never pass as written. Found by round-1
+    // whole-diff review; the test is skipped, which is exactly how it stayed
+    // broken unnoticed.
     await page.goto(`/admin?show=${show.slug}`, { waitUntil: "networkidle" });
     await expect(page.locator(LOADED_REVIEW_MODAL)).toBeVisible();
-    await expect(page.getByTestId("admin-current-share-link-panel")).toBeVisible();
+    await page.getByTestId("share-hub-primary").click();
+    await expect(page.getByTestId("share-hub-popover")).toBeVisible();
     await expect(page.getByTestId("admin-current-share-link-url")).toContainText(show.shareToken);
 
     // 5+6: rotate the share-token (two-tap). The success banner is now
     // confirmation-only; the new URL updates INSTANTLY in the share hub
     // (share-link-instant-rotate-dedup) via the shared ShareTokenProvider, so we
-    // read the fresh token from the card URL — which also proves the instant swap.
+    // read the fresh token from the hub's URL row — which also proves the instant swap.
     await page.getByTestId("admin-rotate-share-token-button").click();
     await page.getByTestId("admin-rotate-share-token-confirm-button").click();
     await expect(page.getByTestId("admin-rotate-share-token-ok")).toBeVisible();

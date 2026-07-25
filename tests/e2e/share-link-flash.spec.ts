@@ -164,6 +164,7 @@ async function urlStyle(page: Page) {
       animationDuration: cs.animationDuration,
       animationDelay: cs.animationDelay,
       animationPlayState: cs.animationPlayState,
+      animationTimingFunction: cs.animationTimingFunction,
       backgroundColor: cs.backgroundColor,
       boxShadow: cs.boxShadow,
       hasAttr: el.hasAttribute("data-share-link-flash"),
@@ -195,6 +196,14 @@ test.describe("share-link cue — resolved style", () => {
     expect(during!.animationDelay.split(",").map((s) => s.trim())).toEqual(["0s", "0s"]);
     expect(during!.animationDuration.split(",").map((s) => s.trim())).toEqual(["1.6s", "1.6s"]);
     expect(during!.animationPlayState).toContain("running");
+    // Easing was unasserted everywhere until round-1 whole-diff review: the
+    // source scan only proved the expected shorthand EXISTS, so a later
+    // `animation-timing-function: linear` override left every assertion green
+    // while violating the ratified ease-out.
+    expect(during!.animationTimingFunction.split(",").map((s) => s.trim())).toEqual([
+      "ease-out",
+      "ease-out",
+    ]);
 
     // BOTH paints actually move. Sampling one cannot see the other suppressed.
     expect(during!.backgroundColor).not.toBe(rest!.backgroundColor);
