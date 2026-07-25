@@ -512,6 +512,9 @@ function identityKey(e: ts.Expression): string | null {
     const base = identityKey(e.expression);
     if (base === null) return null;
     const arg = e.argumentExpression;
+    // A numeric key uses the literal's normalized text, so `obj[0]` and `obj[0.0]`
+    // deliberately share a key: JS coerces both to the property "0", so they ARE
+    // the same expression. Not a collision -- verified by probe during self-review.
     const key = ts.isStringLiteral(arg)
       ? `s:${JSON.stringify(arg.text)}`
       : ts.isNumericLiteral(arg)
