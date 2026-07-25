@@ -1,0 +1,108 @@
+name: phantom-gap-e2e
+
+# The zero-extent-flex-item probe on the two REAL surfaces it was widened to
+# (BL-PHANTOM-GAP-PROBE-OTHER-SURFACES): the /admin dashboard and the seeded crew
+# page. Catches the class where an always-rendered wrapper whose content is
+# state-gated collapses to zero extent and still charges its parent's `gap` — a
+# seam no visible element accounts for.
+#
+# WHY ITS OWN WORKFLOW. Both host specs — crew-layout-dimensions.spec.ts and
+# admin-layout-dimensions.spec.ts — are matched by playwright projects but were
+# invoked by NO workflow, so everything in them has been running nowhere in CI
+# (the BL-E2E-LIFECYCLE-SPECS-CI-DARK shape). Mounting a probe into a dark spec
+# would have made the probe dark too: green locally, catching nothing on any PR.
+# This job is what makes the mount real. It runs ONLY the probe cases (`-g`), so
+# it does not adopt the rest of those files' flake surface; un-darkening the
+# remaining cases is still BL-E2E-LIFECYCLE-SPECS-CI-DARK's job.
+#
+# TWO PROJECTS, deliberately. The dashboard cases run under desktop-chromium; the
+# crew cases run under mobile-safari because that describe is single-writer (it
+# seeds run_of_show in beforeAll and restores it in afterAll, and every other
+# project early-returns from it).
+on:
+  pull_request:
+    paths:
+      - "tests/e2e/helpers/phantomGap.ts"
+      - "tests/e2e/admin-layout-dimensions.spec.ts"
+      - "tests/e2e/crew-layout-dimensions.spec.ts"
+      # The measured trees. A phantom item is introduced by a component edit, not
+      # by a test edit, so the surfaces themselves are the load-bearing triggers.
+      - "components/admin/**"
+      - "components/crew/**"
+      - "app/admin/**"
+      - "app/show/**"
+      - "app/globals.css"
+      - "playwright.config.ts"
+      - ".github/workflows/phantom-gap-e2e.yml"
+  # Close-out verification without waiting for a matching PR (AGENTS.md:
+  # "local-passes-CI-fails is its own bug class").
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  phantom-gap-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # Mirrors published-modal-e2e.yml: the app, the test runner (signInAs →
+      # supabaseAdmin), and db:seed all need the local Supabase env, and the
+      # :3000 webServer command sets only the JWT/test-auth pair inline.
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+      SUPABASE_URL: "http://127.0.0.1:54321"
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      SUPABASE_SECRET_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min"
+      HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic"
+      GOOGLE_SERVICE_ACCOUNT_JSON: '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}'
+      ENABLE_TEST_AUTH: "true"
+      # MUST match the :3000 webServer's inline TEST_AUTH_SECRET — signInAs sends
+      # this as Authorization: Bearer and the server compares against its own. The
+      # crew describe ALSO sends it to unlock the X-Screenshot-Frozen-Now header.
+      TEST_AUTH_SECRET: "fxav-m3-test-auth-2026-DO-NOT-SHIP"
+      # Boot ONLY the :3000 baseline server (playwright.config.ts filter).
+      BASELINE_SERVER_ONLY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: supabase/setup-cli@v1
+        with:
+          # Pinned, not `latest`: `latest` resolves via the GitHub API and
+          # rate-limits on shared runners. Matches published-modal-e2e.yml.
+          version: 2.107.0
+      - name: Install psql (signInAs admin client + bootstrap shell out to psql)
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: Boot local Supabase (guarded migrations)
+        run: bash scripts/ci/supabase-local-bootstrap.sh
+      - name: Seed the corpus
+        # Both mounts measure real rendered rows: the dashboard's non-vacuity
+        # anchor is a shows-table ROW, and the crew describe resolves the Waldorf
+        # show + its share token in beforeAll and throws without them.
+        run: pnpm db:seed
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - run: pnpm exec playwright install-deps chromium webkit
+      - run: pnpm exec playwright install chromium webkit
+      - name: Phantom-gap probe — /admin dashboard
+        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM-DASH"
+      - name: Phantom-gap probe — crew page
+        run: pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phantom-gap-e2e-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

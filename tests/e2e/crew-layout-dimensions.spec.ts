@@ -60,6 +60,11 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
+import {
+  scanForPhantomGaps,
+  reconcilePhantomLedger,
+  type PhantomLedgerRow,
+} from "./helpers/phantomGap";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
@@ -928,6 +933,75 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       const svgCount = await mobileTabs.nth(i).locator("svg").count();
       const id = await mobileTabs.nth(i).getAttribute("data-section");
       expect(svgCount, `@390px mobile tab "${id}" must contain an svg icon`).toBeGreaterThan(0);
+    }
+  });
+  // ───────────────────────────────────────────────────────────────────────────
+  // Phantom-gap probe on the REAL crew page (BL-PHANTOM-GAP-PROBE-OTHER-SURFACES).
+  //
+  // The zero-extent-flex-item walk shipped scoped to the published review modal's
+  // static harness, leaving every other surface unmeasured. This is the crew-page
+  // mount: the same walk (tests/e2e/helpers/phantomGap.ts — read it for what the
+  // probe can and cannot see), pointed at the live seeded route.
+  //
+  // WHY IT LIVES INSIDE THIS DESCRIBE. `gotoSection` is not a convenience here, it
+  // is a correctness requirement. CrewSectionTransition wraps each section body in
+  // a framer `motion.div` starting at `opacity:0, y:4`; measured at its pre-commit
+  // frame the WHOLE subtree reads zero-extent and the probe would report a page of
+  // phantom offenders that do not exist. `gotoSection` polls the section to a real
+  // laid-out height first. The seeded run_of_show / share-token setup this describe
+  // already owns is the other half of the reason.
+  //
+  // SECTION CHOICE IS EVIDENCE-BOUND, not a wish list. Each section below has a
+  // named container confirmed present in a live run at BOTH widths, which is what
+  // makes its non-vacuity anchor real. Adding a section means capturing its anchor
+  // the same way — an unanchored section that renders nothing measurable would
+  // pass green forever while proving nothing.
+  test.describe("phantom gap — crew page sections", () => {
+    /** Section → a gapped container observed in that section's live render. */
+    const NOPHANTOM_SECTIONS = [
+      { section: "schedule", anchor: "schedule-grid" },
+      { section: "crew", anchor: "section-card" },
+    ] as const;
+
+    /** Known, deferred instances. See the helper's `PhantomLedgerRow` for why a
+     *  row is scoped and counted before adding one. */
+    const KNOWN_CREW_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
+
+    for (const { section, anchor } of NOPHANTOM_SECTIONS) {
+      for (const width of [390, 1000] as const) {
+        test(`T-NOPHANTOM-CREW [${section}] @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
+          page,
+        }, testInfo) => {
+          test.skip(testInfo.project.name !== "mobile-safari", "single-writer: mobile-safari only");
+          await page.setViewportSize({ width, height: 1000 });
+          await gotoSection(page, section);
+
+          const found = await scanForPhantomGaps(page.getByTestId("page-container"));
+
+          // NON-VACUITY BY NAMED ANCHOR, never by a container count. The anchor is
+          // a container the section genuinely renders, so a section that failed to
+          // mount, or a walk that stopped at the page shell, fails here rather
+          // than reporting an empty offender list as success.
+          expect(
+            found.visited.filter((v) => v === anchor),
+            `the walk reached ${anchor} inside section-${section} [@ ${width}]`,
+          ).not.toEqual([]);
+
+          const { remaining, stale } = reconcilePhantomLedger(
+            found.offenders,
+            KNOWN_CREW_PHANTOM_ITEMS.filter((k) => k.surface === section && k.width === width),
+          );
+          expect(
+            stale,
+            `stale ledger rows [${section} @ ${width}] — the instance is gone, so delete the row` +
+              ` (a row kept past its debt masks a later offender with the same label triple)`,
+          ).toEqual([]);
+          expect(
+            remaining,
+            `zero-extent items charge their parent's gap and show as a seam no element accounts for [${section} @ ${width}]`,
+          ).toEqual([]);
+        });
+      }
     }
   });
 });
