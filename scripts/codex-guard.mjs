@@ -6,6 +6,8 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -174,7 +176,75 @@ function buildConfig(flags) {
     }
   }
   cfg.bin = { cmd, leadingArgs };
+  // The `codex` entrypoint on npm is a Node shim that spawns the native Rust binary.
+  // On a SIGINT/SIGTERM/SIGHUP death of that binary the shim re-raises the signal at
+  // itself while its OWN handlers for those signals are still installed, so the handler
+  // runs instead of the default terminate, Node falls off the event loop, and the shim
+  // exits 0 (@openai/codex bin/codex.js:224 registers, :246 re-raises). Every signal
+  // death is laundered into "exit 0, no -o file" — indistinguishable from a clean run
+  // that produced nothing. Invoking the native binary directly removes the laundering
+  // layer so `signal` survives into the attempt record and classification is honest.
+  cfg.nativeBin = process.env.CODEX_GUARD_NO_NATIVE === "1" ? null : resolveNativeBinary(cfg.bin);
+  if (cfg.nativeBin) cfg.bin = { cmd: cfg.nativeBin, leadingArgs: [] };
   return cfg;
+}
+
+const NATIVE_TRIPLE_BY_PLATFORM = {
+  "darwin-arm64": ["codex-darwin-arm64", "aarch64-apple-darwin"],
+  "darwin-x64": ["codex-darwin-x64", "x86_64-apple-darwin"],
+  "linux-arm64": ["codex-linux-arm64", "aarch64-unknown-linux-musl"],
+  "linux-x64": ["codex-linux-x64", "x86_64-unknown-linux-musl"],
+};
+
+/**
+ * Resolve the vendored native codex binary that the Node shim would spawn.
+ * Returns null (caller keeps the configured bin) whenever the layout is not the
+ * recognised npm one — a custom entrypoint, a non-`codex` command, or a missing vendor
+ * tree. Never throws: failing to resolve is a soft downgrade, not an error.
+ */
+function resolveNativeBinary({ cmd, leadingArgs }) {
+  if (leadingArgs.length > 0) return null; // custom entrypoint (e.g. `node <fixture>`)
+  const entry = NATIVE_TRIPLE_BY_PLATFORM[`${process.platform}-${process.arch}`];
+  if (!entry) return null;
+  const [pkg, triple] = entry;
+
+  // Locate the shim on disk. An absolute path is used as-is; the bare name is resolved by
+  // scanning PATH directly. No shell is involved — `cmd` comes from CODEX_GUARD_BIN and
+  // must never reach a shell for interpolation.
+  let shimPath = null;
+  try {
+    if (isAbsolute(cmd)) {
+      shimPath = existsSync(cmd) ? realpathSync(cmd) : null;
+    } else if (cmd === "codex") {
+      for (const dir of (process.env.PATH || "").split(":")) {
+        if (!dir) continue;
+        const p = join(dir, "codex");
+        if (existsSync(p)) {
+          shimPath = realpathSync(p);
+          break;
+        }
+      }
+    }
+  } catch {
+    return null;
+  }
+  if (!shimPath) return null;
+  // Only ever redirect a Node shim. A path that already IS the native binary, or any
+  // other executable, is left alone.
+  if (basename(shimPath) !== "codex.js") return null;
+
+  const pkgRoot = join(shimPath, "..", ".."); // <root>/bin/codex.js -> <root>
+  for (const cand of [
+    join(pkgRoot, "node_modules", "@openai", pkg, "vendor", triple, "bin", "codex"),
+    join(pkgRoot, "vendor", triple, "bin", "codex"),
+  ]) {
+    try {
+      if (existsSync(cand) && statSync(cand).isFile()) return resolve(cand);
+    } catch {
+      /* keep looking */
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +331,38 @@ function resumeArgv(cfg, sid, n) {
   ];
 }
 
+// ---------------------------------------------------------------------------
+// Liveness heartbeat.
+//
+// ROOT CAUSE of the 2026-07-24 silent deaths: the machine-local hook
+// ~/.claude/hooks/reap-idle-codex.sh (Stop / SubagentStop) SIGTERMs every codex process
+// tree older than CODEX_REAP_MIN_AGE (120s) whenever its liveness gate sees no recent
+// activity. That gate watches ~/.codex/log, the companion plugin state dir, and
+// session_index.jsonl / history.jsonl — but deliberately NOT ~/.codex/sessions, which is
+// the only place a running `codex exec` writes. A non-interactive dispatch is therefore
+// invisible to the gate and gets reaped mid-turn on the next turn boundary.
+//
+// The correct fix is in that hook (add a scoped ~/.codex/sessions freshness check); it is
+// per-machine config and out of this repo's scope. This is the in-repo self-defense: emit
+// a real liveness signal into a path the gate already watches, refreshed ONLY when the
+// child actually produces output. A genuinely wedged child stops beating and stays
+// reapable — and the guard's own stall/attempt/total timers still bound it either way.
+// ---------------------------------------------------------------------------
+
+function beatHeartbeat(cfg) {
+  if (process.env.CODEX_GUARD_NO_HEARTBEAT === "1") return;
+  try {
+    const dir = join(cfg.codexHome, "log");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "codex-guard-heartbeat.log"),
+      `${new Date().toISOString()} codex-guard pid=${process.pid} out=${cfg.out}\n`,
+    );
+  } catch {
+    /* best-effort: never fail a dispatch over a heartbeat */
+  }
+}
+
 function killGroup(pid, signal) {
   try {
     process.kill(-pid, signal);
@@ -305,6 +407,7 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
     killedReason: null,
     failureShape: null,
     recovery: null,
+    sessionId: null,
     transcriptPath,
     stderrPath,
     lastMessagePath,
@@ -393,6 +496,7 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   let firstByteAt = null,
     lastGrowthAt = t0,
     lastBytes = 0;
+  beatHeartbeat(cfg); // arm before the first poll — reapers use a min-age, not a min-output
   while (exitInfo === null) {
     if (streamFailure) {
       killGroup(child.pid, "SIGKILL");
@@ -407,6 +511,7 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
       lastBytes = bytesOut;
       lastGrowthAt = now;
       if (firstByteAt === null) firstByteAt = now;
+      beatHeartbeat(cfg); // only on REAL growth — a wedged child must stay reapable
     }
     let reason = null; // §5 precedence
     if (now - state.startedAt > cfg.totalMaxSecs) reason = "total_timeout";
@@ -445,6 +550,17 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   if (attempt.killedReason === null && exitInfo.signal !== null)
     attempt.killedReason = "external_signal";
   attempt.durationSecs = nowSecs() - t0;
+  // Latch this attempt's session id (stderr banner) regardless of outcome — the rollout
+  // scrape needs it even for attempts that never earn the resume rung.
+  try {
+    const m = SESSION_ID_RE.exec(readFileSync(stderrPath, "utf8"));
+    if (m) {
+      attempt.sessionId = m[1];
+      if (!state.seenSids.includes(m[1])) state.seenSids.push(m[1]);
+    }
+  } catch {
+    /* no stderr file */
+  }
   try {
     classifyAttempt(attempt);
   } catch (e) {
@@ -473,11 +589,101 @@ function writeResult(cfg, state, patch) {
     attempts,
     failureReason: null,
     error: null,
+    recoveredFrom: null,
+    nativeBinaryResolved: cfg.nativeBin ?? null,
     startedAt: state.startedAtIso,
     endedAt: new Date().toISOString(),
     ...patch,
   };
   writeFileSync(join(cfg.out, "result.json"), JSON.stringify(body, null, 2) + "\n");
+}
+
+// ---------------------------------------------------------------------------
+// Rollout scrape — last-resort verdict recovery.
+//
+// A session can emit its final assistant message and then die before the `-o` file is
+// written, leaving a recoverable verdict on disk that the guard would otherwise discard.
+// This is belt-and-braces: in the 2026-07-24 evidence set every rollout died mid-loop
+// with no final message, so the scrape would NOT have rescued those runs. It closes the
+// narrower window where the message exists but the `-o` write never landed.
+// ---------------------------------------------------------------------------
+
+function findRollout(cfg, sid) {
+  const root = join(cfg.codexHome, "sessions");
+  const hits = [];
+  const walk = (dir, depth) => {
+    if (depth > 5) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p, depth + 1);
+      else if (e.name.endsWith(".jsonl") && e.name.includes(sid)) hits.push(p);
+    }
+  };
+  walk(root, 0);
+  return hits;
+}
+
+/** Last assistant message text in a rollout JSONL, or "" when the turn produced none. */
+function lastAgentMessage(path) {
+  let text = "";
+  let raw;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const p = o?.payload;
+    if (p?.type === "message" && p.role === "assistant" && Array.isArray(p.content)) {
+      const joined = p.content
+        .map((c) => (typeof c?.text === "string" ? c.text : ""))
+        .join("")
+        .trim();
+      if (joined) text = joined;
+    } else if (p?.type === "agent_message" && typeof p.message === "string") {
+      if (p.message.trim()) text = p.message.trim();
+    }
+  }
+  return text;
+}
+
+/** Returns a patch that upgrades the result to a verdict, or null when nothing is recoverable. */
+function tryRolloutScrape(cfg, state) {
+  for (const sid of [...state.seenSids].reverse()) {
+    for (const rollout of findRollout(cfg, sid)) {
+      const msg = lastAgentMessage(rollout);
+      if (!msg) continue;
+      const parsed = parseVerdict(msg);
+      if (parsed.shape !== "ok") continue;
+      const path = join(cfg.out, "recovered-from-rollout.txt");
+      try {
+        writeFileSync(path, msg.endsWith("\n") ? msg : msg + "\n");
+      } catch {
+        continue;
+      }
+      return {
+        status: "verdict",
+        verdict: parsed.verdict,
+        verdictLine: parsed.verdictLine,
+        lastMessagePath: path,
+        recoveredFrom: "rollout_scrape",
+      };
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -577,7 +783,12 @@ function selectRung(cfg, attempt, state) {
     } catch {
       /* none */
     }
-    const m = SESSION_ID_RE.exec(transcript); // THIS attempt's transcript only (§6 wrong-source guard)
+    // The `session id:` banner is printed on STDERR, not stdout — with `-o`, stdout stays
+    // empty (every preserved attempt transcript in the 2026-07-24 evidence set is 0 bytes),
+    // so a transcript-only search made this rung unreachable in production while its own
+    // tests passed on stdout-emitting fixtures. Search stderr first, transcript second;
+    // both are THIS attempt's files only (§6 wrong-source guard).
+    const m = SESSION_ID_RE.exec(stderrText) ?? SESSION_ID_RE.exec(transcript);
     if (m) {
       state.resumeRungUsed = true;
       state.resumeSid = m[1];
@@ -606,6 +817,7 @@ async function main() {
     cacheRungUsed: false,
     resumeRungUsed: false,
     resumeSid: null,
+    seenSids: [],
     heldLockDir: null,
   };
   globalThis.__guardState = state;
@@ -625,30 +837,19 @@ async function main() {
       });
       process.exit(0);
     }
-    if (attempt.killedReason === "total_timeout") {
-      writeResult(cfg, state, {
-        failureReason: "total_timeout",
-        verdictLine: attempt.parsed?.verdictLine ?? null,
-      });
+    // Terminal no-verdict paths get one last-resort rollout scrape (never overrides a
+    // real verdict — this only runs when the attempt loop has already given up).
+    const giveUp = (failureReason) => {
+      const base = { failureReason, verdictLine: attempt.parsed?.verdictLine ?? null };
+      writeResult(cfg, state, { ...base, ...(tryRolloutScrape(cfg, state) ?? {}) });
       process.exit(0);
-    }
-    if (state.attempts.length >= cfg.maxAttempts) {
-      // exhaustion BEFORE admission (§6)
-      writeResult(cfg, state, {
-        failureReason: "attempts_exhausted",
-        verdictLine: attempt.parsed?.verdictLine ?? null,
-      });
-      process.exit(0);
-    }
+    };
+    if (attempt.killedReason === "total_timeout") giveUp("total_timeout");
+    // exhaustion BEFORE admission (§6)
+    if (state.attempts.length >= cfg.maxAttempts) giveUp("attempts_exhausted");
     const remaining = cfg.totalMaxSecs - (nowSecs() - state.startedAt);
-    if (remaining < cfg.minAdmissionSecs) {
-      // admission gates rung side effects (§6)
-      writeResult(cfg, state, {
-        failureReason: "total_timeout",
-        verdictLine: attempt.parsed?.verdictLine ?? null,
-      });
-      process.exit(0);
-    }
+    // admission gates rung side effects (§6)
+    if (remaining < cfg.minAdmissionSecs) giveUp("total_timeout");
     const rung = selectRung(cfg, attempt, state);
     nextKind = rung === "resume" ? "resume" : "exec";
   }
