@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
+import { hostRelativeRedirect } from "@/lib/http/hostRelativeRedirect";
 import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-function signInRedirect(request: NextRequest, code: string, nextPath: string): NextResponse {
-  const url = new URL("/auth/sign-in", request.url);
-  url.searchParams.set("code", code);
-  url.searchParams.set("next", nextPath);
-  return NextResponse.redirect(url, { status: 302 });
+// Host-relative Location (see the callback route's twin). The `data.url`
+// redirect below stays absolute — that one targets Google's OAuth endpoint.
+function signInRedirect(_request: NextRequest, code: string, nextPath: string): NextResponse {
+  const params = new URLSearchParams({ code, next: nextPath });
+  return hostRelativeRedirect(`/auth/sign-in?${params.toString()}`, 302);
 }
 
 function infraFailureResponse(): Response {

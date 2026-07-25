@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { COOKIE_NAME as PICKER_COOKIE_NAME } from "@/lib/auth/picker/cookieEnvelope";
 import { messageFor } from "@/lib/messages/lookup";
+import { hostRelativeRedirect } from "@/lib/http/hostRelativeRedirect";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { log } from "@/lib/log";
 
@@ -129,7 +130,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     return failureResponse;
   }
 
-  const response = NextResponse.redirect(new URL("/auth/sign-in", request.url), { status: 303 });
+  const response = hostRelativeRedirect("/auth/sign-in", 303);
   response.headers.append("Set-Cookie", clearPickerCookie());
   clearSupabaseAuthCookies(request, response);
   return response;

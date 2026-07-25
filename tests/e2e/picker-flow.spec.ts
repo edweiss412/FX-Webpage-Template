@@ -72,16 +72,7 @@ test("slug-only show URL returns 404 (R35; relies only on C1 route move)", async
   expect(res?.status()).toBe(404);
 });
 
-// SKIP: app-behavior blocker, not a helper/config gap. The authed leg redirects
-// through /api/auth/picker-bootstrap, whose NextResponse.redirect(new URL(path,
-// request.url)) canonicalizes the host 127.0.0.1 -> localhost (request.url
-// reports `localhost` even under `pnpm start -H 127.0.0.1`; NEXT_PUBLIC_SITE_ORIGIN
-// does not influence it). That host flip drops the 127.0.0.1-scoped Supabase auth
-// cookie, so the revisit resolves to Mode A instead of needs_picker_bootstrap and
-// crew-shell never renders. Verified reproducing under both `pnpm dev` and
-// `pnpm build && pnpm start`. Enable once the bootstrap redirect emits a
-// host-relative Location (app fix in app/api/auth/picker-bootstrap/route.ts).
-test.skip("first-contact gate -> tap 'Sign in with Google' -> OAuth happy path -> show body renders", async ({
+test("first-contact gate -> tap 'Sign in with Google' -> OAuth happy path -> show body renders", async ({
   browser,
 }) => {
   const show = track(

@@ -11,6 +11,7 @@ import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
+import { hostRelativeRedirect } from "@/lib/http/hostRelativeRedirect";
 import { messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
@@ -185,7 +186,7 @@ export async function GET(request: Request): Promise<Response> {
       return htmlResponse(google.code, google.status);
     }
     if (google.kind === "continue") {
-      return NextResponse.redirect(new URL(nextOutcome.path, request.url), { status: 302 });
+      return hostRelativeRedirect(nextOutcome.path, 302);
     }
 
     let claimResult: ClaimResult | null = null;
@@ -207,7 +208,7 @@ export async function GET(request: Request): Promise<Response> {
       return htmlResponse("PICKER_BOOTSTRAP_RPC_FAILED", 502);
     }
 
-    const response = NextResponse.redirect(new URL(nextOutcome.path, request.url), { status: 302 });
+    const response = hostRelativeRedirect(nextOutcome.path, 302);
     const claimShow = claimResult ? findClaimShow(claimResult, targetShowId) : null;
     if (claimResult && claimShow && Number.isSafeInteger(claimResult.mint_safe_t_millis)) {
       const current = decodePickerCookie(
