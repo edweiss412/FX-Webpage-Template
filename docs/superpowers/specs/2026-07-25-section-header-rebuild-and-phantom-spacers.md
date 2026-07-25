@@ -57,7 +57,7 @@ Ledgered debt to be repaid (both assert exact occurrence counts, and both files'
 - `tests/e2e/admin-layout-dimensions.spec.ts:500` — `KNOWN_SHOW_MODAL_PHANTOM_ITEMS`, 2 rows (`rooms`, `warnings`), width 375, `axis: "column-gap"`, `gap: 10`, `count: 1`.
 - `tests/e2e/crew-layout-dimensions.spec.ts:1037` — `KNOWN_CREW_PHANTOM_ITEMS`, 2 rows (widths 390 and 1000), `axis: "row-gap"`, `gap: 2`, `count: 2`.
 
-`ModalSectionChrome` (`components/admin/wizard/step3ReviewSections.tsx:850`) is the component under change. Its header row is at `components/admin/wizard/step3ReviewSections.tsx:892` (`flex items-center gap-2.5`, with `mb-2`/`mb-3` by variant).
+`ModalSectionChrome` (`components/admin/wizard/step3ReviewSections.tsx:850`) is the component under change. Its header row is at `components/admin/wizard/step3ReviewSections.tsx:891` (`flex items-center gap-2.5`, with `mb-2`/`mb-3` by variant).
 
 ## 3. The change
 
@@ -488,7 +488,7 @@ So the plan can regenerate every number rather than trusting this document:
 | Claim | Location |
 | ----- | -------- |
 | `ModalSectionChrome` definition | `components/admin/wizard/step3ReviewSections.tsx:850` |
-| header row today | `components/admin/wizard/step3ReviewSections.tsx:892` |
+| header row today | `components/admin/wizard/step3ReviewSections.tsx:891` |
 | childless spacer to delete | `components/admin/wizard/step3ReviewSections.tsx:916` |
 | link-presence instant/deliberate contract | `components/admin/wizard/step3ReviewSections.tsx:927` |
 | decorative hairline | `components/admin/wizard/step3ReviewSections.tsx:2150` |
