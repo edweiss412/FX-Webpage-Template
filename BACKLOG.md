@@ -584,6 +584,24 @@ The instant-rotate rework updates the crew URL on every surface (header ShareChi
 
 The `RotateShareTokenButton` two-tap state machine (idle → confirm → resolving → idle) unmounts the focused button on each edge, so a keyboard user's focus drops to `<body>` after tapping Rotate and again after the action resolves. Pre-existing (the state machine + 3s auto-revert predate the instant-rotate dedup; this diff only changed the success-banner content), and impeccable-audit-rated P2 (not a WCAG-A blocker — the controls remain reachable by re-tabbing). Deferred: a correct fix moves focus to the Confirm button on entering confirm and to the idle Rotate button (or the banner) on resolve via a ref/effect, plus `waitFor`-based focus assertions (async activeElement). Out of scope for a dedup/instant-update refactor. Trigger to promote: an a11y pass on the admin per-show action rows.
 
+## BL-FOCUSRING-LIGHT-CONTRAST — the light-mode focus ring measures 1.60:1, below WCAG 1.4.11
+
+**Status:** OPEN (2026-07-25, destruct-thumb-order impeccable audit P1) · **Severity:** MEDIUM · **Class:** A11Y TOKEN, repo-wide
+
+`--color-focus-ring: rgba(255, 140, 26, 0.55)` composites over white to ≈`#FFC075`, which measures **1.60:1** against adjacent colors — WCAG 1.4.11 non-text contrast requires 3:1. Dark mode passes at 4.40:1. This is token-level and affects every `focus-visible:ring-focus-ring` in the app, not one surface, which is why it was not fixed inside a single-component branch. `DESIGN.md`'s contrast table has no focus-ring row, so it was never pinned and never caught. **Fix:** raise the light-mode alpha or shift the hue until it clears 3:1, add a `DESIGN.md` row, and extend the contrast meta-test to cover it. **Trigger:** next a11y pass, or any DESIGN.md token sweep.
+
+## BL-DURATION-TOKENS-EMIT-NO-CSS — `duration-fast` / `duration-normal` are inert across 89 files
+
+**Status:** OPEN (2026-07-25, destruct-thumb-order impeccable audit P1) · **Severity:** MEDIUM · **Class:** DESIGN TOKEN WIRING, repo-wide
+
+Tailwind v4's `duration-*` utility resolves `--transition-duration-*`, but `app/globals.css` defines `--duration-fast` / `--duration-normal`. Verified empirically: compiling the token CSS emits **no rule** for `duration-fast`. So all **276 `duration-fast` + 42 `duration-normal` usages across 89 files** silently fall back to Tailwind's 150ms default, **and the `@media (prefers-reduced-motion: reduce)` block that zeroes those variables never applies to any Tailwind transition** — which is the part that matters. **Fix:** rename the custom properties to `--transition-duration-fast` / `--transition-duration-normal` in the `@theme` block, then re-verify the reduced-motion path actually zeroes a real transition. **Trigger:** next motion or token pass; treat as an a11y fix, not a cosmetic one.
+
+## BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS — the armed window opens and closes silently for screen readers
+
+**Status:** OPEN (2026-07-25, destruct-thumb-order impeccable audit P2) · **Severity:** LOW · **Class:** A11Y, destructive-confirm family
+
+Two gaps on the shared two-tap idiom, neither specific to one surface. (1) **Silent disarm:** at 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. (2) **Timing:** 4s is tight against ~3s of polite speech for the arm message, so a screen-reader user may not finish hearing the prompt before the window closes. Fixing either well means revisiting `ARM_REVERT_MS` for assistive-tech users specifically, which is a family-wide decision (11 surfaces) rather than a component one. **Trigger:** an a11y pass on the destructive-confirm family, or any change to `ARM_REVERT_MS`.
+
 ## BL-STAGED-IDENTITYLINK-RENAME-IDENTITY — dashboard staged apply treats identity-link renames as remove+add
 
 **Filed:** 2026-07-17 (role-flags-notice-lead-only-doug §2.5) · **Class:** sync (staged identity application) · **Effort:** M (staged-core threading + double-apply analysis)

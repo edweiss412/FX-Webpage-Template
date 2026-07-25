@@ -43,9 +43,9 @@ const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try
  * from here means the harness never transcribes them, so no binding meta-test is needed
  * to keep a transcription honest. */
 export const IGNORE_IDLE_CLASS =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 export const IGNORE_ARMED_CLASS =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 export const IGNORE_IDLE_LABEL = "Permanently ignore";
 /* Shortened from "Confirm stop tracking this sheet permanently" (328.51px), which is
  * what let the armed row stop wrapping at the 348px Needs-attention page.
@@ -69,6 +69,13 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   // the second. The sibling "Defer until modified" stays one-tap (§7).
   const [armed, setArmed] = useState(false);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* Chrome activates a <button> on Enter KEYDOWN, which auto-repeats, so holding
+   * Enter fires arm then confirm ~30ms later and the two-tap guard buys nothing.
+   * Space is immune (it fires on keyup), so without this the guard protects one
+   * activation key and not the other. A short dwell is invisible to a deliberate
+   * user and fatal to a repeat. Impeccable audit P1. */
+  const armedAtRef = useRef(0);
+  const ARM_DWELL_MS = 350;
   function clearArmTimer() {
     if (armTimerRef.current !== null) {
       clearTimeout(armTimerRef.current);
@@ -78,6 +85,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   useEffect(() => clearArmTimer, []);
   function onGuardedIgnoreClick() {
     if (!armed) {
+      armedAtRef.current = Date.now();
       setArmed(true);
       clearArmTimer();
       armTimerRef.current = setTimeout(() => {
@@ -86,6 +94,8 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
       }, ARM_REVERT_MS);
       return;
     }
+    // Reject a confirm that arrives inside the dwell window — a key-repeat, not a decision.
+    if (Date.now() - armedAtRef.current < ARM_DWELL_MS) return;
     clearArmTimer();
     setArmed(false);
     void handleClick("permanent_ignore");
@@ -139,6 +149,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
           data-testid={`admin-pending-ignore-${pendingIngestionId}`}
           onClick={onGuardedIgnoreClick}
           disabled={isRunning}
+          aria-busy={isRunning || undefined}
           className={armed ? IGNORE_ARMED_CLASS : IGNORE_IDLE_CLASS}
         >
           {armed
@@ -152,6 +163,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
           data-testid={`admin-pending-defer-${pendingIngestionId}`}
           onClick={() => handleClick("defer_until_modified")}
           disabled={isRunning}
+          aria-busy={isRunning || undefined}
           className={IGNORE_IDLE_CLASS}
         >
           {state.kind === "running" && state.pendingKind === "defer_until_modified"
@@ -162,9 +174,21 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
             screen readers (impeccable P2). Always mounted — conditional
             mounting drops the announcement (project a11y rule). */}
         <span role="status" className="sr-only">
-          {armed ? "Tap again to stop tracking this sheet permanently." : ""}
+          {armed
+            ? "Tap again to stop tracking this sheet permanently."
+            : state.kind === "running"
+              ? "Working…"
+              : ""}
         </span>
       </div>
+      {armed ? (
+        <p
+          data-testid={`admin-pending-ignore-consequence-${pendingIngestionId}`}
+          className="text-xs/relaxed text-subtle"
+        >
+          This stops tracking the sheet permanently.
+        </p>
+      ) : null}
       {state.kind === "error" ? (
         <div
           role="alert"

@@ -143,11 +143,18 @@ describe("pending-ingestion action buttons (live host: NeedsAttentionInbox)", ()
       }),
     );
     const { getByTestId } = renderInbox([pendingItem("pi-3")]);
-    // G1 two-tap guard: first click arms, second click fires.
+    // G1 two-tap guard: first click arms, second click fires — but the confirm must
+    // land AFTER the 350ms dwell that defeats Enter key-repeat (impeccable audit P1),
+    // so the clock is pushed past it rather than tapping twice in the same tick.
+    const realNow = Date.now;
+    let clock = realNow();
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
     fireEvent.click(getByTestId("admin-pending-ignore-pi-3"));
+    clock += 400;
     await act(async () => {
       fireEvent.click(getByTestId("admin-pending-ignore-pi-3"));
     });
+    vi.mocked(Date.now).mockRestore();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe("/api/admin/pending-ingestions/pi-3/discard");
@@ -214,6 +221,9 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     const btn = getByTestId(`admin-pending-ignore-${ID}`);
     fireEvent.click(btn); // arm
     await act(async () => {
+      vi.advanceTimersByTime(400); // clear the anti-key-repeat dwell
+    });
+    await act(async () => {
       fireEvent.click(btn); // confirm — fires
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -227,6 +237,31 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
       vi.advanceTimersByTime(4_000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("[13] a confirm inside the dwell window is REJECTED (Enter key-repeat)", async () => {
+    vi.useFakeTimers();
+    const { getByTestId } = renderButtons();
+    const btn = getByTestId(`admin-pending-ignore-${ID}`);
+    fireEvent.click(btn); // arm
+    await act(async () => {
+      vi.advanceTimersByTime(50); // key-repeat interval, well inside the dwell
+    });
+    await act(async () => {
+      fireEvent.click(btn); // would confirm without the guard
+    });
+    // Chrome activates a button on Enter KEYDOWN, which auto-repeats; holding Enter
+    // otherwise arms and confirms ~30ms apart and the two-tap guard buys nothing.
+    expect(fetchMock).not.toHaveBeenCalled();
+    // Still armed, so a deliberate second tap after the dwell works.
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 
   test("clicking the Defer sibling while permanent-ignore is armed disarms it (whole-diff R2)", async () => {
