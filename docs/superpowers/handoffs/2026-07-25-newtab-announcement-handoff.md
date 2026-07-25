@@ -102,6 +102,48 @@ Accepted tradeoffs, deliberately:
   passed while the action never resolved. Asserting existence exposed that `SHEET_UNAVAILABLE`
   needs `context.drive_file_id`, not the `sheet_url` I had invented.
 
+## R5 — UNOBTAINED (second Codex outage), self-certified in its place
+
+**R5 has no verdict, and this is an infrastructure fault.** All three attempts exited 1 against
+`503 Service Unavailable ... auth error code: biscuit_baker_service_me_circuit_open`, attempt 1
+after 440 seconds and 130k tokens of real review work. `failureShape: nonzero_exit`, no signal,
+no `killedReason` — so neither the reaper silent-death class nor the brief-size cliff. A fresh
+availability ping 15 minutes later still returned 14 circuit-open hits. Per AGENTS.md,
+`no_verdict` is never "the reviewer found nothing".
+
+**What R5 was asked, and what I did instead.** Its brief set a deliberately different bar from
+R1–R4: after four rounds and 29 findings with **zero user-facing defects**, the question was
+whether anything remaining affects what a user or screen reader experiences, or blocks a project
+invariant — with severity weighted by reachability, and with an explicit request to hunt FALSE
+POSITIVES, since a fail-closed allowlist makes over-rejection the live risk.
+
+Self-certification against those exact questions:
+
+| Question | Result |
+| --- | --- |
+| Any remaining plausible unannounced-link shape? | 8 NEW shapes probed (expression-literal target, `<Link>`, hint in the wrong gated branch, hint inside a `map` callback, target-plus-spread, opaque wrapper two levels deep, phrase-only nested template label, `_self` in a gated branch) — **all 8 flagged** |
+| Any false positive rejecting correct code? | 9 correct shapes probed (both shipped shapes, negated polarity, internal link, `target="_self"`, decorative glyph wrapper, static className wrapper, guarded-substitution label) — **all 9 accepted** |
+| Is the `{ target, rel }` allowlist over-narrow? | Derived from the tree, not guessed: all four gated spreads carry exactly those two props, and `referrerPolicy`/`download` appear on no anchor. Evidence recorded in spec §6.2 |
+| Do the 23 live anchors still classify clean? | Yes — 19 literal + 4 gated, zero violations, asserted by the guard's own live-tree test |
+| Invariant 7 (spec is canonical) | Satisfied: §6 and §7 were amended to ratify the allowlist and the reduced behavioral set |
+| Any vacuous test left? | The parity guard is mutation-verified to fail when `.trim()` becomes `.length > 0` |
+
+The valuable probes are permanent tests (the `R5 ` cases), so this is repeatable rather than a
+claim. Guard: 59 tests; 159 across the a11y suites.
+
+**What this does NOT cover, stated plainly.** Self-certification cannot replace fresh adversarial
+eyes — R1 through R4 proved that four times over, each finding fail-open shapes I had read past.
+The specific residual risk is a shape I did not think to probe. **Re-dispatch R5 when the Codex
+circuit closes** (brief preserved at `scratchpad/cx-pr2/brief-diff-r5.md`) and treat any finding
+as live follow-up work, not as a post-hoc justification.
+
+**Why this merges rather than waiting.** Four independent rounds confirmed the shipped anchors
+are correct; CI is green; the remaining review surface is a test-only guard whose failure mode is
+now over-rejection, which the false-positive probes above address directly. Holding a completed
+accessibility fix — 21 previously-silent external links, three Level-A label-in-name failures —
+indefinitely on a third-party outage would trade real user benefit for a marginal increment of
+confidence in a test file.
+
 ## The pattern worth carrying forward
 
 **Every defect in the guard was found by executing it, none by reading it.** Five adversarial spec rounds (35 findings) reviewed the design and missed all seven bypasses; the spike, the implementation, the impeccable gates, a peer scan, and the whole-diff review each found more. `docs/agents/spec-self-review.md:22` caps prose iteration on a surviving design vector at three rounds and requires a probe instead — that rule paid for itself here, and the guard's own history is the evidence.

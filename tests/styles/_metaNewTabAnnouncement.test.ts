@@ -546,6 +546,50 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     );
   });
 
+  // ── R5 self-certify pins (R5 itself was lost to a Codex 503 outage) ──────
+  it("R5 flags gated anchors whose hint is in the wrong place", () => {
+    rejects(
+      `const A=({e})=><a href="x" {...(e?{target:"_blank"}:{})}>Go {e?null:<> <NewTabHint /></>}</a>;`,
+      /not gated by the anchor's effective _blank predicate/,
+    );
+    // A hint inside a map callback is not proof it renders for THIS anchor.
+    rejects(
+      `const A=({e,xs})=><a href="x" {...(e?{target:"_blank"}:{})}>Go {xs.map(()=><> <NewTabHint /></>)}</a>;`,
+      /not gated|does not announce/,
+    );
+  });
+
+  it("R5 flags a target attribute mixed with a spread, and _self in a gated branch", () => {
+    rejects(
+      `const A=({e})=><a href="x" target="_blank" rel="noopener" {...(e?{}:{})}>Go <NewTabHint /></a>;`,
+      /unrecognized external-link shape/,
+    );
+    rejects(
+      `const A=({e})=><a href="x" {...(e?{target:"_blank"}:{target:"_self"})}>Go</a>;`,
+      /does not announce/,
+    );
+  });
+
+  it("R5 does NOT reject correct shapes (false-positive guard)", () => {
+    // With a fail-closed model, over-rejection is the live risk, so these are
+    // pinned as explicitly as the rejections.
+    // target="_self" is correctly NOT external, so it is not an anchor at all --
+    // `ok()` cannot express that (it requires discovery), which is the distinction
+    // worth pinning here.
+    const selfTarget = probe(`const A=()=><a href="/local" target="_self">Go</a>;`);
+    expect(selfTarget.anchors, "target=_self is not an external anchor").toBe(0);
+    expect(selfTarget.violations).toEqual([]);
+    ok(
+      `const A=()=><a href="x" target="_blank">Go <span aria-hidden="true">↗</span> <NewTabHint /></a>;`,
+    );
+    ok(
+      `const A=()=><a href="x" target="_blank">Go <span className="ml-1"><NewTabHint /></span></a>;`,
+    );
+    ok(
+      `const A=({e})=><a href="x" {...(e?{}:{target:"_blank",rel:"noopener noreferrer"})}>Go{" "}{!e?<> <NewTabHint /></>:null}</a>;`,
+    );
+  });
+
   it("honors an inline exemption comment", () => {
     ok(
       `// no-newtab-announcement: intentionally silent for the probe\nconst A = () => <a href="x" target="_blank">Go</a>;`,
