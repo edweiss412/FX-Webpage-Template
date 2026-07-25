@@ -52,18 +52,15 @@ export default defineConfig({
       // generic dev server on port 3000 because the public /show/[slug]
       // route doesn't depend on any of the dev-build / prod-build env gates.
       name: "mobile-safari",
-      // M11.5-PLAYWRIGHT-HELPERS Block-2.3 (2026-05-27): added `picker-flow` to the
-      // mobile-safari testMatch. The helper layer (seedShowWithCrew,
-      // seedPickerCookie, claimStamp) shipped with that dispatch, and the
-      // 2026-07-25 picker-flow app-bug fixes un-skipped three more stubs, so five
-      // of this spec's six cases are active. `crew-e2e.yml` runs the spec in CI.
-      //
-      // ONE stub stays skipped: the Admin Reset + Rotate case, which flakes on the
-      // shared admin fixture user that signInAs deletes and recreates, plus the
-      // two-tap rotate/reset confirm timing. That is test-infra, not an app bug —
-      // its own SKIP note carries the detail.
+      // `picker-flow` deliberately does NOT run here — it is in desktop-chromium.
+      // Measured 2026-07-25: over plain http neither engine can round-trip the
+      // `__Host-`-prefixed, Secure picker envelope. WebKit accepts an injected
+      // cookie but refuses to STORE the server's own Set-Cookie, so the
+      // first-contact bootstrap and any real selection never persist and a
+      // correct implementation reads as broken. Chromium's localhost exemption
+      // does store it, which is why the suite lives there.
       testMatch:
-        /(sample|crew-page|crew-section-toggle|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|picker-flow|stage-restricted-crew-schedule|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
+        /(sample|crew-page|crew-section-toggle|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|stage-restricted-crew-schedule|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },
@@ -77,7 +74,7 @@ export default defineConfig({
     {
       name: "desktop-chromium",
       testMatch:
-        /(sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|bell-panel-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|roles-settings-layout|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|published-review-modal\.reopen|published-review-modal\.closeFreshness|published-review-modal\.realtime|published-review-modal\.crew-actions|step3-review-modal\.interactions|warning-panel-polish|dev-capture|published-show-attention)\.spec\.ts/,
+        /(picker-flow|sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|bell-panel-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|roles-settings-layout|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|published-review-modal\.reopen|published-review-modal\.closeFreshness|published-review-modal\.realtime|published-review-modal\.crew-actions|step3-review-modal\.interactions|warning-panel-polish|dev-capture|published-show-attention)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },

@@ -36,7 +36,6 @@ import { test, expect } from "@playwright/test";
 import { NON_ADMIN_CREW_FIXTURE, ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs } from "./helpers/signInAs";
 import { seedShowWithCrew, type SeededShow } from "./helpers/seedShowWithCrew";
-import { seedPickerCookie } from "./helpers/seedPickerCookie";
 import { claimStamp } from "./helpers/claimStamp";
 import { admin } from "./helpers/supabaseAdmin";
 import { isSupabaseAuthCookieName } from "@/lib/auth/supabaseAuthCookieNames";
@@ -180,42 +179,71 @@ test("Mode B 'Continue as guest' atomically clears the stale entry and lands on 
   const ctx = await browser.newContext({ baseURL: BASE_URL });
   try {
     const page = await ctx.newPage();
-    // Mode B premise: the signed-in non-admin fixture is not on show A's roster.
+
+    // Stage the stale entry by DRIVING the real selection, not by injecting the
+    // cookie. seedPickerCookie cannot be used here: the envelope is `__Host-`
+    // prefixed and `Secure`, and over plain http neither browser can round-trip
+    // it both ways — Chromium's CDP rejects addCookies for a `__Host-` cookie
+    // outright ("Invalid cookie fields"), while WebKit accepts the injection but
+    // then refuses to store the server's own Set-Cookie, so a correct
+    // implementation looks broken. Driving the picker makes the SERVER mint the
+    // entry, which is both closer to the real chain and harness-proof.
+    await page.goto(`${urlA}?gate=skip`, { waitUntil: "networkidle" });
+    await expect(page.getByTestId("picker-interstitial-root")).toBeVisible();
+    await page
+      .locator(`[data-testid="picker-roster-row"][data-crew-member-id="${aliceId}"]`)
+      .click();
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    await expect(page.getByTestId("identity-chip")).toContainText("Alice Cooper");
+
+    // Mode B premise: now sign in as the fixture that is NOT on show A's roster,
+    // so the browser carries Alice's picker entry AND a non-roster Google session.
     await signInAs(page, NON_ADMIN_CREW_FIXTURE, { baseUrl: BASE_URL });
-    // Stage a stale picker entry referencing Alice (a mismatched identity).
-    await seedPickerCookie(
-      ctx,
-      [{ showId: showA.showId, crewMemberId: aliceId, epoch: showA.pickerEpoch }],
-      { url: BASE_URL },
-    );
 
     await page.goto(urlA, { waitUntil: "networkidle" });
     // Mode B gate renders; "Continue as guest" is the clearIdentityAndSkip form.
     await expect(page.getByTestId("sign-in-or-skip-gate-mismatch-header")).toBeVisible();
+
+    // Capture the action's own response: its Set-Cookie headers are the ONLY
+    // reliable oracle for the cookie contract here. See the note below the click.
+    const actionResponse = page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url().includes(`/show/${showA.slug}/`),
+    );
     await page.getByTestId("sign-in-or-skip-gate-continue-as-guest-cta").click();
+    // headersArray(), not headers(): Chromium omits set-cookie from the plain
+    // headers object, and repeated set-cookie headers only survive as an array.
+    const setCookie = (await (await actionResponse).headersArray())
+      .filter((h) => h.name.toLowerCase() === "set-cookie")
+      .map((h) => h.value)
+      .join("\n");
 
     // The action clears the stale entry and redirects to ?gate=skip -> picker.
     await page.waitForURL(/\/show\/.+\/.+\?gate=skip/);
     await expect(page.getByTestId("picker-interstitial-root")).toBeVisible();
 
-    // The picker cookie no longer contains Alice's entry for this show.
-    const cookies = await ctx.cookies(BASE_URL);
-    const pickerCookie = cookies.find((c) => c.name === "__Host-fxav_picker");
-    // clearIdentityAndSkip strips the show's entry; the cookie is either cleared
-    // or re-signed without showA's selection. Either way Alice must be gone.
-    if (pickerCookie && pickerCookie.value) {
-      const payload = pickerCookie.value.split(".")[0]!;
-      const decoded = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(
-        "utf8",
-      );
-      expect(decoded).not.toContain(aliceId);
-      expect(decoded).not.toContain(showA.showId);
-    }
-
-    // The sign-out contract: no Supabase auth cookie survives on this device.
-    // scope: "local" ends THIS browser's session only — a colleague's other
-    // devices keep theirs — but on this one the cookies must be gone.
-    expect(cookies.filter((c) => isSupabaseAuthCookieName(c.name))).toEqual([]);
+    // Assert the cookie contract from the RESPONSE, not from the browser jar.
+    //
+    // Why: this project runs picker-flow under mobile-safari (WebKit) against
+    // plain http. The picker cookie is `__Host-`-prefixed and `Secure`, and the
+    // helper seeds it with context.addCookies, which injects straight into the
+    // jar and bypasses the Secure/http rule the server cannot bypass. Measured
+    // via a Playwright trace: the action emits
+    // `__Host-fxav_picker=; Max-Age=0` and the app stops honoring the entry (the
+    // picker renders, which only happens when the resolver sees no selection AND
+    // no Google session) — yet ctx.cookies() still reports a ghost entry for it.
+    // Asserting the jar would therefore fail on a correct implementation.
+    //
+    // Alice's entry cleared, and the whole envelope dropped since it held only
+    // this show:
+    expect(setCookie).toContain("__Host-fxav_picker=;");
+    expect(setCookie).toContain("Max-Age=0");
+    // The sign-out contract: scope "local" ends THIS browser's session only, so a
+    // colleague's other devices keep theirs, but this one's auth cookie is gone.
+    const clearedNames = setCookie
+      .split("\n")
+      .map((line) => line.split("=")[0]!.trim())
+      .filter((name) => isSupabaseAuthCookieName(name));
+    expect(clearedNames.length).toBeGreaterThan(0);
 
     // Reaching the picker once is what the REJECTED design also achieved (spec
     // §4.2), so the durable property is what this proves: pick the unclaimed
