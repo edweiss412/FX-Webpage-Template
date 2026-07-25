@@ -1460,42 +1460,53 @@ describe("R6: scanner changes are pinned", () => {
       // announcing fixtures and three case-sensitive-read mutations passed straight through
       // it. The violating base is the one that catches suppression; the announcing base
       // catches a read that manufactures a violation.
-      const onAnchorBad = (n: string): string =>
-        `const A=()=><a href="x" target="_blank" ${n}="v">Go</a>;`;
-      const onAnchorOk = (n: string): string =>
-        `const A=()=><a href="x" target="_blank" ${n}="v">Go <NewTabHint /></a>;`;
-      const onWrapperBad = (n: string): string =>
-        `const A=()=><a href="x" target="_blank">Go<span ${n}="v"><NewTabHint /></span></a>;`;
-      const onWrapperOk = (n: string): string =>
-        `const A=()=><a href="x" target="_blank">Go <span ${n}="v"><NewTabHint /></span></a>;`;
-      // DEPTH. The hidden/aria-hidden check walks every ancestor up to the anchor
-      // (`_newTabScan.ts:416`), so a one-level wrapper does not exercise depth >= 2. A read that
-      // only fires on a deeper ancestor would pass a shallow-only sweep -- and "the walk uses the
-      // same helper at every level" is an assumption about the implementation, which is exactly
-      // what a behavioural check must not rely on.
+      // BOTH POLARITIES, SIX PLACEMENTS, AND SEVERAL VALUES.
       //
-      // Stated honestly: this pair is NOT independently mutation-provable today, because the walk
-      // IS uniform, so every mutation that the deep base catches the one-level base also catches.
-      // It is here so that a future non-uniform walk cannot evade the sweep, not because a current
-      // defect requires it. Recorded rather than implied, so nobody later reads it as proven.
-      const onDeepBad = (n: string): string =>
-        `const A=()=><a href="x" target="_blank">Go<span><span ${n}="v"><NewTabHint /></span></span></a>;`;
-      const onDeepOk = (n: string): string =>
-        `const A=()=><a href="x" target="_blank">Go <span><span ${n}="v"><NewTabHint /></span></span></a>;`;
-      for (const build of [
-        onAnchorBad,
-        onAnchorOk,
-        onWrapperBad,
-        onWrapperOk,
-        onDeepBad,
-        onDeepOk,
-      ]) {
-        const base = violations(build(name)).join(" | ");
-        for (const alt of [name.toUpperCase(), name[0]!.toUpperCase() + name.slice(1)]) {
-          expect(
-            violations(build(alt)).join(" | "),
-            `"${alt}" must be treated exactly like "${name}"`,
-          ).toBe(base);
+      // Polarity: an announcing-only base cannot observe a read that SUPPRESSES a violation --
+      // the verdict is "" either way. Three R19 mutations passed straight through the first
+      // version for exactly that reason.
+      //
+      // Depth: `hidesFromAccName` walks every ancestor up to the anchor
+      // (`tests/styles/_newTabScan.ts:416`), so one wrapper level does not reach depth >= 2.
+      // Stated honestly, the deep pair is NOT independently mutation-provable today, because
+      // the walk IS uniform -- every mutation it catches, the one-level base also catches. It
+      // guards a future non-uniform walk; recorded rather than implied.
+      //
+      // Values: R20 showed that pinning every fixture to `="v"` made the sweep vacuous for any
+      // read gated on the VALUE. Its witness was a case-sensitive `class` read firing only when
+      // the value contains `hidden` -- `"v"` never does, so `class` and `CLASS` agreed while
+      // real markup diverged and a genuinely hidden announcement was accepted. So sweep the
+      // values that reach the scanner's value-dependent branches, plus the bare boolean form.
+      const VALUES = [
+        '="v"',
+        '="hidden"', // class / className token branch
+        '="true"',
+        '="false"', // the aria-hidden exemption branch
+        '={{ display: "none" }}', // style object branch
+        '="display:none"', // style string branch
+        "", // bare boolean attribute, as `hidden` and `inert` are written
+      ];
+      for (const v of VALUES) {
+        const bases: ((n: string) => string)[] = [
+          (n) => `const A=()=><a href="x" target="_blank" ${n}${v}>Go</a>;`,
+          (n) => `const A=()=><a href="x" target="_blank" ${n}${v}>Go <NewTabHint /></a>;`,
+          (n) =>
+            `const A=()=><a href="x" target="_blank">Go<span ${n}${v}><NewTabHint /></span></a>;`,
+          (n) =>
+            `const A=()=><a href="x" target="_blank">Go <span ${n}${v}><NewTabHint /></span></a>;`,
+          (n) =>
+            `const A=()=><a href="x" target="_blank">Go<span><span ${n}${v}><NewTabHint /></span></span></a>;`,
+          (n) =>
+            `const A=()=><a href="x" target="_blank">Go <span><span ${n}${v}><NewTabHint /></span></span></a>;`,
+        ];
+        for (const build of bases) {
+          const base = violations(build(name)).join(" | ");
+          for (const alt of [name.toUpperCase(), name[0]!.toUpperCase() + name.slice(1)]) {
+            expect(
+              violations(build(alt)).join(" | "),
+              `"${alt}${v}" must be treated exactly like "${name}${v}"`,
+            ).toBe(base);
+          }
         }
       }
     }
