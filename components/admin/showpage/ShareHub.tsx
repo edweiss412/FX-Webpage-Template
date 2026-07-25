@@ -96,13 +96,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import {
-  computePopoverPlacement,
-  insetRect,
-  intersectRects,
-  VIEWPORT_INSET,
-  type Rect,
-} from "@/lib/popover/position";
+import { type Rect } from "@/lib/popover/position";
+import { placeWithinVisibleViewport } from "@/lib/popover/place";
 import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
@@ -244,18 +239,10 @@ export function ShareHub({
       right: r.right,
       bottom: r.bottom,
     });
-    const viewportRect: Rect = {
-      left: 0,
-      top: 0,
-      width: window.innerWidth,
-      height: window.innerHeight,
-      right: window.innerWidth,
-      bottom: window.innerHeight,
-    };
     // Body-host bounds degenerate to the viewport: an all-absolute page gives
     // document.body a zero-height rect, which would wrongly collapse bounds.
-    const hostRect = host === document.body ? viewportRect : toRect(host.getBoundingClientRect());
-    const bounds = insetRect(intersectRects(hostRect, viewportRect), VIEWPORT_INSET);
+    // `null` says exactly that; lib/popover/place.ts owns the composition.
+    const hostRectOrNull = host === document.body ? null : toRect(host.getBoundingClientRect());
 
     // Natural size = class caps active, NO inline constraints. Cleared first so
     // we measure the CSS cap rather than the previous pass's result.
@@ -272,7 +259,10 @@ export function ShareHub({
     // superseded caret measurement took for this case.
     const triggerRect = trigger.getBoundingClientRect();
     if (triggerRect.width === 0 || naturalRect.width === 0) return;
-    const placement = computePopoverPlacement({
+    // ONE trigger snapshot serves both the bounds decision and the placement,
+    // so the two can never disagree at the visible-slice boundary.
+    const placement = placeWithinVisibleViewport(window, {
+      hostRect: hostRectOrNull,
       trigger: toRect(triggerRect),
       naturalSize: { width: naturalRect.width, height: naturalRect.height },
       wrappedHeightAt: (w) => {
@@ -281,7 +271,6 @@ export function ShareHub({
         body.style.maxWidth = "";
         return h;
       },
-      bounds,
       preferredSide: "bottom",
       align: "right",
     });
@@ -301,6 +290,14 @@ export function ShareHub({
 
     body.style.visibility = "";
     body.dataset["popoverSide"] = placement.side;
+    const hostRect = hostRectOrNull ?? {
+      left: 0,
+      top: 0,
+      width: 0,
+      height: 0,
+      right: 0,
+      bottom: 0,
+    };
     const isBodyHost = host === document.body;
     // Shared by body and caret so the two coordinate paths cannot drift.
     const toHostOffsets = (pt: { x: number; y: number }) => ({
