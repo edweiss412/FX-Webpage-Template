@@ -40,7 +40,7 @@ No change to `lib/admin/attentionItems.ts` or `lib/adminAlerts/*`. The derivatio
 
 ## 0.1 Meta-test inventory (mandatory declaration)
 
-**Creates:** none.
+**Creates:** one — Task 7's structural workflow-wiring test (plan R8 F3), which pins the new workflow's spec invocation and its `pull_request.paths` entries. Required because the existing coverage meta-test reads only allowlist KEYS, so a path-gated wiring is invisible to it.
 
 **Extends:** none of the registry-style meta-tests. Checked each candidate:
 
@@ -74,7 +74,7 @@ Each task: failing test → minimal implementation → passing test → commit. 
 
 **Ownership rule for fan-out (plan R3 F1).** Each task repairs every assertion its own change invalidates, in the SAME commit. A fan-out table belongs to the task that CAUSES the breakage, never to whichever later task happens to touch the same file. Where two tasks touch one file, each must leave it green. Stated once here because the alternative — deferring a repair to "the task that owns that file" — produces tasks that cannot finish green, which the TDD invariant forbids.
 
-Applied, that fixes ownership as: **Task 1** the heading copy and the conditional-site count; **Task 3** every consumer of the retired row shape, jsdom AND e2e; **Task 5** every pill-string pin; **Task 6** only the dev-scenario prose and ids; **Task 7** CI wiring only, no assertion edits.
+Applied, that fixes ownership as: **Task 1** the heading copy and the conditional-site count; **Task 3** every consumer of the retired row shape, jsdom AND e2e; **Task 5** every pill-string pin; **Task 6** only the dev-scenario prose and ids; **Task 7** CI wiring only, plus its own structural wiring test.
 
 ### Task 1 — two groups, two headings
 
@@ -150,6 +150,18 @@ Also re-run the pageTransitions scanner and update `tests/components/admin/showp
 | `tests/e2e/attention-pill-focus.spec.ts` | `tests/e2e/attention-pill-focus.spec.ts:177-198` (the `§11.9 nav` sheet-link test), `tests/e2e/attention-pill-focus.spec.ts:258-264` (rescue probe (b), `stampFocused(page, "${MENU} a")`), `tests/e2e/attention-pill-focus.spec.ts:283-306` (generality cell `focus: "link"`, resolved at `tests/e2e/attention-pill-focus.spec.ts:305`) | Rewrite all three against `${MENU} [data-testid^="attention-menu-row-"]`. For the first, the href/target/rel half moves to Task 4's card chip and what survives is the navigation contract: press the row, assert the menu closed. The two focus probes stay non-vacuous — the focused node still leaves the DOM on `setItems(0,0,1)`. **Repaired HERE, not in Task 7** (plan R3 F1): Tasks 8b and 9 both add tests to this file and cannot run their red/green cycle against a suite that is red for unrelated reasons. `boot()`'s `${MENU} button, ${MENU} a` selector at `tests/e2e/attention-pill-focus.spec.ts:124` needs no change — the `button` arm still matches. |
 
 Verify with `npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-pill-focus.spec.ts` before committing; the file is not CI-wired until Task 7, so a local green is the only signal at this point.
+
+**Also gate the five pre-existing ungated samples in this file (plan R8 F2).** They are latent today because nothing runs them in CI — Task 7 changes that, so wiring them without gating ships avoidable flakes and one non-discriminating test. Same rule as Task 9's: `setItems` returning proves the setter ran, not that React committed.
+
+| Site | Problem | Gate |
+| --- | --- | --- |
+| `tests/e2e/attention-pill-focus.spec.ts:251-252` (rescue probe a) | `setItems` then immediate `focusedNodeDetached` | `expect.poll(focusedNodeDetached)`, or an exact post-update row count before the assertion |
+| `tests/e2e/attention-pill-focus.spec.ts:263-264` (rescue probe b) | same | same |
+| `tests/e2e/attention-pill-focus.spec.ts:312-313` (rescue generality body) | same, executed for each of three cells | same — one source edit, three instances |
+| `tests/e2e/attention-pill-focus.spec.ts:406-407` (self-ratification) | drives to monitoring-only then clicks `PILL` immediately; the click can land on the **old inert in-sync `<span>`**, which carries the same testid | await an interactive-pill marker (the `<button>` shape / `aria-expanded` present) before clicking |
+| `tests/e2e/attention-pill-focus.spec.ts:410-411` (same test) | adds an actionable item, then asserts only that the already-open menu is visible — passes against pre-update DOM, so the "stays-open transition" claim is not discriminating | await the actionable row committed, then assert the menu is still visible |
+
+Not instances: the insertion and reverse cells (`tests/e2e/attention-pill-focus.spec.ts:328`, `tests/e2e/attention-pill-focus.spec.ts:364`) await post-update row counts before their substantive samples, and the close matrix gates on menu count zero.
 
 ### Task 4 — destination chip on the card
 
@@ -256,7 +268,17 @@ Run the finished suite:
 npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-pill-focus.spec.ts
 ```
 
-- **Green:** wire it into a workflow (`.github/workflows/attention-anchor-e2e.yml` is the closest template — a standalone-config job with a path filter) and update `tests/ci/_metaE2eWorkflowCoverage.test.ts:49` from `UNSEEN` in the same commit. The path filter must include `components/admin/showpage/AttentionMenu.tsx`, `components/admin/showpage/PublishedReviewModal.tsx`, and `tests/e2e/_pillFocusLiveEntry.tsx`, or the job never fires on the changes it exists to guard.
+- **Green:** wire it into a workflow (`.github/workflows/attention-anchor-e2e.yml` is the closest template — a standalone-config job with a path filter) and update `tests/ci/_metaE2eWorkflowCoverage.test.ts:49` from `UNSEEN` to `PATH_GATED` in the same commit. The path filter must include `components/admin/showpage/AttentionMenu.tsx`, `components/admin/showpage/PublishedReviewModal.tsx`, and `tests/e2e/_pillFocusLiveEntry.tsx`, or the job never fires on the changes it exists to guard.
+
+**Test first — and the registry edit is NOT that test (plan R8 F3).** `scanWorkflowCoverage` deliberately rejects any workflow carrying a `pull_request.paths` filter (`tests/ci/_workflowCoverageScan.ts:114`), so a path-gated job leaves this spec in `LOCAL_ONLY_ALLOWLIST` exactly as before; and the meta-test only ever reads `Object.keys(LOCAL_ONLY_ALLOWLIST)` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:142`, `tests/ci/_metaE2eWorkflowCoverage.test.ts:147`, `tests/ci/_metaE2eWorkflowCoverage.test.ts:149`), never the reason values. Changing `UNSEEN` to `PATH_GATED` therefore has **zero executable effect** — the whole current surface stays green if the workflow is missing, invokes the wrong spec, or omits any dependency path.
+
+So author a structural test first that reads the new workflow file and pins:
+
+1. it invokes `tests/e2e/attention-pill-focus.spec.ts` under `tests/e2e/standalone.config.ts`;
+2. its `pull_request.paths` contains all three dependency paths above plus the spec itself;
+3. the `LOCAL_ONLY_ALLOWLIST` reason for this spec is `PATH_GATED`, not `UNSEEN`.
+
+Without (2) in particular, a job can be green on the implementation PR — triggered by some other changed path — while a dependency stays permanently dark, which is the failure this task exists to remove. Real CI on this PR is not a substitute oracle for per-path coverage.
 - **Red:** do not wire it. File `BL-ATTENTION-PILL-FOCUS-UNWIRED` in `BACKLOG.md` with the failure output, and record in the handoff that Tasks 8b's and 9's coverage exists but is unwired — stated, not implied.
 
 **Do NOT add it to `playwright.config.ts`'s `desktop-chromium` project.** That boots the ordinary app server rather than the standalone harness this spec was written against.
@@ -370,7 +392,11 @@ Sequence, entrance test: `addInitScript` → `boot()` → assert `scale-95 opaci
 
 Sequence, compound test: `addInitScript` → `boot()` → assert `scale-95 opacity-0` → capture panel identity (below) → `__setItems` emptying the needs-you group → **gate on O2 being committed while frames are still held** (`attention-needsyou-heading` count 0 AND `attention-monitoring-heading` count 1) → `__releaseFrames()` → assert `scale-100 opacity-100` AND the no-retrigger oracle. Without that middle gate the released callback can run while the DOM is still O1, and the test passes without ever having been mid-entrance.
 
-**"No re-trigger" needs an observable, or it asserts nothing (plan R7 F5).** The final classes alone cannot discriminate: an implementation that remounts `AttentionMenuPanel` when the group changes would cancel the first entrance, mount a fresh pre-frame panel, and reach the same `scale-100 opacity-100` on release. Pin **panel identity across the update** — stamp the panel node before `__setItems` (e.g. set a dataset marker via `locator.evaluate`) and assert after the O2 gate that the same node still carries it and is still connected. A remount loses the stamp. `__heldFrameCount()` is the corroborating signal: it must still be 1 at the O2 gate, since a remount would have cancelled the first callback and queued a second.
+**"No re-trigger" needs an observable, or it asserts nothing (plan R7 F5).** The final classes alone cannot discriminate: an implementation that remounts `AttentionMenuPanel` when the group changes would cancel the first entrance, mount a fresh pre-frame panel, and reach the same `scale-100 opacity-100` on release. Pin **panel identity across the update** — stamp the panel node before `__setItems` (e.g. set a dataset marker via `locator.evaluate`) and assert after the O2 gate that the same node still carries it and is still connected. A remount loses the stamp. **That stamp is the whole oracle.**
+
+**Do NOT assert an absolute `__heldFrameCount()` (plan R8 F1).** An earlier draft required it to be 1 at the O2 gate. That is wrong twice over. First, the shim intercepts **every** page rAF, and this harness mounts the real modal: `components/admin/review/ShowReviewSurface.tsx:676`, `components/admin/review/ShowReviewSurface.tsx:720`, `components/admin/review/ShowReviewSurface.tsx:767`, and `components/admin/showpage/PublishedReviewModal.tsx:466` all queue frames besides the menu's own at `components/admin/showpage/AttentionMenu.tsx:67`. The rail-indicator frame in particular survives the attention-item update, since its deps are memoized off the unchanged `data` prop — so a correct tree holds more than one frame and the assertion fails valid code. Second, it could not discriminate even in an isolated queue: a remount cancels the first menu frame and queues its replacement, leaving one menu-owned callback either way.
+
+Keep `__heldFrameCount()` in the shim as a debugging aid, and if a corroborating signal is wanted, compare a **delta** against a total captured immediately before `__setItems` rather than an absolute.
 
 **Teardown rests on page isolation:** Playwright gives each test a fresh page, so the patch cannot leak into the focus and geometry tests. Put these two tests in their own `test.describe` with a comment saying so — if this spec ever moves to a shared page, `__releaseFrames()` must also run in an `afterEach`, since it is what reinstalls both real frame functions.
 
