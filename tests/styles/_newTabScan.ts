@@ -141,21 +141,6 @@ function resolveObjectLiteral(sf: ts.SourceFile, name: string): ts.ObjectLiteral
   return count === 1 ? found : null;
 }
 
-/** `{}` — an empty object literal branch carries nothing and is resolvable. */
-function isEmptyObject(n: ts.Expression): boolean {
-  return ts.isObjectLiteralExpression(n) && n.properties.length === 0;
-}
-
-function objectHasBlankTarget(obj: ts.ObjectLiteralExpression): boolean {
-  return obj.properties.some(
-    (p) =>
-      ts.isPropertyAssignment(p) &&
-      (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) &&
-      p.name.text === "target" &&
-      isBlank(p.initializer),
-  );
-}
-
 /**
  * Classify how an element becomes `target="_blank"`.
  * Returns null when the element is not an external link at all.
@@ -727,6 +712,29 @@ function hasExhaustiveHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): bo
   };
   anchor.children.forEach(walk);
   return sawConditional && allExhaustive;
+}
+
+/**
+ * Strip comments using the TypeScript scanner rather than regexes. A regex pass
+ * treats comment delimiters INSIDE string literals as real comments, so a
+ * `const marker = "//"` could hide a phrase-bearing label from the copy census,
+ * and a `"/*"`/`"*\/"` string pair could hide an arbitrary span (review R2
+ * MEDIUM 8). Token-based stripping cannot be fooled that way.
+ */
+export function stripCommentsSafely(src: string): string {
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, src);
+  let out = "";
+  let tok = scanner.scan();
+  while (tok !== ts.SyntaxKind.EndOfFileToken) {
+    if (
+      tok !== ts.SyntaxKind.SingleLineCommentTrivia &&
+      tok !== ts.SyntaxKind.MultiLineCommentTrivia
+    ) {
+      out += scanner.getTokenText();
+    }
+    tok = scanner.scan();
+  }
+  return out;
 }
 
 export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {

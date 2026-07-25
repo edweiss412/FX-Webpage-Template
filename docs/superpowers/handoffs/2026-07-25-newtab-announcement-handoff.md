@@ -88,7 +88,7 @@ The guard has also already proven itself on live upstream code: rebasing onto 82
 
 ## Verification
 
-- 39/39 guard tests (24+ synthetic self-tests driving each accept/reject branch); the reviewer's 10 exact probe cases behave correctly (7 rejected, 3 valid accepted).
-- `tsc` clean; `prettier` clean; `eslint` 0 errors, 0 warnings from new files.
+- 53 guard tests (synthetic self-tests driving each accept/reject branch, plus named regression pins for every R1 and R2 bypass); the reviewers' exact probe cases behave correctly (R1: 7 rejected / 3 valid accepted; R2: 16/16).
+- `tsc` clean; `prettier` clean; `eslint` 0 errors and 0 warnings from new files (re-verified after the R2 fixes, which had left three dead-code warnings behind).
 - Real CI green on #592 before the guard hardening (38 pass / 0 fail); re-run after.
 - `spec:lint` 0 hard on the spec.

@@ -4,7 +4,14 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { PHRASE, parse, scanSource, walkFiles, type Scan } from "@/tests/styles/_newTabScan";
+import {
+  PHRASE,
+  parse,
+  scanSource,
+  stripCommentsSafely,
+  walkFiles,
+  type Scan,
+} from "@/tests/styles/_newTabScan";
 
 // ── Synthetic scanner self-tests (§6 requirement 7) ────────────────────────
 // Without these the guard is unfalsifiable: the live tree exercises only
@@ -515,11 +522,12 @@ describe("every external link in the live tree announces its new tab", () => {
       ...walkFiles(join(process.cwd(), "components"), /\.tsx$/),
       ...walkFiles(join(process.cwd(), "app"), /\.tsx$/),
     ].map((abs) => abs.slice(process.cwd().length + 1));
-    const stripComments = (src: string): string =>
-      src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+    // Token-based stripping, NOT regex: a `const marker = "//"` in source makes a
+    // regex swallow the rest of the line and hide a phrase-bearing label from
+    // this census (review R2 MEDIUM 8).
     const carriers = files
       .filter((rel) =>
-        stripComments(readFileSync(join(process.cwd(), rel), "utf8")).includes(PHRASE),
+        stripCommentsSafely(readFileSync(join(process.cwd(), rel), "utf8")).includes(PHRASE),
       )
       .sort();
     expect(carriers).toEqual(

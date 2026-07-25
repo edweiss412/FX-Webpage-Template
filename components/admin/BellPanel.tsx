@@ -257,7 +257,9 @@ const SHOW_PAGE_SLOT = "w-7 shrink-0";
 const HELP_LINK =
   "inline-flex min-h-tap-min items-center rounded-sm text-[13px] text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 
-function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
+/** Exported for test only: the action anchors carry the new-tab announcement,
+ *  and R2 judged behavioral coverage of them load-bearing. */
+export function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
   const [resolving, setResolving] = useState(false);
   const isWatch = entry.code === WATCH_CODE;
 

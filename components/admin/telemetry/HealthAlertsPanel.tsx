@@ -59,7 +59,8 @@ function loadMoreHref(
 
 const PANEL_CLASS = "flex flex-col gap-section-gap";
 
-function HealthAlertRowItem({
+/** Exported for test only: see ActionCell in BellPanel.tsx for the rationale. */
+export function HealthAlertRowItem({
   row,
   weight,
   now,
