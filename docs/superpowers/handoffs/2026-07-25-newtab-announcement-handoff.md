@@ -888,3 +888,62 @@ That gap is now pinned as a test rather than left implicit, because the failure 
 specific: someone checks one of those rules against `toHaveAccessibleName`, sees disagreement, and
 relaxes the guard to match the harness. The guard is deliberately stricter, and a
 `toHaveAccessibleName` assertion cannot catch either regression.
+
+## R24 — a conceptual error, and two more classes of unrendered content
+
+R24 raised three BLOCKING and one HIGH. Three were shipped-rule fail-opens, and the middle one was
+not a missed case but a **wrong model**.
+
+### Falsy and renders-nothing are orthogonal
+
+`rendersNothing` had been treating JavaScript falsiness as a proxy for "React renders nothing". They
+do not line up in either direction:
+
+| Expression | Falsy? | Renders |
+| --- | --- | --- |
+| `[]` | no, arrays are always truthy | nothing |
+| `{}` | no, objects are always truthy | nothing |
+| `0` | yes | the character `0` |
+| `null` / `undefined` / `false` / `true` | mixed | nothing |
+
+So `{[] && "Dest"}` manufactured a violation (the array is truthy, the result is `"Dest"`), while
+`{({}) && null}` and `{[null]}` were accepted despite computing to the phrase alone. There are now
+two separate predicates — `isLiteralFalsy` and `isLiteralTruthy` — and an array renders nothing iff
+every element does.
+
+The lesson generalises past this rule: when a predicate is named for one property and used for
+another, it will be wrong in both directions at once, and a test suite built from the same confusion
+will not notice.
+
+### A hint that may not render is not an announcement
+
+Generic AST traversal entered constructs whose execution is conditional:
+
+- `||`: a hint in the right operand renders only when the left is falsy. `{true || <NewTabHint />}`
+  read as an unconditional hint while React renders none.
+- callbacks: `{e && xs.map(() => <NewTabHint />)}` counted a hint that an empty collection never
+  produces.
+
+`||` now records `!(left)` as a condition. Function bodies are not descended at all — the
+fail-closed answer, since a hint inside a callback cannot be proven to render. No live anchor does
+this, so the strictness costs nothing today.
+
+### A wrapper whose only content is the hint is not a destination
+
+Any non-hidden element counted as a destination wholesale, so `<span> <NewTabHint /></span>` passed
+while computing to the phrase alone. Elements with children are now recursed into.
+`<input type="hidden">` joined the intrinsic-hiding set.
+
+### Two mutations that passed, and what they meant
+
+Six clauses were mutated; four failed immediately. The two that did not were the useful ones:
+
+- Nothing could tell whether arrays counted as truthy — every existing case gave the same verdict
+  either way. `{[] && null}` distinguishes them and is now pinned.
+- The refuted-claim marker binding could not fail, because every real marker already sat on its own
+  line. The rule is now exercised on **synthetic** input: a guard that only runs on files it already
+  passes cannot be shown to work.
+
+That marker rule was itself an R24 finding — the marker had been position-only, so an unrelated
+"RETRACTED: the moon-is-cheese claim" three lines away licensed a stale claim. It must now sit on
+the claim's own line.
