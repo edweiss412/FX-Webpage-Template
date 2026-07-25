@@ -70,6 +70,18 @@ For `tests/e2e/pendingDiscardReflow.layout.spec.ts` (Task 4):
 
 Every task: failing test → minimal implementation → passing test → commit (invariant 1). One commit per task (invariant 6).
 
+### Task 0 — Real-component mounting harness (already spiked)
+
+**Why it is task zero.** Spec §6.3 explains it: two review rounds failed on the same vector, that a transcribed harness can pass while the shipped component differs. Every positive geometry claim in this plan depends on measuring the real tree, so the harness precedes the code it verifies.
+
+**Already built and run as a spike** (`tests/e2e/_pendingDiscardHarness.tsx`, committed). It renders the real `NeedsAttentionInbox` with one `pending_ingestion` item — hence the real `PendingPanelDiscardButtons`, real card padding, real action row, real `Retry now` sibling — via `renderToStaticMarkup`, out of process under `tsx`, following `tests/e2e/_statusStripToggleHarness.tsx`.
+
+**Spike output, recorded:** against today's markup at a 1280px viewport, `rail320` reproduces the defect from the real tree (`admin-pending-ignore-*` below `admin-pending-defer-*`) and `wide900` shows both on one row with `Retry` inline. This is §2.5's premise proven by the component.
+
+**Remaining in this task:** a `pendingDiscardReal.layout.spec.ts` that consumes the harness JSON, compiles token CSS, serves it, and carries the 6.3.a assertion list — starting with the two that close the round-3 findings: `w-full` and `@container` present on the **rendered** root, and the root's measured width equal to the rail width (the direct test for the 0px collapse, which cannot pass if `w-full` is dropped).
+
+**Commit:** `test(admin): measure the real discard tree in a browser`
+
 ### Task 1 — Shared `ARM_REVERT_MS` + T1/T3 guards
 
 **Test first.** Extend `tests/styles/_metaDestructiveConfirm.test.ts`:
@@ -153,9 +165,9 @@ Update `tests/e2e/needs-attention-page.spec.ts:243` and `tests/e2e/needs-attenti
 
 **Commit:** `fix(admin): key the discard fork on container width, safe action first`
 
-### Task 4 — Real-browser layout proof
+### Task 4 — Narrow the transcribed spec to negative controls
 
-**Test first.** Rewrite `tests/e2e/pendingDiscardReflow.layout.spec.ts` to the container-keyed fork. Panels are fixed-width wrappers carrying `@container`, so one page exercises 280 / 576 / 720px without resizing the viewport — plus three controls: `nofork-280-*` (today's markup, which must show Ignore *below* Defer), `nobasis-328-*` (the reflow control, at **328px** — at 280px the idle pair is already wrapped and cannot reproduce a *relocation*, only width growth), and `prod-320-*`, a production-nesting panel carrying the real card padding, the `flex flex-wrap items-center gap-2` action row and the `Retry now` sibling. The last one exists because every other panel is a fixed-width wrapper, which manufactures a definite width the live tree does not hand the component — without it, D1-D6 can all pass while the shipped buttons collapse or overflow. Assertions are spec §6.3's list, with the exact D1–D6 invariants from spec §4.7 inlined in the file header. Panel widths derive from one local threshold constant so a future change cannot leave a panel testing the old boundary.
+**Test first.** Per spec §6.3.b the transcribed spec keeps only what transcription is legitimately good at — rendering markup the product no longer contains. Every positive claim moves to Task 0's real-tree spec. Panels are fixed-width wrappers carrying `@container`, so one page exercises 280 / 576 / 720px without resizing the viewport — plus three controls: `nofork-280-*` (today's markup, which must show Ignore *below* Defer), `nobasis-328-*` (the reflow control, at **328px** — at 280px the idle pair is already wrapped and cannot reproduce a *relocation*, only width growth), and `prod-320-*`, a production-nesting panel carrying the real card padding, the `flex flex-wrap items-center gap-2` action row and the `Retry now` sibling. The last one exists because every other panel is a fixed-width wrapper, which manufactures a definite width the live tree does not hand the component — without it, D1-D6 can all pass while the shipped buttons collapse or overflow. Assertions are spec §6.3's list, with the exact D1–D6 invariants from spec §4.7 inlined in the file header. Panel widths derive from one local threshold constant so a future change cannot leave a panel testing the old boundary.
 
 Both negative controls are load-bearing: without `nofork-*`, "Ignore is above Defer" could pass on a harness that renders nothing meaningful; V-probe measured `nofork` at Defer `y192` / Ignore `y244`, so the control does reproduce the defect.
 

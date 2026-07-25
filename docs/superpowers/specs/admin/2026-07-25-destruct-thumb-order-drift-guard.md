@@ -419,34 +419,40 @@ New tests, each stating the concrete failure mode it catches:
 
 Focus behaviour is not asserted here or anywhere: §4.9 descopes the transfer, so there is no shipped effect to assert. jsdom could not host it in any case.
 
-### 6.3 Real browser (`tests/e2e/pendingDiscardReflow.layout.spec.ts`)
+### 6.3 Real browser — two harnesses, and why both
 
-The harness is re-transcribed to the fork and re-keyed from viewport widths to **container** widths: each panel is a fixed-width wrapper carrying `@container`, so one page can exercise every width without resizing the viewport.
+Review rounds 2 and 3 both landed on the same defect: a **transcribed** harness can satisfy every assertion while the shipped component differs. The concrete case is `w-full` on the `@container` root — load-bearing per §4.1, yet a transcribed panel supplies it from the harness, independently of the component. Production could drop `w-full`, collapse to 0px, and jsdom, the source scan and the browser harness would all stay green.
 
-Panels:
+Patching a third round of prose would not close that. The structural fix is a **real-component mounting harness**, following the pattern already used by `tests/e2e/_statusStripToggleHarness.tsx` and `tests/e2e/_publishedReviewModalHarness.tsx`.
+
+#### 6.3.a `tests/e2e/_pendingDiscardHarness.tsx` — the real tree (authoritative)
+
+`tsx` runs it out of process; it renders the **real `NeedsAttentionInbox`** with one `pending_ingestion` item, which renders the **real `PendingPanelDiscardButtons`** inside the real card padding, the real `flex flex-wrap items-center gap-2` action row and the real `Retry now` sibling. `renderToStaticMarkup` emits that tree as JSON; the spec compiles token CSS from `app/globals.css`, serves it, and measures. Every class and every nesting relationship measured comes from the component itself — nothing is transcribed, so nothing can be transcribed *wrongly*.
+
+The only harness-supplied box is a bare `<div data-testid="rail" style="width:Npx">` at 320 / 390 / 900px, standing in for the dashboard rail, the mobile Needs-attention page, and a full-width card.
+
+**Spike result (this harness, built and run before this section was written).** Against today's shipped markup at a 1280px viewport it reproduces the §2.5 defect from the real tree: at `rail320`, `admin-pending-ignore-*` sits **below** `admin-pending-defer-*`; at `wide900` they share a row with `Retry` inline. That is the §2.5 premise proven by the component, not by a transcription of it.
+
+Assertions carried here, because each needs the real tree:
+
+- **`w-full` and `@container` are present on the shipped root**, read off the rendered markup rather than the source — the assertion round 3 showed was missing everywhere.
+- **The root is not collapsed:** its measured width equals the rail width. This is the direct test for the 0px failure; it cannot pass if `w-full` is dropped.
+- **Exactly one branch copy is displayed** at each of 320 / 390 / 900px, the hidden one measuring `0×0`.
+- **D1** (buttons fill the stacked branch), **D2** (≥44px), **D3/D6** (inline branch order and armed growth from a pinned left edge), **D5** (Ignore above Defer when stacked).
+- **Production nesting holds:** the action row, card padding and `Retry` sibling are the real ones, so a future change to `components/admin/NeedsAttentionInbox.tsx` that breaks the container relationship fails *this* spec.
+
+**Declared scope.** `renderToStaticMarkup` emits markup, not behaviour: this harness proves classes and layout, never client effects (`useEffect`, timers, `ResizeObserver`). Those stay in the jsdom suite, and the descoped focus transfer stays unproven by design (§4.9).
+
+#### 6.3.b `tests/e2e/pendingDiscardReflow.layout.spec.ts` — transcribed controls (negative only)
+
+The existing transcribed spec is **kept, and narrowed to negative controls**, which is the one job transcription is legitimately good at: it must render markup the product no longer contains.
 
 | Panel | Width / markup | Role |
 |---|---|---|
-| `fork-280-idle`, `fork-280-armed` | 280px — the live rail geometry | subject, stacked branch |
-| `fork-576-idle`, `fork-576-armed` | 576px — exactly the threshold | subject, inline branch at its tightest |
-| `fork-720-idle`, `fork-720-armed` | 720px | subject, inline branch with slack |
-| `nofork-280-idle`, `nofork-280-armed` | 280px, **today's shipped markup** | **negative control for ordering** — must show Ignore *below* Defer, proving the harness reproduces the live defect |
-| `prod-320-idle`, `prod-320-armed` | a 320px rail card transcribed with its **real nesting** — `p-tile-pad`, the `flex flex-wrap items-center gap-2` action row, and the `Retry now` sibling | **production-geometry panel.** The other panels are fixed-width wrappers, which manufacture a definite width the live tree does not hand the component. This panel proves the `w-full @container` root actually measures the card in the shape it really ships in, and that the buttons neither collapse nor overflow |
-| `nobasis-328-*` | **328px**, pre-DESTRUCT-1 markup | retained negative control for the reflow claim, at the geometry where the original defect was measured |
+| `nofork-278-*` | 278px, **today's** markup | ordering control — must show Ignore *below* Defer |
+| `nobasis-328-*` | 328px, pre-DESTRUCT-1 markup | reflow control, at the geometry the original defect was measured at (`docs/superpowers/specs/admin/2026-07-17-destruct1-armed-reflow.md:24`); at 278px the idle pair is already wrapped and cannot reproduce a *relocation* |
 
-Assertions:
-
-- **280px:** stacked copy live; every inline-copy node measures `0×0` with `offsetParent === null`. Exactly one copy displayed.
-- **280px, D5:** `ignore.bottom ≤ defer.top + TOL` in idle **and** armed. The `nofork-280-idle` control asserts the opposite (`ignore.top ≥ defer.bottom - TOL`).
-- **280px, D1:** both button widths equal the container width within 0.5px.
-- **280px, D2:** both heights ≥ 44px.
-- **280px, D4:** armed stacked Ignore top/left/width equal idle's within 0.5px; height compared separately and allowed to grow.
-- **328px, `nobasis-328-*`:** the reflow control runs at **328px**, not 280px. At 280px the idle pair (315.95px) is already wrapped, so arming cannot reproduce the original same-row-to-new-row **relocation** — only width growth. 328px is the geometry the DESTRUCT-1 defect was measured at (`docs/superpowers/specs/admin/2026-07-17-destruct1-armed-reflow.md:24`), so the control proves what it claims to prove.
-- **576px and 720px, D3:** inline copy live, stacked measures `0×0`; `defer.right ≤ ignore.left + TOL`; and **idle and armed both occupy a single row** (`ignore.top === defer.top`). The armed assertion at exactly 576px is the threshold guard of §4.2 — if a platform's font metrics push the armed total past the threshold, this fails loudly instead of wrapping silently.
-- **576px and 720px, D6:** armed inline Ignore left and top equal idle's within 0.5px; width may grow.
-- **Drift-guard (rewritten from `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`):** the shipped source contains `@container`, `flex`, `items-stretch`, `@min-[576px]:hidden`, `@min-[576px]:flex`, and contains **no** `basis-full` and no `sm:basis-auto`. The negative half is what makes the guard bite; asserting only presence would pass with the old markup still alongside.
-
-**Threshold single-sourcing.** `576` appears in the component, in the drift-guard, and in the panel widths. The spec's §4.2 table is its definition; the plan requires the harness to derive panel widths from one local constant so a future change to the threshold cannot leave a panel testing the old boundary.
+No positive claim about the shipped component is made here any more — every one moved to 6.3.a. The source drift-guard also moves to 6.3.a, where it asserts against rendered markup rather than a source grep.
 
 ### 6.4 CI wiring (R5)
 
