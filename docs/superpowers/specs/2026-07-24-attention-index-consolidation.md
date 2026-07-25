@@ -166,7 +166,7 @@ Two independent existing filters do it:
 - `DOUG_EXCLUDED_CODES` is every `severity: "info"` code UNION `HEALTH_CODES` (`lib/adminAlerts/audience.ts:34-39`), applied inside `deriveAttentionItems` at `lib/admin/attentionItems.ts:367`. `SHOW_FIRST_PUBLISHED` carries `severity: "info"` (`lib/messages/catalog.ts:1119`), so it is in the info arm. Already pinned by `tests/admin/attentionExclusionSet.test.ts:107-120`.
 - `PICKER_EPOCH_RESET` has an explicit clause in `deriveAttentionItems` (`lib/admin/attentionItems.ts:351-370`), pinned by `tests/admin/pickerEpochCut.test.ts:20-39`, which asserts the `ATTENTION_ROUTES` row "REMAINS for registry totality" while the derivation yields nothing.
 
-**Therefore this spec adds no exclusion mechanism.** Introducing `EVENT_SHAPED_CODES` would put the same policy in a second registry — precisely the drift `tests/admin/attentionExclusionSet.test.ts` was written to prevent (its injected-set test proves the filter is set-driven rather than a hand-list). The remaining defect in this area is the button verb, which is §2.6.
+**Therefore this spec adds no exclusion mechanism.** Introducing `EVENT_SHAPED_CODES` would put the same policy in a second registry — precisely the drift `tests/admin/attentionExclusionSet.test.ts` was written to prevent (its injected-set test proves the filter is set-driven rather than a hand-list). The remaining defect in this area is the button verb, which §2.6 analyses and explicitly does NOT fix.
 
 **Consequence for the `dataGaps` field.** `dataGaps` is read onto an attention item only for `SHOW_FIRST_PUBLISHED` (`lib/admin/attentionItems.ts:307`), which never becomes an attention item, so that wiring is **already dead at HEAD** — this spec does not make it dead. Removing it is correct cleanup but it is pre-existing dead code with a 19-file test fan-out (§7.2), unrelated to the index consolidation. It is therefore **out of scope** (§10) and belongs in its own change.
 
@@ -269,9 +269,9 @@ Each bullet is a failing-test-first task.
 9b. **Card chip: the external-only invariant across BOTH warnings states.** A matrix, not a single case, because §2.3's derivation depends on two different mechanisms in the two states. For each of `PARSE_ERROR_LAST_GOOD` and `RESYNC_QUALITY_REGRESSED`: (a) warnings section AVAILABLE — assert `bucketAttention` puts the item in `notes` and produces no `sectionTop`/`byAnchor` card, so no chip can exist; (b) warnings section UNAVAILABLE — assert the item falls through to an Overview card (the documented no-drop fallback) AND that the rendered card carries **no** destination chip, which is the self-link guard doing the work. Case (b) is the one that matters: without it a compliant implementation passes (a) while the state the spec calls unreachable is in fact reachable.
 10. **The two event codes stay out of the index — as a REGRESSION guard, not a new behaviour.** Both are already excluded at HEAD (§2.5), so a behavioural assertion here cannot fail first and is not a TDD task. It is written instead as a characterisation test that pins the existing contract against accidental removal during this refactor, and its comment must say so. Coverage already exists (`tests/admin/attentionExclusionSet.test.ts:107-120`, `tests/admin/pickerEpochCut.test.ts:20-39`); the only new work is asserting the merged-group derivation does not resurrect them. **No `EVENT_SHAPED_CODES` export is introduced** (§1.1), so there is no new mechanism to test.
 11. **Hint takes precedence over subtitle when BOTH are present.** Build an item with a non-empty fix hint AND a non-empty `menuSubtitle`; assert the hint renders and the subtitle is absent from the row. §3 specifies this cell and no other test reaches it: test 3 checks structure, 3b covers the opposite no-hint fallback, and the existing hint fixture has `menuSubtitle: null`. Without this case, an implementation with the precedence reversed — subtitle whenever present, hint only as fallback — passes every listed test while hiding the fix hint on exactly the shape that carries both.
-13. **Warnings-channel jump.** For `PARSE_ERROR_LAST_GOOD`, assert `effectiveSectionId` resolves to `warnings` and the row's `onNavigate` payload carries it.
-14. **Focus rescue with a pressable needs-look row.** Focus a needs-look row, remove it from `items`, assert focus lands on the pill and not `<body>`. jsdom cannot prove visibility here — assert `document.activeElement` identity, not `toBeVisible()`.
-15. **Layout (real browser).** Playwright assertions for every §5 invariant: each needs-you row's height ≥ 44px, the pill's resolved tap band ≥ 44px, the scroll region clips at `max-h-96` with 12 needs-you rows, and a long title does not widen the panel past its `w-[min(400px,calc(100vw-32px))]` box.
+12. **Warnings-channel jump.** For `PARSE_ERROR_LAST_GOOD`, assert `effectiveSectionId` resolves to `warnings` and the row's `onNavigate` payload carries it.
+13. **Focus rescue with a pressable needs-look row.** Focus a needs-look row, remove it from `items`, assert focus lands on the pill and not `<body>`. jsdom cannot prove visibility here — assert `document.activeElement` identity, not `toBeVisible()`.
+14. **Layout (real browser).** Playwright assertions for every §5 invariant: each needs-you row's height ≥ 44px, the pill's resolved tap band ≥ 44px, the scroll region clips at `max-h-96` with 12 needs-you rows, and a long title does not widen the panel past its `w-[min(400px,calc(100vw-32px))]` box.
 
 ---
 
@@ -296,7 +296,7 @@ Highest-value pins within that set:
 | `tests/components/admin/showpage/attentionMenuGroups.test.tsx` | All three headings, the empty-header conditional, the `aria-label` fallthrough (`tests/components/admin/showpage/attentionMenuGroups.test.tsx:143-159`, `tests/components/admin/showpage/attentionMenuGroups.test.tsx:315-319`) |
 | `tests/dev/fullSplitCompositeRender.test.tsx` | Exact pill string `1 to confirm · 2 to review · 2 monitoring`, group order, needs-look rows with their links (`tests/dev/fullSplitCompositeRender.test.tsx:69-125`) |
 | `tests/components/admin/showpage/pageTransitions.test.tsx` | The "Needs your confirmation" header case at `tests/components/admin/showpage/pageTransitions.test.tsx:144` |
-| `tests/components/admin/showpage/pillFocusReconcile.test.tsx` | Focus reconciliation — extended by §6 test 14 |
+| `tests/components/admin/showpage/pillFocusReconcile.test.tsx` | Focus reconciliation — extended by §6 test 13 |
 
 
 ### 7.1b Dev-gallery sweep (2 files) — a surface the marker grep does NOT reach
@@ -355,7 +355,7 @@ No new colour token is introduced — the destination chip reuses the existing w
 | --- | --- | --- |
 | 3 → 2 | Rendered groups | §2.1 |
 | 3 → 2 | Pill segments | §2.4 |
-| 19 | Resolve-eligible codes registry-wide | `resolveActionLabel.ts:46-70` |
+| 19 | Resolve-eligible codes registry-wide, **unchanged by this spec** | `lib/adminAlerts/resolveActionLabel.ts:46-70`; baseline pinned on `origin/main`, §2.6 |
 | 12 | Entries in `NEEDS_LOOK_CODE_LIST` | `lib/adminAlerts/audience.ts:81-94` |
 | 11 | Of those, codes that can actually reach the panel | §9 reconciliation below |
 | 3 | Self-healing codes | `lib/adminAlerts/audience.ts:75-79` |
@@ -383,7 +383,7 @@ The remaining 11 reconcile as `6 + 2 + 2 + 1`: 6 external-chip; 2 notes-channel 
 - **Any new exclusion mechanism.** `EVENT_SHAPED_CODES` was proposed and withdrawn; the policy already lives in `DOUG_EXCLUDED_CODES` plus the explicit picker clause (§1.1).
 
 - **Any DB migration.** No table, CHECK, enum, RPC, or trigger changes. No advisory-lock surface is touched.
-- **New §12.4 message codes.** No catalog rows are added; §2.6 edits `RESOLVE_INTENTS` only, which is not the §12.4 catalog.
+- **New §12.4 message codes.** No catalog rows are added, and **no registry is edited at all** — `RESOLVE_INTENTS` is explicitly NOT touched (§2.6: the flip is blocked by the append-only history gate and is filed as `BL-RESOLVE-INTENT-WRONG-VERB`). This spec's diff contains no file under `lib/messages/` or `lib/adminAlerts/`.
 - **The bell's own grouping or copy.** §2.5 relies on existing bell behaviour and changes none of it.
 - **The dashboard "Needs attention" inbox.** Named only to establish that its label is taken (§2.1).
 - **Retiring `clearingKind`.** It still separates monitoring from needs-you and stays as-is.

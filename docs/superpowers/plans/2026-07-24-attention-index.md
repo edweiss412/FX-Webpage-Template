@@ -132,7 +132,7 @@ Either way this task does not block the others.
 
 ### Task 8 — layout and invariants (real browser)
 
-**Test first.** Extend `tests/e2e/published-review-modal.layout.spec.ts` with `getBoundingClientRect` assertions for every spec §5 invariant, 0.5px tolerance:
+**Test first.** Extend `tests/e2e/published-review-modal.layout.spec.ts` with `getBoundingClientRect` assertions for every spec §5 invariant (spec §6 test 14), 0.5px tolerance:
 
 - every needs-you row height ≥ 44px (they are now buttons, where former needs-look rows were unfloored `<div>`s);
 - the pill's resolved tap band ≥ 44px;
