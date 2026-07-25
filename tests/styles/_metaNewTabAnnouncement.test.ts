@@ -1435,7 +1435,7 @@ describe("R6: scanner changes are pinned", () => {
       ],
     ];
 
-    // COVERAGE IS NOW BEHAVIORAL AND READS NO SOURCE AT ALL. Three models have failed here:
+    // COVERAGE IS NOW BEHAVIORAL AND READS NO SOURCE AT ALL. Four models have failed here:
     // regex over reading forms (R18), then literal shape (R19). Shape lost to three ordinary
     // reads -- a regex literal (`/^FetchPriority$/.test(name)`), an unquoted property key
     // (`{FetchPriority: true}[name]`), and reusing a spelling that was already excluded
@@ -1974,19 +1974,23 @@ describe("R6: scanner changes are pinned", () => {
   // comparison literal must be lowercase too. One camelCase literal survived the
   // first sweep and silently reopened the dynamic-className hole.
   //
-  // R9 MEDIUM 3 showed the first version was far too narrow -- it only matched
-  // variables literally named `n` or `nm`, missing `attrName(a) === "Target"`,
-  // `names.has("Target")`, `prop.name.text === "Target"` and more. It now covers
-  // every name-producing accessor and all three set-membership helpers.
+  // HISTORY, and a claim RETRACTED. R9 MEDIUM 3 showed the first version was far too
+  // narrow -- it matched only variables literally named `n` or `nm`, missing
+  // `attrName(a) === "Target"`, `names.has("Target")` and more -- and the repair was
+  // described as covering "every name-producing accessor and all three set-membership
+  // helpers". That claim is FALSE and is retracted here: R19 showed a regex literal and
+  // an unquoted property key carry no string literal at all, so no source scan reaches
+  // them, and accessor coverage was never the right frame.
   //
-  // Stated honestly: a source-regex tripwire cannot be complete. Indirection defeats
-  // it (`const K = "Target"; attrName(a) === K`), and so would a computed comparison.
-  // It exists to catch the ACCIDENTAL case -- a camelCase literal typed by hand
-  // during a sweep, which is exactly how this class recurred once already -- not to
-  // prove the property. The lowercasing itself is what makes the code correct; this
-  // only makes a regression loud.
+  // Stated plainly: this rule cannot be complete, and it is not the guarantee. Indirection
+  // defeats it (`const K = "Target"; attrName(a) === K`), as do the four forms pinned in the
+  // R18/R19 test above. It exists to catch the ACCIDENTAL case -- a camelCase literal typed
+  // by hand during a sweep, which is exactly how this class recurred once. The property is
+  // guaranteed by the behavioural closed-list sweep, which reads no source; this only makes
+  // one kind of regression loud.
   it("no literal spells a known attribute name in non-lowercase", () => {
-    // Shape-scoped, for the reason R18 gave about its sibling check: the position-based
+    // Shape-scoped, and NOT a claim of completeness (see the retraction above).
+    // For the reason R18 gave about its sibling check: the position-based
     // collector this used to call could not see a name inside a const-bound `new Set([...])`
     // -- which is how `rel` is actually read -- so a camelCase spelling there would not have
     // tripped it. Both halves now run off `nameShapedLiterals`, so there is ONE collector and

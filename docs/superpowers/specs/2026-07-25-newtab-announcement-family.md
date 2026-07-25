@@ -285,20 +285,6 @@ WITH substitutions is not. Anything outside these shapes is reported as
 
 ### 6.4 Accepted limits (ratified, not oversights)
 
-- **Casing coverage is decided by literal SHAPE, and shape has two edges.** A name-shaped literal
-  is `/^[A-Za-z][A-Za-z0-9-]{0,29}$/`, so an attribute name containing a colon or an underscore, or longer than 29
-  characters, is not collected and gets no casing fixture. Every attribute this guard reads is at
-  most 15 characters (`aria-labelledby`) and hyphen-only, and the alternative — enumerating reading
-  positions — is the unbounded vector R18 closed. The second edge is that a name assembled from
-  fragments (`"al" + "pha"`) contains no literal spelling it; both edges need commit access to
-  introduce, and both are pinned as explicit expectations rather than left implied.
-- **An exclusion entry cannot silence a known attribute.** `NOT_AN_ATTRIBUTE_NAME` is keyed by
-  literal text, so a one-line edit with a plausible reason would otherwise exempt a real attribute
-  from casing coverage. Entries are cross-checked against the curated link-attribute set, which is
-  maintained for a different rule and is therefore an independent witness. A collision between a
-  genuine attribute name and an internal verdict string outside that curated set remains possible
-  in principle; no such collision exists today, and the verdict strings (`not-external`,
-  `phrase-only`, `unresolvable`, …) are not HTML attribute names.
 - **A correct-but-unusual shape is reported**, e.g. an announcing `aria-label` arriving through
   a spread. The author moves to an approved shape or adds a reasoned exemption. A false positive
   costs one comment; a false negative ships a silent link.
@@ -344,9 +330,11 @@ WITH substitutions is not. Anything outside these shapes is reported as
   `TARGET="_blank"` opens a tab and `ARIA-HIDDEN="true"` really hides. The candidate net was
   case-insensitive while the classifier compared names verbatim, so all 63 non-lowercase spellings
   of `target` were admitted and then skipped with zero anchors and zero violations (review R8
-  BLOCKING 1). A meta-test now fails if any attribute-name comparison literal is not lowercase:
-  one camelCase literal survived the first sweep and silently reopened the dynamic-`className`
-  hole.
+  BLOCKING 1). One camelCase literal survived the first sweep and silently reopened the
+  dynamic-`className` hole, which is why the property is now guaranteed BEHAVIOURALLY (see the
+  closed-list sweep below) rather than by a literal scan. The literal tripwire still runs, but as a
+  secondary accident-catcher only — earlier revisions of this section presented it as the guarantee,
+  and R19 showed a source scan cannot be one.
 - **A link candidate is a known link tag (including a member expression whose last segment is one,
   `UI.Link`), OR any element with an explicit `target` attribute, OR any element with `href` plus a
   spread.** Tag membership alone missed `<Tags.External href="x" target="_blank">`, which React
@@ -395,7 +383,7 @@ WITH substitutions is not. Anything outside these shapes is reported as
   blanks only comment starts outside them. Comments become spaces rather than being deleted, so byte
   offsets and line numbers stay valid for callers that report positions.
 - **Casing coverage is BEHAVIOURAL and reads no source. AMENDED at R19 — this supersedes the
-  semantic-position rule this section previously ratified.** Three source-reading models were tried
+  semantic-position rule this section previously ratified.** Four source-reading models were tried
   and each failed: accessor-name scoping (evaded five ways, R12), a blanket literal walk (false
   positives on type positions and enum members, R13), regex over reading forms (`.includes` invisible,
   R18), and literal shape (a regex literal, an unquoted property key, and reusing an excluded
@@ -426,6 +414,16 @@ WITH substitutions is not. Anything outside these shapes is reported as
   produces a report, not a silent pass — so the conservative reading costs a possible false
   positive and never a missed announcement. Value-casing is therefore out of scope for the sweep,
   stated here rather than left to look like an oversight.
+
+  **Value CONTENT is a different question, and it IS in scope.** Pinning every fixture to one
+  neutral value made the sweep vacuous for any read gated on the value: a case-sensitive `class`
+  read firing only when the value contains `hidden` agreed across both spellings, because a neutral
+  value never contains it, while real markup diverged and a hidden announcement was accepted
+  (review R20 HIGH 1). The sweep therefore crosses each name with the values that reach the
+  scanner's value-dependent branches — a neutral value, the `class`/`className` `hidden` token,
+  `true`, the `aria-hidden="false"` exemption, a style object, a style string — plus the bare
+  valueless form boolean attributes take. Not varying the value is not the same as values not
+  mattering, and that distinction is what the first version of this sweep got wrong.
 
 - **The lowercase-name literal tripwire is SECONDARY and is not a completeness proof.** It collects
   name-shaped literals from the AST and flags any non-lowercase spelling of a known attribute name.
