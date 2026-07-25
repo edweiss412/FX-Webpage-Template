@@ -99,21 +99,28 @@ function Probe() {
   );
 }
 
-function renderHub(props: Partial<React.ComponentProps<typeof ShareHub>> = {}, epoch = 5) {
-  const view = render(
-    <ShareTokenProvider initialToken={T1} initialEpoch={epoch}>
-      <ShareHub {...hubProps(props)} />
+function renderHub(
+  props: Partial<React.ComponentProps<typeof ShareHub>> = {},
+  epoch = 5,
+  seed: string | null = T1,
+) {
+  const tree = (
+    seedToken: string | null,
+    seedEpoch: number,
+    over: Partial<React.ComponentProps<typeof ShareHub>>,
+  ) => (
+    <ShareTokenProvider initialToken={seedToken} initialEpoch={seedEpoch}>
+      <ShareHub {...hubProps({ ...props, ...over })} />
       <Probe />
-    </ShareTokenProvider>,
+    </ShareTokenProvider>
   );
+  const view = render(tree(seed, epoch, {}));
   const rerenderWith = (next: Partial<React.ComponentProps<typeof ShareHub>>) =>
-    view.rerender(
-      <ShareTokenProvider initialToken={T1} initialEpoch={epoch}>
-        <ShareHub {...hubProps({ ...props, ...next })} />
-        <Probe />
-      </ShareTokenProvider>,
-    );
-  return { ...view, rerenderWith };
+    view.rerender(tree(seed, epoch, next));
+  /** Re-seed the PROVIDER, which is the remote/server-refresh path. */
+  const reseed = (nextToken: string | null, nextEpoch: number) =>
+    view.rerender(tree(nextToken, nextEpoch, {}));
+  return { ...view, rerenderWith, reseed };
 }
 
 function openPanel() {
@@ -211,6 +218,27 @@ describe("branch 3 — everything else leaves the attribute alone", () => {
     act(() => rerenderWith({ finalizeOwned: true }));
 
     expect(url()).toHaveAttribute(FLASH);
+  });
+
+  it("null becoming a token does NOT cue", () => {
+    // The both-non-null GUARD's load-bearing direction. A read fault recovering,
+    // an unarchive, or a republish restoring eligibility all arrive here with
+    // `linkActive` turning TRUE, so the visibility predicate does not suppress
+    // anything — the guard is the only thing standing between this and a cue
+    // for a rotation that never happened.
+    //
+    // Added because the adversary matrix found nothing rejecting a bump-on-any-
+    // change implementation: every other row starts from a token that already
+    // exists, so none of them can reach this transition.
+    const { reseed } = renderHub({}, 5, null);
+    openPanel();
+    expect(url()).toBeNull();
+
+    act(() => reseed(T2, 6));
+
+    expect(url()).not.toBeNull();
+    expect(url()).not.toHaveAttribute(FLASH);
+    expect(flashed()).toHaveLength(0);
   });
 
   it("a STRICTLY LOWER epoch is rejected, so nothing cues", () => {

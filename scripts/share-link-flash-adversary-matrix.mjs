@@ -1,0 +1,404 @@
+/**
+ * scripts/share-link-flash-adversary-matrix.mjs
+ *
+ * Executable adversary matrix for the share-link cue (spec
+ * 2026-07-24-share-link-chrome-backlog-design §9.0/§9.1.1, plan Task 6).
+ *
+ * Eight spec review rounds established that prose cannot settle "does this
+ * assertion fail against that implementation?" — the claim was wrong four
+ * rounds running, twice because a repair narrowed what an earlier repair had
+ * widened. So the suite's teeth are demonstrated by execution rather than
+ * argued: for each registered adversary, BUILD it, run the cue suite, record
+ * which rows red.
+ *
+ *   node scripts/share-link-flash-adversary-matrix.mjs [--quick] [--only A5,A9]
+ *
+ * `--quick` skips the browser spec (Playwright), which roughly halves runtime
+ * and is appropriate while iterating; the recorded matrix must be produced
+ * WITHOUT it, since several adversaries are only observable in a real engine.
+ *
+ * Rules the run enforces, from the spec:
+ *   - every adversary must red at least one row;
+ *   - a row that reds for no adversary is vacuous and must be strengthened or
+ *     deleted (reported here, judged by a human).
+ *
+ * Mutations are applied to a COMMITTED tree and reverted with `git checkout --`.
+ * Running this against uncommitted work would discard it.
+ */
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+const ROOT = resolve(import.meta.dirname, "..");
+const HUB = "components/admin/showpage/ShareHub.tsx";
+const CSS = "app/globals.css";
+
+const VITEST_SUITES = [
+  "tests/components/admin/showpage/shareHubFlashState.test.tsx",
+  "tests/components/admin/showpage/shareHubFlashTransitions.test.ts",
+  "tests/components/shareTokenRotateSurface.test.tsx",
+  "tests/styles/status-token-contrast.test.ts",
+];
+
+const argv = process.argv.slice(2);
+const QUICK = argv.includes("--quick");
+const ONLY = (() => {
+  const i = argv.indexOf("--only");
+  return i === -1 ? null : new Set(argv[i + 1].split(","));
+})();
+
+/** A mutation is a list of [file, find, replace]. All must apply or the
+ *  adversary is reported UNAPPLIED rather than silently passing. */
+const ADVERSARIES = [
+  [
+    "A1",
+    "never sets the attribute",
+    [[HUB, `{...(flash !== null ? { "data-share-link-flash": "" } : {})}`, ``]],
+  ],
+  [
+    "A2",
+    "sets it, never clears it",
+    [
+      [
+        HUB,
+        "const t = setTimeout(() => setFlash(null), SHARE_LINK_FLASH_MS);",
+        "const t = setTimeout(() => {}, SHARE_LINK_FLASH_MS);",
+      ],
+    ],
+  ],
+  [
+    "A3",
+    "clears on a duration other than the constant",
+    [
+      [
+        HUB,
+        "setTimeout(() => setFlash(null), SHARE_LINK_FLASH_MS)",
+        "setTimeout(() => setFlash(null), 1000)",
+      ],
+    ],
+  ],
+  [
+    "A4",
+    "sets it unconditionally on mount",
+    [
+      [
+        HUB,
+        "const [flash, setFlash] = useState<number | null>(null);",
+        "const [flash, setFlash] = useState<number | null>(1);",
+      ],
+    ],
+  ],
+  [
+    "A5",
+    "bumps on ANY token change, nulls included",
+    [
+      [
+        HUB,
+        "setFlash((n) => (prevToken !== null && token !== null ? (n ?? 0) + 1 : null));",
+        "setFlash((n) => (n ?? 0) + 1);",
+      ],
+    ],
+  ],
+  [
+    "A6",
+    "clears on !open alone",
+    [
+      [
+        HUB,
+        "if ((!open || !linkActive) && flash !== null) setFlash(null);",
+        "if (!open && flash !== null) setFlash(null);",
+      ],
+    ],
+  ],
+  [
+    "A7",
+    "clears on token-nullity alone",
+    [
+      [
+        HUB,
+        "if ((!open || !linkActive) && flash !== null) setFlash(null);",
+        "if ((!open || token === null) && flash !== null) setFlash(null);",
+      ],
+    ],
+  ],
+  [
+    "A8",
+    "keys the cue on the rotate EVENT, not the token",
+    [
+      [HUB, "if (prevToken !== token) {", "if (prevToken !== token || flash === -1) {"],
+      [
+        HUB,
+        "setPrevToken(token);",
+        "setPrevToken(token);\n    // adversary: fire regardless of whether the gate accepted",
+      ],
+      [
+        HUB,
+        "setFlash((n) => (prevToken !== null && token !== null ? (n ?? 0) + 1 : null));",
+        "setFlash((n) => (n ?? 0) + 1);",
+      ],
+    ],
+  ],
+  ["A9", "omits key entirely", [[HUB, "          key={token}\n", ""]]],
+  ["A10", "uses key={flash}", [[HUB, "          key={token}\n", "          key={flash}\n"]]],
+  [
+    "A11",
+    "boolean instead of a nonce",
+    [
+      [
+        HUB,
+        "setFlash((n) => (prevToken !== null && token !== null ? (n ?? 0) + 1 : null));",
+        "setFlash(prevToken !== null && token !== null ? 1 : null);",
+      ],
+    ],
+  ],
+  ["A12", "omits the effect cleanup", [[HUB, "return () => clearTimeout(t);", "return;"]]],
+  [
+    "A13",
+    "empty keyframe bodies",
+    [
+      [
+        CSS,
+        "  0%,\n  45% {\n    background-color: var(--color-accent-tint);\n  }\n  100% {\n    background-color: var(--color-surface-sunken);\n  }",
+        "  0% {\n    opacity: 1;\n  }",
+      ],
+    ],
+  ],
+  [
+    "A14",
+    "CSS duration drifts from the constant",
+    [[CSS, "share-link-flash-bg 1600ms ease-out", "share-link-flash-bg 900ms ease-out"]],
+  ],
+  [
+    "A15",
+    "no reduced-motion override",
+    [
+      [
+        CSS,
+        "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}",
+        "",
+      ],
+    ],
+  ],
+  [
+    "A16",
+    "override present but outranked by a later rule",
+    [
+      [CSS, "[data-share-link-flash] {\n  animation:", "[data-share-link-flash] {\n  animation:"],
+      [
+        CSS,
+        "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}",
+        "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}\n[data-share-link-flash] {\n  animation:\n    share-link-flash-bg 1600ms ease-out,\n    share-link-flash-ring 1600ms ease-out !important;\n}",
+      ],
+    ],
+  ],
+  [
+    "A17",
+    "later duplicate keyframes win the cascade",
+    [
+      [
+        CSS,
+        "[data-share-link-flash] {\n  animation:",
+        "@keyframes share-link-flash-bg {\n  0% {\n    background-color: transparent;\n  }\n}\n[data-share-link-flash] {\n  animation:",
+      ],
+    ],
+  ],
+  [
+    "A18",
+    "ancestor-qualified rule suppresses it in the real tree",
+    [
+      [
+        CSS,
+        "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}",
+        "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}\n[data-review-modal-panel] [data-share-link-flash] {\n  animation: none;\n}",
+      ],
+    ],
+  ],
+  [
+    "A19",
+    "ring suppressed while the wash still works",
+    [
+      [
+        CSS,
+        "    share-link-flash-ring 1600ms ease-out;",
+        "    share-link-flash-ring 0ms ease-out;",
+      ],
+    ],
+  ],
+  [
+    "A20",
+    "keyframes moved into the component",
+    [
+      [
+        HUB,
+        "export const SHARE_LINK_FLASH_MS = 1600;",
+        "export const SHARE_LINK_FLASH_MS = 1600;\n// @keyframes share-link-flash-bg { from { opacity: 1 } }",
+      ],
+    ],
+  ],
+  [
+    "A23",
+    "attribute on the wrapper row, not the code block",
+    [
+      [
+        HUB,
+        `data-testid="admin-current-share-link-row"`,
+        `data-testid="admin-current-share-link-row"\n                        {...(flash !== null ? { "data-share-link-flash": "" } : {})}`,
+      ],
+    ],
+  ],
+  [
+    "A24",
+    "drops the !open arm",
+    [
+      [
+        HUB,
+        "if ((!open || !linkActive) && flash !== null) setFlash(null);",
+        "if (!linkActive && flash !== null) setFlash(null);",
+      ],
+    ],
+  ],
+  [
+    "A25",
+    "constant AND CSS moved together",
+    [
+      [HUB, "export const SHARE_LINK_FLASH_MS = 1600;", "export const SHARE_LINK_FLASH_MS = 2400;"],
+      [
+        CSS,
+        "share-link-flash-bg 1600ms ease-out,\n    share-link-flash-ring 1600ms ease-out;",
+        "share-link-flash-bg 2400ms ease-out,\n    share-link-flash-ring 2400ms ease-out;",
+      ],
+    ],
+  ],
+  [
+    "A26",
+    "hold stop and ring width altered, colours kept",
+    [
+      [CSS, "  0%,\n  45% {", "  0%,\n  5% {"],
+      [
+        CSS,
+        "box-shadow: 0 0 0 2px var(--color-accent-edge);",
+        "box-shadow: 0 0 0 1px var(--color-accent-edge);",
+      ],
+    ],
+  ],
+  [
+    "A27",
+    "steady wash under reduced motion",
+    [
+      [
+        CSS,
+        "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}",
+        "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n    background-color: var(--color-accent-tint);\n  }\n}",
+      ],
+    ],
+  ],
+];
+
+/** A22 is a token retune. It lives in the contrast pins and was already proved
+ *  non-vacuous by hand during Task 4; included here so the register is complete. */
+ADVERSARIES.push([
+  "A22",
+  "token retuned below the ring's contrast floor",
+  [[CSS, "--color-accent-edge-runtime: #ffa047;", "--color-accent-edge-runtime: #33261a;"]],
+]);
+
+/** A21 is not a mutation of the cue at all — it is a wrong token rendered or a
+ *  stale clipboard payload, rejected by the preserved exact-value assertions in
+ *  the reworked integration test. Mutating the URL derivation exercises it. */
+ADVERSARIES.push([
+  "A21",
+  "renders a wrong token / Copy writes a stale one",
+  [
+    [
+      HUB,
+      "const url = token != null ? `${resolveOrigin()}/show/${slug}/${token}` : null;",
+      "const url = token != null ? `${resolveOrigin()}/show/${slug}/${token}x` : null;",
+    ],
+  ],
+]);
+
+function git(...args) {
+  return execFileSync("git", args, { cwd: ROOT, encoding: "utf8" });
+}
+
+/**
+ * Applies a mutation, refusing anything whose anchor is not UNIQUE.
+ *
+ * The uniqueness check is load-bearing, not defensive tidiness. `String.replace`
+ * with a string argument rewrites only the FIRST match, and this file's own
+ * anchors can appear in prose as well as in code — `key={token}` occurs both in
+ * a JSX comment and as the real prop. Replacing the comment produces a no-op
+ * mutant that the suite "survives", which reads as a coverage hole and is
+ * nothing of the kind. That false negative is exactly the defect class this
+ * whole matrix exists to catch, so an ambiguous anchor is a hard error rather
+ * than a silent first-match.
+ */
+function apply(mutation) {
+  for (const [file, find, replace] of mutation) {
+    const p = join(ROOT, file);
+    const src = readFileSync(p, "utf8");
+    const hits = src.split(find).length - 1;
+    if (hits === 0) return `anchor not found in ${file}: ${find.slice(0, 60)}`;
+    if (hits > 1) return `anchor is AMBIGUOUS (${hits} hits) in ${file}: ${find.slice(0, 60)}`;
+    writeFileSync(p, src.replace(find, replace));
+  }
+  return null;
+}
+
+function runVitest() {
+  try {
+    execFileSync("pnpm", ["vitest", "run", ...VITEST_SUITES], {
+      cwd: ROOT,
+      stdio: "pipe",
+      timeout: 300_000,
+    });
+    return [];
+  } catch (e) {
+    const out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+    return [...out.matchAll(/×\s+(.+?)\s+\d+ms/g)].map((m) => m[1].trim());
+  }
+}
+
+function runBrowser() {
+  try {
+    execFileSync("pnpm", ["test:e2e:share-link-flash"], {
+      cwd: ROOT,
+      stdio: "pipe",
+      timeout: 600_000,
+    });
+    return [];
+  } catch (e) {
+    const out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+    return [...out.matchAll(/(T-FLASH-[A-Z]+):/g)]
+      .map((m) => m[1])
+      .filter((v, i, a) => a.indexOf(v) === i);
+  }
+}
+
+const results = [];
+for (const [id, label, mutation] of ADVERSARIES) {
+  if (ONLY && !ONLY.has(id)) continue;
+  const err = apply(mutation);
+  if (err) {
+    git("checkout", "--", HUB, CSS);
+    results.push({ id, label, status: "UNAPPLIED", detail: err, rows: [] });
+    console.log(`${id}  UNAPPLIED  ${err}`);
+    continue;
+  }
+  const rows = runVitest();
+  const browserRows = QUICK ? [] : runBrowser();
+  git("checkout", "--", HUB, CSS);
+  const all = [...rows, ...browserRows];
+  results.push({ id, label, status: all.length ? "REJECTED" : "SURVIVED", rows: all });
+  console.log(
+    `${id}  ${all.length ? "REJECTED" : "*** SURVIVED ***"}  (${all.length} rows)  ${label}`,
+  );
+}
+
+const survived = results.filter((r) => r.status === "SURVIVED");
+const unapplied = results.filter((r) => r.status === "UNAPPLIED");
+console.log(
+  `\n${results.length} adversaries · ${results.length - survived.length - unapplied.length} rejected · ${survived.length} SURVIVED · ${unapplied.length} unapplied`,
+);
+writeFileSync(join(ROOT, "tmp", "adversary-matrix.json"), JSON.stringify(results, null, 2));
+if (survived.length || unapplied.length) process.exitCode = 1;
