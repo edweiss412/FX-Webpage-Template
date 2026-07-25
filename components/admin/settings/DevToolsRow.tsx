@@ -14,7 +14,7 @@ import Link from "next/link";
 import { DEV_PANEL_PRESENT } from "@/lib/admin/__generated__/devPanelPresent";
 
 const devLinkClass =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 
 export function DevToolsRow({
   icon,
@@ -45,13 +45,19 @@ export function DevToolsRow({
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-text-strong">Developer tools</h3>
           <p className="max-w-prose text-sm text-text-subtle">
-            Fixture tester and parse diagnostics. Hidden from normal use.
+            Fixture tester, parse diagnostics, and the attention gallery. Hidden from normal use.
           </p>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Link href="/admin/dev" data-testid="admin-dev-tools-open" className={devLinkClass}>
-          Open
+          {/* The separating space is a VISIBLE text node on this line, not inside
+              the sr-only span: the accessible-name algorithm trims each text
+              node before concatenating, so `Open<span> developer tools</span>`
+              computes as "Opendeveloper tools" (measured, spec §3.1c). JSX also
+              drops whitespace-only text between elements on separate lines, so
+              the span must stay on this line. */}
+          Open <span className="sr-only">developer tools</span>
         </Link>
         <Link
           href="/admin/dev/attention-gallery"

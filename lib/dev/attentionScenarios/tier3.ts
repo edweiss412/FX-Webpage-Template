@@ -5,6 +5,10 @@
 // exist as database state - `bucket` predicates are functions, `degraded` is a
 // loader fault, and PICKER_EPOCH_RESET is cut in derive so a materialized row
 // would render nothing and read as a bug.
+import {
+  withDefaultContext,
+  DEFAULT_SHARED_EMAIL,
+} from "@/lib/dev/attentionScenarios/defaultContext";
 import type { AttentionScenario } from "./types";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import { buildWarning } from "./tier1";
@@ -52,13 +56,21 @@ export function tier3Scenarios(): AttentionScenario[] {
       alerts: [
         {
           code: "AMBIGUOUS_EMAIL_BINDING",
-          context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
+          context: withDefaultContext("AMBIGUOUS_EMAIL_BINDING", undefined),
           raised_at: AT,
           occurrence_count: 1,
           // Gallery-only. Materialize resolves the real identity from the target
           // show's crew rows instead, which is the one inherent divergence (§3.3).
+          // The SHAPE still mirrors production: this code renders
+          // Show · email · "N crew rows" and carries no crewName segment
+          // (lib/adminAlerts/alertIdentityMap.ts:60-66), so the previous
+          // Crew-only form demoed a card the resolver cannot produce.
           galleryIdentity: {
-            segments: [{ label: "Crew", value: "Dana Reed" }],
+            segments: [
+              { label: "Show", value: "Gallery Preview Show" },
+              { label: null, value: DEFAULT_SHARED_EMAIL },
+              { label: null, value: "2 crew rows" },
+            ],
           } as unknown as AlertIdentity,
         },
       ],
@@ -110,9 +122,20 @@ export function tier3Scenarios(): AttentionScenario[] {
         },
         // needs-look with the internal Overview anchor.
         { code: "RESYNC_QUALITY_REGRESSED", context: {}, raised_at: AT, occurrence_count: 1 },
-        // two genuinely self-healing codes -> the Monitoring summary reads "2".
-        { code: "SYNC_STALLED", context: {}, raised_at: AT, occurrence_count: 3 },
-        { code: "DRIVE_FETCH_FAILED", context: {}, raised_at: AT, occurrence_count: 1 },
+        // ONE self-healing code, because only one is per-show reachable:
+        // SELF_HEALING_CODE_LIST has three members (lib/adminAlerts/audience.ts)
+        // and two of them are global-scope, so a real show's Monitoring group
+        // can never hold more than one distinct code. The former "2 monitoring"
+        // pill was a state production cannot produce.
+        //
+        // The context comes from the default table so the surviving card renders
+        // its real sheet name rather than placeholder copy.
+        {
+          code: "DRIVE_FETCH_FAILED",
+          context: withDefaultContext("DRIVE_FETCH_FAILED", undefined),
+          raised_at: AT,
+          occurrence_count: 1,
+        },
       ],
       holds: [
         {

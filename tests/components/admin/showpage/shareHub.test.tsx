@@ -30,6 +30,7 @@ import {
   WRAPPER_CLASSES,
   ROW_TOKENS,
 } from "./_rowAssertions";
+import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { ShareHub } from "@/components/admin/showpage/ShareHub";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { resolveOrigin } from "@/app/admin/show/[slug]/resolveOrigin";
@@ -54,7 +55,10 @@ type Opts = {
   unarchiveAction?: (showId: string) => Promise<void>;
 };
 
-function renderHub({
+/** The hub's tree WITHOUT rendering it, so a caller can wrap it in a
+ *  PopoverHostContext provider before mounting (the portal host is read on the
+ *  render after refs populate, so it has to be in place from the start). */
+function hubTree({
   published = true,
   archived = false,
   finalizeOwned = false,
@@ -65,7 +69,7 @@ function renderHub({
   archiveAction = async () => ({ ok: true }) as const,
   unarchiveAction = async () => {},
 }: Opts = {}) {
-  return render(
+  return (
     <ShareTokenProvider key={SHOW_ID} initialToken={token} initialEpoch={1}>
       <ShareHub
         slug={SLUG}
@@ -79,8 +83,12 @@ function renderHub({
         archiveAction={archiveAction}
         unarchiveAction={unarchiveAction}
       />
-    </ShareTokenProvider>,
+    </ShareTokenProvider>
   );
+}
+
+function renderHub(opts: Opts = {}) {
+  return render(hubTree(opts));
 }
 
 const primary = () => screen.getByTestId("share-hub-primary") as HTMLButtonElement;
@@ -189,17 +197,23 @@ describe("ShareHub — open/close semantics", () => {
     expect(document.activeElement).toBe(popover());
   });
 
-  it("keeps both triggers clickable above the backdrop (impeccable critique P1)", () => {
-    // The backdrop is `fixed inset-0 z-20`. If the trigger group does not sit
-    // above it, a second click on the trigger lands on the overlay instead —
-    // the toggle path becomes dead code and jsdom cannot catch it (no
-    // z-index hit-testing), so this pins the stacking contract in source.
+  it("pins the backdrop and hub-root stacking LEVELS (not hit order)", () => {
+    // NOTE (2026-07-24): this pins class-level z values only, and the original
+    // title ("keeps both triggers clickable above the backdrop") overclaimed.
+    // A real-browser elementFromPoint probe shows the backdrop DOES swallow a
+    // trigger tap, on this branch and equally on origin/main: the root's
+    // open-gated `z-30` elevates the whole root, backdrop included, and does not
+    // order that fixed z-20 child against its non-positioned trigger siblings.
+    // Behaviourally near-invisible (the backdrop's own handler closes the
+    // popover, so the tap still dismisses, just without focus restore), so it is
+    // filed as BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS rather than fixed inside a
+    // placement diff. Kept because the LEVELS are still a real contract —
+    // T-BACKDROP in admin-lifecycle-layout.spec.ts is what checks paint order.
     renderHub();
     fireEvent.click(primary()); // the backdrop only exists while open
     const group = primary().parentElement!;
     // Word-boundary, not substring: `toContain("z-30")` also passes on `z-300`
     // or `not-z-30`, neither of which emits the stacking rule this pins.
-    expect(group.className).toMatch(/(^|\s)z-30(\s|$)/);
     expect(screen.getByTestId("share-hub-backdrop").className).toMatch(/(^|\s)z-20(\s|$)/);
   });
 
@@ -242,17 +256,25 @@ describe("ShareHub — open/close semantics", () => {
 });
 
 describe("ShareHub — z-order (spec §3)", () => {
-  it("elevates its root ONLY while open, so a closed hub cannot paint over the attention menu", () => {
+  it("keeps the root a bare `relative` with NO z-index, open or closed", () => {
+    // The root used to gain `z-30` while open, to lift the in-flow popover over
+    // sibling content. The popover portals into the ReviewModalShell host now
+    // and carries its own z there, so nothing in this subtree needs raising.
+    // `relative` stays: the root is the caret's measurement anchor.
+    //
+    // Asserted in BOTH states, because the failure this replaces was an
+    // UNCONDITIONAL z-30 that painted the non-positioned triggers over the
+    // attention menu's z-20 panel and stole its clicks.
     renderHub();
     const root = primary().parentElement as HTMLElement;
     expect(root.className).toContain("relative");
-    expect(root.className).not.toContain("z-30");
+    expect(root.className).not.toMatch(/(^|\s)z-\d+(\s|$)/);
 
     fireEvent.click(primary());
-    expect(root.className).toContain("z-30");
+    expect(root.className).not.toMatch(/(^|\s)z-\d+(\s|$)/);
 
     fireEvent.click(primary());
-    expect(root.className).not.toContain("z-30");
+    expect(root.className).not.toMatch(/(^|\s)z-\d+(\s|$)/);
   });
 
   it("keeps BOTH triggers below the z-20 menu's stacking level", () => {
@@ -296,6 +318,38 @@ describe("ShareHub — z-order (spec §3)", () => {
 });
 
 describe("ShareHub — caret (spec §5)", () => {
+  it("portals the popover into the PopoverHostContext host when one is provided", () => {
+    // The host is load-bearing, not cosmetic: portaling into the
+    // ReviewModalShell panel keeps the dialog inside the shell's focus trap,
+    // aria-modal subtree and inert handling, and it is the rect placement is
+    // bounded by. Falling back to document.body when a provider exists would
+    // silently escape all four.
+    const host = document.createElement("div");
+    host.setAttribute("data-testid", "portal-host");
+    document.body.appendChild(host);
+    const hostRef = { current: host };
+    try {
+      render(
+        <PopoverHostContext.Provider value={hostRef}>{hubTree()}</PopoverHostContext.Provider>,
+      );
+      fireEvent.click(screen.getByTestId("share-hub-primary"));
+      const popoverNode = screen.getByTestId("share-hub-popover");
+      expect(host.contains(popoverNode)).toBe(true);
+      expect(host.contains(screen.getByTestId("share-hub-caret"))).toBe(true);
+    } finally {
+      host.remove();
+    }
+  });
+
+  it("falls back to document.body when no host provider is present", () => {
+    renderHub();
+    fireEvent.click(primary());
+    // Not asserting a literal document.body parent: what matters is that it
+    // left the hub root, which is the clipped in-flow position it used to sit in.
+    expect(screen.getByTestId("share-hub-root").contains(popover())).toBe(false);
+    expect(document.body.contains(popover())).toBe(true);
+  });
+
   it("renders a decorative caret OUTSIDE the popover, AFTER it, and inert", () => {
     renderHub();
     fireEvent.click(primary());
@@ -313,9 +367,14 @@ describe("ShareHub — caret (spec §5)", () => {
       popover().compareDocumentPosition(caret) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    // Same positioned parent, or the caret is anchored to the wrong ancestor.
+    // Same parent as the body, or the two are positioned in different
+    // coordinate spaces and the notch drifts off the edge it is meant to
+    // straddle. Both now live in the PORTAL host (spec §2.1.1), not in the hub
+    // root — the old `relative`-ancestor assertion described the superseded
+    // in-flow anchoring, where the root was the positioned ancestor.
     expect(caret.parentElement).toBe(popover().parentElement);
-    expectClasses(caret.parentElement!, { has: ["relative"] });
+    expect(screen.getByTestId("share-hub-root").contains(caret)).toBe(false);
+    expect(screen.getByTestId("share-hub-root").contains(popover())).toBe(false);
 
     // aria-hidden does not disable hit-testing: without pointer-events-none the
     // caret would intercept clicks in its overlap with the panel and any
@@ -468,7 +527,7 @@ describe("ShareHub — Careful section wiring", () => {
     });
     expectRowText(archive, popover(), {
       label: "Archive show",
-      description: "Crew links stop working immediately",
+      description: "Ends crew access and clears it off the dashboard",
     });
     const icon = archive.querySelector("svg")!;
     expect(icon.getAttribute("width")).toBe("16");
@@ -1115,5 +1174,61 @@ describe("mobile split actions row (spec 2026-07-24-strip-mobile-stacked-band §
     cleanup();
     renderHub({ archived: true });
     expect(screen.getByTestId("share-hub-primary")).toHaveTextContent("Show actions");
+  });
+});
+
+describe("ShareHub — Archive row copy (spec §2.2)", () => {
+  /** The description node the Archive button's aria-describedby actually points
+   *  at. Resolved through the IDREF, NOT a text query: the popover also renders
+   *  the paused note, so a container-scoped text search would match on either
+   *  branch and pass for the wrong reason. */
+  const describedText = () => {
+    const btn = screen.getByTestId("archive-show-button");
+    const id = btn.getAttribute("aria-describedby");
+    expect(id, "archive row must describe itself").toBeTruthy();
+    return document.getElementById(id!)?.textContent ?? null;
+  };
+
+  it("published: names the access loss AND the purpose", () => {
+    // Live show: archiving really does end crew access, and the reason anyone
+    // reaches for it is to clear a wrapped show off the dashboard.
+    renderHub({ published: true });
+    fireEvent.click(primary());
+    expect(describedText()).toBe("Ends crew access and clears it off the dashboard");
+  });
+
+  it("held: does NOT claim to stop access that is already stopped", () => {
+    // The old copy was a constant "Ends crew access and clears it off the dashboard", which
+    // is false on an unpublished show -- the popover is simultaneously telling
+    // the operator the crew link is already paused.
+    renderHub({ published: false });
+    fireEvent.click(primary());
+    expect(describedText()).toBe("Clears this wrapped show off the dashboard");
+    expect(describedText()).not.toMatch(/stop working/i);
+  });
+
+  it("stops rhyming with the Rotate row, without touching Rotate's copy", () => {
+    // The two rows sat adjacent in one 308px popover reading "Old link stops
+    // working immediately" and "Ends crew access and clears it off the dashboard" -- same
+    // shape, same sentence, and the weaker-sounding one belonged to the larger
+    // action. Rotate is unchanged; Archive stopped mirroring it.
+    renderHub({ published: true });
+    fireEvent.click(primary());
+    const rotate = screen.getByTestId("admin-rotate-share-token-button");
+    const rotateDescId = rotate.getAttribute("aria-describedby");
+    const rotateText = document.getElementById(rotateDescId!)?.textContent ?? null;
+    expect(rotateText).toBe("Old link stops working immediately");
+    expect(describedText()).not.toBe(rotateText);
+  });
+
+  it("never calls archiving permanent, in either state", () => {
+    // Unarchive lives in this same section, so copy that implies finality would
+    // be wrong (supabase/migrations/20260601000000_b2_show_lifecycle.sql).
+    for (const published of [true, false]) {
+      const { unmount } = renderHub({ published });
+      fireEvent.click(primary());
+      expect(describedText()).not.toMatch(/permanent|forever|cannot be undone/i);
+      unmount();
+    }
   });
 });

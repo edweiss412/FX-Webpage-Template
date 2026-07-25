@@ -55,6 +55,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
 import sharp from "sharp";
+import {
+  scanForPhantomGaps,
+  reconcilePhantomLedger,
+  type PhantomLedgerRow,
+} from "./helpers/phantomGap";
 
 // CommonJS package — Playwright's CJS loader provides __dirname (mirrors the
 // step3-review-modal.layout.spec.ts template; do NOT use import.meta.url here).
@@ -1042,7 +1047,11 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
 //     above the next row;
 //   - the fallback group block ([data-testid="section-warning-controls-crew"])
 //     is fully contained in the crew panel card rect (left/right/top/bottom);
-//   - card bottom >= extras bottom (no overflow out of the border).
+//   - card bottom >= extras bottom (no overflow out of the border);
+//   - the under-row stack FILLS its member's row horizontally — same left edge,
+//     same width (BL-CREW-WARN-STACK-E2E-GEOMETRY, the residual of PR #534's
+//     descoped Task 10: containment bounds the stack loosely inside the card,
+//     it does not pin the stack to the row it belongs to).
 //
 // Fixture (crewwarnings.html): "Crew Member A (5/3 ONLY)" raw blockRef name →
 // strips to the rendered "Crew Member A" row (under-row); "Ghost Crew" matches
@@ -1114,6 +1123,118 @@ test.describe("crew warning placement — containment (crew-warning-attachment T
       rowB.y + TOL,
     );
   });
+
+  /** Border box AND content box (`left`/`width` only) for one element.
+   *  BOTH are needed: `box-sizing: border-box` keeps horizontal padding INSIDE
+   *  the border box, so a `pl-6` hoisted from the per-kind wrapper onto the
+   *  stack leaves `getBoundingClientRect()` byte-identical while insetting
+   *  every card by 24px. Only the content box sees it. */
+  type Span = { borderLeft: number; borderW: number; contentLeft: number; contentW: number };
+
+  /** The under-row stack's spans, plus its member ROW's spans — the row derived
+   *  from the rendered NAME (never from the stack's own parent, which would make
+   *  the equality a restatement of `display: block`): find the name span, walk up
+   *  to the direct child of the hosting <li>. Throws if the resolved row turns
+   *  out to CONTAIN the stack, so a future markup collapse fails the test instead
+   *  of satisfying it vacuously. */
+  async function stackVsRowSpans(
+    page: Page,
+    stackSel: string,
+  ): Promise<{ stack: Span; row: Span; liW: number }> {
+    return page.locator(CREW_SECTION).evaluate((section, sel) => {
+      const spanOf = (el: Element): Span => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const padL = Number.parseFloat(cs.paddingLeft);
+        const padR = Number.parseFloat(cs.paddingRight);
+        const bL = Number.parseFloat(cs.borderLeftWidth);
+        const bR = Number.parseFloat(cs.borderRightWidth);
+        return {
+          borderLeft: r.x,
+          borderW: r.width,
+          contentLeft: r.x + bL + padL,
+          contentW: r.width - bL - bR - padL - padR,
+        };
+      };
+      const stack = section.querySelector(sel);
+      if (!stack) throw new Error(`stack ${sel} not found in crew section`);
+      const li = stack.closest("li");
+      if (!li) throw new Error("stack has no hosting <li>");
+      const nameSpan = [...li.querySelectorAll("span")].find(
+        (s) => s.textContent?.trim() === "Crew Member A",
+      );
+      if (!nameSpan) throw new Error("name span 'Crew Member A' not found in the hosting li");
+      let row: HTMLElement = nameSpan as HTMLElement;
+      while (row.parentElement && row.parentElement !== li) {
+        row = row.parentElement as HTMLElement;
+      }
+      if (row.contains(stack)) {
+        throw new Error("resolved row CONTAINS the stack — equality would be tautological");
+      }
+      return {
+        stack: spanOf(stack),
+        row: spanOf(row),
+        liW: spanOf(li).contentW,
+      };
+    }, stackSel);
+  }
+
+  for (const vp of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    // T-WARN-WIDTHFILL (BL-CREW-WARN-STACK-E2E-GEOMETRY). `w-full` on
+    // CrewUnderRowStack is unit-asserted for class PRESENCE only
+    // (tests/admin/wizard/crewWarnStack.test.tsx) — jsdom computes no layout, so
+    // nothing proves the class resolves to the row's extent.
+    //
+    // Concrete failure modes this catches (each verified by mutation):
+    //   - `w-fit` on the stack shrinks it to its widest card instead of filling
+    //     the row (border-box width). Caught at 1280 only: at 390 the widest card
+    //     already fills the narrow row, so shrink-to-fit and fill are
+    //     geometrically identical there — hence BOTH viewports run;
+    //   - the 24px per-kind indent (crewwarn-underrow-polish §2, `pl-6` on the
+    //     wrapper INSIDE the stack, so each kind opts in) hoisted onto the stack
+    //     itself, double-indenting every kind (content box only — the border box
+    //     is unchanged, which is why both spans are measured);
+    //   - a horizontal margin on the stack, or x-padding added to the hosting
+    //     <li> that the row picks up and the stack does not (or vice versa).
+    test(`T-WARN-WIDTHFILL @${vp.width}: under-row stack fills its member's row (border box + content box)`, async ({
+      page,
+    }) => {
+      await openHarness(page, vp, "crewwarnings.html");
+      await expect(page.locator(STACK), "under-row stack present for the stripped key").toHaveCount(
+        1,
+      );
+
+      const { stack, row, liW } = await stackVsRowSpans(page, STACK);
+
+      // Anti-vacuity floor: a collapsed layout (both boxes ~0-wide) satisfies any
+      // equality. The row spans the panel card, so it is a large fraction of the
+      // viewport at BOTH widths measured here.
+      expect(row.contentW, "row has real extent").toBeGreaterThan(vp.width * 0.4);
+      expect(Math.abs(row.borderW - liW), "row itself fills the hosting li").toBeLessThanOrEqual(
+        TOL,
+      );
+
+      expect(
+        Math.abs(stack.borderLeft - row.borderLeft),
+        "stack border-box left === row border-box left",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        Math.abs(stack.borderW - row.borderW),
+        "stack border-box width === row border-box width",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        Math.abs(stack.contentLeft - row.contentLeft),
+        "stack content-box left === row content-box left (no inset of its own)",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        Math.abs(stack.contentW - row.contentW),
+        "stack content-box width === row content-box width",
+      ).toBeLessThanOrEqual(TOL);
+    });
+  }
 
   test("T-WARN-INCARD @1280: unmatched warning's fallback group is contained in the crew panel card", async ({
     page,
@@ -1432,54 +1553,12 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
   // wrapper fails this the moment it lands, in any section. It is what surfaced
   // the ScheduleDayRow instance, which the bug report never mentioned.
   //
-  // What it is and is NOT. It is a REGRESSION DETECTOR for one bug class in one
-  // tree, not a general proof that no gap is ever mischarged. Zero item extent is
-  // a PROXY for "this item contributes nothing but is charged a gap," and the
-  // proxy has documented limits, listed here so a green run is not read as more
-  // than it is:
-  //   - GENERATED BOXES. `::before` / `::after` can be flex/grid items and can
-  //     charge gaps, and `el.children` cannot enumerate them. Out of reach for
-  //     this mechanism entirely.
-  //   - GRID TRACKS vs GRID ITEMS. Grid gaps sit between TRACKS. An empty item
-  //     stretched across a non-zero track has a positive rect while its unwanted
-  //     track and adjacent gaps remain — a false green this probe cannot see.
-  //     Catching it needs computed track sizes (`grid-template-*` resolution),
-  //     which is a different tool.
-  //   - MULTI-LINE MEMBERSHIP. On the cross axis of a wrapped container the probe
-  //     cannot tell whether a zero-extent item sits alone on its own line (where
-  //     it does create a collapsed line, and a charged gap) or shares a line with
-  //     siblings (where it does not). It reports the item and lets the reader
-  //     judge; the alternative — staying silent on the whole axis — is how the
-  //     ScheduleDayRow instance would have been missed.
-  //
-  // Design decisions, each answering a specific way the naive version was wrong:
-  //   - AXIS SELECTION follows the container. A flex column charges `row-gap`
-  //     against zero HEIGHT; a flex row charges `column-gap` against zero WIDTH
-  //     (`startsWith("column")` handles `column-reverse` and `row-reverse`).
-  //     WRAPPED containers charge BOTH: a full-width zero-height item on its own
-  //     line in a wrapped row collapses that line and still pays `row-gap`. Grid
-  //     charges both unconditionally.
-  //   - ≥2 IN-FLOW ITEMS REQUIRED. A gapped container holding ONE item realizes
-  //     no gap at all, so its lone zero-size child is not an offender — reporting
-  //     it is a false red. The count is of in-flow items, computed below.
-  //   - `display:contents` IS FLATTENED, not skipped. The wrapper is correctly not
-  //     an item, but its descendant boxes are PROMOTED into this container's
-  //     formatting context and become items themselves. Skipping the wrapper
-  //     without recursing let a promoted zero-extent item hide.
-  //   - EXTENT NEEDS BOTH RECT AND OFFSET TO BE ZERO. `getBoundingClientRect()`
-  //     returns the TRANSFORMED visual rect, so a `scale(0)` element reads 0 while
-  //     still occupying its full layout box and charging nothing extra. `offset*`
-  //     is the untransformed layout box. Requiring both to vanish keeps transforms
-  //     out of the offender list without giving up sub-pixel sanity.
-  //   - HIDDEN-ANCESTOR DETECTION WALKS `display` EXPLICITLY rather than calling
-  //     `checkVisibility()`. Both resolve the ancestor chain (needed: descendants
-  //     of a `display:none` ancestor report 0×0 rects while their own computed
-  //     display is untouched — the `lg:hidden` chip rail alone contributed 25
-  //     false positives). But `checkVisibility()` ALSO returns false under
-  //     `content-visibility: hidden`, and `app/globals.css` does transition
-  //     `content-visibility` — an element skipped for that reason can still hold a
-  //     box and charge its parent's gap. `visibility:hidden` and `opacity:0` are
-  //     deliberately still counted as items: they occupy space, so they pay.
+  // The walk itself, what it can and cannot see, and every design decision behind
+  // it now live in tests/e2e/helpers/phantomGap.ts — it is shared with the crew
+  // page and admin dashboard mounts (BL-PHANTOM-GAP-PROBE-OTHER-SURFACES). Read
+  // that file before treating a green run here as broader than it is. What stays
+  // below is only what is specific to THIS surface: the fixture pages, the
+  // non-vacuity anchors, and this tree's debt ledger.
   //
   // Coverage: every fixture page the harness builds, at BOTH viewports. The
   // responsive tree genuinely differs (the `lg:hidden` rail is proof), and a
@@ -1497,50 +1576,20 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
   ] as const;
 
   /**
-   * KNOWN, DEFERRED instances of this class — a debt ledger, not a mute switch.
+   * KNOWN, DEFERRED instances on THIS surface — a debt ledger, not a mute switch.
+   * Why rows are scoped and counted rather than matched on the label triple is in
+   * `PhantomLedgerRow` (tests/e2e/helpers/phantomGap.ts); read it before adding a row.
    *
-   * SCOPED AND COUNTED, deliberately. An earlier version matched with `some()` on
-   * the `parent`/`child`/`axis` triple alone, which was unsound in four ways at
-   * once: labels are derived from an element's own testid OR its nearest testid'd
-   * ANCESTOR, so the triple is NOT unique; one row therefore suppressed EVERY
-   * occurrence of that triple, a NEW offender added beside the known one, and the
-   * same triple on any other fixture page or viewport. It also could not tell a
-   * live debt from a stale row whose instance had since been fixed.
-   *
-   * So each row now pins the exact fixture page, viewport width, and OCCURRENCE
-   * COUNT it accounts for. Matching is one-to-one: exactly `count` occurrences are
-   * consumed, a surplus stays in the offender list and fails, and a shortfall fails
-   * separately as a stale row that must be deleted.
-   *
-   * The one debt below is PRE-EXISTING and lives in a component this branch does not
-   * touch (`components/admin/BulkIgnoreControls.tsx:179`): the warning group's
-   * decorative `h-px flex-1 bg-border` hairline. In a crowded `flex items-center
-   * gap-2` row at 375px the label and the bulk chip consume the line, `flex-1`
-   * resolves to zero width, and the row still charges `gap-2` on both sides of an
-   * invisible rule — one extra 8px, exactly this class. Fixing it is a visual
-   * decision about crowded-row behavior at narrow widths (drop the rule below some
-   * width? give it a min-width? let the row wrap?), which belongs with that
-   * component and its own before/after judgment, not bundled into this seam fix.
+   * EMPTY. The one row this ledger ever carried — BulkIgnoreControls' eyebrow
+   * hairline (`h-px flex-1 bg-border`) collapsing to 0 width in a crowded
+   * `gap-2` row at 375px — was PAID OFF, not re-deferred: the rule is now
+   * `hidden` below 480px (spec 2026-07-24-dq-eyebrow-divider-and-confirm-bar
+   * §3.1, BulkIgnoreControls.tsx:175), so it charges no gap and
+   * BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW is closed. A row kept past its debt masks
+   * a later offender with the same label triple, which is why the stale-row
+   * assertion below fails on one.
    */
-  const KNOWN_PHANTOM_ITEMS: {
-    page: string;
-    width: number;
-    parent: string;
-    child: string;
-    axis: string;
-    count: number;
-    why: string;
-  }[] = [
-    ...(["crewwarnings.html", "crewwarningscapped.html"] as const).map((page) => ({
-      page,
-      width: 375,
-      parent: "<div in dq-active-group-FIELD_UNREADABLE>",
-      child: "<span in dq-active-group-FIELD_UNREADABLE>",
-      axis: "column-gap",
-      count: 1,
-      why: "BulkIgnoreControls.tsx:179 decorative hairline collapses to 0 width in a crowded row at 375px — pre-existing, deferred to BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW",
-    })),
-  ];
+  const KNOWN_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
 
   for (const { page: htmlPath, label } of NOPHANTOM_PAGES) {
     for (const { mode, width, height: vh } of MODES) {
@@ -1549,182 +1598,7 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
       }) => {
         await openHarness(page, { width, height: vh }, htmlPath);
 
-        const found = await page.locator(MODAL).evaluate((modal) => {
-          const offenders: { parent: string; child: string; axis: string; gap: number }[] = [];
-          const visited: string[] = [];
-          let itemsExamined = 0;
-          const label = (el: Element): string => {
-            const own = el.getAttribute("data-testid");
-            if (own !== null) return own;
-            const near = el.closest("[data-testid]")?.getAttribute("data-testid") ?? "?";
-            return `<${el.tagName.toLowerCase()} in ${near}>`;
-          };
-          /** `display:none` anywhere up to the modal removes the whole subtree. */
-          const hidden = (el: Element): boolean => {
-            let node: Element | null = el;
-            while (node !== null) {
-              if (getComputedStyle(node).display === "none") return true;
-              if (node === modal) return false;
-              node = node.parentElement;
-            }
-            return false;
-          };
-          /**
-           * `content-visibility: hidden` skips the SUBTREE'S OWN layout, so gaps
-           * inside it are not rendered and zero-size descendants charge nothing.
-           *
-           * Starts at the element ITSELF, not its parent: a gapped container that
-           * carries the property has its own children's layout skipped, so measuring
-           * its items is exactly as false-red as measuring a descendant's. The
-           * boundary element remains an item of ITS parent and is measured there,
-           * which is why `hidden()` (display) and this check are separate.
-           */
-          const contentHiddenInside = (el: Element): boolean => {
-            let node: Element | null = el;
-            while (node !== null) {
-              if (getComputedStyle(node).contentVisibility === "hidden") return true;
-              if (node === modal) return false;
-              node = node.parentElement;
-            }
-            return false;
-          };
-          /**
-           * The container's real items, with `display:contents` flattened away.
-           *
-           * ORDER MATTERS: the `contents` test comes BEFORE the out-of-flow test. A
-           * `display:contents` element generates no box at all, so `position` on it
-           * is inert — its non-positioned descendants are promoted and remain real
-           * items of this container. Discarding such a wrapper for being
-           * `position:absolute` hid every descendant it promoted and undercounted
-           * the container.
-           */
-          const itemsOf = (container: Element): Element[] => {
-            const out: Element[] = [];
-            for (const child of Array.from(container.children)) {
-              const ccs = getComputedStyle(child);
-              if (ccs.display === "none") continue;
-              if (ccs.display === "contents") {
-                out.push(...itemsOf(child));
-                continue;
-              }
-              if (ccs.position === "absolute" || ccs.position === "fixed") continue;
-              out.push(child);
-            }
-            return out;
-          };
-          /**
-           * Non-whitespace TEXT directly inside a flex/grid container generates an
-           * ANONYMOUS item. It has no element, so it can never be an offender — but
-           * it absolutely counts toward "does this container realize a gap at all",
-           * and missing it made a container of {visible text, one empty element}
-           * look like a single-item container and get skipped.
-           */
-          const anonymousItems = (container: Element): number => {
-            let n = 0;
-            for (const node of Array.from(container.childNodes)) {
-              if (node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "")
-                n += 1;
-              else if (
-                node.nodeType === Node.ELEMENT_NODE &&
-                getComputedStyle(node as Element).display === "contents"
-              ) {
-                n += anonymousItems(node as Element);
-              }
-            }
-            return n;
-          };
-          /**
-           * Zero on BOTH the visual rect and the untransformed layout box.
-           *
-           * `getBoundingClientRect()` is the TRANSFORMED rect, so `scale(0)` reads
-           * zero while the element still occupies its full layout box and charges
-           * nothing extra. `offset*` is the layout box — but it exists only on
-           * HTMLElement. For SVG and MathML items there is no offset metric, and
-           * treating its absence as zero reported a positive-size `scale(0)` SVG as
-           * an offender. For those, fall back to "no transform is in play": a
-           * genuinely zero-size SVG still reports, a transformed one does not.
-           */
-          const vanishes = (el: Element, dim: "height" | "width"): boolean => {
-            const rect = el.getBoundingClientRect();
-            if ((dim === "height" ? rect.height : rect.width) !== 0) return false;
-            const offset =
-              dim === "height" ? (el as HTMLElement).offsetHeight : (el as HTMLElement).offsetWidth;
-            if (typeof offset === "number") return offset === 0;
-            return getComputedStyle(el).transform === "none";
-          };
-          /**
-           * Realized track count on one axis. For a grid container the computed
-           * `grid-template-*` is the USED value — a space-separated list of pixel
-           * sizes — so its length is the track count. `minmax()` and `repeat()` are
-           * already resolved away, but LINE NAMES are not: Chrome reports
-           * `[full-start] 100px [full-end]`, and counting those brackets as tracks
-           * would overstate the count and pull single-track grids into examination.
-           */
-          const trackCount = (cs: CSSStyleDeclaration, dim: "height" | "width"): number => {
-            const tpl = dim === "height" ? cs.gridTemplateRows : cs.gridTemplateColumns;
-            if (tpl === "none" || tpl === "subgrid" || tpl.trim() === "") return 0;
-            return tpl
-              .replace(/\[[^\]]*\]/g, " ")
-              .trim()
-              .split(/\s+/)
-              .filter((t) => t !== "").length;
-          };
-
-          for (const el of [modal, ...Array.from(modal.querySelectorAll("*"))]) {
-            if (hidden(el)) continue;
-            // Inside a `content-visibility:hidden` subtree the browser skips the
-            // subtree's own layout, so its internal gaps are not rendered and a
-            // zero-size descendant charges nothing. Measuring in there is a false
-            // red. (The boundary element remains an item of its own parent.)
-            if (contentHiddenInside(el)) continue;
-            const cs = getComputedStyle(el);
-            const isFlex = cs.display === "flex" || cs.display === "inline-flex";
-            const isGrid = cs.display === "grid" || cs.display === "inline-grid";
-            if (!isFlex && !isGrid) continue;
-            const rowGap = parseFloat(cs.rowGap) || 0;
-            const colGap = parseFloat(cs.columnGap) || 0;
-            const isColumn = cs.flexDirection.startsWith("column");
-            const wraps = isFlex && cs.flexWrap !== "nowrap";
-            // Grid charges both axes; flex charges its main axis always and its
-            // cross axis only when it can produce more than one line.
-            const chargesRowGap = isGrid || isColumn || wraps;
-            const chargesColGap = isGrid || !isColumn || wraps;
-            const axes = [
-              ...(chargesRowGap && rowGap > 0
-                ? [{ axis: "row-gap", gap: rowGap, dim: "height" as const }]
-                : []),
-              ...(chargesColGap && colGap > 0
-                ? [{ axis: "column-gap", gap: colGap, dim: "width" as const }]
-                : []),
-            ];
-            if (axes.length === 0) continue;
-            const items = itemsOf(el);
-            // ITEM COUNT INCLUDES ANONYMOUS TEXT ITEMS — {visible text, one empty
-            // element} really is two items and really does realize a gap.
-            const itemCount = items.length + anonymousItems(el);
-            // "Fewer than two items realizes no gap" holds for FLEX only. A GRID can
-            // realize several tracks from one item — explicit templates, named areas,
-            // spans, implicit track creation — and the gaps BETWEEN those tracks are
-            // charged regardless of how many items exist. So a single-item grid is
-            // examined whenever the axis genuinely has more than one track.
-            const chargeableAxes = isGrid
-              ? axes.filter(({ dim }) => itemCount >= 2 || trackCount(cs, dim) >= 2)
-              : itemCount >= 2
-                ? axes
-                : [];
-            if (chargeableAxes.length === 0) continue;
-            visited.push(label(el));
-            for (const item of items) {
-              itemsExamined += 1;
-              for (const { axis, gap, dim } of chargeableAxes) {
-                if (vanishes(item, dim)) {
-                  offenders.push({ parent: label(el), child: label(item), axis, gap });
-                }
-              }
-            }
-          }
-          return { offenders, visited, itemsExamined };
-        });
+        const found = await scanForPhantomGaps(page.locator(MODAL));
 
         // NON-VACUITY BY NAMED ANCHOR, not by a magic container count. A count
         // floor is satisfiable by eleven unrelated controls while the subtree that
@@ -1762,24 +1636,18 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
         // into `remaining` and fails as a new offender; a shortfall fails as a stale
         // row. Neither a new instance beside a known one nor a row whose debt was
         // repaid can hide.
-        const ledger = KNOWN_PHANTOM_ITEMS.filter((k) => k.page === htmlPath && k.width === width);
-        const remaining = [...found.offenders];
-        const stale: string[] = [];
-        for (const row of ledger) {
-          let consumed = 0;
-          for (let i = remaining.length - 1; i >= 0 && consumed < row.count; i -= 1) {
-            const o = remaining[i]!;
-            if (o.parent === row.parent && o.child === row.child && o.axis === row.axis) {
-              remaining.splice(i, 1);
-              consumed += 1;
-            }
-          }
-          if (consumed < row.count) {
-            stale.push(
-              `${row.parent} → ${row.child} (${row.axis}): ledger expects ${row.count}, found ${consumed}`,
-            );
-          }
-        }
+        // A gap whose used value the walk could not read (a mixed `calc()`) means
+        // the axis was SKIPPED — indistinguishable from a clean surface unless it
+        // is asserted on.
+        expect(
+          found.unresolved,
+          `every gap in the modal resolved to a used length [${label} @ ${width}]`,
+        ).toEqual([]);
+
+        const { remaining, stale } = reconcilePhantomLedger(found.offenders, KNOWN_PHANTOM_ITEMS, {
+          surface: htmlPath,
+          width,
+        });
         expect(
           stale,
           `stale KNOWN_PHANTOM_ITEMS rows [${label} @ ${width}] — the instance is gone, so delete` +

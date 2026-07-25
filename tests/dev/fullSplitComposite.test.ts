@@ -25,11 +25,20 @@ describe("t3-full-attention-split composite", () => {
     expect(s.alerts.map((a) => a.code)).toEqual([
       "SHEET_UNAVAILABLE",
       "RESYNC_QUALITY_REGRESSED",
-      "SYNC_STALLED",
       "DRIVE_FETCH_FAILED",
     ]);
     expect(s.alerts[0]?.context).toEqual({ drive_file_id: "gallery-fixture-file" });
-    for (const a of s.alerts.slice(1)) expect(a.context).toEqual({});
+    // RESYNC_QUALITY_REGRESSED reads nothing from context, so it stays empty.
+    // DRIVE_FETCH_FAILED's card interpolates a sheet name, so it carries the key
+    // its own copy reads — without it the card renders the placeholder form
+    // (spec 2026-07-24-gallery-alert-producer-parity §5).
+    //
+    // Three alerts, not four: SYNC_STALLED was removed because only ONE
+    // self-healing code is per-show reachable, so a "2 monitoring" pill is a
+    // state production cannot produce.
+    expect(s.alerts[1]?.context).toEqual({});
+    expect(s.alerts[2]?.context).toEqual({ sheet_name: "Gallery Preview Show" });
+    expect(s.alerts).toHaveLength(3);
     expect(s.holds).toHaveLength(1);
     expect(s.holds[0]).toMatchObject({
       kind: "mi11_pending",
@@ -39,12 +48,12 @@ describe("t3-full-attention-split composite", () => {
     expect("warnings" in s).toBe(false);
   });
 
-  it("derives the full split: 1 actionable (the hold), 2 needs_look, 2 self_heal", () => {
+  it("derives the full split: 1 actionable (the hold), 2 needs_look, 1 self_heal", () => {
     const items = deriveScenarioAttention(scenario());
     expect(items.filter((i) => i.actionable)).toHaveLength(1);
     expect(items.filter((i) => i.actionable)[0]?.kind).toBe("hold");
     expect(items.filter((i) => i.clearingKind === "needs_look")).toHaveLength(2);
-    expect(items.filter((i) => i.clearingKind === "self_heal")).toHaveLength(2);
+    expect(items.filter((i) => i.clearingKind === "self_heal")).toHaveLength(1);
   });
 
   it("sheet row resolves the EXTERNAL link from context.drive_file_id (gallery has no show-level id)", () => {

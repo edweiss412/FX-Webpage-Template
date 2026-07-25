@@ -4,7 +4,12 @@
 // AUTO_RESOLVING_CODES are themselves derived from the message catalog, so a
 // hardcoded pick would silently stop representing its axis the moment the
 // catalog moved.
+import {
+  withDefaultContext,
+  DEFAULT_SHARED_EMAIL,
+} from "@/lib/dev/attentionScenarios/defaultContext";
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
+import { GLOBAL_SCOPE_CODES } from "@/lib/adminAlerts/alertScope";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { isAutoResolving, DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
 import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
@@ -36,6 +41,15 @@ export const T2_DEGRADED_WITH_HOLDS = "t2-degraded-with-holds";
 export const T2_MULTI_HOLD = "t2-multi-hold";
 export const T2_FEED_TRUNCATED = "t2-feed-truncated";
 export const T2_MONITORING_ONLY = "t2-monitoring-only";
+
+/** Beyond-cap fan-out fallback (spec §8). `volumes.crew` grows the roster with
+ *  deterministic generated ids (lib/dev/publishedModalFixture.ts:273-279), and
+ *  the growth loop starts after the 6 default rows, so 0-based index 30 — the
+ *  first row past CREW_CAP — is genCrewRow(31). */
+export const T2_CREW_BEYOND_CAP = "t2-crew-beyond-cap";
+const BEYOND_CAP_ROSTER_SIZE = 35;
+const CREW_IN_CAP_ID = "cccccccc-0000-4000-8000-000000000002";
+const CREW_BEYOND_CAP_ID = "cccccccc-0000-4000-8000-031000000000";
 
 export const T2_REQUIRED_IDS: readonly string[] = [
   T2_SECTION_ABSENT,
@@ -110,6 +124,7 @@ export const T2_REQUIRED_IDS: readonly string[] = [
   "t2-act-share-errors",
   "t2-act-share-success",
   "t2-act-pending",
+  T2_CREW_BEYOND_CAP,
 ];
 
 /**
@@ -134,6 +149,12 @@ const CONTEXT_REQUIRED = new Set([
  * axis built on one of these renders NOTHING, so the axis would silently stop
  * testing what it names.
  */
+/**
+ * AUDIENCE cut. Orthogonal to SCOPE: every picker below ALSO filters
+ * GLOBAL_SCOPE_CODES (lib/adminAlerts/alertScope.ts), because a code whose
+ * producers always write show_id: null can never appear on a real show modal,
+ * so a scenario that picked one would teach a state production cannot produce.
+ */
 export function isCutFromSurface(code: string): boolean {
   return code === "PICKER_EPOCH_RESET" || DOUG_EXCLUDED_CODES.includes(code);
 }
@@ -142,16 +163,14 @@ export function isCutFromSurface(code: string): boolean {
  * Throwing is deliberate: an empty class means the catalog moved in a way this
  * matrix must be updated for, not an axis to quietly skip.
  */
-function pickCode(kind: "inbox" | "auto" | "actionable"): string {
+function pickCode(kind: "inbox" | "auto"): string {
   const codes = Object.keys(ATTENTION_ROUTES)
-    .filter((c) => !isCutFromSurface(c) && !CONTEXT_REQUIRED.has(c))
+    .filter((c) => !isCutFromSurface(c) && !CONTEXT_REQUIRED.has(c) && !GLOBAL_SCOPE_CODES.has(c))
     .sort();
   const found = codes.find((c) => {
     const inbox = isInboxRouted(c);
     const auto = isAutoResolving(c);
-    if (kind === "inbox") return inbox;
-    if (kind === "auto") return auto && !inbox;
-    return !inbox && !auto;
+    return kind === "inbox" ? inbox : auto && !inbox;
   });
   if (found === undefined) throw new Error(`tier2: no ATTENTION_ROUTES code is ${kind}`);
   return found;
@@ -168,7 +187,7 @@ export function pickByDerivedClass(
   exclude: ReadonlySet<string> = new Set(),
 ): string {
   const codes = Object.keys(ATTENTION_ROUTES)
-    .filter((c) => !CONTEXT_REQUIRED.has(c) && !exclude.has(c))
+    .filter((c) => !CONTEXT_REQUIRED.has(c) && !exclude.has(c) && !GLOBAL_SCOPE_CODES.has(c))
     .sort();
   const found = codes.find((c) => {
     const items = deriveScenarioAttention({
@@ -193,7 +212,8 @@ function anchoredCode(): string {
     (c) =>
       ATTENTION_ROUTES[c]?.sectionId === "rooms" &&
       !CONTEXT_REQUIRED.has(c) &&
-      !isCutFromSurface(c),
+      !isCutFromSurface(c) &&
+      !GLOBAL_SCOPE_CODES.has(c),
   );
   if (found === undefined) throw new Error("tier2: no context-free rooms-anchored code");
   return found;
@@ -205,7 +225,8 @@ function eventCode(): string {
     (c) =>
       ATTENTION_ROUTES[c]?.sectionId === "event" &&
       !CONTEXT_REQUIRED.has(c) &&
-      !isCutFromSurface(c),
+      !isCutFromSurface(c) &&
+      !GLOBAL_SCOPE_CODES.has(c),
   );
   if (found === undefined) throw new Error("tier2: no context-free event-anchored code");
   return found;
@@ -214,7 +235,7 @@ function eventCode(): string {
 function alert(code: string, over: Partial<Omit<ScenarioAlertRow, "code">> = {}): ScenarioAlertRow {
   return {
     code,
-    context: over.context ?? {},
+    context: withDefaultContext(code, over.context),
     raised_at: over.raised_at ?? AT,
     occurrence_count: over.occurrence_count ?? 1,
     ...(over.galleryIdentity !== undefined ? { galleryIdentity: over.galleryIdentity } : {}),
@@ -240,13 +261,46 @@ function crewCode(): string {
   return found;
 }
 
+/**
+ * The actionable axis, measured rather than assumed. Among codes that survive
+ * the audience cut and need no context, EVERY per-show-reachable one is
+ * auto-resolving — the only context-free actionable codes are LIVE_ROW_CONFLICT
+ * and ONBOARDING_SHEET_UNREADABLE, both global-scope and so unreachable on a
+ * show. On a real show modal an actionable alert is therefore reached ONLY
+ * through the crew-domain code, which carries context. The axis is real; this
+ * is the shape it really takes.
+ */
+function actionableAlert(over: Partial<Omit<ScenarioAlertRow, "code">> = {}): ScenarioAlertRow {
+  const base = crewAlert();
+  return {
+    ...base,
+    ...(over.context !== undefined ? { context: over.context } : {}),
+    ...(over.raised_at !== undefined ? { raised_at: over.raised_at } : {}),
+    ...(over.occurrence_count !== undefined ? { occurrence_count: over.occurrence_count } : {}),
+    ...(over.galleryIdentity !== undefined ? { galleryIdentity: over.galleryIdentity } : {}),
+  };
+}
+
 function crewAlert(): ScenarioAlertRow {
-  return alert(crewCode(), {
-    context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
-    galleryIdentity: {
-      segments: [{ label: "Crew", value: "Dana Reed" }],
-      global: null,
-    } as unknown as AlertIdentity,
+  const code = crewCode();
+  // A declared identity SUBSTITUTES for the resolved one
+  // (lib/dev/deriveScenarioAttention.ts:38), so it must mirror what production
+  // renders for THIS code. AMBIGUOUS_EMAIL_BINDING renders
+  // Show · email · "N crew rows" and has no crewName segment at all
+  // (lib/adminAlerts/alertIdentityMap.ts:60-66) — a Crew-only declaration was a
+  // card the resolver cannot produce. Codes that DO carry a crewName segment
+  // keep the Crew form. crewCode() is derived from ATTENTION_ROUTES and can
+  // move, so the shape follows the resolved code rather than being hardcoded.
+  const segments =
+    code === "AMBIGUOUS_EMAIL_BINDING"
+      ? [
+          { label: "Show", value: "Gallery Preview Show" },
+          { label: null, value: DEFAULT_SHARED_EMAIL },
+          { label: null, value: "2 crew rows" },
+        ]
+      : [{ label: "Crew", value: "Dana Reed" }];
+  return alert(code, {
+    galleryIdentity: { segments, global: null } as unknown as AlertIdentity,
   });
 }
 
@@ -278,21 +332,28 @@ function manyAlerts(): ScenarioAlertRow[] {
     used.add(code);
     return alert(code, over);
   };
-  const crew = crewAlert();
+  // The crew alert doubles as the actionable row and the repeat-count carrier:
+  // it is the ONLY per-show-reachable actionable code (see actionableAlert).
+  const crew = actionableAlert({ occurrence_count: 7 });
   used.add(crew.code);
   const rows: ScenarioAlertRow[] = [pick(anchoredCode()), pick(eventCode()), crew];
-  rows.push(pick(pickByDerivedClass("actionable", used), { occurrence_count: 7 }));
   rows.push(pick(pickByDerivedClass("needs_look", used)));
   rows.push(pick(pickByDerivedClass("self_heal", used)));
   const contextFree = Object.keys(ATTENTION_ROUTES)
-    .filter((c) => !isCutFromSurface(c) && !CONTEXT_REQUIRED.has(c) && !used.has(c))
+    .filter(
+      (c) =>
+        !isCutFromSurface(c) &&
+        !CONTEXT_REQUIRED.has(c) &&
+        !used.has(c) &&
+        !GLOBAL_SCOPE_CODES.has(c),
+    )
     .sort();
   for (const c of contextFree) {
     if (rows.length >= MENU_CAP - 1) break;
     rows.push(pick(c));
   }
   const backfill = Object.keys(ALERT_ROW_OVERRIDES)
-    .filter((c) => !isCutFromSurface(c) && !used.has(c))
+    .filter((c) => !isCutFromSurface(c) && !used.has(c) && !GLOBAL_SCOPE_CODES.has(c))
     .sort();
   for (const c of backfill) {
     if (rows.length >= MENU_CAP - 1) break;
@@ -351,15 +412,20 @@ export function tier2Scenarios(): AttentionScenario[] {
       holds: [],
     }),
     scenario(T2_ACTIONABLE, "Actionable code, the manual resolve control renders", {
-      alerts: [alert(pickCode("actionable"))],
+      alerts: [actionableAlert()],
       holds: [],
     }),
     scenario(T2_OCCURRENCE_MANY, "Repeat count above one", {
-      alerts: [alert(pickCode("actionable"), { occurrence_count: 7 })],
+      alerts: [actionableAlert({ occurrence_count: 7 })],
       holds: [],
     }),
     scenario(T2_IDENTITY_ABSENT, "No declared identity, so no menu subtitle", {
-      alerts: [alert(pickCode("actionable"), { galleryIdentity: null })],
+      // NOT the actionable code: the only per-show-reachable actionable code is
+      // the crew one, and validateScenario requires it to carry exactly one Crew
+      // identity segment — the opposite of what this axis demonstrates. The menu
+      // subtitle is driven by the resolved identity, not by pill class, so a
+      // needs-look code with no declared identity exercises the same absence.
+      alerts: [alert(pickByDerivedClass("needs_look"), { galleryIdentity: null })],
       holds: [],
     }),
     scenario(T2_UNCATALOGED, "Uncataloged code, fallback title and Overview route", {
@@ -367,28 +433,29 @@ export function tier2Scenarios(): AttentionScenario[] {
       holds: [],
     }),
     scenario(T2_EMPTY, "No attention at all", { alerts: [], holds: [] }),
-    scenario(T2_SINGLE, "Exactly one item", { alerts: [alert(pickCode("actionable"))], holds: [] }),
+    scenario(T2_SINGLE, "Exactly one item", { alerts: [actionableAlert()], holds: [] }),
     scenario(T2_MANY, "12 real items across sections and classes", {
       alerts: manyAlerts(),
       holds: [hold("Dana Reed")],
     }),
     scenario(T2_DEGRADED, "Alert read degraded", { alerts: [], holds: [], degraded: true }),
-    scenario(T2_MONITORING_ONLY, "Monitoring only: expandable quiet pill", {
-      // monitoring-badge-expand §5.8: two self-heal codes so the quiet pill
-      // reads "2 monitoring" and the menu enumerates two rows.
-      alerts: (() => {
-        const a = pickByDerivedClass("self_heal");
-        const b = pickByDerivedClass("self_heal", new Set([a]));
-        return [alert(a), alert(b)];
-      })(),
+    scenario(T2_MONITORING_ONLY, "Monitoring only: the quiet pill", {
+      // monitoring-badge-expand §5.8 originally used TWO self-heal codes so the
+      // pill read "2 monitoring". Only ONE self-healing code is per-show
+      // reachable: SELF_HEALING_CODE_LIST has three members
+      // (lib/adminAlerts/audience.ts) and two of them are global-scope, so a
+      // real show's Monitoring group can never hold more than one distinct
+      // code. The plural pill was a state production cannot produce; a repeat
+      // count on the single code is the reachable way to exercise the badge.
+      alerts: [alert(pickByDerivedClass("self_heal"), { occurrence_count: 3 })],
       holds: [],
     }),
     scenario(T2_CLASS_MIX, "One of each pill class: issues, monitoring", {
       alerts: (() => {
-        const a = pickByDerivedClass("actionable");
-        const n = pickByDerivedClass("needs_look", new Set([a]));
-        const h = pickByDerivedClass("self_heal", new Set([a, n]));
-        return [alert(a), alert(n), alert(h)];
+        const a = actionableAlert();
+        const n = pickByDerivedClass("needs_look", new Set([a.code]));
+        const h = pickByDerivedClass("self_heal", new Set([a.code, n]));
+        return [a, alert(n), alert(h)];
       })(),
       holds: [],
     }),
@@ -805,10 +872,21 @@ export function modalStateScenarios(): AttentionScenario[] {
             ],
           },
         }),
+        // Production renders this code as Show · email · "N crew rows"
+        // (lib/adminAlerts/alertIdentityMap.ts:60-66) — there is no Crew
+        // segment. The previous declaration carried ONLY a Crew segment, a card
+        // the resolver cannot produce for this code; the count segment's
+        // "N crew rows" text mirrors formatCount
+        // (lib/adminAlerts/resolveAlertIdentities.ts:124). The crew under-row
+        // stack this scenario demos comes from the crew-scoped warnings below
+        // and from fan-out over context.crew_member_ids, not from this identity.
         alert("AMBIGUOUS_EMAIL_BINDING", {
-          context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
           galleryIdentity: {
-            segments: [{ label: "Crew", value: CREW_STACK_SUBJECT }],
+            segments: [
+              { label: "Show", value: "Gallery Preview Show" },
+              { label: null, value: DEFAULT_SHARED_EMAIL },
+              { label: null, value: "2 crew rows" },
+            ],
           } as unknown as AlertIdentity,
         }),
       ],
@@ -817,6 +895,26 @@ export function modalStateScenarios(): AttentionScenario[] {
         crewScopedWarning("STAGE_WORD_AUTOCORRECTED", "stge", "stage"),
         crewScopedWarning("ROLE_TOKEN_AUTOCORRECTED", "A11", "A1"),
       ],
+    }),
+    // Beyond-cap crew fan-out fallback (spec §8). The roster is grown past
+    // CREW_CAP and one involved id sits beyond the cap, so the resolver's
+    // slice gives it hits === 0 and returns null — the banner lands
+    // section-top. NO crewMatch override: production DERIVES the match from
+    // context.crew_member_ids, so declaring one that disagrees with context
+    // would demo a state no producer can emit. This reproduces the real
+    // documented fallback ("involved row rendered beyond CREW_CAP") with
+    // entirely producer-shaped data.
+    scenario(T2_CREW_BEYOND_CAP, "Duplicate email where one crew row is beyond the render cap", {
+      alerts: [
+        alert("AMBIGUOUS_EMAIL_BINDING", {
+          context: {
+            email: "shared@example.test",
+            crew_member_ids: [CREW_IN_CAP_ID, CREW_BEYOND_CAP_ID],
+          },
+        }),
+      ],
+      holds: [],
+      fixture: { volumes: { crew: BEYOND_CAP_ROSTER_SIZE } },
     }),
     scenario("t2-ignored-warnings", "Active bulk pair beside an ignored pair", {
       alerts: [],
@@ -914,7 +1012,7 @@ export function modalStateScenarios(): AttentionScenario[] {
       },
     }),
     scenario("t2-act-resolve-error", "Alert resolve: error", {
-      alerts: [alert(pickByDerivedClass("actionable"))],
+      alerts: [actionableAlert()],
       holds: [],
       // Uncataloged BY DESIGN: exercises the resolve button's defensive
       // fallback copy (PerShowAlertResolveButton.tsx:52 not-subject comment).

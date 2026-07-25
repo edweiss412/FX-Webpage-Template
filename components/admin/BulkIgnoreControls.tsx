@@ -37,21 +37,28 @@ type State =
 const BTN =
   "inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm border border-border-strong bg-bg px-3 py-1 text-left text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
 
-// G4 armed branch (spec 2026-07-16-destructive-confirm-pass §4): destructive recipe fill (C1),
-// same shape/wrap as idle; border-transparent compensates the idle border (no layout shift).
+// G4 armed/running branch (spec 2026-07-16-destructive-confirm-pass §4): destructive recipe
+// fill (C1); border-transparent compensates the idle border (no layout shift). Below 480px it
+// takes the full row width, which wraps it onto its own flex line — the confirm tap is the
+// destructive one and the 375px row has no room for it inline (spec 2026-07-24-dq-eyebrow-
+// divider §3.1). At >=480px it reverts to an inline chip: `w-full` there would paint a
+// panel-wide bar. ONE class literal on purpose — tests/styles/_metaDestructiveConfirm.test.ts
+// registers this file's recipe hits by occurrence index, and splitting it adds an
+// unregistered one.
 const ARMED_BTN =
-  "inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm border border-transparent bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+  "inline-flex min-h-tap-min w-full max-w-full items-center justify-center self-start whitespace-normal rounded-sm border border-transparent bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg min-[480px]:w-auto min-[480px]:justify-start";
 
 const ARM_REVERT_MS = 4_000;
 
 /**
  * DQIGNORE-6 — the ACTIVE data-quality list, grouped by code. Each group renders an
- * eyebrow (plain-language type label + hairline rule) UNLESS it is a lone chip-less
- * card (itemCount 1, no bulk), whose header adds nothing over the card itself and is
+ * eyebrow (plain-language type label + a hairline rule drawn only at >=480px) UNLESS it
+ * is a lone chip-less card (itemCount 1, no bulk), whose header adds nothing over the
+ * card itself and is
  * suppressed (spec 2026-07-24-dq-singleton-eyebrow-suppress §2.1: for cataloged codes
  * it verbatim-duplicates the card title; data-gap-labeled singletons are suppressed
  * too, nothing is grouped and nothing rides the row). Bulk-eligible groups render an
- * inline "Ignore all N" chip on that eyebrow row; the group's cards render below, and a
+ * inline "Ignore" chip on that eyebrow row; the group's cards render below, and a
  * partial-failure notice (if any) renders below the acting group's cards. The chip's
  * two-tap arm→confirm guard, single-armed-panel-wide invariant (one shared armedCode +
  * timer), and per-fingerprint fan-out are unchanged from DQIGNORE-2/§4 G4. Renders null
@@ -145,21 +152,29 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
         const armed = armedCode === group.code;
         const errored = state.kind === "error" && state.code === group.code;
         const bulk = group.bulk;
-        // Single source for the chip's VISIBLE text; the accessible name (below) mirrors it
-        // and appends the type context. Because it tracks state, the accessible name stays in
-        // sync with the visible label in every state — armed reads "Confirm ignore all N ·
-        // <type>" (WCAG 2.5.3 Label-in-Name holds across the morph, not just idle). The type
-        // moved off the chip into the eyebrow for sighted users; the aria-label restores it
-        // for screen-reader / voice-control.
-        const chipText = running
+        // The chip's VISIBLE text is short enough to sit on one line in a crowded
+        // 375px row (spec 2026-07-24-dq-eyebrow-divider §3.2); the count and the type
+        // both live in the accessible name below. `chipName` LEADS with the visible
+        // string in every state, so WCAG 2.5.3 Label-in-Name holds across the morph,
+        // not just at idle — and the label-less branch is named too, or the count
+        // would reach nobody there.
+        // The row wraps ONLY while the chip is full-width. An always-wrapping row would
+        // drop the idle chip to its own line too, costing ~18px per group at rest.
+        const rowClass = armed || running ? " flex-wrap" : "";
+        const count = bulk?.items.length ?? 0;
+        const chipText = running ? "Ignoring…" : armed ? "Are you sure?" : "Ignore";
+        const chipName = running
           ? "Ignoring…"
           : armed
-            ? `Confirm ignore all ${bulk?.items.length ?? 0}`
-            : `Ignore all ${bulk?.items.length ?? 0}`;
+            ? `Are you sure? Ignore ${count}`
+            : `Ignore ${count}`;
         // spec 2026-07-24 §2.1: a lone chip-less card duplicates its own title in
         // the eyebrow — suppress the whole header row. Any group with a bulk chip
-        // keeps the row (the chip rides it), as does any plural group.
-        const showEyebrowRow = bulk !== null || group.itemCount !== 1;
+        // keeps the row (the chip rides it), as does any plural LABELED group.
+        // A plural group with neither label nor chip would carry only the decorative
+        // rule, which is display:none below 480px — an empty flex item still charging
+        // the parent's gap-2 (DESIGN.md §7a). Suppress that row too.
+        const showEyebrowRow = bulk !== null || (group.label !== null && group.itemCount !== 1);
         return (
           <div
             key={group.code}
@@ -167,7 +182,7 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
             data-testid={`dq-active-group-${group.code}`}
           >
             {showEyebrowRow ? (
-              <div className="flex items-center gap-2">
+              <div className={`flex items-center gap-2${rowClass}`}>
                 {group.label ? (
                   <span
                     data-testid={`dq-group-label-${group.code}`}
@@ -176,7 +191,16 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
                     {group.label}
                   </span>
                 ) : null}
-                <span aria-hidden="true" className="h-px flex-1 bg-border" />
+                {/* Decorative rule. Hidden below 480px: in a crowded row `flex-1` resolves
+                    to 0 width there (measured 0px at every width 320-430) and the row would
+                    still charge `gap-2` on BOTH sides of an element nobody can see. `hidden`
+                    takes it out of flow, so neither gap is spent; `min-w-6` keeps the
+                    zero-width state unreachable wherever it IS drawn. Spec
+                    2026-07-24-dq-eyebrow-divider-and-confirm-bar §3.1; DESIGN.md §7a. */}
+                <span
+                  aria-hidden="true"
+                  className="hidden h-px min-w-6 flex-1 bg-border min-[480px]:block"
+                />
                 {bulk ? (
                   <>
                     <button
@@ -185,8 +209,8 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
                       onClick={() => onGuardedClick(bulk)}
                       disabled={state.kind === "running"}
                       aria-busy={running}
-                      aria-label={group.label ? `${chipText} · ${group.label}` : undefined}
-                      className={armed ? ARMED_BTN : BTN}
+                      aria-label={group.label ? `${chipName} · ${group.label}` : chipName}
+                      className={armed || running ? ARMED_BTN : BTN}
                     >
                       {chipText}
                     </button>

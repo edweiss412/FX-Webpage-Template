@@ -31,7 +31,7 @@ export type SectionWarningItem = {
 
 /**
  * DQIGNORE-6 — one per-code group of a section's ACTIVE list, first-code-appearance order.
- * Each group carries its plain-language eyebrow `label`, the `bulk` "Ignore all N" descriptor
+ * Each group carries its plain-language eyebrow `label`, the `bulk` "Ignore" chip descriptor
  * iff the code is bulk-eligible (>=2 distinct-content ignorable warnings), and the `items`
  * (warning + report surface id) that render as the group's cards. Serializable (no crypto,
  * no ReactNode) — the client extras factory wraps `items` in the card slot at render time.
@@ -48,7 +48,7 @@ export type SectionWarningModel = {
   active: SectionWarningItem[];
   /** Warnings whose content fingerprint is in the ignored set — collapsed under a disclosure. */
   ignored: SectionWarningItem[];
-  /** Codes with >=2 distinct-content ACTIVE ignorable warnings → one bulk "Ignore all N". */
+  /** Codes with >=2 distinct-content ACTIVE ignorable warnings → one bulk "Ignore" chip. */
   bulkGroups: BulkIgnoreGroupWithLabel[];
   /** The ACTIVE list grouped by code (first-appearance order) — every active code gets a group,
    *  bulk-eligible or not; the bulk chip rides only groups whose `bulk` is present. The render

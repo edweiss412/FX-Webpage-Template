@@ -203,22 +203,48 @@ describe("validateScenario - per-code context contracts", () => {
     ).toEqual([]);
   });
 
-  test("identity-dependent codes need a crew_member_id and one Crew segment", () => {
-    for (const code of ["AMBIGUOUS_EMAIL_BINDING", "OAUTH_IDENTITY_CLAIMED"]) {
-      expect(validateScenario(base({ alerts: [alertRow({ code })] })), code).not.toEqual([]);
-      const ok = base({
-        alerts: [
-          alertRow({
-            code,
-            context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
-            galleryIdentity: {
-              segments: [{ label: "Crew", value: "Sam Ito" }],
-            } as never,
-          }),
-        ],
-      });
-      expect(validateScenario(ok), code).toEqual([]);
-    }
+  // The two codes were validated by ONE fall-through case demanding a singular
+  // crew_member_id. Correct for OAUTH_IDENTITY_CLAIMED; wrong for
+  // AMBIGUOUS_EMAIL_BINDING, whose producer writes crew_member_ids[] + email
+  // (lib/auth/validateGoogleSession.ts:40). Split per code.
+  test("OAUTH_IDENTITY_CLAIMED needs a UUID crew_member_id and one Crew segment", () => {
+    expect(
+      validateScenario(base({ alerts: [alertRow({ code: "OAUTH_IDENTITY_CLAIMED" })] })),
+    ).not.toEqual([]);
+    const ok = base({
+      alerts: [
+        alertRow({
+          code: "OAUTH_IDENTITY_CLAIMED",
+          context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
+          galleryIdentity: {
+            segments: [{ label: "Crew", value: "Sam Ito" }],
+          } as never,
+        }),
+      ],
+    });
+    expect(validateScenario(ok)).toEqual([]);
+  });
+
+  test("AMBIGUOUS_EMAIL_BINDING needs plural ids + email, and REJECTS the sibling's singular key", () => {
+    const A = "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f";
+    const B = "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d";
+    const withCtx = (context: Record<string, unknown>) =>
+      validateScenario(base({ alerts: [alertRow({ code: "AMBIGUOUS_EMAIL_BINDING", context })] }));
+
+    // The historical defect: this shape PASSED validation and could never
+    // derive a crewMatch, so the card always fell back to a section-top banner.
+    expect(withCtx({ crew_member_id: A }), "singular key must be rejected").not.toEqual([]);
+
+    expect(withCtx({}), "missing ids").not.toEqual([]);
+    expect(withCtx({ crew_member_ids: [A], email: "a@b.test" }), "one id").not.toEqual([]);
+    expect(withCtx({ crew_member_ids: [A, A], email: "a@b.test" }), "duplicates").not.toEqual([]);
+    expect(withCtx({ crew_member_ids: [A, "nope"], email: "a@b.test" }), "non-UUID").not.toEqual(
+      [],
+    );
+    expect(withCtx({ crew_member_ids: [A, B] }), "missing email").not.toEqual([]);
+    expect(withCtx({ crew_member_ids: [A, B], email: "   " }), "blank email").not.toEqual([]);
+
+    expect(withCtx({ crew_member_ids: [A, B], email: "shared@example.test" })).toEqual([]);
   });
 });
 
@@ -823,5 +849,74 @@ describe("validateScenario - actionOutcomes (whole-diff R1 repairs)", () => {
     expect(vs(mscBase({ actionOutcomes: { bulkIgnore: null } as never }))).toContainEqual(
       expect.stringContaining("actionOutcomes.bulkIgnore: kind"),
     );
+  });
+});
+
+describe("validator rejects producer-impossible identity/crewMatch states", () => {
+  const baseAlert = {
+    code: "AMBIGUOUS_EMAIL_BINDING",
+    raised_at: "2026-07-01T12:00:00.000Z",
+    occurrence_count: 1,
+  };
+  const idA = "cccccccc-0000-4000-8000-000000000002";
+  const idB = "cccccccc-0000-4000-8000-000000000003";
+  const ctx = { email: "avery@example.test", crew_member_ids: [idA, idB] };
+
+  const build = (over: Record<string, unknown>) => ({
+    id: "t-probe-identity",
+    tier: 1 as const,
+    label: "probe",
+    alerts: [{ ...baseAlert, context: ctx, ...over }],
+    holds: [],
+  });
+
+  test("rejects a crewMatch carrying duplicate ids", () => {
+    // Production DERIVES the match from context.crew_member_ids, which the
+    // validator already requires distinct, so [A, A, B] is a state no producer
+    // can emit. Checking only the DEDUPED count let it through: expectedCount 2
+    // matched the deduped size and the sorted-set agreement check also passed.
+    const errors = validateScenario(
+      build({ crewMatch: { crewMemberIds: [idA, idA, idB], expectedCount: 2 } }) as never,
+    );
+    expect(errors.join("\n")).toMatch(/crewMemberIds must be distinct/);
+  });
+
+  test("still accepts a well-formed distinct crewMatch", () => {
+    // Negative control: the rule above must not reject the legal form.
+    const errors = validateScenario(
+      build({
+        crewMatch: { crewMemberIds: [idA, idB], expectedCount: 2 },
+        galleryIdentity: {
+          segments: [
+            { label: "Show", value: "Gallery Preview Show" },
+            { label: null, value: "avery@example.test" },
+            { label: null, value: "2 crew rows" },
+          ],
+        },
+      }) as never,
+    );
+    expect(errors).toEqual([]);
+  });
+
+  test("rejects a declared identity missing the segments production renders", () => {
+    // `{ segments: [] }` previously satisfied the agreement rule vacuously:
+    // both comparisons were conditional on FINDING a matching-shaped segment.
+    const errors = validateScenario(build({ galleryIdentity: { segments: [] } }) as never);
+    expect(errors.join("\n")).toMatch(/must carry an email segment/);
+    expect(errors.join("\n")).toMatch(/must carry an "N crew rows" count segment/);
+  });
+
+  test("rejects an identity whose count contradicts its own context", () => {
+    const errors = validateScenario(
+      build({
+        galleryIdentity: {
+          segments: [
+            { label: null, value: "avery@example.test" },
+            { label: null, value: "5 crew rows" },
+          ],
+        },
+      }) as never,
+    );
+    expect(errors.join("\n")).toMatch(/count 5 disagrees with crew_member_ids.length 2/);
   });
 });

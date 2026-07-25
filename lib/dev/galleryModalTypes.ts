@@ -47,12 +47,22 @@ export type GallerySwitcherScenario = {
 };
 
 /**
- * A scenario excluded from the modal. `reason` distinguishes the two axes:
+ * A scenario excluded from the modal. `reason` distinguishes the three axes:
  *  - "structural": a tier-2 predicate override the modal cannot reproduce.
  *  - "cut": a code cut from the published attention surface (DOUG_EXCLUDED_CODES)
  *    that the real modal also never renders (empty modal → not a real state).
+ *  - "global": a tier-1 card for a code no show modal can receive.
  */
-export type ExcludedScenario = { id: string; label: string; reason: "structural" | "cut" };
+export type ExcludedScenario = {
+  id: string;
+  label: string;
+  /** "global" = the scenario's alert is unreachable per-show: its producers
+   *  always write show_id: null, so fetchPerShowAlerts cannot return it
+   *  (lib/adminAlerts/alertScope.ts). A SCOPE decision, orthogonal to "cut",
+   *  which is an AUDIENCE decision. Five codes are both; "cut" wins because the
+   *  partition evaluates it first. */
+  reason: "structural" | "cut" | "global";
+};
 
 /** Fixed so relative-time copy is stable across reloads (matches buildBlockProps). */
 export const GALLERY_NOW = new Date("2026-07-01T18:00:00.000Z");

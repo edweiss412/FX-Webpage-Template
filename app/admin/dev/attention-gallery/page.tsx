@@ -54,7 +54,7 @@ export default async function AttentionGalleryPage(props: {
           mounted (its native close navigates to /admin), so this is the route's
           heading landmark rather than a fallback surface. */}
       <main className="mx-auto flex min-h-dvh max-w-prose flex-col justify-center px-4 py-8 text-center">
-        <h1 className="text-2xl font-bold text-text-strong">Attention modal gallery</h1>
+        <h1 className="text-2xl font-bold text-text-strong">Attention gallery</h1>
         <p className="mt-2 text-xs/relaxed text-text-subtle">
           Every alert, warning, and structural state the published show modal can present, shown in
           the real modal. Step with the arrow keys or the control bar; deep-link a state with{" "}

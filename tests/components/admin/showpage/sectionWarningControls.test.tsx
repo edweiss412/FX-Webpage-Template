@@ -326,8 +326,11 @@ describe("buildSectionWarningExtras (per-section render, inside owning section)"
     expect(crew.getAllByTestId("per-show-actionable-warnings")).toHaveLength(2);
     // The bulk chip rides only the eligible group; N derives from the field-warning
     // fixture (distinct snippets), never hardcoded. The lone role token has none.
-    expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe(
-      `Ignore all ${fieldWarnings.length}`,
+    expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").textContent).toBe("Ignore");
+    // N moved off the visible label into the accessible name (spec
+    // 2026-07-24-dq-eyebrow-divider §3.3); still derived from the fixture.
+    expect(crew.getByTestId("dq-bulk-ignore-FIELD_UNREADABLE").getAttribute("aria-label")).toMatch(
+      new RegExp(`^Ignore ${fieldWarnings.length}\\b`),
     );
     expect(crew.queryByTestId("dq-bulk-ignore-UNKNOWN_ROLE_TOKEN")).toBeNull();
     // spec 2026-07-24 §2.1: the lone UNKNOWN_ROLE_TOKEN group (1 card, no chip)

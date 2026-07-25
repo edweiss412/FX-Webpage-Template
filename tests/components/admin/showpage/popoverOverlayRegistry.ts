@@ -1,0 +1,79 @@
+/**
+ * tests/components/admin/showpage/popoverOverlayRegistry.ts
+ *
+ * Registry of every anchored, internally-scrolling overlay in `components/**`,
+ * with an explicit decision about how each one survives a clipping ancestor.
+ *
+ * Why this exists (plan 2026-07-24-sharehub-viewport-popover-and-archive-copy
+ * Task 1): the review-modal panel carries `overflow-clip`
+ * (components/admin/review/ReviewModalShell.tsx:623), which is NOT a scroll
+ * container. An overlay anchored inside it that carries its own
+ * `overflow-y-auto` therefore strands the tail of its scroll range in the
+ * hidden strip below the clip edge — content that no scroll position in any
+ * container can reach. `HoverHelp` hit this (BL-HOVERHELP-PORTAL) and was
+ * fixed; the share hub was written in the same idiom afterwards, did NOT
+ * inherit the fix, and nothing failed. That is the gap this registry closes.
+ *
+ * The companion test's detector is deliberately BROAD (see
+ * `_metaPopoverPlacementContract.test.ts`). Over-matching is the intended cost:
+ * it buys one reasoned row here instead of a silent pass. Under-matching is the
+ * failure mode that shipped the defect.
+ */
+
+/** How a given overlay avoids stranding content behind a clip edge. */
+export type OverlayDisposition =
+  /** Resolves geometry through `lib/popover/position.ts` (asserted by import). */
+  | "placement-module"
+  /** Capped against the clip edge via `useFitWithinClip` (asserted by import). */
+  | "fit-within-clip"
+  /** Not inside a clipping ancestor, or has no internal scroll range to strand. */
+  | "not-clip-constrained"
+  /** Matches the shape and is NOT known-safe; carries a backlog ref. */
+  | "unverified-gap";
+
+export type OverlayRow = {
+  /** Repo-relative path, exactly as `walkSourceFiles` yields it. */
+  readonly file: string;
+  readonly disposition: OverlayDisposition;
+  /** Why this disposition is correct. Never blank. */
+  readonly reason: string;
+};
+
+export const POPOVER_OVERLAY_REGISTRY: readonly OverlayRow[] = [
+  {
+    file: "components/admin/HoverHelp.tsx",
+    disposition: "placement-module",
+    reason:
+      "Migrated 2026-07-22 (feat/hoverhelp-smart-position). Portals into the ReviewModalShell panel via PopoverHostContext and places with computePopoverPlacement.",
+  },
+  {
+    file: "components/admin/showpage/ShareHub.tsx",
+    disposition: "placement-module",
+    reason:
+      "Migrated 2026-07-24. Same portal + computePopoverPlacement stack as HoverHelp; before this it was the live instance of the defect (armed Archive confirm unreachable at every phone height).",
+  },
+  {
+    file: "components/admin/ReSyncButton.tsx",
+    disposition: "fit-within-clip",
+    reason:
+      "Clip-safe by the other route: useFitWithinClip caps the overlay against the clip edge. Its overlay is full-width inset-x-0, where flipping sides buys nothing, so migrating it to the placement module is not worth the churn.",
+  },
+  {
+    file: "components/admin/FinalizeButton.tsx",
+    disposition: "not-clip-constrained",
+    reason:
+      "Portals out of the tree, so the review-modal panel is never an ancestor. Also a benign over-match: the anchor and scroller hints occur on different surfaces within the file.",
+  },
+  {
+    file: "components/admin/BellPanel.tsx",
+    disposition: "not-clip-constrained",
+    reason:
+      "Mounts in the nav bell (components/admin/nav/NotifBell.tsx), outside the review-modal panel, so no overflow-clip ancestor sits between it and the viewport.",
+  },
+  {
+    file: "components/admin/showpage/AttentionMenu.tsx",
+    disposition: "unverified-gap",
+    reason:
+      "Surfaced BY this registry, 2026-07-24. Mounts INSIDE the clipping panel (components/admin/showpage/PublishedReviewModal.tsx), is absolutely anchored, and carries its own capped scroller (max-h-96 overflow-y-auto) while using neither clip-safety mechanism — the same shape as the ShareHub defect. Whether it actually strands content depends on measured geometry (it sits near the panel top, so 384px may fit), so it is filed rather than fixed on suspicion: BL-ATTENTION-MENU-PANEL-CLIP.",
+  },
+];
