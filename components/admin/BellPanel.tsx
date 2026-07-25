@@ -333,11 +333,17 @@ export function BellActionRow({ entry, onRefetch }: { entry: BellEntry; onRefetc
       ) : null}
       {/* Learn-more moved to the message block (WI-2) — it renders inline after
           the message text there, not in this action cell. */}
-      <span className="flex-1" />
+      {/* `ml-auto` on the trailing content, NOT a childless `flex-1` pusher: a
+          spacer is a flex ITEM, so a crowded row spends `gap-x-2` on BOTH sides of
+          something invisible. `ml-auto` holds the same right edge and costs nothing.
+          Both mutually exclusive branches carry it — a repair that fixed one would
+          leave the other at the start edge. `ml-auto` and not `justify-between`:
+          under `justify-between` a lone child sits at the START edge
+          (components/admin/CompactAlertCard.tsx:138). */}
       {entry.isHealth ? null : entry.isAutoResolving ? (
         <p
           data-testid={`bell-auto-note-${entry.alertId}`}
-          className="wrap-break-word text-sm text-text-subtle"
+          className="ml-auto wrap-break-word text-sm text-text-subtle"
         >
           {entry.autoResolveNote}
         </p>
@@ -348,7 +354,7 @@ export function BellActionRow({ entry, onRefetch }: { entry: BellEntry; onRefetc
           onClick={() => void onResolve()}
           disabled={resolving}
           aria-busy={resolving}
-          className={GHOST_RESOLVE}
+          className={`ml-auto ${GHOST_RESOLVE}`}
         >
           {resolving
             ? resolveActionLabels(entry.code).pending
