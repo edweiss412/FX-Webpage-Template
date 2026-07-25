@@ -11,6 +11,7 @@ import { logAdminOutcome } from "@/lib/log/logAdminOutcome"; // NOT re-exported 
 import type { LogRecord } from "@/lib/log";
 import { collectSurfaceUnits } from "./mutationSurface/enumerate";
 import { AUDITABLE_MUTATIONS } from "./_auditableMutations";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 // ── shared auth/Next mocks (Tasks 7-15) ─────────────────────────────────────
 // Per plan Tasks 7-16: NEVER mock @/lib/log or @/lib/log/logAdminOutcome here —
@@ -3719,8 +3720,9 @@ describe("role-mapping actions — post-commit forensic emit (spec 2026-07-15 §
 // ── Wizard blocker in-wizard resolution (spec 2026-07-16, Task 7): resolve-blocker
 // unarchive route observes success only ──
 const RESOLVE_BLOCKER_ROUTE = "app/api/admin/onboarding/resolve-blocker/route.ts";
-const RESOLVE_BLOCKER_LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const RESOLVE_BLOCKER_LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 const RB_SESSION = "7a7a7a7a-1111-4111-8111-7a7a7a7a7a7a";
 const RB_DRIVE_FILE_ID = "admin-outcome-resolve-blocker-drive-file";
 const RB_ADMIN_EMAIL = "admin@example.com";
@@ -4233,8 +4235,9 @@ describe("Task 8 — resolve-blocker rebuild route observes every committed outc
 // own `afterAll` calls `resolveBlockerSql.end()`, which would already have closed that pool
 // by the time this later describe block runs). Same local DB; isolated by its own
 // FC10_-prefixed session/drive-file id, own cleanup.
-const FINALIZE_CAS_LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const FINALIZE_CAS_LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 let fc10Sql: ReturnType<typeof postgres> | null = null;
 let fc10DbUp = false;
 try {

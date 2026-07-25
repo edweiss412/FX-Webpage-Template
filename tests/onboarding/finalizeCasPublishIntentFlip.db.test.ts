@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import postgres from "postgres";
 
 import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Task B3 — the CAS publish flip (`publishAppliedWizardShows`, finalize-cas/route.ts) publishes
@@ -17,8 +18,9 @@ import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize
  * published=false while the checked one becomes published=true.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "3d3d3d3d-7777-4777-8777-3d3d3d3d3d3d";
 const FOLDER = "finalize-cas-publish-intent-folder";

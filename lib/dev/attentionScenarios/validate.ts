@@ -103,7 +103,39 @@ function validateCodeContext(row: ScenarioAlertRow, where: string, out: string[]
       }
       return;
     }
-    case "AMBIGUOUS_EMAIL_BINDING":
+    // The two codes were validated by ONE fall-through case requiring a
+    // singular `crew_member_id`. That is right for OAUTH_IDENTITY_CLAIMED
+    // (app/auth/callback/route.ts:134) and WRONG for AMBIGUOUS_EMAIL_BINDING,
+    // whose producer writes `crew_member_ids` + `email`
+    // (lib/auth/validateGoogleSession.ts:40). The conflation meant the
+    // validator enforced a key that code's producer never writes while being
+    // unable to enforce the keys it does — so the gallery's duplicate-email
+    // card could never derive a crewMatch and always fell back to a section-top
+    // banner with placeholder copy. Split per code.
+    case "AMBIGUOUS_EMAIL_BINDING": {
+      if ("crew_member_id" in ctx) {
+        out.push(
+          `${where}: AMBIGUOUS_EMAIL_BINDING must not carry the singular context.crew_member_id — ` +
+            `that is OAUTH_IDENTITY_CLAIMED's shape; this code's producer writes crew_member_ids[]`,
+        );
+      }
+      const ids = ctx.crew_member_ids;
+      if (!Array.isArray(ids)) {
+        out.push(`${where}: AMBIGUOUS_EMAIL_BINDING requires an array context.crew_member_ids`);
+      } else if (ids.length < 2) {
+        out.push(
+          `${where}: AMBIGUOUS_EMAIL_BINDING requires >=2 crew_member_ids (the alert is about two or more rows sharing an address)`,
+        );
+      } else if (!ids.every((v) => typeof v === "string" && UUID_RE.test(v))) {
+        out.push(`${where}: AMBIGUOUS_EMAIL_BINDING requires UUID crew_member_ids members`);
+      } else if (new Set(ids).size !== ids.length) {
+        out.push(`${where}: AMBIGUOUS_EMAIL_BINDING crew_member_ids must be distinct`);
+      }
+      if (typeof ctx.email !== "string" || ctx.email.trim().length === 0) {
+        out.push(`${where}: AMBIGUOUS_EMAIL_BINDING requires a non-blank context.email`);
+      }
+      return;
+    }
     case "OAUTH_IDENTITY_CLAIMED": {
       if (typeof ctx.crew_member_id !== "string" || !UUID_RE.test(ctx.crew_member_id)) {
         out.push(`${where}: ${row.code} requires a UUID context.crew_member_id`);
@@ -123,11 +155,68 @@ function validateCodeContext(row: ScenarioAlertRow, where: string, out: string[]
   }
 }
 
+/** Codes whose placement can actually fan out. Mirrors deriveCrewMatch's own
+ *  code guard (lib/adminAlerts/deriveAlertRowFields.ts:59): production derives a
+ *  crewMatch for this code and no other, so a gallery row declaring one on any
+ *  other code would demo a placement production cannot produce
+ *  (spec 2026-07-24-gallery-alert-producer-parity §5). */
+const FAN_OUT_CAPABLE_CODES = new Set(["AMBIGUOUS_EMAIL_BINDING"]);
+
+/** §5 identity agreement: a declared galleryIdentity must not contradict the
+ *  row's own context, or the card renders copy its data disproves — a state no
+ *  producer can emit. */
+function validateIdentityAgreement(row: ScenarioAlertRow, where: string, out: string[]): void {
+  if (row.code !== "AMBIGUOUS_EMAIL_BINDING") return;
+  const identity = row.galleryIdentity;
+  if (!identity || !Array.isArray(identity.segments)) return;
+  const ctx = row.context;
+  const segs = identity.segments as { label?: string; value?: unknown }[];
+
+  // Production renders this code as Show · email · "N crew rows"
+  // (lib/adminAlerts/alertIdentityMap.ts:60-66). A declared identity SUBSTITUTES
+  // for the resolved one (lib/dev/deriveScenarioAttention.ts:38), so an identity
+  // missing those segments demos a card the resolver cannot produce.
+  //
+  // Presence is required, not merely agreement-if-present: making both checks
+  // conditional on finding a matching-shaped segment meant `{ segments: [] }`
+  // satisfied the rule vacuously, and so did hiding a contradictory value in a
+  // segment shape the heuristics do not match.
+  const emailSeg = segs.find((s) => typeof s.value === "string" && s.value.includes("@"));
+  if (!emailSeg) {
+    out.push(`${where}: galleryIdentity must carry an email segment (production renders one)`);
+  } else if (typeof ctx.email === "string" && emailSeg.value !== ctx.email) {
+    out.push(
+      `${where}: galleryIdentity email ${String(emailSeg.value)} disagrees with context.email ${ctx.email}`,
+    );
+  }
+
+  const ids = ctx.crew_member_ids;
+  const countSeg = segs.find((s) => typeof s.value === "string" && /^\d+\s/.test(s.value));
+  if (!countSeg) {
+    out.push(
+      `${where}: galleryIdentity must carry an "N crew rows" count segment (production renders one)`,
+    );
+  } else if (Array.isArray(ids)) {
+    const declared = Number.parseInt(String(countSeg.value), 10);
+    if (Number.isFinite(declared) && declared !== ids.length) {
+      out.push(
+        `${where}: galleryIdentity count ${declared} disagrees with crew_member_ids.length ${ids.length}`,
+      );
+    }
+  }
+}
+
 /** Optional §6.2 crew fan-out declaration: UUID members, dedup-consistent
  *  expectedCount. Absent is legal (banner stays section-top). */
 function validateCrewMatch(row: ScenarioAlertRow, where: string, out: string[]): void {
   const cm = row.crewMatch;
   if (cm === undefined) return;
+  if (!FAN_OUT_CAPABLE_CODES.has(row.code)) {
+    out.push(
+      `${where}: crewMatch is only legal on a fan-out-capable code (${[...FAN_OUT_CAPABLE_CODES].join(", ")}), not ${row.code}`,
+    );
+    return;
+  }
   if (!isPlainObject(cm)) {
     out.push(`${where}: crewMatch must be an object`);
     return;
@@ -145,9 +234,31 @@ function validateCrewMatch(row: ScenarioAlertRow, where: string, out: string[]):
     out.push(`${where}: crewMatch.expectedCount must be a number`);
     return;
   }
-  const deduped = new Set(ids).size;
-  if (cm.expectedCount !== deduped) {
-    out.push(`${where}: crewMatch.expectedCount must equal the deduped id count`);
+  // Duplicates are rejected outright rather than deduped away. Production
+  // DERIVES the match from context.crew_member_ids, which this validator already
+  // requires to be distinct, so a duplicate-bearing match is a state no producer
+  // can emit. Checking only the deduped count let `[A, A, B]` with
+  // expectedCount 2 pass both this and the agreement check below.
+  if (new Set(ids).size !== ids.length) {
+    out.push(`${where}: crewMatch.crewMemberIds must be distinct`);
+    return;
+  }
+  if (cm.expectedCount !== ids.length) {
+    out.push(`${where}: crewMatch.expectedCount must equal the id count`);
+  }
+
+  // §5 rule 2, no exceptions: production DERIVES crewMatch from
+  // context.crew_member_ids, so a declared override that disagrees with its own
+  // context is a state no producer can emit. The beyond-cap fallback scenario
+  // needs no carve-out here — it declares no crewMatch at all and lets
+  // derivation produce one.
+  const ctxIds = row.context.crew_member_ids;
+  if (Array.isArray(ctxIds)) {
+    const declared = [...new Set(ids)].sort().join(",");
+    const fromCtx = [...new Set(ctxIds.map(String))].sort().join(",");
+    if (declared !== fromCtx) {
+      out.push(`${where}: crewMatch ids disagree with context.crew_member_ids`);
+    }
   }
 }
 
@@ -170,6 +281,7 @@ function validateAlert(row: ScenarioAlertRow, i: number, out: string[]): void {
   }
   if (isPlainObject(row.context)) validateCodeContext(row, where, out);
   validateCrewMatch(row, where, out);
+  validateIdentityAgreement(row, where, out);
 }
 
 function validateHold(row: ScenarioHoldRow, i: number, out: string[]): void {

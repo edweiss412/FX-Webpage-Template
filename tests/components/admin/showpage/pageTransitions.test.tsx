@@ -134,7 +134,11 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // cap conditionals — exact-count expansions past 99+ on the review segment,
   // the composite monitoring segment, and the monitoring-only pill. All are
   // text swaps that follow derived counts; no animation.
-  "components/admin/showpage/PublishedReviewModal.tsx": 11,
+  // 11 → 8 (attention-index §2.4, plan Task 5): three pill segments collapse to
+  // two, retiring the confirm segment's cap conditional, the review segment and
+  // its own cap conditional, and one separator conditional. MEASURED by running
+  // the scanner, not predicted.
+  "components/admin/showpage/PublishedReviewModal.tsx": 8,
   // attention split 2026-07-21 §8: AttentionMenu enters the audit registry with
   // its new clearing groups (needs-a-look rows: subtitle, hint, action anchor,
   // external arrow; monitoring summary; group wrappers). Every site is an
@@ -144,7 +148,12 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // 6 → 7 (impeccable critique P1, 2026-07-22): the "Needs your confirmation"
   // eyebrow is now conditional on hasActionable so a needs-look-only open
   // never shows an empty section header. Instant omit/mount like its peers.
-  "components/admin/showpage/AttentionMenu.tsx": 7,
+  // 7 → 3 (attention-index §2.1/§2.2, plan Tasks 1+3): three groups collapse to
+  // two and the two row renderers collapse to one, retiring the needs-look
+  // group wrapper, its heading, its hint conditional, and its action-link
+  // conditional. What remains: the needs-you heading, the row's second line,
+  // and the monitoring group. MEASURED by running the scanner, not predicted.
+  "components/admin/showpage/AttentionMenu.tsx": 3,
   // modal-header-reconciliation §9: 8 → 7 (Task 2, the `renderTitle` head site —
   // which covered the h1 AND its adjacent title divider — deleted with the prop)
   // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7

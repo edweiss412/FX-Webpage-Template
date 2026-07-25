@@ -6,6 +6,7 @@ import {
   fetchDriveFileMetadata as defaultFetchDriveFileMetadata,
   fetchSheetMarkdownAndBytesAtRevision,
 } from "@/lib/drive/fetch";
+import { firstSeenPrepareCodeFor } from "@/lib/onboarding/firstSeenPrepareFault";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
 import {
@@ -167,7 +168,11 @@ async function defaultPrepareFirstSeenStage(fileMeta: DriveListedFile): Promise<
     markdown = fetched.markdown;
     xlsxBytes = fetched.bytes;
   } catch (cause) {
-    throw new FirstSeenStagePrepareError("DRIVE_FETCH_FAILED", cause);
+    // Same conflation as the wizard re-scan: fetchSheetMarkdownAndBytesAtRevision
+    // synthesizes the workbook internally (lib/drive/fetch.ts:511-514), so a corrupt
+    // xlsx throws here AFTER Drive succeeded. Classify by error identity, not by the
+    // call site, or Doug is told to check his share settings for a broken workbook.
+    throw new FirstSeenStagePrepareError(firstSeenPrepareCodeFor(cause), cause);
   }
   let parsed: ParsedSheet;
   try {

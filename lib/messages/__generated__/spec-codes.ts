@@ -1246,9 +1246,9 @@ export const SPEC_CODES = {
   },
   "STAGED_PARSE_FAILED": {
     "crewFacing": null,
-    "dougFacing": "That sheet could not be parsed during retry.",
-    "followUp": "Doug → open the sheet and fix its structure, then retry",
-    "helpfulContext": "The live first-seen retry path fetched the sheet but the parser could not convert it into a show payload.",
+    "dougFacing": "We couldn't turn that sheet into a show. Open the sheet to check the part that changed, then run the same action again. If it keeps happening, contact the developer.",
+    "followUp": "Doug → open the sheet, then retry; persistent → Eric",
+    "helpfulContext": "The sheet itself reached us, so this is not a sharing problem. Most often something in the sheet changed in a way we could not read; sometimes the copy saved by the last scan is missing or was already marked failed. Open the sheet to check the part that changed, then run the same action again. Any previously approved version stays live for crew until a clean version goes through. If a fresh scan keeps landing here, contact the developer.",
   },
   "STAGED_PARSE_OUTDATED": {
     "crewFacing": null,

@@ -7,6 +7,7 @@ import {
 } from "@/app/api/admin/ignored-sheets/[driveFileId]/unignore/route";
 import { setLogSink, resetLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Task C2 — un-ignore route: deletes the LIVE permanent_ignore deferral for a drive
@@ -16,8 +17,9 @@ import type { LogRecord } from "@/lib/log/types";
  * idempotent 200 no-op, and a non-admin caller gets 403 without touching the row.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const DRIVE_FILE_ID = "c2-unignore-drive-file";
 const ADMIN_EMAIL = "doug@fxav.com";

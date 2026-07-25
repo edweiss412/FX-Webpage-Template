@@ -15,9 +15,11 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, test } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // All 14 public columns named exactly `drive_file_id` that get a nonblank CHECK.
 const PUBLIC_NONBLANK_TABLES = [

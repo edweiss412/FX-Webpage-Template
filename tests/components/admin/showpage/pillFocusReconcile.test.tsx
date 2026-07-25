@@ -180,12 +180,11 @@ describe("interactive → monitoring-only STAYS OPEN (forward matrix, 6 origins)
       const pill = screen.getByTestId("published-show-review-alert-pill");
       fireEvent.click(pill);
       const menu = screen.getByTestId("published-show-review-attention-menu");
-      // pre-focus a to-be-removed element: needs-look <a> for [0,1], the
-      // actionable row button otherwise (removal makes rescue non-vacuous)
-      const target =
-        a === 0
-          ? menu.querySelector<HTMLElement>("a")
-          : menu.querySelector<HTMLElement>('[data-testid^="attention-menu-row-"]');
+      // pre-focus a to-be-removed row (removal makes the rescue non-vacuous)
+      // attention-index §2.2: needs-look rows are buttons now, so the menu has
+      // no <a> at all. Both origins focus a ROW; removal still detaches it, so
+      // the rescue stays non-vacuous.
+      const target = menu.querySelector<HTMLElement>('[data-testid^="attention-menu-row-"]');
       expect(target).not.toBeNull();
       target!.focus();
 
@@ -199,7 +198,6 @@ describe("interactive → monitoring-only STAYS OPEN (forward matrix, 6 origins)
       // recreated as a NEW node would evade an isConnected-only check; R3 f2):
       // (0,0,1) has zero actionable and zero needs-look rows, exactly one monitoring row.
       expect(screen.queryByTestId(/^attention-menu-row-/)).toBeNull();
-      expect(screen.queryByTestId(/attention-needslook-row-/)).toBeNull();
       expect(screen.getAllByTestId(/attention-monitoring-row-/)).toHaveLength(1);
       const pillAfter = screen.getByTestId("published-show-review-alert-pill");
       expect(pillAfter.getAttribute("aria-expanded")).toBe("true");
@@ -256,25 +254,26 @@ describe("rescue generality (b2): removed-focused-row rescue at NON-monitoring d
     focusedRow.focus();
     rerender(publishedModalElement([], { attentionItems: itemsWithLink(0, 1, 0) }));
     expect(focusedRow.isConnected).toBe(false); // focused actionable row detached
-    expect(screen.queryByTestId(/^attention-menu-row-/)).toBeNull(); // no actionable rows
-    expect(screen.getAllByTestId(/attention-needslook-row-/)).toHaveLength(1);
+    // the actionable row's own id is gone, and exactly the needs-look row
+    // survives — a count-only check would pass if the WRONG row had been removed
+    expect(screen.queryByTestId("attention-menu-row-alert:a0")).toBeNull();
+    expect(screen.getAllByTestId(/^attention-menu-row-/)).toHaveLength(1);
     expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
     const pillAfter = screen.getByTestId("published-show-review-alert-pill");
     await waitFor(() => expect(document.activeElement).toBe(pillAfter));
   });
 
-  it("(1,1,0) → (1,0,0): focused needs-look link removed, actionable remains — menu open, focus on pill", async () => {
+  it("(1,1,0) → (1,0,0): focused needs-look ROW removed, actionable remains — menu open, focus on pill", async () => {
     const { rerender } = renderPublishedModal([], { attentionItems: itemsWithLink(1, 1, 0) });
     const pill = screen.getByTestId("published-show-review-alert-pill");
     fireEvent.click(pill);
-    const link = screen
-      .getByTestId("published-show-review-attention-menu")
-      .querySelector<HTMLElement>("a");
-    expect(link).not.toBeNull();
-    link!.focus();
+    // the needs-look item is the LAST needs-you row (derivation order:
+    // actionable first), so it is the one the shrink removes.
+    const rows = screen.getAllByTestId(/^attention-menu-row-/);
+    const target = rows[rows.length - 1]!;
+    target.focus();
     rerender(publishedModalElement([], { attentionItems: itemsWithLink(1, 0, 0) }));
-    expect(link!.isConnected).toBe(false); // focused needs-look link detached
-    expect(screen.queryByTestId(/attention-needslook-row-/)).toBeNull(); // needs-look gone
+    expect(target.isConnected).toBe(false); // focused needs-look row detached
     expect(screen.getAllByTestId(/^attention-menu-row-/)).toHaveLength(1);
     expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
     const pillAfter = screen.getByTestId("published-show-review-alert-pill");
@@ -327,9 +326,10 @@ describe("quiet → warning REVERSE matrix (6 cells): menu stays open, amber pos
       rerender(publishedModalElement([], { attentionItems: itemsWithLink(a, n, s1) }));
 
       expect(screen.getByTestId("published-show-review-attention-menu")).toBeInTheDocument();
-      if (a > 0) expect(screen.getAllByTestId(/^attention-menu-row-/).length).toBeGreaterThan(0);
-      if (n > 0)
-        expect(screen.getAllByTestId(/attention-needslook-row-/).length).toBeGreaterThan(0);
+      // attention-index §2.1: actionable and needs-look share ONE row shape, so
+      // the merged group's row count is the sum rather than two separate probes.
+      if (a + n > 0) expect(screen.getAllByTestId(/^attention-menu-row-/)).toHaveLength(a + n);
+      else expect(screen.queryByTestId(/^attention-menu-row-/)).toBeNull();
       if (s1 === 1) expect(screen.getAllByTestId(/attention-monitoring-row-/).length).toBe(1);
       else expect(screen.queryByTestId(/attention-monitoring-row-/)).toBeNull();
       const pillAfter = screen.getByTestId("published-show-review-alert-pill");

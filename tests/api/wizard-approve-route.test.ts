@@ -9,6 +9,7 @@ import { setLogSink, resetLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 // Mock the durable-outcome logger so the OUTCOME-REF emission is observable
 // WITHOUT writing app_events, and so the 409-superseded + post-success
@@ -32,8 +33,9 @@ vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMo
  * (anti-tautology: the synthesized choices map item ids → 'apply').
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "d3d3d3d3-1111-4111-8111-d3d3d3d3d3d3";
 const OTHER_SESSION = "d3d3d3d3-9999-4999-8999-d3d3d3d3d3d3";

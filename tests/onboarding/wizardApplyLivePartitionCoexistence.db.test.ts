@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { PostgresOnboardingScanTx, type PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
 import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * F1 Task 1.5 (moved from Task 1.2 — the end-to-end half of the live-partition class) — a wizard
@@ -18,8 +19,9 @@ import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize
  * trivially while persisting no children (the origin incident reproduced).
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "9c9c9c9c-3333-4333-8333-9c9c9c9c9c9c";
 const FOLDER = "coexistence-folder";

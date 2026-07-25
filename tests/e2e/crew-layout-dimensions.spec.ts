@@ -60,6 +60,11 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
+import {
+  scanForPhantomGaps,
+  reconcilePhantomLedger,
+  type PhantomLedgerRow,
+} from "./helpers/phantomGap";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
@@ -928,6 +933,161 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       const svgCount = await mobileTabs.nth(i).locator("svg").count();
       const id = await mobileTabs.nth(i).getAttribute("data-section");
       expect(svgCount, `@390px mobile tab "${id}" must contain an svg icon`).toBeGreaterThan(0);
+    }
+  });
+  // ───────────────────────────────────────────────────────────────────────────
+  // Phantom-gap probe on the REAL crew page (BL-PHANTOM-GAP-PROBE-OTHER-SURFACES).
+  //
+  // The zero-extent-flex-item walk shipped scoped to the published review modal's
+  // static harness, leaving every other surface unmeasured. This is the crew-page
+  // mount: the same walk (tests/e2e/helpers/phantomGap.ts — read it for what the
+  // probe can and cannot see), pointed at the live seeded route.
+  //
+  // WHY IT LIVES INSIDE THIS DESCRIBE. `gotoSection` is not a convenience here, it
+  // is a correctness requirement. CrewSectionTransition wraps each section body in
+  // a framer `motion.div` starting at `opacity:0, y:4`; measured at its pre-commit
+  // frame the WHOLE subtree reads zero-extent and the probe would report a page of
+  // phantom offenders that do not exist. `gotoSection` polls the section to a real
+  // laid-out height first. The seeded run_of_show / share-token setup this describe
+  // already owns is the other half of the reason.
+  //
+  // SECTION CHOICE IS EVIDENCE-BOUND, not a wish list. Every section carries a
+  // named non-vacuity anchor, and a section whose anchor does not appear FAILS —
+  // an unanchored section that renders nothing measurable would pass green
+  // forever while proving nothing. Adding a section means adding its anchor.
+  //
+  // ALL SIX crew sections are measured. `gotoSection` is what makes that safe
+  // rather than optimistic: it proves the section mounted with real height before
+  // any measurement, so a section that failed to render cannot report an empty
+  // offender list as success. The sections differ enough to be worth the cost —
+  // `today` renders the run-of-show timeline the seeded frozen clock activates,
+  // `gear` renders whatever the seed's room scope holds (an EMPTY state on the
+  // Waldorf rows, which is precisely the state this bug class lives in), and
+  // venue/travel carry the split-wide grids that collapse to one column at 390.
+  test.describe("phantom gap — crew page sections", () => {
+    /**
+     * Section → a gapped container observed in that section's live render.
+     *
+     * TWO ANCHOR SHAPES, both named. `schedule` and `crew` pin an INNER testid
+     * captured from a live run. The four sections added when the probe was
+     * widened pin the SECTION ROOT instead (`section-<name>`, a `flex flex-col
+     * gap-4` on every section component), matched as "the root itself, or a
+     * container whose nearest testid'd ancestor is the root" — the two label
+     * forms `phantomGap.ts` emits for the same place in the tree. Both shapes
+     * are section-scoped and neither is a container count.
+     *
+     * A section root only enters `visited` when it holds ≥2 in-flow items, so
+     * this anchor is NOT free: a section that collapses to a single child fails
+     * here rather than reporting an empty offender list as success. That is the
+     * intended behavior — the failure message dumps the visited labels, which is
+     * how a replacement anchor gets captured.
+     *
+     * WHAT THE ANCHOR DOES NOT PROVE. It proves the walk DESCENDED into the
+     * section, not that the seed rendered any particular subtree — Venue's root
+     * stays visited with its diagrams column absent, Today's with the seeded
+     * run-of-show absent, and so on. That content IS proven, for these same
+     * sections at these same widths, by the sibling assertions in this file: the
+     * split-wide ratio cases name each section's two columns, the Mode A case
+     * asserts the run-of-show timeline mounted, and the gear-scope describe seeds
+     * and asserts the five scope cards. Duplicating those here would couple the
+     * probe to seed shape without measuring anything new; `gotoSection` already
+     * fails outright if a section does not mount with real height.
+     */
+    const NOPHANTOM_SECTIONS = [
+      { section: "schedule", anchor: "schedule-grid" },
+      { section: "crew", anchor: "section-card" },
+      { section: "today", anchor: "section-today" },
+      { section: "venue", anchor: "section-venue" },
+      { section: "travel", anchor: "section-travel" },
+      { section: "gear", anchor: "section-gear" },
+    ] as const;
+
+    /**
+     * `visited` labels come from an element's OWN testid, or `<tag in
+     * nearest-testid'd-ancestor>` when it has none. An anchor matches either
+     * form so a purely structural wrapper inside the anchor still counts.
+     */
+    const anchorHits = (visited: readonly string[], anchor: string): string[] =>
+      visited.filter((v) => v === anchor || v.includes(`in ${anchor}>`));
+
+    /**
+     * Known, deferred instances — see the helper's `PhantomLedgerRow` for why a
+     * row is scoped and counted before adding one.
+     *
+     * `TravelRow`'s eyebrow `<p>` renders `label` unconditionally inside a `flex
+     * flex-col gap-0.5` stack (TravelSection.tsx:120-123). A ground leg whose
+     * stage was promoted to the primary line passes `label=""`
+     * (TravelSection.tsx:403) — deliberately, and the comment there calls the
+     * blank eyebrow "acceptable per its presentational contract". It is not free:
+     * an empty `<p>` is still a flex item, so the stack charges its 2px row gap
+     * above a line that paints nothing. The seeded show has two such legs, at
+     * both widths.
+     *
+     * Deferred rather than fixed because the repair — `empty:hidden` on that `<p>`,
+     * the DESIGN.md §7a idiom — edits a crew UI component and so pulls in the
+     * invariant-8 impeccable dual gate. Carried as
+     * BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW.
+     *
+     * ACCEPTED LIMIT: every `TravelRow` collapses to this one triple, so the
+     * count is per-section rather than per-row. One blank eyebrow disappearing
+     * while a different empty paragraph appeared in another travel row would
+     * still reconcile at 2. No stronger identity is available from the label the
+     * walk emits; see `reconcilePhantomLedger`.
+     */
+    const KNOWN_CREW_PHANTOM_ITEMS: PhantomLedgerRow[] = ([390, 1000] as const).map((w) => ({
+      surface: "travel",
+      width: w,
+      parent: "<div in travelrow>",
+      child: "<p in travelrow>",
+      axis: "row-gap" as const,
+      // gap-0.5 = 2px, the `.tcol` stack's row gap.
+      gap: 2,
+      count: 2,
+      why: "TravelRow's eyebrow <p> renders an empty label for a stage-promoted leg and still charges the 2px stack gap — pre-existing, deferred to BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW",
+    }));
+
+    for (const { section, anchor } of NOPHANTOM_SECTIONS) {
+      for (const width of [390, 1000] as const) {
+        test(`T-NOPHANTOM-CREW [${section}] @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
+          page,
+        }, testInfo) => {
+          test.skip(testInfo.project.name !== "mobile-safari", "single-writer: mobile-safari only");
+          await page.setViewportSize({ width, height: 1000 });
+          await gotoSection(page, section);
+
+          const found = await scanForPhantomGaps(page.getByTestId("page-container"));
+
+          // NON-VACUITY BY NAMED ANCHOR, never by a container count. The anchor is
+          // a container the section genuinely renders, so a section that failed to
+          // mount, or a walk that stopped at the page shell, fails here rather
+          // than reporting an empty offender list as success.
+          expect(
+            anchorHits(found.visited, anchor),
+            `the walk reached ${anchor} inside section-${section} [@ ${width}] —` +
+              ` gapped containers visited: ${JSON.stringify(found.visited)}`,
+          ).not.toEqual([]);
+
+          expect(
+            found.unresolved,
+            `every gap in section-${section} resolved to a used length [@ ${width}]`,
+          ).toEqual([]);
+
+          const { remaining, stale } = reconcilePhantomLedger(
+            found.offenders,
+            KNOWN_CREW_PHANTOM_ITEMS,
+            { surface: section, width },
+          );
+          expect(
+            stale,
+            `stale ledger rows [${section} @ ${width}] — the instance is gone, so delete the row` +
+              ` (a row kept past its debt masks a later offender with the same label triple)`,
+          ).toEqual([]);
+          expect(
+            remaining,
+            `zero-extent items charge their parent's gap and show as a seam no element accounts for [${section} @ ${width}]`,
+          ).toEqual([]);
+        });
+      }
     }
   });
 });

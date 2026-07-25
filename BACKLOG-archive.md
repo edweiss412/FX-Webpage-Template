@@ -8,6 +8,24 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-PHANTOM-GAP-PROBE-OTHER-SURFACES — run the zero-extent-flex-item probe on the crew page and dashboard harnesses
+
+**Filed:** 2026-07-24 (branch `fix/overview-phantom-gap`). **Class:** layout hardening. **Effort:** S per harness.
+
+`T-NOPHANTOM` (tests/e2e/published-review-modal.layout.spec.ts) walks the rendered tree for in-flow items with zero extent on their parent's gap axis — an always-rendered wrapper whose entire content is state-gated is invisible but still charges its parent's `gap`. It found two instances on its first run: the reported Overview `overview-sheet-sync` slot (32px) and `ScheduleDayRow`'s time grid (4px per entry-less day). Both are now fixed with `empty:hidden`.
+
+The probe is scoped to the PUBLISHED MODAL tree only, so the crew page, the admin dashboard, and the wizard's own surfaces are unmeasured. A static sweep of `components/` + `app/` for the conditional-only-wrapper shape found no further true positives, but it cannot see the `{items.map(...)}` form — an empty array leaves no textual trace, and that is exactly the form the ScheduleDayRow instance took. So static coverage is not a substitute.
+
+**Work:** extract the probe into a shared helper and mount it in the existing standalone crew-page and dashboard layout harnesses. Expect false positives to need the same `checkVisibility()` treatment per surface (on the modal, the `lg:hidden` chip rail alone produced 25).
+
+**Status:** ✅ SHIPPED — `test/phantom-gap-probe-real-pages` (2026-07-25, PR #581). The walk lives in `tests/e2e/helpers/phantomGap.ts` (`scanForPhantomGaps` + `reconcilePhantomLedger`) and is mounted on the REAL routes rather than new harnesses — a fixture chosen to look complete is exactly the one that cannot catch an emptied-out wrapper. Mounts: `T-NOPHANTOM-DASH` on `/admin` (390 / 1280), `T-NOPHANTOM-SHOW` on the HYDRATED show modal at `/admin?show=<slug>` (375 / 1280 — the static harness never hydrates, which its own header names as its blind spot), and `T-NOPHANTOM-CREW` on all six crew sections (390 / 1000). All wired into `.github/workflows/phantom-gap-e2e.yml`, because both host specs were matched by playwright projects but invoked by no workflow — mounting a probe into a dark spec would have made the probe dark too.
+
+Two defects it paid for immediately: a PROBE defect (grid axes were admitted on item count; grid gaps sit between TRACKS, and track count is independent of item count in both directions — `shows-table-header`, 7 items across 7 tracks in one row, was reported as an offender it is not), and a real layout instance on the hydrated modal that no static fixture crowds enough to reveal, carried forward as `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW`.
+
+Not covered, deliberately: the wizard's own pre-publish surfaces, `BellPanel`, and the admin nav — no probe mount reaches them yet. Adding one is the same recipe (scan root + named non-vacuity anchor + a workflow step).
+
+---
+
 ## BL-HOVERHELP-PORTAL — portal the HoverHelp popover so it survives clipping ancestors
 
 **Filed:** 2026-07-20 (show-alert-compact spec, adversarial R2 F7/F8/F10) · **Class:** UI robustness · **Effort:** M (portal + positioning, or an anchor-positioning polyfill, plus containment assertions)
@@ -17,6 +35,20 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 Pre-existing for every HoverHelp consumer inside a scrolling admin surface; NOT introduced by show-alert-compact, whose spec explicitly descopes placement policy to the shipped default (amendment A6) rather than inventing an unmeasurable geometry rule. Fixing it means portaling the body to `document.body` with anchored positioning (or adopting CSS anchor positioning with a polyfill), then asserting popover containment against BOTH clipping ancestors in a real-browser test.
 
 **Status:** ✅ RESOLVED — `feat/hoverhelp-smart-position` (2026-07-22; spec `docs/superpowers/specs/2026-07-22-hoverhelp-smart-position.md`). The shared `HoverHelp` body now portals — into the `ReviewModalShell` panel via `PopoverHostContext` (staying inside the focus trap / aria-modal / inert subtree) or `document.body` elsewhere — with a pure collision-aware positioning core (`lib/popover/position.ts`). The exact AttentionBanner-at-pane-bottom geometry this entry documents is the T4a elementFromPoint kill-shot in `tests/e2e/published-review-modal.interactions.spec.ts`; body-host geometry is covered by `tests/e2e/hoverhelp-geometry.spec.ts` (19 cases). Follow-up carve-out: `BL-HOVERHELP-VISUAL-VIEWPORT` below.
+
+---
+
+## BL-CREW-WARN-STACK-E2E-GEOMETRY — real-browser width-fill assertion for the crew under-row warning stack
+
+**Filed:** 2026-07-24 (retroactive — deferred in PR #534's body 2026-07-21, never filed) · **Status:** ✅ SHIPPED (2026-07-24, branch `test/crew-warn-stack-width-fill`) · **Class:** test coverage (real-browser layout)
+
+PR #534 descoped its Task 10 (real-browser layout) with: "`CrewUnderRowStack`'s parent is not fixed-dimension, so the rule's trigger doesn't apply; width-fill is unit-asserted. Deferred `BL-CREW-WARN-STACK-E2E-GEOMETRY`." The id was cited in the PR body but no row was ever added to BACKLOG.md, DEFERRED.md, or this archive — found by a PR-body-vs-ledger reconciliation sweep on 2026-07-24.
+
+PR #563 (crew-warning-attachment T5) had already landed real-browser geometry for the surface at `tests/e2e/published-review-modal.layout.spec.ts`: the under-row stack `[data-testid="crew-warn-stack-<key>"]` measured inside the crew panel card's border box on all four edges, and between its member's row and the next. Those are CONTAINMENT bounds, not the width-FILL equality the deferral named — a stack rendered at half width or indented satisfies them.
+
+**Shipped:** `T-WARN-WIDTHFILL @1280` + `@390` in that spec's existing T5 describe block (harness page `crewwarnings.html`, shared `TOL`; no new harness or config). Asserts left edge + width on BOTH the border box and the content box of the stack against the member ROW's measured spans. The row is resolved from the rendered name span upward to the hosting `<li>`'s direct child — never from the stack's own parent, which would restate `display: block` — and the resolver throws if the resolved row turns out to contain the stack, so a future markup collapse fails instead of passing vacuously. Anti-vacuity floor (`row.contentW > viewport * 0.4`) plus row-fills-li rule out a collapsed layout satisfying any equality.
+
+Both spans are measured because the first cut measured only `getBoundingClientRect()` and the named regression SURVIVED: under `box-sizing: border-box`, hoisting the per-kind `pl-6` (crewwarn-underrow-polish §2) onto the stack leaves the border box byte-identical while insetting every card 24px. Negative-regression verified per mutation: `pl-6` on the stack fails content-box left at both viewports; `mx-4` fails border-box left at both; `w-fit` fails border-box width at 1280 but SURVIVES at 390, where the widest card already fills the narrow row so shrink-to-fit is geometrically indistinguishable from fill (documented in the test comment, not a gap the assertion can close).
 
 ---
 
