@@ -15,6 +15,12 @@ import {
   perShowReachableCodes,
   FROZEN_REACHABLE,
 } from "./alertProducerScope.registry";
+import {
+  readContextShape,
+  calleeName,
+  propertyKeyName,
+  type ContextShape,
+} from "./producerScopeAst";
 import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 
 const ROOTS = ["lib", "app"];
@@ -34,7 +40,8 @@ function walk(dir: string, exts: string[], out: string[] = []): string[] {
   return out;
 }
 
-type Hit = { site: string; code: string | null };
+type Hit = { site: string; code: string | null; context: ContextShape | null };
+
 function discoverTs(): Hit[] {
   const hits: Hit[] = [];
   for (const root of ROOTS)
@@ -48,28 +55,64 @@ function discoverTs(): Hit[] {
       );
       const visit = (n: ts.Node) => {
         if (ts.isCallExpression(n)) {
-          const c = n.expression;
-          const name = ts.isIdentifier(c)
-            ? c.text
-            : ts.isPropertyAccessExpression(c)
-              ? c.name.text
-              : undefined;
+          // calleeName sees through parentheses, casts, non-null assertions and
+          // string-keyed element access — all of which invoke the same producer
+          // surface as a plain call (producerScopeAst.ts).
+          const name = calleeName(n.expression);
           if (name === "upsertAdminAlert") {
             const { line } = sf.getLineAndCharacterOfPosition(n.getStart(sf));
             let code: string | null = null;
             const a1 = n.arguments[1];
             if (a1 && ts.isStringLiteral(a1)) code = a1.text;
             const a0 = n.arguments[0];
-            if (!code && a0 && ts.isObjectLiteralExpression(a0)) {
-              for (const prop of a0.properties)
-                if (
-                  ts.isPropertyAssignment(prop) &&
-                  prop.name.getText(sf) === "code" &&
-                  ts.isStringLiteral(prop.initializer)
-                )
-                  code = prop.initializer.text;
+            let context: ContextShape | null = null;
+            // Two live call shapes (verified 2026-07-24):
+            //  (a) object form  upsertAdminAlert({ showId, code, context })
+            //  (b) positional   upsertAdminAlert(db, showId, code, context)
+            //      — lib/reports/submit.ts:759, lib/sync/assetRecovery.ts:482
+            // In (b) the context is the LAST argument.
+            // Property names go through propertyKeyName so a QUOTED key reads as
+            // the same key as a bare one. Comparing raw source text meant
+            // `{ "code": … }` matched neither branch, the call was misread as
+            // positional, and the whole options object was then taken for the
+            // context literal.
+            const objForm =
+              a0 !== undefined &&
+              ts.isObjectLiteralExpression(a0) &&
+              a0.properties.some((pr) => {
+                const nm =
+                  ts.isShorthandPropertyAssignment(pr) || ts.isPropertyAssignment(pr)
+                    ? propertyKeyName(pr.name, sf)
+                    : undefined;
+                return nm === "code" || nm === "context";
+              });
+            if (!objForm && n.arguments.length > 0) {
+              const last = n.arguments[n.arguments.length - 1]!;
+              context = readContextShape(last, sf);
             }
-            hits.push({ site: `${file}:${line + 1}`, code });
+            if (objForm && a0 && ts.isObjectLiteralExpression(a0)) {
+              for (const prop of a0.properties) {
+                if (ts.isShorthandPropertyAssignment(prop)) {
+                  // `{ code, context }` — the value is a variable, so the
+                  // walker cannot read its keys (spec §6: computed).
+                  if (prop.name.text === "context") context = { kind: "computed" };
+                  continue;
+                }
+                if (!ts.isPropertyAssignment(prop)) continue;
+                const key = propertyKeyName(prop.name, sf);
+                if (!code && key === "code" && ts.isStringLiteral(prop.initializer))
+                  code = prop.initializer.text;
+                if (key === "context") context = readContextShape(prop.initializer, sf);
+              }
+            }
+            // No readable `context:` property at all (a wrapper form that
+            // forwards its own argument) is treated as computed — conservative,
+            // never silently unclassified (spec §6 totality).
+            hits.push({
+              site: `${file}:${line + 1}`,
+              code,
+              context: context ?? { kind: "computed" },
+            });
           }
         }
         ts.forEachChild(n, visit);
@@ -134,6 +177,88 @@ describe("_metaAlertProducerScope", () => {
         expect(r.dynamic, `${site} must be dynamic`).toBe(true);
         expect((r.note ?? "").length, `${site} needs a provenance note`).toBeGreaterThan(0);
       }
+  });
+
+  it("literal context sites: registry contextKeys match the AST, no drift (spec §6)", () => {
+    const mismatches: string[] = [];
+    for (const hit of tsHits) {
+      if (!hit.context || hit.context.kind !== "literal") continue;
+      for (const row of PRODUCER_SCOPE.filter((r) => r.site === hit.site)) {
+        if (row.computedContext) {
+          mismatches.push(`${hit.site}: computedContext:true but the AST context IS a literal`);
+          continue;
+        }
+        const declaredReq = [...(row.contextKeys ?? [])].sort();
+        const declaredOpt = [...(row.optionalContextKeys ?? [])].sort();
+        const astReq = [...hit.context.required].sort();
+        const astOpt = [...hit.context.optional].sort();
+        if (JSON.stringify(declaredReq) !== JSON.stringify(astReq))
+          mismatches.push(
+            `${hit.site}: contextKeys ${JSON.stringify(declaredReq)} != AST ${JSON.stringify(astReq)}`,
+          );
+        if (JSON.stringify(declaredOpt) !== JSON.stringify(astOpt))
+          mismatches.push(
+            `${hit.site}: optionalContextKeys ${JSON.stringify(declaredOpt)} != AST ${JSON.stringify(astOpt)}`,
+          );
+      }
+    }
+    expect(mismatches, mismatches.join("\n")).toEqual([]);
+  });
+
+  it("computed context sites carry computedContext:true + a provenance note (spec §6)", () => {
+    const bad: string[] = [];
+    for (const hit of tsHits) {
+      if (!hit.context || hit.context.kind !== "computed") continue;
+      for (const row of PRODUCER_SCOPE.filter((r) => r.site === hit.site)) {
+        if (!row.computedContext)
+          bad.push(`${hit.site}: context is computed but computedContext is not set`);
+        else if (!(row.note ?? "").length)
+          bad.push(`${hit.site}: computedContext needs a provenance note`);
+      }
+    }
+    expect(bad, bad.join("\n")).toEqual([]);
+  });
+
+  it("computed rows declare a NON-EMPTY contextKeys set (spec §6)", () => {
+    // A computed row's keys are hand-authored — the walker cannot derive them —
+    // and BOTH aggregations then treat them as authoritative. Omitting them is
+    // silently destructive in two directions at once: `allowedKeys` loses every
+    // key of that code (so, for a single-row code, the subset rule starts
+    // rejecting contexts it should permit) and `guaranteedKeys` collapses its
+    // intersection to []. Neither shows up as a failure anywhere else, so the
+    // emptiness is pinned here.
+    //
+    // This does NOT verify the keys are CORRECT — that needs the helper
+    // executed, which the walker cannot do. The provenance note asserted above
+    // is what carries that burden, and the promoted producer-context fixtures
+    // in producerContexts.ts are where a wrong key surfaces behaviorally.
+    //
+    // SQL sites are carved out: a migration's producer is a generic helper whose
+    // `code` is a BIND PARAMETER (`p_code`), not an alert code, so it never
+    // feeds allowedKeys/guaranteedKeys for any real code and has no key set to
+    // declare. The carve-out is pinned below so a TypeScript row cannot drift
+    // into it.
+    const isSqlSite = (site: string): boolean => /\.sql:\d+$/.test(site);
+    const keyless = PRODUCER_SCOPE.filter(
+      (r) => r.computedContext && (r.contextKeys ?? []).length === 0,
+    );
+    const bad = keyless
+      .filter((r) => !isSqlSite(r.site))
+      .map((r) => `${r.site} (${r.code}): computedContext row declares no contextKeys`);
+    expect(bad, bad.join("\n")).toEqual([]);
+    // The carve-out is exactly the SQL rows — nothing else may be keyless.
+    expect(keyless.every((r) => isSqlSite(r.site))).toBe(true);
+  });
+
+  it("SQL sites are classified computedContext with a note — never left TypeScript-shaped (spec §6)", () => {
+    const sqlSites = new Set(discoverSql());
+    const bad = PRODUCER_SCOPE.filter((r) => sqlSites.has(r.site)).filter(
+      (r) => !r.computedContext || !(r.note ?? "").length,
+    );
+    expect(
+      bad.map((r) => r.site),
+      "SQL rows must be computedContext:true with a note (no SQL context extraction is attempted)",
+    ).toEqual([]);
   });
 
   it("no exact-duplicate (site,code) rows anywhere in the registry", () => {

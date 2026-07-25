@@ -4,6 +4,10 @@
 // AUTO_RESOLVING_CODES are themselves derived from the message catalog, so a
 // hardcoded pick would silently stop representing its axis the moment the
 // catalog moved.
+import {
+  withDefaultContext,
+  DEFAULT_SHARED_EMAIL,
+} from "@/lib/dev/attentionScenarios/defaultContext";
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { GLOBAL_SCOPE_CODES } from "@/lib/adminAlerts/alertScope";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
@@ -37,6 +41,15 @@ export const T2_DEGRADED_WITH_HOLDS = "t2-degraded-with-holds";
 export const T2_MULTI_HOLD = "t2-multi-hold";
 export const T2_FEED_TRUNCATED = "t2-feed-truncated";
 export const T2_MONITORING_ONLY = "t2-monitoring-only";
+
+/** Beyond-cap fan-out fallback (spec §8). `volumes.crew` grows the roster with
+ *  deterministic generated ids (lib/dev/publishedModalFixture.ts:273-279), and
+ *  the growth loop starts after the 6 default rows, so 0-based index 30 — the
+ *  first row past CREW_CAP — is genCrewRow(31). */
+export const T2_CREW_BEYOND_CAP = "t2-crew-beyond-cap";
+const BEYOND_CAP_ROSTER_SIZE = 35;
+const CREW_IN_CAP_ID = "cccccccc-0000-4000-8000-000000000002";
+const CREW_BEYOND_CAP_ID = "cccccccc-0000-4000-8000-031000000000";
 
 export const T2_REQUIRED_IDS: readonly string[] = [
   T2_SECTION_ABSENT,
@@ -111,6 +124,7 @@ export const T2_REQUIRED_IDS: readonly string[] = [
   "t2-act-share-errors",
   "t2-act-share-success",
   "t2-act-pending",
+  T2_CREW_BEYOND_CAP,
 ];
 
 /**
@@ -221,7 +235,7 @@ function eventCode(): string {
 function alert(code: string, over: Partial<Omit<ScenarioAlertRow, "code">> = {}): ScenarioAlertRow {
   return {
     code,
-    context: over.context ?? {},
+    context: withDefaultContext(code, over.context),
     raised_at: over.raised_at ?? AT,
     occurrence_count: over.occurrence_count ?? 1,
     ...(over.galleryIdentity !== undefined ? { galleryIdentity: over.galleryIdentity } : {}),
@@ -268,12 +282,25 @@ function actionableAlert(over: Partial<Omit<ScenarioAlertRow, "code">> = {}): Sc
 }
 
 function crewAlert(): ScenarioAlertRow {
-  return alert(crewCode(), {
-    context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
-    galleryIdentity: {
-      segments: [{ label: "Crew", value: "Dana Reed" }],
-      global: null,
-    } as unknown as AlertIdentity,
+  const code = crewCode();
+  // A declared identity SUBSTITUTES for the resolved one
+  // (lib/dev/deriveScenarioAttention.ts:38), so it must mirror what production
+  // renders for THIS code. AMBIGUOUS_EMAIL_BINDING renders
+  // Show · email · "N crew rows" and has no crewName segment at all
+  // (lib/adminAlerts/alertIdentityMap.ts:60-66) — a Crew-only declaration was a
+  // card the resolver cannot produce. Codes that DO carry a crewName segment
+  // keep the Crew form. crewCode() is derived from ATTENTION_ROUTES and can
+  // move, so the shape follows the resolved code rather than being hardcoded.
+  const segments =
+    code === "AMBIGUOUS_EMAIL_BINDING"
+      ? [
+          { label: "Show", value: "Gallery Preview Show" },
+          { label: null, value: DEFAULT_SHARED_EMAIL },
+          { label: null, value: "2 crew rows" },
+        ]
+      : [{ label: "Crew", value: "Dana Reed" }];
+  return alert(code, {
+    galleryIdentity: { segments, global: null } as unknown as AlertIdentity,
   });
 }
 
@@ -845,10 +872,21 @@ export function modalStateScenarios(): AttentionScenario[] {
             ],
           },
         }),
+        // Production renders this code as Show · email · "N crew rows"
+        // (lib/adminAlerts/alertIdentityMap.ts:60-66) — there is no Crew
+        // segment. The previous declaration carried ONLY a Crew segment, a card
+        // the resolver cannot produce for this code; the count segment's
+        // "N crew rows" text mirrors formatCount
+        // (lib/adminAlerts/resolveAlertIdentities.ts:124). The crew under-row
+        // stack this scenario demos comes from the crew-scoped warnings below
+        // and from fan-out over context.crew_member_ids, not from this identity.
         alert("AMBIGUOUS_EMAIL_BINDING", {
-          context: { crew_member_id: "3f8c1e2a-5b6d-4c7e-8f90-1a2b3c4d5e6f" },
           galleryIdentity: {
-            segments: [{ label: "Crew", value: CREW_STACK_SUBJECT }],
+            segments: [
+              { label: "Show", value: "Gallery Preview Show" },
+              { label: null, value: DEFAULT_SHARED_EMAIL },
+              { label: null, value: "2 crew rows" },
+            ],
           } as unknown as AlertIdentity,
         }),
       ],
@@ -857,6 +895,26 @@ export function modalStateScenarios(): AttentionScenario[] {
         crewScopedWarning("STAGE_WORD_AUTOCORRECTED", "stge", "stage"),
         crewScopedWarning("ROLE_TOKEN_AUTOCORRECTED", "A11", "A1"),
       ],
+    }),
+    // Beyond-cap crew fan-out fallback (spec §8). The roster is grown past
+    // CREW_CAP and one involved id sits beyond the cap, so the resolver's
+    // slice gives it hits === 0 and returns null — the banner lands
+    // section-top. NO crewMatch override: production DERIVES the match from
+    // context.crew_member_ids, so declaring one that disagrees with context
+    // would demo a state no producer can emit. This reproduces the real
+    // documented fallback ("involved row rendered beyond CREW_CAP") with
+    // entirely producer-shaped data.
+    scenario(T2_CREW_BEYOND_CAP, "Duplicate email where one crew row is beyond the render cap", {
+      alerts: [
+        alert("AMBIGUOUS_EMAIL_BINDING", {
+          context: {
+            email: "shared@example.test",
+            crew_member_ids: [CREW_IN_CAP_ID, CREW_BEYOND_CAP_ID],
+          },
+        }),
+      ],
+      holds: [],
+      fixture: { volumes: { crew: BEYOND_CAP_ROSTER_SIZE } },
     }),
     scenario("t2-ignored-warnings", "Active bulk pair beside an ignored pair", {
       alerts: [],

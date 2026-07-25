@@ -131,6 +131,9 @@ const RENDERED_IDS_BEFORE: string[] = [
   "t2-auto-resolving",
   "t2-changelog-history",
   "t2-class-mix",
+  // Added deliberately by the producer-parity change: the beyond-CREW_CAP
+  // fan-out fallback scenario. The pin still bites for every OTHER movement.
+  "t2-crew-beyond-cap",
   "t2-degraded",
   "t2-degraded-with-holds",
   "t2-diagram-images",
