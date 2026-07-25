@@ -4,8 +4,12 @@ import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/u
 import { getDriveClient } from "@/lib/drive/client";
 import {
   classifyWatchError,
+  isGrantTooShort,
   redactWatchError,
+  RENEWAL_LIFE_FRACTION,
+  RENEWAL_MIN_LEAD_MS,
   STALE_PENDING_MAX_AGE_MS,
+  WATCH_TTL_MS,
 } from "@/lib/drive/watchErrors";
 import { log } from "@/lib/log";
 import { getActiveWatchedFolder as defaultGetActiveWatchedFolder } from "@/lib/appSettings/getWatchedFolderId";
@@ -52,7 +56,11 @@ export type WatchTx = {
     code: typeof WATCH_CHANNEL_ORPHANED;
     context: Record<string, unknown>;
   }): Promise<void>;
-  listExpiringActive(thresholdIso: string): Promise<WatchChannelRow[]>;
+  listRenewalDue(args: {
+    nowIso: string;
+    minLeadMs: number;
+    lifeFraction: number;
+  }): Promise<WatchChannelRow[]>;
   listGcCandidates(): Promise<WatchChannelRow[]>;
   markStopped(id: string): Promise<void>;
   deleteOldStopped(): Promise<void>;
@@ -76,7 +84,10 @@ export type SubscribeDeps = {
     folderId: string;
     channelId: string;
     webhookSecret: string;
+    nowMs: number;
   }) => Promise<{ id: string; resourceId: string; expiration: string }>;
+  /** Injectable clock (epoch ms) so the requested `expiration` is testable. */
+  now?: () => number;
 };
 
 export type RefreshDeps = {
@@ -193,7 +204,26 @@ class PostgresWatchTx implements WatchTx {
     await defaultUpsertAdminAlert({ showId: null, code: input.code, context: input.context });
   }
 
-  async listExpiringActive(thresholdIso: string): Promise<WatchChannelRow[]> {
+  async listRenewalDue(args: {
+    nowIso: string;
+    minLeadMs: number;
+    lifeFraction: number;
+  }): Promise<WatchChannelRow[]> {
+    // Renew once the row's REMAINING life falls to `lifeFraction` of its own
+    // granted life — `lifeFraction` is the remaining-life fraction, the
+    // complement the caller passes, NOT the fraction already burned — or to
+    // `minLeadMs`, whichever is larger. Both terms earn their place: the
+    // proportional one keeps a long lease from churning every tick, and the
+    // floor gives a short lease a wider due-window than its own length would
+    // grant it. Both are DESIGN MOTIVATION sized against the sampling period,
+    // not guarantees: nothing enforces that any particular row is examined on
+    // any particular tick (spec §2.1, whole-diff R8 finding 1). `greatest` over
+    // the two intervals picks the larger lead.
+    //
+    // An inverted or zero-length lease is made due by the EXPLICIT disjunct
+    // below, not by the floor: for `created_at > expires_at > now + floor` the
+    // proportional term is negative, `greatest` picks the floor, and the row
+    // would NOT be selected. Do not delete that disjunct as redundant.
     const rows = await this.rows<{
       id: string;
       status: WatchChannelStatus;
@@ -206,9 +236,20 @@ class PostgresWatchTx implements WatchTx {
         select id, status, watched_folder_id, webhook_secret, resource_id, expires_at
           from public.drive_watch_channels
          where status = 'active'
-           and expires_at < $1::timestamptz
+           and (
+             -- An inverted/zero-length lease is nonsense; replace it at the
+             -- first opportunity. This arm is NOT redundant with the floor
+             -- (whole-diff R1 finding 3): for created_at > expires_at > now +
+             -- floor, the proportional term is negative, greatest() picks the
+             -- floor, and the row would NOT be selected despite being garbage.
+             expires_at <= created_at
+             or $1::timestamptz >= expires_at - greatest(
+                  make_interval(secs => $2::double precision / 1000),
+                  (expires_at - created_at) * $3::double precision
+                )
+           )
       `,
-      [thresholdIso],
+      [args.nowIso, args.minLeadMs, args.lifeFraction],
     );
     return rows.map(fromDbRow);
   }
@@ -337,6 +378,7 @@ async function defaultWatchFolder(args: {
   folderId: string;
   channelId: string;
   webhookSecret: string;
+  nowMs: number;
 }): Promise<{ id: string; resourceId: string; expiration: string }> {
   const response = await getDriveClient().files.watch({
     fileId: args.folderId,
@@ -345,6 +387,18 @@ async function defaultWatchFolder(args: {
       type: "web_hook",
       address: webhookPublicUrl(),
       token: args.webhookSecret,
+      // Ask for Google's documented maximum for the `files` resource. Omitting
+      // this yields their 1-hour default, which is what left every lease being
+      // renewed at the instant it expired (spec §1.2). MILLISECONDS as a string
+      // — seconds here would request an expiry decades in the past. Google
+      // documents the 1h default ONLY for an OMITTED expiration, so do not
+      // expect that fallback to rescue a units regression: an explicit past
+      // timestamp is undefined territory (rejection, or a channel that is
+      // already expired on arrival). Whole-diff R9 finding 3 — the earlier
+      // comment asserted the fallback and would have sent diagnosis the wrong
+      // way. The `expiration` assertion in tests/drive/watchExpiration.test.ts
+      // is what actually pins the units.
+      expiration: String(args.nowMs + WATCH_TTL_MS),
     },
   });
   const data = response.data;
@@ -429,10 +483,17 @@ export async function subscribeToWatchedFolder(
 
   let watch: { id: string; resourceId: string; expiration: string };
   try {
+    // Read INSIDE the try (whole-diff R2 finding 2): the pending row is already
+    // committed at this point, so a throwing injected clock out here would
+    // reject `subscribeToWatchedFolder` outright — leaving the row pending until
+    // the stale sweep, with neither the orphaned result nor the alert that every
+    // other failure on this path produces.
+    const nowMs = (deps.now ?? (() => Date.now()))();
     watch = await (deps.watchFolder ?? defaultWatchFolder)({
       folderId,
       channelId,
       webhookSecret,
+      nowMs,
     });
   } catch (err) {
     const errorClass = classifyWatchError(err);
@@ -471,6 +532,61 @@ export async function subscribeToWatchedFolder(
       watchedFolderId: folderId,
       expiresAt: watch.expiration,
     });
+    // The activation is COMMITTED at this point. Everything below is
+    // observability, so it runs in its own try/catch and can never change the
+    // outcome (whole-diff R1 finding 1): if the clock read or the sink threw
+    // here, the outer catch would raise WATCH_CHANNEL_ORPHANED and return
+    // "orphaned" for a channel that is genuinely live — and markOrphaned only
+    // touches `status='pending'` rows, so the DB would disagree with both the
+    // alert and the return value while the previous channel stayed superseded.
+    try {
+      // A lease whose REMAINING life at activation is too short for renewal to
+      // be plausible (spec §2.1 — a heuristic, not a bound; nothing enforces the
+      // execution budget it is sized from), so surface it rather than absorb it.
+      //
+      // We request WATCH_TTL_MS explicitly, so this should not fire. Drive's
+      // documented 1h is the DEFAULT applied when `expiration` is omitted, NOT a
+      // minimum — the API says internal limits may yield an expiration earlier
+      // than requested. So a firing does not implicate the cron cadence (the
+      // earlier comment here claimed it did; whole-diff R8 finding 2). It means
+      // either Drive granted materially less than we asked for, or activation
+      // was slow enough to consume the lease. `remainingMsAtActivation` vs the
+      // stored `expires_at` distinguishes the two.
+      //
+      // Measured at ACTIVATION, not at request time: the pending insert and the
+      // Drive round-trip both consume lease life, so a nominal grant that took
+      // two minutes to obtain has two fewer usable minutes.
+      const remainingMs = Date.parse(watch.expiration) - (deps.now ?? (() => Date.now()))();
+      if (Number.isFinite(remainingMs) && isGrantTooShort(remainingMs)) {
+        // NOT awaited (whole-diff R3 finding 3): the inner catch contains a
+        // rejecting sink, but not a sink that never settles — awaiting one would
+        // hold `subscribeToWatchedFolder` open after the activation already
+        // committed, so the caller could observe a timeout for a live channel.
+        // Same fire-and-forget posture as the sibling emit above and the infra
+        // fault emit in gcWatchChannels.
+        // Bound to a local FIRST so the text `log.error(` stays contiguous:
+        // lib/messages/__internal__/stripLogEmissionCalls.ts matches that
+        // literal span to strip log emissions before the §12.4 producer scan,
+        // and prettier formats a `.catch()` chain as `log\n.error(`, which the
+        // matcher misses — the code then reads as an uncatalogued producer and
+        // x1-catalog-parity fails.
+        const emitted = log.error("drive watch grant too short to renew reliably", {
+          source: "drive.watch",
+          code: "DRIVE_WATCH_GRANT_TOO_SHORT",
+          watchedFolderId: folderId,
+          channelId: watch.id,
+          remainingMsAtActivation: remainingMs,
+        });
+        // The .catch is load-bearing, not decoration: unawaited, a rejecting
+        // sink escapes the enclosing try as an UNHANDLED rejection, which Node
+        // can turn into a process exit. Awaiting instead would reinstate the
+        // never-settling-sink hang this fire-and-forget avoids.
+        void emitted.catch(() => {});
+      }
+    } catch {
+      // Post-commit observability is best-effort by contract. Losing the
+      // anomaly log must never convert a successful activation into an orphan.
+    }
     return activated;
   } catch (err) {
     const errorClass = classifyWatchError(err);
@@ -519,10 +635,13 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
 
   let due: WatchChannelRow[];
   try {
-    const threshold = new Date(now().getTime() + 24 * 60 * 60 * 1000).toISOString();
     due = await runTx((tx) =>
-      callWatchTx("drive_watch_channels.list_expiring_active", () =>
-        tx.listExpiringActive(threshold),
+      callWatchTx("drive_watch_channels.list_renewal_due", () =>
+        tx.listRenewalDue({
+          nowIso: now().toISOString(),
+          minLeadMs: RENEWAL_MIN_LEAD_MS,
+          lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
+        }),
       ),
     );
   } catch (err) {
@@ -532,7 +651,7 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
     await log.error("refresh-watch list_expiring failed", {
       source: "drive.watch",
       code: "DRIVE_WATCH_INFRA_FAULT",
-      operation: "drive_watch_channels.list_expiring_active",
+      operation: "drive_watch_channels.list_renewal_due",
       errorMessage: redactWatchError(String((cause as { message?: unknown })?.message ?? cause)),
     });
     return {

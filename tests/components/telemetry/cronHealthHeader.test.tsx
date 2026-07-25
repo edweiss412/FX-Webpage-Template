@@ -25,6 +25,12 @@ describe("CronHealthHeader", () => {
     expect(screen.getByTestId("cron-health-grid").className).toContain("auto-rows-fr");
     expect(screen.getAllByText("No run seen").length).toBeGreaterThan(0);
   });
+  // BL-COPY-CRON-SWEEP-2 + #601 critique P2: plain language, and the heading
+  // keeps the HEALTH axis so it does not collide with the stat-card label.
+  test("heading reads 'Scheduled job health'", () => {
+    render(<CronHealthHeader jobs={rows} now={now} />);
+    expect(screen.getByRole("heading", { name: "Scheduled job health" })).toBeInTheDocument();
+  });
   test("renders a plain-English description under each job label", () => {
     render(<CronHealthHeader jobs={rows} now={now} />);
     // Every job carries a non-empty description, and it renders in the card.

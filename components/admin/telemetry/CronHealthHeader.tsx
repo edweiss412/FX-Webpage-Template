@@ -7,7 +7,7 @@ export function CronHealthHeader({ jobs, now }: { jobs: CronHealthRow[]; now: Da
   return (
     <section aria-labelledby="cron-health-heading" className="mb-section-gap">
       <h2 id="cron-health-heading" className="mb-3 text-sm font-semibold text-text-subtle">
-        Cron health
+        Scheduled job health
       </h2>
       <div
         data-testid="cron-health-grid"

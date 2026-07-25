@@ -109,13 +109,37 @@ const GRADUATED = [
 /**
  * Backlog entries graduated to the archive since this guard covered that pair.
  * Same contract as GRADUATED above: not a mirror of the historical archive.
+ *
+ * `provenance` is the string the archived section must contain — normally the
+ * branch that resolved the entry. It is per-entry rather than one shared
+ * constant because graduations arrive from different branches, and a single
+ * literal would either be asserted against sections it has nothing to do with
+ * or quietly dropped. Two entries did not graduate by being implemented: the
+ * pg-client one was WITHDRAWN after measurement refuted its premise, and the
+ * watch-diagnostic one closed as OBSOLETE against a deleted surface. Both still
+ * left the open queue, which is what a graduation is, so both carry the branch
+ * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
   // fix/picker-flow-app-bugs (2026-07-25). The three app-behavior blockers
   // behind the skipped picker-flow e2e stubs, all fixed in that branch.
-  "BL-PICKER-BOOTSTRAP-HOST-FLIP",
-  "BL-PICKER-GATE-SKIP-MISMATCH",
-  "BL-PICKER-CLAIMED-ROW-NEXT-DROP",
+  { id: "BL-PICKER-BOOTSTRAP-HOST-FLIP", provenance: "fix/picker-flow-app-bugs" },
+  { id: "BL-PICKER-GATE-SKIP-MISMATCH", provenance: "fix/picker-flow-app-bugs" },
+  { id: "BL-PICKER-CLAIMED-ROW-NEXT-DROP", provenance: "fix/picker-flow-app-bugs" },
+  // 2026-07-25 reconciliation: seven entries carried a terminal status
+  // (CLOSED / WITHDRAWN / RESOLVED) while still sitting in the open queue,
+  // which BACKLOG.md's own header forbids. Four of them landed after the
+  // "Last reconciled: 2026-07-24" line, so the header was stale too.
+  { id: "BL-HOVERHELP-VISUAL-VIEWPORT", provenance: "fix/hoverhelp-visual-viewport-tdd" },
+  { id: "BL-TEST-PG-CLIENT-TEARDOWN", provenance: "fix/test-pg-client-teardown-stale" },
+  {
+    id: "BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC",
+    provenance: "docs/nullcode-batch2-residual-hygiene",
+  },
+  { id: "BL-DBTEST-LOOPBACK-EVAL-GUARD", provenance: "test/safety-hardening-batch" },
+  { id: "BL-RESCAN-PREPARE-ERROR-GRANULARITY", provenance: "test/safety-hardening-batch" },
+  { id: "BL-STEP3-STAGED-LINK-GUARD-HELPER-BYPASS", provenance: "test/safety-hardening-batch" },
+  { id: "BL-SHAREHUB-ARM-VIEWPORT-REVEAL", provenance: "feat/sharehub-archive-copy-reveal" },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
@@ -167,13 +191,15 @@ describe("backlog ledger graduation", () => {
   it("every graduated id is archive-only", () => {
     const active = backlogIdsIn("BACKLOG.md");
     const archived = backlogIdsIn("BACKLOG-archive.md");
-    for (const id of BACKLOG_GRADUATED) {
+    for (const { id } of BACKLOG_GRADUATED) {
       expect(archived.has(id), `${id} missing from BACKLOG-archive.md`).toBe(true);
       expect(active.has(id), `${id} still in BACKLOG.md`).toBe(false);
     }
   });
 
-  it.each(BACKLOG_GRADUATED)("%s's archived section names the branch that resolved it", (id) => {
+  it.each(BACKLOG_GRADUATED.map((e) => [e.id, e.provenance] as const))(
+    "%s's archived section names the branch that resolved it",
+    (id, provenance) => {
     // Provenance, scoped to the section rather than the whole archive: a global
     // substring match would pass on the branch name appearing anywhere in ~130
     // unrelated historical entries.
@@ -188,7 +214,37 @@ describe("backlog ledger graduation", () => {
     const rest = archive.slice(from);
     const nextHeading = rest.slice(1).search(/\n#{2,3} /);
     const section = nextHeading === -1 ? rest : rest.slice(0, nextHeading + 1);
-    expect(section).toContain("fix/picker-flow-app-bugs");
+    expect(section).toContain(provenance);
+    },
+  );
+
+  it("no active backlog entry carries a terminal status", () => {
+    // The defect this reconciliation cleaned up, made structural. The
+    // no-overlap invariant above cannot see it: an entry annotated CLOSED in
+    // place never reaches the archive, so the two files never disagree and the
+    // open queue silently turns into a changelog — exactly what BACKLOG.md's
+    // header forbids.
+    //
+    // Scoped to the STATUS line, not the whole section. Sections legitimately
+    // discuss closure ("closes only as part of BL-…", "partially closed",
+    // "SUPERSEDED 2026-07-25 by …", a quoted historical status), so a
+    // section-wide substring match fires on entries that are genuinely open.
+    // The status line is the entry's own claim about itself.
+    const backlog = read("BACKLOG.md");
+    const TERMINAL = /^\s*(?:\*\*)?(?:Status|Filed):?(?:\*\*)?[^\n]*?\b(CLOSED|WITHDRAWN|RESOLVED)\b/;
+    const offenders: string[] = [];
+    const headings = [...backlog.matchAll(/^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)/gm)];
+    for (const [i, h] of headings.entries()) {
+      const start = h.index!;
+      const end = i + 1 < headings.length ? headings[i + 1]!.index! : backlog.length;
+      const section = backlog.slice(start, end);
+      // PARTIALLY CLOSED / PARTIAL closure is a real open state — the entry
+      // records what shipped and what did not. Only a bare terminal counts.
+      const statusLine = section.split("\n").find((l) => /^\s*(?:\*\*)?Status/.test(l)) ?? "";
+      if (/PARTIAL/i.test(statusLine)) continue;
+      if (TERMINAL.test(statusLine)) offenders.push(h[1]!);
+    }
+    expect(offenders, "terminal-status entries belong in BACKLOG-archive.md").toEqual([]);
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
