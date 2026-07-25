@@ -781,6 +781,19 @@ describe("R6: scanner changes are pinned", () => {
     ).toMatch(/does not announce|unrecognized|cannot be proven non-hiding/);
   });
 
+  // The documented escape hatch MUST keep working, or the accepted limit in
+  // DEFERRED.md item (c) is a dead end. A compound gate is rejected, but hoisting
+  // it into a named boolean and gating both sides on that identifier passes.
+  // Verified before writing the guidance, and pinned so it cannot break silently.
+  it("the documented workaround for a compound gate passes", () => {
+    expect(
+      violations(
+        `const A=({isExternal,ready})=>{const opensNewTab = isExternal && ready;
+  return <a href="x" {...(opensNewTab?{target:"_blank",rel:"noreferrer"}:{})}>Go {opensNewTab?<> <NewTabHint /></>:null}</a>;};`,
+      ),
+    ).toEqual([]);
+  });
+
   // (4b) DEFERRED.md NEWTAB-GUARD-UNDECIDABLE-2 item (b) is CLOSED by the same
   // change. That entry's own prescribed fix was "reject call expressions", and a
   // call is not an approved gating shape, so the effectful-predicate case R4
