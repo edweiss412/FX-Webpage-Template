@@ -3,6 +3,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import ts from "typescript";
+
+import { useMDXComponents } from "@/mdx-components";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -809,6 +811,21 @@ it("the MDX components map declares no anchor override", () => {
   expect(
     offenders,
     "an anchor override in the MDX components map would make every help link external with nothing per-file to inspect",
+  ).toEqual([]);
+});
+
+it("the components map RETURNS no anchor override (runtime, not static)", () => {
+  // Strictly stronger than parsing the file: this EVALUATES the map, so a
+  // helper-returned map, an imported spread, or any indirection R12 listed is covered
+  // by construction rather than by pattern. tests/help/mdx-components-registration.test.ts
+  // already calls it this way; this asserts the complementary property.
+  const map = useMDXComponents({}) as Record<string, unknown>;
+  const offenders = Object.keys(map).filter(
+    (k) => k.toLowerCase() === "a" || k.toLowerCase() === "link",
+  );
+  expect(
+    offenders,
+    "an anchor override here would make every help link external with nothing per-file to inspect",
   ).toEqual([]);
 });
 
