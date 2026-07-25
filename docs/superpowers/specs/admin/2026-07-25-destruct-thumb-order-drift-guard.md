@@ -111,7 +111,7 @@ Measured in Chromium at a 1280px viewport with today's shipped markup in the **r
 | 320px rail | armed | `y2553` | `y2605`, full width | **Ignore below Defer** |
 | 900px | idle | `y2719 x136.55` | `y2719 x299.29` | side by side, correct order |
 
-The action row resolves to 278px inside the rail card, against the 315.95px the two buttons need.
+**The usable width is 278px, not 280px.** The card is border-box with a 1px border each side plus 20px padding each side: 320 − 2 − 40 = **278px**, which is what the action row measured. Later sections say "the 280px rail" as shorthand for this geometry; 278px is the number, and the probe panels use it.
 
 `sm:basis-auto` restores auto-basis at `sm` **viewport** width, but `flex-wrap` still wraps when the **container** cannot fit the row. So the mis-tap ordering the backlog records as a mobile-stacking problem is already reachable on a desktop monitor, in the surface an admin uses most.
 
@@ -267,36 +267,45 @@ Eight cells. **Two** are unreachable, leaving **six** reachable — so the pairw
 | **running-ignore** | D — Ignoring… | **unreachable** — same disarm (`components/admin/PendingPanelDiscardButtons.tsx:66-68`) |
 | **error** | E — error shown | F — error **and** armed; `onGuardedIgnoreClick` arms without touching `state` (`components/admin/PendingPanelDiscardButtons.tsx:56-64`) |
 
-All 15 pairs over {A, B, C, D, E, F}:
+Pairs are the wrong unit — the earlier table conflated "these two cells are related" with "this direction is reachable", and got seven directions wrong. What follows is a **directed** edge table over the six reachable cells. All 30 ordered pairs are accounted for; only the reachable ones get a treatment.
 
-| Pair | Direction(s) | Treatment |
+| From → To | Reachable? | Treatment |
 |---|---|---|
-| A–B | both | Recipe morph on Ignore, `transition-opacity duration-fast` (`components/admin/PendingPanelDiscardButtons.tsx:127`); box top/left/width fixed (D4/D6). Reverse fires on the 4s auto-revert (`components/admin/PendingPanelDiscardButtons.tsx:60-63`) or a sibling mutation. **Unchanged.** |
-| A–C | A→C only | Instant. `Defer until modified` → `Deferring…` (`components/admin/PendingPanelDiscardButtons.tsx:116-118`), both `disabled` (`components/admin/PendingPanelDiscardButtons.tsx:104`). C→A is the success reset below. |
-| A–D | **neither directly** | A→D is unreachable: the first Ignore tap arms and returns without running (`components/admin/PendingPanelDiscardButtons.tsx:56-64`), so the path is A→B→D. D→A is the success reset. |
-| A–E | E→A only | A→E unreachable (an error needs an attempt). E→A happens only via a fresh attempt, so it passes through C or D. |
-| A–F | **neither** | Unreachable in both directions: reaching F requires an error first, and leaving F requires a run. |
-| B–C | B→C only | Instant. Tapping Defer while armed disarms and starts the defer. Pinned at `tests/components/admin/pendingIngestionActions.test.tsx:232`. |
-| B–D | B→D only | Instant. The second Ignore tap fires the discard; disarm and run set in one handler, so no resting frame renders. |
-| B–E | **neither directly** | B→E unreachable — an error can only be set by `handleClick`, which disarms first, so the path is B→D→E. E→B is the arming step, which lands in F, not B. |
-| B–F | **neither** | Unreachable: `state` cannot change from `idle` to `error` without passing through a running cell. |
-| C–D | **neither** | Unreachable both ways. `handleClick` returns early while a run is in flight (`components/admin/PendingPanelDiscardButtons.tsx:72`) and both buttons are `disabled` (`components/admin/PendingPanelDiscardButtons.tsx:113`, `components/admin/PendingPanelDiscardButtons.tsx:124`). One mutation at a time by construction. |
-| C–E | C→E only | Instant. The error block mounts below the row (`components/admin/PendingPanelDiscardButtons.tsx:144-153`). No enter animation today. **Unchanged.** |
-| C–F | **neither** | Unreachable: a run resolves into E, never into F, because it does not arm. |
-| D–E | D→E only | Instant, same as C–E. |
-| D–F | **neither** | Same reason as C–F. |
-| E–F | both | E→F: tapping Ignore while an error shows arms the button **and the error block stays mounted** — it describes the previous failed attempt, which is still true. §6.2 test 9. F→E: the 4s timer clears `armed` only and leaves `state.kind === "error"` (`components/admin/PendingPanelDiscardButtons.tsx:60-63`), so the compound decays to plain error, never to idle. §6.2 test 10. |
+| A → B | yes | Recipe morph on Ignore, `transition-opacity duration-fast` (`components/admin/PendingPanelDiscardButtons.tsx:127`); box top/left/width fixed (D4/D6) |
+| B → A | yes | The 4s auto-revert clears `armed` with `state` still `idle` (`components/admin/PendingPanelDiscardButtons.tsx:60-63`). **Only** the timer produces this edge — a sibling Defer tap goes B → C, and the confirm tap goes B → D |
+| A → C | yes | Instant. `Defer until modified` → `Deferring…` (`components/admin/PendingPanelDiscardButtons.tsx:116-118`), both `disabled` (`components/admin/PendingPanelDiscardButtons.tsx:104`) |
+| C → A | yes | Instant. Success resets to idle and calls `router.refresh()` (`components/admin/PendingPanelDiscardButtons.tsx:97-98`) |
+| A → D | **no** | The first Ignore tap arms and returns (`components/admin/PendingPanelDiscardButtons.tsx:56-64`), so the path is A → B → D |
+| D → A | yes | Instant. Same success reset as C → A |
+| A → E | **no** | An error requires an attempt, so the path is A → C/D → E |
+| E → A | **no** | Leaving error requires a new attempt; the path is E → C or E → F → D, then → A |
+| A → F, F → A | **no** | F requires an error; A requires a success reset. No direct edge either way |
+| B → C | yes | Instant. Defer while armed disarms and starts the defer. Pinned at `tests/components/admin/pendingIngestionActions.test.tsx:232` |
+| C → B | **no** | Both buttons are `disabled` while running (`components/admin/PendingPanelDiscardButtons.tsx:113`, `components/admin/PendingPanelDiscardButtons.tsx:124`) |
+| B → D | yes | Instant. The second Ignore tap fires the discard; disarm and run set in one handler, so no resting frame renders |
+| D → B | **no** | Same disabled-while-running reason |
+| B → E | **no** | `handleClick` disarms before it can set an error, so the path is B → D → E |
+| E → B | **no** | Arming from a plain error lands in F, not B — `state` is untouched |
+| B → F, F → B | **no** | `state` cannot move between `idle` and `error` without a running cell in between |
+| C → D, D → C | **no** | `handleClick` returns early while a run is in flight (`components/admin/PendingPanelDiscardButtons.tsx:72`); one mutation at a time by construction |
+| C → E | yes | Instant. The error block mounts below the row (`components/admin/PendingPanelDiscardButtons.tsx:144-153`). No enter animation today |
+| E → C | yes | Instant. Tapping Defer from a plain error starts a defer directly — Defer is one-tap and needs no arming |
+| D → E | yes | Instant, same as C → E |
+| E → D | **no** | From a plain error the first Ignore tap arms into F; only F → D fires the discard |
+| C → F, D → F | **no** | A run resolves into E, never into F, because resolving does not arm |
+| F → C | yes | Instant. Defer from the compound state disarms and starts a defer. §6.2 test 11 |
+| F → D | yes | Instant. The second Ignore tap from the compound state fires the discard. §6.2 test 11 |
+| E → F | yes | Tapping Ignore while an error shows arms the button **and the error block stays mounted** — it describes the previous failed attempt, which is still true. §6.2 test 9 |
+| F → E | yes | The 4s timer clears `armed` only, leaving `state.kind === "error"` (`components/admin/PendingPanelDiscardButtons.tsx:60-63`). The compound decays to plain error, never to idle. §6.2 test 10 |
 
-Exits from F that are **not** pairs with A–E but matter operationally: F→C (Defer from the compound state) and F→D (second Ignore from the compound state). Both instant, both covered by §6.2 test 11.
-
-**Correction carried from review:** an earlier draft had a row claiming `error/false → running-*` was instant, with a new attempt replacing the error state. That was wrong for Ignore. From E, the first Ignore activation **arms** and returns (`components/admin/PendingPanelDiscardButtons.tsx:56-64`); only E→C (Defer) is a direct run. E→D always goes through F.
+Reachable edges: A→B, B→A, A→C, C→A, D→A, B→C, B→D, C→E, E→C, D→E, F→C, F→D, E→F, F→E — **fourteen**. Every one has a treatment above; `E → C` in particular is a real edge the previous draft omitted entirely, and §6.2 test 12 covers it.
 
 **Compound transitions across the fork:**
 
 | Case | Treatment |
 |---|---|
 | Container crosses 576px while **armed** | `armed` lives above both copies, so the newly-shown copy renders already-armed. The single `armTimerRef` (`components/admin/PendingPanelDiscardButtons.tsx:48`) is shared, so no re-arm and no timer reset. Note both copies stay **mounted** throughout — this is a display swap, not a mount, and the morph transition does not replay. §6.2 test 4. |
-| Container crosses 576px while **focused** | The focused button becomes `display:none` and focus falls to `<body>`. This is a real consequence of the fork and is handled explicitly in §4.9 rather than left implicit. |
+| Container crosses 576px while **focused** | The focused button becomes `display:none` and focus falls to `<body>`. **Not fixed by this spec** — accepted limitation, filed as `BL-DESTRUCT-FORK-FOCUS-TRANSFER` (§4.9). No test asserts a transfer, because no transfer ships. |
 | Container crosses 576px while **running** | `state` is shared, so the newly-shown copy renders `Deferring…`/`Ignoring…` and `disabled` immediately. |
 | 4s auto-revert fires mid-resize | No interaction; the timer is width-independent and clears one shared flag. |
 | Unmount while armed | `useEffect(() => clearArmTimer, [])` (`components/admin/PendingPanelDiscardButtons.tsx:55`) clears it. **Unchanged**; pinned at `tests/components/admin/pendingIngestionActions.test.tsx:269`. |
@@ -353,7 +362,9 @@ A site may opt out with an inline `// not-arm-revert: <reason>` comment.
 | B3 | **Exemption scope.** A file-level raw-source check lets one legitimate `// not-arm-revert:` suppress every unrelated timer in the same file | The exemption binds to the **call**, not the file: it must appear on the scheduler call's own line or the line immediately above, and each exemption is consumed by exactly one call. Two timers need two comments |
 | B4 | **Silent zero-detection.** A regex that matches nothing passes forever; a synthetic self-check can pass while multiline or nested-callback calls are skipped | T2 asserts the **count** of detected scheduler calls per registry file against a checked-in expected count, so a detector that stops seeing real calls fails. The self-check covers single-line, multiline, and nested-callback shapes, plus a negative case per bypass above |
 
-B4's count assertion is the one that makes the rest trustworthy: without it, every other closure could silently stop matching and the suite would still be green.
+| B5 | **Wrapper helpers.** `delay(CONFIRM_TIMEOUT)`, `scheduleRevert(cb, CONFIRM_TIMEOUT)`, or a `useTimeout(cb, CONFIRM_TIMEOUT)` hook schedules a revert without naming any scheduler in the set. B4's per-file count does not catch it either: a **newly** registered surface legitimately starts at zero detected calls, so it passes with nothing to compare against | T2 additionally fails a registry file that **references an unallowlisted identifier in any call-argument position** where the identifier's name matches `/(?:MS|_MS|TIMEOUT|DELAY|INTERVAL)$/`. That is a heuristic, and it is declared as one: it catches the named-constant shape these wrappers need, not every possible indirection |
+
+B4's count assertion makes B1-B3 trustworthy: without it, those closures could silently stop matching and the suite would stay green. B5 is deliberately a heuristic rather than a proof — see §5.3, which no longer claims the unregistered surface is the only hole.
 
 **T3 — value pin.** `ARM_REVERT_MS === 4_000`, with the ratification cited in the failure message so a future edit to the shared value is a loud test failure rather than a quiet change.
 
@@ -378,7 +389,7 @@ Per R6, `SUCCESS_DISMISS_MS` keeps its own per-file value and is **not** unified
 
 ### 6.1 What jsdom cannot prove
 
-jsdom applies no CSS (`feedback_jsdom_no_css_tobevisible_vacuous`). `toBeVisible()` on a `hidden @min-[576px]:flex` node is vacuous there, and `getBoundingClientRect()` returns zeros for everything. Therefore **every** claim in §4.7 — one copy per container width, stacked order, width stretch, box equality, and the focus transfer of §4.9 — is a real-browser assertion. jsdom covers only structure, labels, classes, and handler behaviour.
+jsdom applies no CSS (`feedback_jsdom_no_css_tobevisible_vacuous`). `toBeVisible()` on a `hidden @min-[576px]:flex` node is vacuous there, and `getBoundingClientRect()` returns zeros for everything. Therefore **every** claim in §4.7 — one copy per container width, stacked order, width stretch, box equality — is a real-browser assertion. jsdom covers only structure, labels, classes, and handler behaviour.
 
 ### 6.2 jsdom (`tests/components/admin/pendingIngestionActions.test.tsx`)
 
@@ -401,11 +412,12 @@ New tests, each stating the concrete failure mode it catches:
 | 8 | `compareDocumentPosition` ordering within each copy | DOM order wrong even when classes are right |
 | 9 | arming while an error is displayed keeps the `role="alert"` block, with unchanged text | a fork that resets `state` on arm, swallowing the explanation of the failure the operator is looking at |
 | 10 | from error+armed, advancing the 4s timer clears `armed` and **leaves** the error block mounted | a timer that resets `state` as well, or an inventory that assumed the compound decays to idle |
-| 11 | from error+armed: clicking Defer starts a defer; separately, a second Ignore click fires exactly one discard | the two compound-state exits, neither previously covered |
+| 11 | from error+armed: clicking Defer starts a defer; separately, a second Ignore click fires exactly one discard | the two compound-state exits (F→C, F→D), neither previously covered |
+| 12 | from a **plain** error, clicking Defer starts a defer directly | the E→C edge, omitted from every earlier draft of the inventory. Defer is one-tap and needs no arming, so this is a distinct path from F→C |
 
 2a and 2b are deliberately complementary: parity catches divergence, the literal allowlist catches shared regression. Neither alone is sufficient, and the plan does not claim otherwise.
 
-Focus transfer (§4.9) is **not** asserted here — jsdom has no layout, so no container-width crossing can occur. It is a real-browser assertion in §6.3.
+Focus behaviour is not asserted here or anywhere: §4.9 descopes the transfer, so there is no shipped effect to assert. jsdom could not host it in any case.
 
 ### 6.3 Real browser (`tests/e2e/pendingDiscardReflow.layout.spec.ts`)
 
@@ -432,7 +444,6 @@ Assertions:
 - **328px, `nobasis-328-*`:** the reflow control runs at **328px**, not 280px. At 280px the idle pair (315.95px) is already wrapped, so arming cannot reproduce the original same-row-to-new-row **relocation** — only width growth. 328px is the geometry the DESTRUCT-1 defect was measured at (`docs/superpowers/specs/admin/2026-07-17-destruct1-armed-reflow.md:24`), so the control proves what it claims to prove.
 - **576px and 720px, D3:** inline copy live, stacked measures `0×0`; `defer.right ≤ ignore.left + TOL`; and **idle and armed both occupy a single row** (`ignore.top === defer.top`). The armed assertion at exactly 576px is the threshold guard of §4.2 — if a platform's font metrics push the armed total past the threshold, this fails loudly instead of wrapping silently.
 - **576px and 720px, D6:** armed inline Ignore left and top equal idle's within 0.5px; width may grow.
-- **Focus transfer (§4.9):** focus the stacked Ignore in a 280px panel, widen the wrapper past 576px, and assert `document.activeElement` is the **inline** Ignore, not `<body>`. Then the reverse direction. This is the only place the focus contract can be proven, since it depends on real layout.
 - **Drift-guard (rewritten from `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`):** the shipped source contains `@container`, `flex`, `items-stretch`, `@min-[576px]:hidden`, `@min-[576px]:flex`, and contains **no** `basis-full` and no `sm:basis-auto`. The negative half is what makes the guard bite; asserting only presence would pass with the old markup still alongside.
 
 **Threshold single-sourcing.** `576` appears in the component, in the drift-guard, and in the panel widths. The spec's §4.2 table is its definition; the plan requires the harness to derive panel widths from one local constant so a future change to the threshold cannot leave a panel testing the old boundary.
@@ -489,7 +500,7 @@ All three original rows are gone. The family section and its preceding `---` rul
 | A screen reader announces the arm twice | low | Live region rendered once, outside both copies (§4.3); asserted by §6.2 test 6 |
 | The two copies drift apart | low | Single `pair()` helper; parity tests §6.2 tests 2a/3 |
 | The two copies drift together | low | Canonical-token allowlist, §6.2 test 2b — parity alone cannot see this |
-| Keyboard focus lost when the container crosses 576px | medium | Focus transfer to the counterpart control (§4.9); asserted in a real browser (§6.3) |
+| Keyboard focus lost when the container crosses 576px | low, **accepted** | Not mitigated. Descoped in §4.9 and filed as `BL-DESTRUCT-FORK-FOCUS-TRANSFER`; controls stay reachable by re-tabbing, same tier as the accepted P2 on a sibling control |
 | Both copies displayed at some width | very low | `@min-[576px]:hidden` / `hidden @min-[576px]:flex` are exact complements; asserted in a real browser at 280 / 576 / 720px container widths (§6.3) |
 | Removing `basis-full` reintroduces the DESTRUCT-1 reflow | low | D4 assertion retained with its negative control; the rewritten drift-guard asserts `basis-full` is *absent*, so the two cannot both be true |
 | Test-id rename misses a consumer | low | Consumers enumerated in §2.4 by grep; the bare ids cease to exist, so a missed consumer fails loudly rather than matching two nodes |
