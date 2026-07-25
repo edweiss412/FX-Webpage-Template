@@ -460,8 +460,11 @@ The binding therefore covers **every input to armed geometry**, each compared to
 |---|---|
 | armed Ignore `className` | the armed skin itself |
 | armed Ignore **label text** | a longer label changes the armed width, which is the whole point of D6 |
+| **Defer** `className` **and label text** | the armed row's total is Defer + gap + armed Ignore. Defer's padding or a longer label pushes that total past the threshold just as surely as the Ignore side does — this row was missing from the first draft of the binding and is exactly the same class of hole as the `gap-24` one |
 | **both branch container** `className`s | the `gap-24` hole: gap and wrap behaviour set whether the armed row fits |
 | the `@container` root `className` | `w-full` and the threshold both live here |
+
+The rule the table encodes: **every element whose box contributes to the armed row's total width, plus every class that governs how that row wraps, is bound.** Anything measured in §6.3.b that is not in this list is unbound and therefore a false-green path.
 
 If any of those diverge from the harness constants, the binding test fails and the geometry panels are known stale. Transcription without a binding assertion is what rounds 2 and 3 rejected; transcription bound across every geometry input is a checkable indirection.
 
