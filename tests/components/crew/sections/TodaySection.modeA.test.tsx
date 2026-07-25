@@ -33,6 +33,7 @@ import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import type { AgendaExtraction } from "@/lib/agenda/types";
 import type { AgendaEntry } from "@/lib/parser/types";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "./_ledgerProp";
 
 const SHOW_ID = "show-abc";
 
@@ -111,6 +112,7 @@ test("unknown_asterisk on a populated show-day → Mode B, NO run-of-show timeli
 
   const { container } = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -154,7 +156,13 @@ test("eligible none-viewer on today's show day with entries → Mode A split-wid
   });
 
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
 
   // The run-of-show container for today's show-tz ISO renders (LEFT column).
@@ -195,7 +203,13 @@ test("Mode A with run-of-show but NO quick cards → no split class, no empty ri
   });
 
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
 
   // Mode A still mounts (run-of-show present) and the timeline renders.
@@ -223,7 +237,13 @@ test("Mode A WITH a quick card → split class present + right track div renders
   });
 
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
 
   const grid = container.querySelector('[data-testid="today-mode-a-grid"]');
@@ -267,7 +287,13 @@ test("final full-width else (anchors, no quick cards) → Key times uses the STA
   });
 
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
 
   // Neither grid mounts: not Mode A, and hasRight is false so not the Mode B grid.
@@ -305,7 +331,13 @@ test("Mode B grid → Key times keeps the ROW layout in its bounded 1.6fr column
   });
 
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
 
   const left = container.querySelector('[data-testid="today-day-context"]');
@@ -354,7 +386,13 @@ test("Mode A keys off the SHOW-tz ISO across the UTC midnight boundary, not UTC"
   });
 
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={FROZEN} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={FROZEN}
+      showId={SHOW_ID}
+    />,
   );
 
   // The run-of-show container is keyed to the SHOW-tz day, NOT the UTC day.
@@ -378,7 +416,13 @@ test("no runOfShow → Mode B (no run-of-show container, no split grid)", () => 
   });
 
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
 
   expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeNull();
@@ -408,7 +452,13 @@ test("runOfShow populated for today but todayIso NOT in show's days → Mode B (
   expect(aggregateDays(data.show.dates).some((d) => d.date === TODAY_ISO)).toBe(false);
 
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
 
   expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeNull();
@@ -459,7 +509,13 @@ test("non-show-day with key-times + cards → Mode B persistent split-wide grid 
   });
 
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
 
   // Mode A grid must NOT mount (no run-of-show); the Mode B grid MUST.
@@ -506,7 +562,13 @@ test("Today card chrome: section-card icons + a Booked pill on Tonight + a Full-
   });
 
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
 
   // Per-tile leading icon (mock `.card-head .ico` slot) on the Tonight card.
@@ -576,7 +638,13 @@ test("agenda-only show day (no crew entries) → Mode A renders the timeline, no
     TODAY_ISO,
   ).length;
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const card = container.querySelector('[data-testid="today-run-of-show"]') as HTMLElement;
   expect(within(card).getByTestId(`show-day-timeline-${TODAY_ISO}`)).toBeTruthy();
@@ -600,7 +668,13 @@ test("merged day → both crew agenda-entry and timeline-agenda-session present"
     agendaLinkForToday(TODAY_ISO, [{ time: "9:00 AM – 9:40 AM", title: "Keynote" }]),
   ];
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const card = within(container.querySelector('[data-testid="today-run-of-show"]') as HTMLElement);
   expect(card.getAllByTestId("agenda-entry").length).toBeGreaterThan(0);
@@ -621,7 +695,13 @@ test("crew-only day (no agenda_links) → plain RunOfShowList, no timeline (acti
   });
   // agenda_links stays [] → agendaToday = [] → activation rule keeps the plain list.
   const { container } = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeTruthy();
   expect(container.querySelector(`[data-testid="show-day-timeline-${TODAY_ISO}"]`)).toBeNull();
@@ -661,6 +741,7 @@ test("unknown_asterisk viewer + high-conf agenda for today → NO card, NO timel
   ];
   const { container } = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}

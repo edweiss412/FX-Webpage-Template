@@ -61,12 +61,15 @@ import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
+import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
 type VenueSectionProps = {
   data: ShowForViewer;
   viewer: Viewer;
   today: Date;
   showId: string;
+  /** Per-request tile ledger, threaded from _CrewShell. */
+  ledger: TileRenderLedger;
   cardReport?: CardReportContext;
 };
 
@@ -91,6 +94,7 @@ export function VenueSection({
   data,
   viewer,
   showId,
+  ledger,
   cardReport = DEFAULT_CARD_REPORT,
 }: VenueSectionProps): JSX.Element {
   // Single canonical viewer resolution. admin → all-flags + none-restriction;
@@ -327,6 +331,7 @@ export function VenueSection({
   const diagramsBlock = hasDiagrams ? (
     <div data-testid="venue-diagrams" data-card-id="venue-diagrams">
       <WrappedSection
+        ledger={ledger}
         tileId="crew:venue:diagrams"
         showId={showId}
         sheetName={data.show.title}

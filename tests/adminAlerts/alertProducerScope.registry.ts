@@ -166,13 +166,13 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
   },
   {
-    site: "app/api/auth/picker-bootstrap/route.ts:72",
+    site: "app/api/auth/picker-bootstrap/route.ts:73",
     contextKeys: ["route", "rpc_error_code", "rpc_error_message", "slug", "stage"],
     code: "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
     scope: "global",
   },
   {
-    site: "app/api/auth/picker-bootstrap/route.ts:99",
+    site: "app/api/auth/picker-bootstrap/route.ts:100",
     contextKeys: [
       "attempted_email_hash",
       "route",
@@ -185,7 +185,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId hard-coded null despite context.show_id present",
   },
   {
-    site: "app/auth/callback/route.ts:134",
+    site: "app/auth/callback/route.ts:146",
     contextKeys: [
       "claimed_at_millis",
       "crew_member_id",
@@ -197,13 +197,13 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "app/auth/callback/route.ts:163",
+    site: "app/auth/callback/route.ts:175",
     contextKeys: ["error_name"],
     code: "CALLBACK_CLAIM_THREW",
     scope: "global",
   },
   {
-    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:160",
+    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:162",
     contextKeys: ["failedKeys", "message", "sheet_name", "tileId"],
     code: "TILE_PROJECTION_FETCH_FAILED",
     scope: "per-show",
@@ -218,6 +218,13 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
     dynamic: true,
     note: "const; tx.upsertAdminAlert passes no showId -> null",
+  },
+  {
+    site: "lib/crew/sweepTileRenderAlerts.ts:51",
+    contextKeys: ["tileId", "message", "sheet_name", "viewerKey"],
+    code: "TILE_SERVER_RENDER_FAILED",
+    scope: "per-show",
+    note: "post-response tile sweep; viewerKey is the observer discriminator",
   },
   {
     site: "lib/reports/submit.ts:759",

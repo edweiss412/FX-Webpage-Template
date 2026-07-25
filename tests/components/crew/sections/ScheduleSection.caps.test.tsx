@@ -7,6 +7,7 @@ import {
 } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { AgendaEntry } from "@/lib/parser/types";
+import { ledgerProp } from "./_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -17,6 +18,7 @@ const VIEWER = { kind: "admin" } as const;
 function renderEntries(entries: AgendaEntry[]) {
   return render(
     <ScheduleSection
+      {...ledgerProp()}
       data={makeShowForViewer({
         show: { dates: DATES },
         // runOfShow is now Record<string, ScheduleDay> (Task 2): lift the bare

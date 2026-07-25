@@ -52,15 +52,16 @@ export default defineConfig({
       // generic dev server on port 3000 because the public /show/[slug]
       // route doesn't depend on any of the dev-build / prod-build env gates.
       name: "mobile-safari",
-      // M11.5-PLAYWRIGHT-HELPERS Block-2.3 (2026-05-27): added `picker-flow`
-      // to the mobile-safari testMatch so the 1 currently-active test
-      // (slug-only-URL 404, per R35 / C1 route move) actually runs in CI.
-      // The 5 `.skip` stubs in picker-flow.spec.ts stay skipped pending
-      // a dedicated dispatch that writes the missing helper layer
-      // (seedShowWithCrew, seedPickerCookie, claimStamp). See
-      // Phase 0.A Block-2 close-out doc for the deferral details.
+      // `picker-flow` deliberately does NOT run here — it is in desktop-chromium.
+      // Measured 2026-07-25: over plain http WebKit refuses to STORE the server's
+      // own Set-Cookie for the `__Host-`-prefixed, Secure picker envelope, so the
+      // first-contact bootstrap and any real selection never persist and a
+      // correct implementation reads as broken. Chromium's localhost exemption
+      // DOES store it, which is why the suite lives there. (Chromium has the
+      // mirror-image limit — its CDP rejects addCookies for a `__Host-` cookie —
+      // so that suite stages state by driving the picker instead of injecting.)
       testMatch:
-        /(sample|crew-page|crew-section-toggle|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|picker-flow|stage-restricted-crew-schedule|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
+        /(sample|crew-page|crew-section-toggle|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|stage-restricted-crew-schedule|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },
@@ -74,7 +75,7 @@ export default defineConfig({
     {
       name: "desktop-chromium",
       testMatch:
-        /(sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|bell-panel-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|roles-settings-layout|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|published-review-modal\.reopen|published-review-modal\.closeFreshness|published-review-modal\.realtime|published-review-modal\.crew-actions|step3-review-modal\.interactions|warning-panel-polish|dev-capture|published-show-attention)\.spec\.ts/,
+        /(picker-flow|sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|bell-panel-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|roles-settings-layout|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|published-review-modal\.reopen|published-review-modal\.closeFreshness|published-review-modal\.realtime|published-review-modal\.crew-actions|step3-review-modal\.interactions|warning-panel-polish|dev-capture|published-show-attention)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
@@ -389,8 +390,10 @@ export default defineConfig({
     // Boot ONLY the :3004 webServer for the help-affordances walker (see the
     // long comment above the webServer array).
     if (process.env.HELP_DOCS_WALKER_ONLY) return server.url === "http://localhost:3004";
-    // Boot ONLY the :3000 baseline server for the crew-e2e CI job (mobile-safari
-    // project, crew-section-toggle.spec). Without this the :3001-:3004 servers
+    // Boot ONLY the :3000 baseline server for the crew-e2e CI job. That job runs
+    // crew-section-toggle.spec under mobile-safari AND picker-flow.spec under
+    // desktop-chromium; both projects point at :3000, so one server serves both.
+    // Without this the :3001-:3004 servers
     // also cold-build (4 wasted builds contending on the with-admin-dev-flag
     // lock); the crew specs only need :3000. See .github/workflows/crew-e2e.yml.
     // CREW_E2E_ONLY is the original (crew-e2e.yml) name; BASELINE_SERVER_ONLY is

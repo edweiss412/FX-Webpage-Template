@@ -191,7 +191,11 @@ describe("/api/auth/picker-bootstrap", () => {
     const res = await GET(request());
 
     expect(res.status).toBe(302);
-    expect(new URL(res.headers.get("location") ?? "").pathname).toBe(
+    // Host-relative Location: `new URL(relative)` with no base THROWS, so this
+    // compares the header directly. That relativeness is the fix — an absolute
+    // Location built from request.url could flip the host and drop the auth
+    // cookie (lib/http/hostRelativeRedirect.ts).
+    expect(res.headers.get("location")).toBe(
       "/show/sample-show/a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345",
     );
     const setCookie = res.headers.get("set-cookie") ?? "";

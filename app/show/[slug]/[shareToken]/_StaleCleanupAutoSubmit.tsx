@@ -41,8 +41,18 @@ export function StaleCleanupAutoSubmit({
   // Server Action into <form action> while keeping the action's return
   // value addressable (see app/admin/settings/admins/ReAddRowButton.tsx).
   // We don't read _result — the compare-and-delete contract is fire-
-  // and-forget; the cookie clears on the server, the route revalidates,
-  // and the user sees the fresh picker on next render.
+  // and-forget; the cookie clears on the server and the route revalidates.
+  //
+  // "and the user sees the fresh picker on next render" used to follow, and it
+  // is not reliably true: `cleanupStaleEntry` revalidates a PATH, and the picker
+  // is often reached at `?gate=skip`, whose entry that does not invalidate — the
+  // same defect fixed in this file's sibling form action, where a roster tap
+  // left the person on the picker until a reload. It is benign here because both
+  // the current and the intended screen ARE the picker, and the effect has an
+  // empty dep array so a stale render cannot re-submit in a loop; at worst a
+  // cleared stale-entry hint lingers until the next navigation. Tracked as
+  // BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT rather than changed here, because
+  // the stale path has no prod-build e2e to prove a fix against.
   const [_result, formAction] = useActionState<CleanupResult | null, FormData>(
     async (_prev, formData) => cleanupStaleEntry(formData),
     null,

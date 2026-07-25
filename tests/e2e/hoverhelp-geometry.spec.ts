@@ -20,7 +20,7 @@
  * clipping/visibility proof (BACKLOG.md documents it lying about clipping);
  * true visibility uses document.elementFromPoint.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type CDPSession, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -727,5 +727,226 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
     expect(onLink).toBe(true);
     await page.getByTestId("after-btn").click(); // focuses the button -> link focusout
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+/**
+ * T-VV: visual-viewport placement under real Chromium zoom
+ * (spec docs/superpowers/specs/2026-07-24-hoverhelp-visual-viewport.md §5).
+ *
+ * Zoom is driven with Emulation.setPageScaleFactor + Input.synthesizeScrollGesture
+ * (gestureSourceType "mouse"). NOT synthesizePinchGesture: spec §3.3 measured it as
+ * a silent no-op under this project's touchless Desktop Chrome, which would produce
+ * a test that passes while proving nothing.
+ */
+test.describe("T-VV visual viewport under zoom", () => {
+  type Vv = { w: number; h: number; offL: number; offT: number; scale: number };
+
+  const readVv = (page: Page): Promise<Vv> =>
+    page.evaluate(() => {
+      const v = window.visualViewport;
+      if (!v) throw new Error("no visualViewport in this engine");
+      return { w: v.width, h: v.height, offL: v.offsetLeft, offT: v.offsetTop, scale: v.scale };
+    });
+
+  const insideVisual = (b: Box, v: Vv): boolean =>
+    b.left >= v.offL && b.right <= v.offL + v.w && b.top >= v.offT && b.bottom <= v.offT + v.h;
+
+  /**
+   * Positive-area overlap between the anchor and the visible slice.
+   *
+   * REQUIRED precondition for any visual-clamp assertion: if the pan carried the
+   * anchor off screen, the CORRECT answer is the layout-bounds fallback (spec
+   * R4), so asserting visual clamping would be asserting a bug. Measured: an
+   * earlier 140px pan put the slice at offsetLeft 262 with the trigger at 148,
+   * and the resulting failure looked like a placement defect when it was the
+   * fallback behaving exactly as specified.
+   */
+  const anchorOnScreen = (t: Box, v: Vv): boolean =>
+    Math.min(t.right, v.offL + v.w) - Math.max(t.left, v.offL) > 0 &&
+    Math.min(t.bottom, v.offT + v.h) - Math.max(t.top, v.offT) > 0;
+
+  /**
+   * Zoom WITHOUT panning.
+   *
+   * A pan cannot serve the clamp cases: they need the anchor still ON screen
+   * (or the layout-bounds fallback is the correct answer, spec R4) AND the
+   * pre-zoom placement OFF screen (or the fixture cannot discriminate). Panning
+   * trades one against the other - measured both ways, a 140px pan carried the
+   * anchor off screen, and a 55px pan left the pre-zoom rect inside the slice.
+   * Zoom alone gives both: the anchor stays put while the 288px popover
+   * overhangs the narrowed slice. Panning is exercised by T-VV3, which asserts
+   * TRACKING rather than exact clamping.
+   */
+  /**
+   * Zoom, then ASSERT THE ACHIEVED SCALE.
+   *
+   * Chromium clamps the page scale at 3 in this project (measured: 4->3, 5->3,
+   * 6->3, 8->3, with visualViewport.width pinned at 426.7). A requested scale
+   * above the clamp silently yields a NON-discriminating fixture, which is the
+   * defect class round-4 F4 named, so the achieved value is asserted rather than
+   * assumed.
+   */
+  async function zoomOnly(page: Page, cdp: CDPSession, scale: number) {
+    await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: scale });
+    await page.waitForTimeout(400);
+    const achieved = await page.evaluate(() => window.visualViewport?.scale ?? 1);
+    expect(
+      achieved,
+      `page scale was clamped: requested ${scale}, achieved ${achieved}`,
+    ).toBeCloseTo(scale, 1);
+  }
+
+  async function panBy(page: Page, cdp: CDPSession, dx: number, dy: number) {
+    await cdp.send("Input.synthesizeScrollGesture", {
+      x: 40,
+      y: 40,
+      xDistance: dx,
+      yDistance: dy,
+      gestureSourceType: "mouse",
+    });
+    await page.waitForTimeout(400);
+  }
+
+  /**
+   * Open via KEYBOARD, never by click.
+   *
+   * The shared `clickOpen` leaves the pointer ON the trigger, and the pan below
+   * is a MOUSE gesture: moving the pointer away fires HoverHelp's pointerleave
+   * hover-close, after which every rect is a zero rect from a display:none node
+   * and the case is silently vacuous. MEASURED, not assumed - with click-open,
+   * post-pan state was {expanded:"false", display:"none"}. Focus+Enter never
+   * puts the pointer on the component, so the gesture cannot close it.
+   */
+  async function keyboardOpen(page: Page, kase: string, triggerId: string): Promise<void> {
+    await page.goto(`${baseUrl}/live.html?case=${kase}`);
+    await page.getByTestId("harness-ready").waitFor({ state: "attached" });
+    const trigger = page.getByTestId(`${triggerId}-trigger`);
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  }
+
+  /** Guards every case against measuring a closed popover. */
+  async function assertStillOpen(page: Page, triggerId: string): Promise<void> {
+    await expect(page.getByTestId(`${triggerId}-trigger`)).toHaveAttribute("aria-expanded", "true");
+  }
+
+  // Never let a failure leak zoom state into later tests in this serial file.
+  test.afterEach(async ({ page, context }) => {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 });
+  });
+
+  test("T-VV1 body host: exact coordinates inside the visual viewport", async ({
+    page,
+    context,
+  }) => {
+    // FIXTURE CHOICE IS LOAD-BEARING (measured survey of every candidate case):
+    // at the clamped scale 3 the slice is 427x240, and `capped-fit` is the only
+    // body-host case whose trigger (400,76) stays INSIDE it while its popover
+    // [400,102,688,486] overhangs BOTH edges. The obvious `top` case does not
+    // qualify - its popover ends at x=420, inside the 427px slice - so it can
+    // never discriminate no matter how the assertions are written.
+    await keyboardOpen(page, "capped-fit", "capped-help");
+    const before = await box(page, "capped-help-body");
+
+    const cdp = await context.newCDPSession(page);
+    await zoomOnly(page, cdp, 3);
+    const v = await readVv(page);
+    await assertStillOpen(page, "capped-help");
+
+    // The gesture must actually have moved the visual viewport, or every
+    // assertion below is measuring an unzoomed page (spec §3.3).
+    expect(v.scale).toBeGreaterThan(1);
+
+    // DISCRIMINATION PRECONDITION (spec §5 / round-2 F4): with the pre-change
+    // code, `window` scroll never fires on a zoom-pan, so the popover stays
+    // exactly where `before` recorded it. If that rect were still inside the
+    // visual viewport, this fixture could not tell a correct implementation
+    // from the old one, and a green assertion below would prove nothing.
+    expect(insideVisual(before, v)).toBe(false);
+
+    const trig = await box(page, "capped-help-trigger");
+    expect(
+      anchorOnScreen(trig, v),
+      "anchor panned off screen: fallback is correct here, so a visual-clamp assertion would be wrong",
+    ).toBe(true);
+    const boundsLeft = v.offL + VIEWPORT_INSET;
+    const boundsRight = v.offL + v.w - VIEWPORT_INSET;
+    const after0 = await box(page, "capped-help-body");
+    const width = after0.width;
+    const expectedLeft = Math.min(Math.max(trig.left, boundsLeft), boundsRight - width);
+
+    const after = after0;
+    expect(after.left).toBeCloseTo(expectedLeft, 1);
+    expect(after.top).toBeCloseTo(trig.bottom + GAP, 1);
+    expect(insideVisual(after, v)).toBe(true);
+  });
+
+  test("T-VV2 panel host: bounds are panel intersect visible slice", async ({ page, context }) => {
+    await keyboardOpen(page, "pane", "pane-help");
+    const before = await box(page, "pane-help-body");
+
+    const cdp = await context.newCDPSession(page);
+    await zoomOnly(page, cdp, 3);
+    const v = await readVv(page);
+    await assertStillOpen(page, "pane-help");
+    expect(v.scale).toBeGreaterThan(1);
+    expect(insideVisual(before, v)).toBe(false);
+
+    const paneTrig = await box(page, "pane-help-trigger");
+    expect(anchorOnScreen(paneTrig, v), "anchor panned off screen").toBe(true);
+    const pane = await box(page, "pane");
+    const after = await box(page, "pane-help-body");
+    // Inside BOTH the panel and the visible slice - the intersection is the bounds.
+    expect(insideVisual(after, v)).toBe(true);
+    expect(after.left).toBeGreaterThanOrEqual(Math.max(pane.left, v.offL) - TOL);
+    expect(after.right).toBeLessThanOrEqual(Math.min(pane.right, v.offL + v.w) + TOL);
+  });
+
+  test("T-VV3 pan tracking: the popover follows a second pan", async ({ page, context }) => {
+    await keyboardOpen(page, "capped-fit", "capped-help");
+    const cdp = await context.newCDPSession(page);
+    await zoomOnly(page, cdp, 3);
+    await panBy(page, cdp, -55, -40);
+    const firstVv = await readVv(page);
+    await assertStillOpen(page, "capped-help");
+    const first = await box(page, "capped-help-body");
+
+    await panBy(page, cdp, -60, -45);
+    const secondVv = await readVv(page);
+    await assertStillOpen(page, "capped-help");
+
+    // The second gesture must have moved it, or "it followed" is unfalsifiable.
+    expect(secondVv.offL + secondVv.offT).toBeGreaterThan(firstVv.offL + firstVv.offT);
+
+    const second = await box(page, "capped-help-body");
+    expect(insideVisual(second, secondVv)).toBe(true);
+    expect(second.left === first.left && second.top === first.top).toBe(false);
+  });
+
+  test("T-VV4 unzoomed restore: geometry returns to the pre-zoom rect", async ({
+    page,
+    context,
+  }) => {
+    // FIXTURE CHOICE IS LOAD-BEARING (measured survey of every candidate case):
+    // at the clamped scale 3 the slice is 427x240, and `capped-fit` is the only
+    // body-host case whose trigger (400,76) stays INSIDE it while its popover
+    // [400,102,688,486] overhangs BOTH edges. The obvious `top` case does not
+    // qualify - its popover ends at x=420, inside the 427px slice - so it can
+    // never discriminate no matter how the assertions are written.
+    await keyboardOpen(page, "capped-fit", "capped-help");
+    const before = await box(page, "capped-help-body");
+
+    const cdp = await context.newCDPSession(page);
+    await zoomOnly(page, cdp, 3);
+    await panBy(page, cdp, -55, -40);
+    await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 });
+    await page.waitForTimeout(400);
+
+    const after = await box(page, "capped-help-body");
+    expect(after.left).toBeCloseTo(before.left, 1);
+    expect(after.top).toBeCloseTo(before.top, 1);
   });
 });

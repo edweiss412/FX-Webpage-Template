@@ -394,9 +394,9 @@ describe(
       const scanned = scanTree();
       expect(
         scanned.length,
-        "expected 53 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
-          "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts",
-      ).toBe(53);
+        "expected 54 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
+          "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts + tests/db/tileAlertResolution.db.test.ts",
+      ).toBe(54);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {

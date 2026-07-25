@@ -3495,7 +3495,7 @@ export const MESSAGE_CATALOG = {
     code: "SIGN_IN_OR_SKIP_PROMPT_MISMATCH",
     dougFacing: null,
     crewFacing:
-      "You're signed in with a Google account that isn't on this show's roster. Sign in with the account for this show, or continue as guest to pick from the roster.",
+      "You're signed in with a Google account that isn't on this show's roster. Sign in with the account for this show, or continue as guest, which signs this device out so you can pick your name from the roster.",
     followUp: "Crew → sign out or continue as guest",
     helpfulContext: null,
     title: null,
