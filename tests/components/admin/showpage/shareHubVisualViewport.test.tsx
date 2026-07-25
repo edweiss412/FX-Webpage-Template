@@ -30,6 +30,7 @@ const CREW = [{ id: "c1111111-1111-4111-8111-111111111111", name: "Alice", role:
 type FrameCb = (t: number) => void;
 let frames: Map<number, FrameCb>;
 let nextId: number;
+let cancelled: number[];
 
 class VisualViewportStub extends EventTarget {
   width: number;
@@ -69,12 +70,16 @@ const define = (obj: object, prop: string, value: unknown) =>
 beforeEach(() => {
   frames = new Map();
   nextId = 1;
+  cancelled = [];
   vi.stubGlobal("requestAnimationFrame", (cb: FrameCb): number => {
     const id = nextId++;
     frames.set(id, cb);
     return id;
   });
-  vi.stubGlobal("cancelAnimationFrame", (id: number): void => void frames.delete(id));
+  vi.stubGlobal("cancelAnimationFrame", (id: number): void => {
+    cancelled.push(id);
+    frames.delete(id);
+  });
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -152,6 +157,25 @@ describe("T-S2/T-S3: ShareHub subscribes to the visual viewport and then stops",
     vv.dispatchEvent(new Event("scroll"));
     vv.dispatchEvent(new Event("resize"));
     expect(frames.size).toBe(0);
+  });
+});
+
+describe("T-S8: the coalescer THROTTLES, it does not debounce", () => {
+  test("a burst of visualViewport events keeps ONE pending frame and cancels none", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    openHub();
+    frames.clear();
+    cancelled = [];
+
+    // A real pan fires ~80 of these (spec §3.1), faster than a frame boundary.
+    for (let i = 0; i < 20; i++) vv.dispatchEvent(new Event("scroll"));
+
+    // Debounce signature: 19 cancellations and a frame that keeps sliding, so
+    // the panel does not move until the gesture STOPS. Throttle signature: the
+    // first event's frame survives and runs on the next tick.
+    expect(cancelled, "coalescer cancelled a pending frame mid-burst (debounce)").toEqual([]);
+    expect(frames.size, "burst must collapse to exactly one pending frame").toBe(1);
   });
 });
 

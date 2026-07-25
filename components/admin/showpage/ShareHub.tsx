@@ -361,10 +361,21 @@ export function ShareHub({
 
   useLayoutEffect(() => {
     if (!open) return;
-    let frame = 0;
+    // THROTTLE, not debounce (impeccable audit P1). Cancel-and-reschedule was
+    // fine while the only source was `window.resize`, which fires slowly. This
+    // effect now also subscribes to `visualViewport` scroll, measured at ~80
+    // events for a single pan (spec §3.1) - faster than a frame boundary, so a
+    // debounce would cancel its own pending frame on every event and the panel
+    // would not move until the gesture STOPPED, defeating the pan-tracking this
+    // change exists to provide. Leading-edge coalescing matches HoverHelp's
+    // schedule() and guarantees one measurement per frame during the gesture.
+    let frame: number | null = null;
     const schedule = () => {
-      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(applyPlacement);
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null; // cleared BEFORE running so later events can schedule anew
+        applyPlacement();
+      });
     };
     applyPlacement();
     window.addEventListener("resize", schedule);
@@ -403,7 +414,7 @@ export function ShareHub({
     if (bodyObserver && panelRef.current) bodyObserver.observe(panelRef.current);
     return () => {
       bodyObserver?.disconnect();
-      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+      if (frame !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
       window.removeEventListener("resize", schedule);
       vv?.removeEventListener("scroll", schedule);
       vv?.removeEventListener("resize", schedule);
