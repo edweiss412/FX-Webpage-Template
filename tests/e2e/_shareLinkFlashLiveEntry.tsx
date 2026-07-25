@@ -32,8 +32,8 @@ import {
   type AppRouterInstance,
 } from "next/dist/shared/lib/app-router-context.shared-runtime";
 
-import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { StatusStrip, type StatusStripProps } from "@/components/admin/showpage/StatusStrip";
+import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { DevActionOverrideContext } from "@/components/admin/dev/actionOverrideContext";
 
@@ -73,10 +73,19 @@ function stripProps(): StatusStripProps {
   };
 }
 
-/** ReviewModalShell's panel, reduced to the properties that matter for the
- *  cascade and the portal: the clip container that hosts the popover. */
+/**
+ * The REAL ReviewModalShell, with the REAL StatusStrip in its subHeader slot.
+ *
+ * A hand-built panel carrying `data-review-modal-panel` was not enough: round-2
+ * whole-diff review pointed out that a rule scoped to the shell's own
+ * `-subheader` wrapper would kill the production cue while a synthetic harness
+ * stayed green, because the synthetic panel reproduced only the one attribute
+ * the adversary happened to target. Mounting the shell means the ancestry under
+ * test is the ancestry that ships — including the subheader wrapper, the panel's
+ * clip, and the PopoverHostContext the popover portals into.
+ */
 function Harness() {
-  const panelRef = useRef<HTMLDivElement>(null);
+  const focusRef = useRef<HTMLButtonElement>(null);
   const [rotations, setRotations] = useState(0);
 
   // Successive tokens, so a second rotate is a genuinely different URL. The
@@ -91,21 +100,28 @@ function Harness() {
     <AppRouterContext.Provider value={stubRouter}>
       <ShareTokenProvider initialToken={T1} initialEpoch={5}>
         <DevActionOverrideContext.Provider value={{ rotateShareToken }}>
-          <div
-            ref={panelRef}
-            data-review-modal-panel=""
-            className="relative mx-auto mt-10 w-[720px] overflow-clip rounded-md border border-border bg-surface shadow-popover"
+          <ReviewModalShell
+            open
+            onClose={() => {}}
+            labelledBy="flash-harness-title"
+            dataAttrPrefix="review-modal"
+            testIdBase="published-show-review"
+            initialFocusRef={focusRef}
+            header={
+              <h2 id="flash-harness-title" className="text-sm font-semibold text-text-strong">
+                Flash Harness Show
+              </h2>
+            }
+            subHeader={<StatusStrip {...stripProps()} />}
           >
-            <PopoverHostContext.Provider value={panelRef}>
-              <div className="border-b border-border px-4 py-2">
-                <StatusStrip {...stripProps()} />
-              </div>
-              <div className="h-[420px] px-4 py-3 text-sm text-text-subtle">
-                Panel body — the popover portals into this panel, so its clip and stacking context
-                are the ones production uses.
-              </div>
-            </PopoverHostContext.Provider>
-          </div>
+            <div className="h-[420px] px-4 py-3 text-sm text-text-subtle">
+              Panel body. The popover portals into this panel, so its clip and stacking context are
+              the ones production uses.
+              <button ref={focusRef} type="button" className="sr-only">
+                focus anchor
+              </button>
+            </div>
+          </ReviewModalShell>
         </DevActionOverrideContext.Provider>
       </ShareTokenProvider>
     </AppRouterContext.Provider>

@@ -15,7 +15,7 @@
  *     browser, lab environment). On failure, the visible URL is still
  *     selectable for manual copy — no destructive consequence.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /**
  * Style axis (modal-header-reconciliation §6.4). Replaces the former boolean
@@ -79,10 +79,16 @@ export function ShareLinkCopyButton({
   }
 
   // Read by the async handler to tell "still the url I wrote" from "rotated
-  // under me". Written in an effect, not during render: the compiler forbids
-  // touching a ref in the render path.
+  // under me". Written in a LAYOUT effect, which React flushes synchronously
+  // after commit and before paint — a passive `useEffect` runs after paint, and
+  // round-2 review showed a promise resolving in that window compares against
+  // the stale ref, wins, and re-announces "Copied" beside the new url. The
+  // render-phase reset above cannot undo it, because `seenUrl` already holds the
+  // new url by then.
+  //
+  // Not writable during render: the compiler forbids touching a ref there.
   const urlRef = useRef(url);
-  useEffect(() => {
+  useLayoutEffect(() => {
     urlRef.current = url;
   }, [url]);
 

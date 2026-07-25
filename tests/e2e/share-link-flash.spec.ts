@@ -134,18 +134,43 @@ async function rotate(page: Page) {
   await page.getByTestId("admin-rotate-share-token-confirm-button").click();
 }
 
-/** Every animation-name currently resolved anywhere inside the panel. */
-async function animatingNames(page: Page): Promise<Set<string>> {
-  const names = await page.evaluate(() => {
+/**
+ * One entry per ANIMATING ELEMENT inside the panel, not a set of names.
+ *
+ * A `Set` of names cannot see a newly mounted element that reuses an animation
+ * already running before the rotate — the harness runs `sync-heartbeat`, so a
+ * flash-only sibling using it left the delta exactly equal to the two cue tracks
+ * and the check passed (round-2 review). Counting per element closes that:
+ * mounting anything animated changes the census whatever it animates with.
+ */
+async function animationCensus(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
     const panel = document.querySelector("[data-review-modal-panel]");
     const out: string[] = [];
     for (const el of Array.from(panel?.querySelectorAll("*") ?? [])) {
       const n = getComputedStyle(el).animationName;
-      if (n && n !== "none") out.push(...n.split(",").map((x) => x.trim()));
+      if (!n || n === "none") continue;
+      // Identify the element, not just its animation, so two elements sharing a
+      // name are two entries.
+      const id =
+        el.getAttribute("data-testid") ??
+        `${el.tagName.toLowerCase()}.${(el.className || "").toString().slice(0, 40)}`;
+      out.push(`${id} :: ${n}`);
     }
-    return out;
+    return out.sort();
   });
-  return new Set(names);
+}
+
+/** Multiset difference: entries present in `after` beyond their count in `before`. */
+function introduced(before: string[], after: string[]): string[] {
+  const pool = [...before];
+  const extra: string[] = [];
+  for (const entry of after) {
+    const i = pool.indexOf(entry);
+    if (i === -1) extra.push(entry);
+    else pool.splice(i, 1);
+  }
+  return extra.sort();
 }
 
 /** Resolved style of the URL block, sampled fresh. */
@@ -247,10 +272,10 @@ test.describe("share-link cue — resolved style", () => {
     page,
   }) => {
     await openHub(page);
-    const before = await animatingNames(page);
+    const before = await animationCensus(page);
     await rotate(page);
 
-    const after = await animatingNames(page);
+    const after = await animationCensus(page);
     const audit = await page.evaluate(() => {
       const marked = document.querySelectorAll("[data-share-link-flash]");
       const target = document.querySelector('[data-testid="admin-current-share-link-url"]');
@@ -260,14 +285,17 @@ test.describe("share-link cue — resolved style", () => {
     expect(audit.markedCount).toBe(1);
     expect(audit.isTarget).toBe(true);
 
-    // Compared as a DELTA against the resting page, not as an absolute set. The
-    // panel legitimately animates already — StatusStrip's synced-dot heartbeat
+    // A DELTA against the resting page, not an absolute census: the panel
+    // legitimately animates already — StatusStrip's synced-dot heartbeat
     // (DESIGN.md SYNC-PULSE-1) runs continuously — so "nothing else animates"
-    // would fail on shipped, intended motion. What must hold is that the cue
-    // introduces ONLY its own two tracks, which still rejects an extra animated
-    // child mounted during the window.
-    const introduced = [...after].filter((n) => !before.has(n)).sort();
-    expect(introduced).toEqual([...TRACKS].sort());
+    // would fail on shipped, intended motion.
+    //
+    // The delta is a MULTISET over elements. Comparing name-sets let a newly
+    // mounted element reusing `sync-heartbeat` hide inside an unchanged set.
+    const added = introduced(before, after);
+    expect(added).toHaveLength(1);
+    expect(added[0]).toContain("admin-current-share-link-url");
+    for (const track of TRACKS) expect(added[0]).toContain(track);
   });
 
   test("T-FLASH-REDUCED: reduced motion paints nothing, with no residual ring", async ({

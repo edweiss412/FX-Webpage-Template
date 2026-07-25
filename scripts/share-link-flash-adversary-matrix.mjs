@@ -306,6 +306,32 @@ const ADVERSARIES = [
 
 /** A22 is a token retune. It lives in the contrast pins and was already proved
  *  non-vacuous by hand during Task 4; included here so the register is complete. */
+/**
+ * A28 exists because round-2 review argued a rule scoped to the shell's own
+ * subheader would kill the production cue while a synthetic panel stayed green.
+ * Running it settled the question differently: a SUBHEADER-scoped selector
+ * cannot match the cue in production either, because the popover PORTALS out of
+ * the subheader into the panel (PopoverHostContext). The reviewer's specific
+ * example was unreachable — and the portal escaping subtree-scoped rules is a
+ * property of the design, not an accident.
+ *
+ * What IS reachable is a rule scoped to a real ancestor the portal lands under.
+ * The panel is A18; this is the modal ROOT above it, which the synthetic harness
+ * never had at all. That is the honest version of the finding, and it is the one
+ * the rebuilt real-shell harness can now catch.
+ */
+ADVERSARIES.push([
+  "A28",
+  "ancestor rule scoped to the real modal ROOT suppresses the cue",
+  [
+    [
+      CSS,
+      "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}",
+      '@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}\n[data-testid="published-show-review-modal"] [data-share-link-flash] {\n  animation: none;\n}',
+    ],
+  ],
+]);
+
 ADVERSARIES.push([
   "A22",
   "token retuned below the ring's contrast floor",
@@ -356,11 +382,24 @@ function assertCleanTargets() {
   }
 }
 
-function restoreTargets() {
+/**
+ * Restore, and make a FAILED restore fatal and loud.
+ *
+ * Swallowing the error let the run keep recording results with a mutant still
+ * applied, and left the branch holding it afterwards — the same
+ * work-destruction class this guard exists to prevent (round-2 review). A git
+ * index lock or a killed checkout must stop the run, not be absorbed by it.
+ */
+function restoreTargets({ fatal = true } = {}) {
   try {
     git("checkout", "--", ...TARGETS);
-  } catch {
-    // Best effort: a restore failure must not mask the original error.
+  } catch (e) {
+    console.error(
+      "\nRESTORE FAILED — the working tree may still hold a mutant.\n" +
+        `Run: git checkout -- ${TARGETS.join(" ")}\n` +
+        String(e?.message ?? e),
+    );
+    if (fatal) process.exit(3);
   }
 }
 
@@ -425,10 +464,18 @@ function runBrowser() {
 }
 
 assertCleanTargets();
-process.on("SIGINT", () => {
-  restoreTargets();
-  process.exit(130);
-});
+// SIGINT alone left SIGTERM and SIGHUP able to kill the run between mutate and
+// restore (round-2 review). CI cancellation sends SIGTERM.
+for (const [sig, code] of [
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+  ["SIGHUP", 129],
+]) {
+  process.on(sig, () => {
+    restoreTargets({ fatal: false });
+    process.exit(code);
+  });
+}
 
 const results = [];
 try {

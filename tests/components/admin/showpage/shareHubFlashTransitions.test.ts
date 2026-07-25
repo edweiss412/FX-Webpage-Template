@@ -31,12 +31,66 @@ const ROOT = process.cwd();
 const GLOBALS_CSS = readFileSync(join(ROOT, "app/globals.css"), "utf8");
 const SHARE_HUB_SRC = readFileSync(join(ROOT, "components/admin/showpage/ShareHub.tsx"), "utf8");
 
+/** Split a CSS blob into its top-level rules by brace depth. */
+function splitRules(css: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let buf = "";
+  for (const ch of css) {
+    buf += ch;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        if (buf.trim()) out.push(buf.trim());
+        buf = "";
+      }
+    }
+  }
+  return out;
+}
+
 describe("share-link cue motion contract (N0/N1)", () => {
   it("N0: SHARE_LINK_FLASH_MS is 1600", () => {
     // A VALUE assertion, deliberately not an equality against the CSS: the two
     // agreeing on the wrong number is a defect this alone can catch.
     expect(SHARE_LINK_FLASH_MS).toBe(1600);
     expect(SHARE_HUB_SRC).toMatch(/export const SHARE_LINK_FLASH_MS = 1600;/);
+  });
+
+  it("N1: the shipped rules match the spec's normative block VERBATIM", () => {
+    // The spec makes that block normative *verbatim* (§9.1 N1). Fragment
+    // matching is NOT that: round-2 review showed an extra `90%` stop holding
+    // both paints would satisfy every fragment assertion while turning the
+    // ratified 45% settle into a 90% hold, and the browser suite samples only
+    // early motion and post-expiry rest so it stays green too.
+    //
+    // So compare the real thing. Whitespace is normalised because prettier owns
+    // formatting on both sides; nothing else is.
+    const norm = (css: string) =>
+      css
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\s+/g, " ")
+        .replace(/\s*([{};:,])\s*/g, "$1")
+        .trim();
+
+    const SPEC = readFileSync(
+      join(ROOT, "docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md"),
+      "utf8",
+    );
+    // The normative block is the §3.4 fence containing the cue's keyframes.
+    const fence = [...SPEC.matchAll(/```css\n([\s\S]*?)```/g)]
+      .map((m) => m[1] ?? "")
+      .find((block) => block.includes("@keyframes share-link-flash-bg"));
+    expect(fence, "spec §3.4 normative CSS fence not found").toBeTruthy();
+
+    // Every rule the spec declares must appear, normalised, in the stylesheet.
+    for (const rule of splitRules(fence!)) {
+      expect(
+        norm(GLOBALS_CSS),
+        `normative rule missing or altered: ${rule.slice(0, 48)}`,
+      ).toContain(norm(rule));
+    }
   });
 
   it("N1: both keyframes are declared exactly once", () => {
@@ -46,65 +100,6 @@ describe("share-link cue motion contract (N0/N1)", () => {
     // could be empty or mis-coloured while every fragment check still passed.
     expect(bg).toHaveLength(1);
     expect(ring).toHaveLength(1);
-  });
-
-  it("N1: the wash keyframe holds accent-tint to 45% then settles to the resting surface", () => {
-    const block = GLOBALS_CSS.match(/@keyframes share-link-flash-bg\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(block).toMatch(/0%,\s*45%\s*\{\s*background-color:\s*var\(--color-accent-tint\);/);
-    expect(block).toMatch(/100%\s*\{\s*background-color:\s*var\(--color-surface-sunken\);/);
-    // No property other than background-color animates on this track.
-    const props = [...block.matchAll(/^\s{4}([a-z-]+):/gm)].map((m) => m[1]);
-    expect([...new Set(props)]).toEqual(["background-color"]);
-  });
-
-  it("N1: the ring holds 2px accent-edge to 45%, matching the wash, then fades", () => {
-    const block = GLOBALS_CSS.match(/@keyframes share-link-flash-ring\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-    // The hold stop is shared with the wash ON PURPOSE. Fading the ring from
-    // t=0 while the wash held to 45% drained the outline to roughly a third
-    // while the fill was still at full strength, so one cue read as two events
-    // (impeccable critique + audit, independently).
-    expect(block).toMatch(/0%,\s*45%\s*\{\s*box-shadow:\s*0 0 0 2px var\(--color-accent-edge\);/);
-    expect(block).toMatch(/100%\s*\{\s*box-shadow:\s*0 0 0 2px transparent;/);
-    const props = [...block.matchAll(/^\s{4}([a-z-]+):/gm)].map((m) => m[1]);
-    expect([...new Set(props)]).toEqual(["box-shadow"]);
-  });
-
-  it("N1: both tracks share the same 45% hold stop", () => {
-    // A single cue, not two. If one track's hold moves, this fails rather than
-    // shipping an outline that outlives or predeceases its own fill.
-    const bg = GLOBALS_CSS.match(/@keyframes share-link-flash-bg\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-    const ring = GLOBALS_CSS.match(/@keyframes share-link-flash-ring\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-    const holdOf = (block: string) => block.match(/0%,\s*(\d+)%/)?.[1];
-    expect(holdOf(bg)).toBe("45");
-    expect(holdOf(ring)).toBe(holdOf(bg));
-  });
-
-  it("N1: the attribute runs BOTH tracks at exactly SHARE_LINK_FLASH_MS", () => {
-    // Drift pin between TypeScript and CSS. Authored against prettier's actual
-    // output: the two-name shorthand reflows across three lines, unlike the
-    // single-line step3 template.
-    expect(GLOBALS_CSS).toMatch(
-      new RegExp(
-        String.raw`\[data-share-link-flash\]\s*\{\s*animation:\s*` +
-          String.raw`share-link-flash-bg ${SHARE_LINK_FLASH_MS}ms ease-out,\s*` +
-          String.raw`share-link-flash-ring ${SHARE_LINK_FLASH_MS}ms ease-out;`,
-      ),
-    );
-  });
-
-  it("N1: reduced motion collapses the cue, and nothing else overrides it", () => {
-    // Existence AND uniqueness. An earlier draft of this contract asserted only
-    // that the ONLY `animation: none` sat inside a reduced-motion block, which
-    // is vacuously true when there are zero such rules — so an implementation
-    // shipping no override at all would have passed.
-    expect(GLOBALS_CSS).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{\s*\[data-share-link-flash\] \{\s*animation: none;/,
-    );
-    const allNone =
-      GLOBALS_CSS.match(/\[data-share-link-flash\][^{]*\{[^}]*animation:\s*none/g) ?? [];
-    expect(allNone).toHaveLength(1);
-    // No paused track, which would leave the attribute up and nothing painting.
-    expect(GLOBALS_CSS).not.toMatch(/\[data-share-link-flash\][^{]*\{[^}]*animation-play-state/);
   });
 
   it("N1: the component declares no keyframes of its own", () => {
