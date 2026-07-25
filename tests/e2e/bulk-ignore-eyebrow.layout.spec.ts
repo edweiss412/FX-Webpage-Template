@@ -277,3 +277,24 @@ for (const width of [480, 1280] as const) {
     expect(armed.rowOverflow).toBe(false);
   });
 }
+
+test("DI-2b the min-w-6 floor BINDS in a narrow container at a wide viewport", async ({ page }) => {
+  // At 480 and 1280 the rule is 92-892px wide on its own, so `>= 24` there is
+  // satisfied by natural width and proves nothing about the floor. The media
+  // query keys on the VIEWPORT while the squeeze comes from the CONTAINER, so a
+  // narrow container on a wide viewport is the state the floor exists for — and
+  // the state a future panel could reach. Measured: without `min-w-6` the rule is
+  // 0 here, which is the phantom gap in a container no test covers.
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.goto(baseUrl);
+  await page.waitForSelector(CHIP);
+  await page.addStyleTag({ content: '[data-testid="harness-mount"]{width:400px}' });
+  const m = await rowMetrics(page);
+  expect(m.ruleShown).toBe(true);
+  expect(m.ruleWidth).toBeGreaterThanOrEqual(24);
+  expect(m.ruleWidth).toBeLessThan(40); // the floor is BINDING, not the natural width
+  expect(m.zeroExtent).toEqual([]);
+  // The label (min-w-0, wraps) and chip (max-w-full, wraps) absorb the squeeze, so
+  // the floor never becomes the overflow.
+  expect(m.rowOverflow).toBe(false);
+});
