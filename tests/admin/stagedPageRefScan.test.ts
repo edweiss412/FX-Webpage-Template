@@ -76,6 +76,30 @@ describe("classifyRetiredPathOccurrences (spec §3.3 Layer A + C)", () => {
     ).toEqual([]);
   });
 
+  test("same-file CONSTANTS composed into the path are caught (whole-diff finding 3)", () => {
+    // All four supported operators, each composing the path out of parts that no
+    // single literal contains. An identifier-blind flattener renders A and B as
+    // sentinels and reports nothing.
+    const decls = 'const A = "/admin/onboarding/";\nconst B = "staged/";\n';
+    expect(classifyRetiredPathOccurrences(`${decls}const u = A + B + id;`)).toContain("assembled");
+    expect(classifyRetiredPathOccurrences(`${decls}const u = [A, B, id].join("");`)).toContain(
+      "assembled",
+    );
+    expect(classifyRetiredPathOccurrences(`${decls}const u = A.concat(B, id);`)).toContain(
+      "assembled",
+    );
+    const obj = 'const seg = { base: "/admin/onboarding/", leaf: "staged/" };\n';
+    expect(classifyRetiredPathOccurrences(`${obj}const u = seg.base + seg.leaf + id;`)).toContain(
+      "assembled",
+    );
+  });
+
+  test("composed constants that do NOT form the retired path stay clean", () => {
+    // No false positives from resolution: these constants compose a different path.
+    const decls = 'const A = "/admin/onboarding/";\nconst B = "review/";\n';
+    expect(classifyRetiredPathOccurrences(`${decls}const u = A + B + id;`)).toEqual([]);
+  });
+
   test("an assembled /api/ path stays clean", () => {
     const src = `const u = "/api/admin/onboarding/" + "staged/" + id + "/apply";`;
     expect(classifyRetiredPathOccurrences(src)).toEqual([]);
@@ -143,6 +167,19 @@ describe("resolveNavHrefs (spec §3.3 Layer B)", () => {
     const concatenated = `const A = () => <Link href={"/admin/onboarding/".concat("staged/", id)}>go</Link>;`;
     expect(retiredHrefs(joined)).toHaveLength(1);
     expect(retiredHrefs(concatenated)).toHaveLength(1);
+  });
+
+  test("an href composed from same-file constants resolves (whole-diff finding 3)", () => {
+    const decls = 'const A = "/admin/onboarding/";\nconst B = "staged/";\n';
+    expect(retiredHrefs(`${decls}const C = () => <Link href={A + B + id}>go</Link>;`)).toHaveLength(
+      1,
+    );
+    expect(
+      retiredHrefs(`${decls}const C = () => <Link href={[A, B, id].join("")}>go</Link>;`),
+    ).toHaveLength(1);
+    expect(
+      retiredHrefs(`${decls}const C = () => <Link href={A.concat(B, id)}>go</Link>;`),
+    ).toHaveLength(1);
   });
 
   test("an /api/ href is resolved but does NOT hit the retired page", () => {

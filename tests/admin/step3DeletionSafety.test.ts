@@ -24,7 +24,7 @@ import {
 
 const ROOTS = ["app", "components", "lib"];
 
-function walk(dir: string, pattern = /\.(ts|tsx)$/): string[] {
+function walk(dir: string, pattern = /\.(ts|tsx|js|jsx|mjs|cjs)$/): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
@@ -37,6 +37,10 @@ function walk(dir: string, pattern = /\.(ts|tsx)$/): string[] {
   return out;
 }
 
+// JavaScript counts as source: tsconfig.json allows JS (`allowJs`), so a
+// components/LegacyLink.jsx with a literal retired-page link would otherwise be
+// invisible to every layer (whole-diff finding 4). The TS parser reads JS/JSX fine.
+//
 // next.config.ts is scanned too: the 307 redirect whose SOURCE is the retired path
 // lives there, outside every root, so a root-only scan cannot see the one file that
 // is allowed to name it in code (spec 2026-07-24-test-safety-hardening-batch §3.3).

@@ -117,11 +117,15 @@ describe("assertLocalDbUrlIfSet (spec §2.2 — the qualityRegressionLifecycle l
 // bypass it exists to reject.
 
 const ENV = "process.env.LOCAL_TEST_DATABASE_URL";
+// Fixtures that expect a GUARDED verdict must import the guard: a call is only a
+// guard when its callee resolves to the guard module's export (whole-diff finding 1b).
+const GUARD_IMPORT =
+  'import { assertLocalDbUrl, assertLocalDbUrlIfSet } from "@/tests/db/_localDbUrl";';
 const DEFAULT_DSN = '"postgresql://postgres:postgres@127.0.0.1:54322/postgres"';
 
 describe("classifyLocalDbUrlSource — synthetic shapes (spec §2.6)", () => {
   test("the canonical guarded shape reads once and is guarded", () => {
-    const src = `const U = assertLocalDbUrl(${ENV} ?? ${DEFAULT_DSN});`;
+    const src = `${GUARD_IMPORT}\nconst U = assertLocalDbUrl(${ENV} ?? ${DEFAULT_DSN});`;
     expect(classifyLocalDbUrlSource(src)).toMatchObject({ envReads: 1, unguardedReads: 0 });
   });
 
@@ -133,20 +137,17 @@ describe("classifyLocalDbUrlSource — synthetic shapes (spec §2.6)", () => {
   });
 
   test("importing the guard without using it on the read is not enough", () => {
-    const src = [
-      'import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";',
-      `const U = ${ENV} ?? ${DEFAULT_DSN};`,
-    ].join("\n");
+    const src = [GUARD_IMPORT, `const U = ${ENV} ?? ${DEFAULT_DSN};`].join("\n");
     expect(classifyLocalDbUrlSource(src)).toMatchObject({ envReads: 1, unguardedReads: 1 });
   });
 
   test("assertLocalDbUrlIfSet also counts as a guard", () => {
-    const src = `const U = process.env.TEST_DATABASE_URL ?? assertLocalDbUrlIfSet(${ENV});`;
+    const src = `${GUARD_IMPORT}\nconst U = process.env.TEST_DATABASE_URL ?? assertLocalDbUrlIfSet(${ENV});`;
     expect(classifyLocalDbUrlSource(src)).toMatchObject({ envReads: 1, unguardedReads: 0 });
   });
 
   test("the bracket spelling is a read too", () => {
-    const src = `const U = assertLocalDbUrl(process.env["LOCAL_TEST_DATABASE_URL"] ?? ${DEFAULT_DSN});`;
+    const src = `${GUARD_IMPORT}\nconst U = assertLocalDbUrl(process.env["LOCAL_TEST_DATABASE_URL"] ?? ${DEFAULT_DSN});`;
     expect(classifyLocalDbUrlSource(src)).toMatchObject({ envReads: 1, unguardedReads: 0 });
     const bare = `const U = process.env["LOCAL_TEST_DATABASE_URL"];`;
     expect(classifyLocalDbUrlSource(bare)).toMatchObject({ envReads: 1, unguardedReads: 1 });
@@ -173,14 +174,14 @@ describe("classifyLocalDbUrlSource — synthetic shapes (spec §2.6)", () => {
   });
 
   test("an aliased read CAN be guarded, but a destructured one never is (fail-closed)", () => {
-    const aliasGuarded = `const env = process.env;\nconst U = assertLocalDbUrl(env.LOCAL_TEST_DATABASE_URL ?? ${DEFAULT_DSN});`;
+    const aliasGuarded = `${GUARD_IMPORT}\nconst env = process.env;\nconst U = assertLocalDbUrl(env.LOCAL_TEST_DATABASE_URL ?? ${DEFAULT_DSN});`;
     expect(classifyLocalDbUrlSource(aliasGuarded)).toMatchObject({
       envReads: 1,
       unguardedReads: 0,
     });
     // Destructuring has no read site to wrap, so it stays unguarded by construction:
     // the author is pushed to the one shape the guard can actually protect.
-    const destructured = `const { LOCAL_TEST_DATABASE_URL } = process.env;\nconst U = assertLocalDbUrl(LOCAL_TEST_DATABASE_URL ?? ${DEFAULT_DSN});`;
+    const destructured = `${GUARD_IMPORT}\nconst { LOCAL_TEST_DATABASE_URL } = process.env;\nconst U = assertLocalDbUrl(LOCAL_TEST_DATABASE_URL ?? ${DEFAULT_DSN});`;
     expect(classifyLocalDbUrlSource(destructured)).toMatchObject({ unguardedReads: 1 });
   });
 
@@ -194,6 +195,41 @@ describe("classifyLocalDbUrlSource — synthetic shapes (spec §2.6)", () => {
         "const notProcess = { env: {} };\nconst U = notProcess.env.LOCAL_TEST_DATABASE_URL;",
       ),
     ).toMatchObject({ envReads: 0 });
+  });
+
+  test("a LOCAL no-op named like the guard does not count as a guard (whole-diff finding 1b)", () => {
+    // Name-only matching would accept this: the read is "wrapped", by a function that
+    // does nothing. The guard must be the one imported from the guard module.
+    const shadowed = [
+      "function assertLocalDbUrl(x) { return x; }",
+      `const U = assertLocalDbUrl(${ENV} ?? ${DEFAULT_DSN});`,
+    ].join("\n");
+    expect(classifyLocalDbUrlSource(shadowed)).toMatchObject({ envReads: 1, unguardedReads: 1 });
+  });
+
+  test("an aliased IMPORT of the guard still counts", () => {
+    const aliasedImport = [
+      'import { assertLocalDbUrl as guardUrl } from "@/tests/db/_localDbUrl";',
+      `const U = guardUrl(${ENV} ?? ${DEFAULT_DSN});`,
+    ].join("\n");
+    expect(classifyLocalDbUrlSource(aliasedImport)).toMatchObject({
+      envReads: 1,
+      unguardedReads: 0,
+    });
+  });
+
+  test("an alias CHAIN of any length is still a read (whole-diff finding 1a)", () => {
+    // A bounded pass count stops recognising reads past the bound; this chain is
+    // longer than any fixed number of passes the walker used to make.
+    const chain = [
+      "const a = process.env;",
+      "const b = a;",
+      "const c = b;",
+      "const d = c;",
+      "const e = d;",
+      "const U = e.LOCAL_TEST_DATABASE_URL;",
+    ].join("\n");
+    expect(classifyLocalDbUrlSource(chain)).toMatchObject({ envReads: 1, unguardedReads: 1 });
   });
 
   test("a MENTION in a comment or string is not a read (this is what keeps this file out of its own scan set)", () => {
@@ -226,66 +262,84 @@ function walkTestSources(dir: string): string[] {
   return out;
 }
 
-/** Every file under tests/ that actually READS the variable, with its verdict. */
+/**
+ * Every file under tests/ that actually READS the variable, with its verdict.
+ *
+ * Memoized: the walk TS-parses every file in tests/ that mentions the variable and
+ * takes ~5s, which is vitest's whole default per-test timeout. Recomputing it once
+ * per assertion timed the suite out on CI (unit-suite-db shard 7) while passing
+ * locally on a faster box.
+ */
+let scanCache: Array<{ path: string } & LocalDbUrlClassification> | null = null;
+
 function scanTree(): Array<{ path: string } & LocalDbUrlClassification> {
-  return walkTestSources(TESTS_ROOT)
+  if (scanCache) return scanCache;
+  scanCache = walkTestSources(TESTS_ROOT)
     .map((full) => ({
       path: relative(process.cwd(), full),
       ...classifyLocalDbUrlSource(readFileSync(full, "utf8"), full),
     }))
     .filter((row) => row.envReads > 0)
     .sort((a, b) => a.path.localeCompare(b.path));
+  return scanCache;
 }
 
-describe("every LOCAL_TEST_DATABASE_URL read in tests/ is guarded (spec §2.6)", () => {
-  test("no unguarded read survives anywhere in the tree", () => {
-    const offenders = scanTree()
-      .filter((row) => row.unguardedReads > 0 && row.exemptReason === null)
-      .map((row) => `${row.path} (${row.unguardedReads} unguarded)`);
-    expect(
-      offenders,
-      "these suites read LOCAL_TEST_DATABASE_URL without assertLocalDbUrl(...):\n" +
-        offenders.join("\n"),
-    ).toEqual([]);
-  });
-
-  test("nothing is exempt", () => {
-    // Set equality, not "no NEW exemptions": the first exemption must be a
-    // deliberate, reviewable edit to this expectation.
-    const exempt = scanTree()
-      .filter((row) => row.exemptReason !== null)
-      .map((row) => row.path);
-    expect(exempt).toEqual([]);
-  });
-
-  test("the walker still finds the whole scan set (a vacuous walk would pass everything above)", () => {
-    const scanned = scanTree();
-    expect(
-      scanned.length,
-      "expected 53 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
-        "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts",
-    ).toBe(53);
-  });
-
-  test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {
-    // tests/sync/qualityRegressionLifecycle.test.ts deliberately runs against the
-    // validation project when TEST_DATABASE_URL is set (its own gate at :439-449
-    // fails rather than skips when an explicit URL cannot connect). Guarding that
-    // leg would break it by design; leaving the LOCAL_ leg unguarded would keep the
-    // remote-DELETE hazard alive in the one file that DELETEs from admin_alerts and
-    // shows. Both halves are asserted here because either alone is wrong.
-    const path = "tests/sync/qualityRegressionLifecycle.test.ts";
-    const src = readFileSync(join(process.cwd(), path), "utf8");
-
-    expect(classifyLocalDbUrlSource(src, path)).toMatchObject({
-      envReads: 1,
-      unguardedReads: 0,
-      exemptReason: null,
+// 30s: the first scanTree() call parses the whole tests/ tree. The default 5s
+// timeout is the same order as the walk itself, so a slower CI runner failed here
+// while local passed (real-CI-is-its-own-gate).
+describe(
+  "every LOCAL_TEST_DATABASE_URL read in tests/ is guarded (spec §2.6)",
+  { timeout: 30_000 },
+  () => {
+    test("no unguarded read survives anywhere in the tree", () => {
+      const offenders = scanTree()
+        .filter((row) => row.unguardedReads > 0 && row.exemptReason === null)
+        .map((row) => `${row.path} (${row.unguardedReads} unguarded)`);
+      expect(
+        offenders,
+        "these suites read LOCAL_TEST_DATABASE_URL without assertLocalDbUrl(...):\n" +
+          offenders.join("\n"),
+      ).toEqual([]);
     });
-    expect(src).toContain("assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL)");
-    expect(src, "the validation leg must stay unconstrained").toContain(
-      "process.env.TEST_DATABASE_URL ??",
-    );
-    expect(src).not.toContain("assertLocalDbUrl(process.env.TEST_DATABASE_URL");
-  });
-});
+
+    test("nothing is exempt", () => {
+      // Set equality, not "no NEW exemptions": the first exemption must be a
+      // deliberate, reviewable edit to this expectation.
+      const exempt = scanTree()
+        .filter((row) => row.exemptReason !== null)
+        .map((row) => row.path);
+      expect(exempt).toEqual([]);
+    });
+
+    test("the walker still finds the whole scan set (a vacuous walk would pass everything above)", () => {
+      const scanned = scanTree();
+      expect(
+        scanned.length,
+        "expected 53 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
+          "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts",
+      ).toBe(53);
+    });
+
+    test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {
+      // tests/sync/qualityRegressionLifecycle.test.ts deliberately runs against the
+      // validation project when TEST_DATABASE_URL is set (its own gate at :439-449
+      // fails rather than skips when an explicit URL cannot connect). Guarding that
+      // leg would break it by design; leaving the LOCAL_ leg unguarded would keep the
+      // remote-DELETE hazard alive in the one file that DELETEs from admin_alerts and
+      // shows. Both halves are asserted here because either alone is wrong.
+      const path = "tests/sync/qualityRegressionLifecycle.test.ts";
+      const src = readFileSync(join(process.cwd(), path), "utf8");
+
+      expect(classifyLocalDbUrlSource(src, path)).toMatchObject({
+        envReads: 1,
+        unguardedReads: 0,
+        exemptReason: null,
+      });
+      expect(src).toContain("assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL)");
+      expect(src, "the validation leg must stay unconstrained").toContain(
+        "process.env.TEST_DATABASE_URL ??",
+      );
+      expect(src).not.toContain("assertLocalDbUrl(process.env.TEST_DATABASE_URL");
+    });
+  },
+);

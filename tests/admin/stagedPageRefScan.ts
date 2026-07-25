@@ -80,20 +80,56 @@ function within(ranges: Array<[number, number]>, index: number): boolean {
   return ranges.some(([start, end]) => index >= start && index < end);
 }
 
-/** Static text of an expression, with `\u0001` for every dynamic part. Null when nothing is static. */
-function flatten(node: ts.Expression): string | null {
+/** Identifier / object-property / one-hop-helper resolution, shared by both scans. */
+function resolveBinding(node: ts.Expression, scope: FileScope, hops: number): string | null {
+  const expr = unwrap(node);
+  if (ts.isIdentifier(expr)) {
+    const bound = scope.consts.get(expr.text);
+    return bound ? flatten(bound, scope, hops + 1) : null;
+  }
+  if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
+    const value = scope.objects.get(expr.expression.text)?.get(expr.name.text);
+    return value ? flatten(value, scope, hops + 1) : null;
+  }
+  if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) {
+    const ret = scope.returns.get(expr.expression.text);
+    return ret ? flatten(ret, scope, hops + 1) : null;
+  }
+  return null;
+}
+
+/**
+ * Static text of an expression, with `\u0001` for every dynamic part. Null when
+ * nothing is static.
+ *
+ * When a FileScope is supplied, identifiers, object-literal properties and one-hop
+ * helper calls are resolved first: `const A = "/admin/onboarding/"; const B = "staged/";
+ * … A + B + id` composes the retired path out of same-file constants, which an
+ * identifier-blind flattener renders as two sentinels and misses entirely
+ * (whole-diff finding 3).
+ */
+function flatten(node: ts.Expression, scope?: FileScope, hops = 0): string | null {
+  if (scope && hops <= 4) {
+    const resolved = resolveBinding(node, scope, hops);
+    if (resolved !== null) return resolved;
+  }
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   if (ts.isTemplateExpression(node)) {
     return (
-      node.head.text + node.templateSpans.map((span) => SUBSTITUTION + span.literal.text).join("")
+      node.head.text +
+      node.templateSpans
+        .map(
+          (span) => (flatten(span.expression, scope, hops + 1) ?? SUBSTITUTION) + span.literal.text,
+        )
+        .join("")
     );
   }
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-    const left = flatten(node.left) ?? SUBSTITUTION;
-    const right = flatten(node.right) ?? SUBSTITUTION;
+    const left = flatten(node.left, scope, hops + 1) ?? SUBSTITUTION;
+    const right = flatten(node.right, scope, hops + 1) ?? SUBSTITUTION;
     return left + right;
   }
-  if (ts.isParenthesizedExpression(node)) return flatten(node.expression);
+  if (ts.isParenthesizedExpression(node)) return flatten(node.expression, scope, hops);
   // `[...].join(sep)` and `"…".concat(…)` assemble a path exactly like `+` does, and
   // are the two standard alternatives a refactor reaches for (whole-diff R2 finding 3).
   if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
@@ -104,13 +140,17 @@ function flatten(node: ts.Expression): string | null {
       const separator =
         sepArg === undefined
           ? "," // Array.prototype.join's default separator.
-          : (flatten(sepArg) ?? SUBSTITUTION);
-      return receiver.elements.map((el) => flatten(el) ?? SUBSTITUTION).join(separator);
+          : (flatten(sepArg, scope, hops + 1) ?? SUBSTITUTION);
+      return receiver.elements
+        .map((el) => flatten(el, scope, hops + 1) ?? SUBSTITUTION)
+        .join(separator);
     }
     if (method === "concat") {
-      const head = flatten(receiver);
+      const head = flatten(receiver, scope, hops + 1);
       if (head !== null) {
-        return head + node.arguments.map((arg) => flatten(arg) ?? SUBSTITUTION).join("");
+        return (
+          head + node.arguments.map((arg) => flatten(arg, scope, hops + 1) ?? SUBSTITUTION).join("")
+        );
       }
     }
   }
@@ -135,9 +175,23 @@ export function classifyRetiredPathOccurrences(
     src,
     ts.ScriptTarget.Latest,
     true,
-    fileName.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.TSX,
+    // JSX-capable kinds for .tsx/.jsx, plain otherwise. Parsing a JS file as TS is
+    // fine (TS is a superset) as long as JSX files get a JSX-aware kind.
+    /\.(tsx|jsx)$/.test(fileName) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
 
+  // Layer A/C asks WHERE the path lives, so helper CALLS are deliberately not
+  // resolved here: `reApplyUrl(a, b)` is a use site, and the literal inside
+  // reApplyUrl's body is already counted where it is written. Resolving calls would
+  // report one "assembled" occurrence per call site for a single ratified builder.
+  // Constants, object properties and join/concat composition ARE resolved — that is
+  // the actual bypass (whole-diff finding 3).
+  const fileScope = collectScope(sourceFile);
+  const scope: FileScope = {
+    consts: fileScope.consts,
+    objects: fileScope.objects,
+    returns: new Map(),
+  };
   const comments = commentRanges(src, sourceFile);
   const literals = literalSpans(sourceFile);
 
@@ -155,7 +209,7 @@ export function classifyRetiredPathOccurrences(
       (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) ||
       ts.isCallExpression(node)
     ) {
-      const flat = flatten(node as ts.Expression);
+      const flat = flatten(node as ts.Expression, scope);
       if (flat) {
         const rawInThisNode = retiredPathIndexes(node.getText(sourceFile)).length;
         const flatHits = retiredPathIndexes(flat).length;
@@ -238,39 +292,9 @@ function collectScope(sourceFile: ts.SourceFile): FileScope {
   return scope;
 }
 
-/** Static value of an href expression, resolving up to two identifier hops. */
-function resolveExpression(node: ts.Expression, scope: FileScope, hops = 0): string | null {
-  if (hops > 2) return null;
-  const expr = unwrap(node);
-
-  const flat = flatten(expr);
-  if (flat !== null) {
-    // A `+` chain may still contain identifiers we can resolve; re-flatten with them.
-    if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-      const left = resolveExpression(expr.left, scope, hops + 1) ?? SUBSTITUTION;
-      const right = resolveExpression(expr.right, scope, hops + 1) ?? SUBSTITUTION;
-      return left + right;
-    }
-    return flat;
-  }
-
-  if (ts.isIdentifier(expr)) {
-    const bound = scope.consts.get(expr.text);
-    return bound ? resolveExpression(bound, scope, hops + 1) : null;
-  }
-
-  if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
-    const obj = scope.objects.get(expr.expression.text);
-    const value = obj?.get(expr.name.text);
-    return value ? resolveExpression(value, scope, hops + 1) : null;
-  }
-
-  if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) {
-    const ret = scope.returns.get(expr.expression.text);
-    return ret ? resolveExpression(ret, scope, hops + 1) : null;
-  }
-
-  return null;
+/** Static value of an href expression (identifiers, properties, helpers, chains). */
+function resolveExpression(node: ts.Expression, scope: FileScope): string | null {
+  return flatten(unwrap(node), scope);
 }
 
 /** Every statically resolvable `href` on a `<Link>` / `<a>` / `<*Link>` element. */

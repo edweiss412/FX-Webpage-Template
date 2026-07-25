@@ -1246,9 +1246,9 @@ export const SPEC_CODES = {
   },
   "STAGED_PARSE_FAILED": {
     "crewFacing": null,
-    "dougFacing": "We reached that sheet but couldn't read it into a show. Open the sheet, fix its structure, then try again.",
-    "followUp": "Doug → open the sheet and fix its structure, then retry",
-    "helpfulContext": "Google Drive gave us the sheet, so this is not a sharing or network problem. Something in the sheet's structure stopped us from turning it into a show. Open the sheet, fix the part that changed, then run the same action again. Any previously approved version stays live for crew until a clean version parses.",
+    "dougFacing": "We couldn't turn that sheet into a show. Open the sheet to check the part that changed, then run the same action again. If it keeps happening, contact the developer.",
+    "followUp": "Doug → open the sheet, then retry; persistent → Eric",
+    "helpfulContext": "The sheet itself reached us, so this is not a sharing problem. Most often something in the sheet changed in a way we could not read; sometimes the copy saved by the last scan is missing or was already marked failed. Open the sheet to check the part that changed, then run the same action again. Any previously approved version stays live for crew until a clean version goes through. If a fresh scan keeps landing here, contact the developer.",
   },
   "STAGED_PARSE_OUTDATED": {
     "crewFacing": null,

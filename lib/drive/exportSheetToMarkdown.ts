@@ -324,7 +324,8 @@ export function synthesizeMarkdownFromXlsx(
   try {
     return synthesizeMarkdownFromXlsxUnguarded(buffer, opts);
   } catch (cause) {
-    // Idempotent: a nested call that already tagged its fault keeps its own message.
+    // Idempotent, defensively: nothing inside the body can currently raise this type
+    // (the reader throws its own errors), so this branch guards a future nested caller.
     if (cause instanceof WorkbookSynthesisError) throw cause;
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new WorkbookSynthesisError(`workbook could not be read: ${detail}`, { cause });

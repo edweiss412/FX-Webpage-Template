@@ -49,9 +49,14 @@ describe("synthesizeMarkdownFromXlsx fault tagging", () => {
     expect(thrown).toBeInstanceOf(WorkbookSynthesisError);
     const error = thrown as WorkbookSynthesisError;
     // Provenance must survive: the underlying reader message is the only clue an
-    // operator or a log has about WHY the workbook was unreadable.
-    expect(error.cause).toBeDefined();
+    // operator or a log has about WHY the workbook was unreadable. Assert the
+    // wrapper actually CARRIES that text, not merely that a cause exists — a
+    // wrapper that dropped the message would pass a defined-ness check.
+    expect(error.cause).toBeInstanceOf(Error);
+    const readerMessage = (error.cause as Error).message;
+    expect(readerMessage.length).toBeGreaterThan(0);
     expect(error.message).toContain("workbook could not be read");
+    expect(error.message).toContain(readerMessage);
   });
 
   test("arbitrary non-ZIP bytes are still tolerated by the reader (boundary, unchanged)", () => {
@@ -62,11 +67,11 @@ describe("synthesizeMarkdownFromXlsx fault tagging", () => {
     expect(() => synthesizeMarkdownFromXlsx(new Uint8Array([1, 2, 3, 4]).buffer)).not.toThrow();
   });
 
-  test("an already-tagged fault is not double-wrapped", () => {
-    // Idempotence matters because the same function is reached through two Drive
-    // helpers and through the onboarding re-parse path.
-    const original = new WorkbookSynthesisError("original", { cause: new Error("root") });
-    expect(original.cause).toBeInstanceOf(Error);
-    expect(new WorkbookSynthesisError("wrapped", { cause: original }).cause).toBe(original);
-  });
+  // NOTE — the wrapper's "already a WorkbookSynthesisError, do not re-wrap" branch is
+  // deliberately NOT asserted here. Nothing inside synthesizeMarkdownFromXlsx can
+  // currently raise that type (the reader throws its own errors), so the branch is
+  // unreachable defensive code and any test for it would have to fake the call, which
+  // proves nothing about the shipped path. The reachable pass-through contract IS
+  // covered where it matters: tests/sync/prepareOnboardingFilesErrorKind.test.ts
+  // asserts an already-classified error comes back by identity, not re-wrapped.
 });

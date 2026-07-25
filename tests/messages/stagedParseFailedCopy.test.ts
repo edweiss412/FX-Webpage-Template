@@ -56,11 +56,25 @@ describe("STAGED_PARSE_FAILED copy is path-agnostic (spec §4.6)", () => {
     expect(lookupHelpfulContext("STAGED_PARSE_FAILED")).toBeTruthy();
   });
 
-  test("the copy says what the operator should actually do", () => {
-    // The recovery is a sheet edit, not a Drive/share check — the whole point of
-    // separating this code from DRIVE_FETCH_FAILED.
+  test("the copy points at the sheet, not at Drive sharing", () => {
+    // Separating this code from DRIVE_FETCH_FAILED is pointless if the copy still
+    // sends Doug to his share settings.
     expect(ROW.dougFacing).toMatch(/sheet/i);
-    expect(ROW.followUp).toMatch(/fix its structure/i);
+    expect(ROW.followUp).toMatch(/open the sheet/i);
+    expect(ROW.helpfulContext ?? "").not.toMatch(/share settings/i);
+  });
+
+  test("the copy does not assert a cause that is false for some producers", () => {
+    // lib/onboarding/applyRescanDecisionUnderLock.ts:240,245,262 emit this code for
+    // a hard-fail with no recorded code, a non-staged outcome, and a staged row that
+    // vanished — none of which is a sheet-structure problem (whole-diff finding 5).
+    // So the copy must not claim structure is THE cause, and must offer the
+    // developer as the fallback when a fresh scan does not clear it.
+    for (const field of [ROW.dougFacing, ROW.helpfulContext, ROW.longExplanation]) {
+      expect(field ?? "").not.toMatch(/fix its structure/i);
+    }
+    expect(ROW.helpfulContext).toMatch(/contact the developer/i);
+    expect(ROW.longExplanation).toMatch(/contact the developer/i);
   });
 
   test("no em-dash in operator-visible copy (project copy hygiene)", () => {

@@ -77,8 +77,11 @@ function isEnvRead(node: ts.Node, envAliases: ReadonlySet<string>): boolean {
  */
 function collectEnvAliases(sourceFile: ts.SourceFile): Set<string> {
   const aliases = new Set<string>();
-  // Two passes so `const a = process.env; const b = a;` resolves regardless of order.
-  for (let pass = 0; pass < 2; pass += 1) {
+  // Iterate to a FIXPOINT, not a fixed number of passes: `const a = process.env;
+  // const b = a; const c = b; …` is a chain of arbitrary length, and a bounded pass
+  // count silently stops recognising reads past the bound (whole-diff finding 1a).
+  for (;;) {
+    const before = aliases.size;
     const visit = (node: ts.Node): void => {
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
         if (isProcessEnv(node.initializer, aliases)) aliases.add(node.name.text);
@@ -86,8 +89,32 @@ function collectEnvAliases(sourceFile: ts.SourceFile): Set<string> {
       ts.forEachChild(node, visit);
     };
     visit(sourceFile);
+    if (aliases.size === before) return aliases;
   }
-  return aliases;
+}
+
+/**
+ * Names IMPORTED from the guard module in this file. A call is only a guard when its
+ * callee resolves to one of these — a locally declared
+ * `function assertLocalDbUrl(x) { return x }` would otherwise satisfy the meta-test
+ * by name alone while doing nothing (whole-diff finding 1b).
+ */
+function collectImportedGuardNames(sourceFile: ts.SourceFile): Set<string> {
+  const imported = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const spec = statement.moduleSpecifier;
+    if (!ts.isStringLiteral(spec)) continue;
+    if (!/(_localDbUrl|_remediationHelpers)$/.test(spec.text)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      // `import { assertLocalDbUrl as guard }` — the LOCAL name is what call sites use.
+      const original = (element.propertyName ?? element.name).text;
+      if (GUARD_NAMES.has(original)) imported.add(element.name.text);
+    }
+  }
+  return imported;
 }
 
 /**
@@ -128,14 +155,14 @@ function countDestructuredReads(
  * must classify as UNGUARDED; that shape is the whole reason this is an AST walk
  * and not a regex.
  */
-function isGuarded(read: ts.Node): boolean {
+function isGuarded(read: ts.Node, guardNames: ReadonlySet<string>): boolean {
   let child: ts.Node = read;
   let parent: ts.Node | undefined = read.parent;
   while (parent) {
     if (
       ts.isCallExpression(parent) &&
       ts.isIdentifier(parent.expression) &&
-      GUARD_NAMES.has(parent.expression.text) &&
+      guardNames.has(parent.expression.text) &&
       parent.arguments.some((arg) => arg === child)
     ) {
       return true;
@@ -170,13 +197,14 @@ export function classifyLocalDbUrlSource(
   );
 
   const envAliases = collectEnvAliases(sourceFile);
+  const guardNames = collectImportedGuardNames(sourceFile);
   let envReads = 0;
   let unguardedReads = 0;
 
   const visit = (node: ts.Node): void => {
     if (isEnvRead(node, envAliases)) {
       envReads += 1;
-      if (!isGuarded(node)) unguardedReads += 1;
+      if (!isGuarded(node, guardNames)) unguardedReads += 1;
       // Do not descend: the inner `process.env` is part of this read.
       return;
     }

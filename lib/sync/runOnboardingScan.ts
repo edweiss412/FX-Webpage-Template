@@ -2,7 +2,11 @@ import postgres from "postgres";
 import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import { mapWithConcurrency } from "@/lib/async/mapWithConcurrency";
 import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
-import { fetchDriveFileMetadata, fetchSheetMarkdownWithBinding } from "@/lib/drive/fetch";
+import {
+  DriveFetchError,
+  fetchDriveFileMetadata,
+  fetchSheetMarkdownWithBinding,
+} from "@/lib/drive/fetch";
 import {
   synthesizeMarkdownFromXlsx,
   WorkbookSynthesisError,
@@ -1174,7 +1178,16 @@ function asPrepareError(
 ): PrepareOnboardingFileError {
   if (cause instanceof PrepareOnboardingFileError) return cause;
   const detail = cause instanceof Error ? cause.message : String(cause);
-  const kind = cause instanceof WorkbookSynthesisError ? "parse" : siteKind;
+  // Identity beats site in BOTH directions. A WorkbookSynthesisError is a parse
+  // fault even when raised inside a Drive call; symmetrically a DriveFetchError is a
+  // Drive fault even when it escapes a parse-site adapter, or a transport failure
+  // would be persisted as STAGED_PARSE_FAILED and shown with fix-your-sheet guidance.
+  const kind =
+    cause instanceof WorkbookSynthesisError
+      ? "parse"
+      : cause instanceof DriveFetchError
+        ? "drive_fetch"
+        : siteKind;
   return new PrepareOnboardingFileError(kind, detail, { cause });
 }
 

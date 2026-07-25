@@ -15,6 +15,7 @@
 import { describe, expect, test } from "vitest";
 
 import { WorkbookSynthesisError } from "@/lib/drive/exportSheetToMarkdown";
+import { DriveFetchError } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
 import {
@@ -62,6 +63,7 @@ function baseDeps(overrides: Partial<RunOnboardingScanDeps> = {}): RunOnboarding
 async function kindOfFailure(deps: RunOnboardingScanDeps): Promise<{
   kind: string;
   cause: unknown;
+  thrown: unknown;
   isPrepareError: boolean;
 }> {
   try {
@@ -72,6 +74,7 @@ async function kindOfFailure(deps: RunOnboardingScanDeps): Promise<{
     return {
       kind: isPrepareError ? (err as PrepareOnboardingFileError).kind : "NOT_CLASSIFIED",
       cause: isPrepareError ? (err as PrepareOnboardingFileError).cause : err,
+      thrown: err,
       isPrepareError,
     };
   }
@@ -213,6 +216,20 @@ describe("prepareOnboardingFiles fault classification (spec §4.2)", () => {
     expect(result.kind).toBe("drive_fetch");
   });
 
+  test("a DriveFetchError escaping a PARSE site is still a drive fault (whole-diff finding 6)", async () => {
+    // Identity has to beat site in both directions: an injected parser that fetches
+    // would otherwise persist a transport failure as STAGED_PARSE_FAILED and tell
+    // Doug to fix his sheet's structure.
+    const result = await kindOfFailure(
+      baseDeps({
+        parseSheet: () => {
+          throw new DriveFetchError("revision token changed");
+        },
+      }),
+    );
+    expect(result.kind).toBe("drive_fetch");
+  });
+
   test("an already-classified fault is never re-wrapped", async () => {
     const original = new PrepareOnboardingFileError("parse", "already classified");
     const result = await kindOfFailure(
@@ -222,7 +239,9 @@ describe("prepareOnboardingFiles fault classification (spec §4.2)", () => {
         },
       }),
     );
+    // Identity, not just kind: re-wrapping with the same kind and an empty cause
+    // would satisfy a kind-only assertion.
+    expect(result.thrown).toBe(original);
     expect(result.kind).toBe("parse");
-    expect(result.cause).toBeUndefined();
   });
 });

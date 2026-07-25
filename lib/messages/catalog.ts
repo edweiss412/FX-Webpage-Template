@@ -3122,14 +3122,14 @@ export const MESSAGE_CATALOG = {
   STAGED_PARSE_FAILED: {
     code: "STAGED_PARSE_FAILED",
     dougFacing:
-      "We reached that sheet but couldn't read it into a show. Open the sheet, fix its structure, then try again.",
+      "We couldn't turn that sheet into a show. Open the sheet to check the part that changed, then run the same action again. If it keeps happening, contact the developer.",
     crewFacing: null,
-    followUp: "Doug → open the sheet and fix its structure, then retry",
+    followUp: "Doug → open the sheet, then retry; persistent → Eric",
     helpfulContext:
-      "Google Drive gave us the sheet, so this is not a sharing or network problem. Something in the sheet's structure stopped us from turning it into a show. Open the sheet, fix the part that changed, then run the same action again. Any previously approved version stays live for crew until a clean version parses.",
+      "The sheet itself reached us, so this is not a sharing problem. Most often something in the sheet changed in a way we could not read; sometimes the copy saved by the last scan is missing or was already marked failed. Open the sheet to check the part that changed, then run the same action again. Any previously approved version stays live for crew until a clean version goes through. If a fresh scan keeps landing here, contact the developer.",
     title: "Sheet could not be read",
     longExplanation:
-      "This appears when we reached the sheet in Google Drive but could not turn its contents into a show. It is a problem with the sheet's structure rather than with sharing or the network: a section header, a column, or a block is in a shape we cannot read. Any previously approved version stays live for crew until a clean version parses. Open the sheet, fix the part that changed, then run the same action again.",
+      "This appears when we reached the sheet but could not build a show from it. The usual cause is a change in the sheet that we could not read: a section header, a column, or a block in a shape we do not recognize. It can also mean the copy saved by the last scan is missing or was already marked failed, in which case a fresh scan is the fix. Any previously approved version stays live for crew until a clean version goes through. If it keeps happening after a fresh scan, contact the developer.",
     helpHref: "/help/errors#STAGED_PARSE_FAILED",
   },
   ROLE_MAPPINGS_OUTDATED_AT_PUBLISH: {
