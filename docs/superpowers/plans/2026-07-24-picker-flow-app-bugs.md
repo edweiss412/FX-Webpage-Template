@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next 16 App Router (route handlers + Server Actions), Supabase Auth (`@supabase/auth-js` 2.105.1), Vitest (node environment), the `typescript` compiler API for the structural guard, Playwright (`mobile-safari` project, baseline server on `E2E_PORT`).
 
-**Spec:** `docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md` (2 adversarial rounds; §1.1 resolved-scope table binds, §10 and §11 record every finding and disposition).
+**Spec:** `docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md` (4 adversarial rounds; §1.1 resolved-scope table binds; §10, §11, §12, and §13 record every finding and disposition).
 
 ## Global Constraints
 
@@ -129,9 +129,10 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 
 **Steps:**
 
+- [ ] **Un-skip the paired e2e stub first, as this task's outer red phase.** Drop `.skip` at `tests/e2e/picker-flow.spec.ts:84` and delete its now-stale `// SKIP:` comment block, then run it and watch it fail on the host flip. That stub is the paired failing test for this fix (invariant 1), which is why the un-skip belongs here and not in a later verification task (R4 finding 3).
 - [ ] Write the failing guard test with the three layers spec §3.4 requires. The matcher is an exported pure function over a `ts.SourceFile`, so layer 1 exercises it directly:
 
-  1. **Fixtures.** Positives: inline `NextResponse.redirect(new URL(p, request.url))`; variable-assigned `const url = new URL(p, request.url); return NextResponse.redirect(url)`; the `req.url` spelling of each; an alias chain (`const a = new URL(p, request.url); const b = a; return NextResponse.redirect(b)`); a captured base (`const base = request.url; return NextResponse.redirect(new URL(p, base))`). Negatives that must NOT flag: `NextResponse.redirect(data.url)`; `new URL(p, "https://fixed.example")`; a two-argument `new URL(p, request.url)` never passed to a redirect; the one-argument parse form `new URL(request.url)`.
+  1. **Fixtures.** Exactly the canonical ten-case set defined in spec §3.4 — six positives and four negatives. Do not re-enumerate them here or in the test file's comments; the spec is the single source, and the counts drifted twice when they were restated (R3 finding 9, R4 finding 6).
   2. **Tree walk.** The same matcher over every `.ts` and `.tsx` under `app/`; flagged list must be empty. This fails before the fix and after any revert, and it is also what proves the matcher is not over-broad: the tree holds four legitimate constructions that never reach a redirect (`app/api/auth/picker-bootstrap/route.ts:145`, `app/api/admin/venue-map/route.ts:21`, `app/api/cron/notify/route.ts:63` — one-argument parses — and `app/api/auth/google/start/route.ts:44`, the two-argument OAuth `redirectTo`).
   3. **Coverage floor.** The walk visited more than 50 files.
 
@@ -177,15 +178,17 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 
 **Files:**
 
+- Create: lib/auth/picker/validateClearIdentityInput.ts (the shared predicate — it cannot live in the `"use server"` module; spec §4.3 step 1)
 - Modify: `lib/auth/picker/clearIdentity.ts`
 - Modify: `tests/auth/picker/clearIdentity.test.ts`
 - Modify: `tests/auth/_metaInfraContract.test.ts` (registry row + destructuring assertion)
 
-**Mock-shape trap:** the test file's current factory is `vi.mock("next/headers", () => ({ cookies: vi.fn() }))` (`tests/auth/picker/clearIdentity.test.ts:23`). A `vi.mock` factory **replaces** the module, so the new factory must export `headers` **and** `cookies` together or every existing cookie assertion breaks. Copy the shape at `tests/auth/isCurrentUserDeveloper.test.ts:39`, which exports both from one factory with the source hoisted via `vi.hoisted`.
+**No `headers()` mock is needed** — the previous revision required one for the same-origin gate, which is descoped (spec §4.3a). The existing `vi.mock("next/headers", () => ({ cookies: vi.fn() }))` at `tests/auth/picker/clearIdentity.test.ts:23` stays exactly as it is; only a `@/lib/supabase/server` mock is added (R4 finding 1 caught the leftover requirement).
 
 **Steps:**
 
-- [ ] Write the failing tests:
+- [ ] **Un-skip the paired e2e stub first, as this task's outer red phase.** Drop `.skip` at `tests/e2e/picker-flow.spec.ts:180`, delete its `// SKIP:` block, and extend it with the three assertions from spec §6.2: no cookie satisfying `isSupabaseAuthCookieName` remains in the context; tapping the **unclaimed** row (Bob) renders `crew-shell` with his identity chip; and a bare reload with no `?gate=skip` still renders `crew-shell`. Run it and watch it fail on the Mode B loop. The reload step is the durability proof — without it a one-request-only fix passes, which is the design spec §4.2 rejects.
+- [ ] Write the failing unit tests:
 
   | Assertion | Catches |
   | --- | --- |
@@ -211,7 +214,7 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 
   Without it the registry only proves the constructor sits inside a `try`, so `const result = await signOut(...); result.error` would pass while violating invariant 9 (R2 finding 5).
 
-- [ ] Implement spec §4.3's four steps: validate (hoisting the regexes at `lib/auth/picker/clearIdentity.ts:74-80` into a shared exported predicate used by both `clearIdentityAndSkip` and `clearIdentityCoreImpl`, so the two cannot drift), picker clear, device-local sign-out, redirect. **No bespoke same-origin gate** — descoped per spec §4.3a after three review rounds; do not add one back. Keep the `// no-telemetry:` comment at `lib/auth/picker/clearIdentity.ts:56` and add the code-carrying `log.error`.
+- [ ] Implement spec §4.3's four steps: validate (moving the regexes at `lib/auth/picker/clearIdentity.ts:74-80` into the new plain module lib/auth/picker/validateClearIdentityInput.ts, imported by both `clearIdentityAndSkip` and `clearIdentityCoreImpl` so the two cannot drift — a `"use server"` module cannot export a synchronous predicate), picker clear, device-local sign-out, redirect. **No bespoke same-origin gate** — descoped per spec §4.3a after three review rounds; do not add one back. Keep the `// no-telemetry:` comment at `lib/auth/picker/clearIdentity.ts:56` and add the code-carrying `log.error`.
 - [ ] Gate: the extended tests; `pnpm vitest run tests/auth tests/log`; `pnpm test:audit:x3-trust-domain`; `pnpm typecheck`.
 - [ ] Commit: `fix(auth): sign the device out when crew continue as guest`
 
@@ -252,7 +255,8 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 
 **Steps:**
 
-- [ ] Write the failing test: the claimed row's form has `action="/auth/sign-in"` and `method="GET"`; a hidden input named `next` whose value equals `buildShowReturnUrl(slug, shareToken, { s })` computed in the test from the same fixture inputs; the `action` attribute carries **no** `?`; with `s` supplied the hidden value carries the section; with a bogus `s` it does not. Reading the action and the hidden input **separately** is what stops a "fix" that leaves `next` in both places from passing.
+- [ ] **Un-skip the paired e2e stub first, as this task's outer red phase.** Drop `.skip` at `tests/e2e/picker-flow.spec.ts:241`, delete its `// SKIP:` block, and run it; it fails because the GET submit discards `next`.
+- [ ] Write the failing component test: the claimed row's form has `action="/auth/sign-in"` and `method="GET"`; a hidden input named `next` whose value equals `buildShowReturnUrl(slug, shareToken, { s })` computed in the test from the same fixture inputs; the `action` attribute carries **no** `?`; with `s` supplied the hidden value carries the section; with a bogus `s` it does not. Reading the action and the hidden input **separately** is what stops a "fix" that leaves `next` in both places from passing.
 - [ ] Implement per spec §5:
 
   ```tsx
@@ -265,22 +269,23 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 - [ ] Gate: the extended component test; `pnpm vitest run tests/components tests/show`; `pnpm lint`; `pnpm typecheck`.
 - [ ] Commit: `fix(crew-page): keep the return target on claimed-row sign-in`
 
-### Task 7: un-skip the three e2e stubs
+### Task 7: whole-file e2e verification and the stale config comment
 
 **Files:**
 
-- Modify: `tests/e2e/picker-flow.spec.ts` (lines 84, 180, 241)
 - Modify: `playwright.config.ts` (the stale stub-count comment at line 56)
+
+**Why this is not where the un-skips live.** Un-skipping after the fixes are already implemented would be a test that is green the moment it is written, with no implementation step following it — which is not TDD, and R4 finding 3 was right to call that out. Each `.skip` removal therefore sits in the task that fixes the behavior it exercises: `tests/e2e/picker-flow.spec.ts:84` in Task 2, `tests/e2e/picker-flow.spec.ts:180` in Task 4, `tests/e2e/picker-flow.spec.ts:241` in Task 6. This task is the **whole-file verification gate** that the three fixes compose, plus one comment correction.
+
+The comment edit has no test by its nature — it is a prose comment inside a config file. That is declared here rather than smuggled: it ships in this task's commit alongside the verification run, and the run is what this task proves.
 
 **Steps:**
 
-- [ ] Drop `.skip` at the three sites and delete each stub's now-stale `// SKIP:` comment block.
-- [ ] Extend the guest case (`tests/e2e/picker-flow.spec.ts:180`) with the three added assertions from spec §6.2: no cookie satisfying `isSupabaseAuthCookieName` remains in the context; tapping the **unclaimed** row (Bob) renders `crew-shell` with his identity chip; a bare reload with no `?gate=skip` still renders `crew-shell`. That last step is the durability proof — without it a one-request-only fix passes, which is the design spec §4.2 rejects.
+- [ ] Run the whole file: `pnpm exec playwright test --project=mobile-safari tests/e2e/picker-flow.spec.ts` with `TEST_DATABASE_URL` overridden to loopback. Expected: **five passed, one skipped** — the file already carries two active tests at `tests/e2e/picker-flow.spec.ts:70` and `tests/e2e/picker-flow.spec.ts:134`, plus the three un-skipped in Tasks 2, 4, and 6, with `tests/e2e/picker-flow.spec.ts:293` still skipped.
 - [ ] Correct the comment at `playwright.config.ts:56` to name the single remaining stub.
-- [ ] Gate: `pnpm exec playwright test --project=mobile-safari tests/e2e/picker-flow.spec.ts` with `TEST_DATABASE_URL` overridden to loopback. Expected result: **five passed, one skipped** — the file already carries two active tests at `tests/e2e/picker-flow.spec.ts:70` and `tests/e2e/picker-flow.spec.ts:134`.
-- [ ] Commit: `test(auth): un-skip the three picker-flow stubs their fixes unblocked`
+- [ ] Commit: `test(auth): verify the picker-flow suite composes and fix the stub-count comment`
 
-### Task 8: make the picker-flow spec actually PR-covered
+### Task 8: run the picker-flow spec in CI, path-gated, with its signing key
 
 **Files:**
 
@@ -307,7 +312,7 @@ So the honest goal is: move picker-flow from `UNSEEN` to `PATH_GATED`, and make 
 - [ ] Flip the picker-flow row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:82` from `UNSEEN` to `PATH_GATED`. This is the reconciliation R3 finding 3 asked for: after this task the spec **is** named in a workflow command, so leaving it as `UNSEEN` would be a false annotation in the other direction. Two mechanics matter here and are easy to get backwards:
   - **The row must stay.** `scanWorkflowCoverage` excludes path-filtered workflows, so picker-flow will still not be in `covered` after this task; deleting the row would make the spec "dark" and fail the first assertion at `tests/ci/_metaE2eWorkflowCoverage.test.ts:141-144`. The complementary assertion at `tests/ci/_metaE2eWorkflowCoverage.test.ts:147-151` only fails for a row whose spec *is* covered, which will not be the case.
   - **The flip is not gate-enforced.** Both category constants are prose reason strings, so no assertion distinguishes them. It is an accuracy edit that keeps the allowlist honest, and it is called out here precisely because nothing will fail if a future edit lets it drift.
-- [ ] Extend `crew-e2e.yml`'s `pull_request.paths` (lines 23-33) with the paths this spec actually exercises, so a future change to the behavior under test triggers the job: `tests/e2e/picker-flow.spec.ts`, `app/auth/**`, `app/api/auth/**`, `lib/auth/**`, and `lib/http/**`. Without these, the filter would fire for this PR (it touches `app/show/**` and the workflow itself) and then never again for the code under test.
+- [ ] Extend `crew-e2e.yml`'s `pull_request.paths` (lines 23-33) with the paths this spec actually exercises, so a future change to the behavior under test triggers the job: `tests/e2e/picker-flow.spec.ts`, `app/auth/**`, `app/api/auth/**`, `lib/auth/**`, `lib/http/**`, and `lib/env/pickerCookieSigningKey.ts` — that last one because this task itself identifies that file's validation as a runtime prerequisite, so a change to its contract must trigger the job (R4 finding 7). Without these paths the filter would fire for this PR (it touches `app/show/**` and the workflow itself) and then never again for the code under test.
 - [ ] Add `PICKER_COOKIE_SIGNING_KEY` to both workflows' `env:` blocks (alongside `TEST_AUTH_SECRET` at `.github/workflows/crew-e2e.yml:67` and `.github/workflows/dev-gate-e2e.yml:77`), a fixed 64-hex test constant in the same spirit as the other inline test secrets there. `dev-gate-e2e.yml` gets it for the same structural reason `HASH_FOR_LOG_PEPPER` is there: its webServer serves the whole app, so any request reaching the picker chain throws without it.
 - [ ] Add the spec to the existing mobile-safari step's file list (same `--project=mobile-safari` invocation, so no new job and no second server boot), and update the workflow's header comment (lines 1-8) and the step name at line 104, both of which currently say this job runs exactly one spec.
 - [ ] Gate: both pins; `pnpm vitest run tests/ci tests/cross-cutting`.
@@ -333,7 +338,7 @@ So the honest goal is: move picker-flow from `UNSEEN` to `PATH_GATED`, and make 
   ] as const;
   ```
 
-  each ID appears **zero** times in `BACKLOG.md` and **at least once** in `BACKLOG-archive.md`; the archived section carries a resolution line naming this branch; and `BL-SERVER-ACTION-ORIGIN-GATE` appears in `BACKLOG.md` exactly once. Failure modes it catches: an entry deleted from one file without landing in the other (the actual risk in a two-file move), a copy that leaves the original in place, and the descoped follow-up never being filed at all — which would make spec §4.3a's "filed as" claim false.
+  each ID appears **zero** times in `BACKLOG.md` and **at least once** in `BACKLOG-archive.md`; the archived section carries a resolution line naming this branch; and `BL-SERVER-ACTION-ORIGIN-GATE` appears in `BACKLOG.md` exactly once **with its substance intact** — a heading-only entry must fail (R4 finding 10). Assert its section body is non-trivial (a length floor) and that it names all three things spec §4.3a promises are preserved: the residual (a cross-site POST with no `Origin`), the blast radius (a device-local sign-out plus one picker-entry deletion, no read and no escalation), and the open decision (a trusted-proxy policy). Match on distinctive substrings rather than exact prose so a reworded entry still passes while an empty one cannot. Failure modes it catches: an entry deleted from one file without landing in the other (the actual risk in a two-file move), a copy that leaves the original in place, and the descoped follow-up never being filed at all — which would make spec §4.3a's "filed as" claim false.
 
 - [ ] Move the three entries and their header into the archive with a one-line resolution note naming this branch, keeping the surrounding `---` separators well-formed. Use a file edit, never `echo >>`; verify with `git diff`.
 - [ ] Add the BL-SERVER-ACTION-ORIGIN-GATE entry to root `BACKLOG.md`, carrying spec §4.3a's reasoning: what the residual is (a no-`Origin` cross-site POST can force the guest action), its blast radius (device-local logout plus one picker-entry deletion; no read, no escalation), and the open decision (a trusted-proxy policy, without which a derived origin is not sound).
@@ -360,13 +365,16 @@ So the honest goal is: move picker-flow from `UNSEEN` to `PATH_GATED`, and make 
 
 ### Task 13: ship
 
-- [ ] Push, open the PR with the spec summary and the impeccable dispositions, wait for **real CI green** (not just local), `gh pr merge --merge`, fast-forward local `main`, and verify `git rev-list --left-right --count main...origin/main` reports `0  0`.
+- [ ] Push and open the PR with the spec summary and the impeccable dispositions.
+- [ ] Wait for **real CI green** on the PR — not just local.
+- [ ] **Dispatch the one edited workflow PR CI will never run.** `dev-gate-e2e.yml` is `workflow_dispatch`-only (`.github/workflows/dev-gate-e2e.yml:25-30`), so Task 8's env edit there is invisible to PR CI: run `gh workflow run dev-gate-e2e.yml --ref fix/picker-flow-app-bugs`, then watch it to completion. Reporting "real CI green" while a modified CI surface has never executed is exactly the local-passes-CI-fails class this project treats as its own gate (R4 finding 5). Also fire `gh workflow run crew-e2e.yml --ref fix/picker-flow-app-bugs` if the PR's path filter did not trigger it.
+- [ ] `gh pr merge --merge`, fast-forward local `main`, and verify `git rev-list --left-right --count main...origin/main` reports `0  0`.
 
 ---
 
 ## Task order and dependencies
 
-1 → 2 (the helper must exist before its call sites). 3 → 4 (the matcher before the sweep that uses it). 5 and 6 are independent of each other and of 1 through 4. 7 depends on 2, 4, and 6 — all three app fixes must land before the stubs can pass. 8 depends on 7 (the spec must be green locally before CI runs it). 9 depends on 7 so the archive note can name the un-skipped tests. **10 depends on 2, 3, and 6.** Task 2 edits two of the three UI-surface files and Task 3 edits the third (`app/auth/sign-out/route.ts`), so the impeccable pair must run after all three or it evaluates an incomplete diff (R2 finding 7 caught the first omission, R3 finding 4 caught Task 3 still missing). 11 through 13 are the close-out sequence, in order.
+1 → 2 (the helper must exist before its call sites). 3 → 4 (the matcher before the sweep that uses it). 5 and 6 are independent of each other and of 1 through 4. 7 depends on 2, 4, and 6 — each of those un-skips its own stub, and Task 7 verifies the whole file composes. 8 depends on 7 (the spec must be green locally before CI runs it). 9 depends on 7 so the archive note can name the un-skipped tests. **10 depends on 2, 3, 5, and 6.** Tasks 2, 3, and 6 edit the three UI-surface files, and Task 5 changes the rendered mismatch sentence that Task 10's own copy checklist inspects — so the gate must run after all four or it evaluates an incomplete diff. (R2 finding 7 caught the first omission, R3 finding 4 caught Task 3, R4 finding 4 caught Task 5.) 11 through 13 are the close-out sequence, in order.
 
 ## Risks
 
@@ -390,7 +398,7 @@ Populated during execution:
 - **Impeccable dual-gate (Task 10):** every P0 through P3 finding across the three UI-surface files, each marked fixed or deferred with its `DEFERRED.md` entry. This section stands in for the milestone-handoff §12 record, which this standalone branch does not have.
 - **Cross-model review rounds (Task 12):** each round's findings, the verification that confirmed or refuted them, and the repair. Refuted claims are recorded with their refutation so a later round does not re-derive them.
 
-Spec-round dispositions live in §10 and §11 of the spec document.
+Spec-round dispositions live in §10, §11, §12, and §13 of the spec document.
 
 ## 13. Round 2 adversarial review — plan-side dispositions
 
@@ -418,3 +426,18 @@ Codex returned `VERDICT: BLOCKING` with fourteen findings on the second spec rev
 | 12 | MEDIUM | Tasks 10 and 12 authorize tracked-file changes but carry no commit step | Accepted. Both now have explicit commit steps, including the no-findings case |
 
 Two findings landed on the same-origin gate (1 and 2) and, with R2 finding 3 before them, made it the third consecutive round on one design-correctness vector. Per the three-round prose cap the gate is **descoped**, not patched again — spec §1.1 and §4.3a carry the decision and its residual, and Task 4 no longer implements or tests it.
+
+## 15. Round 4 adversarial review — plan-side dispositions
+
+Codex returned `VERDICT: BLOCKING` with eleven findings, while confirming the descope's security characterisation holds. Findings 1, 2, 6, 8, 9, and the spec-side citation drift are dispositioned in spec §13. The plan-side ones:
+
+| # | Severity | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | BLOCKING | Task 4 still required a `headers` mock for the descoped gate | Accepted. The mock-shape paragraph is gone; the existing `next/headers` factory stays untouched and only a Supabase-server mock is added |
+| 2 | BLOCKING | The shared predicate cannot be exported from `lib/auth/picker/clearIdentity.ts` — a module-level `"use server"` file admits only async exports, and an async predicate would mint another discoverable Server Action | Accepted. Task 4 now creates lib/auth/picker/validateClearIdentityInput.ts as a plain module and imports it from both call sites |
+| 3 | HIGH | Task 7 had no red phase: un-skipping after the fixes are implemented is green on arrival with no implementation step following | Accepted, and the fix is structural rather than cosmetic. Each `.skip` removal moved into the task that fixes the behavior it exercises — `tests/e2e/picker-flow.spec.ts:84` into Task 2, `:180` into Task 4 (with its three durability assertions), `:241` into Task 6 — so each app fix has its paired failing e2e as its outer red phase. Task 7 is now explicitly the whole-file verification gate plus one comment edit, and says so instead of implying a red phase it does not have |
+| 4 | HIGH | Task 10's own copy checklist inspects Task 5's sentence, but the dependency graph omitted Task 5 | Accepted. Task 10 now depends on Tasks 2, 3, 5, and 6 — the third correction to this graph across three rounds, so it is now stated with the reason for each edge |
+| 5 | HIGH | Task 8 edits `dev-gate-e2e.yml`, which is `workflow_dispatch`-only, so PR CI never runs it — "real CI green" could be reported with a modified CI surface unexecuted | Accepted, verified at `.github/workflows/dev-gate-e2e.yml:25-30`. Task 13 now dispatches it explicitly with `gh workflow run` and watches it to completion, and also covers the case where the PR's path filter does not trigger `crew-e2e.yml` |
+| 7 | MEDIUM | Task 8's title still promised PR coverage its body correctly disclaims, and the expanded path filter omitted `lib/env/pickerCookieSigningKey.ts` despite the task naming that file a runtime prerequisite | Accepted. The title now says "path-gated", and the filter includes that file |
+| 10 | MEDIUM | Task 9's red phase only checked that the follow-up ID appears once, so a heading-only entry would pass while spec §4.3a promises the residual, blast radius, and open decision are preserved | Accepted. The test now asserts a body-length floor plus distinctive substrings for all three, matched loosely enough to survive rewording |
+| 11 | LOW | The plan header said two completed rounds and named only spec §§10-11; there are four rounds and four disposition sections | Accepted; both references corrected |
