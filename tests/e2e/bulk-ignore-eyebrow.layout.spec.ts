@@ -191,6 +191,9 @@ async function rowMetrics(page: Page) {
         ruleWidth: ruleShown ? rule!.getBoundingClientRect().width : 0,
         rowWidth: rowBox.width,
         rowHeight: rowBox.height,
+        // A min-width floor on a flex-1 item can push a row past its container:
+        // the floor stops the rule collapsing, but it also stops it yielding.
+        rowOverflow: row.scrollWidth > row.clientWidth,
         contentWidth: row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
         chipWidth: c.width,
         // Vertical separation is what proves the chip took its own line; horizontal
@@ -261,6 +264,9 @@ for (const width of [480, 1280] as const) {
     expect(idle.ruleShown).toBe(true);
     expect(idle.ruleWidth).toBeGreaterThanOrEqual(24); // min-w-6 floor
     expect(idle.zeroExtent).toEqual([]);
+    // The floor must not become the overflow: a min-width on a flex-1 item refuses
+    // to yield, so a narrow-enough container would be pushed past its own width.
+    expect(idle.rowOverflow).toBe(false);
     await armChip(page);
     const armed = await rowMetrics(page);
     expect(armed.ruleWidth).toBeGreaterThanOrEqual(24);
@@ -268,5 +274,6 @@ for (const width of [480, 1280] as const) {
     // panel-wide confirm bar here is the rejected desktop treatment.
     expect(armed.chipWidth).toBeLessThan(armed.contentWidth - 1);
     expect(armed.chipBelowEyebrow).toBe(false);
+    expect(armed.rowOverflow).toBe(false);
   });
 }
