@@ -1494,6 +1494,23 @@ describe("R6: scanner changes are pinned", () => {
     ).toEqual([]);
   });
 
+  // R17 question 2, probed before the round reported: can the jsdoc decoration strip empty
+  // a LEGITIMATE reason? Bulleted and asterisk-bearing reasons all survive.
+  it("R17 bulleted and asterisk reasons survive the jsdoc strip", () => {
+    const anchor = 'const A=()=><a href="x" target="_blank">Go</a>;';
+    const exempts = [
+      `/**\n * ${EXEMPTION_TEXT} because\n * - item one\n */`, // dash bullets
+      `/**\n * ${EXEMPTION_TEXT}\n * * star bullet\n */`, // reason IS a star bullet
+      `// ${EXEMPTION_TEXT} *emphasis*`, // asterisks in prose
+      `/**\n * ${EXEMPTION_TEXT} *\n */`, // a lone asterisk as the reason
+    ];
+    for (const c of exempts) {
+      expect(violations(`${c}\n${anchor}`), `must exempt: ${c}`).toEqual([]);
+    }
+    // Decoration only, across several lines, is still not a reason.
+    expect(violations(`/**\n * ${EXEMPTION_TEXT}\n *\n *\n */\n${anchor}`).length).toBe(1);
+  });
+
   it("R16 delimiter stripping keeps real reasons and rejects empty ones", () => {
     const anchor = 'const A=()=><a href="x" target="_blank">One</a>;';
     const exempts = [
