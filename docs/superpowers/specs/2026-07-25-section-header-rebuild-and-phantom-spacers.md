@@ -521,9 +521,20 @@ per unit of cost:
     separate assertions; **aggregation across sites is prohibited**, because an aggregate can go red
     on the nav rows while never exercising BellPanel at all (round-5/6 finding 2).
     - **`components/admin/nav/AdminNav.tsx:144`** and
-      **`components/admin/nav/OnboardingTopBar.tsx:67`** — non-wrapping rows, so narrowing is
-      monotonic: mount each in a deliberately CROWDED fixture and assert no in-flow child of the row
-      has zero main-axis extent. Red today, green once the spacer is deleted.
+      **`components/admin/nav/OnboardingTopBar.tsx:67`** — **AMENDED 2026-07-25 on measurement: these
+      two use STRUCTURAL ABSENCE, not crowded zero-extent.** The original text assumed "non-wrapping
+      rows, so narrowing is monotonic" and required a crowded fixture. **That assumption is empirically
+      false and the oracle it mandates is unachievable.** Measured with the real class strings and
+      child structure across 320-1280 in 10px steps, neither spacer ever reaches 0: `AdminNav` bottoms
+      out at **59.91px** and `OnboardingTopBar` at **134px**, both at 360px, and both grow from there.
+      The cause is that their children collapse responsively FASTER than the row narrows — the desktop
+      nav links are `hidden` below 840px, the wordmark below 360px, and the brand pill below 440px — so
+      the row sheds content instead of crowding.
+      Therefore both rows assert **structural absence**: the row directly contains no childless growable
+      child element. Red today (each holds its `flex-1` span), green after deletion, red on
+      reintroduction, with nothing to calibrate. This amendment exists because plan round 7 forced the
+      measurement the earlier rounds had deferred; plan round 5 was procedurally right that a plan may
+      not override a spec, and the correct resolution was to fix the spec on evidence.
     - **`components/admin/BellPanel.tsx:323`** — a **structural absence** oracle instead. Its action
       row is `flex-wrap` (`components/admin/BellPanel.tsx:288`), so narrowing can move the trailing
       item to another flex line and the spacer regains that line's free width; zero extent occurs

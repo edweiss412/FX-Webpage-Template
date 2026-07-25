@@ -38,7 +38,7 @@ command, expected failure, PASS command, and expected passing count**.
 
 ### 0.1 Meta-test inventory
 
-**CREATES none. EXTENDS one** (`tests/ci/_metaE2eWorkflowCoverage.test.ts`, see the table). The static guard that would have created one is **DESCOPED** by spec §6
+**CREATES two** (tests/docs/designSevenAEmptyHiddenSites.test.ts for T8's documentation contract, and tests/components/admin/wizard/sectionHeaderConditionalInventory.test.ts for T2's conditional registry). **EXTENDS one** (`tests/ci/_metaE2eWorkflowCoverage.test.ts`, see the table). The static guard that would have created one is **DESCOPED** by spec §6
 (three adversarial rounds without convergence; it becomes T9's backlog spike). Each candidate registry
 from `docs/agents/writing-plans.md` was checked:
 
@@ -299,9 +299,15 @@ Split out of T0 (round-5 finding 8): it is a product refactor with its own respo
 conventional scope, and bundling it with six e2e files plus workflow wiring made a single `infra:` commit
 that mixed unrelated concerns.
 
-**Class: characterization-guarded refactor** (see the prologue) — a refactor guard cannot be red first.
+**RED contract: an export contract.** Round 7 correctly caught that the prologue promised this while this
+body still said a refactor guard cannot be red first. It can — the export does not exist yet.
 
-1. Write tests/components/admin/bellActionRowParity.test.tsx against the CURRENT `ActionCell` output,
+1. **RED** — write tests/components/admin/bellActionRow.export.test.tsx importing `BellActionRow` from
+   `components/admin/BellPanel` and rendering it for both `isAutoResolving` branches.
+   Command: `pnpm vitest run tests/components/admin/bellActionRow.export.test.tsx`
+   Expected failure: **1 failed** — the module has no `BellActionRow` export, so the import is
+   unresolved. This is a true RED before any implementation.
+2. Additionally write tests/components/admin/bellActionRowParity.test.tsx against the CURRENT `ActionCell` output,
    rendering `BellPanel` hydrated with a stubbed feed so the cell is reachable, snapshotting the
    accessible tree for **both** `isAutoResolving` branches including the resolving/pending state.
    Command: `pnpm vitest run tests/components/admin/bellActionRowParity.test.tsx` → **2 passed** BEFORE
@@ -314,8 +320,20 @@ that mixed unrelated concerns.
 
 ### T0 — test infrastructure, so every later RED is executable  `infra:`
 
-Nothing in T0 changes product behaviour, so it has no RED step of its own; its proof is that the two
-new specs are **discovered** and that the harness emits the 15 cells.
+**RED contract: a wiring contract.** Round 7 correctly caught that this body still declared "no RED"
+while the prologue promised one. Ordering matters, so it is explicit:
+
+- **RED (step 3a, before any wiring):** create the two spec files ONLY — no `testMatch` entry, no
+  workflow filter, no allowlist row — then run
+  `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` → **fails**, because two specs now exist
+  that the scanner sees as path-gated with no `LOCAL_ONLY_ALLOWLIST` row. Also run
+  `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts`
+  → **"No tests found"**, the second red.
+- **GREEN:** add the `testMatch` entries, the six path filters, and the two allowlist rows; both
+  commands then pass.
+
+T0's remaining deliverables (harnesses, live entry, census tool) are proved executable by the checks in
+its steps rather than by a behaviour RED, since they add no product behaviour.
 
 1. Create tests/e2e/\_pusherRowsHarness.tsx — a real-component harness mounting `BellPanel`'s action
    row (BOTH `entry.isAutoResolving` branches), `AdminNav`, and `OnboardingTopBar` via the
@@ -358,7 +376,10 @@ new specs are **discovered** and that the harness emits the 15 cells.
    §1.1 input table below. The existing harness only emits fixed `normal` / `linkOnly` / `long` /
    `resolution` trees (`tests/e2e/_step3ReviewModalHarness.tsx:249-273`) and cannot produce the
    defensive, partial-provider, or status combinations, which is why a new harness is required.
-3. Create both spec files with a single trivially-passing smoke assertion each, add their names to
+3. Create both spec files with a single trivially-passing smoke assertion each. **The smokes are
+   REPLACED, not retained** (round-7 finding 5): T2 and T3 delete their file's smoke case when they add
+   real cases, which is why T2's total is 77 and T3's is 11 with no extra smoke case counted. The
+   hydrated same-key live smoke in step 8 is also a T0-only case, removed by T2. add their names to
    `standalone.config.ts:35` `testMatch`, and add **all SIX new paths (enumerated below)** to `phantom-gap-e2e.yml`'s path
    filters. **SIX entries, enumerated so an implementer cannot miscount** (round-5 finding 5 — the
    earlier "FIVE" was arithmetically wrong because the bundle script needs a filter of its own):
@@ -389,21 +410,33 @@ new specs are **discovered** and that the harness emits the 15 cells.
    the meta-test**: `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`, expected green.
 4. Commit tools/one-off/childless-growable-census.ts (§0.4 sweep A).
 5. Run the §0.7 mechanical sweep and record findings against the tasks that own them.
-6. **Run the pusher crowding sweep and RECORD both thresholds** (round-6 finding 2 — T3 depended on a
-   T0 output that T0 never produced). Using tests/e2e/\_pusherRowsHarness.tsx, render `AdminNav` and
-   `OnboardingTopBar` with their real props and measure each row's `flex-1` spacer across 320-1280 in
-   10px steps. Record, in this plan and as named constants in the test, the widest row width at which
-   each spacer measures **0**. T3 pins its crowded fixture at or below that width and cites the number.
-   **Then prove it here:** at the chosen width, assert the spacer is zero-extent BEFORE any repair —
-   T3's RED precondition is established, not assumed.
-   **If either row cannot be driven to zero anywhere in range**, STOP and escalate a spec-level finding
-   against spec §9.3 (which assumed narrowing is monotonic for these two rows). Do NOT silently
-   substitute structural absence — that substitution is exactly what round 5 caught.
+6. **The crowding sweep was RUN at plan time, and it triggered the escalation this step promised.**
+   Method: the two nav rows rebuilt with their real class strings and child structure, spacer measured
+   across 320-1280 in 10px steps.
+
+   | viewport | `AdminNav` spacer | `OnboardingTopBar` spacer |
+   | -------- | ----------------- | ------------------------- |
+   | 320 | 72px | 146.09px |
+   | **360 (minimum for both)** | **59.91px** | **134px** |
+   | 390 | 89.91px | 164px |
+   | 480 | 116.84px | 193.63px |
+   | 840 | 223.13px | 405.11px |
+   | 1280 | 663.13px | 845.11px |
+
+   **Neither spacer ever reaches 0.** Their children collapse responsively faster than the row narrows —
+   desktop nav links `hidden` below 840px, wordmark below 360px, brand pill below 440px — so the row
+   sheds content instead of crowding. A crowded-zero-extent oracle is therefore **unachievable** for
+   these two rows, and no threshold constant exists to record.
+
+   **Escalated and resolved:** spec §9.3 has been AMENDED (2026-07-25) to require **structural absence**
+   for both nav rows, with this measurement as the justification. Plan round 5 was procedurally right
+   that a plan may not override a spec; the correct fix was to correct the spec on evidence, which is
+   what happened. T3 follows the amended spec.
 7. **Proof of discovery AND execution — `--list` alone is not enough** (round-3 finding 4): a listed
    spec can still fail to run. Both specs must be RUN and PASS before the T0 commit:
    - `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts` → **1 passed** (the smoke case), never "No tests found".
    - `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/pusher-alignment.layout.spec.ts` → **1 passed**.
-   - `pnpm dlx tsx tests/e2e/_sectionHeaderCellHarness.tsx /tmp/cells.json && node -e "const c=require('/tmp/cells.json');const n=Object.keys(c.cells).length;if(n!==15)throw new Error('expected 15 cells, got '+n);if(!c.hairline)throw new Error('missing hairline fixture')"` → exits 0. **The hairline fixture is proven here too** (round-4 finding 3: T4 depended on a T0 deliverable that T0 neither built nor proved).
+   - `pnpm dlx tsx tests/e2e/_sectionHeaderCellHarness.tsx /tmp/cells.json && node -e "const c=require('/tmp/cells.json');const n=Object.keys(c.cells).length;if(n!==15)throw new Error('expected 15 cells, got '+n);if(!c.hairline)throw new Error('missing hairline fixture')"` → exits 0. **The hairline fixture is proven here too** (round-4 finding 3: T4 depended on a T0 deliverable that T0 neither built nor proved). The fixture adds no production `data-testid`; T4 selects the rule structurally (see T4).
    - **Hydrated same-key smoke for the live entry**, so T2's first compound case cannot fail on bundle or
      hydration infrastructure instead of on its assertion: bundle the live entry, load it, wait for the
      readiness flag, call the update hook once with a changed pill state, and assert the DOM changed while
@@ -493,10 +526,14 @@ at 320px.
        and the test asserts each node's identity by its production `data-testid`
        (`wizard-step3-card-<dfid>-review-section-<id>`, the breakdown section's `testId`, and the
        panel-card testid) before measuring it. A synthetic wrapper carrying copied classes therefore
-       fails identity before it can pass geometry. Cells that do NOT mount the real chain (the
-       partial-provider and defensive rows, which by construction have no `ShowReviewSurface` above
-       them) are explicitly exempt from the upstream two boundaries and assert only the boundaries they
-       genuinely own.
+       fails identity before it can pass geometry. **G6a/G6b are NOT exempt** — round 7 correctly refuted that: the defensive state is *produced by*
+       `ShowReviewSurface`'s `data.driveFileId ?? ""` fallback
+       (`components/admin/review/ShowReviewSurface.tsx:249`), so those cells mount through the genuine
+       defensive `ShowReviewSurface` path and assert the full chain like G1-G4. Exempting them would let
+       G6 geometry pass in a direct chrome mount while the production pane→registry→breakdown chain
+       regressed. **Only G5** (partial/standalone provider) omits the upstream boundaries, because those
+       ancestors genuinely do not exist for it; it asserts only the boundaries it owns. Any pre-existing
+       upstream failure is escalated, never silently repaired here.
        `registrySection.width === pane.clientWidth − paddingLeft − paddingRight` (the pane carries
        `p-tile-pad` and `clientWidth` INCLUDES padding, so a naive equality is off by 40px), then
        `breakdownSection`, `outerColumn`, `headerLine`, `pillLine`, and
@@ -557,13 +594,11 @@ spacer that exists or returns, (b) a missing `ml-auto`.
      caught that an earlier draft replaced the spec's oracle at all three sites with structural absence;
      the spec reserves that for BellPanel alone. Restored:
      - **`components/admin/nav/AdminNav.tsx:144` and `components/admin/nav/OnboardingTopBar.tsx:67` —
-       CROWDED-ROW REALIZED ZERO-EXTENT**, as spec §9.3 requires: mount each row from
-       tests/e2e/\_pusherRowsHarness.tsx in a deliberately crowded fixture and assert no in-flow child
-       has zero main-axis extent. The crowding width is an **output of T0**, which measures each row's
-       spacer across 320-1280 and records the width at which it reaches 0; T3 pins its fixture below
-       that and cites the measured number. If T0's measurement shows a row cannot be driven to zero at
-       any supported width, that is a spec-level finding and T3 escalates it rather than silently
-       substituting a different oracle.
+       STRUCTURAL ABSENCE**, per the **amended** spec §9.3. T0's sweep proved neither spacer can reach
+       zero at any supported width (minimums 59.91px and 134px, both at 360px), so the crowded oracle
+       the spec originally required is unachievable; the amendment records the measurement. Assert that
+       each row, rendered from tests/e2e/\_pusherRowsHarness.tsx, directly contains no childless
+       growable child element.
      - **`components/admin/BellPanel.tsx:323` — STRUCTURAL ABSENCE**, per spec §9.3, because its row is
        `flex-wrap` (`components/admin/BellPanel.tsx:288`): narrowing moves the trailing item to a new
        line and the spacer regains that line's free width, so zero extent occurs only at a calibrated
@@ -595,9 +630,13 @@ reaching 0 only at ≤215px.
    gains one additional fixture** rendering the real `EventDetailsBreakdown`
    (`components/admin/wizard/step3ReviewSections.tsx:2099-2150`) with event-detail data whose only
    populated group is **"Wardrobe & key moments"** — the longest of the five titles
-   (`components/admin/wizard/step3ReviewSections.tsx:386-401`) — inside a 240px-wide container. T0 adds
-   `data-testid="event-detail-group-rule"` to the rule so the selector is not positional, and the label is
-   its preceding sibling. Then in tests/e2e/section-header-layout.layout.spec.ts assert all three:
+   (`components/admin/wizard/step3ReviewSections.tsx:386-401`) — inside a 240px-wide container.
+   **No production `data-testid` is added ahead of its test** (round-7 finding 3 — that would be a
+   tracked product change committed before the test that exercises it). The rule is selected
+   **structurally instead**: within the group row, the `h-px` span that is the next element sibling of
+   the eyebrow label whose text is the group title. That is stable without touching production source.
+   If a future refactor makes the structural selector fragile, adding a testid becomes its own RED-first
+   task. Then in tests/e2e/section-header-layout.layout.spec.ts assert all three:
    (a) the rule is DRAWN (`width > 0`); (b) the resolved `min-width` is exactly **16px**; (c) the label
    does **not** wrap.
    - Command: `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts -g "hairline"`
@@ -636,7 +675,9 @@ reaching 0 only at ≤215px.
      reported case count rose by 2, not merely that CI was green.
 2. **GREEN** — add `empty:hidden` to `components/crew/sections/TravelSection.tsx:124`. (Verified by
    compilation: `.empty\:hidden { &:empty { display: none } }` generates.)
-   - PASS command: same; expect **2 passing cases** —
+   - RED totals: **1 failed, 1 passed** — the blank-leg case fails, the labelled-leg case already
+     passes (round-7 finding 5; the earlier wording named one case in RED and two in GREEN).
+   - PASS command: same; expect **2 passed** —
      `T-NOPHANTOM-CREW [eyebrow displacement] blank leg` and `… labelled leg`.
 3. Delete the 2 `KNOWN_CREW_PHANTOM_ITEMS` rows (`tests/e2e/crew-layout-dimensions.spec.ts:1037`), then
    **re-run the probe that owns them before committing**: `pnpm exec playwright test
@@ -791,11 +832,18 @@ selector DOES match them; the needed distinction is painted-empty-element (keep 
 `--spacing-header-link-slot`; (f) **update §7a's "Current sites" list** at `DESIGN.md:325`, which today
 names only `OverviewSection.tsx` and `ScheduleDayRow` — TravelRow becomes a third.
 
-**Class: documentation task** (see the prologue) — no RED exists for prose, so the contract is the
-verification below rather than a pretended failing test.
+**RED contract: a documentation contract.** Round 7 was right that this body still said no RED exists,
+and right that no §7a site-list test exists to "extend" — so this task **CREATES** one, and §0.1's
+meta-test inventory is corrected accordingly (it is no longer "CREATES none").
 
-1. Verify: `pnpm format:check`, and `pnpm vitest run tests/styles` for the §7a token/contrast meta-tests.
-2. **Commit.**
+1. **RED** — create tests/docs/designSevenAEmptyHiddenSites.test.ts: scan `components/**` for files
+   containing `empty:hidden`, and assert every one is named in `DESIGN.md` §7a's "Current sites" list.
+   Command: `pnpm vitest run tests/docs/designSevenAEmptyHiddenSites.test.ts`
+   Expected failure after T5: **1 failed** — `TravelSection.tsx` now carries `empty:hidden` and
+   `DESIGN.md:325` still lists only `OverviewSection.tsx` and `ScheduleDayRow`.
+2. **GREEN** — make the §7a edits (a)-(f); the test passes.
+3. Verify: `pnpm format:check`, `pnpm vitest run tests/styles`, and the new test.
+4. **Commit.**
 
 ### T9 — backlog lifecycle  `docs:`
 
@@ -832,7 +880,10 @@ commit of the close-out document itself** (round-2 finding 9) — `pnpm format:c
 
 ### T11 — close-out gate
 
-**Class: close-out gate, not a TDD task.** Whole-diff fresh-eyes Codex review (split by surface per the
+**RED contract: a merge-readiness contract.** Round 7 was right that "not a TDD task" is not an
+exemption. Before merging, run the full pre-push gate set (§3) and require every one green; the contract
+that can fail is that gate set, and any code change this gate produces takes its own RED-first sub-task
+before it is committed. Whole-diff fresh-eyes Codex review (split by surface per the
 tight-scope rule), then **real CI green** as a separate gate from local green, then
 `gh pr merge --merge` — **which is this gate's commit** — then fast-forward local `main` and verify
 `git rev-list --left-right --count main...origin/main` reports `0  0`. Any code change this gate produces
