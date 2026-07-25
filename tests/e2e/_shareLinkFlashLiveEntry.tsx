@@ -9,11 +9,16 @@
  * an ancestor-qualified override, a later duplicate keyframe or a paused track
  * would be caught.
  *
- * PRODUCTION ANCESTRY, not a bare mount. A rule scoped to an ancestor selector
- * would suppress the cue in the app while leaving an isolated element green —
- * adversary A18 exactly. The chain here is the real StatusStrip inside a panel
- * carrying ReviewModalShell's `overflow-clip` + `PopoverHostContext`, which is
- * what the popover portals into in production.
+ * PRODUCTION ANCESTRY, not a bare mount and not an imitation of one. A rule
+ * scoped to an ancestor selector suppresses the cue in the app while leaving an
+ * isolated element green — adversaries A18 and A28.
+ *
+ * An earlier version of this harness hand-built a panel carrying
+ * ReviewModalShell's clip and PopoverHostContext. That was not enough: it
+ * reproduced exactly the one attribute A18 happened to target and nothing else,
+ * so a rule scoped to any OTHER real ancestor went undetected. It now mounts the
+ * REAL `ReviewModalShell` with the REAL `StatusStrip` in its `subHeader` slot,
+ * which is what A28 (a rule scoped to the modal root) needs in order to fail.
  *
  * The rotate is driven through the PRODUCTION OVERRIDE SEAM, not the server
  * action: the bundle elides `"use server"` modules into throwing stubs, so a
