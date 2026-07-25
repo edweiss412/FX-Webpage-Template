@@ -389,7 +389,7 @@ Both were found by reading the helpers the guard will reuse, not by reasoning ab
 
 ### 5.3 Honest scope statement
 
-The guard **reduces** re-drift within registry membership; it does not eliminate it, and the earlier claim that it could not silently re-drift was too strong. **Four** holes remain — three inside registry membership, one outside. In order of how likely they are to bite: lexical shadowing, wrapper schedulers, an identifier **swap** the census cannot see (§5.2), and a surface that never adopts the recipe pair at all. Each is enumerated below; none is claimed closed.
+The guard **reduces** re-drift within registry membership; it does not eliminate it, and the earlier claim that it could not silently re-drift was too strong. **Five** holes remain — four inside registry membership, one outside. In order of how likely they are to bite: **arithmetic on an approved constant** (`setTimeout(cb, ARM_REVERT_MS / 2)` keeps the approved import, the census counts, the scheduler count and the pinned value while reverting at 2s), lexical shadowing, wrapper schedulers, an identifier **swap** the census cannot see (§5.2), and a surface that never adopts the recipe pair at all. Each is enumerated below; none is claimed closed.
 
 **Inside membership — lexical shadowing.** A registered file can import the shared constant correctly and then shadow it: `function arm(ARM_REVERT_MS = 3_000) { setTimeout(cb, ARM_REVERT_MS) }`. T1 sees the approved import, T2 sees an allowlisted identifier and an unchanged call count, T3 still sees the shared value at 4s — every guard green while the surface reverts at 3s. Closing this needs scope analysis, not regex; it is recorded here as a known hole rather than papered over.
 
