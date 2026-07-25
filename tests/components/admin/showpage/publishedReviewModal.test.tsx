@@ -583,6 +583,36 @@ describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)"
     expect(anchor.hasAttribute("data-step3-warning-flash")).toBe(true);
   });
 
+  // BEHAVIORAL proof that a pressed row jumps to where the card LANDS, not to
+  // the item's declared route (whole-diff review rounds 2-5; the structural
+  // assertion this replaces proved only that `jumpSectionFor` appeared as text
+  // inside navigateTo, which a mutation could satisfy while emitting a wrong
+  // sectionId anyway).
+  //
+  // Observable: ShowReviewSurface sets the active rail item from
+  // `jump.sectionId`, so `aria-current="true"` IS the emitted jump target,
+  // read through the real modal rather than from any helper.
+  it("a pressed row jumps to the section the card LANDS in, not its declared route", async () => {
+    // routed `rooms`, but the diagrams anchor is absent in this harness, so the
+    // card falls back to Overview — declared and effective sections DIFFER, which
+    // is the only shape that can tell the two apart
+    const ITEM = alertItem(
+      { id: "alert:jump1", sectionId: "rooms", actionable: false, clearingKind: "needs_look" },
+      { code: "EMBEDDED_ASSET_DRIFTED" },
+    );
+    renderModal({ attentionItems: [ITEM] });
+    // §5.2 auto-open fires only when an ACTIONABLE item exists; this one is not,
+    // so the pill has to be opened first.
+    fireEvent.click(screen.getByTestId(`${TB}-alert-pill`));
+    fireEvent.click(await screen.findByTestId(`attention-menu-row-${ITEM.id}`));
+
+    const current = document.querySelectorAll('[aria-current="true"]');
+    const ids = [...current].map((el) => el.getAttribute("data-testid") ?? "");
+    // the jump activated OVERVIEW (where the card is), never rooms (the route)
+    expect(ids.some((id) => id.endsWith("-review-rail-item-overview"))).toBe(true);
+    expect(ids.some((id) => id.endsWith("-review-rail-item-rooms"))).toBe(false);
+  });
+
   // A production-mount test of the chip: the card-side suite renders
   // AttentionBanner directly, so nothing else proves the modal actually slots a
   // real banner through `bannerFor`. (An earlier version of this comment

@@ -422,9 +422,8 @@ describe("destination chip", () => {
   // §2.3 says an internal-destination chip is NOT implemented and would need an
   // amendment. So an internal action renders NO chip AT ALL — not a same-tab
   // chip wearing the action's own label. Deliberately uses a card section that
-  // DIFFERS from the action's target, so an implementation that only suppressed
-  // self-links (the mechanism an earlier draft shipped, since removed as dead)
-  // would render a chip here and fail.
+  // DIFFERS from the action's target, so an implementation gated on same-section
+  // routing rather than on `external` would render a chip here and fail.
   test("an internal action renders NO chip even when it points at a DIFFERENT section", () => {
     renderBanner(
       needsLookItem({

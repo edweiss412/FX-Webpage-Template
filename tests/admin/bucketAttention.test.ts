@@ -169,24 +169,14 @@ describe("jump target and landing place agree, per route family (spec test 12)",
     }
   });
 
-  // The shared builder only helps while production actually calls it. Without
-  // this, someone could inline `resolveEffectiveSection(item, placement)` back
-  // into navigateTo, the test above would keep passing against the now-unused
-  // helper, and the coupling this whole repair rests on would be gone silently.
-  it("navigateTo builds its jump section from jumpSectionFor, not an inlined copy", () => {
-    const src = readFileSync(
-      join(process.cwd(), "components/admin/showpage/PublishedReviewModal.tsx"),
-      "utf8",
-    );
-    const navigateTo = /const navigateTo = \(item: AttentionItem\) => \{([\s\S]*?)\n  \};/.exec(
-      src,
-    );
-    expect(navigateTo, "navigateTo not found — did it move or get renamed?").not.toBeNull();
-    expect(navigateTo![1]).toContain("jumpSectionFor(item, placement)");
-    // and not a re-inlined derivation
-    expect(navigateTo![1]).not.toContain("resolveEffectiveSection(");
-    expect(navigateTo![1]).not.toMatch(/sectionId:\s*item\.sectionId/);
-  });
+  // NOTE on scope: the cells above prove the DERIVATION agrees with placement.
+  // They deliberately do NOT try to prove production emits it — a structural
+  // "navigateTo mentions jumpSectionFor" assertion lived here briefly and was
+  // removed as unsound: it matched text, not data flow, so a mutation that
+  // computed the value and then emitted something else satisfied it (whole-diff
+  // review round 5). That obligation is behavioral and lives where it can
+  // actually be observed: publishedReviewModal.test.tsx presses a real row and
+  // reads the section the jump activates.
 
   it("no needs-look route can be dropped in EITHER availability state", () => {
     // the throw in landedIn is the real assertion; this names the contract so a

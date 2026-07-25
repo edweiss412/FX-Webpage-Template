@@ -168,7 +168,7 @@ Not instances: the insertion and reverse cells (`tests/e2e/attention-pill-focus.
 **Test first.** Spec tests 7, 8, 9:
 
 - `SHEET_UNAVAILABLE` — footer-right holds `Google Sheets ↗` with `target="_blank"` and `rel="noopener noreferrer"`, `autoClearNote` absent, `footerLeft` no longer carries a duplicate action link;
-- `SHOW_UNPUBLISHED` — **no** chip (self-link suppression), footer holds only "Raised …";
+- `SHOW_UNPUBLISHED` — **no** chip (its action is INTERNAL, and the chip requires `action.external`), footer holds only "Raised …";
 - `action: null` — no chip, no crash, **and the auto-clear note absent**.
 
 **Catches:** test 8 catches an implementation that always renders the chip; test 9 catches one that swaps note-for-chip only when an action exists, which would leave the note on `ASSET_RECOVERY_BYTES_EXCEEDED`.
@@ -179,15 +179,15 @@ Plus spec test 9b, the four-cell warnings matrix, which is the load-bearing proo
 | --- | --- | --- |
 | Expected | item lands in `notes`, **no card** produced | falls through to an Overview card, and that card carries **no chip** |
 
-**Catches:** without the unavailable column, an implementation that suppresses the chip for `SHOW_UNPUBLISHED` while rendering an internal chip on either warnings-unavailable fallback passes tests 7, 8, and 9 and still violates §2.3.
+**Catches:** without the unavailable column, an implementation that suppresses the chip for `SHOW_UNPUBLISHED` while rendering an internal chip on either warnings-unavailable fallback passes tests 7, 8, and 9 and still violates §2.3. (As shipped the `external` gate makes all of these chip-less; the matrix is what proved that rule safe to adopt.)
 
-**Implement.** `AttentionBanner.tsx`: for non-actionable needs-you items, replace `footerRight`'s note with the chip, drop `footerLeft`'s action link, and apply the self-link guard (spec §2.3).
+**Implement.** `AttentionBanner.tsx`: for non-actionable needs-you items, replace `footerRight`'s note with the chip and drop `footerLeft`'s action link. The chip's condition is `isClearingNeedsYou && a.action?.external` and nothing else — an earlier draft of this task also specified a self-link guard comparing the action's target section to the card's, which is SUPERSEDED (see the next paragraph).
 
 **Prop threading — SUPERSEDED, do not implement.** This task originally added an `effectiveSectionId: RoutedSectionId` prop to `AttentionBanner`, threaded through all four mounts, to feed a self-link guard that suppressed a chip pointing at the card's own section. **None of that shipped.** Once the chip was gated on `action.external` (whole-diff review round 2), the guard became unreachable — it required `!external` — so the guard, `sectionOfHref`, the prop, and its four call sites were all deleted as dead code. The sole executable rule is `isClearingNeedsYou && a.action?.external`. Retained here as the record of a design that was specified and then removed, not as an instruction.
 
 **Comment repair, same commit (plan R6 F1).** Test 9b is what makes the warnings-unavailable fallthrough a tested guarantee rather than dead defensive code, so this task also updates `lib/admin/sectionAttention.ts:111-115`. Replace "The warnings section is unconditional today, so the fallback is defensive." with a statement that the fallthrough is a correctness guarantee under the index contract — every entry must have a landing place — citing the spec. Comment only; no executable line changes.
 
-**Do not** wire `resolveEffectiveSection` into the three test files. They mount a card directly and have no `placement` predicates to feed it; the declared route IS the effective section wherever the anchor is mounted, which is the case all three harnesses set up. `tests/e2e/_attentionAnchorEntry.tsx:27` mentions `<AttentionBanner>` in a comment only — it is a documented stand-in, not a mount, and needs no change.
+**Do not** wire `resolveEffectiveSection` into the three test files — moot as shipped, since the prop it fed no longer exists. `tests/e2e/_attentionAnchorEntry.tsx:27` mentions `<AttentionBanner>` in a comment only; it is a documented stand-in, not a mount, and needs no change.
 
 ### Task 5 — the badge
 

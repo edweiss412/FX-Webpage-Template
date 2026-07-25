@@ -88,8 +88,11 @@ function harnessImportGraph(entry: string): string[] {
   const walk = (file: string): void => {
     if (seen.has(file)) return;
     seen.add(file);
+    // tests/** helpers count too: the harness imports them, and the workflow
+    // enumerates only TODAY's direct ones, so a newly-imported helper would
+    // otherwise sit outside the gate unseen (whole-diff review round 5).
     const rel = file.replace(`${ROOT}/`, "");
-    if (!rel.startsWith("tests/")) repoFiles.add(rel);
+    repoFiles.add(rel);
     let src: string;
     try {
       src = readFileSync(file, "utf8");
@@ -123,7 +126,11 @@ describe("attention-pill-focus CI wiring", () => {
    * still "pass" because it survived in a comment or an unrelated sequence.
    */
   const filters = (() => {
-    const block = /\n {4}paths:\n((?: {6}- "[^"]+"\n| *#[^\n]*\n)+)/.exec(yaml);
+    const onPr = /\non:\n {2}pull_request:\n((?: {4}[^\n]*\n| {6}[^\n]*\n| *#[^\n]*\n)+)/.exec(
+      yaml,
+    );
+    if (!onPr) throw new Error("no on.pull_request block found");
+    const block = /^ {4}paths:\n((?: {6}- "[^"]+"\n| *#[^\n]*\n)+)/m.exec(onPr[1]!);
     if (!block) throw new Error("no on.pull_request.paths sequence found");
     return [...block[1]!.matchAll(/^ {6}- "([^"]+)"$/gm)].map((m) => m[1]!);
   })();
@@ -145,7 +152,9 @@ describe("attention-pill-focus CI wiring", () => {
   });
 
   it("fires on every direct harness, production, and toolchain input", () => {
-    const missing = REQUIRED_PATHS.filter((p) => !yaml.includes(`"${p}"`));
+    // consumes the PARSED paths sequence, not `yaml.includes` — the latter
+    // accepted a path that survived only in a comment (whole-diff review round 5)
+    const missing = REQUIRED_PATHS.filter((p) => !coveredBy(filters, p));
     expect(missing, `path filter omits: ${missing.join(", ")}`).toEqual([]);
   });
 
@@ -157,7 +166,7 @@ describe("attention-pill-focus CI wiring", () => {
     const missing = graph.filter((f) => !coveredBy(filters, f)).sort();
     expect(
       missing,
-      `${missing.length} bundled file(s) outside the path filter: ${missing.slice(0, 12).join(", ")}`,
+      `${missing.length} file(s) in the harness import closure but outside the path filter: ${missing.slice(0, 12).join(", ")}`,
     ).toEqual([]);
   });
 

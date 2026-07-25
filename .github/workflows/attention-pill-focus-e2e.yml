@@ -32,12 +32,13 @@ on:
       # every render. Globs rather than single files: the harness mounts whole
       # subtrees, and an enumerated list silently rots as they grow.
       # BROAD BY MEASUREMENT, not by preference. The harness esbuild-bundles the
-      # REAL modal tree, whose transitive import graph is 321 repository files
-      # spanning 43 top-level directories (components/admin 59, lib/parser 47,
-      # lib/sync 43, ...). Two successive attempts at an enumerated list both
-      # shipped with omissions, which is the point: no hand-maintained list can
-      # track a graph that size. These globs cover it, and
-      # tests/ci/attentionPillFocusWorkflow.test.ts WALKS the graph to prove it.
+      # REAL modal tree: an esbuild metafile reports 155 production inputs, and a
+      # conservative LEXICAL closure over the same entry (which also follows
+      # type-only and server-elided edges) reports 321 files across 43 top-level
+      # directories. Two successive attempts at an enumerated list both shipped
+      # with omissions, which is the point: no hand-maintained list can track a
+      # graph that size. These globs cover the lexical closure, and
+      # tests/ci/attentionPillFocusWorkflow.test.ts WALKS it to prove it.
       # The job costs ~54s, so firing it broadly is cheaper than a dark harness.
       - "components/**"
       - "lib/**"

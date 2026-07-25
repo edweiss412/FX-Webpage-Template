@@ -138,7 +138,8 @@ export function bucketAttention(
     // index that lies. The warnings section is unconditional today, so the path
     // is currently unexercised in production — but it is what makes the
     // every-entry-has-a-destination claim true, and the card it produces is
-    // chip-less precisely because it lands in the section its action targets.
+    // chip-less because its action is INTERNAL (the destination chip requires an
+    // external action).
     const note = toNoteItem(item);
     if (note && item.sectionId === "warnings" && opts.sectionAvailable("warnings")) {
       const b = bucket(map, "warnings");
