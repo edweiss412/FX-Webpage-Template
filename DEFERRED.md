@@ -8,6 +8,31 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### NEWTAB-A11Y-RESIDUE-1 — two P3s from the new-tab announcement dual gate (2026-07-25)
+
+Both surfaced by the invariant-8 gate on `fix/newtab-announcement-family`, both
+deliberately left out of that diff.
+
+**(a) Diagram link exposes its name twice.** `components/admin/wizard/step3ReviewSections.tsx`
+gives the wrapping `<a>` an `aria-label` built from `alt` AND leaves the inner
+`<img alt={alt}>`, so a screen reader navigating into the link can hear the same
+string from both nodes. The clean fix is `alt=""` on the img (decorative, since
+the anchor is labelled). NOT taken here because it would reverse a previously
+accepted audit fix: `tests/components/admin/wizard/step3ReviewSections.test.tsx`
+explicitly pins that a blank `alt` falls back for BOTH the img and the anchor
+label ("a persisted empty alt must never yield a nameless link", impeccable audit
+P2). The anchor's `aria-label` now solves the nameless-link risk permanently, so
+the old belt-and-braces is redundant — but flipping it is a separate, reviewed
+decision, not a mid-sweep edit. Un-defer trigger: any further a11y pass on the
+Step-3 diagram tiles.
+
+**(b) An internal link wears the external glyph.** `components/admin/BellPanel.tsx`
+renders "View in telemetry ↗" for `/admin/dev/telemetry#health`, an internal
+route. After this sweep, `↗` means "opens a new tab" everywhere else in the
+codebase, so this is now the only one that lies. Out of family (no `target`, so
+the new structural guard does not see it). Un-defer trigger: next BellPanel copy
+or affordance change.
+
 ### VOICEOVER-ANNOUNCER-SPOTCHECK — owner action (2026-07-22)
 
 The warning-announcer-copy bundle's manual assistive-technology half (spec §8

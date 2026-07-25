@@ -68,7 +68,7 @@ export function SourceLink({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label="In sheet, view this section in the source sheet (opens in a new tab)"
+      aria-label="In sheet, view this section in Google Sheets (opens in a new tab)"
       className={`inline-flex h-fit shrink-0 items-center gap-1 text-xs font-medium text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
     >
       <SheetIcon />

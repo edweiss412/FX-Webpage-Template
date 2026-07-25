@@ -346,7 +346,7 @@ describe("PublishedReviewModal header (spec §6.1/§6.2)", () => {
     const sheet = screen.getByTestId(`${TB}-sheetlink`);
     expect(sheet.getAttribute("href")).toBe(SHEET_HREF);
     expect(sheet.getAttribute("aria-label")).toBe(
-      `Open the source sheet for ${TITLE} (opens in a new tab)`,
+      `Open the source sheet for ${TITLE} in Google Sheets (opens in a new tab)`,
     );
   });
 

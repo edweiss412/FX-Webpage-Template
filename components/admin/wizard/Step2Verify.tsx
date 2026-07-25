@@ -502,7 +502,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                       rel="noopener noreferrer"
                       className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                     >
-                      Open the folder <span aria-hidden="true">→</span> <NewTabHint />
+                      Open the folder<span aria-hidden="true">&nbsp;→</span> <NewTabHint />
                     </a>
                   ) : null}
                 </div>
@@ -552,7 +552,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                       rel="noopener noreferrer"
                       className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                     >
-                      Open the folder <span aria-hidden="true">→</span> <NewTabHint />
+                      Open the folder<span aria-hidden="true">&nbsp;→</span> <NewTabHint />
                     </a>
                   ) : null}
                 </div>

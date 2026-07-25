@@ -247,11 +247,57 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
   return false;
 }
 
-type HintFind = { found: boolean; hidden: boolean; conditions: string[] };
+/**
+ * Does every NewTabHint sit immediately after a real space text node (§3.1)?
+ *
+ * Mutation-proven necessary: deleting the space before a hint left the entire
+ * suite green, because only two anchors have an anchored accessible-name
+ * assertion and the rest of the guard only checked PRESENCE. That is the
+ * "detailsfor …" defect the spec says already shipped here once.
+ *
+ * Accepts either spelling prettier produces: a literal JSX space (`Go <Hint />`)
+ * or an explicit `{" "}` expression, including when it is the last child of the
+ * preceding line.
+ */
+function hintHasSiblingSpace(root: ts.Node): boolean {
+  let ok = true;
+  const checkChildren = (children: ts.NodeArray<ts.JsxChild>): void => {
+    children.forEach((child, i) => {
+      const isHint =
+        (ts.isJsxSelfClosingElement(child) && child.tagName.getText() === HINT) ||
+        (ts.isJsxElement(child) && child.openingElement.tagName.getText() === HINT);
+      if (!isHint) return;
+      const prev = children[i - 1];
+      if (!prev) {
+        ok = false;
+        return;
+      }
+      if (ts.isJsxText(prev) && /[ \u00a0]$/.test(prev.text)) return;
+      if (
+        ts.isJsxExpression(prev) &&
+        prev.expression &&
+        ts.isStringLiteral(prev.expression) &&
+        /^[ \u00a0]+$/.test(prev.expression.text)
+      ) {
+        return;
+      }
+      ok = false;
+    });
+  };
+  const walk = (n: ts.Node): void => {
+    if (ts.isJsxElement(n)) checkChildren(n.children);
+    if (ts.isJsxFragment(n)) checkChildren(n.children);
+    ts.forEachChild(n, walk);
+  };
+  walk(root);
+  return ok;
+}
+
+type HintFind = { found: boolean; hidden: boolean; conditions: string[]; separated: boolean };
 
 /** Locate NewTabHint under an anchor, tracking hidden-ness and gating conditions. */
 function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
-  const out: HintFind = { found: false, hidden: false, conditions: [] };
+  const out: HintFind = { found: false, hidden: false, conditions: [], separated: false };
   if (!ts.isJsxElement(anchor)) return out;
   const walk = (n: ts.Node, hidden: boolean, conds: string[]): void => {
     let nextHidden = hidden;
@@ -286,6 +332,7 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
     ts.forEachChild(n, (c) => walk(c, nextHidden, nextConds));
   };
   anchor.children.forEach((c) => walk(c, false, []));
+  if (out.found) out.separated = hintHasSiblingSpace(anchor);
   return out;
 }
 
@@ -334,8 +381,14 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
                 record("static aria-label announcement on a conditional-target anchor");
               }
             } else if (hint.found) {
+              // Hidden is checked FIRST: a hint that never reaches the name at
+              // all is the primary defect, and its separator is moot.
               if (hint.hidden) {
                 record("NewTabHint is hidden from the accessible name");
+              } else if (!hint.separated) {
+                record(
+                  'NewTabHint needs a real sibling space before it, else the accessible name reads "Label(opens in a new tab)"',
+                );
               } else if (polarity.kind === "conditional") {
                 if (!sameCondition(hint.conditions, polarity)) {
                   record("hint is not gated by the anchor's effective _blank predicate");
@@ -403,6 +456,26 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     rejects(
       `const A = () => <a href="x" target="_blank" aria-label="(opens in a new tab)">Go</a>;`,
       /no destination/,
+    );
+  });
+
+  it("rejects a hint with NO sibling space before it", () => {
+    // Mutation-proven necessary: without this rule, deleting the space left the
+    // whole suite green while the accessible name silently became
+    // "Go(opens in a new tab)".
+    rejects(
+      `const A = () => <a href="x" target="_blank">Go<NewTabHint /></a>;`,
+      /needs a real sibling space/,
+    );
+  });
+
+  it("accepts either spelling of the separator", () => {
+    ok(`const A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;`);
+    ok(`const A = () => <a href="x" target="_blank">Go{" "}<NewTabHint /></a>;`);
+    // A non-breaking space inside a preceding aria-hidden glyph span still
+    // leaves a real separator before the hint (the Step2Verify shape).
+    ok(
+      `const A = () => <a href="x" target="_blank">Go<span aria-hidden="true">&nbsp;\u2192</span> <NewTabHint /></a>;`,
     );
   });
 

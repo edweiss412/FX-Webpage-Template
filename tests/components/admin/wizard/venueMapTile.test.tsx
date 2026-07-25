@@ -25,7 +25,7 @@ describe("VenueMapTile", () => {
     const { container } = render(<VenueMapTile query="" mapHref="https://m.co" />);
     const tile = container.querySelector('[data-testid="venue-map-tile"]')!;
     expect(tile).toHaveAccessibleName(
-      "Directions, open the venue in Google Maps (opens in a new tab)",
+      "Directions to the venue in Google Maps (opens in a new tab)",
     );
     // The visible text the name must contain, asserted from its own element.
     expect(container.querySelector('[data-testid="venue-directions"]')!.textContent).toContain(

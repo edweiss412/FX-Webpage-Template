@@ -52,12 +52,12 @@ test("renders a subtle <a> whose href equals the helper output, opening a new ta
     "aria-label",
     // Label-in-name (WCAG 2.5.3): the name must contain the visible "In sheet",
     // and announce the new tab. Both were missing before 2026-07-25.
-    "In sheet, view this section in the source sheet (opens in a new tab)",
+    "In sheet, view this section in Google Sheets (opens in a new tab)",
   );
   // Accessible NAME, not just the attribute: proves the label actually wins over
   // the visible content and that the 2.5.3 fix holds end to end.
   expect(anchorEl).toHaveAccessibleName(
-    "In sheet, view this section in the source sheet (opens in a new tab)",
+    "In sheet, view this section in Google Sheets (opens in a new tab)",
   );
 
   // The recessive label is present for sighted users.

@@ -42,7 +42,9 @@ vi.mock("next/navigation", () => ({
 const NOW = new Date("2026-07-19T12:00:00Z");
 
 /** Minimal alert item carrying an action link, mirroring attentionBanner.test.tsx. */
-function alertItem(action: { label: string; href: string; external: boolean } | null): AttentionItem {
+function alertItem(
+  action: { label: string; href: string; external: boolean } | null,
+): AttentionItem {
   return {
     id: "alert:a1",
     kind: "alert",
@@ -56,16 +58,16 @@ function alertItem(action: { label: string; href: string; external: boolean } | 
       alertId: "a1",
       code: "TEST_FAKE_CODE_FOR_BANNER",
       template: null,
+      params: {},
       action,
       helpHref: null,
-      helpfulContext: null,
-      createdAt: NOW.toISOString(),
+      raisedAt: NOW.toISOString(),
+      occurrenceCount: 1,
+      autoClearNote: null,
       failedKeys: null,
       dataGaps: null,
-      autoClears: false,
-      identitySuppressed: false,
-      occurrences: 1,
-    } as NonNullable<AttentionItem["alert"]>,
+      errorCode: null,
+    },
   } as AttentionItem;
 }
 

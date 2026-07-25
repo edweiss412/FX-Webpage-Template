@@ -933,9 +933,9 @@ function ModalSectionChrome({
             target="_blank"
             rel="noopener noreferrer"
             aria-label={
-              label
-                ? `In sheet, open the source sheet for ${label} (opens in a new tab)`
-                : "In sheet, open the source sheet (opens in a new tab)"
+              label.trim()
+                ? `In sheet, view ${label.trim()} in Google Sheets (opens in a new tab)`
+                : "In sheet, view this section in Google Sheets (opens in a new tab)"
             }
             className="inline-flex min-h-tap-min shrink-0 items-center gap-1 rounded-sm text-xs font-medium whitespace-nowrap text-text-subtle transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
@@ -3578,7 +3578,7 @@ function DiagramTile({
     <a
       href={src}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       aria-label={alt ? `${alt} (opens in a new tab)` : "Staged diagram (opens in a new tab)"}
       data-testid={testId}
       className="block"
