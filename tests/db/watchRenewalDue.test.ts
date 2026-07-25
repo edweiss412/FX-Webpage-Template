@@ -8,20 +8,25 @@
 // path and asserts which folders that path actually decides to renew.
 //
 // Real DB (tests/db/** is the SERIAL project).
-import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
 import { setLogSink } from "@/lib/log";
+import { assertLocalDbUrl } from "./_localDbUrl";
 import {
   RENEWAL_LIFE_FRACTION,
   RENEWAL_MIN_LEAD_MS,
   SAMPLING_PERIOD_MS,
 } from "@/lib/drive/watchErrors";
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-const loopback = /(?:127\.0\.0\.1|localhost)/.test(databaseUrl);
+// This suite DELETEs rows in setup and teardown, so it is local-only by
+// contract: resolve through LOCAL_TEST_DATABASE_URL and refuse a remote host
+// before any client exists. TEST_DATABASE_URL is the validation project and is
+// deliberately not consulted here.
+const databaseUrl = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
-const sql = postgres(databaseUrl, { max: 1, prepare: false });
+const sql = postgres(databaseUrl, { max: 1, idle_timeout: 1, prepare: false });
 
 const NOW = new Date("2026-07-25T12:00:00.000Z");
 const HOUR = 3_600_000;
@@ -55,9 +60,19 @@ async function foldersProductionWouldRenew(): Promise<string[]> {
   return attempted.sort();
 }
 
-describe.skipIf(!loopback)("renewal predicate, through the production path (§3.2)", () => {
+describe("renewal predicate, through the production path (§3.2)", () => {
+  // The production path resolves its own connection from TEST_DATABASE_URL
+  // (lib/drive/watch.ts databaseUrl()). Point it at the SAME guarded local URL
+  // for the duration of this suite, and restore afterwards — without this the
+  // code under test would connect somewhere other than the rows we inserted.
+  const priorTestDatabaseUrl = process.env.TEST_DATABASE_URL;
   beforeAll(() => {
     process.env.TEST_DATABASE_URL = databaseUrl;
+  });
+  afterAll(async () => {
+    if (priorTestDatabaseUrl === undefined) delete process.env.TEST_DATABASE_URL;
+    else process.env.TEST_DATABASE_URL = priorTestDatabaseUrl;
+    await sql.end({ timeout: 5 });
   });
 
   beforeEach(async () => {
