@@ -439,6 +439,27 @@ WITH substitutions is not. Anything outside these shapes is reported as
   them as tag names made the guard's own classification ambiguous — which its anti-silencing
   assertion caught.
 
+  **MEASURED, not assumed — and the guard is deliberately stricter than the test harness.** Rendering
+  each shape and computing the name with `dom-accessibility-api` 0.6.3 gives:
+
+  | Shape | Computed accessible name |
+  | --- | --- |
+  | `<span aria-hidden="true">Go</span> <NewTabHint />` | `(opens in a new tab)` |
+  | `<span>Go</span> <NewTabHint />` | `Go (opens in a new tab)` |
+  | `<template>Go</template> <NewTabHint />` | `(opens in a new tab)` |
+  | `{0} <NewTabHint />` | `0 (opens in a new tab)` |
+  | `<span aria-hidden="true">Go</span> {true} <NewTabHint />` | `(opens in a new tab)` |
+  | `Go <details><NewTabHint /></details>` | `Go (opens in a new tab)` |
+  | `Go <span inert><NewTabHint /></span>` | `Go (opens in a new tab)` |
+
+  The first five confirm the rules directly. **The last two do not, and that is expected**: jsdom
+  performs no rendering and `dom-accessibility-api` models neither `inert` nor a closed `<details>`,
+  while the HTML Standard says inert subtrees are not exposed to accessibility APIs and closed
+  details content is not shown. Real browsers honour both. So the static guard is STRICTER than the
+  harness, which has a concrete consequence worth stating: **a `toHaveAccessibleName` assertion
+  cannot catch an `inert` or closed-`<details>` regression — only the guard can.** Do not "verify"
+  either rule against the harness and conclude the guard is wrong.
+
   After those, the undecidable bucket holds exactly one thing: **a genuinely dynamic expression that
   renders nothing at runtime** (`{maybeLabel}` where the value is `""`). That is assumed to carry a
   destination, deliberately — failing closed there would report every `{label}` anchor in the tree,

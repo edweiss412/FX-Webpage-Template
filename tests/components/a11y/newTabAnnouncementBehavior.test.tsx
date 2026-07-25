@@ -375,3 +375,85 @@ describe("empty-interpolation fallbacks produce the EXACT label, not a dangling 
     );
   });
 });
+
+describe("what the harness itself does and does not model (R23/R24)", () => {
+  // MEASURED, and pinned so it cannot drift silently. The static guard treats several shapes
+  // as hiding; this records which of them THIS harness agrees about. The disagreements are
+  // expected -- jsdom performs no rendering -- and the point of pinning them is that the
+  // guard's extra strictness is a deliberate, documented gap rather than a bug someone
+  // "fixes" later by relaxing the guard to match the harness.
+  const Hint = (): React.ReactElement => <span className="sr-only">(opens in a new tab)</span>;
+
+  test("agrees that aria-hidden, <template> and {true} remove content from the name", () => {
+    const cases: [string, React.ReactElement, string][] = [
+      [
+        "aria-hidden label",
+        <a href="x" target="_blank">
+          <span aria-hidden="true">Go</span> <Hint />
+        </a>,
+        "(opens in a new tab)",
+      ],
+      [
+        "template label",
+        <a href="x" target="_blank">
+          <template>Go</template> <Hint />
+        </a>,
+        "(opens in a new tab)",
+      ],
+      [
+        "{true} contributes nothing, {0} does",
+        <a href="x" target="_blank">
+          {0} <Hint />
+        </a>,
+        "0 (opens in a new tab)",
+      ],
+      [
+        "visible label",
+        <a href="x" target="_blank">
+          <span>Go</span> <Hint />
+        </a>,
+        "Go (opens in a new tab)",
+      ],
+    ];
+    for (const [label, jsx, expected] of cases) {
+      const { container, unmount } = render(jsx);
+      expect(container.querySelector("a"), label).toHaveAccessibleName(expected);
+      unmount();
+    }
+  });
+
+  test("does NOT model inert or a closed <details>, so only the static guard catches those", () => {
+    // The HTML Standard says inert subtrees are not exposed to accessibility APIs and closed
+    // details content is not shown; real browsers honour both. This harness does not, so a
+    // toHaveAccessibleName assertion CANNOT catch either regression. If one of these ever
+    // starts failing, the harness gained the capability -- delete the case and rely on it.
+    const notModelled: [string, React.ReactElement][] = [
+      [
+        "inert wrapper",
+        <a href="x" target="_blank">
+          Go{" "}
+          <span inert>
+            <Hint />
+          </span>
+        </a>,
+      ],
+      [
+        "closed details",
+        <a href="x" target="_blank">
+          Go{" "}
+          <details>
+            <Hint />
+          </details>
+        </a>,
+      ],
+    ];
+    for (const [label, jsx] of notModelled) {
+      const { container, unmount } = render(jsx);
+      expect(
+        container.querySelector("a"),
+        `${label}: harness still includes the hint`,
+      ).toHaveAccessibleName("Go (opens in a new tab)");
+      unmount();
+    }
+  });
+});
