@@ -244,7 +244,11 @@ test.describe("phantomGap helper — the branches no product tree exercises", ()
   for (const [name, css] of [
     ["scale", "scale:0"],
     ["transform", "transform:scaleX(0)"],
-    ["rotate", "rotate:45deg"],
+    // 180deg, NOT 45: rotating a 0x10 box by 45deg gives the transformed rect a
+    // nonzero WIDTH, so `vanishes()` returns at the rect check and never reads
+    // the `rotate` predicate — the case passed with or without it. A half-turn
+    // preserves the zero dimension and actually reaches the predicate.
+    ["rotate", "rotate:180deg"],
     ["translate", "translate:1px"],
   ] as const) {
     test(`an SVG with a \`${name}\` transform is not reported`, async ({ page }) => {
