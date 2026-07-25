@@ -3121,14 +3121,15 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_FAILED: {
     code: "STAGED_PARSE_FAILED",
-    dougFacing: "That sheet could not be parsed during retry.",
+    dougFacing:
+      "We reached that sheet but couldn't read it into a show. Open the sheet, fix its structure, then try again.",
     crewFacing: null,
     followUp: "Doug → open the sheet and fix its structure, then retry",
     helpfulContext:
-      "The live first-seen retry path fetched the sheet but the parser could not convert it into a show payload.",
-    title: "Sheet parse failed during retry",
+      "Google Drive gave us the sheet, so this is not a sharing or network problem. Something in the sheet's structure stopped us from turning it into a show. Open the sheet, fix the part that changed, then run the same action again. Any previously approved version stays live for crew until a clean version parses.",
+    title: "Sheet could not be read",
     longExplanation:
-      "The live first-seen retry path fetched the sheet but the parser couldn't convert it into a show payload. The previous approved version (if any) is still serving crew. Check the per-show parse panel for the specific underlying error.",
+      "This appears when we reached the sheet in Google Drive but could not turn its contents into a show. It is a problem with the sheet's structure rather than with sharing or the network: a section header, a column, or a block is in a shape we cannot read. Any previously approved version stays live for crew until a clean version parses. Open the sheet, fix the part that changed, then run the same action again.",
     helpHref: "/help/errors#STAGED_PARSE_FAILED",
   },
   ROLE_MAPPINGS_OUTDATED_AT_PUBLISH: {

@@ -1246,9 +1246,9 @@ export const SPEC_CODES = {
   },
   "STAGED_PARSE_FAILED": {
     "crewFacing": null,
-    "dougFacing": "That sheet could not be parsed during retry.",
+    "dougFacing": "We reached that sheet but couldn't read it into a show. Open the sheet, fix its structure, then try again.",
     "followUp": "Doug → open the sheet and fix its structure, then retry",
-    "helpfulContext": "The live first-seen retry path fetched the sheet but the parser could not convert it into a show payload.",
+    "helpfulContext": "Google Drive gave us the sheet, so this is not a sharing or network problem. Something in the sheet's structure stopped us from turning it into a show. Open the sheet, fix the part that changed, then run the same action again. Any previously approved version stays live for crew until a clean version parses.",
   },
   "STAGED_PARSE_OUTDATED": {
     "crewFacing": null,
