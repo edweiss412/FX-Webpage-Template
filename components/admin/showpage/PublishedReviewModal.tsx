@@ -303,25 +303,24 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     [attentionItems, doneIds],
   );
   const actionable = useMemo(() => live.filter((i) => i.actionable), [live]);
-  // Attention split (spec 2026-07-21 §3.2/§3.3): the old single clearingCount is
-  // split. needs-look defaults FAIL-VISIBLE — a non-actionable item without a
-  // clearingKind counts as needs_look (visible), never dropped (spec §2).
-  const needsLook = useMemo(
-    () => live.filter((i) => !i.actionable && i.clearingKind !== "self_heal"),
-    [live],
-  );
-  // `!i.actionable` guard (spec §3.3): an inconsistently tagged actionable item
-  // must count as confirmation ONLY, never double as monitoring.
+  // attention-index §2.4: the badge counts TWO things, matching the panel's two
+  // groups. `selfHeal` is unchanged; `needsYou` is its complement, so the
+  // fail-visible default survives (an item with no clearingKind is an issue) and
+  // a mistagged actionable item is counted once, in needsYou only.
   const selfHeal = useMemo(
     () => live.filter((i) => !i.actionable && i.clearingKind === "self_heal"),
+    [live],
+  );
+  const needsYou = useMemo(
+    () => live.filter((i) => !(!i.actionable && i.clearingKind === "self_heal")),
     [live],
   );
   // Interactive whenever a human might act — composite predicate, NEVER
   // `actionable` alone (spec §6/§6a: the menu can open at a needs-look-only state).
   // monitoring-badge-expand §3.1: self-heal items make the pill interactive too
   // (quiet palette); monitoring-only selects the quiet visual + copy contract.
-  const interactive = actionable.length > 0 || needsLook.length > 0 || selfHeal.length > 0;
-  const monitoringOnly = actionable.length === 0 && needsLook.length === 0 && selfHeal.length > 0;
+  const interactive = needsYou.length > 0 || selfHeal.length > 0;
+  const monitoringOnly = needsYou.length === 0 && selfHeal.length > 0;
 
   // Compound reconciliation (spec §6 outcome contract, §8 case 2): if live data
   // updates while the menu is open such that the pill is no longer interactive,
@@ -784,47 +783,33 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                         : "bg-status-review"
                     }`}
                   />
-                  {actionable.length > 0 ? (
+                  {needsYou.length > 0 ? (
                     <>
                       {/* Capped at 99+ (§11): unbounded count in a shrink-0 group
                           beside Close squeezes the title at 375px. Exact count is
-                          preserved for assistive tech past the cap only. */}
-                      {actionable.length > 99 ? "99+" : actionable.length} to confirm
-                      {actionable.length > 99 ? (
+                          preserved for assistive tech past the cap only.
+                          "issues" is a NOUN (§2.4) and pluralises with a plain s
+                          — "N need you" would have required a subject-verb
+                          agreement branch at N = 1. */}
+                      {needsYou.length > 99 ? "99+" : needsYou.length}{" "}
+                      {needsYou.length === 1 ? "issue" : "issues"}
+                      {needsYou.length > 99 ? (
                         <>
                           {/* Separator is its OWN visible text node (accName trim
                               class, memory #470). */}{" "}
-                          <span className="sr-only">({actionable.length} to confirm)</span>
+                          <span className="sr-only">({needsYou.length} issues)</span>
                         </>
                       ) : null}
                     </>
                   ) : null}
                   {/* Middot separators are REAL " · " text nodes (visible AND in
                       the announced string — aria-hidden middots glue segments
-                      into "confirm4 to review" for AT; #537 space-node rule). */}
-                  {actionable.length > 0 && needsLook.length > 0 ? (
-                    <span className="opacity-50">{" · "}</span>
-                  ) : null}
-                  {needsLook.length > 0 ? (
-                    <span className="text-warning-text/90">
-                      {needsLook.length > 99 ? "99+" : needsLook.length} to review
-                      {/* exact count for AT past the visible cap (parity with
-                          the confirm segment — whole-diff review 2026-07-22) */}
-                      {needsLook.length > 99 ? (
-                        <>
-                          {" "}
-                          <span className="sr-only">({needsLook.length} to review)</span>
-                        </>
-                      ) : null}
-                    </span>
-                  ) : null}
+                      into "issues2 monitoring" for AT; #537 space-node rule). */}
                   {selfHeal.length > 0 ? (
                     <>
                       {/* Separator only BETWEEN segments — never a leading
                           glyph on the monitoring-only pill (spec §3.1). */}
-                      {actionable.length > 0 || needsLook.length > 0 ? (
-                        <span className="opacity-50">{" · "}</span>
-                      ) : null}
+                      {needsYou.length > 0 ? <span className="opacity-50">{" · "}</span> : null}
                       {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
                           light theme (below AA 4.5:1 at text-xs); /80 is ~5.35:1
                           light, higher dark. Impeccable critique P1, 2026-07-22. */}

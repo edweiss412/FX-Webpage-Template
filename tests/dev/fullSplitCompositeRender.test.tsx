@@ -50,10 +50,10 @@ function mountScenario() {
 }
 
 describe("t3-full-attention-split renders the full taught state", () => {
-  it("pill: exactly '1 to confirm · 2 to review · 2 monitoring' on an interactive BUTTON", () => {
+  it("pill: exactly '3 issues · 2 monitoring' on an interactive BUTTON", () => {
     mountScenario();
     const pill = screen.getByTestId("published-show-review-alert-pill");
-    expect(visibleText(pill)).toBe("1 to confirm · 2 to review · 2 monitoring");
+    expect(visibleText(pill)).toBe("3 issues · 2 monitoring");
     expect(pill.tagName).toBe("BUTTON");
   });
 

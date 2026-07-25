@@ -651,7 +651,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     expect(
       visible,
       "the UNIT stays visible past the cap — a bare '99+' is not self-explanatory",
-    ).toBe("99+ to confirm");
+    ).toBe("99+ issues");
 
     const geom = await page.locator(HEADER).evaluate((header) => {
       const title = header.querySelector('[data-testid$="-title"]')!;

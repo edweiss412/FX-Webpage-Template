@@ -134,7 +134,11 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // cap conditionals — exact-count expansions past 99+ on the review segment,
   // the composite monitoring segment, and the monitoring-only pill. All are
   // text swaps that follow derived counts; no animation.
-  "components/admin/showpage/PublishedReviewModal.tsx": 11,
+  // 11 → 8 (attention-index §2.4, plan Task 5): three pill segments collapse to
+  // two, retiring the confirm segment's cap conditional, the review segment and
+  // its own cap conditional, and one separator conditional. MEASURED by running
+  // the scanner, not predicted.
+  "components/admin/showpage/PublishedReviewModal.tsx": 8,
   // attention split 2026-07-21 §8: AttentionMenu enters the audit registry with
   // its new clearing groups (needs-a-look rows: subtitle, hint, action anchor,
   // external arrow; monitoring summary; group wrappers). Every site is an

@@ -448,17 +448,17 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
    *  await the menu instead of asserting synchronously. */
   const findMenu = () => screen.findByTestId(`${TB}-attention-menu`);
 
-  it("To confirm: actionable items render a BUTTON pill '2 to confirm' with aria-expanded", async () => {
+  it("Issues: actionable items render a BUTTON pill '2 issues' with aria-expanded", async () => {
     renderModal({ attentionItems: twoActionable() });
     const el = pill();
     expect(el.tagName).toBe("BUTTON");
-    expect(visibleText(el)).toBe("2 to confirm");
+    expect(visibleText(el)).toBe("2 issues");
     await findMenu(); // auto-open on arrival (rAF-deferred)
     expect(el.getAttribute("aria-expanded")).toBe("true");
     expect(el.getAttribute("aria-controls")).toBeTruthy();
   });
 
-  it("Needs-look: zero actionable + needs-look>0 renders the INTERACTIVE '1 to review' pill (attention split §3.2)", () => {
+  it("Needs-look: zero actionable + needs-look>0 renders the INTERACTIVE '1 issue' pill (attention-index §2.4)", () => {
     // SUPERSEDED old contract: "N clearing" non-interactive. A non-actionable
     // item without clearingKind defaults FAIL-VISIBLE into needs-look, which is
     // interactive (menu carries its fix hint/link). Monitoring-only remains
@@ -466,7 +466,7 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
     renderModal({ attentionItems: [clearingItem()] });
     const el = pill();
     expect(el.tagName).toBe("BUTTON");
-    expect(visibleText(el)).toBe("1 to review");
+    expect(visibleText(el)).toBe("1 issue");
   });
 
   it("In sync: zero items renders the teal ring pill, non-interactive", () => {
@@ -483,23 +483,31 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
     expect(screen.getByTestId("attention-degraded-notice")).toBeTruthy();
   });
 
-  it("Degraded + one hold: the ACTIONABLE To-confirm pill wins, menu lists the hold, notice still renders (spec §5.1 degraded row)", async () => {
-    renderModal({ attentionItems: [holdItem()], alertsDegraded: true });
-    expect(visibleText(pill())).toBe("1 to confirm");
+  // Spec test 4b (attention-index). The anti-tautology guard for the degraded
+  // row: the loader zeroes only the ALERTS arm and passes the independently-read
+  // feed through, so holds still flow. An implementation that short-circuits to
+  // an empty list on alertsDegraded passes every other pill test and fails this
+  // one — while hiding a live approve/reject control, which is a P0 regression.
+  it("Degraded + one hold: pill is INTERACTIVE and reads '1 issue', menu lists the hold, notice still renders", async () => {
+    const HOLD = holdItem();
+    renderModal({ attentionItems: [HOLD], alertsDegraded: true });
+    expect(pill().tagName).toBe("BUTTON");
+    // count derived from the fixture, not a literal
+    expect(visibleText(pill())).toBe(`${[HOLD].length} issue`);
     await findMenu();
-    expect(screen.getByTestId("attention-menu-row-hold:hold-1")).toBeTruthy();
+    expect(screen.getByTestId(`attention-menu-row-${HOLD.id}`)).toBeTruthy();
     expect(screen.getByTestId("attention-degraded-notice")).toBeTruthy();
   });
 
-  it("cap: 100 actionable → visible '99+ to confirm', sr-only exact count; 99 NOT capped", () => {
+  it("cap: 100 actionable → visible '99+ issues', sr-only exact count; 99 NOT capped", () => {
     const many = (n: number) =>
       Array.from({ length: n }, (_, i) => alertItem({ id: `alert:m${i}` }));
     renderModal({ attentionItems: many(100) });
-    expect(visibleText(pill())).toBe("99+ to confirm");
-    expect(pill().textContent).toContain("(100 to confirm)");
+    expect(visibleText(pill())).toBe("99+ issues");
+    expect(pill().textContent).toContain("(100 issues)");
     cleanup();
     renderModal({ attentionItems: many(99) });
-    expect(visibleText(pill())).toBe("99 to confirm");
+    expect(visibleText(pill())).toBe("99 issues");
   });
 
   // T-ALERT-NOT-IN-STRIP — pill lives ONLY in the header; the strip never
@@ -509,7 +517,7 @@ describe("PublishedReviewModal header attention pill (spec §5.1)", () => {
     expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
     const strip = screen.getByTestId("show-status-strip");
     expect(strip.querySelector('a[href="#overview"]')).toBeNull();
-    expect(strip.textContent).not.toContain("to confirm");
+    expect(strip.textContent).not.toContain("issues");
   });
 
   it("T-DIVIDER-ALERT-ONLY: attention-only show renders NO strip control divider", () => {
