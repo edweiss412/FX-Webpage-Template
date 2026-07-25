@@ -1,5 +1,5 @@
 // Structural guard: see tests/styles/_newTabScan.ts for the scanner itself.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import ts from "typescript";
@@ -731,6 +731,35 @@ describe("every external link in the live tree announces its new tab", () => {
 // through the runtime components map, so an `a` override there could make every help
 // link external with nothing per-file to see. I had verified the file by hand; a
 // verified assumption with no test is one edit away from being false.
+// The class behind that blind spot: this guard walks `components/` and `app/`, so a
+// .tsx ANYWHERE else is simply not scanned. mdx-components.tsx sat there unnoticed
+// until R12's brief made me look, and it is the one file that could make every help
+// link external at once. Rather than fix that instance alone, fail whenever a new .tsx
+// appears outside the scanned set, so the next one forces a decision instead of being
+// silently unscanned.
+it("no .tsx file lives outside the scanned roots", () => {
+  const scanned = new Set(["mdx-components.tsx"]);
+  const roots = new Set(["components", "app", "tests", "node_modules"]);
+  const walk = (dir: string): string[] => {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".")) continue;
+      const rel = dir === "." ? entry.name : `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (roots.has(rel)) continue;
+        out.push(...walk(rel));
+      } else if (entry.name.endsWith(".tsx") && !scanned.has(rel)) {
+        out.push(rel);
+      }
+    }
+    return out;
+  };
+  expect(
+    walk("."),
+    "add these to the live-tree scan roots, or to the scanned allowlist with a reason",
+  ).toEqual([]);
+});
+
 it("the MDX components map injects no target and no anchor override", () => {
   const src = stripCommentsSafely(readFileSync(join(process.cwd(), "mdx-components.tsx"), "utf8"));
   expect(
