@@ -1,0 +1,232 @@
+// @vitest-environment jsdom
+/**
+ * tests/components/admin/hoverHelpVisualViewport.test.tsx
+ *
+ * The jsdom layer of the visual-viewport work (spec §5 T-C*). These pins cannot
+ * live anywhere else: the real-engine suite is Chromium-only so it can never
+ * exercise the WebKit exclusion, and the property suite is pure so it never
+ * sees a listener at all.
+ *
+ * Rect stubbing follows tests/components/admin/hoverHelpLifecycle.test.tsx:157.
+ */
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { HoverHelp } from "@/components/admin/HoverHelp";
+import { GAP, VIEWPORT_INSET } from "@/lib/popover/position";
+
+type FrameCb = (t: number) => void;
+let frames: Map<number, FrameCb>;
+let nextId: number;
+
+/** Real EventTarget so add/dispatch/remove are genuine, not spies over nothing. */
+class VisualViewportStub extends EventTarget {
+  width: number;
+  height: number;
+  offsetLeft: number;
+  offsetTop: number;
+  constructor(width: number, height: number, offsetLeft: number, offsetTop: number) {
+    super();
+    this.width = width;
+    this.height = height;
+    this.offsetLeft = offsetLeft;
+    this.offsetTop = offsetTop;
+  }
+}
+
+const LAYOUT_W = 1000;
+const LAYOUT_H = 800;
+// Smaller than AND offset from the layout viewport, so a layout-viewport
+// implementation and a visual-viewport one cannot produce the same answer.
+const VV = { width: 300, height: 250, offsetLeft: 400, offsetTop: 200 } as const;
+// Anchor inside the slice, so the visible-slice bounds are the ones in play.
+const TRIGGER = { left: 450, top: 300, width: 20, height: 20 } as const;
+const BODY_NATURAL = { left: 0, top: 0, width: 288, height: 90 } as const;
+
+const stubRect = (el: Element, r: { left: number; top: number; width: number; height: number }) =>
+  Object.defineProperty(el, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      ...r,
+      right: r.left + r.width,
+      bottom: r.top + r.height,
+      x: r.left,
+      y: r.top,
+      toJSON: () => "",
+    }),
+  });
+
+const define = (obj: object, prop: string, value: unknown) =>
+  Object.defineProperty(obj, prop, { configurable: true, value });
+
+beforeEach(() => {
+  frames = new Map();
+  nextId = 1;
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameCb): number => {
+    const id = nextId++;
+    frames.set(id, cb);
+    return id;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number): void => void frames.delete(id));
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  define(window, "innerWidth", LAYOUT_W);
+  define(window, "innerHeight", LAYOUT_H);
+  define(window, "scrollX", 0);
+  define(window, "scrollY", 0);
+  // Default: NOT WebKit.
+  vi.stubGlobal("CSS", { supports: () => false });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+function mount(): HTMLElement {
+  render(
+    <HoverHelp label="Help: zoom" testId="vv">
+      <p>body</p>
+    </HoverHelp>,
+  );
+  const trigger = screen.getByTestId("vv-trigger");
+  stubRect(trigger, TRIGGER);
+  stubRect(document.body, { left: 0, top: 0, width: LAYOUT_W, height: LAYOUT_H });
+  stubRect(screen.getByTestId("vv-body"), BODY_NATURAL);
+  return trigger;
+}
+
+const runFrames = () => {
+  const pending = [...frames.values()];
+  frames.clear();
+  for (const cb of pending) cb(0);
+};
+
+describe("T-C1: bounds come from the visible slice", () => {
+  test("the popover is clamped into the slice, not the layout viewport", () => {
+    vi.stubGlobal(
+      "visualViewport",
+      new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop),
+    );
+    const trigger = mount();
+    fireEvent.click(trigger);
+
+    const body = screen.getByTestId("vv-body");
+    const boundsLeft = VV.offsetLeft + VIEWPORT_INSET;
+    const boundsRight = VV.offsetLeft + VV.width - VIEWPORT_INSET;
+    const width = Math.min(BODY_NATURAL.width, boundsRight - boundsLeft);
+    const expectedLeft = Math.min(Math.max(TRIGGER.left, boundsLeft), boundsRight - width);
+
+    expect(body.style.left).toBe(`${expectedLeft}px`);
+    expect(body.style.top).toBe(`${TRIGGER.top + TRIGGER.height + GAP}px`);
+    // The layout-viewport answer would have been the trigger's own left edge.
+    expect(body.style.left).not.toBe(`${TRIGGER.left}px`);
+  });
+});
+
+describe("T-C2/T-C3: visual-viewport events drive and then stop driving", () => {
+  test("scroll and resize each schedule exactly one frame while open", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    const trigger = mount();
+    fireEvent.click(trigger);
+    expect(frames.size).toBe(0); // open measures synchronously
+
+    vv.dispatchEvent(new Event("scroll"));
+    expect(frames.size).toBe(1);
+    runFrames();
+    vv.dispatchEvent(new Event("resize"));
+    expect(frames.size).toBe(1);
+  });
+
+  test("neither event schedules anything while CLOSED", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    mount();
+    vv.dispatchEvent(new Event("scroll"));
+    vv.dispatchEvent(new Event("resize"));
+    expect(frames.size).toBe(0);
+  });
+
+  test("after close, BOTH events on the ORIGINAL object are inert", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    const trigger = mount();
+    fireEvent.click(trigger);
+    fireEvent.click(trigger); // toggle closed
+
+    frames.clear();
+    vv.dispatchEvent(new Event("scroll"));
+    vv.dispatchEvent(new Event("resize"));
+    // Asserting removeEventListener was CALLED would not prove which callback or
+    // which target was removed; inertness of the original object does.
+    expect(frames.size).toBe(0);
+  });
+});
+
+describe("T-C4: no visualViewport at all", () => {
+  test("still opens and positions against the layout viewport", () => {
+    vi.stubGlobal("visualViewport", undefined);
+    const trigger = mount();
+    expect(() => fireEvent.click(trigger)).not.toThrow();
+    const body = screen.getByTestId("vv-body");
+    expect(body.style.left).toBe(`${TRIGGER.left}px`);
+    expect(body.style.top).toBe(`${TRIGGER.top + TRIGGER.height + GAP}px`);
+  });
+});
+
+describe("T-C5: WebKit is excluded, wholly", () => {
+  test("placement matches the layout-viewport answer AND no listener is attached", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    const addSpy = vi.spyOn(vv, "addEventListener");
+    vi.stubGlobal("visualViewport", vv);
+    vi.stubGlobal("CSS", { supports: (p: string) => p === "-webkit-backdrop-filter" });
+
+    const trigger = mount();
+    fireEvent.click(trigger);
+
+    const body = screen.getByTestId("vv-body");
+    expect(body.style.left).toBe(`${TRIGGER.left}px`); // layout answer, unclamped
+    // Round-2 F1: gating only the rect while still subscribing would make a
+    // WebKit zoom-pan re-measure visual-relative rects through a layout-relative
+    // conversion, i.e. drift. Nothing may be attached at all.
+    expect(addSpy).not.toHaveBeenCalled();
+
+    frames.clear();
+    vv.dispatchEvent(new Event("scroll"));
+    expect(frames.size).toBe(0);
+  });
+});
+
+describe("T-C7: a degenerate-at-open viewport still recovers", () => {
+  test("zero dimensions at open, then valid dimensions + resize, restores tracking", () => {
+    const vv = new VisualViewportStub(0, 0, 0, 0);
+    vi.stubGlobal("visualViewport", vv);
+    const trigger = mount();
+    fireEvent.click(trigger);
+
+    // Unusable right now, so the layout answer is correct...
+    const body = screen.getByTestId("vv-body");
+    expect(body.style.left).toBe(`${TRIGGER.left}px`);
+
+    // ...but the component MUST still be subscribed, or this can never arrive.
+    vv.width = VV.width;
+    vv.height = VV.height;
+    vv.offsetLeft = VV.offsetLeft;
+    vv.offsetTop = VV.offsetTop;
+    vv.dispatchEvent(new Event("resize"));
+    expect(frames.size).toBe(1);
+    runFrames();
+
+    const boundsLeft = VV.offsetLeft + VIEWPORT_INSET;
+    const boundsRight = VV.offsetLeft + VV.width - VIEWPORT_INSET;
+    const width = Math.min(BODY_NATURAL.width, boundsRight - boundsLeft);
+    const expectedLeft = Math.min(Math.max(TRIGGER.left, boundsLeft), boundsRight - width);
+    expect(body.style.left).toBe(`${expectedLeft}px`);
+  });
+});
