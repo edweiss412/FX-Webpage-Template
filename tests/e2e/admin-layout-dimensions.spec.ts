@@ -358,6 +358,17 @@ test.describe("phantom gap — /admin dashboard (real route)", () => {
   // renders stacked meta rows; at 1280 the header row, the desktop inbox, and the
   // auto-applied strip all appear instead. A wrapper populated in one branch can
   // empty out in the other, so one width would measure half the surface.
+  //
+  // The inbox anchor is therefore PER WIDTH, and captured from a live run rather
+  // than guessed: at 390 the column's gapped container is the mobile summary
+  // card, at 1280 it is the desktop inbox wrapper. `dashboard-inbox-col` itself
+  // is NOT usable — its own children carry testids, so the walk labels them
+  // rather than the column, and the column never enters `visited`.
+  const INBOX_ANCHOR = {
+    390: "needs-attention-summary-card",
+    1280: "dashboard-inbox-desktop",
+  } as const;
+
   for (const width of [390, 1280] as const) {
     test(`T-NOPHANTOM-DASH @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
       page,
@@ -393,9 +404,10 @@ test.describe("phantom gap — /admin dashboard (real route)", () => {
       // both widths (a mobile summary card at 390, the full inbox at 1280) and the
       // sibling stacking tests in this file already depend on it.
       expect(
-        found.visited.filter((v) => v.includes("dashboard-inbox-col")),
-        `the walk reached the attention inbox column, not just the shows column [@ ${width}] —` +
-          ` gapped containers visited: ${JSON.stringify(found.visited)}`,
+        found.visited.filter((v) => v === INBOX_ANCHOR[width]),
+        `the walk reached ${INBOX_ANCHOR[width]} in the attention inbox column, not just the` +
+          ` shows column [@ ${width}] — gapped containers visited:` +
+          ` ${JSON.stringify(found.visited)}`,
       ).not.toEqual([]);
 
       const { remaining, stale } = reconcilePhantomLedger(
