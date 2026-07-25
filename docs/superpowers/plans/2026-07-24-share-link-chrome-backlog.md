@@ -174,17 +174,35 @@ Written in order; one commit at the end.
 - [ ] Compile real `app/globals.css` through the Tailwind CLI with `@source` entries for ShareHub AND every ancestor whose classes participate, per `tests/e2e/hoverhelp-geometry.spec.ts:76` and `tests/e2e/hoverhelp-geometry.spec.ts:80-82`.
 - [ ] Assertions per §9.2: both `background-color` AND `box-shadow`, in the motion and reduced-motion arms; restart via node REPLACEMENT with the attribute already present; exactly one element carrying the attribute (N3); no element in the panel with a resolved `animation-name` other than the cue's two.
 - [ ] Wiring 1: the spec file. Wiring 2: the `testMatch` allow-list at `tests/e2e/standalone.config.ts:35`. Wiring 3: a dedicated workflow with `workflow_dispatch:`. Wiring 4: a `PATH_GATED` row in `tests/ci/_metaE2eWorkflowCoverage.test.ts` (fails by default for new dark specs, `tests/ci/_metaE2eWorkflowCoverage.test.ts:7`; precedent `tests/ci/_metaE2eWorkflowCoverage.test.ts:81`).
-- [ ] **The workflow path filter is specified by GLOB, not by enumerating imports.** Three rounds enumerated a list and three rounds found it short — round 4 named `ShareLinkCopyButton`, `PickerResetControl`, the archive controls, dev-capture, `resolveOrigin`, `crewLinkMailto`, StatusStrip's graph, `ReviewModalShell`'s hooks and `PublishedReviewModal`'s value imports. The exercised tree is a whole subgraph and a per-file list will keep being wrong, so the filter covers the DIRECTORIES that subgraph lives in:
+- [ ] **The workflow path filter follows the ratified phantom-gap shape.** Five rounds narrowed and re-narrowed a list, and round 5 settled it empirically: even the leanest valid ancestry pulls **24 esbuild inputs outside** any subtree list proposed so far — `lib/a11y/dialogFocus.ts`, `components/admin/PublishedToggle.tsx`, `lib/messages/catalog.ts`, `lib/devcapture/**`, `app/admin/_devCaptureAction.ts`, `app/help/_affordanceMatrix.ts` and more — and rendering the real modal expands it again into `components/admin/wizard/**` and `components/shared/**`. A per-subtree filter for a hydrated real-tree harness is not achievable.
 
-  - `components/admin/showpage/**` — ShareHub, StatusStrip, PublishedReviewModal, the skeleton
-  - `components/admin/review/**` — ReviewModalShell and the popover host
-  - `app/admin/show/[slug]/**` — the rotate driver, picker reset, copy button, token context, `resolveOrigin`, `crewLinkMailto`
-  - `components/admin/dev/**` — the override context and dev-capture
-  - `components/admin/HoverHelp.tsx`, `components/admin/ArchiveShowButton.tsx`, `components/admin/UnarchiveShowButton.tsx`, `lib/popover/position.ts` — the remaining cross-cutting imports at `components/admin/showpage/ShareHub.tsx:99-116`
-  - `app/globals.css`, the spec, its entry file, the bundle builder, `tests/e2e/_nextNavigationStub.ts` and any other harness stub, `tests/e2e/standalone.config.ts`, the workflow itself
-  - runtime inputs: `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `postcss.config.mjs`, `tsconfig.json`, `.github/actions/setup/**`
+  Round 5 also caught a straight bug: **`app/admin/show/[slug]/**` does not match that directory.** In GitHub filter syntax `[]` is a one-character character class and YAML quoting does not neutralise it — which is why no workflow in this repo globs a bracket directory; they all reach it via `app/admin/**`.
 
-  Globs cost extra job runs on unrelated edits in those directories. That is the correct trade: this job exists to prove a browser behaviour that a source scan cannot, and a skipped run is a silent hole. Model: `.github/workflows/hoverhelp-geometry-e2e.yml:15-30` and `.github/workflows/phantom-gap-e2e.yml:45-47`, which take the same subtree-glob approach for the same reason.
+  So the filter is:
+
+  ```yaml
+  - "components/**"
+  - "lib/**"
+  - "app/admin/**"
+  - "app/help/_affordanceMatrix.ts"
+  - "app/globals.css"
+  # harness + config
+  - "tests/e2e/<the new spec>.spec.ts"
+  - "tests/e2e/_<the new entry>.tsx"
+  - "tests/e2e/_step3ReviewModalBundle.mjs"
+  - "tests/e2e/_nextNavigationStub.ts"
+  - "tests/e2e/standalone.config.ts"
+  - ".github/workflows/<this workflow>.yml"
+  # runtime inputs
+  - "package.json"
+  - "pnpm-lock.yaml"
+  - "pnpm-workspace.yaml"
+  - "postcss.config.mjs"
+  - "tsconfig.json"
+  - ".github/actions/setup/**"
+  ```
+
+  This is deliberately broad, and the repo has already ratified the trade in prose for the same reason: `.github/workflows/phantom-gap-e2e.yml:36-44` explains that scoping a trigger to the folders whose names match the surface left that job entirely dark, which it calls the "green because it never ran" failure the workflow exists to end, and accepts that "most component PRs now run a ~6-minute job" because "the alternative is a probe that misses the edits most likely to trip it." That reasoning transfers exactly: this job exists to prove a browser behaviour no source scan can, so a skipped run is a silent hole, and the hydrated tree's real dependency surface is `components/**` plus `lib/**` whether or not a list says so.
 - [ ] Commit `test(admin): add the real-browser share-link cue spec`.
 
 ### Task 6 — The executable adversary matrix (spec §9.0; the oracle resolution)
