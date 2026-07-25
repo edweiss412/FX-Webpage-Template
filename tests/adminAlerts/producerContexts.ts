@@ -282,7 +282,16 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
   {
     code: "TILE_PROJECTION_FETCH_FAILED",
     showId: SHOW_ID,
-    context: { drive_file_id: DRIVE_FILE_ID, sheet_name: "My Sheet" },
+    // Corrected 2026-07-24: this fixture claimed a `drive_file_id` its only
+    // producer never writes (app/show/[slug]/[shareToken]/_CrewShell.tsx:160).
+    // The gallery's own override had this code right; the identity-matrix copy
+    // did not — a third instance of the drift class this bundle closes.
+    context: {
+      sheet_name: "My Sheet",
+      tileId: "crew:projection-alert",
+      message: "Some sections could not be loaded.",
+      failedKeys: ["tile:agenda", "tile:rooms"],
+    },
   },
   // 40-41. scripts/verify-branch-protection.ts:262-268/322-328 — global (system-wide, no show)
   {

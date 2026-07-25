@@ -79,6 +79,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "lib/sync/runManualSyncForShow.ts:261",
     computedContext: true,
+    contextKeys: ["drive_file_id", "sheet_name"],
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
     note: "context built by buildParseErrorContext(lib/sync/runManualSyncForShow.ts:261); keys mirror the cron twin at lib/sync/runScheduledCronSync.ts:3386",
@@ -86,6 +87,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "lib/sync/runScheduledCronSync.ts:375",
     computedContext: true,
+    contextKeys: ["drive_file_id", "sheet_name"],
     code: "RESYNC_QUALITY_REGRESSED",
     scope: "per-show",
     note: "context forwarded as a shorthand variable (lib/sync/runScheduledCronSync.ts:375)",
@@ -134,6 +136,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "lib/sync/runScheduledCronSync.ts:3386",
     computedContext: true,
+    contextKeys: ["drive_file_id", "sheet_name"],
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
     note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3386)",
@@ -204,6 +207,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "lib/drive/watch.ts:409",
     computedContext: true,
+    contextKeys: ["watched_folder_id", "channel_id", "reason", "error_class", "error_message"],
     code: "WATCH_CHANNEL_ORPHANED",
     scope: "global",
     dynamic: true,
@@ -212,6 +216,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "lib/reports/submit.ts:759",
     computedContext: true,
+    contextKeys: ["idempotency_key", "depth"],
     code: "REPORT_LEASE_THRASHING",
     scope: "per-show",
     dynamic: true,
@@ -220,6 +225,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "lib/reports/submit.ts:784",
     computedContext: true,
+    contextKeys: ["code"],
     code: "GITHUB_BOT_LOGIN_MISSING",
     scope: "global",
     dynamic: true,
@@ -276,6 +282,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "lib/sync/applyStaged.ts:2000",
     computedContext: true,
+    contextKeys: ["drive_file_id", "changes"],
     code: "ROLE_FLAGS_NOTICE",
     scope: "per-show",
     dynamic: true,
@@ -347,6 +354,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "lib/sync/runScheduledCronSync.ts:2329",
     computedContext: true,
+    contextKeys: ["drive_file_id", "changes"],
     code: "ROLE_FLAGS_NOTICE",
     scope: "per-show",
     dynamic: true,
@@ -382,6 +390,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "supabase/migrations/20260527210004_validation_seed_bot_login_alerts.sql:66",
     computedContext: true,
+    contextKeys: ["code"],
     code: "GITHUB_BOT_LOGIN_MISSING",
     scope: "global",
     seed: true,
@@ -390,6 +399,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "supabase/migrations/20260527210004_validation_seed_bot_login_alerts.sql:67",
     computedContext: true,
+    contextKeys: ["code"],
     code: "REPORT_LOOKUP_INCONCLUSIVE",
     scope: "per-show",
     seed: true,
@@ -398,6 +408,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:16",
     computedContext: true,
+    contextKeys: ["drive_file_id", "sheet_name"],
     code: "SHOW_UNPUBLISHED",
     scope: "per-show",
     note: "upsert_admin_alert(p_show_id, ...)",
@@ -436,3 +447,55 @@ export const FROZEN_REACHABLE: string[] = [
   "SHOW_FIRST_PUBLISHED",
   "SHOW_UNPUBLISHED",
 ];
+
+// ---------------------------------------------------------------------------
+// Key aggregation across a code's producer sites
+// (spec 2026-07-24-gallery-alert-producer-parity §5)
+//
+// A code can be raised from several sites writing different key sets, so no
+// single site — and no single representative context — describes the key
+// universe. Consumers must aggregate:
+//
+//   allowedKeys    = UNION of contextKeys+optionalContextKeys  (may this key appear?)
+//   guaranteedKeys = INTERSECTION of contextKeys               (is this key always there?)
+//
+// Worked example, live: SHEET_UNAVAILABLE has three sites and `failure_code`
+// is written by only some of them, so it is allowed but not guaranteed.
+// ---------------------------------------------------------------------------
+
+function rowsFor(code: string): ProducerScopeRow[] {
+  return PRODUCER_SCOPE.filter((row) => row.code === code);
+}
+
+/** Whether the discovery pass found any producer for this code. 13 of the 45
+ *  registered codes have none — they are raised outside the discovered surface.
+ *  Callers MUST branch on this before applying a subset rule: an empty
+ *  `allowedKeys` rejects every non-empty context rather than permitting it. */
+export function hasProducerRow(code: string): boolean {
+  return rowsFor(code).length > 0;
+}
+
+/** Union over the code's sites of every key that may appear. */
+export function allowedKeys(code: string): string[] {
+  const out = new Set<string>();
+  for (const row of rowsFor(code)) {
+    for (const key of row.contextKeys ?? []) out.add(key);
+    for (const key of row.optionalContextKeys ?? []) out.add(key);
+  }
+  return [...out].sort();
+}
+
+/** Intersection over the code's sites of the keys every site always writes.
+ *  A key only some sites write is NOT guaranteed, which is why this is an
+ *  intersection and not a union. */
+export function guaranteedKeys(code: string): string[] {
+  const rows = rowsFor(code);
+  if (rows.length === 0) return [];
+  let acc: Set<string> | null = null;
+  for (const row of rows) {
+    const here = new Set(row.contextKeys ?? []);
+    if (acc === null) acc = here;
+    else for (const key of [...acc]) if (!here.has(key)) acc.delete(key);
+  }
+  return [...(acc ?? new Set<string>())].sort();
+}
