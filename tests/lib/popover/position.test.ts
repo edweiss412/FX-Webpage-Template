@@ -332,3 +332,65 @@ describe("caret placement (spec 2026-07-22-hoverhelp-caret-blur-close §3.3)", (
     expect("caret" in p).toBe(false);
   });
 });
+
+describe("share-hub geometry (measured, not synthetic)", () => {
+  // Real numbers from the 2026-07-24 probe + spike recorded in spec
+  // docs/superpowers/specs/2026-07-24-sharehub-viewport-popover-and-archive-copy.md §9.
+  // At 390x560: the hub trigger group sits at 381.3 -> 425.3, the review-modal
+  // panel (the portal host, and an overflow-clip NON-scroller) at 84 -> 560, and
+  // the popover body measures 583 border-box with its max-h-[min(70vh,30rem)]
+  // cap active (390 at this viewport height).
+  //
+  // Why this case exists on top of the synthetic decision table: the synthetic
+  // rows can all keep passing while a change to the tie/flip ordering breaks the
+  // one geometry this module is actually deployed into. Before the migration the
+  // armed Archive confirm was unreachable at EVERY phone height, so getting this
+  // specific answer wrong is not a cosmetic regression.
+  const VIEWPORT_H = 560;
+  const panel = rect(0, 84, 390, VIEWPORT_H - 84);
+  const viewport = rect(0, 0, 390, VIEWPORT_H);
+  const bounds = insetRect(intersectRects(panel, viewport), VIEWPORT_INSET);
+  const triggerGroup = rect(82, 381.3, 300, 44);
+
+  it("places the body ABOVE the trigger and caps it to the room there", () => {
+    const p = computePopoverPlacement({
+      trigger: triggerGroup,
+      naturalSize: { width: 308, height: 583 },
+      wrappedHeightAt: () => 583,
+      bounds,
+      preferredSide: "bottom",
+      align: "right",
+    });
+
+    expect(p.kind).toBe("placed");
+    if (p.kind !== "placed") return;
+
+    // 583 fits neither side, so the larger side wins: below is
+    // 552 - 425.3 - 6 = 120.7, above is 381.3 - 92 - 6 = 283.3.
+    expect(p.side).toBe("top");
+    expect(p.maxHeight).toBeCloseTo(283.3, 1);
+
+    // The whole point: the placed body lies inside the clip rect, so its own
+    // scroll range can no longer end below an edge nothing can scroll past.
+    expect(p.viewport.y).toBeGreaterThanOrEqual(bounds.top - 0.5);
+    expect(p.viewport.y + (p.maxHeight ?? 583)).toBeLessThanOrEqual(bounds.bottom + 0.5);
+  });
+
+  it("places the body BELOW at a tall viewport, where the room below is larger", () => {
+    // 390x844: panel 127 -> 844, trigger group 474-ish; below wins there.
+    const tallPanel = rect(0, 127, 390, 844 - 127);
+    const tallViewport = rect(0, 0, 390, 844);
+    const tallBounds = insetRect(intersectRects(tallPanel, tallViewport), VIEWPORT_INSET);
+    const p = computePopoverPlacement({
+      trigger: rect(82, 430, 300, 44),
+      naturalSize: { width: 308, height: 583 },
+      wrappedHeightAt: () => 583,
+      bounds: tallBounds,
+      preferredSide: "bottom",
+      align: "right",
+    });
+    expect(p.kind).toBe("placed");
+    if (p.kind !== "placed") return;
+    expect(p.side).toBe("bottom");
+  });
+});

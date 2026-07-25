@@ -30,6 +30,7 @@ import {
   WRAPPER_CLASSES,
   ROW_TOKENS,
 } from "./_rowAssertions";
+import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { ShareHub } from "@/components/admin/showpage/ShareHub";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { resolveOrigin } from "@/app/admin/show/[slug]/resolveOrigin";
@@ -54,7 +55,10 @@ type Opts = {
   unarchiveAction?: (showId: string) => Promise<void>;
 };
 
-function renderHub({
+/** The hub's tree WITHOUT rendering it, so a caller can wrap it in a
+ *  PopoverHostContext provider before mounting (the portal host is read on the
+ *  render after refs populate, so it has to be in place from the start). */
+function hubTree({
   published = true,
   archived = false,
   finalizeOwned = false,
@@ -65,7 +69,7 @@ function renderHub({
   archiveAction = async () => ({ ok: true }) as const,
   unarchiveAction = async () => {},
 }: Opts = {}) {
-  return render(
+  return (
     <ShareTokenProvider key={SHOW_ID} initialToken={token} initialEpoch={1}>
       <ShareHub
         slug={SLUG}
@@ -79,8 +83,12 @@ function renderHub({
         archiveAction={archiveAction}
         unarchiveAction={unarchiveAction}
       />
-    </ShareTokenProvider>,
+    </ShareTokenProvider>
   );
+}
+
+function renderHub(opts: Opts = {}) {
+  return render(hubTree(opts));
 }
 
 const primary = () => screen.getByTestId("share-hub-primary") as HTMLButtonElement;
@@ -296,6 +304,38 @@ describe("ShareHub — z-order (spec §3)", () => {
 });
 
 describe("ShareHub — caret (spec §5)", () => {
+  it("portals the popover into the PopoverHostContext host when one is provided", () => {
+    // The host is load-bearing, not cosmetic: portaling into the
+    // ReviewModalShell panel keeps the dialog inside the shell's focus trap,
+    // aria-modal subtree and inert handling, and it is the rect placement is
+    // bounded by. Falling back to document.body when a provider exists would
+    // silently escape all four.
+    const host = document.createElement("div");
+    host.setAttribute("data-testid", "portal-host");
+    document.body.appendChild(host);
+    const hostRef = { current: host };
+    try {
+      render(
+        <PopoverHostContext.Provider value={hostRef}>{hubTree()}</PopoverHostContext.Provider>,
+      );
+      fireEvent.click(screen.getByTestId("share-hub-primary"));
+      const popoverNode = screen.getByTestId("share-hub-popover");
+      expect(host.contains(popoverNode)).toBe(true);
+      expect(host.contains(screen.getByTestId("share-hub-caret"))).toBe(true);
+    } finally {
+      host.remove();
+    }
+  });
+
+  it("falls back to document.body when no host provider is present", () => {
+    renderHub();
+    fireEvent.click(primary());
+    // Not asserting a literal document.body parent: what matters is that it
+    // left the hub root, which is the clipped in-flow position it used to sit in.
+    expect(screen.getByTestId("share-hub-root").contains(popover())).toBe(false);
+    expect(document.body.contains(popover())).toBe(true);
+  });
+
   it("renders a decorative caret OUTSIDE the popover, AFTER it, and inert", () => {
     renderHub();
     fireEvent.click(primary());
@@ -313,9 +353,14 @@ describe("ShareHub — caret (spec §5)", () => {
       popover().compareDocumentPosition(caret) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    // Same positioned parent, or the caret is anchored to the wrong ancestor.
+    // Same parent as the body, or the two are positioned in different
+    // coordinate spaces and the notch drifts off the edge it is meant to
+    // straddle. Both now live in the PORTAL host (spec §2.1.1), not in the hub
+    // root — the old `relative`-ancestor assertion described the superseded
+    // in-flow anchoring, where the root was the positioned ancestor.
     expect(caret.parentElement).toBe(popover().parentElement);
-    expectClasses(caret.parentElement!, { has: ["relative"] });
+    expect(screen.getByTestId("share-hub-root").contains(caret)).toBe(false);
+    expect(screen.getByTestId("share-hub-root").contains(popover())).toBe(false);
 
     // aria-hidden does not disable hit-testing: without pointer-events-none the
     // caret would intercept clicks in its overlap with the panel and any

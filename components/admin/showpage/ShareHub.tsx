@@ -27,15 +27,28 @@
  *   §4 lifecycle close (deferred while busy) · §6 dismissal + busy contract ·
  *   §9 R1-R4 composition rules (executable in shareHub.test.tsx, not narrated).
  *
- * Geometry (added in T4, alongside the Playwright assertions that verify it —
- * jsdom computes no layout, so none of this is provable in a unit test):
- * the popover is `absolute top-full right-0 w-[308px]`, positioned against this
- * component's own `relative` root rather than the strip row. The row deliberately has
- * NO `relative` (StatusStrip.tsx: the band owns the positioned ancestor, and
- * re-anchoring it would break the Re-sync overlay's `inset-x-0` full-band
- * width). The wrapper's right edge is the band's content edge via `ml-auto` on
- * the strip's hub group, so `right-0` aligns the panel to that same edge.
- * `max-w-[calc(100vw-2rem)]` keeps it inside the modal at 390px.
+ * Geometry (spec docs/superpowers/specs/2026-07-24-sharehub-viewport-popover-
+ * and-archive-copy.md §2.1; jsdom computes no layout, so none of it is provable
+ * in a unit test — the Playwright sweep in admin-lifecycle-layout.spec.ts owns
+ * it). The popover PORTALS into the ReviewModalShell panel via
+ * PopoverHostContext and is positioned by `computePopoverPlacement`
+ * (lib/popover/position.ts), which picks a side and a fitted max-height from
+ * the room available inside that host.
+ *
+ * It used to be `absolute top-full right-0` against this component's own
+ * `relative` root, with `max-w-[calc(100vw-2rem)]`. That anchoring is what
+ * broke it: the host panel is `overflow-clip` (ReviewModalShell.tsx:623), which
+ * is NOT a scroll container, and no ancestor between this popover and the
+ * viewport scrolls either — so a body that overhung the panel stranded the tail
+ * of its OWN scroll range below the clip edge, where no scroll position in any
+ * container could reach it. The armed Archive confirm lived in that band and
+ * was unreachable at every phone height measured (844/740/667/620/560).
+ * Bounding placement by the host rect is what prevents that by construction.
+ *
+ * The same class was found and fixed for HoverHelp first (BL-HOVERHELP-PORTAL);
+ * this hub was written in the old idiom afterwards and did not inherit it.
+ * tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts is the
+ * registry that makes the next such overlay fail loudly instead of silently.
  *
  * Elevation (spec 2026-07-20-share-hub-fidelity-fixes §3): the root is `relative`
  * always but `z-30` ONLY while open. `z-index: auto` establishes no stacking
@@ -62,6 +75,7 @@
 import { Camera, Link2, Mail, MoreHorizontal, MoreVertical } from "lucide-react";
 import {
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -70,7 +84,16 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
 
+import {
+  computePopoverPlacement,
+  insetRect,
+  intersectRects,
+  VIEWPORT_INSET,
+  type Rect,
+} from "@/lib/popover/position";
+import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
 import { buildCrewLinkMailtos } from "@/app/admin/show/[slug]/crewLinkMailto";
@@ -87,6 +110,15 @@ import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetCont
  *  gets control back (see the `busyStuck` rationale below). Deliberately longer
  *  than any healthy round-trip on this surface. */
 const BUSY_GATE_MAX_MS = 15_000;
+
+/** The caret is a 10px rotated square (`size-2.5`), not the 12px triangle
+ *  `lib/popover/position.ts` specifies — hence the §1.1 carve-out that keeps
+ *  the hub's own horizontal caret math instead of `placement.caret`. */
+const CARET_SIZE_PX = 10;
+/** Min distance from a body corner to the caret box, so the square always sits
+ *  on the straight edge run rather than a rounded corner. Mirrors
+ *  `--radius-md`, the same value `CARET_EDGE_INSET` encodes for the triangle. */
+const CARET_CORNER_INSET_PX = 12;
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
@@ -168,47 +200,158 @@ export function ShareHub({
       the caret is anchored under it. */
   const openerRef = useRef<HTMLButtonElement | null>(null);
 
-  // Caret offset from the group's right edge, in px. The panel is `right-0`
-  // against the group, whose right edge is the kebab's right edge (kebab is the
-  // last child, `gap-2` sits BETWEEN children, not after). So the caret's right
-  // inset = (group right edge − opener centre) − half the 10px caret. Measured
-  // per-open because the primary trigger's width is label-dependent
-  // ("Share link" vs "Share link · paused" vs "Show actions") and the opener
-  // may be either trigger. `null` until measured / when layout is unavailable
-  // (SSR, jsdom): the `right-[17px]` class is the kebab-centred fallback, which
-  // is also the correct value when the kebab is the opener.
-  const [caretRightPx, setCaretRightPx] = useState<number | null>(null);
+  const caretRef = useRef<HTMLSpanElement>(null);
 
-  // Anchor the caret under whichever trigger opened the popover, not always the
-  // kebab (impeccable critique: opening from the primary button pointed the
-  // caret ~8px off, at the adjacent kebab). Layout-effect so the offset lands
-  // before the browser paints the caret — no flash at the fallback position.
-  // Reset to null on close so a reopen from the OTHER trigger paints the
-  // kebab-centred fallback first rather than the previous opener's offset.
-  useLayoutEffect(() => {
-    if (!open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCaretRightPx(null);
+  // Portal host (spec §2.1.1). `mounted` flips in an EFFECT rather than via a
+  // has-mounted hook: a provider's `panelRef.current` is still null on the
+  // first client commit, so reading the host then would fall back to
+  // document.body and never re-parent (HoverHelp.tsx:146-154 documents this).
+  const hostRef = useContext(PopoverHostContext);
+  const [mounted, setMounted] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing second render; see above
+  useEffect(() => setMounted(true), []);
+
+  // Placement (spec §2.1.2). ALL geometry comes from computePopoverPlacement —
+  // this component only measures rects and applies what it returns
+  // (lib/popover/position.ts:5-8). The panel that hosts this popover is
+  // `overflow-clip` (ReviewModalShell.tsx:623), which is NOT a scroll
+  // container, so an overlay that overhangs it strands the tail of its own
+  // scroll range where nothing can reach it. Bounding placement by the host
+  // rect is what keeps that from happening.
+  const applyPlacement = useCallback(() => {
+    const body = panelRef.current;
+    const trigger = containerRef.current;
+    if (!body || !trigger) return;
+    const host = hostRef?.current ?? document.body;
+    const toRect = (r: DOMRect): Rect => ({
+      left: r.left,
+      top: r.top,
+      width: r.width,
+      height: r.height,
+      right: r.right,
+      bottom: r.bottom,
+    });
+    const viewportRect: Rect = {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      right: window.innerWidth,
+      bottom: window.innerHeight,
+    };
+    // Body-host bounds degenerate to the viewport: an all-absolute page gives
+    // document.body a zero-height rect, which would wrongly collapse bounds.
+    const hostRect = host === document.body ? viewportRect : toRect(host.getBoundingClientRect());
+    const bounds = insetRect(intersectRects(hostRect, viewportRect), VIEWPORT_INSET);
+
+    // Natural size = class caps active, NO inline constraints. Cleared first so
+    // we measure the CSS cap rather than the previous pass's result.
+    body.style.maxHeight = "";
+    body.style.maxWidth = "";
+    const naturalRect = body.getBoundingClientRect();
+
+    // NO LAYOUT ENGINE (SSR, jsdom): every rect is zero-area, which the
+    // placement core correctly classifies as degenerate and would have us hide.
+    // Hiding is right for a real browser that measured a genuinely unplaceable
+    // anchor; it is wrong here, where nothing was measured at all — it would
+    // make the dialog invisible to assistive tech and to every unit test. Leave
+    // the popover unpositioned and visible instead, the same posture the
+    // superseded caret measurement took for this case.
+    const triggerRect = trigger.getBoundingClientRect();
+    if (triggerRect.width === 0 || naturalRect.width === 0) return;
+    const placement = computePopoverPlacement({
+      trigger: toRect(triggerRect),
+      naturalSize: { width: naturalRect.width, height: naturalRect.height },
+      wrappedHeightAt: (w) => {
+        body.style.maxWidth = `${w}px`;
+        const h = body.getBoundingClientRect().height;
+        body.style.maxWidth = "";
+        return h;
+      },
+      bounds,
+      preferredSide: "bottom",
+      align: "right",
+    });
+
+    const caret = caretRef.current;
+    if (placement.kind === "hidden") {
+      // Degenerate/unlaid-out rects (SSR, jsdom, mid-unmount). Recover on the
+      // next frame rather than writing NaN coordinates.
+      body.style.visibility = "hidden";
+      delete body.dataset["popoverSide"];
+      if (caret) {
+        caret.style.visibility = "hidden";
+        delete caret.dataset["popoverSide"];
+      }
       return;
     }
-    const measure = () => {
-      const container = containerRef.current;
+
+    body.style.visibility = "";
+    body.dataset["popoverSide"] = placement.side;
+    const isBodyHost = host === document.body;
+    // Shared by body and caret so the two coordinate paths cannot drift.
+    const toHostOffsets = (pt: { x: number; y: number }) => ({
+      left: isBodyHost
+        ? pt.x + window.scrollX
+        : pt.x - hostRect.left - host.clientLeft + host.scrollLeft,
+      top: isBodyHost
+        ? pt.y + window.scrollY
+        : pt.y - hostRect.top - host.clientTop + host.scrollTop,
+    });
+    const bodyOffsets = toHostOffsets(placement.viewport);
+    body.style.left = `${bodyOffsets.left}px`;
+    body.style.top = `${bodyOffsets.top}px`;
+    if (placement.maxHeight !== null) body.style.maxHeight = `${placement.maxHeight}px`;
+    if (placement.maxWidth !== null) body.style.maxWidth = `${placement.maxWidth}px`;
+
+    // Caret keeps the hub's own 10px rotated-square visual and its
+    // opener-centre horizontal math — the ratified §1.1 carve-out.
+    // `placement.caret` is specified against a 12px triangle (CARET_WIDTH) and
+    // would misalign a 10px square. The corner constraint it encodes is still
+    // honoured by the clamp below.
+    if (caret) {
+      caret.style.visibility = "";
+      caret.dataset["popoverSide"] = placement.side;
+      const bodyRect = body.getBoundingClientRect();
       const opener = openerRef.current;
-      if (!container || !opener) return;
-      const c = container.getBoundingClientRect();
-      const o = opener.getBoundingClientRect();
-      // No layout yet (SSR / jsdom report zero-size rects): keep the
-      // `right-[17px]` fallback class rather than compute a garbage offset.
-      if (c.width === 0 || o.width === 0) return;
-      const openerCentre = o.left + o.width / 2;
-      // 5 = half the 10px caret (`size-2.5`); matches the fallback's 22 − 5.
-      setCaretRightPx(c.right - openerCentre - 5);
+      const openerRect = opener?.getBoundingClientRect();
+      const centreX =
+        openerRect && openerRect.width > 0
+          ? openerRect.left + openerRect.width / 2
+          : bodyRect.right - 22;
+      const half = CARET_SIZE_PX / 2;
+      const minLeft = bodyRect.left + CARET_CORNER_INSET_PX;
+      const maxLeft = bodyRect.right - CARET_CORNER_INSET_PX - CARET_SIZE_PX;
+      const clampedLeft = Math.min(Math.max(centreX - half, minLeft), Math.max(minLeft, maxLeft));
+      const caretTop = placement.side === "bottom" ? bodyRect.top - half : bodyRect.bottom - half;
+      const caretOffsets = toHostOffsets({ x: clampedLeft, y: caretTop });
+      caret.style.left = `${caretOffsets.left}px`;
+      caret.style.top = `${caretOffsets.top}px`;
+    }
+  }, [hostRef]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    let frame = 0;
+    const schedule = () => {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(applyPlacement);
     };
-    measure();
-    // A viewport change can reflow the modal and shift the group's right edge.
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [open, published, archived]);
+    applyPlacement();
+    window.addEventListener("resize", schedule);
+    // The host can change height (the modal's own content moves the anchor).
+    // Feature-detected and never constructed when absent: jsdom has no
+    // ResizeObserver, and an unguarded construction takes the component down
+    // (ReSyncButton.tsx:137-141 documents the same trap).
+    const host = hostRef?.current ?? null;
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
+    if (observer && host) observer.observe(host);
+    return () => {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+      window.removeEventListener("resize", schedule);
+      observer?.disconnect();
+    };
+  }, [open, applyPlacement, hostRef, published, archived]);
 
   const onRotateBusy = useCallback((b: boolean) => setRotateBusy(b), []);
   const onResetBusy = useCallback((b: boolean) => setResetBusy(b), []);
@@ -468,106 +611,130 @@ export function ShareHub({
         </span>
       ) : null}
 
-      {open && (
-        <div
-          id={popoverId}
-          ref={panelRef}
-          tabIndex={-1}
-          role="dialog"
-          // While a child is mid-flight every dismissal path is inert and
-          // Escape is swallowed. Without this, an SR user pressing Escape
-          // mid-archive gets no response and no explanation (impeccable audit).
-          aria-busy={busy}
-          aria-label={archived ? "Show actions" : "Share crew link and show actions"}
-          data-testid="share-hub-popover"
-          onKeyDown={onPopoverKeyDown}
-          // max-h + overflow: the email rows are batched per 1900-char mailto
-          // cap with no row limit, so a large roster could otherwise push the
-          // destructive controls below the fold on a 390px phone.
-          className="absolute right-0 top-full z-40 mt-1.5 flex max-h-[min(70vh,30rem)] w-[308px] max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-surface p-2.5 shadow-popover focus-visible:outline-none"
-        >
-          {/* Share half — suppressed wholesale while archived (read-only): no
+      {/* Portaled into the ReviewModalShell panel via PopoverHostContext (spec
+          §2.1.1), falling back to document.body where no provider exists. The
+          panel host is deliberate: it keeps the dialog inside the shell's focus
+          trap, aria-modal subtree and inert handling — the same reason the
+          HoverHelp migration chose it. Placement (spec §2.1.2) bounds the body
+          by that host's rect, so it can no longer overhang the panel's
+          `overflow-clip` edge and strand its own scroll tail. */}
+      {open &&
+        mounted &&
+        createPortal(
+          <>
+            <div
+              id={popoverId}
+              ref={panelRef}
+              tabIndex={-1}
+              role="dialog"
+              // While a child is mid-flight every dismissal path is inert and
+              // Escape is swallowed. Without this, an SR user pressing Escape
+              // mid-archive gets no response and no explanation (impeccable audit).
+              aria-busy={busy}
+              aria-label={archived ? "Show actions" : "Share crew link and show actions"}
+              data-testid="share-hub-popover"
+              onKeyDown={onPopoverKeyDown}
+              // max-h + overflow: the email rows are batched per 1900-char mailto
+              // cap with no row limit, so a large roster could otherwise push the
+              // destructive controls below the fold on a 390px phone.
+              // Positioned by computePopoverPlacement: `left`/`top` (host
+              // coordinates) and the fitted `max-height` are written inline by
+              // applyPlacement. `max-h-[min(70vh,30rem)]` stays as the DECLARED cap
+              // the placement core reads as its `cap` input. The old
+              // `right-0 top-full mt-1.5 max-w-[calc(100vw-2rem)]` anchoring is
+              // gone: it is what pinned the body to a spot that overhung the clip.
+              className="absolute z-40 flex max-h-[min(70vh,30rem)] w-[308px] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-surface p-2.5 shadow-popover focus-visible:outline-none"
+            >
+              {/* Share half — suppressed wholesale while archived (read-only): no
               URL, no Copy, no email rows, no rotate, no reset. What remains is
               the Show section below. */}
-          {!archived ? (
-            <>
-              <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-                Crew link
-              </h3>
-
-              {linkActive ? (
+              {!archived ? (
                 <>
-                  <div className="flex items-start gap-1.5">
-                    <code
-                      data-testid="admin-current-share-link-url"
-                      className="min-w-0 flex-1 break-all rounded-sm bg-surface-sunken px-2 py-1 text-xs text-text-strong"
-                    >
-                      {url}
-                    </code>
-                    <ShareLinkCopyButton url={url} variant="accent" />
-                  </div>
-                  {mailtos.length > 1 && (
+                  <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                    Crew link
+                  </h3>
+
+                  {linkActive ? (
+                    <>
+                      <div className="flex items-start gap-1.5">
+                        <code
+                          data-testid="admin-current-share-link-url"
+                          className="min-w-0 flex-1 break-all rounded-sm bg-surface-sunken px-2 py-1 text-xs text-text-strong"
+                        >
+                          {url}
+                        </code>
+                        <ShareLinkCopyButton url={url} variant="accent" />
+                      </div>
+                      {mailtos.length > 1 && (
+                        <p
+                          data-testid="admin-current-share-link-email-note"
+                          className="text-xs text-text-subtle"
+                        >
+                          Your crew list needs {mailtos.length} separate emails. Send each one;
+                          addresses go in Bcc.
+                        </p>
+                      )}
+                      {mailtos.map((m) => (
+                        <a
+                          key={m.batch}
+                          href={m.href}
+                          data-testid="admin-current-share-link-email-button"
+                          className="flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                        >
+                          <Mail
+                            aria-hidden="true"
+                            size={16}
+                            className="shrink-0 text-text-subtle"
+                          />
+                          {m.batchCount === 1
+                            ? "Email this link to crew"
+                            : `Email this link to crew (${m.batch} of ${m.batchCount})`}
+                        </a>
+                      ))}
+                    </>
+                  ) : published ? (
                     <p
-                      data-testid="admin-current-share-link-email-note"
-                      className="text-xs text-text-subtle"
+                      data-testid="admin-current-share-link-unavailable"
+                      role="status"
+                      className="rounded-sm bg-surface-sunken px-2 py-1 text-sm text-text-subtle"
                     >
-                      Your crew list needs {mailtos.length} separate emails. Send each one;
-                      addresses go in Bcc.
+                      The share-link is unavailable right now. Refresh the page; if the problem
+                      repeats, rotate to mint a new link.
+                    </p>
+                  ) : (
+                    <p
+                      data-testid="share-hub-paused-note"
+                      className="rounded-sm bg-surface-sunken px-2 py-1.5 text-xs/relaxed text-text-subtle"
+                    >
+                      The crew link is paused while this show is unpublished. Publish to share it.
+                      You can still rotate or reset below.
                     </p>
                   )}
-                  {mailtos.map((m) => (
-                    <a
-                      key={m.batch}
-                      href={m.href}
-                      data-testid="admin-current-share-link-email-button"
-                      className="flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    >
-                      <Mail aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
-                      {m.batchCount === 1
-                        ? "Email this link to crew"
-                        : `Email this link to crew (${m.batch} of ${m.batchCount})`}
-                    </a>
-                  ))}
+
+                  <div className="h-px bg-border" />
+                  <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                    Careful
+                  </h3>
+
+                  <RotateShareTokenButton
+                    showId={showId}
+                    slug={slug}
+                    isCrewLinkActive={linkActive}
+                    onRotated={applyRotated}
+                    onBusyChange={onRotateBusy}
+                    compact
+                    rowLabel="Rotate share link"
+                    rowDescription="Old link stops working immediately"
+                  />
+                  <PickerResetControl
+                    showId={showId}
+                    crew={pickerCrew}
+                    onBusyChange={onResetBusy}
+                  />
                 </>
-              ) : published ? (
-                <p
-                  data-testid="admin-current-share-link-unavailable"
-                  role="status"
-                  className="rounded-sm bg-surface-sunken px-2 py-1 text-sm text-text-subtle"
-                >
-                  The share-link is unavailable right now. Refresh the page; if the problem repeats,
-                  rotate to mint a new link.
-                </p>
-              ) : (
-                <p
-                  data-testid="share-hub-paused-note"
-                  className="rounded-sm bg-surface-sunken px-2 py-1.5 text-xs/relaxed text-text-subtle"
-                >
-                  The crew link is paused while this show is unpublished. Publish to share it. You
-                  can still rotate or reset below.
-                </p>
-              )}
+              ) : null}
 
-              <div className="h-px bg-border" />
-              <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-                Careful
-              </h3>
-
-              <RotateShareTokenButton
-                showId={showId}
-                slug={slug}
-                isCrewLinkActive={linkActive}
-                onRotated={applyRotated}
-                onBusyChange={onRotateBusy}
-                compact
-                rowLabel="Rotate share link"
-                rowDescription="Old link stops working immediately"
-              />
-              <PickerResetControl showId={showId} crew={pickerCrew} onBusyChange={onResetBusy} />
-            </>
-          ) : null}
-
-          {/* Show — the lifecycle control's single home, in BOTH directions.
+              {/* Show — the lifecycle control's single home, in BOTH directions.
               Deliberately its own section rather than folded into Careful:
               Careful is share-scoped (rotate the link, reset the picks), while
               this changes what the show IS.
@@ -578,13 +745,13 @@ export function ShareHub({
               that offers nothing. `archived` wins over `finalizeOwned` — an
               archived show is never finalize-owned (the loader forces it false),
               and Unarchive must stay reachable regardless. */}
-          {archived || !finalizeOwned ? (
-            <>
-              {!archived ? <div className="h-px bg-border" /> : null}
-              <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-                Show
-              </h3>
-              {/* The armed confirm carries the ratified long consequence
+              {archived || !finalizeOwned ? (
+                <>
+                  {!archived ? <div className="h-px bg-border" /> : null}
+                  <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                    Show
+                  </h3>
+                  {/* The armed confirm carries the ratified long consequence
                   sentence (destructive-confirm-pass §R7 keeps it), which in a
                   308px panel wraps to several lines and grows the section
                   downward. In the panel's own max-h scroller that growth can
@@ -595,99 +762,105 @@ export function ShareHub({
                   section can be taller than the remaining scroll port, and
                   `nearest` on the wrapper then moves nothing (impeccable audit
                   P3). Falls back to the wrapper before the confirm mounts. */}
-              <div
-                data-testid="share-hub-show-section"
-                // w-full is load-bearing, not cosmetic (spec §2.3): this div is
-                // a flex child of the fixed-width popover column, and this
-                // project's Tailwind v4 does NOT default flex children to
-                // cross-axis stretch — without it the section can shrink-wrap
-                // and the row's inner w-full chain resolves against a narrower
-                // box. The old px-0.5 inset is gone so the archive row's hover
-                // plane spans the same content width as the Careful rows.
-                className="w-full"
-                onClick={(e) => {
-                  const el = e.currentTarget;
-                  requestAnimationFrame(() => {
-                    const confirm = el.querySelector('[data-testid="archive-show-confirm-button"]');
-                    const target = confirm ?? el;
-                    // jsdom implements no layout and no scrollIntoView, and this
-                    // runs inside a rAF — where a throw is an UNCAUGHT exception
-                    // that fails the run without failing any test (vitest exits
-                    // 1 on `Errors`, reported separately from the passing
-                    // count). Same typeof guard the modal's alert-deep-link
-                    // scroll already uses.
-                    if (typeof target.scrollIntoView !== "function") return;
-                    target.scrollIntoView({ block: confirm ? "end" : "nearest" });
-                  });
-                }}
-              >
-                {archived ? (
-                  <UnarchiveShowButton
-                    showId={showId}
-                    unarchiveAction={unarchiveAction}
-                    onBusyChange={onLifecycleBusy}
-                  />
-                ) : (
-                  <ArchiveShowButton
-                    archiveAction={archiveAction}
-                    compact
-                    onBusyChange={onLifecycleBusy}
-                    rowLabel="Archive show"
-                    rowDescription="Crew links stop working immediately"
-                  />
-                )}
-              </div>
-            </>
-          ) : null}
+                  <div
+                    data-testid="share-hub-show-section"
+                    // w-full is load-bearing, not cosmetic (spec §2.3): this div is
+                    // a flex child of the fixed-width popover column, and this
+                    // project's Tailwind v4 does NOT default flex children to
+                    // cross-axis stretch — without it the section can shrink-wrap
+                    // and the row's inner w-full chain resolves against a narrower
+                    // box. The old px-0.5 inset is gone so the archive row's hover
+                    // plane spans the same content width as the Careful rows.
+                    className="w-full"
+                    onClick={(e) => {
+                      const el = e.currentTarget;
+                      requestAnimationFrame(() => {
+                        const confirm = el.querySelector(
+                          '[data-testid="archive-show-confirm-button"]',
+                        );
+                        const target = confirm ?? el;
+                        // jsdom implements no layout and no scrollIntoView, and this
+                        // runs inside a rAF — where a throw is an UNCAUGHT exception
+                        // that fails the run without failing any test (vitest exits
+                        // 1 on `Errors`, reported separately from the passing
+                        // count). Same typeof guard the modal's alert-deep-link
+                        // scroll already uses.
+                        if (typeof target.scrollIntoView !== "function") return;
+                        target.scrollIntoView({ block: confirm ? "end" : "nearest" });
+                      });
+                    }}
+                  >
+                    {archived ? (
+                      <UnarchiveShowButton
+                        showId={showId}
+                        unarchiveAction={unarchiveAction}
+                        onBusyChange={onLifecycleBusy}
+                      />
+                    ) : (
+                      <ArchiveShowButton
+                        archiveAction={archiveAction}
+                        compact
+                        onBusyChange={onLifecycleBusy}
+                        rowLabel="Archive show"
+                        rowDescription="Crew links stop working immediately"
+                      />
+                    )}
+                  </div>
+                </>
+              ) : null}
 
-          {/* Developer section (spec §2.2, plan-review amendment #1):
+              {/* Developer section (spec §2.2, plan-review amendment #1):
               lifecycle-INDEPENDENT — outside the archived/finalize-owned
               branches above, gated on the developer flag alone (§7.3: the only
               visibility gate). Captures the modal + telemetry bundle. */}
-          {viewerIsDeveloper ? (
-            <>
-              <div className="h-px bg-border" />
-              <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
-                Developer
-              </h3>
-              <button
-                type="button"
-                data-testid="share-hub-dev-capture"
-                onClick={() => capture.run()}
-                className="flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-              >
-                <Camera aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
-                Capture debug bundle
-              </button>
-            </>
-          ) : null}
-        </div>
-      )}
+              {viewerIsDeveloper ? (
+                <>
+                  <div className="h-px bg-border" />
+                  <h3 className="px-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle">
+                    Developer
+                  </h3>
+                  <button
+                    type="button"
+                    data-testid="share-hub-dev-capture"
+                    onClick={() => capture.run()}
+                    className="flex min-h-tap-min w-full items-center gap-2 rounded-sm px-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  >
+                    <Camera aria-hidden="true" size={16} className="shrink-0 text-text-subtle" />
+                    Capture debug bundle
+                  </button>
+                </>
+              ) : null}
+            </div>
 
-      {/* Caret notch, pointing at the kebab (spec 2026-07-20-share-hub-fidelity-fixes §5).
-          A SIBLING of the panel, not a child: the panel is `overflow-y-auto`, so a child
-          would be clipped away and silently invisible. Rendered AFTER the panel because
-          both are `z-40` and equal z-index is resolved by TREE ORDER, not by the class —
-          reorder these two and the panel's top border cuts through the notch.
-          `pointer-events-none` because `aria-hidden` hides it from assistive tech but does
-          NOT disable hit-testing: painted above the panel and overlapping it, the caret
-          would otherwise swallow clicks there, and `panelRef.current.contains(target)`
-          would classify them as OUTSIDE the dialog.
-          Geometry: the panel is `right-0` against the group, whose right edge is the kebab's
-          right edge. `right-[17px]` is the kebab-centred fallback (kebab is `size-tap-min`
-          44px, its centre 22px from the right edge; a 10px square needs 22 − 5 = 17px) used
-          until the layout effect measures the actual opener. `caretRightPx` (measured above)
-          overrides it so the caret sits under whichever trigger opened the popover — the
-          primary button is wider and to the left, so its offset is larger. `mt-1` (4px) vs
-          the panel's `mt-1.5` (6px) makes the rotated diamond straddle the panel edge. */}
-      {open && (
-        <span
-          aria-hidden="true"
-          data-testid="share-hub-caret"
-          className="pointer-events-none absolute top-full right-[17px] z-40 mt-1 size-2.5 rotate-45 border-t border-l border-border bg-surface"
-          style={caretRightPx != null ? { right: `${caretRightPx}px` } : undefined}
-        />
-      )}
+            {/* Caret notch (spec 2026-07-20-share-hub-fidelity-fixes §5).
+                A SIBLING of the body, not a child: the body is
+                `overflow-y-auto`, so a child would be clipped away and
+                silently invisible. Rendered AFTER it because both are `z-40`
+                and equal z-index resolves by TREE ORDER, not by the class —
+                reorder these two and the body's border cuts through the notch.
+                `pointer-events-none` because `aria-hidden` hides it from
+                assistive tech but does NOT disable hit-testing: painted above
+                the body and overlapping it, the caret would otherwise swallow
+                clicks there and `panelRef.current.contains(target)` would
+                classify them as OUTSIDE the dialog.
+                Position is written by applyPlacement in the same host
+                coordinate space as the body. Border faces flip with the placed
+                side via data-attribute variants, so the diamond always points
+                at the trigger (Tailwind cannot extract dynamic class strings,
+                hence variants rather than a computed string). */}
+            <span
+              ref={caretRef}
+              aria-hidden="true"
+              data-testid="share-hub-caret"
+              className="pointer-events-none absolute z-40 size-2.5 rotate-45 border-border bg-surface data-[popover-side=bottom]:border-t data-[popover-side=bottom]:border-l data-[popover-side=top]:border-r data-[popover-side=top]:border-b"
+            />
+          </>,
+          // Portal CONTAINER choice, not render data: only read once `mounted`
+          // is true (post-first-commit, so a provider's panelRef is populated);
+          // the same escape HoverHelp.tsx:634 takes for the identical call.
+          // eslint-disable-next-line react-hooks/refs -- portal target, see above
+          hostRef?.current ?? document.body,
+        )}
     </div>
   );
 }
