@@ -283,6 +283,7 @@ tests/e2e/_pillFocusLiveEntry.tsx
 tests/e2e/_publishedReviewModalHarness.tsx
 tests/e2e/_step3ReviewModalBundle.mjs
 tests/e2e/standalone.config.ts
+tsconfig.json
 components/admin/showpage/AttentionMenu.tsx
 components/admin/showpage/PublishedReviewModal.tsx
 app/globals.css
@@ -291,7 +292,9 @@ pnpm-lock.yaml
 .github/workflows/<new-workflow>.yml
 ```
 
-`.github/workflows/attention-anchor-e2e.yml:19-32` is the template and already demonstrates every one of these classes. Any omission leaves the new job dark for changes to that input — which is the precise failure this task exists to remove.
+`tsconfig.json` is a real bundle input, not boilerplate: the spec passes it as the fourth argument to the bundler (`tests/e2e/attention-pill-focus.spec.ts:52-60`) and the helper hands it straight to `esbuild.build({ tsconfig })` (`tests/e2e/_step3ReviewModalBundle.mjs:105-116`). An alias-resolution change there breaks the live bundle while the job stays dark.
+
+`.github/workflows/attention-anchor-e2e.yml:19-32` is the structural template, but **it does not demonstrate every class** — its own live-bundle spec also passes `tsconfig.json` and its path filter omits it too (plan R11 F1). Copy its shape, not its gaps. Any omission leaves the new job dark for changes to that input — which is the precise failure this task exists to remove.
 
 **Test first — and the registry edit is NOT that test (plan R8 F3).** `scanWorkflowCoverage` deliberately rejects any workflow carrying a `pull_request.paths` filter (`tests/ci/_workflowCoverageScan.ts:114`), so a path-gated job leaves this spec in `LOCAL_ONLY_ALLOWLIST` exactly as before; and the meta-test only ever reads `Object.keys(LOCAL_ONLY_ALLOWLIST)` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:142`, `tests/ci/_metaE2eWorkflowCoverage.test.ts:147`, `tests/ci/_metaE2eWorkflowCoverage.test.ts:149`), never the reason values. Changing `UNSEEN` to `PATH_GATED` therefore has **zero executable effect** — the whole current surface stays green if the workflow is missing, invokes the wrong spec, or omits any dependency path.
 
