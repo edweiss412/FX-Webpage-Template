@@ -119,7 +119,7 @@ Two consequences: the fix must key on container width, not viewport width (§4.1
 
 ## 3. Goals / non-goals
 
-**Goals.** (G1) Wherever the two controls stack, the safe action is the lower of the two. (G2) Wherever they genuinely fit side by side, the existing Defer-left / Ignore-right order is unchanged — note §2.5: the 280px rail never fits them, so this goal binds only on wide cards. (G3) Visual order and focus order agree at every width — no `order`, no `flex-row-reverse`, no grid line placement that would desync them. (G4) The harmonized 4s arm-revert cannot silently re-drift. (G5) BACKLOG reflects reality.
+**Goals.** (G1) Wherever the two controls stack, the safe action is the lower of the two. (G2) Wherever they genuinely fit side by side, the existing Defer-left / Ignore-right order is unchanged — note §2.5: the 280px rail never fits them, so this goal binds only on wide cards. (G3) Visual order and focus order agree at every width — no `order`, no `flex-row-reverse`, no grid line placement that would desync them. (G4) The harmonized 4s arm-revert is substantially harder to re-drift, and every remaining hole is enumerated in §5.3 rather than claimed closed. (G5) BACKLOG reflects reality.
 
 **Non-goals.** Changing any confirm label or the 4s value (R8). Touching the other ten destructive surfaces' markup — they get an import swap only. Closing the rest of `BL-STANDALONE-CONFIG-CI-DARK` (R5). Guarding non-arm timers (R6). Any DB, RPC, advisory-lock, API-route, or `§12.4` catalog change — this diff touches none.
 
@@ -381,7 +381,9 @@ Both were found by reading the helpers the guard will reuse, not by reasoning ab
 
 The guard **reduces** re-drift within registry membership; it does not eliminate it, and the earlier claim that it could not silently re-drift was too strong. Two holes remain, one inside registry membership and one outside.
 
-**Inside membership:** a newly registered surface that schedules through a wrapper — `delay(3_000)`, `scheduleRevert(cb, confirmTimeout)` — has zero direct scheduler calls, so B4's count has nothing to compare, and a lowercase name defeats B5's uppercase-suffix heuristic. B5 is a heuristic and is labelled one; this is the case it misses.
+**Inside membership — lexical shadowing.** A registered file can import the shared constant correctly and then shadow it: `function arm(ARM_REVERT_MS = 3_000) { setTimeout(cb, ARM_REVERT_MS) }`. T1 sees the approved import, T2 sees an allowlisted identifier and an unchanged call count, T3 still sees the shared value at 4s — every guard green while the surface reverts at 3s. Closing this needs scope analysis, not regex; it is recorded here as a known hole rather than papered over.
+
+**Inside membership — wrapper schedulers.** A newly registered surface that schedules through a wrapper — `delay(3_000)`, `scheduleRevert(cb, confirmTimeout)` — has zero direct scheduler calls, so B4's count has nothing to compare, and a lowercase name defeats B5's uppercase-suffix heuristic. B5 is a heuristic and is labelled one; this is the case it misses.
 
 **Outside membership:** a wholly new destructive surface that never adopts the recipe token pair is invisible to the registry, by the registry's own declared scope (`_metaDestructiveConfirm.test.ts:10-12`), and so escapes T2 entirely. Such a surface still trips T1 the moment it names its constant `ARM_REVERT_MS` — but not if it invents `CONFIRM_TIMEOUT = 3000`. That residue is review-time territory, exactly as the existing registry says. The limitation is stated in the guard's header comment rather than papered over, and the guard is strictly better than today, where even the copy-paste-the-name case is unguarded.
 
@@ -527,7 +529,7 @@ All three original rows are gone. The family section and its preceding `---` rul
 | The two copies drift together | low | Canonical-token allowlist, §6.2 test 2b — parity alone cannot see this |
 | Keyboard focus lost when the container crosses 576px | low, **accepted** | Not mitigated. Descoped in §4.9 and filed as `BL-DESTRUCT-FORK-FOCUS-TRANSFER`; controls stay reachable by re-tabbing, same tier as the accepted P2 on a sibling control |
 | Both copies displayed at some width | very low | `@min-[576px]:hidden` / `hidden @min-[576px]:flex` are exact complements; asserted in a real browser at 280 / 576 / 720px container widths (§6.3) |
-| Removing `basis-full` reintroduces the DESTRUCT-1 reflow | low | D4 assertion retained with its negative control; the rewritten drift-guard asserts `basis-full` is *absent*, so the two cannot both be true |
+| The forked geometry fails to preserve DESTRUCT-1's zero-reflow guarantee | low | `basis-full` is deliberately **removed** — the fork replaces it with full-width stacking, so its absence is required, not a regression. D4 is what proves the guarantee survives, with the pre-DESTRUCT-1 panel as its negative control |
 | Test-id rename misses a consumer | low | Consumers enumerated in §2.4 by grep; the bare ids cease to exist, so a missed consumer fails loudly rather than matching two nodes |
 | The new workflow is itself dark | low | `workflow_dispatch:` enabled; close-out fires it with `gh workflow run` and confirms a green run before merge (§6.4) |
 | T2's literal ban is bypassed by a named-but-wrong constant | medium | Closed by the T2 allowlist (§5.2): the delay identifier must be a registered name, so `CONFIRM_TIMEOUT` fails until someone adds a row and states why. Residual scope limit stated honestly in §5.3 |
