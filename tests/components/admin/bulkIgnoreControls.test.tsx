@@ -161,6 +161,34 @@ describe("BulkIgnoreControls (grouped active list)", () => {
     );
   });
 
+  test("a plural group with NO label and NO chip suppresses the eyebrow row entirely", () => {
+    // bulkGroupLabel() returns null for a code with neither a catalog title nor a
+    // data-gap class label (lib/admin/sectionWarningModel.ts), and a non-ignorable
+    // code has no chip — so this row would carry ONLY the decorative rule. Below
+    // 480px that rule is display:none, leaving an EMPTY flex item that still charges
+    // the parent's gap-2: the very phantom-gap class this change removes (DESIGN.md
+    // §7a). The row must not render at all.
+    render(
+      <BulkIgnoreControls
+        slug="rpas"
+        groups={[
+          {
+            code: "UNCATALOGED_CODE",
+            label: null,
+            itemCount: 2,
+            bulk: null,
+            cards: <ul data-testid="cards-UNCATALOGED_CODE" />,
+          },
+        ]}
+      />,
+    );
+    const group = screen.getByTestId("dq-active-group-UNCATALOGED_CODE");
+    expect(group.querySelector(".h-px")).toBeNull(); // no rule, so no row carrying it
+    // Structural pin: the wrapper's FIRST child IS the cards slot — a surviving empty
+    // header div (rule stripped but row present) still charges the gap and fails here.
+    expect(group.firstElementChild).toBe(within(group).getByTestId("cards-UNCATALOGED_CODE"));
+  });
+
   test("armed chip goes full-width below 480px and stays inline at/above it; idle does neither", () => {
     render(<BulkIgnoreControls slug="rpas" groups={[bulkGroup()]} />);
     const chip = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");

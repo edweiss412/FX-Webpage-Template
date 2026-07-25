@@ -170,8 +170,11 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
             : `Ignore ${count}`;
         // spec 2026-07-24 §2.1: a lone chip-less card duplicates its own title in
         // the eyebrow — suppress the whole header row. Any group with a bulk chip
-        // keeps the row (the chip rides it), as does any plural group.
-        const showEyebrowRow = bulk !== null || group.itemCount !== 1;
+        // keeps the row (the chip rides it), as does any plural LABELED group.
+        // A plural group with neither label nor chip would carry only the decorative
+        // rule, which is display:none below 480px — an empty flex item still charging
+        // the parent's gap-2 (DESIGN.md §7a). Suppress that row too.
+        const showEyebrowRow = bulk !== null || (group.label !== null && group.itemCount !== 1);
         return (
           <div
             key={group.code}

@@ -126,7 +126,8 @@ The armed morph must not remount the button. Wrapping onto a new flex line is a 
 | --- | --- | --- |
 | `group.bulk` | `null` | No chip, no `role="status"` span. Row is label + rule; below 480 px the rule is hidden, so the row is label-only and charges no gap. |
 | `group.bulk.items` | `[]` (length 0) | Chip renders with `Ignore`; `aria-label` reads `Ignore 0 · {label}`. Unreachable in practice — `bulk` is non-null only at ≥2 distinct items (`lib/dataQuality/bulkIgnoreGroups.ts`) — but the expression must not throw. Today's `bulk?.items.length ?? 0` (`components/admin/BulkIgnoreControls.tsx:154-158`) already encodes this; the new code keeps a defined value. |
-| `group.label` | `null` | No label span (`components/admin/BulkIgnoreControls.tsx:171`); row is rule + chip. `aria-label` per §3.3 null-label column. |
+| `group.label` | `null` (with `bulk` non-null) | No label span (`components/admin/BulkIgnoreControls.tsx:171`); row is rule + chip. `aria-label` per §3.3 null-label column. |
+| `group.label` **and** `group.bulk` | both `null`, `itemCount >= 2` | **Whole eyebrow row suppressed.** Reachable: `bulkGroupLabel` returns `null` for a code with neither a catalog title nor a data-gap class label (`lib/admin/sectionWarningModel.ts:73-80`), and a non-ignorable code has no chip. Such a row would carry ONLY the decorative rule, which is `display: none` below 480 px — an empty flex item still charging the parent's `gap-2`, the exact §7a class this spec removes. |
 | `group.label` | Very long (wraps 2+ lines below 480) | Label wraps (`whitespace-normal` is the default; the label span carries `min-w-0`, `components/admin/BulkIgnoreControls.tsx:174`), never ellipsizes — pinned by `tests/e2e/bulk-ignore-eyebrow.layout.spec.ts:148`. |
 | `group.itemCount` | `1` **and** `bulk === null` | Whole eyebrow row suppressed (`components/admin/BulkIgnoreControls.tsx:162`), unchanged. |
 | `groups` | `[]` | Component returns `null` (`components/admin/BulkIgnoreControls.tsx:139`), unchanged. |
@@ -141,7 +142,7 @@ The eyebrow row is not a fixed-dimension parent, but three relationships must ho
 | DI-2 | At ≥480 px, the rule's width is ≥24 px | `min-w-6` | 480 px, 1280 px |
 | DI-3 | Below 480 px, the armed chip's width equals the row's content width (±0.5 px) and its box is disjoint from the label's | `w-full` + `flex-wrap` | 375 px |
 | DI-4 | At ≥480 px, the armed row occupies one line: chip height ≤ row height, chip width < row width | `min-[480px]:w-auto` | 480 px |
-| DI-5 | Idle row height is unchanged by this spec at every width | idle row has no `flex-wrap` | 375 px, 1280 px |
+| DI-5 | The idle row stays ONE line: its height does not exceed the chip's | idle row has no `flex-wrap` | 375 px, 1280 px |
 
 ### 3.7 Transition inventory
 
@@ -191,7 +192,7 @@ Every item is TDD: failing assertion first.
 6. 375 px, idle **and** armed: no in-flow child of the eyebrow row has zero extent on the gap axis (DI-1). *Catches:* the phantom gap returning via any mechanism, not just this rule.
 7. 375 px armed: chip width equals row content width ±0.5 px; chip box disjoint from label box (DI-3).
 8. 480 px idle **and** armed: rule width ≥24 px (DI-2); armed row is one line — chip width < row width (DI-4).
-9. 375 px and 1280 px idle: row height equals the pre-change baseline (DI-5). Baseline derived from the rendered idle row at each width, not hardcoded.
+9. 375 px idle: the row's height does not exceed the chip's own height (DI-5) — i.e. it is still one line. Derived from the rendered chip in the same run, never hardcoded. This proves one-line-ness, NOT byte equality with the pre-change render; the pre-change row also had the (invisible) rule on that line.
 10. Existing 390 px wrap/overflow/disjoint assertions (`tests/e2e/bulk-ignore-eyebrow.layout.spec.ts:148-151`) updated for the new armed string.
 
 **Focus (`tests/components/admin/bulkIgnoreControls.test.tsx`)**
