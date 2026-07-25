@@ -1530,17 +1530,13 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
     axis: string;
     count: number;
     why: string;
-  }[] = [
-    ...(["crewwarnings.html", "crewwarningscapped.html"] as const).map((page) => ({
-      page,
-      width: 375,
-      parent: "<div in dq-active-group-FIELD_UNREADABLE>",
-      child: "<span in dq-active-group-FIELD_UNREADABLE>",
-      axis: "column-gap",
-      count: 1,
-      why: "BulkIgnoreControls.tsx:179 decorative hairline collapses to 0 width in a crowded row at 375px — pre-existing, deferred to BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW",
-    })),
-  ];
+    // EMPTY. The one row this ledger ever carried — BulkIgnoreControls' eyebrow
+    // hairline collapsing to 0 width at 375px — was paid off, not re-deferred: the
+    // rule is now `hidden` below 480px (spec 2026-07-24-dq-eyebrow-divider-and-
+    // confirm-bar §3.1), so it charges no gap. A row kept past its debt masks a
+    // later offender with the same label triple, which is why the stale-row
+    // assertion below fails on one.
+  }[] = [];
 
   for (const { page: htmlPath, label } of NOPHANTOM_PAGES) {
     for (const { mode, width, height: vh } of MODES) {
