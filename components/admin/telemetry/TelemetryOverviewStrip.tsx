@@ -178,7 +178,7 @@ function CronCard({ cron, now }: { cron: LoadCronHealthResult; now: Date }) {
   const parts: string[] = [];
   if (s.stale > 0) parts.push(`${s.stale} stale`);
   if (s.idle > 0) parts.push(`${s.idle} idle`);
-  if (s.review > 0) parts.push(`${s.review} issues`);
+  if (s.review > 0) parts.push(`${s.review} issue${s.review === 1 ? "" : "s"}`);
   return (
     <StatCard label="Scheduled jobs" testId="stat-cron">
       <span className="text-2xl font-semibold tabular-nums tracking-tight text-text">

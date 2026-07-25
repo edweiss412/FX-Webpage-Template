@@ -81,7 +81,7 @@ export default async function TelemetryPage({
               data-testid="cron-health-degraded"
               className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm"
             >
-              Couldn’t load scheduled-job health right now.
+              Couldn’t load scheduled-job health right now. The jobs are probably still running.
             </div>
           )}
         </aside>

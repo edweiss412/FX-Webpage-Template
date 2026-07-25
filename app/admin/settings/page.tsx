@@ -306,9 +306,7 @@ export default async function AdminSettingsPage() {
                   <Activity aria-hidden />
                 </span>
                 <span className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-text-strong underline">
-                    Telemetry: app event log &amp; scheduled-job health
-                  </span>
+                  <span className="text-sm font-medium text-text-strong underline">Telemetry</span>
                   <span className="text-sm text-text-subtle">
                     Browse recent app events and the health of each scheduled job for
                     troubleshooting.

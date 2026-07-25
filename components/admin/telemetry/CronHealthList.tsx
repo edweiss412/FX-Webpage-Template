@@ -14,7 +14,7 @@ export function CronHealthList({ jobs, now }: { jobs: CronHealthRow[]; now: Date
   return (
     <section aria-labelledby="cron-health-heading">
       <h2 id="cron-health-heading" className="mb-3 text-[15px] font-semibold text-text-strong">
-        Scheduled jobs
+        Scheduled job health
       </h2>
       <div className="overflow-hidden rounded-md border border-border bg-surface shadow-tile">
         {jobs.map((job, i) => {

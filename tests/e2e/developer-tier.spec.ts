@@ -158,9 +158,15 @@ test.describe("developer-tier gating — table-backed developer sees all four su
     await expect(page.getByTestId("admin-settings-diagnostics-section")).toBeVisible();
     // BL-COPY-CRON-SWEEP-2: Diagnostics copy is plain language for a
     // non-technical developer-tier admin — "scheduled job", never "cron".
-    await expect(page.getByTestId("admin-settings-telemetry-link")).toContainText(
-      "Telemetry: app event log & scheduled-job health",
+    // #601 impeccable audit P3: the title was measured at 320px against 286px
+    // available at 390px, so it wrapped on the phone this section exists to
+    // serve. Title carries the destination; the sub carries the explanation.
+    const telemetryLink = page.getByTestId("admin-settings-telemetry-link");
+    await expect(telemetryLink).toContainText("Telemetry");
+    await expect(telemetryLink).toContainText(
+      "Browse recent app events and the health of each scheduled job for troubleshooting.",
     );
+    await expect(telemetryLink).not.toContainText("Telemetry: app event log");
     await expect(page.getByTestId("admin-settings-diagnostics-section")).not.toContainText(/cron/i);
     // The Developer toggle renders next to admin rows in Administrators when the
     // viewer is a developer.
