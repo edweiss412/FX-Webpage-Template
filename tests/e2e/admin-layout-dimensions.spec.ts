@@ -404,3 +404,104 @@ test.describe("phantom gap — /admin dashboard (real route)", () => {
     });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phantom-gap probe on the published review modal AS THE USER GETS IT — the
+// hydrated `/admin?show=<slug>` route, not the static harness.
+//
+// This is NOT a duplicate of the 12 T-NOPHANTOM cases in
+// published-review-modal.layout.spec.ts. That suite renders the same component
+// tree with `react-dom/server` and never hydrates, which its own header calls
+// out as its blind spot: "client-only states (mid-publish, open popovers) remain
+// unreachable." Everything a client effect mounts, every branch that only exists
+// after hydration, and every wrapper fed by real seeded rows rather than a
+// fixture object is measured HERE and nowhere else.
+//
+// `/admin/show/<slug>` is deliberately not the URL: that path is now a 307 into
+// this one (app/admin/show/[slug]/page.tsx), kept only as the emailed deep-link
+// shape, so probing it would measure this exact tree one redirect later.
+test.describe("phantom gap — /admin?show=<slug> published review modal (hydrated)", () => {
+  const BASE = "published-show-review";
+  // `:has(title)` is what separates the LOADED modal from the streaming
+  // skeleton — the skeleton is a different tree, and measuring it would report
+  // its placeholders. Same guard the deep-link suite uses.
+  const MODAL = `[data-testid="${BASE}-modal"]:has([data-testid="${BASE}-title"])`;
+
+  /** Known, deferred instances. Empty is the correct state — see the helper's
+   *  `PhantomLedgerRow` for why a row is scoped and counted before adding one. */
+  const KNOWN_SHOW_MODAL_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
+
+  let slug = "";
+
+  test.beforeAll(async () => {
+    slug = await lookupSeededSlug();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  // BOTH viewports: 375 is the sheet presentation, 1280 the two-pane popup, and
+  // the rail/chip trees genuinely differ between them (the `lg:hidden` chip rail
+  // alone is why the harness suite runs both).
+  for (const width of [375, 1280] as const) {
+    test(`T-NOPHANTOM-SHOW @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      // The panel animates in from a transform. Measured mid-entrance the whole
+      // subtree reads zero-extent and the probe would report a modal's worth of
+      // offenders that do not exist — reduced motion plus the settle poll below
+      // is what makes the reading real.
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
+      // Suspense-streamed server loader — allow a dev-server compile on first hit.
+      await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+      // Settle: the panel must hold a real laid-out height before measuring.
+      await expect
+        .poll(
+          async () =>
+            page.locator(`${MODAL} [data-review-modal-panel]`).evaluate((el) => {
+              const r = el.getBoundingClientRect();
+              return r.height;
+            }),
+          { timeout: 15_000, message: "review panel reached a real laid-out height" },
+        )
+        .toBeGreaterThan(1);
+
+      const found = await scanForPhantomGaps(page.locator(MODAL));
+
+      // NON-VACUITY BY NAMED ANCHOR, never by a container count. The scroll pane
+      // proves the walk entered the section column; a rail SECTION proves it
+      // descended into the sections rather than stopping at the top level. Both
+      // are matched by SHAPE (the testid base is built from the show's
+      // drive_file_id, so an equality check would pin this file to one seed row).
+      expect(
+        found.visited.filter((v) => v.endsWith("-review-content")),
+        `the walk reached the section scroll pane [@ ${width}] —` +
+          ` gapped containers visited: ${JSON.stringify(found.visited)}`,
+      ).not.toEqual([]);
+      expect(
+        found.visited.filter((v) => /-review-section-|-section-[a-z]+-panel-card/.test(v)),
+        `the walk descended into the rail sections, not just the pane [@ ${width}]`,
+      ).not.toEqual([]);
+
+      const { remaining, stale } = reconcilePhantomLedger(
+        found.offenders,
+        KNOWN_SHOW_MODAL_PHANTOM_ITEMS.filter(
+          (k) => k.surface === "/admin?show" && k.width === width,
+        ),
+      );
+      expect(
+        stale,
+        `stale ledger rows [@ ${width}] — the instance is gone, so delete the row (a row kept` +
+          ` past its debt masks a later offender with the same label triple)`,
+      ).toEqual([]);
+      expect(
+        remaining,
+        `zero-extent items charge their parent's gap and show as a seam no element accounts for [@ ${width}]`,
+      ).toEqual([]);
+    });
+  }
+});

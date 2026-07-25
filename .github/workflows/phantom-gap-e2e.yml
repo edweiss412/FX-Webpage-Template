@@ -1,10 +1,15 @@
 name: phantom-gap-e2e
 
-# The zero-extent-flex-item probe on the two REAL surfaces it was widened to
-# (BL-PHANTOM-GAP-PROBE-OTHER-SURFACES): the /admin dashboard and the seeded crew
-# page. Catches the class where an always-rendered wrapper whose content is
+# The zero-extent-flex-item probe on the REAL surfaces it was widened to
+# (BL-PHANTOM-GAP-PROBE-OTHER-SURFACES): the /admin dashboard, the hydrated show
+# modal at /admin?show=<slug>, and all six sections of the seeded crew page.
+# Catches the class where an always-rendered wrapper whose content is
 # state-gated collapses to zero extent and still charges its parent's `gap` — a
 # seam no visible element accounts for.
+#
+# The published review modal is ALSO probed by the static harness suite
+# (published-review-modal.layout.spec.ts, run by published-modal-e2e.yml). That
+# one never hydrates; this one does. Neither subsumes the other.
 #
 # WHY ITS OWN WORKFLOW. Both host specs — crew-layout-dimensions.spec.ts and
 # admin-layout-dimensions.spec.ts — are matched by playwright projects but were
@@ -93,8 +98,13 @@ jobs:
             ${{ runner.os }}-playwright-
       - run: pnpm exec playwright install-deps chromium webkit
       - run: pnpm exec playwright install chromium webkit
-      - name: Phantom-gap probe — /admin dashboard
-        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM-DASH"
+      # `-g T-NOPHANTOM` covers BOTH admin mounts — the dashboard (…-DASH) and the
+      # hydrated show modal at /admin?show=<slug> (…-SHOW). Deliberately the
+      # prefix and not the two names: a probe case added to this file is picked
+      # up without a workflow edit, which is the failure mode that left the host
+      # specs dark in the first place.
+      - name: Phantom-gap probe — /admin dashboard + show modal
+        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"
       - name: Phantom-gap probe — crew page
         run: pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"
       - name: Upload Playwright traces/report (diagnosis artifact)
