@@ -1,11 +1,12 @@
-# Per-tile keyed tile-render resolution; report family stays manual
+# Instance-keyed alert resolution: crew tiles and the report lookup family
 
-**Date:** 2026-07-24 · **Status:** Draft (revision 2, after adversarial round 1)
+**Date:** 2026-07-24 · **Status:** Draft (revision 3, after adversarial round 2)
 **Master spec:** `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §4.6 (alert workflow), §12.4 (codes)
 **Parent spec:** `docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md` (state-vs-event principle, §2)
 
-Closes four BACKLOG entries. Two are already shipped and need archiving (§2). One is a design
-change (§4). One is an evaluation whose answer is **no change** (§5).
+Closes four BACKLOG entries. Two are already shipped and need archiving (§2). Two are design
+changes that apply one shared rule (§3) to two families: crew tiles (§4) and the report lookup
+family (§5).
 
 ---
 
@@ -24,10 +25,12 @@ the instance its condition belongs to.** `admin_alerts` dedups on
 failing tile of a show, or every stuck report of a show. Resolving that row on *any* instance's
 recovery would mask the others.
 
-They do not get the same answer. For tiles, a sound per-instance discriminator exists and the code
-already writes it (§4). For the report family, the coarse key is not the real blocker at all — the
-raise condition has an external GitHub component that no local observation can negate, so the codes
-stay manual (§5). Round 1 of adversarial review is what established the second half; see §5.2.
+Both get the same answer, reached by different routes. Each family's alert row already carries a
+per-instance discriminator in `context` — `tileId` for tiles, `idempotency_key` for report lookups —
+and each has a point in the code where the system observes that exact instance recovering. Resolution
+is keyed to the discriminator and gated on an observation that re-evaluates the *whole* raise
+condition, not part of it. Two adversarial rounds shaped this: round 1 killed a local-state anti-join
+for the report family (§5.2), and round 2 found the observation that actually is sound (§5.3).
 
 ## 1.1 Resolved scope — do not relitigate
 
@@ -46,9 +49,15 @@ stay manual (§5). Round 1 of adversarial review is what established the second 
 - **The tile ledger is threaded as an explicit prop, not held in React `cache()`.** Rationale and
   the two review findings that forced it are in §4.3. Do not re-propose an implicit request-scoped
   store.
-- **All six report-family codes stay manual.** §5 is the evaluation
-  `BL-ALERT-REPORT-FAMILY-AUTORESOLVE` asked for, and its answer is that the current classification
-  is correct. Do not re-propose an anti-join resolver.
+- **The report lookup family resolves ONLY at a fresh successful `findIssueByMarker` return, keyed
+  on `idempotency_key`.** The local-state anti-join and the report-reaper cron backstop were designed
+  and rejected on evidence in round 1 (§5.2). Do not re-propose either.
+- **All four resolving codes are `hybrid`, none becomes `auto`.** Catalog `resolution` stays
+  `"manual"` for every one of them, so every manual button stays and no `AUTO_RESOLVE_NOTES` entry is
+  added. Rationale §4.8 and §5.5.
+- **There is no timestamp freshness fence.** Round 2 showed one cannot be made sound across the app
+  and DB clocks (§4.6). The concurrent-render race is an accepted, self-healing trade-off, pinned by
+  a test. Do not re-propose an `observedAt` comparison.
 - **`RESOLVE_INTENTS` rows are never deleted.** §6.3.
 
 ---
@@ -106,14 +115,21 @@ The parent spec's §2 answers *whether* a code may auto-resolve. It does not ans
 recovery observation may clear when one row aggregates many instances. This spec adds that half:
 
 > **Instance-keying rule.** When an alert's dedup key (`show_id`, `code`) is coarser than the
-> instance its condition attaches to, a recovery observation may resolve the row ONLY if (a) the
-> observation identifies the same instance the row currently names, and (b) the observation is not
-> older than the row's most recent raise. Where the row carries a discriminator in `context`, filter
-> on it and on `last_seen_at`. Where the raise condition has any conjunct the observation cannot
-> re-evaluate, the code stays manual.
+> instance its condition attaches to, a recovery observation may resolve the row ONLY if:
+>
+> (a) **Same instance.** The observation identifies the instance the row currently names. Filter on
+> the discriminator the row already carries in `context`.
+>
+> (b) **Whole condition.** The observation re-evaluates *every* conjunct of the raise condition. A
+> state-shaped local gate is not evidence that a code is state-shaped overall — if any conjunct is
+> external (another system's state), only an observation that re-checks that system qualifies.
+>
+> (c) **Self-healing under races.** Because concurrent observers cannot be totally ordered (§4.6),
+> the raise path must restore the alert on the next observation. A resolution that could be
+> spuriously applied is acceptable only where the condition, if still true, re-raises itself.
 
-Clause (b) exists because of a concurrency defect found in round 1 (§4.6). The final clause is what
-disqualifies the report family (§5.2).
+Clause (b) is what killed the report family's first design (§5.2) and what licenses its second
+(§5.3). Clause (c) replaces the timestamp fence that round 2 disproved (§4.6).
 
 ---
 
@@ -190,8 +206,12 @@ explicit rather than ambient:
   Direct section mounting already happens in tests
   (`tests/components/crew/wrappedSection.test.tsx:105-160`).
 
-An explicit **required** prop closes both structurally: mounting a section without a ledger is a
-compile error, and every test constructs the ledger it asserts on.
+An explicit **required** prop removes the silent-omission variant: mounting a section without a
+ledger is a compile error, and every test constructs the ledger it asserts on. It does **not** by
+itself guarantee the section shares the shell's swept ledger — a caller can type-safely pass a
+throwaway one. That residual hole is closed by §7.1 assertion 2, which bounds where section
+components may be constructed at all. Round 2 caught the overclaim; the two defenses are stated
+separately here so neither is mistaken for the other.
 
 New module at `lib/crew/tileRenderLedger.ts (new)`:
 
@@ -249,8 +269,7 @@ be added for the sweep in the same commit, or the guarantee silently loses its o
 
 ### 4.5 The shell sweep
 
-`_CrewShell` captures the render start and the ledger in its body, then registers **one**
-unconditional `after()` callback — independent of the existing `TILE_PROJECTION_FETCH_FAILED` branch
+`_CrewShell` creates the ledger in its body, then registers **one** unconditional `after()` callback — independent of the existing `TILE_PROJECTION_FETCH_FAILED` branch
 at `app/show/[slug]/[shareToken]/_CrewShell.tsx:153-205`, whose `else`-branch placement must not be
 reused (its condition is a different observation).
 
@@ -259,7 +278,7 @@ The callback body is a pure exported function so it is testable without an RSC s
 ```ts
 export async function sweepTileRenderAlerts(
   ledger: TileRenderLedger,
-  args: { showId: string | null; sheetName: string | null; observedAt: string },
+  args: { showId: string | null; sheetName: string | null },
 ): Promise<void>;
 ```
 
@@ -268,8 +287,14 @@ Order inside it:
 1. **Raise** — for each `[tileId, message]` in `ledger.failed`, `await upsertAdminAlert({ showId,
    code: "TILE_SERVER_RENDER_FAILED", context: { tileId, message, sheet_name } })`, preserving
    today's context shape (`components/crew/WrappedSection.tsx:98-102`).
-2. **Resolve** — `await resolveTileRenderAlertsForTiles({ showId, tileIds: cleanTileIds(ledger),
-   observedAt })`.
+2. **Resolve** — `await resolveAlertsByContextKey({ code: "TILE_SERVER_RENDER_FAILED", showId,
+   contextKey: "tileId", values: cleanTileIds(ledger) })`.
+
+The callback MUST **return** the sweep promise (`after(() => sweepTileRenderAlerts(...))`), never
+`after(() => { void sweepTileRenderAlerts(...) })`. A voided call returns before the write settles,
+so the runtime's keep-alive has nothing to wait on and a serverless freeze can still drop the row —
+which is the exact failure the `after()` wiring exists to prevent (§4.4). T5 asserts the returned
+promise, not merely that `after` was called.
 
 Error posture: fail-quiet with its own log code, matching the adjacent projection raise and resolve
 (`app/show/[slug]/[shareToken]/_CrewShell.tsx:172-178`,
@@ -278,10 +303,10 @@ Error posture: fail-quiet with its own log code, matching the adjacent projectio
 `app/show/[slug]/[shareToken]/_CrewShell.tsx:200-204`, because `after()` throws synchronously outside
 a request scope; skipping is safe because the next healthy request sweeps.
 
-### 4.6 The freshness guard (round-1 BLOCKING fix)
+### 4.6 The concurrent-render race: accepted and self-healing
 
-Raise-before-resolve orders one callback. It does **not** order two concurrent requests, and round 1
-supplied the interleaving that breaks a tileId-only match:
+Raise-before-resolve orders one callback. It does **not** order two concurrent requests. Round 1
+supplied the interleaving:
 
 1. R1 renders: A failed, B clean. R2 renders: A clean, B failed.
 2. R1 raises A; the row's context becomes A.
@@ -290,36 +315,60 @@ supplied the interleaving that breaks a tileId-only match:
 5. R1 resolves its clean set `[B]`; the row says B, so it **matches and clears** — despite R2 having
    just observed B failing.
 
-An older clean observation can clear a newer failure for the same tile. The fix is clause (b) of the
-instance-keying rule: the resolve additionally requires the row to have gone untouched since the
-observing render began.
+**Revision 2 proposed a timestamp fence (`last_seen_at < observedAt`). Round 2 disproved it, and no
+repair exists.** Two independent defects:
 
-`_CrewShell` captures `observedAt` (an ISO timestamp) in its body, **before** any section renders.
-The resolve filters `last_seen_at < observedAt` alongside the tileId match. Every raise sets
-`last_seen_at = now()`, so in the interleaving above R2's step-3 raise pushes `last_seen_at` past
-R1's `observedAt` and step 5 correctly no-ops. A row raised before the render began still resolves,
-which is the intended case.
+- **Cross-clock comparison.** `observedAt` would come from the application clock while
+  `last_seen_at` is written by Postgres `now()`
+  (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql:47`). An app instance
+  running 20 seconds fast records `observedAt = 12:00:20`; R2's raise then writes
+  `last_seen_at = 12:00:05` on the DB clock; R1 sees `12:00:05 < 12:00:20` and clears the failure R2
+  just raised. The fence does not merely fail to help, it can invert.
+- **Request start is the wrong instant.** `observedAt` is captured before any section renders, but
+  the observation it stands for happens when each tile completes. R1 starts at T0, stalls, and
+  renders B clean at T30; a whole R2 cycle observes B failing and raises at T10. R1's observation is
+  genuinely newer, yet its fence is T0, so the row stays open. With no later page view the recovered
+  row is stranded indefinitely, contradicting AC1.
 
-This is why §7.2 T4 exists: the guard is invisible in normal single-request behavior and only a
-concurrency test pins it.
+Fixing both would require a DB-stamped timestamp per tile at the moment that tile completes — a
+write per tile on the render path, which is not acceptable for an observability signal.
+
+**Resolution: accept the race, per instance-keying rule clause (c).** The window is one render cycle
+and it closes itself: a tile that is genuinely broken throws on *every* render that includes it, so
+the next crew page view re-raises the alert in its own sweep. A spurious resolve costs one
+transiently-cleared row; it cannot hide a persistent failure. History is preserved in the resolved
+row (`occurrence_count`, `last_seen_at`), and the manual button remains (§4.8).
+
+This is the same posture the parent spec already ratified for `WEBHOOK_TOKEN_INVALID`, whose §S5
+accepted trade-off reasons identically: the failure mode the alert exists for cannot be masked,
+because it keeps producing the raise condition.
+
+The trade-off is **pinned, not merely asserted** — T4 (§7.2) replays the interleaving, applies the
+spurious resolve, then runs a subsequent sweep in which the tile still fails and asserts the row is
+back open. A design that stopped re-raising would fail it.
 
 ### 4.7 The resolve helper
 
-`resolveTileRenderAlertsForTiles`, new at `lib/adminAlerts/resolveTileRenderAlerts.ts (new)`:
+`resolveAlertsByContextKey`, new at `lib/adminAlerts/resolveAlertsByContextKey.ts (new)`, is shared
+by both families (§5.4) because the operation is identical apart from the discriminator:
 
-- filters `code = 'TILE_SERVER_RENDER_FAILED'`, `resolved_at IS NULL`, the show
-  (`.eq`/`.is` on `show_id` as `resolveAdminAlert` does at
-  `lib/adminAlerts/resolveAdminAlert.ts:37`), `context->>'tileId'` in `tileIds`, and
-  `last_seen_at < observedAt`;
+- filters `code`, `resolved_at IS NULL`, the show (`.eq`/`.is` on `show_id` as `resolveAdminAlert`
+  does at `lib/adminAlerts/resolveAdminAlert.ts:37`), and `context->><key>` in the supplied values;
 - sets `resolved_at` only, leaving `resolved_by` NULL;
-- returns early with no Supabase call when `tileIds` is empty, mirroring `resolveAdminAlerts`'
+- returns early with no Supabase call when the value list is empty, mirroring `resolveAdminAlerts`'
   guard (`lib/adminAlerts/resolveAdminAlert.ts:57`);
 - destructures `{ data, error }` and throws on a returned error, mirroring
   `lib/adminAlerts/resolveAdminAlert.ts:51-68` (invariant 9).
 
-`TILE_SERVER_RENDER_FAILED` IS in the `AdminAlertCode` union
-(`lib/adminAlerts/upsertAdminAlert.ts:29`) and is not inbox-routed, so unlike the report codes it
-needs no raw-SQL escape hatch.
+`TILE_SERVER_RENDER_FAILED` is in the `AdminAlertCode` union
+(`lib/adminAlerts/upsertAdminAlert.ts:29`) and is not inbox-routed. The three report codes are NOT in
+that union (they are registered NON_UPSERT raw producers,
+`tests/messages/_metaAdminAlertCatalog.test.ts:685-689`), so the helper takes `code: string` and does
+not route through the `AdminAlertCode`-typed `resolveAdminAlert`, which would force a union widening
+the meta-test forbids. This mirrors why `resolveBotLoginAlertRow` is raw
+(`docs/superpowers/specs/alerts/2026-07-04-alert-resolve-truthing.md` §6). The report-side call runs
+inside the submit path's existing postgres.js transaction; the tile-side call uses the Supabase
+service-role client, matching its host.
 
 ### 4.8 Classification: `hybrid`, and the button stays
 
@@ -362,139 +411,196 @@ response, and so cannot affect rendered state at all.
 
 ---
 
-## 5. `BL-ALERT-REPORT-FAMILY-AUTORESOLVE`: evaluation, and why nothing changes
+## 5. The report lookup family: resolve on a fresh successful lookup
 
-The backlog entry asks to *evaluate the manual-by-design posture* for the six report-family
-incidents. This section is that evaluation. **Conclusion: the existing `event-manual` classification
-is correct for all six.** No code, catalog, or registry change ships for them.
+`BL-ALERT-REPORT-FAMILY-AUTORESOLVE` asks whether the manual-by-design posture is right for the six
+report-family incidents. **Answer: right for three, wrong for three.** `REPORT_LOOKUP_INCONCLUSIVE`,
+`REPORT_DUPLICATE_LIVE_MATCHES` and `REPORT_OPEN_ORPHAN_LABEL` have a sound instance-keyed
+resolution; the other three do not and are unchanged.
 
-### 5.1 What was proposed and tested
+Getting here took two rejected designs, both recorded because the reasoning is the reusable part.
 
-Revision 1 of this spec proposed moving three codes — `REPORT_LOOKUP_INCONCLUSIVE`,
-`REPORT_DUPLICATE_LIVE_MATCHES`, `REPORT_OPEN_ORPHAN_LABEL` — to `auto`, resolved by an anti-join
-over the raise predicate. The reasoning was that all three raise through
-`upsertStateGatedLookupAlert` (`lib/reports/submit.ts:662-685`), whose insert is `SELECT`-gated on a
-live, show-scoped predicate over `reports`, making the condition look like observable local state.
+### 5.1 The three codes and their raise condition
 
-### 5.2 Why that is unsound (adversarial round 1, BLOCKING)
+All three raise from `handleLookupInconclusive` (`lib/reports/submit.ts:771-819`), which is reached
+only when a GitHub lookup has *already* thrown `LookupInconclusive`. `lookupAlertCode`
+(`lib/reports/submit.ts:206-210`) maps the thrown code to the alert code. A state gate
+(`upsertStateGatedLookupAlert`, `lib/reports/submit.ts:662-685`) then narrows the raise to reports
+still genuinely stuck. So the raise condition is a **conjunction**:
 
-**The local gate is only one conjunct of the raise condition.** These alerts are raised from
-`handleLookupInconclusive` (`lib/reports/submit.ts:771-819`), which is reached only when a GitHub
-lookup has *already* returned a `LookupInconclusive` result. The state gate then narrows that to
-reports still genuinely stuck. Negating the local gate therefore negates half the condition and
-leaves the GitHub half unobserved:
+> (GitHub lookup for key K returned an inconclusive result) AND (report K is still locally stuck)
 
-- `REPORT_DUPLICATE_LIVE_MATCHES` means multiple live GitHub issues carry one report's marker
+Every raised context carries the discriminator: `{ idempotency_key, reason, code }`
+(`lib/reports/submit.ts:777-781`).
+
+### 5.2 Rejected design 1 — local anti-join (round 1, BLOCKING)
+
+Revision 1 proposed resolving when no `reports` row for the show still matched the state gate, swept
+at the point of recovery and by a report-reaper cron backstop. This violates instance-keying clause
+(b): it negates only the second conjunct.
+
+- `REPORT_DUPLICATE_LIVE_MATCHES` means multiple live GitHub issues share a marker
   (`lib/github/issues.ts:307-318`). Deleting or landing the local report closes none of them.
 - `REPORT_OPEN_ORPHAN_LABEL` means an open GitHub issue carries the orphan-cleanup label
   (`lib/github/issues.ts:244-250`). Local-row absence neither re-closes it nor removes the label.
-- `REPORT_LOOKUP_INCONCLUSIVE` means a listing, pagination, or response-validation failure
+- `REPORT_LOOKUP_INCONCLUSIVE` covers listing, pagination and response-validation failures
   (`lib/github/issues.ts:255-322`). Local-row absence does not prove the lookup recovered.
 
-Concrete failure: an orphan-labeled issue stays open past 24h; the anti-join resolves its alert and,
-because the flip to `auto` also suppresses the manual button, the operator loses both the signal and
-the control while the required action is still outstanding. That is strictly worse than a stale
-alert — the exact trade the parent spec rejected under "TTL auto-expiry" (§9).
+Concrete failure: an orphan-labeled issue stays open past 24h, the anti-join clears its alert, and
+the operator loses the signal while the required action is outstanding.
 
-Two further defects in the same proposal, each independently disqualifying:
+Two further defects killed it independently: unrelated reports for the same show block a recovered
+alert from resolving (violating clause (a) — the row is per-show but the gate is generic); and the
+claimed 24h handoff to `STALE_ORPHAN_REPORT` does not hold, because the reaper additionally requires
+`processing_lease_until < now()` (`app/api/cron/report-reaper/route.ts:58-64`) on a nullable column
+(`supabase/migrations/20260501001000_internal_and_admin.sql:309-321`) where `NULL < now()` is never
+true — the shipped test deliberately retains an aged live-lease report and emits no stale alert
+(`tests/reports/reaper.test.ts:105-138`).
 
-- **Unrelated reports strand a recovered alert.** The anti-join clears a code only when no report for
-  the show matches the *generic* gate, so an unrelated lease-expired report B blocks report A's
-  alert from resolving even though B never produced that code. Global (`show_id IS NULL`) rows are
-  blocked by any eligible report anywhere. This contradicts the instance-keying rule in §3.
-- **The claimed 24h handoff does not hold.** The raise gate stops matching at 24h
-  (`lib/reports/submit.ts:669-675`), but the reaper additionally requires
-  `processing_lease_until < now()` (`app/api/cron/report-reaper/route.ts:58-64`), and
-  `processing_lease_until` is nullable (`supabase/migrations/20260501001000_internal_and_admin.sql:309-321`)
-  where `NULL < now()` is never true. The shipped test deliberately retains an aged report with a
-  live lease and emits no stale alert (`tests/reports/reaper.test.ts:105-138`). So an aged report
-  with a live or NULL lease would lose its lookup alert while never receiving the
-  `STALE_ORPHAN_REPORT` that was supposed to carry the signal forward.
+### 5.3 The sound observation (round 2)
 
-### 5.3 The general rule this establishes
+Revision 2 concluded from §5.2 that no sound resolver existed and all six codes should stay manual.
+Round 2 showed that conclusion was over-broad: it confused "no *local* observation suffices" with "no
+observation suffices."
 
-The instance-keying rule's final clause (§3) is the durable lesson: **where the raise condition has
-any conjunct the recovery observation cannot re-evaluate, the code stays manual.** A state-shaped
-*local* gate is not sufficient evidence that a code is state-shaped overall. For these three codes
-the missing conjunct is external GitHub state, and the only sound observation would be a fresh
-successful lookup for that specific report — which the report pipeline performs only on a submit or
-recovery attempt, not on a schedule, and which would still resolve a per-show row from a per-report
-observation.
+The retry path performs a **fresh, complete GitHub lookup for the exact key**:
+`reconcileBeforeCreate` calls `findIssueByMarker(idempotencyKey, cutoffIso)`
+(`lib/reports/submit.ts:880`, `lib/github/issues.ts:255`). That function throws `LookupInconclusive`
+for every condition these three codes report — `OPEN_ISSUE_WITH_ORPHAN_LABEL`
+(`lib/github/issues.ts:246-251`), duplicate live matches (`lib/github/issues.ts:307-318`), and
+shape/pagination faults (`lib/github/issues.ts:240-242`). Therefore a **normal return** from
+`findIssueByMarker` for key K is precisely the negation of all three raise conditions, for K:
+pagination and validation succeeded, no open orphan-labeled marker was found, and at most one live
+match exists.
 
-The other three codes were never candidates and are unchanged: `REPORT_ORPHANED_LOST_LEASE`
-(`lib/reports/submit.ts:977`) records an external issue closing; `REPORT_LEASE_THRASHING`
-(`lib/reports/submit.ts:847-848`) records that races happened; `STALE_ORPHAN_REPORT`
-(`app/api/cron/report-reaper/route.ts:74`) audits a row the reaper just deleted.
+That satisfies every clause of the instance-keying rule: it re-evaluates the whole GitHub conjunct
+(b), it names one `idempotency_key` which is exactly the discriminator the row carries (a), and the
+raise re-fires on the next inconclusive lookup for that key (c).
 
-### 5.4 What ships for this entry
+### 5.4 The hook
 
-`BACKLOG.md`'s `BL-ALERT-REPORT-FAMILY-AUTORESOLVE` moves to `BACKLOG-archive.md` with a
-resolved-status line recording the evaluation, its conclusion, and the three findings above, so a
-future session does not re-derive the anti-join and re-discover its unsoundness. The parent spec's
-§3 rows for these six codes are correct as written and are not edited.
+One hook, at the single point where `reconcileBeforeCreate` returns without throwing
+(`lib/reports/submit.ts:878-886`): resolve open rows of the three codes whose
+`context->>'idempotency_key'` equals the key just looked up, via the shared
+`resolveAlertsByContextKey` helper (§4.7) with `contextKey: "idempotency_key"`.
+
+Scope notes:
+
+- **Show scope follows the row, not the caller.** The resolve filters on `code` +
+  `idempotency_key` + `resolved_at IS NULL`, and passes the show id the row was raised with
+  (`ageRow.show_id ?? body.show_id`, `lib/reports/submit.ts:894`). A NULL-show row raised by the
+  `raced_back_twice` fallback (`lib/reports/submit.ts:759-767`) is matched by its own key like any
+  other; there is no anywhere-in-the-system predicate.
+- **No cron backstop.** Deliberately. A scheduled sweep has no fresh GitHub observation available and
+  would reintroduce §5.2's unsoundness. Re-detection is retry-driven, which is why these codes are
+  `hybrid` and keep their manual buttons (§5.5).
+- **The dedup caveat is the same as tiles'.** One row per (show, code) means `context.idempotency_key`
+  names the most recent raiser, so a successful lookup for an older key correctly no-ops. The
+  concurrent-observer race and its self-healing argument are identical to §4.6.
+
+### 5.5 Classification: `hybrid`, buttons stay
+
+All three move `event-manual` to `hybrid`. Catalog `resolution` stays `"manual"` at
+`lib/messages/catalog.ts:2974` (`REPORT_LOOKUP_INCONCLUSIVE`), `lib/messages/catalog.ts:2942`
+(`REPORT_DUPLICATE_LIVE_MATCHES`) and `lib/messages/catalog.ts:2993`
+(`REPORT_OPEN_ORPHAN_LABEL`).
+
+**Why not `auto`:** re-detection requires someone to retry that report. Nothing schedules it. Round 1
+established the cost of getting this wrong — flipping `resolution` to `auto` suppresses the manual
+button (`AUTO_RESOLVING_CODES`, `lib/adminAlerts/audience.ts:53-55`), so an operator facing a
+still-open orphan-labeled issue would lose both the signal and the control. `hybrid` keeps the button
+while letting a genuine recovery clear the row, exactly as for tiles (§4.8) and
+`ONBOARDING_SHEET_UNREADABLE`.
+
+Consequences: no catalog edit, no `AUTO_RESOLVE_NOTES` entries, no §12.4 lockstep, and
+`RESOLVE_INTENTS` rows at `lib/adminAlerts/resolveActionLabel.ts:62-64` stay (§6.3).
+
+### 5.6 The three that do not move
+
+Unchanged, `event-manual`, for the reason the parent spec gave — no observation re-evaluates their
+condition: `REPORT_ORPHANED_LOST_LEASE` (`lib/reports/submit.ts:977`) records an external issue
+closing; `REPORT_LEASE_THRASHING` (`lib/reports/submit.ts:847-848`) records that races happened;
+`STALE_ORPHAN_REPORT` (`app/api/cron/report-reaper/route.ts:74`) audits a row the reaper deleted.
 
 ---
 
 ## 6. Registry and lockstep fan-out
 
-Round 1 found this section incomplete in revision 1; the items below incorporate every instance it
-enumerated, plus two the spec author found independently.
+Rounds 1 and 2 each found this section incomplete. Every instance either round enumerated is below,
+plus two the author found independently.
 
 ### 6.1 `ADMIN_ALERTS_LIFECYCLE` and counts
 
-One reclassification only:
+Four reclassifications, all to `hybrid`:
 
-| Code | Line | From | To |
-|---|---|---|---|
-| `TILE_SERVER_RENDER_FAILED` | `tests/messages/_metaAdminAlertCatalog.test.ts:455` | `state-manual-justified` | `hybrid` plus `resolveSites` |
+| Code | Line | From |
+|---|---|---|
+| `TILE_SERVER_RENDER_FAILED` | `tests/messages/_metaAdminAlertCatalog.test.ts:455` | `state-manual-justified` |
+| `REPORT_LOOKUP_INCONCLUSIVE` | `tests/messages/_metaAdminAlertCatalog.test.ts:486` | `event-manual` |
+| `REPORT_DUPLICATE_LIVE_MATCHES` | `tests/messages/_metaAdminAlertCatalog.test.ts:487` | `event-manual` |
+| `REPORT_OPEN_ORPHAN_LABEL` | `tests/messages/_metaAdminAlertCatalog.test.ts:488` | `event-manual` |
 
-The live registry is **45** codes: 26 auto, 17 event-manual, 1 hybrid, 1 state-manual-justified,
-0 deferred (`tests/messages/_metaAdminAlertCatalog.test.ts:272-280`). Revision 1 carried the parent
-spec's stale 42 and mis-derived the event-manual count; the corrected post-change totals are:
+Each gains a `resolveSites` tuple that must exist on disk
+(`tests/messages/_metaAdminAlertCatalog.test.ts:741-742`).
+
+The live registry is **45** codes: 26 auto, 17 event-manual, 1 hybrid, 1 state-manual-justified, 0
+deferred (`tests/messages/_metaAdminAlertCatalog.test.ts:272-280`). Revision 1 carried the parent
+spec's stale 42 and mis-derived the event-manual count. Corrected totals:
 
 | Class | Before | After |
 |---|---|---|
 | auto | 26 | 26 (unchanged) |
-| event-manual | 17 | 17 (unchanged) |
-| hybrid | 1 | **2** |
+| event-manual | 17 | **14** |
+| hybrid | 1 | **4** |
 | state-manual-justified | 1 | **0** |
 
-Total stays 45. Only the hybrid assertion
-(`tests/messages/_metaAdminAlertCatalog.test.ts:736-739`, currently `.toBe(1)`) and the
-state-manual-justified expectation move; the auto count assertion at
-`tests/messages/_metaAdminAlertCatalog.test.ts:732-734` is **not** edited. Hybrid codes must carry a
-`resolveSites` tuple that exists on disk (`tests/messages/_metaAdminAlertCatalog.test.ts:741-742`).
+Total stays 45. The hybrid assertion (`tests/messages/_metaAdminAlertCatalog.test.ts:736-739`,
+currently `.toBe(1)`) moves to 4; the state-manual-justified expectation goes to 0; the auto count
+assertion at `tests/messages/_metaAdminAlertCatalog.test.ts:732-734` is **not** edited. The class
+docstring at `tests/messages/_metaAdminAlertCatalog.test.ts:272-280` states these counts in prose and
+must move in the same commit.
 
-### 6.2 Producer-scope registry and the write-site pin
+### 6.2 Producer-scope registry, and the gate a new row activates
 
 - **`_metaAlertProducerScope` needs a new row.** The sweep's `upsertAdminAlert` lands in
   `app/show/[slug]/[shareToken]/_CrewShell.tsx`, and that walker discovers producers under `app/`
-  (`tests/adminAlerts/_metaAlertProducerScope.test.ts:26-48`, `tests/adminAlerts/_metaAlertProducerScope.test.ts:144-157`). `WrappedSection` was never
-  registered because the walker excludes `components/`, so this is a **new** registry obligation
-  created by the move, not a relocation. A `PRODUCER_SCOPE` row for the new site is required.
-- Revision 1's claim that `tests/adminAlerts/alertProducerScope.registry.ts` holds no rows for these
-  codes was **false**: a seed row for `REPORT_LOOKUP_INCONCLUSIVE` exists at
-  `tests/adminAlerts/alertProducerScope.registry.ts:406-412`.
+  (`tests/adminAlerts/_metaAlertProducerScope.test.ts:26-48`,
+  `tests/adminAlerts/_metaAlertProducerScope.test.ts:144-157`). `WrappedSection` was never registered
+  because the walker excludes `components/`, so this is a **new** obligation created by the move.
+- **Adding that row activates a dormant gate, which currently fails.** The representative-context
+  check runs only for codes that have a producer row
+  (`tests/adminAlerts/producerKeyAggregation.test.ts:50-59`). Once
+  `hasProducerRow("TILE_SERVER_RENDER_FAILED")` is true, the code's representative context is checked
+  against its allowed keys — and the live representative context is
+  `{ drive_file_id, sheet_name, section }` (`tests/adminAlerts/producerContexts.ts:276-280`) while
+  the producer actually writes `{ tileId, message, sheet_name }`
+  (`components/crew/WrappedSection.tsx:98-102`). `drive_file_id` and `section` become offenders and
+  the suite fails. **The representative context must be corrected to match the real producer in the
+  same commit.** This is a pre-existing inconsistency that the new row merely exposes.
 - **`ADMIN_ALERTS_WRITE_SITES` is NOT repointed.** Its `TILE_SERVER_RENDER_FAILED` row already
   targets `components/shared/TileServerFallback.tsx`
   (`tests/messages/_metaAdminAlertCatalog.test.ts:231-234`), not `WrappedSection`, so §4.4 does not
-  break it. That producer still exists and still raises, so repointing the row would stop pinning
-  what it currently guards. The live crew producer is covered by §7.1 instead. Revision 1 asserted
-  the opposite and was wrong.
+  break it. That producer still exists in source and still raises, so repointing would unpin what it
+  currently guards. The live crew producer is covered by §7.1 instead. Revision 1 asserted the
+  opposite and was wrong.
+- Revision 1's claim that `tests/adminAlerts/alertProducerScope.registry.ts` holds no rows for these
+  codes was **false**: a seed row for `REPORT_LOOKUP_INCONCLUSIVE` exists at
+  `tests/adminAlerts/alertProducerScope.registry.ts:406-412`.
 
 ### 6.3 `RESOLVE_INTENTS` — do not delete rows
 
-`TILE_SERVER_RENDER_FAILED` keeps its row at `lib/adminAlerts/resolveActionLabel.ts:66`, and
-`tests/adminAlerts/resolveIntentsBaseline.json` is not edited. With the report codes staying manual,
-their rows at `lib/adminAlerts/resolveActionLabel.ts:62-64` are likewise untouched.
+All four codes keep their rows (`lib/adminAlerts/resolveActionLabel.ts:62-64` and
+`lib/adminAlerts/resolveActionLabel.ts:66`), and `tests/adminAlerts/resolveIntentsBaseline.json` is
+not edited. Since none flips to `auto`, this is required by completeness as well as by history.
 
 Stated explicitly because it is counterintuitive: the append-only lifecycle gate
 (`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:94-124`) asserts every code in
 `origin/main`'s baseline still maps to its historical intent, failing with *"changed or was deleted;
 rows already in admin_alerts still render it"*, and its docstring gives the reason
 (`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:12-14`): stored rows persist and would
-silently re-label. Completeness (`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:27-33`) excludes auto codes but does not forbid retained entries.
-Round 1 independently confirmed this reading.
+silently re-label. Completeness
+(`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:27-33`) excludes auto codes but does not
+forbid retained entries. Round 1 independently confirmed this reading.
 
 ### 6.4 Tests that assert the old ownership
 
@@ -503,16 +609,16 @@ Each must be rewritten in the same commit, not merely updated:
 | Test | Why it moves |
 |---|---|
 | `tests/components/crew/wrappedSection.test.tsx:55-160` | asserts throw renders fallback AND upserts; the upsert leaves |
-| `tests/components/crew/wrappedSectionDurability.test.tsx:35-75` | premise inverts — `WrappedSection` registers no `after()` at all; the durability assertion must be re-established on the sweep |
+| `tests/components/crew/wrappedSectionDurability.test.tsx:35-75` | premise inverts — `WrappedSection` registers no `after()` at all; the durability assertion must be re-established on the sweep, in the stronger returned-promise form (§4.5) |
 | `tests/components/crew/crewShellTwoDistinctAlerts.test.tsx:110-140` | constructs shell and descendants under the old ownership |
 | `tests/messages/_metaEmphasisRenderContract.test.ts:162-170` | retains the now-false claim that `WrappedSection` produces the alert |
 
 ### 6.5 Invariant 9
 
-`resolveTileRenderAlertsForTiles` gains a row in the notify infra-contract registry
+`resolveAlertsByContextKey` gains a row in the notify infra-contract registry
 (`tests/notify/_metaInfraContract.test.ts:6-17`) plus a behavioral test alongside the existing
 `resolveAdminAlert` case at `tests/notify/_metaInfraContract.test.ts:177` — returned-error AND
-thrown-fault both throw — and the empty-`tileIds` no-call guard (§4.7).
+thrown-fault both throw — and the empty-values no-call guard (§4.7).
 
 ---
 
@@ -525,18 +631,24 @@ New meta-test at `tests/crew/_metaTileProducerTopology.test.ts (new)`, filesyste
 
 1. Every `<WrappedSection` JSX call site lives in `components/crew/sections/`; the set of `tileId`
    literals equals the §4.2 table exactly; each `SectionId` maps to exactly one.
-2. `app/show/[slug]/[shareToken]/_CrewShell.tsx` registers the sweep via `after(`, referencing
-   `sweepTileRenderAlerts`, and calls `createTileRenderLedger()` exactly once in the component body
-   (never inside the callback).
-3. `components/crew/WrappedSection.tsx` contains no `upsertAdminAlert` call, so the raise lives in
+2. **Every construction site of the seven section components lives in
+   `app/show/[slug]/[shareToken]/_CrewShell.tsx`.** Round 2 showed why assertion 1 alone is
+   insufficient: a caller can type-safely write
+   `<VenueSection ledger={createTileRenderLedger()} …>` and discard that ledger, so a throw records
+   into an unswept ledger and emits no alert. No `any`, barrel, or dynamic-import seam is needed.
+   Bounding *who may construct a section* is the assertion that actually closes the hole; the
+   required prop (§4.3) only removes the silent-omission variant.
+3. `app/show/[slug]/[shareToken]/_CrewShell.tsx` registers the sweep via `after(`, **returning** the
+   sweep promise rather than voiding it (§4.5), and calls `createTileRenderLedger()` exactly once in
+   the component body, never inside the callback.
+4. `components/crew/WrappedSection.tsx` contains no `upsertAdminAlert` call, so the raise lives in
    exactly one layer.
-4. `components/shared/WrappedTile.tsx` has no production call site, keeping
+5. `components/shared/WrappedTile.tsx` has no production call site, keeping
    `components/shared/TileServerFallback.tsx`'s producer dormant and its write-site pin honest
    (§6.2).
 
-Assertion 1 plus the required-prop type (§4.3) is what replaces `WrappedSection`'s lost
-self-containment: the meta-test bounds where wrappers live, and the type bounds who may mount a
-section.
+Assertions 1, 2 and 4 together are what replace `WrappedSection`'s lost self-containment. The
+required-prop type is a convenience, not the guarantee — §4.3 is corrected accordingly.
 
 ### 7.2 Behavioral tests
 
@@ -546,16 +658,20 @@ section.
   upsert whose `context.message` is that exact string, proving the ledger carries it past the catch.
 - **T3 — raise before resolve.** A sweep with one thrown tile and the rest clean leaves exactly one
   open row naming the thrown tile.
-- **T4 — the freshness guard.** Replay the §4.6 interleaving: build R1's ledger (A failed, B clean)
-  and R2's (A clean, B failed), run R2's sweep fully, then run R1's resolve with R1's earlier
-  `observedAt`. The row must survive. A mutant that drops the `last_seen_at` filter must fail this.
-- **T5 — durability.** The sweep is registered through `after()`, not fire-and-forget, replacing the
-  assertion lost from `wrappedSectionDurability` (§6.4). Reuses the existing `vi.hoisted` +
-  `vi.mock("next/server")` pattern (`tests/components/crew/wrappedSectionDurability.test.tsx:17-33`).
+- **T4 — the race is self-healing (§4.6).** Replay the interleaving: R2 raises B, R1's stale clean
+  set spuriously resolves it, then a subsequent sweep in which B still fails re-raises the row.
+  Assert the row is open at the end. A design that stopped re-raising fails this.
+- **T5 — durability.** Capture the `after()` callback, invoke it, and assert it **returns a promise
+  that settles after the write completes** — not merely that `after` and the upsert were called. The
+  existing pattern's immediate-invoke mock (`tests/components/crew/wrappedSectionDurability.test.tsx:22-25`)
+  would pass against a voided call, which is the defect round 2 identified.
+- **T6 — report resolve is keyed and whole-condition.** A successful `findIssueByMarker` for key K
+  resolves open rows of the three codes whose `context.idempotency_key` is K, and does NOT resolve a
+  row naming a different key. A lookup that throws `LookupInconclusive` resolves nothing.
 
 `sweepTileRenderAlerts` is a pure exported function taking the ledger as a parameter (§4.5)
-specifically so T1 to T5 need no RSC request scope — the review showed Vitest's React build makes
-`cache()` a pass-through, which is why the design does not rely on it at all (§4.3).
+specifically so T1 to T5 need no RSC request scope — the round-1 review showed Vitest's React build
+turns `cache` into a pass-through, which is why the design does not rely on it at all (§4.3).
 
 ---
 
@@ -568,12 +684,15 @@ specifically so T1 to T5 need no RSC request scope — the review showed Vitest'
 | tiles A and B both throw | two upserts hit one row (dedup index); row ends naming the last, `occurrence_count` 2 — existing behavior; neither is in `cleanTileIds` |
 | row names A (yesterday), today A clean and B throws | raise retargets context to B; resolve excludes B; row survives naming B |
 | row names A, today everything clean | A is in `cleanTileIds` and `last_seen_at` predates `observedAt`; row resolves |
-| concurrent renders disagree about a tile | freshness guard rejects the stale resolve (§4.6, T4) |
+| concurrent renders disagree about a tile | a stale clean observation can transiently clear the row; the next render re-raises (§4.6, T4) |
 | section renders but its data is empty | the seam ran without throwing, so the tile is clean and resolvable — nothing is broken |
 | sweep throws (Supabase outage) | caught and logged; crew render unaffected; next healthy request sweeps |
 | no request scope (unit test) | `after()` throws synchronously; registration skipped, matching the existing shape in `_CrewShell` |
 | alert already resolved manually | the resolve filters `resolved_at IS NULL`; no double-write |
 | auto-resolution stamping | sets `resolved_at` only; `resolved_by` stays NULL (`lib/adminAlerts/resolveAdminAlert.ts:33`) |
+| report row names key K, successful lookup for key J | no match on `context->>'idempotency_key'`; row stays open |
+| report lookup throws `LookupInconclusive` | no resolve runs; the raise path proceeds as today |
+| report row raised with `show_id IS NULL` (raced-back-twice fallback) | matched by its key like any other row; no anywhere-in-the-system predicate |
 
 ---
 
@@ -586,47 +705,61 @@ specifically so T1 to T5 need no RSC request scope — the review showed Vitest'
   Expectation derived from the fixture's entitlement, not hardcoded.
 - **AC3** A ledger with a partial `attempted` set (aborted render) resolves only the tiles in it.
 - **AC4** T2: `context.message` on the sweep's upsert equals the thrown error's message.
-- **AC5** T4: the §4.6 interleaving leaves the row open; removing the `last_seen_at` filter fails it.
-- **AC6** T5: the sweep is `after()`-registered; `WrappedSection` registers no `after()` work on
+- **AC5** T4: the §4.6 interleaving ends with the row OPEN after a subsequent sweep in which the tile
+  still fails. A design that does not re-raise fails this.
+- **AC6** T5: the `after()` callback returns a promise that settles after the write; a voided call
+  (`after(() => { void sweep() })`) fails the test. `WrappedSection` registers no `after()` work on
   either path.
-- **AC7** Mounting a crew section without a ledger prop is a TypeScript error (`pnpm typecheck`
-  fails), proving §4.3's structural claim.
+- **AC7** §7.1 assertion 2 holds: constructing any of the seven section components outside
+  `_CrewShell.tsx` fails the topology test. Separately, omitting the ledger prop is a TypeScript
+  error (`pnpm typecheck` fails).
 - **AC8** The §7.1 topology test passes and fails when (a) a `<WrappedSection>` is added outside
   `components/crew/sections/`, (b) `WrappedSection.tsx` regains an `upsertAdminAlert` call, (c) the
-  sweep registration is removed, or (d) `createTileRenderLedger()` is called inside the callback.
-- **AC9** Lifecycle: `TILE_SERVER_RENDER_FAILED` is `hybrid` with a resolve site that exists on disk;
-  hybrid count 1 to 2; state-manual-justified 1 to 0; auto count assertion unchanged at 26; total 45.
-- **AC10** A `PRODUCER_SCOPE` row exists for the new `_CrewShell` producer and
-  `_metaAlertProducerScope` passes; `ADMIN_ALERTS_WRITE_SITES` is unchanged and still pins
-  `components/shared/TileServerFallback.tsx`.
-- **AC11** All four tests in §6.4 are rewritten and green.
-- **AC12** `resolveTileRenderAlertsForTiles`: empty `tileIds` issues no Supabase call; returned DB
-  error throws; thrown query fault throws; infra-contract registry row present.
-- **AC13** `RESOLVE_INTENTS` and `tests/adminAlerts/resolveIntentsBaseline.json` are byte-identical
-  to `origin/main`; all three layers of `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` pass.
-- **AC14** No report-family code changes class, catalog `resolution`, or copy. A test asserting the
-  six codes' current classification guards the §5 conclusion against silent drift.
-- **AC15** `pnpm test` full suite plus `pnpm typecheck`, `pnpm lint`, `pnpm format:check` green.
-- **AC16** Invariant-8 UI gate: `/impeccable critique` AND `/impeccable audit` on the affected diff,
+  sweep registration is removed, (d) `createTileRenderLedger()` is called inside the callback, or
+  (e) the sweep promise is voided rather than returned.
+- **AC9** T6: a successful `findIssueByMarker` for key K resolves open rows of the three report codes
+  whose `context.idempotency_key` is K; a row naming another key is untouched; a lookup that throws
+  `LookupInconclusive` resolves nothing.
+- **AC10** Lifecycle: all four codes are `hybrid` with resolve sites that exist on disk; hybrid count
+  1 to 4; state-manual-justified 1 to 0; event-manual 17 to 14; auto unchanged at 26; total 45. The
+  prose docstring at `tests/messages/_metaAdminAlertCatalog.test.ts:272-280` matches.
+- **AC11** A `PRODUCER_SCOPE` row exists for the new `_CrewShell` producer,
+  `tests/adminAlerts/producerContexts.ts:276-280`'s representative context is corrected to the keys
+  the producer actually writes, and both `_metaAlertProducerScope` and `producerKeyAggregation` pass.
+  `ADMIN_ALERTS_WRITE_SITES` is unchanged and still pins `components/shared/TileServerFallback.tsx`.
+- **AC12** All four tests in §6.4 are rewritten and green.
+- **AC13** `resolveAlertsByContextKey`: empty values list issues no Supabase call; returned DB error
+  throws; thrown query fault throws; infra-contract registry row present.
+- **AC14** No catalog `resolution` value changes; no `AUTO_RESOLVE_NOTES` entry is added; no §12.4
+  prose is edited. `RESOLVE_INTENTS` and `tests/adminAlerts/resolveIntentsBaseline.json` are
+  byte-identical to `origin/main`, and all three layers of
+  `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` pass.
+- **AC15** The three codes in §5.6 keep `class: "event-manual"`; a test guards all six report-family
+  classifications against silent drift.
+- **AC16** `pnpm test` full suite plus `pnpm typecheck`, `pnpm lint`, `pnpm format:check` green.
+- **AC17** Invariant-8 UI gate: `/impeccable critique` AND `/impeccable audit` on the affected diff,
   P0 and P1 findings fixed or deferred via `DEFERRED.md`, BEFORE the whole-diff cross-model review.
-- **AC17** All three BACKLOG entries (§2.1, §2.2, §5.4) moved to `BACKLOG-archive.md` with their
-  citations; the obsolete DEFER rows removed from
-  `docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md:96-97`, and its §3 class
-  counts corrected.
+- **AC18** **All four** BACKLOG entries are moved to `BACKLOG-archive.md` with their citations:
+  `BL-ALERT-GITHUB-BOT-LOGIN-AUTORESOLVE` and `BL-ALERT-BRANCH-PROTECTION-AUTORESOLVE` (§2),
+  `BL-ALERT-REPORT-FAMILY-AUTORESOLVE` (§5), and `BL-ALERT-TILE-RENDER-PER-TILE-KEYING`
+  (closed by §4; its entry is the tile-keying row in the repo-root backlog queue). `BACKLOG.md` retains none of the four. The obsolete DEFER rows are
+  removed from `docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md:96-97` and its
+  §3 class counts corrected.
 
 Anti-tautology notes, binding on the plan: every assertion reads `admin_alerts` rows or the ledger
-directly, never log output. AC2's entitlement and AC3's partial set derive from fixture state. AC3
-and AC5 assert post-callback row identity, not that a function was called. AC5 and AC8 each name the
-mutant that must fail.
+directly, never log output. AC2's entitlement and AC3's partial set derive from fixture state. AC1,
+AC3, AC5 and AC9 assert post-callback row state, not that a function was called. AC5, AC6 and AC8
+each name the mutant that must fail.
 
 ---
 
 ## 10. What does NOT change
 
 - **No DDL.** No migration, so no `gen:schema-manifest` regen and no validation surgical apply.
-- **No §12.4 codes added or edited, no catalog rows, no user-visible copy.** The x1, x2, spec-codes
-  and help-families gates do not move. No `AUTO_RESOLVE_NOTES` entry (the code stays `manual`).
-- **No report-family change of any kind** (§5).
+- **No catalog change at all.** No `resolution` value moves, no `AUTO_RESOLVE_NOTES` entry is added,
+  no §12.4 code is added or edited. The x1, x2, spec-codes and help-families gates do not move. All
+  four codes stay `resolution: "manual"` and keep their manual buttons.
+- **No cron surface.** The report resolve is retry-driven only (§5.4); no reaper change.
 - **No rendered-output change** (§4.9, §4.10). The invariant-8 gate applies by file location.
 - Manual resolve routes untouched; they still stamp `resolved_by`.
 - Dedup and occurrence semantics unchanged: resolving then re-raising creates a fresh row.
@@ -638,36 +771,47 @@ mutant that must fail.
 - **Widen the dedup index with a per-tile discriminator column** (the literal reading of
   `BL-ALERT-TILE-RENDER-PER-TILE-KEYING`): rejected. It fans out to every raw `ON CONFLICT` producer,
   the upsert RPC, bell grouping, attention items and the identity map, plus a migration, manifest and
-  validation cycle, for granularity no consumer reads. Filtering the `context.tileId` the row already
+  validation cycle, for granularity no consumer reads. Filtering the discriminator the row already
   carries achieves the same keying at read time.
 - **React `cache()` for the ledger** (revision 1): rejected on two round-1 findings — Vitest's React
-  build makes `cache()` a pass-through so the identity contract is untestable, and an ambient store
-  cannot make direct section mounting a compile error (§4.3).
+  build turns `cache` into a pass-through so the identity contract is untestable, and an ambient
+  store cannot bound who constructs a section (§4.3).
+- **Timestamp freshness fence `last_seen_at < observedAt`** (revision 2): rejected, §4.6. It compares
+  an app clock against the DB clock and can invert under skew, and request-start is the wrong instant
+  so it also strands recovered rows. No repair exists that avoids a per-tile DB write on the render
+  path.
+- **Local-state anti-join for the report family** (revision 1): rejected, §5.2. It negates one
+  conjunct of two.
+- **A report-reaper cron backstop** (revision 1): rejected, §5.4. A scheduled sweep has no fresh
+  GitHub observation and reintroduces §5.2's unsoundness.
+- **All six report codes stay manual** (revision 2): rejected, §5.3. It confused "no local
+  observation suffices" with "no observation suffices"; `findIssueByMarker` is the counterexample.
+- **Flipping the four codes to `auto`**: rejected, §4.8 and §5.5. Re-detection is view- or
+  retry-driven, so suppressing the manual button would strand rows nobody can clear.
 - **Global "nothing failed this render" sweep**: rejected. Viewer-gated Budget, abort-time partial
   ledgers, and concurrent disagreement each make it clear live alerts (§4.1).
 - **Keeping the raise in `WrappedSection` with a trailing sentinel component**: rejected. It encodes
   the ordering requirement as an invisible render-order dependency.
-- **tileId match without a freshness guard** (revision 1): rejected, §4.6.
-- **Anti-join auto-resolution for the report family** (revision 1): rejected, §5.2. This is the
-  evaluation the backlog entry asked for, not a deferral.
-- **A central reconciler cron for tiles**: rejected for the parent spec's reason (§9) — the condition
-  is only observable at render time.
 
 ---
 
 ## 12. Watchpoints (review preempts — do not relitigate)
 
 - **`GITHUB_BOT_LOGIN_MISSING` and `BRANCH_PROTECTION_*` are already auto.** §2, verified twice.
-  Their BACKLOG entries were stale, not open work.
-- **Branch-protection dormancy is intended.** `DEFERRED-archive.md:861` records the re-enable step.
-- **The report family stays manual, and §5 is the deliverable for its backlog entry.** The anti-join
-  was designed, reviewed, and rejected on evidence (§5.2). Re-proposing it without re-observing the
-  GitHub conjunct repeats a known-unsound design.
-- **The ledger is an explicit prop, deliberately.** §4.3. Do not re-propose `cache()` or any ambient
-  request store.
-- **The freshness guard is required, not defensive.** §4.6 gives the concrete interleaving.
-- **`TILE_SERVER_RENDER_FAILED` keeps its manual button** (`hybrid`, catalog `resolution: "manual"`).
+  Their BACKLOG entries were stale, not open work. Branch-protection dormancy is intended;
+  `DEFERRED-archive.md:861` records the re-enable step.
+- **There is no timestamp fence, deliberately.** §4.6 gives the two proofs that one cannot work. The
+  race is accepted and self-healing, and T4 pins the self-healing property. Do not re-propose
+  `observedAt`.
+- **The report family resolves only at a fresh `findIssueByMarker` return.** The local anti-join
+  (§5.2) and a cron backstop (§5.4) are both rejected on evidence. Do not re-propose either.
+- **All four codes are `hybrid`, none is `auto`.** Catalog `resolution` stays `"manual"` throughout;
+  every manual button stays.
+- **The required ledger prop is not the ownership guarantee** — §7.1 assertion 2 is (§4.3). Do not
+  cite the prop as closing the direct-mount hole.
 - **`ADMIN_ALERTS_WRITE_SITES` stays pointed at `TileServerFallback.tsx`** (§6.2). That producer is
-  dormant but live in source, and repointing would unpin it.
+  dormant but live in source; repointing would unpin it.
+- **The `producerContexts.ts` representative-context edit is required, not incidental** (§6.2). The
+  new producer row activates a gate that currently fails against the stale context.
 - **`RESOLVE_INTENTS` rows are retained deliberately** (§6.3).
 - **`resolved_by` stays NULL for auto-resolution.** Existing convention.
