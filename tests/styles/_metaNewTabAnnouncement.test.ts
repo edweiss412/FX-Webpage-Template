@@ -48,62 +48,57 @@ const CASE_INSENSITIVE_NAMES = new Set([
   "ping",
 ]);
 
-/** Literals that can decide an attribute name in `src`, collected by SEMANTIC POSITION.
- *  Extracted to module scope so the rule can be exercised on synthetic input instead of
- *  only being self-applied — a guard that can only run on itself cannot be tested. */
-function collectNameLiterals(src: string): string[] {
-  const sf = ts.createSourceFile("__names.ts", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const literals: string[] = [];
-  const add = (n: ts.Node): void => {
-    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) literals.push(n.text);
-  };
+/** Every string literal in `src` whose SHAPE could be an HTML attribute name, from the AST
+ *  and from every position. Deliberately position-BLIND: the sibling collector below asks
+ *  "is this literal in a name-deciding position", which means enumerating positions, and R18
+ *  showed that enumeration loses. Shape is decidable, so prose and messages fall out on the
+ *  space/length test while every spelling of a name survives.
+ *
+ *  At module scope so it can be exercised on synthetic input; a guard that only ever runs on
+ *  itself cannot be tested. */
+export function nameShapedLiterals(src: string): string[] {
+  const sf = ts.createSourceFile("__shape.ts", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const found = new Set<string>();
   const walk = (n: ts.Node): void => {
-    if (ts.isBinaryExpression(n)) {
-      const k = n.operatorToken.kind;
-      if (
-        k === ts.SyntaxKind.EqualsEqualsEqualsToken ||
-        k === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
-        k === ts.SyntaxKind.EqualsEqualsToken ||
-        k === ts.SyntaxKind.ExclamationEqualsToken
-      ) {
-        add(n.left);
-        add(n.right);
-      }
-    }
-    if (ts.isCaseClause(n)) add(n.expression);
-    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
-      const fn = n.expression.name.text;
-      if (fn === "has" || fn === "includes") {
-        n.arguments.forEach(add);
-        // ALSO the receiver: `["Target"].includes(attrName(a))` puts the name in the
-        // array, not the arguments, and that is precisely one of R12's evasion forms.
-        // Verified by appending it to the scanner and watching this test stay green.
-        // Recurse: `new Map([["Target", 1]]).has(...)` nests the name one level
-        // deeper than a Set's flat array, and only the outer elements were inspected
-        // (review R14 MEDIUM 4).
-        const addDeep = (node: ts.Node): void => {
-          add(node);
-          if (ts.isArrayLiteralExpression(node)) node.elements.forEach(addDeep);
-        };
-        const recv = n.expression.expression;
-        if (ts.isArrayLiteralExpression(recv)) recv.elements.forEach(addDeep);
-        if (ts.isNewExpression(recv)) {
-          for (const a of recv.arguments ?? []) addDeep(a);
-        }
-      }
-    }
     if (
-      (ts.isPropertyAssignment(n) || ts.isPropertySignature(n)) &&
-      (ts.isStringLiteral(n.name) || ts.isComputedPropertyName(n.name))
+      (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) &&
+      /^[A-Za-z][A-Za-z0-9-]{0,29}$/.test(n.text)
     ) {
-      add(ts.isComputedPropertyName(n.name) ? n.name.expression : n.name);
+      found.add(n.text);
     }
     ts.forEachChild(n, walk);
   };
   walk(sf);
-
-  return literals;
+  return [...found].sort();
 }
+
+/** Name-shaped literals in the scanner that are NOT attribute names, each with the reason it
+ *  needs no casing fixture. Everything not here must have one -- see the check below. */
+const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
+  // JSX tag names are case-SENSITIVE, so folding them would be a bug, not coverage.
+  ["a", "intrinsic tag name"],
+  ["Link", "component tag name"],
+  ["NewTabHint", "component tag name"],
+  // Internal classification verdicts returned by the shape rules.
+  ["conditional", "shape verdict"],
+  ["conditional-ok", "shape verdict"],
+  ["gated", "shape verdict"],
+  ["generic", "shape verdict"],
+  ["group", "shape verdict"],
+  ["literal", "shape verdict"],
+  ["none", "shape verdict"],
+  ["not-external", "shape verdict"],
+  ["ok", "shape verdict"],
+  ["phrase-only", "shape verdict"],
+  ["static", "shape verdict"],
+  ["unrecognized", "shape verdict"],
+  ["unresolvable", "shape verdict"],
+  ["first", "walk-up sentinel: nothing precedes this child"],
+  // Attribute VALUES and unrelated identifiers, never compared as names.
+  ["false", "attribute value"],
+  ["presentation", "role value"],
+  ["typescript", "module name"],
+]);
 
 // ── Synthetic scanner self-tests (§6 requirement 7) ────────────────────────
 // Without these the guard is unfalsifiable: the live tree exercises only
@@ -1325,25 +1320,34 @@ describe("R6: scanner changes are pinned", () => {
       ],
     ];
 
-    // SELF-MAINTAINING: the fixture list must cover every attribute the scanner actually
-    // compares, or a newly-read attribute silently gets no casing coverage. That is exactly
-    // how `aria-labelledby` and `style` were missing until R17 asked (question 3), so the
-    // gap is now a test failure rather than a question someone has to think to ask.
-    const scannerSrc = stripCommentsSafely(
+    // SELF-MAINTAINING, by SHAPE rather than by FORM. The first version of this check matched
+    // the scanner source with a regex over the reading forms it knew about, and R18 showed
+    // that is the same dead end R15/R16 already closed for another rule: `["download"]
+    // .includes(name)` was invisible to it, so a case-sensitive read had no fixture and no
+    // failure. A `new Set([...])` bound to a const -- which is how `rel` is read, one layer
+    // below what R18 reported -- was invisible too.
+    //
+    // So the question is no longer "which reading forms exist" (unbounded) but "which
+    // name-shaped literals exist" (decidable). Every one must be classified: covered by a
+    // casing fixture, or declared not-an-attribute with a reason. A new literal fails until
+    // someone decides which it is, and no reading form can hide it, because every form --
+    // alias, array, Set, switch case, property key -- still contains the literal.
+    const nameShaped = nameShapedLiterals(
       readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
     );
-    const comparedNames = new Set(
-      [
-        ...scannerSrc.matchAll(
-          /(?:attrName\([^)]*\)|jsxAttrNameLower\([^)]*\)|propNameLower\([^)]*\)|\bn\b|\bnm\b|\bkey\b)\s*[=!]==?\s*"([^"]+)"/g,
-        ),
-        ...scannerSrc.matchAll(/\b(?:names|SPREADABLE)\.has\(\s*"([^"]+)"/g),
-      ].map((m) => m[1]!.toLowerCase()),
-    );
     const covered = new Set(fixtures.map(([n]) => n.toLowerCase()));
+    const unclassified = nameShaped.filter(
+      (n) => !covered.has(n.toLowerCase()) && !NOT_AN_ATTRIBUTE_NAME.has(n),
+    );
     expect(
-      [...comparedNames].filter((n) => !covered.has(n)),
-      "add a casing fixture for each attribute the scanner compares",
+      unclassified,
+      "each name-shaped literal in the scanner needs a casing fixture or a NOT_AN_ATTRIBUTE_NAME entry",
+    ).toEqual([]);
+    // And the exclusions cannot rot: one that no longer appears in the source is stale, and a
+    // stale exclusion is how a real attribute name later slips in under a dead entry.
+    expect(
+      [...NOT_AN_ATTRIBUTE_NAME.keys()].filter((n) => !nameShaped.includes(n)),
+      "remove NOT_AN_ATTRIBUTE_NAME entries that no longer appear in the scanner",
     ).toEqual([]);
     const spellings = (n: string): string[] => [n.toUpperCase(), n[0]!.toUpperCase() + n.slice(1)];
     for (const [name, build] of fixtures) {
@@ -1369,6 +1373,44 @@ describe("R6: scanner changes are pinned", () => {
         `duplicate ${first}/${second} must be reported`,
       ).toMatch(/case-folding|unrecognized/);
     }
+  });
+
+  it("R18 nameShapedLiterals is blind to reading FORM, on synthetic input", () => {
+    // The point of the rewrite: every way of spelling a name-decision still contains the
+    // literal, so none of these can hide one. R18's witness is the `.includes` case; the
+    // const-bound Set is how `rel` was already hidden from the position-based collector.
+    const forms = [
+      'if (n === "alpha") return true;',
+      'if (["alpha"].includes(n)) return true;',
+      'const K = "alpha"; if (n === K) return true;',
+      'const S = new Set(["alpha"]); if (S.has(n)) return true;',
+      'switch (n) { case "alpha": return true; }',
+      'const m = { "alpha": 1 }; if (m[n]) return true;',
+      'const m = new Map([["alpha", 1]]); if (m.has(n)) return true;',
+      'const o = { k: "alpha" }; if (n === o.k) return true;',
+      'export type T = "alpha";',
+      "const t = `alpha`;",
+    ];
+    for (const src of forms) {
+      expect(nameShapedLiterals(src), `must see the name in: ${src}`).toContain("alpha");
+    }
+    // Prose, messages and multi-word text are not name-shaped, so the exclusion list stays
+    // small enough to be read. This is the whole reason the filter is shape and not position.
+    for (const src of [
+      'const msg = "unrecognized external-link shape (spread)";',
+      'const msg = "opens in a new tab";',
+      "const re = /alpha/;",
+      'const s = "a".repeat(40);',
+    ]) {
+      expect(
+        nameShapedLiterals(src).filter((s) => s.includes(" ")),
+        `prose must not be collected from: ${src}`,
+      ).toEqual([]);
+    }
+    // One genuinely undecidable form, stated rather than pretended away: a name assembled
+    // from fragments contains no literal spelling it. Same accepted limit as the `compo`
+    // fragment in spec 6.4, and it needs commit access to introduce.
+    expect(nameShapedLiterals('if (n === "al" + "pha") return true;')).not.toContain("alpha");
   });
 
   it("R15 commentRanges distinguishes comments from division, regex and templates", () => {
@@ -1758,28 +1800,24 @@ describe("R6: scanner changes are pinned", () => {
   // prove the property. The lowercasing itself is what makes the code correct; this
   // only makes a regression loud.
   it("no literal spells a known attribute name in non-lowercase", () => {
-    // Position-scoped: see collectNameLiterals. Two halves run because neither is
-    // complete alone -- accessor-context scoping was evaded five ways, and a blanket
-    // literal walk raised false positives on type positions, enum members and plain
-    // values.
-    const src = stripCommentsSafely(
-      readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
-    );
-    const offenders = collectNameLiterals(src).filter(
+    // Shape-scoped, for the reason R18 gave about its sibling check: the position-based
+    // collector this used to call could not see a name inside a const-bound `new Set([...])`
+    // -- which is how `rel` is actually read -- so a camelCase spelling there would not have
+    // tripped it. Both halves now run off `nameShapedLiterals`, so there is ONE collector and
+    // the two checks cannot disagree about what the scanner reads.
+    const src = readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8");
+    const shaped = nameShapedLiterals(src);
+    const offenders = shaped.filter(
       (lit) => lit !== lit.toLowerCase() && CASE_INSENSITIVE_NAMES.has(lit.toLowerCase()),
     );
     expect(offenders, "attribute-name literals must be lowercase").toEqual([]);
 
     // Self-maintaining half: the fixed set only protects names it knows, so require it to
-    // cover every name the scanner actually compares. Adding a comparison against a new
-    // attribute fails HERE until the set is extended.
-    const compared = [
-      ...src.matchAll(
-        /(?:attrName\([^)]*\)|jsxAttrNameLower\([^)]*\)|propNameLower\([^)]*\)|\bn\b|\bnm\b)\s*[=!]==?\s*"([^"]+)"/g,
-      ),
-      ...src.matchAll(/\b(?:names|SPREADABLE)\.has\(\s*"([^"]+)"/g),
-    ].map((m) => m[1]!.toLowerCase());
-    const uncovered = [...new Set(compared)].filter((n) => !CASE_INSENSITIVE_NAMES.has(n));
+    // cover every name-shaped literal that is not declared a non-attribute. Adding a
+    // comparison against a new attribute fails HERE until the set is extended.
+    const uncovered = shaped.filter(
+      (n) => !NOT_AN_ATTRIBUTE_NAME.has(n) && !CASE_INSENSITIVE_NAMES.has(n.toLowerCase()),
+    );
     expect(
       uncovered,
       "add these attribute names to CASE_INSENSITIVE_NAMES so the lowercase rule covers them",
