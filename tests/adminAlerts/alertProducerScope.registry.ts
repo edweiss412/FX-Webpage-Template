@@ -80,6 +80,9 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     site: "lib/sync/runManualSyncForShow.ts:261",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
+    // error_code is spread-conditional on the failure code being allowlisted
+    // (lib/sync/parseErrorContext.ts:16-23), so it is optional, not guaranteed.
+    optionalContextKeys: ["error_code"],
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
     note: "context built by buildParseErrorContext(lib/sync/runManualSyncForShow.ts:261); keys mirror the cron twin at lib/sync/runScheduledCronSync.ts:3386",
@@ -137,6 +140,9 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     site: "lib/sync/runScheduledCronSync.ts:3386",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
+    // error_code is spread-conditional on the failure code being allowlisted
+    // (lib/sync/parseErrorContext.ts:16-23), so it is optional, not guaranteed.
+    optionalContextKeys: ["error_code"],
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
     note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3386)",

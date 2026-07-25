@@ -155,11 +155,53 @@ function validateCodeContext(row: ScenarioAlertRow, where: string, out: string[]
   }
 }
 
+/** Codes whose placement can actually fan out. Mirrors deriveCrewMatch's own
+ *  code guard (lib/adminAlerts/deriveAlertRowFields.ts:59): production derives a
+ *  crewMatch for this code and no other, so a gallery row declaring one on any
+ *  other code would demo a placement production cannot produce
+ *  (spec 2026-07-24-gallery-alert-producer-parity §5). */
+const FAN_OUT_CAPABLE_CODES = new Set(["AMBIGUOUS_EMAIL_BINDING"]);
+
+/** §5 identity agreement: a declared galleryIdentity must not contradict the
+ *  row's own context, or the card renders copy its data disproves — a state no
+ *  producer can emit. */
+function validateIdentityAgreement(row: ScenarioAlertRow, where: string, out: string[]): void {
+  if (row.code !== "AMBIGUOUS_EMAIL_BINDING") return;
+  const identity = row.galleryIdentity;
+  if (!identity || !Array.isArray(identity.segments)) return;
+  const ctx = row.context;
+  const segs = identity.segments as { label?: string; value?: unknown }[];
+
+  const emailSeg = segs.find((s) => typeof s.value === "string" && s.value.includes("@"));
+  if (emailSeg && typeof ctx.email === "string" && emailSeg.value !== ctx.email) {
+    out.push(
+      `${where}: galleryIdentity email ${String(emailSeg.value)} disagrees with context.email ${ctx.email}`,
+    );
+  }
+
+  const ids = ctx.crew_member_ids;
+  const countSeg = segs.find((s) => typeof s.value === "string" && /^\d+\s/.test(s.value));
+  if (countSeg && Array.isArray(ids)) {
+    const declared = Number.parseInt(String(countSeg.value), 10);
+    if (Number.isFinite(declared) && declared !== ids.length) {
+      out.push(
+        `${where}: galleryIdentity count ${declared} disagrees with crew_member_ids.length ${ids.length}`,
+      );
+    }
+  }
+}
+
 /** Optional §6.2 crew fan-out declaration: UUID members, dedup-consistent
  *  expectedCount. Absent is legal (banner stays section-top). */
 function validateCrewMatch(row: ScenarioAlertRow, where: string, out: string[]): void {
   const cm = row.crewMatch;
   if (cm === undefined) return;
+  if (!FAN_OUT_CAPABLE_CODES.has(row.code)) {
+    out.push(
+      `${where}: crewMatch is only legal on a fan-out-capable code (${[...FAN_OUT_CAPABLE_CODES].join(", ")}), not ${row.code}`,
+    );
+    return;
+  }
   if (!isPlainObject(cm)) {
     out.push(`${where}: crewMatch must be an object`);
     return;
@@ -180,6 +222,20 @@ function validateCrewMatch(row: ScenarioAlertRow, where: string, out: string[]):
   const deduped = new Set(ids).size;
   if (cm.expectedCount !== deduped) {
     out.push(`${where}: crewMatch.expectedCount must equal the deduped id count`);
+  }
+
+  // §5 rule 2, no exceptions: production DERIVES crewMatch from
+  // context.crew_member_ids, so a declared override that disagrees with its own
+  // context is a state no producer can emit. The beyond-cap fallback scenario
+  // needs no carve-out here — it declares no crewMatch at all and lets
+  // derivation produce one.
+  const ctxIds = row.context.crew_member_ids;
+  if (Array.isArray(ctxIds)) {
+    const declared = [...new Set(ids)].sort().join(",");
+    const fromCtx = [...new Set(ctxIds.map(String))].sort().join(",");
+    if (declared !== fromCtx) {
+      out.push(`${where}: crewMatch ids disagree with context.crew_member_ids`);
+    }
   }
 }
 
@@ -202,6 +258,7 @@ function validateAlert(row: ScenarioAlertRow, i: number, out: string[]): void {
   }
   if (isPlainObject(row.context)) validateCodeContext(row, where, out);
   validateCrewMatch(row, where, out);
+  validateIdentityAgreement(row, where, out);
 }
 
 function validateHold(row: ScenarioHoldRow, i: number, out: string[]): void {

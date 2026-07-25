@@ -110,15 +110,22 @@ describe("deriveAttentionItems crewMatch passthrough (spec §6.2)", () => {
 });
 
 describe("validateScenario crewMatch field (spec §3.6 / §6.2)", () => {
-  function scenario(alertOverrides: Record<string, unknown>): AttentionScenario {
+  // A crewMatch is only legal on a fan-out-capable code, and must agree with
+  // its own context.crew_member_ids — production DERIVES the match from that
+  // array, so any other shape demos a state no producer can emit.
+  function scenario(
+    alertOverrides: Record<string, unknown>,
+    code = "AMBIGUOUS_EMAIL_BINDING",
+    context: Record<string, unknown> = { crew_member_ids: [A, B], email: "shared@example.test" },
+  ): AttentionScenario {
     return {
       id: "crew-match-demo",
       tier: 1,
       label: "Crew match demo",
       alerts: [
         {
-          code: "SYNC_STALLED",
-          context: {},
+          code,
+          context,
           raised_at: new Date().toISOString(),
           occurrence_count: 1,
           ...alertOverrides,
@@ -136,6 +143,33 @@ describe("validateScenario crewMatch field (spec §3.6 / §6.2)", () => {
 
   it("accepts a scenario omitting crewMatch entirely", () => {
     expect(validateScenario(scenario({}))).toEqual([]);
+    expect(validateScenario(scenario({}, "SYNC_STALLED", {}))).toEqual([]);
+  });
+
+  it("rejects a crewMatch on a code production cannot fan out", () => {
+    // SYNC_STALLED has no crew placement at all; deriveCrewMatch returns
+    // undefined for every code but AMBIGUOUS_EMAIL_BINDING
+    // (lib/adminAlerts/deriveAlertRowFields.ts:59).
+    expect(
+      validateScenario(
+        scenario({ crewMatch: { crewMemberIds: [A, B], expectedCount: 2 } }, "SYNC_STALLED", {}),
+      ),
+    ).not.toEqual([]);
+  });
+
+  it("rejects a crewMatch that disagrees with its own context.crew_member_ids", () => {
+    expect(
+      validateScenario(
+        scenario(
+          { crewMatch: { crewMemberIds: [A, C], expectedCount: 2 } },
+          "AMBIGUOUS_EMAIL_BINDING",
+          {
+            crew_member_ids: [A, B],
+            email: "shared@example.test",
+          },
+        ),
+      ),
+    ).not.toEqual([]);
   });
 
   it("rejects a non-UUID crewMatch member", () => {
