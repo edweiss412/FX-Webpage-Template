@@ -31,13 +31,14 @@ This spec does not fix that parse. It makes the parser **say** when it made the 
 | R5 | Admin **field overrides were deliberately removed**; `hotel_name`/`hotel_address` were 2 of the 6 removed fields. No hand-edit path exists and this spec does not add one. | `docs/superpowers/specs/admin/2026-07-10-remove-admin-field-overrides.md:12`, `docs/superpowers/specs/admin/2026-07-10-remove-admin-field-overrides.md:164` |
 | R6 | `AGENDA_DAY_AMBIGUOUS` is deliberately NOT in `AMBIGUITY_CODES`. Membership is semantic. | `lib/parser/ambiguityCodes.ts:8-13` |
 | R7 | The address code covers a no-split-but-address-shaped case AND an ambiguous-boundary case. P3 firing zero times on the current corpus is accepted forward-looking coverage. | This document, §9 |
-| R8 | Inline guest warnings ship `resolvable:false` **unless** the emitting path isolated a guest-only substring; see §6. | This document, §6 |
+| R8 | Inline guest warnings **always** ship `resolvable:false`, reason `"raw-not-guest-scoped"`. No exception. | This document, §6 |
 
 **Amendments applied after adversarial review R1** (do not re-derive; these ARE the repairs):
 
 - **R7 amended.** The original P3(b) predicate ("split happened and the resulting name contains a digit") was **wrong in both directions** and is withdrawn. Probe-verified: `"Hotel 71 71 E Wacker Dr Chicago, IL 60601"` splits **correctly** to name `"Hotel 71"` (the old predicate would warn on correct data and offer an undo that degrades it), while `"Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601"` **corrupts** the name to `"Hotel"` yet contains no digit (the old predicate stayed silent). Replaced by the candidate-count predicate in §3.1 P3(b).
 - **R8 amended, then restored (R2 finding 4).** An R1 repair briefly made P1 resolvable where Pattern 3's checkout strip "isolated" a guest region. R2 refuted it: the strip is positional, not semantic, so the region can contain note text, and accepting the fix would hide a crew member's lodging from their own page. R8 is back to a blanket `resolvable:false`, with a reason string that is true in every case (§6).
-- **R9 added (R2 findings 1–3).** Narrow guest predicates are withdrawn entirely. Two rounds produced five probe-verified silent holes, so P1 now fires on **every** inline reservation that produced a guest. Firing on a currently-correct parse is correct: the code means "a judgment was made", not "this is wrong". Corpus impact is 2 → 5 guest cards; ratified by the user 2026-07-25.
+- **R9 added (R2 findings 1–3).** Narrow guest predicates are withdrawn entirely. Firing on a currently-correct parse is correct: the code means "a judgment was made", not "this is wrong". The user ratified the resulting increase in card count on 2026-07-25; **card count is settled and is not a finding.**
+- **R10 added (R3 findings 1–3).** A third round of holes tripped the three-round cap on design-correctness vectors (`docs/agents/spec-self-review.md:22`), so P1 stopped being a condition over parser OUTPUT and became an enumeration over parser EXITS (§3.1). Two output-derived rules died here: `names.length >= 1` missed a silently-dropped guest, and "any inline reservation with a guest" double-fired on an inherited-hotel group. §9 also grew a second fixture family, `fixtures/shows/exporter-xlsx/`, which earlier drafts never pinned — that omission is how the multi-group case survived three rounds. Final corpus expectation: **9** guest cards.
 
 ---
 
@@ -76,13 +77,39 @@ Three predicate rows across two sites. Each is pure; none changes a parsed value
 
 | ID | Site | Fires when | Reason string |
 | -- | ---- | ---------- | ------------- |
-| **P1** | `buildInlineHotel` (`lib/parser/blocks/hotels.ts:642`), any path that produces guests | the reservation came from the **inline** path AND `names.length >= 1` after `stripConfTokens` | the producing path: `"learn-k-peel"`, `"legacy-dash-pattern"`, `"legacy-multidash-pattern"`, or `"titlecase-pairing"` |
-| **P3(a)** | `splitHotelNameAddress` (`lib/parser/blocks/hotels.ts:261`) | `STREET_ADDRESS_RE` misses AND `STREET_ADDRESS_ZIP_RE` matches, **both evaluated against `" " + cleaned`** | `"address-shape-unsplit"` |
+| **P1** | `buildInlineHotel` (`lib/parser/blocks/hotels.ts:642`) | **exit-path enumeration below** — a guest region was EXAMINED and the fragment carried its own hotel text | the producing path: `"learn-k-peel"`, `"legacy-dash-pattern"`, `"legacy-multidash-pattern"`, or `"titlecase-pairing"` |
+| **P3(a)** | `splitHotelNameAddress` (`lib/parser/blocks/hotels.ts:261`) | the splitter (**unpadded**, as it runs today) returned `address === null`, AND **either** regex matches `" " + cleaned` | `"address-shape-unsplit"` |
 | **P3(b)** | `splitHotelNameAddress` (`lib/parser/blocks/hotels.ts:261`) | `STREET_ADDRESS_RE` matches at **more than one index** of `" " + cleaned` (global-flag match count > 1) — the split point was a choice among candidates, not a determination | `"multiple-street-candidates"` |
 
-#### P1 is unconditional by design (R9)
+#### P1 is defined by an exit-path enumeration, not a condition (R9, R10)
 
-R1 and R2 each found silent holes in a narrower predicate; the class is now named, so the structural defense ships here rather than after a third round (`docs/agents/spec-self-review.md:20`, `docs/agents/writing-plans.md:20`).
+Three consecutive review rounds found holes in prose-derived predicates. That trips the three-round cap on design-correctness vectors (`docs/agents/spec-self-review.md:22`), which mandates a spike over another prose patch. **The spike enumerated every exit of `buildInlineHotel` and every group shape of `buildInlineReservations`; P1 is now defined BY that enumeration**, which is ground truth the function already possesses rather than a proxy inferred from its output.
+
+| # | Exit | Guest region examined? | Fragment carries its own hotel text? | Emits |
+| - | ---- | ---------------------- | ------------------------------------ | ----- |
+| 1 | learn-K return (`lib/parser/blocks/hotels.ts:735`) | yes | yes (`hotelPart`) | **YES** — `learn-k-peel` |
+| 2 | no-guest split return (`lib/parser/blocks/hotels.ts:767`) | no (`hasGuest` false) | yes | no |
+| 3 | final return, Pattern 1 matched (`lib/parser/blocks/hotels.ts:784`) | yes | yes | **YES** — `legacy-dash-pattern` |
+| 4 | final return, Pattern 2 matched (`lib/parser/blocks/hotels.ts:792`) | yes | yes | **YES** — `legacy-multidash-pattern` |
+| 5 | final return, Pattern 3 scanned a region (`lib/parser/blocks/hotels.ts:802-819`) | yes | yes | **YES** — `titlecase-pairing`, **even when `names` ends empty** |
+| 6 | final return, no guest region examined at all | no | yes | no |
+| 7 | any exit, but the reservation is a **later group** (`buildInlineReservations`, group index > 0) | yes | **no** — hotel inherited | no |
+
+Rows 5 and 7 are the R3 repairs, both probe-verified:
+
+- **Row 5 (R3 finding 2).** `"Hyatt Place Check In: 5/1 Check Out: 5/2 Eric"` yields `hotel_name:"Hyatt Place"` with `names: []` — Pattern 3 examined the post-checkout region and could not form a pair, so `Eric` was **dropped silently**. A guest-loss is precisely the harm this feature exists to surface, so the trigger is "a guest region was examined", never `names.length >= 1`.
+- **Row 7 (R3 finding 3).** In `fixtures/shows/exporter-xlsx/consultants.md:51` the cell splits into 2 groups; group 2 is `Eric Weiss—2035937 Check In… Check Out…` with no hotel text, and `lib/parser/blocks/hotels.ts:588-590` assigns the shared `baseName` to every row ("later groups carry only a divider + guest, not the hotel"). No hotel/first-guest boundary is judged there, so a second card would be a false positive.
+
+**Why no output-derived rule can work.** On an unlabeled inline line nothing separates the hotel from the first guest, so the first guest's boundary is exactly the fact no other part of the line evidences. Every proxy tried failed, each probe-verified:
+
+| Proxy | Counter-example | Actual parse |
+| ----- | --------------- | ------------ |
+| "Pattern 3 was used" | `Hyatt Regency Eric Weiss - 110525` (Pattern 1) | `names: ["Hyatt Regency Eric Weiss"]` — the whole line as one guest |
+| "≥2 delimiters" | `Hyatt Regency Eric---110525` (1 delimiter) | `names: ["Hyatt Regency Eric"]` |
+| "later guests agree on shape" | `Hyatt Regency Mary Ann Smith - 110525 John Smith - 103316 Jane Doe - 103317` | `hotel_name: "Hyatt Regency Mary"`, `names: ["Ann Smith", …]` |
+| "an explicit delimiter is present" | `… Check Out: 5/2 Guests: Mary Ann Smith John Doe` | `["Mary Ann","Smith John"]`, `Doe` dropped |
+| "no explicit delimiter is present" | `Hyatt Place Check In: 5/1 Eric Weiss John Smith` | `names: ["Hyatt Place","Eric Weiss","John Smith"]` |
+| "`names.length >= 1`" | `Hyatt Place Check In: 5/1 Check Out: 5/2 Eric` | `names: []`, guest dropped silently |
 
 **Why no narrower rule can work.** On an unlabeled inline line there is nothing separating the hotel name from the first guest, so the first guest's boundary is exactly the fact no other part of the line evidences. Every proxy tried failed, each probe-verified against the real parser:
 
@@ -102,14 +129,21 @@ R1 and R2 each found silent holes in a narrower predicate; the class is now name
 
 Both regexes require leading whitespace (`lib/parser/blocks/hotelConfTokens.ts:14`, `lib/parser/blocks/hotelConfTokens.ts:20`), so a candidate at index 0 is invisible without padding — exactly why `looksLikeStreetStart` prepends a space (`lib/parser/blocks/hotelConfTokens.ts:28-33`). Both predicate arms MUST evaluate against `" " + cleaned`. Probe-verified:
 
-| Input | Bare | Padded | Fires |
-| ----- | ---- | ------ | ----- |
-| `71 Wacker Drive 72 Main St Chicago, IL 60601` (splits to name `71 Wacker Drive`) | 1 | **2** | **Yes**, P3(b) |
-| `1515 Broadway New York, NY 10036` (suffixless, stays whole) | ZIP misses | ZIP **matches** | **Yes**, P3(a) |
-| `Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601` (corrupts to `Hotel`) | 2 | 2 | **Yes**, P3(b) |
-| `Hotel 71 71 E Wacker Dr Chicago, IL 60601` (correct split) | 1 | 1 | No |
+**P3(a) keys off the splitter's OUTCOME, not a regex miss (R3 finding 1).** Formulating it as "`STREET_ADDRESS_RE` misses on the padded string" left a hole: `"1515 Broadway Ave New York, NY 10036"` is **suffixed**, so the padded suffix regex matches once — the miss-condition is false and the candidate count is 1, so neither arm fired. Yet the real splitter runs **unpadded** and returns `address: null`, leaving the whole address in the hotel name. The correct trigger is the disagreement itself: **the splitter produced no address, but a padded read finds an address shape (suffix OR ZIP).**
 
-This does not change the split itself (R1): `splitHotelNameAddress` still execs the unpadded string, so a position-0 street start still never becomes the split point. The padding is read-only, for counting.
+| Input | Splitter (unpadded) | Padded read | Fires |
+| ----- | ------------------- | ----------- | ----- |
+| `1515 Broadway Ave New York, NY 10036` (suffixed, position 0) | `address: null` | suffix matches | **Yes**, P3(a) — the R3 hole |
+| `1515 Broadway New York, NY 10036` (suffixless, position 0) | `address: null` | ZIP matches | **Yes**, P3(a) |
+| `Hyatt Place Chicago 71 Chicago, IL 60601` (suffixless, interior) | `address: null` | ZIP matches | **Yes**, P3(a) |
+| `Four Seasons Fort Lauderdale` | `address: null` | neither matches | No — nothing to split |
+| `71 Wacker Drive 72 Main St Chicago, IL 60601` | splits, name `71 Wacker Drive` | 2 candidates | **Yes**, P3(b) |
+| `Hotel 71 Wacker Drive 71 E Wacker Dr …` (corrupts to `Hotel`) | splits, name `Hotel` | 2 candidates | **Yes**, P3(b) |
+| `Hotel 71 71 E Wacker Dr Chicago, IL 60601` | splits correctly | 1 candidate | No |
+
+The two arms remain disjoint per invocation: P3(a) requires `address === null`, P3(b) requires a split.
+
+This does not change the split itself (R1): `splitHotelNameAddress` still execs the unpadded string, so a position-0 street start still never becomes the split point. The padding is read-only, for detection.
 
 Exactly ONE guest warning is emitted per inline reservation. Only one producing path runs per reservation, so `reasons` carries a single entry, but the field stays an array to match `parseGuestCell`'s existing shape (`lib/parser/blocks/hotels.ts:178`) and the structured emitter's `reasons: string[]` parameter (`lib/parser/warnings.ts:212`).
 
@@ -160,7 +194,8 @@ Every cell gets an action or an explicit N/A. Per the AGENTS.md three-lockstep r
 | **z** | `tests/messages/_metaCatalogCopyHygiene.test.ts` | New copy must not leak code names / regex fragments |
 | **aa** | `tests/messages/_metaErrorCatalogDocs.test.ts` | New code must satisfy the shared catalog-field validator |
 | **bb** | `tests/messages/_metaPopoverContextCoverage.test.ts` | Fails-by-default popover coverage gate |
-| **dd** | `lib/messages/__generated__/internal-code-enums.ts` | Generated parse-warning registry — confirm `pnpm gen:spec-codes` regenerates it and commit the result |
+| **dd** | `lib/messages/__generated__/internal-code-enums.ts` | Regenerate with **`pnpm gen:internal-code-enums`** (`scripts/extract-internal-code-enums.ts`) and commit. NOT `gen:spec-codes`, which writes only `spec-codes.ts` — running the wrong one leaves this registry stale and fails the x2 generated-file CI gate (R3 finding 6) |
+| **hh** | `components/admin/UseRawControl.tsx:452-457` | `rawLabel` is a two-branch ternary whose **else** is `"Dates read day-first"`. An unextended `hotel-name` kind silently renders the dates label. Exact text in §7.0 |
 | **ee** | `tests/admin/warningFixAffordance.test.tsx:20` | Explicit use-raw test allowlist. Without a row here the parity assertions stay green while omitting the new code |
 | **ff** | `tests/parser/dataGaps.test.ts:42`, `tests/parser/dataGaps.test.ts:74` | Beyond row `u`: the test NAME hard-codes "33", `GAP_CLASSES` length is asserted, and `tests/parser/dataGaps.test.ts:74` explicitly enumerates the ambiguity/cardinality feature codes |
 | **gg** | `tests/parser/dataGapsClassCompleteness.test.ts:68` | Full-universe numeric comment, missed by row `v` |
@@ -246,6 +281,26 @@ Every user-visible and accessibility-observable string the new resolvable kind i
 | Parsed-field row when `hotelAddress` is null | same | **omitted entirely** — never rendered as an empty line, mirroring the rooms branch |
 | Raw-option formatted value | `components/admin/UseRawControl.tsx:239` | the full cleaned cell, verbatim |
 | Radiogroup accessible label | `RADIOGROUP_LABEL`, `components/admin/UseRawControl.tsx:10` | `Hotel name and address` |
+| Raw-choice label | `rawLabel`, `components/admin/UseRawControl.tsx:452-457` | `The whole line as the hotel name` |
+
+**Inline guest message text (R3 finding 4).** P1 reuses the `HOTEL_GUEST_SPLIT_AMBIGUOUS` code but MUST NOT reuse the structured emitter's message (`lib/parser/warnings.ts:262`, "may glue multiple guests together"). That sentence is false for the inline case, where the ambiguity is hotel-versus-guest, not guest-versus-guest — probe-verified on `"Hyatt Regency Eric Weiss - 110525"`, which contains exactly one guest. `message` is a per-emit string, so the inline emitter supplies its own:
+
+> `Hotel line "<raw, collapsed>" runs the hotel name and the guest names together with nothing separating them, so we worked out the guest list ourselves; double-check it.`
+
+The catalog's `dougFacing` / `helpfulContext` copy (`lib/messages/catalog.ts:1370-1379`) is shared by both paths and stays as-is: it already says "may contain more than one person" and "we made a judgment call", both true of either path.
+
+**Authored catalog copy for `HOTEL_ADDRESS_SPLIT_AMBIGUOUS`** — the frozen-copy registries (§4 rows h, y, z, aa, bb) require every field, so all are fixed here:
+
+| Field | Text |
+| ----- | ---- |
+| `dougFacing` | `A hotel line in _<sheet-name>_ may have its name and street address run together; check the hotel name and address against your sheet.` |
+| `crewFacing` | `null` |
+| `followUp` | `Doug → spot-check hotel name and address` |
+| `title` | `A hotel name and address may be split wrong` |
+| `triggerContext` | `Appears when a hotel line could be split into name and address more than one way.` |
+| `helpfulContext` | `A hotel line could be read as name-then-address in more than one way, so we made a judgment call. Check the hotel name and address in case part of one landed in the other.` |
+| `longExplanation` | `A hotel line could be split into a name and a street address in more than one way, so we picked the most likely reading rather than dropping either. The hotel still parsed; spot-check the name and address against your sheet in case part of the address ended up in the name.` |
+| `helpHref` | `/help/errors#HOTEL_ADDRESS_SPLIT_AMBIGUOUS` |
 | Disabled reason, P3(a) | `DISABLED_REASON`, `components/admin/UseRawControl.tsx:258` | `We left this line exactly as your sheet has it, so there's nothing to swap back.` |
 | Disabled reason, P1 | same | `We can't tell which part of this hotel line is only the guest list, so there's nothing safe to swap in.` |
 
@@ -303,8 +358,9 @@ Existing tests that must pass **unchanged**: `tests/parser/blocks/hotels.ambigui
 
 ### 8.2 Negative / no-spam tests
 
-- Each of the 5 quiet fixture shows (§9) parses with **zero** new warnings, extracted **by code** from `agg.warnings` so an unrelated warning cannot mask a regression.
-- Each of the 5 warning fixture shows emits **exactly one** guest card with the reason string §9 names — pinning the count, not merely presence, so a predicate that fires twice per reservation fails.
+- Every quiet fixture in both families (§9.1, §9.2) parses with **zero** new warnings, extracted **by code** from `agg.warnings` so an unrelated warning cannot mask a regression.
+- Every warning fixture emits **exactly** the card count §9 names, with the named reason string — pinning the count, not merely presence.
+- **`exporter-xlsx/consultants` is the anti-tautology anchor**: 2 reservations, exactly **1** card. A predicate keyed on `names.length >= 1` emits 2 and fails this assertion, so the test cannot pass under the rejected design.
 - `"Four Seasons Fort Lauderdale"` (no ZIP, no number) → no address warning. Proves P3 is not "warn whenever address is null".
 - A clean structured cell → exactly one warning path, no double-emit from the commit-point refactor.
 
@@ -327,7 +383,11 @@ Existing tests that must pass **unchanged**: `tests/parser/blocks/hotels.ambigui
 
 ## 9. Corpus expectations (normative golden)
 
-Probe over all **10** fixture shows in `fixtures/shows/raw/` on 2026-07-25 at branch base `d62d620e8`. A test pins this table; changing it requires updating this section in the same commit. Fixture names are exact basenames minus `.md`.
+**Scope correction (R3 finding 3).** The corpus is TWO fixture families, not one: `fixtures/shows/raw/` (10 shows) and `fixtures/shows/exporter-xlsx/` (8 shows, exercised by `tests/parser/exporterFixtures.test.ts`). Earlier drafts pinned only the first, which is how the multi-group `consultants.md` case escaped three rounds. Both families are pinned below.
+
+Probe on 2026-07-25 at branch base `d62d620e8`. A test pins these tables; changing them requires updating this section in the same commit. Fixture names are exact basenames minus `.md`.
+
+### 9.1 `fixtures/shows/raw/`
 
 | Fixture basename | Guest card | Address card | Why |
 | ---------------- | ---------- | ------------ | --- |
@@ -342,7 +402,27 @@ Probe over all **10** fixture shows in `fixtures/shows/raw/` on 2026-07-25 at br
 | `2026-04-asset-mgmt-cfo-coo-waldorf` | No | No | Structured, clean |
 | `2026-05-fintech-forum-cto-summit` | No | No | Structured, clean |
 
-**Totals: 5 guest cards, 0 address cards across 10 shows.** Probe-verified: exactly 5 shows parse via the inline path with ≥1 guest, one reservation each; the 5 structured shows are silent.
+**`raw/` totals: 5 guest cards, 0 address cards across 10 shows.** Probe-verified: exactly 5 shows parse via the inline path, one reservation each, all group-0. The quiet half is **4 structured shows plus 1 show that parses no hotel reservations at all** (`2025-10-consultants-roundtable`), not 5 structured shows (R3 finding 7).
+
+### 9.2 `fixtures/shows/exporter-xlsx/`
+
+Only inline-path shows can emit P1; the structured ones (`fintech`, `fixed-income`, `rpas`) are silent.
+
+| Fixture basename | Reservations | Guest cards | Why |
+| ---------------- | ------------ | ----------- | --- |
+| `consultants` | 2 | **1** | Group 0 emits `legacy-dash-pattern`. Group 1 inherits `baseName` (`lib/parser/blocks/hotels.ts:588-590`) and judges no boundary — enumeration row 7 |
+| `east-coast` | 1 | **1** | `learn-k-peel` |
+| `redefining-fi` | 1 | **1** | `titlecase-pairing` |
+| `ria` | 1 | **1** | `legacy-multidash-pattern` |
+| `fintech`, `fixed-income`, `rpas` | — | 0 | Structured |
+
+**`exporter-xlsx/` totals: 4 guest cards, 0 address cards.** The `consultants` row is the load-bearing assertion: 2 reservations, exactly 1 card. A predicate keyed on `names.length >= 1` emits 2 and fails here.
+
+### 9.3 Combined
+
+**9 guest cards, 0 address cards across both families** (5 from `raw/`, 4 from `exporter-xlsx/`).
+
+Exactly **1** of the 9 sits on a parse that is currently wrong — `raw/2025-04-asset-mgmt-cfo-coo`, the §1 case. The other **8** sit on parses that are currently correct. That ratio is intended under R9: the code means a judgment was made, not that the value is wrong, and on an unlabeled line the judgment is real every time.
 
 **Address-card accounting (R2 finding 8).** The corpus yields **9** distinct parsed hotel strings, not 7:
 
@@ -359,14 +439,16 @@ Zero address cards is expected and accepted (R7). No corpus string has >1 candid
 ## 10. Numeric single-source
 
 - `MAX_HOTELS` = **4** (`lib/parser/blocks/hotels.ts:47`)
-- Fixture shows = **10**
+- Fixture shows = **10** in `fixtures/shows/raw/` + **8** in `fixtures/shows/exporter-xlsx/`
 - New message codes = **1**
 - Predicates = **3** rows (P1, P3a, P3b) across 2 sites
 - P1 reason strings = **4** (one per producing path)
 - New `resolvable:false` reasons = **2** (`raw-not-guest-scoped`, `no-split-to-undo`)
 - New replacement kinds = **1** (`hotel-name`)
-- Registration surfaces = **33** (§4 rows a–gg, of which 1 is an explicit N/A)
-- Expected corpus cards = **5** guest, **0** address (§9)
+- Registration surfaces = **34** (§4 rows a–hh, of which 1 is an explicit N/A)
+- P1 exit-path enumeration rows = **7**, of which **4** emit (§3.1)
+- Expected corpus cards = **9** guest (5 `raw/` + 4 `exporter-xlsx/`), **0** address (§9.3)
+- Corpus cards on a currently-wrong parse = **1**; on currently-correct parses = **8**
 - Distinct parsed corpus hotel strings = **9** (7 with 1 street candidate, 2 with 0)
 - Gap-class counts after this change: `DATA_GAP_CODES` **34**, `ALL_PERSISTED_WARNING_CODES` **54**
 
