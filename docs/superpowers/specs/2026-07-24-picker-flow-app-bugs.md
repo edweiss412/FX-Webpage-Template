@@ -70,7 +70,7 @@ export function hostRelativeRedirect(path: string, status?: number): NextRespons
 
 Behavior:
 
-- Returns `new NextResponse(null, { status, headers: { Location: path } })` with `status` defaulting to 302. The status is validated, not merely defaulted: only an integer in the 300-399 range is accepted, and `null`, `NaN`, a non-integer, or any non-redirect code throws. A `??` default alone would silently turn `null` into 302 and would let a 200 carrying a `Location` header through, which has no redirect semantics at all (R1 finding 8). A relative `Location` is legal per RFC 7231 section 7.1.2 and is resolved by the browser against the request URL it actually used, so the host can never flip.
+- Returns `new NextResponse(null, { status, headers: { Location: path } })` with `status` defaulting to 302. The status is validated against the exact set Next itself treats as a redirect — `REDIRECTS = new Set([301, 302, 303, 307, 308])` in the installed Next build (installed Next build, spec-extension/response.js lines 7-13, reading `REDIRECTS = new Set([301, 302, 303, 307, 308])`) — and anything else throws. A 300-399 range would have been wrong for the same reason 200 is wrong: 300, 304, and 399 carry a `Location` that browsers do not follow, so a helper named "redirect" must not mint them (R2 finding 2). A `??` default alone would silently turn `null` into 302 and would let a 200 carrying a `Location` header through, which has no redirect semantics at all (R1 finding 8). A relative `Location` is legal per RFC 7231 section 7.1.2 and is resolved by the browser against the request URL it actually used, so the host can never flip.
 - **Guard.** Throws `InvalidRelativeRedirectPathError` unless `path` starts with a single slash — `path[0] === "/" && path[1] !== "/"` — and contains no backslash and no control characters. Rejected examples:
 
   ```text
@@ -96,26 +96,35 @@ Guard conditions per input, as required by `docs/agents/spec-self-review.md`:
 | `path` | absolute URL with scheme | throws (fails the leading-slash check) |
 | `path` | contains a backslash or a control character | throws |
 | `status` | `undefined` | 302 |
-| `status` | `null`, `NaN`, a non-integer, or a number outside 300-399 | throws `InvalidRelativeRedirectPathError` |
-| `status` | an integer in 300-399 | used verbatim (303 at site 4, 302 everywhere else) |
+| `status` | anything other than 301, 302, 303, 307, or 308 — including `null`, `NaN`, `302.5`, `200`, `300`, `304`, and `399` | throws `InvalidRelativeRedirectPathError` |
+| `status` | 301, 302, 303, 307, or 308 | used verbatim (303 at site 4, 302 everywhere else) |
 
 ### 3.3 Application
 
 - Sites 1, 2, 4: replace the `NextResponse.redirect(new URL(...))` expression with `hostRelativeRedirect(...)`, preserving each site's status (302, 302, 303). Site 2 keeps every subsequent `response.cookies` and `Set-Cookie` mutation unchanged — `NextResponse` supports them identically.
-- Sites 3 and 5: `redirectTo` keeps its name, signature, and position in the file; only its body changes to `return hostRelativeRedirect(path, status)`. `signInRedirect` likewise keeps its name and signature, but builds its query with `URLSearchParams` instead of mutating a `URL` object, then returns `hostRelativeRedirect` with a sign-in path carrying that query string, at status 302. Both parameter values (`code`, `next`) stay percent-encoded exactly as `URLSearchParams` emits them.
+- Sites 3, 5, and 6: `redirectTo` keeps its name, signature, and position in the file; only its body changes to `return hostRelativeRedirect(path, status)`. `signInRedirect` likewise keeps its name and signature, but builds its query with `URLSearchParams` instead of mutating a `URL` object, then returns `hostRelativeRedirect` with a sign-in path carrying that query string, at status 302. Both parameter values (`code`, `next`) stay percent-encoded exactly as `URLSearchParams` emits them. Site 6 is the *same edit in a different file*: `app/api/auth/google/start/route.ts` has its own local helper that also happens to be named `signInRedirect` (`app/api/auth/google/start/route.ts:7`), building at line 8 and redirecting at line 11; it gets the identical treatment. R2 finding 10 caught §3.3 enumerating sites 1, 2, 4, 3, and 5 while never naming site 6.
 
   **Names are kept, but not because a live gate requires it.** `lib/audit/authChain.ts:130` encodes an expectation that the first call named `redirect`, `redirectTo`, or `signInRedirect` appears after `validateNextParamDetailed` or `validateNextParam` — but `auditM5AuthFile` (`lib/audit/authChain.ts:177`) has **no callers anywhere in the repo** (verified 2026-07-24: the only match is its own definition; the live X.3 audit is `auditProjectAuthChains` from `lib/audit/authPrimitives.ts:815`, which has no redirect-ordering rule). R1 finding 9 surfaced this by noticing that the sign-out POST body no longer contains the literals `lib/audit/authChain.ts:170` greps for, yet CI is green — which is only possible because the function never runs. The names stay anyway: renaming them is churn this change does not need, and keeping them means the dormant audit stays correct if it is ever wired up. Reviving or deleting that dead audit is explicitly out of scope (§8).
 - `app/auth/sign-out/route.ts` keeps its local `clearPickerCookie()` and `clearSupabaseAuthCookies(request, response)` calls inside `POST` unchanged — the redirect at line 132 is the only edit. This is minimal-diff discipline, not gate compliance: as established above, the `lib/audit/authChain.ts:170` grep never executes.
 
 ### 3.4 Structural guard
 
-A new test, tests/cross-cutting/no-absolute-self-redirect.test.ts, filesystem-walked over `app/**/*.ts` and `app/**/*.tsx` (fails-by-default for new files, matching the walker style of `tests/log/_metaMutationSurfaceObservability.test.ts`). It fails on any `NextResponse.redirect(` whose argument constructs a `new URL` against `request.url` or `req.url`, or which passes a variable assigned from such a construction in the same function. No allow-list rows: after this change, zero sites in `app/` use the shape, and `app/api/auth/google/start/route.ts:11` does not match because it redirects to externally-supplied absolute URLs, never to `request.url`.
+A new test, tests/cross-cutting/no-absolute-self-redirect.test.ts, filesystem-walked over `app/**/*.ts` and `app/**/*.tsx` (fails-by-default for new files, matching the walker style of `tests/log/_metaMutationSurfaceObservability.test.ts`). It fails on any `NextResponse.redirect(` whose argument constructs a `new URL` against `request.url` or `req.url`, or which passes a variable assigned from such a construction in the same function. No allow-list rows: after this change, zero sites in `app/` use the shape. The one redirect that keeps an absolute target is `app/api/auth/google/start/route.ts:65`, which passes Supabase's externally-issued `data.url` and so never matches the detector. (R2 finding 10: an earlier revision misidentified line 11 as that external redirect. Line 11 is site 6, a self-redirect, and is fixed by this change.)
 
 Anti-tautology, in three layers, because a walked-file count alone proves only that traversal worked (R1 finding 6):
 
 1. **Detector fixtures.** The matcher is a pure exported function tested against synthetic sources: one inline `NextResponse.redirect(new URL(p, request.url))`, one variable-assigned `const url = new URL(p, request.url); return NextResponse.redirect(url)`, one `req.url` spelling of each, and three negatives (`NextResponse.redirect(data.url)`, a `new URL` with an absolute base, and a bare `new URL(..., request.url)` never passed to a redirect).
 
-   That last negative is not hypothetical — the live tree contains four such uses that must **not** be flagged: `app/api/auth/picker-bootstrap/route.ts:145`, `app/api/admin/venue-map/route.ts:21`, and `app/api/cron/notify/route.ts:63` parse search params out of the request URL, and `app/api/auth/google/start/route.ts:44` builds the absolute OAuth `redirectTo` handed to Supabase. A detector keyed on `new URL(..., request.url)` alone rather than on that value reaching `NextResponse.redirect` would flag all four, so the tree walk is what proves the matcher is not over-broad. A detector that recognises neither form, or only the inline form, fails here rather than passing vacuously on a fixed tree.
+   That last negative is not hypothetical, though only one live instance is a true peer of the banned shape: `app/api/auth/google/start/route.ts:44` builds `new URL("/auth/callback", request.url)` — the two-argument form — and hands it to Supabase rather than to a redirect. Three further uses are the **one-argument** parse form, `new URL(request.url)` / `new URL(req.url)`, at `app/api/auth/picker-bootstrap/route.ts:145`, `app/api/admin/venue-map/route.ts:21`, and `app/api/cron/notify/route.ts:63`; the detector does not consider them at all, so citing them as calibration was inaccurate (R2 finding 8). They remain in the fixture set as trivial negatives.
+
+**Detector algorithm, defined rather than described.** "Assigned in the same function" is not a specification, so the matcher is AST-based, using the `typescript` compiler API already used by `lib/audit/authChain.ts:1`, not a regex over text. For each `CallExpression` whose callee is `NextResponse.redirect`, take the first argument and resolve it through a bounded local data-flow walk:
+
+- a `NewExpression` of `URL` with two arguments, where the second resolves to a property access ending in `.url` on an identifier named `request` or `req` — flag;
+- an `Identifier` — resolve to its declaration within the enclosing function or module scope and re-apply this rule to the initializer, following at most three assignment hops so an alias chain (`const a = new URL(p, request.url); const b = a; redirect(b)`) is caught and a cycle cannot hang the walk;
+- a base captured first (`const base = request.url; new URL(p, base)`) — the same resolution applies to the second argument, so this variant is caught;
+- anything else (a call result such as `data.url`, a `URL` built on an absolute string literal, a parameter) — do not flag.
+
+The fixture set in layer 1 includes one case per bullet, including the alias chain and the captured-base variant, so a matcher that handles only the two shapes the first draft named fails. A detector that recognises neither form, or only the inline form, fails here rather than passing vacuously on a fixed tree.
 2. **Tree walk.** The same matcher runs over every `.ts` and `.tsx` under `app/`; the flagged list must be empty. Reverting any one of the six fixes makes this fail.
 3. **Coverage floor.** The walk asserts it visited more than 50 files, so a broken glob cannot pass with an empty list.
 
@@ -140,7 +149,19 @@ Guest mode therefore has to be durable state, or the session has to go. The user
 `clearIdentityAndSkip` (`lib/auth/picker/clearIdentity.ts:55`) becomes, in order:
 
 1. **Parse and fully validate the input.** Parse the form data as today (`null` gives `{ ok: false, code: "PICKER_INVALID_INPUT" }`), then run the slug, share-token, and show-id regex checks that today live inside `clearIdentityCoreImpl` (`lib/auth/picker/clearIdentity.ts:74-80`) **before** anything destructive happens. R1 finding 3: with validation left downstream, a malformed direct submission signed the person out and only then reported `PICKER_INVALID_INPUT`. The checks are hoisted into a shared exported predicate so `clearIdentityCoreImpl` keeps its own guard and the two cannot drift.
-2. **Refuse cross-site invocation.** Read `sec-fetch-site` and `origin` from `headers()` and return `{ ok: false, code: "PICKER_INVALID_INPUT" }` unless the request is same-origin, mirroring the gate at `app/auth/sign-out/route.ts:78-87`: accept when `sec-fetch-site` is `same-origin` or `none`, otherwise fall back to comparing `origin` against the request origin, and treat an absent `origin` on a request that also lacks `sec-fetch-site` as same-origin. R1 finding 4: Next's built-in Server Action origin check permits a request with no `Origin` header, and UI reachability is not authorization for a destructive action — the Mode B render gate does not constrain who can invoke the exported action.
+2. **Refuse cross-site invocation.** Read the request headers via `headers()` and return `{ ok: false, code: "PICKER_INVALID_INPUT" }` unless the request is same-origin. R1 finding 4 motivates the gate: Next's built-in Server Action origin check permits a request with no `Origin` header, and UI reachability is not authorization for a destructive action — the Mode B render gate does not constrain who can invoke the exported action.
+
+   The decision table **exactly mirrors** `app/auth/sign-out/route.ts:78-87`, including its decisiveness, which the first draft got wrong by falling through to an `origin` comparison whenever `sec-fetch-site` was not accepted (R2 finding 3 — that let a contradictory `sec-fetch-site: cross-site` plus a matching `Origin` through):
+
+   | `sec-fetch-site` | `origin` | Outcome |
+   | --- | --- | --- |
+   | `same-origin` or `none` | any | accept |
+   | present, any other value (`cross-site`, `same-site`) | any | **reject** — decisive, no `origin` fallback |
+   | absent | absent | accept |
+   | absent | equal to the derived origin | accept |
+   | absent | anything else | reject |
+
+   **Derived origin.** The route form reads `request.nextUrl.origin`, which a Server Action has no equivalent of, so the action composes it from headers: scheme from `x-forwarded-proto` (falling back to `https`, since every deployed environment is TLS and local dev supplies the header), host from `x-forwarded-host` when present, otherwise `host`. A missing `host` header makes the derived origin unknowable, which is treated as a reject rather than an accept.
 3. **Clear the picker entry.** `clearIdentityCore(input)` exactly as today (`lib/auth/picker/clearIdentity.ts:64`). On `{ ok: false }`, return it and stop — nothing destructive has happened yet.
 4. **Sign out, device-locally.** `await (await createSupabaseServerClient()).auth.signOut({ scope: "local" })`, then clear any residual Supabase auth cookies. On a returned error or a thrown error: emit `log.error` with `code: "AUTH_SIGNOUT_FAILED"` and return `{ ok: false, code: "AUTH_SIGNOUT_FAILED" }` **without** redirecting.
 
@@ -150,7 +171,15 @@ Guest mode therefore has to be durable state, or the session has to go. The user
 
 5. **Redirect.** `buildShowReturnUrl(input.slug, input.shareToken, { s: input.s, gate: "skip" })` (unchanged, `lib/auth/picker/clearIdentity.ts:61`).
 
-**Ordering rationale — picker entry first, then sign-out.** The reverse order (sign-out first) is *less* safe, which R1 finding 3 established: if the picker clear then failed, the foreign session would be gone while the stale picker identity survived, and the very next request would resolve that stale identity to `resolved` and render the show body as that person — exposing exactly the identity the `google_mismatch` gate had been masking. Clearing the entry first makes every failure state non-exposing.
+**Ordering rationale — picker entry first, then sign-out.** The reverse order (sign-out first) is *less* safe, which R1 finding 3 established: if the picker clear then failed, the foreign session would be gone while the stale picker identity survived, and the very next request would resolve that stale identity to `resolved` and render the show body as that person — exposing exactly the identity the `google_mismatch` gate had been masking. Clearing the entry first makes every **server-side** failure state non-exposing.
+
+**The lost-response interleaving, stated rather than claimed away** (R2 finding 1). Cookie mutations are staged into the action's response; sign-out revocation is an external side effect that has already happened by then. If that response never lands, the browser keeps both the stale picker entry and its auth cookies, and because the access token stays valid until expiry (auth-js revokes the refresh token, not the issued JWT), the mismatch gate keeps rendering until expiry — after which the stale picker entry resolves. Three things make this an accepted limitation rather than a defect to design around:
+
+1. **It is not a new exposure.** That same end state — a device holding a stale picker entry with no usable Google session — is reachable today with no guest tap at all: the foreign session simply expires. The picker cookie *is* the crew auth mechanism on the share-link path, so a surviving entry resolving after a session lapses is existing behavior, not an escalation this change introduces.
+2. **No ordering fixes it.** Both mutations ride the same response, so a lost response loses the picker deletion whichever order the server used. The only cure is durable server-side guest state, which is the design the user ratified against (§1.1).
+3. **The precedent is identical.** `app/auth/sign-out/route.ts` revokes and clears cookies in one response and has exactly this property; nothing in this change makes the guest path weaker than the app's own sign-out button.
+
+The claim this spec makes is therefore the narrow one: every failure the *server* can observe leaves a non-exposing state, and the unobservable case degrades to a state already reachable without this feature.
 
 **Failure-state matrix.** Every reachable outcome, its residual state, and what the person sees:
 
@@ -162,6 +191,7 @@ Guest mode therefore has to be durable state, or the session has to go. The user
 | `signOut` returns an error, or the client constructor throws (step 4) | **cleared** | live | Mode B (mismatch still decided first) | the same gate; tap is retryable; no stale identity is reachable |
 | Cookie sweep throws after `signOut` succeeded (step 4) | **cleared** | revoked, cookie possibly still present | Mode A first-contact gate, because a revoked token fails `validateGoogleSession` and no picker entry remains | the welcome gate, whose "Skip and pick your name" CTA reaches the picker |
 | All steps succeed | cleared | signed out | picker (`first_contact` plus `?gate=skip`) | the roster |
+| Every step succeeds server-side but the response never reaches the browser (process death, dropped connection) | **not** cleared — the deletion was only staged into that response | revoked server-side; the browser keeps the cookie until the access token expires | mismatch gate until the access token expires, then the stale picker entry resolves | the mismatch gate, then eventually the previously-picked identity |
 
 No new user-visible copy is introduced for the failure branches: in every case the person is returned to a gate whose own CTA is the retry, and the typed result the form wrapper discards (`app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:34-38`) carries no information the gate does not already convey. That is a deliberate scope decision, recorded here so it is not mistaken for an oversight; the failure is observable through the `AUTH_SIGNOUT_FAILED` emit.
 
@@ -256,7 +286,7 @@ Local run note: `TEST_DATABASE_URL` in the shared `.env.local` is non-loopback (
 
 ### 6.3 Gates before push
 
-`pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (full suite, not a scoped subset), `pnpm test:audit:x1-catalog-parity`, `pnpm test:audit:x3-trust-domain` (baseline captured green at 26 tests on 2026-07-24 before any edit), the three un-skipped e2e stubs, and the invariant-8 impeccable critique and audit pair on the `_PickerInterstitial.tsx` diff.
+`pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (full suite, not a scoped subset), `pnpm test:audit:x1-catalog-parity`, `pnpm test:audit:x3-trust-domain` (baseline captured green at 26 tests on 2026-07-24 before any edit), the three un-skipped e2e stubs, and the invariant-8 impeccable critique and audit pair on **all three** UI-surface files named in §9 — `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx`, `app/auth/callback/route.ts`, and `app/auth/sign-out/route.ts`. (R2 finding 7: this section previously named only the picker component, contradicting §9.)
 
 ---
 
@@ -326,3 +356,18 @@ Codex reviewed the first revision on 2026-07-24 and returned `VERDICT: BLOCKING`
 | 9 | LOW | Seven citation or current-code inaccuracies | All seven accepted and corrected: the cookie is extracted before the mismatch return but not consulted; the retained e2e skip is fixture contention, not rotation helpers; `clearIdentity` has one caller at `components/auth/IdentityChip.tsx:23`; `auditM5AuthFile` has no callers at all, so neither it nor its POST-body grep is a live gate; the `followUp` text is unchanged and quoted verbatim; the `next` read is at `app/auth/sign-in/page.tsx:71-72`; BL-CREW-PICKER-OBSERVABILITY is closed |
 
 Claims the reviewer attacked and could not break, recorded so they are not re-argued: a manually emitted host-relative `Location` does prevent the host flip; the single-leading-slash plus backslash and control-character guard is a sufficient open-redirect boundary for these path sources; the picker cookie cannot influence `google_mismatch`; moving `next` into a hidden GET-form control fixes the query loss; the invariant-9 registry row is correctly placed; and a directly imported `log.error` carrying a `code` field satisfies the mutation-observability meta-test as that test is actually written.
+
+## 11. Round 2 adversarial review — findings and dispositions
+
+Codex reviewed the repaired spec together with the first plan revision and returned `VERDICT: BLOCKING` with eleven findings. Every empirical claim was checked against the installed dependencies and the live tree; none was refuted. Findings 4, 5, 6, 9, and 11 land on the plan document and are dispositioned there.
+
+| # | Severity | Finding | Disposition (spec-side) |
+| --- | --- | --- | --- |
+| 1 | BLOCKING | Picker-clear-first is not browser-durable: cookie writes are staged into the response, while sign-out revocation has already happened, so a lost response leaves the stale entry with a revoked session and exposes the identity after token expiry | Accepted as a real interleaving the matrix omitted. §4.3 now carries the row and replaces the "every failure state non-exposing" overclaim with the narrow, defensible claim, plus the three reasons it is an accepted limitation: the end state is reachable today by session expiry alone, no ordering can fix it because both mutations ride one response, and `/auth/sign-out` has the identical property |
+| 2 | HIGH | The 300-399 status range admits 300, 304, and 399, which browsers do not follow | Accepted, verified against the installed Next build's own `REDIRECTS` set. §3.2 now accepts exactly 301, 302, 303, 307, 308 |
+| 3 | HIGH | The same-origin table fell through to an `origin` comparison after a decisive `sec-fetch-site` rejection, and never defined how a Server Action derives its origin | Accepted. §4.3 step 2 now mirrors the route's decisiveness exactly, as an explicit five-row table, and defines the derived origin from `x-forwarded-proto`, `x-forwarded-host`, and `host`, with a missing `host` treated as reject |
+| 7 | HIGH | §6.3 still limited the impeccable pair to one file, contradicting §9 | Accepted; §6.3 now names all three UI surfaces |
+| 8 | MEDIUM | "Assigned in the same function" is not a data-flow algorithm, and three of the four cited negatives are the one-argument parse form, not peers of the banned shape | Accepted. §3.4 now specifies an AST-based algorithm with bounded alias resolution, adds the alias-chain and captured-base variants as fixtures, and corrects the calibration claim |
+| 10 | MEDIUM | Five residual count and citation defects | Accepted. §3.3 now enumerates site 6; §3.4 no longer misidentifies line 11 as the external redirect; the plan-side count defects are fixed in the plan |
+
+Claims the reviewer confirmed sound, recorded so they are not re-argued: `{ scope: "local" }` is the correct auth-js spelling and limits revocation to the current session; the e2e fixture seeds Bob unclaimed, so the added selection step is valid; the Bob selection plus bare reload does prove normal-success durability; both new Vitest files match the default project configuration; and the intended invariant-8 scope is exactly three files.
