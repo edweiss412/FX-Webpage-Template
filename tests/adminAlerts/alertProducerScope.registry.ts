@@ -343,7 +343,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId fn param",
   },
   {
-    site: "lib/sync/runOnboardingScan.ts:1027",
+    site: "lib/sync/runOnboardingScan.ts:1030",
     contextKeys: [
       "drive_file_id",
       "file_name",
