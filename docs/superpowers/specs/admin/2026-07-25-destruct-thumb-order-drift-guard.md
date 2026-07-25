@@ -103,12 +103,15 @@ This was not in the backlog and was found by measuring the real page, after adve
 
 The Needs-Attention list is a fixed rail on wide viewports: `components/admin/Dashboard.tsx:636` sets `min-[1240px]:w-80` (320px), and each card inside it carries `p-tile-pad` (`components/admin/NeedsAttentionInbox.tsx:65`), which is 20px (`app/globals.css:170`). The buttons therefore get **280px**, while side by side they need 315.95px idle and 491.25px armed.
 
-Measured in Chromium at a 1280px viewport with today's shipped markup in a 280px container:
+Measured in Chromium at a 1280px viewport with today's shipped markup in the **real card nesting** — card with `p-tile-pad`, the `flex flex-wrap items-center gap-2` action row (`components/admin/NeedsAttentionInbox.tsx:72`), and the `Retry now` sibling — not a bare container:
 
-| State | Defer | Ignore | Result |
-|---|---|---|---|
-| idle | row 1 (`y744`) | row 2 (`y796`) | **Ignore below Defer** |
-| armed | row 1 (`y840`) | row 2 (`y892`), full width | **Ignore below Defer** |
+| Card | State | Defer | Ignore | Result |
+|---|---|---|---|---|
+| 320px rail | idle | `y2335` | `y2387` | **Ignore below Defer** |
+| 320px rail | armed | `y2553` | `y2605`, full width | **Ignore below Defer** |
+| 900px | idle | `y2719 x136.55` | `y2719 x299.29` | side by side, correct order |
+
+The action row resolves to 278px inside the rail card, against the 315.95px the two buttons need.
 
 `sm:basis-auto` restores auto-basis at `sm` **viewport** width, but `flex-wrap` still wraps when the **container** cannot fit the row. So the mis-tap ordering the backlog records as a mobile-stacking problem is already reachable on a desktop monitor, in the surface an admin uses most.
 
@@ -143,6 +146,12 @@ function pair(variant: "stacked" | "inline") { /* returns [deferNode, ignoreNode
 ```
 
 The helper takes only the variant (used for the test-id suffix) and closes over the component's state and handlers. The stacked copy renders `[ignore, defer]`; the inline copy renders `[defer, ignore]`.
+
+**The `@container` element must have an externally-determined width.** `container-type: inline-size` applies `contain: inline-size`, which severs the element's inline size from its contents. The component's root is a flex item in the card's `flex flex-wrap items-center gap-2` action row (`components/admin/NeedsAttentionInbox.tsx:72`), where flex items are shrink-to-fit — sized *by* their contents. Putting the containment context there without a definite width **collapses it to zero**. Measured: the wrapper resolves to `0px` and the buttons shrink to `26px`, while the card grows 18.89px taller from the wrapping. Nothing errors; the layout is just silently wrong.
+
+The shipped form is therefore `w-full @container` on the component root. `w-full` gives the flex item a definite basis so containment has something to measure, and it also preserves today's full-width stacked buttons, which a content-sized root would shrink to 154.74px — a tap-target regression on exactly the surface this change exists to improve.
+
+**Accepted cost, flagged for the impeccable gate:** `w-full` takes the whole action-row line, so on a wide card the `Retry now` sibling no longer shares a line with the discard buttons and the card grows ~52px taller (166.3px vs 114.3px measured at a 900px card). The alternative — putting `@container` on the action row itself and leaving the root content-sized — keeps `Retry` inline but costs the full-width tap targets. Ergonomics of an irreversible control won over card density; the invariant-8 critique/audit pass is the right place to challenge that call, and it is called out here so the reviewer sees a decision rather than an accident.
 
 **The `flex` token is load-bearing and separately pinned.** The stacked container needs a literal `flex` class alongside `flex-col items-stretch`. Without it the element is `display: block`, `items-stretch` is inert, and D1 silently does not hold — while a source-scan guard that only checks for `flex-col`/`items-stretch` still passes. §6.2 test 7 and §6.3's source guard both require `flex` explicitly for this reason.
 
