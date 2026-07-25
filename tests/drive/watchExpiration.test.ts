@@ -37,6 +37,12 @@ vi.mock("@/lib/drive/client", () => ({
 // Minimal WatchTx: the success path touches only insertPending + activatePending.
 // Every other member throws, so a path that unexpectedly reaches one fails loudly
 // rather than silently no-opping.
+//
+// CAVEAT: the `as unknown as WatchTx` cast below means TypeScript does NOT check
+// these member names against the real port. A stale name here compiles and runs
+// as dead weight — which is exactly how a `listExpiringActive` stub outlived the
+// rename to `listRenewalDue`. When the port changes, grep this file explicitly;
+// the compiler will not do it for you.
 function fakeTx(): WatchTx {
   const unexpected = (name: string) => async (): Promise<never> => {
     throw new Error(`unexpected WatchTx.${name} call`);
@@ -46,7 +52,7 @@ function fakeTx(): WatchTx {
     activatePending: async () => {},
     markOrphaned: unexpected("markOrphaned"),
     upsertAdminAlert: unexpected("upsertAdminAlert"),
-    listExpiringActive: unexpected("listExpiringActive"),
+    listRenewalDue: unexpected("listRenewalDue"),
     listGcCandidates: unexpected("listGcCandidates"),
     markStopped: unexpected("markStopped"),
     deleteOldStopped: unexpected("deleteOldStopped"),
