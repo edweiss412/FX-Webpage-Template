@@ -140,6 +140,8 @@ const BACKLOG_GRADUATED = [
   { id: "BL-RESCAN-PREPARE-ERROR-GRANULARITY", provenance: "test/safety-hardening-batch" },
   { id: "BL-STEP3-STAGED-LINK-GUARD-HELPER-BYPASS", provenance: "test/safety-hardening-batch" },
   { id: "BL-SHAREHUB-ARM-VIEWPORT-REVEAL", provenance: "feat/sharehub-archive-copy-reveal" },
+  // 2026-07-25: shipped, not reconciled -- PR #592 closed it by implementing it.
+  { id: "BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y", provenance: "fix/newtab-announcement-family" },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
