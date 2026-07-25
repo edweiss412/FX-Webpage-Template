@@ -40,22 +40,43 @@ Invariant 10 **N/A** — no HTTP route, no `"use server"` action.
 
 ## Shell preamble (used by every task below)
 
-R1 finding 4: `$LOCAL` was undefined and `$TEST_DATABASE_URL` unguarded. Every DB command in this plan
-is run after this preamble, which fails loudly rather than falling through to libpq defaults:
+R1 finding 4 and R2 findings 1 and 3. Every DB command in this plan runs after this preamble, which
+fails loudly rather than falling through to libpq defaults, and which bounds every wait.
 
 ```bash
+# --- local target ---------------------------------------------------------
 LOCAL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-psql "$LOCAL" -v ON_ERROR_STOP=1 -qAtc 'select 1' >/dev/null \
+
+# --- validation target ----------------------------------------------------
+# R2 finding 1: TEST_DATABASE_URL is NOT in the ambient shell (verified: unset).
+# `pnpm worktree:link-env` only symlinks .env.local, and `pnpm preflight` loads it
+# in a CHILD process, so neither exports it here.
+#
+# Do NOT `source .env.local` — measured 2026-07-25, it ERRORS:
+#     ./.env.local: line 60: syntax error near unexpected token `newline'
+#     ./.env.local: line 60: `EMAIL_FROM=FXAV Alerts <alerts@avprobms.app>'
+# and that `<` is a shell redirect, so sourcing is both broken and unsafe.
+# Extract the single variable instead, without executing the file:
+TEST_DATABASE_URL="$(grep -E '^TEST_DATABASE_URL=' .env.local | head -1 | cut -d= -f2-)"
+export TEST_DATABASE_URL
+: "${TEST_DATABASE_URL:?FATAL: TEST_DATABASE_URL not found in .env.local — refusing libpq defaults}"
+
+# --- bounded waits (R2 finding 3) ----------------------------------------
+# The local DB is SHARED with sibling worktree sessions. An unbounded DDL lock
+# wait would hang this run behind someone else's open transaction, and
+# ON_ERROR_STOP only covers RETURNED errors, never a wait that never returns.
+export PGCONNECT_TIMEOUT=10
+PSQL_SAFE=(-v ON_ERROR_STOP=1
+           -c "set lock_timeout = '10s'"
+           -c "set statement_timeout = '120s'")
+
+psql "$LOCAL" "${PSQL_SAFE[@]}" -qAtc 'select 1' >/dev/null \
   || { echo "FATAL: local Supabase unreachable at 127.0.0.1:54322"; exit 1; }
 ```
 
-For any validation-targeted command:
-
-```bash
-: "${TEST_DATABASE_URL:?FATAL: TEST_DATABASE_URL unset — refusing to fall through to libpq defaults}"
-```
-
-Every `psql` invocation in this plan carries `-v ON_ERROR_STOP=1`, including the validation ones.
+Every `psql` invocation below is written `psql "$TARGET" "${PSQL_SAFE[@]}" …` — carrying
+`ON_ERROR_STOP=1`, a 10s lock timeout, and a 120s statement timeout — against BOTH targets. A DDL
+statement that cannot get its lock fails in 10 seconds with a clear error instead of hanging the run.
 
 ---
 
@@ -82,8 +103,20 @@ a resolution note appended.
 `describe("drive_file_id nonblank CHECK migration", …)`; the next block starts at
 `tests/db/schema.test.ts:342`. The new `describe` goes between.
 
-**Sweep D — every count-bearing site in this class.** R1 finding 7: the first pass found only the two
-assertions and missed three companion sites, one of which is a failure message asserting "exactly 14".
+**Sweep D — every count-bearing site in this class.** Grew twice: R1 finding 7 added three companion
+sites the first pass missed (one a failure message asserting "exactly 14"), and R2 finding 4 added an
+eighth in the backlog entry being graduated. Command and captured output:
+
+```
+$ grep -rn "toBe(14)\|All 14 public\|all 14 public\|exactly 14\|14 public + 5" tests/db/ BACKLOG.md supabase/migrations/20260702120200_drive_file_id_nonblank.sql
+tests/db/driveFileIdNonblank.db.test.ts:24   // All 14 public columns named exactly `drive_file_id` …
+tests/db/driveFileIdNonblank.db.test.ts:135  test.skipIf(!dbUp)("all 14 public *_drive_file_id_nonblank …
+tests/db/driveFileIdNonblank.db.test.ts:147  expect(PUBLIC_NONBLANK_TABLES.length).toBe(14);
+tests/db/validation-schema-parity.test.ts:235 // superset check … `14` is the spec §10
+tests/db/validation-schema-parity.test.ts:237 expect(expected.size, "… exactly 14 public CHECK names").toBe(14);
+BACKLOG.md:323                                … (14 public + 5 dev mirror) …
+```
+
 Complete list, each with its disposition:
 
 | site | current | disposition |
@@ -95,6 +128,7 @@ Complete list, each with its disposition:
 | `tests/db/validation-schema-parity.test.ts:237` | assertion + message "exactly 14 public CHECK names" | → 17, **message included** (T5) |
 | `tests/db/schema.test.ts:277` | historical: the parent migration's own 12+2 | **unchanged** — describes 20260702120200 |
 | `supabase/migrations/20260702120200_…sql` header | historical scope comment | **unchanged** |
+| root backlog queue, line 323 | historical "14 public + 5 dev mirror" in the entry being graduated | **unchanged text, but MOVED to the archive by T6** (R2 finding 4) |
 
 ---
 
@@ -193,8 +227,8 @@ assertion `tests/db/driveFileIdNonblank.db.test.ts:147`).
 `ddl_command_end` trigger):
 
 ```bash
-psql "$LOCAL" -v ON_ERROR_STOP=1 -f supabase/migrations/<the migration>
-psql "$LOCAL" -v ON_ERROR_STOP=1 -f supabase/migrations/<the migration>
+psql "$LOCAL" "${PSQL_SAFE[@]}" -f supabase/migrations/<the migration>
+psql "$LOCAL" "${PSQL_SAFE[@]}" -f supabase/migrations/<the migration>   # AC-1 idempotency
 ```
 
 Commit: `test(db): behaviorally prove the four new nonblank CHECKs reject blanks`
@@ -213,6 +247,16 @@ implementation.
    the audit, assert exactly one `uncovered` finding for
    `public.shows.opening_reel_drive_file_id`, roll back. **This is the RED**: against a stub auditor
    returning `[]` it fails, and it keeps failing until the auditor genuinely reads live constraints.
+
+   **The rollback MUST survive the failing path** (R2 finding 2). Written naively as
+   `BEGIN → DROP → expect(...) → ROLLBACK`, the assertion throws on the RED run and the `ROLLBACK`
+   never executes — leaving a pooled connection inside a transaction holding an ACCESS EXCLUSIVE lock
+   on `public.shows`, on a database shared with sibling worktree sessions. Every later test and every
+   migration apply then blocks behind it. Use the sentinel-throw pattern the sibling suite already
+   uses (`tests/db/driveFileIdNonblank.db.test.ts:66-79`): perform the drop and capture the audit
+   result INSIDE `sql.begin(...)`, then throw a sentinel to force the rollback, catch the sentinel
+   outside, and assert on the captured value. The transaction then unwinds identically whether the
+   assertion would pass or fail, because no assertion runs inside it.
 
 **GREEN** — the census-query module and local-DB guard suite (spec §0):
 
@@ -258,12 +302,13 @@ committed migration during T5 rather than trusting the number here.
 **GREEN** — apply to validation, then re-run:
 
 ```bash
-: "${TEST_DATABASE_URL:?FATAL: TEST_DATABASE_URL unset}"
-psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<the migration>
-psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "notify pgrst, 'reload schema';"
+# preamble already exported + asserted TEST_DATABASE_URL and defined PSQL_SAFE
+psql "$TEST_DATABASE_URL" "${PSQL_SAFE[@]}" -f supabase/migrations/<the migration>
+psql "$TEST_DATABASE_URL" "${PSQL_SAFE[@]}" -c "notify pgrst, 'reload schema';"
 ```
 
-(R1 finding 4: the `notify` is a `psql -c` invocation, not bare SQL, and both carry `ON_ERROR_STOP=1`.)
+(R1 finding 4: the `notify` is a `psql -c` invocation, not bare SQL; both carry the preamble's
+`PSQL_SAFE` flags, so both are bounded on lock and statement time per R2 finding 3.)
 The `alter table if exists dev.shows` block is a no-op on validation. Everything else about the test —
 superset assertion, unset/empty/unreachable postures — is untouched (AC-10).
 
@@ -323,6 +368,15 @@ pnpm format:check  # --no-verify bypasses prettier
 | 8 | T5's verification replaced with the real command and its real output |
 | 9 | T2 gained the AC-13 negative assertion (no `_allowed_watermark_columns` insert) |
 | 10 | Sweep A range corrected 321–335 → 321–337 |
+
+## What R2 changed
+
+| finding | change |
+| ------- | ------ |
+| 1 | `TEST_DATABASE_URL` is not in the ambient shell; the preamble now extracts it from `.env.local` WITHOUT sourcing — measured, sourcing errors on line 60 and its `<` is a shell redirect |
+| 2 | T4's negative control pinned to the sentinel-throw pattern so the rollback survives the failing path; otherwise a wedged transaction holds an ACCESS EXCLUSIVE lock on the SHARED local DB |
+| 3 | every `psql` bounded: `PGCONNECT_TIMEOUT`, `lock_timeout=10s`, `statement_timeout=120s`, both targets |
+| 4 | Sweep D 7 sites → 8, with the grep command and captured output pasted |
 
 ## Checklist
 
