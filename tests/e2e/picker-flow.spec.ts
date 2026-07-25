@@ -237,15 +237,7 @@ test("Mode B 'Continue as guest' atomically clears the stale entry and lands on 
   }
 });
 
-// SKIP: app-behavior blocker. The claimed-row recovery control is
-// <form action="/auth/sign-in?next=<encoded>" method="GET"> with NO hidden
-// inputs (_PickerInterstitial.tsx:154). On a GET submit the browser DISCARDS the
-// action URL's query string and rebuilds it from the (empty) form fields, so the
-// navigation lands on bare /auth/sign-in with no ?next=. waitForURL(/auth/sign-in
-// \?next=/) therefore never matches (final page snapshot is /auth/sign-in with no
-// next). Enable once the claimed-row form carries `next` as a hidden input rather
-// than in the action query (app fix in _PickerInterstitial.tsx).
-test.skip("Deactivated row: tapping a claimed crew member redirects through /auth/sign-in", async ({
+test("Deactivated row: tapping a claimed crew member redirects through /auth/sign-in", async ({
   browser,
 }) => {
   const show = track(

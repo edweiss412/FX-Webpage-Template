@@ -85,10 +85,6 @@ export function PickerInterstitial({
   staleCleanupHint,
   s,
 }: PickerInterstitialProps) {
-  const signInRecoveryUrl = `/auth/sign-in?next=${encodeURIComponent(
-    buildShowReturnUrl(slug, shareToken, { s }),
-  )}`;
-
   return (
     <main
       data-testid="picker-interstitial-root"
@@ -153,7 +149,19 @@ export function PickerInterstitial({
               if (isClaimed) {
                 return (
                   <li key={c.id}>
-                    <form action={signInRecoveryUrl} method="GET">
+                    {/* `next` rides a hidden input, NOT the action query: a GET
+                        submit rebuilds the query string from the form's own
+                        fields and discards whatever the action URL carried, so
+                        the return target was being dropped and sign-in landed on
+                        a bare /auth/sign-in. Raw value — the browser
+                        percent-encodes it on submit. Same shape as
+                        app/auth/sign-in/SignInButton.tsx. */}
+                    <form action="/auth/sign-in" method="GET">
+                      <input
+                        type="hidden"
+                        name="next"
+                        value={buildShowReturnUrl(slug, shareToken, { s })}
+                      />
                       <button
                         type="submit"
                         data-testid="picker-roster-row"
