@@ -81,7 +81,7 @@ Assertions, each with the failure mode it catches:
 The detector is an exported pure function so it can be tested directly, and the test has the three layers spec §3.4 requires:
 
 1. **Fixtures per form.** Synthetic sources: inline `NextResponse.redirect(new URL(p, request.url))`; variable-assigned `const url = new URL(p, request.url); return NextResponse.redirect(url)`; the `req.url` spelling of each. Three negatives that must NOT flag: `NextResponse.redirect(data.url)`, a `new URL` with an absolute base, and a `new URL(..., request.url)` never passed to a redirect.
-2. **Tree walk.** The same detector over every `.ts` and `.tsx` under `app/`; flagged list must be empty. This is what fails before the fix and after any revert.
+2. **Tree walk.** The same detector over every `.ts` and `.tsx` under `app/`; flagged list must be empty. This is what fails before the fix and after any revert, and it is also what proves the matcher is not over-broad: the tree holds four legitimate `new URL(..., request.url)` uses that never reach a redirect (`app/api/auth/picker-bootstrap/route.ts:145`, `app/api/admin/venue-map/route.ts:21`, `app/api/cron/notify/route.ts:63`, `app/api/auth/google/start/route.ts:44`), so a detector keyed on the construction alone fails here.
 3. **Coverage floor.** The walk visited more than 50 files.
 
 **Existing assertions that must migrate (enumerated, not left to discovery).** Ten assertions across three files currently pin an **absolute** `Location` and will fail the moment the contract changes — this is expected, since the contract is what changed, but each migration is a deliberate edit reviewed for coverage, not a loosening:
