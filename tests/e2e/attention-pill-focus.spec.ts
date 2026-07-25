@@ -200,15 +200,22 @@ test("§11.9 nav: a needs-look ROW carries no link and closes the menu when pres
 const SEGMENT = '[data-testid="attention-pill-monitoring-segment"]';
 const MON_GROUP = '[data-testid="attention-monitoring-group"]';
 
-async function setItems(page: Page, a: number, n: number, s: number, d = false) {
+async function setItems(
+  page: Page,
+  a: number,
+  n: number,
+  s: number,
+  d = false,
+  longTitles = false,
+) {
   await page.evaluate(
-    ([aa, nn, ss, dd]) =>
+    ([aa, nn, ss, dd, lt]) =>
       (
         window as unknown as {
-          __setItems: (a: number, n: number, s: number, d: boolean) => void;
+          __setItems: (a: number, n: number, s: number, d: boolean, lt?: boolean) => void;
         }
-      ).__setItems(aa as number, nn as number, ss as number, dd as boolean),
-    [a, n, s, d],
+      ).__setItems(aa as number, nn as number, ss as number, dd as boolean, lt as boolean),
+    [a, n, s, d, longTitles],
   );
 }
 
@@ -517,3 +524,71 @@ for (const [a, n, s0, label] of [
     expect(report.groupAnimations).toBe(0);
   });
 }
+
+// ---------------------------------------------------------------------------
+// §5 dimensional invariants (attention-index, plan Task 8b)
+//
+// These need an OPEN menu, so they live here rather than in
+// published-review-modal.layout.spec.ts: that harness serves server-rendered
+// HTML with no hydration, so a click cannot change React state and the menu can
+// never mount there. The pill's own tap band IS asserted there (T-TAP), as a
+// hit-behaviour probe rather than a rect measurement — its 44px comes from a
+// pseudo-element that getBoundingClientRect() on the anchor cannot see.
+//
+// `setItems` is a React state SETTER: awaiting it proves the setter ran, not
+// that React committed. The scroller and panel are ALREADY mounted, so a
+// locator.evaluate would happily measure the pre-update layout without ever
+// failing on attachment. Each case that changes state gates on the committed
+// DOM first.
+// ---------------------------------------------------------------------------
+
+const TAP_MIN = 44;
+const TOL = 0.5;
+
+test.describe("§5 dimensional invariants", () => {
+  test("every needs-you row clears the 44px tap floor", async ({ page }) => {
+    // boot(1, 1, 0) already mounts the two subjects — one actionable row and one
+    // former needs-look row, the latter being the one that used to be an
+    // unfloored <div>. No state change, so no commit gate is needed.
+    await boot(page, 1, 1, 0);
+    const rows = page.locator(`${MENU} [data-testid^="attention-menu-row-"]`);
+    await expect(rows).toHaveCount(2);
+    const heights = await rows.evaluateAll((els) =>
+      els.map((el) => el.getBoundingClientRect().height),
+    );
+    expect(heights).toHaveLength(2);
+    for (const h of heights) expect(h).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+  });
+
+  test("the scroll region clips at max-h-96 with 12 needs-you rows", async ({ page }) => {
+    await boot(page, 0, 1, 0);
+    await setItems(page, 0, 12, 0);
+    // commit gate: the exact post-update row count, before measuring
+    await expect(page.locator(`${MENU} [data-testid^="attention-menu-row-"]`)).toHaveCount(12);
+    const box = await page.locator(`${MENU} [class*="max-h-96"]`).evaluate((el) => ({
+      client: el.clientHeight,
+      scroll: el.scrollHeight,
+    }));
+    // max-h-96 = 24rem = 384px at the default root size
+    expect(box.client).toBeLessThanOrEqual(384 + TOL);
+    // and the content genuinely overflows, so the cap is doing work
+    expect(box.scroll).toBeGreaterThan(box.client + TOL);
+  });
+
+  test("a long title ellipsises instead of widening the panel", async ({ page }) => {
+    await boot(page, 0, 1, 0);
+    const panel = page.locator(MENU);
+    const before = await panel.evaluate((el) => el.getBoundingClientRect().width);
+    await setItems(page, 0, 1, 0, false, true);
+    // commit gate: the long title must have rendered before the panel is measured
+    const title = page.locator(`${MENU} [data-testid^="attention-menu-row-"] .truncate`).first();
+    await expect(title).toContainText("nobody has picked what happens next");
+    const after = await panel.evaluate((el) => el.getBoundingClientRect().width);
+    // w-[min(400px,calc(100vw-32px))] — the panel cannot grow past its box
+    expect(after).toBeLessThanOrEqual(400 + TOL);
+    expect(after).toBeCloseTo(before, 0);
+    // and the title is the thing that gave way
+    const clipped = await title.evaluate((el) => el.scrollWidth > el.clientWidth + 0.5);
+    expect(clipped).toBe(true);
+  });
+});
