@@ -255,7 +255,14 @@ describe("short-grant anomaly (§3.3)", () => {
       join(process.cwd(), "supabase/migrations/20260527000003_schedule_cron_jobs.sql"),
       "utf8",
     );
-    const m = /timeout_milliseconds\s*:?=\s*([0-9_]+)/.exec(migration);
+    // Strip SQL line comments FIRST: the migration discusses this parameter in
+    // prose, and a `-- timeout_milliseconds := …` line would otherwise satisfy
+    // the parity check while the live statement said something else.
+    const live = migration
+      .split("\n")
+      .filter((l) => !l.trimStart().startsWith("--"))
+      .join("\n");
+    const m = /timeout_milliseconds\s*:?=\s*([0-9_]+)/.exec(live);
     expect(m, "scheduler migration no longer declares timeout_milliseconds").not.toBeNull();
     expect(T_EXEC_BUDGET_MS).toBe(Number(m![1]!.replace(/_/g, "")));
   });
