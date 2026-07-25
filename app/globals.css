@@ -874,10 +874,11 @@ body {
   }
 }
 @keyframes share-link-flash-ring {
-  from {
+  0%,
+  45% {
     box-shadow: 0 0 0 2px var(--color-accent-edge);
   }
-  to {
+  100% {
     box-shadow: 0 0 0 2px transparent;
   }
 }

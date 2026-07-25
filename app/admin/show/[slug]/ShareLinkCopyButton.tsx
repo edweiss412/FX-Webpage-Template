@@ -58,6 +58,25 @@ export function ShareLinkCopyButton({
 
   useEffect(() => () => clearReset(), []);
 
+  // A rotate inside the 2s confirmation window invalidates what was copied: the
+  // clipboard holds the OLD url, which is already dead for the whole crew. Left
+  // alone, the button keeps asserting "Copied" while the block two pixels away
+  // cues that the link just changed — the confirmation and the cue contradicting
+  // each other. Reset on any url change, and drop the pending timer with it.
+  //
+  // Render-phase, matching how the hub derives its own cue state: an effect
+  // would paint one frame of the stale label first.
+  //
+  // The pending reset timer is deliberately NOT cleared here — touching a ref
+  // during render is forbidden, and it would be redundant anyway: the timer only
+  // sets `copied` false, which this already did, and `onClick` clears it before
+  // arming a new one, so a later copy cannot inherit it.
+  const [seenUrl, setSeenUrl] = useState(url);
+  if (seenUrl !== url) {
+    setSeenUrl(url);
+    if (copied) setCopied(false);
+  }
+
   const onClick = async () => {
     try {
       await navigator.clipboard.writeText(url);

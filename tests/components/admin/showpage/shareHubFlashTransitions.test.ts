@@ -57,12 +57,26 @@ describe("share-link cue motion contract (N0/N1)", () => {
     expect([...new Set(props)]).toEqual(["background-color"]);
   });
 
-  it("N1: the ring keyframe is a 2px accent-edge outline fading to transparent", () => {
+  it("N1: the ring holds 2px accent-edge to 45%, matching the wash, then fades", () => {
     const block = GLOBALS_CSS.match(/@keyframes share-link-flash-ring\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(block).toMatch(/from\s*\{\s*box-shadow:\s*0 0 0 2px var\(--color-accent-edge\);/);
-    expect(block).toMatch(/to\s*\{\s*box-shadow:\s*0 0 0 2px transparent;/);
+    // The hold stop is shared with the wash ON PURPOSE. Fading the ring from
+    // t=0 while the wash held to 45% drained the outline to roughly a third
+    // while the fill was still at full strength, so one cue read as two events
+    // (impeccable critique + audit, independently).
+    expect(block).toMatch(/0%,\s*45%\s*\{\s*box-shadow:\s*0 0 0 2px var\(--color-accent-edge\);/);
+    expect(block).toMatch(/100%\s*\{\s*box-shadow:\s*0 0 0 2px transparent;/);
     const props = [...block.matchAll(/^\s{4}([a-z-]+):/gm)].map((m) => m[1]);
     expect([...new Set(props)]).toEqual(["box-shadow"]);
+  });
+
+  it("N1: both tracks share the same 45% hold stop", () => {
+    // A single cue, not two. If one track's hold moves, this fails rather than
+    // shipping an outline that outlives or predeceases its own fill.
+    const bg = GLOBALS_CSS.match(/@keyframes share-link-flash-bg\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    const ring = GLOBALS_CSS.match(/@keyframes share-link-flash-ring\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    const holdOf = (block: string) => block.match(/0%,\s*(\d+)%/)?.[1];
+    expect(holdOf(bg)).toBe("45");
+    expect(holdOf(ring)).toBe(holdOf(bg));
   });
 
   it("N1: the attribute runs BOTH tracks at exactly SHARE_LINK_FLASH_MS", () => {
