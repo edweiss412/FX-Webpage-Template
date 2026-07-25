@@ -862,7 +862,10 @@ function runBrowser() {
       // coverage in the same direction as the title-scrape this replaced. A row
       // that only sometimes catches a mutant has not rejected it.
       const red = (spec.tests ?? []).some((t) => t.status === "unexpected");
-      if (red) failed.add(spec.title.match(/^(T-FLASH-[A-Z]+)/)?.[1] ?? spec.title);
+      // `[A-Z]+` stopped at the first hyphen, so T-FLASH-COPY-RACE was recorded as
+      // "T-FLASH-COPY" — the coverage was real but the row was mislabelled, which
+      // is exactly the kind of quiet inaccuracy this report exists to avoid.
+      if (red) failed.add(spec.title.match(/^(T-FLASH-[A-Z0-9-]+)/)?.[1] ?? spec.title);
     }
     for (const child of suite.suites ?? []) walk(child);
   };
