@@ -118,6 +118,8 @@ Coverage is **strengthened**, not merely migrated: the `locationOf` helper (`tes
 
 **Test first:** extend `tests/auth/picker/clearIdentity.test.ts`, adding mocks for `@/lib/supabase/server` and `next/headers`'s `headers()` alongside the existing four (`tests/auth/picker/clearIdentity.test.ts:15-31`).
 
+Mock-shape trap: that file's current factory is `vi.mock("next/headers", () => ({ cookies: vi.fn() }))` (`tests/auth/picker/clearIdentity.test.ts:23`). A `vi.mock` factory **replaces** the module, so the new factory must export `headers` **and** `cookies` together or every existing cookie assertion in the file breaks. The precedent to copy is `tests/auth/isCurrentUserDeveloper.test.ts:39`, which exports both from one factory with the header source hoisted via `vi.hoisted`.
+
 | Assertion | Catches |
 | --- | --- |
 | A shared `calls: string[]` records `"cookieSet"` and `"signOut"`, asserted as `calls.indexOf("cookieSet") < calls.indexOf("signOut")` | The reversed order, which on a picker-clear failure strands a live foreign session beside a stale picker identity and exposes it on the next render |
