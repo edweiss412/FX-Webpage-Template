@@ -28,12 +28,28 @@
  *     stretched across a non-zero track has a positive rect while its unwanted
  *     track and adjacent gaps remain — a false green this probe cannot see.
  *     Catching it needs computed track sizes, which is a different tool.
- *   - MULTI-LINE MEMBERSHIP. On the cross axis of a wrapped container the probe
- *     cannot tell whether a zero-extent item sits alone on its own line (where it
- *     does create a collapsed line, and a charged gap) or shares a line with
- *     siblings (where it does not). It reports the item and lets the reader judge;
- *     the alternative — staying silent on the whole axis — is how the
- *     ScheduleDayRow instance would have been missed.
+ *   - LINE MEMBERSHIP IN A WRAPPED CONTAINER, on BOTH axes. Admission counts the
+ *     container's items, but a wrapped container's gaps are realized per LINE.
+ *     Cross axis: the probe cannot tell whether a zero-extent item sits alone on
+ *     its own line (where it does collapse a line and charge a gap) or shares one
+ *     with siblings (where it does not). Main axis: an item that wrapped onto a
+ *     line BY ITSELF has no neighbor on that line, so no main-axis gap is charged
+ *     for it, yet the container-wide item count still admits the axis. Both are
+ *     false-RED directions — it reports and lets the reader judge. Staying silent
+ *     on wrapped containers is how the ScheduleDayRow instance would have been
+ *     missed, and a false red is loud while a false green is not.
+ *   - ANONYMOUS TEXT ITEMS CANNOT BE OFFENDERS. Non-whitespace text directly
+ *     inside a flex/grid container generates an anonymous item, which is COUNTED
+ *     toward admission but has no element to measure. A zero-size one (e.g. under
+ *     `font-size: 0`) charges a gap the probe cannot attribute — the same shape as
+ *     the generated-box limit, and out of reach for the same reason.
+ *   - COLLAPSED `auto-fit` TRACKS. Gutters adjoining an empty `repeat(auto-fit,…)`
+ *     track collapse with it, but the used track list still reports those tracks,
+ *     so a grid axis can be admitted where no gap is realized — a false red. Left
+ *     as-is deliberately: filtering zero-width tracks out would also drop
+ *     legitimately zero-sized EXPLICIT tracks, whose gutters do NOT collapse,
+ *     turning a loud false red into a silent false green. No `auto-fit` /
+ *     `auto-fill` exists in this codebase today.
  *
  * DESIGN DECISIONS, each answering a specific way the naive version was wrong:
  *   - AXIS SELECTION follows the container. A flex column charges `row-gap`
@@ -151,12 +167,20 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       const near = el.closest("[data-testid]")?.getAttribute("data-testid") ?? "?";
       return `<${el.tagName.toLowerCase()} in ${near}>`;
     };
-    /** `display:none` anywhere up to the root removes the whole subtree. */
+    /**
+     * `display:none` ANYWHERE above the element removes the whole subtree.
+     *
+     * Walks past `rootEl` to the document root, deliberately. The original
+     * inline version stopped at the modal because the modal was known-visible;
+     * a shared helper has no such guarantee — a caller can hand it a root inside
+     * a `hidden` tab panel or a closed disclosure, where every descendant
+     * reports 0x0 while its own computed display is untouched. Stopping at the
+     * root would report that entire surface as offenders.
+     */
     const hidden = (el: Element): boolean => {
       let node: Element | null = el;
       while (node !== null) {
         if (getComputedStyle(node).display === "none") return true;
-        if (node === rootEl) return false;
         node = node.parentElement;
       }
       return false;
@@ -175,7 +199,6 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       let node: Element | null = el;
       while (node !== null) {
         if (getComputedStyle(node).contentVisibility === "hidden") return true;
-        if (node === rootEl) return false;
         node = node.parentElement;
       }
       return false;
@@ -240,7 +263,24 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       const offset =
         dim === "height" ? (el as HTMLElement).offsetHeight : (el as HTMLElement).offsetWidth;
       if (typeof offset === "number") return offset === 0;
-      return getComputedStyle(el).transform === "none";
+      // SVG / MathML: no offset metric. The question is only whether the zero
+      // rect could be TRANSFORM-induced, and only a zero SCALE can do that —
+      // `translate`, `rotate`, and `scale(1)` all leave a non-zero box collapsed
+      // to nothing only if it was already nothing. Testing `transform !== "none"`
+      // therefore excused every translated zero-size element, a false green. Read
+      // the matrix instead: `matrix(a, b, c, d, e, f)` collapses the box only
+      // when the relevant scale terms vanish.
+      const t = getComputedStyle(el).transform;
+      if (t === "none") return true;
+      const nums = t.match(/-?\d*\.?\d+(?:e[+-]?\d+)?/gi)?.map(Number) ?? [];
+      // 2D `matrix(a,b,c,d,e,f)` → width collapses when a and c are 0, height
+      // when b and d are 0. A 3D `matrix3d` (16 terms) is not decomposed; treat
+      // it as possibly-collapsing (skip) rather than guess.
+      if (nums.length === 6) {
+        const [a, b, c, d] = nums as [number, number, number, number];
+        return dim === "width" ? !(a === 0 && c === 0) : !(b === 0 && d === 0);
+      }
+      return false;
     };
     /**
      * Realized track count on one axis. For a grid container the computed
@@ -250,14 +290,31 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
      * [full-end]`, and counting those brackets as tracks would overstate the count
      * and pull single-track grids into examination.
      */
-    const trackCount = (cs: CSSStyleDeclaration, dim: "height" | "width"): number => {
-      const tpl = dim === "height" ? cs.gridTemplateRows : cs.gridTemplateColumns;
-      if (tpl === "none" || tpl === "subgrid" || tpl.trim() === "") return 0;
+    const trackCount = (tpl: string): number => {
+      if (tpl === "none" || tpl.startsWith("subgrid") || tpl.trim() === "") return 0;
       return tpl
         .replace(/\[[^\]]*\]/g, " ")
         .trim()
         .split(/\s+/)
         .filter((t) => t !== "").length;
+    };
+    /**
+     * A gap in used PIXELS.
+     *
+     * The resolved value of `row-gap` / `column-gap` keeps percentages as
+     * percentages, so `parseFloat("10%")` silently yields `10` — both a wrong
+     * reported magnitude and, when the percentage resolves against a zero-size
+     * content box, a gap that is actually 0 being treated as chargeable.
+     * Percentages resolve against the container's own content box on that axis,
+     * and `cs.width` / `cs.height` are used values in px, so the resolution is
+     * direct.
+     */
+    const gapPx = (raw: string, cs: CSSStyleDeclaration, dim: "height" | "width"): number => {
+      const v = parseFloat(raw);
+      if (!Number.isFinite(v)) return 0;
+      if (!raw.trim().endsWith("%")) return v;
+      const basis = parseFloat(dim === "width" ? cs.width : cs.height);
+      return Number.isFinite(basis) ? (v / 100) * basis : 0;
     };
 
     for (const el of [rootEl, ...Array.from(rootEl.querySelectorAll("*"))]) {
@@ -271,8 +328,17 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       const isFlex = cs.display === "flex" || cs.display === "inline-flex";
       const isGrid = cs.display === "grid" || cs.display === "inline-grid";
       if (!isFlex && !isGrid) continue;
-      const rowGap = parseFloat(cs.rowGap) || 0;
-      const colGap = parseFloat(cs.columnGap) || 0;
+      // `row-gap` / `column-gap` are LOGICAL: which physical dimension each one
+      // separates follows `writing-mode`. Under `vertical-rl` / `vertical-lr`
+      // rows stack horizontally, so `row-gap` is measured against WIDTH and
+      // `column-gap` against HEIGHT — the exact inverse of the horizontal case.
+      // Hardcoding the physical dims reported every item on the wrong axis in a
+      // vertical tree: silent false greens on one axis, false reds on the other.
+      const vertical = cs.writingMode.startsWith("vertical");
+      const rowDim = vertical ? ("width" as const) : ("height" as const);
+      const colDim = vertical ? ("height" as const) : ("width" as const);
+      const rowGap = gapPx(cs.rowGap, cs, rowDim);
+      const colGap = gapPx(cs.columnGap, cs, colDim);
       const isColumn = cs.flexDirection.startsWith("column");
       const wraps = isFlex && cs.flexWrap !== "nowrap";
       // Grid charges both axes; flex charges its main axis always and its cross
@@ -281,10 +347,10 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       const chargesColGap = isGrid || !isColumn || wraps;
       const axes = [
         ...(chargesRowGap && rowGap > 0
-          ? [{ axis: "row-gap", gap: rowGap, dim: "height" as const }]
+          ? [{ axis: "row-gap", gap: rowGap, dim: rowDim, tpl: cs.gridTemplateRows }]
           : []),
         ...(chargesColGap && colGap > 0
-          ? [{ axis: "column-gap", gap: colGap, dim: "width" as const }]
+          ? [{ axis: "column-gap", gap: colGap, dim: colDim, tpl: cs.gridTemplateColumns }]
           : []),
       ];
       if (axes.length === 0) continue;
@@ -297,14 +363,20 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       // directions: one item can span several tracks, and seven items can share a
       // single one. So a grid axis is admitted on its realized track count alone.
       const chargeableAxes = isGrid
-        ? axes.filter(({ dim }) => {
-            const tpl = dim === "height" ? cs.gridTemplateRows : cs.gridTemplateColumns;
+        ? axes.filter(({ tpl }) => {
             // A subgrid's tracks belong to its PARENT and are not reported here, so
             // the track count is unknowable from this element. Fall back to the flex
             // rule rather than skip the axis — over-reporting is recoverable, a
             // silently unexamined axis is not.
-            if (tpl === "subgrid") return itemCount >= 2;
-            return trackCount(cs, dim) >= 2;
+            //
+            // MATCHED BY PREFIX. A subgrid's resolved value is `subgrid` followed by
+            // one bracketed line-name set per used line (`subgrid [] [] []`), so an
+            // equality test almost never fired — and `trackCount` then stripped the
+            // brackets, counted the bare `subgrid` token as one track, and REJECTED
+            // the axis. The advertised fallback was unreachable and every subgrid
+            // gap went silently unexamined.
+            if (tpl.startsWith("subgrid")) return itemCount >= 2;
+            return trackCount(tpl) >= 2;
           })
         : itemCount >= 2
           ? axes
@@ -332,18 +404,38 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
  * and must fail as a row whose debt was repaid — a row kept past its debt masks a
  * later offender carrying the same label triple.
  *
- * Deliberately does NO scoping: `rows` is expected to be pre-filtered to the exact
- * surface and viewport in hand. Scoping here would need this helper to know each
- * caller's key shape, and a silently-mismatched key would suppress across pages,
- * which is the precise unsoundness the counted ledger exists to remove.
+ * SCOPING HAPPENS HERE, not at the call site. The caller passes the WHOLE ledger
+ * plus the `scope` of the run in hand, and this function filters. An earlier
+ * signature took pre-filtered rows and then ignored their `surface`/`width`
+ * fields entirely — which meant a caller that forgot the filter got rows from
+ * every other page and width silently consuming this run's offenders, with the
+ * type system perfectly happy. A footgun that only misfires when someone forgets
+ * is a footgun; taking the scope makes forgetting impossible.
+ *
+ * KNOWN LIMIT — replacement is invisible. Matching is on the label triple, so a
+ * row whose original instance was fixed while a DIFFERENT element produced the
+ * same triple consumes the newcomer and reports neither `stale` nor `remaining`.
+ * Distinguishing them needs an identity the DOM does not offer here.
  */
 export function reconcilePhantomLedger(
   offenders: readonly PhantomOffender[],
-  rows: readonly Pick<PhantomLedgerRow, "parent" | "child" | "axis" | "count">[],
+  ledger: readonly PhantomLedgerRow[],
+  scope: { surface: string; width: number },
 ): { remaining: PhantomOffender[]; stale: string[] } {
   const remaining = [...offenders];
   const stale: string[] = [];
-  for (const row of rows) {
+  for (const row of ledger) {
+    if (row.surface !== scope.surface || row.width !== scope.width) continue;
+    // A row that can never be satisfied would sit in the ledger forever looking
+    // like accounted-for debt: `count: 0` consumes nothing AND never reports
+    // stale, and a fractional or negative count cannot describe an occurrence
+    // tally at all. Fail loudly at the row rather than silently mis-reconcile.
+    if (!Number.isInteger(row.count) || row.count < 1) {
+      throw new Error(
+        `phantom ledger row has a non-positive-integer count (${row.count}): ` +
+          `${row.parent} → ${row.child} (${row.axis}) on ${row.surface} @ ${row.width}`,
+      );
+    }
     let consumed = 0;
     for (let i = remaining.length - 1; i >= 0 && consumed < row.count; i -= 1) {
       const o = remaining[i]!;

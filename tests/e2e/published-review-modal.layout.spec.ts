@@ -1520,10 +1520,10 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
         // into `remaining` and fails as a new offender; a shortfall fails as a stale
         // row. Neither a new instance beside a known one nor a row whose debt was
         // repaid can hide.
-        const { remaining, stale } = reconcilePhantomLedger(
-          found.offenders,
-          KNOWN_PHANTOM_ITEMS.filter((k) => k.surface === htmlPath && k.width === width),
-        );
+        const { remaining, stale } = reconcilePhantomLedger(found.offenders, KNOWN_PHANTOM_ITEMS, {
+          surface: htmlPath,
+          width,
+        });
         expect(
           stale,
           `stale KNOWN_PHANTOM_ITEMS rows [${label} @ ${width}] — the instance is gone, so delete` +

@@ -32,8 +32,17 @@ on:
       - "tests/e2e/crew-layout-dimensions.spec.ts"
       # The measured trees. A phantom item is introduced by a component edit, not
       # by a test edit, so the surfaces themselves are the load-bearing triggers.
-      - "components/admin/**"
-      - "components/crew/**"
+      #
+      # `components/**`, not the admin + crew subtrees alone: the measured roots
+      # render shared leaves (atoms, tiles, diagrams, message cards), and one of
+      # those collapsing to zero extent is charged to whatever gapped row holds
+      # it. Scoping the trigger to the folders whose NAMES match the surface left
+      # an `Avatar.tsx`-shaped edit able to introduce an offender in both measured
+      # trees with this job entirely dark — the same "green because it never ran"
+      # failure this workflow exists to end. The cost is that most component PRs
+      # now run a ~6-minute job; the alternative is a probe that misses the edits
+      # most likely to trip it.
+      - "components/**"
       - "app/admin/**"
       - "app/show/**"
       - "app/globals.css"

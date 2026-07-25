@@ -387,10 +387,21 @@ test.describe("phantom gap — /admin dashboard (real route)", () => {
         found.visited.filter((v) => v.includes("shows-table-row-")),
         `the walk descended into the shows table rows, not just the columns [@ ${width}]`,
       ).not.toEqual([]);
+      // THIRD anchor, the other dashboard column. The first two live entirely in
+      // the shows column, so a tree with the attention inbox unmounted satisfied
+      // both and passed green over half the dashboard. The inbox column renders at
+      // both widths (a mobile summary card at 390, the full inbox at 1280) and the
+      // sibling stacking tests in this file already depend on it.
+      expect(
+        found.visited.filter((v) => v.includes("dashboard-inbox-col")),
+        `the walk reached the attention inbox column, not just the shows column [@ ${width}] —` +
+          ` gapped containers visited: ${JSON.stringify(found.visited)}`,
+      ).not.toEqual([]);
 
       const { remaining, stale } = reconcilePhantomLedger(
         found.offenders,
-        KNOWN_DASHBOARD_PHANTOM_ITEMS.filter((k) => k.surface === "/admin" && k.width === width),
+        KNOWN_DASHBOARD_PHANTOM_ITEMS,
+        { surface: "/admin", width },
       );
       expect(
         stale,
@@ -504,6 +515,22 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       await expect(page.locator(`${MODAL} [data-testid*="-review-section-"]`).first()).toBeAttached(
         { timeout: 30_000 },
       );
+      // HYDRATION, PROVEN rather than assumed. Everything above is satisfied by
+      // streamed server HTML while the client bundle is still arriving, so the
+      // scan could finish before any effect-mounted subtree exists — and this
+      // case exists precisely to measure what hydration adds. React stamps
+      // `__reactFiber$…` onto every DOM node it takes ownership of, so its
+      // presence on the panel is the signal. Nothing in the markup substitutes:
+      // the rail's `aria-current`, for instance, is a `useState` INITIAL value
+      // and ships in the SSR output already.
+      await page.waitForFunction(
+        (sel) => {
+          const el = document.querySelector(sel);
+          return el !== null && Object.keys(el).some((k) => k.startsWith("__reactFiber$"));
+        },
+        `${MODAL} [data-review-modal-panel]`,
+        { timeout: 30_000 },
+      );
       // Settle: the panel must hold a real laid-out height before measuring.
       await expect
         .poll(
@@ -528,16 +555,20 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         `the walk reached the section scroll pane [@ ${width}] —` +
           ` gapped containers visited: ${JSON.stringify(found.visited)}`,
       ).not.toEqual([]);
+      // PANEL CARD, not merely "something inside a section". The section wrapper
+      // form (`<div in …-review-section-…>`) is satisfied by a section's HEADING
+      // block alone, so a tree whose section BODIES all failed to render passed
+      // this anchor while proving nothing about them. The panel card IS the body.
       expect(
-        found.visited.filter((v) => /-review-section-|-section-[a-z]+-panel-card/.test(v)),
-        `the walk descended into the rail sections, not just the pane [@ ${width}]`,
+        found.visited.filter((v) => /-section-[a-z]+-panel-card/.test(v)),
+        `the walk descended into a rail section's panel card, not just the pane [@ ${width}] —` +
+          ` gapped containers visited: ${JSON.stringify(found.visited)}`,
       ).not.toEqual([]);
 
       const { remaining, stale } = reconcilePhantomLedger(
         found.offenders,
-        KNOWN_SHOW_MODAL_PHANTOM_ITEMS.filter(
-          (k) => k.surface === "/admin?show" && k.width === width,
-        ),
+        KNOWN_SHOW_MODAL_PHANTOM_ITEMS,
+        { surface: "/admin?show", width },
       );
       expect(
         stale,

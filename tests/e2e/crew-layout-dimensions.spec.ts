@@ -981,6 +981,17 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
      * here rather than reporting an empty offender list as success. That is the
      * intended behavior — the failure message dumps the visited labels, which is
      * how a replacement anchor gets captured.
+     *
+     * WHAT THE ANCHOR DOES NOT PROVE. It proves the walk DESCENDED into the
+     * section, not that the seed rendered any particular subtree — Venue's root
+     * stays visited with its diagrams column absent, Today's with the seeded
+     * run-of-show absent, and so on. That content IS proven, for these same
+     * sections at these same widths, by the sibling assertions in this file: the
+     * split-wide ratio cases name each section's two columns, the Mode A case
+     * asserts the run-of-show timeline mounted, and the gear-scope describe seeds
+     * and asserts the five scope cards. Duplicating those here would couple the
+     * probe to seed shape without measuring anything new; `gotoSection` already
+     * fails outright if a section does not mount with real height.
      */
     const NOPHANTOM_SECTIONS = [
       { section: "schedule", anchor: "schedule-grid" },
@@ -1026,7 +1037,8 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
 
           const { remaining, stale } = reconcilePhantomLedger(
             found.offenders,
-            KNOWN_CREW_PHANTOM_ITEMS.filter((k) => k.surface === section && k.width === width),
+            KNOWN_CREW_PHANTOM_ITEMS,
+            { surface: section, width },
           );
           expect(
             stale,
