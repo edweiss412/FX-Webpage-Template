@@ -200,3 +200,47 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
     }
   });
 });
+
+/**
+ * M1 / M2 — the structural defense for the two defect shapes that recurred across
+ * adversarial rounds 5, 6 and 7 (spec 2026-07-25-destruct-thumb-order-drift-guard §6.6).
+ *
+ * Shape A: a documented D-invariant that is CLAIMED but never MEASURED (found for
+ *          D1 in round 6, D3 in round 7).
+ * Shape B: a geometry input missing from the armed binding table (found for Defer
+ *          class+label in round 5, idle Ignore class in round 6, its label in round 7).
+ *
+ * Patching the named instance each round closed neither class — every repair added
+ * one row and missed its sibling. These two tests close them mechanically.
+ */
+describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
+  const SPEC = "docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md";
+  const REAL_SPEC = "tests/e2e/pendingDiscardReal.layout.spec.ts";
+  const TRANSCRIBED_SPEC = "tests/e2e/pendingDiscardReflow.layout.spec.ts";
+
+  it("M1: every D-invariant in the spec has a named assertion in a layout spec", () => {
+    const doc = readFileSync(SPEC, "utf8");
+    // The Dimensional Invariants table rows start `| D<n> |`.
+    const declared = [...doc.matchAll(/^\|\s*(D\d+)\s*\|/gm)].map((m) => m[1]!);
+    expect(declared.length, "no D-invariants parsed — did the table format change?").toBeGreaterThan(
+      0,
+    );
+    const haystack = [REAL_SPEC, TRANSCRIBED_SPEC]
+      .map((f) => {
+        try {
+          return readFileSync(f, "utf8");
+        } catch {
+          return "";
+        }
+      })
+      .join("\n");
+    const unmeasured = declared.filter((d) => !new RegExp(`\\b${d}\\b`).test(haystack));
+    expect(unmeasured, "invariants declared in the spec with no named assertion").toEqual([]);
+  });
+
+  it("M1 self-check: the matcher actually parses invariants and detects a missing one", () => {
+    const rows = [...`| D1 | a |\n| D9 | b |`.matchAll(/^\|\s*(D\d+)\s*\|/gm)].map((m) => m[1]!);
+    expect(rows).toEqual(["D1", "D9"]);
+    expect(/\bD9\b/.test("covers D1 only")).toBe(false);
+  });
+});

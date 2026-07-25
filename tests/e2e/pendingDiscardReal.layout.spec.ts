@@ -229,13 +229,13 @@ for (const [state, width] of Object.entries(STATES) as [StateName, number][]) {
     expect(p.liveBranch, "exactly one branch must be live").not.toBe("none");
   });
 
-  test(`${state}: tap targets clear ${TAP_MIN}px`, async ({ page }) => {
+  test(`${state}: D2 — tap targets clear ${TAP_MIN}px`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(baseUrl);
     const p = await probe(page, state);
     expect(p.found.buttons, "variant-suffixed button ids not found").toBe(true);
-    expect(p.defer.h).toBeGreaterThanOrEqual(TAP_MIN - TOL);
-    expect(p.ignore.h).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+    expect(p.defer.h, "D2: Defer below tap minimum").toBeGreaterThanOrEqual(TAP_MIN - TOL);
+    expect(p.ignore.h, "D2: Ignore below tap minimum").toBeGreaterThanOrEqual(TAP_MIN - TOL);
   });
 }
 
@@ -301,5 +301,23 @@ test("D1: in the stacked branch, both buttons fill the branch width", async ({ p
     // false. Comparing against the BRANCH is the only assertion that catches it.
     expect(Math.abs(p.defer.w - p.liveBranchW), `${state} Defer ${p.defer.w} vs branch ${p.liveBranchW}`).toBeLessThanOrEqual(TOL);
     expect(Math.abs(p.ignore.w - p.liveBranchW), `${state} Ignore ${p.ignore.w} vs branch ${p.liveBranchW}`).toBeLessThanOrEqual(TOL);
+  }
+});
+
+test("D3: inline button widths are intrinsic, not stretched", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(baseUrl);
+  for (const state of ["thresholdAt618", "wide900"] as StateName[]) {
+    const p = await probe(page, state);
+    expect(p.liveBranch, `${state} should be inline`).toBe("inline");
+    // Round 7: D3 was measured only as shared-row placement + left-to-right order.
+    // Giving both inline buttons flex growth preserves the row, the ordering, the
+    // threshold switch, the tap heights and D6's pinned left edge while D3 is false.
+    // Neither button may fill the branch.
+    expect(p.defer.w, `${state} Defer stretched to branch width`).toBeLessThan(p.liveBranchW - TOL);
+    expect(p.ignore.w, `${state} Ignore stretched to branch width`).toBeLessThan(
+      p.liveBranchW - TOL,
+    );
+    expect(p.defer.right).toBeLessThan(p.ignore.x);
   }
 });

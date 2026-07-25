@@ -456,7 +456,9 @@ Assertions carried here, because each needs the real tree:
 - **Exactly one branch copy is displayed** at every rail, the hidden one measuring `0×0`.
 - **The 576px threshold is exercised directly.** Rails of **617px and 618px** put the *component* container at 575px and 576px. The 42px card inset is **measured, not computed**: rendering the real tree at 320 / 390 / 617 / 618 / 900px rails gives action-row widths of 278 / 348 / **575** / **576** / 858px — an inset of exactly 42px at every rail, with the two threshold rails landing on 575 and 576 as intended. Below the threshold must stack with Ignore above Defer; at it, one row with Defer on the left. Without these two rails nothing tested the boundary the threshold rationale rests on — the 320/390/900 rails give component widths of 278 / 348 / 858px, none of them near 576.
 - **D1 — buttons fill the stacked branch**, asserted as `button.width === stackedBranch.width` within 0.5px. Round 6 found this was *claimed* but never measured: an idle Ignore carrying `self-start` shrinks to intrinsic width while keeping every canonical token, ≥44px height, correct order and one visible branch, so the whole suite passed with D1 false. Measuring the branch is the only thing that catches it.
-- **D2** (≥44px), **D3** (inline branch order), **D5** (Ignore above Defer when stacked). **Not D4 or D6** — both are armed-state claims, and this harness cannot render armed at all (see the scope note below).
+- **D2** (≥44px), **D5** (Ignore above Defer when stacked).
+- **D3 — inline button widths are intrinsic**, asserted as `button.width < branch.width` for both buttons (neither may fill the row) **and** `defer.right < ignore.left`. Round 7 found D3 was measured only as shared-row placement plus left-to-right order: a change giving both inline buttons flex growth preserves the row, the ordering, the threshold switch, the tap heights and D6's pinned left edge while D3 is false. This is the identical claimed-versus-measured defect found for D1 one round earlier, which is why §6.6 now enforces the class mechanically.
+- **Not D4 or D6** — both are armed-state claims, and this harness cannot render armed at all (see the scope note below).
 - **Production nesting holds:** the action row, card padding and `Retry` sibling are the real ones, so a future change to `components/admin/NeedsAttentionInbox.tsx` that breaks the container relationship fails *this* spec.
 
 **Declared scope, and the one thing it cannot reach.** `renderToStaticMarkup` emits markup, not behaviour: it cannot click, so it can only ever render the component's **initial idle** state, and `PendingPanelDiscardButtons` exposes no prop for an armed initial state (adding one would be product API existing solely for a test). So D4 (armed box equality) and D6 (armed growth from a pinned edge) **cannot be measured here**, and this harness does not claim them.
@@ -467,7 +469,7 @@ The binding therefore covers **every input to armed geometry**, each compared to
 
 | Bound | Why it matters to armed geometry |
 |---|---|
-| **idle** Ignore `className` | D4 and D6 compare idle **against** armed. `ml-4` on the idle branch alone leaves every other bound value unchanged, so the transcribed comparison stays green while production's Ignore actually moves when armed |
+| **idle** Ignore `className` **and label text** | D4 and D6 compare idle **against** armed, so the idle *label* sets the idle width just as the armed label sets the armed one. A wider idle label that still fits 576px keeps the real-tree idle assertions green while the transcribed panel holds the old width. `ml-4` on the idle branch alone leaves every other bound value unchanged, so the transcribed comparison stays green while production's Ignore actually moves when armed |
 | armed Ignore `className` | the armed skin itself |
 | armed Ignore **label text** | a longer label changes the armed width, which is the whole point of D6 |
 | **Defer** `className` **and label text** | the armed row's total is Defer + gap + armed Ignore. Defer's padding or a longer label pushes that total past the threshold just as surely as the Ignore side does — this row was missing from the first draft of the binding and is exactly the same class of hole as the `gap-24` one |
@@ -490,6 +492,23 @@ The existing transcribed spec is **kept, and narrowed to negative controls**, wh
 | `nobasis-328-*` | 328px, pre-DESTRUCT-1 markup | reflow control, at the geometry the original defect was measured at (`docs/superpowers/specs/admin/2026-07-17-destruct1-armed-reflow.md:24`); at 278px the idle pair is already wrapped and cannot reproduce a *relocation* |
 
 It also keeps the **armed** geometry panels (D4 and D6), which 6.3.a structurally cannot reach — with the §6.3.a binding assertion standing behind them. Every other positive claim moved to 6.3.a, and the drift-guard moved with them, where it reads rendered markup rather than grepping source.
+
+### 6.6 Meta-test: every invariant has a measurement, every measured element is bound
+
+Three consecutive review rounds found the same two defect shapes, each time in a different instance:
+
+| Shape | Instances found | Rounds |
+|---|---|---|
+| A documented `D`-invariant that is *claimed* but never *measured* | D1 (`self-start` shrink), D3 (flex growth) | 6, 7 |
+| A geometry input missing from the armed binding table | Defer class+label, idle Ignore class, idle Ignore label | 5, 6, 7 |
+
+Patching the named instance each round has not closed either class — each repair added one row and missed its sibling. Per the project's structural-defense calibration, the defense ships now rather than after another recurrence.
+
+**M1 — every invariant has a named measurement.** A meta-test parses the `D`-numbered rows out of §4.7's Dimensional Invariants table and asserts that for each `D<n>`, at least one of `tests/e2e/pendingDiscardReal.layout.spec.ts` or `tests/e2e/pendingDiscardReflow.layout.spec.ts` contains `D<n>` in a test title or an assertion message. A new invariant with no assertion fails at authoring time; an invariant whose assertion is deleted fails immediately. It cannot prove the assertion is *good*, only that one exists and is named — which is exactly the gap that let D1 and D3 sit unmeasured while being listed.
+
+**M2 — every measured element is bound.** The transcribed spec declares the elements it measures in an exported `MEASURED_ELEMENTS` array; the meta-test asserts that set equals the binding table's element set in §6.3.a. Measuring something unbound, or binding something unmeasured, fails. That is the mechanical form of the rule §6.3.a states in prose, and it is what would have caught all three binding omissions without a reviewer.
+
+Both live in `tests/styles/_metaDestructiveConfirm.test.ts` alongside the timing guards, so the whole destructive-confirm contract has one home.
 
 ### 6.4 CI wiring (R5)
 
