@@ -50,7 +50,7 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 | `PICKER_COOKIE_SIGNING_KEY` is defined in no workflow | grepped `.github/workflows/` — zero matches; `lib/env/pickerCookieSigningKey.ts:6-13` throws when unset or not 64 hex, and `tests/e2e/helpers/seedPickerCookie.ts:54` calls it. Task 8 adds it |
 | CI does not run picker-flow | `.github/workflows/crew-e2e.yml:104-105` runs exactly `pnpm exec playwright test --project=mobile-safari tests/e2e/crew-section-toggle.spec.ts`. `testMatch` membership (`playwright.config.ts:62`) is not workflow wiring |
 | The shared `locationOf` helper is used by the external assertion | helper at `tests/auth/oauth-flow.test.ts:25-29`, used by the deliberately-absolute `tests/auth/oauth-flow.test.ts:66` — so it must NOT gain a leading-slash assertion |
-| Both new unit test files need no config wiring | `BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"]` (`vitest.projects.ts:34`); `tests/lib/**` is in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:77`), `tests/cross-cutting/**` is not, so the walkers run serial |
+| All four new Vitest files need no config wiring | `BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"]` (`vitest.projects.ts:34`); `tests/lib/**` is in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:77`), `tests/cross-cutting/**` is not, so the walkers run serial |
 | `picker-flow.spec.ts` already has two active tests | `tests/e2e/picker-flow.spec.ts:70` and `tests/e2e/picker-flow.spec.ts:134`. After un-skipping three, the file is **five passing and one skipped**, not three and one (R2 finding 10) |
 | Baseline audit state | `pnpm test:audit:x3-trust-domain` → 5 files, 26 tests, green, before any edit |
 
@@ -126,6 +126,7 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 - Modify: `app/auth/sign-out/route.ts` (line 132 only)
 - Modify: `app/api/auth/google/start/route.ts` (`signInRedirect` at lines 7-12; line 65 untouched)
 - Modify: `tests/auth/oauth-flow.test.ts`, `tests/auth/callback-claim-stamp.test.ts`, `tests/auth/picker-bootstrap.test.ts`
+- Modify: `tests/e2e/picker-flow.spec.ts` (un-skip the paired stub at line 84, this task's outer red phase)
 
 **Steps:**
 
@@ -182,6 +183,7 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 - Modify: `lib/auth/picker/clearIdentity.ts`
 - Modify: `tests/auth/picker/clearIdentity.test.ts`
 - Modify: `tests/auth/_metaInfraContract.test.ts` (registry row + destructuring assertion)
+- Modify: `tests/e2e/picker-flow.spec.ts` (un-skip the paired stub at line 180 and add its three durability assertions, this task's outer red phase)
 
 **No `headers()` mock is needed** — the previous revision required one for the same-origin gate, which is descoped (spec §4.3a). The existing `vi.mock("next/headers", () => ({ cookies: vi.fn() }))` at `tests/auth/picker/clearIdentity.test.ts:23` stays exactly as it is; only a `@/lib/supabase/server` mock is added (R4 finding 1 caught the leftover requirement).
 
@@ -252,6 +254,7 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 
 - Modify: `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` (remove the const at line 88, rewrite the form at line 156)
 - Modify: `tests/components/PickerInterstitial.test.tsx`
+- Modify: `tests/e2e/picker-flow.spec.ts` (un-skip the paired stub at line 241, this task's outer red phase)
 
 **Steps:**
 
@@ -269,21 +272,14 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 - [ ] Gate: the extended component test; `pnpm vitest run tests/components tests/show`; `pnpm lint`; `pnpm typecheck`.
 - [ ] Commit: `fix(crew-page): keep the return target on claimed-row sign-in`
 
-### Task 7: whole-file e2e verification and the stale config comment
+### Task 7: (removed — folded into Tasks 8 and 11)
 
-**Files:**
+R4 finding 3 moved the three `.skip` removals into the tasks that fix each behavior. What was left here — one comment edit plus a verification run — could not satisfy invariant 1, because a comment has no test and a post-fix verification run is green on arrival. R5 finding 1 was right that keeping it as a task with its own commit was a nominal repair, so the task is dissolved rather than defended:
 
-- Modify: `playwright.config.ts` (the stale stub-count comment at line 56)
+- the `playwright.config.ts:56` comment correction moves into **Task 8**, which already edits CI and config files behind failing structural pins;
+- the whole-file picker-flow run moves into **Task 11**, the pre-push gate task, which is verification by definition and produces no commit.
 
-**Why this is not where the un-skips live.** Un-skipping after the fixes are already implemented would be a test that is green the moment it is written, with no implementation step following it — which is not TDD, and R4 finding 3 was right to call that out. Each `.skip` removal therefore sits in the task that fixes the behavior it exercises: `tests/e2e/picker-flow.spec.ts:84` in Task 2, `tests/e2e/picker-flow.spec.ts:180` in Task 4, `tests/e2e/picker-flow.spec.ts:241` in Task 6. This task is the **whole-file verification gate** that the three fixes compose, plus one comment correction.
-
-The comment edit has no test by its nature — it is a prose comment inside a config file. That is declared here rather than smuggled: it ships in this task's commit alongside the verification run, and the run is what this task proves.
-
-**Steps:**
-
-- [ ] Run the whole file: `pnpm exec playwright test --project=mobile-safari tests/e2e/picker-flow.spec.ts` with `TEST_DATABASE_URL` overridden to loopback. Expected: **five passed, one skipped** — the file already carries two active tests at `tests/e2e/picker-flow.spec.ts:70` and `tests/e2e/picker-flow.spec.ts:134`, plus the three un-skipped in Tasks 2, 4, and 6, with `tests/e2e/picker-flow.spec.ts:293` still skipped.
-- [ ] Correct the comment at `playwright.config.ts:56` to name the single remaining stub.
-- [ ] Commit: `test(auth): verify the picker-flow suite composes and fix the stub-count comment`
+Numbering is preserved so every cross-reference in these documents stays valid.
 
 ### Task 8: run the picker-flow spec in CI, path-gated, with its signing key
 
@@ -293,6 +289,7 @@ The comment edit has no test by its nature — it is a prose comment inside a co
 - Modify: `.github/workflows/dev-gate-e2e.yml` (job `env:` block)
 - Modify: `tests/cross-cutting/ci-workflow-speedup.test.ts` (`REQUIRED_ENV`, lines 201-207)
 - Modify: `tests/ci/_metaE2eWorkflowCoverage.test.ts` (the picker-flow row at line 82)
+- Modify: `playwright.config.ts` (the stale stub-count comment at line 56, absorbed from the dissolved Task 7)
 - Create: tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts
 
 **Why this task exists, and what it can and cannot claim.** Un-skipping is not enough: the only mobile-safari CI step names exactly one spec file, so the three regressions would stay dark and "real CI green" could pass without executing them (R2 finding 4). But R3 finding 3 showed the first version of this task overclaimed. Two facts from the repo's own coverage machinery bound what is achievable:
@@ -308,13 +305,14 @@ So the honest goal is: move picker-flow from `UNSEEN` to `PATH_GATED`, and make 
 
 - [ ] Write the failing pins first. Two of them, in the registries that already own each concern rather than one bespoke file doing everything:
   - Add `PICKER_COOKIE_SIGNING_KEY` to `REQUIRED_ENV` (`tests/cross-cutting/ci-workflow-speedup.test.ts:201-207`). That array is the existing registry for runner-level vars a bare-runner webServer must inherit, and it covers both `crew-e2e.yml` and `dev-gate-e2e.yml` via `BARE_RUNNER_WEBSERVER_WORKFLOWS` (`tests/cross-cutting/ci-workflow-speedup.test.ts:200`); its anti-vacuity case (`tests/cross-cutting/ci-workflow-speedup.test.ts:214-218`) then requires the key in `crew-e2e.yml` by construction. Extending it closes the class instead of pinning one instance.
-  - Create tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts for the three things no existing registry covers: `tests/e2e/picker-flow.spec.ts` appears in a `playwright test` command line in `crew-e2e.yml`; the key's **value** there matches `/^[0-9a-f]{64}$/` (presence is covered above, but a malformed value still throws at `lib/env/pickerCookieSigningKey.ts:12`); and the `pull_request.paths` filter contains each path the spec's behavior lives in. Read the workflow as text with a regex, as the existing scanners do — there is **no** yaml dependency in this repo (`devDependencies` has no yaml package, and `pnpm exec js-yaml` exits 254), so the parse-gate idea from the previous revision was not executable (R3 finding 10).
+  - Create tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts for the three things no existing registry covers: `tests/e2e/picker-flow.spec.ts` appears in a `playwright test` command line in `crew-e2e.yml`; the key's **value** matches `/^[0-9a-f]{64}$/` in **both** `crew-e2e.yml` and `dev-gate-e2e.yml` (presence is covered above, but a malformed value still throws at `lib/env/pickerCookieSigningKey.ts:12`, and R5 finding 3 caught the shape assertion being specified for only one of the two workflows); and the `pull_request.paths` filter contains each path the spec's behavior lives in. Read the workflow as text with a regex, as the existing scanners do — there is **no** yaml dependency in this repo (`devDependencies` has no yaml package, and `pnpm exec js-yaml` exits 254), so the parse-gate idea from the previous revision was not executable (R3 finding 10).
 - [ ] Flip the picker-flow row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:82` from `UNSEEN` to `PATH_GATED`. This is the reconciliation R3 finding 3 asked for: after this task the spec **is** named in a workflow command, so leaving it as `UNSEEN` would be a false annotation in the other direction. Two mechanics matter here and are easy to get backwards:
   - **The row must stay.** `scanWorkflowCoverage` excludes path-filtered workflows, so picker-flow will still not be in `covered` after this task; deleting the row would make the spec "dark" and fail the first assertion at `tests/ci/_metaE2eWorkflowCoverage.test.ts:141-144`. The complementary assertion at `tests/ci/_metaE2eWorkflowCoverage.test.ts:147-151` only fails for a row whose spec *is* covered, which will not be the case.
   - **The flip is not gate-enforced.** Both category constants are prose reason strings, so no assertion distinguishes them. It is an accuracy edit that keeps the allowlist honest, and it is called out here precisely because nothing will fail if a future edit lets it drift.
 - [ ] Extend `crew-e2e.yml`'s `pull_request.paths` (lines 23-33) with the paths this spec actually exercises, so a future change to the behavior under test triggers the job: `tests/e2e/picker-flow.spec.ts`, `app/auth/**`, `app/api/auth/**`, `lib/auth/**`, `lib/http/**`, and `lib/env/pickerCookieSigningKey.ts` — that last one because this task itself identifies that file's validation as a runtime prerequisite, so a change to its contract must trigger the job (R4 finding 7). Without these paths the filter would fire for this PR (it touches `app/show/**` and the workflow itself) and then never again for the code under test.
 - [ ] Add `PICKER_COOKIE_SIGNING_KEY` to both workflows' `env:` blocks (alongside `TEST_AUTH_SECRET` at `.github/workflows/crew-e2e.yml:67` and `.github/workflows/dev-gate-e2e.yml:77`), a fixed 64-hex test constant in the same spirit as the other inline test secrets there. `dev-gate-e2e.yml` gets it for the same structural reason `HASH_FOR_LOG_PEPPER` is there: its webServer serves the whole app, so any request reaching the picker chain throws without it.
 - [ ] Add the spec to the existing mobile-safari step's file list (same `--project=mobile-safari` invocation, so no new job and no second server boot), and update the workflow's header comment (lines 1-8) and the step name at line 104, both of which currently say this job runs exactly one spec.
+- [ ] Correct the stale comment at `playwright.config.ts:56` to name the single remaining stub (absorbed from the dissolved Task 7 — it is a prose comment in a config file, so it has no test of its own and ships inside this task's commit rather than as a commit with nothing tested).
 - [ ] Gate: both pins; `pnpm vitest run tests/ci tests/cross-cutting`.
 - [ ] Commit: `ci(auth): run the picker-flow e2e spec and supply its signing key`
 
@@ -326,15 +324,23 @@ So the honest goal is: move picker-flow from `UNSEEN` to `PATH_GATED`, and make 
 - Modify: root `BACKLOG.md` (the three entries and their section header, lines 129-149; plus the new BL-SERVER-ACTION-ORIGIN-GATE entry)
 - Modify: `BACKLOG-archive.md`
 
-**Extend the existing ledger guard, do not add a bespoke file.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` already exists for precisely this failure class — its own header records that it was written because "a ledger/docs task with no genuine red state, only post-hoc checks that were already green" recurred across two review rounds, "so the graduation itself became a test" (`tests/docs/_metaDeferralLedgerGraduation.test.ts:1-7`). It covers the `DEFERRED.md` / `DEFERRED-archive.md` pair with a `GRADUATED` registry plus a no-overlap invariant (`tests/docs/_metaDeferralLedgerGraduation.test.ts:33-52`). The `BACKLOG.md` / `BACKLOG-archive.md` pair is the same shape and is currently uncovered, so this task generalises that guard to both pairs rather than writing a parallel one-off.
+**Extend the existing ledger guard, do not add a bespoke file.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` already exists for precisely this failure class — its own header records that it was written because "a ledger/docs task with no genuine red state, only post-hoc checks that were already green" recurred across two review rounds, "so the graduation itself became a test" (`tests/docs/_metaDeferralLedgerGraduation.test.ts:1-7`). It covers the `DEFERRED.md` / `DEFERRED-archive.md` pair with a `GRADUATED` registry (`tests/docs/_metaDeferralLedgerGraduation.test.ts:33-41`) plus a no-overlap invariant (`tests/docs/_metaDeferralLedgerGraduation.test.ts:54-62`). The `BACKLOG.md` / `BACKLOG-archive.md` pair is the same shape and is currently uncovered, so this task generalises that guard to both pairs rather than writing a parallel one-off.
 
-One mechanical difference to handle: the existing `DEFERRAL_ID` regex matches `### ID` only (`tests/docs/_metaDeferralLedgerGraduation.test.ts:26`), while backlog entries use both levels — the root backlog heads its entries with `##` (for example line 11) and this spec's three sit at `###` under a `##` section header, and `BACKLOG-archive.md` currently holds 28 `##` and 9 `###` entry headings. The generalised matcher must accept `##` or `###`.
+One mechanical difference to handle, and a trap inside it. The existing `DEFERRAL_ID` regex matches `### ID` only (`tests/docs/_metaDeferralLedgerGraduation.test.ts:27`), while backlog entries use both levels — the root backlog heads its entries with `##` (for example line 11), this spec's three sit at `###` under a `##` section header, and `BACKLOG-archive.md` holds 28 `##` and 9 `###` entry headings.
+
+**Do not simply widen the shared regex to `##|###`.** That misclassifies prose section headings as IDs, and R5 finding 4 enumerated every live false match: `## CREWWARN instance discriminator …` (`DEFERRED-archive.md:181`), `## CI speedup — …` (`DEFERRED-archive.md:606`), `## CI unit-suite sharding …` (`DEFERRED-archive.md:702`), `## BLOCKRES — BlockedRowResolver …` (`DEFERRED-archive.md:1236`), and `## INFO-tab data-fidelity audit …` (`BACKLOG-archive.md:161`). Note that requiring a following em-dash does not filter them, since `## BLOCKRES — …` has that shape too.
+
+Give each ledger pair its **own** matcher instead of one widened regex:
+
+- the `DEFERRED` pair keeps `^### ([A-Z0-9][A-Z0-9-]+)` exactly as it is, so none of its false matches (all at `##`) can appear;
+- the `BACKLOG` pair uses `^#{2,3} (BL-[A-Z0-9-]+)`, which is ledger-specific because every real backlog entry is `BL-`-prefixed and none of the five false matches is.
 
 **Steps:**
 
 - [ ] Write the failing test first — this task is not exempt from invariant 1, and the previous revision's `tests/docs` gate proved nothing because it covers `DEFERRED.md` graduation, not these entries (R3 finding 5). Generalise the guard so it runs over both ledger pairs, then add:
   - the three IDs to the backlog pair's graduated registry: `BL-PICKER-BOOTSTRAP-HOST-FLIP`, `BL-PICKER-GATE-SKIP-MISMATCH`, `BL-PICKER-CLAIMED-ROW-NEXT-DROP`. Each must be archive-only, which fails right now because all three are still active — that is the red phase.
   - the no-overlap invariant for the backlog pair, which catches the actual risk in a two-file move: an entry copied into the archive but never deleted from the active queue, or the reverse.
+  - an assertion that the archived section carries the **resolution note naming this branch** (`fix/picker-flow-app-bugs`). Both documents require that provenance, but the previous revision left it as an unchecked implementation instruction, so an archive entry with no note would have passed every planned test (R5 finding 5).
   - a substance assertion for `BL-SERVER-ACTION-ORIGIN-GATE`: present in `BACKLOG.md` exactly once, **and** its section body carries real content, so a heading-only entry fails (R4 finding 10). Assert a body-length floor plus distinctive substrings for the three things spec §4.3a promises are preserved — the residual (a cross-site POST with no `Origin`), the blast radius (device-local sign-out plus one picker-entry deletion, no read and no escalation), and the open decision (a trusted-proxy policy). Match on substrings loose enough to survive rewording but not an empty entry.
 - [ ] Move the three entries and their section header into the archive with a one-line resolution note naming this branch, keeping the surrounding `---` separators well-formed. Use a file edit, never `echo >>`; verify with `git diff`.
 - [ ] Add the BL-SERVER-ACTION-ORIGIN-GATE entry to root `BACKLOG.md` carrying spec §4.3a's reasoning in full.
@@ -352,7 +358,8 @@ One mechanical difference to handle: the existing `DEFERRAL_ID` regex matches `#
 
 ### Task 11: full pre-push gates
 
-- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (full suite — a scoped subset misses registry suites), `pnpm test:audit:x1-catalog-parity`, `pnpm test:audit:x3-trust-domain`, and the Task 7 e2e run. Check the shell exit status, not the "Tests" line: Vitest exits 1 on uncaught errors even when every test passes.
+- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (full suite — a scoped subset misses registry suites), `pnpm test:audit:x1-catalog-parity`, `pnpm test:audit:x3-trust-domain`.
+- [ ] Whole-file e2e run (absorbed from the dissolved Task 7): `pnpm exec playwright test --project=mobile-safari tests/e2e/picker-flow.spec.ts` with `TEST_DATABASE_URL` overridden to loopback. Expected **five passed, one skipped** — two pre-existing active tests at `tests/e2e/picker-flow.spec.ts:70` and `tests/e2e/picker-flow.spec.ts:134`, the three un-skipped in Tasks 2, 4, and 6, and `tests/e2e/picker-flow.spec.ts:293` still skipped. This task is verification only and produces no commit, which is why the run belongs here. Check the shell exit status, not the "Tests" line: Vitest exits 1 on uncaught errors even when every test passes.
 
 ### Task 12: whole-diff adversarial review (cross-model)
 
@@ -363,14 +370,28 @@ One mechanical difference to handle: the existing `DEFERRAL_ID` regex matches `#
 
 - [ ] Push and open the PR with the spec summary and the impeccable dispositions.
 - [ ] Wait for **real CI green** on the PR — not just local.
-- [ ] **Dispatch the one edited workflow PR CI will never run.** `dev-gate-e2e.yml` is `workflow_dispatch`-only (`.github/workflows/dev-gate-e2e.yml:25-30`), so Task 8's env edit there is invisible to PR CI: run `gh workflow run dev-gate-e2e.yml --ref fix/picker-flow-app-bugs`, then watch it to completion. Reporting "real CI green" while a modified CI surface has never executed is exactly the local-passes-CI-fails class this project treats as its own gate (R4 finding 5). Also fire `gh workflow run crew-e2e.yml --ref fix/picker-flow-app-bugs` if the PR's path filter did not trigger it.
+- [ ] **Dispatch every edited workflow PR CI will not run, and watch each to completion.** Reporting "real CI green" while a modified CI surface has never executed is the local-passes-CI-fails class this project treats as its own gate (R4 finding 5). Two dispatches, both **blocking** — a `workflow_dispatch` run is asynchronous and not merge-blocking, so firing and moving on would let the branch ship before its only picker-flow run finishes (R5 finding 2):
+  - `dev-gate-e2e.yml`, always: it is `workflow_dispatch`-only (`.github/workflows/dev-gate-e2e.yml:25-30`), so Task 8's env edit there is invisible to PR CI.
+  - `crew-e2e.yml`, if the PR's path filter did not already trigger it.
+
+  Race-safe run capture, since `gh workflow run` prints no run ID and `--limit=1` can return a *previous* run: record the newest run ID for that workflow and branch **before** dispatching, poll `gh run list` until an ID newer than that appears, then block on it.
+
+  ```bash
+  wf=dev-gate-e2e.yml; ref=fix/picker-flow-app-bugs
+  before=$(gh run list --workflow="$wf" --branch="$ref" --limit=1 --json databaseId --jq '.[0].databaseId // 0')
+  gh workflow run "$wf" --ref "$ref"
+  until id=$(gh run list --workflow="$wf" --branch="$ref" --limit=1 --json databaseId --jq '.[0].databaseId // 0'); [ "$id" != "$before" ] && [ "$id" != "0" ]; do sleep 5; done
+  gh run watch "$id" --exit-status
+  ```
+
+  `gh run watch --exit-status` is what makes it blocking: it exits non-zero on failure, so a red dispatched run stops the merge instead of being reported as green.
 - [ ] `gh pr merge --merge`, fast-forward local `main`, and verify `git rev-list --left-right --count main...origin/main` reports `0  0`.
 
 ---
 
 ## Task order and dependencies
 
-1 → 2 (the helper must exist before its call sites). 3 → 4 (the matcher before the sweep that uses it). 5 and 6 are independent of each other and of 1 through 4. 7 depends on 2, 4, and 6 — each of those un-skips its own stub, and Task 7 verifies the whole file composes. 8 depends on 7 (the spec must be green locally before CI runs it). 9 depends on 7 so the archive note can name the un-skipped tests. **10 depends on 2, 3, 5, and 6.** Tasks 2, 3, and 6 edit the three UI-surface files, and Task 5 changes the rendered mismatch sentence that Task 10's own copy checklist inspects — so the gate must run after all four or it evaluates an incomplete diff. (R2 finding 7 caught the first omission, R3 finding 4 caught Task 3, R4 finding 4 caught Task 5.) 11 through 13 are the close-out sequence, in order.
+1 → 2 (the helper must exist before its call sites). 3 → 4 (the matcher before the sweep that uses it). 5 and 6 are independent of each other and of 1 through 4. Task 7 no longer exists (dissolved above). 8 depends on 2, 4, and 6 — the spec must be green locally before CI is pointed at it. 9 also depends on 2, 4, and 6 so the archive note can name the un-skipped tests. **10 depends on 2, 3, 5, and 6.** Tasks 2, 3, and 6 edit the three UI-surface files, and Task 5 changes the rendered mismatch sentence that Task 10's own copy checklist inspects — so the gate must run after all four or it evaluates an incomplete diff. (R2 finding 7 caught the first omission, R3 finding 4 caught Task 3, R4 finding 4 caught Task 5.) 11 through 13 are the close-out sequence, in order.
 
 ## Risks
 
@@ -437,3 +458,16 @@ Codex returned `VERDICT: BLOCKING` with eleven findings, while confirming the de
 | 7 | MEDIUM | Task 8's title still promised PR coverage its body correctly disclaims, and the expanded path filter omitted `lib/env/pickerCookieSigningKey.ts` despite the task naming that file a runtime prerequisite | Accepted. The title now says "path-gated", and the filter includes that file |
 | 10 | MEDIUM | Task 9's red phase only checked that the follow-up ID appears once, so a heading-only entry would pass while spec §4.3a promises the residual, blast radius, and open decision are preserved | Accepted. The test now asserts a body-length floor plus distinctive substrings for all three, matched loosely enough to survive rewording |
 | 11 | LOW | The plan header said two completed rounds and named only spec §§10-11; there are four rounds and four disposition sections | Accepted; both references corrected |
+
+## 16. Round 5 adversarial review — plan-side dispositions
+
+Codex returned `VERDICT: BLOCKING` with seven findings, all verified against the live tree, none refuted. Finding 7's spec-side residue is dispositioned in spec §14.
+
+| # | Severity | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | BLOCKING | Task 7 still violated invariant 1: a comment edit has no test, and a post-fix verification run is green on arrival, yet the task produced its own commit | Accepted, and the fix is to **dissolve the task** rather than defend it. The comment edit moves into Task 8, which already edits config behind failing pins; the whole-file e2e run moves into Task 11, which is verification by definition and produces no commit. Numbering is preserved so cross-references stay valid |
+| 2 | HIGH | The conditional `crew-e2e.yml` dispatch was fire-and-forget, and `workflow_dispatch` runs are asynchronous and not merge-blocking, so the branch could ship before its only picker-flow run finished; no race-safe way to capture the run ID was given | Accepted. Both dispatches are now blocking, with an explicit before/after run-ID capture (dispatch prints no ID, and `--limit=1` can return a previous run) and `gh run watch --exit-status` so a red run stops the merge |
+| 3 | HIGH | Task 8 overstated what its gates prove for `dev-gate-e2e.yml`: `REQUIRED_ENV` only greps the name anywhere in the file, the 64-hex assertion was specified for one workflow, and that workflow's projects never call `pickerCookieSigningKey()` | Accepted. The shape assertion now covers both workflows, and the task states plainly that the `dev-gate-e2e.yml` entry is defensive only — no gate proves step scope and no run exercises the key there. Claiming otherwise was the nominal-gate mistake |
+| 4 | MEDIUM | Widening the shared `DEFERRAL_ID` regex to `##\|###` misclassifies prose section headings as IDs; five live false matches were enumerated, and requiring an em-dash does not filter them | Accepted, all five verified. Each ledger pair now gets its own matcher: `DEFERRED` keeps `^### …` unchanged, and `BACKLOG` uses `^#{2,3} (BL-…)`, which is ledger-specific because every real backlog entry is `BL-`-prefixed and none of the false matches is |
+| 5 | MEDIUM | Task 9's revised test dropped the resolution-note assertion, so an archive entry with no branch provenance would pass every planned test while violating both documents | Accepted; that assertion is back in the red set |
+| 6 | MEDIUM | All three tasks touched by the R4 un-skip restructure omitted `tests/e2e/picker-flow.spec.ts` from their `Files` inventories | Accepted for all three instances; Tasks 2, 4, and 6 now list it with the line each un-skips |
