@@ -37,10 +37,16 @@ type State =
 const BTN =
   "inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm border border-border-strong bg-bg px-3 py-1 text-left text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
 
-// G4 armed branch (spec 2026-07-16-destructive-confirm-pass §4): destructive recipe fill (C1),
-// same shape/wrap as idle; border-transparent compensates the idle border (no layout shift).
+// G4 armed/running branch (spec 2026-07-16-destructive-confirm-pass §4): destructive recipe
+// fill (C1); border-transparent compensates the idle border (no layout shift). Below 480px it
+// takes the full row width, which wraps it onto its own flex line — the confirm tap is the
+// destructive one and the 375px row has no room for it inline (spec 2026-07-24-dq-eyebrow-
+// divider §3.1). At >=480px it reverts to an inline chip: `w-full` there would paint a
+// panel-wide bar. ONE class literal on purpose — tests/styles/_metaDestructiveConfirm.test.ts
+// registers this file's recipe hits by occurrence index, and splitting it adds an
+// unregistered one.
 const ARMED_BTN =
-  "inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm border border-transparent bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+  "inline-flex min-h-tap-min w-full max-w-full items-center justify-center self-start whitespace-normal rounded-sm border border-transparent bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg min-[480px]:w-auto min-[480px]:justify-start";
 
 const ARM_REVERT_MS = 4_000;
 
@@ -151,6 +157,9 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
         // string in every state, so WCAG 2.5.3 Label-in-Name holds across the morph,
         // not just at idle — and the label-less branch is named too, or the count
         // would reach nobody there.
+        // The row wraps ONLY while the chip is full-width. An always-wrapping row would
+        // drop the idle chip to its own line too, costing ~18px per group at rest.
+        const rowClass = armed || running ? " flex-wrap" : "";
         const count = bulk?.items.length ?? 0;
         const chipText = running ? "Ignoring…" : armed ? "Are you sure?" : "Ignore";
         const chipName = running
@@ -169,7 +178,7 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
             data-testid={`dq-active-group-${group.code}`}
           >
             {showEyebrowRow ? (
-              <div className="flex items-center gap-2">
+              <div className={`flex items-center gap-2${rowClass}`}>
                 {group.label ? (
                   <span
                     data-testid={`dq-group-label-${group.code}`}
@@ -188,7 +197,7 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
                       disabled={state.kind === "running"}
                       aria-busy={running}
                       aria-label={group.label ? `${chipName} · ${group.label}` : chipName}
-                      className={armed ? ARMED_BTN : BTN}
+                      className={armed || running ? ARMED_BTN : BTN}
                     >
                       {chipText}
                     </button>
