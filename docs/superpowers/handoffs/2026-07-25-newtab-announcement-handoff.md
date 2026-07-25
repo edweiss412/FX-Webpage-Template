@@ -693,3 +693,47 @@ shorthand second citation `` `:439` `` are hard failures. Neither `tsc`, `eslint
 them. The reason they landed is the shape of the command: the check ran, printed `1 hard`, and
 `git commit` ran anyway because it was chained after rather than conditioned on the result. Every
 commit after this point is gated with an `if`.
+
+## R20 — the sweep varied one axis and assumed the other
+
+R20 (NEEDS-ATTENTION, two HIGHs). It confirmed the four missing name contributors were already
+added, then found the live half of the same finding: **every generic fixture pinned the value to
+`"v"`, which made the sweep vacuous for any read gated on the value.** Its witness was an ordinary
+case-sensitive `class` read that fires only when the value contains `hidden` — `"v"` never does, so
+`class` and `CLASS` returned identical verdicts across all four bases while real markup diverged and
+a genuinely hidden announcement was accepted.
+
+This is the **same defect as R19's polarity finding, one axis over.** R19: all bases were in the
+announcing state, so suppression was unobservable. R20: all bases carried one value, so
+value-gated reads were unobservable. Both times the sweep varied exactly the thing under test and
+silently held everything else at a single point. The general form is worth carrying: *a differential
+check is only as good as the inputs it varies, and every input held constant is an assumption.*
+
+The sweep now crosses each name with the values that reach the scanner's value-dependent branches —
+a neutral value, the `class`/`className` `hidden` token, `true`, the `aria-hidden="false"`
+exemption, a style object, a style string — plus the bare valueless form boolean attributes take.
+Mutation-proven with R20's exact witness.
+
+### R20 HIGH 2 — §6.4 ratified two contradictory contracts
+
+The R19 amendment had been **appended** without deleting the shape-model bullets it superseded, so
+§6.4 simultaneously ratified "coverage is decided by literal SHAPE" and "coverage is behavioural and
+supersedes the previous model." Writing "supersedes" in prose deletes nothing. A section with two
+contracts is worse than one with the wrong contract: the wrong one can be found and fixed, two mean
+every later citation of the section is ambiguous.
+
+Three more instances of the same edit-by-addition habit, all in that section:
+
+- a sentence saying three source-reading models failed and then enumerating four (same drift in a
+  test comment);
+- the R9-era claim that the tripwire "covers every name-producing accessor", surviving long after
+  R19 proved no source scan reaches a regex literal or an unquoted property key — now **explicitly
+  retracted** rather than quietly reworded, so the next reader knows it was once believed;
+- a bullet presenting the literal tripwire as the guarantee.
+
+**A near-miss worth recording, because it was mine and it was destructive.** My first attempt at the
+deletion sliced from the superseded bullet to what I assumed was the next one and removed **13
+unrelated accepted-limit bullets plus the R19 amendment itself** — 11,727 characters instead of
+~1,300. Nothing was committed; `git diff --stat` immediately after the edit caught it, and
+`git checkout` restored the file. The lesson is the check, not the luck: run `git diff --stat` after
+any scripted deletion and read the removed headings back before doing anything else.
