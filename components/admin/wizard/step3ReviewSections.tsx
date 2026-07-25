@@ -705,12 +705,26 @@ const COUNT_SECTIONS = new Set<SectionId>(["crew", "contacts", "rooms", "warning
  * is still flagged, and "(0) Needs a look" reads as a broken empty tile. Suppressing
  * the chip leaves the amber flag as the sole, coherent signal.
  */
+/**
+ * The one gate both count render paths share. `count` arrives from parsed sheet
+ * data and `number | null` does not exclude NaN or the infinities, which would
+ * render as a literal "(NaN)". `shouldShowSectionCount` below covers the modal
+ * path; the legacy no-chrome `BreakdownSection` head calls this directly, because
+ * it gates on nothing else. Keeping the check here rather than at each call site
+ * means a future third caller inherits it.
+ */
+export function hasRenderableCount(count: number | null): boolean {
+  return count !== null && Number.isFinite(count);
+}
+
 export function shouldShowSectionCount(
   count: number | null,
   sectionId: SectionId | undefined,
   flagged: boolean,
 ): boolean {
-  if (count === null || sectionId === undefined || !COUNT_SECTIONS.has(sectionId)) return false;
+  if (!hasRenderableCount(count) || sectionId === undefined || !COUNT_SECTIONS.has(sectionId)) {
+    return false;
+  }
   return !(count === 0 && flagged);
 }
 
@@ -1007,7 +1021,9 @@ export function BreakdownSection({
     <section data-testid={testId} className="flex flex-col gap-1.5">
       <h4 className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
         {label}{" "}
-        {count !== null ? <span className="tabular-nums text-text-subtle">({count})</span> : null}
+        {hasRenderableCount(count) ? (
+          <span className="tabular-nums text-text-subtle">({count})</span>
+        ) : null}
       </h4>
       {children}
     </section>
