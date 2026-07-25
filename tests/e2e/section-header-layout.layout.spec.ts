@@ -554,7 +554,7 @@ test("corner link carries a 44px tap target @ 375", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 900 });
   await page.goto(`${baseUrl}G1-clean-375.html`, { waitUntil: "load" });
 
-  const m = await page.evaluate((tapMin) => {
+  const m = await page.evaluate(() => {
     const link = document.querySelector('[data-cell="G1-clean"] a[href]');
     if (!(link instanceof HTMLElement)) return { error: "corner link not found" };
     const r = link.getBoundingClientRect();
@@ -590,7 +590,7 @@ test("corner link carries a 44px tap target @ 375", async ({ page }) => {
       // overlay swallowing neighbouring clicks reads as a failure, not a pass.
       outside: probe(box.left - 3, (box.top + box.bottom) / 2),
     };
-  }, TAP_MIN_PX);
+  });
 
   expect(m.error, "fixture shape").toBeNull();
   if (m.error !== null) return;

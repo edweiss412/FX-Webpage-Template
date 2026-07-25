@@ -87,7 +87,6 @@ import {
   isAllowedDiagramMime,
   resolveCurrentDiagrams,
 } from "@/lib/data/diagrams";
-import Link from "next/link";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
