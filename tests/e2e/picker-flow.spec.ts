@@ -47,6 +47,19 @@ import { isSupabaseAuthCookieName } from "@/lib/auth/supabaseAuthCookieNames";
 // on a non-default port; CI always uses the default.
 const BASE_URL = process.env.PICKER_E2E_BASE_URL ?? "http://127.0.0.1:3000";
 
+/**
+ * Timeout for a render that follows a Server Action round trip.
+ *
+ * Tapping a roster row runs `selectIdentity` on the server, sets the picker
+ * cookie, and re-renders the route as `resolved` — a full POST plus RSC render.
+ * Locally that lands in 1-3s, but on a cold CI runner (prod build, first hit of
+ * the route, Supabase in Docker) it exceeded Playwright's 5s default and the
+ * guest case failed all three attempts on run 30154409796 while passing on the
+ * next commit with no e2e change. That is latency, not a defect, so the wait is
+ * explicit and named rather than left at the default or bumped globally.
+ */
+const AFTER_SERVER_ACTION = { timeout: 30_000 } as const;
+
 // admin-show-modal: the per-show surface is the /admin?show= review modal. The
 // Suspense SKELETON shares the shell testIdBase, and both frames transiently
 // coexist during the streaming swap — scope to the LOADED modal (the skeleton
@@ -121,7 +134,9 @@ test("first-contact gate -> sign-in CTA href -> authed revisit bootstraps and re
     const authed = await authedCtx.newPage();
     await signInAs(authed, NON_ADMIN_CREW_FIXTURE, { baseUrl: BASE_URL });
     await authed.goto(url, { waitUntil: "networkidle" });
-    await expect(authed.getByTestId("crew-shell")).toBeVisible();
+    // Same cold-runner exposure: this render follows the picker-bootstrap redirect
+    // and its claim RPC.
+    await expect(authed.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
     const chip = authed.getByTestId("identity-chip");
     await expect(chip).toBeVisible();
     await expect(chip).toContainText("Alice Cooper");
@@ -201,8 +216,11 @@ test("Mode B 'Continue as guest' atomically clears the stale entry and lands on 
     await page
       .locator(`[data-testid="picker-roster-row"][data-crew-member-id="${aliceId}"]`)
       .click();
-    await expect(page.getByTestId("crew-shell")).toBeVisible();
-    await expect(page.getByTestId("identity-chip")).toContainText("Alice Cooper");
+    await expect(page.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
+    await expect(page.getByTestId("identity-chip")).toContainText(
+      "Alice Cooper",
+      AFTER_SERVER_ACTION,
+    );
 
     // Mode B premise: now sign in as the fixture that is NOT on show A's roster,
     // so the browser carries Alice's picker entry AND a non-roster Google session.
@@ -261,14 +279,20 @@ test("Mode B 'Continue as guest' atomically clears the stale entry and lands on 
       `[data-testid="picker-roster-row"][data-crew-member-id="${bobId}"]`,
     );
     await bobRow.click();
-    await expect(page.getByTestId("crew-shell")).toBeVisible();
-    await expect(page.getByTestId("identity-chip")).toContainText("Bob Marley");
+    await expect(page.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
+    await expect(page.getByTestId("identity-chip")).toContainText(
+      "Bob Marley",
+      AFTER_SERVER_ACTION,
+    );
 
     // ...and survive a reload carrying NO ?gate=skip. A one-request-only fix
     // fails here, which is the whole point.
     await page.goto(urlA, { waitUntil: "networkidle" });
-    await expect(page.getByTestId("crew-shell")).toBeVisible();
-    await expect(page.getByTestId("identity-chip")).toContainText("Bob Marley");
+    await expect(page.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
+    await expect(page.getByTestId("identity-chip")).toContainText(
+      "Bob Marley",
+      AFTER_SERVER_ACTION,
+    );
   } finally {
     await ctx.close();
   }
