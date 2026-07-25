@@ -60,6 +60,7 @@ import {
 import { createPortal } from "react-dom";
 import { type Rect } from "@/lib/popover/position";
 import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import type { ReactNode } from "react";
 
 /**
@@ -326,6 +327,13 @@ export function HoverHelp({
     const caretEl = caretRef.current;
     window.addEventListener("scroll", schedule, { capture: true, passive: true }); // (b)
     window.addEventListener("resize", schedule); // (c)
+    // (b2) Pinch-zoom pan does NOT fire window scroll (measured), so the visual
+    // viewport is its own event source. Gated on the ENGINE, never on current
+    // dimensions: a viewport reporting zero size at open must still be
+    // subscribed or its recovery resize can never arrive.
+    const vv = isVisualViewportEngine(window) ? window.visualViewport : null;
+    vv?.addEventListener("scroll", schedule);
+    vv?.addEventListener("resize", schedule);
     const ro = new ResizeObserver(schedule); // (d): trigger + body + host
     if (trigger) ro.observe(trigger);
     if (body) ro.observe(body);
@@ -333,6 +341,8 @@ export function HoverHelp({
     return () => {
       window.removeEventListener("scroll", schedule, { capture: true });
       window.removeEventListener("resize", schedule);
+      vv?.removeEventListener("scroll", schedule);
+      vv?.removeEventListener("resize", schedule);
       if (trigger) ro.unobserve(trigger);
       if (body) ro.unobserve(body);
       ro.unobserve(host);

@@ -98,6 +98,7 @@ import { createPortal } from "react-dom";
 
 import { type Rect } from "@/lib/popover/position";
 import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
@@ -360,13 +361,25 @@ export function ShareHub({
 
   useLayoutEffect(() => {
     if (!open) return;
-    let frame = 0;
+    // THROTTLE, not debounce. Cancel-and-reschedule was fine while the only
+    // source was `window.resize`. This effect now also subscribes to
+    // `visualViewport` scroll, ~80 events per pan, faster than a frame boundary
+    // -- a debounce would cancel its own pending frame on every event and the
+    // panel would not move until the gesture STOPPED.
+    let frame: number | null = null;
     const schedule = () => {
-      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(applyPlacement);
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null; // cleared BEFORE running so later events can schedule anew
+        applyPlacement();
+      });
     };
     applyPlacement();
     window.addEventListener("resize", schedule);
+    // Pinch-zoom pan does not fire window scroll; gated on the ENGINE.
+    const vv = isVisualViewportEngine(window) ? window.visualViewport : null;
+    vv?.addEventListener("scroll", schedule);
+    vv?.addEventListener("resize", schedule);
     // The host can change height (the modal's own content moves the anchor).
     // Feature-detected and never constructed when absent: jsdom has no
     // ResizeObserver, and an unguarded construction takes the component down
@@ -397,8 +410,10 @@ export function ShareHub({
     if (bodyObserver && panelRef.current) bodyObserver.observe(panelRef.current);
     return () => {
       bodyObserver?.disconnect();
-      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+      if (frame !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
       window.removeEventListener("resize", schedule);
+      vv?.removeEventListener("scroll", schedule);
+      vv?.removeEventListener("resize", schedule);
       observer?.disconnect();
     };
   }, [open, applyPlacement, hostRef, published, archived]);

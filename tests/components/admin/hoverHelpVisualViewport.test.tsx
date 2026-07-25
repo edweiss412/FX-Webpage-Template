@@ -2,7 +2,7 @@
 /**
  * tests/components/admin/hoverHelpVisualViewport.test.tsx
  *
- * The jsdom PLACEMENT layer (Task 3). Listener behavior is Task 4. These pins cannot
+ * The jsdom layer of the visual-viewport work (spec §5 T-C*). These pins cannot
  * live anywhere else: the real-engine suite is Chromium-only so it can never
  * exercise the WebKit exclusion, and the property suite is pure so it never
  * sees a listener at all.
@@ -129,6 +129,45 @@ describe("T-C1: bounds come from the visible slice", () => {
   });
 });
 
+describe("T-C2/T-C3: visual-viewport events drive and then stop driving", () => {
+  test("scroll and resize each schedule exactly one frame while open", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    const trigger = mount();
+    fireEvent.click(trigger);
+    expect(frames.size).toBe(0); // open measures synchronously
+
+    vv.dispatchEvent(new Event("scroll"));
+    expect(frames.size).toBe(1);
+    runFrames();
+    vv.dispatchEvent(new Event("resize"));
+    expect(frames.size).toBe(1);
+  });
+
+  test("neither event schedules anything while CLOSED", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    mount();
+    vv.dispatchEvent(new Event("scroll"));
+    vv.dispatchEvent(new Event("resize"));
+    expect(frames.size).toBe(0);
+  });
+
+  test("after close, BOTH events on the ORIGINAL object are inert", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    const trigger = mount();
+    fireEvent.click(trigger);
+    fireEvent.click(trigger); // toggle closed
+
+    frames.clear();
+    vv.dispatchEvent(new Event("scroll"));
+    vv.dispatchEvent(new Event("resize"));
+    // Asserting removeEventListener was CALLED would not prove which callback or
+    // which target was removed; inertness of the original object does.
+    expect(frames.size).toBe(0);
+  });
+});
 
 describe("T-C4: no visualViewport at all", () => {
   test("still opens and positions against the layout viewport", () => {
@@ -141,7 +180,56 @@ describe("T-C4: no visualViewport at all", () => {
   });
 });
 
+describe("T-C5: WebKit is excluded, wholly", () => {
+  test("placement matches the layout-viewport answer AND no listener is attached", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    const addSpy = vi.spyOn(vv, "addEventListener");
+    vi.stubGlobal("visualViewport", vv);
+    vi.stubGlobal("CSS", { supports: (p: string) => p === "-webkit-backdrop-filter" });
 
+    const trigger = mount();
+    fireEvent.click(trigger);
+
+    const body = screen.getByTestId("vv-body");
+    expect(body.style.left).toBe(`${TRIGGER.left}px`); // layout answer, unclamped
+    // Round-2 F1: gating only the rect while still subscribing would make a
+    // WebKit zoom-pan re-measure visual-relative rects through a layout-relative
+    // conversion, i.e. drift. Nothing may be attached at all.
+    expect(addSpy).not.toHaveBeenCalled();
+
+    frames.clear();
+    vv.dispatchEvent(new Event("scroll"));
+    expect(frames.size).toBe(0);
+  });
+});
+
+describe("T-C7: a degenerate-at-open viewport still recovers", () => {
+  test("zero dimensions at open, then valid dimensions + resize, restores tracking", () => {
+    const vv = new VisualViewportStub(0, 0, 0, 0);
+    vi.stubGlobal("visualViewport", vv);
+    const trigger = mount();
+    fireEvent.click(trigger);
+
+    // Unusable right now, so the layout answer is correct...
+    const body = screen.getByTestId("vv-body");
+    expect(body.style.left).toBe(`${TRIGGER.left}px`);
+
+    // ...but the component MUST still be subscribed, or this can never arrive.
+    vv.width = VV.width;
+    vv.height = VV.height;
+    vv.offsetLeft = VV.offsetLeft;
+    vv.offsetTop = VV.offsetTop;
+    vv.dispatchEvent(new Event("resize"));
+    expect(frames.size).toBe(1);
+    runFrames();
+
+    const boundsLeft = VV.offsetLeft + VIEWPORT_INSET;
+    const boundsRight = VV.offsetLeft + VV.width - VIEWPORT_INSET;
+    const width = Math.min(BODY_NATURAL.width, boundsRight - boundsLeft);
+    const expectedLeft = Math.min(Math.max(TRIGGER.left, boundsLeft), boundsRight - width);
+    expect(body.style.left).toBe(`${expectedLeft}px`);
+  });
+});
 
 describe("T-C6: an anchor outside the visible slice is placed, never hidden", () => {
   test("layout-viewport answer, popover visible, open state preserved", () => {

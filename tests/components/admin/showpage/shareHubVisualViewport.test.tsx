@@ -2,7 +2,7 @@
 /**
  * tests/components/admin/showpage/shareHubVisualViewport.test.tsx
  *
- * ShareHub PLACEMENT (Task 3); listener behavior is Task 4. A full consumer, not a satellite of
+ * ShareHub is a FULL consumer of the placement policy, not a satellite of
  * HoverHelp's coverage (spec R10, §5 T-S*). Round-1 F6 found it missed entirely;
  * round-4 F2 found its zero-dimension recovery unproven while HoverHelp's was
  * proven. Both are pinned here.
@@ -130,6 +130,120 @@ function openHub(): HTMLElement {
   return kebab;
 }
 
+describe("T-S2/T-S3: ShareHub subscribes to the visual viewport and then stops", () => {
+  test("scroll schedules a frame while open", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    openHub();
+    frames.clear();
+    vv.dispatchEvent(new Event("scroll"));
+    expect(frames.size).toBeGreaterThan(0);
+  });
+
+  test("resize schedules a frame while open", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    openHub();
+    frames.clear();
+    vv.dispatchEvent(new Event("resize"));
+    expect(frames.size).toBeGreaterThan(0);
+  });
+
+  test("after close, BOTH events on the ORIGINAL object are inert", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    const kebab = openHub();
+    fireEvent.click(kebab); // toggle closed
+    frames.clear();
+    vv.dispatchEvent(new Event("scroll"));
+    vv.dispatchEvent(new Event("resize"));
+    expect(frames.size).toBe(0);
+  });
+});
+
+describe("T-S8: the coalescer THROTTLES, it does not debounce", () => {
+  test("a burst of visualViewport events keeps ONE pending frame and cancels none", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    openHub();
+    frames.clear();
+    cancelled = [];
+
+    // A real pan fires ~80 of these (spec §3.1), faster than a frame boundary.
+    for (let i = 0; i < 20; i++) vv.dispatchEvent(new Event("scroll"));
+
+    // Debounce signature: 19 cancellations and a frame that keeps sliding, so
+    // the panel does not move until the gesture STOPS. Throttle signature: the
+    // first event's frame survives and runs on the next tick.
+    expect(cancelled, "coalescer cancelled a pending frame mid-burst (debounce)").toEqual([]);
+    expect(frames.size, "burst must collapse to exactly one pending frame").toBe(1);
+
+    // Run that frame, then burst AGAIN. Without the `frame = null` reset inside
+    // the callback, the guard stays latched: one frame runs and every later pan
+    // event is suppressed forever, which passes a first-burst-only assertion.
+    const pending = [...frames.values()];
+    frames.clear();
+    cancelled = [];
+    for (const cb of pending) cb(0);
+
+    for (let i = 0; i < 10; i++) vv.dispatchEvent(new Event("scroll"));
+    expect(frames.size, "coalescer latched: no frame scheduled after the first ran").toBe(1);
+    expect(cancelled, "second burst cancelled a pending frame").toEqual([]);
+  });
+});
+
+describe("T-S5: WebKit is excluded for ShareHub too", () => {
+  test("no visualViewport listener is attached", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    const addSpy = vi.spyOn(vv, "addEventListener");
+    vi.stubGlobal("visualViewport", vv);
+    vi.stubGlobal("CSS", { supports: (p: string) => p === "-webkit-backdrop-filter" });
+
+    openHub();
+    // The class swept across BOTH consumers, not patched on one (round-2 F1).
+    expect(addSpy).not.toHaveBeenCalled();
+
+    frames.clear();
+    vv.dispatchEvent(new Event("scroll"));
+    expect(frames.size).toBe(0);
+  });
+});
+
+describe("T-S7: ShareHub's own zero-dimension recovery", () => {
+  test("degenerate at open still subscribes, so a later resize restores tracking", () => {
+    const vv = new VisualViewportStub(0, 0, 0, 0);
+    vi.stubGlobal("visualViewport", vv);
+    openHub();
+
+    // Round-4 F2: proving this for HoverHelp alone left the hole open here,
+    // because every Chromium e2e fixture renders HoverHelp.
+    vv.width = VV.width;
+    vv.height = VV.height;
+    vv.offsetLeft = VV.offsetLeft;
+    vv.offsetTop = VV.offsetTop;
+    frames.clear();
+    vv.dispatchEvent(new Event("resize"));
+    expect(frames.size).toBeGreaterThan(0);
+
+    // Scheduling a frame is NOT recovery: a stale or cached degenerate-state
+    // path would also schedule. Run it and assert the RESTORED coordinates.
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const cb of pending) cb(0);
+
+    const pop = screen.getByTestId("share-hub-popover");
+    const boundsLeft = VV.offsetLeft + 8;
+    const boundsRight = VV.offsetLeft + VV.width - 8;
+    const width = Math.min(308, boundsRight - boundsLeft);
+    const expectedLeft = Math.min(
+      Math.max(TRIGGER.left + TRIGGER.width - width, boundsLeft),
+      boundsRight - width,
+    );
+    expect(pop.style.left).toBe(`${expectedLeft}px`);
+    expect(pop.style.visibility).not.toBe("hidden");
+  });
+});
+
 describe("T-S6: zoom never newly enters ShareHub's hidden branch", () => {
   test("an anchor outside the visible slice keeps the panel open and visible", () => {
     // The panel's hidden branch was written for transient degenerate rects and
@@ -153,9 +267,7 @@ describe("T-S6: zoom never newly enters ShareHub's hidden branch", () => {
     ).toBeGreaterThan(sliceRight);
     expect(OUT.top).toBeGreaterThan(sliceBottom);
     frames.clear();
-    // Task 3 has no visualViewport listener yet, so a vv event would run NOTHING
-    // and this case would merely observe the default visible/open state.
-    window.dispatchEvent(new Event("resize"));
+    vv.dispatchEvent(new Event("scroll"));
     const pending = [...frames.values()];
     frames.clear();
     for (const cb of pending) cb(0);
@@ -180,12 +292,9 @@ describe("T-S6: zoom never newly enters ShareHub's hidden branch", () => {
  * second pass through the component's own visualViewport listener and run the
  * frame, which is also closer to what a real zoom does.
  */
-function replace(_vv: VisualViewportStub): void {
-  // Task 3 has no visualViewport listeners yet (that is Task 4), so the second
-  // placement pass is driven through ShareHub's PRE-EXISTING window resize
-  // listener. That keeps these placement cases independent of Task 4.
+function replace(vv: VisualViewportStub): void {
   frames.clear();
-  window.dispatchEvent(new Event("resize"));
+  vv.dispatchEvent(new Event("scroll"));
   const pending = [...frames.values()];
   frames.clear();
   for (const cb of pending) cb(0);
