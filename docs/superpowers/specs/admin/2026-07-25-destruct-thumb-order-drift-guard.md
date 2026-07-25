@@ -351,6 +351,8 @@ T2 therefore asserts a **census**: for each non-exempt registry file, the multis
 
 The identifiers themselves still come from an allowlist table (identifier → meaning → why it is not `ARM_REVERT_MS`); the census is what binds each one to a count per file.
 
+**What the census does not catch, stated before review finds it.** A **swap** is invisible: if a file's arm timer takes `SUCCESS_DISMISS_MS` while its toast timer takes `ARM_REVERT_MS`, the multiset is still `{ARM_REVERT_MS: 1, SUCCESS_DISMISS_MS: 1}` and the census passes. Counts are preserved under permutation. Catching that needs the guard to know which call *is* the arm timer, which is the purpose-detection problem that was fail-open in round 1 (a setter-name detector matched 4 of 11 files). So the census strictly improves on the global allowlist — it catches any move that changes a count — without being a proof, and the swap is recorded in §5.3 as the fourth hole rather than claimed closed.
+
 | Identifier | Meaning | Allowed because |
 |---|---|---|
 | `ARM_REVERT_MS` | the 4s armed-state auto-revert | the ratified shared window (R8) |
@@ -387,7 +389,7 @@ Both were found by reading the helpers the guard will reuse, not by reasoning ab
 
 ### 5.3 Honest scope statement
 
-The guard **reduces** re-drift within registry membership; it does not eliminate it, and the earlier claim that it could not silently re-drift was too strong. **Three** holes remain — two inside registry membership, one outside. (An earlier draft said two while listing three; the census in §5.2 closes what was the fourth.)
+The guard **reduces** re-drift within registry membership; it does not eliminate it, and the earlier claim that it could not silently re-drift was too strong. **Four** holes remain — three inside registry membership, one outside. In order of how likely they are to bite: lexical shadowing, wrapper schedulers, an identifier **swap** the census cannot see (§5.2), and a surface that never adopts the recipe pair at all. Each is enumerated below; none is claimed closed.
 
 **Inside membership — lexical shadowing.** A registered file can import the shared constant correctly and then shadow it: `function arm(ARM_REVERT_MS = 3_000) { setTimeout(cb, ARM_REVERT_MS) }`. T1 sees the approved import, T2 sees an allowlisted identifier and an unchanged call count, T3 still sees the shared value at 4s — every guard green while the surface reverts at 3s. Closing this needs scope analysis, not regex; it is recorded here as a known hole rather than papered over.
 
