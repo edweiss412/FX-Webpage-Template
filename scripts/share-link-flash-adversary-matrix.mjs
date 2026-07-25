@@ -769,16 +769,25 @@ function assertCleanTargets() {
  * work-destruction class this guard exists to prevent (round-2 review). A git
  * index lock or a killed checkout must stop the run, not be absorbed by it.
  */
+/** Shell-safe path list. `app/admin/show/[slug]/...` is a GLOB in zsh, which is
+ *  this repo's shell, so an unquoted recovery command dies with "no matches
+ *  found" — an instruction that cannot be run is not a recovery (round-14). */
+const QUOTED_TARGETS = TARGETS.map((t) => `'${t}'`).join(" ");
+
+/** Returns whether the tree was restored. Callers that must not proceed on
+ *  failure pass `fatal` (the default) and never see the false. */
 function restoreTargets({ fatal = true } = {}) {
   try {
     git("checkout", "--", ...TARGETS);
+    return true;
   } catch (e) {
     console.error(
       "\nRESTORE FAILED — the working tree may still hold a mutant.\n" +
-        `Run: git checkout -- ${TARGETS.join(" ")}\n` +
+        `Run: git checkout -- ${QUOTED_TARGETS}\n` +
         String(e?.message ?? e),
     );
     if (fatal) process.exit(3);
+    return false;
   }
 }
 
@@ -831,10 +840,11 @@ function runVitest() {
   const reportPath = join(ROOT, "tmp", "vitest-report.json");
   rmSync(reportPath, { force: true });
   const args = ["vitest", "run", ...VITEST_SUITES, "--reporter=json", `--outputFile=${reportPath}`];
+  let exitedNonZero = false;
   try {
     execFileSync("pnpm", args, { cwd: ROOT, stdio: "pipe", timeout: 300_000 });
   } catch {
-    /* non-zero simply means rows failed; the report is the source of truth */
+    exitedNonZero = true;
   }
 
   let report;
@@ -875,11 +885,25 @@ function runVitest() {
     }
   }
 
-  return files.flatMap((f) =>
+  const rows = files.flatMap((f) =>
     (f.assertionResults ?? [])
       .filter((a) => a.status === "failed")
       .map((a) => a.fullName ?? a.title),
   );
+
+  // Reconcile the child's OUTCOME with what the report claims. A non-zero exit
+  // with no failing rows means the process died for a reason the report cannot
+  // show — an unhandled rejection, a teardown fault, a kill after the report was
+  // written — and scoring the clean-looking JSON would call that a survivor
+  // (round-14 review). The converse is equally wrong: failing rows with a zero
+  // exit means the reporter and the runner disagree, and neither can be trusted.
+  if (exitedNonZero !== rows.length > 0) {
+    throw new Error(
+      `vitest exit (${exitedNonZero ? "non-zero" : "zero"}) disagrees with its report ` +
+        `(${rows.length} failing row(s)) — infrastructure fault, not a coverage result.`,
+    );
+  }
+  return rows;
 }
 
 /**
@@ -896,6 +920,7 @@ function runBrowser() {
   // Write the report to a FILE, not stdout. Parsing stdout worked on the green
   // path and failed on the red one — the failure path carries extra output
   // around the document, which is exactly when this function has to be right.
+  let exitedNonZero = false;
   const reportPath = join(ROOT, "tmp", "pw-report.json");
   try {
     rmSync(reportPath, { force: true });
@@ -918,7 +943,7 @@ function runBrowser() {
     // have to run on both paths, so the only thing the exit code decides is
     // whether any row is expected to be red.
   } catch {
-    /* red run — attribute the rows below */
+    exitedNonZero = true;
   }
 
   let report;
@@ -992,7 +1017,16 @@ function runBrowser() {
     for (const child of suite.suites ?? []) walk(child);
   };
   for (const suite of report.suites ?? []) walk(suite);
-  return [...failed].sort();
+
+  const rows = [...failed].sort();
+  // Same reconciliation as the vitest side, and for the same reason.
+  if (exitedNonZero !== rows.length > 0) {
+    throw new Error(
+      `playwright exit (${exitedNonZero ? "non-zero" : "zero"}) disagrees with its report ` +
+        `(${rows.length} failing row(s)) — infrastructure fault, not a coverage result.`,
+    );
+  }
+  return rows;
 }
 
 // Unknown ids selected nothing and exited 0 — the same zero-adversary false
@@ -1023,18 +1057,17 @@ for (const [sig, code] of [
     // Releasing after a FAILED restore handed the next run a mutant tree
     // (round-13 review). Restore must succeed before the lock is dropped; if it
     // does not, keep the lock so nothing else starts, and say what to do.
-    let restored = true;
-    try {
-      restoreTargets();
-    } catch {
-      restored = false;
-    }
+    //
+    // `fatal: false` and the RETURN VALUE, not a catch: restoreTargets exits the
+    // process on failure rather than throwing, so the catch never ran and this
+    // diagnostic was unreachable (round-14 review).
+    const restored = restoreTargets({ fatal: false });
     if (restored) {
       releaseLock();
     } else {
       console.error(
         `\nrestore FAILED on ${sig}; the lock is deliberately NOT released.\n` +
-          `Run: git checkout -- ${TARGETS.join(" ")} && rm ${LOCK}`,
+          `Run: git checkout -- ${QUOTED_TARGETS} && rm '${LOCK}'`,
       );
     }
     process.exit(code);
