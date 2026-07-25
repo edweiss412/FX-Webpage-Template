@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next 16 App Router (route handlers + Server Actions), Supabase Auth (`@supabase/auth-js` 2.105.1), Vitest (node environment), the `typescript` compiler API for the structural guard, Playwright (`mobile-safari` project, baseline server on `E2E_PORT`).
 
-**Spec:** `docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md` (4 adversarial rounds; §1.1 resolved-scope table binds; §10, §11, §12, and §13 record every finding and disposition).
+**Spec:** `docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md` (5 adversarial rounds; §1.1 resolved-scope table binds; §10 through §14 record every finding and disposition).
 
 ## Global Constraints
 
@@ -59,7 +59,14 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 - **Server boot:** the `mobile-safari` project (`playwright.config.ts:54`) runs against the baseline `webServer` at `playwright.config.ts:216`, bound explicitly to `127.0.0.1` on `E2E_PORT` (default `3000`, `playwright.config.ts:8`), carrying `ENABLE_TEST_AUTH` and `TEST_AUTH_SECRET`.
 - **Readiness gate:** each stub awaits a testid-visibility assertion after `page.goto(..., { waitUntil: "networkidle" })` — `sign-in-or-skip-gate`, `picker-interstitial-root`, or `crew-shell`. The visibility assertion, never `networkidle` alone, gates the first interaction. `signInAs` (`tests/e2e/helpers/signInAs.ts:43`) posts through `page.request` so `Set-Cookie` lands on the same context before the first `goto`.
 - **Detach safety:** no stub samples geometry or calls `locator.evaluate` on a node that can unmount. The only navigation-crossing wait is `page.waitForURL`, detach-safe by construction.
-- **Local run:** `TEST_DATABASE_URL` in the shared `.env.local` is non-loopback (preflight warns), so these mutating specs run with it overridden to loopback. Port 3000 is checked for an existing listener and never blanket-killed.
+- **Local run:** `TEST_DATABASE_URL` in the shared `.env.local` is non-loopback (preflight warns), so every mutating picker-flow run — the three outer-red steps in Tasks 2, 4, and 6 and the whole-file run in Task 11 — overrides it inline with the canonical local value (`scripts/preflight-env.mjs:125`, `scripts/db-reset-pool.mjs:49`):
+
+  ```bash
+  TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+    pnpm exec playwright test --project=mobile-safari tests/e2e/picker-flow.spec.ts
+  ```
+
+  R6 finding 3: the previous revision warned about the trap but never supplied the assignment, so a worker holding only these documents could have run the mutating suite against the remote target. Port 3000 is checked for an existing listener and never blanket-killed.
 
 ---
 
@@ -130,7 +137,7 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 
 **Steps:**
 
-- [ ] **Un-skip the paired e2e stub first, as this task's outer red phase.** Drop `.skip` at `tests/e2e/picker-flow.spec.ts:84` and delete its now-stale `// SKIP:` comment block, then run it and watch it fail on the host flip. That stub is the paired failing test for this fix (invariant 1), which is why the un-skip belongs here and not in a later verification task (R4 finding 3).
+- [ ] **Un-skip the paired e2e stub first, as this task's outer red phase.** Drop `.skip` at `tests/e2e/picker-flow.spec.ts:84` and delete its now-stale `// SKIP:` comment block, then run it with the loopback `TEST_DATABASE_URL` override from the harness checklist and watch it fail on the host flip. That stub is the paired failing test for this fix (invariant 1), which is why the un-skip belongs here and not in a later verification task (R4 finding 3).
 - [ ] Write the failing guard test with the three layers spec §3.4 requires. The matcher is an exported pure function over a `ts.SourceFile`, so layer 1 exercises it directly:
 
   1. **Fixtures.** Exactly the canonical ten-case set defined in spec §3.4 — six positives and four negatives. Do not re-enumerate them here or in the test file's comments; the spec is the single source, and the counts drifted twice when they were restated (R3 finding 9, R4 finding 6).
@@ -189,7 +196,7 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 
 **Steps:**
 
-- [ ] **Un-skip the paired e2e stub first, as this task's outer red phase.** Drop `.skip` at `tests/e2e/picker-flow.spec.ts:180`, delete its `// SKIP:` block, and extend it with the three assertions from spec §6.2: no cookie satisfying `isSupabaseAuthCookieName` remains in the context; tapping the **unclaimed** row (Bob) renders `crew-shell` with his identity chip; and a bare reload with no `?gate=skip` still renders `crew-shell`. Run it and watch it fail on the Mode B loop. The reload step is the durability proof — without it a one-request-only fix passes, which is the design spec §4.2 rejects.
+- [ ] **Un-skip the paired e2e stub first, as this task's outer red phase.** Drop `.skip` at `tests/e2e/picker-flow.spec.ts:180`, delete its `// SKIP:` block, and extend it with the three assertions from spec §6.2: no cookie satisfying `isSupabaseAuthCookieName` remains in the context; tapping the **unclaimed** row (Bob) renders `crew-shell` with his identity chip; and a bare reload with no `?gate=skip` still renders `crew-shell`. Run it with the loopback `TEST_DATABASE_URL` override from the harness checklist and watch it fail on the Mode B loop. The reload step is the durability proof — without it a one-request-only fix passes, which is the design spec §4.2 rejects.
 - [ ] Write the failing unit tests:
 
   | Assertion | Catches |
@@ -258,7 +265,7 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 
 **Steps:**
 
-- [ ] **Un-skip the paired e2e stub first, as this task's outer red phase.** Drop `.skip` at `tests/e2e/picker-flow.spec.ts:241`, delete its `// SKIP:` block, and run it; it fails because the GET submit discards `next`.
+- [ ] **Un-skip the paired e2e stub first, as this task's outer red phase.** Drop `.skip` at `tests/e2e/picker-flow.spec.ts:241`, delete its `// SKIP:` block, and run it with the loopback `TEST_DATABASE_URL` override from the harness checklist; it fails because the GET submit discards `next`.
 - [ ] Write the failing component test: the claimed row's form has `action="/auth/sign-in"` and `method="GET"`; a hidden input named `next` whose value equals `buildShowReturnUrl(slug, shareToken, { s })` computed in the test from the same fixture inputs; the `action` attribute carries **no** `?`; with `s` supplied the hidden value carries the section; with a bogus `s` it does not. Reading the action and the hidden input **separately** is what stops a "fix" that leaves `next` in both places from passing.
 - [ ] Implement per spec §5:
 
@@ -289,7 +296,7 @@ Numbering is preserved so every cross-reference in these documents stays valid.
 - Modify: `.github/workflows/dev-gate-e2e.yml` (job `env:` block)
 - Modify: `tests/cross-cutting/ci-workflow-speedup.test.ts` (`REQUIRED_ENV`, lines 201-207)
 - Modify: `tests/ci/_metaE2eWorkflowCoverage.test.ts` (the picker-flow row at line 82)
-- Modify: `playwright.config.ts` (the stale stub-count comment at line 56, absorbed from the dissolved Task 7)
+- Modify: `playwright.config.ts` (the stale comment block at lines 55-61, absorbed from the dissolved Task 7)
 - Create: tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts
 
 **Why this task exists, and what it can and cannot claim.** Un-skipping is not enough: the only mobile-safari CI step names exactly one spec file, so the three regressions would stay dark and "real CI green" could pass without executing them (R2 finding 4). But R3 finding 3 showed the first version of this task overclaimed. Two facts from the repo's own coverage machinery bound what is achievable:
@@ -299,7 +306,7 @@ Numbering is preserved so every cross-reference in these documents stays valid.
 
 So the honest goal is: move picker-flow from `UNSEEN` to `PATH_GATED`, and make the filter actually cover the files whose behavior these tests exercise. Lifting the whole mobile-safari project to unconditional PR coverage is BL-RESURRECT-MOBILE-SAFARI-E2E (`.github/workflows/crew-e2e.yml:5-8`) and stays out of scope.
 
-**Blocker found while planning this task — the job is missing the picker signing key.** `PICKER_COOKIE_SIGNING_KEY` appears in **no** workflow under `.github/workflows/` (grepped 2026-07-24), and the port-3000 webServer command at `playwright.config.ts:244-248` does not set it either. Two hard failures follow: `seedPickerCookie` calls `pickerCookieSigningKey()` at `tests/e2e/helpers/seedPickerCookie.ts:54`, which throws when the variable is unset (`lib/env/pickerCookieSigningKey.ts:9`) or is not 64 hex (`lib/env/pickerCookieSigningKey.ts:12`); and the server needs the same key to decode and re-sign the envelope, so the guest action itself fails. It works locally only because the key lives in the gitignored `.env.local` that `pnpm worktree:link-env` symlinks. The key is read at **runtime**, so one job-level `env:` entry covers both the Playwright process and the `pnpm start` server it spawns — which is exactly the contract `tests/cross-cutting/ci-workflow-speedup.test.ts:227-232` already spells out for this workflow.
+**Blocker found while planning this task — the job is missing the picker signing key.** `PICKER_COOKIE_SIGNING_KEY` appears in **no** workflow under `.github/workflows/` (grepped 2026-07-24), and the port-3000 webServer command at `playwright.config.ts:244-248` does not set it either. Two hard failures follow: `seedPickerCookie` calls `pickerCookieSigningKey()` at `tests/e2e/helpers/seedPickerCookie.ts:54`, which throws when the variable is unset (`lib/env/pickerCookieSigningKey.ts:9`) or is not 64 hex (`lib/env/pickerCookieSigningKey.ts:12`); and the server needs the same key to decode and re-sign the envelope, so the guest action itself fails. It works locally only because the key lives in the gitignored `.env.local` that `pnpm worktree:link-env` symlinks. The key is read at **runtime**, so for `crew-e2e.yml` one job-level `env:` entry covers both the Playwright process and the `pnpm start` server it spawns — exactly the contract `tests/cross-cutting/ci-workflow-speedup.test.ts:227-232` spells out for that workflow. `dev-gate-e2e.yml` is different and must not be described the same way: it carries its secrets in the Playwright **run step's** `env:` block (`.github/workflows/dev-gate-e2e.yml:65`), and `REQUIRED_ENV` only greps for an indented key anywhere in the file (`tests/cross-cutting/ci-workflow-speedup.test.ts:210`), so nothing in these gates establishes placement there (R6 finding 4).
 
 **Steps:**
 
@@ -309,10 +316,15 @@ So the honest goal is: move picker-flow from `UNSEEN` to `PATH_GATED`, and make 
 - [ ] Flip the picker-flow row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:82` from `UNSEEN` to `PATH_GATED`. This is the reconciliation R3 finding 3 asked for: after this task the spec **is** named in a workflow command, so leaving it as `UNSEEN` would be a false annotation in the other direction. Two mechanics matter here and are easy to get backwards:
   - **The row must stay.** `scanWorkflowCoverage` excludes path-filtered workflows, so picker-flow will still not be in `covered` after this task; deleting the row would make the spec "dark" and fail the first assertion at `tests/ci/_metaE2eWorkflowCoverage.test.ts:141-144`. The complementary assertion at `tests/ci/_metaE2eWorkflowCoverage.test.ts:147-151` only fails for a row whose spec *is* covered, which will not be the case.
   - **The flip is not gate-enforced.** Both category constants are prose reason strings, so no assertion distinguishes them. It is an accuracy edit that keeps the allowlist honest, and it is called out here precisely because nothing will fail if a future edit lets it drift.
-- [ ] Extend `crew-e2e.yml`'s `pull_request.paths` (lines 23-33) with the paths this spec actually exercises, so a future change to the behavior under test triggers the job: `tests/e2e/picker-flow.spec.ts`, `app/auth/**`, `app/api/auth/**`, `lib/auth/**`, `lib/http/**`, and `lib/env/pickerCookieSigningKey.ts` — that last one because this task itself identifies that file's validation as a runtime prerequisite, so a change to its contract must trigger the job (R4 finding 7). Without these paths the filter would fire for this PR (it touches `app/show/**` and the workflow itself) and then never again for the code under test.
+- [ ] Extend `crew-e2e.yml`'s `pull_request.paths` (lines 23-33) with the paths this spec actually exercises, so a future change to the behavior under test triggers the job: `tests/e2e/picker-flow.spec.ts`, `app/auth/**`, `app/api/auth/**`, `lib/auth/**`, `lib/http/**`, `lib/env/pickerCookieSigningKey.ts`, `lib/supabase/server.ts`, and `app/api/test-auth/**`. The last three are the ones an enumeration keeps missing: the signing-key module because this task itself identifies that file's validation as a runtime prerequisite, so a change to its contract must trigger the job (R4 finding 7); `lib/supabase/server.ts` because the new guest sign-out path constructs its client there; and `app/api/test-auth/**` because every case in the suite authenticates through that endpoint via `signInAs` (`tests/e2e/helpers/signInAs.ts:58`), so a change to it breaks all of them (R6 finding 2). Without these paths the filter would fire for this PR (it touches `app/show/**` and the workflow itself) and then never again for the code under test. The structural pin asserts this exact list, so the list is what must be complete.
 - [ ] Add `PICKER_COOKIE_SIGNING_KEY` to both workflows' `env:` blocks (alongside `TEST_AUTH_SECRET` at `.github/workflows/crew-e2e.yml:67` and `.github/workflows/dev-gate-e2e.yml:77`), a fixed 64-hex test constant in the same spirit as the other inline test secrets there. `dev-gate-e2e.yml` gets it for the same structural reason `HASH_FOR_LOG_PEPPER` is there: its webServer serves the whole app, so any request reaching the picker chain throws without it.
 - [ ] Add the spec to the existing mobile-safari step's file list (same `--project=mobile-safari` invocation, so no new job and no second server boot), and update the workflow's header comment (lines 1-8) and the step name at line 104, both of which currently say this job runs exactly one spec.
-- [ ] Correct the stale comment at `playwright.config.ts:56` to name the single remaining stub (absorbed from the dissolved Task 7 — it is a prose comment in a config file, so it has no test of its own and ships inside this task's commit rather than as a commit with nothing tested).
+- [ ] Rewrite the stale comment block at `playwright.config.ts:55-61`, which carries **three** false claims, not one (R6 finding 5 — the previous revision cited line 56 and fixed only the count):
+  1. line 57 says "the 1 currently-active test"; after this change five are active;
+  2. line 58 says "The 5 `.skip` stubs"; the file held four before this change and holds one after;
+  3. lines 59-61 say the stubs are "pending a dedicated dispatch that writes the missing helper layer (seedShowWithCrew, seedPickerCookie, claimStamp)" — that helper layer exists, and the one remaining stub is blocked on shared-admin-fixture contention instead.
+
+  Absorbed from the dissolved Task 7: it is a prose comment in a config file, so it has no test of its own and ships inside this task's commit rather than as a commit with nothing tested.
 - [ ] Gate: both pins; `pnpm vitest run tests/ci tests/cross-cutting`.
 - [ ] Commit: `ci(auth): run the picker-flow e2e spec and supply its signing key`
 
@@ -359,7 +371,7 @@ Give each ledger pair its **own** matcher instead of one widened regex:
 ### Task 11: full pre-push gates
 
 - [ ] `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (full suite — a scoped subset misses registry suites), `pnpm test:audit:x1-catalog-parity`, `pnpm test:audit:x3-trust-domain`.
-- [ ] Whole-file e2e run (absorbed from the dissolved Task 7): `pnpm exec playwright test --project=mobile-safari tests/e2e/picker-flow.spec.ts` with `TEST_DATABASE_URL` overridden to loopback. Expected **five passed, one skipped** — two pre-existing active tests at `tests/e2e/picker-flow.spec.ts:70` and `tests/e2e/picker-flow.spec.ts:134`, the three un-skipped in Tasks 2, 4, and 6, and `tests/e2e/picker-flow.spec.ts:293` still skipped. This task is verification only and produces no commit, which is why the run belongs here. Check the shell exit status, not the "Tests" line: Vitest exits 1 on uncaught errors even when every test passes.
+- [ ] Whole-file e2e run (absorbed from the dissolved Task 7): the whole-file command from the harness checklist, with the loopback `TEST_DATABASE_URL` assignment inline. Expected **five passed, one skipped** — two pre-existing active tests at `tests/e2e/picker-flow.spec.ts:70` and `tests/e2e/picker-flow.spec.ts:134`, the three un-skipped in Tasks 2, 4, and 6, and `tests/e2e/picker-flow.spec.ts:293` still skipped. This task is verification only and produces no commit, which is why the run belongs here. Check the shell exit status, not the "Tests" line: Vitest exits 1 on uncaught errors even when every test passes.
 
 ### Task 12: whole-diff adversarial review (cross-model)
 
@@ -374,15 +386,27 @@ Give each ledger pair its **own** matcher instead of one widened regex:
   - `dev-gate-e2e.yml`, always: it is `workflow_dispatch`-only (`.github/workflows/dev-gate-e2e.yml:25-30`), so Task 8's env edit there is invisible to PR CI.
   - `crew-e2e.yml`, if the PR's path filter did not already trigger it.
 
-  Race-safe run capture, since `gh workflow run` prints no run ID and `--limit=1` can return a *previous* run: record the newest run ID for that workflow and branch **before** dispatching, poll `gh run list` until an ID newer than that appears, then block on it.
+  Run capture, tightened after R6 finding 1 showed the first version was not actually race-safe: selecting "the latest run for this workflow and branch" can pick up a concurrent manual run or a delayed PR run, testing only ID **inequality** does not prove the ID is newer, and an unbounded wait hangs if no run ever appears. Restrict by event **and** commit SHA, require a strictly greater ID, and bound the wait:
 
   ```bash
-  wf=dev-gate-e2e.yml; ref=fix/picker-flow-app-bugs
-  before=$(gh run list --workflow="$wf" --branch="$ref" --limit=1 --json databaseId --jq '.[0].databaseId // 0')
+  wf=dev-gate-e2e.yml; ref=fix/picker-flow-app-bugs; sha=$(git rev-parse HEAD)
+  latest() {
+    gh run list --workflow="$wf" --branch="$ref" --limit=20 \
+      --json databaseId,event,headSha \
+      --jq "[.[] | select(.event==\"workflow_dispatch\" and .headSha==\"$sha\") | .databaseId] | max // 0"
+  }
+  before=$(latest)
   gh workflow run "$wf" --ref "$ref"
-  until id=$(gh run list --workflow="$wf" --branch="$ref" --limit=1 --json databaseId --jq '.[0].databaseId // 0'); [ "$id" != "$before" ] && [ "$id" != "0" ]; do sleep 5; done
+  id=0
+  for _ in $(seq 1 60); do
+    id=$(latest); [ "$id" -gt "$before" ] && break
+    id=0; sleep 5
+  done
+  [ "$id" -gt 0 ] || { echo "no workflow_dispatch run for $sha appeared within 5 minutes" >&2; exit 1; }
   gh run watch "$id" --exit-status
   ```
+
+  `event=="workflow_dispatch"` excludes a PR-triggered run of the same workflow, `headSha` ties the run to the commit under test, `max` with `-gt` proves the run is newer rather than merely different, and the bounded loop fails loudly instead of hanging. For the conditional `crew-e2e.yml` dispatch, run the same block with the `wf` variable set to the crew-e2e workflow file instead.
 
   `gh run watch --exit-status` is what makes it blocking: it exits non-zero on failure, so a red dispatched run stops the merge instead of being reported as green.
 - [ ] `gh pr merge --merge`, fast-forward local `main`, and verify `git rev-list --left-right --count main...origin/main` reports `0  0`.
@@ -415,7 +439,7 @@ Populated during execution:
 - **Impeccable dual-gate (Task 10):** every P0 through P3 finding across the three UI-surface files, each marked fixed or deferred with its `DEFERRED.md` entry. This section stands in for the milestone-handoff §12 record, which this standalone branch does not have.
 - **Cross-model review rounds (Task 12):** each round's findings, the verification that confirmed or refuted them, and the repair. Refuted claims are recorded with their refutation so a later round does not re-derive them.
 
-Spec-round dispositions live in §10, §11, §12, and §13 of the spec document.
+Spec-round dispositions live in §10 through §14 of the spec document.
 
 ## 13. Round 2 adversarial review — plan-side dispositions
 
@@ -471,3 +495,16 @@ Codex returned `VERDICT: BLOCKING` with seven findings, all verified against the
 | 4 | MEDIUM | Widening the shared `DEFERRAL_ID` regex to `##\|###` misclassifies prose section headings as IDs; five live false matches were enumerated, and requiring an em-dash does not filter them | Accepted, all five verified. Each ledger pair now gets its own matcher: `DEFERRED` keeps `^### …` unchanged, and `BACKLOG` uses `^#{2,3} (BL-…)`, which is ledger-specific because every real backlog entry is `BL-`-prefixed and none of the false matches is |
 | 5 | MEDIUM | Task 9's revised test dropped the resolution-note assertion, so an archive entry with no branch provenance would pass every planned test while violating both documents | Accepted; that assertion is back in the red set |
 | 6 | MEDIUM | All three tasks touched by the R4 un-skip restructure omitted `tests/e2e/picker-flow.spec.ts` from their `Files` inventories | Accepted for all three instances; Tasks 2, 4, and 6 now list it with the line each un-skips |
+
+## 17. Round 6 adversarial review — dispositions
+
+Codex returned `VERDICT: BLOCKING` with six findings and stated plainly that "the app design itself remains converged; this round found CI/plan-execution defects and accounting drift, not a new app-design error" — while noting that findings 1 and 2 could still produce a false-green merge, which is why they are HIGH rather than cosmetic. All six verified, none refuted.
+
+| # | Severity | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | HIGH | The run capture was not race-safe: it took the latest run for a workflow and branch without restricting event or commit, tested only ID inequality rather than "newer", and had no bounded failure path — so the worker could watch an unrelated green run while the intended one queued or failed | Accepted. The snippet now filters on `event=="workflow_dispatch"` **and** `headSha` equal to the commit under test, takes `max` and requires `-gt` the pre-dispatch value, and bounds the wait at five minutes with a loud failure. Both dispatches use it |
+| 2 | HIGH | The path filter — and therefore the pin asserting it — omitted `lib/supabase/server.ts` (where the new guest sign-out constructs its client) and `app/api/test-auth/**` (how every case in the suite authenticates), so meaningful changes stayed dark | Accepted, both verified. Added, with the note that the pin asserts this exact list, so the list is the thing that must be complete |
+| 3 | MEDIUM | The `TEST_DATABASE_URL` trap was described but never made executable: no assignment and no URL, in a plan a worker is meant to follow from these documents alone | Accepted. The harness checklist now carries the canonical loopback assignment (`scripts/preflight-env.mjs:125`), and all four mutating runs reference it |
+| 4 | LOW | The `dev-gate-e2e.yml` env placement was still called job-level in two places, and `REQUIRED_ENV` does not establish placement anywhere | Accepted; both places now name the Playwright run step's block and say what the gates do not prove |
+| 5 | LOW | The folded config-comment repair cited the wrong line and would have left two further false claims behind | Accepted, and worse than reported in one respect: the block carries **three** false claims — the active-test count, the stub count, and a "missing helper layer" that now exists. All three are enumerated |
+| 6 | LOW | Round accounting drift: four rounds claimed where five had run, and spec §14 missing from both pointers | Accepted; corrected |
