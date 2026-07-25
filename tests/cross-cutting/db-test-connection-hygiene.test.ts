@@ -145,6 +145,34 @@ describe("DB-test connection hygiene depends on per-file worker isolation", () =
     ).toBeGreaterThan(25);
   });
 
+  // A floor alone does not pin the census DEFINITION: broadening it — dropping
+  // the unended filter, or counting function-scoped constructions — only pushes
+  // the count up, so the floor still passes over a census that means something
+  // else entirely. These membership assertions make the classifier load-bearing.
+  it("the census counts only clients whose cleanup depends on process exit", () => {
+    const census = censusUnendedModuleScopeClients();
+    const files = new Set(census.map((entry) => entry.split(" ")[0]));
+
+    // In: a module-scope client whose binding is never ended anywhere in its file.
+    expect(census, "the canonical unended module-scope client must be counted").toContain(
+      "tests/db/_remediationHelpers.ts [sql]",
+    );
+
+    // Out: module-scope, but the binding IS ended — process exit is not what
+    // saves it, so it is not this guard's subject.
+    expect(
+      files.has("tests/db/_holdsHelpers.ts"),
+      "tests/db/_holdsHelpers.ts ends its module-scope client (closeHoldsHelpers) — must NOT be counted",
+    ).toBe(false);
+
+    // Out: constructions that live inside functions open on call, and their
+    // caller owns the close.
+    expect(
+      files.has("tests/admin/extractAgenda.test.ts"),
+      "tests/admin/extractAgenda.test.ts constructs only inside functions — must NOT be counted",
+    ).toBe(false);
+  });
+
   it("the RESOLVED config this run is using keeps isolation on", () => {
     // Reading the imported config here would be the bug this assertion exists to
     // avoid: `vitest run --no-isolate` leaves the config file untouched.
