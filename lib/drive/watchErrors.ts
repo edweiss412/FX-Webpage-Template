@@ -22,9 +22,15 @@ export const RENEWAL_LIFE_FRACTION = 0.75;
 export const RENEWAL_MIN_LEAD_MS = 7_200_000;
 // How often the renewal predicate is sampled (`fxav_cron_refresh_watch`).
 export const SAMPLING_PERIOD_MS = 3_600_000;
-// Upper bound on one run's execution time before it reaches a given row —
-// a margin in the §2.1 boundary arithmetic, not a timeout.
-export const T_EXEC_BUDGET_MS = 60_000;
+// Upper bound on the delay between a refresh run's candidate query and any one
+// row's renewal attempt. NOT an enforced timeout: `files.watch` has no timeout
+// (lib/drive/client.ts) and renewals run sequentially, so the only defensible
+// ceiling is the scheduler's own request budget — pg_net is passed
+// timeout_milliseconds = 300000, matching Vercel Functions' 300s default
+// (supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22). Using a
+// smaller value would let a 62-65 minute grant be classified "guaranteed" while
+// actually expiring before a later row is reached in a slow run.
+export const T_EXEC_BUDGET_MS = 300_000;
 
 /**
  * Remaining-life threshold at which a channel granted `grantedMs` becomes
@@ -39,13 +45,21 @@ export function renewalLeadMs(grantedMs: number): number {
 }
 
 /**
- * True when a granted lifetime is too short for this sampling cadence to renew
- * reliably at any phase (spec §2.1). The bound is `<=`, not `<`: a lease of
- * exactly one sampling period, activated just after a tick, expires AT the next
- * examination rather than strictly before it.
+ * True when a lease's REMAINING LIFE AT SUCCESSFUL ACTIVATION is too short for
+ * this sampling cadence to renew reliably at any phase (spec §2.1).
+ *
+ * The measurement edge is load-bearing and is activation, not request time: the
+ * pending row is inserted, Drive is called, and only then is the channel
+ * activated, so a nominal 62-minute grant that took two minutes to obtain has
+ * only 60 usable minutes. Measuring at request time would suppress the anomaly
+ * for exactly the leases that need it.
+ *
+ * The bound is `<=`, not `<`: a lease of exactly one sampling period, activated
+ * just after a tick, expires AT the next examination rather than strictly
+ * before it.
  */
-export function isGrantTooShort(grantedMs: number): boolean {
-  return !(grantedMs > SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS);
+export function isGrantTooShort(remainingMsAtActivation: number): boolean {
+  return !(remainingMsAtActivation > SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS);
 }
 
 const CONFIG_PATTERNS = [

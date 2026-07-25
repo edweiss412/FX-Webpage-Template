@@ -51,7 +51,7 @@ Constants, all in `lib/drive/watchErrors.ts` beside the existing `STALE_PENDING_
 - `RENEWAL_LIFE_FRACTION` = **0.75** — proportional term: due once 75% of granted life has elapsed.
 - `RENEWAL_MIN_LEAD_MS` = **7_200_000** (2h) — absolute floor on remaining life at which a channel becomes due.
 - `SAMPLING_PERIOD_MS` = **3_600_000** (1h) — how often the predicate is sampled (`fxav_cron_refresh_watch`). Unchanged by this PR; named because §2.1's boundary depends on it.
-- `T_EXEC_BUDGET_MS` = **60_000** (1m) — upper bound on one run's execution time before it reaches a given row. A safety margin in the boundary arithmetic, not a timeout.
+- `T_EXEC_BUDGET_MS` = **300_000** (5m) — upper bound on the delay between a refresh run's candidate query and any one row's renewal attempt. **Not an enforced timeout** (review R1 finding 1): `files.watch` carries no timeout (`lib/drive/client.ts:35-39`) and renewals run sequentially (`lib/drive/watch.ts:547-577`), so the only defensible ceiling is the scheduler's own request budget — pg_net is passed `timeout_milliseconds = 300000`, matching Vercel Functions' 300s default (`supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22`). An earlier draft used 60_000, which would have classified a 62-65 minute grant as "guaranteed" while it could expire before a later row was reached in a slow run.
 
 ### 2.1 The timing invariant
 
@@ -68,7 +68,11 @@ the remaining-life threshold at which a channel becomes due. A channel activated
 | `G <= P + T` | **anomalous** | none is claimed — a lease no longer than the sampling interval cannot be reliably renewed by any sampler at that cadence. Logged (§3.3). |
 | `G > P + T` | **guaranteed** | the channel is examined-and-due strictly before `expires_at` at every phase |
 
-**Worst-case remaining life at the renewing execution** is `min(G, L(G)) - P - T`, **not** `G - P - T`. The distinction matters and an earlier draft got it wrong: for the 24h grant we request, `L(G) = 6h`, so the true worst case is `6h - 1h - 1m = 4h59m` of remaining lease when the renewal actually runs — not 22h59m. Still ample; the point is that the margin comes from the *lead*, not the *lifetime*.
+**Worst-case remaining life at the renewing execution** is `min(G, L(G)) - P - T`, **not** `G - P - T`. The distinction matters and an earlier draft got it wrong: for the 24h grant we request, `L(G) = 6h`, so the true worst case is `6h - 1h - 5m = 4h55m` of remaining lease when the renewal actually runs — not 22h55m. Still ample; the point is that the margin comes from the *lead*, not the *lifetime*.
+
+**That bound is an infimum, not an attained minimum** (review R1 finding 4). Under continuous arbitrary phase it is approached as the due-transition moves to just after a tick, but at the exact tick the `>=` predicate selects the row on that tick, so the value itself is never realized. The §5.1 sweep therefore asserts **every** sampled phase is `>=` the bound, plus that the near-worst phase lands within one phase-step epsilon of it — not exact equality, which a correct implementation would fail.
+
+**Where the clock is read is load-bearing** (review R1 finding 2). "Remaining life" means **remaining at successful activation**, not at request time. The pending row is inserted, Drive is called, and only then is the channel activated (`lib/drive/watch.ts:428-436`, `lib/drive/watch.ts:461-474`), so a nominal 62-minute grant that took two minutes to obtain has only 60 usable minutes. Measuring at request time would suppress the anomaly for exactly the leases that need it. `isGrantTooShort` therefore takes `remainingMsAtActivation`, and the emitted log field carries that name rather than `grantedMs`.
 
 Note what the boundary says about today: a 1-hour grant sampled hourly is `G = P`, i.e. **anomalous** — which is exactly the §1.1 defect, stated as arithmetic rather than anecdote. It ceases to be anomalous the moment §3.1 lands.
 
@@ -145,7 +149,7 @@ We request 24h and Drive's documented floor for an unspecified request is 1h, so
 | Source | `lib/drive/watchErrors.ts` (constants), `lib/drive/watch.ts` (request body, SELECT, predicate, anomaly log) |
 | Invariant 9 | no new Supabase call boundary — the renewal read is an existing `WatchTx` method whose registry row is unchanged in contract |
 | Invariant 10 | N/A — no mutating route or server action is added |
-| Meta-tests | **CREATES none. EXTENDS none.** Declared explicitly per the writing-plans mandate: this diff adds no registry-bearing surface. The relevant existing suites (`tests/drive/watch.test.ts`, `tests/sync/_metaInfraContract.test.ts`) are run to prove they still pass. |
+| Meta-tests | **CREATES one** (review R1 finding 5): `tests/cron/samplingPeriodParity.test.ts` ties `SAMPLING_PERIOD_MS` to the canonical refresh-watch schedule in `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json`. Without it a future cadence change could update the existing cron-parity surfaces (`tests/cross-cutting/pg-cron-coverage.test.ts:153-159`) while leaving the renewal guarantee and the anomaly boundary computed against the old period. **EXTENDS none.** The relevant existing suites (`tests/drive/watch.test.ts`, `tests/sync/_metaInfraContract.test.ts`) are run to prove they still pass. |
 
 ## 5. Testing
 

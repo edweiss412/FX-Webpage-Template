@@ -168,14 +168,19 @@ describe("short-grant anomaly (§3.3)", () => {
   // phase — no lead value fixes that, so it is surfaced rather than absorbed.
   // The boundary is `<=`: a lease of exactly one period, activated just after a
   // tick, expires AT the next examination rather than strictly before it.
-  async function grantOf(ms: number): Promise<LogRecord[]> {
-    driveMock.expiration = String(NOW_MS + ms);
+  // `remainingAtActivationMs` is what the check must use — NOT the nominal grant.
+  // `elapsedMs` models time consumed by the pending insert plus the Drive
+  // round-trip, so the two are deliberately different numbers.
+  async function grantOf(remainingAtActivationMs: number, elapsedMs = 0): Promise<LogRecord[]> {
+    driveMock.expiration = String(NOW_MS + elapsedMs + remainingAtActivationMs);
+    const clock = [NOW_MS, NOW_MS + elapsedMs];
+    let call = 0;
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
     await subscribeToWatchedFolder("folder-1", {
       tx: fakeTx(),
       uuid: () => "channel-1",
       webhookSecret: () => "secret-1",
-      now: () => NOW_MS,
+      now: () => clock[Math.min(call++, clock.length - 1)]!,
     });
     return logRecords.filter((r) => r.code === "DRIVE_WATCH_GRANT_TOO_SHORT");
   }
@@ -192,7 +197,7 @@ describe("short-grant anomaly (§3.3)", () => {
     // Assert on the durable fields, not the message string.
     expect(hits[0]!.context).toMatchObject({
       watchedFolderId: "folder-1",
-      grantedMs: SAMPLING_PERIOD_MS,
+      remainingMsAtActivation: SAMPLING_PERIOD_MS,
     });
   });
 
@@ -209,5 +214,26 @@ describe("short-grant anomaly (§3.3)", () => {
   test("does NOT fire for the 24h lease we request", async () => {
     const { WATCH_TTL_MS } = await import("@/lib/drive/watchErrors");
     expect(await grantOf(WATCH_TTL_MS)).toHaveLength(0);
+  });
+  test("measures remaining life AT ACTIVATION, not the nominal grant (§3.3)", async () => {
+    const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
+    // Nominal grant is comfortably past the boundary, but the pending insert and
+    // the Drive round-trip consume two minutes, leaving exactly the boundary.
+    // A request-time measurement would call this safe; an activation-time one
+    // must not.
+    const elapsed = 120_000;
+    const hits = await grantOf(SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS, elapsed);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.context).toMatchObject({
+      remainingMsAtActivation: SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS,
+    });
+  });
+
+  test("T_EXEC_BUDGET_MS matches the scheduler's request budget, not a guess", async () => {
+    const { T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
+    // files.watch carries no timeout and renewals run sequentially, so the only
+    // defensible ceiling is pg_net's timeout_milliseconds = 300000
+    // (supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22).
+    expect(T_EXEC_BUDGET_MS).toBe(300_000);
   });
 });

@@ -485,19 +485,24 @@ export async function subscribeToWatchedFolder(
       watchedFolderId: folderId,
       expiresAt: watch.expiration,
     });
-    // A lease no longer than one sampling period cannot be renewed reliably at
-    // any phase (spec §2.1) — no lead value fixes that, so surface it rather
-    // than absorb it. We request WATCH_TTL_MS and Drive's floor for an
-    // unspecified request is 1h, so this should be unreachable; if it fires,
-    // the cron cadence needs revisiting, not the channel.
-    const grantedMs = Date.parse(watch.expiration) - nowMs;
-    if (Number.isFinite(grantedMs) && isGrantTooShort(grantedMs)) {
+    // A lease whose REMAINING life at activation is no longer than one sampling
+    // period cannot be renewed reliably at any phase (spec §2.1) — no lead value
+    // fixes that, so surface it rather than absorb it. We request WATCH_TTL_MS
+    // and Drive's floor for an unspecified request is 1h, so this should be
+    // unreachable; if it fires, the cron cadence needs revisiting.
+    //
+    // Measured at ACTIVATION, not at request time: the pending insert and the
+    // Drive round-trip both consume lease life, so a nominal 62-minute grant
+    // that took two minutes to obtain has only 60 usable minutes. Reading the
+    // clock again here rather than reusing `nowMs` is the whole point.
+    const remainingMs = Date.parse(watch.expiration) - (deps.now ?? (() => Date.now()))();
+    if (Number.isFinite(remainingMs) && isGrantTooShort(remainingMs)) {
       await log.error("drive watch grant too short to renew reliably", {
         source: "drive.watch",
         code: "DRIVE_WATCH_GRANT_TOO_SHORT",
         watchedFolderId: folderId,
         channelId: watch.id,
-        grantedMs,
+        remainingMsAtActivation: remainingMs,
       });
     }
     return activated;
