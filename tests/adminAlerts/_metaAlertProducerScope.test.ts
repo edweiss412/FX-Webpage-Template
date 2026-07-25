@@ -101,11 +101,11 @@ function discoverTs(): Hit[] {
             if (a1 && ts.isStringLiteral(a1)) code = a1.text;
             const a0 = n.arguments[0];
             let context: ContextShape | null = null;
-              // Two live call shapes (verified 2026-07-24):
-              //  (a) object form  upsertAdminAlert({ showId, code, context })
-              //  (b) positional   upsertAdminAlert(db, showId, code, context)
-              //      — lib/reports/submit.ts:759, lib/sync/assetRecovery.ts:482
-              // In (b) the context is the LAST argument.
+            // Two live call shapes (verified 2026-07-24):
+            //  (a) object form  upsertAdminAlert({ showId, code, context })
+            //  (b) positional   upsertAdminAlert(db, showId, code, context)
+            //      — lib/reports/submit.ts:759, lib/sync/assetRecovery.ts:482
+            // In (b) the context is the LAST argument.
             const objForm =
               a0 !== undefined &&
               ts.isObjectLiteralExpression(a0) &&
@@ -139,7 +139,11 @@ function discoverTs(): Hit[] {
             // No readable `context:` property at all (a wrapper form that
             // forwards its own argument) is treated as computed — conservative,
             // never silently unclassified (spec §6 totality).
-            hits.push({ site: `${file}:${line + 1}`, code, context: context ?? { kind: "computed" } });
+            hits.push({
+              site: `${file}:${line + 1}`,
+              code,
+              context: context ?? { kind: "computed" },
+            });
           }
         }
         ts.forEachChild(n, visit);
@@ -220,9 +224,13 @@ describe("_metaAlertProducerScope", () => {
         const astReq = [...hit.context.required].sort();
         const astOpt = [...hit.context.optional].sort();
         if (JSON.stringify(declaredReq) !== JSON.stringify(astReq))
-          mismatches.push(`${hit.site}: contextKeys ${JSON.stringify(declaredReq)} != AST ${JSON.stringify(astReq)}`);
+          mismatches.push(
+            `${hit.site}: contextKeys ${JSON.stringify(declaredReq)} != AST ${JSON.stringify(astReq)}`,
+          );
         if (JSON.stringify(declaredOpt) !== JSON.stringify(astOpt))
-          mismatches.push(`${hit.site}: optionalContextKeys ${JSON.stringify(declaredOpt)} != AST ${JSON.stringify(astOpt)}`);
+          mismatches.push(
+            `${hit.site}: optionalContextKeys ${JSON.stringify(declaredOpt)} != AST ${JSON.stringify(astOpt)}`,
+          );
       }
     }
     expect(mismatches, mismatches.join("\n")).toEqual([]);
@@ -233,8 +241,10 @@ describe("_metaAlertProducerScope", () => {
     for (const hit of tsHits) {
       if (!hit.context || hit.context.kind !== "computed") continue;
       for (const row of PRODUCER_SCOPE.filter((r) => r.site === hit.site)) {
-        if (!row.computedContext) bad.push(`${hit.site}: context is computed but computedContext is not set`);
-        else if (!(row.note ?? "").length) bad.push(`${hit.site}: computedContext needs a provenance note`);
+        if (!row.computedContext)
+          bad.push(`${hit.site}: context is computed but computedContext is not set`);
+        else if (!(row.note ?? "").length)
+          bad.push(`${hit.site}: computedContext needs a provenance note`);
       }
     }
     expect(bad, bad.join("\n")).toEqual([]);
