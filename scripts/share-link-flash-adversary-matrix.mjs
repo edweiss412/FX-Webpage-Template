@@ -305,7 +305,7 @@ const ADVERSARIES = [
 ADVERSARIES.push([
   "A22",
   "token retuned below the ring's contrast floor",
-  [[CSS, "--color-accent-edge-runtime: #ffa047;", "--color-accent-edge-runtime: #33261a;"]],
+  [[CSS, "--color-accent-edge-runtime: #ffa047;", "--color-accent-edge-runtime: #33261a;", true]],
 ]);
 
 /** A21 is not a mutation of the cue at all — it is a wrong token rendered or a
@@ -340,13 +340,19 @@ function git(...args) {
  * than a silent first-match.
  */
 function apply(mutation) {
-  for (const [file, find, replace] of mutation) {
+  for (const [file, find, replace, all = false] of mutation) {
     const p = join(ROOT, file);
     const src = readFileSync(p, "utf8");
     const hits = src.split(find).length - 1;
     if (hits === 0) return `anchor not found in ${file}: ${find.slice(0, 60)}`;
-    if (hits > 1) return `anchor is AMBIGUOUS (${hits} hits) in ${file}: ${find.slice(0, 60)}`;
-    writeFileSync(p, src.replace(find, replace));
+    // `all` is opt-in per mutation and only correct where the duplication is
+    // ITSELF the contract: a theme token is declared once in the
+    // prefers-color-scheme block and once in the [data-theme] block, and a
+    // shipped test pins the two identical, so a single-site edit would model an
+    // impossible state rather than the retune being tested.
+    if (hits > 1 && !all)
+      return `anchor is AMBIGUOUS (${hits} hits) in ${file}: ${find.slice(0, 60)}`;
+    writeFileSync(p, all ? src.split(find).join(replace) : src.replace(find, replace));
   }
   return null;
 }

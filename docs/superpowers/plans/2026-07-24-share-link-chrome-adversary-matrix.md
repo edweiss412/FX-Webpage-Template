@@ -1,0 +1,109 @@
+# Share-link cue — adversary matrix (executed)
+
+Spec §9.0/§9.1.1, plan Task 6. Produced by `node scripts/share-link-flash-adversary-matrix.mjs`
+against a committed tree, full mode (browser spec included).
+
+**26 of 27 rejected · 0 unapplied · 1 proven equivalent.** 30 distinct assertions were
+exercised across the four vitest suites and the real-browser spec.
+
+## Every adversary, and what rejects it
+
+| # | Wrong implementation | Rows red |
+|---|---|---|
+| A1 | never sets the attribute | 13 |
+| A2 | sets it, never clears it | 9 |
+| A3 | clears on a duration other than the constant | 1 |
+| A4 | sets it unconditionally on mount | **0 — see below** |
+| A5 | bumps on ANY token change, nulls included | 1 |
+| A6 | clears on !open alone | 1 |
+| A7 | clears on token-nullity alone | 1 |
+| A8 | cues for a rotation the epoch gate rejected | 2 |
+| A9 | omits key entirely | 7 |
+| A10 | uses key={flash} | 1 |
+| A11 | boolean instead of a nonce | 1 |
+| A12 | omits the effect cleanup | 2 |
+| A13 | empty keyframe bodies | 7 |
+| A14 | CSS duration drifts from the constant | 7 |
+| A15 | no reduced-motion override | 7 |
+| A16 | override present but outranked by a later rule | 6 |
+| A17 | later duplicate keyframes win the cascade | 1 |
+| A18 | ancestor-qualified rule suppresses it in the real tree | 7 |
+| A19 | ring suppressed while the wash still works | 7 |
+| A20 | keyframes moved into the component | 1 |
+| A23 | attribute on the wrapper row, not the code block | 7 |
+| A24 | drops the !open arm | 2 |
+| A25 | constant AND CSS moved together | 8 |
+| A26 | hold stop and ring width altered, colours kept | 2 |
+| A27 | steady wash under reduced motion | 6 |
+| A22 | token retuned below the ring's contrast floor | 2 |
+| A21 | renders a wrong token / Copy writes a stale one | 2 |
+
+## A4 is an equivalent mutant, not a coverage hole
+
+A4 seeds `flash` non-null at mount. It applies cleanly and changes nothing observable:
+`open` starts `false`, so the visibility predicate `(!open || !linkActive)` clears the
+seed in the SAME render pass, before any element can carry the attribute. By the time the
+panel opens, `flash` is null. No test can distinguish it because the design dominates it.
+
+This is worth recording rather than contorting a row to catch: the spec already learned
+this lesson once, when review round 2 found that the row then claiming to catch a bad
+`prevToken` seed could not, for the same structural reason.
+
+## Rows, and which adversaries each rejects
+
+Every row rejects at least one adversary; none is vacuous.
+
+| Row | Rejects |
+|---|---|
+| N0: SHARE_LINK_FLASH_MS is 1600 | A25 |
+| N1: both keyframes are declared exactly once | A17 |
+| N1: reduced motion collapses the cue, and nothing else overrides it | A15, A18 |
+| N1: the attribute runs BOTH tracks at exactly SHARE_LINK_FLASH_MS | A14, A19 |
+| N1: the component declares no keyframes of its own | A20 |
+| N1: the ring keyframe is a 2px accent-edge outline fading to transparent | A26 |
+| N1: the wash keyframe holds accent-tint to 45% then settles to the resting surface | A13, A26 |
+| T-FLASH-REDUCED | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27 |
+| T-FLASH-REST | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27 |
+| T-FLASH-RESTART | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27 |
+| T-FLASH-RUN | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27 |
+| T-FLASH-SETTLE | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27 |
+| T-FLASH-SOLE | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27 |
+| a STRICTLY LOWER epoch is rejected, so nothing cues | A8 |
+| a change while the panel is CLOSED never reaches the DOM | A24 |
+| a live cue SURVIVES unrelated re-renders | A1 |
+| a rotate updates the URL instantly — OLD then vanishes everywhere | A21 |
+| a rotation at a STRICTLY LOWER epoch is rejected — the URL does not regress | A8, A21 |
+| accent-edge is wired: @theme alias present, runtime value in ALL three blocks, dark blocks identical | A22 |
+| an UNPUBLISH mid-cue clears it even though the token never changed | A1, A6, A7 |
+| archiving clears it (the whole share half goes) | A1 |
+| clears at exactly SHARE_LINK_FLASH_MS, not before | A1, A2, A3 |
+| closing mid-cue clears it, so reopening inside the window is clean | A1, A24 |
+| dark: accent-edge clears >=3:1 on every ground the flash ring touches | A22 |
+| expiry does NOT remount anything (N5) — a text selection survives it | A2, A10 |
+| marks the URL block, and EXACTLY that element | A1, A23 |
+| null becoming a token does NOT cue | A5 |
+| re-arms on a second change so the later cue runs its full window | A1, A2, A11, A12, A25 |
+| remounts the URL block and NOTHING else (N4) | A9 |
+| unmounting mid-cue clears the CUE's timer | A12 |
+
+## Harness faults this run exposed
+
+Both were the same shape as the defects the matrix exists to find — a check that appears
+to test something and does not.
+
+1. **Ambiguous anchors produced false SURVIVED results.** `String.replace` with a string
+   rewrites only the first match, and `key={token}` occurs twice in ShareHub: once in the
+   JSX comment explaining the choice, once as the real prop. A9 and A10 were patching
+   prose. The harness now hard-errors on an ambiguous anchor; `all: true` is opt-in and
+   used only where the duplication is itself the contract (a theme token declared in both
+   dark blocks, which a shipped test pins identical).
+2. **A8 was a no-op mutant taking credit for another adversary.** It mutated a condition
+   that could never be true and bundled A5s mutation alongside. Re-expressed through the
+   epoch gate, which is where the claim actually lives.
+
+## Coverage gap this run closed
+
+A5 (bumps on ANY token change, nulls included) was rejected by nothing. Every row started
+from a token that already existed, so none could reach the null-to-token transition — the
+guard direction where `linkActive` turns TRUE and the visibility predicate suppresses
+nothing. A row was added; A5 is now rejected.
