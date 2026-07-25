@@ -422,7 +422,7 @@ WITH substitutions is not. Anything outside these shapes is reported as
   case-sensitive (`HIDDEN` is a different CSS class from `hidden`), so folding it would be wrong.
   The one place a value comparison could be argued is `aria-hidden="FALSE"`, which the scanner
   treats as hidden because it only exempts the exact literal `false`
-  (`tests/styles/_newTabScan.ts:435`, `:439`). That direction FAILS CLOSED — an invalid ARIA token
+  (`tests/styles/_newTabScan.ts:435` and `tests/styles/_newTabScan.ts:439`). That direction FAILS CLOSED — an invalid ARIA token
   produces a report, not a silent pass — so the conservative reading costs a possible false
   positive and never a missed announcement. Value-casing is therefore out of scope for the sweep,
   stated here rather than left to look like an oversight.
