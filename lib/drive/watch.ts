@@ -546,19 +546,24 @@ export async function subscribeToWatchedFolder(
         // committed, so the caller could observe a timeout for a live channel.
         // Same fire-and-forget posture as the sibling emit above and the infra
         // fault emit in gcWatchChannels.
-        void log
-          .error("drive watch grant too short to renew reliably", {
-            source: "drive.watch",
-            code: "DRIVE_WATCH_GRANT_TOO_SHORT",
-            watchedFolderId: folderId,
-            channelId: watch.id,
-            remainingMsAtActivation: remainingMs,
-          })
-          // The .catch is load-bearing, not decoration: unawaited, a rejecting
-          // sink escapes the enclosing try as an UNHANDLED rejection, which
-          // Node can turn into a process exit. Awaiting instead would reinstate
-          // the never-settling-sink hang this fire-and-forget avoids.
-          .catch(() => {});
+        // Bound to a local FIRST so the text `log.error(` stays contiguous:
+        // lib/messages/__internal__/stripLogEmissionCalls.ts matches that
+        // literal span to strip log emissions before the §12.4 producer scan,
+        // and prettier formats a `.catch()` chain as `log\n.error(`, which the
+        // matcher misses — the code then reads as an uncatalogued producer and
+        // x1-catalog-parity fails.
+        const emitted = log.error("drive watch grant too short to renew reliably", {
+          source: "drive.watch",
+          code: "DRIVE_WATCH_GRANT_TOO_SHORT",
+          watchedFolderId: folderId,
+          channelId: watch.id,
+          remainingMsAtActivation: remainingMs,
+        });
+        // The .catch is load-bearing, not decoration: unawaited, a rejecting
+        // sink escapes the enclosing try as an UNHANDLED rejection, which Node
+        // can turn into a process exit. Awaiting instead would reinstate the
+        // never-settling-sink hang this fire-and-forget avoids.
+        void emitted.catch(() => {});
       }
     } catch {
       // Post-commit observability is best-effort by contract. Losing the
