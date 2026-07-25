@@ -519,6 +519,36 @@ describe("Drive watch lifecycle", () => {
     expect(withoutFloor).toEqual([]);
   });
 
+  test("the CALLER assembles the correct lifeFraction (through refreshWatchSubscriptions)", async () => {
+    // R5 finding 3, and the reason the direct-call test below is not enough: that
+    // one proves the FAKE honours the fraction, not that the caller passes the
+    // right one. This drives the real assembly path. A 24h lease at 10h elapsed
+    // is not due under the correct complement (lead 6h, due at 18h) but IS due
+    // under the uncomplemented value (lead 18h, due at 6h) — so inverting
+    // `1 - RENEWAL_LIFE_FRACTION` at the call site fails here.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "caller-probe",
+      status: "active",
+      watchedFolderId: "folder-caller",
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      createdAt: new Date(tx.now.getTime() - 10 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(tx.now.getTime() + 14 * 60 * 60 * 1000).toISOString(),
+    });
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "x" }));
+
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder: subscribe,
+    });
+
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(result).toEqual({ refreshed: [], orphaned: [], failures: [] });
+  });
+
   test("renewal discriminates a wrong lifeFraction, not just a wrong floor", async () => {
     // R5 finding 3: the floor fixture above passes under BOTH 0.25 and an
     // inverted 0.75, so it could not catch a caller that passed the fraction
