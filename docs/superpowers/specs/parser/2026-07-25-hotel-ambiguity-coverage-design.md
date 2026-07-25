@@ -1,6 +1,6 @@
 # Hotel ambiguity coverage (2026-07-25)
 
-**Status:** Draft → self-review → adversarial review R1–R6 (all BLOCKING, all repaired) → R7 pending
+**Status:** Draft → self-review → adversarial review R1–R7 (all BLOCKING, all repaired) → R8 pending
 **Closes:** `BL-PARSER-HOTEL-INLINE-AMBIGUITY`, `BL-PARSER-ADDRESS-SPLIT-AMBIGUITY` (BACKLOG.md §"Parser ambiguity-warning coverage (2026-07-07, ambiguity-warnings-v1)")
 **Extends:** `docs/superpowers/specs/parser/2026-07-07-ambiguity-warnings-v1-design.md` (§3.1/§3.2 registry, §4.2 guest emit, §6 transform-sites walker, §7 overlay anchors)
 
@@ -65,7 +65,7 @@ This spec does not fix that parse. It makes the parser **say** when it made the 
 
 `STREET_ADDRESS_ZIP_RE` (`lib/parser/blocks/hotelConfTokens.ts:20`) recognizes a **suffixless** street by its `, <ST> <ZIP>` tail. It is used by `looksLikeStreetStart` (`lib/parser/blocks/hotelConfTokens.ts:28`) but deliberately not to split (R1). **It is currently module-private and MUST be exported** for P3(a) to consume it (§4 row t).
 
-Because the splitter takes the FIRST match, a cell containing **two** street-phrase candidates splits at the earlier one, which can swallow part of the address into neither field or truncate the name. Probe-verified corruption: `"Hotel 71 Wacker Drive 71 E Wacker Dr …"` → name `"Hotel"`. This drives P3(b).
+Because the splitter takes the FIRST match, a cell containing **two** street-phrase candidates splits at the earlier one, so words land in the WRONG field (the split partitions the cleaned string into prefix and suffix at `lib/parser/blocks/hotels.ts:279-285`, so nothing is ever dropped — C13 is the operator-facing statement of the same fact). Probe-verified corruption: `"Hotel 71 Wacker Drive 71 E Wacker Dr …"` → name `"Hotel"`. This drives P3(b).
 
 ---
 
@@ -208,6 +208,7 @@ Every cell gets an action or an explicit N/A. Per the AGENTS.md three-lockstep r
 | **aa** | `tests/messages/_metaErrorCatalogDocs.test.ts` | New code must satisfy the shared catalog-field validator |
 | **bb** | `tests/messages/_metaPopoverContextCoverage.test.ts` | Fails-by-default popover coverage gate |
 | **dd** | `lib/messages/__generated__/internal-code-enums.ts` | Regenerate with **`pnpm gen:internal-code-enums`** (`scripts/extract-internal-code-enums.ts`) and commit. NOT `gen:spec-codes`, which writes only `spec-codes.ts` — running the wrong one leaves this registry stale and fails the x2 generated-file CI gate (R3 finding 6) |
+| **ii** | `lib/admin/step3Buckets.ts:129` `FIELD_LABELS` | **Add an `address` key.** The map has only `dims`/`name`/`guests`/`order`, so `fieldLabelFor("address")` returns `null` and the wizard renders no field label for the new warning. Exact label: `hotel name and address` |
 | **hh** | `components/admin/UseRawControl.tsx:452-457` | `rawLabel` is a two-branch ternary whose **else** is `"Dates read day-first"`. An unextended `hotel-name` kind silently renders the dates label. Exact text in §7.0 |
 | **ee** | `tests/admin/warningFixAffordance.test.tsx:20` | Explicit use-raw test allowlist. Without a row here the parity assertions stay green while omitting the new code |
 | **ff** | `tests/parser/dataGaps.test.ts:42`, `tests/parser/dataGaps.test.ts:74` | Beyond row `u`: the test NAME hard-codes "33", `GAP_CLASSES` length is asserted, and `tests/parser/dataGaps.test.ts:74` explicitly enumerates the ambiguity/cardinality feature codes |
@@ -269,10 +270,10 @@ Widening `reason` is type-safe by construction: `DISABLED_REASON` (`components/a
 
 Copy for the new disabled reasons (no em-dashes; straight apostrophes to match the existing siblings at `components/admin/UseRawControl.tsx:259-260`):
 
-- `raw-not-guest-scoped` — "We can't tell which part of this hotel line is only the guest list, so there's nothing safe to swap in."
+- `raw-not-guest-scoped` — copy is **C18** in the §7.0 normative table; it is defined there and nowhere else.
 
 **Why P1 is never resolvable (R8, restored).** R2 finding 4 refuted the per-path amendment: a non-empty `postCheckout` region proves only that text follows the checkout token, **not** that the text is guests. Probe-verified — `"Hyatt Place Check In: 5/1 Check Out: 5/2 Eric Weiss arriving late"` parses `names: ["Eric Weiss"]`, but the isolated region is `"Eric Weiss arriving late"`. Publishing that as the replacement would put note text into a crew-readable guest field, and `namesReferAny` (`lib/data/getShowForViewer.ts:125`) returns false for it against the alias `"Eric Weiss"` — so accepting the fix would **hide Eric's lodging from his own crew page**, the precise harm this feature exists to surface. The strip is positional, never semantic; no inline path can prove guest-scoped raw text, so the blanket rule is the correct one and the reason string above is true in every case.
-- `no-split-to-undo` — "We left this line exactly as your sheet has it, so there's nothing to swap back."
+- `no-split-to-undo` — copy is **C17** in the §7.0 normative table; it is defined there and nowhere else.
 
 ---
 
@@ -311,7 +312,7 @@ Every user-visible and accessibility-observable string this feature introduces o
 
 | # | Surface | Site | Exact text |
 | - | ------- | ---- | ---------- |
-| C1 | Inline guest `ParseWarning.message` | new inline emitter | `Hotel line "<raw, collapsed>" holds the hotel and the guest names in one cell, so we worked out the guest list ourselves; double-check it.` |
+| C1 | Inline guest `ParseWarning.message` | new inline emitter | `Hotel line "<raw, collapsed>" holds the hotel and the guest names in one cell; double-check the guest list.` |
 | C2 | P3(a) `ParseWarning.message` | new address emitter | `Hotel line "<raw, collapsed>" may hold a street address we did not separate out; double-check the hotel name and address.` |
 | C3 | P3(b) `ParseWarning.message` | new address emitter | `Hotel line "<raw, collapsed>" could be split into a name and a street address in more than one place; double-check the hotel name and address.` |
 | C4 | `HOTEL_GUEST_SPLIT_AMBIGUOUS.dougFacing` | `lib/messages/catalog.ts:1370` | `A hotel guest list in _<sheet-name>_ may not have been split correctly; check the hotel guest list against your sheet.` |
@@ -325,9 +326,10 @@ Every user-visible and accessibility-observable string this feature introduces o
 | C12 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.helpfulContext` | new row | `A hotel line's name and street address may not have been separated correctly. Check the hotel name and address in case part of one landed in the other.` |
 | C13 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.longExplanation` | new row | `A hotel line's name and street address may not have been separated correctly. We kept every word rather than dropping any, so nothing is lost, but the dividing point may be off: part of the address may be sitting in the hotel name, or part of the name in the address. Spot-check both against your sheet.` |
 | C14 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.helpHref` | new row | `/help/errors#HOTEL_ADDRESS_SPLIT_AMBIGUOUS` |
+| C19 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.code` | new row | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS` — REQUIRED by `MessageCatalogEntry` (`lib/messages/catalog.ts:2`); the sibling row carries it too |
 | C15 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.crewFacing` | new row | `null` |
 | C16 | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS.followUp` | new row | `Doug → spot-check hotel name and address` |
-| C17 | Disabled reason, P3(a) | `DISABLED_REASON`, `components/admin/UseRawControl.tsx:258` | `We left this line exactly as your sheet has it, so there's nothing to swap back.` |
+| C17 | Disabled reason, P3(a) | `DISABLED_REASON`, `components/admin/UseRawControl.tsx:258` | `We did not split this line, so there's nothing to swap back.` |
 | C18 | Disabled reason, P1 | same | `This hotel line holds the hotel and the guests together, so there's nothing safe to swap in.` |
 
 `HOTEL_GUEST_SPLIT_AMBIGUOUS.crewFacing` stays `null`, `.followUp` stays `Doug → spot-check hotel guests`, `.helpHref` unchanged.
@@ -393,6 +395,11 @@ TDD per task (invariant 1): failing test → minimal implementation → passing 
 
 Existing tests that must pass **unchanged**: `tests/parser/blocks/hotels.ambiguity.test.ts:212` (over-cap hotel stays silent) and `tests/parser/blocks/hotels.ambiguity.test.ts:168` (at-cap boundary, guard is strictly `>`).
 
+| **Warning envelope — REQUIRED on every new emit** (R7 finding 4) | each P1, P3(a) and P3(b) emit test | assert the FULL envelope, not just code/reason: `severity === "warn"`; `blockRef.kind === "hotels"`; `blockRef.field === "guests"` (P1) or `"address"` (P3); `blockRef.name` present and equal to the resolved hotel name when one exists; `rawSnippet` equal to the exact source string. Without these, an emit with `severity:"info"` and `{kind:"rooms", field:"guests"}` passes every other assertion — the overlay keys only on `index` (`lib/sync/useRawOverlay.ts:121-127`) — while in production it drops out of warn-only data-quality treatment, routes under Rooms, and renders the false field label "guest list" (`lib/admin/step3Buckets.ts:129-138`) |
+| **P3(a) inline callers are distinguished by `rawSnippet`** (R7 finding 5) | a P3(a) input carrying a confirmation token, routed through inline learn-K (`lib/parser/blocks/hotels.ts:734`) and inline no-guest (`lib/parser/blocks/hotels.ts:765`) | `stripHotelNameConf` (`lib/parser/blocks/hotels.ts:607`) re-invokes the splitter on `stripConfTokens(hotel_name)` and, for P3(a), gets the same unsplit name — so an implementation that ignores the ambiguity at the inline call but propagates it at `lib/parser/blocks/hotels.ts:607` still emits the expected warning. The discriminator is `rawSnippet`: assert it equals the **pre-`stripConfTokens`** string the inline caller passed, which `lib/parser/blocks/hotels.ts:607` cannot produce. P3(b) does not need this because the first split removes the candidate-bearing suffix |
+| **Simultaneous independent ambiguities — REQUIRED** (R7 finding 6) | **P1+P3(b):** `Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316` · **P1+P3(a):** `Hyatt Place Chicago 71 Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316` | **two** warnings on the one reservation, one of each code. Both inputs take learn-K and satisfy an address arm. A `commitHotels` that keeps only the first ambiguity per reservation passes every isolated test and fails only here |
+| **Two reservations, two address cards** (R7 finding 6) | a structured parse where BOTH the left and right slot satisfy a P3 arm | **two** `HOTEL_ADDRESS_SPLIT_AMBIGUOUS` warnings with distinct `blockRef.index`. A parse-global "first address warning wins" implementation passes the separate left/right caller tests and fails only here |
+
 ### 8.2 Negative / no-spam tests
 
 - Every quiet fixture in both families (§9.1, §9.2) parses with **zero** new warnings, extracted **by code** from `agg.warnings` so an unrelated warning cannot mask a regression.
@@ -426,7 +433,7 @@ R6 finding 5: the existing registries freeze `triggerContext` and some titles, b
 | ---- | --------- |
 | C1–C3 | The emitted `ParseWarning.message` equals the authored string exactly, with `<raw, collapsed>` substituted. One assertion per arm |
 | C4–C8 | `MESSAGE_CATALOG.HOTEL_GUEST_SPLIT_AMBIGUOUS` field values equal C4–C8 exactly |
-| C9–C16 | `MESSAGE_CATALOG.HOTEL_ADDRESS_SPLIT_AMBIGUOUS` field values equal C9–C16 exactly; the row has exactly these 8 fields |
+| C9–C16 | `MESSAGE_CATALOG.HOTEL_ADDRESS_SPLIT_AMBIGUOUS` field values equal C9–C16 and C19 exactly; the row has exactly these **9** keys, matching the sibling row's key set |
 | C17–C18 | `DISABLED_REASON` values equal C17–C18 exactly |
 | §7.0 render rows | The four `hotel-name` `parsedFields` outcomes (label `Hotel`, label `Address`, null-name placeholder, omitted-address row), the raw-option value, `RADIOGROUP_LABEL`, and `rawLabel` are each asserted verbatim in `tests/components/UseRawControl.test.tsx` (§4 row x) |
 
@@ -498,9 +505,9 @@ Zero address cards is expected and accepted (R7). No corpus string has >1 candid
 - P1 reason strings = **4** (one per producing path)
 - New `resolvable:false` reasons = **2** (`raw-not-guest-scoped`, `no-split-to-undo`)
 - New replacement kinds = **1** (`hotel-name`)
-- Registration surfaces = **34** (§4 rows a–hh, of which 1 is an explicit N/A)
+- Registration surfaces = **36** (§4 rows a–ii, of which 1 is an explicit N/A)
 - P1 exit-path enumeration rows = **8**, of which **4** emit (§3.1)
-- Normative copy strings = **18** (§7.0 C1–C18), each with a byte-for-byte oracle (§8.5)
+- Normative copy strings = **19** (§7.0 C1–C19), each with a byte-for-byte oracle (§8.5)
 - `splitHotelNameAddress` callers requiring propagation coverage = **5**, each × **2** arms
 - Expected corpus cards = **9** guest (5 `raw/` + 4 `exporter-xlsx/`), **0** address (§9.3)
 - Corpus cards on a currently-wrong parse = **1**; on currently-correct parses = **8**
