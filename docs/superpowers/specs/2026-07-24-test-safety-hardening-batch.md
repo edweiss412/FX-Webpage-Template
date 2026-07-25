@@ -180,7 +180,7 @@ All three run over `app/`, `components/`, `lib/`, **plus the single file `next.c
 
 - string literal → its text;
 - template literal → the static parts joined with a sentinel placeholder (`\u0001`) for each substitution;
-- identifier → its same-file `const` initializer, **up to two hops**;
+- identifier → its same-file MODULE-SCOPE `const` initializer, following chains up to a depth bound of **12** (an arbitrary small bound silently reopens deeper composition; module-scope-only collection is what keeps name-keyed resolution unambiguous);
 - call of a same-file `function` declaration or `const` **arrow function** whose body is a single `return` → that return value (one hop);
 - property access on a same-file object literal → that property's value;
 - binary `+` chain → the concatenation of the statically resolvable parts;

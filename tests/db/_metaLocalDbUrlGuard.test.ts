@@ -263,11 +263,38 @@ describe("classifyLocalDbUrlSource — synthetic shapes (spec §2.6)", () => {
     // either: we do not model block scope, so the name is poisoned outright.
     const shadowed = [GUARD_IMPORT, "function assertLocalDbUrl(x) { return x; }", read].join("\n");
     expect(classifyLocalDbUrlSource(shadowed)).toMatchObject({ unguardedReads: 1 });
+
+    // …including every BINDING-PATTERN shadow (whole-diff R3 finding 2).
+    const patternShadows = [
+      "function f({ assertLocalDbUrl }) { return assertLocalDbUrl; }",
+      "function f([assertLocalDbUrl]) { return assertLocalDbUrl; }",
+      "const { assertLocalDbUrl } = fake;",
+      "const [assertLocalDbUrl] = fake;",
+    ];
+    for (const shadow of patternShadows) {
+      expect(
+        classifyLocalDbUrlSource([GUARD_IMPORT, shadow, read].join("\n")),
+        shadow,
+      ).toMatchObject({ unguardedReads: 1 });
+    }
+
+    // A nested module whose path merely ENDS in the guard path is not the guard.
+    const nested = ['import { assertLocalDbUrl } from "./db/_localDbUrl";', read].join("\n");
+    expect(classifyLocalDbUrlSource(nested, "tests/vendor/tests/suite.test.ts")).toMatchObject({
+      unguardedReads: 1,
+    });
   });
 
   test("the remaining env-read forms are reads too (whole-diff R2 finding 3)", () => {
     const forms = [
       'const KEY = "LOCAL_TEST_DATABASE_URL";\nconst U = process.env[KEY];',
+      // whole-diff R3 finding 3 — the process OBJECT aliased, and key/env indirection.
+      "const p = process;\nconst U = p.env.LOCAL_TEST_DATABASE_URL;",
+      'import * as proc from "node:process";\nconst U = proc.env.LOCAL_TEST_DATABASE_URL;',
+      'const ENVKEY = "env";\nconst { [ENVKEY]: e } = process;\nconst U = e.LOCAL_TEST_DATABASE_URL;',
+      "let u;\n({ LOCAL_TEST_DATABASE_URL: u } = process.env);",
+      "let e;\n({ env: e } = process);\nconst U = e.LOCAL_TEST_DATABASE_URL;",
+      'let K;\nK = "LOCAL_TEST_DATABASE_URL";\nconst U = process.env[K];',
       "const U = (process.env as NodeJS.ProcessEnv).LOCAL_TEST_DATABASE_URL;",
       "const U = process.env!.LOCAL_TEST_DATABASE_URL;",
       'import { env } from "node:process";\nconst U = env.LOCAL_TEST_DATABASE_URL;',
@@ -323,10 +350,11 @@ let scanCache: Array<{ path: string } & LocalDbUrlClassification> | null = null;
 function scanTree(): Array<{ path: string } & LocalDbUrlClassification> {
   if (scanCache) return scanCache;
   scanCache = walkTestSources(TESTS_ROOT)
-    .map((full) => ({
-      path: relative(process.cwd(), full),
-      ...classifyLocalDbUrlSource(readFileSync(full, "utf8"), full),
-    }))
+    .map((full) => {
+      // Repo-relative: guard-module provenance compares resolved paths exactly.
+      const path = relative(process.cwd(), full);
+      return { path, ...classifyLocalDbUrlSource(readFileSync(full, "utf8"), path) };
+    })
     .filter((row) => row.envReads > 0)
     .sort((a, b) => a.path.localeCompare(b.path));
   return scanCache;

@@ -213,6 +213,32 @@ describe("KNOWN LIMITS — pinned so they are not silent (spec §7)", () => {
     expect(classifyRetiredPathOccurrences(src)).toEqual([]);
   });
 
+  test("CROSS-MODULE assembly is not resolved (the residual spec §7 names first)", () => {
+    // The segments live in another module; a single-file scanner cannot see them.
+    // Layer A still flags the OTHER module, where the literals are written — this
+    // pins that the consuming file alone reports nothing.
+    const consumer = [
+      'import { BASE, LEAF } from "@/lib/routes";',
+      "const u = BASE + LEAF + id;",
+      "const C = () => <Link href={BASE + LEAF + id}>go</Link>;",
+    ].join("\n");
+    expect(classifyRetiredPathOccurrences(consumer)).toEqual([]);
+    expect(retiredHrefs(consumer)).toEqual([]);
+  });
+
+  test("a deep same-file chain IS resolved (the hop budget is not two)", () => {
+    // Pins the raised budget: a four-link chain must still resolve, so restoring a
+    // small ceiling fails here rather than silently reopening the bypass.
+    const src = [
+      'const A = "/admin/onboarding/";',
+      "const B = A;",
+      "const C = B;",
+      "const D = C;",
+      'const u = D + "staged/" + id;',
+    ].join("\n");
+    expect(classifyRetiredPathOccurrences(src)).toContain("assembled");
+  });
+
   test("a REASSIGNED binding is not tracked", () => {
     const src = [
       'let base = "/safe/";',

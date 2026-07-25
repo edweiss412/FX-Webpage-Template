@@ -46,8 +46,10 @@ function isGuardModule(specifier: string, fileName: string): boolean {
     if (part === "..") segments.pop();
     else segments.push(part);
   }
-  const resolved = segments.join("/");
-  return [...GUARD_MODULES].some((mod) => resolved === mod || resolved.endsWith(`/${mod}`));
+  // EXACT equality against the repo-relative module path. `endsWith` would accept a
+  // nested `tests/vendor/tests/db/_localDbUrl` no-op (whole-diff R3 finding 1);
+  // callers normalize fileName to a repo-relative path before classifying.
+  return GUARD_MODULES.has(segments.join("/"));
 }
 
 /** Strip wrappers that change nothing about the value: `(x)`, `x as T`, `x!`, `<T>x`. */
@@ -77,7 +79,19 @@ function memberName(
   return null;
 }
 
-/** Every `const X = "literal"` in the file, for bracket-key resolution. */
+/** The static text of a property name / binding key, resolving const-bound keys. */
+function propertyKeyText(name: ts.Node, stringConsts: ReadonlyMap<string, string>): string | null {
+  if (ts.isIdentifier(name)) return name.text;
+  if (ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) return name.text;
+  if (ts.isComputedPropertyName(name)) {
+    const key = unwrapParens(name.expression);
+    if (ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key)) return key.text;
+    if (ts.isIdentifier(key)) return stringConsts.get(key.text) ?? null;
+  }
+  return null;
+}
+
+/** Every `const X = "literal"` (and later assignment) in the file, for key resolution. */
 function collectStringConsts(sourceFile: ts.SourceFile): Map<string, string> {
   const out = new Map<string, string>();
   const visit = (node: ts.Node): void => {
@@ -85,6 +99,17 @@ function collectStringConsts(sourceFile: ts.SourceFile): Map<string, string> {
       const init = unwrapParens(node.initializer);
       if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)) {
         out.set(node.name.text, init.text);
+      }
+    }
+    // `let K; K = "LOCAL_TEST_DATABASE_URL"` reaches the same key.
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left)
+    ) {
+      const value = unwrapParens(node.right);
+      if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) {
+        out.set(node.left.text, value.text);
       }
     }
     ts.forEachChild(node, visit);
@@ -106,16 +131,57 @@ function isProcessEnv(
   node: ts.Expression,
   envAliases: ReadonlySet<string>,
   stringConsts: ReadonlyMap<string, string> = new Map(),
+  processAliases: ReadonlySet<string> = new Set(["process"]),
 ): boolean {
   const expr = unwrapParens(node);
   if (ts.isIdentifier(expr)) return envAliases.has(expr.text);
   if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
     const base = unwrapParens(expr.expression);
+    // `process`, and anything bound to it (`const p = process`, `import * as proc`).
     return (
-      ts.isIdentifier(base) && base.text === "process" && memberName(expr, stringConsts) === "env"
+      ts.isIdentifier(base) &&
+      processAliases.has(base.text) &&
+      memberName(expr, stringConsts) === "env"
     );
   }
   return false;
+}
+
+/** Identifiers bound to the `process` OBJECT itself (whole-diff R3 finding 3). */
+function collectProcessAliases(sourceFile: ts.SourceFile): Set<string> {
+  const aliases = new Set<string>(["process"]);
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const spec = statement.moduleSpecifier;
+    if (!ts.isStringLiteral(spec) || !/^(node:)?process$/.test(spec.text)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    // `import * as proc from "node:process"` and `import proc from "node:process"`.
+    if (bindings && ts.isNamespaceImport(bindings)) aliases.add(bindings.name.text);
+    const defaultName = statement.importClause?.name;
+    if (defaultName) aliases.add(defaultName.text);
+  }
+  for (;;) {
+    const before = aliases.size;
+    const visit = (node: ts.Node): void => {
+      const bind = (target: ts.Node, value: ts.Expression): void => {
+        const source = unwrapParens(value);
+        if (ts.isIdentifier(target) && ts.isIdentifier(source) && aliases.has(source.text)) {
+          aliases.add(target.text);
+        }
+      };
+      if (ts.isVariableDeclaration(node) && node.initializer) bind(node.name, node.initializer);
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(node.left)
+      ) {
+        bind(node.left, node.right);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    if (aliases.size === before) return aliases;
+  }
 }
 
 /** A member read of the variable off any `process.env` spelling. */
@@ -123,10 +189,11 @@ function isEnvRead(
   node: ts.Node,
   envAliases: ReadonlySet<string>,
   stringConsts: ReadonlyMap<string, string>,
+  processAliases: ReadonlySet<string>,
 ): boolean {
   if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
     return (
-      isProcessEnv(node.expression, envAliases, stringConsts) &&
+      isProcessEnv(node.expression, envAliases, stringConsts, processAliases) &&
       memberName(node, stringConsts) === ENV_VAR
     );
   }
@@ -141,6 +208,7 @@ function isEnvRead(
 function collectEnvAliases(
   sourceFile: ts.SourceFile,
   stringConsts: ReadonlyMap<string, string>,
+  processAliases: ReadonlySet<string>,
 ): Set<string> {
   const aliases = new Set<string>();
   // Iterate to a FIXPOINT, not a fixed number of passes: `const a = process.env;
@@ -164,29 +232,49 @@ function collectEnvAliases(
     const visit = (node: ts.Node): void => {
       // const e = process.env
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-        if (isProcessEnv(node.initializer, aliases, stringConsts)) aliases.add(node.name.text);
+        if (isProcessEnv(node.initializer, aliases, stringConsts, processAliases)) {
+          aliases.add(node.name.text);
+        }
       }
       // let e; e = process.env
       if (
         ts.isBinaryExpression(node) &&
         node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
         ts.isIdentifier(node.left) &&
-        isProcessEnv(node.right, aliases, stringConsts)
+        isProcessEnv(node.right, aliases, stringConsts, processAliases)
       ) {
         aliases.add(node.left.text);
       }
-      // const { env: e } = process
+      // `const { env: e } = process`, incl. a computed `{ [ENV]: e }` key.
       if (
         ts.isVariableDeclaration(node) &&
         ts.isObjectBindingPattern(node.name) &&
         node.initializer &&
         ts.isIdentifier(unwrapParens(node.initializer)) &&
-        (unwrapParens(node.initializer) as ts.Identifier).text === "process"
+        processAliases.has((unwrapParens(node.initializer) as ts.Identifier).text)
       ) {
         for (const element of node.name.elements) {
           const source = element.propertyName ?? element.name;
-          if (ts.isIdentifier(source) && source.text === "env" && ts.isIdentifier(element.name)) {
+          if (propertyKeyText(source, stringConsts) === "env" && ts.isIdentifier(element.name)) {
             aliases.add(element.name.text);
+          }
+        }
+      }
+      // Destructuring ASSIGNMENT: `({ env: e } = process)`.
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isObjectLiteralExpression(node.left) &&
+        ts.isIdentifier(unwrapParens(node.right)) &&
+        processAliases.has((unwrapParens(node.right) as ts.Identifier).text)
+      ) {
+        for (const prop of node.left.properties) {
+          if (
+            ts.isPropertyAssignment(prop) &&
+            propertyKeyText(prop.name, stringConsts) === "env" &&
+            ts.isIdentifier(prop.initializer)
+          ) {
+            aliases.add(prop.initializer.text);
           }
         }
       }
@@ -227,15 +315,30 @@ function collectImportedGuardNames(sourceFile: ts.SourceFile, fileName: string):
   return imported;
 }
 
-/** Names bound by a declaration in this file (function, class, variable, parameter). */
+/**
+ * Every name bound by a declaration in this file — including destructured and array
+ * binding patterns, in both declarations and parameters. `function f({ assertLocalDbUrl })`
+ * shadows the import just as effectively as a plain re-declaration (whole-diff R3
+ * finding 2).
+ */
 function collectLocallyDeclaredNames(sourceFile: ts.SourceFile): Set<string> {
   const declared = new Set<string>();
+
+  const addBinding = (name: ts.BindingName): void => {
+    if (ts.isIdentifier(name)) {
+      declared.add(name.text);
+      return;
+    }
+    for (const element of name.elements) {
+      if (ts.isBindingElement(element)) addBinding(element.name);
+    }
+  };
+
   const visit = (node: ts.Node): void => {
     if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) {
       declared.add(node.name.text);
     }
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) declared.add(node.name.text);
-    if (ts.isParameter(node) && ts.isIdentifier(node.name)) declared.add(node.name.text);
+    if (ts.isVariableDeclaration(node) || ts.isParameter(node)) addBinding(node.name);
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
@@ -254,6 +357,7 @@ function countDestructuredReads(
   sourceFile: ts.SourceFile,
   envAliases: ReadonlySet<string>,
   stringConsts: ReadonlyMap<string, string>,
+  processAliases: ReadonlySet<string>,
 ): number {
   let count = 0;
   const visit = (node: ts.Node): void => {
@@ -261,25 +365,27 @@ function countDestructuredReads(
       ts.isVariableDeclaration(node) &&
       ts.isObjectBindingPattern(node.name) &&
       node.initializer &&
-      isProcessEnv(node.initializer, envAliases, stringConsts)
+      isProcessEnv(node.initializer, envAliases, stringConsts, processAliases)
     ) {
       for (const element of node.name.elements) {
         const sourceName = element.propertyName ?? element.name;
-        // Plain, aliased, AND computed (`{ ["LOCAL_TEST_DATABASE_URL"]: url }`).
-        const text = ts.isIdentifier(sourceName)
-          ? sourceName.text
-          : ts.isStringLiteral(sourceName) || ts.isNoSubstitutionTemplateLiteral(sourceName)
-            ? sourceName.text
-            : ts.isComputedPropertyName(sourceName)
-              ? (() => {
-                  const key = unwrapParens(sourceName.expression);
-                  if (ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key)) {
-                    return key.text;
-                  }
-                  return ts.isIdentifier(key) ? (stringConsts.get(key.text) ?? null) : null;
-                })()
-              : null;
-        if (text === ENV_VAR) count += 1;
+        if (propertyKeyText(sourceName, stringConsts) === ENV_VAR) count += 1;
+      }
+    }
+    // Destructuring ASSIGNMENT: `({ LOCAL_TEST_DATABASE_URL: u } = process.env)`.
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isObjectLiteralExpression(node.left) &&
+      isProcessEnv(node.right, envAliases, stringConsts, processAliases)
+    ) {
+      for (const prop of node.left.properties) {
+        const key = ts.isPropertyAssignment(prop)
+          ? prop.name
+          : ts.isShorthandPropertyAssignment(prop)
+            ? prop.name
+            : null;
+        if (key && propertyKeyText(key, stringConsts) === ENV_VAR) count += 1;
       }
     }
     ts.forEachChild(node, visit);
@@ -337,13 +443,14 @@ export function classifyLocalDbUrlSource(
   );
 
   const stringConsts = collectStringConsts(sourceFile);
-  const envAliases = collectEnvAliases(sourceFile, stringConsts);
+  const processAliases = collectProcessAliases(sourceFile);
+  const envAliases = collectEnvAliases(sourceFile, stringConsts, processAliases);
   const guardNames = collectImportedGuardNames(sourceFile, fileName);
   let envReads = 0;
   let unguardedReads = 0;
 
   const visit = (node: ts.Node): void => {
-    if (isEnvRead(node, envAliases, stringConsts)) {
+    if (isEnvRead(node, envAliases, stringConsts, processAliases)) {
       envReads += 1;
       if (!isGuarded(node, guardNames)) unguardedReads += 1;
       // Do not descend: the inner `process.env` is part of this read.
@@ -353,7 +460,7 @@ export function classifyLocalDbUrlSource(
   };
   visit(sourceFile);
 
-  const destructured = countDestructuredReads(sourceFile, envAliases, stringConsts);
+  const destructured = countDestructuredReads(sourceFile, envAliases, stringConsts, processAliases);
   envReads += destructured;
   unguardedReads += destructured;
 

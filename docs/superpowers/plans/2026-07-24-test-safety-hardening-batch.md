@@ -163,9 +163,9 @@ const RATIFIED_RETIRED_PATH_REFS: Record<string, Array<"comment" | "string-liter
   - **injected `fetchMarkdownWithBinding` throws a `WorkbookSynthesisError` → `parse`** *(R1-1: a site-only classifier fails here)*;
   - `parseSheet` throws → `parse`; `parseSheet` throws a **string** → `parse` *(R1-2)*;
   - `enrich` throws → `drive_fetch`;
-  - `finalizeArchivedTabs` / `reconcileIncludedTab` / `discardAndRerun` fix-up throws → `parse`;
   - `synthesizeMarkdownFromXlsx` inside `reparseNoOverride` throws → `parse`;
-  - `applyRoleTokenMappings` throws → `parse`;
+  - **post-parse internal helpers** (`finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun` fix-up, `applyRoleTokenMappings`) throw → `drive_fetch`, i.e. today's code UNCHANGED. Narrowed after review: those faults are recovered by a code change, not by Doug editing his sheet, so a fix-your-sheet code plus a `warn` downgrade would be a new wrong reason (`BL-PREPARE-INTERNAL-FAULT-KIND`);
+  - a throwing `onProgress` / synchronously throwing `readRoleTokenMappings` adapter → `drive_fetch`, classified rather than escaping raw;
   - an already-`PrepareOnboardingFileError` → passed through, `kind` preserved.
 - [ ] **Step 2 (GREEN): implement.** Hoist `parseSheet` out of the `enrich(...)` argument (`:1193`). Add `classifyPrepareThrow(cause, siteKind)`: pass-through for `PrepareOnboardingFileError`; `WorkbookSynthesisError` → `parse`; `DriveFetchError`/`InvalidDriveFileIdError` → `drive_fetch`; else `siteKind`. Wrap each enumerated site.
 - [ ] **Step 3: verify** `npx vitest run tests/sync tests/onboarding tests/drive` green.
