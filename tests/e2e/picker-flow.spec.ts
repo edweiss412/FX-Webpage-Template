@@ -51,12 +51,23 @@ const BASE_URL = process.env.PICKER_E2E_BASE_URL ?? "http://127.0.0.1:3000";
  * Timeout for a render that follows a Server Action round trip.
  *
  * Tapping a roster row runs `selectIdentity` on the server, sets the picker
- * cookie, and re-renders the route as `resolved` — a full POST plus RSC render.
- * Locally that lands in 1-3s, but on a cold CI runner (prod build, first hit of
- * the route, Supabase in Docker) it exceeded Playwright's 5s default and the
- * guest case failed all three attempts on run 30154409796 while passing on the
- * next commit with no e2e change. That is latency, not a defect, so the wait is
- * explicit and named rather than left at the default or bumped globally.
+ * cookie, and re-renders the route as `resolved` — a full POST plus RSC render,
+ * which on a cold runner (prod build, first hit of the route, Supabase in
+ * Docker) does not fit Playwright's 5s default.
+ *
+ * A longer wait was FIRST added here for the wrong reason. The guest case was
+ * failing in CI and passing locally, that read as cold-runner latency, and 30s
+ * did not fix it: the element was never going to appear, because
+ * `selectIdentity` revalidated a PATH while the picker is reached at
+ * `?gate=skip`, so the query variant was re-served and the tap changed nothing
+ * until a reload. The real fix is the redirect in `_PickerInterstitial`'s form
+ * action; see the comment there. The lesson worth keeping: local runs `pnpm
+ * dev` and CI runs `pnpm build && pnpm start` (playwright.config.ts), so a
+ * green local run proves nothing about CI for this suite — reproduce with
+ * `CI=1`.
+ *
+ * The named wait stays because the round trip is genuinely slow on a cold
+ * runner, but it is a latency allowance and nothing more.
  */
 const AFTER_SERVER_ACTION = { timeout: 30_000 } as const;
 

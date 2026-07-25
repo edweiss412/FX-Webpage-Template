@@ -36,8 +36,11 @@
  *   PICKER_IDENTITY_CLAIMED throws NEXT_REDIRECT per Pin-2 contract).
  */
 
+import { redirect } from "next/navigation";
+
 import { messageFor } from "@/lib/messages/lookup";
 import { selectIdentity } from "@/lib/auth/picker/selectIdentity";
+import { isValidShowPathPair } from "@/lib/auth/picker/validateClearIdentityInput";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { StaleCleanupAutoSubmit } from "./_StaleCleanupAutoSubmit";
 
@@ -78,7 +81,37 @@ async function selectIdentityFormAction(formData: FormData): Promise<void> {
   "use server";
   // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker selectIdentity,
   // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
-  await selectIdentity(formData);
+  const result = await selectIdentity(formData);
+  if (!result.ok) return;
+
+  // Redirect on success, rather than relying on selectIdentity's
+  // `revalidatePath` alone.
+  //
+  // This form is submitted from `?gate=skip` — that is where the guest flow
+  // lands, and where the picker is reachable at all. `revalidatePath` takes a
+  // PATH and ignores the query string, so the `?gate=skip` entry was re-served
+  // and the action's own re-render came back as the picker again: the person
+  // tapped their name and stayed exactly where they were, until they happened
+  // to reload.
+  //
+  // Invisible in development, and only with more than one name on the roster —
+  // a single-member roster resolves for its own reasons and hides it. So it
+  // reproduces ONLY under `pnpm build && pnpm start`, which is what CI runs and
+  // `pnpm dev` is not (playwright.config.ts). Measured: crew-shell 0 / picker 1
+  // immediately after the tap, then crew-shell 1 after a reload.
+  //
+  // Redirecting to the canonical URL also drops `gate=skip`, which has no
+  // meaning once a selection exists — it asks to skip a gate the person has
+  // just passed.
+  const slug = formData.get("slug");
+  const shareToken = formData.get("shareToken");
+  const s = formData.get("s");
+  if (typeof slug !== "string" || typeof shareToken !== "string") return;
+  // buildShowReturnUrl interpolates both segments unencoded. selectIdentity
+  // validated them already or it would not have returned ok; re-checking here
+  // keeps that guarantee local to the redirect that depends on it.
+  if (!isValidShowPathPair({ slug, shareToken })) return;
+  redirect(buildShowReturnUrl(slug, shareToken, { s: typeof s === "string" ? s : undefined }));
 }
 
 export function PickerInterstitial({

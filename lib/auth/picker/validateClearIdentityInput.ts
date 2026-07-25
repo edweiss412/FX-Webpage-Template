@@ -19,10 +19,24 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 const TOKEN_RE = /^[0-9a-f]{64}$/;
 
+/**
+ * The show-path pair alone.
+ *
+ * Split out because the select-identity form action needs exactly this and no
+ * more: it redirects to `/show/<slug>/<shareToken>` after a successful
+ * selection, and `buildShowReturnUrl` interpolates both segments WITHOUT
+ * encoding them. Neither pattern admits a slash or a dot, so a validated pair
+ * cannot escape the path — which is the property the redirect depends on. A
+ * third copy of these regexes is what this avoids.
+ */
+export function isValidShowPathPair(input: { slug: string; shareToken: string }): boolean {
+  return SLUG_RE.test(input.slug) && TOKEN_RE.test(input.shareToken);
+}
+
 export function isValidClearIdentityInput(input: {
   slug: string;
   shareToken: string;
   showId: string;
 }): boolean {
-  return SLUG_RE.test(input.slug) && TOKEN_RE.test(input.shareToken) && UUID_RE.test(input.showId);
+  return isValidShowPathPair(input) && UUID_RE.test(input.showId);
 }
