@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   PHRASE,
+  commentRanges,
   admitsCandidate,
   compileMdxToJsx,
   parse,
@@ -1146,6 +1147,30 @@ describe("R6: scanner changes are pinned", () => {
   // as a literal; these are the shapes that mattered.
   // R14 BLOCKING 1 and 2, LOW 6: the comment finder is now ONE shared helper, and these
   // pin the two bugs its rewrite fixed plus the shebang case.
+  // R15 question 1, probed before that round reported: commentRanges() is now the single
+  // source for two consumers, so its edge cases matter more than any one caller's.
+  it("R15 commentRanges distinguishes comments from division, regex and templates", () => {
+    const noComment = [
+      "const x = a / b / c;", // division chain, not a comment
+      "const r=/ab/; const y = c / d;", // regex then division
+      'const A = <div>{"<!-- x -->"}</div>;', // an HTML comment inside a string
+      "const t = `a //b ${x} c`;", // `//` inside a template with a substitution
+    ];
+    for (const src of noComment) {
+      expect(commentRanges(src), `must find no comment in: ${src}`).toEqual([]);
+      expect(stripCommentsSafely(src), `must not alter: ${src}`).toBe(src);
+    }
+    const hasComment = [
+      "const x = a/b; //note",
+      "const a=1; //note\r\nconst K=1;", // CRLF
+      'const K="Keep"; /* never closed', // unterminated block: must terminate, not hang
+    ];
+    for (const src of hasComment) {
+      expect(commentRanges(src).length, `must find a comment in: ${src}`).toBeGreaterThan(0);
+      expect(stripCommentsSafely(src).length, "length must be preserved").toBe(src.length);
+    }
+  });
+
   it("R14 comment ranges: all JS line terminators, and a shebang is not a comment", () => {
     // A `//` comment ends at ANY line terminator. Stopping at LF alone blanked the rest of
     // the file, so a later `target =` or spread became invisible to the candidate net.
