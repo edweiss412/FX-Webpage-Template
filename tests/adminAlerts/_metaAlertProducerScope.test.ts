@@ -15,6 +15,12 @@ import {
   perShowReachableCodes,
   FROZEN_REACHABLE,
 } from "./alertProducerScope.registry";
+import {
+  readContextShape,
+  calleeName,
+  propertyKeyName,
+  type ContextShape,
+} from "./producerScopeAst";
 import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 
 const ROOTS = ["lib", "app"];
@@ -34,47 +40,8 @@ function walk(dir: string, exts: string[], out: string[] = []): string[] {
   return out;
 }
 
-/** Context-key extraction (spec 2026-07-24-gallery-alert-producer-parity §6).
- *  `kind: "literal"` means the `context:` initializer is an object literal the
- *  walker could read; `"computed"` means it is a variable, call, or a spread of
- *  one, so only the registry row's hand-authored keys describe it. */
-type ContextShape =
-  | { kind: "literal"; required: string[]; optional: string[] }
-  | { kind: "computed" };
 type Hit = { site: string; code: string | null; context: ContextShape | null };
 
-/** Keys in a conditional spread (`...(cond ? { k: v } : {})`) are OPTIONAL: the
- *  walker never evaluates `cond`. Deliberately conservative — it may call an
- *  always-written key optional, but never calls an optional key guaranteed,
- *  which is the direction that matters for guaranteedKeys (spec §5). */
-function readContextShape(init: ts.Expression, sf: ts.SourceFile): ContextShape {
-  if (!ts.isObjectLiteralExpression(init)) return { kind: "computed" };
-  const required: string[] = [];
-  const optional: string[] = [];
-  for (const prop of init.properties) {
-    if (ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) {
-      required.push(prop.name.getText(sf).replace(/^["'`]|["'`]$/g, ""));
-      continue;
-    }
-    if (ts.isSpreadAssignment(prop)) {
-      const e = prop.expression;
-      const arms: ts.Expression[] = ts.isConditionalExpression(e)
-        ? [e.whenTrue, e.whenFalse]
-        : ts.isParenthesizedExpression(e) && ts.isConditionalExpression(e.expression)
-          ? [e.expression.whenTrue, e.expression.whenFalse]
-          : [];
-      if (arms.length === 0) return { kind: "computed" };
-      for (const arm of arms)
-        if (ts.isObjectLiteralExpression(arm))
-          for (const p2 of arm.properties)
-            if (ts.isPropertyAssignment(p2) || ts.isShorthandPropertyAssignment(p2))
-              optional.push(p2.name.getText(sf).replace(/^["\'`]|["\'`]$/g, ""));
-      continue;
-    }
-    return { kind: "computed" };
-  }
-  return { kind: "literal", required: [...new Set(required)], optional: [...new Set(optional)] };
-}
 function discoverTs(): Hit[] {
   const hits: Hit[] = [];
   for (const root of ROOTS)
@@ -88,12 +55,10 @@ function discoverTs(): Hit[] {
       );
       const visit = (n: ts.Node) => {
         if (ts.isCallExpression(n)) {
-          const c = n.expression;
-          const name = ts.isIdentifier(c)
-            ? c.text
-            : ts.isPropertyAccessExpression(c)
-              ? c.name.text
-              : undefined;
+          // calleeName sees through parentheses, casts, non-null assertions and
+          // string-keyed element access — all of which invoke the same producer
+          // surface as a plain call (producerScopeAst.ts).
+          const name = calleeName(n.expression);
           if (name === "upsertAdminAlert") {
             const { line } = sf.getLineAndCharacterOfPosition(n.getStart(sf));
             let code: string | null = null;
@@ -106,14 +71,18 @@ function discoverTs(): Hit[] {
             //  (b) positional   upsertAdminAlert(db, showId, code, context)
             //      — lib/reports/submit.ts:759, lib/sync/assetRecovery.ts:482
             // In (b) the context is the LAST argument.
+            // Property names go through propertyKeyName so a QUOTED key reads as
+            // the same key as a bare one. Comparing raw source text meant
+            // `{ "code": … }` matched neither branch, the call was misread as
+            // positional, and the whole options object was then taken for the
+            // context literal.
             const objForm =
               a0 !== undefined &&
               ts.isObjectLiteralExpression(a0) &&
               a0.properties.some((pr) => {
-                const nm = ts.isShorthandPropertyAssignment(pr)
-                  ? pr.name.text
-                  : ts.isPropertyAssignment(pr)
-                    ? pr.name.getText(sf)
+                const nm =
+                  ts.isShorthandPropertyAssignment(pr) || ts.isPropertyAssignment(pr)
+                    ? propertyKeyName(pr.name, sf)
                     : undefined;
                 return nm === "code" || nm === "context";
               });
@@ -130,7 +99,7 @@ function discoverTs(): Hit[] {
                   continue;
                 }
                 if (!ts.isPropertyAssignment(prop)) continue;
-                const key = prop.name.getText(sf);
+                const key = propertyKeyName(prop.name, sf);
                 if (!code && key === "code" && ts.isStringLiteral(prop.initializer))
                   code = prop.initializer.text;
                 if (key === "context") context = readContextShape(prop.initializer, sf);
@@ -248,6 +217,37 @@ describe("_metaAlertProducerScope", () => {
       }
     }
     expect(bad, bad.join("\n")).toEqual([]);
+  });
+
+  it("computed rows declare a NON-EMPTY contextKeys set (spec §6)", () => {
+    // A computed row's keys are hand-authored — the walker cannot derive them —
+    // and BOTH aggregations then treat them as authoritative. Omitting them is
+    // silently destructive in two directions at once: `allowedKeys` loses every
+    // key of that code (so, for a single-row code, the subset rule starts
+    // rejecting contexts it should permit) and `guaranteedKeys` collapses its
+    // intersection to []. Neither shows up as a failure anywhere else, so the
+    // emptiness is pinned here.
+    //
+    // This does NOT verify the keys are CORRECT — that needs the helper
+    // executed, which the walker cannot do. The provenance note asserted above
+    // is what carries that burden, and the promoted producer-context fixtures
+    // in producerContexts.ts are where a wrong key surfaces behaviorally.
+    //
+    // SQL sites are carved out: a migration's producer is a generic helper whose
+    // `code` is a BIND PARAMETER (`p_code`), not an alert code, so it never
+    // feeds allowedKeys/guaranteedKeys for any real code and has no key set to
+    // declare. The carve-out is pinned below so a TypeScript row cannot drift
+    // into it.
+    const isSqlSite = (site: string): boolean => /\.sql:\d+$/.test(site);
+    const keyless = PRODUCER_SCOPE.filter(
+      (r) => r.computedContext && (r.contextKeys ?? []).length === 0,
+    );
+    const bad = keyless
+      .filter((r) => !isSqlSite(r.site))
+      .map((r) => `${r.site} (${r.code}): computedContext row declares no contextKeys`);
+    expect(bad, bad.join("\n")).toEqual([]);
+    // The carve-out is exactly the SQL rows — nothing else may be keyless.
+    expect(keyless.every((r) => isSqlSite(r.site))).toBe(true);
   });
 
   it("SQL sites are classified computedContext with a note — never left TypeScript-shaped (spec §6)", () => {
