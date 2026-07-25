@@ -686,10 +686,17 @@ describe("every external link in the live tree announces its new tab", () => {
     );
     expect(mdx.length, "mdx inventory should not be empty").toBeGreaterThan(0);
     const sc: Scan = { anchors: 0, violations: [] };
+    const empty: string[] = [];
     for (const rel of mdx) {
       const jsx = compileMdxToJsx(readFileSync(join(process.cwd(), rel), "utf8"));
+      // ANTI-VACUITY: if compilation ever returned nothing -- an upstream API change,
+      // a silent failure -- scanSource would find no anchors and this test would pass
+      // for the wrong reason, leaving MDX unguarded while green. Every real page
+      // compiles to thousands of characters and dozens of JSX tags today.
+      if ((jsx.match(/<[A-Za-z_]/g) ?? []).length < 5) empty.push(rel);
       scanSource(parse(rel, jsx), rel, sc);
     }
+    expect(empty, "these .mdx files compiled to little or no JSX").toEqual([]);
     expect(sc.violations).toEqual([]);
   });
 
