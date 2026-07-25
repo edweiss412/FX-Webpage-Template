@@ -19,6 +19,145 @@ import {
   type Scan,
 } from "@/tests/styles/_newTabScan";
 
+/** Attribute names whose CASING cannot matter at runtime, so a non-lowercase literal
+ *  spelling one is a bug. Tag names are deliberately absent: JSX tag names are
+ *  case-SENSITIVE. Shared by the guard below and its own behavioural pin. */
+const CASE_INSENSITIVE_NAMES = new Set([
+  "target",
+  "rel",
+  "href",
+  "hidden",
+  "aria-hidden",
+  "aria-label",
+  "aria-labelledby",
+  "role",
+  "classname",
+  "class",
+  "style",
+  // Link-relevant attributes only. `type`, `title`, `alt`, `id` and `name` were
+  // here briefly and removed on purpose: this scanner never compares them, so
+  // they added no protection, while an exact literal "Title" or "Name" in a
+  // message or fixture would have raised a false positive. The self-maintaining
+  // half below is what keeps the set honest -- it FORCES any newly compared name
+  // in here -- so speculative entries are cost without benefit.
+  "referrerpolicy",
+  "download",
+  "ping",
+]);
+
+/** Literals that can decide an attribute name in `src`, collected by SEMANTIC POSITION.
+ *  Extracted to module scope so the rule can be exercised on synthetic input instead of
+ *  only being self-applied — a guard that can only run on itself cannot be tested. */
+function collectNameLiterals(src: string): string[] {
+  const sf = ts.createSourceFile("__names.ts", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const literals: string[] = [];
+  const add = (n: ts.Node): void => {
+    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) literals.push(n.text);
+  };
+  const walk = (n: ts.Node): void => {
+    if (ts.isBinaryExpression(n)) {
+      const k = n.operatorToken.kind;
+      if (
+        k === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        k === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+        k === ts.SyntaxKind.EqualsEqualsToken ||
+        k === ts.SyntaxKind.ExclamationEqualsToken
+      ) {
+        add(n.left);
+        add(n.right);
+      }
+    }
+    if (ts.isCaseClause(n)) add(n.expression);
+    // A REGEX can decide a name too, and it is not a string literal so the four
+    // positions above miss it (R14 question 3: which mechanisms decide a name without
+    // a comparison?). Only flag a pattern that spells a known attribute name in
+    // non-lowercase AND lacks the `i` flag -- with `/i` the casing cannot matter, and
+    // the tag-name regex in this file is deliberately case-insensitive.
+    // Position-scoped like every other rule: only a regex actually TESTED against a
+    // name accessor can decide a name. Collecting every regex reintroduced the
+    // blanket false-positive class -- `const diagnostic = /Target/` was reported
+    // although it cannot decide an attribute name (review R14 MEDIUM 5).
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      // `.exec` decides a name just as `.test` does (R15 question 3).
+      (n.expression.name.text === "test" || n.expression.name.text === "exec") &&
+      n.arguments.some((a) =>
+        /attrName|jsxAttrNameLower|propNameLower|\b(n|nm|name|key)\b/.test(a.getText()),
+      )
+    ) {
+      // The receiver may be an inline literal OR a same-file `const` bound to one --
+      // `const rx = /^(Target)$/; rx.test(attrName(a))` was missed (R15 question 3).
+      // Same one-binding rule as the spread resolver: more than one binding means
+      // shadowing is possible, so it is left alone rather than guessed.
+      const recv = n.expression.expression;
+      let rx: ts.RegularExpressionLiteral | null = ts.isRegularExpressionLiteral(recv)
+        ? recv
+        : null;
+      if (rx === null && ts.isIdentifier(recv)) {
+        const found: ts.RegularExpressionLiteral[] = [];
+        let bindings = 0;
+        const seek = (node: ts.Node): void => {
+          if (
+            ts.isVariableDeclaration(node) &&
+            ts.isIdentifier(node.name) &&
+            node.name.text === recv.text
+          ) {
+            bindings += 1;
+            const init = node.initializer;
+            if (init && ts.isRegularExpressionLiteral(init)) found.push(init);
+          }
+          ts.forEachChild(node, seek);
+        };
+        seek(sf);
+        if (bindings === 1 && found.length === 1) rx = found[0]!;
+      }
+      if (rx === null) {
+        ts.forEachChild(n, walk);
+        return;
+      }
+      // [\\s\\S] rather than `.` with the /s flag: the project's tsc target rejects it
+      // (TS1501), and I had already hit that once this PR and reintroduced it by
+      // running vitest but not tsc before committing.
+      const m = /^\/([\s\S]*)\/([a-z]*)$/.exec(rx.text);
+      if (m && !m[2]!.includes("i")) {
+        for (const word of m[1]!.split(/[^A-Za-z-]+/)) literals.push(word);
+      }
+    }
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+      const fn = n.expression.name.text;
+      if (fn === "has" || fn === "includes") {
+        n.arguments.forEach(add);
+        // ALSO the receiver: `["Target"].includes(attrName(a))` puts the name in the
+        // array, not the arguments, and that is precisely one of R12's evasion forms.
+        // Verified by appending it to the scanner and watching this test stay green.
+        // Recurse: `new Map([["Target", 1]]).has(...)` nests the name one level
+        // deeper than a Set's flat array, and only the outer elements were inspected
+        // (review R14 MEDIUM 4).
+        const addDeep = (node: ts.Node): void => {
+          add(node);
+          if (ts.isArrayLiteralExpression(node)) node.elements.forEach(addDeep);
+        };
+        const recv = n.expression.expression;
+        if (ts.isArrayLiteralExpression(recv)) recv.elements.forEach(addDeep);
+        if (ts.isNewExpression(recv)) {
+          for (const a of recv.arguments ?? []) addDeep(a);
+        }
+      }
+    }
+    if (
+      (ts.isPropertyAssignment(n) || ts.isPropertySignature(n)) &&
+      (ts.isStringLiteral(n.name) || ts.isComputedPropertyName(n.name))
+    ) {
+      add(ts.isComputedPropertyName(n.name) ? n.name.expression : n.name);
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+
+  return literals;
+}
+
 // ── Synthetic scanner self-tests (§6 requirement 7) ────────────────────────
 // Without these the guard is unfalsifiable: the live tree exercises only
 // literal targets and true-polarity spreads.
@@ -1149,6 +1288,35 @@ describe("R6: scanner changes are pinned", () => {
   // pin the two bugs its rewrite fixed plus the shebang case.
   // R15 question 1, probed before that round reported: commentRanges() is now the single
   // source for two consumers, so its edge cases matter more than any one caller's.
+  // R15 question 3, probed before the round reported: which name-deciding regex uses does
+  // the position-scoped rule still miss? Two did.
+  it("R15 a const-held regex and .exec are covered; an unrelated regex is not", () => {
+    // Behavioural, not a source-string check: run the SAME collector the guard uses over
+    // synthetic sources. Two shapes were missed before -- a regex bound to a const and
+    // tested later, and `.exec` instead of `.test` -- while an unrelated diagnostic regex
+    // must stay silent so the false-positive class does not come back.
+    const flagged = (src: string): string[] =>
+      collectNameLiterals(src).filter(
+        (lit) => lit !== lit.toLowerCase() && CASE_INSENSITIVE_NAMES.has(lit.toLowerCase()),
+      );
+    expect(
+      flagged('function f(a){ const rx = /^(Target)$/; return rx.test(attrName(a) ?? ""); }'),
+      "a const-held regex decides a name",
+    ).toEqual(["Target"]);
+    expect(
+      flagged('function f(a){ return /^(Target)$/.exec(attrName(a) ?? "") !== null; }'),
+      ".exec decides a name too",
+    ).toEqual(["Target"]);
+    expect(
+      flagged("const diag = /Target/; function f(m){ return diag.test(m); }"),
+      "a regex tested against an unrelated message decides nothing",
+    ).toEqual([]);
+    expect(
+      flagged('function f(a){ return /^(Target)$/i.test(attrName(a) ?? ""); }'),
+      "with /i the casing cannot matter",
+    ).toEqual([]);
+  });
+
   it("R15 commentRanges distinguishes comments from division, regex and templates", () => {
     const noComment = [
       "const x = a / b / c;", // division chain, not a comment
@@ -1340,148 +1508,21 @@ describe("R6: scanner changes are pinned", () => {
   // prove the property. The lowercasing itself is what makes the code correct; this
   // only makes a regression loud.
   it("no literal spells a known attribute name in non-lowercase", () => {
-    // R10 MEDIUM 6: the accessor-context version missed `"Target" === attrName(a)`,
-    // a template literal, a switch case, a variable hop, and `[...].includes(...)`.
-    // Accessor context was the wrong hook. This instead scans EVERY string and
-    // template literal in the file and flags any that spells a known
-    // case-insensitive attribute or property name in non-lowercase. No comparison
-    // form can evade it, because it does not look at comparisons at all.
-    //
-    // Tag names are deliberately excluded: `<Link>` and `<a>` are case-SENSITIVE in
-    // JSX, so "Link" is a correct literal.
+    // Position-scoped: see collectNameLiterals. Two halves run because neither is
+    // complete alone -- accessor-context scoping was evaded five ways, and a blanket
+    // literal walk raised false positives on type positions, enum members and plain
+    // values.
     const src = stripCommentsSafely(
       readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
     );
-    const CASE_INSENSITIVE_NAMES = new Set([
-      "target",
-      "rel",
-      "href",
-      "hidden",
-      "aria-hidden",
-      "aria-label",
-      "aria-labelledby",
-      "role",
-      "classname",
-      "class",
-      "style",
-      // Link-relevant attributes only. `type`, `title`, `alt`, `id` and `name` were
-      // here briefly and removed on purpose: this scanner never compares them, so
-      // they added no protection, while an exact literal "Title" or "Name" in a
-      // message or fixture would have raised a false positive. The self-maintaining
-      // half below is what keeps the set honest -- it FORCES any newly compared name
-      // in here -- so speculative entries are cost without benefit.
-      "referrerpolicy",
-      "download",
-      "ping",
-    ]);
-    // PARSED, not tokenized and not regex-matched. A global regex goes out of phase
-    // after an escaped literal; and calling ts.createScanner().scan() directly is not
-    // parser-equivalent for templates -- it fell out of phase around template
-    // expressions and swallowed large later regions, so appended literals were
-    // invisible AND an unrelated `Target${count}` fragment was reported as a
-    // violation (review R12 HIGH 3). A real parse is the only phase-correct option.
-    const sf = ts.createSourceFile(
-      "_newTabScan.ts",
-      src,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
-    );
-    // POSITION-scoped, not "every literal". R13 MEDIUM 4 showed a blanket walk flags
-    // `type X = "Target"`, an enum member, and any ordinary value -- none of which decide
-    // an attribute name. Accessor-name scoping was the other failed approach (R12 MEDIUM
-    // 6 evaded it five ways), so the hook is the SEMANTIC POSITION where a literal can
-    // actually change a name decision:
-    //   - either operand of ===, !==, ==, != (so `"Target" === attrName(a)` is caught)
-    //   - a `case` clause
-    //   - an argument to `.has(` / `.includes(`
-    //   - a property NAME, since a folded lookup treats `{"Target": …}` as `target`
-    const literals: string[] = [];
-    const add = (n: ts.Node): void => {
-      if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) literals.push(n.text);
-    };
-    const walk = (n: ts.Node): void => {
-      if (ts.isBinaryExpression(n)) {
-        const k = n.operatorToken.kind;
-        if (
-          k === ts.SyntaxKind.EqualsEqualsEqualsToken ||
-          k === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
-          k === ts.SyntaxKind.EqualsEqualsToken ||
-          k === ts.SyntaxKind.ExclamationEqualsToken
-        ) {
-          add(n.left);
-          add(n.right);
-        }
-      }
-      if (ts.isCaseClause(n)) add(n.expression);
-      // A REGEX can decide a name too, and it is not a string literal so the four
-      // positions above miss it (R14 question 3: which mechanisms decide a name without
-      // a comparison?). Only flag a pattern that spells a known attribute name in
-      // non-lowercase AND lacks the `i` flag -- with `/i` the casing cannot matter, and
-      // the tag-name regex in this file is deliberately case-insensitive.
-      // Position-scoped like every other rule: only a regex actually TESTED against a
-      // name accessor can decide a name. Collecting every regex reintroduced the
-      // blanket false-positive class -- `const diagnostic = /Target/` was reported
-      // although it cannot decide an attribute name (review R14 MEDIUM 5).
-      if (
-        ts.isCallExpression(n) &&
-        ts.isPropertyAccessExpression(n.expression) &&
-        n.expression.name.text === "test" &&
-        ts.isRegularExpressionLiteral(n.expression.expression) &&
-        n.arguments.some((a) =>
-          /attrName|jsxAttrNameLower|propNameLower|\b(n|nm|name|key)\b/.test(a.getText()),
-        )
-      ) {
-        const rx = n.expression.expression;
-        // [\\s\\S] rather than `.` with the /s flag: the project's tsc target rejects it
-        // (TS1501), and I had already hit that once this PR and reintroduced it by
-        // running vitest but not tsc before committing.
-        const m = /^\/([\s\S]*)\/([a-z]*)$/.exec(rx.text);
-        if (m && !m[2]!.includes("i")) {
-          for (const word of m[1]!.split(/[^A-Za-z-]+/)) literals.push(word);
-        }
-      }
-      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
-        const fn = n.expression.name.text;
-        if (fn === "has" || fn === "includes") {
-          n.arguments.forEach(add);
-          // ALSO the receiver: `["Target"].includes(attrName(a))` puts the name in the
-          // array, not the arguments, and that is precisely one of R12's evasion forms.
-          // Verified by appending it to the scanner and watching this test stay green.
-          // Recurse: `new Map([["Target", 1]]).has(...)` nests the name one level
-          // deeper than a Set's flat array, and only the outer elements were inspected
-          // (review R14 MEDIUM 4).
-          const addDeep = (node: ts.Node): void => {
-            add(node);
-            if (ts.isArrayLiteralExpression(node)) node.elements.forEach(addDeep);
-          };
-          const recv = n.expression.expression;
-          if (ts.isArrayLiteralExpression(recv)) recv.elements.forEach(addDeep);
-          if (ts.isNewExpression(recv)) {
-            for (const a of recv.arguments ?? []) addDeep(a);
-          }
-        }
-      }
-      if (
-        (ts.isPropertyAssignment(n) || ts.isPropertySignature(n)) &&
-        (ts.isStringLiteral(n.name) || ts.isComputedPropertyName(n.name))
-      ) {
-        add(ts.isComputedPropertyName(n.name) ? n.name.expression : n.name);
-      }
-      ts.forEachChild(n, walk);
-    };
-    walk(sf);
-    const offenders = literals.filter(
+    const offenders = collectNameLiterals(src).filter(
       (lit) => lit !== lit.toLowerCase() && CASE_INSENSITIVE_NAMES.has(lit.toLowerCase()),
     );
     expect(offenders, "attribute-name literals must be lowercase").toEqual([]);
 
-    // Self-maintaining half: the fixed set above only protects names it knows, so a
-    // NEW comparison against some other attribute would silently escape it. Extract
-    // the names the scanner actually compares and require the set to cover them, so
-    // adding `attrName(a) === "download"` fails HERE until the set is extended.
-    // Neither half is complete alone -- accessor context misses unusual comparison
-    // forms (R10 MEDIUM 6) and the fixed set misses unknown names -- so both run.
+    // Self-maintaining half: the fixed set only protects names it knows, so require it to
+    // cover every name the scanner actually compares. Adding a comparison against a new
+    // attribute fails HERE until the set is extended.
     const compared = [
       ...src.matchAll(
         /(?:attrName\([^)]*\)|jsxAttrNameLower\([^)]*\)|propNameLower\([^)]*\)|\bn\b|\bnm\b)\s*[=!]==?\s*"([^"]+)"/g,
