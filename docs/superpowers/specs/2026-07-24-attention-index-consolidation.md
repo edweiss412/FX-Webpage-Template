@@ -223,6 +223,10 @@ Panel states: **closed (C)**, **open/needs-you-present (O1)**, **open/monitoring
 | O1 → O2 | **Instant — no animation.** Live data removing the last needs-you item collapses the group with no transition, matching the current monitoring group's "no transitions" contract (`AttentionMenu.tsx:227-229`). |
 | O2 → O1 | **Instant — no animation.** |
 
+**Row-level transition, new to the former needs-look rows.** The actionable row carries `transition-colors duration-fast` for its hover state (`components/admin/showpage/AttentionMenu.tsx:142`); the needs-look `<div>` carried none (`components/admin/showpage/AttentionMenu.tsx:188`). Converting those rows to buttons therefore adds a hover colour transition where there was no hover state at all. Intended — it is the affordance that makes the row read as pressable — and it inherits `motion-reduce` handling from the same token set as the panel. Recorded here because it is a state change this inventory is supposed to enumerate, not because it needs mitigating.
+
+**Dot vocabulary inside the merged group.** Three appearances coexist: `bg-status-degraded` for holds (`tone: "critical"`), filled `bg-status-review` for actionable alerts, and filled `bg-status-review` for former needs-look rows (previously hollow, §2.2). Holds keep their distinct critical dot; the hollow/filled contrast now separates needs-you from monitoring rather than separating rows inside one group.
+
 **Compound transitions:**
 
 | Scenario | Treatment |
