@@ -4,7 +4,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-07-25 — 7 terminal-status entries graduated to the archive (30 on the prior 2026-07-24 pass). All seven had been annotated CLOSED / WITHDRAWN / RESOLVED in place rather than moved, which is the drift this header exists to catch; `tests/docs/_metaDeferralLedgerGraduation.test.ts` now fails on a terminal status in this file, so the class cannot silently reopen.
+Last reconciled: 2026-07-25 — the three phantom-gap items graduated on `feat/section-header-rebuild-phantom-spacers` (7 terminal-status entries graduated earlier the same day; 30 on the prior 2026-07-24 pass). All seven had been annotated CLOSED / WITHDRAWN / RESOLVED in place rather than moved, which is the drift this header exists to catch; `tests/docs/_metaDeferralLedgerGraduation.test.ts` now fails on a terminal status in this file, so the class cannot silently reopen.
 
 ---
 
@@ -87,44 +87,21 @@ It does not run: no workflow references `admin-lifecycle-transitions`, so it is 
 
 **Surfaced by:** round-4 adversarial review of #598, which found it while checking that branch's retirement of the testid. Recorded rather than fixed there: out of scope for that PR, and it cannot be validated without first un-darkening it.
 
-## BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET — probe the archived dashboard bucket
+## BL-CHILDLESS-GROWABLE-STATIC-GUARD — static guard against childless growable flex items
 
-**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, adversarial review R3 finding 1). **Class:** layout hardening (coverage). **Effort:** S (seed + one case).
+**Filed:** 2026-07-25 (branch `feat/section-header-rebuild-phantom-spacers`, DESCOPED from that branch's spec §6 after three adversarial rounds). **Class:** layout hardening (structural defense). **Effort:** M — the cost is the rule, not the walker.
 
-`T-NOPHANTOM-DASH` measures `/admin` in its ACTIVE bucket only. `/admin?bucket=archived` renders a structurally different tree — `ArchivedShowRow` (`components/admin/ArchivedShowRow.tsx`) instead of `ShowsTable` rows — so a zero-extent child introduced there triggers the `phantom-gap-e2e` workflow via `components/**` while both dashboard cases stay green.
+The five sites `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW` repaid are covered by two executable oracles (`tests/e2e/pusher-alignment.layout.spec.ts`, `tests/e2e/section-header-layout.layout.spec.ts`) and by the phantom-gap probe mounts. Neither sees a SIXTH site written tomorrow: the probe only reaches surfaces it is mounted on, and both layout specs name their rows explicitly. A source-scanning guard would fail-by-default on a new one.
 
-Not simply added as a third case: `pnpm db:seed` (what the workflow runs) seeds **no archived shows** — the archived fixture lives in the separate `supabase/seedWalkerFixtures.ts` extension seed — so a probe there today would measure an empty bucket, anchor on nothing, and be exactly the vacuous green the anchors exist to prevent.
+**Why it is not written yet, and what a future attempt must clear.** Three rounds could not converge a rule that agreed with its own prototype. The written rule selected 27 registry rows; the prototype walker selected 17. The disagreements were all real ambiguity in "childless" and "growable", not implementation bugs:
 
-**Work:** seed one archived show in the phantom-gap job (either extend `seed.ts` or run the walker-fixture seed alongside it), then add a `T-NOPHANTOM-DASH [archived]` case at both widths anchored on an `archived-show-row-<slug>` container captured from a live `visited` dump.
+- `flex-1` on an element whose only child is a conditional that renders `null` in some states is childless SOMETIMES — a static scan cannot evaluate the condition, and both "always flag" and "never flag" produce false results on live code.
+- A growable element that PAINTS (the `h-px bg-border` hairline) is not the defect; the defect is a growable element that paints nothing. Distinguishing them statically means reasoning about which utility classes produce a painted box, which is an open-ended list.
+- The `style={{ flex: … }}` prop form has no className to match, so a className-only rule is fail-open on it — and that is exactly the escape hatch a class-sweep guard exists to close.
 
-## BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW — `empty:hidden` the TravelRow eyebrow
+Per `docs/agents/spec-self-review.md`'s 3-round cap, the guard was descoped rather than shipped at 63% agreement with itself.
 
-**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, found by `T-NOPHANTOM-CREW`). **Class:** layout hardening. **Effort:** XS (one class), plus the invariant-8 impeccable dual gate.
-
-`TravelRow` renders its eyebrow `<p>` unconditionally inside a `flex flex-col gap-0.5` stack (`components/crew/sections/TravelSection.tsx:120-123`). A ground leg whose stage was promoted to the primary line passes `label=""` (`:403`) — deliberate, and the comment there calls the blank eyebrow "acceptable per its presentational contract". It is not free: an empty `<p>` is still a flex item, so the stack charges 2px above a line that paints nothing. Two legs on the seeded show, at both widths; ledgered in `KNOWN_CREW_PHANTOM_ITEMS` (`tests/e2e/crew-layout-dimensions.spec.ts`).
-
-**Work:** add `empty:hidden` to that `<p>` (the DESIGN.md §7a idiom — the element keeps its slot and costs nothing when empty), then delete the two ledger rows; the stale-row assertion fails if they are kept past the repair. Watch the `:empty` caveat: a stray `{" "}` in the eyebrow would silently re-enable the gap.
-
-A class sweep for the same shape (an empty STRING becoming an element's entire rendered content) found no second instance — every other `? "" :` in `components/` is a className fragment or a pluralization suffix inside larger text.
-
-## BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW — decide crowded-row behavior for childless `flex-1` spacers
-
-**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, found by `T-NOPHANTOM-SHOW`). **Class:** layout hardening (UI judgment). **Effort:** S per site, plus the invariant-8 impeccable dual gate.
-
-A childless `<span className="flex-1" />` used as a right-pusher is a flex ITEM. In a row with enough real content to consume the line, `flex-1` resolves to ZERO width and the row still charges its `gap` on BOTH sides of an invisible spacer — the same class as the `BulkIgnoreControls` hairline (`BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW`, repaid on #580 by hiding the rule below 480px).
-
-**Proven, currently ledgered** (`KNOWN_SHOW_MODAL_PHANTOM_ITEMS` in `tests/e2e/admin-layout-dimensions.spec.ts`): `ModalSectionChrome`'s header row, `components/admin/wizard/step3ReviewSections.tsx:916` — `flex items-center gap-2.5` with the spacer before the flag pill / sheet link. Charges 10px on each side at 375px on the seeded show's Rooms and Warnings breakdowns. Invisible to the static harness, whose fixture rows are short enough that the spacer keeps width; the hydrated real-route probe is what surfaced it.
-
-**Unproven instances of the same shape** (class sweep, 2026-07-25 — each sits in a gapped flex row, none currently measured by any probe mount):
-
-| site                                                   | parent row                                                                                                                       |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `components/admin/wizard/step3ReviewSections.tsx:2150` | `flex items-center gap-2.5` (`h-px flex-1 bg-border` hairline — same shape as the repaid BulkIgnoreControls one, different file) |
-| `components/admin/BellPanel.tsx:323`                   | `flex flex-wrap items-center gap-x-2 gap-y-1` (wrapped, so it charges BOTH axes)                                                 |
-| `components/admin/nav/AdminNav.tsx:144`                | admin nav row                                                                                                                    |
-| `components/admin/nav/OnboardingTopBar.tsx:67`         | `flex items-center gap-3`                                                                                                        |
-
-**Work:** one visual decision, applied consistently across all five — hide below a width, give the spacer a `min-w`, switch the row to `justify-between` and drop the spacer entirely, or let the row wrap. Then delete the two ledger rows (the stale-row assertion fails if they are kept past the repair) and extend a probe mount to whichever surfaces the unproven sites live on.
+**Work, if revived:** start from the PROTOTYPE, not the prose — write the walker first, run it over `components/` + `app/`, and let the actual output define the rule (the reverse of the order that failed). Expect the deliverable to be an ALLOWLIST of accepted shapes rather than a leak hunt, per the same lesson `feedback_static_guard_allowlist_shapes_not_leak_hunting` records from PR #592. A guard that flags a painted hairline is worse than no guard, because the exemption comment it forces teaches the next author that the shape is fine.
 
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
