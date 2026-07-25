@@ -69,8 +69,17 @@ export function OverviewSection({ archived, attentionSlot }: OverviewSectionProp
 
           The wrapper STAYS even though only one arm can fill it: it is the
           documented sheet/sync slot, and collapsing it into a bare conditional
-          would make the next addition here reach for a new container. */}
-      <div data-testid="overview-sheet-sync" className="flex flex-col gap-3">
+          would make the next addition here reach for a new container.
+
+          `empty:hidden` is load-bearing, not defensive tidiness. On every
+          NON-archived show this wrapper renders with no children — invisible,
+          but still a flex item, so the section's `gap-section-gap` was charged
+          32px for it. Stacked on the content pane's own `gap-6`, the alert card
+          sat 56px above the Venue heading where every other section pair sits
+          24px apart. `empty:hidden` takes it out of flow when it has nothing to
+          show, without giving up the slot. Pinned by T-OVERVIEW-TIGHT /
+          T-NOPHANTOM in tests/e2e/published-review-modal.layout.spec.ts. */}
+      <div data-testid="overview-sheet-sync" className="flex flex-col gap-3 empty:hidden">
         {archived ? (
           <span data-testid="admin-show-resync-archived" className="text-sm text-text-subtle">
             Re-sync is paused while this show is archived.

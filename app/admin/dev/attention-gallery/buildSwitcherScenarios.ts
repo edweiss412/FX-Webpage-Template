@@ -3,15 +3,20 @@
  * (spec 2026-07-21-attention-modal-switcher-gallery §3.2)
  *
  * The server-side partition feeding the switcher. A scenario RENDERS only if the
- * modal can both reproduce its placement (EXPRESSIBLE) and show something
- * (VISIBLE). The two exclusion axes are orthogonal, with `"structural"` taking
- * precedence in the label:
+ * modal can reproduce its placement (EXPRESSIBLE), show something (VISIBLE), and
+ * carry contents a real show can hold (SHOW-SCOPE REACHABLE). The three
+ * exclusion axes are orthogonal and evaluated in the order below; the first that
+ * fires owns the label:
  *   - structural: the scenario overrides a placement predicate the modal derives
  *     from its own data (`sectionAvailable` / `crewKeyRendered`) — not
  *     reproducible by fixture data, so rendering it would MISPLACE the item.
  *   - cut: the scenario DECLARES attention whose codes are cut from the
  *     published attention surface (`DOUG_EXCLUDED_CODES`), so it yields an empty
- *     modal the real modal also never presents.
+ *     modal the real modal also never presents. An AUDIENCE decision.
+ *   - global: a tier-1 scenario for a code whose producers always write
+ *     `show_id: null` (`GLOBAL_SCOPE_CODES`), so `fetchPerShowAlerts` can never
+ *     deliver it and the card would be fiction. A SCOPE decision, orthogonal to
+ *     audience — five codes are both, and `cut` wins because it runs first.
  * A scenario that declares NO attention (e.g. `T2_EMPTY`) is the clean-modal
  * baseline and RENDERS — a real, useful state.
  */
@@ -21,6 +26,7 @@ import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
 import { sectionForWarning } from "@/lib/admin/step3SectionStatus";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
+import { GLOBAL_SCOPE_CODES } from "@/lib/adminAlerts/alertScope";
 import { anchorsWantedFor } from "@/lib/dev/buildScenarioModalData";
 import { GROUP_ORDER, type ScenarioGroupId } from "@/lib/dev/galleryModalTypes";
 import { buildScenarioModalData } from "@/lib/dev/buildScenarioModalData";
@@ -53,6 +59,27 @@ export function isModalVisible(s: AttentionScenario): boolean {
     s.actionOutcomes !== undefined ||
     (s.alerts.length === 0 && s.holds.length === 0)
   );
+}
+
+/**
+ * Reachable on a real show modal iff NONE of the scenario's alerts is
+ * global-scope.
+ *
+ * ANY global alert makes the card fiction: `deriveScenarioAttention` derives an
+ * item for every declared alert and the modal renders it, so a carrier, a hold,
+ * or a per-show sibling changes what ELSE the card shows without making the
+ * global alert reachable. `fetchPerShowAlerts` filters `.eq("show_id", showId)`
+ * regardless of what else sits on the show
+ * (lib/adminAlerts/fetchPerShowAlerts.ts:83).
+ *
+ * In practice this fires only on tier-1 cards: the catalogue guard in
+ * tests/app/admin/attentionModalGallery.serverProps.test.ts forbids a tier-2 or
+ * tier-3 scenario from declaring a global code at all, so a composite fails at
+ * authoring time rather than being silently dropped here with its per-show
+ * alerts, holds, and sections.
+ */
+export function isShowScopeReachable(s: AttentionScenario): boolean {
+  return !s.alerts.some((a) => GLOBAL_SCOPE_CODES.has(a.code));
 }
 
 function codesFor(s: AttentionScenario): string[] {
@@ -124,6 +151,18 @@ export function partitionScenarios(): {
     }
     if (!isModalVisible(s)) {
       excluded.push({ id: s.id, label: s.label, reason: "cut" });
+      continue;
+    }
+    // AFTER cut on purpose: the five health-audience global-scope codes fail
+    // isModalVisible first and keep their existing "cut" label, so this arm
+    // moves exactly the four doug-audience tier-1 cards. It applies to EVERY
+    // tier: the catalogue no longer contains a composite that picks a
+    // global-scope code (every tier-2 picker filters GLOBAL_SCOPE_CODES), and
+    // the pin in tests/app/admin/attentionModalGallery.serverProps.test.ts
+    // fails if one reappears — so this arm firing on a composite means the
+    // catalogue regressed, not that coverage is being silently dropped.
+    if (!isShowScopeReachable(s)) {
+      excluded.push({ id: s.id, label: s.label, reason: "global" });
       continue;
     }
     const data = buildScenarioModalData(s);

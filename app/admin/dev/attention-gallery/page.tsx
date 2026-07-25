@@ -15,10 +15,13 @@
  * no-op action closures, and keyboard stepping.
  *
  * ── Not a live surface (§4.4, KEPT) ─────────────────────────────────────────
- * `GalleryWriteGuard` patches `window.fetch` to refuse every mutating request,
- * so the modal's real resolve control (a direct `fetch`, not a form submit) does
- * nothing against a show id that does not exist. The no-op action closures cover
- * the form-action controls; the guard covers the imperative fetch.
+ * `GalleryWriteGuard` patches `window.fetch` to refuse every mutating request the
+ * page itself originates, so the modal's real resolve control (a direct `fetch`,
+ * not a form submit) does nothing against a show id that does not exist. The
+ * no-op action closures cover the form-action controls; the guard covers the
+ * imperative fetch. Ambient Supabase auth/realtime traffic is exempt — blocking
+ * it destroyed the operator's session rather than a write (see the guard's
+ * AMBIENT_SUPABASE_PATHS note).
  *
  * ── Build-time gating (mirrors /admin/dev) ──────────────────────────────────
  * This route lives under `app/admin/dev/` and is gated build-time by
@@ -51,7 +54,7 @@ export default async function AttentionGalleryPage(props: {
           mounted (its native close navigates to /admin), so this is the route's
           heading landmark rather than a fallback surface. */}
       <main className="mx-auto flex min-h-dvh max-w-prose flex-col justify-center px-4 py-8 text-center">
-        <h1 className="text-2xl font-bold text-text-strong">Attention modal gallery</h1>
+        <h1 className="text-2xl font-bold text-text-strong">Attention gallery</h1>
         <p className="mt-2 text-xs/relaxed text-text-subtle">
           Every alert, warning, and structural state the published show modal can present, shown in
           the real modal. Step with the arrow keys or the control bar; deep-link a state with{" "}

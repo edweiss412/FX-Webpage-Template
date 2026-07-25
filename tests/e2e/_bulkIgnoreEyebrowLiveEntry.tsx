@@ -20,7 +20,8 @@
  * Fixture: the FIELD_UNREADABLE group's eyebrow label is the LIVE catalog
  * title (MESSAGE_CATALOG.FIELD_UNREADABLE.title) so the spec's independent
  * EXPECTED_TITLE byte literal catches catalog drift; `bulk` carries 2 items so
- * the chip reads "Ignore all 2" / "Confirm ignore all 2". The chip never
+ * the chip reads "Ignore" / "Are you sure?" and names the count ("Ignore 2 ·
+ * <type>") for assistive tech. The chip never
  * completes an ignore here — no fetch fires until a second (confirm) click,
  * and the spec only ever arms.
  */

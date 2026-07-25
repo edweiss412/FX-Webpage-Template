@@ -194,7 +194,10 @@ describe("conservation — under-row vs section group (spec §5.3)", () => {
     within(section).getByTestId(`crew-warn-stack-${ALICE_KEY}`);
     const group = within(section).getByTestId("section-warning-controls-crew");
     // chip present (bulk counts ALL active N=2), exactly ONE fallback card remains
-    expect(within(group).getByText(/Ignore all 2/)).toBeTruthy();
+    // The chip's visible label is just "Ignore" now; the count it used to show
+    // lives in the accessible name (spec 2026-07-24-dq-eyebrow-divider §3.3), which
+    // is what pins "bulk counts ALL active N=2" here.
+    expect(within(group).getByRole("button", { name: /^Ignore 2\b/ })).toBeTruthy();
     expect(within(group).getAllByTestId("per-show-actionable-item")).toHaveLength(1);
   });
 
@@ -209,7 +212,10 @@ describe("conservation — under-row vs section group (spec §5.3)", () => {
     within(section).getByTestId(`crew-warn-stack-${ALICE_KEY}`);
     within(section).getByTestId("crew-warn-stack-bob barker");
     const group = within(section).getByTestId("section-warning-controls-crew");
-    expect(within(group).getByText(/Ignore all 2/)).toBeTruthy();
+    // The chip's visible label is just "Ignore" now; the count it used to show
+    // lives in the accessible name (spec 2026-07-24-dq-eyebrow-divider §3.3), which
+    // is what pins "bulk counts ALL active N=2" here.
+    expect(within(group).getByRole("button", { name: /^Ignore 2\b/ })).toBeTruthy();
     // both cards moved — the group carries ZERO cards (empty cards slot)…
     expect(within(group).queryAllByTestId("per-show-actionable-item")).toHaveLength(0);
     // …and the slot explains where they went (impeccable P1b: a bulk chip whose
