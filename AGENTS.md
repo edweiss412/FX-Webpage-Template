@@ -125,6 +125,23 @@ Spec: `docs/superpowers/specs/2026-07-19-codex-guard.md` (canonical; §11 = nume
 - Shim install one-liner for other machines/checkouts:
   `mkdir -p ~/.claude/bin && printf '#!/bin/sh\nexec node "$HOME/FX-Webpage-Template/scripts/codex-guard.mjs" "$@"\n' > ~/.claude/bin/codex-guard && chmod +x ~/.claude/bin/codex-guard`
 
+#### Silent death: `exit 0`, no `-o` file, no error (2026-07-24 investigation)
+
+Failure shape: `codex exec` runs for minutes doing real work, then the wrapper records `exitCode: 0`, `signal: null`, `killedReason: null`, `failureShape: "no_o_file"` and `status: "no_verdict"`. Nothing appears on codex's stderr — no error, no panic, no `tokens used` footer. The rollout under `~/.codex/sessions/**` ends mid-turn with no `task_complete` and no final assistant message. Full write-up: `docs/agents/codex-silent-death-2026-07-24.md`.
+
+**Root cause is machine-local, not upstream and not the wrapper.** `~/.claude/hooks/reap-idle-codex.sh` (wired to `Stop` **and** `SubagentStop`) SIGTERMs every Codex process tree older than `CODEX_REAP_MIN_AGE` (120s) whenever its liveness gate sees no recent activity — and that gate deliberately does not watch `~/.codex/sessions`, the only path a running `codex exec` writes to. Any dispatch that outlives one turn boundary past 120s is killed. Measured base rate: **379 of 651 (58%)** `codex_exec` sessions with ≥1 tool call died this way between 2026-07-19 and 2026-07-24, across four CLI versions and two models.
+
+The kill is invisible because `@openai/codex/bin/codex.js` is a Node shim that launders it: on a SIGINT/SIGTERM/SIGHUP death of the native binary it re-raises the signal at itself (`:246`) while its own handlers for those signals are still installed (`:224`), so the handler runs instead of the default terminate, Node falls off the event loop, and the shim **exits 0**. SIGKILL propagates correctly only because no handler is installed for it.
+
+Consequences for anyone dispatching Codex from this repo:
+
+- **A `no_verdict` / `no_o_file` result is not evidence the reviewer found nothing.** Treat it as an infrastructure fault. Do not re-dispatch blindly — three retries of a reaped run cost ~10 minutes and produce nothing.
+- **The wrapper now defends itself.** It writes a liveness heartbeat to `$CODEX_HOME/log/codex-guard-heartbeat.log` on every poll where the child produced output, which satisfies the reaper's gate; and it invokes the vendored **native** binary directly rather than the Node shim, so a signal kill now classifies as `killed` / `external_signal` instead of masquerading as a clean empty run. Escape hatches: `CODEX_GUARD_NO_HEARTBEAT=1`, `CODEX_GUARD_NO_NATIVE=1`. `result.json` records `nativeBinaryResolved`.
+- **`result.json` gained `recoveredFrom`.** `"rollout_scrape"` means the verdict was recovered from the session rollout after the `-o` write never landed; the recovered text is at `<out>/recovered-from-rollout.txt`.
+- **Dispatches not routed through codex-guard are still exposed** — the heartbeat lives in the wrapper. This is one more reason direct `codex exec` should go through it.
+- **The durable fix is in the hook, which is per-machine config outside this repo.** Applied on the origin machine 2026-07-24 and recorded in `docs/agents/codex-silent-death-2026-07-24.md` §8: `recent_log_activity()` now globs today's and yesterday's `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (bounded to two day-directories, so the archive stays out of the scan); `CODEX_REAP_MIN_AGE` raised 120s → 600s; the `SubagentStop` wiring dropped, leaving only `Stop`; and every signalled process is now named in `~/.claude/hooks/codex-reap-kills.log` (pid, age, rss, role, command line) instead of only counted. **Any other machine or checkout needs the same three edits applied by hand** — the hook is not tracked here. A machine that has no such hook does not have the bug.
+- **Diagnosing a recurrence:** the reaper's last action is in `~/.claude/hooks/.reap-codex-last`; a `reaped N procs (… live root(s))` line whose timestamp matches the death is the confirmation. `durationSecs` in `result.json` is quantised to `POLL_INTERVAL_SECS` (10s) and overestimates by up to that much — do not read precise timing from it.
+
 ---
 
 ## Cross-cutting discipline (from milestone retrospectives)
