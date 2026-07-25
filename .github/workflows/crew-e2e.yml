@@ -1,11 +1,11 @@
 name: Crew e2e (mobile-safari)
-# Runs the crew client-side section-toggle e2e (tests/e2e/crew-section-toggle.spec.ts,
-# the mobile-safari Playwright project) against a real browser + a seeded local
-# Supabase. This is the FIRST CI job to run the mobile-safari project — the rest of
-# that project (crew-page.spec + the M4 tile specs) is still dead-in-CI; lifting it
-# wholesale is filed as BL-RESURRECT-MOBILE-SAFARI-E2E (it would surface latent
-# failures in long-unran specs, so it is its own task). This job is scoped to the
-# one spec so the perf gate + the 0-network/dimensional proofs run in CI now.
+# Runs two mobile-safari e2e specs against a real browser + a seeded local Supabase:
+# the crew client-side section-toggle suite (tests/e2e/crew-section-toggle.spec.ts)
+# and the crew picker flow (tests/e2e/picker-flow.spec.ts). The rest of the
+# mobile-safari project (crew-page.spec + the M4 tile specs) is still dead-in-CI;
+# lifting it wholesale is filed as BL-RESURRECT-MOBILE-SAFARI-E2E (it would surface
+# latent failures in long-unran specs, so it is its own task). This job stays scoped
+# to the specs that carry live gates rather than the whole project.
 #
 # Why this spec needs CI: it proves the section-toggle win in a real browser —
 #   • a section tab tap fires ZERO data requests (no server round-trip; freshness
@@ -31,6 +31,20 @@ on:
       - "tests/e2e/helpers/**"
       - "playwright.config.ts"
       - ".github/workflows/crew-e2e.yml"
+      # picker-flow surfaces. Derived by walking the spec's and its helpers'
+      # imports plus the runtime surfaces its cases drive — an enumeration written
+      # from memory missed one of these on three separate review rounds, so the
+      # list is pinned by tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts.
+      - "tests/e2e/picker-flow.spec.ts"
+      - "app/auth/**"
+      - "app/api/auth/**"
+      - "app/api/test-auth/**"
+      - "components/auth/**"
+      - "lib/auth/**"
+      - "lib/http/**"
+      - "lib/supabase/server.ts"
+      - "lib/email/canonicalize.ts"
+      - "lib/env/pickerCookieSigningKey.ts"
   workflow_dispatch:
 
 # Cancel a superseded run when the PR branch is re-pushed — this job boots
@@ -65,6 +79,11 @@ jobs:
       # MUST match the :3000 webServer's inline TEST_AUTH_SECRET — signInAs sends
       # this as Authorization: Bearer and the server compares against its own.
       TEST_AUTH_SECRET: "fxav-m3-test-auth-2026-DO-NOT-SHIP"
+      # Test-only picker-cookie signing key. pickerCookieSigningKey() throws when
+      # unset or not 64 hex, so seedPickerCookie and the server both need it; read
+      # at runtime, so this one job-level entry reaches the Playwright process AND
+      # the `pnpm start` server it spawns.
+      PICKER_COOKIE_SIGNING_KEY: "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
       # Boot ONLY the :3000 baseline server (playwright.config.ts filter).
       CREW_E2E_ONLY: "1"
     steps:
@@ -101,8 +120,8 @@ jobs:
       # browser binaries are restored from the cache above on a hit.
       - run: pnpm exec playwright install-deps chromium webkit
       - run: pnpm exec playwright install chromium webkit
-      - name: Run crew section-toggle e2e (mobile-safari, :3000 only)
-        run: pnpm exec playwright test --project=mobile-safari tests/e2e/crew-section-toggle.spec.ts
+      - name: Run crew section-toggle + picker-flow e2e (mobile-safari, :3000 only)
+        run: pnpm exec playwright test --project=mobile-safari tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

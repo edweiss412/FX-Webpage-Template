@@ -79,7 +79,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/pack-list.spec.ts": UNSEEN,
   "tests/e2e/packlist-rescan-recovery.spec.ts": UNSEEN,
   "tests/e2e/pendingDiscardReflow.layout.spec.ts": UNSEEN,
-  "tests/e2e/picker-flow.spec.ts": UNSEEN,
+  "tests/e2e/picker-flow.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.closeFreshness.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.crew-actions.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.deeplink.spec.ts": PATH_GATED,
