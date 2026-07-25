@@ -224,6 +224,49 @@ remediated anchors have been stable since R4. That asymmetry is the honest summa
 close-out: the user-facing work was right early, and the machinery asserting it took four more
 rounds to become sound.
 
+## R8 — 2 BLOCKING + 1 MEDIUM, and a fix that reopened its own class
+
+R8's independent 150,975-pair identity probe found **no collision**, so R7's fix held. What it
+found instead were two holes elsewhere:
+
+**Casing.** `admitsCandidate` matched `target` case-insensitively; `classifyShape` compared the
+attribute name verbatim. So all 63 non-lowercase spellings were ADMITTED by the file net and then
+skipped with zero anchors and zero violations — the worst possible shape, since the guard looked
+like it had examined the file. React forwards `TARGET`/`Target`/`tArGeT` to the DOM and the browser
+normalizes them, so each really opened a new tab named only "Go". `attrName` now lowercases, and
+the sweep deliberately covers the HIDING attributes too: an uppercase `ARIA-HIDDEN` really hides,
+so missing it would ACCEPT a hint that never reaches the accessible name.
+
+**The sweep repeated the bug inside the fix for the bug.** Nine name comparisons; I changed eight.
+The ninth (`nm !== "className"` in the path-opacity rule) silently reopened the
+dynamic-`className` hole, and only an existing pin caught it. There is now a meta-test asserting
+that no attribute-name comparison literal is non-lowercase. That guard exists because the class
+recurred *during its own remediation*, which is the strongest possible argument for a structural
+pin over care.
+
+**Tag discovery.** A member-expression tag is not in `LINK_TAGS`, so
+`<Tags.External href="x" target="_blank">` and `<UI.Link target={dest}>` were admitted and never
+classified. Resolving this had a real constraint: an existing pin says `<Tabs target="_blank" />`
+must NOT be an anchor, because a tab target is not a URL. `href` — not `target` — is therefore the
+discriminator, which also keeps every `<div {...props}>` from becoming a violation.
+
+**MDX prose.** The net matched `target =` anywhere, flagging "The target = 80% of the quarterly
+goal." and a GFM autolink whose query string contains `target=`. It now requires a JSX tag context.
+
+### The residue I had accepted, then probed, then closed
+
+Writing R9's brief I listed the remaining hole as an accepted limit: a member-expression tag whose
+target arrives only through a conditional spread. Then I probed it instead of trusting my own
+label, and `<Foo.Bar href="x" {...(e ? { target: "_blank" } : {})}>Go</Foo.Bar>` produced **zero
+anchors** — admitted, unclassified, silent. It carries `href`, so it was cheap to close rather
+than accept: candidacy is now `href` AND (a `target` attribute OR any spread). The live tree stayed
+at 23 anchors / 0 violations, so the stronger rule costs nothing today.
+
+The lesson is narrow and worth keeping: **"accepted limit" is a claim about reachability, and it
+deserves a probe like any other claim.** Two of this PR's accepted limits turned out to be closable
+the moment they were executed rather than described — this one, and the effectful-predicate
+deferral that R6's model change had already fixed without my noticing.
+
 ## A gate I retired rather than satisfied
 
 The local full-suite gate is **not** green and cannot be made green here. A peer session (PID
