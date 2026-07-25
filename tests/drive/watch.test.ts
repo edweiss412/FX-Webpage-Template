@@ -83,13 +83,20 @@ class FakeWatchTx {
     this.alerts.push(input);
   }
 
-  async listExpiringActive(thresholdIso: string) {
-    this.operations.push("listExpiringActive");
-    const threshold = Date.parse(thresholdIso);
-    return this.rows.filter(
-      (row) =>
-        row.status === "active" && row.expiresAt !== null && Date.parse(row.expiresAt) < threshold,
-    );
+  // Mirrors PostgresWatchTx.listRenewalDue. It reuses the SAME renewalLeadMs
+  // helper the production predicate is built from, rather than reimplementing
+  // the arithmetic: an independent copy here is exactly how the DB-free suite
+  // could stay green while production used different semantics.
+  async listRenewalDue(args: { nowIso: string; minLeadMs: number; lifeFraction: number }) {
+    this.operations.push("listRenewalDue");
+    const nowMs = Date.parse(args.nowIso);
+    return this.rows.filter((row) => {
+      if (row.status !== "active" || row.expiresAt === null) return false;
+      const expiresMs = Date.parse(row.expiresAt);
+      const createdMs = row.createdAt === undefined ? expiresMs : Date.parse(row.createdAt);
+      const lead = Math.max(args.minLeadMs, (expiresMs - createdMs) * args.lifeFraction);
+      return nowMs >= expiresMs - lead;
+    });
   }
 
   async listGcCandidates() {
@@ -424,7 +431,7 @@ describe("Drive watch lifecycle", () => {
     ]);
   });
 
-  test("refreshWatchSubscriptions renews active rows expiring within 24 hours", async () => {
+  test("refreshWatchSubscriptions renews active rows inside their renewal window", async () => {
     const tx = new FakeWatchTx();
     tx.rows.push({
       id: "due-channel",
@@ -432,7 +439,10 @@ describe("Drive watch lifecycle", () => {
       watchedFolderId: "folder-1",
       webhookSecret: "old-secret",
       resourceId: "resource-1",
-      expiresAt: "2026-05-10T00:00:00.000Z",
+      // 24h lease created 05-08T16:00, expiring 05-09T16:00. At tx.now
+      // (05-09T12:00) it has 4h left against a 6h renewal lead, so it is due.
+      createdAt: "2026-05-08T16:00:00.000Z",
+      expiresAt: "2026-05-09T16:00:00.000Z",
     });
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
     const subscribeToWatchedFolder = vi.fn(async () => ({
@@ -484,7 +494,7 @@ describe("Drive watch lifecycle", () => {
 
   test("refresh catches a list_expiring DB failure into the typed failures channel (never rejects)", async () => {
     const tx = new FakeWatchTx();
-    tx.listExpiringActive = async () => {
+    tx.listRenewalDue = async () => {
       throw new Error("connection refused");
     };
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
@@ -506,7 +516,10 @@ describe("Drive watch lifecycle", () => {
       watchedFolderId: "folder-1",
       webhookSecret: "old-secret",
       resourceId: "resource-1",
-      expiresAt: "2026-05-10T00:00:00.000Z",
+      // 24h lease created 05-08T16:00, expiring 05-09T16:00. At tx.now
+      // (05-09T12:00) it has 4h left against a 6h renewal lead, so it is due.
+      createdAt: "2026-05-08T16:00:00.000Z",
+      expiresAt: "2026-05-09T16:00:00.000Z",
     });
     const events: string[] = [];
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
@@ -528,7 +541,7 @@ describe("Drive watch lifecycle", () => {
     } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
 
     expect(result).toEqual({ refreshed: ["folder-1"], orphaned: [], failures: [] });
-    expect(tx.operations).toEqual(["listExpiringActive"]);
+    expect(tx.operations).toEqual(["listRenewalDue"]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
   });
 
@@ -541,7 +554,10 @@ describe("Drive watch lifecycle", () => {
       watchedFolderId: "folder-1",
       webhookSecret: capturedSecret,
       resourceId: "resource-1",
-      expiresAt: "2026-05-10T00:00:00.000Z",
+      // 24h lease created 05-08T16:00, expiring 05-09T16:00. At tx.now
+      // (05-09T12:00) it has 4h left against a 6h renewal lead, so it is due.
+      createdAt: "2026-05-08T16:00:00.000Z",
+      expiresAt: "2026-05-09T16:00:00.000Z",
     });
     const before = structuredClone(tx.rows);
     const events: string[] = [];
@@ -567,7 +583,7 @@ describe("Drive watch lifecycle", () => {
       failures: [{ folderId: "folder-1", operation: "subscribe" }],
     });
     expect(tx.rows).toEqual(before);
-    expect(tx.operations).toEqual(["listExpiringActive"]);
+    expect(tx.operations).toEqual(["listRenewalDue"]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
 
     const rec = logRecords.find((r) => r.message === "refresh-watch renewal failed")!;
@@ -629,7 +645,10 @@ describe("Drive watch lifecycle", () => {
       watchedFolderId: "folder-1",
       webhookSecret: "secret-1",
       resourceId: "resource-1",
-      expiresAt: "2026-05-10T00:00:00.000Z",
+      // 24h lease created 05-08T16:00, expiring 05-09T16:00. At tx.now
+      // (05-09T12:00) it has 4h left against a 6h renewal lead, so it is due.
+      createdAt: "2026-05-08T16:00:00.000Z",
+      expiresAt: "2026-05-09T16:00:00.000Z",
     });
     const events: string[] = [];
     const { gcWatchChannels } = await import("@/lib/drive/watch");
@@ -1130,8 +1149,11 @@ describe("Drive watch telemetry", () => {
     watchedFolderId: "folder-1",
     webhookSecret: "old-secret",
     resourceId: "resource-1",
-    // Expires before the FakeWatchTx `now` (2026-05-09T12:00Z) + 24h threshold.
-    expiresAt: "2026-05-10T00:00:00.000Z",
+    // 24h lease created 05-08T16:00, expiring 05-09T16:00. At the FakeWatchTx
+    // `now` (2026-05-09T12:00Z) it has 4h left against a 6h renewal lead
+    // (25% of a 24h grant), so it is inside its renewal window.
+    createdAt: "2026-05-08T16:00:00.000Z",
+    expiresAt: "2026-05-09T16:00:00.000Z",
   });
 
   test("refreshWatchSubscriptions logs DRIVE_WATCH_RENEWAL_FAILED when a renewal orphans", async () => {
@@ -1205,9 +1227,11 @@ describe("Drive watch telemetry", () => {
   test("refreshWatchSubscriptions logs DRIVE_WATCH_INFRA_FAULT and re-propagates on infra fault", async () => {
     const cause = new Error("connection reset by peer");
     class ThrowingTx extends FakeWatchTx {
-      override async listExpiringActive(
-        _thresholdIso: string,
-      ): ReturnType<FakeWatchTx["listExpiringActive"]> {
+      override async listRenewalDue(_args: {
+        nowIso: string;
+        minLeadMs: number;
+        lifeFraction: number;
+      }): ReturnType<FakeWatchTx["listRenewalDue"]> {
         throw cause;
       }
     }
@@ -1229,7 +1253,7 @@ describe("Drive watch telemetry", () => {
     const fault = faults[0]!;
     expect(fault.level).toBe("error");
     expect(fault.source).toBe("drive.watch");
-    expect(fault.context.operation).toBe("drive_watch_channels.list_expiring_active");
+    expect(fault.context.operation).toBe("drive_watch_channels.list_renewal_due");
     // Redacted message (R5-1 contract) — never a raw error object.
     expect(fault.context).not.toHaveProperty("error");
     expect(String(fault.context.errorMessage)).toContain("connection reset by peer");

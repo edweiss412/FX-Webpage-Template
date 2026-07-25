@@ -6,6 +6,8 @@ import {
   classifyWatchError,
   isGrantTooShort,
   redactWatchError,
+  RENEWAL_LIFE_FRACTION,
+  RENEWAL_MIN_LEAD_MS,
   STALE_PENDING_MAX_AGE_MS,
   WATCH_TTL_MS,
 } from "@/lib/drive/watchErrors";
@@ -54,7 +56,11 @@ export type WatchTx = {
     code: typeof WATCH_CHANNEL_ORPHANED;
     context: Record<string, unknown>;
   }): Promise<void>;
-  listExpiringActive(thresholdIso: string): Promise<WatchChannelRow[]>;
+  listRenewalDue(args: {
+    nowIso: string;
+    minLeadMs: number;
+    lifeFraction: number;
+  }): Promise<WatchChannelRow[]>;
   listGcCandidates(): Promise<WatchChannelRow[]>;
   markStopped(id: string): Promise<void>;
   deleteOldStopped(): Promise<void>;
@@ -198,7 +204,21 @@ class PostgresWatchTx implements WatchTx {
     await defaultUpsertAdminAlert({ showId: null, code: input.code, context: input.context });
   }
 
-  async listExpiringActive(thresholdIso: string): Promise<WatchChannelRow[]> {
+  async listRenewalDue(args: {
+    nowIso: string;
+    minLeadMs: number;
+    lifeFraction: number;
+  }): Promise<WatchChannelRow[]> {
+    // Renew once the row has burned `lifeFraction` of its OWN granted life, but
+    // never with less than `minLeadMs` remaining. Both terms are required: the
+    // proportional one keeps a long lease from churning every tick, and the
+    // floor keeps a short lease from coming due after the next sampling tick
+    // (spec §2.1). `greatest` over an interval and a computed interval gives the
+    // max of the two leads.
+    //
+    // `expires_at <= created_at` (clock skew, zero-length grant) makes the
+    // proportional term <= 0, so the floor wins and the row is due immediately —
+    // a nonsense lease is replaced at the first opportunity.
     const rows = await this.rows<{
       id: string;
       status: WatchChannelStatus;
@@ -211,9 +231,12 @@ class PostgresWatchTx implements WatchTx {
         select id, status, watched_folder_id, webhook_secret, resource_id, expires_at
           from public.drive_watch_channels
          where status = 'active'
-           and expires_at < $1::timestamptz
+           and $1::timestamptz >= expires_at - greatest(
+                 make_interval(secs => $2::double precision / 1000),
+                 (expires_at - created_at) * $3::double precision
+               )
       `,
-      [thresholdIso],
+      [args.nowIso, args.minLeadMs, args.lifeFraction],
     );
     return rows.map(fromDbRow);
   }
@@ -553,10 +576,13 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
 
   let due: WatchChannelRow[];
   try {
-    const threshold = new Date(now().getTime() + 24 * 60 * 60 * 1000).toISOString();
     due = await runTx((tx) =>
-      callWatchTx("drive_watch_channels.list_expiring_active", () =>
-        tx.listExpiringActive(threshold),
+      callWatchTx("drive_watch_channels.list_renewal_due", () =>
+        tx.listRenewalDue({
+          nowIso: now().toISOString(),
+          minLeadMs: RENEWAL_MIN_LEAD_MS,
+          lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
+        }),
       ),
     );
   } catch (err) {
@@ -566,7 +592,7 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
     await log.error("refresh-watch list_expiring failed", {
       source: "drive.watch",
       code: "DRIVE_WATCH_INFRA_FAULT",
-      operation: "drive_watch_channels.list_expiring_active",
+      operation: "drive_watch_channels.list_renewal_due",
       errorMessage: redactWatchError(String((cause as { message?: unknown })?.message ?? cause)),
     });
     return {
