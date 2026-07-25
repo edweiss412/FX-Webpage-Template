@@ -204,6 +204,8 @@ The module's own rule: `confirm` = approving a deliberate change that already ap
 | `item.actionable` | `true` **and** `clearingKind === "self_heal"` | Counted once, in `needsYou` only |
 | `item.menuSubtitle` / hint | both `null` or empty | Row renders title only; no empty second line (matches `AttentionMenu.tsx:150-154`) |
 | `item.menuSubtitle` / hint | hint present, subtitle also present | Hint renders; subtitle suppressed (§2.2 second-line rule) |
+| `item.menuSubtitle` / hint | **no hint, subtitle present** | Subtitle renders. This is the fail-visible boundary shape (non-actionable, no `clearingKind`, code outside `NEEDS_LOOK_CODES`) and it is the ONE case where the merged rule changes observable output: today it renders a bare title. Deliberate (§2.2), pinned by §6 test 3b |
+| `item.menuSubtitle` / hint | hint present, subtitle `null` | Hint renders; single second line. Unchanged from today's needs-look row |
 | `item.tone` | `critical` | Filled `bg-status-degraded` dot and its existing screen-reader tone prefix, unchanged (`components/admin/showpage/AttentionMenu.tsx:42`). Reached today only by hold items, which are already pressable rows and keep their `changes` jump |
 | `item.kind` | `"hold"` | Row renders as today: `menuSubtitle` "Pick what happens in Changes", jump to the `changes` section, no card. Never receives a destination chip (§2.3 applies to alert items only) |
 | `a.action` | `null` (builder failed its fail-quiet guard) | No destination chip; footer keeps "Raised …" only |
