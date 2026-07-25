@@ -69,6 +69,25 @@ describe("TelemetryOverviewStrip", () => {
     expect(within(screen.getByTestId("stat-open-alerts")).getByText("0")).toBeInTheDocument();
   });
 
+  // BL-COPY-CRON-SWEEP-2: the jobs card is plain language in both states.
+  test("jobs stat card is labelled 'Scheduled jobs', ok and infra_error alike", () => {
+    const { rerender } = render(
+      <TelemetryOverviewStrip alertSummary={okSummary} cron={okCron} stats={okStats} now={NOW} />,
+    );
+    expect(within(screen.getByTestId("stat-cron")).getByText("Scheduled jobs")).toBeInTheDocument();
+    expect(screen.getByTestId("stat-cron").textContent).not.toMatch(/cron/i);
+    rerender(
+      <TelemetryOverviewStrip
+        alertSummary={okSummary}
+        cron={{ kind: "infra_error", message: "x" }}
+        stats={okStats}
+        now={NOW}
+      />,
+    );
+    expect(within(screen.getByTestId("stat-cron")).getByText("Scheduled jobs")).toBeInTheDocument();
+    expect(screen.getByTestId("stat-cron").textContent).not.toMatch(/cron/i);
+  });
+
   test("notice health → Notice + N to review", () => {
     render(
       <TelemetryOverviewStrip

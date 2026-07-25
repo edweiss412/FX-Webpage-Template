@@ -33,7 +33,7 @@ describe("CronHealthList", () => {
         now={NOW}
       />,
     );
-    expect(screen.getByText("Cron health")).toBeInTheDocument();
+    expect(screen.getByText("Scheduled jobs")).toBeInTheDocument();
     expect(screen.getAllByTestId("cron-health-row")).toHaveLength(2);
   });
 

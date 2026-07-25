@@ -281,6 +281,20 @@ All four catalog entries de-jargoned via the §12.4 three-way lockstep (spec pro
 
 ---
 
+## BL-COPY-CRON-SWEEP-2 — de-jargon "cron" on the two non-catalog admin surfaces
+
+**Status:** ✅ RESOLVED (2026-07-25, branch `chore/copy-cron-sweep-2`) · **Severity:** low (copy quality; admin-facing) · **Surfaced:** BL-COPY-CRON-SWEEP execution (2026-07-03)
+
+The two filed surfaces plus the destination they link to, so the vocabulary is coherent end to end rather than a de-jargoned label opening a page headed "Cron health". Replacement word is **scheduled job**, not the archived sweep's "automatic sync": the telemetry page covers 9 jobs (notify, diagram-gc, report-reaper, asset-recovery, keepalive, sync, refresh-watch, gc-watch, plus sync), so a sync word would have narrowed it. The help-MDX line describes the sync specifically and does use "automatic syncing".
+
+Shipped: `app/admin/settings/page.tsx` (Diagnostics link title + sub), `app/help/admin/onboarding-wizard/page.mdx:117` ("points cron at the folder for ongoing sync" → "starts automatic syncing of the folder"), `app/admin/dev/telemetry/page.tsx` (header sub + degraded fallback), `components/admin/telemetry/CronHealthHeader.tsx` + `CronHealthList.tsx` ("Cron health" → "Scheduled jobs"), `TelemetryOverviewStrip.tsx` ("Cron jobs" → "Scheduled jobs"; "Cron health unavailable" → "Health unavailable", non-redundant under the relabelled card). Identifiers, `data-testid`s, `aria-labelledby` ids, route paths, and component/file names keep "cron" — they name the real pg_cron mechanism and are not user-visible.
+
+Test pins added in the same commit (each fails on re-introduction): `tests/components/telemetry/cronHealthHeader.test.tsx` heading, `cronHealthList.test.tsx` heading, `telemetryOverviewStrip.test.tsx` (label in both ok + infra_error states, plus `not.toMatch(/cron/i)` on the card's text), `tests/app/admin/telemetryPage.test.tsx` (header sub + degraded fallback), `tests/help/page-onboarding-wizard.test.tsx` (`not.toMatch(/\bcron\b/i)` over the whole MDX source), `tests/e2e/developer-tier.spec.ts` (link copy + `not.toContainText(/cron/i)` on the Diagnostics section).
+
+No repo-wide static jargon guard was added: there was no regression vector to close — the leftovers were the first sweep's deliberate deferral, not copy someone re-introduced — and a scanner over `app/**` + `components/**` would have to distinguish copy from the many legitimate `cron` identifiers, testids, and route paths. The per-surface `not.toMatch(/cron/i)` pins cover the surfaces that actually carry the copy.
+
+---
+
 ## Mutation-surface observability (invariant #10, 2026-07-04)
 
 Filed alongside AGENTS.md plan-wide invariant #10 (mutation-surface observability). The invariant is live and enforced; these two entries are the scoped debt it deliberately grandfathers.

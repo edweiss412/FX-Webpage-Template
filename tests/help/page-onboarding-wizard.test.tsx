@@ -60,6 +60,11 @@ describe("/help/admin/onboarding-wizard (E.11)", () => {
     expect(src).not.toMatch(/—/);
   });
 
+  it("says the finish step starts automatic syncing, never 'cron' (BL-COPY-CRON-SWEEP-2)", () => {
+    expect(src).toMatch(/starts automatic syncing of the folder/);
+    expect(src).not.toMatch(/\bcron\b/i);
+  });
+
   it("contains no raw catalog error codes in body prose (AGENTS.md §1.5 — RefAnchor id attribute is structural and exempt)", () => {
     const prose = src.replace(/<RefAnchor\s+id=["'][^"']+["'][^>]*>/g, "");
     expect(prose).not.toMatch(/\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b/);
