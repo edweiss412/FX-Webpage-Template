@@ -65,13 +65,37 @@ describe("<SignInOrSkipGate> — Mode A (first_contact)", () => {
 });
 
 describe("<SignInOrSkipGate> — Mode B (google_mismatch)", () => {
-  test("renders 'Signed in as someone else' header + cataloged mismatch copy", () => {
+  // Duplicated on purpose. Reading the expectation from the catalog would pass
+  // BEFORE the copy edit lands (no red phase) and could not tell a hardcoded
+  // component string from a cataloged one. The literal is the red phase; the
+  // catalog-equality assertion below is what proves the component is not
+  // hardcoding a string that has drifted from the catalog.
+  const EXPECTED_MISMATCH_PROMPT =
+    "You're signed in with a Google account that isn't on this show's roster. " +
+    "Sign in with the account for this show, or continue as guest, which signs " +
+    "this device out so you can pick your name from the roster.";
+
+  test("renders 'Signed in as someone else' header + the mismatch copy that names the sign-out", () => {
     const { getByTestId } = render(
       <SignInOrSkipGate slug={SLUG} shareToken={TOKEN} showId={SHOW_ID} reason="google_mismatch" />,
     );
     expect(getByTestId("sign-in-or-skip-gate-mismatch-header")).not.toBeNull();
-    expect(getByTestId("sign-in-or-skip-gate").textContent).toContain(
-      MESSAGE_CATALOG.SIGN_IN_OR_SKIP_PROMPT_MISMATCH.crewFacing!,
+    // The person has to be told what the button does: it ends the session on
+    // this device. Saying "out of Google" would be wrong — the app's own
+    // Supabase session ends, the Google account is untouched.
+    expect(getByTestId("sign-in-or-skip-gate").textContent).toContain(EXPECTED_MISMATCH_PROMPT);
+    expect(MESSAGE_CATALOG.SIGN_IN_OR_SKIP_PROMPT_MISMATCH.crewFacing).toBe(
+      EXPECTED_MISMATCH_PROMPT,
+    );
+  });
+
+  test("the guest CTA label is unchanged", () => {
+    const { getByTestId } = render(
+      <SignInOrSkipGate slug={SLUG} shareToken={TOKEN} showId={SHOW_ID} reason="google_mismatch" />,
+    );
+    // The prompt carries the explanation; the label stays the crew-facing outcome.
+    expect(getByTestId("sign-in-or-skip-gate-continue-as-guest-cta").textContent?.trim()).toBe(
+      "Continue as guest",
     );
   });
 
