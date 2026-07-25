@@ -2,7 +2,9 @@
 
 **Date:** 2026-07-25 · **Backlog item:** `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y` (PR2 of the BL-NULLCODE-STAMP-BATCH-2 residual sweep) · **Owner:** Opus / Claude Code (UI work per `ROUTING.md`)
 
-**Revision R3.** R1 raised 6 findings, R2 raised 11; all 17 were confirmed against live code and are addressed here. R3 also runs the two mandated passes R1/R2 skipped: `pnpm spec:lint` (output attached to the review dispatch) and the `docs/agents/spec-self-review.md` checklist, whose omission caused four of R2's findings.
+**Revision R6.** Review rounds R1 to R5 raised 6, 11, 7, 6, and 5 findings; all 35 were confirmed against live code and are addressed here. R3 first ran the two mandated passes R1/R2 skipped — `pnpm spec:lint` (attached to every dispatch since) and the `docs/agents/spec-self-review.md` checklist — whose omission caused four of R2's findings.
+
+**The structural guard (§6) has now absorbed findings in four consecutive rounds** (§6 predicate holes, an unimplementable `.mdx` rule, missing branch polarity, an undefined both-branch case, and no self-tests). Per `docs/agents/spec-self-review.md:22`, a vector surviving three rounds stops being patched in prose: the guard is therefore settled by a **prototype with the §6 requirement 7 synthetic self-tests**, built before the remaining implementation, and §6 is authoritative only where the prototype confirms it.
 
 ## 1. Problem
 
@@ -16,10 +18,10 @@ Two sites already announce, via an `aria-label` naming both destination and beha
 | --- | --- |
 | The copy string is exactly `(opens in a new tab)`, lowercase, parenthesized | matches both shipped sites verbatim: `components/admin/wizard/VenueMapTile.tsx:138`, `components/admin/wizard/Step3SheetCard.tsx:152` |
 | Mechanism is per-site (label-string vs `sr-only` span), not one uniform sweep | §2 — `aria-label` replaces the accessible name, so a span on a labelled element is dead markup |
-| The two existing announcement labels keep their `aria-label` form | §2 — they name a destination the visible text does not |
+| The two existing announcement sites keep the `aria-label` MECHANISM (not necessarily their current text: `VenueMapTile`'s label is rewritten for label-in-name per §2.2) | §2 — their labels name a destination the visible text does not |
 | Announcement hints on the four alert-action anchors are gated on `action.external` | §4 Group C — `external: false` builders return same-app hrefs (`lib/adminAlerts/alertActions.ts:61`, `lib/adminAlerts/alertActions.ts:90`, `lib/adminAlerts/alertActions.ts:127`) |
 | The tap-target half of the backlog item is already shipped and out of scope | `components/admin/PerShowActionableWarnings.tsx:281` carries `min-h-tap-min` |
-| No real-browser Playwright task; jsdom is sufficient | §7 — the diff has no layout, dimension, or visual-state change |
+| No real-browser Playwright task; jsdom is sufficient | §5.1 and §5.2 — no fixed-dimension parent gains a sized child (the two arrow wrappers are unstyled inline spans around existing glyphs) and no visual state changes |
 | Scope covers `components/` AND `app/` | §1.2 — `app/admin/show/[slug]/CrewPageLink.tsx:25` is a same-family defect |
 | Three WCAG 2.5.3 failures inside the family are fixed; a repo-wide 2.5.3 audit is not | §2.2, §9 |
 | Only empty-`alt` is unreachable by construction; empty `title`, `displayTitle`, and `label` ARE reachable and each gets a boundary test | §5 and §7 — `alt` is defaulted upstream at `components/admin/wizard/step3ReviewSections.tsx:3663`; `label` reaches the anchor through the exported `Step3SectionChromeContext` (`components/admin/wizard/step3ReviewSections.tsx:551`) |
@@ -124,7 +126,7 @@ This shape shipped undetected here once, as `View details<span className="sr-onl
 
 `components/crew/sections/VenueSection.tsx:250` carries `rel="noreferrer"` without `noopener`; normalize it to `rel="noopener noreferrer"` since the anchor is being edited anyway.
 
-**Two Group A anchors also need their decorative arrow hidden.** `components/admin/wizard/Step2Verify.tsx:501` and `components/admin/wizard/Step2Verify.tsx:551` render `Open the folder →` where the `→` is a **plain text node, not `aria-hidden`** — unlike the five sibling sites that wrap their glyph (`components/admin/PerShowActionableWarnings.tsx:283`, `components/admin/NoteWarningCard.tsx:88`, and three in `components/admin/wizard/step3ReviewSections.tsx`). So a screen reader announces the arrow today, and without a change the expected name would be `Open the folder → (opens in a new tab)`, baking a decorative glyph into the very name this diff curates. Wrap both arrows in `aria-hidden="true"`: no visible change, one attribute, on lines already being edited, and it makes the family internally consistent. Expected names become `Open the folder (opens in a new tab)`.
+**Two Group A anchors also need their decorative arrow hidden.** `components/admin/wizard/Step2Verify.tsx:504` and `components/admin/wizard/Step2Verify.tsx:554` render `Open the folder →` where the `→` is a **plain text node, not `aria-hidden`** — unlike the five sibling sites that wrap their glyph (`components/admin/PerShowActionableWarnings.tsx:283`, `components/admin/NoteWarningCard.tsx:88`, and three in `components/admin/wizard/step3ReviewSections.tsx`). So a screen reader announces the arrow today, and without a change the expected name would be `Open the folder → (opens in a new tab)`, baking a decorative glyph into the very name this diff curates. Wrap both arrows in `aria-hidden="true"`: no visible change, one attribute, on lines already being edited, and it makes the family internally consistent. Expected names become `Open the folder (opens in a new tab)`.
 
 Checked the boundary rather than assuming: `app/admin/show/[slug]/CrewPageLink.tsx:30` has the same arrow but carries an `aria-label`, so its content is ignored; the other bare-arrow sites (`components/admin/HoverHelp.tsx:609`, `components/admin/HelpAffordance.tsx:113`, both "Learn more →") are internal links and outside this family.
 
@@ -179,7 +181,13 @@ Note the gating expressions are **not** textually identical: `AttentionBanner` r
 
 ## 5.1 Dimensional Invariants
 
-**None — this diff creates no parent-to-child dimension relationship.** Justification, since the project rule requires an explicit statement rather than silence: the only new element is a visually-hidden span. The `sr-only` utility is clip-based (absolute, 1px, `clip-path`), not `display: none`, so it contributes **zero** layout size and cannot change any parent's content box, flex distribution, or wrap behavior. No fixed-height or fixed-width parent gains a child. The Group B and §2.2 changes are string-only. Therefore no real-browser layout assertion is warranted, and §7 explains why jsdom suffices.
+**None — this diff creates no parent-to-child dimension relationship.** Justification, since the project rule requires an explicit statement rather than silence.
+
+The diff adds two kinds of element. First, the visually-hidden hint span. The `sr-only` utility is clip-based (absolute, 1px, `clip-path`), not `display: none`, so it contributes **zero** layout size and cannot change any parent's content box, flex distribution, or wrap behavior. No fixed-height or fixed-width parent gains a child.
+
+Second — and this is why the R4 rationale needed widening — the arrow fix at `components/admin/wizard/Step2Verify.tsx:504` and `components/admin/wizard/Step2Verify.tsx:554` wraps two **currently bare text glyphs** in `<span aria-hidden="true">`. Those spans are visible, so unlike the hint they do create inline boxes. They remain dimensionally inert: an unstyled inline `<span>` around an existing text node produces the same inline box the bare glyph already produced (no `display`, padding, margin, or width class is added), so the anchor's content box, flex distribution, and wrap behavior are unchanged. Nothing here is a fixed-dimension parent gaining a sized child, which is the condition the project rule targets.
+
+The Group B and §2.2 changes are string-only. Therefore no real-browser layout assertion is warranted, and §7 explains why jsdom suffices.
 
 ## 5.2 Transition Inventory
 
@@ -205,8 +213,11 @@ Requirements:
    - a `NewTabHint` descendant that is **not hidden from the accessible name**, checked against `aria-hidden="true"`, the **native `hidden` attribute** (`<span hidden>`, already a repo idiom at `components/right-now/RightNowCard.tsx:637` and `components/crew/RightNowHero.tsx:508`, and rendered by React as `hidden=""`), AND CSS hiding — a `hidden` class, `display:none`, or `visibility:hidden` — on the hint or any ancestor within the anchor. `<span aria-hidden="true"><NewTabHint /></span>` and `<span className="hidden"><NewTabHint /></span>` both contribute nothing to the name (verified against installed `dom-accessibility-api` 0.6.3: the name came back as the destination alone). No current anchor has such a descendant; this closes a future hole rather than a present bug.
    - an inline `// no-newtab-announcement: <reason>` exemption.
 5. **Any anchor whose `target` is CONDITIONAL** — spread or direct — additionally requires its **announcement** (whichever mechanism requirement 4 accepted) to be conditional under the **effective `_blank` predicate**, defined as:
-   - the condition itself when `"_blank"` is in the TRUE branch (all four live anchors);
-   - its **negation** when `"_blank"` is in the FALSE branch, e.g. `target={external ? undefined : "_blank"}` requires the announcement gated on `!external`. Requirement 2 recognizes `_blank` in either branch, so the guard must compute polarity rather than compare the condition text.
+   - the condition itself when `"_blank"` is in the TRUE branch only (all four live anchors);
+   - its **negation** when `"_blank"` is in the FALSE branch only, e.g. `target={external ? undefined : "_blank"}` requires the announcement gated on `!external`;
+   - **constant `true` when BOTH branches are `"_blank"`** (e.g. `target={external ? "_blank" : "_blank"}`, which requirement 2 accepts). The target is then unconditionally external, so a STATIC announcement is the correct implementation and the guard must accept it — supplying `external` or `!external` here would reject correct code or enforce only one branch.
+
+   The guard therefore computes polarity from which branches carry `_blank`, rather than comparing condition text.
 
    **A static phrase-bearing `aria-label` FAILS on a conditional-target anchor.** Requirement 4 accepts a label as an announcement mechanism, but a label is unconditional, so on a conditional-target anchor it would announce a new tab even when `target` is undefined — the same lie the hint gating prevents. Such an anchor must either render the hint under the effective predicate, or build the label from a conditional expression whose phrase-bearing branch matches that predicate. (This resolves R4's requirement-4-vs-5 conflict: the rule is about the announcement, not specifically about `NewTabHint`, and §2's no-dead-hint rule still forbids a hint under a label.)
 
@@ -218,7 +229,11 @@ Requirements:
 
    That shape satisfies requirements 2 and 4 while announcing a new tab on every render, including the same-tab case. An unconditionally rendered hint on any conditional-target anchor MUST fail.
 6. **Exemption list empty** at ship time, so any future exemption is a deliberate reviewed addition.
-7. **Copy-string census, comment-stripped.** Assert set equality over occurrences of `(opens in a new tab)`: exactly **9** — one in the NewTabHint span, six Group B labels, and the two pre-existing labels at `components/admin/wizard/VenueMapTile.tsx:138` and `components/admin/wizard/Step3SheetCard.tsx:152`. Set equality over located sites, not a forbid-regex.
+7. **Synthetic scanner self-tests are MANDATORY** — without them the guard is unfalsifiable. The live tree exercises only literal targets and four true-polarity conditional spreads, so a scanner that supports today's shapes and nothing else passes every other test in §7 while silently failing open on everything requirements 1 to 5 promise. The 22 accessible-name cases verify current *rendering*, not the guard's *branches*. Precedent for exactly this shape: `tests/admin/_metaInfoCodeActionability.test.ts:121` ("scanner self-test: synthetic fixtures prove discovery and each fail-closed branch") drives its visitor through a `scanSource` seam over synthetic sources; expose the same seam here.
+
+   Required synthetic cases, each asserting accept or reject: an `.mdx` source containing `_blank`; `target={"_blank"}`; a direct conditional target in true-only, false-only, and both-branch polarity; an identifier-backed spread object (resolvable) and an unresolvable one (must FAIL closed); a `<Link>` element; a non-link component carrying `target` (must NOT be flagged); a phrase-only label and a punctuation-only label (`"(opens in a new tab)"`); a hint hidden by `aria-hidden`, by the native `hidden` attribute, and by CSS; a static phrase-bearing label on a conditional-target anchor; and a conditional label whose phrase sits in the wrong branch.
+
+8. **Copy-string census, comment-stripped.** Assert set equality over occurrences of `(opens in a new tab)`: exactly **9** — one in the NewTabHint span, six Group B labels, and the two pre-existing labels at `components/admin/wizard/VenueMapTile.tsx:138` and `components/admin/wizard/Step3SheetCard.tsx:152`. Set equality over located sites, not a forbid-regex.
 
 ## 7. Tests (TDD per task — failing test first)
 
@@ -267,4 +282,4 @@ jsdom computes no CSS, so `display:none`-gated text is NOT excluded from its acc
 
 New: the `NewTabHint` component under `components/shared/`, the meta-test under `tests/styles/`, and behavioral test files per §7.
 
-Edited: the 21 anchors in §4 plus the §2.2 label fix at `components/admin/wizard/VenueMapTile.tsx:138`, spanning **16 distinct files** — the 17 files containing `_blank`, minus `components/admin/wizard/Step3SheetCard.tsx`, which is the only family file needing no change. Plus the seven existing test files in §7 and `BACKLOG.md` to close the item.
+Edited: the 21 anchors in §4 plus the §2.2 label fix at `components/admin/wizard/VenueMapTile.tsx:138`, spanning **16 distinct files** — the 17 files containing `_blank`, minus `components/admin/wizard/Step3SheetCard.tsx`, which is the only family file needing no change. Plus the existing expectations in §7 — seven exact-label assertions across **five** test files (`Step3ReviewModal.test.tsx` and `step3ReviewSections.test.tsx` each carry two), plus the byte baseline `tests/components/admin/review/__fixtures__/step3-header-baseline.html` and its test `tests/components/admin/review/reviewModalShell.test.tsx` — and `BACKLOG.md` to close the item.
