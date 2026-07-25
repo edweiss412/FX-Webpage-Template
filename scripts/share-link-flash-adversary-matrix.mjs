@@ -618,10 +618,18 @@ function git(...args) {
   return execFileSync("git", args, { cwd: ROOT, encoding: "utf8" });
 }
 
-/** Rows in tests/e2e/share-link-flash.spec.ts. A mismatch means the run was
- *  truncated (or a row was added without updating this), and either way the
- *  result cannot be scored — see runBrowser. */
-const BROWSER_ROW_COUNT = 7;
+/** Rows in tests/e2e/share-link-flash.spec.ts, BY NAME. A missing or swapped row
+ *  means the run was truncated or retargeted (or a row was added without updating
+ *  this), and either way the result cannot be scored — see runBrowser. */
+const BROWSER_ROWS = [
+  "T-FLASH-REST",
+  "T-FLASH-RUN",
+  "T-FLASH-SETTLE",
+  "T-FLASH-RESTART",
+  "T-FLASH-SOLE",
+  "T-FLASH-REDUCED",
+  "T-FLASH-COPY-RACE",
+];
 const TARGETS = [HUB, CSS, CTX, COPY];
 /** Written (not mutated) by a full run, so it is NOT in TARGETS — restoring it
  *  would revert the very output the run exists to produce. Checked for
@@ -837,11 +845,34 @@ function runVitest() {
   }
 
   const files = report.testResults ?? [];
-  if (files.length !== VITEST_SUITES.length) {
+  // IDENTITY, not count. A file count alone passes when one requested suite is
+  // swapped for another, and says nothing about whether a suite that DID appear
+  // actually collected anything (round-13 review).
+  const reported = new Set(files.map((f) => (f.name ?? "").replaceAll("\\", "/")));
+  const missing = VITEST_SUITES.filter((want) => ![...reported].some((got) => got.endsWith(want)));
+  if (missing.length) {
     throw new Error(
-      `vitest reported ${files.length} suite file(s) but ${VITEST_SUITES.length} were requested — ` +
+      `vitest never reported these requested suites: ${missing.join(", ")} — ` +
         "the run did not execute what it was asked to. Infrastructure fault, not a coverage result.",
     );
+  }
+  // A suite present but empty collected nothing; a suite carrying a failureMessage
+  // without any assertion result failed at collection time. Both scored as clean.
+  for (const f of files) {
+    const assertions = f.assertionResults ?? [];
+    if (!assertions.length) {
+      throw new Error(
+        `vitest suite ${f.name} reported zero tests — collection fault, not a coverage result` +
+          (f.message ? `: ${String(f.message).slice(0, 200)}` : ""),
+      );
+    }
+    const stalled = assertions.filter((a) => a.status !== "passed" && a.status !== "failed");
+    if (stalled.length) {
+      throw new Error(
+        `vitest suite ${f.name} has ${stalled.length} test(s) neither passed nor failed ` +
+          `(${[...new Set(stalled.map((a) => a.status))].join(", ")}) — the run is incomplete`,
+      );
+    }
   }
 
   return files.flatMap((f) =>
@@ -881,7 +912,11 @@ function runBrowser() {
       // config's `list` reporter in force.
       env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
     });
-    return [];
+    // Deliberately NOT an early return. A green exit with every row SKIPPED — or
+    // a passing partial shard — made all browser rows vanish while the matrix
+    // still exited successfully (round-13 review). The completeness checks below
+    // have to run on both paths, so the only thing the exit code decides is
+    // whether any row is expected to be red.
   } catch {
     /* red run — attribute the rows below */
   }
@@ -915,10 +950,16 @@ function runBrowser() {
   };
   for (const suite of report.suites ?? []) walkAll(suite);
 
-  if (seen.length !== BROWSER_ROW_COUNT) {
+  // IDENTITY, not count: swapping a required row for another spec preserves the
+  // count and passed (round-13 review).
+  const titles = new Set(
+    seen.map((sp) => sp.title.match(/^(T-FLASH-[A-Z0-9-]+)/)?.[1] ?? sp.title),
+  );
+  const absent = BROWSER_ROWS.filter((row) => !titles.has(row));
+  if (absent.length || seen.length !== BROWSER_ROWS.length) {
     throw new Error(
-      `browser run reported ${seen.length} spec(s) but ${BROWSER_ROW_COUNT} are known — ` +
-        "the run did not execute what it was asked to. Infrastructure fault, not a coverage result.",
+      `browser run did not execute the known row set (missing: ${absent.join(", ") || "none"}; ` +
+        `saw ${seen.length}, expected ${BROWSER_ROWS.length}) — infrastructure fault, not a coverage result.`,
     );
   }
   const stalled = seen.filter(
@@ -979,8 +1020,23 @@ for (const [sig, code] of [
   ["SIGHUP", 129],
 ]) {
   process.on(sig, () => {
-    restoreTargets({ fatal: false });
-    releaseLock();
+    // Releasing after a FAILED restore handed the next run a mutant tree
+    // (round-13 review). Restore must succeed before the lock is dropped; if it
+    // does not, keep the lock so nothing else starts, and say what to do.
+    let restored = true;
+    try {
+      restoreTargets();
+    } catch {
+      restored = false;
+    }
+    if (restored) {
+      releaseLock();
+    } else {
+      console.error(
+        `\nrestore FAILED on ${sig}; the lock is deliberately NOT released.\n` +
+          `Run: git checkout -- ${TARGETS.join(" ")} && rm ${LOCK}`,
+      );
+    }
     process.exit(code);
   });
 }
