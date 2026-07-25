@@ -397,7 +397,9 @@ WITH substitutions is not. Anything outside these shapes is reported as
   case must produce the same verdict, in **both polarities** — a violating base and an announcing
   base — because an announcing-only base cannot observe a read that SUPPRESSES a violation. No
   reading form can evade this, because the source is never consulted; an attribute outside the closed
-  list cannot change an accessible name, so its casing cannot cause this defect.
+  list behaves identically in either spelling, because HTML attribute names are ASCII
+  case-insensitive, so casing cannot be the defect there. (Not the stronger claim that it cannot
+  affect the name at all -- see the narrowing two bullets below.)
 
   The hand-built per-attribute fixtures remain, because they prove the specific behaviour each
   attribute drives (a hidden hint, a naming override, a stripped separator) which a same-verdict
@@ -414,6 +416,25 @@ WITH substitutions is not. Anything outside these shapes is reported as
   produces a report, not a silent pass — so the conservative reading costs a possible false
   positive and never a missed announcement. Value-casing is therefore out of scope for the sweep,
   stated here rather than left to look like an oversight.
+
+- **The destination rule reports only when the anchor is PROVABLY label-less, and its residual
+  risk is one undecidable case.** An external link whose accessible name is the announcement alone
+  (`<span aria-hidden="true">Go</span> <NewTabHint />` computes to `"(opens in a new tab)"`) is
+  reported. Three defects were found in this rule by probing it after writing it, and all three were
+  the same mistake — a DECIDABLE case sitting in the undecidable bucket:
+
+  | Wrongly treated as opaque | Reality |
+  | --- | --- |
+  | a component child (`<Label />`) and `<img alt="Go" />` | both contribute a name; the rule required literal TEXT |
+  | a fragment (`<>Go</>`) | walked as an element and rejected by the `isJsxElement` guard |
+  | `{" "}`, `{null}`, `{false}`, `{undefined}` | literals contribute nothing, yet counted as a destination |
+
+  After those, the undecidable bucket holds exactly one thing: **a genuinely dynamic expression that
+  renders nothing at runtime** (`{maybeLabel}` where the value is `""`). That is assumed to carry a
+  destination, deliberately — failing closed there would report every `{label}` anchor in the tree,
+  which is most of them. So this rule fails OPEN on dynamic content by design and CLOSED on
+  everything statically decidable. Further refinement of the decidable side is not expected; if a
+  fourth defect appears there, the shape list is the thing to replace, not extend.
 
   **The closed list is closed for CASING, not for hiding — narrowed at R21.** The original wording
   claimed an attribute outside the list "cannot change an accessible name", and that is too strong.

@@ -53,14 +53,21 @@ const CASE_INSENSITIVE_NAMES = new Set([
   // literal spelling either one would be a live defect.
   "inert",
   "open",
+  // R22: an unshown popover is not rendered, so this hides.
+  "popover",
 ]);
 
 /** Attributes that can affect an element's computed accessible name or its visibility, from an
  *  EXTERNAL authority rather than from this repo: HTML global attributes, `<a>` attributes, `role`,
  *  every ARIA state/property, and the two JSX aliases (`className`, `htmlFor`). Deliberately a
  *  closed list -- it is the one input to the casing sweep that does not depend on reading our own
- *  source, which is what makes the sweep immune to reading form. An attribute outside this list
- *  cannot change an accessible name, so its casing cannot cause the defect being guarded. */
+ *  source, which is what makes the sweep immune to reading form.
+ *
+ *  NARROWED at R21/R22, and the earlier wording is deleted rather than left standing: it is NOT
+ *  true that an attribute outside this list cannot change an accessible name -- `data-*` is
+ *  open-ended and a `[data-state="closed"]` CSS rule hides a subtree. What IS true, and all the
+ *  sweep needs, is that HTML attribute NAMES are ASCII case-insensitive, so a spelling outside
+ *  this list behaves identically either way and casing cannot be the defect. */
 const NAME_AFFECTING_ATTRIBUTES: readonly string[] = [
   // HTML global attributes
   "accesskey",
@@ -200,6 +207,7 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   // JSX tag names are case-SENSITIVE, so folding them would be a bug, not coverage.
   ["a", "intrinsic tag name"],
   ["details", "intrinsic tag name (R21: closed <details> hides its content)"],
+  ["template", "intrinsic tag name (R22: template content is never rendered)"],
   ["Link", "component tag name"],
   ["NewTabHint", "component tag name"],
   // Internal classification verdicts returned by the shape rules.
@@ -1458,8 +1466,11 @@ describe("R6: scanner changes are pinned", () => {
     // defined (HTML global + anchor attributes, ARIA states/properties, `role`, and the two
     // JSX aliases). For each, scanning the SAME fixture with the name in a different case must
     // produce the SAME verdict. No reading form can evade that, because the source is never
-    // consulted -- and an attribute outside this list cannot change an accessible name, so
-    // casing there cannot cause the defect this guard exists to prevent.
+    // consulted. The narrower reason it is SOUND to stop at this list: HTML attribute names are
+    // ASCII case-insensitive, so a name outside it behaves identically in either spelling and
+    // casing cannot be the defect. (The stronger claim that no outside attribute can affect the
+    // name is false -- see §6.4 on `data-*` -- and saying so here is what R22 asked for, because
+    // the refuted wording had survived in three places at once.)
     for (const name of NAME_AFFECTING_ATTRIBUTES) {
       // `href` and `target` are in the base fixture already and have hand-built discriminating
       // fixtures above; adding a second copy only exercises the duplicate-fold path.
@@ -1579,6 +1590,91 @@ describe("R6: scanner changes are pinned", () => {
       'const A=()=><a href="x" target="_blank">Go <details open><NewTabHint /></details></a>;',
     ];
     for (const src of ok) {
+      expect(violations(src), `must accept: ${src}`).toEqual([]);
+    }
+  });
+
+  // THREE amendments in this PR left their superseded text standing (R20 found two §6.4
+  // contracts at once; R22 found the same refuted claim alive in three places). "Supersedes"
+  // in prose deletes nothing, and careful editing has now failed three times, so the claim
+  // itself is pinned: it may appear ONLY where it is being retracted.
+  it("a refuted claim appears only in a retraction", () => {
+    // The RETRACTED claims themselves. This array matched itself on its first run, which is
+    // the guard finding a real instance of its own rule -- the strings live here precisely
+    // because they are retracted, and the window check below sees this comment.
+    const REFUTED = [
+      "cannot change an accessible name",
+      "covers every name-producing accessor",
+      "is decided by literal SHAPE",
+    ];
+    const RETRACTION =
+      /too strong|NOT true|not true|retracted|superseded|narrowed|false --|false:/i;
+    const files = [
+      "tests/styles/_newTabScan.ts",
+      "tests/styles/_metaNewTabAnnouncement.test.ts",
+      "docs/superpowers/specs/2026-07-25-newtab-announcement-family.md",
+    ];
+    const offenders: string[] = [];
+    for (const rel of files) {
+      const lines = readFileSync(join(process.cwd(), rel), "utf8").split(/\r?\n/);
+      lines.forEach((line, i) => {
+        for (const claim of REFUTED) {
+          if (!line.includes(claim)) continue;
+          // A retraction may span the sentence, so look at a small window, not one line.
+          const window = lines.slice(Math.max(0, i - 3), i + 4).join(" ");
+          if (!RETRACTION.test(window)) offenders.push(`${rel}:${i + 1} ${claim}`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      "these lines state a claim this PR refuted, without retracting it -- delete them or mark the retraction",
+    ).toEqual([]);
+  });
+
+  it("R22 intrinsic hiding: template, popover, and a details that is not provably open", () => {
+    // All three are INTRINSIC HTML semantics, not the selector-driven CSS limit §6.4 accepts.
+    for (const src of [
+      // An unshown popover is not rendered until invoked.
+      'const A=()=><a href="x" target="_blank">Go <span popover="manual"><NewTabHint /></span></a>;',
+      'const A=()=><a href="x" target="_blank">Go <span popover="auto"><NewTabHint /></span></a>;',
+      // <template> content is never rendered, so it is not a destination either.
+      'const A=()=><a href="x" target="_blank"><template>Go</template> <NewTabHint /></a>;',
+      // React OMITS `open` for every falsy value, so each of these can render a CLOSED
+      // details. Only a provably-true `open` counts; dynamic fails closed.
+      'const A=()=><a href="x" target="_blank">Go <details open={0}><NewTabHint /></details></a>;',
+      'const A=()=><a href="x" target="_blank">Go <details open={null}><NewTabHint /></details></a>;',
+      'const A=()=><a href="x" target="_blank">Go <details open={undefined}><NewTabHint /></details></a>;',
+      'const A=({o})=><a href="x" target="_blank">Go <details open={o}><NewTabHint /></details></a>;',
+    ]) {
+      expect(violations(src), `must report: ${src}`).not.toEqual([]);
+    }
+    for (const src of [
+      'const A=()=><a href="x" target="_blank">Go <details open><NewTabHint /></details></a>;',
+      'const A=()=><a href="x" target="_blank">Go <details open={true}><NewTabHint /></details></a>;',
+      'const A=()=><a href="x" target="_blank">Go <details open=""><NewTabHint /></details></a>;',
+    ]) {
+      expect(violations(src), `must accept: ${src}`).toEqual([]);
+    }
+  });
+
+  it("R22 an expression that provably renders nothing is not a destination", () => {
+    // The separator itself was the witness: `{" "}` satisfies the space rule AND used to
+    // satisfy the destination rule, so a hidden label plus a separator plus the hint passed.
+    for (const src of [
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span>{" "}<NewTabHint /></a>;',
+      'const A=({c})=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {c ? null : null} <NewTabHint /></a>;',
+      'const A=({c})=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {c && null} <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must report: ${src}`).not.toEqual([]);
+    }
+    // A conditional or && whose branches CAN render text is still a destination -- the
+    // predicate must prove emptiness, not assume it.
+    for (const src of [
+      'const A=({c})=><a href="x" target="_blank">{c ? "A" : "B"} <NewTabHint /></a>;',
+      'const A=({c})=><a href="x" target="_blank">{c && "A"} <NewTabHint /></a>;',
+      'const A=({c,l})=><a href="x" target="_blank">{c ? l : null} <NewTabHint /></a>;',
+    ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
   });

@@ -442,6 +442,37 @@ function hasDestinationContent(anchor: ts.JsxElement | ts.JsxSelfClosingElement)
   return childrenCarryDestination(anchor.children);
 }
 
+/**
+ * Does this expression provably render nothing? Used to decide whether an interpolated child
+ * can be a destination. Deliberately narrow: only PROVABLE emptiness returns true, so a
+ * genuinely dynamic value is still assumed to carry a label.
+ *
+ * `{" "}`, `{null}`, `{false}` and `{undefined}` were the first three misses (R22 BLOCKING 1
+ * and its predecessor); a conditional whose BOTH branches render nothing is the same fact one
+ * level up, so it is decided by the same predicate rather than a second rule.
+ */
+function rendersNothing(e: ts.Expression): boolean {
+  const n = unparen(e);
+  if (
+    n.kind === ts.SyntaxKind.NullKeyword ||
+    n.kind === ts.SyntaxKind.FalseKeyword ||
+    (ts.isIdentifier(n) && n.text === "undefined")
+  ) {
+    return true;
+  }
+  if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
+    return n.text.trim().length === 0;
+  }
+  if (ts.isConditionalExpression(n)) {
+    return rendersNothing(n.whenTrue) && rendersNothing(n.whenFalse);
+  }
+  // `cond && <thing>` renders nothing when the right side does.
+  if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+    return rendersNothing(n.right);
+  }
+  return false;
+}
+
 /** The walk itself, over a child list, so a fragment reuses it without being faked into an
  *  element -- the first attempt spread a JsxFragment into an object shaped like a
  *  JsxElement, which every `ts.isJsxElement` guard then rejected. */
@@ -467,11 +498,7 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
       ) {
         continue;
       }
-      const lit = ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e) ? e.text : null;
-      if (lit !== null) {
-        if (lit.trim().length > 0) return true;
-        continue;
-      }
+      if (rendersNothing(e)) continue;
       return true; // genuinely dynamic: assume it carries a destination
     }
     // A fragment carries no attributes, so it cannot hide; look through it.
@@ -499,15 +526,23 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
   // find it (review R21 BLOCKING 3). A `<summary>` child is still shown when closed, but
   // the hint is never a summary, so treating a closed details as hiding is correct here.
   const tag = ts.isJsxElement(el) ? el.openingElement.tagName.getText() : el.tagName.getText();
+  // `<template>` content is never rendered at all (HTML Standard: script-supporting
+  // elements are not rendered), so it hides unconditionally (review R22 BLOCKING 2).
+  if (tag === "template") return true;
   if (tag === "details") {
+    // `open` must be PROVABLY true. React omits the attribute for every falsy value, so
+    // `open={0}`, `open={null}`, `open={undefined}` and a dynamic `open={isOpen}` can all
+    // render a CLOSED details -- the earlier version only caught absence and a literal
+    // `false` (review R22 BLOCKING 3). Fail closed on anything not provably open.
     const openAttr = attrs.properties.find((a) => attrName(a) === "open");
-    if (!openAttr) return true;
-    if (ts.isJsxAttribute(openAttr) && openAttr.initializer) {
-      const init = openAttr.initializer;
-      if (ts.isJsxExpression(init) && init.expression) {
-        if (unparen(init.expression).kind === ts.SyntaxKind.FalseKeyword) return true;
-      }
+    if (!openAttr || !ts.isJsxAttribute(openAttr)) return true;
+    if (!openAttr.initializer) return false; // bare `open` is true
+    const init = openAttr.initializer;
+    if (ts.isStringLiteral(init)) return false; // open="" / open="open" are truthy attrs
+    if (ts.isJsxExpression(init) && init.expression) {
+      if (unparen(init.expression).kind === ts.SyntaxKind.TrueKeyword) return false;
     }
+    return true; // dynamic or falsy: may be closed
   }
   for (const a of attrs.properties) {
     const n = attrName(a);
@@ -537,6 +572,10 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
     // name-affecting list while this function did not handle it, which made the casing
     // sweep agree on both spellings of a genuinely inaccessible announcement
     // (review R21 BLOCKING 1). Boolean semantics, same as `hidden`.
+    // `popover` makes the element not-shown until invoked (HTML Standard: popover), so a
+    // hint inside one is not in the accessible name (review R22 BLOCKING 2). Any value
+    // counts -- `auto` and `manual` both start hidden.
+    if (n === "popover") return true;
     if (n === "inert") {
       if (!a.initializer) return true;
       const init = a.initializer;
