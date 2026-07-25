@@ -207,7 +207,7 @@ populated for real published shows and the `?? ""` at
 Round 1 flagged the `?? ""` coercion and this spec over-generalised from it without checking
 whether `null` was reachable. Recorded so neither claim is re-derived.
 
-The real taxonomy — three cases, not one:
+The real taxonomy — **five** cases, not one:
 
 | Case | Sections | Link? |
 | ---- | -------- | ----- |
@@ -224,13 +224,47 @@ fallback**, exactly as §3.1.5 measured — not a published default. Consequence
 - The plan measures padded × counted / flagged / judgment as the **defensive** cells (reachable
   only with malformed data), and must label them that way rather than as the published norm.
 
+### 4.1a Geometry-class matrix — the rows tests 1-3 bind to
+
+Round 4 correctly noted that §4 held an input table and a link taxonomy but no **matrix**, while
+test 1 referred to "the §4 matrix". These are the reachable geometry classes; tests 1-3 enumerate
+exactly these rows and nothing else. The synthetic Cartesian product is NOT the test surface.
+
+| # | Class | Heading | Count | Link | Reachability |
+| - | ----- | ------- | ----- | ---- | ------------ |
+| G1 | top-level, counted, link | `h3` | shown | yes | PRODUCTION (staged + valid published: crew, contacts, rooms, warnings) |
+| G2 | top-level, uncounted, link | `h3` | none | yes | PRODUCTION (venue, event details, crew schedule, hotels, transport, pack list, billing, agenda) |
+| G3 | top-level, uncounted, linkless | `h3` | none | no | PRODUCTION — `report` only |
+| G4 | Diagrams sub-block | `h4` | suppressed | no | PRODUCTION |
+| G5 | partial / standalone provider | `h3` | suppressed | no | SUPPORTED (four cited callers) |
+| G6 | defensive `dfid === ""` | `h3` | shown or none | no | DEFENSIVE — reachable only with malformed data; includes counted/flagged/judgment variants |
+
+Each of G1-G6 is crossed with the three status values (clean / flagged / judgment) for tests 1 and
+6; tests 2-3 measure G1-G6 at 320/375/430/1280.
+
+**One-prop partial providers** (`dfid` without `sectionId`, or the reverse) are **declared
+UNSUPPORTED**: both props are optional for provider-mount convenience, but no caller passes exactly
+one, and the derivation requires both for a link. They are not tested and no behaviour is promised;
+a caller that needs one of them must add the other.
+
 ### 4.2 Invalid numbers
 
 `count: number | null` does not exclude `NaN`, `Infinity`, or `-Infinity`, and
 `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708-714`) tests only `null`, membership, and
 `count === 0 && flagged` — so `NaN` would reach the chip and render "(NaN)".
 
-**Disposition:** the plan adds a guard so a non-finite count is treated as absent
+**Guard boundary — named explicitly (round-4 finding 4).** The guard goes **inside the exported
+`shouldShowSectionCount`** (`components/admin/wizard/step3ReviewSections.tsx:708-714`), which is therefore **changed** by this batch;
+§7's "no change to `shouldShowSectionCount`" is corrected to "no change to its
+membership/zero-suppression semantics". Putting it in the helper covers every caller through one
+boundary rather than duplicating a check at each rendered path.
+
+**The legacy no-chrome `BreakdownSection` path is explicitly IN the contract**, not exempt: it
+renders a count independently (`components/admin/wizard/step3ReviewSections.tsx:984-1011`), so a modal-only guard would still show
+`(NaN)` there. Because the guard lives in the shared helper, both paths are covered — and test 7
+asserts at both.
+
+**Disposition:** the guard treats a non-finite count as absent
 (`Number.isFinite(count)` gate), with a unit test passing **all three** named values — `NaN`,
 `Infinity`, AND `-Infinity`. Round 2 correctly noted that testing only the first two lets an
 implementation that accepts `-Infinity` pass. This is
@@ -273,7 +307,12 @@ Height invariants to assert (epsilon **±0.5px**): header line 44px in every sta
 
 **Width invariants to assert in a real browser** — rounds 1 and 2 both raised this, and the
 round-2 edit silently failed to land, so it is spelled out here. The FULL chain, each within
-±0.5px: `registrySection.width === pane.clientWidth`;
+±0.5px. **The pane comparison is against its CONTENT box, not `clientWidth`** — the pane carries
+`p-tile-pad` (20px per side, `app/globals.css:170`) and `clientWidth` INCLUDES padding, so a
+naive equality is off by 40px on the real tree and would misreport correct layout as an upstream
+defect (round-4 finding 1). Assert
+`registrySection.width === pane.clientWidth − paddingLeft − paddingRight` using the pane's
+computed inline paddings, or compare content-box edges directly. Then:
 `breakdownSection.width === registrySection.clientWidth`;
 `outerColumn.width === breakdownSection.clientWidth`;
 `headerLine.width === pillLine.width === outerColumn.width`; and
@@ -303,7 +342,8 @@ a spike."* Descoping is the prescribed action, not a concession.
 
 Why it cannot be patched again in this spec:
 
-- **The written rule and a working prototype disagree on the census.** Under §6.3's stated rule
+- **The written rule and a working prototype disagree on the census.** Under the round-3 rule
+  (since removed with the rest of the guard design)
   (any identifier, member access, or unresolved call anywhere makes an element opaque), a template
   literal like `` `size-1.5 rounded-full ${pill.dot}` `` IS opaque, giving **27 rows now / 23
   after repairs**. A prototype that resolves static template parts instead gives **17 / 13**. R3
@@ -314,7 +354,12 @@ Why it cannot be patched again in this spec:
 - Three rounds on a nice-to-have tripwire, while the three real backlog items sat finished, is
   negative marginal value by the same rule's reasoning.
 
-**What covers reintroduction meanwhile** (all in scope, all landing in this batch):
+**What covers reintroduction meanwhile** (all in scope, all landing in this batch). Round 4 was
+right that the round-3 version of this list overclaimed: the three pusher surfaces are mounted by
+no existing probe, so item 1 alone did not cover them. Test 10(a) is what closes that, and the
+**residual gap is stated plainly**: outside these three sites and the measured probe surfaces,
+reintroduction of a childless growable elsewhere in the repo is NOT detected by this batch — that
+is exactly what the deferred backlog spike is for.
 
 1. The existing runtime phantom-gap probes, which measure realised extent and are indifferent to
    className syntax — the instrument that found the original defect.
@@ -336,7 +381,7 @@ census reconciled against a run.
 
 - No new §12.4 error codes, no `lib/messages/catalog.ts` edits, no `pnpm gen:spec-codes` run. Nothing here surfaces a code to a user.
 - No migrations, so `pnpm gen:schema-manifest` and the validation-project apply are N/A, and `validation-schema-parity` is unaffected.
-- No change to `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708`), `COUNT_SECTIONS` (`components/admin/wizard/step3ReviewSections.tsx:697`), or `buildSheetDeepLink` behaviour — the count and link *placement* changes, their *derivation* does not.
+- No change to `COUNT_SECTIONS` (`components/admin/wizard/step3ReviewSections.tsx:697`) or `buildSheetDeepLink` behaviour — the count and link *placement* changes, their *derivation* does not. `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708`) **is** changed, but only to reject non-finite values (§4.2); its membership and zero-suppression semantics are untouched.
 - `components/admin/showpage/ShowReviewModalSkeleton.tsx:152` unchanged (§1.1 item 7).
 - `components/crew/sections/TravelSection.tsx:588` unchanged (§1.1 item 8).
 - **The static guard (§6) is descoped** and files a backlog entry instead. Nothing in this batch claims repo-wide closure of the childless-growable class.
@@ -421,10 +466,18 @@ tautological if the expected centre is computed from the rendered name being tes
    round-1 test 5 equated "unflagged" with "no pill": a judgment section is unflagged and
    deliberately renders a pill. Assert: clean ⇒ exactly one child line and no pill wrapper in the
    DOM; flagged ⇒ two lines with the amber pill; judgment ⇒ two lines with the info pill.
-7. **Non-finite count** — `NaN` and `Infinity` render no chip (§4.2).
-8. **`empty:hidden` eyebrow** — real browser: on a stage-promoted ground leg the eyebrow
-   contributes **zero** height to the `.tcol` stack; on a labelled leg it contributes its normal
-   height. Geometry, not class presence — a class assertion cannot catch the `{" "}` regression.
+7. **Non-finite count** — `NaN`, `Infinity`, **and `-Infinity`** each render no chip, asserted at
+   the boundary named in §4.2. All three, per round-4 finding 4: naming only two lets an
+   implementation that accepts `-Infinity` pass.
+8. **`empty:hidden` eyebrow — measured as DISPLACEMENT, not as the eyebrow's own height.** Round 4
+   correctly noted that an empty `<p>` can already have a zero-height box while remaining a flex
+   item whose 2px gap still displaces its siblings, so "eyebrow height is 0" passes before the fix.
+   Assert the parent-child relationship instead
+   (`components/crew/sections/TravelSection.tsx:120-128`): for a **blank** eyebrow the primary
+   line's top equals the `.tcol` stack's content-box top with **no 2px displacement**; for a
+   **labelled** eyebrow the displacement equals the eyebrow's height **plus** the 2px `gap-0.5`.
+   That measures the defect directly and is red before the fix. Geometry, not class presence — a
+   class assertion cannot catch the `{" "}` regression.
 9. *(removed — the static guard is descoped, §6.)*
 
 ### 9.3 Behavioural proof for the pusher repairs (round-1 finding 2)
@@ -435,7 +488,19 @@ spacer and forgot `ml-auto`, leaving the trailing cluster at the START edge — 
 dropping it was not ratified. It is ratified here, with a substitute that is strictly stronger
 per unit of cost:
 
-10. **Trailing-alignment geometry**, real browser, for all three repaired pushers
+10. **Spacer-collapse detection FIRST, then alignment.** Round 4 correctly showed the
+    alignment-only version of this test **cannot fail before the repair**: the existing spacers
+    already hold the trailing clusters against the right edge, and they also pass if a spacer is
+    later reintroduced *alongside* `ml-auto`. An assertion that cannot go red is not a TDD oracle
+    (invariant 1) and does not detect reintroduction. So this test has two parts, and part (a) is
+    the one that must be RED before the fix:
+    **(a) Zero-extent spacer detection at the three exact sites.** Mount each row in a deliberately
+    CROWDED fixture — narrow enough that a `flex-1` spacer resolves to 0 — and assert no in-flow
+    child of the row has zero main-axis extent. This is red on today's tree, green after the spacer
+    is deleted, and red again if one is reintroduced. Narrowly scoped to
+    `components/admin/BellPanel.tsx:323`, `components/admin/nav/AdminNav.tsx:144`, and
+    `components/admin/nav/OnboardingTopBar.tsx:67` — it does not revive the descoped repo-wide guard.
+    **(b) Trailing alignment**, real browser, for all three repaired pushers
     (`BellPanel` action row, `AdminNav` top bar, `OnboardingTopBar`): assert the trailing
     cluster's **right edge is flush with the parent's content-box right edge** (±0.5px) at a wide
     width where free space exists — which fails if `ml-auto` is missing — and that the cluster
@@ -450,12 +515,16 @@ per unit of cost:
     they cannot detect a MISSING `ml-auto`, because a deleted spacer leaves no offender to find.
     This assertion targets the actual failure mode of this repair. Recorded as a deviation from
     BACKLOG.md:48 (root) with that reasoning.
-11. **Hairline floor boundary** — assert the hairline's width is > 0 at the narrowest real row
-    (240px) with the LONGEST real title, and that the label does **not** wrap there (which is what
-    rules out `min-w-6`; see §3.2). Round 1 warned that a permanently hidden rule would satisfy
-    the phantom-gap probes while violating the intent — this asserts the rule is still DRAWN.
-    *Anti-tautology:* a short title cannot collapse, so the longest of the five closed-set titles
-    is mandatory or the test passes vacuously.
+11. **Hairline floor** — with the LONGEST real title, at the narrowest real row (240px), assert
+    all three: (a) the rule is DRAWN (`width > 0`) — a permanently hidden rule would satisfy the
+    phantom-gap probes while violating the intent; (b) **the resolved `min-width` computes to
+    exactly `16px`** — round 4 correctly noted that `width > 0` + no-wrap passes on today's
+    NO-FLOOR tree (it already measures 22.94px and does not wrap), so without this the test cannot
+    distinguish `min-w-4` from no floor at all and is not red before the fix; (c) the label does
+    **not** wrap, which is what rules `min-w-6` out. No breakpoint is asserted because the measured
+    branch selected floor-only (§3.2).
+    *Anti-tautology:* a short title cannot collapse, so the longest of the five closed-set titles is
+    mandatory or the test passes vacuously.
 12. **Phantom-gap probes** re-run green with all four ledger rows deleted; the stale-row
     assertion proves the debt is repaid rather than re-ledgered.
 13. **Archived-bucket probe** per §3.4, anchor captured live.
@@ -471,6 +540,13 @@ per unit of cost:
   `AGENTS.md` invariant 8. Findings + dispositions go in §12 of the close-out doc. Pre-code mechanical sweep: em-dash ban in user-visible copy, apostrophe literals, 44px tap targets, canonical type/token classes.
 - **Invariant 10 (mutation-surface telemetry):** no mutating route, action, or admin surface is added or changed. N/A.
 - **Invariant 11 (worktree):** all work in `../FX-worktrees/section-header-rebuild`, branched off `origin/main`, with `pnpm install` + `pnpm worktree:link-env` + `pnpm preflight` completed before any test run.
+- **`BACKLOG.md` lifecycle (round-4 finding 7):** BACKLOG.md:5 (root) requires a shipped item to move
+  **wholesale** into `BACKLOG-archive.md` rather than being annotated in place. So the plan (a) moves
+  all three closed entries — `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW`,
+  `BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW`, `BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET` — into the archive
+  with provenance (branch + spec path), and (b) adds `BL-CHILDLESS-GROWABLE-STATIC-GUARD` to the OPEN
+  queue with the R1-R3 constraints. Leaving the three in the open queue would turn it into a
+  changelog, which is exactly what that file's header forbids.
 - **`DESIGN.md`:** §7a gains (a) the centered-section-header pattern with its measured offsets, and (b) an explicit note that a childless *growable* element used as a right-pusher is replaced by `ml-auto` rather than hidden at a breakpoint — the decorative-hairline rule already there does not cover pushers, which is why five sites drifted. (c) The corrected hairline guidance: measure before hiding — a rule that never collapses gets a floor, not a breakpoint. (d) **Reconcile a now-false sentence:** `DESIGN.md:327` says the decorative `flex-1` rule "is not childless" and that the empty-element selector never matches it. Both real rules — `components/admin/BulkIgnoreControls.tsx:200` and `components/admin/wizard/step3ReviewSections.tsx:2150` — ARE childless spans, so it does match. §7a needs the distinction between an intentionally PAINTED empty element (a decorative rule: must stay visible, so `empty:hidden` is exactly wrong for it) and an empty CONTENT SLOT (nothing to show: `empty:hidden` is right). (e) Document `--spacing-header-link-slot`. (f) **Update §7a's "Current sites" list** at `DESIGN.md:325`, which today names only `OverviewSection.tsx` and `ScheduleDayRow` — the TravelRow eyebrow (`components/crew/sections/TravelSection.tsx:121`) becomes a third, and the list would otherwise go stale (round-3 finding 8).
 
 ## 11. Measurement method (reproducible)
