@@ -800,3 +800,49 @@ cannot be the defect outside the list. That is all the sweep asserts. CSS-driven
 explicit accepted limit: the scanner recognises intrinsic hiding (`hidden`, `aria-hidden`, `inert`,
 closed `<details>`, hiding class tokens, inline `display:none`/`visibility:hidden`) and does not read
 the repo's stylesheets, because doing so would mean embedding a CSS engine.
+
+## R22 — three more shipped-rule fail-opens, and a mechanism replaced
+
+R22 raised three BLOCKING and one HIGH; the HIGH was the false-positive pair already fixed one
+commit outside the range it read. The three BLOCKING were all holes in the enforced rule:
+
+- **`<template>` and `popover`.** Template content is never rendered, and an unshown popover is not
+  rendered until invoked. Both are intrinsic HTML semantics, so neither was covered by §6.4's
+  selector-driven-CSS exemption — the exemption had been doing more work in my head than on paper.
+- **`<details>` closed-detection.** It caught only an absent `open` or a literal `false`. React omits
+  the attribute for **every** falsy value, so `open={0}`, `open={null}`, `open={undefined}` and a
+  dynamic `open={isOpen}` all render closed. `open` must be provably true; anything else fails
+  closed.
+- **The destination rule accepted the required separator as a destination.**
+  `<span aria-hidden="true">Go</span>{" "}<NewTabHint />` satisfied the space rule AND the
+  destination rule simultaneously, while the computed name was the phrase alone. One rule's required
+  element was another rule's evidence.
+
+### `hasDestinationContent` took four defects, all the same mistake
+
+| Round | Wrongly treated as opaque |
+| --- | --- |
+| self-probe | a component child (`<Label />`) and `<img alt="Go" />` |
+| self-probe | a fragment, because it was spread into an object shaped like a `JsxElement` |
+| self-probe | `{" "}`, `{null}`, `{false}`, `{undefined}` |
+| R22 | the separator `{" "}` in the presence of a hidden label, and `{c ? null : null}` |
+
+Every one was a **decidable** case sitting in the undecidable bucket. Literal emptiness is now one
+`rendersNothing` predicate rather than four ad-hoc checks, and §6.4 states what remains in that
+bucket: a genuinely dynamic expression that renders nothing at runtime. If a fifth defect appears on
+the decidable side, the shape list is the thing to replace, not extend.
+
+### The documentation finding earned a mechanism, because careful editing failed three times
+
+R22 found the refuted claim — that an attribute outside the closed list "cannot change an accessible
+name" — alive in **three** places while §6.4 called it too strong. Counting R20's discovery of two
+contradictory §6.4 contracts, that is three separate amendments in this PR that left superseded text
+standing.
+
+Per the three-round rule the response is a mechanism, not a fourth careful edit. A test now pins each
+refuted claim and permits it only where a retraction appears within three lines. **It matched its own
+`REFUTED` array on first run** — correctly, since that array does contain the claims — and the fix
+was to label the array as what it is rather than to weaken the check.
+
+Reusable form: when a claim is refuted, add its exact wording to a guard at the same time as
+retracting it. Prose review does not reliably find the copies; a string match does.
