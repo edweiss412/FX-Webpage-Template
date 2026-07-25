@@ -2,22 +2,31 @@
 
 **Date:** 2026-07-25 · **Backlog item:** `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y` (PR2 of the BL-NULLCODE-STAMP-BATCH-2 residual sweep) · **Owner:** Opus / Claude Code (UI work per `ROUTING.md`)
 
-**Revision R2** — incorporates spec-review R1 (6 findings, all confirmed against live code). Changes from R1: scope widened to `app/` (§1.1); two pre-existing WCAG 2.5.3 label-in-name failures now fixed rather than preserved (§2.2); the structural guard is per-anchor AST, not per-file lexical (§6); the §3.1 rationale is corrected to name the actual mechanism; behavioral coverage minimum raised (§7).
+**Revision R3.** R1 raised 6 findings, R2 raised 11; all 17 were confirmed against live code and are addressed here. R3 also runs the two mandated passes R1/R2 skipped: `pnpm spec:lint` (output attached to the review dispatch) and the `docs/agents/spec-self-review.md` checklist, whose omission caused four of R2's findings.
 
 ## 1. Problem
 
 A link that opens a new tab tells sighted users so with a `↗` glyph or an external-link icon. That glyph is `aria-hidden="true"` at every site that has one, so a screen-reader user hears only "Open in Sheet" and gets no warning that activating the link leaves the page. On the venue floor — the primary context for this app — an unannounced context switch is disorienting, and back-navigation does not return you.
 
-Two sites already solve this with an `aria-label` naming both destination and behavior:
+Two sites already announce, via an `aria-label` naming both destination and behavior: `components/admin/wizard/VenueMapTile.tsx:138` and `components/admin/wizard/Step3SheetCard.tsx:152`. That is the established convention. Twenty-one other new-tab anchors do not follow it.
 
-- `components/admin/wizard/VenueMapTile.tsx:138` — `aria-label="Open the venue in Google Maps (opens in a new tab)"`
-- `components/admin/wizard/Step3SheetCard.tsx:152` — `` aria-label={`Open the source sheet for ${title} in Google Sheets (opens in a new tab)`} ``
+## 1.1 Resolved scope — do not relitigate
 
-That is the established convention. Twenty-one other new-tab anchors do not follow it.
+| Decision | Ratification |
+| --- | --- |
+| The copy string is exactly `(opens in a new tab)`, lowercase, parenthesized | matches both shipped sites verbatim: `components/admin/wizard/VenueMapTile.tsx:138`, `components/admin/wizard/Step3SheetCard.tsx:152` |
+| Mechanism is per-site (label-string vs `sr-only` span), not one uniform sweep | §2 — `aria-label` replaces the accessible name, so a span on a labelled element is dead markup |
+| The two existing announcement labels keep their `aria-label` form | §2 — they name a destination the visible text does not |
+| Announcement hints on the four alert-action anchors are gated on `action.external` | §4 Group C — `external: false` builders return same-app hrefs (`lib/adminAlerts/alertActions.ts:61`, `lib/adminAlerts/alertActions.ts:90`, `lib/adminAlerts/alertActions.ts:127`) |
+| The tap-target half of the backlog item is already shipped and out of scope | `components/admin/PerShowActionableWarnings.tsx:281` carries `min-h-tap-min` |
+| No real-browser Playwright task; jsdom is sufficient | §7 — the diff has no layout, dimension, or visual-state change |
+| Scope covers `components/` AND `app/` | §1.2 — `app/admin/show/[slug]/CrewPageLink.tsx:25` is a same-family defect |
+| Three WCAG 2.5.3 failures inside the family are fixed; a repo-wide 2.5.3 audit is not | §2.2, §9 |
+| Empty-`alt` and empty-`label` guard rows are unreachable by construction, not defensive code | §5 — `components/admin/wizard/step3ReviewSections.tsx:3663` defaults `alt` upstream |
 
-### 1.1 Census (verified 2026-07-25 against `b449656`)
+## 1.2 Census (verified 2026-07-25 against `b449656`)
 
-**Count `_blank` as a value, not `target="_blank"` as an attribute literal.** The literal-attribute grep finds 18 anchors across 12 files in `components/`; the true family is **23 anchors across 17 files** once conditional spreads and `app/` are included:
+**Count `_blank` as a value, not `target="_blank"` as an attribute literal.** The literal-attribute grep finds 18 anchors in 12 files under `components/`; the true family is **23 anchors in 17 files** across both trees:
 
 ```
 grep -rn '_blank' components/ app/ | wc -l     # 23
@@ -26,84 +35,78 @@ grep -rl '_blank' components/ app/ | wc -l     # 17
 
 Two reasons the narrow count undercounts:
 
-1. **Conditional spreads** (4 sites) — the alert-action renderers apply the attribute through a spread, so no `target="_blank"` literal appears:
+1. **Conditional spreads** (4 anchors) apply the attribute through a spread, so no literal appears:
    ```tsx
    {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
    ```
-2. **`app/` is in the family** (1 site) — `app/admin/show/[slug]/CrewPageLink.tsx:25` is a shipped external anchor whose `aria-label="Open crew page"` (`:27`) carries no announcement. `components/`-only arithmetic (22/16) is correct but excludes a same-family defect for no stated reason, and a walker scoped to `components/` could never catch an app-level regression. **Decision: the sweep and its guard cover `components/` AND `app/`.**
+2. **`app/` is in the family** (1 anchor). `app/admin/show/[slug]/CrewPageLink.tsx:25` is shipped, and its `aria-label` at `app/admin/show/[slug]/CrewPageLink.tsx:27` carries no announcement. A guard scoped to `components/` could never catch an app-level regression.
 
-**2 already correct + 21 to fix.** No other external-navigation vectors exist: repository-wide scans found no `window.open(...)`, no form `target` attributes, and no `<Link target=…>` sites in either tree. (Recorded so the absence is a checked fact, not an assumption.)
+**2 already announce + 21 to fix.** Other external-navigation vectors, checked and absent: no `window.open(...)`, no form `target` attributes, no `<Link target=...>` in either tree. `app/` holds 13 `.mdx` files; none currently contains `_blank`, but §6 covers them so a future one cannot slip in.
 
 ## 2. Decision: mechanism is per-site, because the two mechanisms do not compose
 
-`aria-label` **replaces** an element's accessible name — confirmed empirically against the repo's installed `dom-accessibility-api@0.6.3`, not just assumed from the spec text. An appended `sr-only` span is therefore *silently ignored* on any element that already has an `aria-label`. So there is no single mechanism that fits all 21 sites:
+`aria-label` **replaces** an element's accessible name — verified empirically against the installed accessible-name implementations, not assumed from spec text. An appended `sr-only` span is therefore silently ignored on any element that already has an `aria-label`:
 
 | Site already has `aria-label`? | Mechanism |
 | --- | --- |
-| Yes | Extend the existing label string with ` (opens in a new tab)`. Do NOT add a span — it would be dead markup. |
-| No | Append a real space text node then `<NewTabHint />`, leaving the visible text as the name base. |
+| Yes | Extend the label string with ` (opens in a new tab)`. Do NOT add a span; it would be dead markup. |
+| No | Append a real space text node then the `NewTabHint` element, leaving visible text as the name base. |
 
-**Why not convert everything to `aria-label`:** it duplicates visible copy into a second string that drifts, and it re-opens WCAG 2.5.3 at every site. The `sr-only` suffix composes with whatever the visible text already says, so a future copy edit cannot desynchronize it.
+**Why not convert everything to `aria-label`:** it duplicates visible copy into a second string that drifts, and it re-opens WCAG 2.5.3 at every site. **Why not convert the two existing sites to the span:** their labels name a destination the visible text does not, and downgrading them would lose information.
 
-**Why not convert the two existing `aria-label` sites to the span:** their labels deliberately name a destination the visible text does not (`"…in Google Sheets"`, `"Open the venue in Google Maps"` vs. a bare icon/short label). Downgrading them would lose information. They stay as they are.
+### 2.1 NewTabHint primitive
 
-### 2.1 `NewTabHint` primitive
-
-New file `components/shared/NewTabHint.tsx`:
+A new component at `components/shared/` (planned file, no citation available yet) exporting `NewTabHint`, whose entire body renders one visually-hidden span containing exactly `(opens in a new tab)`:
 
 ```tsx
-/** Visually-hidden new-tab suffix for external links (spec 2026-07-25).
- *  MUST be preceded by a real space text node — see §3.1. */
 export function NewTabHint(): JSX.Element {
   return <span className="sr-only">(opens in a new tab)</span>;
 }
 ```
 
-One component, so the copy string exists once and §6's guard has a single import to match. **The JSDoc must not repeat the parenthesized copy string verbatim** — a lexical census would count the comment as an occurrence (§6.5 requires comment-stripping regardless, but the two defenses are cheap and independent).
+Its doc comment MUST NOT repeat the parenthesized copy string (a lexical census would count the comment) and MUST NOT contain an em dash (`DESIGN.md:350` bans them in copy, and `scripts/spec-lint.ts` scans code blocks). It is deliberately not a wrapper around `<a>`: the 21 sites have divergent class strings, testids, and conditional props, so a wrapper would force a 21-site refactor instead of a one-line addition.
 
-It is deliberately not a wrapper around `<a>`: the 21 sites have divergent class strings, `data-testid`s, and conditional props, and a wrapper would force a 21-site refactor instead of a one-line addition.
+### 2.2 Three pre-existing WCAG 2.5.3 failures get fixed, not preserved
 
-### 2.2 Two pre-existing WCAG 2.5.3 failures get fixed, not preserved
+WCAG 2.5.3 Label in Name (Level A) requires the accessible name to contain the visually presented text. Three family anchors fail today, and R1's append-only rule would have locked all three in:
 
-WCAG 2.5.3 Label in Name (Level A) requires the accessible name to contain the visually presented text. Two Group B anchors fail it today, and the R1 spec would have preserved both by only appending a suffix:
-
-| Site | Visible text | Current `aria-label` | Contains visible text? |
+| Site | Visible text | Current `aria-label` | Contains it? |
 | --- | --- | --- | --- |
-| `components/admin/wizard/step3ReviewSections.tsx:934` | `In sheet` (`:937`) | `Open the source sheet for ${label}` | **No** |
-| `components/crew/primitives/SourceLink.tsx:71` | `In sheet` (`:75`) | `View this section in the source sheet` | **No** |
+| `components/admin/wizard/step3ReviewSections.tsx:934` | `In sheet` at `components/admin/wizard/step3ReviewSections.tsx:937` | `Open the source sheet for ${label}` | No |
+| `components/crew/primitives/SourceLink.tsx:71` | `In sheet` at `components/crew/primitives/SourceLink.tsx:75` | `View this section in the source sheet` | No |
+| `components/admin/wizard/VenueMapTile.tsx:138` | `Directions` at `components/admin/wizard/VenueMapTile.tsx:125` | `Open the venue in Google Maps (opens in a new tab)` | No |
 
-Neither label contains `In sheet` as a contiguous string. `SourceLink` is **crew-facing**, so this is the higher-impact of the two.
+The third is one of the two sites §2 otherwise preserves: it announces correctly but still fails 2.5.3. Its `Directions` span at `components/admin/wizard/VenueMapTile.tsx:120` is **not** `aria-hidden`; the comment at `components/admin/wizard/VenueMapTile.tsx:141` calling the inner visual decorative does not remove the visible-label requirement. `SourceLink` is crew-facing, so it is the highest-impact of the three.
 
-**Decision: fix both while editing these exact lines.** Leaving a known Level-A failure on a line this spec is already rewriting, in a change whose entire purpose is the accessible naming of external links, is indefensible. New labels keep the destination information AND contain the visible words:
+**Decision: fix all three while editing these exact lines.** Leaving a Level-A failure on a line this spec is already rewriting, in a change whose subject is the accessible naming of external links, is not defensible. New labels contain the visible words AND keep the destination information. **Comma separators, never em dashes** (`DESIGN.md:350`):
 
-- `step3ReviewSections.tsx:934` → `` `In sheet — open the source sheet for ${label} (opens in a new tab)` ``
-- `SourceLink.tsx:71` → `In sheet — view this section in the source sheet (opens in a new tab)`
+- `components/admin/wizard/step3ReviewSections.tsx:934` → `` `In sheet, open the source sheet for ${label} (opens in a new tab)` ``
+- `components/crew/primitives/SourceLink.tsx:71` → `In sheet, view this section in the source sheet (opens in a new tab)`
+- `components/admin/wizard/VenueMapTile.tsx:138` → `Directions, open the venue in Google Maps (opens in a new tab)`
 
-The visible text stays untouched; only the label changes. §7 requires a label-in-name assertion for both (accessible name contains the visible string), which is the test that pins the fix.
+Visible text is untouched at all three; only labels change.
 
 ## 3. Exact copy
 
-`(opens in a new tab)` — matching the two existing sites verbatim, including lowercase and parentheses. Any new phrasing would make the codebase inconsistent with itself and defeat the set-equality guard.
+`(opens in a new tab)` — matching both shipped sites verbatim. Any new phrasing would make the codebase inconsistent with itself and defeat the §6 census.
 
 ### 3.1 The separator must be a real sibling space text node (MANDATORY)
 
-**The rule:** emit a space as its own text node between the visible label and the hint.
-
 ```tsx
-{label}<span className="sr-only"> (opens in a new tab)</span>   // ✗ "Open in Sheet(opens in a new tab)"
-{label} <NewTabHint />                                          // ✓
-{label}{" "}<NewTabHint />                                      // ✓ equivalent
+{label}<span className="sr-only"> (opens in a new tab)</span>   // WRONG: "Open in Sheet(opens in a new tab)"
+{label} <NewTabHint />                                          // correct
+{label}{" "}<NewTabHint />                                      // correct, equivalent
 ```
 
-**Why (accurately stated):** this is a property of `dom-accessibility-api@0.6.3` — the implementation Testing Library uses and therefore what every jsdom assertion in this repo observes. Verified empirically on the installed version: a space *inside* the span is dropped (`"Open in Sheet(opens…)"`), a sibling space is retained. The normative AccName 1.2 text-node step does **not** state that each text node is individually trimmed, so this is a harness-behavior fact, not a citation of the standard — and real browsers may well insert the separator themselves. The prescription stands regardless: we cannot depend on non-uniform behavior across the harness and multiple browser accessibility engines, and the explicit space is correct everywhere.
+**Why, stated accurately:** this is a property of the `dom-accessibility-api` implementations Testing Library uses, **not** normative AccName 1.2 — that standard's text-node step returns textual contents and does not say each node is individually trimmed, and real browsers may insert the separator themselves. The repo has **two** installed versions (`pnpm-lock.yaml` resolves `dom-accessibility-api` 0.5.16 for `@testing-library/dom` and 0.6.3 for `@testing-library/jest-dom`, which backs `toHaveAccessibleName`); both were probed and both drop a space written inside the span while retaining a sibling space. The prescription stands regardless: we cannot depend on non-uniform behavior across two harness versions and several browser accessibility engines.
 
-**Not a same-line rule.** Prettier compiles a literal JSX space and `{" "}` to the same `" "` child, and when it wraps onto separate lines it preserves the separator explicitly as `{" "}`. So the load-bearing requirement is "a real sibling space text node exists," not physical placement. (The R1 spec said same-line; that was an over-narrow restatement.)
+**Not a same-line rule.** Prettier compiles a literal JSX space and `{" "}` to the same `" "` child, and preserves the separator as `{" "}` when it wraps. The load-bearing requirement is that a real sibling space text node exists.
 
-This shape already shipped undetected in this codebase once — a `View details<span className="sr-only"> for …</span>` pattern read as `"detailsfor …"` for its whole life because tests matched a substring and never the boundary. Hence §7's **anchored** assertions.
+This shape shipped undetected here once, as `View details<span className="sr-only"> for …</span>` reading `"detailsfor …"`, because tests matched substrings and never the boundary. Hence §7's anchored assertions.
 
 ## 4. Site inventory and disposition
 
-### Group A — no `aria-label`; append a space + `<NewTabHint />` (11 sites)
+### Group A — no `aria-label`; append a space plus the NewTabHint element (11 anchors)
 
 | Site | Visible label |
 | --- | --- |
@@ -112,40 +115,44 @@ This shape already shipped undetected in this codebase once — a `View details<
 | `components/admin/wizard/step3ReviewSections.tsx:2964` | `Open in Sheet ↗` |
 | `components/admin/wizard/step3ReviewSections.tsx:3188` | `Open PDF ↗` |
 | `components/admin/wizard/step3ReviewSections.tsx:3386` | `Open the source sheet ↗` |
-| `components/admin/wizard/step3ReviewSections.tsx:3684` | `Open diagrams folder in Drive` + `ExternalLink` icon |
-| `components/admin/settings/DriveConnectionPanel.tsx:242` | `Open folder` + `ExternalLink` icon |
+| `components/admin/wizard/step3ReviewSections.tsx:3684` | `Open diagrams folder in Drive` plus icon |
+| `components/admin/settings/DriveConnectionPanel.tsx:242` | `Open folder` plus icon |
 | `components/admin/wizard/Step2Verify.tsx:500` | `Open the folder →` |
 | `components/admin/wizard/Step2Verify.tsx:550` | `Open the folder →` (second instance) |
-| `components/crew/sections/VenueSection.tsx:249` | `Open in Maps` — **crew-facing** |
+| `components/crew/sections/VenueSection.tsx:249` | `Open in Maps` (crew-facing) |
 | `components/shared/ReportModal.tsx:581` | `View on GitHub` |
 
-`VenueSection.tsx:249` additionally carries `rel="noreferrer"` without `noopener`. Modern browsers imply it, but every other site in this family uses `rel="noopener noreferrer"`; normalize it here since the line is being touched anyway.
+`components/crew/sections/VenueSection.tsx:250` carries `rel="noreferrer"` without `noopener`; normalize it to `rel="noopener noreferrer"` since the anchor is being edited anyway.
 
-### Group B — has `aria-label`; extend the label string (6 sites)
+### Group B — has `aria-label`; extend the label string (6 anchors)
 
-| Site | Current label | Becomes |
-| --- | --- | --- |
-| `components/admin/showpage/PublishedReviewModal.tsx:708` | `` `Open the source sheet for ${displayTitle}` `` | `` `… for ${displayTitle} (opens in a new tab)` `` |
-| `components/admin/wizard/Step3ReviewModal.tsx:408` | `` `Open the source sheet for ${title}` `` | `` `… for ${title} (opens in a new tab)` `` |
-| `components/admin/wizard/step3ReviewSections.tsx:934` | `` `Open the source sheet for ${label}` `` | **§2.2 rewrite** — `` `In sheet — open the source sheet for ${label} (opens in a new tab)` `` |
-| `components/admin/wizard/step3ReviewSections.tsx:3577` | `aria-label={alt}` | `` `${alt} (opens in a new tab)` `` |
-| `components/crew/primitives/SourceLink.tsx:71` | `View this section in the source sheet` | **§2.2 rewrite** — `In sheet — view this section in the source sheet (opens in a new tab)` |
-| `app/admin/show/[slug]/CrewPageLink.tsx:27` | `Open crew page` | `Open crew page (opens in a new tab)` — also normalize `rel="noreferrer"` → `rel="noopener noreferrer"` (`:26`) |
-
-`step3ReviewSections.tsx:3577` is a deliberate nameless-link guard (WCAG 2.4.4/4.1.2) on a staged-diagram image link whose name is the image `alt`. Appending the phrase preserves that guard — the name stays non-empty and still describes the image — so it is **not** exempt.
-
-### Group C — dynamic spread; announcement must be conditional (4 sites)
-
-All four share one shape — no `aria-label`, `{action.label}`, and a `↗` already gated on `action.external`:
-
-| Site | Anchor `data-testid` |
+| Site | Becomes |
 | --- | --- |
-| `components/admin/review/AttentionBanner.tsx:162-170` | `attention-banner-action-${a.alertId}` |
-| `components/admin/BellPanel.tsx:300-309` | `bell-action-${entry.alertId}-${i}` |
-| `components/admin/telemetry/HealthAlertsPanel.tsx:145-154` | `health-alert-action-${row.id}` |
-| `components/admin/showpage/AttentionMenu.tsx:208-218` | reads `item.alert.action` at `:183` |
+| `components/admin/showpage/PublishedReviewModal.tsx:708` | `` `Open the source sheet for ${displayTitle} (opens in a new tab)` `` |
+| `components/admin/wizard/Step3ReviewModal.tsx:408` | `` `Open the source sheet for ${title} (opens in a new tab)` `` |
+| `components/admin/wizard/step3ReviewSections.tsx:934` | §2.2 rewrite (label-in-name plus announcement) |
+| `components/admin/wizard/step3ReviewSections.tsx:3577` | `` `${alt} (opens in a new tab)` `` |
+| `components/crew/primitives/SourceLink.tsx:71` | §2.2 rewrite (label-in-name plus announcement) |
+| `app/admin/show/[slug]/CrewPageLink.tsx:27` | `Open crew page (opens in a new tab)`; also normalize `rel` at `app/admin/show/[slug]/CrewPageLink.tsx:26` |
 
-**The hint MUST be gated on the same `action.external` flag as the `↗` and the `target`.** Verified against the registry: `AlertActionLink = { label: string; href: string; external: boolean }` (`lib/adminAlerts/alertActions.ts:39`), and every `external: false` builder returns a same-app fragment href — `/admin?show=${slug}#share-access` (`:61-62`), `/admin?show=${slug}#${hash}` (`:90`), `:128`. Announcing a new tab on a same-page jump is a false statement to exactly the users who cannot see that it didn't happen. Pattern:
+Plus the §2.2 label-in-name-only fix at `components/admin/wizard/VenueMapTile.tsx:138`, which already announces.
+
+`components/admin/wizard/step3ReviewSections.tsx:3577` is a deliberate nameless-link guard (WCAG 2.4.4 and 4.1.2) on a staged-diagram image link named by its `alt`. Appending the phrase preserves that guard, so it is not exempt.
+
+### Group C — dynamic spread; announcement must be conditional (4 anchors)
+
+All four share one shape: no `aria-label`, `{action.label}`, and a `↗` already gated on the external flag.
+
+| Site | Gating expression |
+| --- | --- |
+| `components/admin/review/AttentionBanner.tsx:165` | `a.action.external` |
+| `components/admin/BellPanel.tsx:304` | `action.external` |
+| `components/admin/telemetry/HealthAlertsPanel.tsx:149` | `action.external` |
+| `components/admin/showpage/AttentionMenu.tsx:212` | `action.external`, from `item.alert.action` at `components/admin/showpage/AttentionMenu.tsx:183` |
+
+Note the gating expressions are **not** textually identical: `AttentionBanner` reads `a.action.external` while the other three read `action.external`. §6 requirement 4 is therefore expressed as whole-condition equality with the spread's own test, never identifier overlap.
+
+**The hint MUST be gated on the same condition as the `↗` and the `target`.** `AlertActionLink` is `{ label: string; href: string; external: boolean }` (`lib/adminAlerts/alertActions.ts:39`), and every `external: false` builder returns a **same-app** href: fragments at `lib/adminAlerts/alertActions.ts:61` and `lib/adminAlerts/alertActions.ts:90`, and a plain route (`/admin/onboarding`) at `lib/adminAlerts/alertActions.ts:127`. Not all are fragments, but none opens a tab, so announcing one would be a false statement to exactly the users who cannot see that it did not happen.
 
 ```tsx
 {action.label}
@@ -157,73 +164,79 @@ All four share one shape — no `aria-label`, `{action.label}`, and a `↗` alre
 
 | Input state | Behavior |
 | --- | --- |
-| `action.external === false` (Group C) | No hint, no `↗`, no `target` — internal link, nothing to announce |
-| `href` null/absent | Anchor is not rendered at all today (`href ? (…) : null`); unchanged — no hint on a non-link |
-| `alt` empty at `step3ReviewSections.tsx:3577` | Label must not become `" (opens in a new tab)"`. Fall back to a fixed descriptive name (`"Staged diagram (opens in a new tab)"`) so the link is never effectively nameless |
-| Group B interpolation yields empty (`${title}`/`${label}` empty) | The destination clause must survive: `"Open the source sheet (opens in a new tab)"`, never `"Open the source sheet for  (opens in a new tab)"` with a double space |
-| `action.label` empty (Group C) | Accessible name must not degrade to a bare `"(opens in a new tab)"`; if the label is empty the anchor is already effectively nameless today, so the hint is rendered but the test records the pre-existing gap rather than masking it |
-| A site gains `aria-label` later | Mechanism flips from span to label-string per §2; §6's guard accepts either, so it cannot silently regress to "neither" |
+| `action.external === false` (Group C) | No hint, no `↗`, no `target` |
+| `href` null or absent | Anchor is not rendered today (`href ? (…) : null`); unchanged, so no hint on a non-link |
+| Group B interpolation empty (`${title}`, `${displayTitle}`) | Destination clause must survive: `Open the source sheet (opens in a new tab)`, never a double space. `title` is reachable from a render seam, so §7 tests it |
+| Empty `alt` at `components/admin/wizard/step3ReviewSections.tsx:3577` | **Unreachable by construction.** `components/admin/wizard/step3ReviewSections.tsx:3663` defaults it (`alt={stub.alt?.trim() || ...}`), so a blank alt never reaches the anchor. No anchor-level fallback is added; §7 asserts the upstream default instead of a fallback that could never fire |
+| Empty `label` at `components/admin/wizard/step3ReviewSections.tsx:934` | **Unreachable by construction.** The value arrives through internal chrome and a static registry with no empty seam; no defensive branch is added |
+| `action.label` empty (Group C) | Anchor is already effectively nameless today; the hint renders, and the test records the pre-existing gap rather than masking it |
+| A site gains `aria-label` later | Mechanism flips per §2; §6 accepts either form, so it cannot regress to neither |
+
+## 5.1 Dimensional Invariants
+
+**None — this diff creates no parent-to-child dimension relationship.** Justification, since the project rule requires an explicit statement rather than silence: the only new element is a visually-hidden span. The `sr-only` utility is clip-based (absolute, 1px, `clip-path`), not `display: none`, so it contributes **zero** layout size and cannot change any parent's content box, flex distribution, or wrap behavior. No fixed-height or fixed-width parent gains a child. The Group B and §2.2 changes are string-only. Therefore no real-browser layout assertion is warranted, and §7 explains why jsdom suffices.
+
+## 5.2 Transition Inventory
+
+**None — no visual state changes.** The hint is static from first render, has no enter or exit, no hover, focus, or open state, and no animation. Group C's conditional render is driven by a per-alert data flag (`action.external`), not by an interactive state transition, so there is no pair to enumerate: an anchor's `external` value does not change while mounted. Nothing in this diff touches an `AnimatePresence`, a ternary render of competing visual states, or a `transition-*` utility.
 
 ## 6. Structural guard: per-anchor AST, not per-file lexical
 
-New `tests/styles/_metaNewTabAnnouncement.test.ts`.
+A new meta-test under `tests/styles/` (planned file, no citation available yet).
 
-**R1's per-file design was inadequate and is replaced.** After the sweep, all 17 family files contain a qualifying token, so a NEW unannounced anchor added to any of them would pass — and that is the single most probable regression. `step3ReviewSections.tsx` alone holds seven `_blank` anchors, where one import would satisfy the whole file. A wrong-anchor import also passes (lint rejects only a wholly unused import).
+**R1's per-file design was inadequate and is replaced.** After the sweep, all 17 family files contain a qualifying token, so a NEW unannounced anchor added to any of them would pass, and that is the most probable regression. `components/admin/wizard/step3ReviewSections.tsx` alone holds **six** `_blank` anchors (lines 932, 2964, 3188, 3386, 3575, 3684), where one import would satisfy the whole file. A wrong-anchor import also passes, since lint rejects only a wholly unused import.
 
-**Per-anchor analysis is well-precedented in this repo**, so R1's "AST is out of scope" tradeoff was based on a false premise: `tests/app/admin/showReviewModalLoader.test.tsx:708` parses TSX via `ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)`; `tests/admin/_metaInfoCodeActionability.test.ts:32` and `tests/adminAlerts/producerScopeAst.test.ts` do the same; `tests/cross-cutting/no-console-exemptions.test.ts:38` and `tests/auth/developerGatingContract.test.ts:153` use ts-morph `Project`.
+**Per-anchor analysis is well-precedented here,** so R1's "AST is out of scope" rested on a false premise: `tests/app/admin/showReviewModalLoader.test.tsx:708` parses TSX via `ts.createSourceFile`, as do `tests/admin/_metaInfoCodeActionability.test.ts:32` and `tests/adminAlerts/producerScopeAst.test.ts:1`; `tests/cross-cutting/no-console-exemptions.test.ts:38` and `tests/auth/developerGatingContract.test.ts:153` use ts-morph.
 
 Requirements:
 
-1. **Filesystem-walk** `components/**/*.tsx` AND `app/**/*.tsx` — never a hard-coded file list, so a NEW anchor fails by default.
-2. **Parse each file as TSX** and locate every JSX element that is an external link: `target="_blank"` as a literal attribute, OR an object-spread attribute whose object literal contains a `target: "_blank"` property (the Group C form). Matching the *value* is what makes the conditional-spread sites visible; the attribute-literal pattern is exactly what made this backlog item's own census wrong.
-3. **Per anchor**, require one of:
-   - an `aria-label` attribute whose string (template literal included) contains `opens in a new tab`, OR
-   - a `NewTabHint` element among its descendants, OR
-   - an inline `// no-newtab-announcement: <reason>` comment on or immediately above the anchor.
-4. **Conditional-spread anchors** additionally require that the hint be rendered under the same condition as the spread — assert the `NewTabHint` descendant sits inside a conditional whose test references the same identifier used to gate the spread. A hint rendered unconditionally on a Group C anchor MUST fail this guard, because §4's whole point is that it would lie on internal links.
-5. Assert the exemption list is **empty** at ship time, so any future exemption is a deliberate reviewed addition.
-6. **Copy-string census, comment-stripped.** Strip comments before matching, then assert set equality over the occurrences of `(opens in a new tab)`: exactly **9** — 1 in `NewTabHint.tsx`'s rendered span, 6 Group B labels, and the 2 pre-existing labels at `VenueMapTile.tsx:138` / `Step3SheetCard.tsx:152` that §2 preserves. Set equality over the located sites, not a forbid-regex, per the project's set-equality lesson. (R1 said "one plus five" and omitted the two existing sites it elsewhere promised to keep.)
+1. **Filesystem-walk** `components/**/*.tsx`, `app/**/*.tsx`, and `app/**/*.mdx` — never a hard-coded list, so a new anchor fails by default. `.mdx` currently has no `_blank`; including it keeps that true.
+2. **Parse as TSX and detect external links by VALUE, across every normal AST shape.** Recognize `target="_blank"`, `target={"_blank"}`, `target={cond ? "_blank" : undefined}` (either branch), and spread attributes whose object literal carries a `target: "_blank"` property — including an object referenced by an in-file identifier, resolved within the file. **Fail closed:** if a `target` value or spread object cannot be statically resolved, the anchor FAILS with a message telling the author to inline it or add an exemption. Silent fall-through is what made the original census wrong.
+3. **Restrict to link elements** (`<a>`, `<Link>`) so a non-link component carrying an unrelated `target` prop is not a false positive.
+4. **Per anchor**, require one of: an `aria-label` containing `opens in a new tab` **whose remainder, after removing that phrase, is non-empty** (so `aria-label="opens in a new tab"` — which would destroy the destination name while passing a naive phrase check — FAILS); a `NewTabHint` descendant **not inside an `aria-hidden="true"` subtree** (so `<span aria-hidden="true"><NewTabHint /></span>`, which suppresses the hint from the name, FAILS); or an inline `// no-newtab-announcement: <reason>` exemption.
+5. **Conditional-spread anchors** additionally require the hint to be rendered under a condition **whole-expression-equal** to the spread's own test (§4 Group C notes the four expressions are not textually uniform). An unconditionally rendered hint on such an anchor MUST fail.
+6. **Exemption list empty** at ship time, so any future exemption is a deliberate reviewed addition.
+7. **Copy-string census, comment-stripped.** Assert set equality over occurrences of `(opens in a new tab)`: exactly **9** — one in the NewTabHint span, six Group B labels, and the two pre-existing labels at `components/admin/wizard/VenueMapTile.tsx:138` and `components/admin/wizard/Step3SheetCard.tsx:152`. Set equality over located sites, not a forbid-regex.
 
 ## 7. Tests (TDD per task — failing test first)
 
-Structural coverage proves a token is present, not that the accessible name is right. Required:
+Structural coverage proves a token is present, not that the name is right. R2 demonstrated two implementations that satisfy every structural check while producing a broken name, and R1's "one site per group" minimum would have let them survive on nine untested Group A anchors. Therefore:
 
-- **Anchored accessible-name assertions.** `expect(link).toHaveAccessibleName(/^Open in Sheet \(opens in a new tab\)$/)` — anchored at both ends, so the §3.1 separator bug fails. A substring match would pass the buggy `"Open in Sheet(opens in a new tab)"`, which is how this shape shipped undetected before. `toHaveAccessibleName` is already in use (`tests/components/ReSyncButton.test.tsx:418`).
-- **Coverage minimum, raised from R1's "one per group":** every **Group C** site (4 — this is where a wrong implementation is most likely and most harmful), every site whose label this spec **rewrites** (the 2 in §2.2, plus the `alt` site), and at least **two** Group A sites and **two** other Group B sites spanning distinct files. The per-anchor guard in §6 carries exhaustive presence; these carry correctness.
-- **Group C negative test (highest-value test in the diff):** render each of the four renderers with `action.external === false` and assert the accessible name contains no new-tab phrasing and no `target` is set.
-- **Label-in-name assertions for §2.2:** accessible name contains the visible string (`In sheet`) for both rewritten sites — the test that pins the WCAG fix and would fail if someone "simplifies" the label back.
-- **Visible-text isolation:** clone the anchor, strip `.sr-only` descendants, assert the trimmed `textContent` still equals the intended visible label — catches an implementation that "fixes" the name by changing visible copy.
-- **Empty-interpolation tests:** `title`/`label`/`alt` empty → label still names the destination, never a bare `" (opens in a new tab)"` or a double space (§5).
-- **`NewTabHint` unit test:** renders `sr-only`; text is exactly the canonical string.
+- **Table-driven anchored accessible-name assertion for ALL 21 anchors.** One table, one case per anchor, `expect(link).toHaveAccessibleName(/^…\(opens in a new tab\)$/)` anchored at both ends so the §3.1 separator bug fails. A substring match would pass the buggy `"Open in Sheet(opens in a new tab)"`. `toHaveAccessibleName` is already used at `tests/components/ReSyncButton.test.tsx:418`.
+- **Group C negative test** (highest-value test in the diff): each of the four renderers with `action.external === false`, asserting the name contains no new-tab phrasing and no `target` is set.
+- **Label-in-name assertions for the three §2.2 sites:** accessible name contains the visible string (`In sheet`, `In sheet`, `Directions`). These pin the WCAG fix and fail if someone later "simplifies" a label.
+- **Visible-text isolation:** clone the anchor, strip `.sr-only` descendants, assert trimmed `textContent` still equals the intended visible label — catches a "fix" that changed visible copy.
+- **Empty-interpolation test for `title` only** (the one reachable seam per §5). For `alt` and `label`, assert the UPSTREAM default at `components/admin/wizard/step3ReviewSections.tsx:3663` instead; an anchor-level fallback test would be tautological because the empty value cannot reach the anchor.
+- **NewTabHint unit test:** renders a `sr-only` span whose text is exactly the canonical string.
+- **Existing assertions that must be updated** (found by sweeping the test tree for current Group B label literals; each is an exact-label expectation this diff changes): `tests/components/CrewPageLink.test.tsx:36`, `tests/components/crew/sourceLink.test.tsx:51`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:348`, `tests/components/admin/wizard/Step3ReviewModal.test.tsx:271`, `tests/components/admin/wizard/Step3ReviewModal.test.tsx:1242`, `tests/components/admin/wizard/step3ReviewSections.test.tsx:913`, `tests/components/admin/wizard/step3ReviewSections.test.tsx:923`. The last file's test names also describe the anchor label as mirroring the image `alt`, which stops being exact once the suffix is added; rename accordingly.
 
-Real-browser (Playwright) assertions are **not** required: this diff changes no layout, no dimensions, and no visual state — it adds visually-hidden text and extends label strings. jsdom computes no layout but does compute accessible names, which is the entire behavioral surface. (Recorded so a reviewer does not ask for a real-browser layout task on a diff with no layout dimension.)
+Real-browser Playwright assertions are not required: §5.1 establishes there is no layout dimension, and jsdom computes accessible names, which is the entire behavioral surface.
 
 ### 7.1 Why anchored equality is safe in jsdom here (verified, not assumed)
 
-jsdom computes no CSS, so `display:none`-gated text is NOT excluded from its accessible-name computation — a known divergence documented at `tests/components/ReSyncButton.test.tsx:345-356`, where a responsive label block forced that test to scope its assertion and defer real-browser accName equality to a Playwright spec. That divergence would make anchored equality unachievable at any site whose anchor contains CSS-gated text.
+jsdom computes no CSS, so `display:none`-gated text is NOT excluded from its accessible-name computation — a divergence documented at `tests/components/ReSyncButton.test.tsx:345`, where a responsive label block forced that test to scope its assertion and defer real-browser name equality to a Playwright spec. (That citation is a comment plus a scoped workaround, not an executable assertion of the divergence; it is cited as the project's record of the behavior, not as proof.)
 
-**Checked: none of the 21 anchors contains CSS-gated text.** Responsive-hidden text does exist in the target files — `Step2Verify.tsx:643`, `Step3ReviewModal.tsx:521-524` and `:610-614` — plus decorative `sm:hidden` drag handles and carets at `ReportModal.tsx:479` and `BellPanel.tsx:1123,1138`. **All of them sit outside the `_blank` anchors** (`Step3ReviewModal`'s anchor is `:403-412`; `Step2Verify`'s are `:500` and `:550`). Every in-anchor `<span>` is either plain text or `aria-hidden="true"` (the `↗` glyphs and icons), and `sr-only` is clip-based rather than `display:none`, so it is legitimately part of the name in both jsdom and real browsers.
+**Checked: none of the 21 anchors contains CSS-gated text.** Responsive-hidden text does exist in the target files — `components/admin/wizard/Step2Verify.tsx:643`, `components/admin/wizard/Step3ReviewModal.tsx:521`, `components/admin/wizard/Step3ReviewModal.tsx:610` — plus decorative `sm:hidden` handles and carets at `components/shared/ReportModal.tsx:479`, `components/admin/BellPanel.tsx:1123` and `components/admin/BellPanel.tsx:1138`. All sit **outside** the `_blank` anchors (`Step3ReviewModal`'s anchor is at `components/admin/wizard/Step3ReviewModal.tsx:405`; `Step2Verify`'s are at `components/admin/wizard/Step2Verify.tsx:500` and `components/admin/wizard/Step2Verify.tsx:550`). Every in-anchor span is plain text or `aria-hidden="true"`, and `sr-only` is clip-based, so it is legitimately part of the name in both jsdom and real browsers.
 
-**Implementation constraint:** if a site later gains CSS-gated text inside its anchor, scope the assertion the way `ReSyncButton.test.tsx` does rather than asserting whole-anchor equality, and say so in the test header.
+**Constraint:** if a site later gains CSS-gated text inside its anchor, scope that assertion the way `tests/components/ReSyncButton.test.tsx:345` does rather than asserting whole-anchor equality, and say so in the test header.
 
 ## 8. Quality gates
 
-- **Invariant 8 (impeccable dual-gate)** applies — the diff touches `components/` and `app/`. `/impeccable critique` AND `/impeccable audit`, P0/P1 fixed or explicitly deferred via `DEFERRED.md`, both run via subagents before the whole-diff Codex review.
-- **Pre-push:** `pnpm test` (full suite), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
-- Ship-time exemption list is empty (§6.5).
+- **Invariant 8 (impeccable dual-gate)** applies; the diff touches `components/` and `app/`. `/impeccable critique` AND `/impeccable audit` via subagents, P0/P1 fixed or deferred via `DEFERRED.md`, before the whole-diff Codex review.
+- **Pre-push:** `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
+- **`pnpm spec:lint`** on this document, clean, with output attached to every review dispatch (`docs/agents/spec-self-review.md:23`).
+- Ship-time exemption list empty (§6 requirement 6).
 
 ## 9. Out of scope (deliberate)
 
-- **The two already-correct sites.** Not touched (§2).
-- **Tap targets.** The other half of `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y` already landed (`min-h-tap-min` at `PerShowActionableWarnings.tsx:281`); this spec closes only the announcement half.
-- **`rel` normalization beyond the two sites already being edited** (`VenueSection.tsx:249`, `CrewPageLink.tsx:26`).
-- **Auditing label-in-name across the whole app.** §2.2 fixes the two failures found *inside this family*; a repo-wide 2.5.3 audit is a separate item. If more than those two turn up while implementing, file a backlog item rather than growing this diff.
-- **Non-anchor external navigation** — none exists (§1.1, checked).
+- **Tap targets** — already shipped (`components/admin/PerShowActionableWarnings.tsx:281`).
+- **`rel` normalization** beyond the two anchors already being edited (`components/crew/sections/VenueSection.tsx:250`, `app/admin/show/[slug]/CrewPageLink.tsx:26`).
+- **A repo-wide WCAG 2.5.3 audit.** §2.2 fixes the three failures found inside this family. If more surface while implementing, file a backlog item rather than growing this diff.
+- **Non-anchor external navigation** — none exists (§1.2, checked).
+- **Changing any visible copy.** Labels and hidden text only.
 
 ## 10. Files touched
 
-New: `components/shared/NewTabHint.tsx`, `tests/styles/_metaNewTabAnnouncement.test.ts`, plus behavioral test files per §7.
+New: the `NewTabHint` component under `components/shared/`, the meta-test under `tests/styles/`, and behavioral test files per §7.
 
-Edited: the 21 sites in §4, spanning **15 distinct files** — reconciling with §1.1: 17 files contain `_blank`, minus the 2 already-correct files (`VenueMapTile.tsx`, `Step3SheetCard.tsx`) this spec does not touch. Plus `BACKLOG.md` to close the item.
-
-Distinct edited files: `components/admin/PerShowActionableWarnings.tsx`, `components/admin/NoteWarningCard.tsx`, `components/admin/settings/DriveConnectionPanel.tsx`, `components/admin/wizard/step3ReviewSections.tsx`, `components/admin/wizard/Step2Verify.tsx`, `components/admin/wizard/Step3ReviewModal.tsx`, `components/admin/showpage/PublishedReviewModal.tsx`, `components/admin/showpage/AttentionMenu.tsx`, `components/admin/review/AttentionBanner.tsx`, `components/admin/BellPanel.tsx`, `components/admin/telemetry/HealthAlertsPanel.tsx`, `components/crew/sections/VenueSection.tsx`, `components/crew/primitives/SourceLink.tsx`, `components/shared/ReportModal.tsx`, `app/admin/show/[slug]/CrewPageLink.tsx`.
+Edited: the 21 anchors in §4 plus the §2.2 label fix at `components/admin/wizard/VenueMapTile.tsx:138`, spanning **16 distinct files** — the 17 files containing `_blank`, minus `components/admin/wizard/Step3SheetCard.tsx`, which is the only family file needing no change. Plus the seven existing test files in §7 and `BACKLOG.md` to close the item.
