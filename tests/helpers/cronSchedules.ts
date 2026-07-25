@@ -92,33 +92,38 @@ function scheduleCallAt(sql: string, start: number): string {
   return sql.slice(start); // unbalanced; caller's assertions will catch it
 }
 
+const escapeForRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export function cronEventsForJob(jobName: string, sources: string[]): CronEvent[] {
-  const scheduleAnchor = `cron.schedule('${jobName}'`;
-  const unscheduleAnchor = `cron.unschedule('${jobName}'`;
+  // Whitespace-tolerant, NOT a literal `cron.schedule('name'` anchor (whole-diff
+  // R12). Two migrations already write the call across lines —
+  // `20260504000001_bootstrap_nonces_signing_key.sql:36` and
+  // `20260629000002_app_events.sql:58` — so a reschedule in that style was
+  // invisible to discovery, leaving the previous block effective while both
+  // parity guards stayed green against a schedule production no longer used.
+  const job = escapeForRegex(jobName);
+  const scheduleRe = new RegExp(`cron\\.schedule\\(\\s*'${job}'`, "g");
+  const unscheduleRe = new RegExp(`cron\\.unschedule\\(\\s*'${job}'`, "g");
+  const anyUnscheduleRe = /cron\.unschedule\(\s*/g;
   const events: CronEvent[] = [];
 
   for (const source of sources) {
     const sql = stripSqlComments(source);
     const found: Array<{ at: number; event: CronEvent }> = [];
 
-    for (let i = sql.indexOf(scheduleAnchor); i !== -1; i = sql.indexOf(scheduleAnchor, i + 1)) {
-      found.push({ at: i, event: { kind: "schedule", block: scheduleCallAt(sql, i) } });
+    for (const m of sql.matchAll(scheduleRe)) {
+      found.push({
+        at: m.index,
+        event: { kind: "schedule", block: scheduleCallAt(sql, m.index) },
+      });
     }
-    for (
-      let i = sql.indexOf(unscheduleAnchor);
-      i !== -1;
-      i = sql.indexOf(unscheduleAnchor, i + 1)
-    ) {
-      found.push({ at: i, event: { kind: "unschedule" } });
+    for (const m of sql.matchAll(unscheduleRe)) {
+      found.push({ at: m.index, event: { kind: "unschedule" } });
     }
-    // Non-literal unschedules: `cron.unschedule(` not followed by a quote.
-    for (
-      let i = sql.indexOf("cron.unschedule(");
-      i !== -1;
-      i = sql.indexOf("cron.unschedule(", i + 1)
-    ) {
-      if (sql[i + "cron.unschedule(".length] === "'") continue; // literal, handled above
-      found.push({ at: i, event: { kind: "opaque-unschedule" } });
+    for (const m of sql.matchAll(anyUnscheduleRe)) {
+      // A quote here means some literal job name, already handled above.
+      if (sql[m.index + m[0].length] === "'") continue;
+      found.push({ at: m.index, event: { kind: "opaque-unschedule" } });
     }
 
     found.sort((a, b) => a.at - b.at);

@@ -14,6 +14,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SAMPLING_PERIOD_MS } from "@/lib/drive/watchErrors";
 import {
+  cronEventsForJob,
   effectiveScheduleBlock,
   effectiveScheduleBlockFrom,
   migrationFilesInApplyOrder,
@@ -46,7 +47,10 @@ const JOB_NAME = "fxav_cron_refresh_watch";
  */
 function scheduleFromMigrations(jobName: string): string {
   const block = effectiveScheduleBlock(jobName);
-  const match = new RegExp(`cron\\.schedule\\('${jobName}'\\s*,\\s*'([^']*)'`).exec(block);
+  // Whitespace-tolerant everywhere the call is matched (whole-diff R12): two
+  // migrations already write `cron.schedule(` with the arguments on their own
+  // lines, and a literal-anchored regex silently matches none of them.
+  const match = new RegExp(`cron\\.schedule\\(\\s*'${jobName}'\\s*,\\s*'([^']*)'`).exec(block);
   if (!match) throw new Error(`${jobName}: schedule literal not found in its own block`);
   return match[1]!;
 }
@@ -204,6 +208,56 @@ describe("SAMPLING_PERIOD_MS agrees with the canonical refresh-watch schedule", 
       ]);
       expect(block).toContain("300000");
       expect(block).not.toContain("999999");
+    });
+
+    test("the multiline call style is discovered — proved against REAL migrations", () => {
+      // Whole-diff R12: discovery anchored on the literal `cron.schedule('name'`,
+      // so a reschedule written across lines was invisible and the previous block
+      // stayed effective while production used the new one. Two migrations
+      // already use that style, so assert against them rather than a synthetic
+      // string — a synthetic-only test is what let this through (the lifecycle
+      // cases above all generate the one-line form).
+      expect(scheduleFromMigrations("app_events_prune")).toBe("17 4 * * *");
+
+      // And the real tree exercises the unschedule replay at the same time:
+      // `cleanup-bootstrap-nonces` is scheduled in the multiline style at
+      // 20260504000001_bootstrap_nonces_signing_key.sql:36 and then deliberately
+      // retired at 20260527000003_schedule_cron_jobs.sql:85. Discovery must find
+      // the multiline schedule AND still conclude the job no longer runs.
+      expect(() => scheduleFromMigrations("cleanup-bootstrap-nonces")).toThrow(/not scheduled/);
+      expect(
+        cronEventsForJob("cleanup-bootstrap-nonces", [
+          readFileSync(
+            join(
+              process.cwd(),
+              "supabase/migrations/20260504000001_bootstrap_nonces_signing_key.sql",
+            ),
+            "utf8",
+          ),
+        ]).some((e) => e.kind === "schedule"),
+        "the multiline schedule itself must be discovered, not merely outvoted",
+      ).toBe(true);
+    });
+
+    test("multiline unschedule is discovered too", () => {
+      expect(
+        effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+          scheduleSql("0 * * * *"),
+          "perform cron.unschedule(\n  'fxav_cron_refresh_watch'\n);",
+        ]),
+      ).toBeNull();
+    });
+
+    test("a multiline reschedule supersedes an earlier one-line schedule", () => {
+      const block = effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+        scheduleSql("0 * * * *"),
+        `perform cron.schedule(
+           'fxav_cron_refresh_watch',
+           '0 */3 * * *',
+           format($body$ select 1; $body$)
+         );`,
+      ]);
+      expect(block).toContain("0 */3 * * *");
     });
 
     test("a commented-out unschedule does not count", () => {
