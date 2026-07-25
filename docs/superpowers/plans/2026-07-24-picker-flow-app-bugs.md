@@ -549,3 +549,34 @@ First, the substantive residue is closed: every finding across seven rounds that
 Second, `docs/agents/spec-self-review.md` is explicit that prose rounds past convergence have negative marginal value, and `AGENTS.md` treats idle wall clock on an autonomous run as a first-order failure. Continuing to round 8 to chase citation residue would trade shipped behavior for document polish.
 
 **Decision:** the documents are declared execution-ready and implementation begins at Task 1. The accepted residual is accounting-only — the kind of drift rounds 5, 6, and 7 each turned up in new places while the underlying instructions stayed correct. It carries no behavioral risk, and the whole-diff review in Task 12 reviews the real code, which is the artifact that matters from here. Any further citation drift found during implementation is fixed in the commit that touches that text.
+
+## 19. Whole-diff review (Task 12): two tight scopes, and the round-8 infrastructure fault
+
+Task 12 ran as two scoped reviews rather than one whole-diff dispatch, per the split-tight-scope default in `AGENTS.md` (whole-diff dispatches died silently on four consecutive PRs; the recovery that converged was two tight file-list reviews).
+
+- **Part A — app behaviour.** `lib/http/hostRelativeRedirect.ts`, `lib/auth/**`, the six redirect sites, `_PickerInterstitial.tsx`, the catalog row, and their tests. Four rounds. A3 returned `BLOCKING` on a real invariant-9 defect: `clearIdentity.ts` collapsed a *returned* Supabase error and a *thrown* `signOut()` fault into one telemetry stage, so the two were indistinguishable in the logs. The repair split the sign-out path into four separately-caught boundaries with `stage` discriminators (`client_construction`, `sign_out_threw`, `sign_out_returned_error`, `residual_cookie_sweep`), which also fixed a documentation defect the same round surfaced: a sweep failure *after* successful revocation does not return the user to Mode B, because the session is already gone. **A4: `APPROVE`.**
+- **Part B — guards, CI wiring, ledger docs.** Seven rounds, every one `NEEDS-ATTENTION`, and the yield was consistently guard *mechanics*: a guard that greens on the thing it exists to catch. Rounds found the YAML comment stripper accepting commented-out wiring, the project↔`testMatch` pin able to pair one project's name with a later project's matcher, the signing-key check reading locality and validity from different lines, the redirect audit bypassable through five receiver spellings, and — twice — a regex that backtracked into truncating real IDs. Each was repaired with the adversarial case added as a fixture, which is why the fixtures list reads as a history of defeats.
+
+### Round 8 did not run: upstream outage
+
+The round-8 dispatch returned `status: "no_verdict"`, `failureShape: "nonzero_exit"`, three attempts, each ending:
+
+```
+unexpected status 503 Service Unavailable … auth error code: biscuit_baker_service_me_circuit_open
+```
+
+That is the reviewer's own service refusing the request, not a reaped process (`signal: null`, `killedReason: null` — distinct from the silent-death shape in `docs/agents/codex-silent-death-2026-07-24.md`) and not a clean review. `AGENTS.md` is explicit that `no_verdict` is an infrastructure fault and **not** evidence the reviewer found nothing, so it is not recorded as an approval.
+
+### Self-certification in its place, by probe rather than assertion
+
+Round 8's only job was to confirm the round-7 repairs, so that confirmation was done executably: each repair was probed against the **live shipped source** — `shoutyIds` extracted from the test file and transpiled with the repo's own esbuild, `DOCS_ONLY` and the signing-key matcher evaluated from the source lines — rather than re-asserted in prose. Twenty-two probes, all passing:
+
+| R7 finding | Repair | Probe result |
+| --- | --- | --- |
+| HIGH — the "cannot backtrack" claim was false; `### BL-something` parsed as `BL`, `### ABC/def` as `ABC` | Capture greedily *including* lowercase, then reject any token containing lowercase in code — no lookahead, so nothing to backtrack into | Both cited inputs now yield no ID; `SHAREHUB-FIDELITY` and `BL-SOUND-REDIRECT-GUARD` still parse whole |
+| HIGH — `DOCS_ONLY` still accepted `docs/**`, a documented build input through `pretest-gen.mjs` | Pattern narrowed to root-level markdown, issue templates, the licence | Rejects `docs/**`, `docs/…/x.md`, `app/**`, `lib/x.ts`, `**/*.md`; still accepts the four real docs paths |
+| MEDIUM — the signing-key regex validated a 64-hex *prefix*, so `<64hex>zz` passed while `pickerCookieSigningKey()` rejects it | Capture the whole value to end-of-line, anchored both ends | All four malformed values rejected, the real value accepted |
+| LOW — workflow display name still said `mobile-safari` only | Renamed to name both projects | Confirmed |
+| LOW — commit `0e55944ec`'s message retains the "genuinely PR-covered" overclaim | **Not repaired.** Rewriting a pushed commit message means force-pushing published history to fix a sentence; the claim is corrected in the test header, the archive, and later commit messages | Every surviving occurrence of the phrase sits inside its own retraction; zero live restatements across all three cited files |
+
+The residual is one sentence in a published commit message, which no gate reads and which later commits contradict in the same branch.
