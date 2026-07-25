@@ -286,7 +286,7 @@ WITH substitutions is not. Anything outside these shapes is reported as
 ### 6.4 Accepted limits (ratified, not oversights)
 
 - **Casing coverage is decided by literal SHAPE, and shape has two edges.** A name-shaped literal
-  is `/^[A-Za-z][A-Za-z0-9-]{0,29}$/`, so an attribute name containing `:` or `_`, or longer than 29
+  is `/^[A-Za-z][A-Za-z0-9-]{0,29}$/`, so an attribute name containing a colon or an underscore, or longer than 29
   characters, is not collected and gets no casing fixture. Every attribute this guard reads is at
   most 15 characters (`aria-labelledby`) and hyphen-only, and the alternative — enumerating reading
   positions — is the unbounded vector R18 closed. The second edge is that a name assembled from
@@ -394,12 +394,35 @@ WITH substitutions is not. Anything outside these shapes is reported as
   The parse now supplies literal ranges (string, template parts, regex, JSX text) and a lexical pass
   blanks only comment starts outside them. Comments become spaces rather than being deleted, so byte
   offsets and line numbers stay valid for callers that report positions.
-- **The lowercase-name tripwire is scoped by SEMANTIC POSITION.** Accessor-name scoping was evaded
-  five ways (review R12 MEDIUM 6) and a blanket literal walk flagged type positions, enum members and
-  ordinary values (review R13 MEDIUM 4). It now collects literals only where one can change a name
-  decision: either operand of an equality comparison, a `case` clause, an argument OR array/Set
-  receiver of `.has`/`.includes`, and a property name. Concatenated and runtime-built names remain
-  undetectable by any static scan, and that limit is stated rather than implied.
+- **Casing coverage is BEHAVIOURAL and reads no source. AMENDED at R19 — this supersedes the
+  semantic-position rule this section previously ratified.** Three source-reading models were tried
+  and each failed: accessor-name scoping (evaded five ways, R12), a blanket literal walk (false
+  positives on type positions and enum members, R13), regex over reading forms (`.includes` invisible,
+  R18), and literal shape (a regex literal, an unquoted property key, and reusing an excluded
+  spelling all invisible, R19). Every one of those had to enumerate something — positions, forms, or
+  node kinds — and the enumeration is what kept losing.
+
+  The guarantee is therefore measured at the output, not inferred from the source. The set of
+  attributes that can affect a computed accessible name is closed and **externally** defined (HTML
+  global attributes, `<a>` attributes, `role`, every ARIA state/property, and the JSX aliases
+  `className` / `htmlFor`). For each, scanning the same fixture with the name spelled in a different
+  case must produce the same verdict, in **both polarities** — a violating base and an announcing
+  base — because an announcing-only base cannot observe a read that SUPPRESSES a violation. No
+  reading form can evade this, because the source is never consulted; an attribute outside the closed
+  list cannot change an accessible name, so its casing cannot cause this defect.
+
+  The hand-built per-attribute fixtures remain, because they prove the specific behaviour each
+  attribute drives (a hidden hint, a naming override, a stripped separator) which a same-verdict
+  sweep cannot. The sweep proves coverage; the fixtures prove meaning. A meta-assertion requires
+  every fixture attribute to appear in the closed list, so the sweep cannot silently skip one.
+
+- **The lowercase-name literal tripwire is SECONDARY and is not a completeness proof.** It collects
+  name-shaped literals from the AST and flags any non-lowercase spelling of a known attribute name.
+  R19 established that source reading cannot be complete here — a regex literal and an unquoted
+  property key are both invisible to it — so it exists to catch the ACCIDENT (a camelCase literal
+  typed by hand during a sweep, which is how this class recurred once) and must never be cited as
+  evidence of coverage. Its exclusion list cannot name any attribute in the closed list, and cannot
+  retain an entry that has left the source; both are asserted.
 - **The undecidable-computed-key rule guards against accident, not obfuscation.** An expression-built
   `components` key (a template substitution, a concatenation, an `Array.join`) is reported, narrowed
   to keys whose source contains the fragment `compo`. That test is evadable by `String.fromCharCode`

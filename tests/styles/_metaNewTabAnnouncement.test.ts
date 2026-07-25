@@ -48,6 +48,110 @@ const CASE_INSENSITIVE_NAMES = new Set([
   "ping",
 ]);
 
+/** Attributes that can affect an element's computed accessible name or its visibility, from an
+ *  EXTERNAL authority rather than from this repo: HTML global attributes, `<a>` attributes, `role`,
+ *  every ARIA state/property, and the two JSX aliases (`className`, `htmlFor`). Deliberately a
+ *  closed list -- it is the one input to the casing sweep that does not depend on reading our own
+ *  source, which is what makes the sweep immune to reading form. An attribute outside this list
+ *  cannot change an accessible name, so its casing cannot cause the defect being guarded. */
+const NAME_AFFECTING_ATTRIBUTES: readonly string[] = [
+  // HTML global attributes
+  "accesskey",
+  "autocapitalize",
+  "autocorrect",
+  "autofocus",
+  "class",
+  "contenteditable",
+  "dir",
+  "draggable",
+  "enterkeyhint",
+  "hidden",
+  "id",
+  "inert",
+  "inputmode",
+  "is",
+  "itemid",
+  "itemprop",
+  "itemref",
+  "itemscope",
+  "itemtype",
+  "lang",
+  "nonce",
+  "popover",
+  "slot",
+  "spellcheck",
+  "style",
+  "tabindex",
+  "title",
+  "translate",
+  "writingsuggestions",
+  // <a> attributes
+  "href",
+  "target",
+  "download",
+  "ping",
+  "rel",
+  "hreflang",
+  "type",
+  "referrerpolicy",
+  // role + ARIA states and properties
+  "role",
+  "aria-activedescendant",
+  "aria-atomic",
+  "aria-autocomplete",
+  "aria-braillelabel",
+  "aria-brailleroledescription",
+  "aria-busy",
+  "aria-checked",
+  "aria-colcount",
+  "aria-colindex",
+  "aria-colindextext",
+  "aria-colspan",
+  "aria-controls",
+  "aria-current",
+  "aria-describedby",
+  "aria-description",
+  "aria-details",
+  "aria-disabled",
+  "aria-errormessage",
+  "aria-expanded",
+  "aria-flowto",
+  "aria-haspopup",
+  "aria-hidden",
+  "aria-invalid",
+  "aria-keyshortcuts",
+  "aria-label",
+  "aria-labelledby",
+  "aria-level",
+  "aria-live",
+  "aria-modal",
+  "aria-multiline",
+  "aria-multiselectable",
+  "aria-orientation",
+  "aria-owns",
+  "aria-placeholder",
+  "aria-posinset",
+  "aria-pressed",
+  "aria-readonly",
+  "aria-relevant",
+  "aria-required",
+  "aria-roledescription",
+  "aria-rowcount",
+  "aria-rowindex",
+  "aria-rowindextext",
+  "aria-rowspan",
+  "aria-selected",
+  "aria-setsize",
+  "aria-sort",
+  "aria-valuemax",
+  "aria-valuemin",
+  "aria-valuenow",
+  "aria-valuetext",
+  // JSX aliases for HTML attributes
+  "className",
+  "htmlFor",
+];
+
 /** Every string literal in `src` whose SHAPE could be an HTML attribute name, from the AST
  *  and from every position. Deliberately position-BLIND: the sibling collector below asks
  *  "is this literal in a name-deciding position", which means enumerating positions, and R18
@@ -1320,44 +1424,61 @@ describe("R6: scanner changes are pinned", () => {
       ],
     ];
 
-    // SELF-MAINTAINING, by SHAPE rather than by FORM. The first version of this check matched
-    // the scanner source with a regex over the reading forms it knew about, and R18 showed
-    // that is the same dead end R15/R16 already closed for another rule: `["download"]
-    // .includes(name)` was invisible to it, so a case-sensitive read had no fixture and no
-    // failure. A `new Set([...])` bound to a const -- which is how `rel` is read, one layer
-    // below what R18 reported -- was invisible too.
+    // COVERAGE IS NOW BEHAVIORAL AND READS NO SOURCE AT ALL. Three models have failed here:
+    // regex over reading forms (R18), then literal shape (R19). Shape lost to three ordinary
+    // reads -- a regex literal (`/^FetchPriority$/.test(name)`), an unquoted property key
+    // (`{FetchPriority: true}[name]`), and reusing a spelling that was already excluded
+    // (`name === "static"`, which I had recorded as a theoretical collision and which is in
+    // fact a live evasion). Every one of those is a NORMAL way to write the read, not the
+    // ratified concatenation limit.
     //
-    // So the question is no longer "which reading forms exist" (unbounded) but "which
-    // name-shaped literals exist" (decidable). Every one must be classified: covered by a
-    // casing fixture, or declared not-an-attribute with a reason. A new literal fails until
-    // someone decides which it is, and no reading form can hide it, because every form --
-    // alias, array, Set, switch case, property key -- still contains the literal.
-    const nameShaped = nameShapedLiterals(
-      readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
-    );
-    const covered = new Set(fixtures.map(([n]) => n.toLowerCase()));
-    const unclassified = nameShaped.filter(
-      (n) => !covered.has(n.toLowerCase()) && !NOT_AN_ATTRIBUTE_NAME.has(n),
-    );
+    // Any check that infers coverage FROM THE SOURCE has to enumerate something -- positions,
+    // forms, or node kinds -- and the enumeration is what keeps losing. So stop inferring.
+    // The set of attributes that can affect an accessible name is closed and externally
+    // defined (HTML global + anchor attributes, ARIA states/properties, `role`, and the two
+    // JSX aliases). For each, scanning the SAME fixture with the name in a different case must
+    // produce the SAME verdict. No reading form can evade that, because the source is never
+    // consulted -- and an attribute outside this list cannot change an accessible name, so
+    // casing there cannot cause the defect this guard exists to prevent.
+    for (const name of NAME_AFFECTING_ATTRIBUTES) {
+      // `href` and `target` are in the base fixture already and have hand-built discriminating
+      // fixtures above; adding a second copy only exercises the duplicate-fold path.
+      if (name === "href" || name === "target") continue;
+      // BOTH POLARITIES. An announcing-only base cannot observe a read that SUPPRESSES a
+      // violation: the verdict is "" either way. The first version of this sweep had only
+      // announcing fixtures and three case-sensitive-read mutations passed straight through
+      // it. The violating base is the one that catches suppression; the announcing base
+      // catches a read that manufactures a violation.
+      const onAnchorBad = (n: string): string =>
+        `const A=()=><a href="x" target="_blank" ${n}="v">Go</a>;`;
+      const onAnchorOk = (n: string): string =>
+        `const A=()=><a href="x" target="_blank" ${n}="v">Go <NewTabHint /></a>;`;
+      const onWrapperBad = (n: string): string =>
+        `const A=()=><a href="x" target="_blank">Go<span ${n}="v"><NewTabHint /></span></a>;`;
+      const onWrapperOk = (n: string): string =>
+        `const A=()=><a href="x" target="_blank">Go <span ${n}="v"><NewTabHint /></span></a>;`;
+      for (const build of [onAnchorBad, onAnchorOk, onWrapperBad, onWrapperOk]) {
+        const base = violations(build(name)).join(" | ");
+        for (const alt of [name.toUpperCase(), name[0]!.toUpperCase() + name.slice(1)]) {
+          expect(
+            violations(build(alt)).join(" | "),
+            `"${alt}" must be treated exactly like "${name}"`,
+          ).toBe(base);
+        }
+      }
+    }
+
+    // Every hand-built fixture attribute must appear in the closed list, or the sweep silently
+    // skips an attribute this guard demonstrably reads.
+    const affectingSet = new Set(NAME_AFFECTING_ATTRIBUTES.map((n) => n.toLowerCase()));
     expect(
-      unclassified,
-      "each name-shaped literal in the scanner needs a casing fixture or a NOT_AN_ATTRIBUTE_NAME entry",
+      fixtures.map(([n]) => n).filter((n) => !affectingSet.has(n.toLowerCase())),
+      "every fixture attribute must appear in NAME_AFFECTING_ATTRIBUTES",
     ).toEqual([]);
-    // The exclusion list must not be usable to SILENCE a real attribute. Entries are keyed by
-    // literal text, so declaring `target` or `rel` a non-attribute would exempt it from casing
-    // coverage with a one-line edit and a plausible-looking reason. Cross-check against the
-    // curated link-attribute set, which is maintained for the lowercase rule and is therefore
-    // independent of this list.
-    expect(
-      [...NOT_AN_ATTRIBUTE_NAME.keys()].filter((n) => CASE_INSENSITIVE_NAMES.has(n.toLowerCase())),
-      "a known attribute name cannot be declared NOT_AN_ATTRIBUTE_NAME",
-    ).toEqual([]);
-    // And the exclusions cannot rot: one that no longer appears in the source is stale, and a
-    // stale exclusion is how a real attribute name later slips in under a dead entry.
-    expect(
-      [...NOT_AN_ATTRIBUTE_NAME.keys()].filter((n) => !nameShaped.includes(n)),
-      "remove NOT_AN_ATTRIBUTE_NAME entries that no longer appear in the scanner",
-    ).toEqual([]);
+
+    // The hand-built fixtures above stay: they prove the SPECIFIC behaviour each attribute
+    // drives (a hidden hint, a naming override, a stripped separator), which a generic
+    // same-verdict sweep cannot. The sweep proves coverage; the fixtures prove meaning.
     const spellings = (n: string): string[] => [n.toUpperCase(), n[0]!.toUpperCase() + n.slice(1)];
     for (const [name, build] of fixtures) {
       const base = violations(build(name)).join(" | ");
@@ -1830,6 +1951,23 @@ describe("R6: scanner changes are pinned", () => {
     expect(
       uncovered,
       "add these attribute names to CASE_INSENSITIVE_NAMES so the lowercase rule covers them",
+    ).toEqual([]);
+
+    // The exclusion list must not name a real attribute. R19's third evasion was reusing an
+    // already-excluded spelling, so an entry naming a real attribute exempts it from the
+    // classification requirement above with a one-line edit and a plausible reason. Checked
+    // against the externally-defined closed list, not the curated subset.
+    const affecting = new Set(NAME_AFFECTING_ATTRIBUTES.map((n) => n.toLowerCase()));
+    expect(
+      [...NOT_AN_ATTRIBUTE_NAME.keys()].filter((n) => affecting.has(n.toLowerCase())),
+      "a real attribute name cannot be declared NOT_AN_ATTRIBUTE_NAME",
+    ).toEqual([]);
+
+    // Exclusions cannot rot either: an entry no longer present in the source is how a real
+    // attribute name later slips in under a dead classification.
+    expect(
+      [...NOT_AN_ATTRIBUTE_NAME.keys()].filter((n) => !shaped.includes(n)),
+      "remove NOT_AN_ATTRIBUTE_NAME entries that no longer appear in the scanner",
     ).toEqual([]);
   });
 
