@@ -30,6 +30,9 @@ Every command below was executed at plan-authoring time in the worktree. Output 
 | V13 | Chromium probe: today's shipped markup in a 280px container at a 1280px viewport | Defer `y744`, Ignore `y796` (idle); Defer `y840`, Ignore `y892` (armed) | **The defect is already live on desktop.** Drove the re-key from viewport to container width (spec §2.5) |
 | V14 | `rg -n "@container\|container-type" app components` | no matches | This is the repo's first container-query usage; the plan must not assume prior art |
 | V15 | Chromium probe: `@container` + `@min-[576px]:` fork at 280 / 512 / 560 / 576 / 720px, idle and armed | exactly one copy shown at every width; hidden copy `0x0` with `offsetParent === null`; safe placement in every case | The container-keyed fork works. Tailwind v4 compiles `@min-[Npx]:` to `@container (width >= Npx)` with no plugin |
+| V17 | Chromium probe: `@container` on a shrink-to-fit flex item, real card nesting | wrapper `0px`, buttons `26px`, card +18.89px taller | The containment-context trap. Forces `w-full` on the root (spec §4.1) |
+| V18 | Chromium probe: today's markup in the REAL nesting (card padding + action row + Retry sibling) | 320px rail: Ignore below Defer idle AND armed; 900px card: side by side, correct order | Confirms §2.5's premise against real DOM, not a bare container |
+| V19 | Chromium probe: `w-full @container` vs `@container` on the action row, at 320px and 900px | both avoid the collapse; `w-full` keeps full-width stacked buttons (278px) but pushes `Retry` off the line and adds ~52px card height at 900px | The accepted trade-off, flagged for the invariant-8 gate |
 | V16 | Chromium probe: armed row at the threshold | 512px leaves **20.75px** slack, 511px cleanly switches to stacked, 576px leaves **84.75px** | Threshold set to 576px, not 512px, for cross-platform font headroom (spec §4.2) |
 
 **Real-browser probe (spec §4.7).** The proposed markup was rendered in Chromium with the compiled token CSS before this plan was written. Measurements are in spec §4.6 and are the basis for Task 4's assertions — the geometry is measured, not predicted.
@@ -171,9 +174,12 @@ Two of them exist specifically because the other would not catch the bug:
 
 Tests 10 and 11 cover the compound `error + armed` exits that the flat five-state model missed (spec §4.8).
 
-**Implementation.** Restructure `components/admin/PendingPanelDiscardButtons.tsx` per spec §4.1: an `@container` wrapper, one local `pair(variant)` helper, stacked copy `[ignore, defer]` with `flex flex-col items-stretch gap-2 @min-[576px]:hidden`, inline copy `[defer, ignore]` with `hidden flex-wrap gap-2 @min-[576px]:flex`, live region and error block hoisted out so each renders once. Remove `basis-full sm:basis-auto`.
+**Implementation.** Restructure `components/admin/PendingPanelDiscardButtons.tsx` per spec §4.1: a `w-full @container` root (the `w-full` is mandatory — see below), one local `pair(variant)` helper, stacked copy `[ignore, defer]` with `flex flex-col items-stretch gap-2 @min-[576px]:hidden`, inline copy `[defer, ignore]` with `hidden flex-wrap gap-2 @min-[576px]:flex`, live region and error block hoisted out so each renders once. Remove `basis-full sm:basis-auto`.
 
-The literal `flex` token on the stacked container is load-bearing: without it the element is `display:block` and `items-stretch` is inert while a source guard checking only `flex-col`/`items-stretch` still passes.
+Two tokens are load-bearing and each has its own failure mode:
+
+- **`flex` on the stacked container.** Without it the element is `display:block`, `items-stretch` is inert, and a source guard checking only `flex-col`/`items-stretch` still passes.
+- **`w-full` on the `@container` root.** `container-type: inline-size` severs inline size from contents, and the root is a shrink-to-fit flex item in the card's action row (`components/admin/NeedsAttentionInbox.tsx:72`). Without a definite width the wrapper collapses to `0px` and the buttons shrink to `26px` — measured, silent, no error. Spec §4.1 carries the measurement.
 
 Update `tests/e2e/needs-attention-page.spec.ts:243` and `tests/e2e/needs-attention-page.spec.ts:250` to the **stacked** ids — that spec sets `MOBILE` (390px) at `tests/e2e/needs-attention-page.spec.ts:232`, so the stacked copy is the live one. Targeting inline there would click a `display:none` node and fail on actionability, which reads as a flake rather than a wiring error.
 
