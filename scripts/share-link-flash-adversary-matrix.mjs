@@ -652,30 +652,37 @@ function runVitest() {
  * (round-4 review, BLOCKING). Parse the JSON reporter instead of prose.
  */
 function runBrowser() {
-  let stdout = "";
+  // Write the report to a FILE, not stdout. Parsing stdout worked on the green
+  // path and failed on the red one — the failure path carries extra output
+  // around the document, which is exactly when this function has to be right.
+  const reportPath = join(ROOT, "tmp", "pw-report.json");
   try {
-    stdout = execFileSync("pnpm", ["test:e2e:share-link-flash", "--", "--reporter=json"], {
+    rmSync(reportPath, { force: true });
+  } catch {
+    /* nothing to clear */
+  }
+  try {
+    execFileSync("pnpm", ["test:e2e:share-link-flash", "--reporter=json"], {
       cwd: ROOT,
       stdio: "pipe",
       timeout: 600_000,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
+      // No `--` before the flag: pnpm forwards trailing args already, and an
+      // explicit `--` reaches Playwright as a POSITIONAL filter, leaving the
+      // config's `list` reporter in force.
+      env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
     });
     return [];
-  } catch (e) {
-    stdout = `${e.stdout ?? ""}`;
+  } catch {
+    /* red run — attribute the rows below */
   }
 
-  // The reporter writes one JSON document to stdout; pnpm may prefix banner
-  // lines, so start at the first brace.
-  const start = stdout.indexOf("{");
-  if (start === -1)
-    throw new Error("browser run failed with no JSON report — cannot attribute rows");
   let report;
   try {
-    report = JSON.parse(stdout.slice(start));
+    report = JSON.parse(readFileSync(reportPath, "utf8"));
   } catch {
-    throw new Error("browser run produced unparseable JSON — refusing to guess which rows red");
+    throw new Error(
+      `browser run failed but wrote no readable JSON report at ${reportPath} — refusing to guess which rows red`,
+    );
   }
 
   const failed = new Set();
