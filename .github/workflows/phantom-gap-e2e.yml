@@ -47,7 +47,22 @@ on:
       - "app/show/**"
       - "app/globals.css"
       - "playwright.config.ts"
+      - "tests/e2e/helpers/**"
       - ".github/workflows/phantom-gap-e2e.yml"
+      # WHAT THE TREES ARE MADE OF, not just what renders them. Two ledger rows
+      # pin exact occurrence COUNTS against the seeded show, so anything that
+      # changes what that show contains changes the expected result: reshape the
+      # Waldorf fixture so a stage-only travel leg gains a stage, and the blank
+      # eyebrow disappears — a stale row this job would otherwise never run to
+      # catch. The dependency and PostCSS entries are here for the same reason at
+      # a different layer: a React or Tailwind bump can move hydration timing or
+      # gap resolution underneath every assertion in this suite.
+      - "lib/**"
+      - "fixtures/shows/**"
+      - "supabase/seed*"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "postcss.config.mjs"
   # Close-out verification without waiting for a matching PR (AGENTS.md:
   # "local-passes-CI-fails is its own bug class").
   workflow_dispatch:

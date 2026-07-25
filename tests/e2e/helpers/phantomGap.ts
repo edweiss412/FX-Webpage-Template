@@ -50,6 +50,18 @@
  *     legitimately zero-sized EXPLICIT tracks, whose gutters do NOT collapse,
  *     turning a loud false red into a silent false green. No `auto-fit` /
  *     `auto-fill` exists in this codebase today.
+ *   - TRANSFORMED SVG / MathML. Those elements have no `offset*` metric, so a
+ *     zero rect is reported only when NO transform of any kind is set (see
+ *     `vanishes`). A genuinely zero-size one carrying any `transform` / `scale` /
+ *     `rotate` / `translate` therefore goes unreported — a false green, accepted
+ *     because the alternative (decomposing the matrix) is defeated by individual
+ *     transform properties, `matrix3d`, and rotations of degenerate boxes.
+ *   - THE LIGHT DOM, NOT THE FLAT TREE. The walk uses `parentElement` and
+ *     `querySelectorAll`, so it does not cross shadow boundaries: a hidden shadow
+ *     HOST above the root is invisible to the suppression walks, descendant
+ *     shadow trees are never entered, and slot ASSIGNED nodes are not measured
+ *     (only fallback children). This codebase has no shadow DOM — `attachShadow`
+ *     appears nowhere under `app/`, `components/`, or `lib/`.
  *
  * DESIGN DECISIONS, each answering a specific way the naive version was wrong:
  *   - AXIS SELECTION follows the container. A flex column charges `row-gap`
@@ -114,6 +126,13 @@ export type PhantomScan = {
   offenders: PhantomOffender[];
   /** Labels of every gapped container the walk actually examined. Non-vacuity evidence. */
   visited: string[];
+  /**
+   * Gaps whose USED value could not be read — a mixed `calc(10% + 5px)`, `min()`,
+   * `max()`, or `clamp()` serializes as the math expression rather than a length.
+   * The axis is skipped, so a caller MUST assert this is empty; otherwise the
+   * skip is indistinguishable from a clean surface.
+   */
+  unresolved: string[];
   itemsExamined: number;
 };
 
@@ -133,9 +152,10 @@ export type PhantomScan = {
  * a surplus stays in the offender list and fails, and a shortfall fails separately
  * as a stale row that must be deleted.
  *
- * `surface` and `width` are the caller's scoping keys — filter rows down to the
- * run in hand before calling `reconcilePhantomLedger`, which deliberately does no
- * scoping of its own.
+ * `surface` and `width` are the scoping keys, and `reconcilePhantomLedger` does
+ * the filtering itself — pass it the WHOLE ledger plus the scope of the run in
+ * hand. Pre-filtering still type-checks but defeats the whole-ledger validation
+ * pass, so a malformed row in another scope would go unreported.
  */
 export type PhantomLedgerRow = {
   surface: string;
@@ -160,6 +180,7 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
   return root.evaluate((rootEl) => {
     const offenders: { parent: string; child: string; axis: string; gap: number }[] = [];
     const visited: string[] = [];
+    const unresolved: string[] = [];
     let itemsExamined = 0;
     const label = (el: Element): string => {
       const own = el.getAttribute("data-testid");
@@ -263,24 +284,26 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       const offset =
         dim === "height" ? (el as HTMLElement).offsetHeight : (el as HTMLElement).offsetWidth;
       if (typeof offset === "number") return offset === 0;
-      // SVG / MathML: no offset metric. The question is only whether the zero
-      // rect could be TRANSFORM-induced, and only a zero SCALE can do that —
-      // `translate`, `rotate`, and `scale(1)` all leave a non-zero box collapsed
-      // to nothing only if it was already nothing. Testing `transform !== "none"`
-      // therefore excused every translated zero-size element, a false green. Read
-      // the matrix instead: `matrix(a, b, c, d, e, f)` collapses the box only
-      // when the relevant scale terms vanish.
-      const t = getComputedStyle(el).transform;
-      if (t === "none") return true;
-      const nums = t.match(/-?\d*\.?\d+(?:e[+-]?\d+)?/gi)?.map(Number) ?? [];
-      // 2D `matrix(a,b,c,d,e,f)` → width collapses when a and c are 0, height
-      // when b and d are 0. A 3D `matrix3d` (16 terms) is not decomposed; treat
-      // it as possibly-collapsing (skip) rather than guess.
-      if (nums.length === 6) {
-        const [a, b, c, d] = nums as [number, number, number, number];
-        return dim === "width" ? !(a === 0 && c === 0) : !(b === 0 && d === 0);
-      }
-      return false;
+      // SVG / MathML: no offset metric, so the only question left is whether the
+      // zero rect could be TRANSFORM-induced. Answered conservatively — report
+      // only when no transform of any kind is in play.
+      //
+      // Deliberately NOT a matrix decomposition. Three separate things defeat
+      // one: the INDIVIDUAL `scale` / `rotate` / `translate` properties are
+      // distinct inputs to the current transformation matrix and never appear in
+      // `transform` (verified: a `scale: 0` element reports `transform: "none"`,
+      // and Tailwind v4's `scale-*` utilities compile to exactly that property);
+      // `matrix3d` is not decomposable by term inspection; and a rotation of a
+      // degenerate box (100×0 turned 90°) collapses a physical dimension the
+      // scale terms alone do not describe. The cost is a documented false GREEN —
+      // a genuinely zero-size SVG carrying any transform goes unreported.
+      const cs2 = getComputedStyle(el);
+      return (
+        cs2.transform === "none" &&
+        cs2.scale === "none" &&
+        cs2.rotate === "none" &&
+        cs2.translate === "none"
+      );
     };
     /**
      * Realized track count on one axis. For a grid container the computed
@@ -309,12 +332,46 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
      * and `cs.width` / `cs.height` are used values in px, so the resolution is
      * direct.
      */
-    const gapPx = (raw: string, cs: CSSStyleDeclaration, dim: "height" | "width"): number => {
-      const v = parseFloat(raw);
-      if (!Number.isFinite(v)) return 0;
-      if (!raw.trim().endsWith("%")) return v;
-      const basis = parseFloat(dim === "width" ? cs.width : cs.height);
-      return Number.isFinite(basis) ? (v / 100) * basis : 0;
+    const gapPx = (
+      raw: string,
+      el: Element,
+      cs: CSSStyleDeclaration,
+      dim: "height" | "width",
+    ): number | null => {
+      const t = raw.trim();
+      // `normal` is the INITIAL value of both gap properties and is what the vast
+      // majority of containers report. For flex and grid it computes to zero.
+      // (Only multi-column layout gives `normal` a non-zero meaning, and a
+      // multicol container is not a flex/grid container, so it never reaches
+      // here.) Treating it as unresolved put every ordinary container in the
+      // `unresolved` list — which is how this was caught.
+      if (t === "normal") return 0;
+      if (t.endsWith("px")) return parseFloat(t);
+      if (t.endsWith("%")) {
+        const pct = parseFloat(t);
+        if (!Number.isFinite(pct)) return null;
+        // CONTENT box, computed from `clientWidth/Height` minus padding.
+        // `cs.width` is NOT the basis: under `box-sizing: border-box` Chrome
+        // resolves it to the BORDER-box used value (verified — a
+        // `width:40px; padding-inline:20px` border-box element reports `40px`
+        // while its content box is 0), so a percentage gap that actually
+        // resolves to 0 would be treated as chargeable.
+        const box =
+          dim === "width"
+            ? (el as HTMLElement).clientWidth -
+              parseFloat(cs.paddingLeft) -
+              parseFloat(cs.paddingRight)
+            : (el as HTMLElement).clientHeight -
+              parseFloat(cs.paddingTop) -
+              parseFloat(cs.paddingBottom);
+        return Number.isFinite(box) ? (pct / 100) * Math.max(0, box) : null;
+      }
+      // `calc(10% + 5px)`, `min()`, `max()`, `clamp()` — a mixed
+      // length-percentage serializes as the math expression itself, so there is
+      // no used value to read. `parseFloat` yields NaN, which silently became
+      // "no gap" and dropped the axis from examination. Returning null routes it
+      // to `unresolved`, where the caller can fail on it instead.
+      return null;
     };
 
     for (const el of [rootEl, ...Array.from(rootEl.querySelectorAll("*"))]) {
@@ -334,11 +391,21 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       // `column-gap` against HEIGHT — the exact inverse of the horizontal case.
       // Hardcoding the physical dims reported every item on the wrong axis in a
       // vertical tree: silent false greens on one axis, false reds on the other.
-      const vertical = cs.writingMode.startsWith("vertical");
+      // `sideways-rl` / `sideways-lr` are vertical writing modes too and do NOT
+      // start with "vertical" — matching only the `vertical-*` prefix measured
+      // both logical gaps against the wrong physical dimension there.
+      const vertical = /^(vertical|sideways)/.test(cs.writingMode);
       const rowDim = vertical ? ("width" as const) : ("height" as const);
       const colDim = vertical ? ("height" as const) : ("width" as const);
-      const rowGap = gapPx(cs.rowGap, cs, rowDim);
-      const colGap = gapPx(cs.columnGap, cs, colDim);
+      const rowGapPx = gapPx(cs.rowGap, el, cs, rowDim);
+      const colGapPx = gapPx(cs.columnGap, el, cs, colDim);
+      // A gap whose used value cannot be read is NOT silently treated as zero —
+      // that would drop the axis from examination with no trace. It is recorded
+      // so the caller can fail on it.
+      if (rowGapPx === null) unresolved.push(`${label(el)} row-gap: ${cs.rowGap}`);
+      if (colGapPx === null) unresolved.push(`${label(el)} column-gap: ${cs.columnGap}`);
+      const rowGap = rowGapPx ?? 0;
+      const colGap = colGapPx ?? 0;
       const isColumn = cs.flexDirection.startsWith("column");
       const wraps = isFlex && cs.flexWrap !== "nowrap";
       // Grid charges both axes; flex charges its main axis always and its cross
@@ -364,18 +431,21 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
       // single one. So a grid axis is admitted on its realized track count alone.
       const chargeableAxes = isGrid
         ? axes.filter(({ tpl }) => {
-            // A subgrid's tracks belong to its PARENT and are not reported here, so
-            // the track count is unknowable from this element. Fall back to the flex
-            // rule rather than skip the axis — over-reporting is recoverable, a
-            // silently unexamined axis is not.
-            //
-            // MATCHED BY PREFIX. A subgrid's resolved value is `subgrid` followed by
-            // one bracketed line-name set per used line (`subgrid [] [] []`), so an
-            // equality test almost never fired — and `trackCount` then stripped the
-            // brackets, counted the bare `subgrid` token as one track, and REJECTED
-            // the axis. The advertised fallback was unreachable and every subgrid
-            // gap went silently unexamined.
-            if (tpl.startsWith("subgrid")) return itemCount >= 2;
+            // SUBGRID. The resolved value is `subgrid` followed by ONE bracketed
+            // line-name set per used line (`subgrid [] [] []`), so the used LINE
+            // count is readable even though the track sizes live on the parent —
+            // and n lines means n-1 tracks. An `=== "subgrid"` test never fired
+            // against that serialization, and `trackCount` then stripped the
+            // brackets and counted the bare token as one track, so every subgrid
+            // axis was silently rejected. Falling back to `itemCount >= 2` was
+            // also wrong in its own right: a one-item subgrid across two parent
+            // tracks realizes the gutter between them.
+            if (tpl.startsWith("subgrid")) {
+              const lines = tpl.match(/\[[^\]]*\]/g)?.length ?? 0;
+              // lines - 1 tracks; >= 2 tracks realizes a gutter. No line sets at
+              // all (a bare `subgrid`) leaves the count unknowable — fall back.
+              return lines > 0 ? lines - 1 >= 2 : itemCount >= 2;
+            }
             return trackCount(tpl) >= 2;
           })
         : itemCount >= 2
@@ -392,7 +462,7 @@ export async function scanForPhantomGaps(root: Locator): Promise<PhantomScan> {
         }
       }
     }
-    return { offenders, visited, itemsExamined };
+    return { offenders, visited, unresolved, itemsExamined };
   }) as Promise<PhantomScan>;
 }
 
@@ -424,18 +494,21 @@ export function reconcilePhantomLedger(
 ): { remaining: PhantomOffender[]; stale: string[] } {
   const remaining = [...offenders];
   const stale: string[] = [];
+  // Validation runs over the WHOLE ledger, before any scope filtering. A row that
+  // can never be satisfied would otherwise sit there looking like accounted-for
+  // debt — `count: 0` consumes nothing AND never reports stale — and validating
+  // only the in-scope rows meant a malformed row stayed invisible until some
+  // later run happened to reconcile at its width.
   for (const row of ledger) {
-    if (row.surface !== scope.surface || row.width !== scope.width) continue;
-    // A row that can never be satisfied would sit in the ledger forever looking
-    // like accounted-for debt: `count: 0` consumes nothing AND never reports
-    // stale, and a fractional or negative count cannot describe an occurrence
-    // tally at all. Fail loudly at the row rather than silently mis-reconcile.
     if (!Number.isInteger(row.count) || row.count < 1) {
       throw new Error(
         `phantom ledger row has a non-positive-integer count (${row.count}): ` +
           `${row.parent} → ${row.child} (${row.axis}) on ${row.surface} @ ${row.width}`,
       );
     }
+  }
+  for (const row of ledger) {
+    if (row.surface !== scope.surface || row.width !== scope.width) continue;
     let consumed = 0;
     for (let i = remaining.length - 1; i >= 0 && consumed < row.count; i -= 1) {
       const o = remaining[i]!;

@@ -410,6 +410,14 @@ test.describe("phantom gap — /admin dashboard (real route)", () => {
           ` ${JSON.stringify(found.visited)}`,
       ).not.toEqual([]);
 
+      // A gap whose used value the walk could not read (a mixed `calc()`) means
+      // the axis was SKIPPED — indistinguishable from a clean surface unless it
+      // is asserted on.
+      expect(
+        found.unresolved,
+        `every gap on this surface resolved to a used length [@ ${width}]`,
+      ).toEqual([]);
+
       const { remaining, stale } = reconcilePhantomLedger(
         found.offenders,
         KNOWN_DASHBOARD_PHANTOM_ITEMS,
@@ -474,6 +482,13 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
    * Labels are BUILT from `SEED_DRIVE_FILE_ID` rather than pasted: the label a
    * scan emits embeds the show's drive_file_id, and a pasted copy would rot
    * silently against a reseed instead of failing as a stale row.
+   *
+   * ACCEPTED LIMIT, shared by every ledger row in this repo: the triple is a
+   * SECTION-level label, not an element identity. If this spacer were fixed while
+   * a different zero-width child appeared under the same breakdown section, the
+   * replacement would carry the same triple and consume this row silently. The
+   * helper's `reconcilePhantomLedger` documents why no stronger identity is
+   * available from the DOM here.
    */
   const KNOWN_SHOW_MODAL_PHANTOM_ITEMS: PhantomLedgerRow[] = (["rooms", "warnings"] as const).map(
     (section) => ({
@@ -527,22 +542,23 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       await expect(page.locator(`${MODAL} [data-testid*="-review-section-"]`).first()).toBeAttached(
         { timeout: 30_000 },
       );
-      // HYDRATION, PROVEN rather than assumed. Everything above is satisfied by
-      // streamed server HTML while the client bundle is still arriving, so the
-      // scan could finish before any effect-mounted subtree exists — and this
-      // case exists precisely to measure what hydration adds. React stamps
-      // `__reactFiber$…` onto every DOM node it takes ownership of, so its
-      // presence on the panel is the signal. Nothing in the markup substitutes:
-      // the rail's `aria-current`, for instance, is a `useState` INITIAL value
-      // and ships in the SSR output already.
-      await page.waitForFunction(
-        (sel) => {
-          const el = document.querySelector(sel);
-          return el !== null && Object.keys(el).some((k) => k.startsWith("__reactFiber$"));
-        },
-        `${MODAL} [data-review-modal-panel]`,
-        { timeout: 30_000 },
-      );
+      // HYDRATION AND ITS EFFECTS, proven rather than assumed. Everything above
+      // is satisfied by streamed server HTML while the client bundle is still
+      // arriving, so the scan could finish before any effect-mounted subtree
+      // exists — and this case exists precisely to measure what hydration adds.
+      //
+      // The signal is `[data-inert-root][inert]`: ReviewModalShell inerts the
+      // admin shell from a `useEffect` while the dialog is open
+      // (ReviewModalShell.tsx §S3C-2). Effects never run on the server, so the
+      // attribute cannot appear in streamed markup, and it lands only after the
+      // shell's effects have COMMITTED — strictly stronger than React's
+      // `__reactFiber$…` stamp, which proves only that React has claimed the node
+      // and can be true while passive effects are still pending. Nothing in the
+      // markup substitutes: the rail's `aria-current`, for instance, is a
+      // `useState` INITIAL value and ships in the SSR output already.
+      await expect(page.locator("[data-inert-root][inert]").first()).toBeAttached({
+        timeout: 30_000,
+      });
       // Settle: the panel must hold a real laid-out height before measuring.
       await expect
         .poll(
@@ -576,6 +592,11 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         `the walk descended into a rail section's panel card, not just the pane [@ ${width}] —` +
           ` gapped containers visited: ${JSON.stringify(found.visited)}`,
       ).not.toEqual([]);
+
+      expect(
+        found.unresolved,
+        `every gap on this surface resolved to a used length [@ ${width}]`,
+      ).toEqual([]);
 
       const { remaining, stale } = reconcilePhantomLedger(
         found.offenders,

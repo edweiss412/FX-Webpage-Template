@@ -1027,6 +1027,12 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
      * the DESIGN.md §7a idiom — edits a crew UI component and so pulls in the
      * invariant-8 impeccable dual gate. Carried as
      * BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW.
+     *
+     * ACCEPTED LIMIT: every `TravelRow` collapses to this one triple, so the
+     * count is per-section rather than per-row. One blank eyebrow disappearing
+     * while a different empty paragraph appeared in another travel row would
+     * still reconcile at 2. No stronger identity is available from the label the
+     * walk emits; see `reconcilePhantomLedger`.
      */
     const KNOWN_CREW_PHANTOM_ITEMS: PhantomLedgerRow[] = ([390, 1000] as const).map((w) => ({
       surface: "travel",
@@ -1058,6 +1064,11 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
             `the walk reached ${anchor} inside section-${section} [@ ${width}] —` +
               ` gapped containers visited: ${JSON.stringify(found.visited)}`,
           ).not.toEqual([]);
+
+          expect(
+            found.unresolved,
+            `every gap in section-${section} resolved to a used length [@ ${width}]`,
+          ).toEqual([]);
 
           const { remaining, stale } = reconcilePhantomLedger(
             found.offenders,

@@ -1520,6 +1520,14 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
         // into `remaining` and fails as a new offender; a shortfall fails as a stale
         // row. Neither a new instance beside a known one nor a row whose debt was
         // repaid can hide.
+        // A gap whose used value the walk could not read (a mixed `calc()`) means
+        // the axis was SKIPPED — indistinguishable from a clean surface unless it
+        // is asserted on.
+        expect(
+          found.unresolved,
+          `every gap in the modal resolved to a used length [${label} @ ${width}]`,
+        ).toEqual([]);
+
         const { remaining, stale } = reconcilePhantomLedger(found.offenders, KNOWN_PHANTOM_ITEMS, {
           surface: htmlPath,
           width,
