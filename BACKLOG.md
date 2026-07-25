@@ -8,6 +8,73 @@ Last reconciled: 2026-07-24 — 30 resolved entries graduated to the archive.
 
 ---
 
+## Drive-ID coverage guard — deliberately-undone parts (2026-07-25)
+
+Filed per the owner's scope decision during `fix/secondary-drive-id-nonblank`. The guard shipped in
+its minimal form — one live census query, a pure auditor, an empty exemption list, running in
+`unit-suite-db` (a worker of the required `unit-suite` aggregator). Four mechanisms were deliberately
+NOT built, each after adversarial review showed the attempted version was defeatable. Spec §10 and
+§11: `docs/superpowers/specs/data-quality/2026-07-25-secondary-drive-id-nonblank.md`.
+
+**Read the provenance before picking any of these up.** Seven spec rounds and three plan rounds
+(55 findings) are the analysis behind them; the reason each is open is that the obvious fix was tried
+and shown not to work, not that nobody thought about it.
+
+### BL-DRIVEID-CENSUS-QUERY-SELF-CHECK — detect a census-query regression that silently narrows the audited set
+
+**Status:** OPEN · **Severity:** medium · **Class:** GUARD COMPLETENESS
+
+If `lib/driveIdCoverage/introspect.ts`'s census query stops returning a column — a narrowed name
+predicate, a changed schema list, an added filter — that column is absent from both the census and the
+audit, and the suite is green. Four mechanisms were tried and each defeated: a required-tuple set and a
+`>= 23` count floor (both pass at exactly today's size once the census legitimately grows), a committed
+census artifact with a shape contract (a truncated artifact satisfied it), and a broad-predicate
+`broadCount` cross-check (vacuous — every `drive_file_id` match also matches `drive`, so narrowing the
+primary predicate left both assertions true).
+
+**Fix (when prioritized):** a genuinely independent source of truth — derive the column set a second
+way (`pg_attribute` rather than `information_schema`) and require the two to agree — or a mutation test
+that narrows the query and asserts the suite goes red. Today's control is code review of ~15 lines.
+
+### BL-VALIDATION-PARITY-DEFINITION-MATCH — validation parity still matches on bare constraint NAMES
+
+**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS
+
+`tests/db/validation-schema-parity.test.ts:256-284` asserts validation contains each expected
+`conname`. Constraint names are unique per TABLE, not per schema (measured), so a same-named constraint
+on a different public table satisfies it — as does one with the right name and a weakened definition
+such as `CHECK (true)`. The 2026-07-25 change extended that test's parse and count but deliberately did
+not re-architect it.
+
+**Fix (when prioritized):** compare `(schema, table, column)` tuples plus `pg_get_constraintdef`
+against the canonical templates in `lib/driveIdCoverage/audit.ts`, exactly as the local guard does.
+
+### BL-VALIDATION-TARGET-BINDING — `validation-schema-parity` cannot prove which database it connected to
+
+**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS · **Pre-existing**
+
+A libpq URI's authority is not its effective target: `?host=` / `hostaddr=` query parameters and
+duplicate keyword-form fields override it. A `TEST_DATABASE_URL` displaying the validation project's
+pooler authority can therefore connect to a loopback or any other database and pass every
+authority-based check. Affects the whole job, predates the 2026-07-25 change.
+
+**Fix (when prioritized):** interrogate the CONNECTED server for an identity fact rather than parsing
+the DSN string. Note an authority-parsing check (`postgres.<ref>` username + `*.pooler.supabase.com`
+host) was drafted and rejected during review as theatre against precisely this bypass —
+`scripts/lib/validation-target.ts`'s helpers do not fit either, since they validate an HTTPS Supabase
+API URL, not a Postgres DSN.
+
+### BL-DRIVEID-BEHAVIORAL-COVERAGE — 16 of 23 constrained Drive-ID columns have no execution probe
+
+**Status:** OPEN · **Severity:** low · **Class:** TEST COVERAGE
+
+`tests/db/driveFileIdNonblank.db.test.ts` behaviorally probes 7 of the 23 constrained columns
+(3 pre-existing + the 4 added 2026-07-25); the rest are covered by declaration only — the live guard
+proves a canonical CHECK is DECLARED, not that it BEHAVES. Mechanical, bounded, unglamorous: each
+addition needs an insert shape satisfying that table's NOT NULL siblings and composite keys.
+
+---
+
 ## BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET — probe the archived dashboard bucket
 
 **Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, adversarial review R3 finding 1). **Class:** layout hardening (coverage). **Effort:** S (seed + one case).
@@ -315,24 +382,6 @@ The six report-family codes (`REPORT_ORPHANED_LOST_LEASE`, `REPORT_LOOKUP_INCONC
 **Why not fixed now:** a robust, low-false-positive walker over `lib/parser/blocks/*.ts` is not cheaply achievable without a parser refactor. Header detection is heterogeneous — plain uppercase literals (`col0Upper === "VENUE"`), lowercase literals (`label === "hotel stays"`), and **regexes** whose matched header is computed, not a literal (`event.ts` `EVENT_DETAILS_HEADER_RE`, `hotels.ts` `/^HOTEL\s+RESERVATIONS?$/`, `rooms.ts` `gsFieldRe`) — and only `dress.ts`/`client.ts` import from `knownSections.ts`. The block-parser sources are also dense with intentional non-header uppercase literals ("NAME", "PHONE", "LED", "TRAVEL", "FRIDAY", "II", "N/A", warning codes), so a naive "every uppercase literal must be registered" walker would need a large hand-maintained exclusion list — the same drift-prone artifact this would replace.
 
 **Fix (when prioritized):** route ALL section-header detection through a single shared, introspectable constant/helper (e.g. a per-parser exported `SECTION_HEADERS` const the parsers match against), then have the meta-test import each parser's constant and assert it ⊆ `KNOWN_SECTION_HEADERS`. Add a proof test that an unregistered header fails. This closes the class structurally instead of by hand-maintained parallel lists.
-
----
-
-## Secondary-name Drive-ID columns — deferred from the drive_file_id nonblank CHECK (2026-07-02)
-
-The empty/whitespace `drive_file_id` DB-CHECK work (migration `20260702120200_drive_file_id_nonblank.sql`; spec `docs/superpowers/specs/data-quality/2026-07-02-empty-drive-file-id-check-design.md` §9) deliberately scoped itself to **every column named exactly `drive_file_id`** (14 public + 5 dev mirror). The two columns below are Drive-ID-bearing but carry a _secondary_ name and are **not reachable-empty**, so they were documented out of scope rather than silently dropped. The scope rule stays crisp ("every column named exactly `drive_file_id`").
-
-### BL-OPENING-REEL-DRIVE-ID-NONBLANK — nonblank CHECK on `shows.opening_reel_drive_file_id`
-
-**Status:** OPEN · **Severity:** low (not reachable-empty) · **Class:** DEFENSE-IN-DEPTH
-
-`shows.opening_reel_drive_file_id` (`supabase/migrations/20260501000000_initial_public_schema.sql:16`, nullable) has no nonblank CHECK. Its write source `extractOpeningReel()` returns non-empty-or-null, and any read of it flows through the JS read-path guard (`assertNonEmptyDriveFileId`), so it is not reachable-empty from untrusted input. **Fix (when prioritized):** add `check (opening_reel_drive_file_id is null or opening_reel_drive_file_id ~ '[^[:space:]]')` (+ dev mirror) following the same idempotent DROP-IF-EXISTS/ADD shape as the primary migration. Ref spec §9.
-
-### BL-CHECKPOINT-CURSOR-DRIVE-ID-NONBLANK — nonblank CHECK on `wizard_finalize_checkpoints.last_processed_drive_file_id`
-
-**Status:** OPEN · **Severity:** low (cursor copy of an already-CHECK'd id) · **Class:** DEFENSE-IN-DEPTH
-
-`wizard_finalize_checkpoints.last_processed_drive_file_id` (`supabase/migrations/20260501001000_internal_and_admin.sql:423`, nullable) is a cursor copy of a `drive_file_id` that is itself already covered by the primary nonblank CHECK, so a blank cannot originate here. **Fix (when prioritized):** add the nullable-form nonblank CHECK (+ dev mirror if the column is cloned) for defense-in-depth. Ref spec §9.
 
 ---
 
