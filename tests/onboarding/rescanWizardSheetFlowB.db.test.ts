@@ -7,6 +7,7 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
 import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
 import { rescanWizardSheet, type RescanDeps } from "@/lib/onboarding/rescanWizardSheet";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Flow-B blocker heal — headline end-to-end integration (real DB, production writers).
@@ -39,8 +40,9 @@ import { rescanWizardSheet, type RescanDeps } from "@/lib/onboarding/rescanWizar
  * carries non-zero milliseconds so the adjacent ms-truncation class cannot pass by accident.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "fb0fb0fb-2222-4222-8222-fb0fb0fb0fb0";
 const FOLDER = "rescan-flowb-folder";

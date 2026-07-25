@@ -2,14 +2,16 @@ import { afterAll, describe, expect, test } from "vitest";
 import postgres from "postgres";
 import { buildMonitorDigestModel } from "@/lib/notify/monitorDigest";
 import type { DigestBuilderSql } from "@/lib/notify/digest";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 // Spec 2026-07-16 §3/§9.2: DB-integration proof for the per-show autofix notices.
 // Seeds eligible applied sync_log rows of published shows plus non-applied /
 // unpublished / orphan rows and proves filtering, per-show fingerprint dedupe,
 // event semantics (older distinct notices survive), newest-first show order, and
 // exact tied-row item order under the sl.id asc tiebreak (run-unique uuids).
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;

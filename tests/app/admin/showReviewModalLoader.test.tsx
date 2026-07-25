@@ -617,7 +617,7 @@ describe("show review modal loader — Changes + alerts (§5.4/§5.1)", () => {
     const pillEl = screen.getByTestId("published-show-review-alert-pill");
     // Derived from the seeded fixture (anti-tautology): a pill that renders a
     // constant count can't track the input.
-    expect(pillEl.textContent).toMatch(new RegExp(`${state.alerts.length} to confirm`));
+    expect(pillEl.textContent).toMatch(new RegExp(`${state.alerts.length} issues?`));
     // The count must not ALSO render in the strip — the relocation is a move.
     expect(screen.queryByTestId("strip-alert-badge")).toBeNull();
   });

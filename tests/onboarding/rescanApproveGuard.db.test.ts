@@ -3,6 +3,7 @@ import postgres from "postgres";
 
 import { handleWizardStagedApprove } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Task 5b — the Step-3 checkbox `/approve` route must REFUSE a row demoted by a
@@ -20,8 +21,9 @@ import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
  * re-approve of a re-scan crew change via the publish checkbox.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "5b5b5b5b-1111-4111-8111-5b5b5b5b5b5b";
 const FOLDER = "rescan-approve-guard-folder";

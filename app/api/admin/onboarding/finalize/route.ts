@@ -6,7 +6,10 @@ import type { DriveListedFile } from "@/lib/drive/list";
 import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
-import { prepareOnboardingFiles as defaultPrepareOnboardingFiles } from "@/lib/sync/runOnboardingScan";
+import {
+  prepareOnboardingFiles as defaultPrepareOnboardingFiles,
+  PrepareOnboardingFileError,
+} from "@/lib/sync/runOnboardingScan";
 import { applyRescanDecisionUnderLock as defaultApplyRescanDecisionUnderLock } from "@/lib/onboarding/applyRescanDecisionUnderLock";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { parsedShowTitle } from "@/lib/onboarding/blockerDisplayName";
@@ -155,7 +158,9 @@ type PerRowResult =
         | "STAGED_PARSE_OUTDATED_AT_PHASE_D"
         // Publish freshness gate refusal (staging-overlay spec 2026-07-16 §3.5 call site 1).
         | "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH"
-        | "DRIVE_FETCH_FAILED";
+        | "DRIVE_FETCH_FAILED"
+        // Sheet-content branch of an inline re-parse fault (existing catalog row).
+        | "STAGED_PARSE_FAILED";
       re_apply_url: string;
       display_name?: string;
     };
@@ -475,7 +480,8 @@ async function demotePending(
     | typeof WIZARD_SESSION_SUPERSEDED
     | typeof STAGED_REVIEW_ITEMS_CORRUPT
     | typeof RESCAN_REVIEW_REQUIRED
-    | "DRIVE_FETCH_FAILED",
+    | "DRIVE_FETCH_FAILED"
+    | "STAGED_PARSE_FAILED",
 ): Promise<void> {
   await tx.query<{ demoted: boolean }>(
     `
@@ -817,13 +823,21 @@ async function processApprovedRow(input: {
         listFolder: async () => [metadata],
       });
       prepared = preparedFiles[0];
-    } catch {
+    } catch (err) {
       // Fail-closed (spec §4.4): a row we cannot re-verify is demoted, never published.
-      await demotePending(tx, wizardSessionId, row.drive_file_id, "DRIVE_FETCH_FAILED");
+      // The DEMOTE is identical either way; only the reported reason differs. A sheet
+      // whose content the parser could not read is not a Drive failure, and the
+      // DRIVE_FETCH_FAILED copy would send Doug to his share settings
+      // (BL-RESCAN-PREPARE-ERROR-GRANULARITY).
+      const code =
+        err instanceof PrepareOnboardingFileError && err.kind === "parse"
+          ? "STAGED_PARSE_FAILED"
+          : "DRIVE_FETCH_FAILED";
+      await demotePending(tx, wizardSessionId, row.drive_file_id, code);
       return {
         drive_file_id: row.drive_file_id,
         wizard_session_id: wizardSessionId,
-        code: "DRIVE_FETCH_FAILED",
+        code,
         re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
       };
     }

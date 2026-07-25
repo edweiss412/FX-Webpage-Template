@@ -174,25 +174,21 @@ for (const { a, n, x } of cells) {
   });
 }
 
-test("§11.9 nav: sheet link exact href + target, click closes the menu", async ({
+// attention-index §2.2: the inner sheet link is gone — the ROW is the
+// affordance. The href/target/rel contract moved to the card's destination chip
+// (§2.3, covered in jsdom by the AttentionBanner suite). What survives here is
+// the navigation contract: pressing a needs-look row closes the menu.
+test("§11.9 nav: a needs-look ROW carries no link and closes the menu when pressed", async ({
   page,
-  context,
 }) => {
   await boot(page, 0, 1, 0);
-  const link = page.locator(`${MENU} a`).first();
-  await expect(link).toHaveAttribute(
-    "href",
-    "https://docs.google.com/spreadsheets/d/PROBEFILE/edit#gid=0",
-  );
-  await expect(link).toHaveAttribute("target", "_blank");
-  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
-  const popupPromise = context.waitForEvent("page").catch(() => null);
-  await link.click();
+  const row = page.locator(`${MENU} [data-testid^="attention-menu-row-"]`).first();
+  await expect(row).toBeVisible();
+  expect(await row.evaluate((el) => el.tagName)).toBe("BUTTON");
+  expect(await row.locator("a").count()).toBe(0);
+  await expect(page.locator(`${MENU} a`)).toHaveCount(0);
+  await row.click();
   await expect(page.locator(MENU)).toHaveCount(0); // menu-close on activation (§3.4)
-  const popup = await Promise.race([popupPromise, new Promise((r) => setTimeout(r, 1500, null))]);
-  if (popup && typeof (popup as { close?: () => Promise<void> }).close === "function") {
-    await (popup as { close: () => Promise<void> }).close();
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -204,15 +200,22 @@ test("§11.9 nav: sheet link exact href + target, click closes the menu", async 
 const SEGMENT = '[data-testid="attention-pill-monitoring-segment"]';
 const MON_GROUP = '[data-testid="attention-monitoring-group"]';
 
-async function setItems(page: Page, a: number, n: number, s: number, d = false) {
+async function setItems(
+  page: Page,
+  a: number,
+  n: number,
+  s: number,
+  d = false,
+  longTitles = false,
+) {
   await page.evaluate(
-    ([aa, nn, ss, dd]) =>
+    ([aa, nn, ss, dd, lt]) =>
       (
         window as unknown as {
-          __setItems: (a: number, n: number, s: number, d: boolean) => void;
+          __setItems: (a: number, n: number, s: number, d: boolean, lt?: boolean) => void;
         }
-      ).__setItems(aa as number, nn as number, ss as number, dd as boolean),
-    [a, n, s, d],
+      ).__setItems(aa as number, nn as number, ss as number, dd as boolean, lt as boolean),
+    [a, n, s, d, longTitles],
   );
 }
 
@@ -243,25 +246,35 @@ async function focusedNodeDetached(page: Page) {
   return page.evaluate(() => document.querySelector('[data-was-focused="1"]') === null);
 }
 
+/** `setItems` is a React state SETTER: it returning proves the setter ran, not
+ *  that React committed the DOM. Sampling `focusedNodeDetached` immediately
+ *  after can read the pre-update tree and pass for the wrong reason, so poll for
+ *  the detach instead of asserting it once (plan R8 F2). */
+async function expectFocusedNodeDetached(page: Page) {
+  await expect.poll(() => focusedNodeDetached(page)).toBe(true);
+}
+
 test("rescue probe (a): focused actionable row removed → menu open, aria-expanded, settled focus = pill", async ({
   page,
 }) => {
   await boot(page, 1, 0, 1);
   await stampFocused(page, `${MENU} [data-testid^="attention-menu-row-"]`);
   await setItems(page, 0, 0, 1);
-  expect(await focusedNodeDetached(page)).toBe(true);
+  await expectFocusedNodeDetached(page);
   await expect(page.locator(MENU)).toBeVisible();
   await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
   await settledFocusIsPill(page);
 });
 
-test("rescue probe (b): focused needs-look LINK removed → menu open, aria-expanded, settled focus = pill", async ({
+test("rescue probe (b): focused needs-look ROW removed → menu open, aria-expanded, settled focus = pill", async ({
   page,
 }) => {
   await boot(page, 0, 1, 1);
-  await stampFocused(page, `${MENU} a`);
+  // §2.2: needs-look rows are buttons now, so the probe focuses the row. It
+  // still leaves the DOM on the shrink below, so the rescue stays non-vacuous.
+  await stampFocused(page, `${MENU} [data-testid^="attention-menu-row-"]`);
   await setItems(page, 0, 0, 1);
-  expect(await focusedNodeDetached(page)).toBe(true);
+  await expectFocusedNodeDetached(page);
   await expect(page.locator(MENU)).toBeVisible();
   await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
   await settledFocusIsPill(page);
@@ -292,8 +305,8 @@ for (const cell of [
   {
     boot: [1, 1, 0],
     to: [1, 0, 0],
-    focus: "link",
-    pick: "first",
+    focus: "row",
+    pick: "last",
     label: "(1,1,0)->(1,0,0) actionable remains",
   },
 ] as const) {
@@ -301,8 +314,7 @@ for (const cell of [
     page,
   }) => {
     await boot(page, cell.boot[0], cell.boot[1], cell.boot[2]);
-    const sel =
-      cell.focus === "link" ? `${MENU} a` : `${MENU} [data-testid^="attention-menu-row-"]`;
+    const sel = `${MENU} [data-testid^="attention-menu-row-"]`;
     const locator = cell.pick === "last" ? page.locator(sel).last() : page.locator(sel).first();
     await locator.focus();
     await page.evaluate(() => {
@@ -310,7 +322,7 @@ for (const cell of [
         document.activeElement.dataset.wasFocused = "1";
     });
     await setItems(page, cell.to[0], cell.to[1], cell.to[2]);
-    expect(await focusedNodeDetached(page)).toBe(true);
+    await expectFocusedNodeDetached(page);
     await expect(page.locator(MENU)).toBeVisible();
     await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
     await settledFocusIsPill(page);
@@ -402,12 +414,19 @@ test("oracle discriminates: a real close hides the menu; a stays-open transition
   // real close: drive to in-sync (D) — menu MUST disappear
   await setItems(page, 0, 0, 0);
   await expect(page.locator(MENU)).toHaveCount(0);
-  // drive to monitoring-only (interactive, does NOT auto-open), click to reopen
+  // drive to monitoring-only (interactive, does NOT auto-open), click to reopen.
+  // Gate on the pill actually being the INTERACTIVE shape first: the in-sync
+  // state renders an inert <span> carrying the same testid, so an immediate
+  // click can land on the pre-update node and prove nothing (plan R8 F2).
   await setItems(page, 0, 0, 1);
+  await expect(page.locator(`${PILL}[aria-expanded]`)).toHaveCount(1);
   await page.locator(PILL).click();
   await expect(page.locator(MENU)).toBeVisible();
-  // a stays-open transition (add an actionable) MUST keep it visible
+  // a stays-open transition (add an actionable) MUST keep it visible. Gate on
+  // the actionable row having committed, or this asserts against the previous
+  // monitoring-only DOM and is not discriminating.
   await setItems(page, 1, 0, 1);
+  await expect(page.locator(`${MENU} [data-testid^="attention-menu-row-"]`)).toHaveCount(1);
   await expect(page.locator(MENU)).toBeVisible();
 });
 
@@ -505,3 +524,250 @@ for (const [a, n, s0, label] of [
     expect(report.groupAnimations).toBe(0);
   });
 }
+
+// ---------------------------------------------------------------------------
+// §5 dimensional invariants (attention-index, plan Task 8b)
+//
+// These need an OPEN menu, so they live here rather than in
+// published-review-modal.layout.spec.ts: that harness serves server-rendered
+// HTML with no hydration, so a click cannot change React state and the menu can
+// never mount there. The pill's own tap band IS asserted there (T-TAP), as a
+// hit-behaviour probe rather than a rect measurement — its 44px comes from a
+// pseudo-element that getBoundingClientRect() on the anchor cannot see.
+//
+// `setItems` is a React state SETTER: awaiting it proves the setter ran, not
+// that React committed. The scroller and panel are ALREADY mounted, so a
+// locator.evaluate would happily measure the pre-update layout without ever
+// failing on attachment. Each case that changes state gates on the committed
+// DOM first.
+// ---------------------------------------------------------------------------
+
+const TAP_MIN = 44;
+const TOL = 0.5;
+
+test.describe("§5 dimensional invariants", () => {
+  test("every needs-you row clears the 44px tap floor", async ({ page }) => {
+    // boot(1, 1, 0) already mounts the two subjects — one actionable row and one
+    // former needs-look row, the latter being the one that used to be an
+    // unfloored <div>. No state change, so no commit gate is needed.
+    await boot(page, 1, 1, 0);
+    const rows = page.locator(`${MENU} [data-testid^="attention-menu-row-"]`);
+    await expect(rows).toHaveCount(2);
+    const heights = await rows.evaluateAll((els) =>
+      els.map((el) => el.getBoundingClientRect().height),
+    );
+    expect(heights).toHaveLength(2);
+    for (const h of heights) expect(h).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+  });
+
+  test("the scroll region clips at max-h-96 with 12 needs-you rows", async ({ page }) => {
+    await boot(page, 0, 1, 0);
+    await setItems(page, 0, 12, 0);
+    // commit gate: the exact post-update row count, before measuring
+    await expect(page.locator(`${MENU} [data-testid^="attention-menu-row-"]`)).toHaveCount(12);
+    const box = await page.locator(`${MENU} [class*="max-h-96"]`).evaluate((el) => ({
+      client: el.clientHeight,
+      scroll: el.scrollHeight,
+    }));
+    // max-h-96 = 24rem = 384px at the default root size
+    expect(box.client).toBeLessThanOrEqual(384 + TOL);
+    // and the content genuinely overflows, so the cap is doing work
+    expect(box.scroll).toBeGreaterThan(box.client + TOL);
+  });
+
+  test("a long title ellipsises instead of widening the panel", async ({ page }) => {
+    await boot(page, 0, 1, 0);
+    const panel = page.locator(MENU);
+    const before = await panel.evaluate((el) => el.getBoundingClientRect().width);
+    await setItems(page, 0, 1, 0, false, true);
+    // commit gate: the long title must have rendered before the panel is measured
+    const title = page.locator(`${MENU} [data-testid^="attention-menu-row-"] .truncate`).first();
+    await expect(title).toContainText("nobody has picked what happens next");
+    const after = await panel.evaluate((el) => el.getBoundingClientRect().width);
+    // w-[min(400px,calc(100vw-32px))] — the panel cannot grow past its box
+    expect(after).toBeLessThanOrEqual(400 + TOL);
+    expect(after).toBeCloseTo(before, 0);
+    // and the title is the thing that gave way
+    const clipped = await title.evaluate((el) => el.scrollWidth > el.clientWidth + 0.5);
+    expect(clipped).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §4 transition inventory (attention-index, plan Task 9)
+//
+// Two entrance tests need the panel observed BETWEEN mount and its entrance rAF
+// flip. boot() returns once the menu is visible, by which point that frame may
+// already have run, and racing setItems against the next frame gives a test
+// decided by scheduling — green locally, flaky in CI. So the frames are held
+// explicitly and released on demand.
+//
+// Teardown rests on Playwright page isolation: each test gets a fresh page, so
+// the patch cannot leak into the focus and geometry tests above. If this spec
+// ever moves to a shared page, __releaseFrames() must also run in an afterEach,
+// since it is what reinstalls the real frame functions.
+// ---------------------------------------------------------------------------
+
+async function holdFrames(page: Page) {
+  await page.addInitScript(() => {
+    const queue = new Map<number, FrameRequestCallback>();
+    let nextId = 1 << 20; // above any real id, so a stray native cancel is a no-op
+    const realRaf = window.requestAnimationFrame.bind(window);
+    const realCancel = window.cancelAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      const id = nextId++;
+      queue.set(id, cb);
+      return id;
+    };
+    // PAIRED cancellation: the component's effect cleanup calls
+    // cancelAnimationFrame. Leaving it native would let a held callback survive
+    // a cleanup that production would have cancelled, and the remount path is
+    // exactly what the no-retrigger test discriminates.
+    window.cancelAnimationFrame = (id: number) => {
+      if (queue.delete(id)) return;
+      realCancel(id);
+    };
+    (window as unknown as { __releaseFrames: () => void }).__releaseFrames = () => {
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCancel;
+      const pending = [...queue.values()];
+      queue.clear();
+      for (const cb of pending) cb(performance.now());
+    };
+    (window as unknown as { __heldFrameCount: () => number }).__heldFrameCount = () => queue.size;
+    // IDS, not just a count: a cancel-and-reschedule keeps the SIZE identical
+    // while replacing the callback, so a count can never see a re-trigger.
+    (window as unknown as { __heldFrameIds: () => number[] }).__heldFrameIds = () => [
+      ...queue.keys(),
+    ];
+  });
+}
+
+const releaseFrames = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __releaseFrames: () => void }).__releaseFrames());
+
+const heldFrameIds = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __heldFrameIds: () => number[] }).__heldFrameIds());
+
+const panelClasses = (page: Page) => page.locator(MENU).evaluate((el) => el.className.split(/\s+/));
+
+test.describe("§4 entrance and compound transitions", () => {
+  test("C → O1: panel enters from scale-95 opacity-0 to scale-100 opacity-100", async ({
+    page,
+  }) => {
+    await holdFrames(page);
+    await boot(page, 1, 0, 0);
+    // pre-frame: mounted, but the entrance flip has not run
+    expect(await panelClasses(page)).toEqual(expect.arrayContaining(["scale-95", "opacity-0"]));
+    await releaseFrames(page);
+    await expect.poll(async () => (await panelClasses(page)).includes("scale-100")).toBe(true);
+    expect(await panelClasses(page)).toEqual(expect.arrayContaining(["scale-100", "opacity-100"]));
+  });
+
+  test("last needs-you item clears MID-ENTRANCE: entrance completes in O2, no re-trigger", async ({
+    page,
+  }) => {
+    await holdFrames(page);
+    await boot(page, 0, 1, 1);
+    expect(await panelClasses(page)).toEqual(expect.arrayContaining(["scale-95", "opacity-0"]));
+
+    // stamp the panel node so a REMOUNT is detectable: the final classes alone
+    // cannot discriminate, since a remounted panel reaches them too.
+    await page.locator(MENU).evaluate((el) => {
+      (el as HTMLElement).dataset.entranceProbe = "1";
+    });
+    // The stamp alone is NOT enough (whole-diff review 2026-07-25): React
+    // reconciles this panel by component identity, so a cancelled-and-rescheduled
+    // entrance frame keeps the same DOM node and the stamp survives. Capture the
+    // queued frame IDS — cancellation removes an id, so a surviving id set proves
+    // the ORIGINAL entrance callback was never replaced.
+    const idsBefore = await heldFrameIds(page);
+    expect(idsBefore.length).toBeGreaterThan(0);
+
+    await setItems(page, 0, 0, 1);
+    // commit gate WHILE frames are still held — without it the released callback
+    // can run against O1 and the test never actually observed mid-entrance.
+    await expect(page.locator(`${MENU} [data-testid="attention-needsyou-heading"]`)).toHaveCount(0);
+    await expect(page.locator(`${MENU} [data-testid="attention-monitoring-heading"]`)).toHaveCount(
+      1,
+    );
+
+    // same node, still carrying the stamp → no remount
+    expect(
+      await page.locator(MENU).evaluate((el) => (el as HTMLElement).dataset.entranceProbe),
+    ).toBe("1");
+    // and every frame held before the update is STILL held → the entrance
+    // callback was neither cancelled nor rescheduled
+    const idsAfter = await heldFrameIds(page);
+    for (const id of idsBefore) expect(idsAfter).toContain(id);
+
+    await releaseFrames(page);
+    await expect.poll(async () => (await panelClasses(page)).includes("scale-100")).toBe(true);
+    expect(await panelClasses(page)).toEqual(expect.arrayContaining(["scale-100", "opacity-100"]));
+    expect(
+      await page.locator(MENU).evaluate((el) => (el as HTMLElement).dataset.entranceProbe),
+    ).toBe("1");
+  });
+
+  test("O1↔O2 collapse is INSTANT: both motion channels, on every element that unmounts", async ({
+    page,
+  }) => {
+    await boot(page, 1, 0, 1);
+    // Derive the expected transition-colors set FROM THE FRAMEWORK. Hardcoding it
+    // couples the test to a Tailwind minor — v4.2.4 emits ten properties,
+    // including three --tw-gradient-* custom properties.
+    const expected = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.className = "transition-colors";
+      document.body.appendChild(probe);
+      const v = getComputedStyle(probe).transitionProperty;
+      probe.remove();
+      return v;
+    });
+
+    const report = await page.evaluate(() => {
+      const instant = (el: Element) => {
+        const cs = getComputedStyle(el);
+        return {
+          noTransition:
+            cs.transitionProperty === "none" ||
+            cs.transitionDuration.split(",").every((d) => parseFloat(d) === 0),
+          animationName: cs.animationName,
+        };
+      };
+      const pick = (sel: string) => document.querySelector(sel);
+      const targets = [
+        '[data-testid="attention-monitoring-group"]',
+        '[data-testid="attention-needsyou-heading"]',
+        '[data-testid="attention-monitoring-heading"]',
+      ].map((sel) => ({ sel, el: pick(sel) }));
+      const rows = [...document.querySelectorAll('[data-testid^="attention-menu-row-"]')];
+      return {
+        targets: targets.map((t) => ({
+          sel: t.sel,
+          present: !!t.el,
+          ...(t.el ? instant(t.el) : {}),
+        })),
+        rows: rows.map((el) => {
+          const cs = getComputedStyle(el);
+          return { transitionProperty: cs.transitionProperty, animationName: cs.animationName };
+        }),
+      };
+    });
+
+    for (const t of report.targets) {
+      expect(t.present, `${t.sel} present`).toBe(true);
+      // BOTH channels: zero transition duration alone would pass a keyframe
+      // animation such as animate-pulse, which leaves every duration at zero.
+      expect(t.noTransition, `${t.sel} ${JSON.stringify(t)}`).toBe(true);
+      expect(t.animationName, `${t.sel} animation`).toBe("none");
+    }
+    expect(report.rows.length).toBeGreaterThan(0);
+    for (const r of report.rows) {
+      // set equality against the probe, not a literal: robust across Tailwind
+      // versions AND against `transition-all`, whose computed value is `all`
+      expect(r.transitionProperty).toBe(expected);
+      expect(r.animationName).toBe("none");
+    }
+  });
+});

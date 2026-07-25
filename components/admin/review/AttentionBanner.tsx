@@ -155,9 +155,33 @@ export function AttentionBanner({
       ? a.autoClearNote
       : null;
 
+  // §2.3: a needs-you item that has no resolve button of its own. Its way out
+  // lives elsewhere, so the footer names the destination instead of repeating
+  // the row's link. Monitoring (self_heal) keeps its auto-clear note.
+  const isClearingNeedsYou = !item.actionable && item.clearingKind !== "self_heal";
+
+  // EXTERNAL-ONLY, per §2.3: "An internal-destination chip is therefore not
+  // implemented." The `external` gate is the WHOLE mechanism — an earlier draft
+  // also carried a self-link guard comparing the action's target section to the
+  // card's, but once the chip requires `external` that guard can never fire
+  // (it required `!external`), so it and the `effectiveSectionId` prop it needed
+  // were provably dead and are gone (whole-diff review round 2, 2026-07-25).
+  const destinationChip: ReactNode =
+    isClearingNeedsYou && a.action?.external ? (
+      <a
+        href={a.action.href}
+        data-testid={`attention-banner-destination-${a.alertId}`}
+        {...(a.action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+        className="inline-flex min-h-tap-min items-center gap-1 text-xs font-medium text-warning-text underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg focus-visible:outline-none"
+      >
+        Google Sheets
+        <span aria-hidden="true"> ↗</span>
+      </a>
+    ) : null;
+
   const footerLeft: ReactNode = (
     <>
-      {a.action ? (
+      {a.action && !isClearingNeedsYou ? (
         <>
           <a
             href={a.action.href}
@@ -182,7 +206,13 @@ export function AttentionBanner({
     </>
   );
 
-  const footerRight: ReactNode = autoClearNote ? (
+  // Once the footer names a destination, "it clears when you've done it" is the
+  // only thing the note could mean — so the chip REPLACES it. And a needs-you
+  // item with no action keeps neither: a reachable needs-look code with no
+  // registered action must not be left wearing a monitoring card's note.
+  const footerRight: ReactNode = isClearingNeedsYou ? (
+    destinationChip
+  ) : autoClearNote ? (
     <span
       data-testid={`attention-banner-autoclear-${a.alertId}`}
       className="text-xs text-text-subtle italic"

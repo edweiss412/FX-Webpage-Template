@@ -3,6 +3,7 @@ import postgres from "postgres";
 
 import { PostgresOnboardingScanTx, type PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Audit idx40/#180 — a first-seen show THIS session created Held that reaches the
@@ -29,8 +30,9 @@ import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/ro
  * env vars are pinned to local loopback (the route's databaseUrl() prefers
  * TEST_DATABASE_URL ?? DATABASE_URL). CI-validated — not run against shared local.
  */
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "40d40d40-1180-4180-8180-40d40d40d40d";
 const FOLDER = "d10-created-show-folder";

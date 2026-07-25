@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 /**
- * Attention-menu clearing groups
- * (spec 2026-07-21-attention-needs-attention-split §3.4, §11.6-§11.8).
+ * Attention-menu groups
+ * (spec 2026-07-24-attention-index-consolidation §2.1/§2.2, superseding the
+ * three-group split in 2026-07-21-attention-needs-attention-split §3.4).
  *
- * Failure modes caught: a needs-look row acquiring extra interactive
- * descendants; external links missing the full rel contract; internal links
- * leaking target/rel; monitoring items enumerated instead of summarized; a
- * dead link on a failed action resolution; a link click leaving the menu open.
+ * Failure modes caught: a third group surviving the merge; a needs-you row
+ * regressing to a non-pressable shape or regaining an inner link; the
+ * fail-visible boundary row losing its second line; hint/subtitle precedence
+ * inverting; monitoring items summarized instead of enumerated, or gaining an
+ * interactive descendant; a heading moving relative to the scroll container.
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,93 +73,208 @@ function renderMenu(items: AttentionItem[], onClose = vi.fn()) {
   return onClose;
 }
 
-describe("needs-a-look group", () => {
-  it("external sheet link carries exact target + full rel, and label", () => {
-    renderMenu([
-      needsLook("n1", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
-    ]);
-    const a = screen.getByRole("link", { name: /Open in Sheet/ });
-    expect(a).toHaveAttribute("href", SHEET);
-    expect(a).toHaveAttribute("target", "_blank");
-    expect(a).toHaveAttribute("rel", "noopener noreferrer");
+describe("merged needs-you rows (attention-index §2.2)", () => {
+  // Spec test 3. The row IS the affordance now: one pressable button, no inner
+  // link. Scoped to the row's own testid, never the panel — a panel-wide link
+  // query would pass with a link rendered anywhere else.
+  it("a former needs-look row is a BUTTON that jumps, with NO <a> descendant", () => {
+    const onClose = vi.fn();
+    const onNavigate = vi.fn();
+    const calls: string[] = [];
+    const ITEM = needsLook("n1", "SHEET_UNAVAILABLE", {
+      label: "Open in Sheet",
+      href: SHEET,
+      external: true,
+    });
+    const pillRef = createRef<HTMLButtonElement>();
+    render(
+      <AttentionMenu
+        items={[ITEM]}
+        open
+        onClose={vi.fn(() => calls.push("close")) as unknown as () => void}
+        onNavigate={vi.fn((i) => {
+          calls.push("navigate");
+          onNavigate(i);
+        })}
+        pillRef={pillRef}
+      />,
+    );
+    void onClose;
+    const row = screen.getByTestId(`attention-menu-row-${ITEM.id}`);
+    expect(row.tagName).toBe("BUTTON");
+    expect(row.querySelectorAll("a")).toHaveLength(0);
+    fireEvent.click(row);
+    expect(calls).toEqual(["close", "navigate"]);
+    expect(onNavigate).toHaveBeenCalledWith(ITEM);
   });
 
-  it("internal anchor carries neither target nor rel", () => {
-    renderMenu([
-      needsLook("n2", "SHOW_UNPUBLISHED", {
-        label: "Go to Overview",
-        href: "/admin?show=x#overview",
-        external: false,
-      }),
-    ]);
-    const a = screen.getByRole("link", { name: /Go to Overview/ });
-    expect(a).not.toHaveAttribute("target");
-    expect(a).not.toHaveAttribute("rel");
+  // Spec test 3b — the ONE case where the merged rule changes observable output.
+  // Deliberate (§2.2): the fail-visible path exists so an unclassified item still
+  // surfaces, and surfacing it with its identity text beats a bare title. The old
+  // one-line render was an artefact of two renderers differing, not a decision.
+  it("fail-visible boundary row gains its subtitle (was title-only)", () => {
+    const BOUNDARY = item("b1", "ROLE_FLAGS_NOTICE", {
+      actionable: false,
+      menuTitle: "Sheet unavailable",
+      menuSubtitle: "Crew · John Redcorn",
+    });
+    renderMenu([BOUNDARY]);
+    const row = screen.getByTestId(`attention-menu-row-${BOUNDARY.id}`);
+    expect(within(row).getByText(BOUNDARY.menuTitle)).toBeInTheDocument();
+    expect(within(row).getByText(BOUNDARY.menuSubtitle!)).toBeInTheDocument();
   });
 
-  it("clicking an action link closes the menu (internal AND external)", () => {
-    const onClose = renderMenu([
-      needsLook("n3", "SHOW_UNPUBLISHED", {
-        label: "Go to Overview",
-        href: "/admin?show=x#overview",
-        external: false,
-      }),
-      needsLook("n4", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
-    ]);
-    fireEvent.click(screen.getByRole("link", { name: /Go to Overview/ }));
-    expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("link", { name: /Open in Sheet/ }));
-    expect(onClose).toHaveBeenCalledTimes(2);
+  // Spec test 11. §3 specifies this cell and no other test reaches it: test 3
+  // checks structure, 3b covers the opposite no-hint fallback, and the existing
+  // hint fixture has menuSubtitle: null. With the precedence reversed, every
+  // other test still passes while the fix hint is hidden on exactly the shape
+  // that carries both.
+  it("hint takes precedence over subtitle when BOTH are present", () => {
+    const BOTH = item("h1", "SHEET_UNAVAILABLE", {
+      clearingKind: "needs_look",
+      menuTitle: "Sheet unavailable",
+      menuSubtitle: "Crew · John Redcorn",
+    });
+    renderMenu([BOTH]);
+    const row = screen.getByTestId(`attention-menu-row-${BOTH.id}`);
+    expect(
+      within(row).getByText(/Re-share the sheet with the service account\./),
+    ).toBeInTheDocument();
+    expect(within(row).queryByText(BOTH.menuSubtitle!)).toBeNull();
   });
 
-  it("row carries sr-only tone text beside the aria-hidden dot (spec §3.4.2)", () => {
+  it("row keeps its sr-only tone text beside the aria-hidden dot", () => {
     renderMenu([needsLook("n7", "SHEET_UNAVAILABLE", null)]);
-    const row = screen.getByTestId("attention-needslook-row-alert:n7");
+    const row = screen.getByTestId("attention-menu-row-alert:n7");
     const srOnly = row.querySelector<HTMLElement>(".sr-only");
     expect(srOnly).not.toBeNull();
     expect(srOnly!.textContent).toContain("needs review");
   });
 
-  it("row shows the code's fix hint and is read-only apart from its single anchor", () => {
+  it("row shows the code's fix hint; no link, no nested button", () => {
     renderMenu([
       needsLook("n5", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
     ]);
-    const row = screen.getByTestId("attention-needslook-row-alert:n5");
+    const row = screen.getByTestId("attention-menu-row-alert:n5");
     expect(
       within(row).getByText(/Re-share the sheet with the service account\./),
     ).toBeInTheDocument();
-    expect(within(row).getAllByRole("link")).toHaveLength(1);
-    expect(within(row).queryAllByRole("button")).toHaveLength(0);
+    expect(within(row).queryAllByRole("link")).toHaveLength(0);
+    expect(row.querySelectorAll("button")).toHaveLength(0);
   });
 
-  it("boundary: a needs-look item whose action failed to resolve renders hint, NO link", () => {
+  it("boundary: a needs-look item whose action failed to resolve still renders its hint", () => {
     renderMenu([needsLook("n6", "SHEET_UNAVAILABLE", null)]);
-    const row = screen.getByTestId("attention-needslook-row-alert:n6");
+    const row = screen.getByTestId("attention-menu-row-alert:n6");
     expect(within(row).getByText(/Re-share the sheet/)).toBeInTheDocument();
     expect(within(row).queryAllByRole("link")).toHaveLength(0);
-    expect(within(row).queryAllByRole("button")).toHaveLength(0);
   });
 });
 
-describe("group headers (impeccable critique P1: no empty-section eyebrow)", () => {
-  it("actionable-empty open: 'Needs your confirmation' header ABSENT, panel labeled by its real first group", () => {
+describe("two groups (attention-index §2.1)", () => {
+  // The eyebrow class is carried ONLY by group headings (3 sites at HEAD, 2
+  // after the merge), so counting by it cannot be satisfied by a row title that
+  // happens to match the heading text.
+  const headingTexts = (menu: HTMLElement) =>
+    [...menu.querySelectorAll('[class~="tracking-eyebrow"]')].map((el) => el.textContent);
+
+  it("one of each class: exactly two headings, 'Needs you' then 'Monitoring'; retired copy gone menu-wide", () => {
+    renderMenu([
+      item("g1", "PARSE_ERROR", { actionable: true }),
+      needsLook("g2", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
+      selfHeal("g3", "Syncing has stalled"),
+    ]);
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(headingTexts(menu)).toEqual(["Needs you", "Monitoring"]);
+    expect(within(menu).queryByText("Needs your confirmation")).toBeNull();
+    expect(within(menu).queryByText("Needs a look")).toBeNull();
+  });
+
+  // Spec test 2 (plan R4 F6). One of each cannot catch a merge that interleaves
+  // or re-sorts; two of each can. Expected order is derived from the fixture
+  // array, never a literal.
+  it("merged-group ordering: actionable-first, derivation order, under ONE heading", () => {
+    const FIXTURE = [
+      item("o1", "PARSE_ERROR", { actionable: true }),
+      item("o2", "LIVE_ROW_CONFLICT", { actionable: true }),
+      needsLook("o3", "SHEET_UNAVAILABLE", null),
+      needsLook("o4", "SHOW_UNPUBLISHED", null),
+    ];
+    renderMenu(FIXTURE);
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(headingTexts(menu)).toEqual(["Needs you"]);
+    // Spans BOTH row shapes: the two renderers are merged into one group here
+    // but only unified onto a single testid in the row-shape task, so anchoring
+    // on `attention-menu-row-` alone would silently see two of the four rows.
+    const rows = [
+      ...menu.querySelectorAll<HTMLElement>(
+        '[data-testid^="attention-menu-row-"], [data-testid^="attention-needslook-row-"]',
+      ),
+    ];
+    expect(
+      rows.map((r) => r.getAttribute("data-testid")!.replace(/^[^-]+-[^-]+-row-/, "")),
+    ).toEqual(FIXTURE.map((i) => i.id));
+  });
+
+  it("needs-you only: no Monitoring heading, aria-label 'Needs you'", () => {
+    renderMenu([item("g1", "PARSE_ERROR", { actionable: true })]);
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(within(menu).queryByText("Monitoring")).toBeNull();
+    expect(menu).toHaveAttribute("aria-label", "Needs you");
+  });
+
+  it("needs-look only (no actionable) is still 'Needs you' — the merged group, not a third name", () => {
     renderMenu([
       needsLook("h1", "SHEET_UNAVAILABLE", { label: "Open in Sheet", href: SHEET, external: true }),
     ]);
-    expect(screen.queryByText("Needs your confirmation")).toBeNull();
-    expect(screen.getByTestId("published-show-review-attention-menu")).toHaveAttribute(
-      "aria-label",
-      "Needs a look",
-    );
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(within(menu).getByText("Needs you")).toBeInTheDocument();
+    expect(menu).toHaveAttribute("aria-label", "Needs you");
   });
 
-  it("actionable present: confirmation header renders and labels the panel", () => {
-    renderMenu([item("h2", "PARSE_ERROR", { actionable: true })]);
-    expect(screen.getByText("Needs your confirmation")).toBeInTheDocument();
-    expect(screen.getByTestId("published-show-review-attention-menu")).toHaveAttribute(
-      "aria-label",
-      "Needs your confirmation",
-    );
+  it("monitoring only: no 'Needs you' heading, aria-label 'Monitoring', group leads with rounded-t-md", () => {
+    renderMenu([selfHeal("g1", "Syncing has stalled")]);
+    const menu = screen.getByTestId("published-show-review-attention-menu");
+    expect(within(menu).queryByText("Needs you")).toBeNull();
+    expect(menu).toHaveAttribute("aria-label", "Monitoring");
+    const group = screen.getByTestId("attention-monitoring-group");
+    expect(group.className.split(/\s+/)).not.toContain("border-t");
+    expect(group.querySelector('[class~="rounded-t-md"]')).not.toBeNull();
+  });
+
+  // Task 9's motion oracle targets the heading CONTAINERS (the elements whose
+  // whole block unmounts on the O1<->O2 collapse), not the text spans — a text
+  // locator would select the span and miss a transition on its parent.
+  // Spec test 5b (plan Task 2). Placement is PRESERVED, not normalised: the
+  // needs-you heading stays pinned above the scroll region while Monitoring
+  // scrolls with its rows. Asserted as a DOM containment relationship via
+  // element.contains, never by class name or position — a class assertion would
+  // pass if the heading moved inside a differently-styled wrapper.
+  it("heading placement: 'Needs you' is OUTSIDE the scroller, 'Monitoring' is INSIDE", () => {
+    renderMenu([
+      item("p1", "PARSE_ERROR", { actionable: true }),
+      selfHeal("p2", "Syncing has stalled"),
+    ]);
+    const scroller = document.querySelector('[class*="max-h-96"]');
+    expect(scroller).not.toBeNull();
+    expect(scroller!.contains(screen.getByTestId("attention-needsyou-heading"))).toBe(false);
+    expect(scroller!.contains(screen.getByTestId("attention-monitoring-heading"))).toBe(true);
+  });
+
+  it("heading testids are on the CONTAINERS, not the text spans", () => {
+    renderMenu([
+      item("g1", "PARSE_ERROR", { actionable: true }),
+      selfHeal("g2", "Syncing has stalled"),
+    ]);
+    for (const [testId, text] of [
+      ["attention-needsyou-heading", "Needs you"],
+      ["attention-monitoring-heading", "Monitoring"],
+    ] as const) {
+      const container = screen.getByTestId(testId);
+      const span = within(container).getByText(text);
+      expect(container).not.toBe(span);
+      expect(container.contains(span)).toBe(true);
+    }
   });
 });
 
@@ -345,10 +462,10 @@ describe("monitoring group (monitoring-badge-expand §3.2: enumerated rows)", ()
 });
 
 describe("scroll boundary (whole-diff review 2026-07-22)", () => {
-  it("needs-look and monitoring groups live INSIDE the max-h scroll container", () => {
-    // 12 needs-look rows are producible (every needs-look code at once); links
+  it("needs-you rows and the monitoring group live INSIDE the max-h scroll container", () => {
+    // 12 needs-look rows are producible (every needs-look code at once); rows
     // below the fold must stay reachable, so the scroll boundary wraps ALL
-    // groups, not just the actionable rows.
+    // groups, not just the rows that were "actionable" under the old split.
     renderMenu([
       item("a1", "PARSE_ERROR", { actionable: true }),
       needsLook("nl1", "SHEET_UNAVAILABLE", {
@@ -361,7 +478,7 @@ describe("scroll boundary (whole-diff review 2026-07-22)", () => {
     const scroller = document.querySelector('[class*="max-h-96"]');
     expect(scroller).not.toBeNull();
     expect(scroller!.contains(screen.getByTestId("attention-menu-row-alert:a1"))).toBe(true);
-    expect(scroller!.contains(screen.getByTestId("attention-needslook-row-alert:nl1"))).toBe(true);
+    expect(scroller!.contains(screen.getByTestId("attention-menu-row-alert:nl1"))).toBe(true);
     // re-anchored on a monitoring ROW (summary retired — monitoring-badge-expand §3.2)
     expect(scroller!.contains(screen.getByTestId("attention-monitoring-row-alert:sh1"))).toBe(true);
   });

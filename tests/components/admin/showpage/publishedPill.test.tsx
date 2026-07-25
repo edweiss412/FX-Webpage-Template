@@ -65,13 +65,20 @@ function srText(pill: HTMLElement): string {
 
 describe("composite attention pill (spec §3.2 / §11.5 matrix, exact visible text)", () => {
   // [a, n, s, expected visible text, interactive]
+  // attention-index §2.4: two segments. RE-DERIVED from the merged counts, not
+  // string-substituted — rows that differed only in the confirm/review split now
+  // collapse onto the same expected string, so a mechanical replace would leave
+  // duplicate cases that no longer discriminate. Cases below keep one row per
+  // DISTINCT rendered shape, plus the singular/plural boundary.
   const MATRIX: Array<[number, number, number, string, boolean]> = [
-    [3, 4, 2, "3 to confirm · 4 to review · 2 monitoring", true],
-    [3, 0, 0, "3 to confirm", true],
-    [3, 4, 0, "3 to confirm · 4 to review", true],
-    [3, 0, 2, "3 to confirm · 2 monitoring", true],
-    [0, 4, 0, "4 to review", true],
-    [0, 4, 2, "4 to review · 2 monitoring", true],
+    [3, 4, 2, "7 issues · 2 monitoring", true],
+    [3, 0, 0, "3 issues", true],
+    [3, 4, 0, "7 issues", true],
+    [3, 0, 2, "3 issues · 2 monitoring", true],
+    [0, 4, 0, "4 issues", true],
+    [0, 4, 2, "4 issues · 2 monitoring", true],
+    [1, 0, 0, "1 issue", true],
+    [0, 1, 0, "1 issue", true],
     [0, 0, 1, "1 monitoring", true],
     [0, 0, 0, "In sync", false],
   ];
@@ -112,24 +119,24 @@ describe("composite attention pill (spec §3.2 / §11.5 matrix, exact visible te
     expect(srText(pill)).toBe("clearing on their own, no action needed");
   });
 
-  it("clearing items WITHOUT clearingKind default fail-visible into the review count", () => {
+  it("clearing items WITHOUT clearingKind default fail-visible into the issues count", () => {
     // legacy/unknown clearing item (no clearingKind) must be visible, not dropped (spec §2)
     renderPublishedModal([], { attentionItems: [clearingAlertItem("legacy")] });
     const pill = screen.getByTestId("published-show-review-alert-pill");
-    expect(visibleText(pill)).toBe("1 to review");
+    expect(visibleText(pill)).toBe("1 issue");
   });
 });
 
 describe("99+ caps: EVERY pill count path caps visibly and keeps the exact count for AT", () => {
-  it("(0,120,0) review segment caps; sr-only carries the exact count", () => {
+  it("(0,120,0) issues segment caps; sr-only carries the exact count", () => {
     const pill = renderPill(0, 120, 0);
-    expect(visibleText(pill)).toBe("99+ to review");
-    expect(srText(pill)).toContain("(120 to review)");
+    expect(visibleText(pill)).toBe("99+ issues");
+    expect(srText(pill)).toContain("(120 issues)");
   });
 
   it("(3,0,150) composite monitoring caps; sr-only carries the exact count", () => {
     const pill = renderPill(3, 0, 150);
-    expect(visibleText(pill)).toBe("3 to confirm · 99+ monitoring");
+    expect(visibleText(pill)).toBe("3 issues · 99+ monitoring");
     expect(srText(pill)).toContain("(150 monitoring)");
   });
 
@@ -146,7 +153,7 @@ describe("mistagged actionable item (spec §3.3 boundary guard)", () => {
     const rogue = { ...actionableAlertItem("rogue"), clearingKind: "self_heal" as const };
     renderPublishedModal([], { attentionItems: [rogue] });
     const pill = screen.getByTestId("published-show-review-alert-pill");
-    expect(visibleText(pill)).toBe("1 to confirm");
+    expect(visibleText(pill)).toBe("1 issue");
   });
 });
 

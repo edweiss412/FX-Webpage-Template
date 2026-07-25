@@ -2,7 +2,11 @@ import postgres from "postgres";
 
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
-import { prepareOnboardingFiles, type PostgresTransaction } from "@/lib/sync/runOnboardingScan";
+import {
+  prepareOnboardingFiles,
+  PrepareOnboardingFileError,
+  type PostgresTransaction,
+} from "@/lib/sync/runOnboardingScan";
 import { STAGED_PARSE_SOURCE_OUT_OF_SCOPE } from "@/lib/sync/applyStaged";
 import { applyRescanDecisionUnderLock } from "@/lib/onboarding/applyRescanDecisionUnderLock";
 import {
@@ -68,6 +72,9 @@ export type RescanDeps = {
 };
 
 const DRIVE_FETCH_FAILED = "DRIVE_FETCH_FAILED" as const;
+// §12.4-cataloged (lib/messages/catalog.ts STAGED_PARSE_FAILED) — reused for the
+// sheet-content branch of a prepare fault, no new catalog row.
+const STAGED_PARSE_FAILED = "STAGED_PARSE_FAILED" as const;
 
 /** §5.7 snapshot equality: both null, or same tabName+fingerprint. null↔set differs. */
 function pullSheetOverrideSnapshotsEqual(a: OverrideSnapshot, b: OverrideSnapshot): boolean {
@@ -152,9 +159,17 @@ export async function rescanWizardSheet(
       { listFolder: async () => [metadata] },
     );
     prepared = preparedFiles[0];
-  } catch {
-    // Drive fetch / export failure or timeout (pre-lock → NO mutation, spec §5.2).
-    return { status: "needs_attention", code: DRIVE_FETCH_FAILED };
+  } catch (err) {
+    // Pre-lock fault → NO mutation (spec §5.2). WHICH fault decides what Doug is
+    // told: a sheet the parser could not read is not a Drive problem, and telling
+    // him to check his share settings sends him to the wrong place entirely
+    // (BL-RESCAN-PREPARE-ERROR-GRANULARITY). fetchDriveFileMetadata is inside this
+    // try too and throws unclassified, so it keeps DRIVE_FETCH_FAILED by default.
+    const code =
+      err instanceof PrepareOnboardingFileError && err.kind === "parse"
+        ? STAGED_PARSE_FAILED
+        : DRIVE_FETCH_FAILED;
+    return { status: "needs_attention", code };
   }
   if (!prepared) return { status: "not_found" };
   if (prepared.kind === "non_sheet") return { status: "not_a_sheet" };

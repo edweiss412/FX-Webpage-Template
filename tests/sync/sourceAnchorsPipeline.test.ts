@@ -14,7 +14,7 @@
  */
 import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
-import { assertLocalDbUrl } from "../db/_remediationHelpers";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import * as XLSX from "xlsx";
 import type { DriveListedFile } from "@/lib/drive/list";

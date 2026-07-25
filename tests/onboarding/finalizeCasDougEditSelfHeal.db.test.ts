@@ -6,6 +6,7 @@ import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize
 import { processOneFile, type ProcessOneFileDeps } from "@/lib/sync/runScheduledCronSync";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult } from "@/lib/parser/types";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * F1 Task 1.8 — B→D Doug-edit self-heal convergence regression (bounded staleness, spec §3.4
@@ -30,8 +31,9 @@ import type { ParseResult } from "@/lib/parser/types";
 
 // Phase-wide DB-connection convention: TEST_DATABASE_URL is the VALIDATION project in this
 // repo — every *.db.test.ts pins BOTH env vars to the local loopback (plan R19-1).
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "9c9c9c9c-3333-4333-8333-9c9c9c9c9c9c";
 const FOLDER = "finalize-cas-doug-edit-heal-folder";

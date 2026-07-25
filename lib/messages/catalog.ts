@@ -3121,14 +3121,15 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_FAILED: {
     code: "STAGED_PARSE_FAILED",
-    dougFacing: "That sheet could not be parsed during retry.",
+    dougFacing:
+      "We couldn't turn that sheet into a show. Open the sheet to check the part that changed, then run the same action again. If it keeps happening, contact the developer.",
     crewFacing: null,
-    followUp: "Doug → open the sheet and fix its structure, then retry",
+    followUp: "Doug → open the sheet, then retry; persistent → Eric",
     helpfulContext:
-      "The live first-seen retry path fetched the sheet but the parser could not convert it into a show payload.",
-    title: "Sheet parse failed during retry",
+      "The sheet itself reached us, so this is not a sharing problem. Most often something in the sheet changed in a way we could not read; sometimes the copy saved by the last scan is missing or was already marked failed. Open the sheet to check the part that changed, then run the same action again. Any previously approved version stays live for crew until a clean version goes through. If a fresh scan keeps landing here, contact the developer.",
+    title: "Sheet could not be read",
     longExplanation:
-      "The live first-seen retry path fetched the sheet but the parser couldn't convert it into a show payload. The previous approved version (if any) is still serving crew. Check the per-show parse panel for the specific underlying error.",
+      "This appears when we reached the sheet but could not build a show from it. The usual cause is a change in the sheet that we could not read: a section header, a column, or a block in a shape we do not recognize. It can also mean the copy saved by the last scan is missing or was already marked failed, in which case a fresh scan is the fix. Any previously approved version stays live for crew until a clean version goes through. If it keeps happening after a fresh scan, contact the developer.",
     helpHref: "/help/errors#STAGED_PARSE_FAILED",
   },
   ROLE_MAPPINGS_OUTDATED_AT_PUBLISH: {
