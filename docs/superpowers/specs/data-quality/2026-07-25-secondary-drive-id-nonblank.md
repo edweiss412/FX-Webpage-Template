@@ -162,6 +162,41 @@ This is safe precisely because **coverage is definition-based, never name-based*
 
 `ddl_command_end` fires on *every* DDL statement, including `alter table … add constraint`. So each statement in this migration triggers a full re-scan of `public`'s watermark-shaped columns. That scan is expected to pass — `wizard_finalize_checkpoints.last_processed_drive_file_id` is already allowlisted at `supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql:41`, as is `last_processed_at` at `supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql:40` — but "expected" is not "verified": the plan applies the migration to the local DB and asserts a clean apply, which is what proves the trigger does not reject it. No new allowlist row is needed, because this migration adds no column.
 
+### 3.1.2 Both claims above are MEASURED, not predicted
+
+The drafted migration body was applied TWICE inside a single `begin; … rollback;` against the local
+all-migrations-applied DB with `ON_ERROR_STOP=1`, then the constraints were read back — zero residue.
+Measured 2026-07-25:
+
+```
+$ psql "$LOCAL" -v ON_ERROR_STOP=1 -f tx-probe.sql
+NOTICE:  constraint "shows_opening_reel_drive_file_id_nonblank" of relation "shows" does not exist, skipping
+ALTER TABLE   (× 10 — two full passes of the five statements)
+
+                      conname                       |              pg_get_constraintdef
+ onboarding_rebuild_attempts_drive_file_id_nonblank | CHECK ((drive_file_id ~ '[^[:space:]]'::text))
+ shows_opening_reel_drive_file_id_nonblank          | CHECK (((opening_reel_drive_file_id IS NULL) OR (opening_reel_drive_file_id ~ '[^[:space:]]'::text)))
+ shows_opening_reel_drive_file_id_nonblank          | CHECK (((opening_reel_drive_file_id IS NULL) OR (opening_reel_drive_file_id ~ '[^[:space:]]'::text)))
+ wizard_finalize_checkpoints_cursor_nonblank        | CHECK (((last_processed_drive_file_id IS NULL) OR (last_processed_drive_file_id ~ '[^[:space:]]'::text)))
+ROLLBACK
+```
+
+Four things this settles:
+
+1. **AC-12** — the `no_global_cursor_columns` `ddl_command_end` trigger does not reject the migration,
+   and no `_allowed_watermark_columns` row is needed. The `cursor` token in a CONSTRAINT name is
+   invisible to a trigger that scans `information_schema.columns` (§3.1).
+2. **AC-1 idempotency** — a second full pass inside the same transaction succeeds, and the
+   `begin/commit` wrapper is compatible with transactional DDL here.
+3. **§4.2's two canonical renderings are byte-exact on this server** — both templates appear verbatim
+   in the deparser output. Self-calibration (§4.2 limit 2) therefore has a measured basis, not a
+   hoped-for one.
+4. **Constraint names are unique per SCHEMA, not globally** — `shows_opening_reel_drive_file_id_nonblank`
+   appears twice, once for `public.shows` and once for `dev.shows`. The census keys on
+   `(schema, table, column)` for exactly this reason, and any lookup by bare `conname` would silently
+   collapse the two rows. This is pre-existing (the parent migration's `shows_drive_file_id_nonblank`
+   is likewise doubled), not introduced here.
+
 ### 3.2 CHECK migration matrix
 
 | dimension | resolution |
