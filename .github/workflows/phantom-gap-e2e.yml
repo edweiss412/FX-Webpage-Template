@@ -46,6 +46,12 @@ on:
       - "app/admin/**"
       - "app/show/**"
       - "app/globals.css"
+      # The ROOT layout wraps every measured page, so inherited typography or
+      # sizing set there can crowd a gapped row until a spacer reaches zero width
+      # — the exact shape of the `ModalSectionChrome` instance this branch
+      # ledgered. It matches none of the entries above (they are subtree globs and
+      # a stylesheet), so a layout-only PR would have skipped this job.
+      - "app/layout.tsx"
       - "playwright.config.ts"
       - "tests/e2e/helpers/**"
       - "tests/e2e/phantomGapHelper.layout.spec.ts"
