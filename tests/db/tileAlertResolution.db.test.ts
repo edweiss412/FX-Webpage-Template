@@ -177,6 +177,32 @@ describe("tile alert resolution, real rows", () => {
     expect(openRowObserver()).toBe(OBSERVER_A);
   });
 
+  // The partial unique index permits ONE unresolved row per (show, code), so a
+  // second observer's raise REPLACES the context wholesale, including viewerKey.
+  // Observer A can then no longer resolve "their" row. Spec 4.6 documents this;
+  // this test pins it so the documented behavior cannot drift silently, and so a
+  // future reader sees it is known rather than accidental.
+  test("a second observer's raise takes over the single row", async () => {
+    seedOpenAlert(TILE, OBSERVER_A);
+
+    const bFailing = createTileRenderLedger();
+    bFailing.attempted.add(TILE);
+    bFailing.failed.set(TILE, { message: "b broke", error: new Error("b broke") });
+    await sweepTileRenderAlerts(bFailing, sweepArgs(OBSERVER_B));
+
+    // One row, now owned by B.
+    expect(openRowObserver()).toBe(OBSERVER_B);
+
+    // A's clean render no longer matches it. The row stays open, which is the
+    // safe direction: it still reports a real, current failure (B's).
+    await sweepTileRenderAlerts(clean([TILE]), sweepArgs(OBSERVER_A));
+    expect(openRowObserver()).toBe(OBSERVER_B);
+
+    // B's own clean render clears it.
+    await sweepTileRenderAlerts(clean([TILE]), sweepArgs(OBSERVER_B));
+    expect(openRowObserver()).toBe("");
+  });
+
   // AC7 — the accepted race is self-healing, against real rows.
   test("a spuriously resolved row is re-opened by the next failing sweep", async () => {
     seedOpenAlert(TILE, OBSERVER_A);

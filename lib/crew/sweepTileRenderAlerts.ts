@@ -59,12 +59,20 @@ export async function sweepTileRenderAlerts(
         },
       });
     } catch (e) {
-      void log.warn("tile render alert upsert failed (fail-quiet):", {
-        source: "crew.tileSweep",
-        code: "CREW_TILE_ALERT_UPSERT_FAILED",
-        tileId,
-        error: e,
-      });
+      // AWAITED, not voided. log.warn persists to app_events, and this callback
+      // runs inside after(); voiding it lets the runtime settle before the
+      // persist lands, dropping the forensic record of a sweep failure - the
+      // exact case moving to after() exists to protect.
+      try {
+        await log.warn("tile render alert upsert failed (fail-quiet)", {
+          source: "crew.tileSweep",
+          code: "CREW_TILE_ALERT_UPSERT_FAILED",
+          tileId,
+          error: e,
+        });
+      } catch {
+        // logging must never break the sweep
+      }
     }
   }
 
@@ -75,10 +83,14 @@ export async function sweepTileRenderAlerts(
       tileIds: cleanTileIds(ledger),
     });
   } catch (e) {
-    void log.warn("tile render alert resolve failed (fail-quiet):", {
-      source: "crew.tileSweep",
-      code: "CREW_TILE_ALERT_RESOLVE_FAILED",
-      error: e,
-    });
+    try {
+      await log.warn("tile render alert resolve failed (fail-quiet)", {
+        source: "crew.tileSweep",
+        code: "CREW_TILE_ALERT_RESOLVE_FAILED",
+        error: e,
+      });
+    } catch {
+      // logging must never break the sweep
+    }
   }
 }

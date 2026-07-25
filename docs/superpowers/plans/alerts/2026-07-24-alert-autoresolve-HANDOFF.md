@@ -77,6 +77,29 @@ register reference), and both assessments run as isolated subagents, not inline.
 (optional chaining, `TileFailure` shape, docstrings), so the first verdict was stale. Results of the
 re-run are recorded in the PR body; both commands were re-run on the final UI state per invariant 8.
 
+**Re-run critique** (final UI state) — verdict: no-rendered-output CONFIRMED; `err.message` and the
+Error proven unreachable from the DOM; no AI slop (no user-visible copy, token or layout changed).
+
+| Finding | Severity | Disposition |
+| --- | --- | --- |
+| `ledger.attempted?.add()` guards a nullish PROPERTY, not a nullish base, so a missing ledger threw in the try AND again in the catch, escaping the boundary the comment claimed to defend | P1 | **FIXED** — full chaining including the call, plus 8 boundary tests verified to fail against the shallow-chaining mutant |
+| A malformed ledger threw before `render()`, laundering an infra bug into a crew-visible "couldn't load" and a bogus alert | P2 | **FIXED** by the same change; it now loses the record silently instead |
+| File header still claimed the admin-alert contract | P3 | **FIXED** |
+| `showId` / `sheetName` dead but threaded by all call sites | P3 | **ACCEPTED** — documented as unread on the type; dropping them is a follow-up, not a blocker |
+
+**Audit** (final UI state) — Accessibility 4 · Performance 3 · Theming 4 · Responsive 4 · Code
+quality 3. `typecheck` 0 errors; `lint` 0 errors with no warning in any file this diff touches.
+**No P0 or P1**, so invariant 8 is satisfied.
+
+| Finding | Severity | Disposition |
+| --- | --- | --- |
+| The two fail-quiet `log.warn` calls were voided, contradicting this file's own durability argument (`log.warn` awaits an app_events persist) | P2 | **FIXED** — both awaited in their own try |
+| The partial unique index permits one unresolved row per (show, code), so a second observer's raise takes over the row and the first can no longer resolve it | P2 | **ACCEPTED and now PINNED** — spec §4.6 documents it; a DB test proves the takeover, that A's clean render leaves it open (safe direction: it still reports B's real failure), and that B can clear it |
+| One post-response Supabase UPDATE per crew page view, usually matching 0 rows | P2 | **ACCEPTED** — the partial index serves it and the unresolved set is tiny; the raise path already paid an equivalent per-render write when unhealthy |
+| `.select("id")` fetches a payload only to discard it | P3 | **ACCEPTED** — keeps the destructure shape the invariant-9 registry checks |
+| `?.` on type-required properties gives no signal on a `{}`-shaped ledger | P3 | **ACCEPTED** — losing the record beats losing the page; TS makes it unreachable in production |
+| Log messages ended in a colon with no following value | P3 | **FIXED** |
+
 ## 5. Known gaps, accepted deliberately
 
 - **Conditionally-mounted seam.** `VenueSection.tsx:330` gates the whole `<WrappedSection>` behind
