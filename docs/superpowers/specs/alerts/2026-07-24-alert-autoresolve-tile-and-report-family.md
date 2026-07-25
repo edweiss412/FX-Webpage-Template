@@ -782,3 +782,47 @@ and AC10 each name the mutant that must fail.
 - **The `producerContexts.ts` representative-context edit is required, not incidental** (§6.2).
 - **`RESOLVE_INTENTS` rows are retained deliberately** (§6.3).
 - **`resolved_by` stays NULL for auto-resolution.** Existing convention.
+
+---
+
+## 13. Review record
+
+| Round | Verdict | Outcome |
+| ----- | ------- | ------- |
+| 1 | BLOCKING (9 findings) | All accepted. Report-family anti-join removed; ledger message carriage; `cache()` dropped for an explicit prop. |
+| 2 | BLOCKING (7 findings) | All accepted. Timestamp fence removed as unfixable; report family narrowed then, in round 3, removed. |
+| 3 | BLOCKING (9 findings) | All accepted. Observer key added (§4.6); report family returned to manual (§5.3); counts corrected. |
+| 4 | **not obtained** | Upstream outage, see below. Self-certified in lieu. |
+
+**Round 4 was not obtained.** Six dispatches across two attempts all failed with
+`503 Service Unavailable ... auth error code: biscuit_baker_service_me_circuit_open` from the Codex
+backend, each terminating at exactly 60s with `failureShape: "nonzero_exit"`. This is an upstream
+provider outage, not a reviewer verdict and not the wrapper's silent-death shape (which exits 0).
+Per the AGENTS.md `no_verdict` ladder it is treated as an infrastructure fault.
+
+**Self-certification performed in its place**, against the same six attack surfaces the round-4 brief
+named. Each was checked against live code rather than reasoned from the spec:
+
+1. **Observer-key completeness (§4.6).** Holds. `admin_preview` resolves identically to crew with
+   `isAdmin` false (`lib/data/viewerContext.ts:111`, `lib/data/viewerContext.ts:132`), so an admin
+   previewing as a crew member executes that member's exact path and legitimately shares their key.
+   `viewerName`, `viewerNameAliases` and the date/stage restrictions all derive from the crew row
+   `viewerId` identifies, so no seam gate varies independently of the key.
+2. **`"admin"` sentinel collision.** Impossible: `crewMemberId` is a UUID.
+3. **Cost bound (§4.8).** Holds. `lib/log/logger.ts:22` returns true for `error` unconditionally, so
+   every crash persists to `app_events` regardless of alert state.
+4. **Clause (c) for the report family (§5.3).** Holds. `lib/reports/submit.ts:1073-1075` returns on
+   `reservation.state === "duplicate"` before `expiredLeaseRetry`, the only route to
+   `findIssueByMarker`, so no fresh lookup can follow a persisted URL.
+5. **`viewerKey` fan-out (§6.2).** Complete as written. No consumer reads this code's context beyond
+   `sheet_name` for the `<sheet-name>` placeholder; `lib/admin/attentionItems.ts:254` handles only
+   `TILE_PROJECTION_FETCH_FAILED`, and `lib/adminAlerts/alertIdentityMap.ts:260` keys on copy, not
+   context.
+6. **Acceptance criteria.** Each names an observable outcome; AC2, AC7, AC8 and AC10 each name the
+   mutant that must fail.
+
+**This is not a substitute for independent review and is not treated as one.** A real round 4 is
+still owed and MUST be attempted again before the whole-diff cross-model gate; if the outage has
+cleared by then, the spec is re-submitted alongside the diff. Self-certification checks the author's
+own claims and cannot surface what the author did not think to look for, which is precisely what
+rounds 1 to 3 each did.
