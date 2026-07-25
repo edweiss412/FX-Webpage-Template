@@ -319,15 +319,35 @@ WITH substitutions is not. Anything outside these shapes is reported as
   one camelCase literal survived the first sweep and silently reopened the dynamic-`className`
   hole.
 - **A link candidate is a known link tag (including a member expression whose last segment is one,
-  `UI.Link`) OR any element carrying BOTH `target` and `href`.** Tag membership alone missed
-  `<Tags.External href="x" target="_blank">`, which React renders as a real anchor named only
-  "Go" (review R8 BLOCKING 2). `href` is required in the second rule rather than incidental:
-  `<Tabs target="_blank" />` selects a TAB, and treating a non-URL `target` prop as a link was
-  already pinned as wrong. Residue, accepted: a component with a member-expression tag whose ONLY
-  target arrives through a conditional spread.
-- **The MDX net requires a JSX tag context.** A bare `target\s*=` matched ordinary prose ("The
-  target = 80% of the quarterly goal.") and a GFM autolink whose query string contains `target=`,
-  neither of which compiles to a target attribute (review R8 MEDIUM 3).
+  `UI.Link`), OR any element with an explicit `target` attribute, OR any element with `href` plus a
+  spread.** Tag membership alone missed `<Tags.External href="x" target="_blank">`, which React
+  renders as a real anchor named only "Go" (review R8 BLOCKING 2). Requiring `target` AND `href`
+  then missed `<Foo target="_blank" {...spreadHref}>` and `<RouterLink href="x" {...spreadTarget}>`
+  (review R9 BLOCKING 1).
+
+  **This reverses an earlier decision, deliberately.** R8's resolution kept `<Tabs target="_blank" />`
+  unclassified, on the reasoning that a non-URL `target` prop selects a tab rather than a window.
+  R9 showed the price: an explicit `target` whose `href` arrives by spread was skipped entirely.
+  The tie goes to failing CLOSED, so an explicit `target` is always classified; R9's census confirms
+  no live component carries `target` without `href`, and a genuine non-URL `target` prop costs one
+  exemption comment. A spread-only element with neither attribute is still not a candidate, which
+  is what keeps every `<div {...props}>` out. Residue, accepted: an unknown tag where BOTH `href`
+  and `target` arrive inside one unresolvable spread.
+- **The MDX net requires a JSX tag context, found by scanning rather than by regex.** A bare
+  `target\s*=` matched ordinary prose ("The target = 80% of the quarterly goal.") and a GFM autolink
+  whose query string contains `target=` (review R8 MEDIUM 3). The obvious repair -- a character
+  class excluding angle brackets -- then ended the tag at any `>` inside it, so
+  `<a href="x" title="1 > 0" target={dest}>` slipped through; `@mdx-js/mdx` compiles ten such
+  witnesses and preserves the target (review R9 BLOCKING 2). Tag boundaries are therefore scanned
+  with quote and brace-depth tracking. This matters more for MDX than for TSX: for TSX the net only
+  decides whether to run the AST pass, but for MDX the net IS the enforcement, so a false negative
+  ships silently.
+- **Object-literal property names inside an approved spread are lowercased too.** They were
+  compared verbatim, so `{ TARGET: "_BLANK", REL: "NoOpener" }` was reported as an unrecognized
+  shape: fail-closed, but it contradicts the casing contract and rejects a correctly announced link
+  (review R9 MEDIUM 3). The lowercase-literal meta-test was also far too narrow -- it matched only
+  variables literally named `n` or `nm` -- and now covers every name accessor and set-membership
+  helper.
 - **A COMPOUND gating predicate is reported, not compared.** Only an identifier, a
   property-access chain, or `!` applied to either is an approved gate. Deciding whether two
   different compound predicates denote the same runtime condition is not something a static pass

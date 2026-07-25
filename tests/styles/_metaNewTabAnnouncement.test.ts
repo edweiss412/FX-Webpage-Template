@@ -228,11 +228,24 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     );
   });
 
-  it("covers <Link> and ignores non-link components carrying target", () => {
+  it("covers <Link>, and reports ANY element carrying an explicit target", () => {
     rejects(`const A = () => <Link href="x" target="_blank">Go</Link>;`, /does not announce/);
-    const sc = probe(`const A = () => <Tabs target="_blank" />;`);
-    expect(sc.anchors, "non-link component must not be treated as an anchor").toBe(0);
-    expect(sc.violations).toEqual([]);
+    // DELIBERATE REVERSAL (R9 BLOCKING 1). This pin previously asserted that
+    // `<Tabs target="_blank" />` is ignored, on the reasoning that a non-URL `target`
+    // prop selects a tab rather than a window. R9 then showed the consequence:
+    // requiring `href` alongside `target` skipped `<Foo target="_blank" {...spreadHref}>`
+    // entirely -- admitted by the file net, zero anchors, no violation, and a real
+    // `<a target="_blank">` at runtime named only "Go".
+    //
+    // R8 and R9 pull opposite ways here, so the tie goes to failing CLOSED: an
+    // explicit `target` is now always classified. R9's census confirms no live
+    // component carries `target` without `href`, so this costs nothing today, and a
+    // genuine non-URL `target` prop costs exactly one exemption comment.
+    rejects(`const A = () => <Tabs target="_blank" />;`, /does not announce|unrecognized/);
+    // A spread-only non-link element is still NOT a candidate -- that is what keeps
+    // every `<div {...props}>` in the tree from becoming a violation.
+    const div = probe(`const A=({props})=><div {...props}>Go</div>;`);
+    expect(div.anchors, "a spread-only non-link element must not become an anchor").toBe(0);
   });
 
   // ── Regression pins for the whole-diff review R1 bypasses ───────────────
@@ -924,11 +937,15 @@ describe("R6: scanner changes are pinned", () => {
         `const A=({e})=><Foo.Bar href="x" {...(e?{target:"_blank"}:{})}>Go</Foo.Bar>;`,
       ).join(" "),
     ).toMatch(/does not announce|unrecognized|not gated/);
-    // But `target` WITHOUT `href` is not a URL target: <Tabs target="x" /> selects a
-    // tab. Anchoring on `href` is what keeps that pin (line 231) true, and what keeps
-    // every `<div {...props}>` from becoming a violation.
-    const tabs = probe(`const A = () => <Tabs target="_blank" />;`);
-    expect(tabs.anchors, "a non-URL target prop must not become an anchor").toBe(0);
+    // R9 BLOCKING 1, the two cases my href-plus-spread rule still missed: an explicit
+    // `target` whose `href` arrives by spread, and a link-shaped tag with both.
+    expect(violations(`const A=({p})=><Foo target="_blank" {...p}>Go</Foo>;`).join(" ")).toMatch(
+      /does not announce|unrecognized/,
+    );
+    expect(
+      violations(`const A=({p})=><RouterLink href="x" {...p}>Go</RouterLink>;`).join(" "),
+    ).toMatch(/does not announce|unrecognized|not gated/);
+    // A spread-only non-link element is still not a candidate.
     const div = probe(`const A=({props})=><div {...props}>Go</div>;`);
     expect(div.anchors, "a spread-only non-link element must not become an anchor").toBe(0);
   });
@@ -946,14 +963,55 @@ describe("R6: scanner changes are pinned", () => {
   // The near-miss that motivates this guard: `attrName` lowercases, so every
   // comparison literal must be lowercase too. One camelCase literal survived the
   // first sweep and silently reopened the dynamic-className hole.
+  //
+  // R9 MEDIUM 3 showed the first version was far too narrow -- it only matched
+  // variables literally named `n` or `nm`, missing `attrName(a) === "Target"`,
+  // `names.has("Target")`, `prop.name.text === "Target"` and more. It now covers
+  // every name-producing accessor and both set-membership helpers.
   it("no attribute-name comparison uses a non-lowercase literal", () => {
     const src = stripCommentsSafely(
       readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
     );
-    const offenders = [...src.matchAll(/\b(?:n|nm)\s*(?:===|!==)\s*"([^"]+)"/g)]
-      .map((m) => m[1]!)
-      .filter((lit) => lit !== lit.toLowerCase());
+    const accessor = String.raw`(?:\b(?:n|nm|name|key)\b|attrName\([^)]*\)|jsxAttrNameLower\([^)]*\)|propNameLower\([^)]*\)|prop\.name\.text|\w+\.name\.getText\(\))`;
+    const literals = [
+      ...src.matchAll(new RegExp(String.raw`${accessor}\s*(?:===|!==)\s*"([^"]+)"`, "g")),
+      ...src.matchAll(/\b(?:names|SPREADABLE|LINK_TAGS)\.has\(\s*"([^"]+)"\s*\)/g),
+      ...src.matchAll(/\bSPREADABLE\s*=\s*new Set\(\[([^\]]*)\]/g),
+    ].flatMap((m) => (m[1] ?? "").split(",").map((s) => s.trim().replace(/^"|"$/g, "")));
+    const offenders = literals.filter((lit) => lit.length > 0 && lit !== lit.toLowerCase());
     expect(offenders, "attribute-name literals must be lowercase").toEqual([]);
+  });
+
+  // R9 BLOCKING 2: `[^<>]*` ended the tag at any angle bracket inside it, so a later
+  // dynamic target or spread was invisible. @mdx-js/mdx compiles all of these and
+  // preserves the target.
+  it("R9 the MDX net sees past angle brackets inside a tag", () => {
+    const contexts = [
+      'title="1 > 0"',
+      'title="x < y"',
+      'data-x={1 > 0 ? "yes" : "no"}',
+      'data-x={1 < 2 ? "yes" : "no"}',
+      "data-x={<span />}",
+    ];
+    for (const ctx of contexts) {
+      for (const tail of ["target={dest}", "{...externalProps}"]) {
+        const mdx = `<a href="x" ${ctx} ${tail}>Go</a>`;
+        expect(mdxForbidden(mdx), `must reject: ${mdx}`).toBe(true);
+      }
+    }
+    // And prose is still not flagged, including a `>` in ordinary text.
+    expect(mdxForbidden("The target = 80% of the quarterly goal, so 5 > 4 holds.")).toBe(false);
+    expect(mdxForbidden("Read https://example.com/search?target=crew for details.")).toBe(false);
+  });
+
+  // R9 MEDIUM 3: the approved-spread path compared property names verbatim, so an
+  // uppercase-but-correct spread was reported as an unrecognized shape.
+  it("R9 an approved spread with uppercase prop names is accepted", () => {
+    expect(
+      violations(
+        `const A=({e})=><a href="x" {...(e?{TARGET:"_BLANK",REL:"NoOpener"}:{})}>Go {e?<> <NewTabHint /></>:null}</a>;`,
+      ),
+    ).toEqual([]);
   });
 
   // (5) File admission: case-insensitive _blank, dynamic targets, and spreads all

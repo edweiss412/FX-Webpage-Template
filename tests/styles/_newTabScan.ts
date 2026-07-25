@@ -71,12 +71,14 @@ function isLinkCandidate(tag: string, attrs: ts.JsxAttributes): boolean {
     return true;
   }
   const names = new Set(attrs.properties.map((a) => attrName(a)));
-  if (!names.has("href")) return false;
-  // `href` plus EITHER a target attribute or any spread. Requiring a literal
-  // `target` attribute left `<Foo.Bar href="x" {...(e ? { target: "_blank" } : {})}>`
-  // unclassified -- admitted by the file net, zero anchors, no violation. Found by
-  // probing the residue this rule had recorded as accepted, before R9 ran.
-  return names.has("target") || attrs.properties.some((a) => ts.isJsxSpreadAttribute(a));
+  // An explicit `target` attribute is enough on its own. R9 showed
+  // `<Foo target="_blank" {...spreadHref}>` skipped when `href` was also required,
+  // and its census confirms no live component carries `target` without `href`, so
+  // this costs nothing today. It does mean a non-URL `target` prop is now REPORTED
+  // rather than ignored -- see the pin change in the self-tests.
+  if (names.has("target")) return true;
+  // Otherwise an `href` plus any spread: the spread may carry the target.
+  return names.has("href") && attrs.properties.some((a) => ts.isJsxSpreadAttribute(a));
 }
 
 export type Violation = { file: string; line: number; reason: string };
@@ -202,6 +204,17 @@ function hasSubstitution(node: ts.Node): boolean {
  *  expression is a ParenthesizedExpression, not a ConditionalExpression. Missing
  *  this made the scanner blind to all four conditional-spread anchors -- caught by
  *  the synthetic self-test below, not by the live tree. */
+/** Object-literal property name, ASCII-lowercased. The approved-spread path
+ *  compared `prop.name.text` verbatim, so `{ TARGET: "_BLANK" }` was reported as an
+ *  unrecognized shape -- fail-closed, but it contradicts the ratified casing
+ *  contract and rejects a correctly announced link (review R9 MEDIUM 3). */
+function propNameLower(prop: ts.ObjectLiteralElementLike): string | null {
+  const n = prop.name;
+  if (n === undefined) return null;
+  if (ts.isIdentifier(n) || ts.isStringLiteral(n)) return n.text.toLowerCase();
+  return null;
+}
+
 function unparen(node: ts.Expression): ts.Expression {
   let n = node;
   while (ts.isParenthesizedExpression(n)) n = n.expression;
@@ -666,22 +679,56 @@ export function admitsCandidate(code: string): boolean {
   );
 }
 
+/**
+ * Interiors of the opening tags in a chunk of MDX.
+ *
+ * A regex cannot do this: a character class excluding angle brackets stops at the
+ * first `>` or `<`, so a
+ * tag carrying `title="1 > 0"` or `data-x={1 < 2 ? "y" : "n"}` hid every later
+ * `target={dest}` or spread from the rule -- R9 compiled ten such witnesses with
+ * `@mdx-js/mdx` and each produced a real `<a target="_blank">` named only "Go"
+ * (review R9 BLOCKING 2). Widening the regex to allow `<`/`>` would bring back the
+ * prose false positives instead, so the tag boundary is scanned properly: quotes and
+ * brace depth are tracked, and only an unquoted `>` at depth 0 ends the tag.
+ */
+function mdxTagInteriors(code: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < code.length; i += 1) {
+    if (code[i] !== "<") continue;
+    const next = code[i + 1];
+    if (next === undefined || !/[A-Za-z]/.test(next)) continue;
+    let depth = 0;
+    let quote: string | null = null;
+    let j = i + 1;
+    for (; j < code.length; j += 1) {
+      const ch = code[j]!;
+      if (quote) {
+        if (ch === quote && code[j - 1] !== "\\") quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") {
+        quote = ch;
+        continue;
+      }
+      if (ch === "{") depth += 1;
+      else if (ch === "}") depth = Math.max(0, depth - 1);
+      else if (ch === ">" && depth === 0) break;
+    }
+    out.push(code.slice(i + 1, Math.min(j, code.length)));
+    i = j;
+  }
+  return out;
+}
+
 /** MDX cannot be classified by the scanner (it never reaches `scanSource`), so it
- *  gets no target attribute and no spread at all -- not merely no literal
- *  `_blank`. `target={dest}` and `{...externalProps}` both evaded the older
- *  `/_blank/i` spelling and either can resolve to `_blank` (review R6 BLOCKING 2);
- *  comment-separated spreads then evaded the replacement, and `@mdx-js/mdx`
- *  compiles every such form to a real JSX spread (review R7 BLOCKING 3). */
+ *  gets no target attribute and no spread at all -- not merely no literal `_blank`.
+ *  The rule IS the enforcement here, so a false negative ships silently, unlike the
+ *  TSX net where over-admitting only costs scan time. */
 export function mdxForbidden(code: string): boolean {
-  // Inside a tag only. A bare /target\s*=/ matched ordinary prose
-  // ("The target = 80% of the quarterly goal.") and a GFM autolink whose query
-  // string contains `target=`, neither of which compiles to a target attribute
-  // (review R8 MEDIUM 3).
-  const inTagTarget = /<[A-Za-z][^<>]*\btarget\s*=/i;
-  const inTagSpread = /<[A-Za-z][^<>]*\{\s*\.\.\./i;
-  return lexicalVariants(code).some(
-    (v) => /_blank/i.test(v) || inTagTarget.test(v) || inTagSpread.test(v),
-  );
+  return lexicalVariants(code).some((v) => {
+    if (/_blank/i.test(v)) return true;
+    return mdxTagInteriors(v).some((tag) => TARGET_ATTR.test(tag) || /\{\s*\.\.\./.test(tag));
+  });
 }
 
 export const MDX_FORBIDDEN = /_blank|target\s*=|\{\s*\.\.\./i;
@@ -793,7 +840,7 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
       (prop) =>
         ts.isPropertyAssignment(prop) &&
         (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) &&
-        SPREADABLE.has(prop.name.text) &&
+        SPREADABLE.has(propNameLower(prop) ?? "") &&
         isDecidableLiteral(prop.initializer),
     );
   if (!plain(whenTrue) || !plain(whenFalse)) {
@@ -807,7 +854,7 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
       if (
         ts.isPropertyAssignment(prop) &&
         (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) &&
-        prop.name.text === key
+        propNameLower(prop) === key
       ) {
         return stringOf(prop.initializer);
       }

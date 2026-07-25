@@ -267,6 +267,44 @@ deserves a probe like any other claim.** Two of this PR's accepted limits turned
 the moment they were executed rather than described — this one, and the effectful-predicate
 deferral that R6's model change had already fixed without my noticing.
 
+## R9 — 2 BLOCKING + 1 MEDIUM, and a decision reversed on purpose
+
+R9's census independently reproduced the live state (73 admitted files, 23 anchors, zero
+violations, no offending MDX), and its findings were again guard-only.
+
+**Candidate discovery.** My `209bcbdb0` fix (href AND (target OR spread)) closed four of R9's six
+cases before it ran. Two survived: an explicit `target` whose `href` arrives by spread, and a tag
+where both arrive by spread. The first is now closed by making an explicit `target` sufficient on
+its own.
+
+That **reverses R8's resolution deliberately**, and the reversal is the interesting part. R8 kept
+`<Tabs target="_blank" />` unclassified because a non-URL `target` prop selects a tab, not a window.
+R9 then demonstrated the cost of that carve-out: `<Foo target="_blank" {...spreadHref}>` was skipped
+entirely. Two reviewers pulling opposite ways on the same rule is resolved by asking which direction
+fails closed — so an explicit `target` is always classified now. R9's census confirms no live
+component carries `target` without `href`, so the cost today is zero, and a genuine non-URL `target`
+prop costs one exemption comment. The old pin was rewritten with this reasoning inline rather than
+deleted, so nobody "restores" it later. A spread-only element with neither attribute is still not a
+candidate, which is what keeps every `<div {...props}>` out. The remaining residue — both `href` and
+`target` inside one unresolvable spread on an unknown tag — is genuinely undecidable and recorded.
+
+**MDX, and a repair that created its own hole.** R8's fix for prose false positives was a
+character class excluding angle brackets. R9 showed that ends the tag at any `>` inside it, so
+`<a href="x" title="1 > 0" target={dest}>` was invisible; it compiled ten such witnesses with
+`@mdx-js/mdx` and each produced a real external anchor named only "Go". Tag boundaries are now
+scanned with quote and brace-depth tracking rather than matched. **The asymmetry matters:** for TSX
+the lexical net only decides whether to run the AST pass, so over-admitting is free; for MDX the net
+IS the enforcement, so a false negative ships silently. That is the reason MDX gets the careful
+scanner and TSX keeps the cheap union.
+
+**The meta-test I added to prevent a recurrence was itself too narrow.** It matched only variables
+literally named `n` or `nm`, so `attrName(a) === "Target"`, `names.has("Target")` and
+`prop.name.text === "Target"` would all have passed — and R9 found exactly that class still live in
+the approved-spread path, where `{ TARGET: "_BLANK" }` was rejected as unrecognized. Both are fixed:
+property names lowercase through one helper, and the meta-test now covers every name accessor and
+set-membership helper. A guard against a class is itself code, and it deserves the same adversarial
+attention as the thing it guards.
+
 ## A gate I retired rather than satisfied
 
 The local full-suite gate is **not** green and cannot be made green here. A peer session (PID
@@ -285,7 +323,7 @@ The guard has also already proven itself on live upstream code: rebasing onto 82
 
 ## Verification
 
-- 66 guard tests (synthetic self-tests driving each accept/reject branch, plus named regression pins for every R1-R6 bypass, including all eleven R6 operator families); 167 across the guard and a11y suites. The reviewers' exact probe cases behave correctly (R1: 7 rejected / 3 valid accepted; R2: 16/16).
+- 78 guard tests (synthetic self-tests driving each accept/reject branch, plus named regression pins for every R1-R6 bypass, including all eleven R6 operator families); 167 across the guard and a11y suites. The reviewers' exact probe cases behave correctly (R1: 7 rejected / 3 valid accepted; R2: 16/16).
 - `tsc` clean; `prettier` clean; `eslint` 0 errors and 0 warnings from new files (re-verified after the R2 fixes, which had left three dead-code warnings behind).
 - Real CI green on #592 before the guard hardening (38 pass / 0 fail), re-run on each subsequent head. NOTE for anyone reading CI history on this PR: the four workflows that show `completed/failure` on head `e1d937109` had every job CANCELLED (bulk external cancel at 12:13:20Z, 11 of 15 workflows already green), and `gh run rerun --failed` is a NO-OP on cancelled jobs — it produced an empty attempt-2 with `total_count: 0` that instantly re-concluded as failure. Neither was a test failure. The `validation-schema-parity` failure visible on the superseded head `7b8e2a70a` never re-ran on a later head, so its "environmental" diagnosis is retired, not confirmed.
 - `spec:lint` 0 hard on the spec (27 advisory, all numeric literals in prose).
