@@ -168,6 +168,20 @@ Tailwind v4 on this project does **not** default `.flex` to `align-items: stretc
 | D3 | inline container | both buttons | children share one line, widths intrinsic | `flex-wrap` + no `basis-full` in this copy | §6.3 at 720px: `defer.right ≤ ignore.left` |
 | D4 | stacked Ignore | itself, idle vs armed | box top / left / width identical across the arm transition (DESTRUCT-1) | full-width stack pins all three edges; only height may change | §6.3 equality assertion, with the existing negative control retained |
 | D5 | stacked container | Ignore vs Defer | `ignore.bottom ≤ defer.top` | DOM order Ignore-first in a `flex-col` | §6.3 at 360px, against a new negative control panel using today's single-subtree markup |
+| D6 | inline container | Ignore, idle vs armed | box **left** and **top** identical across the arm transition; width may grow rightward | `flex-wrap` with intrinsic widths — the armed label extends the right edge only, because the left edge is set by the preceding Defer plus `gap-2` | §6.3 at 720px |
+
+**Empirical grounding.** These are measured, not derived. A probe rendering the proposed markup with the real compiled token CSS in Chromium (darwin arm64, 2026-07-25; body gutter 16px matching the admin `px-4`) returned:
+
+| Viewport | Measurement |
+|---|---|
+| 360px | stacked Ignore `x16 w328 h44`, stacked Defer `x16 y+52 w328 h44` → D1, D2, D5 hold. Container width 328 == button width 328, confirming `items-stretch` is load-bearing. |
+| 360px | every inline-copy node measures `0×0` → exactly one copy displayed. |
+| 360px | armed stacked Ignore box equals the idle box on x, y, w **and** h — the armed label fits one line in a 328px box on this host. |
+| 360px | negative control (today's shipped markup): Defer `y192`, Ignore `y244` → Ignore **below** Defer. The harness reproduces the reported defect, so D5's assertion is not tautological. |
+| 720px | stacked copy `display:none`, `offsetParent === null`, `0×0`; inline copy `display:flex`. Defer `x16 right170.74`, Ignore `x178.74` → D3 holds. |
+| 720px | armed inline Ignore grows `w153.2 → w328.51` with its **left edge pinned at x178.74** → D6 holds. Same benign "grows from a pinned edge" shape the DESTRUCT-1 analysis blessed for `components/admin/BulkIgnoreControls.tsx`. |
+
+**Why D4 does not assert height equality even though the probe measured it.** The armed label fitting one line at 328px is a font-metric outcome, and CI runs x64 Linux while this measurement is arm64 macOS. A height-equality assertion would be a platform-hardcoded fixture: green locally, red in CI, for a wrap that does not violate the invariant. What D4 actually protects is that the confirm target does not move out from under the finger — top, left and width. Height is allowed to grow downward from a pinned top.
 
 Note on D4: `basis-full sm:basis-auto` is **removed** from both buttons. The fork makes it redundant — the stacked copy is `flex-col` with `items-stretch` (full width by construction) and the inline copy never needs to wrap-to-full. The DESTRUCT-1 invariant it protected is preserved structurally rather than by basis, and D4 is the assertion that proves it. The layout spec's drift-guard at `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`, which currently asserts the source contains `basis-full` and `sm:basis-auto`, is rewritten to assert the fork's classes instead — see §6.3.
 
@@ -277,6 +291,7 @@ Assertions:
 - **360px, D2:** both buttons' heights ≥ 44px.
 - **360px, D4:** `fork-armed` stacked Ignore box top / left / width equal `fork-idle`'s within 0.5px. Height compared separately and allowed to grow; the existing `nobasis` control retained to prove the harness still reproduces a reflow.
 - **720px:** inline copy displayed, stacked copy measures zero. `defer.right ≤ ignore.left + TOL` (D3, Defer on the left). Exactly one copy displayed.
+- **720px, D6:** `fork-armed` inline Ignore box left and top equal `fork-idle`'s within 0.5px; width is allowed to grow. Catches a future change that lets the armed label push the confirm target leftward under a cursor already resting on it.
 - **Drift-guard (rewritten from `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`):** the shipped source contains `sm:hidden`, `hidden`, `sm:flex`, `items-stretch`; and contains **no** `basis-full`, since §4.6 removes it. The negative half is what makes this guard bite — asserting only the presence of new classes would still pass if the old markup survived alongside.
 
 ### 6.4 CI wiring (R5)
