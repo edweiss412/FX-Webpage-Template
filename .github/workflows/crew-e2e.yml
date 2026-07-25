@@ -38,8 +38,12 @@ on:
     # tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts asserts exactly that:
     # the workflow uses paths-ignore, and every entry is a docs pattern.
     paths-ignore:
-      - "**/*.md"
+      # NOT `**/*.md`. Markdown is not inert in this repo: supabase/seed.ts reads
+      # fixtures/shows/raw/*.md (seed.ts:15) and crew-section-toggle depends on the
+      # Waldorf fixture, so a fixture-only change can break seeding or the suite.
+      # Only prose locations are listed.
       - "docs/**"
+      - "*.md"
       - ".github/ISSUE_TEMPLATE/**"
       - "LICENSE"
   workflow_dispatch:

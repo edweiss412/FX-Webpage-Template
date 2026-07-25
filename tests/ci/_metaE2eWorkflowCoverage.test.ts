@@ -28,6 +28,8 @@ const ROOT = process.cwd();
  *  is the umbrella work item for wiring them). */
 const PATH_GATED =
   "path-gated PR workflow (runs when its filter matches, not PR-blocking-capable per the scanner contract); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
+const PATH_GATED_BY_EXCLUSION =
+  "path-gated by EXCLUSION (pull_request.paths-ignore, so it runs unless the change is docs-only — broader than an allow-list, still not PR-blocking-capable per the scanner contract); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
 const UNSEEN =
   "not named in any workflow run command (project-only --project runs are invisible to the scanner, or no workflow runs it); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
 const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
@@ -54,6 +56,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/collapse-panel-morph.spec.ts": UNSEEN,
   "tests/e2e/compact-alert-card-layout.spec.ts": UNSEEN,
   "tests/e2e/crew-layout-dimensions.spec.ts": PATH_GATED,
+  "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-page.spec.ts": UNSEEN,
   "tests/e2e/dataQualityBadge.layout.spec.ts": UNSEEN,
   "tests/e2e/deep-link-walker.spec.ts": UNSEEN,
@@ -79,6 +82,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/packlist-rescan-recovery.spec.ts": UNSEEN,
   "tests/e2e/phantomGapHelper.layout.spec.ts": PATH_GATED,
   "tests/e2e/pendingDiscardReflow.layout.spec.ts": UNSEEN,
+  "tests/e2e/picker-flow.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/published-review-modal.closeFreshness.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.crew-actions.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.deeplink.spec.ts": PATH_GATED,
@@ -187,11 +191,22 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
     const r = S(base("  push:\n    branches: [main]", "", `playwright test ${spec}`));
     expect(r.rejected[0]!.reason).toBe("no pull_request trigger");
   });
+  it("rejects a pull_request.paths-IGNORE filter too", () => {
+    // The blind spot this branch found: an exclusion filter is still a filter, so
+    // the job does not run on every PR. Matching only `paths:` marked such a
+    // workflow PR-blocking-capable and silently counted its specs as covered.
+    const r = S(
+      base(`  pull_request:\n    paths-ignore:\n      - "docs/**"`, "", `playwright test ${spec}`),
+    );
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe("pull_request.paths/paths-ignore filter");
+  });
+
   it("rejects a pull_request.paths filter (spec-file-only filters included)", () => {
     const r = S(
       base(`  pull_request:\n    paths:\n      - "${spec}"`, "", `playwright test ${spec}`),
     );
-    expect(r.rejected[0]!.reason).toBe("pull_request.paths filter");
+    expect(r.rejected[0]!.reason).toBe("pull_request.paths/paths-ignore filter");
   });
   it("rejects a job-level if:", () => {
     const r = S(base("  pull_request:", "    if: false\n", `playwright test ${spec}`));

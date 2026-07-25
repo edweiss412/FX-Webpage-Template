@@ -11,13 +11,15 @@
  * have crashed at setup rather than failing cleanly), and the trigger's path
  * allow-list was incomplete.
  *
- * Coverage status, which the inverted trigger changed: because the workflow now
- * filters by `paths-ignore` rather than `paths`, the scanner in
- * tests/ci/_workflowCoverageScan.ts no longer classifies it as path-filtered, so
- * BOTH specs it runs are genuinely PR-covered and their `PATH_GATED` allowlist
- * rows were removed. That is a real improvement over the `PATH_GATED` state this
- * branch first aimed for. It does not lift the REST of the mobile-safari project,
- * which stays dark under BL-RESURRECT-MOBILE-SAFARI-E2E.
+ * Coverage status, stated precisely. The trigger is now `paths-ignore`, so the job
+ * runs unless a change is docs-only — broader than the old allow-list, but still
+ * NOT every PR. An earlier revision of this branch claimed the specs became
+ * "genuinely PR-covered" because the scanner stopped classifying them as
+ * path-gated; that was an artifact, not a fact: `_workflowCoverageScan.ts` matched
+ * only `paths:`. The scanner now recognises `paths-ignore` as a filter (with its
+ * own self-test), and both specs carry `PATH_GATED_BY_EXCLUSION` allowlist rows
+ * that say what they actually are. The REST of the mobile-safari project stays
+ * dark under BL-RESURRECT-MOBILE-SAFARI-E2E.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -118,7 +120,12 @@ function pathsIgnoreBlock(wf: string): string {
  * the workflow must use `paths-ignore`, and every entry must be a DOCS pattern,
  * since prose cannot change what the app does.
  */
-const DOCS_ONLY = /(\.md$|^docs\/|^\.github\/ISSUE_TEMPLATE\/|^LICENSE$)/;
+// Prose LOCATIONS, not "anything .md". Review found `**/*.md` also ignoring
+// fixtures/shows/raw/*.md, which supabase/seed.ts reads and crew-section-toggle
+// depends on — so a fixture-only change would have skipped the workflow while
+// breaking the suite. Root-level `*.md` (README, AGENTS, the ledgers) and docs/
+// are prose; a recursive markdown glob is not.
+const DOCS_ONLY = /^(docs\/|\.github\/ISSUE_TEMPLATE\/|LICENSE$|[^/]+\.md$)/;
 
 /** Bare-runner workflows whose webServer inherits runner-level env. */
 const KEYED_WORKFLOWS = ["crew-e2e.yml", "dev-gate-e2e.yml"] as const;

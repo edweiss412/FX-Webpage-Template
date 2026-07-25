@@ -61,6 +61,16 @@ const FLAGGED_SPELLINGS: Array<[string, string]> = [
     `const { redirect } = NextResponse;\nreturn redirect(new URL(p, request.url));`,
   ],
   [
+    "namespace import",
+    `import * as NS from "next/server";\nreturn NS.NextResponse.redirect(new URL(p, request.url));`,
+  ],
+  [
+    "const-aliased receiver",
+    `const NR = NextResponse;\nreturn NR.redirect(new URL(p, request.url));`,
+  ],
+  ["extracted method", `const go = NextResponse.redirect;\nreturn go(new URL(p, request.url));`],
+  ["the Web API Response.redirect", `return Response.redirect(new URL(p, request.url));`],
+  [
     "declared inside a nested block",
     `if (cond) {\n  const url = new URL(p, request.url);\n  return NextResponse.redirect(url);\n}`,
   ],
@@ -113,10 +123,20 @@ describe("no absolute self-redirect under app/", () => {
     expect(stale, "allow-list rows pointing at no NextResponse.redirect call").toEqual([]);
   });
 
-  it("every allow-list row states a reason", () => {
-    for (const [site, reason] of Object.entries(EXTERNAL_REDIRECT_ALLOWLIST)) {
-      expect(reason.length, `${site} has no reason`).toBeGreaterThan(20);
+  it("every allow-list row states a reason and pins the argument it was granted for", () => {
+    for (const [site, row] of Object.entries(EXTERNAL_REDIRECT_ALLOWLIST)) {
+      expect(row.reason.length, `${site} has no reason`).toBeGreaterThan(20);
+      // The argument pin is what stops an in-place edit — `data.url` becoming
+      // `new URL(path, request.url)` on the same line — from inheriting the row.
+      expect(row.argument.length, `${site} pins no argument`).toBeGreaterThan(3);
     }
+  });
+
+  it("an allow-listed line stops being exempt if its argument changes", () => {
+    // Same file:line as the real row, but the argument the row was granted for is
+    // gone, so the call must be reported again.
+    const mutated = `${"\n".repeat(71)}    return NextResponse.redirect(new URL(p, request.url), { status: 302 });`;
+    expect(unallowedRedirects("app/api/auth/google/start/route.ts", mutated)).toHaveLength(1);
   });
 
   it("visited enough files that a broken walk cannot pass vacuously", () => {
