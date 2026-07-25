@@ -625,6 +625,12 @@ describe("every external link in the live tree announces its new tab", () => {
     const files = [
       ...walkFiles(join(process.cwd(), "components"), /\.tsx$/),
       ...walkFiles(join(process.cwd(), "app"), /\.tsx$/),
+      // The MDX components map lives at the REPO ROOT, outside both walked trees, so
+      // an inline intrinsic override there (`a: (p) => <a {...p} target="_blank" />`)
+      // would have been invisible to this pass -- and it is the one file that can make
+      // EVERY help-page link external at once. Scanning it as ordinary TSX is
+      // strictly better than the regex assertions that stood in for it.
+      join(process.cwd(), "mdx-components.tsx"),
     ].map((abs) => abs.slice(process.cwd().length + 1));
     const sc: Scan = { anchors: 0, violations: [] };
     for (const rel of files) {
@@ -655,6 +661,12 @@ describe("every external link in the live tree announces its new tab", () => {
     const files = [
       ...walkFiles(join(process.cwd(), "components"), /\.tsx$/),
       ...walkFiles(join(process.cwd(), "app"), /\.tsx$/),
+      // The MDX components map lives at the REPO ROOT, outside both walked trees, so
+      // an inline intrinsic override there (`a: (p) => <a {...p} target="_blank" />`)
+      // would have been invisible to this pass -- and it is the one file that can make
+      // EVERY help-page link external at once. Scanning it as ordinary TSX is
+      // strictly better than the regex assertions that stood in for it.
+      join(process.cwd(), "mdx-components.tsx"),
     ].map((abs) => abs.slice(process.cwd().length + 1));
     // Token-based stripping, NOT regex: a `const marker = "//"` in source makes a
     // regex swallow the rest of the line and hide a phrase-bearing label from
