@@ -36,9 +36,9 @@ _31 adversaries · 30 rejected · 1 survived · 0 unapplied._
 | A12 | omits the effect cleanup | 2 |
 | A13 | empty keyframe bodies | 2 |
 | A14 | CSS duration drifts from the constant | 2 |
-| A15 | no reduced-motion override | 2 |
+| A15 | no reduced-motion override | 3 |
 | A16 | override present but outranked by a later rule | 2 |
-| A17 | later duplicate keyframes win the cascade | 2 |
+| A17 | later duplicate keyframes win the cascade | 3 |
 | A18 | ancestor-qualified rule suppresses it in the real tree | 4 |
 | A19 | ring suppressed while the wash still works | 2 |
 | A20 | keyframes moved into the component | 1 |
@@ -50,7 +50,7 @@ _31 adversaries · 30 rejected · 1 survived · 0 unapplied._
 | A28 | ancestor rule scoped to the real modal ROOT suppresses the cue | 4 |
 | A29 | selector widened to `html [data-...]` (defeats substring matching) | 2 |
 | A30 | the attribute rule is duplicated (a later copy wins the cascade) | 2 |
-| A31 | cue ungated: the URL block animates at rest, with no attribute | 6 |
+| A31 | cue ungated: the URL block animates at rest, with no attribute | 7 |
 | A22 | token retuned below the ring's contrast floor | 2 |
 | A21 | renders a wrong token / Copy writes a stale one | 2 |
 
@@ -58,8 +58,9 @@ _31 adversaries · 30 rejected · 1 survived · 0 unapplied._
 |---|---|
 | N0: SHARE_LINK_FLASH_MS is 1600 | A25 |
 | N1: both keyframes are declared exactly once | A17 |
+| N1: nothing ELSE in the stylesheet mentions the cue | A15, A16, A17, A18, A28, A30, A31 |
 | N1: the component declares no keyframes of its own | A20 |
-| N1: the shipped cue rules EQUAL the spec's normative block | A13, A14, A15, A16, A17, A18, A19, A25, A26, A27, A28, A29, A30, A31 |
+| N1: the spec's normative block appears in globals.css BYTE FOR BYTE | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31 |
 | T-FLASH-REDUCED | A1, A15, A16, A27, A29, A30, A31 |
 | T-FLASH-REST | A31 |
 | T-FLASH-RESTART | A1, A9, A18, A28 |
