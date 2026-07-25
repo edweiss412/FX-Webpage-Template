@@ -42,16 +42,18 @@ import { describe, expect, it } from "vitest";
 // truncated to `FLOW4-2`, which collides with the distinct real `FLOW4-2` entry —
 // so a reopened struck-through id could slip past the no-overlap invariant and two
 // different entries could be conflated.
-// Ids are SHOUTY tokens of 3+ characters, optionally struck through, optionally
-// behind a bracketed priority prefix (`### [P2] SOME-ID — …`).
+// Ids are SHOUTY tokens, optionally struck through, optionally behind a bracketed
+// priority prefix (`### [P2] SOME-ID — …`).
 //
-// The 3-character floor is deliberate. Four archived headings are prose behind a
-// priority prefix (`### [P2] Bulk ignore produced two polite announcements …`);
-// they carry no id at all. A looser pattern extracts a single leading letter from
-// them — a garbage "id" that could collide with a real one, which is worse than
-// skipping. So those headings are skipped BY CONSTRUCTION, and the no-overlap
-// invariant simply does not speak to entries that have no identifier.
-const DEFERRAL_ID = /^### (?:\[[^\]]+\]\s*)?~{0,2}([A-Z0-9][A-Z0-9/-]{2,})~{0,2}/gm;
+// Length is NOT the discriminator. A 3-character floor looked like a clean way to
+// skip the four prose headings (`### [P2] Bulk ignore produced two polite
+// announcements …`), but review found it also excluded nine genuine ids — `D1`
+// through `D9` — so reopening one of those would have gone unnoticed by the
+// no-overlap invariant. What actually separates an id from prose is what FOLLOWS
+// it: a real entry heading is `ID — text` or `ID -` or ends there, while prose
+// continues in lower case ("Bulk ignore …" would yield "B" followed by "ulk").
+// So the token must be followed by a dash, an em dash, a bracket, or end of line.
+const DEFERRAL_ID = /^### (?:\[[^\]]+\]\s*)?~{0,2}([A-Z0-9][A-Z0-9/-]*)~{0,2}(?=\s*(?:[—–-]|\[|$))/gm;
 const BACKLOG_ID = /^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)~{0,2}/gm;
 
 /**

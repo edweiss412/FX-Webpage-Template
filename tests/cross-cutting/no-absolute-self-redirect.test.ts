@@ -49,6 +49,18 @@ const FLAGGED_SPELLINGS: Array<[string, string]> = [
     `const u = request.nextUrl.clone();\nu.pathname = p;\nreturn NextResponse.redirect(u);`,
   ],
   [
+    // Receiver spellings review used to bypass a literal `NextResponse.redirect`
+    // text match. Each recreates the host flip.
+    "aliased import",
+    `import { NextResponse as NR } from "next/server";\nreturn NR.redirect(new URL(p, request.url));`,
+  ],
+  ["element access", `return NextResponse["redirect"](new URL(p, request.url));`],
+  ["parenthesized receiver", `return (NextResponse).redirect(new URL(p, request.url));`],
+  [
+    "destructured method",
+    `const { redirect } = NextResponse;\nreturn redirect(new URL(p, request.url));`,
+  ],
+  [
     "declared inside a nested block",
     `if (cond) {\n  const url = new URL(p, request.url);\n  return NextResponse.redirect(url);\n}`,
   ],

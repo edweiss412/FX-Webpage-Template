@@ -64,6 +64,36 @@ function stripComments(yaml: string): string {
 
 const read = (wf: string): string => stripComments(readRaw(wf));
 
+/** Drop `//` and block comments, preserving string and regex literals. */
+function stripTsComments(src: string): string {
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const two = src.slice(i, i + 2);
+    if (two === "//") {
+      const nl = src.indexOf("\n", i);
+      i = nl === -1 ? src.length : nl;
+      continue;
+    }
+    if (two === "/*") {
+      const close = src.indexOf("*/", i + 2);
+      i = close === -1 ? src.length : close + 2;
+      continue;
+    }
+    const ch = src[i]!;
+    if (ch === '"' || ch === "'" || ch === "`") {
+      let j = i + 1;
+      while (j < src.length && src[j] !== ch) j += src[j] === "\\" ? 2 : 1;
+      out += src.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
 /** The `pull_request.paths-ignore` block only, so an entry elsewhere cannot count. */
 function pathsIgnoreBlock(wf: string): string {
   const yaml = read(wf);
@@ -111,7 +141,12 @@ describe("picker-flow e2e CI wiring", () => {
     // naming picker-flow collects ZERO tests and still passes. Split the config on
     // project boundaries first — one lazy regex could pair a project's name with a
     // LATER project's testMatch.
-    const config = readFileSync(join(process.cwd(), "playwright.config.ts"), "utf8");
+    // Comments stripped first: a commented-out `// testMatch: /(picker-flow|…)/`
+    // above a live one marked the project as claiming the spec, while the real
+    // run collected zero picker tests.
+    const config = stripTsComments(
+      readFileSync(join(process.cwd(), "playwright.config.ts"), "utf8"),
+    );
     const claiming = config
       .split(/\n\s*name:\s*"/)
       .slice(1)
@@ -148,8 +183,11 @@ describe("picker-flow e2e CI wiring", () => {
   });
 
   it("every paths-ignore entry is a docs pattern", () => {
-    const entries = [...pathsIgnoreBlock("crew-e2e.yml").matchAll(/-\s*"([^"]+)"/g)].map(
-      (m) => m[1]!,
+    // Quotes optional: `- app/**` and `- 'app/**'` were invisible to a
+    // double-quote-only parser, so a code pattern could hide there while the
+    // quoted docs entries kept the list non-empty and the test green.
+    const entries = [...pathsIgnoreBlock("crew-e2e.yml").matchAll(/^\s*-\s*(.+?)\s*$/gm)].map((m) =>
+      m[1]!.replace(/^['"]|['"]$/g, ""),
     );
     expect(entries.length, "paths-ignore is empty").toBeGreaterThan(0);
     expect(
@@ -159,20 +197,33 @@ describe("picker-flow e2e CI wiring", () => {
     ).toEqual([]);
   });
 
-  it.each(KEYED_WORKFLOWS)("%s sets a 64-hex PICKER_COOKIE_SIGNING_KEY under env:", (wf) => {
-    const yaml = read(wf);
-    // Must sit inside an `env:` mapping — a bare key elsewhere reaches no process.
-    expect(
-      /env:\s*(?:\n\s+[A-Z_0-9]+:[^\n]*)*\n\s+PICKER_COOKIE_SIGNING_KEY:/.test(yaml),
-      `${wf} does not set PICKER_COOKIE_SIGNING_KEY inside an env: mapping`,
-    ).toBe(true);
-    const match = /PICKER_COOKIE_SIGNING_KEY:\s*"?([0-9a-fA-F]*)"?/.exec(yaml);
-    expect(match, `${wf} does not set PICKER_COOKIE_SIGNING_KEY at all`).not.toBeNull();
-    expect(
-      match![1],
-      `${wf}'s PICKER_COOKIE_SIGNING_KEY must be 64 hex chars — pickerCookieSigningKey() throws ` +
-        "on a malformed value, which turns the guest case into a setup crash rather than a clean " +
-        "failure.",
-    ).toMatch(/^[0-9a-f]{64}$/);
-  });
+  it.each(KEYED_WORKFLOWS)(
+    "%s sets a 64-hex PICKER_COOKIE_SIGNING_KEY where the run sees it",
+    (wf) => {
+      const yaml = read(wf);
+      // Locality matters, not just presence: the key must sit in an `env:` mapping
+      // that the Playwright process (and the server it spawns) actually inherits.
+      // A file-global check passes when the only valid key is moved into an
+      // unrelated job or step, where it reaches nothing.
+      //
+      // crew-e2e keeps its secrets at JOB level (two-space indent under the job);
+      // dev-gate keeps them in the Playwright run STEP's env: block (deeper indent).
+      const expectedIndent = wf === "crew-e2e.yml" ? 6 : 10;
+      const located = new RegExp(`\\n {${expectedIndent}}PICKER_COOKIE_SIGNING_KEY:`).test(yaml);
+      expect(
+        located,
+        `${wf} sets PICKER_COOKIE_SIGNING_KEY, but not at the ${expectedIndent}-space indent that ` +
+          "puts it in the env: block the Playwright run inherits. A key in an unrelated job or " +
+          "step reaches no process.",
+      ).toBe(true);
+      const match = /PICKER_COOKIE_SIGNING_KEY:\s*"?([0-9a-fA-F]*)"?/.exec(yaml);
+      expect(match, `${wf} does not set PICKER_COOKIE_SIGNING_KEY at all`).not.toBeNull();
+      expect(
+        match![1],
+        `${wf}'s PICKER_COOKIE_SIGNING_KEY must be 64 hex chars — pickerCookieSigningKey() throws ` +
+          "on a malformed value, which turns the guest case into a setup crash rather than a clean " +
+          "failure.",
+      ).toMatch(/^[0-9a-f]{64}$/);
+    },
+  );
 });
