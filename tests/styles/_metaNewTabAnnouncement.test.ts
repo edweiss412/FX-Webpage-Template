@@ -1070,6 +1070,12 @@ describe("R6: scanner changes are pinned", () => {
         /does not announce|unrecognized|not gated/,
       );
     }
+    // NESTED resolvable spreads too. One level of unwrapping left this with no names
+    // at all, so the element was never a candidate -- found by probing my own fix for
+    // R10 BLOCKING 2 before the next round ran.
+    expect(
+      violations(`const A=()=><Foo {...{...{href:"x",target:"_blank"}}}>Go</Foo>;`).join(" "),
+    ).toMatch(/does not announce|unrecognized|not gated/);
     // An UNRESOLVABLE spread on an unknown tag stays out, which is the documented
     // deferral and what keeps `<div {...props}>` from becoming a violation.
     const opaque = probe(`const A=({props})=><Foo {...props}>Go</Foo>;`);

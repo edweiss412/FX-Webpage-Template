@@ -88,12 +88,7 @@ function isLinkCandidate(tag: string, attrs: ts.JsxAttributes): boolean {
   const names = new Set<string | null>(attrs.properties.map((a) => attrName(a)));
   for (const a of attrs.properties) {
     if (!ts.isJsxSpreadAttribute(a)) continue;
-    for (const obj of spreadObjectLiterals(a.expression)) {
-      for (const prop of obj.properties) {
-        const pn = propNameLower(prop);
-        if (pn !== null) names.add(pn);
-      }
-    }
+    for (const n of resolvableSpreadNames(a.expression)) names.add(n);
   }
   // An explicit `target` attribute is enough on its own. R9 showed
   // `<Foo target="_blank" {...spreadHref}>` skipped when `href` was also required,
@@ -237,6 +232,31 @@ function propNameLower(prop: ts.ObjectLiteralElementLike): string | null {
   if (n === undefined) return null;
   if (ts.isIdentifier(n) || ts.isStringLiteral(n)) return n.text.toLowerCase();
   return null;
+}
+
+/** Every property name a resolvable spread contributes, lowercased, following NESTED
+ *  spreads inside the object literals. One level of unwrapping left
+ *  `<Foo {...{...{href:"x", target:"_blank"}}}>` with no names, so the element was
+ *  never a candidate at all -- found by probing my own R10 fix before R11 ran. */
+function resolvableSpreadNames(expr: ts.Expression): string[] {
+  const out: string[] = [];
+  const seen = new Set<ts.Node>();
+  const walk = (e: ts.Expression): void => {
+    for (const obj of spreadObjectLiterals(e)) {
+      if (seen.has(obj)) continue;
+      seen.add(obj);
+      for (const prop of obj.properties) {
+        if (ts.isSpreadAssignment(prop)) {
+          walk(prop.expression);
+          continue;
+        }
+        const pn = propNameLower(prop);
+        if (pn !== null) out.push(pn);
+      }
+    }
+  };
+  walk(expr);
+  return out;
 }
 
 /** Object literals a spread expression statically resolves to: a bare literal, or
