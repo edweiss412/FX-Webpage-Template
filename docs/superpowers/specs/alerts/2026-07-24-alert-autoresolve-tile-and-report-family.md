@@ -227,8 +227,8 @@ of scope, unchanged, and the reason §6.2 does not repoint the write-site regist
 
 - Accept the required `ledger: TileRenderLedger` prop.
 - Before invoking `render()`: `ledger.attempted.add(tileId)`.
-- In the `catch`: `ledger.failed.set(tileId, err.message)`, keep the existing `log.error`
-  (`components/crew/WrappedSection.tsx:86-91`), and **remove** the `upsertAdminAlert` call with its
+- In the `catch`: `ledger.failed.set(tileId, err.message)`, **remove** the `log.error` call
+  (`components/crew/WrappedSection.tsx:86-91`, see §4.8), and **remove** the `upsertAdminAlert` call with its
   `after()` and fire-and-forget fallback (`components/crew/WrappedSection.tsx:94-122`).
 - The fallback return (`components/crew/WrappedSection.tsx:123`) is unchanged.
 
@@ -317,16 +317,21 @@ sweep in which the tile still fails and asserts the row is open again.
 
 Bounded, because the crash is recorded twice and this design touches only one record.
 
-`WrappedSection`'s `log.error` (`components/crew/WrappedSection.tsx:86-91`) flows through `lib/log`,
-which persists above a level threshold to the locked-down `public.app_events` table via a
-service-role insert
-(`docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md`), queryable with
-`pnpm observe`. Auto-resolution never touches it.
+**The durable record is emitted by the sweep, not by `WrappedSection`.** Plan round 2 showed why the
+obvious placement is unsound: `lib/log` persists to `public.app_events` asynchronously
+(service-role insert, queryable with `pnpm observe`), and `WrappedSection` is a synchronous component
+that cannot retain that promise. A render that freezes after the sweep but before the untracked
+logging promise settled would leave the alert resolved with no `app_events` row, which is exactly the
+evidence loss this section claims cannot happen.
 
-So the worst case of a wrong resolve is a lost **nudge**, not lost evidence: the crash stays
-searchable, the alert re-raises on the affected observer's next render, and the manual button remains
-(§4.9). This is why observer keying is a completeness improvement rather than a safety prerequisite,
-and why the design does not need to be perfect to be a net gain.
+So the failure log moves into `sweepTileRenderAlerts`, which runs inside `after()` and therefore CAN
+await it: one durable, awaited record per failed tile, emitted before the upsert.
+`components/crew/WrappedSection.tsx` stops logging entirely.
+
+With that placement the worst case of a wrong resolve is a lost **nudge**, not lost evidence: the
+crash stays searchable, the alert re-raises on the affected observer's next render, and the manual
+button remains (§4.9). This is why observer keying is a completeness improvement rather than a safety
+prerequisite, and why the design does not need to be perfect to be a net gain.
 
 ### 4.9 Classification: `hybrid`, and the button stays
 
@@ -533,7 +538,8 @@ commit.
 ### 6.2 Producer-scope registry, and the gate a new row activates
 
 - **`_metaAlertProducerScope` needs a new row.** The sweep's `upsertAdminAlert` lands in
-  `app/show/[slug]/[shareToken]/_CrewShell.tsx`, and that walker discovers producers under `app/`
+  `lib/crew/sweepTileRenderAlerts.ts (new)` (NOT the shell: the shell only registers the callback), and
+  that walker scans `ROOTS = ["lib", "app"]`
   (`tests/adminAlerts/_metaAlertProducerScope.test.ts:26-48`,
   `tests/adminAlerts/_metaAlertProducerScope.test.ts:144-157`). `WrappedSection` was never registered
   because the walker excludes `components/`, so this is a **new** obligation created by the move. Its
@@ -582,7 +588,8 @@ Rewritten in the same commit, not merely updated:
 | `tests/components/crew/wrappedSection.test.tsx:55-160`        | asserts throw renders fallback AND upserts; the upsert leaves                                     |
 | `tests/components/crew/wrappedSectionDurability.test.tsx:35-75` | premise inverts (§4.5); durability re-asserted on the sweep in returned-promise form            |
 | `tests/components/crew/crewShellTwoDistinctAlerts.test.tsx:110-140` | constructs shell and descendants under the old ownership                                    |
-| `tests/messages/_metaEmphasisRenderContract.test.ts:162-170`  | retains the now-false claim that `WrappedSection` produces the alert                              |
+| `tests/messages/_metaEmphasisRenderContract.test.ts:162-170`  | its REASON text says `WrappedSection` produces the alert, which stops being true. The registry row itself is CORRECT and must stay: that registry tracks `.dougFacing` accessors, and `components/crew/WrappedSection.tsx:63` keeps its `.dougFacing` comment. Update the reason prose only. |
+| `components/crew/WrappedSection.tsx:28-40`                    | the file header still describes the removed alert-upsert ownership                                |
 
 **Plus every test that constructs a crew section**, because the ledger prop is required and tests are
 typechecked (`tsconfig.json:29-32`). Round 3 enumerated 29 such files beyond `wrappedSection.test.tsx`,
@@ -698,7 +705,8 @@ into a pass-through, which is why the design does not rely on it (§4.3).
   disk; hybrid 1 to 2; state-manual-justified 1 to 0; auto unchanged at 26; event-manual unchanged at
   17; total 45. The prose docstring at `tests/messages/_metaAdminAlertCatalog.test.ts:272-280`
   matches.
-- **AC12** A `PRODUCER_SCOPE` row exists for the `_CrewShell` producer declaring `tileId`, `message`,
+- **AC12** A `PRODUCER_SCOPE` row exists for the `lib/crew/sweepTileRenderAlerts.ts (new)` producer (with a
+  `path:line` site, and without `dynamic` or `computedContext`) declaring `tileId`, `message`,
   `sheet_name` and `viewerKey`; `tests/adminAlerts/producerContexts.ts:276-280`'s representative
   context is corrected to those keys; `_metaAlertProducerScope` and `producerKeyAggregation` pass.
   `ADMIN_ALERTS_WRITE_SITES` is unchanged and still pins `components/shared/TileServerFallback.tsx`.
@@ -809,8 +817,11 @@ named. Each was checked against live code rather than reasoned from the spec:
    `viewerName`, `viewerNameAliases` and the date/stage restrictions all derive from the crew row
    `viewerId` identifies, so no seam gate varies independently of the key.
 2. **`"admin"` sentinel collision.** Impossible: `crewMemberId` is a UUID.
-3. **Cost bound (§4.8).** Holds. `lib/log/logger.ts:22` returns true for `error` unconditionally, so
-   every crash persists to `app_events` regardless of alert state.
+3. **Cost bound (§4.8).** Holds only with the log in the sweep. `lib/log/logger.ts:22` returns true
+   for `error` unconditionally, so every crash persists to `app_events`, but the persistence is
+   asynchronous. Plan round 2 caught that the original placement in the synchronous
+   `WrappedSection` could not await it; §4.8 now places the awaited emit in the sweep. This is a
+   correction to the self-certification, which had accepted the unsound placement.
 4. **Clause (c) for the report family (§5.3).** Holds. `lib/reports/submit.ts:1073-1075` returns on
    `reservation.state === "duplicate"` before `expiredLeaseRetry`, the only route to
    `findIssueByMarker`, so no fresh lookup can follow a persisted URL.

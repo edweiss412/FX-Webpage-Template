@@ -398,10 +398,12 @@ Create `tests/crew/sweepTileRenderAlerts.test.ts (new)`:
 ```ts
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { upsertMock, resolveMock } = vi.hoisted(() => ({
+const { upsertMock, resolveMock, logErrorMock } = vi.hoisted(() => ({
   upsertMock: vi.fn(async () => null),
   resolveMock: vi.fn(async () => undefined),
+  logErrorMock: vi.fn(async () => undefined),
 }));
+vi.mock("@/lib/log", () => ({ log: { error: logErrorMock, warn: vi.fn(), info: vi.fn() } }));
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({ upsertAdminAlert: upsertMock }));
 vi.mock("@/lib/adminAlerts/resolveTileAlertsForObserver", () => ({
   resolveTileAlertsForObserver: resolveMock,
@@ -422,6 +424,8 @@ function ledger(attempted: string[], failed: Record<string, string> = {}): TileR
 beforeEach(() => {
   upsertMock.mockClear();
   resolveMock.mockClear();
+  logErrorMock.mockClear();
+  logErrorMock.mockImplementation(async () => undefined);
 });
 
 describe("sweepTileRenderAlerts", () => {
@@ -515,6 +519,24 @@ describe("sweepTileRenderAlerts", () => {
     expect(upsertMock.mock.calls[0]?.[0]).toMatchObject({
       context: expect.objectContaining({ tileId: "crew:travel:transport" }),
     });
+  });
+
+  // F10: without this, replacing `await log.error(...)` with `void log.error(...)`
+  // leaves every other test green while re-opening the evidence-loss hole the
+  // awaited log exists to close.
+  test("the durable failure log is AWAITED before the sweep settles", async () => {
+    let logSettled = false;
+    logErrorMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            logSettled = true;
+            resolve();
+          }, 0),
+        ),
+    );
+    await sweepTileRenderAlerts(ledger(["crew:gear:scope"], { "crew:gear:scope": "boom" }), ARGS);
+    expect(logSettled, "sweepTileRenderAlerts must await the durable log").toBe(true);
   });
 
   test("an upsert failure does not prevent the resolve", async () => {
@@ -630,11 +652,47 @@ Expected: PASS, 9 tests.
 Run: `cd /Users/ericweiss/FX-worktrees/alert-autoresolve && npx vitest run tests/cross-cutting/codes.test.ts`
 Expected: PASS. These are `app_events` log codes, not §12.4 catalog codes, so no catalog row is required, the same posture as the existing `CREW_PROJECTION_ALERT_UPSERT_FAILED` at `app/show/[slug]/[shareToken]/_CrewShell.tsx:175`. If the scanner flags them, mirror whatever exemption that existing code carries.
 
+- [ ] **Step 5b: Register the producer IN THIS COMMIT**
+
+The walker scans `lib/` and `app/` and fails on any unregistered `upsertAdminAlert` site
+(`tests/adminAlerts/_metaAlertProducerScope.test.ts:26`, `tests/adminAlerts/_metaAlertProducerScope.test.ts:144-152`). This task creates such a site,
+so deferring its row to a later task leaves the whole suite red across every intervening commit.
+Add to `tests/adminAlerts/alertProducerScope.registry.ts` now:
+
+```ts
+  {
+    site: "lib/crew/sweepTileRenderAlerts.ts:<LINE-OF-THE-upsertAdminAlert-CALL>",
+    contextKeys: ["tileId", "message", "sheet_name", "viewerKey"],
+    code: "TILE_SERVER_RENDER_FAILED",
+    scope: "per-show",
+    note: "post-response sweep; viewerKey is the observer discriminator (spec 2026-07-24 4.6)",
+  },
+```
+
+Get the real line with `rg -n "upsertAdminAlert\(\{" lib/crew/sweepTileRenderAlerts.ts`. No
+`dynamic`, no `computedContext`: the code is a string literal and the context is a literal object, so
+the AST walker reads both directly and rejects either flag
+(`tests/adminAlerts/_metaAlertProducerScope.test.ts:57-115`, `tests/adminAlerts/_metaAlertProducerScope.test.ts:148-205`).
+
+Also correct the representative context in `tests/adminAlerts/producerContexts.ts:276-280`, which
+currently describes a producer that does not exist (`{ drive_file_id, sheet_name, section }`):
+
+```ts
+    context: {
+      tileId: "crew:gear:scope",
+      message: "scope projection blew up",
+      sheet_name: "My Sheet",
+      viewerKey: "00000000-0000-4000-8000-000000000001",
+    },
+```
+
+Run: `npx vitest run tests/adminAlerts/` , expected PASS.
+
 - [ ] **Step 6: Commit**
 
 ```bash
 cd /Users/ericweiss/FX-worktrees/alert-autoresolve
-git add lib/crew/sweepTileRenderAlerts.ts tests/crew/sweepTileRenderAlerts.test.ts
+git add lib/crew/sweepTileRenderAlerts.ts tests/crew/sweepTileRenderAlerts.test.ts tests/adminAlerts/alertProducerScope.registry.ts tests/adminAlerts/producerContexts.ts
 git commit -m "feat(crew-page): add post-response tile alert sweep"
 ```
 
@@ -682,22 +740,26 @@ vi.mock("next/server", () => ({ after: afterMock }));
 vi.mock("@/lib/crew/sweepTileRenderAlerts", () => ({ sweepTileRenderAlerts: sweepMock }));
 
 // Each section records the ledger identity it was handed, then renders nothing.
-for (const name of [
-  "TodaySection",
-  "ScheduleSection",
-  "VenueSection",
-  "TravelSection",
-  "CrewSection",
-  "GearSection",
-  "BudgetSection",
-]) {
-  vi.mock(`@/components/crew/sections/${name}`, () => ({
-    [name]: (props: { ledger: unknown }) => {
-      seen.push(props.ledger);
-      return null;
-    },
-  }));
-}
+// WRITTEN OUT, NOT LOOPED: vi.mock is hoisted above the module body, so a loop
+// variable in the specifier or factory is evaluated before its binding exists
+// and throws a ReferenceError during module initialization.
+const spy = (name: string) => ({
+  [name]: (props: { ledger: unknown }) => {
+    seen.push(props.ledger);
+    return null;
+  },
+});
+vi.mock("@/components/crew/sections/TodaySection", () => spy("TodaySection"));
+vi.mock("@/components/crew/sections/ScheduleSection", () => spy("ScheduleSection"));
+vi.mock("@/components/crew/sections/VenueSection", () => spy("VenueSection"));
+vi.mock("@/components/crew/sections/TravelSection", () => spy("TravelSection"));
+vi.mock("@/components/crew/sections/CrewSection", () => spy("CrewSection"));
+vi.mock("@/components/crew/sections/GearSection", () => spy("GearSection"));
+vi.mock("@/components/crew/sections/BudgetSection", () => spy("BudgetSection"));
+
+// Budget is entitled only for leads; set this from the fixture's own entitlement
+// rather than hardcoding 7, so a non-lead fixture expects 6.
+const EXPECTED_SECTION_COUNT = 7;
 
 describe("the crew shell owns one ledger and sweeps THAT one", () => {
   test("every section receives the object the sweep reads", async () => {
@@ -711,13 +773,39 @@ describe("the crew shell owns one ledger and sweeps THAT one", () => {
     for (const [cb] of afterMock.mock.calls) await (cb as () => unknown)();
 
     const swept = sweepMock.mock.calls[0]?.[0];
+    const sweptArgs = sweepMock.mock.calls[0]?.[1] as { viewerKey: string } | undefined;
     expect(swept, "the sweep must have run").toBeDefined();
-    expect(seen.length, "every entitled section must have received a ledger").toBeGreaterThan(0);
+
+    // ALL SEVEN, not "more than zero". The CrewSections controller renders only
+    // the active section, so a shell that hands Today the swept ledger and Gear a
+    // throwaway would pass a >0 check while Gear failures stay invisible. The
+    // shell BUILDS every entitled body up front (_CrewShell.tsx:413), so every
+    // entitled section's spy must have run.
+    expect(seen.length, "every entitled section must receive a ledger").toBe(EXPECTED_SECTION_COUNT);
     for (const received of seen) {
       // Object.is, not toEqual: two distinct empty ledgers are deeply equal but
       // a section writing into a throwaway would be invisible to the sweep.
       expect(Object.is(received, swept)).toBe(true);
     }
+  });
+
+  // F5: the shell is the ONLY place viewerKey is derived. Every other test
+  // supplies it by hand, so a shell that hardcoded "admin" would pass them all
+  // and collapse two crew viewers into one observer bucket.
+  test("viewerKey is derived from the viewer, not hardcoded", async () => {
+    seen.length = 0;
+    afterMock.mockClear();
+    sweepMock.mockClear();
+
+    await renderCrewShellForTest({ viewerId: "crew-dana" });
+    for (const [cb] of afterMock.mock.calls) await (cb as () => unknown)();
+    expect((sweepMock.mock.calls[0]?.[1] as { viewerKey: string }).viewerKey).toBe("crew-dana");
+
+    sweepMock.mockClear();
+    afterMock.mockClear();
+    await renderCrewShellForTest({ viewerId: null }); // plain admin
+    for (const [cb] of afterMock.mock.calls) await (cb as () => unknown)();
+    expect((sweepMock.mock.calls[0]?.[1] as { viewerKey: string }).viewerKey).toBe("admin");
   });
 
   test("the registered callback RETURNS the sweep promise", async () => {
@@ -756,7 +844,9 @@ rg -n "CrewShell|const data|viewer" tests/components/crew/crewShellAlert.test.ts
 ```
 
 Copy that file's `data`/`viewer`/`showId` construction verbatim into a local helper in the new test
-file, calling `await CrewShell({...})` the same way it does. That file already solves the projection
+file, calling `await CrewShell({...})` the same way it does. The helper MUST accept a
+`{ viewerId }` override so the viewerKey-derivation test can drive both a crew viewer and a plain
+admin (`data.viewerId = null`). That file already solves the projection
 fixture, so reuse beats re-deriving.
 
 - [ ] **Step 3: Run the tests to verify they fail**
@@ -967,10 +1057,10 @@ git commit -m "feat(crew-page): move tile alert ownership to the shell sweep"
 
 ---
 
-### Task 5: Row-state proof against a real database
+### Task 5: Row-state proof against a real database (verification task)
 
 **Files:**
-- Create: `tests/adminAlerts/tileAlertResolution.db.test.ts (new)`
+- Create: `tests/db/tileAlertResolution.db.test.ts (new)`
 
 **Interfaces:**
 - Consumes: `sweepTileRenderAlerts` (Task 3), `createTileRenderLedger` (Task 1).
@@ -992,12 +1082,24 @@ this repo points at the VALIDATION project and these tests mutate rows. Read
 `tests/onboarding/finalizeDemotedBlocksFinish.db.test.ts:28-34` for the exact idiom and
 `tests/reports/_dbHelpers.ts` for `runPsql` / `sqlString` / `seedShow`.
 
-Create `tests/adminAlerts/tileAlertResolution.db.test.ts (new)`:
+Create `tests/db/tileAlertResolution.db.test.ts (new)`:
 
 ```ts
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
+import { assertLocalDbUrl } from "../helpers/assertLocalDbUrl";
 import { runPsql, seedShow, sqlString } from "../reports/_dbHelpers";
+
+// DB-project convention: TEST_DATABASE_URL points at the VALIDATION project in
+// this repo, so every *.db.test.ts pins BOTH the psql URL and the REST client's
+// URL to local loopback. Without this, runPsql seeds validation while the sweep's
+// Supabase client reads local, and the assertions inspect a different database.
+// Copy the exact idiom from tests/onboarding/finalizeDemotedBlocksFinish.db.test.ts:28-34.
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
+process.env.TEST_DATABASE_URL = LOCAL_URL;
+process.env.DATABASE_URL = LOCAL_URL;
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { sweepTileRenderAlerts } from "@/lib/crew/sweepTileRenderAlerts";
 
@@ -1137,7 +1239,7 @@ describe("tile alert resolution, real rows", () => {
 ```bash
 cd /Users/ericweiss/FX-worktrees/alert-autoresolve
 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
-  npx vitest run tests/adminAlerts/tileAlertResolution.db.test.ts
+  npx vitest run tests/db/tileAlertResolution.db.test.ts
 ```
 
 Before running, deliberately break the resolver by deleting the `.eq("context->>viewerKey", ...)`
@@ -1148,13 +1250,13 @@ both with and without that filter, the test is tautological, stop and fix the te
 
 ```bash
 cd /Users/ericweiss/FX-worktrees/alert-autoresolve
-git add tests/adminAlerts/tileAlertResolution.db.test.ts
+git add tests/db/tileAlertResolution.db.test.ts
 git commit -m "test(admin): prove tile alert resolution against real rows"
 ```
 
 ---
 
-### Task 6: The topology meta-test
+### Task 6: The topology meta-test (verification task)
 
 **Files:**
 - Create: `tests/crew/_metaTileProducerTopology.test.ts (new)`
@@ -1298,7 +1400,13 @@ describe("META tile producer topology", () => {
     // Brace-balanced extraction, NOT /after\([^)]*.../: that character class stops
     // at the `)` of `()` in the arrow head, so it can never see the callback body
     // and the promised mutant would not fail.
-    const sweepCall = afterCallArgument(src.slice(src.indexOf("sweepTileRenderAlerts") - 400));
+    // Anchor on the REGISTRATION, not the first mention: `src.indexOf("sweep...")`
+    // finds the import line, and the next after( from there is the PROJECTION
+    // alert's registration at _CrewShell.tsx:200-204, whose body legitimately
+    // contains no ledger creation, so the mutant would not fail.
+    const regAt = src.search(/after\(\s*\(\)\s*=>\s*\n?\s*sweepTileRenderAlerts\(/);
+    expect(regAt, "the tile sweep registration must exist").toBeGreaterThan(-1);
+    const sweepCall = afterCallArgument(src.slice(regAt));
     expect(
       sweepCall.includes("createTileRenderLedger"),
       "createTileRenderLedger() must not be called inside the after() callback",
@@ -1383,47 +1491,18 @@ At lines 736-739 change the hybrid expectation from `.toBe(1)` to `.toBe(2)` and
 
 In the docstring at lines 272-280, change `1 "hybrid"` to `2 "hybrid"`, `1 "state-manual-justified"` to `0 "state-manual-justified"`, and update the arithmetic line to `26 + 17 + 2 + 0 = 45`.
 
-- [ ] **Step 3: Add the producer-scope row**
+- [ ] **Step 3: Confirm the producer row landed in Task 3**
 
-In `tests/adminAlerts/alertProducerScope.registry.ts`, add:
+The `PRODUCER_SCOPE` row and the `producerContexts.ts` correction ship in Task 3, in the same commit
+as the producer they describe, because the walker fails on any unregistered site and a deferred row
+would leave the suite red for several commits. Verify only:
 
-```ts
-  {
-    site: "lib/crew/sweepTileRenderAlerts.ts:<LINE-OF-THE-upsertAdminAlert-CALL>",
-    contextKeys: ["tileId", "message", "sheet_name", "viewerKey"],
-    code: "TILE_SERVER_RENDER_FAILED",
-    scope: "per-show",
-    note: "post-response sweep; viewerKey is the observer discriminator (spec 2026-07-24 4.6)",
-  },
+```bash
+cd /Users/ericweiss/FX-worktrees/alert-autoresolve
+npx vitest run tests/adminAlerts/
+rg -n "sweepTileRenderAlerts" tests/adminAlerts/alertProducerScope.registry.ts
 ```
-
-**Three things the first draft of this plan got wrong; do not repeat them:**
-
-1. **The site is the helper, not the shell.** The `upsertAdminAlert` call lives in
-   `lib/crew/sweepTileRenderAlerts.ts (new)`, and `ROOTS = ["lib", "app"]`
-   (`tests/adminAlerts/_metaAlertProducerScope.test.ts:26`) means the walker discovers it there.
-2. **`site` carries a `path:line`.** Every existing row uses `path:line`
-   (`tests/adminAlerts/alertProducerScope.registry.ts:43`, line 49). Replace the placeholder above with
-   the real line, obtained by `rg -n "upsertAdminAlert\(\{" lib/crew/sweepTileRenderAlerts.ts`.
-3. **No `dynamic`, no `computedContext`.** The code is a static string literal and the context is a
-   literal object, so the AST walker reads both directly
-   (`tests/adminAlerts/_metaAlertProducerScope.test.ts:57-115`). Declaring either flag is rejected by
-   the registry's own consistency checks (lines 148-205).
-
-- [ ] **Step 4: Correct the representative context**
-
-In `tests/adminAlerts/producerContexts.ts:276-280`, replace the `TILE_SERVER_RENDER_FAILED` entry's context with the keys the producer actually writes:
-
-```ts
-    context: {
-      tileId: "crew:gear:scope",
-      message: "scope projection blew up",
-      sheet_name: "My Sheet",
-      viewerKey: "00000000-0000-4000-8000-000000000001",
-    },
-```
-
-The previous `{ drive_file_id, sheet_name, section }` described a producer that does not exist; the gate at `tests/adminAlerts/producerKeyAggregation.test.ts:50-59` was dormant only because the code had no producer row.
+Expected: PASS, and the row present with a real a `path:line` site.
 
 - [ ] **Step 5: Do NOT touch the emphasis registry**
 
@@ -1479,12 +1558,14 @@ Run it, then flip one code to `"auto"` locally and confirm the test FAILS before
 Run:
 ```bash
 cd /Users/ericweiss/FX-worktrees/alert-autoresolve
-git diff --stat "$(git merge-base HEAD origin/main)" -- lib/adminAlerts/resolveActionLabel.ts tests/adminAlerts/resolveIntentsBaseline.json lib/messages/catalog.ts
+git diff --stat "$(git merge-base HEAD origin/main)" -- lib/adminAlerts/resolveActionLabel.ts tests/adminAlerts/resolveIntentsBaseline.json lib/messages/catalog.ts lib/adminAlerts/audience.ts
 ```
 Expected: **empty output**. Diffing the MERGE BASE, not `origin/main`, is deliberate: this branch
 was 113 commits behind when first reviewed and a plain `origin/main` diff reported unrelated
 upstream drift in `catalog.ts` as if this feature had touched it. Any diff against the merge base
 is genuinely this branch's, and violates a global constraint, revert it.
+`lib/adminAlerts/audience.ts` is in the list because AC15 forbids adding an `AUTO_RESOLVE_NOTES`
+entry, and that map lives there; without it the prohibition had no verifying step.
 
 - [ ] **Step 8: Commit**
 
@@ -1617,11 +1698,28 @@ Expected: `0  0`.
 
 ## Self-review
 
-**1. Spec coverage.** AC1–AC19 map to tasks as: AC1/AC4/AC5 → Task 3 + Task 5; AC2/AC3 → Task 3; AC6 → Task 3; AC7 → Task 3; AC8 → Task 4 + Task 5; AC9/AC10 → Task 6; AC11/AC12 → Task 7; AC13 → Task 5 Step 6; AC14 → Task 2; AC15/AC16 → Task 7 Step 7 + Task 8; AC17 → Task 9; AC18 → Task 9 Step 3; AC19 → Task 8. No AC is unassigned.
+**1. Spec coverage.** AC1 to AC19 map as: AC1/AC2/AC3/AC5/AC7 to Task 5 (real row state, the spec's
+anti-tautology note binds these to rows, not mocks); AC4 to Task 5 plus the fixture-derived
+entitlement note there; AC6 to Task 3; AC8 to Task 4 (both the no-`after()` inversion and the
+returned-promise assertion); AC9/AC10 to Task 6; AC11/AC12 to Task 3 (producer row) and Task 7
+(lifecycle + counts); AC13 to Task 4 Step 9 (`pnpm typecheck` as the completeness oracle); AC14 to
+Task 2; AC15 to Task 7 Step 7's merge-base diff, which now includes `lib/adminAlerts/audience.ts`;
+AC16 to Task 7 Step 6b; AC17 to Task 9 Steps 1 to 2; AC18 to Task 9 Step 3; AC19 to Task 8.
 
-**2. Placeholder scan.** One deliberate soft spot: Task 5 Step 1's harness import is explicitly flagged as non-existent with two concrete alternatives and a stated preference, because the right route depends on the existing fixture's shape, which the implementer must read. Every other step carries real code.
+**2. Placeholder scan.** Two deliberate, flagged placeholders remain, both requiring a value only
+obtainable at execution time: the a `path:line` site in the `PRODUCER_SCOPE` site (Task 3 Step 5b gives the
+exact `rg` command) and `renderCrewShellForTest` (Task 4 Step 2 names the file to copy the fixture
+from and the override it must accept). Every other step carries real code.
 
-**3. Type consistency.** `TileRenderLedger`, `createTileRenderLedger`, `cleanTileIds`, `sweepTileRenderAlerts`, `resolveTileAlertsForObserver` are used with identical names and signatures across Tasks 1, 2, 3, 4, 5 and 6. `viewerKey` is a `string` everywhere.
+**3. Type consistency.** `TileRenderLedger`, `createTileRenderLedger`, `cleanTileIds`,
+`sweepTileRenderAlerts`, `resolveTileAlertsForObserver` and `ledgerProp` are used with identical
+names and signatures across every task. `viewerKey` is a `string` throughout.
+
+**4. Known divergences from the spec, corrected in this revision.** Plan round 2 found three places
+where spec revision 4 and this plan disagreed. The spec has been amended in the same commit rather
+than left to drift: the durable log now lives in the sweep (spec §4.8), the producer is located in
+`lib/crew/sweepTileRenderAlerts.ts (new)` (spec §6.2, AC12), and spec §6.4 now says the emphasis registry
+row STAYS while only its reason prose changes.
 
 ## Adversarial review (cross-model)
 
