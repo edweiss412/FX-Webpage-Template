@@ -53,7 +53,16 @@ import { describe, expect, it } from "vitest";
 // it: a real entry heading is `ID — text` or `ID -` or ends there, while prose
 // continues in lower case ("Bulk ignore …" would yield "B" followed by "ulk").
 // So the token must be followed by a dash, an em dash, a bracket, or end of line.
-const DEFERRAL_ID = /^### (?:\[[^\]]+\]\s*)?~{0,2}([A-Z0-9][A-Z0-9/-]*)~{0,2}(?=\s*(?:[—–-]|\[|$))/gm;
+// A greedy SHOUTY token, rejected only if prose continues immediately after it.
+//
+// The terminator list was worse than no terminator: `-` was BOTH an id character
+// and an accepted terminator, so the pattern backtracked and parsed the live
+// heading `### SHAREHUB-FIDELITY "…"` as `SHAREHUB`. Reopening that id under a
+// normal heading would then produce a different token and evade the overlap guard.
+// A negative lookahead for a lowercase letter cannot backtrack that way: the token
+// runs to the end of the SHOUTY run, and prose headings (`### [P2] Bulk ignore …`)
+// fail because `B` is followed by `u`.
+const DEFERRAL_ID = /^### (?:\[[^\]]+\]\s*)?~{0,2}([A-Z0-9][A-Z0-9/-]*)~{0,2}(?![a-z])/gm;
 const BACKLOG_ID = /^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)~{0,2}/gm;
 
 /**
@@ -164,7 +173,12 @@ describe("backlog ledger graduation", () => {
 
     // A heading-only entry must fail: the whole point of filing it is to carry
     // the reasoning forward. Section body from this heading to the next.
-    const start = backlog.indexOf(ORIGIN_GATE_ID);
+    // Anchor on the HEADING, not the first mention: an earlier summary reference
+    // would send this at another section — the same bug the provenance check above
+    // already avoids.
+    const headingMatch = new RegExp(`^#{2,3} ~{0,2}${ORIGIN_GATE_ID}`, "m").exec(backlog);
+    expect(headingMatch, `${ORIGIN_GATE_ID} has no heading in BACKLOG.md`).not.toBeNull();
+    const start = headingMatch!.index;
     const rest = backlog.slice(start);
     const nextHeading = rest.slice(1).search(/\n#{2,3} /);
     const body = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
@@ -197,5 +211,12 @@ describe("backlog ledger graduation", () => {
     expect(body).toMatch(/trusted[- ]proxy/i);
     // and the pickup trigger, so it stays actionable:
     expect(body).toMatch(/trigger|pick this up|next\s+auth/i);
+    // Three parts carry the actual reasoning and were still droppable:
+    // that the framework already covers the mismatched-Origin case...
+    expect(body).toMatch(/rejects?\s+a?\s*mismatched|built-in|framework/i);
+    // ...that scope "local" is what bounds the impact to one device...
+    expect(body).toMatch(/scope:?\s*"?local"?|one device|that device/i);
+    // ...and WHY a bespoke gate is unsound, which is the whole reason it is filed.
+    expect(body).toMatch(/forwarded|x-forwarded|spoof/i);
   });
 });

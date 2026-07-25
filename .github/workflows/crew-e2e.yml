@@ -38,11 +38,14 @@ on:
     # tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts asserts exactly that:
     # the workflow uses paths-ignore, and every entry is a docs pattern.
     paths-ignore:
-      # NOT `**/*.md`. Markdown is not inert in this repo: supabase/seed.ts reads
-      # fixtures/shows/raw/*.md (seed.ts:15) and crew-section-toggle depends on the
-      # Waldorf fixture, so a fixture-only change can break seeding or the suite.
-      # Only prose locations are listed.
-      - "docs/**"
+      # Deliberately TINY. Two rounds of "surely this is inert" were both wrong:
+      #   - `**/*.md` also ignored fixtures/shows/raw/*.md, which supabase/seed.ts
+      #     reads (seed.ts:15) and crew-section-toggle depends on;
+      #   - `docs/**` is a BUILD INPUT — prebuild's manifest reads the master spec
+      #     and plan files (scripts/pretest-gen.mjs:20+), so a docs change can alter
+      #     generated artifacts or fail the cold build.
+      # What is left is prose that no script reads: root-level markdown (README,
+      # AGENTS, the ledgers), issue templates, and the licence.
       - "*.md"
       - ".github/ISSUE_TEMPLATE/**"
       - "LICENSE"

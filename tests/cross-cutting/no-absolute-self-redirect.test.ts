@@ -7,10 +7,11 @@
  * typed — which drops host-scoped cookies and silently unauthenticates the next
  * request. `hostRelativeRedirect` (lib/http) is the replacement.
  *
- * Default-deny on the CALL, not analysis of its argument: three earlier rounds of
- * argument-shape matching were each defeated by another spelling (the audit
- * module's header lists them). Keying on the call is bounded — there is one way to
- * write it — so a reintroduced host flip cannot hide behind an expression form.
+ * Keyed on the CALL rather than its argument, after three rounds of argument-shape
+ * matching were each defeated by another spelling. That is a much smaller target,
+ * but NOT a closed one: the receiver itself can be spelled many ways (see the
+ * fixtures below, and the audit module's header for what is and is not resolved).
+ * A green run means no KNOWN spelling is present.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -80,7 +81,9 @@ function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) walk(full, out);
-    else if (/\.tsx?$/.test(full)) out.push(full);
+    // .js/.jsx/.mjs/.cjs too: tsconfig.json enables allowJs, so a route.js is a
+    // real possibility and was invisible to a TypeScript-only walk.
+    else if (/\.(tsx?|jsx?|mjs|cjs)$/.test(full)) out.push(full);
   }
   return out;
 }

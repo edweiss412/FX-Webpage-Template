@@ -208,28 +208,28 @@ describe("picker-flow e2e CI wiring", () => {
     "%s sets a 64-hex PICKER_COOKIE_SIGNING_KEY where the run sees it",
     (wf) => {
       const yaml = read(wf);
-      // Locality matters, not just presence: the key must sit in an `env:` mapping
-      // that the Playwright process (and the server it spawns) actually inherits.
-      // A file-global check passes when the only valid key is moved into an
-      // unrelated job or step, where it reaches nothing.
+      // Locality and validity are read from the SAME line. Checking them separately
+      // let a valid key in an unrelated earlier env: block satisfy the value
+      // assertion while a malformed key overrode it in the block the run actually
+      // inherits — the suite crashes, the guard stays green.
       //
-      // crew-e2e keeps its secrets at JOB level (two-space indent under the job);
-      // dev-gate keeps them in the Playwright run STEP's env: block (deeper indent).
+      // crew-e2e keeps its secrets at JOB level (six-space indent); dev-gate keeps
+      // them in the Playwright run STEP's env: block (ten spaces).
       const expectedIndent = wf === "crew-e2e.yml" ? 6 : 10;
-      const located = new RegExp(`\\n {${expectedIndent}}PICKER_COOKIE_SIGNING_KEY:`).test(yaml);
+      const located = new RegExp(
+        `\\n {${expectedIndent}}PICKER_COOKIE_SIGNING_KEY:\\s*"?([0-9a-fA-F]*)"?`,
+      ).exec(yaml);
       expect(
         located,
-        `${wf} sets PICKER_COOKIE_SIGNING_KEY, but not at the ${expectedIndent}-space indent that ` +
+        `${wf} does not set PICKER_COOKIE_SIGNING_KEY at the ${expectedIndent}-space indent that ` +
           "puts it in the env: block the Playwright run inherits. A key in an unrelated job or " +
           "step reaches no process.",
-      ).toBe(true);
-      const match = /PICKER_COOKIE_SIGNING_KEY:\s*"?([0-9a-fA-F]*)"?/.exec(yaml);
-      expect(match, `${wf} does not set PICKER_COOKIE_SIGNING_KEY at all`).not.toBeNull();
+      ).not.toBeNull();
       expect(
-        match![1],
-        `${wf}'s PICKER_COOKIE_SIGNING_KEY must be 64 hex chars — pickerCookieSigningKey() throws ` +
-          "on a malformed value, which turns the guest case into a setup crash rather than a clean " +
-          "failure.",
+        located![1],
+        `${wf}'s PICKER_COOKIE_SIGNING_KEY must be 64 hex chars AT THAT LOCATION — ` +
+          "pickerCookieSigningKey() throws on a malformed value, turning the guest case into a " +
+          "setup crash rather than a clean failure.",
       ).toMatch(/^[0-9a-f]{64}$/);
     },
   );

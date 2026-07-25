@@ -15,7 +15,7 @@
  * then scope-aware resolution, then default-deny on a literal `NextResponse`
  * receiver. Each closed real bypasses; none was the last one.
  *
- * So the claim is bounded. This guard catches every form below, and the tree is
+ * So the claim is bounded. This guard catches the 19 forms below, and the tree is
  * clean of them:
  *   - `NextResponse.redirect(new URL(p, request.url))` and the `req.url` spelling
  *   - the value assigned to a variable, aliased through another, or captured base
@@ -43,6 +43,8 @@ export type SelfRedirectFinding = {
   /** 1-based line of the `NextResponse.redirect(...)` call. */
   line: number;
   text: string;
+  /** Exact source text of the first argument, for the allow-list's argument pin. */
+  argument: string;
 };
 
 /**
@@ -222,9 +224,11 @@ export function findSelfRedirects(sf: ts.SourceFile): SelfRedirectFinding[] {
   const findings: SelfRedirectFinding[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && isRedirectCall(node.expression, bindings)) {
+      const firstArg = node.arguments[0];
       findings.push({
         line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
         text: node.getText(sf).split("\n")[0]!.trim(),
+        argument: firstArg === undefined ? "" : firstArg.getText(sf).trim(),
       });
     }
     ts.forEachChild(node, visit);
@@ -244,7 +248,10 @@ export function unallowedRedirects(
 ): SelfRedirectFinding[] {
   return auditSource(repoRelativePath, source).filter((f) => {
     const row = EXTERNAL_REDIRECT_ALLOWLIST[`${repoRelativePath}:${f.line}`];
-    // Exempt only if the argument still matches what the row was granted for.
-    return row === undefined || !f.text.includes(row.argument);
+    // EXACT argument match, not a substring of the line. Review showed the
+    // substring form still exempting `metadata.url`, a conditional that merely
+    // mentions `data.url`, or an internal URL trailed by a `/* data.url */`
+    // comment — which defeats the point of pinning the argument at all.
+    return row === undefined || f.argument !== row.argument;
   });
 }

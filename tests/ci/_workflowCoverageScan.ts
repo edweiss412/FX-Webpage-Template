@@ -9,7 +9,8 @@
  * An invocation COUNTS only when ALL hold:
  *   - the workflow declares a `pull_request` trigger (workflow_dispatch-only
  *     and push-only are post-merge/manual discovery, not a PR gate);
- *   - the workflow has NO `pull_request.paths` filter (an enumerated filter
+ *   - the workflow has NO `pull_request.paths` or `paths-ignore` filter (either form
+ *     is a filter: the job does not run on every PR. An enumerated filter
  *     that fires on the spec file but not on production dependencies is the
  *     documented dark-path hole — spec R12-R16);
  *   - neither the job head nor the RUN STEP itself carries `if:` or
