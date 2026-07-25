@@ -102,20 +102,68 @@ Accepted tradeoffs, deliberately:
   passed while the action never resolved. Asserting existence exposed that `SHEET_UNAVAILABLE`
   needs `context.drive_file_id`, not the `sheet_url` I had invented.
 
-## R5 — UNOBTAINED (second Codex outage), self-certified in its place
+## R5 — first UNOBTAINED, then obtained: BLOCKING with 6 findings
 
-**R5 has no verdict, and this is an infrastructure fault.** All three attempts exited 1 against
-`503 Service Unavailable ... auth error code: biscuit_baker_service_me_circuit_open`, attempt 1
-after 440 seconds and 130k tokens of real review work. `failureShape: nonzero_exit`, no signal,
-no `killedReason` — so neither the reaper silent-death class nor the brief-size cliff. A fresh
-availability ping 15 minutes later still returned 14 circuit-open hits. Per AGENTS.md,
-`no_verdict` is never "the reviewer found nothing".
+**The self-certification below was written while R5 had no verdict, and it was WRONG to treat
+that as near-equivalent to a review.** Three attempts had exited 1 against
+`503 ... circuit_open` (attempt 1 after 440 seconds and 130k tokens of real work);
+`failureShape: nonzero_exit`, no signal, so neither the reaper silent-death class nor the
+brief-size cliff. Per AGENTS.md, `no_verdict` is never "the reviewer found nothing".
 
-**What R5 was asked, and what I did instead.** Its brief set a deliberately different bar from
-R1–R4: after four rounds and 29 findings with **zero user-facing defects**, the question was
-whether anything remaining affects what a user or screen reader experiences, or blocks a project
-invariant — with severity weighted by reachability, and with an explicit request to hunt FALSE
-POSITIVES, since a fail-closed allowlist makes over-rejection the live risk.
+When the circuit closed, R5 was re-dispatched and returned **BLOCKING with 4 BLOCKING + 1 HIGH +
+1 LOW** — six real findings, none of which my 17 self-certification probes had found. The record
+is kept here deliberately: it is direct evidence that self-certification does not substitute for
+adversarial eyes, which is the opposite of what this section originally argued.
+
+What R5 found, all fixed in `e1d937109`: the live-tree file filter was still case-SENSITIVE after
+R4 made the scanner case-insensitive (my own regression — `_BLANK`/`target={t}`/`{...props}`
+files were never scanned at all); `normPredicate` equated `!(e && ready)` with `!e && ready`;
+`guardedSubstitution` treated `label` and `label.trim()` as interchangeable; the empty-`label`
+seam had no rendering coverage; spec §4 contradicted its own corrected §1.3; and four `role`
+values were rejected as opaque naming wrappers when the installed accName implementation computes
+the right name through them. R5 labelled every finding's impact itself: five "future regression
+protection and/or invariant 7", one developer friction. **None reached shipped behavior**, and R5
+independently re-confirmed 23 anchors clean.
+
+## R6 — BLOCKING with 5 findings, and the sixth round on one vector forced a model change
+
+R6 reviewed the R5 fix delta and returned **4 BLOCKING + 1 HIGH**. Again none touched shipped
+behavior; again the guard was the problem.
+
+The decisive finding was its first: my R5 fix for predicate comparison — peel parens after `!`
+only when the negand matches no `/[&|?:]/` — was not an atom test. R6 broke it across **eleven
+operator families** (equality `!(x === y)` vs `!x === y` at `x=0,y=false`; relational
+`!(n > 0)` vs `!n > 0` at `n=-1`; arithmetic, `in`, `instanceof`, bitwise, nullish, comma,
+conditional, AND, OR), each with a witness state where the tab opens and nothing is announced.
+Every probe returned zero violations.
+
+That was the **sixth** consecutive round on the same vector. `docs/agents/spec-self-review.md:22`
+caps a surviving vector at three rounds and says to change the model — so the model changed rather
+than gaining a twelfth rule:
+
+- `normPredicate` **deleted outright**, so the unsound comparator cannot be reintroduced.
+- Predicates compare as **AST structural keys**, never normalized text.
+- A gating predicate must be an identifier, a property-access chain, or `!` over either. A
+  **compound** predicate is *reported, not compared*. All eleven families fail closed at once and
+  no twelfth family can reopen the hole.
+- Identity comparison (does a guard prove its OWN substitution non-empty?) keeps arbitrary
+  expressions but compares structurally, so `!(label && ready)` guarding `${!label && ready}` no
+  longer passes at `label=""`.
+
+Cost today is zero: all four shipped gated anchors gate on member expressions. Ratified as an
+accepted limit in spec §6.4.
+
+R6's other four: the `.mdx` rule tested only `/_blank/i`, so `target={dest}` and
+`{...externalProps}` evaded it (MDX never reaches the scanner, so its rule is now the strictest
+available — no `_blank`, no `target`, no spread); spec §4 still claimed all four gated anchors
+render `{action.label}` when the fourth is the banner's static `Google Sheets` chip; spec §6.3
+still called any `role` a naming override, contradicting the R5 change; and — the finding that
+explains the whole thread — **the four R5 scanner changes had NO self-test**, which is precisely
+how the suite stayed green while the comparator was fail-open. Five pins added, including all
+eleven families, mutation-verified: re-admitting binary predicates fails the compound pin,
+restoring gives 66/66.
+
+### The self-certification that R5 later refuted, kept for the record
 
 Self-certification against those exact questions:
 
@@ -131,18 +179,9 @@ Self-certification against those exact questions:
 The valuable probes are permanent tests (the `R5 ` cases), so this is repeatable rather than a
 claim. Guard: 59 tests; 159 across the a11y suites.
 
-**What this does NOT cover, stated plainly.** Self-certification cannot replace fresh adversarial
-eyes — R1 through R4 proved that four times over, each finding fail-open shapes I had read past.
-The specific residual risk is a shape I did not think to probe. **Re-dispatch R5 when the Codex
-circuit closes** (brief preserved at `scratchpad/cx-pr2/brief-diff-r5.md`) and treat any finding
-as live follow-up work, not as a post-hoc justification.
-
-**Why this merges rather than waiting.** Four independent rounds confirmed the shipped anchors
-are correct; CI is green; the remaining review surface is a test-only guard whose failure mode is
-now over-rejection, which the false-positive probes above address directly. Holding a completed
-accessibility fix — 21 previously-silent external links, three Level-A label-in-name failures —
-indefinitely on a third-party outage would trade real user benefit for a marginal increment of
-confidence in a test file.
+**Read that table as a cautionary artifact, not as evidence.** Every row is literally true and
+the probes are permanent tests — and R5 still found six things none of them covered. The lesson
+recorded in `feedback_never_compare_predicates_as_text` is the durable output.
 
 ## The pattern worth carrying forward
 
@@ -152,7 +191,8 @@ The guard has also already proven itself on live upstream code: rebasing onto 82
 
 ## Verification
 
-- 53 guard tests (synthetic self-tests driving each accept/reject branch, plus named regression pins for every R1 and R2 bypass); the reviewers' exact probe cases behave correctly (R1: 7 rejected / 3 valid accepted; R2: 16/16).
+- 66 guard tests (synthetic self-tests driving each accept/reject branch, plus named regression pins for every R1-R6 bypass, including all eleven R6 operator families); 167 across the guard and a11y suites. The reviewers' exact probe cases behave correctly (R1: 7 rejected / 3 valid accepted; R2: 16/16).
 - `tsc` clean; `prettier` clean; `eslint` 0 errors and 0 warnings from new files (re-verified after the R2 fixes, which had left three dead-code warnings behind).
-- Real CI green on #592 before the guard hardening (38 pass / 0 fail); re-run after.
-- `spec:lint` 0 hard on the spec.
+- Real CI green on #592 before the guard hardening (38 pass / 0 fail), re-run on each subsequent head. NOTE for anyone reading CI history on this PR: the four workflows that show `completed/failure` on head `e1d937109` had every job CANCELLED (bulk external cancel at 12:13:20Z, 11 of 15 workflows already green), and `gh run rerun --failed` is a NO-OP on cancelled jobs — it produced an empty attempt-2 with `total_count: 0` that instantly re-concluded as failure. Neither was a test failure. The `validation-schema-parity` failure visible on the superseded head `7b8e2a70a` never re-ran on a later head, so its "environmental" diagnosis is retired, not confirmed.
+- `spec:lint` 0 hard on the spec (27 advisory, all numeric literals in prose).
+- Mutation-verified pins: re-admitting binary predicates into the approved gating shape fails the R6 compound pin (1 failed); restoring gives 66/66. A pin that cannot fail proves nothing.
