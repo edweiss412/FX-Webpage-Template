@@ -23,6 +23,50 @@ vi.mock("next/server", () => ({ after: afterMock }));
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
+describe("WrappedSection cannot throw past its own boundary", () => {
+  // The comment in the source claims a malformed ledger is defended. An earlier
+  // draft used `ledger.attempted?.add()`, which guards a nullish PROPERTY, not a
+  // nullish base - so an undefined ledger threw in the try AND again in the
+  // catch, escaping to error.tsx. These pin the claim instead of trusting it.
+  const cases: Array<[string, unknown]> = [
+    ["undefined ledger", undefined],
+    ["null ledger", null],
+    ["ledger missing its maps", {}],
+    ["ledger with non-callable members", { attempted: {}, failed: {} }],
+  ];
+
+  for (const [label, bad] of cases) {
+    test(`a throwing render still renders the fallback with a ${label}`, () => {
+      const { container } = render(
+        <WrappedSection
+          tileId="crew:gear:scope"
+          ledger={bad as never}
+          render={() => {
+            throw new Error("boom");
+          }}
+        />,
+      );
+      expect(container.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
+    });
+
+    test(`a healthy render is unaffected by a ${label}`, () => {
+      const { container } = render(
+        <WrappedSection
+          tileId="crew:gear:scope"
+          ledger={bad as never}
+          render={() => <span data-testid="ok">fine</span>}
+        />,
+      );
+      // Scoped to THIS render's container: testing-library keeps prior renders
+      // mounted, so a global query matches every case at once.
+      // An infra-level ledger defect must NOT be laundered into a crew-visible
+      // "couldn't load" on a tile that rendered perfectly well.
+      expect(container.querySelector('[data-testid="ok"]')?.textContent).toBe("fine");
+      expect(container.querySelector('[data-testid="tile-error-fallback"]')).toBeNull();
+    });
+  }
+});
+
 describe("WrappedSection schedules no post-response work", () => {
   test("a throwing render registers no after() work", () => {
     const ledger = createTileRenderLedger();

@@ -13,9 +13,10 @@
  *   then `render`s), so it cannot be embedded inside a synchronous section and
  *   resolved by a synchronous render — and the existing section tests render
  *   each section synchronously and assert inner `data-testid`s immediately.
- *   <WrappedSection> keeps the SAME containment + admin-alert contract but runs
- *   it synchronously so it composes inside the sections without changing the
- *   normal-render DOM those tests assert.
+ *   <WrappedSection> keeps the SAME containment contract and runs it
+ *   synchronously so it composes inside the sections without changing the
+ *   normal-render DOM those tests assert. It no longer carries the admin-alert
+ *   contract - see the ON THROW note below.
  *
  * H2 "DIRECT INVOCATION" CONTRACT (mirrors TileServerFallback.tsx:8-17):
  *   The throwable block is passed as a `render: () => ReactNode` FUNCTION and
@@ -89,20 +90,23 @@ export function WrappedSection({
   fallback,
 }: WrappedSectionProps): ReactNode {
   try {
-    // INSIDE the try, deliberately. This component's whole contract is that it
-    // cannot throw past its own boundary; recording outside would let a bad
-    // ledger escape as a TypeError and take the page to error.tsx instead of
-    // rendering the inline fallback. Ordering is safe: cleanTileIds is
-    // `attempted` minus `failed`, and the sweep iterates `failed` separately.
-    ledger.attempted?.add(tileId);
+    // INSIDE the try, and fully optional-chained INCLUDING the call. This
+    // component's whole contract is that it cannot throw past its own boundary.
+    // `ledger.attempted?.add()` was NOT enough: `?.` guards a nullish PROPERTY,
+    // not a nullish base, so a missing ledger still threw - and threw again in
+    // the catch, escaping to error.tsx. `?.()` additionally covers a
+    // present-but-non-callable member, so a malformed ledger silently loses its
+    // record instead of laundering an infra bug into a crew-visible "couldn't
+    // load" plus a bogus alert. Ordering is safe: cleanTileIds is `attempted`
+    // minus `failed`, and the sweep iterates `failed` separately.
+    ledger?.attempted?.add?.(tileId);
     return render();
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
-    // Optional-chained for the same reason: the catch is the LAST line of
-    // containment, so a malformed ledger here would escape the boundary that
-    // exists to stop exactly that. Losing the record is strictly better than
-    // losing the page.
-    ledger.failed?.set(tileId, { message: err.message, error: err });
+    // Same full chaining, and this arm matters most: the catch is the LAST line
+    // of containment, so anything thrown here escapes the boundary that exists
+    // to stop exactly that. Losing the record beats losing the page.
+    ledger?.failed?.set?.(tileId, { message: err.message, error: err });
     return fallback ?? <TileErrorFallback />;
   }
 }
