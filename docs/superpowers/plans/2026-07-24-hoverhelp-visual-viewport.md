@@ -1,11 +1,11 @@
 # Visual-Viewport Popover Placement Implementation Plan
 
-**Spec:** `docs/superpowers/specs/2026-07-24-hoverhelp-visual-viewport.md` (round 4)
+**Spec:** `docs/superpowers/specs/2026-07-24-hoverhelp-visual-viewport.md` (round 5)
 **Branch:** `fix/hoverhelp-visual-viewport`, worktree `/Users/ericweiss/FX-worktrees/hoverhelp-visual-viewport`
 **Closes:** `BL-HOVERHELP-VISUAL-VIEWPORT`
 **Autonomy:** user approved autonomous ship-through-to-merged-PR (2026-07-24 brainstorming gate); spec + plan user-review gates waived.
 
-**Round 4 is SMALLER than round 3.** Spec R4's rescission deleted a whole task (the ShareHub collision-hidden focus contract) along with the state machine behind it. Three consecutive rounds found the same vector; the project's three-round rule says descope rather than add a fourth gate, and that is what happened.
+**Round 5 closes the recurring vector with a property, not another boundary.** Round 4 descoped (deleting a whole task), but its replacement rule was still a geometric guess and round 4's review refuted it: the helper compared overlap against the RAW visual rect while the core compares the INSET one. Four guesses, four refutations. Spec R4 is now an OUTCOME test — compute with visible bounds, and if the result is `hidden`, use today's layout bounds instead — and spec R14 ships the property suite that proves it, in the same commit as the code (Task 2), per the escalation rule.
 
 ---
 
@@ -37,9 +37,11 @@ N/A: invariants 2, 3, 4, 5, 9, 10 — no DB path, no Supabase call, no mutation 
 | `pnpm spec:lint` spec and plan | `0 hard` each |
 | Sweep re-run in the worktree | exactly two consumers (spec §2) |
 | Implementation snippet typechecked | **failed first** — `Property 'CSS' does not exist on type 'Window'`; fixed with the structural `CssCarrier` accessor |
-| Unit suite, round-4 API | 22/22 pass, typecheck clean |
-| Mutation: drop the R4 anchor-overlap fallback | 2 tests red |
+| Unit + property suites, round-5 API | 29/29 pass, typecheck clean |
+| **Mutation: inject round 4's refuted raw-overlap rule** | **all 9 property groups red, reproducing the reviewer's counterexample** |
 | Mutation: make subscription depend on usable dimensions (R13) | 1 test red |
+| Probe: R4 outcome rule in a real component render | anchor off-slice -> placed at trigger.bottom + GAP, NOT hidden |
+| ShareHub jsdom scaffolding smoke | mounts, kebab opens the popover, stubs take |
 | Structural guard against the live tree | discovery passes; 4 per-consumer assertions fail |
 | **RED e2e layer actually run against unmodified code** | **3 discriminating failures + T-VV4 green by design; all 26 pre-existing tests still pass** (see Task 1) |
 | ShareHub test scaffolding surveyed | `vi.hoisted` mocks for `rotateShareToken`, `resetPickerEpoch`, `next/navigation`; render under `ShareTokenProvider`; trigger `share-hub-kebab`, body `share-hub-popover` |
@@ -70,70 +72,72 @@ Record that output verbatim in the commit body.
 
 ---
 
-### Task 2: `isVisualViewportEngine` + `placementViewportRect`
+### Task 2: The viewport rects, the bounds policy, and the property that pins it
 
-**Commit:** `feat(popover): add the placement viewport rect and its engine predicate`
+**Commit:** `feat(popover): add visible-viewport bounds with a never-newly-hidden guarantee`
+
+**RED.** Create three test files:
+
+<!-- spec-lint: ignore — files created BY this plan; not tracked until this task lands -->
+- `tests/lib/popover/viewport.test.ts` — T-U1..T-U8, T-U10 (spec §4.1 guard table). Pins what the rects ARE; contains no bounds policy.
+<!-- spec-lint: ignore — file created BY this plan; not tracked until its task lands -->
+- `tests/lib/popover/neverNewlyHidden.test.ts` — **the structural defense (spec R14)**: `new placement hidden IMPLIES legacy placement hidden`, over a four-edge overlap sweep, short/narrow slices, panel hosts, and 2000 seeded random configs.
+- (position.test.ts extensions land in Task 5.)
+
+All fail: the modules do not exist.
 
 <!-- spec-lint: ignore — file created BY this plan; not tracked until its task lands -->
-**RED.** Create `tests/lib/popover/viewport.test.ts` — T-U1..T-U10 (spec §5). Fails: module does not exist.
-
-<!-- spec-lint: ignore — file created BY this plan; not tracked until its task lands -->
-**GREEN.** Create `lib/popover/viewport.ts`:
+**GREEN.** Create `lib/popover/viewport.ts` (three exports, no policy) and `lib/popover/place.ts`:
 
 ```ts
-export function isVisualViewportEngine(win: Window): boolean {
-  return !isWebKit(win) && !!win.visualViewport;
-}
+export function placeWithinVisibleViewport(win: Window, input: PlaceInput): PopoverPlacement {
+  const { hostRect, ...core } = input;
+  const layout = layoutViewportRect(win);
+  const legacy = () => computePopoverPlacement({ ...core, bounds: boundsFor(layout, hostRect) });
 
-export function placementViewportRect(win: Window, trigger: Rect): Rect {
-  if (!isVisualViewportEngine(win)) return layoutRect(win);
-  const vv = win.visualViewport;
-  if (!vv) return layoutRect(win);
-  const { width, height } = vv;
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return layoutRect(win);
-  }
-  const left = finiteOr0(vv.offsetLeft);
-  const top = finiteOr0(vv.offsetTop);
-  const visible: Rect = { left, top, width, height, right: left + width, bottom: top + height };
-  if (!overlaps(trigger, visible)) return layoutRect(win); // spec R4
-  return visible;
+  const visual = visualViewportRect(win);
+  if (visual === null) return legacy();
+
+  const zoomed = computePopoverPlacement({ ...core, bounds: boundsFor(visual, hostRect) });
+  return zoomed.kind === "hidden" ? legacy() : zoomed; // spec R4
 }
 ```
 
-plus the `CssCarrier` accessor, `layoutRect`, and `overlaps` (built on the exported `intersectRects`, so "on screen" cannot mean something different here than in the core). `CSS` is a lib.dom global, not a `Window` property — that is a verified tsc failure, not a guess.
+with `boundsFor(viewport, hostRect) = insetRect(intersectRects(hostRect ?? viewport, viewport), VIEWPORT_INSET)` — the identical composition the consumers use today, so the host model is unchanged. `lib/popover/position.ts` stays unmodified (spec R6); this wraps it.
 
-The two exports answer deliberately different questions (spec R13): subscription is an ENGINE question with no reference to current dimensions; usability is decided per measurement. Collapsing them is what created round 3 F4's recovery hole.
+**Already verified:** 29/29 pass (20 unit + 9 property), typecheck clean. **The property suite was validated by injecting round 4's refuted raw-overlap rule — all nine groups fail with `left overlap=1: zoom NEWLY hid the popover — legacy placed it`,** independently reproducing round 4's counterexample.
 
-**Failure modes caught:** adopting the visual viewport on WebKit; trusting a `NaN`/zero visual viewport (popover vanishes); keeping `innerWidth` when a scrollbar gutter narrows the visible width; letting zoom drive placement while the anchor is off screen (R4); tying subscription to momentary dimensions (R13).
+**Failure modes caught:** any bounds policy that lets zoom newly hide a popover, at any edge, through any core gate — including gates added later, because the property is checked against the core's own answer rather than a hand-derived threshold.
 
 ---
 
-### Task 3: Both consumers bound by the visible slice
+### Task 3: Route both consumers through the shared placement
 
-**Commit:** `fix(admin): bound both popover consumers by the visual viewport`
+**Commit:** `fix(admin): place both popovers within the visible viewport`
 
-Both swaps land in ONE commit because the structural guard covers both; splitting them would require committing a knowingly-red guard.
+Both call sites change in ONE commit because the structural guard covers both; splitting would require committing a knowingly-red guard.
 
 **RED.** Create:
 <!-- spec-lint: ignore — file created BY this plan; not tracked until its task lands -->
-- `tests/components/admin/_metaPopoverViewportSource.test.ts` — the call-site-walking guard, asserting no consumer reads `window.innerWidth/innerHeight` and every consumer uses `placementViewportRect`.
+- `tests/components/admin/_metaPopoverViewportSource.test.ts` — the call-site-walking guard (pre-verified: discovery passes, per-consumer assertions fail).
 <!-- spec-lint: ignore — file created BY this plan; not tracked until its task lands -->
-- `tests/components/admin/hoverHelpVisualViewport.test.tsx` — T-C1, T-C4, **T-C6** (anchor off the visible slice → placed against the layout viewport and NOT hidden).
+- `tests/components/admin/hoverHelpVisualViewport.test.tsx` — T-C1, T-C4, T-C6.
 <!-- spec-lint: ignore — file created BY this plan; not tracked until its task lands -->
-- `tests/components/admin/showpage/shareHubVisualViewport.test.tsx` — T-S1, **T-S6** (same, plus `open` stays true and focus is untouched).
+- `tests/components/admin/showpage/shareHubVisualViewport.test.tsx` — T-S1, T-S6.
 
-T-C6/T-S6 are the executable form of the descope: they fail on any implementation that lets zoom drive the hidden branch.
+**GREEN — and this is more than a one-line swap; round 4 F3 was right to flag that claim.** In each consumer:
 
-**GREEN.** In `components/admin/HoverHelp.tsx:226-233` and `components/admin/showpage/ShareHub.tsx:247-253`:
+1. Compute the host rect as `Rect | null` (null for the body host) instead of degenerating it to a viewport rect.
+2. Take ONE trigger snapshot and pass it to `placeWithinVisibleViewport` as `input.trigger`; the same snapshot serves the bounds decision and the placement, so the two cannot disagree.
+<!-- spec-lint: ignore — file created BY this plan; not tracked until its task lands -->
+3. Delete the local `viewportRect` literal and the local `bounds` composition — both now live in `place.ts`.
+4. Keep the host rect for the existing host-offset conversion, which is unchanged.
 
-```ts
-const viewportRect = placementViewportRect(window, toRect(trigger.getBoundingClientRect()));
-```
+**ShareHub specifically:** `trigger = containerRef.current` is in scope at :236, but `triggerRect` is currently computed at :273 — AFTER the viewport rect at :247. Hoist that measurement above the placement call so one rect feeds both. ShareHub's anchor is the CONTAINER, which is already the rect it passes to the core, so overlap semantics stay consistent.
 
-reusing each file's existing trigger rect read rather than adding a measurement. Nothing downstream changes. Update HoverHelp's comment at :234-237.
+**Verified by probe:** applying this swap to HoverHelp and rendering with the anchor outside the visible slice produced a placed popover at `trigger.bottom + GAP` — not a hidden one. Reverted after measuring.
 
-**Failure modes caught:** the class fixed on the named instance only (round 1 F6); the import added with the literal left in place; zoom newly reaching a hidden branch (round 3 F1/F2); any future consumer reintroducing a direct layout-viewport read.
+**Failure modes caught:** the class fixed on one consumer only (round 1 F6); two trigger snapshots disagreeing at the boundary (round 4 F3); any future consumer reintroducing a direct layout-viewport read.
 
 ---
 
@@ -147,6 +151,7 @@ reusing each file's existing trigger rect read rather than adding a measurement.
 - T-C3/T-S3: after close, dispatching both event types **on the originally captured object** schedules no frame — spying on `removeEventListener` proves nothing about which callback or target was removed.
 - **T-C7**: open with a viewport reporting zero dimensions, then restore valid dimensions and dispatch `resize` — placement recovers and pan tracking works. Round 3 F4's hole, asserted end to end.
 - **T-S4**: ShareHub under a `PopoverHostContext` panel with NON-ZERO `clientLeft`/`clientTop` and `scrollLeft`/`scrollTop`, asserting exact host-relative coordinates.
+- **T-S7**: ShareHub's OWN zero-dimension recovery (round 4 F2). T-C7 proves it for HoverHelp only, and every other ShareHub test plus all Chromium e2e cases would survive a ShareHub-only regression, since the e2e fixtures render HoverHelp.
 
 **GREEN.** In each open-effect (HoverHelp :325-367; ShareHub around :372):
 
@@ -192,7 +197,9 @@ Run `pnpm test:e2e:hoverhelp-geometry`. The Task 1 layer must pass **unchanged**
 
 ### Task 8: Full local gates
 
-`pnpm typecheck`; `pnpm exec eslint` over changed files; `pnpm format:check`; `pnpm test` (FULL suite — scoped runs miss the registry suites under `tests/styles` and `tests/help`); `pnpm test:e2e:hoverhelp-geometry`. Check `$?` after vitest explicitly: it can exit 1 on an uncaught error while every test line reports pass. Compare against the pre-existing baseline captured before implementation began.
+`pnpm typecheck`; `pnpm exec eslint` over changed files; `pnpm format:check`; `pnpm test` (FULL suite — scoped runs miss the registry suites under `tests/styles` and `tests/help`); `pnpm test:e2e:hoverhelp-geometry`. Check `$?` after vitest explicitly: it can exit 1 on an uncaught error while every test line reports pass, and NEVER pipe it through `tail` — that discards the failing filenames and makes `$?` report tail's status.
+
+**Baseline: HEAD is GREEN** — 1586 files / 17138 tests passed, 0 failed, 16 skipped, measured on a quiet tree. There is no pre-existing failure budget, so Task 8 must be green too. (An earlier baseline reporting 5 failures was invalid: it ran concurrently with snippet verification that was creating and deleting files in the same worktree.)
 
 ---
 
