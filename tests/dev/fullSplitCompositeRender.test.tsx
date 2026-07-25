@@ -70,28 +70,29 @@ describe("t3-full-attention-split renders the full taught state", () => {
     expect(within(menu).getByText("Needs you")).toBeInTheDocument();
     expect(within(menu).queryByText("Needs your confirmation")).toBeNull();
     expect(within(menu).queryByText("Needs a look")).toBeNull();
-    expect(menu.querySelectorAll('[data-testid^="attention-menu-row-"]')).toHaveLength(1);
+    // one merged group: the hold plus the two former needs-look rows
+    expect(menu.querySelectorAll('[data-testid^="attention-menu-row-"]')).toHaveLength(3);
 
-    // each link asserted INSIDE its OWN row (whole-diff R1 P2: a menu-wide
-    // query would pass with the links rendered under a different group).
-    const sheetRow = within(menu).getByTestId(
-      "attention-needslook-row-alert:t3-full-attention-split-alert-0",
-    );
-    const sheetLink = within(sheetRow).getByRole("link", { name: /Open in Sheet/ });
-    expect(sheetLink).toHaveAttribute(
-      "href",
-      "https://docs.google.com/spreadsheets/d/gallery-fixture-file/edit#gid=0",
-    );
-    expect(sheetLink).toHaveAttribute("target", "_blank");
-    expect(sheetLink.textContent).toContain("↗");
-    const overviewRow = within(menu).getByTestId(
-      "attention-needslook-row-alert:t3-full-attention-split-alert-1",
-    );
-    const overviewLink = within(overviewRow).getByRole("link", { name: /Go to Overview/ });
-    expect(overviewLink).not.toHaveAttribute("target");
-    expect(overviewLink.getAttribute("href")).toMatch(/#overview$/);
+    // attention-index §2.2: the inner action links are GONE — the row itself is
+    // the affordance, and the way out moved onto the card as a destination chip
+    // (§2.3, covered by the AttentionBanner suite). Each row is asserted to be a
+    // pressable button carrying NO link, scoped to its own testid so a link
+    // rendered anywhere else in the menu could not satisfy it.
+    for (const id of [
+      "attention-menu-row-alert:t3-full-attention-split-alert-0",
+      "attention-menu-row-alert:t3-full-attention-split-alert-1",
+    ]) {
+      const row = within(menu).getByTestId(id);
+      expect(row.tagName).toBe("BUTTON");
+      expect(row.querySelectorAll("a")).toHaveLength(0);
+    }
+    // the fix hints survive as the rows' second line
+    expect(
+      within(menu).getByText(/Re-share the sheet with the service account\./),
+    ).toBeInTheDocument();
     // the two self-heal items must NOT get needs-look rows
-    expect(menu.querySelectorAll('[data-testid^="attention-needslook-row-"]')).toHaveLength(2);
+    // the two sheet-fix rows are now ordinary needs-you rows (no inner links)
+    expect(menu.querySelectorAll('[data-testid^="attention-needslook-row-"]')).toHaveLength(0);
 
     // monitoring group: "Monitoring" is the LAST group heading in document
     // order, and the rows are scoped to the group wrapper's own testid.

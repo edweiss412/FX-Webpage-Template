@@ -144,7 +144,12 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // 6 → 7 (impeccable critique P1, 2026-07-22): the "Needs your confirmation"
   // eyebrow is now conditional on hasActionable so a needs-look-only open
   // never shows an empty section header. Instant omit/mount like its peers.
-  "components/admin/showpage/AttentionMenu.tsx": 7,
+  // 7 → 3 (attention-index §2.1/§2.2, plan Tasks 1+3): three groups collapse to
+  // two and the two row renderers collapse to one, retiring the needs-look
+  // group wrapper, its heading, its hint conditional, and its action-link
+  // conditional. What remains: the needs-you heading, the row's second line,
+  // and the monitoring group. MEASURED by running the scanner, not predicted.
+  "components/admin/showpage/AttentionMenu.tsx": 3,
   // modal-header-reconciliation §9: 8 → 7 (Task 2, the `renderTitle` head site —
   // which covered the h1 AND its adjacent title divider — deleted with the prop)
   // → 6 (Task 5, the alert badge relocated to the modal header, §6.6). Task 7

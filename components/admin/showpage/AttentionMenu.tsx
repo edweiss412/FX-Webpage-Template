@@ -99,11 +99,9 @@ function AttentionMenuPanel({
   // so a mistagged actionable item is counted once, in needsYou only.
   const monitoring = items.filter((i) => !i.actionable && i.clearingKind === "self_heal");
   const needsYou = items.filter((i) => !(!i.actionable && i.clearingKind === "self_heal"));
-  // The two row RENDERERS still differ (they collapse in the next task); this
-  // partition drives render order only. deriveAttentionItems already returns
-  // actionable-first, so slicing preserves it (§2.1 "Ordering is unchanged").
-  const needsYouActionable = needsYou.filter((i) => i.actionable);
-  const needsYouClearing = needsYou.filter((i) => !i.actionable);
+  // Ordering needs no sort: deriveAttentionItems already returns
+  // [...holds, ...actionable, ...needsLook, ...selfHeal], so the merged group
+  // is button-clearable-first for free (§2.1 "Ordering is unchanged").
   // A monitoring-only open must not render an empty "Needs you" section; the
   // panel takes its accessible name from the first group actually present.
   const hasNeedsYou = needsYou.length > 0;
@@ -134,8 +132,15 @@ function AttentionMenuPanel({
         </div>
       ) : null}
       <div className="max-h-96 overflow-y-auto">
-        {needsYouActionable.map((item) => {
+        {needsYou.map((item) => {
           const tone = TONE_DOT[item.tone];
+          const code = item.kind === "alert" ? item.alert.code : null;
+          // Fix hint when the code has one; otherwise the item's identity text.
+          // NEVER both (§2.2 second-line rule) — the hint is the more actionable
+          // of the two, so it wins wherever it exists.
+          const hint =
+            code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
+          const secondLine = hint ?? item.menuSubtitle;
           return (
             <button
               key={item.id}
@@ -153,9 +158,11 @@ function AttentionMenuPanel({
                 <span className="block truncate text-sm font-medium text-text-strong">
                   {item.menuTitle}
                 </span>
-                {item.menuSubtitle ? (
-                  <span className="block truncate text-xs text-text-subtle">
-                    {item.menuSubtitle}
+                {secondLine ? (
+                  <span
+                    className={`block text-xs/relaxed text-text-subtle ${hint ? "" : "truncate"}`}
+                  >
+                    {secondLine}
                   </span>
                 ) : null}
               </span>
@@ -165,63 +172,6 @@ function AttentionMenuPanel({
             </button>
           );
         })}
-        {/* The scroll boundary wraps ALL groups (whole-diff review 2026-07-22):
-            12 needs-look rows are producible; links below the fold must scroll
-            into reach, not extend past the viewport. */}
-        {needsYouClearing.length > 0 ? (
-          /* Still the read-only row shape (the ONLY interactive descendant is the
-             action <a>); the next task collapses it into the pressable row. What
-             changed here is grouping: these rows now sit under the SAME "Needs
-             you" heading as the actionable rows above, with no heading of their
-             own (attention-index §2.1). */
-          <div>
-            {needsYouClearing.map((item) => {
-              const code = item.kind === "alert" ? item.alert.code : null;
-              const hint =
-                code && NEEDS_LOOK_CODES.has(code) ? NEEDS_LOOK_HINTS[code as NeedsLookCode] : null;
-              const action = item.kind === "alert" ? item.alert.action : null;
-              return (
-                <div
-                  key={item.id}
-                  data-testid={`attention-needslook-row-${item.id}`}
-                  className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="mt-1.5 size-2 shrink-0 rounded-pill border-[1.5px] border-status-review bg-transparent"
-                  />
-                  {/* sr-only tone text mirrors the dot (spec §3.4.2), same string
-                    the actionable rows use for the notice tone. */}
-                  <span className="sr-only">{TONE_DOT.notice.srText}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-text-strong">
-                      {item.menuTitle}
-                    </span>
-                    {hint ? (
-                      <span className="block text-xs/relaxed text-text-subtle">{hint}</span>
-                    ) : null}
-                    {action ? (
-                      /* Menu-close on activation (spec §3.4): a same-route hash link
-                       activated inside the open dropdown would scroll its target
-                       behind the menu; external links close too, for consistency. */
-                      <a
-                        href={action.href}
-                        onClick={() => onClose()}
-                        {...(action.external
-                          ? { target: "_blank", rel: "noopener noreferrer" }
-                          : {})}
-                        className="mt-1 inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised focus-visible:outline-none"
-                      >
-                        {action.label}
-                        {action.external ? <span aria-hidden="true"> ↗</span> : null}
-                      </a>
-                    ) : null}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
         {monitoring.length > 0 ? (
           /* Monitoring group (monitoring-badge-expand §3.2): one read-only row
              per item - title + auto-resolve note. No interactive descendants,

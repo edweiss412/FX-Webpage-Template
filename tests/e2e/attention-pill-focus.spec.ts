@@ -174,25 +174,21 @@ for (const { a, n, x } of cells) {
   });
 }
 
-test("§11.9 nav: sheet link exact href + target, click closes the menu", async ({
+// attention-index §2.2: the inner sheet link is gone — the ROW is the
+// affordance. The href/target/rel contract moved to the card's destination chip
+// (§2.3, covered in jsdom by the AttentionBanner suite). What survives here is
+// the navigation contract: pressing a needs-look row closes the menu.
+test("§11.9 nav: a needs-look ROW carries no link and closes the menu when pressed", async ({
   page,
-  context,
 }) => {
   await boot(page, 0, 1, 0);
-  const link = page.locator(`${MENU} a`).first();
-  await expect(link).toHaveAttribute(
-    "href",
-    "https://docs.google.com/spreadsheets/d/PROBEFILE/edit#gid=0",
-  );
-  await expect(link).toHaveAttribute("target", "_blank");
-  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
-  const popupPromise = context.waitForEvent("page").catch(() => null);
-  await link.click();
+  const row = page.locator(`${MENU} [data-testid^="attention-menu-row-"]`).first();
+  await expect(row).toBeVisible();
+  expect(await row.evaluate((el) => el.tagName)).toBe("BUTTON");
+  expect(await row.locator("a").count()).toBe(0);
+  await expect(page.locator(`${MENU} a`)).toHaveCount(0);
+  await row.click();
   await expect(page.locator(MENU)).toHaveCount(0); // menu-close on activation (§3.4)
-  const popup = await Promise.race([popupPromise, new Promise((r) => setTimeout(r, 1500, null))]);
-  if (popup && typeof (popup as { close?: () => Promise<void> }).close === "function") {
-    await (popup as { close: () => Promise<void> }).close();
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -243,25 +239,35 @@ async function focusedNodeDetached(page: Page) {
   return page.evaluate(() => document.querySelector('[data-was-focused="1"]') === null);
 }
 
+/** `setItems` is a React state SETTER: it returning proves the setter ran, not
+ *  that React committed the DOM. Sampling `focusedNodeDetached` immediately
+ *  after can read the pre-update tree and pass for the wrong reason, so poll for
+ *  the detach instead of asserting it once (plan R8 F2). */
+async function expectFocusedNodeDetached(page: Page) {
+  await expect.poll(() => focusedNodeDetached(page)).toBe(true);
+}
+
 test("rescue probe (a): focused actionable row removed → menu open, aria-expanded, settled focus = pill", async ({
   page,
 }) => {
   await boot(page, 1, 0, 1);
   await stampFocused(page, `${MENU} [data-testid^="attention-menu-row-"]`);
   await setItems(page, 0, 0, 1);
-  expect(await focusedNodeDetached(page)).toBe(true);
+  await expectFocusedNodeDetached(page);
   await expect(page.locator(MENU)).toBeVisible();
   await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
   await settledFocusIsPill(page);
 });
 
-test("rescue probe (b): focused needs-look LINK removed → menu open, aria-expanded, settled focus = pill", async ({
+test("rescue probe (b): focused needs-look ROW removed → menu open, aria-expanded, settled focus = pill", async ({
   page,
 }) => {
   await boot(page, 0, 1, 1);
-  await stampFocused(page, `${MENU} a`);
+  // §2.2: needs-look rows are buttons now, so the probe focuses the row. It
+  // still leaves the DOM on the shrink below, so the rescue stays non-vacuous.
+  await stampFocused(page, `${MENU} [data-testid^="attention-menu-row-"]`);
   await setItems(page, 0, 0, 1);
-  expect(await focusedNodeDetached(page)).toBe(true);
+  await expectFocusedNodeDetached(page);
   await expect(page.locator(MENU)).toBeVisible();
   await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
   await settledFocusIsPill(page);
@@ -292,8 +298,8 @@ for (const cell of [
   {
     boot: [1, 1, 0],
     to: [1, 0, 0],
-    focus: "link",
-    pick: "first",
+    focus: "row",
+    pick: "last",
     label: "(1,1,0)->(1,0,0) actionable remains",
   },
 ] as const) {
@@ -301,8 +307,7 @@ for (const cell of [
     page,
   }) => {
     await boot(page, cell.boot[0], cell.boot[1], cell.boot[2]);
-    const sel =
-      cell.focus === "link" ? `${MENU} a` : `${MENU} [data-testid^="attention-menu-row-"]`;
+    const sel = `${MENU} [data-testid^="attention-menu-row-"]`;
     const locator = cell.pick === "last" ? page.locator(sel).last() : page.locator(sel).first();
     await locator.focus();
     await page.evaluate(() => {
@@ -310,7 +315,7 @@ for (const cell of [
         document.activeElement.dataset.wasFocused = "1";
     });
     await setItems(page, cell.to[0], cell.to[1], cell.to[2]);
-    expect(await focusedNodeDetached(page)).toBe(true);
+    await expectFocusedNodeDetached(page);
     await expect(page.locator(MENU)).toBeVisible();
     await expect(page.locator(PILL)).toHaveAttribute("aria-expanded", "true");
     await settledFocusIsPill(page);
@@ -402,12 +407,19 @@ test("oracle discriminates: a real close hides the menu; a stays-open transition
   // real close: drive to in-sync (D) — menu MUST disappear
   await setItems(page, 0, 0, 0);
   await expect(page.locator(MENU)).toHaveCount(0);
-  // drive to monitoring-only (interactive, does NOT auto-open), click to reopen
+  // drive to monitoring-only (interactive, does NOT auto-open), click to reopen.
+  // Gate on the pill actually being the INTERACTIVE shape first: the in-sync
+  // state renders an inert <span> carrying the same testid, so an immediate
+  // click can land on the pre-update node and prove nothing (plan R8 F2).
   await setItems(page, 0, 0, 1);
+  await expect(page.locator(`${PILL}[aria-expanded]`)).toHaveCount(1);
   await page.locator(PILL).click();
   await expect(page.locator(MENU)).toBeVisible();
-  // a stays-open transition (add an actionable) MUST keep it visible
+  // a stays-open transition (add an actionable) MUST keep it visible. Gate on
+  // the actionable row having committed, or this asserts against the previous
+  // monitoring-only DOM and is not discriminating.
   await setItems(page, 1, 0, 1);
+  await expect(page.locator(`${MENU} [data-testid^="attention-menu-row-"]`)).toHaveCount(1);
   await expect(page.locator(MENU)).toBeVisible();
 });
 
