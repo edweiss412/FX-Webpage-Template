@@ -344,7 +344,8 @@ No new colour token is introduced — the destination chip reuses the existing w
 | 19 | Resolve-eligible codes registry-wide | `resolveActionLabel.ts:46-70` |
 | 18 → 16 | Codes reading "Mark resolved" after §2.6 | §2.6 |
 | 1 → 3 | Codes reading "Confirm" after §2.6 | §2.6 |
-| 12 | Needs-look codes | `lib/adminAlerts/audience.ts:81-94` |
+| 12 | Entries in `NEEDS_LOOK_CODE_LIST` | `lib/adminAlerts/audience.ts:81-94` |
+| 11 | Of those, codes that can actually reach the panel | §9 reconciliation below |
 | 3 | Self-healing codes | `lib/adminAlerts/audience.ts:75-79` |
 | 6 | `openSheet` (external) needs-look codes | `alertActions.ts:163-168` |
 | 2 | Notes-channel codes: internal action; carded only when the warnings section is unavailable, chip-less in both states via the self-link guard | `lib/admin/parseAttentionNote.ts:23`, `lib/admin/sectionAttention.ts:111-128` |
@@ -357,7 +358,9 @@ No new colour token is introduced — the destination chip reuses the existing w
 | 44 | Tap-target floor in px | §5 |
 | 400 | Panel max width in px | `AttentionMenu.tsx:119` |
 
-The `6 + 2 + 2 + 2 = 12` needs-look codes reconcile: 6 external-chip; 2 notes-channel (internal action, intercepted before the card path when warnings is available and self-link-suppressed on the Overview fallback when it is not, so chip-less in both states); 2 self-link-suppressed; 2 with no registered action (`USE_RAW_DECISION_STALE`, `ASSET_RECOVERY_BYTES_EXCEEDED` — absent from `ALERT_ACTION_CODES`, `lib/adminAlerts/alertActions.ts:13-37`). **Only the first bucket ever renders a chip** (§2.3).
+`NEEDS_LOOK_CODE_LIST` has 12 entries but only **11** can reach the panel, and the twelfth is worth stating because it looks like an omission otherwise. `USE_RAW_DECISION_STALE` is in the list (`lib/adminAlerts/audience.ts:92`) and in the catalog (`lib/messages/catalog.ts:207`), but it is NOT an admin-alert producer code — it is absent from `ADMIN_ALERTS_CODES` (`tests/messages/adminAlertsRegistry.ts:9`), and `tests/admin/_metaAttentionRoutes.test.ts:14` asserts `ATTENTION_ROUTES` keys are set-equal to that registry, so it has no route and never becomes an attention item. It sits in the list only to type the fix-hint map.
+
+The remaining 11 reconcile as `6 + 2 + 2 + 1`: 6 external-chip; 2 notes-channel (internal action, intercepted before the card path when warnings is available and self-link-suppressed on the Overview fallback when it is not, so chip-less in both states); 2 self-link-suppressed (`SHOW_UNPUBLISHED`, `RESYNC_SHRINK_HELD`); 1 with a route but no registered action (`ASSET_RECOVERY_BYTES_EXCEEDED` — routed at `lib/admin/attentionItems.ts:120`, absent from `ALERT_ACTION_CODES` at `lib/adminAlerts/alertActions.ts:13-37`). **Only the first bucket ever renders a chip** (§2.3).
 
 ---
 
