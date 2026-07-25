@@ -51,6 +51,9 @@ describe("TelemetryPage", () => {
     expect(screen.getByText("Telemetry")).toBeInTheDocument();
     expect(screen.getByTestId("cron-health-degraded")).toBeInTheDocument();
     expect(screen.getByText(/No events match/i)).toBeInTheDocument(); // timeline empty-state still rendered
+    // BL-COPY-CRON-SWEEP-2: header sub + degraded fallback are plain language.
+    expect(screen.getByText("App event log & scheduled-job health")).toBeInTheDocument();
+    expect(screen.getByTestId("cron-health-degraded").textContent).not.toMatch(/cron/i);
   });
 
   test("passes parsed request-correlation filters into loadAppEvents (AC3: requestId + sinceHours null)", async () => {

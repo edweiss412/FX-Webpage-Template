@@ -278,7 +278,8 @@ export default async function AdminSettingsPage() {
         {/* Diagnostics — the mobile reachability path into the desktop-only
             "Telemetry" nav destination (/admin/dev/telemetry). Telemetry is a
             desktopOnly nav item (absent from the mobile bottom tab bar), so this
-            link is how Doug reaches the app-event log + cron-health on mobile. */}
+            link is how Doug reaches the app-event log + scheduled-job health on
+            mobile (the pg_cron jobs; copy is de-jargoned per BL-COPY-CRON-SWEEP-2). */}
         {isDeveloper && (
           <section
             data-testid="admin-settings-diagnostics-section"
@@ -306,10 +307,11 @@ export default async function AdminSettingsPage() {
                 </span>
                 <span className="flex flex-col gap-1">
                   <span className="text-sm font-medium text-text-strong underline">
-                    Telemetry: app event log &amp; cron health
+                    Telemetry: app event log &amp; scheduled-job health
                   </span>
                   <span className="text-sm text-text-subtle">
-                    Browse recent app events and per-job cron run health for troubleshooting.
+                    Browse recent app events and the health of each scheduled job for
+                    troubleshooting.
                   </span>
                 </span>
               </Link>

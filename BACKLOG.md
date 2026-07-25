@@ -124,14 +124,6 @@ next mutation-file-touching PR or the next post-merge nightly triage.
 
 Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1: a dedicated `fxav_cron_reconcile_watch` (`*/15`) plus a `drive_watch_reconcile_state` table (attempts, `next_attempt_at`, last error class) giving precise exponential backoff and faster recovery than the shipped hourly reconcile pass. Adopt if the hourly cadence proves too slow in practice (e.g., renewal failures near show start) or if escalation cadence needs sub-hour precision. Costs: new cron + migration + validation-parity surface + cronJobsParity/pg-cron registrations + more tests.
 
-## BL-COPY-CRON-SWEEP-2 — de-jargon "cron" on the two non-catalog admin surfaces
-
-**Status:** OPEN · **Severity:** low (copy quality; admin-facing) · **Surfaced:** BL-COPY-CRON-SWEEP execution (2026-07-03; entry in `BACKLOG-archive.md`)
-
-The cron sweep of the catalog surfaced two more admin-facing "cron" mentions outside the §12.4 catalog, left out of the copy-lockstep PR because both are UI files (`app/**`, so touching them would drag the impeccable dual-gate into a pure-copy PR): `app/admin/settings/page.tsx:306` ("per-job cron run health for troubleshooting") and `app/help/admin/onboarding-wizard/page.mdx:117` ("points cron at the folder for ongoing sync"). Neither is a §12.4 code, so neither needs the three-way lockstep — but both should ship through the UI gate (Opus + impeccable) if picked up. Re-grep line numbers before executing.
-
----
-
 ## BL-SERVER-ACTION-ORIGIN-GATE — same-origin gate for the crew guest Server Action
 
 **Status:** OPEN · **Severity:** low (logout CSRF; no read, no escalation) · **Surfaced:** `fix/picker-flow-app-bugs` review rounds 1-3 (2026-07-25), descoped rather than guessed at
