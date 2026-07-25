@@ -874,4 +874,69 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       ).toBe(true);
     });
   }
+
+  // ── T-TRANSITION (spec §4) ───────────────────────────────────────────────
+  // The compound cases from the spec's Transition Inventory. The one that
+  // actually matters: placement re-runs on resize, and a resize must NOT close
+  // the popover or remount its subtree. If it did, a viewport change mid-decision
+  // would silently discard an ARMED destructive confirm -- the operator taps
+  // Archive, something reflows, and their pending confirm is gone.
+  test("T-TRANSITION: resizing while ARMED re-places without losing the armed state", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await ensureWatchedFolder();
+    await page.goto(`/admin?show=${held.slug}`);
+    const modal = page.locator(LOADED_REVIEW_MODAL);
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const popover = modal.getByTestId("share-hub-popover");
+    await expect(async () => {
+      await modal.getByTestId("share-hub-kebab").click();
+      await expect(popover).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 15_000 });
+
+    await popover.getByTestId("archive-show-button").click();
+    const confirm = popover.getByTestId("archive-show-confirm-button");
+    await expect(confirm).toBeVisible();
+
+    // Mark the live confirm node so a REMOUNT is detectable: a fresh node loses
+    // the marker even though the testid still resolves.
+    await confirm.evaluate((el) => el.setAttribute("data-transition-probe", "1"));
+    const before = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
+      return { side: b.dataset["popoverSide"] ?? null };
+    });
+
+    // Resize ACROSS the flip boundary: 844 places below, 560 places above.
+    await page.setViewportSize({ width: 390, height: 560 });
+    await page.waitForTimeout(400);
+
+    const after = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
+      const c = document.querySelector(
+        '[data-testid="archive-show-confirm-button"]',
+      ) as HTMLElement | null;
+      const panel = document.querySelector("[data-review-modal-panel]") as HTMLElement;
+      const p = panel.getBoundingClientRect();
+      const r = b.getBoundingClientRect();
+      return {
+        popoverStillOpen: !!b,
+        side: b.dataset["popoverSide"] ?? null,
+        confirmStillMounted: !!c,
+        sameConfirmNode: c?.getAttribute("data-transition-probe") === "1",
+        withinBounds:
+          r.top >= Math.max(p.top, 0) + 8 - 0.5 &&
+          r.bottom <= Math.min(p.bottom, window.innerHeight) - 8 + 0.5,
+      };
+    });
+
+    expect(after.popoverStillOpen, "resize closed the popover").toBe(true);
+    expect(after.confirmStillMounted, "resize discarded the armed confirm").toBe(true);
+    expect(after.sameConfirmNode, "resize REMOUNTED the armed confirm").toBe(true);
+    expect(after.withinBounds, "re-placement left the clip rect").toBe(true);
+    // The flip is the observable evidence placement actually re-ran.
+    expect(before.side).toBe("bottom");
+    expect(after.side).toBe("top");
+  });
 });
