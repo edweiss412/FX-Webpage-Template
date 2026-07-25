@@ -133,6 +133,8 @@ Guest mode therefore has to be durable state, or the session has to go. The user
 
 1. Parse the form data (unchanged; `null` gives `{ ok: false, code: "PICKER_INVALID_INPUT" }`).
 2. **Sign out.** `await (await createSupabaseServerClient()).auth.signOut()`, then clear any residual Supabase auth cookies. On a returned error or a thrown error: emit `log.error` with `code: "AUTH_SIGNOUT_FAILED"` and return `{ ok: false, code: "AUTH_SIGNOUT_FAILED" }` **without** redirecting and **without** clearing the picker entry.
+
+   Both failure modes are real and distinct, so the whole step sits inside one `try`/`catch` whose `try` also destructures `{ error }` from the call: `createSupabaseServerClient` **throws** when `SUPABASE_URL` or the publishable key is unset (`lib/supabase/server.ts:41-45`), which happens before `auth.signOut()` is ever reached, and `auth.signOut()` itself returns `{ error }` on a network or gateway fault. Treating only one of the two would let a misconfigured environment redirect the user into a loop.
 3. Clear the picker entry via the existing `clearIdentityCore(input)` (unchanged, `lib/auth/picker/clearIdentity.ts:64`). On `{ ok: false }`, return it as today.
 4. Redirect to `buildShowReturnUrl(input.slug, input.shareToken, { s: input.s, gate: "skip" })` (unchanged, `lib/auth/picker/clearIdentity.ts:61`).
 
