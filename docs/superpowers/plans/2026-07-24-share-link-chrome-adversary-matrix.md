@@ -67,12 +67,9 @@ _38 adversaries · 37 rejected · 1 survived · 0 unapplied._
 
 | Test row | Adversaries it rejects |
 |---|---|
-| N0: SHARE_LINK_FLASH_MS is 1600 | A25 |
-| N1: both keyframes are declared exactly once | A17 |
-| N1: nothing ELSE in the stylesheet mentions the cue | A15, A16, A17, A18, A28, A30, A31 |
-| N1: the block sits at TOP LEVEL, not nested in an at-rule | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31, A37, A38 |
-| N1: the component declares no keyframes of its own | A20 |
-| N1: the spec's normative block appears in globals.css BYTE FOR BYTE | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31 |
+| ShareLinkCopyButton across a rotate a completed copy stops claiming Copied once the url rotates | A33, A34, A35 |
+| ShareLinkCopyButton across a rotate a copy of the CURRENT url still confirms (the guard is not blanket suppression) | A35 |
+| ShareLinkCopyButton across a rotate a copy still in flight when the url rotates never announces success | A32 |
 | T-FLASH-COPY-RACE | A32 |
 | T-FLASH-REDUCED | A1, A15, A16, A23, A27, A29, A30, A31 |
 | T-FLASH-REST | A31, A36 |
@@ -80,27 +77,30 @@ _38 adversaries · 37 rejected · 1 survived · 0 unapplied._
 | T-FLASH-RUN | A1, A13, A14, A18, A19, A20, A23, A25, A28, A31, A36 |
 | T-FLASH-SETTLE | A2, A25, A31, A36 |
 | T-FLASH-SOLE | A1, A18, A23, A28, A31, A36 |
-| a STRICTLY LOWER epoch is rejected, so nothing cues | A8, A36 |
-| a change while the panel is CLOSED never reaches the DOM | A24, A36 |
-| a completed copy stops claiming Copied once the url rotates | A33, A34, A35 |
-| a copy of the CURRENT url still confirms (the guard is not blanket suppression) | A35 |
-| a copy still in flight when the url rotates never announces success | A32 |
-| a live cue SURVIVES unrelated re-renders | A1, A23 |
-| a rotate updates the URL instantly — OLD then vanishes everywhere | A21 |
-| a rotation at a STRICTLY LOWER epoch is rejected — the URL does not regress | A8, A21 |
-| accent-edge is wired: @theme alias present, runtime value in ALL three blocks, dark blocks identical | A22 |
-| an UNPUBLISH mid-cue clears it even though the token never changed | A1, A6, A7, A23, A36 |
-| archiving clears it (the whole share half goes) | A1, A23 |
-| clears at exactly SHARE_LINK_FLASH_MS, not before | A1, A2, A3, A23 |
-| closing mid-cue clears it, so reopening inside the window is clean | A1, A23, A24, A36 |
-| dark: accent-edge clears >=3:1 on every ground the flash ring touches | A22 |
-| expiry does NOT remount anything (N5) — a text selection survives it | A2, A10 |
-| marks the URL block, and EXACTLY that element | A1, A23, A36 |
-| no cue on first render or first open | A36 |
-| null becoming a token does NOT cue | A5 |
-| re-arms on a second change so the later cue runs its full window | A1, A2, A11, A12, A23, A25 |
-| remounts the URL block and NOTHING else (N4) | A9 |
-| unmounting mid-cue clears the CUE's timer | A12, A36 |
+| accent token contrast floors (2026-07-16 token pass) accent-edge is wired: @theme alias present, runtime value in ALL three blocks, dark blocks identical | A22 |
+| accent token contrast floors (2026-07-16 token pass) dark: accent-edge clears >=3:1 on every ground the flash ring touches | A22 |
+| branch 1 — the target leaving the screen clears the cue a change while the panel is CLOSED never reaches the DOM | A24, A36 |
+| branch 1 — the target leaving the screen clears the cue an UNPUBLISH mid-cue clears it even though the token never changed | A1, A6, A7, A23, A36 |
+| branch 1 — the target leaving the screen clears the cue archiving clears it (the whole share half goes) | A1, A23 |
+| branch 1 — the target leaving the screen clears the cue closing mid-cue clears it, so reopening inside the window is clean | A1, A23, A24, A36 |
+| branch 2 — an accepted token change cues clears at exactly SHARE_LINK_FLASH_MS, not before | A1, A2, A3, A23 |
+| branch 2 — an accepted token change cues marks the URL block, and EXACTLY that element | A1, A23, A36 |
+| branch 2 — an accepted token change cues re-arms on a second change so the later cue runs its full window | A1, A2, A11, A12, A23, A25 |
+| branch 2 — an accepted token change cues remounts the URL block and NOTHING else (N4) | A9 |
+| branch 3 — everything else leaves the attribute alone a STRICTLY LOWER epoch is rejected, so nothing cues | A8, A36 |
+| branch 3 — everything else leaves the attribute alone a live cue SURVIVES unrelated re-renders | A1, A23 |
+| branch 3 — everything else leaves the attribute alone expiry does NOT remount anything (N5) — a text selection survives it | A2, A10 |
+| branch 3 — everything else leaves the attribute alone no cue on first render or first open | A36 |
+| branch 3 — everything else leaves the attribute alone null becoming a token does NOT cue | A5 |
+| share-link cue motion contract (N0/N1) N0: SHARE_LINK_FLASH_MS is 1600 | A25 |
+| share-link cue motion contract (N0/N1) N1: both keyframes are declared exactly once | A17 |
+| share-link cue motion contract (N0/N1) N1: nothing ELSE in the stylesheet mentions the cue | A15, A16, A17, A18, A28, A30, A31 |
+| share-link cue motion contract (N0/N1) N1: the block sits at TOP LEVEL, not nested in an at-rule | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31, A37, A38 |
+| share-link cue motion contract (N0/N1) N1: the component declares no keyframes of its own | A20 |
+| share-link cue motion contract (N0/N1) N1: the spec's normative block appears in globals.css BYTE FOR BYTE | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31 |
+| share-token rotate surface (the ShareHub crew-URL block) a rotate updates the URL instantly — OLD then vanishes everywhere | A21 |
+| share-token rotate surface (the ShareHub crew-URL block) a rotation at a STRICTLY LOWER epoch is rejected — the URL does not regress | A8, A21 |
+| teardown unmounting mid-cue clears the CUE's timer | A12, A36 |
 
 <!-- END GENERATED -->
 
