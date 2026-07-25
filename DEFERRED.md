@@ -19,6 +19,38 @@ automated halves (impeccable audit a11y dimension; role/mutation structural
 tests) shipped pre-merge. Un-defer trigger: owner performs and records the
 pass.
 
+### SHARELINK-COPY-REF-ORDERING-PROOF — test-coverage gap (2026-07-25, share-link-chrome-backlog)
+
+`ShareLinkCopyButton` writes `urlRef` in a `useLayoutEffect` so the captured-url
+guard compares against a ref that is already current when a clipboard promise
+resolves. The LAYOUT part is deliberate: with a passive `useEffect`, a promise
+settling between commit and the passive flush compares against a stale url, the
+guard waves it through, and "Copied" appears beside a token that is already dead
+for the whole crew.
+
+**What is proven:** the guard's existence, in jsdom
+(`shareLinkCopyButtonRotate.test.tsx`) and in a real engine
+(`share-link-flash.spec.ts` T-FLASH-COPY-RACE). Both red when the comparison is
+removed.
+
+**What is NOT proven:** that the effect must be a LAYOUT effect. Swapping it for
+`useEffect` reds nothing. Two attempts failed: Playwright cannot schedule a
+promise resolution inside the commit-to-passive-effect window, and a jsdom probe
+releasing from a sibling `useLayoutEffect` does not beat React either — `act()`
+flushes passive effects before yielding to the microtask, so the passive write
+always lands first.
+
+**Why deferred rather than exempted:** round-11 review rejected a bespoke
+`UNPROVEN_SURVIVORS` whitelist in the matrix script as laundering — correctly, and
+for a reason worth recording: it had no bidirectional check, so a later
+regression back to survival would still have passed. Spec §9.0 requires every
+registered adversary to be rejected, so the adversary is removed rather than
+exempted, and the gap is recorded here where deferrals are actually reviewed.
+
+**Un-defer trigger:** a harness that can resolve a promise between commit and
+passive effects (a custom React scheduler shim, or `scheduler/unstable_mock`).
+Register the mutation as an adversary at that point and confirm it reds.
+
 ### SHARELINK-CUE-VISIBILITY-1 — impeccable critique P1 (2026-07-25, share-link-chrome-backlog)
 
 The crew-URL cue can fire above the fold. The URL block sits at the top of the

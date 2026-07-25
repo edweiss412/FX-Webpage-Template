@@ -38,9 +38,15 @@
  * awaits the whole rotate before releasing the promise, by which point a
  * passive effect has updated `urlRef` too (round-10 review). Creating the
  * commit-to-passive-effect window from Playwright is not something I found a
- * way to do. The gap is registered as adversary A39 rather than left as this
- * paragraph — it SURVIVES, the generated report says so, and it closes itself
- * the day a harness can reach that window.
+ * way to do, and neither is a jsdom probe releasing from a sibling layout
+ * effect: `act()` flushes passive effects before yielding to the microtask, so
+ * the passive write always lands first.
+ *
+ * Filed as `SHARELINK-COPY-REF-ORDERING-PROOF` in DEFERRED.md with its un-defer
+ * trigger. It was briefly a whitelisted "unproven survivor" in the matrix;
+ * round-11 review rejected that as laundering, since the whitelist carried no
+ * bidirectional check and a later regression back to survival would still have
+ * passed.
  */
 import { useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
