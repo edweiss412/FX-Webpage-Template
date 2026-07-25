@@ -666,4 +666,55 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     expect(hits.hitIsBackdrop, "backdrop is swallowing popover clicks").toBe(false);
     expect(hits.bodyWins, "popover surface is not hit-testable").toBe(true);
   });
+
+  // ── T-FOCUS (spec §2.1.2c) ───────────────────────────────────────────────
+  // Portaling moves the dialog out of the hub root, which changes where Tab
+  // goes after its last control. The contract that must NOT change is the one
+  // assistive tech depends on: focus enters the dialog on open, and Escape
+  // returns it to the trigger that opened it. Checked on BOTH placements,
+  // because the portal writes position imperatively and a side-specific bug
+  // would otherwise hide on whichever side the default viewport picks.
+  for (const [height, expectedSide] of [
+    [560, "top"],
+    [844, "bottom"],
+  ] as const) {
+    test(`T-FOCUS @ 390x${height} (${expectedSide}): focus enters the dialog and Escape returns it`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height });
+      await ensureWatchedFolder();
+      await page.goto(`/admin?show=${held.slug}`);
+      const modal = page.locator(LOADED_REVIEW_MODAL);
+      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const popover = modal.getByTestId("share-hub-popover");
+      await expect(async () => {
+        await modal.getByTestId("share-hub-kebab").click();
+        await expect(popover).toBeVisible({ timeout: 1500 });
+      }).toPass({ timeout: 15_000 });
+
+      const opened = await page.evaluate(() => {
+        const body = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;
+        return {
+          side: body.dataset["popoverSide"] ?? null,
+          focusInsideDialog:
+            document.activeElement instanceof HTMLElement &&
+            (document.activeElement === body || body.contains(document.activeElement)),
+        };
+      });
+      expect(opened.side, `expected ${expectedSide} placement at 390x${height}`).toBe(expectedSide);
+      expect(opened.focusInsideDialog, "focus did not enter the dialog on open").toBe(true);
+
+      await page.keyboard.press("Escape");
+      await expect(popover).toBeHidden();
+
+      const restored = await page.evaluate(() => {
+        const kebab = document.querySelector('[data-testid="share-hub-kebab"]');
+        return document.activeElement === kebab;
+      });
+      expect(restored, "Escape did not return focus to the opening trigger").toBe(true);
+      // The review modal itself must survive: the hub stops Escape propagating,
+      // or the shell's document listener closes the whole modal instead.
+      await expect(modal).toBeVisible();
+    });
+  }
 });
