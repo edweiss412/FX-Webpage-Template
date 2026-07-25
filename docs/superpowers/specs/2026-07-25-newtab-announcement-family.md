@@ -230,8 +230,9 @@ scanner, its rule is the strictest one available: `app/**/*.mdx` must contain no
 case), **no `target` attribute, and no spread**. `target={dest}` and `{...externalProps}` both
 evaded an earlier `_blank`-only spelling and either can resolve to `_blank` at runtime (review R6
 BLOCKING 2). A doc that genuinely needs an external link puts it in a `.tsx` component the
-scanner can classify. One regex, `MDX_FORBIDDEN`, is exported and shared by the rule and its
-self-test.
+scanner can classify. One predicate, `mdxForbidden()`, is exported and shared by the rule and its
+self-test. It is a function rather than a bare regex because it tests the raw text AND a
+comment-stripped copy and takes the union (review R7 BLOCKING 3).
 
 ### 6.2 Approved shapes (everything else is a finding)
 

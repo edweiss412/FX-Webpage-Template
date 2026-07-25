@@ -183,6 +183,57 @@ claim. Guard: 59 tests; 159 across the a11y suites.
 the probes are permanent tests — and R5 still found six things none of them covered. The lesson
 recorded in `feedback_never_compare_predicates_as_text` is the durable output.
 
+## R7 — BLOCKING with 3 findings: the same mistake, one layer over
+
+R7 reviewed the R6 delta and returned **3 BLOCKING**. All three were mine, and the first is the
+one worth remembering: R6 narrowed **gating** predicates to a decidable subset, but the
+**identity** comparison — does a guard prove its OWN substitution non-empty? — kept a serializer
+that fell back to `getText().replace(/\s+/g, "")` for unsupported subtrees. Narrowing one path and
+leaving a text comparison in the other is not a fix, it is a relocation.
+
+That fallback erases token boundaries, so different expressions collided into one key and a guard
+"proved" a DIFFERENT expression non-empty: `new F()` with `newF()`, `await x` with `awaitx`,
+`typeof x` with `typeofx`, `delete x.y` with `deletex.y`, `x as string` with `xasstring`, a
+one-space template with an empty one, and any two literals differing only by an internal space
+(`get(/a b/)` with `get(/ab/)`). It also dropped optional-chain tokens and call type arguments,
+colliding `obj?.[key]` with `obj[key]`, `fn?.()` with `fn()`, and `fn<T>()` with `fn()`. R7 gave a
+witness for each where the substitution returned `""` and the computed name was
+`(opens in a new tab)` with no destination.
+
+`canon` is deleted. `identityKey` accepts only an identifier, a property access (recording `?.`),
+an element access with a literal or identifier key, a **zero-argument** call with **no type
+arguments** over any of those, and `!` over any of them; everything else fails closed. **No text
+comparison remains anywhere in the scanner.** The shipped labels (`label`, `alt`, `displayTitle`,
+`title`, `title.trim()`) are all inside the subset, asserted by test rather than assumed.
+
+The other two were both lexical nets that could not see comments: `admitsCandidate` skipped FILES
+containing `target <comment> ={dest}` or a spread whose brace is separated from its dots, and
+matched `target` case-sensitively even though HTML attribute names are case-insensitive and React
+emits `TARGET={x}` with a warning rather than dropping it. `MDX_FORBIDDEN` had the identical hole,
+which R7 confirmed against `@mdx-js/mdx` 3.1.1. Both now test raw text AND a comment-stripped copy
+and take the UNION — stripping alone is unsafe for MDX, because prose contains `https://` and a JS
+lexer reads `//` as a line comment, deleting the rest of that line; a union can only admit MORE.
+
+Mutation-verified both: restoring the text fallback fails the collision pin, removing
+comment-stripping fails the lexical-net pin, control 71/71. I also self-probed the forging risk
+introduced by the new `i:`/`p:`/`s:` key prefixes (a string key mimicking a prefix, bracket
+injection, negation aliasing, property vs element access) — six pairs, all rejected.
+
+**Rounds 5, 6 and 7 all found guard defects and none found a shipped-behavior defect.** The 21
+remediated anchors have been stable since R4. That asymmetry is the honest summary of this
+close-out: the user-facing work was right early, and the machinery asserting it took four more
+rounds to become sound.
+
+## A gate I retired rather than satisfied
+
+The local full-suite gate is **not** green and cannot be made green here. A peer session (PID
+89042) runs `pnpm test` from `FX-worktrees/alert-autoresolve` against the SAME local Supabase.
+Evidence that this is contention and not this diff: 17 of 18 failures vanish when the same files
+run serially; the one file that still fails yields a DIFFERENT failure set on each run; it is
+untouched by this branch (`git diff --name-only origin/main...HEAD` matches it zero times); and
+the signatures are foreign UUIDs, `busy` vs `updated`, and off-by-N row counts. CI gives each job
+an isolated database, so CI is the authority for this PR. Recorded rather than quietly dropped.
+
 ## The pattern worth carrying forward
 
 **Every defect in the guard was found by executing it, none by reading it.** Five adversarial spec rounds (35 findings) reviewed the design and missed all seven bypasses; the spike, the implementation, the impeccable gates, a peer scan, and the whole-diff review each found more. `docs/agents/spec-self-review.md:22` caps prose iteration on a surviving design vector at three rounds and requires a probe instead — that rule paid for itself here, and the guard's own history is the evidence.
