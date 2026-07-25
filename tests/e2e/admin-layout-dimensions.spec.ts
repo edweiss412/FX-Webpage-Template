@@ -427,9 +427,42 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
   // its placeholders. Same guard the deep-link suite uses.
   const MODAL = `[data-testid="${BASE}-modal"]:has([data-testid="${BASE}-title"])`;
 
-  /** Known, deferred instances. Empty is the correct state — see the helper's
-   *  `PhantomLedgerRow` for why a row is scoped and counted before adding one. */
-  const KNOWN_SHOW_MODAL_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
+  /**
+   * Known, deferred instances — see the helper's `PhantomLedgerRow` for why a row
+   * is scoped and counted before adding one.
+   *
+   * BOTH rows are the SAME pre-existing defect, and the hydrated probe is what
+   * found it: `ModalSectionChrome`'s header row is `flex items-center gap-2.5`
+   * and ends with a childless `<span className="flex-1" />` pushing the flag pill
+   * and sheet link right (step3ReviewSections.tsx:916). At 375px with the seeded
+   * show's real content the row is full, `flex-1` resolves to ZERO width, and the
+   * row still charges 10px on BOTH sides of an invisible spacer. The static
+   * harness never showed it — its fixture rows are short enough that the spacer
+   * keeps width — which is the whole argument for probing the real route.
+   *
+   * Deferred rather than fixed here because the repair is a visual judgment about
+   * crowded-row behavior at narrow widths (drop the spacer below some width? give
+   * it a min-width? let the row wrap?) inside an admin UI component, which pulls
+   * in the invariant-8 impeccable dual gate — the same call #576 made for the
+   * BulkIgnoreControls hairline, which #580 then repaid in its own branch.
+   * Carried as BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW, which also records the
+   * three further unproven instances of this shape found by the class sweep.
+   *
+   * Labels are BUILT from `SEED_DRIVE_FILE_ID` rather than pasted: the label a
+   * scan emits embeds the show's drive_file_id, and a pasted copy would rot
+   * silently against a reseed instead of failing as a stale row.
+   */
+  const KNOWN_SHOW_MODAL_PHANTOM_ITEMS: PhantomLedgerRow[] = (["rooms", "warnings"] as const).map(
+    (section) => ({
+      surface: "/admin?show",
+      width: 375,
+      parent: `<div in wizard-step3-card-${SEED_DRIVE_FILE_ID}-breakdown-${section}>`,
+      child: `<span in wizard-step3-card-${SEED_DRIVE_FILE_ID}-breakdown-${section}>`,
+      axis: "column-gap" as const,
+      count: 1,
+      why: "ModalSectionChrome's flex-1 header spacer collapses to 0 width in a crowded row at 375px — pre-existing, deferred to BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW",
+    }),
+  );
 
   let slug = "";
 
@@ -458,6 +491,19 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
       // Suspense-streamed server loader — allow a dev-server compile on first hit.
       await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+      // CONTENT, not just chrome. `:has(title)` and a laid-out panel height are
+      // both satisfied by the modal SHELL — the title sits in the header, which
+      // streams before the section column. A first CI run measured exactly that
+      // state and the walk found ZERO gapped containers, which the anchor caught
+      // (an empty offender list would otherwise have read as a clean surface).
+      // These two waits make the precondition explicit: the scroll pane exists,
+      // and at least one rail section has actually rendered into it.
+      await expect(page.locator(`${MODAL} [data-testid$="-review-content"]`)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(page.locator(`${MODAL} [data-testid*="-review-section-"]`).first()).toBeAttached(
+        { timeout: 30_000 },
+      );
       // Settle: the panel must hold a real laid-out height before measuring.
       await expect
         .poll(

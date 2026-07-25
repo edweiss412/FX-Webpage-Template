@@ -8,15 +8,24 @@ Last reconciled: 2026-07-24 — 30 resolved entries graduated to the archive.
 
 ---
 
-## BL-PHANTOM-GAP-PROBE-OTHER-SURFACES — run the zero-extent-flex-item probe on the crew page and dashboard harnesses
+## BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW — decide crowded-row behavior for childless `flex-1` spacers
 
-**Filed:** 2026-07-24 (branch `fix/overview-phantom-gap`). **Class:** layout hardening. **Effort:** S per harness.
+**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, found by `T-NOPHANTOM-SHOW`). **Class:** layout hardening (UI judgment). **Effort:** S per site, plus the invariant-8 impeccable dual gate.
 
-`T-NOPHANTOM` (tests/e2e/published-review-modal.layout.spec.ts) walks the rendered tree for in-flow items with zero extent on their parent's gap axis — an always-rendered wrapper whose entire content is state-gated is invisible but still charges its parent's `gap`. It found two instances on its first run: the reported Overview `overview-sheet-sync` slot (32px) and `ScheduleDayRow`'s time grid (4px per entry-less day). Both are now fixed with `empty:hidden`.
+A childless `<span className="flex-1" />` used as a right-pusher is a flex ITEM. In a row with enough real content to consume the line, `flex-1` resolves to ZERO width and the row still charges its `gap` on BOTH sides of an invisible spacer — the same class as the `BulkIgnoreControls` hairline (`BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW`, repaid on #580 by hiding the rule below 480px).
 
-The probe is scoped to the PUBLISHED MODAL tree only, so the crew page, the admin dashboard, and the wizard's own surfaces are unmeasured. A static sweep of `components/` + `app/` for the conditional-only-wrapper shape found no further true positives, but it cannot see the `{items.map(...)}` form — an empty array leaves no textual trace, and that is exactly the form the ScheduleDayRow instance took. So static coverage is not a substitute.
+**Proven, currently ledgered** (`KNOWN_SHOW_MODAL_PHANTOM_ITEMS` in `tests/e2e/admin-layout-dimensions.spec.ts`): `ModalSectionChrome`'s header row, `components/admin/wizard/step3ReviewSections.tsx:916` — `flex items-center gap-2.5` with the spacer before the flag pill / sheet link. Charges 10px on each side at 375px on the seeded show's Rooms and Warnings breakdowns. Invisible to the static harness, whose fixture rows are short enough that the spacer keeps width; the hydrated real-route probe is what surfaced it.
 
-**Work:** extract the probe into a shared helper and mount it in the existing standalone crew-page and dashboard layout harnesses. Expect false positives to need the same `checkVisibility()` treatment per surface (on the modal, the `lg:hidden` chip rail alone produced 25).
+**Unproven instances of the same shape** (class sweep, 2026-07-25 — each sits in a gapped flex row, none currently measured by any probe mount):
+
+| site                                                   | parent row                                                                                                                       |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `components/admin/wizard/step3ReviewSections.tsx:2150` | `flex items-center gap-2.5` (`h-px flex-1 bg-border` hairline — same shape as the repaid BulkIgnoreControls one, different file) |
+| `components/admin/BellPanel.tsx:323`                   | `flex flex-wrap items-center gap-x-2 gap-y-1` (wrapped, so it charges BOTH axes)                                                 |
+| `components/admin/nav/AdminNav.tsx:144`                | admin nav row                                                                                                                    |
+| `components/admin/nav/OnboardingTopBar.tsx:67`         | `flex items-center gap-3`                                                                                                        |
+
+**Work:** one visual decision, applied consistently across all five — hide below a width, give the spacer a `min-w`, switch the row to `justify-between` and drop the spacer entirely, or let the row wrap. Then delete the two ledger rows (the stale-row assertion fails if they are kept past the repair) and extend a probe mount to whichever surfaces the unproven sites live on.
 
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
