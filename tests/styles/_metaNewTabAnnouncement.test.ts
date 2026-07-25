@@ -983,7 +983,12 @@ describe("R6: scanner changes are pinned", () => {
     const literals = [
       // `[=!]==?` so loose equality cannot slip a camelCase literal past this.
       ...src.matchAll(new RegExp(String.raw`${accessor}\s*[=!]==?\s*"([^"]+)"`, "g")),
-      ...src.matchAll(/\b(?:names|SPREADABLE|LINK_TAGS)\.has\(\s*"([^"]+)"\s*\)/g),
+      // NOT LINK_TAGS: JSX tag names are legitimately case-sensitive (`<Link>` the
+      // component vs `<a>` the element), so a literal "Link" there is correct and
+      // must not be flagged. Attribute and property names are the case-insensitive
+      // ones. Caught while auditing my own guard, before it produced a false
+      // positive on someone else's edit.
+      ...src.matchAll(/\b(?:names|SPREADABLE)\.has\(\s*"([^"]+)"\s*\)/g),
       ...src.matchAll(/\bSPREADABLE\s*=\s*new Set\(\[([^\]]*)\]/g),
     ].flatMap((m) => (m[1] ?? "").split(",").map((s) => s.trim().replace(/^"|"$/g, "")));
     const offenders = literals.filter((lit) => lit.length > 0 && lit !== lit.toLowerCase());
