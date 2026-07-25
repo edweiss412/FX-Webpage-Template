@@ -712,6 +712,18 @@ git commit -m "feat(crew-page): add post-response tile alert sweep"
 - Consumes: `TileRenderLedger`, `createTileRenderLedger` (Task 1); `sweepTileRenderAlerts` (Task 3).
 - Produces: `WrappedSectionProps` and all 7 section prop types gain a required `ledger: TileRenderLedger`.
 
+**Routing (AGENTS.md hard rule).** This task edits `app/` and `components/`, so it is UI work and is
+owned by Opus / Claude Code, never Codex. If you are running under Codex, stop and hand this task
+back to the orchestrator.
+
+**Pre-code mechanical UI gate (run BEFORE writing any code in this task).** The impeccable dual-gate
+in Task 9 is a verifier, not a discovery mechanism; these invariants are already written down and
+finding them post-code costs a fix commit plus a partial gate re-run. Confirm for every line you are
+about to add: no em dash in any user-visible copy, apostrophes are literal, tap targets keep
+`min-h-tap-min` where applicable, and type/token classes stay canonical (`text-xs/relaxed`,
+`text-subtle`). This diff adds no rendered output, so most are vacuous, which is the point: confirm
+that, do not assume it.
+
 **Why this is ONE task, not two.** Making `ledger` required is an atomic type change: the moment
 `WrappedSection` requires it, all 7 sections and every section-constructing test are type-invalid
 until they pass it. Splitting the component change from the threading guarantees a red tree at the
@@ -738,6 +750,24 @@ const { afterMock, sweepMock, seen } = vi.hoisted(() => ({
 }));
 vi.mock("next/server", () => ({ after: afterMock }));
 vi.mock("@/lib/crew/sweepTileRenderAlerts", () => ({ sweepTileRenderAlerts: sweepMock }));
+// The shell ALSO registers the real projection-alert resolver
+// (_CrewShell.tsx:178-202). Left live it issues a Supabase call from the DB-free
+// parallel project, and its pending promise lets a VOIDED sweep still look
+// settled, defeating the durability mutant. Neutralize both halves.
+vi.mock("@/lib/adminAlerts/resolveAdminAlert", () => ({
+  resolveAdminAlert: vi.fn(async () => undefined),
+}));
+vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
+  upsertAdminAlert: vi.fn(async () => null),
+}));
+// Render EVERY built body. crewShellAlert.test.tsx mocks this controller to
+// render none, and the real one renders only the active section, so without this
+// override the section spies never run and the identity assertion is unmakeable.
+vi.mock("@/components/crew/CrewSections", () => ({
+  CrewSections: ({ sections }: { sections: Record<string, React.ReactNode> }) => (
+    <>{Object.values(sections ?? {})}</>
+  ),
+}));
 
 // Each section records the ledger identity it was handed, then renders nothing.
 // WRITTEN OUT, NOT LOOPED: vi.mock is hoisted above the module body, so a loop
@@ -769,8 +799,8 @@ describe("the crew shell owns one ledger and sweeps THAT one", () => {
 
     await renderCrewShellForTest(); // see Step 2
 
-    // Drain the registered callbacks so the sweep is actually invoked.
-    for (const [cb] of afterMock.mock.calls) await (cb as () => unknown)();
+    // Invoke ONLY the sweep registration, not every captured callback.
+    await drainSweepCallback();
 
     const swept = sweepMock.mock.calls[0]?.[0];
     const sweptArgs = sweepMock.mock.calls[0]?.[1] as { viewerKey: string } | undefined;
@@ -798,15 +828,26 @@ describe("the crew shell owns one ledger and sweeps THAT one", () => {
     sweepMock.mockClear();
 
     await renderCrewShellForTest({ viewerId: "crew-dana" });
-    for (const [cb] of afterMock.mock.calls) await (cb as () => unknown)();
+    await drainSweepCallback();
     expect((sweepMock.mock.calls[0]?.[1] as { viewerKey: string }).viewerKey).toBe("crew-dana");
 
     sweepMock.mockClear();
     afterMock.mockClear();
     await renderCrewShellForTest({ viewerId: null }); // plain admin
-    for (const [cb] of afterMock.mock.calls) await (cb as () => unknown)();
+    await drainSweepCallback();
     expect((sweepMock.mock.calls[0]?.[1] as { viewerKey: string }).viewerKey).toBe("admin");
   });
+
+  /** Invoke the one after() callback that drives the sweep; return its result. */
+  async function drainSweepCallback(): Promise<unknown> {
+    for (const [cb] of afterMock.mock.calls) {
+      const before = sweepMock.mock.calls.length;
+      const returned = (cb as () => unknown)();
+      if (sweepMock.mock.calls.length > before) return returned;
+      await returned;
+    }
+    return undefined;
+  }
 
   test("the registered callback RETURNS the sweep promise", async () => {
     let settled = false;
@@ -823,11 +864,11 @@ describe("the crew shell owns one ledger and sweeps THAT one", () => {
 
     await renderCrewShellForTest();
 
-    const returned = afterMock.mock.calls
-      .map(([cb]) => (cb as () => unknown)())
-      .filter((r): r is Promise<unknown> => r instanceof Promise);
-    expect(returned.length, "the sweep callback must return its promise, not void it").toBeGreaterThan(0);
-    await Promise.all(returned);
+    const returned = await drainSweepCallback();
+    expect(returned, "the sweep callback must RETURN its promise, not void it").toBeInstanceOf(
+      Promise,
+    );
+    await returned;
     expect(settled).toBe(true);
   });
 });
@@ -1199,6 +1240,26 @@ describe("tile alert resolution, real rows", () => {
     expect(openRowObserver()).toBe(OBSERVER_A);
   });
 
+  // AC3 positive: without this, a resolver using an impossible discriminator
+  // whenever viewerKey === "admin" would pass every other test here.
+  test("a plain-admin render DOES resolve an admin-bucket row", async () => {
+    seedOpenAlert(TILE, "admin");
+    await sweepTileRenderAlerts(clean([TILE]), {
+      showId: SHOW_ID, sheetName: "Seeded Show", viewerKey: "admin",
+    });
+    expect(openRowObserver()).toBe("");
+  });
+
+  // AC1 multi-tile: a mutant passing only cleanTileIds(ledger).slice(0, 1) would
+  // pass a single-tile test while stranding every later clean tile.
+  test("every clean tile is resolvable, not just the first", async () => {
+    seedOpenAlert("crew:today:notes", OBSERVER_A);
+    await sweepTileRenderAlerts(clean(["crew:crew:roster", "crew:gear:scope", "crew:today:notes"]), {
+      showId: SHOW_ID, sheetName: "Seeded Show", viewerKey: OBSERVER_A,
+    });
+    expect(openRowObserver()).toBe("");
+  });
+
   // AC5, a tile that never rendered is not resolvable
   test("an unattempted tile leaves its row open", async () => {
     seedOpenAlert("crew:budget:rows", OBSERVER_A);
@@ -1440,7 +1501,8 @@ For each of these, make the edit, confirm the named test FAILS, then revert with
 3. Change the shell's registration to `after(() => { void sweepTileRenderAlerts(...) })` → assertion 4 fails.
 4. Move `createTileRenderLedger()` inside the `after()` callback → assertion 5 fails.
 
-**Commit nothing from this step.** Verify `git status` is clean before continuing.
+**Commit nothing from this step.** Verify `git status --porcelain` is clean before continuing.
+`.review/` is gitignored, so cross-model review transcripts never appear in these gates.
 
 - [ ] **Step 4: Commit**
 
@@ -1487,7 +1549,32 @@ Remove the now-empty `state-manual-justified` section comment above it.
 
 - [ ] **Step 2: Update the counts and the prose docstring**
 
-At lines 736-739 change the hybrid expectation from `.toBe(1)` to `.toBe(2)` and update its message to name both hybrid codes. Update the state-manual-justified expectation to 0. Do **not** touch the auto assertion at lines 732-734.
+At lines 736-739 change the hybrid expectation from `.toBe(1)` to `.toBe(2)` and update its message
+to name both hybrid codes. Do **not** touch the auto assertion at lines 732-734.
+
+**ADD event-manual and state-manual-justified count assertions.** Neither exists today, the test
+derives only `autoCodes` and `hybridCodes`
+(`tests/messages/_metaAdminAlertCatalog.test.ts:721-739`). A previous draft of this plan said to
+"update the state-manual-justified expectation", which cannot be done because there is none, so
+AC11's `17 / 0` was entirely unasserted and an unrelated code could be reclassified with every named
+gate staying green:
+
+```ts
+    const eventManualCodes = allCodes.filter(
+      (code) => ADMIN_ALERTS_LIFECYCLE[code].class === "event-manual",
+    );
+    const stateManualCodes = allCodes.filter(
+      (code) => ADMIN_ALERTS_LIFECYCLE[code].class === "state-manual-justified",
+    );
+    expect(eventManualCodes.length, "event-manual is unchanged by this feature").toBe(17);
+    expect(
+      stateManualCodes.length,
+      "TILE_SERVER_RENDER_FAILED was the only state-manual-justified code and is now hybrid",
+    ).toBe(0);
+```
+
+Also fix the stale inline `event-manual (18)` comment at
+`tests/messages/_metaAdminAlertCatalog.test.ts:457`.
 
 In the docstring at lines 272-280, change `1 "hybrid"` to `2 "hybrid"`, `1 "state-manual-justified"` to `0 "state-manual-justified"`, and update the arithmetic line to `26 + 17 + 2 + 0 = 45`.
 
@@ -1648,7 +1735,22 @@ Expected: all pass. `format:check` matters because commits here use `--no-verify
 
 - [ ] **Step 3: Run the impeccable dual-gate**
 
-Two UI-surface files changed (`_CrewShell.tsx`, `WrappedSection.tsx`) plus 7 section files, so invariant 8 applies even though no rendered output changes. Run `/impeccable critique` and then `/impeccable audit` on the diff. Fix every P0 and P1, or record an explicit `DEFERRED.md` entry for each. Record findings and dispositions in the PR body.
+Two UI-surface files changed (`_CrewShell.tsx`, `WrappedSection.tsx`) plus 7 section files, so
+invariant 8 applies even though no rendered output changes.
+
+Run the canonical v3 setup gates FIRST, in order, or the run is degraded:
+
+1. the skill context load (context.mjs) (PRODUCT.md + DESIGN.md).
+2. Read the register reference (the brand or product register).
+3. Then `/impeccable critique`, then `/impeccable audit`, on the affected diff.
+
+The gate ALWAYS uses subagents; an inline run is degraded and must be redone.
+
+Fix every P0 and P1, or record an explicit `DEFERRED.md` entry for each. **Record findings and
+dispositions in §12 of the milestone handoff doc**, not only in the PR body.
+
+**If any P0/P1 fix, or any later cross-model fix, changes a UI file, re-run BOTH commands.** A
+verdict obtained before the final UI state is stale and does not discharge invariant 8.
 
 - [ ] **Step 4: Re-attempt the adversarial spec review**
 
