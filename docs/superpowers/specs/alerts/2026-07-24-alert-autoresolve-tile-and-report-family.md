@@ -170,11 +170,23 @@ Round 1 raised two findings with one root cause, both fixed by making the ledger
 New module at `lib/crew/tileRenderLedger.ts (new)`:
 
 ```ts
+/** What a failed tile recorded: the message for the alert, the Error for the log. */
+export type TileFailure = {
+  /** `err.message`, stamped into the alert's `context.message`. */
+  message: string;
+  /**
+   * The original thrown value, so the sweep's `log.error` can hand the logger a
+   * real Error and get name + stack serialized. Message-only strips the
+   * throwing callsite (whole-diff round 2).
+   */
+  error: unknown;
+};
+
 /** Per-request record of which crew tiles ran, and which threw. */
 export type TileRenderLedger = {
   attempted: Set<string>;
-  /** tileId -> the thrown error's message, needed for the alert's context.message. */
-  failed: Map<string, string>;
+  /** tileId -> what it threw. */
+  failed: Map<string, TileFailure>;
 };
 
 export function createTileRenderLedger(): TileRenderLedger {
@@ -188,9 +200,10 @@ export function cleanTileIds(ledger: TileRenderLedger): string[] {
 ```
 
 `failed` is a `Map`, not a `Set`: round 1 found that a tileId-only ledger discards `err.message`,
-which the alert's `context.message` requires (it exists only as the catch-local `err.message` at
-`components/crew/WrappedSection.tsx` (pre-change catch block)). The sweep runs after the catch returns, so the message
-must be carried, not re-derived.
+which the alert's `context.message` requires. Its VALUE is an object, not a bare string, for the
+same reason one step further: whole-diff round 2 found that carrying only the message strips the
+Error's name and stack, so a generic `TypeError` would lose its throwing callsite. The sweep runs
+after the catch returns, so both the message AND the Error must be carried, not re-derived.
 
 An explicit **required** prop removes the silent-omission variant: mounting a section without a
 ledger is a compile error. It does not by itself guarantee the section shares the shell's swept
@@ -227,7 +240,8 @@ of scope, unchanged, and the reason §6.2 does not repoint the write-site regist
 
 - Accept the required `ledger: TileRenderLedger` prop.
 - Before invoking `render()`: `ledger.attempted.add(tileId)`.
-- In the `catch`: `ledger.failed.set(tileId, err.message)`, **remove** the `log.error` call
+- In the `catch`: `ledger.failed.set(tileId, { message: err.message, error: err })`, **remove**
+  the `log.error` call
   (`components/crew/WrappedSection.tsx` (pre-change log call), see §4.8), and **remove** the `upsertAdminAlert` call with its
   `after()` and fire-and-forget fallback (`components/crew/WrappedSection.tsx` (pre-change lines 94-122)).
 - The fallback return (`components/crew/WrappedSection.tsx` (the fallback return)) is unchanged.

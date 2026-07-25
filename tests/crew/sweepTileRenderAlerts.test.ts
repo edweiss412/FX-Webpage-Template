@@ -139,6 +139,23 @@ describe("sweepTileRenderAlerts", () => {
     expect(logSettled, "sweepTileRenderAlerts must await the durable log").toBe(true);
   });
 
+  // Nothing else proves the ORIGINAL Error reaches the logger. Replacing it with
+  // `message` would keep every other assertion green while silently stripping
+  // name + stack, which is most of the value of a crash catcher.
+  test("the durable log receives the Error itself, not just its message", async () => {
+    const thrown = new TypeError("cannot read properties of undefined");
+    const l = createTileRenderLedger();
+    l.attempted.add("crew:gear:scope");
+    l.failed.set("crew:gear:scope", { message: thrown.message, error: thrown });
+
+    await sweepTileRenderAlerts(l, ARGS);
+
+    const fields = logErrorMock.mock.calls[0]?.[1] as { error?: unknown } | undefined;
+    expect(fields?.error, "the logger must get the Error, not a string").toBeInstanceOf(Error);
+    expect(fields?.error).toBe(thrown);
+    expect((fields?.error as Error).stack, "the throwing callsite must survive").toBeTruthy();
+  });
+
   test("an upsert failure does not prevent the resolve", async () => {
     upsertMock.mockRejectedValueOnce(new Error("supabase down"));
     await expect(

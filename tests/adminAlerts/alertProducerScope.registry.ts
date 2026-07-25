@@ -220,7 +220,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "const; tx.upsertAdminAlert passes no showId -> null",
   },
   {
-    site: "lib/crew/sweepTileRenderAlerts.ts:47",
+    site: "lib/crew/sweepTileRenderAlerts.ts:51",
     contextKeys: ["tileId", "message", "sheet_name", "viewerKey"],
     code: "TILE_SERVER_RENDER_FAILED",
     scope: "per-show",
