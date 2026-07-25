@@ -230,14 +230,38 @@ describe("silent death D: liveness heartbeat keeps external idle-reapers off a l
 });
 
 describe("silent death C: the guard invokes the native binary, not the signal-laundering shim", () => {
+  // The fixture must be built for the HOST the guard will actually run on. An earlier
+  // version hardcoded the darwin package/triple and varied only by arch: it passed on a
+  // darwin-arm64 dev machine and failed on the linux-x64 CI runner, where the guard
+  // correctly looked for the linux tree the fixture had never created. Read the real
+  // table out of the implementation instead, so host coverage and drift are both handled.
+  const GUARD_SRC = readFileSync(join(process.cwd(), "scripts", "codex-guard.mjs"), "utf8");
+  const NATIVE_TABLE: Record<string, [string, string]> = (() => {
+    const block = /const NATIVE_TRIPLE_BY_PLATFORM = \{([\s\S]*?)\n\};/.exec(GUARD_SRC);
+    if (!block) throw new Error("NATIVE_TRIPLE_BY_PLATFORM not found in codex-guard.mjs");
+    const out: Record<string, [string, string]> = {};
+    for (const m of block[1]!.matchAll(/"([\w-]+)":\s*\["([^"]+)",\s*"([^"]+)"\]/g)) {
+      out[m[1]!] = [m[2]!, m[3]!];
+    }
+    return out;
+  })();
+  const HOST = `${process.platform}-${process.arch}`;
+
+  it("parses a non-empty platform table out of the implementation", () => {
+    // Guards the extraction above: a rename or refactor must fail loudly here rather
+    // than silently turning the behavioral test below into a vacuous null-check.
+    expect(Object.keys(NATIVE_TABLE).length).toBeGreaterThan(0);
+    expect(NATIVE_TABLE["darwin-arm64"]).toEqual(["codex-darwin-arm64", "aarch64-apple-darwin"]);
+    expect(NATIVE_TABLE["linux-x64"]).toBeDefined();
+  });
+
   // Faithful stand-in for the npm layout:
   //   <root>/bin/codex.js                                              (the Node shim)
   //   <root>/node_modules/@openai/codex-<plat>/vendor/<triple>/bin/codex   (native)
   // Each records that it ran, so the assertion is behavioral: which one executed?
   function fakeInstall(run: ReturnType<typeof mkRun>) {
     const root = join(run.dir, "codexpkg");
-    const triple = `${process.arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`;
-    const pkg = `codex-darwin-${process.arch === "arm64" ? "arm64" : "x64"}`;
+    const [pkg, triple] = NATIVE_TABLE[HOST] ?? ["codex-unsupported", "unsupported-triple"];
     const vendorBin = join(root, "node_modules", "@openai", pkg, "vendor", triple, "bin");
     mkdirSync(vendorBin, { recursive: true });
     mkdirSync(join(root, "bin"), { recursive: true });
@@ -264,6 +288,14 @@ describe("silent death C: the guard invokes the native binary, not the signal-la
 
     const r = readResult(run);
     expect(r.status).toBe("verdict");
+
+    if (!NATIVE_TABLE[HOST]) {
+      // Unsupported host (e.g. win32): resolution must soft-downgrade to the configured
+      // bin rather than throw, and the dispatch must still succeed.
+      expect(r.nativeBinaryResolved).toBeNull();
+      expect(readFileSync(witness, "utf8").trim()).toBe("SHIM");
+      return;
+    }
     expect(r.nativeBinaryResolved).toBe(native);
     // The load-bearing assertion: the signal-laundering Node shim never ran.
     expect(readFileSync(witness, "utf8").trim()).toBe("NATIVE");
