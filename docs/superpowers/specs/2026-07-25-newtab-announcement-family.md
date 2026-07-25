@@ -288,6 +288,27 @@ WITH substitutions is not. Anything outside these shapes is reported as
 - **Document-level `<base target="_blank">` is out of scope.** It would make every relative
   anchor external without any per-anchor syntax to inspect. None exists in the tree; a lexical
   assertion that none is introduced is tracked in `DEFERRED.md`.
+- **Expression IDENTITY is also a narrow subset.** Proving a guard non-empties its OWN
+  substitution (`title.trim() ? ` + "`${title.trim()} …`" + `) needs the two expressions to be the SAME
+  one. That comparison accepts only: an identifier, a property access (recording optional-chain),
+  an element access with a literal or identifier key, a ZERO-ARGUMENT call over any of those, and
+  `!` over any of them. An earlier version serialized arbitrary expressions and fell back to
+  whitespace-stripped source text for anything unsupported, which erased token boundaries and
+  collided genuinely different expressions: `new F()` with `newF()`, `await x` with `awaitx`,
+  `typeof x` with `typeofx`, `x as string` with `xasstring`, a one-space template with an empty
+  one, and any two literals differing only by an internal space (`get(/a b/)` with `get(/ab/)`).
+  It also dropped optional-chain tokens and call type arguments, colliding `obj?.[key]` with
+  `obj[key]`, `fn?.()` with `fn()`, and `fn<T>()` with `fn()`. R7 gave a witness for each where
+  the substitution evaluated to `""` and the computed name was the bare phrase. A partial
+  serializer over a full grammar cannot be made injective by adding cases, so the subset is
+  explicit and everything outside it fails closed. All shipped labels are inside it.
+- **The MDX and candidate-admission nets test raw text AND a comment-stripped copy, and the union
+  decides.** A raw-text-only regex missed a comment between `target` and its `=`, and between a
+  spread's brace and its dots; `@mdx-js/mdx` compiles those to real JSX spreads. Stripping alone
+  is unsafe for MDX, because prose contains `https://` and a JS lexer reads `//` as a line comment
+  and would delete the rest of that line. The union can only admit MORE, which is the fail-closed
+  direction. `target` matching is case-INSENSITIVE: HTML attribute names are, and React emits
+  `TARGET={x}` with a warning rather than dropping it.
 - **A COMPOUND gating predicate is reported, not compared.** Only an identifier, a
   property-access chain, or `!` applied to either is an approved gate. Deciding whether two
   different compound predicates denote the same runtime condition is not something a static pass

@@ -86,10 +86,10 @@ function isDecidableLiteral(node: ts.Node | undefined): boolean {
  * "phrase-only". Found while implementing the sweep, not by prose review.
  */
 /** Text of the expressions a template substitutes, normalized. */
-function substitutedExprs(node: ts.Node): string[] {
+function substitutedExprs(node: ts.Node): (string | null)[] {
   const n = ts.isJsxExpression(node) && node.expression ? unparen(node.expression) : node;
   if (!ts.isTemplateExpression(n)) return [];
-  return n.templateSpans.map((sp) => canon(sp.expression));
+  return n.templateSpans.map((sp) => identityKey(sp.expression));
 }
 
 /**
@@ -107,8 +107,11 @@ function guardedSubstitution(branch: ts.Node, condition: ts.Expression): boolean
   // Structural identity, not textual: R6 showed `!(label && ready)` guarding a
   // `${!label && ready}` substitution slipped through, and at label="" the name
   // is phrase-only (review R6 BLOCKING 1, third consumer).
-  const cond = canon(condition);
-  return substitutedExprs(branch).some((e) => e === cond);
+  // Fail closed when either side is outside the decidable subset: an
+  // unprovable guard is not a guard (review R7 BLOCKING 1).
+  const cond = identityKey(condition);
+  if (cond === null) return false;
+  return substitutedExprs(branch).some((e) => e !== null && e === cond);
 }
 
 function hasSubstitution(node: ts.Node): boolean {
@@ -469,36 +472,64 @@ function parseExprText(text: string): ts.Expression | null {
 }
 
 /**
- * Canonical serialization of an expression's STRUCTURE. Redundant parens vanish;
- * every compound node re-emits its own, so the string is determined by the AST
- * shape and nothing else. Two expressions with the same canon are structurally
- * identical; different canons are simply "not proven identical" (fail closed).
+ * Key proving two expressions are the SAME expression, or null when the shape is
+ * outside the decidable subset.
+ *
+ * Approved: identifier; property access (recording `?.`); element access with a
+ * literal or identifier key; a ZERO-ARGUMENT call over any of those; and `!` over
+ * any of them. Nothing else.
+ *
+ * An earlier version serialized arbitrary expressions and fell back to
+ * `getText().replace(/\s+/g, "")` for unsupported subtrees. That fallback erases
+ * token boundaries, so genuinely different expressions collided and a guard
+ * "proved" a DIFFERENT expression non-empty: `new F()` vs `newF()`, `await x` vs
+ * `awaitx`, `typeof x` vs `typeofx`, `delete x.y` vs `deletex.y`, `x as string`
+ * vs `xasstring`, a one-space template vs an empty one, and every literal
+ * containing a space (`get(/a b/)` vs `get(/ab/)`). R7 demonstrated each with a
+ * witness where the substitution returned "" and the computed name was
+ * "(opens in a new tab)" alone. It also dropped optional-chain tokens and call
+ * type arguments, colliding `obj?.[key]` with `obj[key]`, `fn?.()` with `fn()`,
+ * and `fn<T>()` with `fn()`.
+ *
+ * A partial serializer over a Turing-complete grammar cannot be made injective
+ * by adding cases -- that is the same losing shape as normalizing predicate text.
+ * So the subset is explicit and everything else fails closed. The shipped labels
+ * use `label`, `alt`, `displayTitle`, `title` and `title.trim()`, all inside it.
  */
-function canon(e: ts.Expression): string {
-  if (ts.isParenthesizedExpression(e)) return canon(e.expression);
-  if (ts.isPrefixUnaryExpression(e)) {
-    return `${ts.tokenToString(e.operator) ?? "?"}(${canon(e.operand)})`;
+function identityKey(e: ts.Expression): string | null {
+  if (ts.isParenthesizedExpression(e)) return identityKey(e.expression);
+  if (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.ExclamationToken) {
+    const inner = identityKey(e.operand);
+    return inner === null ? null : `!${inner}`;
   }
-  if (ts.isBinaryExpression(e)) {
-    return `(${canon(e.left)})${e.operatorToken.getText()}(${canon(e.right)})`;
-  }
-  if (ts.isConditionalExpression(e)) {
-    return `(${canon(e.condition)})?(${canon(e.whenTrue)}):(${canon(e.whenFalse)})`;
-  }
+  if (ts.isIdentifier(e)) return `i:${e.text}`;
   if (ts.isPropertyAccessExpression(e)) {
-    return `${canon(e.expression)}${e.questionDotToken ? "?." : "."}${e.name.getText()}`;
+    const base = identityKey(e.expression);
+    if (base === null) return null;
+    return `${base}${e.questionDotToken ? "?." : "."}p:${e.name.getText()}`;
   }
   if (ts.isElementAccessExpression(e)) {
-    return `${canon(e.expression)}[${canon(e.argumentExpression)}]`;
+    const base = identityKey(e.expression);
+    if (base === null) return null;
+    const arg = e.argumentExpression;
+    const key = ts.isStringLiteral(arg)
+      ? `s:${JSON.stringify(arg.text)}`
+      : ts.isNumericLiteral(arg)
+        ? `n:${arg.text}`
+        : ts.isIdentifier(arg)
+          ? `i:${arg.text}`
+          : null;
+    if (key === null) return null;
+    return `${base}${e.questionDotToken ? "?." : ""}[${key}]`;
   }
   if (ts.isCallExpression(e)) {
-    return `${canon(e.expression)}(${e.arguments.map((a) => canon(a)).join(",")})`;
+    // Zero-argument only, and no type arguments: `fn<T>()` and `fn()` are
+    // different expressions and must not share a key.
+    if (e.arguments.length > 0 || e.typeArguments !== undefined) return null;
+    const callee = identityKey(e.expression);
+    return callee === null ? null : `${callee}${e.questionDotToken ? "?." : ""}()`;
   }
-  if (ts.isStringLiteral(e)) return JSON.stringify(e.text);
-  if (ts.isIdentifier(e) || ts.isNumericLiteral(e)) return e.text;
-  // Anything else keeps its source text with whitespace collapsed; it can only
-  // ever match itself, which is the fail-closed outcome.
-  return e.getText().replace(/\s+/g, "");
+  return null;
 }
 
 /**
@@ -544,18 +575,54 @@ function simplePredicateKey(text: string): string | null {
   return walk(e);
 }
 
+/** Lexical nets for files the AST pass cannot classify.
+ *
+ *  Both are deliberately tested against the raw text AND a comment-stripped copy,
+ *  and the UNION decides. R7 found a block comment sitting between `target` and its
+ *  `=`, and between a spread's brace and its dots, slipping past a raw-text-only
+ *  regex (the literal forms are in the self-tests, not here, because a nested
+ *  comment delimiter would close this doc block). Stripping alone is unsafe in MDX
+ *  (prose contains `https://`, which a JS lexer reads as a line comment and would
+ *  delete along with anything after it on that line). Testing both and taking the
+ *  union can only ever admit MORE, which is the fail-closed direction. */
+function lexicalVariants(code: string): string[] {
+  const out = [code];
+  try {
+    const stripped = stripCommentsSafely(code);
+    if (stripped !== code) out.push(stripped);
+  } catch {
+    /* best effort: the raw text is still checked */
+  }
+  return out;
+}
+
+// HTML attribute names are case-insensitive, so `TARGET="_blank"` opens a tab.
+// React warns about the casing but still emits the attribute (review R7 BLOCKING 2).
+const TARGET_ATTR = /target\s*=/i;
+const JSX_SPREAD = /\{\s*\.\.\./;
+
 /** Does this source text contain anything that could make an external anchor?
  *  Shared by the live-tree loop AND its self-test, so the two cannot diverge --
  *  R5 left the loop case-SENSITIVE while the scanner was case-insensitive, so a
  *  real `_BLANK` file was never scanned at all. */
 export function admitsCandidate(code: string): boolean {
-  return /_blank/i.test(code) || /target\s*=/.test(code) || /\{\s*\.\.\./.test(code);
+  return lexicalVariants(code).some(
+    (v) => /_blank/i.test(v) || TARGET_ATTR.test(v) || JSX_SPREAD.test(v),
+  );
 }
 
-/** MDX cannot be classified by the scanner (it never reaches `scanSource`), so
- *  it gets no target attribute and no spread at all -- not merely no literal
+/** MDX cannot be classified by the scanner (it never reaches `scanSource`), so it
+ *  gets no target attribute and no spread at all -- not merely no literal
  *  `_blank`. `target={dest}` and `{...externalProps}` both evaded the older
- *  `/_blank/i` rule and either can resolve to `_blank` (review R6 BLOCKING 2). */
+ *  `/_blank/i` spelling and either can resolve to `_blank` (review R6 BLOCKING 2);
+ *  comment-separated spreads then evaded the replacement, and `@mdx-js/mdx`
+ *  compiles every such form to a real JSX spread (review R7 BLOCKING 3). */
+export function mdxForbidden(code: string): boolean {
+  return lexicalVariants(code).some(
+    (v) => /_blank/i.test(v) || TARGET_ATTR.test(v) || JSX_SPREAD.test(v),
+  );
+}
+
 export const MDX_FORBIDDEN = /_blank|target\s*=|\{\s*\.\.\./i;
 
 function sameCondition(hintConds: string[], target: { text: string; negated: boolean }): boolean {

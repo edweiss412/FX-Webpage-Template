@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  MDX_FORBIDDEN,
   PHRASE,
   admitsCandidate,
+  mdxForbidden,
   parse,
   scanSource,
   stripCommentsSafely,
@@ -673,7 +673,7 @@ describe("every external link in the live tree announces its new tab", () => {
     );
     expect(mdx.length, "mdx inventory should not be empty").toBeGreaterThan(0);
     const offenders = mdx.filter((rel) =>
-      MDX_FORBIDDEN.test(readFileSync(join(process.cwd(), rel), "utf8")),
+      mdxForbidden(readFileSync(join(process.cwd(), rel), "utf8")),
     );
     expect(offenders).toEqual([]);
   });
@@ -689,10 +689,10 @@ describe("every external link in the live tree announces its new tab", () => {
       '<a target="_BLANK">Go</a>',
       '<a target="_blank">Go</a>',
     ]) {
-      expect(MDX_FORBIDDEN.test(bypass), `MDX rule must reject: ${bypass}`).toBe(true);
+      expect(mdxForbidden(bypass), `MDX rule must reject: ${bypass}`).toBe(true);
     }
     // Ordinary internal MDX links stay legal.
-    expect(MDX_FORBIDDEN.test('<a href="/help">Go</a>')).toBe(false);
+    expect(mdxForbidden('<a href="/help">Go</a>')).toBe(false);
   });
 });
 
@@ -805,6 +805,79 @@ describe("R6: scanner changes are pinned", () => {
         `const A=({next})=><a href="x" {...(next()?{target:"_blank"}:{})}>Go {next()?<> <NewTabHint /></>:null}</a>;`,
       ).join(" "),
     ).toMatch(/not gated|unrecognized/);
+  });
+
+  // R7 BLOCKING 1: the old `canon` fell back to `getText().replace(/\s+/g,"")` for
+  // unsupported subtrees, which erases token boundaries. Each pair below is TWO
+  // DIFFERENT expressions that collided into one key, letting a guard "prove" a
+  // different expression non-empty; R7 gave a witness for each where the
+  // substitution returned "" and the name was the bare phrase.
+  it("R7 distinct expressions never share an identity key", () => {
+    const pairs: [string, string][] = [
+      ["new F()", "newF()"],
+      ["await x", "awaitx"],
+      ["typeof x", "typeofx"],
+      ["delete x.y", "deletex.y"],
+      ["x as string", "xasstring"],
+      ["get(/a b/)", "get(/ab/)"],
+      ['get({x:"a b"})', 'get({x:"ab"})'],
+      ["obj?.[key]", "obj[key]"],
+      ["fn?.()", "fn()"],
+      ["fn<T>()", "fn()"],
+    ];
+    for (const [guard, substituted] of pairs) {
+      // Guard on one expression, substitute the OTHER. Must never be accepted.
+      const code =
+        `const A=({x,y,obj,key,fn,get,newF,awaitx,typeofx,deletex,xasstring})=>` +
+        `<a href="x" target="_blank" aria-label={${guard} ? \`\${${substituted}} (opens in a new tab)\` : "D (opens in a new tab)"}>Go</a>;`;
+      expect(violations(code).join(" "), `must not accept ${guard} / ${substituted}`).toMatch(
+        /no destination|unrecognized|does not announce/,
+      );
+    }
+  });
+
+  // The shipped guarded-substitution shapes must still pass: identity is narrowed,
+  // not abolished. `title.trim()` is a zero-arg call over a member expression.
+  it("the shipped guarded-substitution labels still pass", () => {
+    expect(
+      violations(
+        'const A=({title})=><a href="x" target="_blank" ' +
+          'aria-label={title.trim() ? `${title.trim()} (opens in a new tab)` : "Diagram (opens in a new tab)"}>Go</a>;',
+      ),
+    ).toEqual([]);
+    expect(
+      violations(
+        'const A=({alt})=><a href="x" target="_blank" ' +
+          'aria-label={alt ? `${alt} (opens in a new tab)` : "Diagram (opens in a new tab)"}>Go</a>;',
+      ),
+    ).toEqual([]);
+  });
+
+  // R7 BLOCKING 2 and 3: both lexical nets were comment-blind, and the target
+  // regex was case-sensitive even though HTML attribute names are not.
+  it("R7 the lexical nets see through comments and attribute casing", () => {
+    for (const code of [
+      'const A=({dest})=><a href="x" target /*c*/ ={dest}>Go</a>;',
+      'const A=({dest})=><a href="x" target //c\n ={dest}>Go</a>;',
+      'const A=({props})=><a href="x" { /*c*/ ...props}>Go</a>;',
+      'const A=({props})=><a href="x" { //c\n ...props}>Go</a>;',
+      'const A=({dest})=><a href="x" TARGET={dest}>Go</a>;',
+      'const A=({dest})=><a href="x" Target={dest}>Go</a>;',
+    ]) {
+      expect(admitsCandidate(code), `admitsCandidate must admit: ${code}`).toBe(true);
+    }
+    // MDX: @mdx-js/mdx compiles all three comment-separated forms to real spreads.
+    for (const mdx of [
+      "<a { /*c*/ ...props}>Go</a>",
+      "<a { //c\n ...props}>Go</a>",
+      "<a {\n/*c*/\n...props}>Go</a>",
+      "<a TARGET={dest}>Go</a>",
+    ]) {
+      expect(mdxForbidden(mdx), `mdxForbidden must reject: ${mdx}`).toBe(true);
+    }
+    // Ordinary MDX prose containing a URL must NOT be flagged: the `//` in
+    // `https://` is why the nets test raw text as well as a comment-stripped copy.
+    expect(mdxForbidden("See [the docs](https://example.com/a) for details.")).toBe(false);
   });
 
   // (5) File admission: case-insensitive _blank, dynamic targets, and spreads all
