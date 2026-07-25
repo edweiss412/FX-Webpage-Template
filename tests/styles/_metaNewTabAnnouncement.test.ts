@@ -311,6 +311,75 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     );
   });
 
+  // ── Self-certify pins (R2 substitute: Codex upstream was 503 / circuit-open) ──
+  // These attack the surfaces the R2 brief asked the reviewer to probe. Kept as
+  // permanent tests rather than throwaway probes, since each covers a shape the
+  // scanner could plausibly regress into.
+
+  it("SC conditional label must announce in the EXTERNAL branch, not the internal one", () => {
+    // The nastiest shape the new `conditional-ok` verdict could have allowed:
+    // a label that announces exactly when the link does NOT open a tab.
+    rejects(
+      `const A=({e})=><a href="x" target={e?"_blank":undefined} aria-label={e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
+      /does not announce|no destination/,
+    );
+    rejects(
+      `const A=({e})=><a href="x" target={e?undefined:"_blank"} aria-label={e?"Go (opens in a new tab)":"Go"}>Go</a>;`,
+      /does not announce|no destination/,
+    );
+    ok(
+      `const A=({e})=><a href="x" target={e?undefined:"_blank"} aria-label={e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
+    );
+  });
+
+  it("SC paren peeling must not equate genuinely different predicates", () => {
+    rejects(
+      `const A=({a,b})=><a href="x" target={a?"_blank":undefined}>Go {(b)?<> <NewTabHint /></>:null}</a>;`,
+      /not gated by the anchor's effective _blank predicate/,
+    );
+    ok(
+      `const A=({e})=><a href="x" target={((e))?"_blank":undefined}>Go {e?<> <NewTabHint /></>:null}</a>;`,
+    );
+  });
+
+  it("SC walk-up must not invent a separator that is not there", () => {
+    rejects(
+      `const A=()=><a href="x" target="_blank"><span>Go</span><span><NewTabHint /></span></a>;`,
+      /needs a real sibling space/,
+    );
+    rejects(
+      `const A=()=><a href="x" target="_blank">Go<b>!</b><NewTabHint /></a>;`,
+      /needs a real sibling space/,
+    );
+    ok(`const A=()=><a href="x" target="_blank">Go <span><NewTabHint /></span></a>;`);
+  });
+
+  it("SC exemption must be a nearby real comment, not a string or a distant one", () => {
+    rejects(
+      `const A=()=><a href="x" target="_blank" title="// no-newtab-announcement: fake">Go</a>;`,
+      /does not announce/,
+    );
+    const far = [
+      "// no-newtab-announcement: real reason but far away",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      'const A = () => <a href="x" target="_blank">Go</a>;',
+    ].join("\n");
+    rejects(far, /does not announce/);
+  });
+
+  it("SC fails closed on every unresolvable target expression shape", () => {
+    rejects(`const A=({p})=><a href="x" target={p.target}>Go</a>;`, /not statically resolvable/);
+    rejects(`const A=()=><a href="x" target={pick()}>Go</a>;`, /not statically resolvable/);
+    rejects(`const A=()=><a href="x" {...build()}>Go</a>;`, /not statically resolvable/);
+  });
+
   it("honors an inline exemption comment", () => {
     ok(
       `// no-newtab-announcement: intentionally silent for the probe\nconst A = () => <a href="x" target="_blank">Go</a>;`,

@@ -47,6 +47,39 @@ Codex, fresh-eyes, on the full implementation: **BLOCKING** — 3 BLOCKING + 4 H
 
 Each is now pinned by a named regression self-test. The scanner was extracted to `tests/styles/_newTabScan.ts` so probes and the guard share one implementation — the reviewer had to transpile a test file to exercise it, which was a design smell.
 
+## Cross-model review R2 — NOT OBTAINED (upstream outage)
+
+**R2 has no verdict, and this is an infrastructure fault, not a clean review.** All three
+`codex-guard` attempts exited 1 against `503 Service Unavailable ... auth error code:
+biscuit_baker_service_me_circuit_open` on both the WebSocket and HTTPS transports, after
+attempt 1 burned 51k tokens. `failureShape: "nonzero_exit"` on every attempt, no `signal`, no
+`killedReason` — so this is NOT the reaper-hook silent-death class documented in
+`docs/agents/codex-silent-death-2026-07-24.md`, and not the brief-size cliff either (the brief
+was 6.1KB). AGENTS.md is explicit that `no_verdict` must not be read as "the reviewer found
+nothing".
+
+**Substitute: a self-certify pass, recorded as such.** I wrote 20 adversarial probes against
+exactly the five surfaces the R2 brief asked the reviewer to attack, and all 20 behave
+correctly:
+
+| Surface | Attack | Result |
+| --- | --- | --- |
+| `normPredicate` paren peeling | can peeling equate two genuinely different predicates (`a` vs `(b)`)? can it swallow a negation mismatch? | rejected correctly; `((e))` ≡ `e` still accepted |
+| `conditional-ok` label verdict | a label announcing in exactly the INTERNAL branch (announces when the tab does NOT open) — both polarities | rejected correctly |
+| walk-up separator | fake a separator via a wrapper with none up the chain; an element sibling instead of a space | rejected correctly; space-before-wrapper still accepted |
+| comment-trivia exemption | marker inside a string literal; a real comment 9 lines away | rejected correctly; adjacent comment with a reason accepted |
+| fail-closed completeness | `target={p.target}`, `target={pick()}`, `{...build()}` | all rejected as unresolvable |
+
+The highest-value probes are now permanent tests in the guard (the `SC ` cases), so the pass
+is repeatable rather than a one-off claim. Guard total: 44 tests.
+
+**What this does NOT cover.** A self-certify pass cannot replace fresh adversarial eyes — R1
+proved that decisively by finding seven fail-open shapes I had read past repeatedly. The
+specific open question I put to R2 is unanswered: whether structural AST coverage plus two
+behavioral anchors is sufficient, or whether particular untested anchors among the 14 carry
+risk the AST rule cannot see. **Re-dispatch R2 when the Codex circuit closes**, before or
+immediately after merge, and treat any finding as live.
+
 ## The pattern worth carrying forward
 
 **Every defect in the guard was found by executing it, none by reading it.** Five adversarial spec rounds (35 findings) reviewed the design and missed all seven bypasses; the spike, the implementation, the impeccable gates, a peer scan, and the whole-diff review each found more. `docs/agents/spec-self-review.md:22` caps prose iteration on a surviving design vector at three rounds and requires a probe instead — that rule paid for itself here, and the guard's own history is the evidence.
