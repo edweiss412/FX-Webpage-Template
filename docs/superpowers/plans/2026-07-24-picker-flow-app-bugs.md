@@ -84,6 +84,22 @@ The detector is an exported pure function so it can be tested directly, and the 
 2. **Tree walk.** The same detector over every `.ts` and `.tsx` under `app/`; flagged list must be empty. This is what fails before the fix and after any revert.
 3. **Coverage floor.** The walk visited more than 50 files.
 
+**Existing assertions that must migrate (enumerated, not left to discovery).** Ten assertions across three files currently pin an **absolute** `Location` and will fail the moment the contract changes — this is expected, since the contract is what changed, but each migration is a deliberate edit reviewed for coverage, not a loosening:
+
+| Site | Current assertion | Migration |
+| --- | --- | --- |
+| `tests/auth/picker-bootstrap.test.ts:194` | `new URL(res.headers.get("location") ?? "").pathname` | **Hard failure, not just a mismatch:** `new URL` with a relative string and no base throws. Assert the header equals the expected path directly |
+| `tests/auth/oauth-flow.test.ts:124` and its three siblings at lines 135, 146, and 157 | `toBe("https://crew.fxav.test/me")` | `toBe("/me")` |
+| `tests/auth/oauth-flow.test.ts:175` | `toBe("https://crew.fxav.test/admin")` | `toBe("/admin")` |
+| `tests/auth/oauth-flow.test.ts:191` | `toBe("https://crew.fxav.test/admin/dev")` | `toBe("/admin/dev")` |
+| `tests/auth/oauth-flow.test.ts:205` | `toBe("https://crew.fxav.test/me/profile")` | `toBe("/me/profile")` |
+| `tests/auth/oauth-flow.test.ts:308` | `toBe("https://crew.fxav.test/auth/sign-in")` (the sign-out 303, site 4) | `toBe("/auth/sign-in")` |
+| `tests/auth/callback-claim-stamp.test.ts:84` | `toBe("https://crew.fxav.test/me")` | `toBe("/me")` |
+
+`tests/auth/oauth-flow.test.ts:66` (`https://accounts.google.test/oauth`) stays absolute — that is the external Google endpoint at `app/api/auth/google/start/route.ts:65`, deliberately out of scope. `tests/auth/callback-oauth-telemetry.test.ts:111` uses `toContain("OAUTH_STATE_INVALID")` and survives unchanged, since the query string is preserved.
+
+Coverage is **strengthened**, not merely migrated: the `locationOf` helper (`tests/auth/oauth-flow.test.ts:25-29`) additionally asserts the returned value starts with a single `/`, so a future regression that re-absolutizes any of these redirects fails on every one of these cases rather than only where a literal happens to be compared.
+
 **Implementation:** rewrite the six expressions per spec §3.3. `redirectTo` and both `signInRedirect` helpers keep their names, signatures, and positions; each `signInRedirect` switches to `URLSearchParams`. `app/auth/sign-out/route.ts` changes line 132 only.
 
 **Gate:** the new guard test; `pnpm test:audit:x3-trust-domain`; `pnpm vitest run tests/api tests/auth`; `pnpm typecheck`. Note the x3 gate does **not** cover the redirect-ordering expectation in `lib/audit/authChain.ts` — that function is unreferenced (spec §3.3), so the wrapper names are preserved by discipline, and this task's own diff review is what enforces it.
