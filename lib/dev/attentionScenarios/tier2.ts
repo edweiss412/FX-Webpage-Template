@@ -38,6 +38,15 @@ export const T2_MULTI_HOLD = "t2-multi-hold";
 export const T2_FEED_TRUNCATED = "t2-feed-truncated";
 export const T2_MONITORING_ONLY = "t2-monitoring-only";
 
+/** Beyond-cap fan-out fallback (spec §8). `volumes.crew` grows the roster with
+ *  deterministic generated ids (lib/dev/publishedModalFixture.ts:273-279), and
+ *  the growth loop starts after the 6 default rows, so 0-based index 30 — the
+ *  first row past CREW_CAP — is genCrewRow(31). */
+export const T2_CREW_BEYOND_CAP = "t2-crew-beyond-cap";
+const BEYOND_CAP_ROSTER_SIZE = 35;
+const CREW_IN_CAP_ID = "cccccccc-0000-4000-8000-000000000002";
+const CREW_BEYOND_CAP_ID = "cccccccc-0000-4000-8000-031000000000";
+
 export const T2_REQUIRED_IDS: readonly string[] = [
   T2_SECTION_ABSENT,
   T2_OVERVIEW_ABSENT,
@@ -111,6 +120,7 @@ export const T2_REQUIRED_IDS: readonly string[] = [
   "t2-act-share-errors",
   "t2-act-share-success",
   "t2-act-pending",
+  T2_CREW_BEYOND_CAP,
 ];
 
 /**
@@ -816,6 +826,26 @@ export function modalStateScenarios(): AttentionScenario[] {
         crewScopedWarning("STAGE_WORD_AUTOCORRECTED", "stge", "stage"),
         crewScopedWarning("ROLE_TOKEN_AUTOCORRECTED", "A11", "A1"),
       ],
+    }),
+    // Beyond-cap crew fan-out fallback (spec §8). The roster is grown past
+    // CREW_CAP and one involved id sits beyond the cap, so the resolver's
+    // slice gives it hits === 0 and returns null — the banner lands
+    // section-top. NO crewMatch override: production DERIVES the match from
+    // context.crew_member_ids, so declaring one that disagrees with context
+    // would demo a state no producer can emit. This reproduces the real
+    // documented fallback ("involved row rendered beyond CREW_CAP") with
+    // entirely producer-shaped data.
+    scenario(T2_CREW_BEYOND_CAP, "Duplicate email where one crew row is beyond the render cap", {
+      alerts: [
+        alert("AMBIGUOUS_EMAIL_BINDING", {
+          context: {
+            email: "shared@example.test",
+            crew_member_ids: [CREW_IN_CAP_ID, CREW_BEYOND_CAP_ID],
+          },
+        }),
+      ],
+      holds: [],
+      fixture: { volumes: { crew: BEYOND_CAP_ROSTER_SIZE } },
     }),
     scenario("t2-ignored-warnings", "Active bulk pair beside an ignored pair", {
       alerts: [],

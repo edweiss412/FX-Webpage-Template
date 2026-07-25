@@ -7,6 +7,10 @@
 //   - §3.6 dev-gallery validator (optional crewMatch field)
 //   - §6.3 resolver (crewRowIndexesForIds / buildCrewRowResolver) [Task 7]
 //   - §6.3 placement (bucketAttention byRowIndex channel) [Task 7]
+import { ALL_SCENARIOS } from "@/lib/dev/attentionScenarios/index";
+import { deriveScenarioAttention } from "@/lib/dev/deriveScenarioAttention";
+import { scenarioIdForCode } from "@/lib/dev/attentionScenarios/tier1";
+import { T2_CREW_BEYOND_CAP } from "@/lib/dev/attentionScenarios/tier2";
 import { describe, it, expect } from "vitest";
 import { deriveAlertRowFields } from "@/lib/adminAlerts/deriveAlertRowFields";
 import { deriveAttentionItems, type AttentionAlertInput } from "@/lib/admin/attentionItems";
@@ -336,5 +340,67 @@ describe("bucketAttention byRowIndex placement (spec §6.3)", () => {
     const fanned = [...(crew.byRowIndex?.values() ?? [])].flat();
     expect(fanned).toHaveLength(2);
     expect(crew.sectionTop).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gallery placement coverage (spec §8)
+//
+// Pinned BY SCENARIO ID, not existentially. An assertion that the catalog
+// "contains at least one of each placement" can be satisfied by an unrelated
+// scenario after the intended one regresses, which would let the very state
+// this bundle restored go dark again unnoticed.
+// ---------------------------------------------------------------------------
+describe("gallery covers BOTH crew-banner placements (spec §8)", () => {
+  const rosterFor = (crew?: number): string[] => {
+    const ids = [
+      "cccccccc-0000-4000-8000-000000000001",
+      "cccccccc-0000-4000-8000-000000000002",
+      "cccccccc-0000-4000-8000-000000000003",
+      "cccccccc-0000-4000-8000-000000000004",
+      "cccccccc-0000-4000-8000-000000000005",
+      "cccccccc-0000-4000-8000-000000000006",
+    ];
+    for (let i = 7; i <= (crew ?? 0); i++) {
+      ids.push(`cccccccc-0000-4000-8000-${String(i).padStart(3, "0")}000000000`.slice(0, 36));
+    }
+    return ids;
+  };
+
+  function placementOf(scenarioId: string): { fannedOut: boolean; sectionTop: boolean } {
+    const scenario = ALL_SCENARIOS.find((s) => s.id === scenarioId);
+    expect(scenario, `scenario ${scenarioId} must exist`).toBeDefined();
+    const items = deriveScenarioAttention(scenario!).filter((i) => i.sectionId === "crew");
+    expect(items.length, `${scenarioId} must derive a crew item`).toBeGreaterThan(0);
+    const roster = rosterFor(
+      (scenario as { fixture?: { volumes?: { crew?: number } } }).fixture?.volumes?.crew,
+    );
+    const map = bucketAttention(items, {
+      renderCard: (item) => item.id,
+      sectionAvailable: () => true,
+      anchorAvailable: () => false,
+      crewRowIndexesForIds: buildCrewRowResolver(roster),
+    });
+    const crew = map.get("crew");
+    const byRow = crew?.byRowIndex;
+    return {
+      fannedOut: byRow !== undefined && byRow.size > 0,
+      sectionTop: (crew?.sectionTop.length ?? 0) > 0,
+    };
+  }
+
+  it("the per-code duplicate-email scenario FANS OUT into matched rows", () => {
+    const placement = placementOf(scenarioIdForCode("alert", "AMBIGUOUS_EMAIL_BINDING"));
+    expect(placement.fannedOut, "expected an in-row banner per matched crew row").toBe(true);
+    expect(placement.sectionTop, "fan-out and section-top are exclusive").toBe(false);
+  });
+
+  it("the beyond-cap scenario falls back to ONE section-top banner", () => {
+    // Real production fallback: an involved row rendered past CREW_CAP cannot
+    // be matched, so the whole item goes section-top rather than partially
+    // fanning out.
+    const placement = placementOf(T2_CREW_BEYOND_CAP);
+    expect(placement.sectionTop, "expected a section-top banner").toBe(true);
+    expect(placement.fannedOut, "must not partially fan out").toBe(false);
   });
 });
