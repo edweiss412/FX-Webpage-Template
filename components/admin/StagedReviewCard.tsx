@@ -71,6 +71,7 @@ import { AccentButton } from "@/components/shared/AccentButton";
 import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 import { useShowModalNav } from "@/components/admin/useShowModalNav";
+import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 function safeDougFacing(code: string): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
@@ -84,7 +85,6 @@ type DiscardVariant = "try_again" | "defer_until_modified" | "permanent_ignore";
 // requires admin copy to read as English, not schema vocabulary.
 // Armed-state auto-revert window (spec §4: 4s) — harmonized naming across every
 // destructive surface (DESTRUCT-2): ARM_REVERT_MS.
-const ARM_REVERT_MS = 4_000;
 
 const SOURCE_LABELS: Record<"cron" | "push" | "manual" | "onboarding_scan", string> = {
   cron: "Auto sync",

@@ -162,12 +162,20 @@ test("fixed panel: >= sm the row does NOT wrap (buttons side by side)", async ({
   expect(armed.ignoreTop).toBeLessThan(armed.deferBottom - TOL);
 });
 
-test("drift-guard: shipped component still carries the stack fragment", () => {
+test("negative control is HISTORICAL: it renders markup the product no longer has", () => {
+  // This spec's only remaining job is the negative control — proving the harness
+  // reproduces the pre-reorder defect, so the real-tree spec's D1 assertion is not
+  // tautological. Its panels therefore transcribe markup the component NO LONGER
+  // contains, and the old drift-guard (which asserted basis-full was PRESENT in the
+  // source) is inverted: D7 in pendingDiscardReal.layout.spec.ts now asserts it is
+  // absent from the shipped markup.
   const src = readFileSync(
     join(REPO_ROOT, "components/admin/PendingPanelDiscardButtons.tsx"),
     "utf8",
   );
-  // both discard buttons must keep the responsive stack the harness assumes
-  expect(src).toContain("basis-full");
-  expect(src).toContain("sm:basis-auto");
+  // Guard the guard: if the component ever regains basis-full, this control stops
+  // being historical and the whole split is wrong.
+  const rendered = src.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+  expect(rendered).not.toContain("basis-full");
+  expect(rendered).not.toContain("sm:basis-auto");
 });

@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 type DiscardKind = "defer_until_modified" | "permanent_ignore";
 type Props = { pendingIngestionId: string };
@@ -35,7 +36,6 @@ const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try
 
 // Armed-state auto-revert window (spec §4: 4s) — harmonized naming across every
 // destructive surface (DESTRUCT-2): ARM_REVERT_MS.
-const ARM_REVERT_MS = 4_000;
 
 /* The two Ignore skins and their labels, exported so tests/e2e/_pendingDiscardHarness.tsx
  * can render an ARMED panel from the component's own strings. renderToStaticMarkup

@@ -54,10 +54,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { AccentButton } from "@/components/shared/AccentButton";
+import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
-const ARM_REVERT_MS = 4_000;
 
 type UiState = "idle" | "confirm";
 
