@@ -123,10 +123,17 @@ Each task: failing test → minimal implementation → passing test → commit. 
 
 ### Task 7 — dispose of the dark spec
 
-Run `npx playwright test tests/e2e/attention-pill-focus.spec.ts --config playwright.config.ts` directly (bypassing `testMatch`) and record the result in the handoff.
+**Naming the file on the command line does NOT bypass `testMatch`** — verified:
 
-- **Green:** wire it into `desktop-chromium`'s `testMatch` beside the other `published-review-modal.*` entries, in its own commit, and note that this is pre-existing coverage being switched on rather than new coverage.
-- **Red or flaky:** do NOT wire it. File `BL-ATTENTION-PILL-FOCUS-DARK` in `BACKLOG.md` with the failure output, and state in the handoff that the file was left untouched because editing a spec that never runs books coverage that does not exist.
+```
+$ npx playwright test tests/e2e/attention-pill-focus.spec.ts --list
+Total: 0 tests in 0 files
+```
+
+`testMatch` is the collection gate, so a path argument filters within it rather than overriding it. To run the spec at all, add its entry to `desktop-chromium`'s `testMatch` FIRST, as a throwaway edit, then run it and record the result in the handoff.
+
+- **Green:** keep the entry, commit it on its own, and note in the handoff that this is pre-existing coverage being switched on rather than new coverage written.
+- **Red or flaky:** revert the throwaway `testMatch` edit. File `BL-ATTENTION-PILL-FOCUS-DARK` in `BACKLOG.md` with the failure output, and state in the handoff that the spec file itself was left untouched, because editing a spec that never runs books coverage that does not exist.
 
 Either way this task does not block the others.
 
