@@ -48,6 +48,11 @@ class FakeWatchTx {
     this.rows.push({
       id: row.id,
       status: "pending",
+      // Mirrors the production DEFAULT now() on created_at
+      // (supabase/migrations/20260501001000_internal_and_admin.sql:291). Without
+      // it a subscribe-then-refresh lifecycle hits listRenewalDue's NOT NULL
+      // guard and fails in a way production cannot (R7 finding 2).
+      createdAt: this.now.toISOString(),
       watchedFolderId: row.watchedFolderId,
       webhookSecret: row.webhookSecret,
       resourceId: null,
@@ -517,6 +522,66 @@ describe("Drive watch lifecycle", () => {
       lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
     });
     expect(withoutFloor).toEqual([]);
+  });
+
+  test("the CALLER assembles the correct minLeadMs (through refreshWatchSubscriptions)", async () => {
+    // R7 finding 2: the floor fixture calls the fake DIRECTLY, so zeroing the
+    // caller's minLeadMs was not discriminated by the DB-free suite. This drives
+    // the real assembly path with a 6h lease at 4h elapsed: due via the 2h floor
+    // (proportional lead is only 1.5h), NOT due if the caller passes 0.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "caller-floor",
+      status: "active",
+      watchedFolderId: "folder-caller-floor",
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      createdAt: new Date(tx.now.getTime() - 4 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(tx.now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    });
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "x" }));
+
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder: subscribe,
+    });
+
+    expect(subscribe).toHaveBeenCalledWith("folder-caller-floor");
+    expect(result.refreshed).toEqual(["folder-caller-floor"]);
+  });
+
+  test("subscribe-then-refresh is a valid lifecycle in the fake (created_at is stamped)", async () => {
+    // R7 finding 2: insertPending omitted created_at, so a row the fake itself
+    // created was then rejected by listRenewalDue's NOT NULL guard — a failure
+    // production cannot produce, since the column defaults to now().
+    const tx = new FakeWatchTx();
+    const { subscribeToWatchedFolder, refreshWatchSubscriptions } =
+      await import("@/lib/drive/watch");
+    await subscribeToWatchedFolder("folder-lifecycle", {
+      tx,
+      uuid: () => "lifecycle-channel",
+      webhookSecret: () => "secret-1",
+      now: () => tx.now.getTime(),
+      watchFolder: vi.fn(async () => ({
+        id: "lifecycle-channel",
+        resourceId: "resource-1",
+        expiration: new Date(tx.now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      })),
+    });
+
+    // Must not throw, and the freshly-activated 24h lease is not yet due.
+    await expect(
+      refreshWatchSubscriptions({
+        tx,
+        now: () => tx.now,
+        subscribeToWatchedFolder: vi.fn(async () => ({
+          outcome: "active" as const,
+          channelId: "y",
+        })),
+      }),
+    ).resolves.toEqual({ refreshed: [], orphaned: [], failures: [] });
   });
 
   test("the CALLER assembles the correct lifeFraction (through refreshWatchSubscriptions)", async () => {

@@ -45,8 +45,11 @@ export const T_EXEC_BUDGET_MS = 300_000;
  */
 export function renewalLeadMs(
   grantedMs: number,
-  minLeadMs: number = RENEWAL_MIN_LEAD_MS,
-  lifeFraction: number = 1 - RENEWAL_LIFE_FRACTION,
+  // NO defaults (R7 finding 2): defaulting to the module constants let a caller
+  // that forgot to pass its arguments silently get the right answer, which is
+  // exactly the drift this helper exists to expose.
+  minLeadMs: number,
+  lifeFraction: number,
 ): number {
   if (!Number.isFinite(grantedMs)) return minLeadMs;
   return Math.max(minLeadMs, grantedMs * lifeFraction);

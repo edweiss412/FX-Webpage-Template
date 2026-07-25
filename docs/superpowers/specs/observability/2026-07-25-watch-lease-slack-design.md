@@ -51,7 +51,7 @@ Constants, all in `lib/drive/watchErrors.ts` beside the existing `STALE_PENDING_
 - `RENEWAL_LIFE_FRACTION` = **0.75** — proportional term: due once 75% of granted life has elapsed.
 - `RENEWAL_MIN_LEAD_MS` = **7_200_000** (2h) — absolute floor on remaining life at which a channel becomes due.
 - `SAMPLING_PERIOD_MS` = **3_600_000** (1h) — how often the predicate is sampled (`fxav_cron_refresh_watch`). Unchanged by this PR; named because §2.1's boundary depends on it.
-- `T_EXEC_BUDGET_MS` = **300_000** (5m) — a *margin*, not a bound, standing in for "one run's slack" when sizing the §3.3 heuristic. Nothing enforces it (R3 finding 1). **Not an enforced timeout** (review R1 finding 1): `files.watch` carries no timeout (`lib/drive/client.ts:35-39`) and renewals run sequentially (`lib/drive/watch.ts:547-577`), so the only defensible ceiling is the scheduler's own request budget — pg_net is passed `timeout_milliseconds = 300000`, matching Vercel Functions' 300s default (`supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22`). An earlier draft used 60_000. Note that no value makes this a bound — see the heuristic framing below; the constant only sizes the detector.
+- `T_EXEC_BUDGET_MS` = **300_000** (5m) — a *margin*, not a bound, standing in for "one run's slack" when sizing the §3.3 heuristic. Nothing enforces it (R3 finding 1). **Not an enforced timeout** (review R1 finding 1): `files.watch` carries no timeout (`lib/drive/client.ts:35-39`) and renewals run sequentially (`lib/drive/watch.ts:547-577`), so there is no ceiling at all; the value is merely the scheduler's declared intent — pg_net is passed `timeout_milliseconds = 300000`, **which the migration itself notes may be ignored** (R7 finding 3: calling it a ceiling overstated it), matching Vercel Functions' 300s default (`supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22`). An earlier draft used 60_000. Note that no value makes this a bound — see the heuristic framing below; the constant only sizes the detector.
 
 ### 2.1 The timing invariant
 
@@ -127,15 +127,16 @@ Behavior across grants (this table is the §5.2 test fixture set):
 `subscribeToWatchedFolder` compares the remaining life at activation against `SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS` on the activation path and, when the grant does not **exceed** it, emits:
 
 ```ts
-void log.error("drive watch grant too short to renew reliably", {
+const emitted = log.error("drive watch grant too short to renew reliably", {
   source: "drive.watch",
   code: "DRIVE_WATCH_GRANT_TOO_SHORT",
   watchedFolderId,
   remainingMsAtActivation,
 });
+void emitted.catch(() => {}); // unawaited, but NEVER unhandled
 ```
 
-The emit is deliberately NOT awaited and carries its own `.catch()` (see §3.1's post-activation note). The bound is `<=`, not `<`: a lease sitting exactly on the threshold activated just after a tick expires at the next examination rather than strictly before it.
+The emit is deliberately NOT awaited and carries its own `.catch()` (see §3.1's post-activation note; the sample above shows that form, and a bare `void` without the handler reintroduces the unhandled-rejection failure). The bound is `<=`, not `<`: a lease sitting exactly on the threshold activated just after a tick expires at the next examination rather than strictly before it.
 
 We request 24h and Drive's documented floor for an unspecified request is 1h, so after §3.1 this should be unreachable. If it ever fires, the cadence needs revisiting rather than the channel. It is `log.error` because error level always persists to `app_events` (`lib/log/logger.ts:22`), and it carries a `code` so the observe CLI and telemetry can filter it.
 
@@ -155,13 +156,13 @@ We request 24h and Drive's documented floor for an unspecified request is 1h, so
 | Source | `lib/drive/watchErrors.ts` (constants), `lib/drive/watch.ts` (request body, SELECT, predicate, anomaly log) |
 | Invariant 9 | no new Supabase call boundary — the renewal read is an existing `WatchTx` method whose registry row is unchanged in contract |
 | Invariant 10 | N/A — no mutating route or server action is added |
-| Meta-tests | **CREATES one** (review R1 finding 5): `tests/cron/samplingPeriodParity.test.ts` ties `SAMPLING_PERIOD_MS` to the canonical refresh-watch schedule in `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json`. Without it a future cadence change could update the existing cron-parity surfaces (`tests/cross-cutting/pg-cron-coverage.test.ts:153-159`) while leaving the renewal lead and the anomaly heuristic computed against the old period. **EXTENDS none.** The relevant existing suites (`tests/drive/watch.test.ts`, `tests/sync/_metaInfraContract.test.ts`) are run to prove they still pass. |
+| Meta-tests | **EXTENDS one** (`tests/db/_metaLocalDbUrlGuard.test.ts` — its hard-coded reader census gains the new DB suite, so a new reader must be consciously registered) and **CREATES one** (review R1 finding 5): `tests/cron/samplingPeriodParity.test.ts` ties `SAMPLING_PERIOD_MS` to the canonical refresh-watch schedule in `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json`. Without it a future cadence change could update the existing cron-parity surfaces (`tests/cross-cutting/pg-cron-coverage.test.ts:153-159`) while leaving the renewal lead and the anomaly heuristic computed against the old period. **EXTENDS none.** The relevant existing suites (`tests/drive/watch.test.ts`, `tests/sync/_metaInfraContract.test.ts`) are run to prove they still pass. |
 
 ## 5. Testing
 
 TDD per task. Each class names the failure mode it catches.
 
-1. **Constants and the §2.1 ordering** (`tests/drive/**`, DB-free). `BACKOFF_MAX_MS === BACKOFF_LADDER_MS.at(-1)`; `T_EXEC_BUDGET_MS` **parsed out of** the scheduler migration rather than restated (mutating only the migration fails the test); and the orderings the heuristic depends on — `renewalLeadMs(WATCH_TTL_MS)` and `RENEWAL_MIN_LEAD_MS` both exceed `P + 2T`, which itself exceeds one bare `P`. **No phase sweep and no worst-case-margin assertion**: both were deleted with the guarantee they belonged to. `renewalLeadMs` has direct coverage for its proportional arm, its floor arm, and totality over NaN/Inf/negative/zero.
+1. **Constants and the §2.1 ordering** (`tests/drive/**`, DB-free). `T_EXEC_BUDGET_MS` **parsed out of** the scheduler migration rather than restated (mutating only the migration fails the test); and the orderings the heuristic depends on — `renewalLeadMs(WATCH_TTL_MS)` and `RENEWAL_MIN_LEAD_MS` both exceed `P + 2T`, which itself exceeds one bare `P`. **No phase sweep and no worst-case-margin assertion**: both were deleted with the guarantee they belonged to. `renewalLeadMs` has direct coverage for its proportional arm, its floor arm, and totality over NaN/Inf/negative/zero.
 2. **`defaultWatchFolder` expiration** (`tests/drive/**`, DB-free). Request body carries `expiration` as a **string of milliseconds** equal to `injectedNow + WATCH_TTL_MS`, derived from the constant rather than a literal. A Drive response with a shorter expiration is stored verbatim; one already in the past is stored verbatim. *Catches:* sending seconds instead of milliseconds — the most likely silent mistake, which would request an expiry 46 years in the past.
 3. **Renewal predicate** (`tests/db/**`, real DB — this directory is the serial project; `tests/drive/**` is DB-free and would fail on the no-Supabase CI runner). Fixtures actually present, enumerated rather than claimed (R4 finding 3 caught the earlier over-claim): a 24h lease not-due at 17h elapsed and due at 19h; a 6h lease due via the floor at 4h; an already-expired lease; an inverted lease expiring in the past; an inverted lease expiring in the **future** (`created_at > expires_at > NOW + floor`, which the floor alone would miss); and a non-active row that must never be selected. **Negative control:** a freshly-created 24h lease that the RETIRED `expires_at < now() + 24h` threshold would renew and this predicate must not; mutation-verified. The 1h and 2h rows of the §3.2 table are covered by the DB-free lead arithmetic, not here.
 4. **Short-grant anomaly** (`tests/drive/**`, DB-free). Remaining-at-activation of `P`, of `P + T + 1ms`, and of exactly `P + 2T` all emit `DRIVE_WATCH_GRANT_TOO_SHORT` carrying `remainingMsAtActivation`; `P + 2T + 1ms` does not. A separate case models elapsed time between the two clock reads, so a regression to request-time measurement fails. Assert on the logger spy's fields, not on the message string. *Catches:* the `<` versus `<=` boundary flipping, and the `P + T` bound returning (being *examined* is not the same as *completing*).

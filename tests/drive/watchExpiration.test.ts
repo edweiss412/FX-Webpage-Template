@@ -172,10 +172,13 @@ describe("files.watch expiration request (§3.1)", () => {
 });
 
 describe("short-grant anomaly (§3.3)", () => {
-  // A lease no longer than one sampling period cannot be renewed reliably at any
-  // phase — no lead value fixes that, so it is surfaced rather than absorbed.
-  // The boundary is `<=`: a lease of exactly one period, activated just after a
-  // tick, sits exactly on the threshold rather than clear of it.
+  // A lease this short makes renewal implausible whatever lead is chosen, so it
+  // is surfaced rather than absorbed. The threshold is a HEURISTIC, not a safety
+  // boundary — nothing enforces the execution budget it is sized from. The bound
+  // is `<=` so a lease sitting exactly on the threshold counts as implausible.
+  // Note P alone is BELOW the P + 2T threshold, not at it (R7 finding 3: the
+  // earlier wording claimed both "unrenewable at any phase" and "exactly the
+  // threshold", which cannot both be true).
   // `remainingAtActivationMs` is what the check must use — NOT the nominal grant.
   // `elapsedMs` models time consumed by the pending insert plus the Drive
   // round-trip, so the two are deliberately different numbers.
@@ -215,10 +218,12 @@ describe("short-grant anomaly (§3.3)", () => {
   });
 
   test("STILL fires at P + T — being examined is not the same as completing", async () => {
-    // The regression this pins: a lease with P+T+1ms at activation is examined
-    // with 1ms left, which cannot cover a files.watch round-trip plus
-    // activation. That second T is why the threshold is sized at P + 2T rather
-    // than P + T — a sizing rationale, not a claim that either T is enforced.
+    // The regression this pins: a lease with P+T+1ms at activation would, on the
+    // idealised hourly model, be examined with T+1ms left — barely more than the
+    // budget a round-trip plus activation is sized against. That second T is why
+    // the threshold is P + 2T rather than P + T: a sizing rationale, not a claim
+    // that either T is enforced. (An earlier comment said 1ms left; the tick
+    // arithmetic gives T+1ms — R7 finding 3.)
     const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
     expect(await grantOf(SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS + 1)).toHaveLength(1);
   });
@@ -262,8 +267,16 @@ describe("short-grant anomaly (§3.3)", () => {
       .split("\n")
       .filter((l) => !l.trimStart().startsWith("--"))
       .join("\n");
-    const m = /timeout_milliseconds\s*:?=\s*([0-9_]+)/.exec(live);
-    expect(m, "scheduler migration no longer declares timeout_milliseconds").not.toBeNull();
+    // Then scope to THIS job's schedule block. All seven jobs declare the same
+    // parameter, and the first live match belongs to fxav_cron_sync — so an
+    // edit to refresh-watch's own timeout would have left this green while the
+    // constant went stale (R7 finding 1).
+    const jobIdx = live.indexOf("'fxav_cron_refresh_watch'");
+    expect(jobIdx, "refresh-watch is no longer scheduled in this migration").toBeGreaterThan(-1);
+    const blockEnd = live.indexOf("cron.schedule(", jobIdx + 1);
+    const block = live.slice(jobIdx, blockEnd === -1 ? undefined : blockEnd);
+    const m = /timeout_milliseconds\s*:?=\s*([0-9_]+)/.exec(block);
+    expect(m, "refresh-watch block no longer declares timeout_milliseconds").not.toBeNull();
     expect(T_EXEC_BUDGET_MS).toBe(Number(m![1]!.replace(/_/g, "")));
   });
 });
@@ -370,7 +383,9 @@ describe("renewalLeadMs is the single definition of the lead (§2.1)", () => {
       await import("@/lib/drive/watchErrors");
     const proportional = WATCH_TTL_MS * (1 - RENEWAL_LIFE_FRACTION);
     expect(proportional).toBeGreaterThan(RENEWAL_MIN_LEAD_MS);
-    expect(renewalLeadMs(WATCH_TTL_MS)).toBe(proportional);
+    expect(renewalLeadMs(WATCH_TTL_MS, RENEWAL_MIN_LEAD_MS, 1 - RENEWAL_LIFE_FRACTION)).toBe(
+      proportional,
+    );
   });
 
   test("takes the floor when the proportional term is smaller", async () => {
@@ -378,15 +393,26 @@ describe("renewalLeadMs is the single definition of the lead (§2.1)", () => {
       await import("@/lib/drive/watchErrors");
     const sixHours = 6 * 3_600_000;
     expect(sixHours * (1 - RENEWAL_LIFE_FRACTION)).toBeLessThan(RENEWAL_MIN_LEAD_MS);
-    expect(renewalLeadMs(sixHours)).toBe(RENEWAL_MIN_LEAD_MS);
+    expect(renewalLeadMs(sixHours, RENEWAL_MIN_LEAD_MS, 1 - RENEWAL_LIFE_FRACTION)).toBe(
+      RENEWAL_MIN_LEAD_MS,
+    );
   });
 
   test("is total over nonsense input", async () => {
-    const { renewalLeadMs, RENEWAL_MIN_LEAD_MS } = await import("@/lib/drive/watchErrors");
-    expect(renewalLeadMs(Number.NaN)).toBe(RENEWAL_MIN_LEAD_MS);
-    expect(renewalLeadMs(Number.POSITIVE_INFINITY)).toBe(RENEWAL_MIN_LEAD_MS);
-    expect(renewalLeadMs(-1)).toBe(RENEWAL_MIN_LEAD_MS);
-    expect(renewalLeadMs(0)).toBe(RENEWAL_MIN_LEAD_MS);
+    const { renewalLeadMs, RENEWAL_LIFE_FRACTION, RENEWAL_MIN_LEAD_MS } =
+      await import("@/lib/drive/watchErrors");
+    expect(renewalLeadMs(Number.NaN, RENEWAL_MIN_LEAD_MS, 1 - RENEWAL_LIFE_FRACTION)).toBe(
+      RENEWAL_MIN_LEAD_MS,
+    );
+    expect(
+      renewalLeadMs(Number.POSITIVE_INFINITY, RENEWAL_MIN_LEAD_MS, 1 - RENEWAL_LIFE_FRACTION),
+    ).toBe(RENEWAL_MIN_LEAD_MS);
+    expect(renewalLeadMs(-1, RENEWAL_MIN_LEAD_MS, 1 - RENEWAL_LIFE_FRACTION)).toBe(
+      RENEWAL_MIN_LEAD_MS,
+    );
+    expect(renewalLeadMs(0, RENEWAL_MIN_LEAD_MS, 1 - RENEWAL_LIFE_FRACTION)).toBe(
+      RENEWAL_MIN_LEAD_MS,
+    );
   });
 
   test("the heuristic threshold is ordered correctly against the renewal lead", async () => {
@@ -402,11 +428,14 @@ describe("renewalLeadMs is the single definition of the lead (§2.1)", () => {
       T_EXEC_BUDGET_MS,
       RENEWAL_MIN_LEAD_MS,
       WATCH_TTL_MS,
+      RENEWAL_LIFE_FRACTION,
     } = await import("@/lib/drive/watchErrors");
 
     // The lease we actually request is renewed with hours to spare — that, not
     // the heuristic, is where the safety comes from.
-    expect(renewalLeadMs(WATCH_TTL_MS)).toBeGreaterThan(SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS);
+    expect(
+      renewalLeadMs(WATCH_TTL_MS, RENEWAL_MIN_LEAD_MS, 1 - RENEWAL_LIFE_FRACTION),
+    ).toBeGreaterThan(SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS);
 
     // The floor alone already exceeds the heuristic threshold, so any lease long
     // enough to be governed by the floor is comfortably clear of it.
