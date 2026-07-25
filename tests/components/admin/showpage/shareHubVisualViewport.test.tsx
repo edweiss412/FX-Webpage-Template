@@ -21,6 +21,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 import { ShareHub } from "@/components/admin/showpage/ShareHub";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
+import { PopoverHostContext } from "@/components/admin/HoverHelp";
 
 const SHOW_ID = "11111111-2222-4333-8444-555555555555";
 const SLUG = "aurora-fall-tour";
@@ -232,5 +233,109 @@ describe("T-S6: zoom never newly enters ShareHub's hidden branch", () => {
     const pop = screen.getByTestId("share-hub-popover");
     expect(pop.style.visibility).not.toBe("hidden");
     expect(kebab.getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
+/**
+ * T-S1 / T-S4 — SUCCESSFUL placement, body host and panel host.
+ *
+ * The whole-diff review found these missing: every other ShareHub case here
+ * asserts scheduling, the WebKit exclusion, or the hidden->legacy fallback, so a
+ * ShareHub-only regression in visual bounds, host intersection, or the
+ * host-offset conversion could survive. The Chromium e2e fixtures render
+ * HoverHelp, not ShareHub, so they cannot cover it either.
+ *
+ * `openHub()` stubs rects only after the click, so the FIRST placement pass
+ * bails at ShareHub.tsx:262 (zero-area trigger). These cases therefore drive a
+ * second pass through the component's own visualViewport listener and run the
+ * frame, which is also closer to what a real zoom does.
+ */
+function replace(vv: VisualViewportStub): void {
+  frames.clear();
+  vv.dispatchEvent(new Event("scroll"));
+  const pending = [...frames.values()];
+  frames.clear();
+  for (const cb of pending) cb(0);
+}
+
+describe("T-S1: ShareHub places inside the visible slice (body host)", () => {
+  test("exact coordinates, derived from the slice and the align='right' anchor", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    openHub();
+    replace(vv);
+
+    const pop = screen.getByTestId("share-hub-popover");
+    const boundsLeft = VV.offsetLeft + 8; // VIEWPORT_INSET
+    const boundsRight = VV.offsetLeft + VV.width - 8;
+    const width = Math.min(308, boundsRight - boundsLeft);
+    // ShareHub anchors align="right": x = trigger.right - width, then clamped.
+    const expectedLeft = Math.min(
+      Math.max(TRIGGER.left + TRIGGER.width - width, boundsLeft),
+      boundsRight - width,
+    );
+    expect(pop.style.left).toBe(`${expectedLeft}px`);
+    // The layout-viewport answer would NOT be clamped to the slice.
+    expect(pop.style.left).not.toBe(`${TRIGGER.left + TRIGGER.width - 308}px`);
+    expect(pop.style.visibility).not.toBe("hidden");
+  });
+});
+
+describe("T-S4: ShareHub panel host, non-zero border and scroll", () => {
+  test("host-relative conversion subtracts the host rect, clientLeft/Top, and adds scroll", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+
+    const panel = document.createElement("div");
+    document.body.appendChild(panel);
+    const HOST = { left: 120, top: 90, width: 700, height: 600 };
+    stubRect(panel, HOST);
+    Object.defineProperty(panel, "clientLeft", { configurable: true, value: 3 });
+    Object.defineProperty(panel, "clientTop", { configurable: true, value: 5 });
+    Object.defineProperty(panel, "scrollLeft", { configurable: true, value: 17 });
+    Object.defineProperty(panel, "scrollTop", { configurable: true, value: 23 });
+
+    render(
+      <ShareTokenProvider key={SHOW_ID} initialToken={TOKEN} initialEpoch={1}>
+        <PopoverHostContext.Provider value={{ current: panel }}>
+          <ShareHub
+            slug={SLUG}
+            showId={SHOW_ID}
+            published
+            archived={false}
+            finalizeOwned={false}
+            crewEmails={["alice@example.com"]}
+            showTitle="Aurora Fall Tour"
+            pickerCrew={CREW}
+            archiveAction={async () => ({ ok: true }) as const}
+            unarchiveAction={async () => {}}
+          />
+        </PopoverHostContext.Provider>
+      </ShareTokenProvider>,
+    );
+    const kebab = screen.getByTestId("share-hub-kebab");
+    // ShareHub anchors on its CONTAINER (containerRef), not the button, so the
+    // container's rect is the one placement reads; a zero-area container makes
+    // applyPlacement bail at ShareHub.tsx:262 and write no coordinates at all.
+    stubRect(kebab.parentElement ?? kebab, TRIGGER);
+    stubRect(kebab, TRIGGER);
+    stubRect(document.body, { left: 0, top: 0, width: LAYOUT_W, height: LAYOUT_H });
+    fireEvent.click(kebab);
+    stubRect(screen.getByTestId("share-hub-popover"), { left: 0, top: 0, width: 308, height: 120 });
+    replace(vv);
+
+    const pop = screen.getByTestId("share-hub-popover");
+    // Bounds are host INTERSECT slice, inset — the tighter of the two.
+    const boundsLeft = Math.max(HOST.left, VV.offsetLeft) + 8;
+    const boundsRight = Math.min(HOST.left + HOST.width, VV.offsetLeft + VV.width) - 8;
+    const width = Math.min(308, boundsRight - boundsLeft);
+    const viewportX = Math.min(
+      Math.max(TRIGGER.left + TRIGGER.width - width, boundsLeft),
+      boundsRight - width,
+    );
+    // Host-relative: viewport point minus host rect and border, plus host scroll.
+    const expectedLeft = viewportX - HOST.left - 3 + 17;
+    expect(pop.style.left).toBe(`${expectedLeft}px`);
+    expect(pop.style.visibility).not.toBe("hidden");
   });
 });

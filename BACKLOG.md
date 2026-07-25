@@ -50,6 +50,16 @@ The DB-free serial→parallel reclassification (PR #528, closed unmerged) is cor
 
 ---
 
+## BL-POPOVER-SHARED-RAF-COALESCER — one coalescer helper for both popover consumers
+
+**Filed:** 2026-07-25 (impeccable audit P2 on the visual-viewport change) · **Class:** code duplication / drift risk · **Effort:** S
+
+`HoverHelp` and `ShareHub` each implement their own rAF coalescer for placement. They now have IDENTICAL leading-edge throttle semantics, but only because a P1 in the same audit caught them diverging: ShareHub's was a cancel-and-reschedule debounce, which silently defeated pan-tracking once a high-frequency `visualViewport` source was attached to it. The bounds policy was extracted to `lib/popover/place.ts` in that change; the coalescer was not.
+
+**Work:** extract a shared `useScheduledPlacement`-style helper (or a plain function taking a ref) so the two cannot drift again, and delete both local copies. `tests/components/admin/showpage/shareHubVisualViewport.test.tsx` T-S8 pins throttle-vs-debounce by counting cancellations across a burst and should move with it.
+
+**Status:** open.
+
 ## BL-CREW-WARN-STACK-E2E-GEOMETRY — real-browser width-fill assertion for the crew under-row warning stack
 
 **Filed:** 2026-07-24 (retroactive — deferred in PR #534's body 2026-07-21, never filed) · **Class:** test coverage (real-browser layout) · **Effort:** S (one assertion in an existing spec)

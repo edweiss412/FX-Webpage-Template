@@ -230,3 +230,39 @@ describe("T-C7: a degenerate-at-open viewport still recovers", () => {
     expect(body.style.left).toBe(`${expectedLeft}px`);
   });
 });
+
+describe("T-C6: an anchor outside the visible slice is placed, never hidden", () => {
+  test("layout-viewport answer, popover visible, open state preserved", () => {
+    // AC-6's component-level companion. The pure property suite protects the
+    // HELPER; it cannot see a consumer-local mutation that hides an
+    // outside-slice trigger after receiving a valid legacy fallback, and the
+    // e2e fixtures keep their anchors on-screen by construction.
+    vi.stubGlobal(
+      "visualViewport",
+      new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop),
+    );
+    render(
+      <HoverHelp label="Help: off-slice" testId="off">
+        <p>body</p>
+      </HoverHelp>,
+    );
+    const trigger = screen.getByTestId("off-trigger");
+    // Outside the slice at (400,200)-(700,450), and with room BELOW it in the
+    // layout viewport - at top:700 the core correctly flips the popover above,
+    // which would make a side-assuming assertion wrong rather than the code.
+    const OUT = { left: 40, top: 40, width: 20, height: 20 };
+    stubRect(trigger, OUT);
+    stubRect(document.body, { left: 0, top: 0, width: LAYOUT_W, height: LAYOUT_H });
+    const body = screen.getByTestId("off-body");
+    stubRect(body, BODY_NATURAL);
+    fireEvent.click(trigger);
+
+    expect(body.dataset["popoverHidden"]).toBeUndefined();
+    expect(body.style.visibility).not.toBe("hidden");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    // Placed against the LAYOUT viewport: directly under its own anchor.
+    expect(body.style.left).toBe(`${OUT.left}px`);
+    expect(body.dataset["popoverSide"]).toBe("bottom");
+    expect(body.style.top).toBe(`${OUT.top + OUT.height + GAP}px`);
+  });
+});
