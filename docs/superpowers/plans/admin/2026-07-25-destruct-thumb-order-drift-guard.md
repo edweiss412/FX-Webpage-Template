@@ -1,0 +1,227 @@
+# Plan — Destructive-confirm family close-out
+
+**Spec:** `docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md` (canonical; §-references below point into it)
+**Branch:** `fix/destruct-thumb-order-drift-guard`
+**Worktree:** `/Users/ericweiss/FX-worktrees/destruct-thumb-order` (off `origin/main` @ `dd4fecf43`)
+**Implementer:** Opus / Claude Code — UI surface, so routing rule "UI work is always Opus" applies.
+
+---
+
+## 0. Pre-draft verification (run, not described)
+
+Every command below was executed at plan-authoring time in the worktree. Output and disposition recorded; nothing here is a grep to be run later.
+
+| # | Command | Output | Disposition |
+|---|---|---|---|
+| V1 | `rg -n "ARM_REVERT_MS\|AUTO_REVERT_MS" --glob '*.ts*'` | 11 files declare `const ARM_REVERT_MS = 4_000`; **zero** `AUTO_REVERT_MS` | Confirms spec §2.2's count of 11 and confirms DESTRUCT-2's timing harmonization already shipped |
+| V2 | per-file `rg -o "setTimeout\([^,]*,\s*[0-9_]+\s*\)"` over all 18 registry files | **no matches** | T2 (literal ban) lands clean; every existing timer already passes a named constant |
+| V3 | per-file `rg -o "set[A-Za-z]*Armed\("` over the 11 declaring files | matches **4 of 11** (`PendingPanelDiscardButtons`, `StagedReviewCard`, `ArchiveShowButton`, `BlockedRowResolver`) | Kills the arm-state detector; T2 is literal-based instead (spec §5.2 "Rejected detector") |
+| V4 | `rg -n "admin-pending-ignore\|admin-pending-defer" tests app components` | `pendingIngestionActions.test.tsx` (~10), `needs-attention-page.spec.ts` (2 + 1 stale comment) | The complete test-id consumer set. `_uiLabelExceptions.ts`, `page-dashboard.test.tsx`, `_metaEmphasisRenderContract.test.ts` reference the component but **not** the ids |
+| V5 | `rg -n "Permanently ignore\|Defer until modified" tests app components` | all non-component hits are help-page MDX prose or `expect(src).toContain(...)` source scans | Doubling the rendered labels breaks nothing. No DOM label counts exist |
+| V6 | `sed -n '15,17p' tests/styles/_classScanUtils.ts` | `stripComments` deletes `//` comments | Constraint C-A: T2's exemption lookup must read RAW source (spec §5.2.1) |
+| V7 | `sed -n '131p' tests/styles/_metaDestructiveConfirm.test.ts` | walks `["components", "app"]` | Constraint C-B: T1 must add `"lib"` or it scans every directory except the one holding the constant |
+| V8 | `rg -n "pendingDiscardReflow" .github/workflows/*.yml package.json` | **no matches**; only `tests/e2e/standalone.config.ts:36` | The layout spec runs in no CI job. Task 5 wires it |
+| V9 | `pnpm vitest run` on the 4 affected test files at merge-base | **4 files, 28 tests, all pass** | Clean baseline; any later red is mine |
+| V10 | `head -1 tests/components/admin/pendingIngestionActions.test.tsx` | `// @vitest-environment jsdom` | Pragma already present; new tests inherit it |
+
+**Real-browser probe (spec §4.6).** The proposed markup was rendered in Chromium with the compiled token CSS before this plan was written. Measurements are in spec §4.6 and are the basis for Task 4's assertions — the geometry is measured, not predicted.
+
+---
+
+## 1. Meta-test inventory (mandatory declaration)
+
+| Registry | This plan |
+|---|---|
+| `tests/styles/_metaDestructiveConfirm.test.ts` | **EXTENDS** — adds T1 (single declaration), T2 (no literal timer delays), T3 (value pin), plus matcher self-checks |
+| `tests/auth/_metaInfraContract.test.ts` (Supabase call boundaries) | N/A — no Supabase client call added or changed |
+| `tests/auth/advisoryLockRpcDeadlock.test.ts` (lock topology) | N/A — no `pg_advisory*` anywhere in this diff |
+| `tests/messages/_metaAdminAlertCatalog.test.ts` | N/A — no `admin_alerts` row, no §12.4 code added or edited |
+| `tests/log/_metaMutationSurfaceObservability.test.ts` | N/A — no new route handler, no new `"use server"` action; the existing discard route is untouched |
+| `tests/components/tiles/_metaSentinelHidingContract.test.ts` | N/A — not a tile surface |
+
+**No new test FILES are created.** Every test lands in an existing file, so no `testMatch` entry and no Playwright project registration is required. The one new *workflow* (Task 5) names its own spec list explicitly.
+
+## 2. Advisory-lock holder topology
+
+N/A. `rg -n "pg_advisory" ` over this diff's surfaces returns nothing; no code path here mutates `shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, or `pending_ingestions`. The component POSTs to an existing route whose locking is unchanged.
+
+## 3. e2e harness-readiness checklist
+
+For `tests/e2e/pendingDiscardReflow.layout.spec.ts` (Task 4):
+
+- **(a) Server boot.** None. The spec self-hosts: `beforeAll` compiles token CSS from `app/globals.css` via the Tailwind CLI into a temp dir and serves it from its own `node:http` server on an ephemeral port (`tests/e2e/pendingDiscardReflow.layout.spec.ts:82-108`). No app boot, no Supabase, no seed, no `webServer` block, and no dependency on the 3000-3004 dev-server ports.
+- **(b) Readiness gate.** The harness serves **static HTML** — there is no React, no hydration, no client island. The gate is `page.goto(baseUrl)` returning, after which layout is final. `networkidle` is not used and not needed. This is deliberately unlike the app-booting e2e specs.
+- **(c) Detach safety.** N/A by construction. Every measurement is a single one-shot `page.evaluate()` that reads `getBoundingClientRect()` synchronously inside the page and returns plain numbers (`tests/e2e/pendingDiscardReflow.layout.spec.ts:115-130`). No `locator.evaluate`, no sampler, no handle outlives its call, so nothing can auto-wait on an unmounted node.
+
+---
+
+## 4. Tasks
+
+Every task: failing test → minimal implementation → passing test → commit (invariant 1). One commit per task (invariant 6).
+
+### Task 1 — Shared `ARM_REVERT_MS` + T1/T3 guards
+
+**Test first.** Extend `tests/styles/_metaDestructiveConfirm.test.ts`:
+
+```ts
+const CONST_MODULE = "lib/admin/destructiveConfirm.ts";
+const DECL = /(?:^|\n)\s*(?:export\s+)?const\s+ARM_REVERT_MS\s*=/;
+
+it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
+  const declaring: string[] = [];
+  for (const root of ["components", "app", "lib"]) {
+    for (const file of walk(root)) {
+      if (DECL.test(stripComments(readFileSync(file, "utf8")))) {
+        declaring.push(file);
+      }
+    }
+  }
+  // Asserting equality, not "at most one": "<= 1" passes on zero (constraint C-B).
+  expect(declaring).toEqual([CONST_MODULE]);
+});
+
+it("T3: the shared value is the ratified 4s (DEFERRED-archive.md:1228)", async () => {
+  const mod = await import("@/lib/admin/destructiveConfirm");
+  expect(mod.ARM_REVERT_MS).toBe(4_000);
+});
+```
+
+Note the root list is `["components", "app", "lib"]` — constraint C-B. `walk` already filters to `.ts`/`.tsx` (`tests/styles/_classScanUtils.ts:7-14`). `DECL` matches the declaration with or without `export`, so a local `const ARM_REVERT_MS` in a component is caught as well as the module's exported one.
+
+**Expected failure:** `declaring` has 11 entries, none of them the module (which does not exist).
+
+**Implementation.** Create the new module **lib/admin/destructiveConfirm.ts** exporting `ARM_REVERT_MS = 4_000` with the ratification comment. Replace the local declaration in all **11** files (spec §2.2 table) with `import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";`. Each file keeps its existing explanatory comment, minus the now-false "declared locally" phrasing.
+
+**No behavioural change** — every site already used `4_000`, so the existing per-surface timer tests (which advance past 4s) are untouched. Confirm by running them, not by asserting it.
+
+**Commit:** `refactor(admin): source ARM_REVERT_MS from one module and pin it`
+
+### Task 2 — T2 literal ban + self-checks
+
+**Test first.** Add to the same file:
+
+```ts
+// Locate setTimeout calls in COMMENT-STRIPPED source (a commented-out example
+// must not trip the guard), but read the exemption from RAW source, because
+// stripComments deletes it (constraint C-A, tests/styles/_classScanUtils.ts:15-17).
+const TIMER_LITERAL = /setTimeout\([\s\S]*?,\s*(\d[\d_]*)\s*\)/g;
+const EXEMPT = /\/\/\s*not-arm-revert:/;
+
+it("T2: no destructive-confirm surface passes a numeric-literal setTimeout delay", () => {
+  const problems: string[] = [];
+  for (const file of new Set(REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file))) {
+    const raw = readFileSync(file, "utf8");
+    const stripped = stripComments(raw);
+    TIMER_LITERAL.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = TIMER_LITERAL.exec(stripped)) !== null) {
+      const lineNo = stripped.slice(0, m.index).split("\n").length;
+      const rawLines = raw.split("\n");
+      const near = rawLines.slice(Math.max(0, lineNo - 4), lineNo + 1).join("\n");
+      if (!EXEMPT.test(near)) problems.push(`${file}:${lineNo} literal delay ${m[1]}`);
+    }
+  }
+  expect(problems).toEqual([]);
+});
+```
+
+`m[1]` is `string | undefined` under `noUncheckedIndexedAccess`; it is only interpolated into a template literal, which accepts `undefined`, so this typechecks without a non-null assertion.
+
+**Anti-vacuity self-check** (the failure mode this catches: a regex that never matches would make T2 pass forever):
+
+```ts
+it("T2 matcher self-check", () => {
+  const fire = (src: string) => {
+    TIMER_LITERAL.lastIndex = 0;
+    return TIMER_LITERAL.test(src);
+  };
+  expect(fire("setTimeout(() => setArmed(false), 3000)")).toBe(true);
+  expect(fire("setTimeout(() => setArmed(false), 3_000)")).toBe(true);
+  expect(fire("setTimeout(() => setArmed(false), ARM_REVERT_MS)")).toBe(false);
+  // C-A: the exemption must survive comment-stripping lookup
+  expect(EXEMPT.test(stripComments("// not-arm-revert: nope"))).toBe(false);
+  expect(EXEMPT.test("// not-arm-revert: yes")).toBe(true);
+});
+```
+
+The last two lines are the executable proof of constraint C-A: they demonstrate that looking the exemption up in stripped source finds nothing, which is exactly why T2 reads raw.
+
+**Expected state:** T2 passes immediately (V2 measured zero violations). That is fine and stated honestly — T2 is a fails-*forward* guard. Its self-check is what proves it is not vacuous, and the plan does not pretend T2 caught anything today.
+
+**Implementation.** Header comment on the registry file documenting T1/T2/T3, the exemption idiom, and spec §5.3's honest scope limit (a surface that never adopts the recipe pair is invisible to the registry, therefore to T2).
+
+**Commit:** `test(admin): ban magic timer literals in destructive-confirm surfaces`
+
+### Task 3 — Fork the render (jsdom)
+
+**Test first.** In `tests/components/admin/pendingIngestionActions.test.tsx`, retarget the existing ~10 `getByTestId` calls to the `-inline-` ids (spec §4.3), then add the nine new tests of spec §6.2. Each carries a comment naming the concrete failure mode it catches:
+
+| # | Test | Failure mode caught |
+|---|---|---|
+| 1 | four variant ids present | fork rendered only one copy |
+| 2 | idle parity: stacked vs inline Ignore have equal `textContent` and equal class token sets (compared **to each other**, never to a literal) | the two copies drift |
+| 3 | armed parity, same comparison | armed branch drifts in one copy only |
+| 4 | arming via stacked morphs inline, and vice versa | per-copy `armed` state |
+| 5 | arm on stacked, confirm on inline → exactly one POST | per-copy state makes the second tap a no-op re-arm |
+| 6 | exactly one `role="status"` node, and it is outside both copies | double screen-reader announcement |
+| 7 | container class tokens: stacked has `flex-col`/`items-stretch`/`sm:hidden`; inline has `hidden`/`sm:flex` | the Tailwind-v4 stretch default trap (jsdom half of D1) |
+| 8 | `compareDocumentPosition` order within each copy | DOM order wrong even if classes right |
+| 9 | arming while an error is displayed keeps the `role="alert"` block | a fork that resets `state` on arm swallows the failure explanation (the S5→S2 compound state, spec §4.7) |
+
+On test 2/3, the anti-tautology hazard is real and is handled: comparing the two nodes to each other **cannot** catch both copies drifting together, so test 7 independently pins the container classes and Task 4 independently pins the geometry. That split is deliberate and stated.
+
+**Implementation.** Restructure `components/admin/PendingPanelDiscardButtons.tsx` per spec §4.1: outer column, one local `pair(variant)` helper returning the two button nodes, stacked copy rendering `[ignore, defer]`, inline copy rendering `[defer, ignore]`, live region and error block hoisted out of the row so each renders once. Remove `basis-full sm:basis-auto` (spec §4.6 note). Update `tests/e2e/needs-attention-page.spec.ts:243` and `tests/e2e/needs-attention-page.spec.ts:250` to the `-inline-` ids (its 1280px viewport is above `sm`).
+
+**Commit:** `fix(admin): put the safe discard nearest the thumb when the buttons stack`
+
+### Task 4 — Real-browser layout proof
+
+**Test first.** Rewrite `tests/e2e/pendingDiscardReflow.layout.spec.ts`'s transcribed markup to the fork, with three panel families (spec §6.3): `fork-*` (subject), `nofork-*` (today's markup — negative control for the **ordering** claim), `nobasis-*` (pre-DESTRUCT-1 — retained negative control for the **reflow** claim). Assertions are spec §6.3's list, with the exact D1–D6 invariants from spec §4.6 inlined in the file header.
+
+Both negative controls are load-bearing: without `nofork-*`, "Ignore is above Defer" could pass on a harness that renders nothing meaningful; V-probe measured `nofork` at Defer `y192` / Ignore `y244`, so the control does reproduce the defect.
+
+Rewrite the drift-guard test (currently `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`) to assert the source contains `sm:hidden`, `hidden`, `sm:flex`, `items-stretch` **and does NOT contain** `basis-full`. The negative half is what makes it bite — asserting only presence would still pass if the old markup survived alongside the new.
+
+**Commit:** `test(admin): prove the forked discard order in a real browser`
+
+### Task 5 — CI wiring (spec §6.4)
+
+`package.json`: add `"test:e2e:destructive-layout": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/pendingDiscardReflow.layout.spec.ts"`.
+
+New workflow **.github/workflows/destructive-layout-e2e.yml**, modelled on `.github/workflows/modal-header-layout-e2e.yml`: same `actions/checkout` + `./.github/actions/setup`, same Playwright browser cache keyed on `pnpm-lock.yaml`, same `install-deps chromium` + `install chromium`, same failure-artifact upload, `workflow_dispatch:` enabled. **No `env:` block** — unlike the modal-header job, this harness renders static HTML strings and imports no server chain, so none of the `HASH_FOR_LOG_PEPPER` / Supabase demo keys are needed. `paths:` per spec §6.4.
+
+Update the `BL-STANDALONE-CONFIG-CI-DARK` row in `BACKLOG.md`: one more spec covered, remainder still dark.
+
+**Verification is not local-green.** Per the project's "local-passes-CI-fails is its own bug class" rule, this task is complete only after `gh workflow run destructive-layout-e2e.yml` reports a green run on the branch.
+
+**Commit:** `infra: run the destructive-confirm layout spec in CI`
+
+### Task 6 — Backlog hygiene + stale anchors (spec §7, §2.4)
+
+Delete all three `BL-DESTRUCT-*` rows and the now-empty family section with its preceding `---`. Correct the three stale line anchors (`tests/help/_uiLabelExceptions.ts:137`, `tests/help/_uiLabelExceptions.ts:142`, `tests/e2e/needs-attention-page.spec.ts:53`) to the post-fork line numbers — done last, so the numbers are final.
+
+**Commit:** `docs(backlog): close the destructive-confirm family`
+
+### Task 7 — Invariant-8 impeccable dual-gate
+
+`components/admin/PendingPanelDiscardButtons.tsx` is under `components/`, so both `/impeccable critique` and `/impeccable audit` run on the diff, with the canonical v3 setup gates (the skill's context loader pulling PRODUCT.md + DESIGN.md, then the register reference read). P0/P1 fixed or explicitly deferred via a `DEFERRED.md` entry. Findings and dispositions recorded in §12 of the close-out.
+
+**Pre-code mechanical checklist** (run before Task 3's implementation, not after): em-dash ban in user-visible copy, apostrophe literals, `min-h-tap-min` on both copies' buttons, canonical type/token classes. No new colour token is introduced, so no contrast meta-test is needed.
+
+### Task 8 — Self-review
+
+Numeric sweep + self-consistency sweep across spec and plan. Re-run V1–V10 after the code lands and confirm the recorded outputs still hold (V2 in particular: the diff must not introduce the first literal delay).
+
+### Task 9 — Adversarial review (cross-model)
+
+Codex, via `scripts/codex-guard.mjs`, on the whole diff. Brief carries REVIEWER-ONLY framing, fresh-eyes posture, and spec §1.1's do-not-relitigate list. Iterate to APPROVE.
+
+### Task 10 — Ship
+
+`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, both e2e scripts → push → **real CI green** → `gh pr merge --merge` → fast-forward local `main` and verify `git rev-list --left-right --count main...origin/main` == `0  0`.
+
+---
+
+## 5. Risks carried from the spec
+
+Spec §9's table applies unchanged. The one this plan adds machinery for: **two live copies of a destructive control.** Containment is Task 3's `pair()` helper (one source expression), tests 2/3/7 (parity plus independent class pinning), and Task 4's real-browser one-copy-per-breakpoint assertion. No single one of those is sufficient alone, which is why all three ship together.
