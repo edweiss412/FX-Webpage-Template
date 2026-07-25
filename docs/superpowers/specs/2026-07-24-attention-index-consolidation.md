@@ -16,7 +16,9 @@ Four defects follow from that shape.
 
 **2. The ladder inverts effort.** "Needs your confirmation" reads heavier than "Needs a look", but 18 of the 19 resolve-eligible codes render the button as "Mark resolved", not "Confirm" (`lib/adminAlerts/resolveActionLabel.ts:49-69`, labels at `lib/adminAlerts/resolveActionLabel.ts:73-74`) — and the heaviest work in the panel sits under "Needs a look", whose fix hints are imperatives: "Re-share the sheet with the service account.", "Replace the reel link with a video URL.", "Trim the gallery under 60 images / 50MB / 3GB." (`lib/admin/needsLookHints.ts:13-24`).
 
-**3. Rows and cards duplicate each other.** `bucketAttention` is called with the full item list, unfiltered by `actionable` (`components/admin/showpage/PublishedReviewModal.tsx:551`), so every alert renders a card in its section *and* a row in the dropdown. For needs-look items the row carries the same message and the same action link as the card (`AttentionMenu.tsx:204-219` vs `components/admin/review/AttentionBanner.tsx:158-171`).
+**3. Rows and cards duplicate the way out.** `bucketAttention` is called with the full item list, unfiltered by `actionable` (`components/admin/showpage/PublishedReviewModal.tsx:551`), so an alert is represented both in its section and as a row in the dropdown. For needs-look items the row and the card render the same `a.action` link (`components/admin/showpage/AttentionMenu.tsx:204-219` and `components/admin/review/AttentionBanner.tsx:158-171`), so the way out is stated twice.
+
+Two precisions, because the obvious stronger claims are both false. The row and the card do **not** show the same text: the row shows `item.menuTitle`, a short title (`components/admin/showpage/AttentionMenu.tsx:199`), while the card shows the full catalog sentence (`components/admin/review/AttentionBanner.tsx:239`). And **not every alert renders a card** — the notes channel intercepts exactly two codes before the card path and folds them into the Sheet-warnings panel instead (`lib/admin/parseAttentionNote.ts:23`, `lib/admin/sectionAttention.ts:116-121`). Both facts are load-bearing later: the first is why deleting the row's link loses no text, the second drives §2.3.
 
 **4. Two entries are not issues at all.** `SHOW_FIRST_PUBLISHED` ("now live for crew at its share-token URL", `lib/messages/catalog.ts:1120-1121`, `severity: "info"`, `followUp: null`) and `PICKER_EPOCH_RESET` (whose own `helpfulContext` reads "Nothing to fix; this is a record of the reset.", `lib/messages/catalog.ts:3222`) describe events that happened, not conditions standing between the sheet and the crew page. Today they make the badge count up when something goes *right*.
 
@@ -33,9 +35,9 @@ Four defects follow from that shape.
 | Needs-look defaults **fail-visible**: a non-actionable item with no `clearingKind` counts as needs-you, never monitoring. | `2026-07-21-attention-needs-attention-split.md` §3.4, implemented `AttentionMenu.tsx:98`, `PublishedReviewModal.tsx:310` |
 | A mistagged actionable item is counted once, in the merged group only — never doubled into monitoring. | `AttentionMenu.tsx:99-101`, `PublishedReviewModal.tsx:313-318` |
 | Holds ARE index entries but NOT card entries. They render as actionable rows in the panel (`lib/admin/attentionItems.ts:318-323`) and jump to the `changes` section, whose `Mi11GateActions` control is their landing place; `bucketAttention` skips them so they never produce a card. This spec does not change that. | `lib/admin/sectionAttention.ts:104-109`; section id at `components/admin/showpage/PublishedReviewModal.tsx:642` |
-| The Changes feed is NOT a destination for relocated alerts. It reads `show_change_log` + open `sync_holds` and its `change_kind` values are sheet-data changes. | `lib/sync/feed/readShowChangeFeed.ts:1-8`; `change_kind` CHECK is `length > 0` only (`supabase/migrations/20260608000001_show_change_log.sql:33-35`) |
+| The Changes feed is NOT a destination for relocated alerts. It reads `show_change_log` + open `sync_holds`, and its `change_kind` values are sheet-data changes in practice (`crew_added`, `crew_renamed`, `crew_removed`, `crew_email_changed`, `field_changed`). The column has no enum to appeal to — its CHECK is only `length(change_kind) > 0` — so the semantics live in the producers, which is exactly why an app-milestone alert has no home there without inventing a kind. | `lib/sync/feed/readShowChangeFeed.ts:1-8`; producers at `lib/dev/attentionScenarios/tier2.ts:430`, `lib/dev/attentionScenarios/tier2.ts:447`, `lib/dev/attentionScenarios/tier2.ts:457`, `lib/dev/attentionScenarios/tier2.ts:470`, `lib/dev/attentionScenarios/tier2.ts:477`; CHECK at `supabase/migrations/20260608000001_show_change_log.sql:33-35` |
 | The pill stays interactive when only monitoring items exist, and keeps its quiet palette in that state. | `2026-07-22-monitoring-badge-expand.md` §3.1, implemented `PublishedReviewModal.tsx:323-324`, `components/admin/showpage/PublishedReviewModal.tsx:764-771` |
-| Separators between pill segments are real `" · "` text nodes, in the announced string as well as the visible one. | `PublishedReviewModal.tsx:804-806`; memory #537 space-node rule |
+| Separators between pill segments are real `" · "` text nodes, in the announced string as well as the visible one. | `PublishedReviewModal.tsx:803`; memory #537 space-node rule |
 | No new §12.4 message codes. No DB migration. No advisory-lock surface. | This spec §10 |
 
 ---
@@ -72,6 +74,8 @@ aria-label={needsYou.length > 0 ? "Needs you" : "Monitoring"}
 
 **"Needs attention" is not available as a heading.** It already names the dashboard section (`components/admin/Dashboard.tsx:751`), the route `/admin/needs-attention` (`app/admin/needs-attention/page.tsx:54`), and `components/admin/NeedsAttentionSummaryCard.tsx:46`. Reusing it here would make one label mean a narrower set in a different place.
 
+**"Needs a look" survives as a per-section chip and is NOT retired.** The same words label a chip on a review-modal section that contains flagged rows (`tests/components/admin/wizard/Step3ReviewModal.test.tsx:1264` pins it). This spec retires the dropdown *heading* only. The two surfaces are unrelated: one groups index entries, the other marks a section. An implementer sweeping for the string must leave the chip alone (§7.1).
+
 ### 2.2 Row behaviour — press to jump, no inline links
 
 Every row under **Needs you** becomes the row shape currently used by actionable rows (`AttentionMenu.tsx:134-159`): a full-width `<button>` that calls `onClose()` then `onNavigate(item)`, with the trailing `→` glyph and the filled tone dot.
@@ -84,7 +88,7 @@ The needs-look row shape at `AttentionMenu.tsx:185-222` is deleted, along with i
 
 **Tone dot.** The merged row uses the actionable row's filled `TONE_DOT[item.tone]` dot (`components/admin/showpage/AttentionMenu.tsx:41-44`, `components/admin/showpage/AttentionMenu.tsx:144`). Former needs-look rows therefore change from a hollow `border-status-review` dot to a filled one — deliberate, since the hollow/filled contrast now carries the needs-you-versus-monitoring distinction rather than a distinction inside one group. Their screen-reader tone text is unchanged: needs-look rows already emit `TONE_DOT.notice.srText` (`components/admin/showpage/AttentionMenu.tsx:196`), which is the same string the merged row emits for a `notice`-tone item.
 
-**The jump already works for these items.** The `alert_id` deep-link effect looks the item up in the unfiltered `attentionItems` list and calls `setJump({ itemId, sectionId: effectiveSectionId(item), nonce })` (`PublishedReviewModal.tsx:481-491`); nothing on that path is restricted to `actionable` items. `handleNavigate` uses the same `setJump` shape (`components/admin/showpage/PublishedReviewModal.tsx:421`). Wiring needs-look rows to `onNavigate` reuses a working path.
+**The jump already works for these items.** The `alert_id` deep-link effect looks the item up in the unfiltered `attentionItems` list and calls `setJump({ itemId, sectionId: effectiveSectionId(item), nonce })` (`PublishedReviewModal.tsx:481-491`); nothing on that path is restricted to `actionable` items. `navigateTo` uses the same `setJump` shape (`components/admin/showpage/PublishedReviewModal.tsx:419-422`). Wiring needs-look rows to `onNavigate` reuses a working path.
 
 **Every item has somewhere to land.** For hold items the landing place is the `changes` section and its `Mi11GateActions` control, not a card (§1.1); holds are already pressable rows today, so this spec changes nothing for them. For alert items it is a card, and `bucketAttention` resolves an item's section to `opts.sectionAvailable(item.sectionId) ? item.sectionId : "overview"` (`lib/admin/sectionAttention.ts:123-126`). Under this spec that fallback is a **correctness guarantee**, not defensive code: an index entry with nowhere to land is an index that lies. The code comment at `sectionAttention.ts:113-115` calling the warnings-channel fallback "defensive" must be updated to say so.
 
@@ -96,16 +100,23 @@ In `AttentionBanner`, the `footerRight` slot holds `PerShowAlertResolveButton` f
 
 For **needs-you items that are not actionable** (the former needs-look set), `footerRight` becomes a **destination chip** rendering `a.action`, and the `autoClearNote` line is dropped — once the footer names a destination, "it clears when you've done it" is the only thing it could mean. `footerLeft`'s action link (`AttentionBanner.tsx:158-171`) is removed for these items, since the chip replaces it; the "Raised …" line stays.
 
-Chip label is derived from `action.external`, not authored per code:
+**The chip is external-only. Every chip that can ever render reads `Google Sheets ↗`.** That is a derived fact, not a style choice, and both directions of the derivation must hold:
+
+- **From the notes side.** The only needs-look codes with an *internal* action are `PARSE_ERROR_LAST_GOOD` and `RESYNC_QUALITY_REGRESSED` (`lib/adminAlerts/alertActions.ts:169-170`) — and those are exactly the two codes the notes channel intercepts. `toNoteItem` returns non-null for those two and nothing else (`lib/admin/parseAttentionNote.ts:23`), and `bucketAttention` pushes them into `b.notes` and `continue`s before the card path (`lib/admin/sectionAttention.ts:116-121`). They never render an `AttentionBanner` card, so they can never carry a footer chip.
+- **From the card side.** The only needs-look codes with an internal action that *do* get cards are `SHOW_UNPUBLISHED` and `RESYNC_SHRINK_HELD`, and the guard below removes their chip.
+
+So the label rule has one live branch:
 
 | `action.external` | Chip label | Applies to |
 | --- | --- | --- |
 | `true` | `Google Sheets ↗` | the 6 `openSheet` codes (`lib/adminAlerts/alertActions.ts:163-168`) |
-| `false` | `Overview →` (the destination section's display name) | `PARSE_ERROR_LAST_GOOD`, `RESYNC_QUALITY_REGRESSED` (`alertActions.ts:169-170`) |
+| `false` | no chip | unreachable in practice, by both bullets above |
+
+An internal-destination chip is therefore **not** implemented. If a future code gains an internal action *and* renders a card in a different section from its target, that is a new case requiring a spec amendment — not something the implementer should generalise for speculatively.
 
 The chip carries no verb. Every verb tried in design committed to an amount of work and was wrong for some member of the set ("confirm" too small, "review" too soft, "fix" wrong for a deliberate state such as `SHOW_UNPUBLISHED`). A destination name commits to nothing and stays true.
 
-**Self-link suppression (guard).** `SHOW_UNPUBLISHED` and `RESYNC_SHRINK_HELD` both route their card to the `overview` section (`attentionItems.ts:136`, `lib/admin/attentionItems.ts:130`) *and* point their action at `#overview` (`alertActions.ts:171`, `lib/adminAlerts/alertActions.ts:141-149`). The chip would point at the place the card already is. When `action.external === false` and the action's target section equals `effectiveSectionId(item)`, **no chip renders** and the footer keeps only the "Raised …" line.
+**Self-link suppression (guard).** `SHOW_UNPUBLISHED` and `RESYNC_SHRINK_HELD` both route their card to the `overview` section (`lib/admin/attentionItems.ts:136`, `lib/admin/attentionItems.ts:130`) *and* point their action at `#overview` (`lib/adminAlerts/alertActions.ts:171`, `lib/adminAlerts/alertActions.ts:141-149`). The chip would point at the place the card already is. When `action.external === false` and the action's target section equals `effectiveSectionId(item)`, **no chip renders** and the footer keeps only the "Raised …" line. This guard is what makes the external-only statement true from the card side, so it is load-bearing rather than redundant with the table above.
 
 Actionable cards and monitoring cards are unchanged: the resolve button and the `autoClearNote` respectively.
 
@@ -122,7 +133,7 @@ Worked example, replacing today's `4 to confirm · 7 to review · 1 monitoring`:
 
 `issues` is a noun for the same reason the card chip has no verb, and it pluralises with an ordinary `s` — no subject-verb agreement branch, which "N need you" would have required at `N = 1`.
 
-Retained verbatim from the current pill: the `99+` visible cap with the exact count preserved for assistive tech past the cap (`components/admin/showpage/PublishedReviewModal.tsx:787-798`), now on the single issues segment; the `" · "` real-text separator, rendered only between two present segments; the `monitoringOnly` quiet palette and its hollow leading dot (`components/admin/showpage/PublishedReviewModal.tsx:764-782`); the `title` attribute on the monitoring-only pill (`components/admin/showpage/PublishedReviewModal.tsx:758-762`); the `before:-inset-y-3` tap-band arithmetic (`components/admin/showpage/PublishedReviewModal.tsx:764`).
+Retained verbatim from the current pill: the `99+` visible cap with the exact count preserved for assistive tech past the cap (`components/admin/showpage/PublishedReviewModal.tsx:787-798`), now on the single issues segment; the `" · "` real-text separator, rendered only between two present segments; the `monitoringOnly` quiet palette and its hollow leading dot (`components/admin/showpage/PublishedReviewModal.tsx:764-782`); the `title` attribute on the monitoring-only pill (`components/admin/showpage/PublishedReviewModal.tsx:758-762`); the `before:-inset-y-3` tap-band arithmetic (`components/admin/showpage/PublishedReviewModal.tsx:763`).
 
 `interactive` (`components/admin/showpage/PublishedReviewModal.tsx:323`) and `monitoringOnly` (`components/admin/showpage/PublishedReviewModal.tsx:324`) keep their current definitions, restated over the merged lists: `interactive = needsYou.length > 0 || monitoring.length > 0`; `monitoringOnly = needsYou.length === 0 && monitoring.length > 0`.
 
@@ -136,7 +147,9 @@ Retained verbatim from the current pill: the `99+` visible cap with the exact co
 
 **Nothing is lost.** The bell excludes only inbox-routed codes, plus health codes for non-developers (`lib/admin/bellAudience.ts:8-12`). Neither code is inbox-routed and both are `audience: "doug"`, so **both already appear in the notification bell today**. This removes a duplicate from the issue index; the notice survives in the surface built for notices.
 
-**Dead wiring removed.** `SHOW_FIRST_PUBLISHED` is the only code that reads a data-gaps digest onto an attention item (`attentionItems.ts:307`), and `AttentionBanner`'s `detailBand` is its only consumer (`AttentionBanner.tsx:170-181`). With the code out of the index, `dataGaps` on the alert item and the `readDataGapsDigest` call are dead and are removed. The dashboard computes per-show data gaps from its own read (`components/admin/Dashboard.tsx:442-474`), so no user-visible information is lost.
+**Dead wiring removed.** `SHOW_FIRST_PUBLISHED` is the only code that reads a data-gaps digest onto an attention item (`lib/admin/attentionItems.ts:307`), and `AttentionBanner`'s `detailBand` is its only production consumer (built at `components/admin/review/AttentionBanner.tsx:136-151`, passed to the card at `components/admin/review/AttentionBanner.tsx:242`). With the code out of the index, `dataGaps` on the alert item and the `readDataGapsDigest` call are dead and are removed. The dashboard computes per-show data gaps from its own read (`components/admin/Dashboard.tsx:442-474`), so no user-visible information is lost.
+
+**Removal is not a pure deletion.** Nineteen test files carry the attention item's `dataGaps` (§7.2). Most hold `dataGaps: null` as a fixture key and only need the key dropped, but two carry live assertions on the detail band that must be deleted with the feature: `tests/components/admin/review/attentionBanner.test.tsx:148` and `tests/components/admin/review/attentionBanner.test.tsx:257`.
 
 ### 2.6 The two button verbs
 
@@ -147,7 +160,7 @@ Both relocated codes keep a resolve button in the bell — `resolveActionLabels`
 | `SHOW_FIRST_PUBLISHED` (`resolveActionLabel.ts:60`) | `resolve` → "Mark resolved" | `confirm` → "Confirm" | The show went live. Nothing is broken; there is nothing to resolve. |
 | `PICKER_EPOCH_RESET` (`resolveActionLabel.ts:58`) | `resolve` → "Mark resolved" | `confirm` → "Confirm" | A deliberate reset. Its catalog `helpfulContext` says "Nothing to fix; this is a record of the reset." |
 
-The module's own rule: `confirm` = approving a deliberate change that already applied; `resolve` = clearing a fault (`resolveActionLabel.ts:10-13`). The remaining 16 resolve-eligible codes are faults and keep `resolve`.
+The module's own rule: `confirm` = approving a deliberate change that already applied; `resolve` = clearing a fault (`lib/adminAlerts/resolveActionLabel.ts:9-12`). The remaining 16 resolve-eligible codes are faults and keep `resolve`.
 
 ---
 
@@ -167,7 +180,7 @@ The module's own rule: `confirm` = approving a deliberate change that already ap
 | `a.action` | `null` (builder failed its fail-quiet guard) | No destination chip; footer keeps "Raised …" only |
 | `a.action` | internal, target section == card's `effectiveSectionId` | No chip (§2.3 self-link suppression) |
 | `needsYou.length` | `1` | Badge reads `1 issue` (singular) |
-| `needsYou.length` | `> 99` | Badge reads `99+ issues`; exact count in an `sr-only` span (existing pattern `components/admin/showpage/PublishedReviewModal.tsx:790-798`) |
+| `needsYou.length` | `> 99` | Badge reads `99+ issues`; exact count in an `sr-only` span (existing pattern `components/admin/showpage/PublishedReviewModal.tsx:789-798`) |
 | `needsYou.length` | `0` and `monitoring.length` `0` | Pill non-interactive; menu cannot open (existing derived-open contract `components/admin/showpage/PublishedReviewModal.tsx:350-356`) |
 | Alert read fault | `alertsDegraded === true` | Unchanged: empty attention list, degraded pill, Overview notice (`PublishedReviewModal.tsx:306`) |
 
@@ -202,9 +215,9 @@ Panel states: **closed (C)**, **open/needs-you-present (O1)**, **open/monitoring
 | Parent | Child | Guarantee |
 | --- | --- | --- |
 | Scroll region `max-h-96 overflow-y-auto` (`AttentionMenu.tsx:130`) | both groups | The scroll boundary wraps ALL groups, so rows below the fold scroll into reach rather than extending past the viewport. Unchanged; re-asserted because the merged group can now be longer than either predecessor. |
-| Row `<button>` | row content | `min-h-tap-min w-full` (`AttentionMenu.tsx:142`) — the 44px tap floor now applies to every needs-you row, including ones that previously rendered as a non-interactive `<div>` with no such floor (`components/admin/showpage/AttentionMenu.tsx:188`). |
-| Pill `<button>` | `before:absolute before:inset-x-0 before:-inset-y-3` (`PublishedReviewModal.tsx:764`) | Resolved tap band ≥ 44px. Unchanged by the segment merge; re-verified because the pill's text length changes. |
-| Row title span | `truncate` within `min-w-0 flex-1` (`AttentionMenu.tsx:146-149`) | Long titles ellipsise instead of widening the panel. Now applies to former needs-look titles, which used `truncate` on a `block` inside a non-flex parent (`components/admin/showpage/AttentionMenu.tsx:198-200`). |
+| Row `<button>` | row content | `min-h-tap-min w-full` (`components/admin/showpage/AttentionMenu.tsx:142`) — the 44px tap floor now applies to every needs-you row. Former needs-look rows were a `<div>` carrying only `py-3` (`components/admin/showpage/AttentionMenu.tsx:188`); their tap target was the **inner link**, which had its own floor (`components/admin/showpage/AttentionMenu.tsx:214`). So the change replaces a small in-row target with a full-width one rather than adding a floor where none existed — an improvement to verify, not a regression risk to mitigate. |
+| Pill `<button>` | `before:absolute before:inset-x-0 before:-inset-y-3` (`PublishedReviewModal.tsx:763`) | Resolved tap band ≥ 44px. Unchanged by the segment merge; re-verified because the pill's text length changes. |
+| Row title span | `truncate` within `min-w-0 flex-1` (`AttentionMenu.tsx:146-149`) | Long titles ellipsise instead of widening the panel. Now applies to former needs-look titles, which used `truncate` on a `block` inside a non-flex parent (`components/admin/showpage/AttentionMenu.tsx:197-200`). |
 
 Tailwind v4 does not default `.flex` to `align-items: stretch`; every relationship above is stated by an explicit class, and the plan verifies each with a real-browser `getBoundingClientRect` assertion (jsdom does not compute layout).
 
@@ -223,6 +236,7 @@ Each bullet is a failing-test-first task.
 7. **Card chip: external.** For `SHEET_UNAVAILABLE`, assert the footer-right slot holds a `Google Sheets ↗` link with `target="_blank"` and `rel="noopener noreferrer"`, that the `autoClearNote` text is absent, and that `footerLeft` no longer carries a duplicate action link.
 8. **Card chip: self-link suppression.** For `SHOW_UNPUBLISHED` (card in Overview, action `#overview`), assert **no** chip renders and the footer holds only the "Raised …" line. This is the anti-tautology case for §2.3 — a naive implementation that always renders the chip passes test 7 and fails this one.
 9. **Card chip: null action.** With `action: null`, assert no chip and no crash.
+9b. **Card chip: notes-channel code renders no card at all.** For `PARSE_ERROR_LAST_GOOD` with the warnings section available, assert `bucketAttention` puts the item in `notes` and produces **no** `sectionTop`/`byAnchor` card for it — so no chip can exist. This is the second half of §2.3's external-only derivation; without it, a future change that starts carding the notes codes would silently create the internal-chip case the spec says is unreachable.
 10. **Event codes leave the index.** `deriveAttentionItems` over rows including `SHOW_FIRST_PUBLISHED` and `PICKER_EPOCH_RESET` returns neither, and returns the other rows unchanged. Assert against the returned list, not a rendered container.
 11. **Bell still carries them.** Assert `bellExcludedCodes(false)` and `bellExcludedCodes(true)` both exclude neither code — the guard that makes §2.5's "nothing is lost" claim true rather than assumed.
 12. **Button verbs.** `resolveActionLabels("SHOW_FIRST_PUBLISHED").idle === "Confirm"`, same for `PICKER_EPOCH_RESET`, and a fault code still reads "Mark resolved".
@@ -234,19 +248,41 @@ Each bullet is a failing-test-first task.
 
 ## 7. Meta-test inventory
 
-Existing suites that pin the three-group shape and must be rewritten in the same commits, not deleted:
+This inventory is **generated, not hand-listed**, so it is reproducible rather than a judgement call. Two sweeps, both run against the rebased tree at draft time.
+
+### 7.1 Panel-shape sweep (20 files)
+
+```
+grep -rl '"Needs your confirmation"\|"Needs a look"\|Needs your confirmation\|attention-needslook-row\|attention-monitoring-group\|attention-menu-row\|attention-pill-monitoring-segment\|alert-pill' tests/ lib/dev/ app/
+```
+
+Unit — `tests/app/admin/showReviewModalLoader.test.tsx`, `tests/components/admin/showpage/attentionMenu.test.tsx`, `attentionMenuGroups.test.tsx`, `clearingPillLabel.test.tsx`, `flaggedZeroCountHeader.test.tsx`, `mappedSectionActiveFlag.test.tsx`, `pageTransitions.test.tsx`, `pillFocusReconcile.test.tsx`, `publishedPill.test.tsx`, `publishedReviewModal.test.tsx`, `publishedWarningsPanel.test.tsx`, `statusStrip.test.tsx`, `tests/components/admin/wizard/Step3ReviewModal.test.tsx`, `tests/dev/fullSplitCompositeRender.test.tsx`.
+
+E2E — `tests/e2e/attention-modal-gallery.spec.ts`, `attention-pill-focus.spec.ts`, `published-review-modal.interactions.spec.ts`, `published-review-modal.layout.spec.ts`, `published-review-modal.realtime.spec.ts`, `published-show-attention.spec.ts`.
+
+Highest-value pins within that set:
 
 | File | Pins |
 | --- | --- |
 | `tests/components/admin/showpage/attentionMenuGroups.test.tsx` | All three headings, the empty-header conditional, the `aria-label` fallthrough (`tests/components/admin/showpage/attentionMenuGroups.test.tsx:143-159`, `tests/components/admin/showpage/attentionMenuGroups.test.tsx:315-319`) |
 | `tests/dev/fullSplitCompositeRender.test.tsx` | Exact pill string `1 to confirm · 2 to review · 2 monitoring`, group order, needs-look rows with their links (`tests/dev/fullSplitCompositeRender.test.tsx:69-125`) |
-| `tests/components/admin/showpage/attentionMenu.test.tsx` | Row shapes and navigation |
-| `tests/components/admin/showpage/publishedPill.test.tsx` | Pill segments |
 | `tests/components/admin/showpage/pageTransitions.test.tsx` | The "Needs your confirmation" header case at `tests/components/admin/showpage/pageTransitions.test.tsx:144` |
-| `tests/components/admin/showpage/pillFocusReconcile.test.tsx` | Focus reconciliation — extended by test 14 |
-| `tests/e2e/published-show-attention.spec.ts`, `tests/e2e/attention-pill-focus.spec.ts`, `tests/e2e/published-review-modal.layout.spec.ts` | Live panel behaviour and layout |
-| `tests/e2e/_publishedReviewModalHarness.tsx` | Harness fixture shape |
+| `tests/components/admin/showpage/pillFocusReconcile.test.tsx` | Focus reconciliation — extended by §6 test 14 |
 | `lib/dev/attentionScenarios/tier2.ts` | Dev scenario expectations built on the three-group split (`lib/dev/attentionScenarios/tier2.ts:150`, `lib/dev/attentionScenarios/tier2.ts:184`) |
+
+**Two matches are a different surface and must NOT be rewritten.** `tests/components/admin/wizard/Step3ReviewModal.test.tsx` and `publishedWarningsPanel.test.tsx` match on the per-section chip "Needs a look", which this spec does not retire (§2.1). They are listed so the implementer checks them for accidental coupling and then leaves them alone. `tests/components/admin/wizard/sectionCountChip.test.ts` is the same case.
+
+### 7.2 dataGaps sweep (19 files)
+
+§2.5 removes `dataGaps` from the attention item, which is not a pure deletion. Files carrying the attention item's `dataGaps`:
+
+```
+for f in $(grep -rl "dataGaps" tests/); do grep -q "alertId\|AttentionItem\|attentionItems" $f && echo $f; done
+```
+
+`tests/admin/anchorRouting.test.ts`, `attentionItems.test.ts`, `bucketAttention.test.ts`, `crewMatchFanout.test.ts`, `parseAttentionNote.test.ts`, `parseNoteCopy.test.ts`, `tests/components/admin/anchorMount.test.tsx`, `compactAlertCompoundTransitions.test.tsx`, `tests/components/admin/review/attentionBanner.test.tsx`, `tests/components/admin/review/showReviewSurfaceAnchors.test.tsx`, `tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx`, `tests/components/admin/showpage/attentionMenu.test.tsx`, `tests/components/admin/showpage/attentionMenuGroups.test.tsx`, `tests/components/admin/showpage/pageTransitions.test.tsx`, `tests/components/admin/showpage/publishedReviewModal.test.tsx`, `warningsPanelNotes.test.tsx`, `tests/e2e/_compactAlertCardLiveEntry.tsx`, `_pillFocusLiveEntry.tsx`, `_publishedReviewModalHarness.tsx`.
+
+Most carry `dataGaps: null` as a fixture key and only need the key dropped. Two carry **live assertions** on the detail band and must be deleted with the feature: `tests/components/admin/review/attentionBanner.test.tsx:148` and `tests/components/admin/review/attentionBanner.test.tsx:257`.
 
 `tests/help/spec-citation-integrity.test.ts` verifies help-page spec citations; confirm no help page documents the retired pill copy before landing (checked at draft time: `app/help/admin/per-show-panel/page.mdx` does not).
 
@@ -272,7 +308,7 @@ No new colour token is introduced — the destination chip reuses the existing w
 | 12 | Needs-look codes | `lib/adminAlerts/audience.ts:81-94` |
 | 3 | Self-healing codes | `lib/adminAlerts/audience.ts:75-79` |
 | 6 | `openSheet` (external) needs-look codes | `alertActions.ts:163-168` |
-| 2 | Internal-action needs-look codes that get a chip | `alertActions.ts:169-170` |
+| 2 | Notes-channel codes: internal action, never carded, so never chipped | `lib/admin/parseAttentionNote.ts:23` |
 | 2 | Self-linking codes suppressed by §2.3 | `SHOW_UNPUBLISHED`, `RESYNC_SHRINK_HELD` |
 | 2 | Codes leaving the index | §2.5 |
 | 2 | Codes landing on the warnings panel, not a card | §2.2 |
@@ -280,7 +316,7 @@ No new colour token is introduced — the destination chip reuses the existing w
 | 44 | Tap-target floor in px | §5 |
 | 400 | Panel max width in px | `AttentionMenu.tsx:119` |
 
-The `6 + 2 + 2 + 2 = 12` needs-look codes reconcile: 6 external-chip, 2 internal-chip, 2 self-link-suppressed, 2 with no registered action (`USE_RAW_DECISION_STALE`, `ASSET_RECOVERY_BYTES_EXCEEDED` — absent from `ALERT_ACTION_CODES`, `alertActions.ts:13-37`).
+The `6 + 2 + 2 + 2 = 12` needs-look codes reconcile: 6 external-chip; 2 notes-channel (internal action, intercepted before the card path, so never chipped); 2 self-link-suppressed; 2 with no registered action (`USE_RAW_DECISION_STALE`, `ASSET_RECOVERY_BYTES_EXCEEDED` — absent from `ALERT_ACTION_CODES`, `lib/adminAlerts/alertActions.ts:13-37`). **Only the first bucket ever renders a chip** (§2.3).
 
 ---
 
