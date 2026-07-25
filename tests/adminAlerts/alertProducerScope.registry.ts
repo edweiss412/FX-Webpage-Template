@@ -264,6 +264,34 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
 ];
 
+/** Pure projection over an arbitrary row list. Exported separately from
+ *  {@link globalOnlyCodes} so the unit tests can drive the edge cases (mixed
+ *  scope, seed rows) with SYNTHETIC rows rather than depending on whatever
+ *  PRODUCER_SCOPE happens to hold today. */
+export function projectGlobalOnly(rows: readonly ProducerScopeRow[]): Set<string> {
+  const perShow = new Set<string>();
+  const global = new Set<string>();
+  for (const r of rows) {
+    if (r.seed) continue;
+    (r.scope === "global" ? global : perShow).add(r.code);
+  }
+  return new Set([...global].filter((c) => !perShow.has(c)));
+}
+
+/** A code is GLOBAL-ONLY iff some non-seed producer row emits it with
+ *  scope "global" AND no non-seed row emits it per-show — i.e. every producer
+ *  writes `show_id: null`, so `fetchPerShowAlerts` (which filters
+ *  `.eq("show_id", showId)`, lib/adminAlerts/fetchPerShowAlerts.ts:83) can
+ *  never deliver it to a show modal.
+ *
+ *  Health audience is deliberately NOT subtracted here (unlike
+ *  {@link perShowReachableCodes}): scope and audience are orthogonal axes, and
+ *  the gallery's `cut` axis already handles audience. A code carrying BOTH
+ *  scopes is absent — it CAN reach a modal, so it is not global-only. */
+export function globalOnlyCodes(): Set<string> {
+  return projectGlobalOnly(PRODUCER_SCOPE);
+}
+
 /** A code is per-show-reachable iff (a) some producer row emits it per-show AND
  *  (b) it is not health-audience — fetchPerShowAlerts filters HEALTH_CODES
  *  independently of scope (attention-alert-routing §7, R3#2). */

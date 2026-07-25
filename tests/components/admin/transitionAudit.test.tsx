@@ -59,6 +59,11 @@ const SERVER_RENDERED = [
   "components/admin/showpage/PublishedReviewModal.tsx",
   "components/admin/review/ReviewModalShell.tsx",
   "components/admin/showpage/ShowReviewModalSkeleton.tsx",
+  // gallery-global-scope-exclusion: the excluded panel gained a third
+  // reason line. Its transition inventory is all-instant (it mounts and
+  // unmounts with the already-untransitioned panel), so it is pinned here
+  // rather than given an interaction test with no animation to observe.
+  "components/admin/dev/SwitcherControls.tsx",
 ];
 
 describe("transition audit (§10)", () => {
