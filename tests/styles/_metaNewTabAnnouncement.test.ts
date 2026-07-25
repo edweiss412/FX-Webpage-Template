@@ -221,6 +221,7 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["false", "attribute value"],
   ["presentation", "role value"],
   ["typescript", "module name"],
+  ["undefined", "JS identifier name, not an attribute (R22: literal-expression evaluation)"],
 ]);
 
 // ── Synthetic scanner self-tests (§6 requirement 7) ────────────────────────
@@ -1594,6 +1595,14 @@ describe("R6: scanner changes are pinned", () => {
       // `child.expression` check changed no test, which meant nothing covered this and the
       // clause could have rotted into a fail-open unnoticed.
       'const A=()=><a href="x" target="_blank">{/* icon later */} <NewTabHint /></a>;',
+      // LITERAL expressions are not opaque, and treating them as such was a fail-open in the
+      // first version of this rule: each of these computes to "(opens in a new tab)" alone.
+      // Found by probing the rule after writing it.
+      'const A=()=><a href="x" target="_blank">{" "}<NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank">{null} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank">{false} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank">{undefined} <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank">{""} <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must report phrase-only: ${src}`).not.toEqual([]);
     }
@@ -1614,6 +1623,9 @@ describe("R6: scanner changes are pinned", () => {
       // Nested and fragment-wrapped labels must also survive.
       'const A=()=><a href="x" target="_blank"><span><b>Go</b></span> <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><>Go</> <NewTabHint /></a>;',
+      // A literal STRING with content is a destination, so evaluating literals must not
+      // over-reject; only whitespace-or-nothing literals count as absent.
+      'const A=()=><a href="x" target="_blank">{"Go"} <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }

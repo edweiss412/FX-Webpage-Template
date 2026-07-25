@@ -452,10 +452,27 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
       if (child.text.trim().length > 0) return true;
       continue;
     }
-    // An interpolated expression is opaque: `{label}` must not be read as absent.
+    // An interpolated expression is opaque -- `{label}` must not be read as absent -- but a
+    // LITERAL one is not opaque at all, and treating it as such was a fail-open: `{" "}`,
+    // `{null}` and `{false}` each contribute nothing to the name, so an anchor whose only
+    // other child is the hint really does compute to "(opens in a new tab)" alone. Found by
+    // probing this rule after writing it, not by review.
     if (ts.isJsxExpression(child)) {
-      if (child.expression) return true;
-      continue;
+      if (!child.expression) continue;
+      const e = unparen(child.expression);
+      if (
+        e.kind === ts.SyntaxKind.NullKeyword ||
+        e.kind === ts.SyntaxKind.FalseKeyword ||
+        (ts.isIdentifier(e) && e.text === "undefined")
+      ) {
+        continue;
+      }
+      const lit = ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e) ? e.text : null;
+      if (lit !== null) {
+        if (lit.trim().length > 0) return true;
+        continue;
+      }
+      return true; // genuinely dynamic: assume it carries a destination
     }
     // A fragment carries no attributes, so it cannot hide; look through it.
     if (ts.isJsxFragment(child)) {
