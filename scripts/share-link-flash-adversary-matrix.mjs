@@ -32,6 +32,7 @@ import { join, resolve } from "node:path";
 const ROOT = resolve(import.meta.dirname, "..");
 const HUB = "components/admin/showpage/ShareHub.tsx";
 const CSS = "app/globals.css";
+const CTX = "app/admin/show/[slug]/ShareTokenContext.tsx";
 
 const VITEST_SUITES = [
   "tests/components/admin/showpage/shareHubFlashState.test.tsx",
@@ -121,20 +122,25 @@ const ADVERSARIES = [
       ],
     ],
   ],
+  // Expressed through the GATE, not through ShareHub. The cue is derived from
+  // `token`, so "fires on the rotate event rather than on the token changing"
+  // cannot be written as a one-line edit in the component — it is a claim about
+  // which rotations reach the token at all. Loosening the monotonic gate to
+  // accept a strictly LOWER epoch makes a rejected rotation change the token and
+  // therefore cue, which is precisely the defect.
+  //
+  // The first expression mutated a condition that could never be true, and then
+  // smuggled A5's mutation in alongside it — so it was a no-op mutant that got
+  // credit for A5's rejection. Both faults are the same one: a mutation whose
+  // effect was never verified.
   [
     "A8",
-    "keys the cue on the rotate EVENT, not the token",
+    "cues for a rotation the epoch gate rejected",
     [
-      [HUB, "if (prevToken !== token) {", "if (prevToken !== token || flash === -1) {"],
       [
-        HUB,
-        "setPrevToken(token);",
-        "setPrevToken(token);\n    // adversary: fire regardless of whether the gate accepted",
-      ],
-      [
-        HUB,
-        "setFlash((n) => (prevToken !== null && token !== null ? (n ?? 0) + 1 : null));",
-        "setFlash((n) => (n ?? 0) + 1);",
+        CTX,
+        "(token: string, epoch: number) => setState((p) => (epoch >= p.epoch ? { token, epoch } : p)),",
+        "(token: string, epoch: number) => setState(() => ({ token, epoch })),",
       ],
     ],
   ],
@@ -380,14 +386,14 @@ for (const [id, label, mutation] of ADVERSARIES) {
   if (ONLY && !ONLY.has(id)) continue;
   const err = apply(mutation);
   if (err) {
-    git("checkout", "--", HUB, CSS);
+    git("checkout", "--", HUB, CSS, CTX);
     results.push({ id, label, status: "UNAPPLIED", detail: err, rows: [] });
     console.log(`${id}  UNAPPLIED  ${err}`);
     continue;
   }
   const rows = runVitest();
   const browserRows = QUICK ? [] : runBrowser();
-  git("checkout", "--", HUB, CSS);
+  git("checkout", "--", HUB, CSS, CTX);
   const all = [...rows, ...browserRows];
   results.push({ id, label, status: all.length ? "REJECTED" : "SURVIVED", rows: all });
   console.log(
