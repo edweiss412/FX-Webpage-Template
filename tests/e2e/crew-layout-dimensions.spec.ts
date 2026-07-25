@@ -1034,17 +1034,10 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
      * still reconcile at 2. No stronger identity is available from the label the
      * walk emits; see `reconcilePhantomLedger`.
      */
-    const KNOWN_CREW_PHANTOM_ITEMS: PhantomLedgerRow[] = ([390, 1000] as const).map((w) => ({
-      surface: "travel",
-      width: w,
-      parent: "<div in travelrow>",
-      child: "<p in travelrow>",
-      axis: "row-gap" as const,
-      // gap-0.5 = 2px, the `.tcol` stack's row gap.
-      gap: 2,
-      count: 2,
-      why: "TravelRow's eyebrow <p> renders an empty label for a stage-promoted leg and still charges the 2px stack gap — pre-existing, deferred to BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW",
-    }));
+    /** Known, deferred instances. EMPTY is the correct state: the two TravelRow
+     *  eyebrow rows were repaid by `empty:hidden` (spec 2026-07-25 §3.3), and the
+     *  stale-row assertion below fails if a repaid row is left behind. */
+    const KNOWN_CREW_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
 
     for (const { section, anchor } of NOPHANTOM_SECTIONS) {
       for (const width of [390, 1000] as const) {
@@ -1089,6 +1082,104 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
         });
       }
     }
+
+    /**
+     * T5 — the TravelRow eyebrow, measured as sibling DISPLACEMENT.
+     *
+     * A ground leg whose stage was promoted to the primary line passes `label=""`
+     * (components/crew/sections/TravelSection.tsx:408), so the eyebrow `<p>` renders
+     * with no child node. It is still a flex item, so the `.tcol` stack spends its
+     * `gap-0.5` above a line that paints nothing.
+     *
+     * WHY DISPLACEMENT AND NOT THE EYEBROW'S OWN HEIGHT: an empty `<p>` can already
+     * measure 0 tall while still displacing its siblings by the parent's gap, so
+     * "eyebrow height is 0" passes BEFORE the fix. What actually changes is where the
+     * primary line starts relative to the stack's content-box top.
+     *
+     * Both cases enumerate EVERY travelrow and partition by the eyebrow's rendered
+     * text, because every row shares `data-testid="travelrow"` and the eyebrow has no
+     * testid of its own — so a single-representative assertion could measure an
+     * arbitrary labelled row, select no blank rows, and still report green. The blank
+     * count is pinned to the 2 the deleted ledger row recorded.
+     */
+    const EYEBROW_GAP_PX = 2; // `gap-0.5` on the `.tcol` stack.
+
+    type TravelRowMetric = { i: number; displacement: number; eyebrowHeight: number };
+
+    async function partitionTravelRows(
+      page: import("@playwright/test").Page,
+    ): Promise<{ blank: TravelRowMetric[]; labelled: TravelRowMetric[] }> {
+      return page.evaluate(() => {
+        const blank: { i: number; displacement: number; eyebrowHeight: number }[] = [];
+        const labelled: { i: number; displacement: number; eyebrowHeight: number }[] = [];
+        Array.from(document.querySelectorAll('[data-testid="travelrow"]')).forEach((row, i) => {
+          const stack = row.querySelector("div.flex.min-w-0.flex-col");
+          const primary = row.querySelector('[data-testid="travelrow-primary"]');
+          if (!(stack instanceof HTMLElement) || !(primary instanceof HTMLElement)) return;
+          const eyebrow = stack.firstElementChild;
+          // Displacement is measured against the stack's CONTENT-box top, so stack
+          // padding cannot masquerade as eyebrow cost.
+          const contentTop =
+            stack.getBoundingClientRect().top +
+            parseFloat(getComputedStyle(stack).paddingTop || "0");
+          const metric = {
+            i,
+            displacement:
+              Math.round((primary.getBoundingClientRect().top - contentTop) * 100) / 100,
+            eyebrowHeight:
+              eyebrow instanceof HTMLElement
+                ? Math.round(eyebrow.getBoundingClientRect().height * 100) / 100
+                : 0,
+          };
+          if ((eyebrow?.textContent ?? "").trim() === "") blank.push(metric);
+          else labelled.push(metric);
+        });
+        return { blank, labelled };
+      });
+    }
+
+    test(`T-NOPHANTOM-CREW [eyebrow displacement] blank leg`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== "mobile-safari", "single-writer: mobile-safari only");
+      await page.setViewportSize({ width: 390, height: 1000 });
+      await gotoSection(page, "travel");
+
+      const { blank, labelled } = await partitionTravelRows(page);
+
+      // Non-vacuity: both populations must exist, or the measurement proves nothing.
+      expect(blank.length, "seeded show renders blank-eyebrow travel legs").toBeGreaterThan(0);
+      expect(labelled.length, "seeded show also renders labelled travel legs").toBeGreaterThan(0);
+      expect(blank.length, "blank-eyebrow leg count matches the deleted ledger row's count").toBe(
+        2,
+      );
+
+      // EVERY blank row, not one representative: the primary line starts at the
+      // stack's content-box top with no gap charged above it.
+      for (const row of blank) {
+        expect(
+          row.displacement,
+          `blank eyebrow charges no displacement (row ${row.i}, h=${row.eyebrowHeight})`,
+        ).toBeLessThan(0.5);
+      }
+    });
+
+    test(`T-NOPHANTOM-CREW [eyebrow displacement] labelled leg`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== "mobile-safari", "single-writer: mobile-safari only");
+      await page.setViewportSize({ width: 390, height: 1000 });
+      await gotoSection(page, "travel");
+
+      const { blank, labelled } = await partitionTravelRows(page);
+      expect(labelled.length, "seeded show renders labelled travel legs").toBeGreaterThan(0);
+      expect(blank.length, "and blank ones, so the two cases measure different things").toBe(2);
+
+      // A labelled eyebrow SHOULD displace: its own height plus the stack's gap.
+      // Expected value derives from the measured eyebrow, never a hardcoded number.
+      for (const row of labelled) {
+        expect(
+          row.displacement,
+          `labelled eyebrow displaces its height + ${EYEBROW_GAP_PX}px gap (row ${row.i})`,
+        ).toBeCloseTo(row.eyebrowHeight + EYEBROW_GAP_PX, 0);
+      }
+    });
   });
 });
 

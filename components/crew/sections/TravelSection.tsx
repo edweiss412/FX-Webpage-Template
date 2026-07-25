@@ -121,7 +121,14 @@ function TravelRow({
 
       {/* `.tcol` — the stacked label / primary / meta / conf lines. */}
       <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="text-[10.5px] font-bold uppercase leading-none tracking-eyebrow text-text-faint">
+        {/* `empty:hidden` is load-bearing (DESIGN.md §7a): a ground leg whose stage was
+            promoted to the primary line passes `label=""`, and an empty <p> is still a
+            flex item, so this stack would spend its `gap-0.5` above a line that paints
+            nothing — measured as a 2px displacement of the primary line. The element
+            keeps its documented slot and costs nothing when blank. CAVEAT: `:empty`
+            matches only with NO child nodes, text included, so a stray literal space or
+            {" "} here would silently re-enable the gap. */}
+        <p className="text-[10.5px] font-bold uppercase leading-none tracking-eyebrow text-text-faint empty:hidden">
           {label}
         </p>
         <p
