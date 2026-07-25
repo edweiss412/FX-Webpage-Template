@@ -167,14 +167,6 @@
      swept viewport (~58.6px measured); 60px clears it with margin and is
      harmless at wide widths where the label fits one line. */
   --spacing-confirm-box: 60px;
-  /* Review-panel section header (spec 2026-07-25 §3.1.5): the right-corner sheet
-     link's own 20px box plus the header row's 10px `gap-2.5`. A section with no
-     sheet link (published mode coerces `dfid` to "", and the Diagrams sub-block
-     and "Report an issue" have none) carries this as padding on the centred
-     name group instead, so the name lands on the SAME axis as a section that
-     does have a link -- measured +4px vs +19px without it. Padding rather than a
-     reserved element, so no empty element enters a gapped row. */
-  --spacing-header-link-slot: 30px;
   --spacing-tile-pad: 20px;
   --spacing-tile-gap: 16px;
   --spacing-section-gap: 32px;

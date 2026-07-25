@@ -68,8 +68,8 @@ Ledgered debt to be repaid (both assert exact occurrence counts, and both files'
 The outer element becomes a column; the header line and the pill line are its two children.
 
 ```
-<div className={`${sub ? "mb-2" : "mb-3"} flex flex-col gap-1.5`}>
-  <div className="flex min-h-tap-min items-center gap-2.5">     ← header line
+<div className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5`}>
+  <div className="flex w-full min-h-tap-min items-center gap-2.5">   ← header line
     {statusIcon}                                                 ← unchanged tones
     <div className={`flex min-w-0 flex-1 items-center justify-center gap-1.5${linkless ? " pr-header-link-slot" : ""}`}>
       <Heading …>{label}</Heading>
@@ -178,16 +178,33 @@ implementation reads a single local `linkless = sheetHref === null`.
 | status | `flagged` / `judgment` / clean | `flagged` ⇒ amber chip + "Needs a look" pill. `judgment` (`=== true && !flagged`, `components/admin/wizard/step3ReviewSections.tsx:871`) ⇒ info chip + "Parsed with judgment" pill. Clean ⇒ sunken chip, **no pill line**. |
 | `count` | `number \| null` | Chip renders only when `shouldShowSectionCount` is true (`components/admin/wizard/step3ReviewSections.tsx:708`). |
 
-### 4.1 The published surface is linkless for EVERY section
+### 4.1 Which sections are linkless — corrected
 
-Because `dfid` is `""` in published mode, `sheetHref` is null for **all** top-level published
-sections — counted, flagged and judgment included. The padded geometry is therefore the
-published DEFAULT, not the two-section edge case §3.1.5's round-1 table implied. Consequences:
+Round 2 **refuted** the round-2 claim that published mode is linkless for every section, and it
+was right. `components/admin/review/publishedAdapter.ts:102` preserves `show.drive_file_id`, and
+that column is `not null` in the schema
+(`supabase/migrations/20260501000000_initial_public_schema.sql:5`). So `data.driveFileId` is
+populated for real published shows and the `?? ""` at
+`components/admin/review/ShowReviewSurface.tsx:248-251` is **defensive**, not the normal path.
 
-- The geometry matrix the plan measures MUST include padded × counted, padded × flagged, and
-  padded × judgment, not only the two link-less sections named in §3.1.5.
-- §3.1.5's measured offsets remain valid for the states they name (staged surface, link present).
-  The padded-with-count states are new cells the plan measures and records.
+Round 1 flagged the `?? ""` coercion and this spec over-generalised from it without checking
+whether `null` was reachable. Recorded so neither claim is re-derived.
+
+The real taxonomy — three cases, not one:
+
+| Case | Sections | Link? |
+| ---- | -------- | ----- |
+| Staged, and valid published | every top-level section **except** `report` | link present |
+| `report` ("Report an issue") | one | linkless — excluded at `components/admin/wizard/step3ReviewSections.tsx:887` |
+| Diagrams sub-block | one | linkless — no `dfid`, no `sectionId`, `headingLevel: 4` |
+| Defensive: malformed / null published data (`dfid === ""`) | all top-level sections | linkless — a defensive state, NOT the normal published state |
+
+So the padded (`pr-header-link-slot`) geometry is the **two-section case plus a defensive
+fallback**, exactly as §3.1.5 measured — not a published default. Consequences for testing:
+
+- §3.1.5's measured offsets stand for the states they name.
+- The plan measures padded × counted / flagged / judgment as the **defensive** cells (reachable
+  only with malformed data), and must label them that way rather than as the published norm.
 
 ### 4.2 Invalid numbers
 
@@ -196,7 +213,9 @@ published DEFAULT, not the two-section edge case §3.1.5's round-1 table implied
 `count === 0 && flagged` — so `NaN` would reach the chip and render "(NaN)".
 
 **Disposition:** the plan adds a guard so a non-finite count is treated as absent
-(`Number.isFinite(count)` gate), with a unit test passing `NaN` and `Infinity`. This is
+(`Number.isFinite(count)` gate), with a unit test passing **all three** named values — `NaN`,
+`Infinity`, AND `-Infinity`. Round 2 correctly noted that testing only the first two lets an
+implementation that accepts `-Infinity` pass. This is
 specified rather than dismissed as unreachable, because the count arrives from parsed sheet
 data and "prove it unreachable" is a stronger claim than the code currently supports.
 
@@ -223,12 +242,27 @@ Tailwind v4 does not default `.flex` to `align-items: stretch`, so every relatio
 | header line | itself | line is ≥44px tall in every state | `min-h-tap-min` on the line |
 | centered group | heading | heading may shrink and wrap-break; never forces overflow | `min-w-0` + `wrap-break-word` on the heading |
 | centered group | count | count keeps intrinsic width | `shrink-0` |
-| section (`flex min-w-0 flex-col`) | outer column | column spans the section's inner width | `w-full` on the outer column — Tailwind v4 does NOT stretch flex children by default, so this is explicit |
+| content pane | registry section (`components/admin/review/ShowReviewSurface.tsx:1055`, `flex min-w-0 flex-col`) | spans the pane's inner width | pre-existing; asserted as the chain's root so an upstream regression is attributed correctly |
+| registry section | breakdown section (`components/admin/wizard/step3ReviewSections.tsx:999`, `flex min-w-0 flex-col`) | spans the registry section | pre-existing |
+| breakdown section | outer column | column spans the breakdown section's inner width | `w-full` on the outer column — **both wrappers are `flex-col` and Tailwind v4 does NOT stretch flex children by default**, so this is explicit at every level |
+| breakdown section | panel card (`components/admin/wizard/step3ReviewSections.tsx:942`) | card spans the same width as the outer column — siblings that must not diverge | asserted: `panelCard.width === outerColumn.width` |
 | outer column | header line | line spans the column | `items-stretch` on the column **plus** `w-full` on the header line |
 | outer column | pill line | line spans the column, so `justify-center` centres against the full width | `items-stretch` on the column **plus** `w-full` on the pill line |
 | sheet link | its hit area | ≥44×44 despite a 20px box | `relative` + `before:absolute before:inset-[-12px]` |
 
-Height invariants to assert: header line 44px in every state; whole header 44px with no pill and 72.8px with one, at 320/375/430/1280.
+Height invariants to assert (epsilon **±0.5px**): header line 44px in every state; whole header
+44px with no pill and 72.8px with one, at 320/375/430/1280.
+
+**Width invariants to assert in a real browser** — rounds 1 and 2 both raised this, and the
+round-2 edit silently failed to land, so it is spelled out here. The FULL chain, each within
+±0.5px: `registrySection.width === pane.clientWidth`;
+`breakdownSection.width === registrySection.clientWidth`;
+`outerColumn.width === breakdownSection.clientWidth`;
+`headerLine.width === pillLine.width === outerColumn.width`; and
+`panelCard.width === outerColumn.width`. `flex justify-center` centres a pill INSIDE its wrapper
+— it does not make the wrapper span its parent. Without these equalities every offset in §3.1.5
+is measured against the wrong box, and a regression at the registry-section or panel-card
+boundary stays invisible and mis-attributed.
 
 ## 6. Static guard — childless growable elements
 
@@ -248,6 +282,28 @@ Because the parent's axis and gap are not reliably knowable statically, the guar
 to prove the defect. It asserts a **membership** contract instead: every childless element that
 carries a growable token, or whose classes cannot be shown to be growable-free, must be a known
 row. Registered rows carry a justification; anything new fails.
+
+**Scope claim, narrowed (round-2 finding 3).** This guard does NOT close the defect class
+repo-wide, and the spec no longer claims it does. It closes one **syntactic subset**: a
+statically-recognisable growable token, or an unresolvable className, on a syntactically
+childless element. Three shapes are explicitly OUT of the guard's reach:
+
+1. **Runtime-empty, not syntactically childless** — `<span className="flex-1">{null}</span>` has a
+   JSX child expression, so the classifier does not see it as childless, yet it is zero-extent at
+   runtime.
+2. **Style-only pushers the regex cannot read** — `style={SPACER_STYLE}`, a spread
+   (`style={{ ...base }}`), or `flexBasis` supplied via an identifier. The literal
+   `style={{ flexGrow: 1 }}` form IS covered; an indirected one is not.
+3. **Shrink-to-zero items that carry no growable token at all** — a childless `basis-1/2`, or a
+   `w-*` item in a row / `h-*` item in a column with no `shrink-0` and no minimum, can still be
+   squeezed to zero because the parent axis is unknown. This is why §6.5 deliberately keeps
+   "generic fixed-size element clears" as a NEGATIVE control: treating a one-axis size token as
+   proof of extent is precisely the error §6.1 warns about, so the guard does not attempt it.
+
+Those three remain covered by the runtime phantom-gap probes, which measure realised extent and
+do not care about syntax. The guard is the cheap repo-wide tripwire for the common shape; the
+probes remain the proof for the measured surfaces. Neither subsumes the other, and §7 states the
+same boundary.
 
 ### 6.2 What counts as childless
 
@@ -305,13 +361,29 @@ repair them, so a stale row is a failure exactly like a new match.
 
 ### 6.5 Controls (test 9 must cover every supported syntax)
 
-Round 1 correctly noted that exercising only `flex-1` plus one fixed-size negative lets a
-`flex-1`-only implementation pass. Positive controls are required for EACH of: `flex-1`, `grow`,
-`flex-auto`, `basis-full`, `flex-[2_2_0%]`, `grow-[3]`, `style={{ flexGrow: 1 }}`, a template
-literal with a growable static part, an array/`join` with a growable element, and an opaque
-identifier className. Negative controls: a fixed-size DOM element, a void tag, and a
-self-closing component with no growable token. Plus: the walker must report a non-empty,
-named file set, so "found nothing" cannot pass.
+Round 1 noted that exercising only `flex-1` plus one fixed-size negative lets a `flex-1`-only
+implementation pass; round 2 showed the follow-up list was still short of the resolver branches
+§6.3 claims. **One distinct positive control per supported form — no form may be claimed without
+one:**
+
+| Form | Control |
+| ---- | ------- |
+| `flex-1`, `grow`, `flex-auto`, `basis-full` | one each |
+| arbitrary `flex-[2_2_0%]`, `grow-[3]`, **`basis-[50%]`** | one each |
+| **variant-prefixed** `sm:flex-1` | one — and §6.3 must state whether a variant-gated growable counts (it does: it is growable at some width) |
+| `style={{ flexGrow: 1 }}` **and `style={{ flex: 1 }}`** | one each |
+| template literal with a growable static part | one |
+| array + `.join(" ")` with a growable element | one |
+| **ternary** composition | one |
+| **`+` string concatenation** | one |
+| opaque **identifier** className | one |
+| opaque **member access** (`styles.foo`) | one |
+| opaque **call** (`cn(...)`, `clsx(...)`) | one |
+| **component tag** carrying a growable token | one |
+
+Negative controls: a fixed-size DOM element (see §6.1 — this is a deliberate limitation, not a
+proof of extent), a void tag, and a self-closing component with no growable token. Plus the
+walker must report a non-empty, named file set, so "found nothing" cannot pass.
 ## 7. Not in scope
 
 - No new §12.4 error codes, no `lib/messages/catalog.ts` edits, no `pnpm gen:spec-codes` run. Nothing here surfaces a code to a user.
@@ -319,11 +391,11 @@ named file set, so "found nothing" cannot pass.
 - No change to `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708`), `COUNT_SECTIONS` (`components/admin/wizard/step3ReviewSections.tsx:697`), or `buildSheetDeepLink` behaviour — the count and link *placement* changes, their *derivation* does not.
 - `components/admin/showpage/ShowReviewModalSkeleton.tsx:152` unchanged (§1.1 item 7).
 - `components/crew/sections/TravelSection.tsx:588` unchanged (§1.1 item 8).
-- The three unmeasured pusher sites get `ml-auto` but **no new probe mount**. The §6 static guard is what closes the class repo-wide; adding three e2e mounts for surfaces with no observed defect is not paid for by this batch.
+- The three unmeasured pusher sites get `ml-auto` and the §9.3 test-10 trailing-alignment assertions, but **no new phantom-gap probe mount**. Per §6.1's narrowed scope the static guard closes only a syntactic subset — it is a tripwire, not repo-wide closure — so the boundary is stated honestly in both places: the three shapes it cannot reach stay covered by the existing runtime probes on the measured surfaces, and the pusher repairs get direct geometry assertions instead. Ratified deviation from BACKLOG.md:48 (root), reasoned in §9.3.
 
 ## 8. Transition inventory
 
-The header has 3 pill states (flag / judgment / none) × 2 count states × 2 link states × 2 heading levels. Presence of each element follows **data**, not a user-driven state change, and the modal remounts per show (`key={showId}`), so no element animates in or out within one mounted header.
+The header has 3 pill states (flag / judgment / none) × 2 count states × 2 link states × 2 heading levels. Presence of each element follows **data**, not a user-driven state change. **The header CAN change while mounted.** `key={showId}` (`app/admin/_showReviewModal.tsx:413-419`) remounts only when the SHOW changes; `router.refresh()` reconciles fresh data for the same show under the same key in place (`components/admin/showpage/PublishedReviewModal.tsx:162-174`), so a pill or count can appear, change, or disappear on a mounted header. Rounds 1 and 2 both flagged this; the round-2 correction did not land because the edit was applied without an assertion. The treatment stays instant — but the reason is that same-key reconciliation is deliberately unanimated, NOT that the change only happens across a remount.
 
 | Transition | Treatment |
 | ---------- | --------- |
@@ -336,7 +408,7 @@ The header has 3 pill states (flag / judgment / none) × 2 count states × 2 lin
 | Compound: pill appears while a re-sync mutates the count | instant on both; no animation to interleave, so no compound case exists |
 | Hover/focus on the sheet link | `transition-colors duration-fast` on colour only — preserved from the current link |
 
-No `AnimatePresence`, no ternary-rendered animated block is introduced. The one *layout* change that could be animated — the header growing 44px → 72.8px when a pill appears — is instant, because it only ever happens across a remount.
+No `AnimatePresence`, no ternary-rendered animated block is introduced. The one *layout* change that could be animated — the header growing 44px → 72.8px when a pill appears — is deliberately instant, and it DOES occur on a mounted header via same-key reconciliation, so the transition-audit task asserts that no layout transition is attached rather than relying on remount.
 
 ## 9. Tests
 
@@ -356,6 +428,15 @@ tautological if the expected centre is computed from the rendered name being tes
   centre against that independent figure, and additionally asserts the CROSS-STATE invariant:
   the linkless-padded states land within ±1px of the link-present state, which is the property
   `pr-header-link-slot` exists to produce.
+- **The count's rendered width is part of the oracle, and it is measured, not assumed.** Round 2
+  correctly showed the formula cannot come from fixed widths alone: with a top-level link the name
+  offset is `+4px − (6px count-gap + rendered count width) / 2`, and the count width differs
+  between `(0)`, two-digit and three-digit values — which is exactly what produces the −8.4px and
+  −17px rows. The oracle therefore measures the COUNT element's own width (a different element
+  from the name under test, so this is not self-referential), substitutes it into that formula, and
+  compares the result against the measured name centre. Reading the count's box to predict the
+  NAME's position is an independent measurement; reading the name's box to predict itself is the
+  tautology being avoided.
 - **Tolerances are numbers, not a reference.** §3.1.5 lists offsets, not tolerances. The
   contract asserted is: name text centre within **±2px** of the formula centre for a given
   state, and the per-state offsets in §3.1.5 reproduced within **±1px**.
@@ -369,8 +450,8 @@ tautological if the expected centre is computed from the rendered name being tes
    the heading's bounding box — the box is inflated by the link and reports "1 line" even when
    the text wraps. This exact error produced a wrong reading during spec measurement.
    Set `box-sizing: content-box` on the width-pinned wrapper (§11 item 4).
-2. **Width equalities** — the three §5 relationships (section → outer column → header/pill
-   lines), ±0.5px. Fails if `items-stretch`/`w-full` is omitted, which is what makes every
+2. **Width equalities** — the FULL §5 chain (pane → registry section → breakdown section → outer
+   column → header/pill lines, plus panel-card equality), ±0.5px. Fails if `items-stretch`/`w-full` is omitted, which is what makes every
    centring number meaningful.
 3. **Centring** — per §9.1, formula oracle + cross-state comparison.
 4. **Hit target — by hit TESTING, not by reading CSS.** An anchor's `getBoundingClientRect()`
@@ -428,7 +509,7 @@ per unit of cost:
 - **Invariant 8 (UI quality gate):** `components/**` and `DESIGN.md` are touched, so `/impeccable critique` **and** `/impeccable audit` both run on the diff before close-out, with findings and dispositions recorded. Pre-code mechanical sweep: em-dash ban in user-visible copy, apostrophe literals, 44px tap targets, canonical type/token classes.
 - **Invariant 10 (mutation-surface telemetry):** no mutating route, action, or admin surface is added or changed. N/A.
 - **Invariant 11 (worktree):** all work in `../FX-worktrees/section-header-rebuild`, branched off `origin/main`, with `pnpm install` + `pnpm worktree:link-env` + `pnpm preflight` completed before any test run.
-- **`DESIGN.md`:** §7a gains (a) the centered-section-header pattern with its measured offsets, and (b) an explicit note that a childless *growable* element used as a right-pusher is replaced by `ml-auto` rather than hidden at a breakpoint — the decorative-hairline rule already there does not cover pushers, which is why five sites drifted.
+- **`DESIGN.md`:** §7a gains (a) the centered-section-header pattern with its measured offsets, and (b) an explicit note that a childless *growable* element used as a right-pusher is replaced by `ml-auto` rather than hidden at a breakpoint — the decorative-hairline rule already there does not cover pushers, which is why five sites drifted. (c) The corrected hairline guidance: measure before hiding — a rule that never collapses gets a floor, not a breakpoint. (d) **Reconcile a now-false sentence:** `DESIGN.md:327` says the decorative `flex-1` rule "is not childless" and that the empty-element selector never matches it. Both real rules — `components/admin/BulkIgnoreControls.tsx:200` and `components/admin/wizard/step3ReviewSections.tsx:2150` — ARE childless spans, so it does match. §7a needs the distinction between an intentionally PAINTED empty element (a decorative rule: must stay visible, so `empty:hidden` is exactly wrong for it) and an empty CONTENT SLOT (nothing to show: `empty:hidden` is right). (e) Document `--spacing-header-link-slot`.
 
 ## 11. Measurement method (reproducible)
 
