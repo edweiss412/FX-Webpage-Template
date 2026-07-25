@@ -181,6 +181,14 @@ Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-h
 
 The decisive blocker is `BL-WATCH-EXPIRED-ACTIVE-ROW`: refresh, not reconcile, is the dominant retry path, and it is ungated. A ladder attached to reconcile therefore cannot deliver backoff at all. Fix the three entries below first.
 
+## BL-WATCH-DRIVE-CALL-TIMEOUT — `files.watch` has no timeout, so one stalled call can hold the renewal loop
+
+**Status:** OPEN · **Severity:** low-medium · **Surfaced:** 2026-07-25, whole-diff review round 6
+
+`getDriveClient()` sets no global timeout and `files.watch` is called with no per-call options, so a stalled Drive request blocks the sequential renewal loop in `refreshWatchSubscriptions` for as long as the platform allows. The master spec claimed "time-boxed (default 15s)" for years; nothing implemented it, and that wording is now corrected rather than left as a false promise.
+
+This is why `2026-07-25-watch-lease-slack-design.md` claims **no** renewal-timing guarantee: every such claim would be parameterised by an execution budget nothing enforces. Adding a real per-call timeout (and a per-row deadline in the loop) is the prerequisite for making any timing guarantee defensible — including the deferred backoff work.
+
 ## BL-WATCH-EXPIRED-ACTIVE-ROW — a failed renewal leaves the old channel active forever, retried on every tick
 
 **Status:** OPEN · **Severity:** medium (unbounded futile Drive calls; blocks `BL-WATCH-RECONCILE-BACKOFF`) · **Surfaced:** 2026-07-25, adversarial round 5

@@ -8,6 +8,8 @@
 // unit-suite-nodb on a runner with no Supabase and no psql): the WatchTx is a
 // local fake and the Drive client is mocked.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 import type { WatchTx } from "@/lib/drive/watch";
@@ -173,7 +175,7 @@ describe("short-grant anomaly (§3.3)", () => {
   // A lease no longer than one sampling period cannot be renewed reliably at any
   // phase — no lead value fixes that, so it is surfaced rather than absorbed.
   // The boundary is `<=`: a lease of exactly one period, activated just after a
-  // tick, expires AT the next examination rather than strictly before it.
+  // tick, sits exactly on the threshold rather than clear of it.
   // `remainingAtActivationMs` is what the check must use — NOT the nominal grant.
   // `elapsedMs` models time consumed by the pending insert plus the Drive
   // round-trip, so the two are deliberately different numbers.
@@ -191,7 +193,7 @@ describe("short-grant anomaly (§3.3)", () => {
     return logRecords.filter((r) => r.code === "DRIVE_WATCH_GRANT_TOO_SHORT");
   }
 
-  test("fires at exactly one sampling period (well inside the unsafe band)", async () => {
+  test("fires at exactly one sampling period (well below the threshold)", async () => {
     const { SAMPLING_PERIOD_MS } = await import("@/lib/drive/watchErrors");
     const hits = await grantOf(SAMPLING_PERIOD_MS);
     expect(hits).toHaveLength(1);
@@ -215,7 +217,8 @@ describe("short-grant anomaly (§3.3)", () => {
   test("STILL fires at P + T — being examined is not the same as completing", async () => {
     // The regression this pins: a lease with P+T+1ms at activation is examined
     // with 1ms left, which cannot cover a files.watch round-trip plus
-    // activation. The completion budget is why the bound is P + 2T, not P + T.
+    // activation. That second T is why the threshold is sized at P + 2T rather
+    // than P + T — a sizing rationale, not a claim that either T is enforced.
     const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
     expect(await grantOf(SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS + 1)).toHaveLength(1);
   });
@@ -243,12 +246,18 @@ describe("short-grant anomaly (§3.3)", () => {
     });
   });
 
-  test("T_EXEC_BUDGET_MS matches the scheduler's request budget, not a guess", async () => {
+  test("T_EXEC_BUDGET_MS is READ FROM the scheduler migration, not restated", async () => {
+    // R6 finding 5: the previous version asserted the literal 300_000 twice and
+    // never opened the migration it cited, so changing the scheduler timeout
+    // while leaving the constant alone kept it green. It now parses the value.
     const { T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
-    // files.watch carries no timeout and renewals run sequentially, so the only
-    // defensible ceiling is pg_net's timeout_milliseconds = 300000
-    // (supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22).
-    expect(T_EXEC_BUDGET_MS).toBe(300_000);
+    const migration = readFileSync(
+      join(process.cwd(), "supabase/migrations/20260527000003_schedule_cron_jobs.sql"),
+      "utf8",
+    );
+    const m = /timeout_milliseconds\s*:?=\s*([0-9_]+)/.exec(migration);
+    expect(m, "scheduler migration no longer declares timeout_milliseconds").not.toBeNull();
+    expect(T_EXEC_BUDGET_MS).toBe(Number(m![1]!.replace(/_/g, "")));
   });
 });
 

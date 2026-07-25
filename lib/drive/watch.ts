@@ -209,16 +209,18 @@ class PostgresWatchTx implements WatchTx {
     minLeadMs: number;
     lifeFraction: number;
   }): Promise<WatchChannelRow[]> {
-    // Renew once the row has burned `lifeFraction` of its OWN granted life, but
-    // never with less than `minLeadMs` remaining. Both terms are required: the
+    // Renew once the row's REMAINING life falls to `lifeFraction` of its own
+    // granted life — `lifeFraction` is the remaining-life fraction, the
+    // complement the caller passes, NOT the fraction already burned — or to
+    // `minLeadMs`, whichever is larger. Both terms earn their place: the
     // proportional one keeps a long lease from churning every tick, and the
-    // floor keeps a short lease from coming due after the next sampling tick
-    // (spec §2.1). `greatest` over an interval and a computed interval gives the
-    // max of the two leads.
+    // floor keeps a short lease from being noticed only once. `greatest` over
+    // the two intervals picks the larger lead.
     //
-    // `expires_at <= created_at` (clock skew, zero-length grant) makes the
-    // proportional term <= 0, so the floor wins and the row is due immediately —
-    // a nonsense lease is replaced at the first opportunity.
+    // An inverted or zero-length lease is made due by the EXPLICIT disjunct
+    // below, not by the floor: for `created_at > expires_at > now + floor` the
+    // proportional term is negative, `greatest` picks the floor, and the row
+    // would NOT be selected. Do not delete that disjunct as redundant.
     const rows = await this.rows<{
       id: string;
       status: WatchChannelStatus;
