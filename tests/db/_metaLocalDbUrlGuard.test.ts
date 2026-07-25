@@ -23,6 +23,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
 import { assertLocalDbUrl, assertLocalDbUrlIfSet } from "./_localDbUrl";
@@ -81,8 +82,10 @@ describe("assertLocalDbUrl (spec §2.3)", () => {
     const secret = "sup3rs3cret";
     const credentialed = `postgresql://postgres:${secret}@remote.example:5432/db`;
     const unparseable = `postgres//postgres:${secret}@:::`;
+    // A password may contain an unescaped `@`; a lazy redaction echoes its tail.
+    const atInPassword = `postgresql://postgres:sup3r@${secret}@remote.example:5432/db`;
 
-    for (const value of [credentialed, unparseable]) {
+    for (const value of [credentialed, unparseable, atInPassword]) {
       let message = "";
       try {
         assertLocalDbUrl(value);
@@ -232,6 +235,51 @@ describe("classifyLocalDbUrlSource — synthetic shapes (spec §2.6)", () => {
     expect(classifyLocalDbUrlSource(chain)).toMatchObject({ envReads: 1, unguardedReads: 1 });
   });
 
+  test("guard provenance cannot be spoofed (whole-diff R2 finding 2)", () => {
+    const read = `const U = assertLocalDbUrl(${ENV} ?? ${DEFAULT_DSN});`;
+    // A sibling module that merely ENDS in the guard's name is not the guard: the
+    // specifier is resolved against the file's own path.
+    const sibling = ['import { assertLocalDbUrl } from "./_localDbUrl";', read].join("\n");
+    expect(classifyLocalDbUrlSource(sibling, "tests/somewhere/else.ts")).toMatchObject({
+      unguardedReads: 1,
+    });
+    // The SAME specifier from inside tests/db IS the guard.
+    expect(classifyLocalDbUrlSource(sibling, "tests/db/some.db.test.ts")).toMatchObject({
+      unguardedReads: 0,
+    });
+    // …and so is the relative form the onboarding suites actually use.
+    const fromOnboarding = ['import { assertLocalDbUrl } from "../db/_localDbUrl";', read].join(
+      "\n",
+    );
+    expect(
+      classifyLocalDbUrlSource(fromOnboarding, "tests/onboarding/some.db.test.ts"),
+    ).toMatchObject({ unguardedReads: 0 });
+    const foreign = ['import { assertLocalDbUrl } from "@/lib/vendor/_localDbUrl";', read].join(
+      "\n",
+    );
+    expect(classifyLocalDbUrlSource(foreign)).toMatchObject({ unguardedReads: 1 });
+
+    // A real import SHADOWED by a local declaration of the same name is not a guard
+    // either: we do not model block scope, so the name is poisoned outright.
+    const shadowed = [GUARD_IMPORT, "function assertLocalDbUrl(x) { return x; }", read].join("\n");
+    expect(classifyLocalDbUrlSource(shadowed)).toMatchObject({ unguardedReads: 1 });
+  });
+
+  test("the remaining env-read forms are reads too (whole-diff R2 finding 3)", () => {
+    const forms = [
+      'const KEY = "LOCAL_TEST_DATABASE_URL";\nconst U = process.env[KEY];',
+      "const U = (process.env as NodeJS.ProcessEnv).LOCAL_TEST_DATABASE_URL;",
+      "const U = process.env!.LOCAL_TEST_DATABASE_URL;",
+      'import { env } from "node:process";\nconst U = env.LOCAL_TEST_DATABASE_URL;',
+      "let e;\ne = process.env;\nconst U = e.LOCAL_TEST_DATABASE_URL;",
+      "const { env: e } = process;\nconst U = e.LOCAL_TEST_DATABASE_URL;",
+      'const { ["LOCAL_TEST_DATABASE_URL"]: url } = process.env;',
+    ];
+    for (const src of forms) {
+      expect(classifyLocalDbUrlSource(src), src).toMatchObject({ envReads: 1, unguardedReads: 1 });
+    }
+  });
+
   test("a MENTION in a comment or string is not a read (this is what keeps this file out of its own scan set)", () => {
     const src = [
       "// LOCAL_TEST_DATABASE_URL is documented here",
@@ -321,12 +369,10 @@ describe(
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {
-      // tests/sync/qualityRegressionLifecycle.test.ts deliberately runs against the
-      // validation project when TEST_DATABASE_URL is set (its own gate at :439-449
-      // fails rather than skips when an explicit URL cannot connect). Guarding that
-      // leg would break it by design; leaving the LOCAL_ leg unguarded would keep the
-      // remote-DELETE hazard alive in the one file that DELETEs from admin_alerts and
-      // shows. Both halves are asserted here because either alone is wrong.
+      // Asserted STRUCTURALLY, not by substring: two independent `toContain` checks
+      // do not prove the halves belong to the same expression, so reversing the
+      // operands would leave them green while evaluating the LOCAL guard even when
+      // TEST_DATABASE_URL is set (whole-diff R2 finding 5).
       const path = "tests/sync/qualityRegressionLifecycle.test.ts";
       const src = readFileSync(join(process.cwd(), path), "utf8");
 
@@ -335,11 +381,41 @@ describe(
         unguardedReads: 0,
         exemptReason: null,
       });
-      expect(src).toContain("assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL)");
-      expect(src, "the validation leg must stay unconstrained").toContain(
-        "process.env.TEST_DATABASE_URL ??",
+
+      const sourceFile = ts.createSourceFile(
+        path,
+        src,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS,
       );
-      expect(src).not.toContain("assertLocalDbUrl(process.env.TEST_DATABASE_URL");
+      let precedence: { left: string; right: string } | null = null;
+      const visit = (node: ts.Node): void => {
+        if (
+          ts.isVariableDeclaration(node) &&
+          ts.isIdentifier(node.name) &&
+          node.name.text === "DB_URL_EXPLICIT" &&
+          node.initializer &&
+          ts.isBinaryExpression(node.initializer) &&
+          node.initializer.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+        ) {
+          precedence = {
+            left: node.initializer.left.getText(sourceFile),
+            right: node.initializer.right.getText(sourceFile),
+          };
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(sourceFile);
+
+      expect(precedence, "DB_URL_EXPLICIT is no longer a `??` expression").not.toBeNull();
+      const resolved = precedence as unknown as { left: string; right: string };
+      // The validation leg is consulted FIRST and stays unconstrained…
+      expect(resolved.left).toBe("process.env.TEST_DATABASE_URL");
+      // …and the LOCAL leg is only reached when it is nullish, already guarded.
+      expect(resolved.right.replace(/\s+/g, "")).toBe(
+        "assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL)",
+      );
     });
   },
 );

@@ -200,6 +200,41 @@ describe("resolveNavHrefs (spec §3.3 Layer B)", () => {
   });
 });
 
+describe("KNOWN LIMITS — pinned so they are not silent (spec §7)", () => {
+  // These are recorded, not fixed. Resolving them needs interprocedural argument
+  // binding, which is a different tool than a positional scanner. The tests exist so
+  // the boundary is executable: if a future change starts catching one of these, the
+  // test fails and the residual list gets updated deliberately.
+  test("a PARAMETERIZED helper is not resolved", () => {
+    const src = [
+      "function joinPath(a, b) { return a + b; }",
+      `const u = joinPath("/admin/onboarding/", "staged/");`,
+    ].join("\n");
+    expect(classifyRetiredPathOccurrences(src)).toEqual([]);
+  });
+
+  test("a REASSIGNED binding is not tracked", () => {
+    const src = [
+      'let base = "/safe/";',
+      'base = "/admin/onboarding/";',
+      'const u = base + "staged/";',
+    ].join("\n");
+    expect(classifyRetiredPathOccurrences(src)).toEqual([]);
+  });
+
+  test("a BLOCK-SCOPED constant is not resolved (module scope only)", () => {
+    // Deliberate: name-keyed resolution across scopes produces both false negatives
+    // and false positives, which is worse than a documented gap.
+    const src = [
+      "function f() {",
+      '  const A = "/admin/onboarding/";',
+      '  return A + "staged/" + id;',
+      "}",
+    ].join("\n");
+    expect(classifyRetiredPathOccurrences(src)).toEqual([]);
+  });
+});
+
 describe("the retired same-line predicate vs the new guard (spec §5 test 9)", () => {
   // The exact predicate step3DeletionSafety.test.ts used before this change.
   function oldSameLinePredicate(src: string): number {

@@ -42,7 +42,13 @@ describe("the retry route is actually WIRED to the classifier (whole-diff findin
   // route's export-fault catch constructs its error FROM the classifier.
   const ROUTE = "app/api/admin/pending-ingestions/[id]/retry/route.ts";
 
-  test("FirstSeenStagePrepareError for the export fault is built from firstSeenPrepareCodeFor", () => {
+  test("the EXPORT catch specifically builds its error from the classifier", () => {
+    // "SOME constructor uses the classifier" is not enough: the export catch could
+    // regress to a hardcoded Drive code while an unrelated constructor kept it
+    // (whole-diff R2 finding 6). This finds the try/catch that wraps the export call
+    // and reads THAT catch's throw. The enrich catch further down legitimately
+    // hardcodes DRIVE_FETCH_FAILED (a Drive-pin fetch really is a Drive fault), so a
+    // blanket "no literal anywhere" rule would be wrong.
     const src = readFileSync(join(process.cwd(), ROUTE), "utf8");
     const sourceFile = ts.createSourceFile(
       ROUTE,
@@ -52,25 +58,29 @@ describe("the retry route is actually WIRED to the classifier (whole-diff findin
       ts.ScriptKind.TS,
     );
 
-    const codeArgs: string[] = [];
+    let exportCatchCode: string | null = null;
     const visit = (node: ts.Node): void => {
-      if (
-        ts.isNewExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "FirstSeenStagePrepareError"
-      ) {
-        const [first] = node.arguments ?? [];
-        if (first) codeArgs.push(first.getText(sourceFile));
+      if (ts.isTryStatement(node) && node.catchClause) {
+        const tryText = node.tryBlock.getText(sourceFile);
+        if (tryText.includes("fetchSheetMarkdownAndBytesAtRevision")) {
+          const catchText = node.catchClause.block.getText(sourceFile);
+          const match = /new FirstSeenStagePrepareError\(\s*([^,]+),/.exec(catchText);
+          exportCatchCode = match ? (match[1] ?? "").trim() : `<no construction: ${catchText}>`;
+        }
       }
       ts.forEachChild(node, visit);
     };
     visit(sourceFile);
 
-    expect(codeArgs.length, "the route no longer constructs the prepare error").toBeGreaterThan(0);
     expect(
-      codeArgs.some((arg) => arg.startsWith("firstSeenPrepareCodeFor(")),
-      `no FirstSeenStagePrepareError is built from the classifier; args were: ${codeArgs.join(", ")}`,
-    ).toBe(true);
+      exportCatchCode,
+      "no try/catch in the route wraps fetchSheetMarkdownAndBytesAtRevision",
+    ).not.toBeNull();
+    expect(
+      exportCatchCode,
+      "the export catch no longer classifies the fault; a corrupt workbook would " +
+        "regress to the Drive 502 with check-your-share-settings guidance",
+    ).toBe("firstSeenPrepareCodeFor(cause)");
   });
 
   test("the route imports the classifier", () => {

@@ -28,19 +28,69 @@ export type LocalDbUrlClassification = {
 const GUARD_NAMES = new Set(["assertLocalDbUrl", "assertLocalDbUrlIfSet"]);
 const ENV_VAR = "LOCAL_TEST_DATABASE_URL";
 const EXEMPT_RE = /\/\/\s*local-db-url-exempt:(.*)$/;
+/** The ONLY modules whose exports count as the guard, by RESOLVED repo path. */
+const GUARD_MODULES = new Set(["tests/db/_localDbUrl", "tests/db/_remediationHelpers"]);
 
-function unwrapParens(node: ts.Expression): ts.Expression {
-  let cur = node;
-  while (ts.isParenthesizedExpression(cur)) cur = cur.expression;
-  return cur;
+/**
+ * Resolve an import specifier to a repo-relative path and decide whether it is the
+ * guard module. A specifier is NOT trusted for merely ending in the right word: a
+ * sibling `./_localDbUrl` next to some other suite would otherwise satisfy
+ * provenance while exporting a no-op (whole-diff R2 finding 2).
+ */
+function isGuardModule(specifier: string, fileName: string): boolean {
+  if (specifier.startsWith("@/")) return GUARD_MODULES.has(specifier.slice(2));
+  if (!specifier.startsWith(".")) return false;
+  const segments = fileName.replace(/\\/g, "/").split("/").slice(0, -1);
+  for (const part of specifier.split("/")) {
+    if (part === "." || part === "") continue;
+    if (part === "..") segments.pop();
+    else segments.push(part);
+  }
+  const resolved = segments.join("/");
+  return [...GUARD_MODULES].some((mod) => resolved === mod || resolved.endsWith(`/${mod}`));
 }
 
-/** The static member name of a `.x` or `["x"]` access, when there is one. */
-function memberName(node: ts.PropertyAccessExpression | ts.ElementAccessExpression): string | null {
+/** Strip wrappers that change nothing about the value: `(x)`, `x as T`, `x!`, `<T>x`. */
+function unwrapParens(node: ts.Expression): ts.Expression {
+  let cur = node;
+  for (;;) {
+    if (ts.isParenthesizedExpression(cur)) cur = cur.expression;
+    else if (ts.isAsExpression(cur) || ts.isSatisfiesExpression(cur)) cur = cur.expression;
+    else if (ts.isNonNullExpression(cur) || ts.isTypeAssertionExpression(cur)) cur = cur.expression;
+    else return cur;
+  }
+}
+
+/**
+ * The static member name of a `.x` or `["x"]` access. A bracket key bound to a const
+ * (`const KEY = "LOCAL_TEST_DATABASE_URL"; process.env[KEY]`) resolves through
+ * `stringConsts`, so the indirection is not a bypass (whole-diff R2 finding 3).
+ */
+function memberName(
+  node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+  stringConsts: ReadonlyMap<string, string> = new Map(),
+): string | null {
   if (ts.isPropertyAccessExpression(node)) return node.name.text;
-  const arg = node.argumentExpression;
+  const arg = unwrapParens(node.argumentExpression);
   if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) return arg.text;
+  if (ts.isIdentifier(arg)) return stringConsts.get(arg.text) ?? null;
   return null;
+}
+
+/** Every `const X = "literal"` in the file, for bracket-key resolution. */
+function collectStringConsts(sourceFile: ts.SourceFile): Map<string, string> {
+  const out = new Map<string, string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const init = unwrapParens(node.initializer);
+      if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)) {
+        out.set(node.name.text, init.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return out;
 }
 
 /**
@@ -52,20 +102,33 @@ function memberName(node: ts.PropertyAccessExpression | ts.ElementAccessExpressi
  * structural test would report every file guarded while a suite read the variable
  * through an alias and connected to a remote database (whole-diff R2 finding 1).
  */
-function isProcessEnv(node: ts.Expression, envAliases: ReadonlySet<string>): boolean {
+function isProcessEnv(
+  node: ts.Expression,
+  envAliases: ReadonlySet<string>,
+  stringConsts: ReadonlyMap<string, string> = new Map(),
+): boolean {
   const expr = unwrapParens(node);
   if (ts.isIdentifier(expr)) return envAliases.has(expr.text);
   if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) {
     const base = unwrapParens(expr.expression);
-    return ts.isIdentifier(base) && base.text === "process" && memberName(expr) === "env";
+    return (
+      ts.isIdentifier(base) && base.text === "process" && memberName(expr, stringConsts) === "env"
+    );
   }
   return false;
 }
 
 /** A member read of the variable off any `process.env` spelling. */
-function isEnvRead(node: ts.Node, envAliases: ReadonlySet<string>): boolean {
+function isEnvRead(
+  node: ts.Node,
+  envAliases: ReadonlySet<string>,
+  stringConsts: ReadonlyMap<string, string>,
+): boolean {
   if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-    return isProcessEnv(node.expression, envAliases) && memberName(node) === ENV_VAR;
+    return (
+      isProcessEnv(node.expression, envAliases, stringConsts) &&
+      memberName(node, stringConsts) === ENV_VAR
+    );
   }
   return false;
 }
@@ -75,16 +138,57 @@ function isEnvRead(node: ts.Node, envAliases: ReadonlySet<string>): boolean {
  * `const e2 = env`. Collected before the read walk so an alias declared anywhere in
  * the file is recognised at every use site.
  */
-function collectEnvAliases(sourceFile: ts.SourceFile): Set<string> {
+function collectEnvAliases(
+  sourceFile: ts.SourceFile,
+  stringConsts: ReadonlyMap<string, string>,
+): Set<string> {
   const aliases = new Set<string>();
   // Iterate to a FIXPOINT, not a fixed number of passes: `const a = process.env;
   // const b = a; const c = b; …` is a chain of arbitrary length, and a bounded pass
   // count silently stops recognising reads past the bound (whole-diff finding 1a).
+  // `import { env } from "node:process"` is the same object under another name.
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const spec = statement.moduleSpecifier;
+    if (!ts.isStringLiteral(spec) || !/^(node:)?process$/.test(spec.text)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        if ((element.propertyName ?? element.name).text === "env") aliases.add(element.name.text);
+      }
+    }
+  }
+
   for (;;) {
     const before = aliases.size;
     const visit = (node: ts.Node): void => {
+      // const e = process.env
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-        if (isProcessEnv(node.initializer, aliases)) aliases.add(node.name.text);
+        if (isProcessEnv(node.initializer, aliases, stringConsts)) aliases.add(node.name.text);
+      }
+      // let e; e = process.env
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(node.left) &&
+        isProcessEnv(node.right, aliases, stringConsts)
+      ) {
+        aliases.add(node.left.text);
+      }
+      // const { env: e } = process
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isObjectBindingPattern(node.name) &&
+        node.initializer &&
+        ts.isIdentifier(unwrapParens(node.initializer)) &&
+        (unwrapParens(node.initializer) as ts.Identifier).text === "process"
+      ) {
+        for (const element of node.name.elements) {
+          const source = element.propertyName ?? element.name;
+          if (ts.isIdentifier(source) && source.text === "env" && ts.isIdentifier(element.name)) {
+            aliases.add(element.name.text);
+          }
+        }
       }
       ts.forEachChild(node, visit);
     };
@@ -99,13 +203,15 @@ function collectEnvAliases(sourceFile: ts.SourceFile): Set<string> {
  * `function assertLocalDbUrl(x) { return x }` would otherwise satisfy the meta-test
  * by name alone while doing nothing (whole-diff finding 1b).
  */
-function collectImportedGuardNames(sourceFile: ts.SourceFile): Set<string> {
+function collectImportedGuardNames(sourceFile: ts.SourceFile, fileName: string): Set<string> {
   const imported = new Set<string>();
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement)) continue;
     const spec = statement.moduleSpecifier;
     if (!ts.isStringLiteral(spec)) continue;
-    if (!/(_localDbUrl|_remediationHelpers)$/.test(spec.text)) continue;
+    // EXACT module, not "any path ending in the name": a sibling `./_localDbUrl`
+    // exporting a no-op would otherwise satisfy provenance (whole-diff R2 finding 2).
+    if (!isGuardModule(spec.text, fileName)) continue;
     const bindings = statement.importClause?.namedBindings;
     if (!bindings || !ts.isNamedImports(bindings)) continue;
     for (const element of bindings.elements) {
@@ -114,7 +220,26 @@ function collectImportedGuardNames(sourceFile: ts.SourceFile): Set<string> {
       if (GUARD_NAMES.has(original)) imported.add(element.name.text);
     }
   }
+  // A LOCAL declaration of the same name shadows the import at some or all call
+  // sites, and we do not model block scope — so treat any local binding with a guard
+  // name as poisoning that name entirely (fail-closed).
+  for (const shadowed of collectLocallyDeclaredNames(sourceFile)) imported.delete(shadowed);
   return imported;
+}
+
+/** Names bound by a declaration in this file (function, class, variable, parameter). */
+function collectLocallyDeclaredNames(sourceFile: ts.SourceFile): Set<string> {
+  const declared = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) {
+      declared.add(node.name.text);
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) declared.add(node.name.text);
+    if (ts.isParameter(node) && ts.isIdentifier(node.name)) declared.add(node.name.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return declared;
 }
 
 /**
@@ -128,6 +253,7 @@ function collectImportedGuardNames(sourceFile: ts.SourceFile): Set<string> {
 function countDestructuredReads(
   sourceFile: ts.SourceFile,
   envAliases: ReadonlySet<string>,
+  stringConsts: ReadonlyMap<string, string>,
 ): number {
   let count = 0;
   const visit = (node: ts.Node): void => {
@@ -135,11 +261,25 @@ function countDestructuredReads(
       ts.isVariableDeclaration(node) &&
       ts.isObjectBindingPattern(node.name) &&
       node.initializer &&
-      isProcessEnv(node.initializer, envAliases)
+      isProcessEnv(node.initializer, envAliases, stringConsts)
     ) {
       for (const element of node.name.elements) {
         const sourceName = element.propertyName ?? element.name;
-        if (ts.isIdentifier(sourceName) && sourceName.text === ENV_VAR) count += 1;
+        // Plain, aliased, AND computed (`{ ["LOCAL_TEST_DATABASE_URL"]: url }`).
+        const text = ts.isIdentifier(sourceName)
+          ? sourceName.text
+          : ts.isStringLiteral(sourceName) || ts.isNoSubstitutionTemplateLiteral(sourceName)
+            ? sourceName.text
+            : ts.isComputedPropertyName(sourceName)
+              ? (() => {
+                  const key = unwrapParens(sourceName.expression);
+                  if (ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key)) {
+                    return key.text;
+                  }
+                  return ts.isIdentifier(key) ? (stringConsts.get(key.text) ?? null) : null;
+                })()
+              : null;
+        if (text === ENV_VAR) count += 1;
       }
     }
     ts.forEachChild(node, visit);
@@ -196,13 +336,14 @@ export function classifyLocalDbUrlSource(
     fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
 
-  const envAliases = collectEnvAliases(sourceFile);
-  const guardNames = collectImportedGuardNames(sourceFile);
+  const stringConsts = collectStringConsts(sourceFile);
+  const envAliases = collectEnvAliases(sourceFile, stringConsts);
+  const guardNames = collectImportedGuardNames(sourceFile, fileName);
   let envReads = 0;
   let unguardedReads = 0;
 
   const visit = (node: ts.Node): void => {
-    if (isEnvRead(node, envAliases)) {
+    if (isEnvRead(node, envAliases, stringConsts)) {
       envReads += 1;
       if (!isGuarded(node, guardNames)) unguardedReads += 1;
       // Do not descend: the inner `process.env` is part of this read.
@@ -212,7 +353,7 @@ export function classifyLocalDbUrlSource(
   };
   visit(sourceFile);
 
-  const destructured = countDestructuredReads(sourceFile, envAliases);
+  const destructured = countDestructuredReads(sourceFile, envAliases, stringConsts);
   envReads += destructured;
   unguardedReads += destructured;
 

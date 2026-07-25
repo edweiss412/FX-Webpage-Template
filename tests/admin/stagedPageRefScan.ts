@@ -87,8 +87,18 @@ function resolveBinding(node: ts.Expression, scope: FileScope, hops: number): st
     const bound = scope.consts.get(expr.text);
     return bound ? flatten(bound, scope, hops + 1) : null;
   }
-  if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
-    const value = scope.objects.get(expr.expression.text)?.get(expr.name.text);
+  if (
+    (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) &&
+    ts.isIdentifier(expr.expression)
+  ) {
+    // `segments.base` AND `segments["base"]` reach the same value.
+    const key = ts.isPropertyAccessExpression(expr)
+      ? expr.name.text
+      : ts.isStringLiteral(expr.argumentExpression) ||
+          ts.isNoSubstitutionTemplateLiteral(expr.argumentExpression)
+        ? expr.argumentExpression.text
+        : null;
+    const value = key === null ? undefined : scope.objects.get(expr.expression.text)?.get(key);
     return value ? flatten(value, scope, hops + 1) : null;
   }
   if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) {
@@ -109,7 +119,7 @@ function resolveBinding(node: ts.Expression, scope: FileScope, hops: number): st
  * (whole-diff finding 3).
  */
 function flatten(node: ts.Expression, scope?: FileScope, hops = 0): string | null {
-  if (scope && hops <= 4) {
+  if (scope && hops <= 12) {
     const resolved = resolveBinding(node, scope, hops);
     if (resolved !== null) return resolved;
   }
@@ -258,6 +268,12 @@ function singleReturnExpression(node: ts.Node): ts.Expression | null {
   return null;
 }
 
+/**
+ * MODULE-SCOPE declarations only. Collecting nested ones keyed by name lets an inner
+ * `const BASE = "/safe/"` overwrite an outer retired base (false negative) or the
+ * reverse (false positive) — the walker does not model block scope, so it only reads
+ * the one scope where the name is unambiguous (whole-diff R2 finding 4).
+ */
 function collectScope(sourceFile: ts.SourceFile): FileScope {
   const scope: FileScope = { consts: new Map(), returns: new Map(), objects: new Map() };
 
@@ -280,15 +296,29 @@ function collectScope(sourceFile: ts.SourceFile): FileScope {
           ) {
             props.set(prop.name.text, prop.initializer);
           }
+          // `{ base, leaf }` — shorthand carries the value of the same-named const.
+          if (ts.isShorthandPropertyAssignment(prop)) {
+            const bound = scope.consts.get(prop.name.text);
+            if (bound) props.set(prop.name.text, bound);
+          }
         }
         scope.objects.set(node.name.text, props);
       } else {
         scope.consts.set(node.name.text, init);
       }
     }
+    // Do NOT descend into function bodies: those declarations are block-scoped.
+    if (
+      ts.isFunctionDeclaration(node) ||
+      ts.isFunctionExpression(node) ||
+      ts.isArrowFunction(node) ||
+      ts.isMethodDeclaration(node)
+    ) {
+      return;
+    }
     ts.forEachChild(node, visit);
   };
-  visit(sourceFile);
+  ts.forEachChild(sourceFile, visit);
   return scope;
 }
 

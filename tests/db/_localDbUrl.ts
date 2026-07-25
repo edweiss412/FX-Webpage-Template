@@ -20,9 +20,15 @@
 
 const ACCEPTED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
-/** `scheme://user:pass@host/db` → `scheme://***@host/db`. Never returns the userinfo. */
+/**
+ * `scheme://user:pass@host/db` → `scheme://***@host/db`. Never returns the userinfo.
+ *
+ * Greedy to the LAST `@` in the authority: a password may legitimately contain an
+ * unescaped `@` (`postgres:sup3r@secret@host`), and a lazy match would echo the tail
+ * of the password into CI logs (whole-diff R2 finding 1).
+ */
 function redactDsn(url: string): string {
-  return url.replace(/\/\/[^/@\s]*@/, "//***@");
+  return url.replace(/\/\/[^/\s]*@/, "//***@");
 }
 
 function refuseUnparseable(url: string): never {
