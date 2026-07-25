@@ -1464,28 +1464,16 @@ test.describe("phantom gap — zero-height flex items charge their parent's gap"
    * Why rows are scoped and counted rather than matched on the label triple is in
    * `PhantomLedgerRow` (tests/e2e/helpers/phantomGap.ts); read it before adding a row.
    *
-   * The one debt below is PRE-EXISTING and lives in a component the seam fix did not
-   * touch (`components/admin/BulkIgnoreControls.tsx:179`): the warning group's
-   * decorative `h-px flex-1 bg-border` hairline. In a crowded `flex items-center
-   * gap-2` row at 375px the label and the bulk chip consume the line, `flex-1`
-   * resolves to zero width, and the row still charges `gap-2` on both sides of an
-   * invisible rule — one extra 8px, exactly this class. Fixing it is a visual
-   * decision about crowded-row behavior at narrow widths (drop the rule below some
-   * width? give it a min-width? let the row wrap?), which belongs with that
-   * component and its own before/after judgment. Carried as
-   * BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW.
+   * EMPTY. The one row this ledger ever carried — BulkIgnoreControls' eyebrow
+   * hairline (`h-px flex-1 bg-border`) collapsing to 0 width in a crowded
+   * `gap-2` row at 375px — was PAID OFF, not re-deferred: the rule is now
+   * `hidden` below 480px (spec 2026-07-24-dq-eyebrow-divider-and-confirm-bar
+   * §3.1, BulkIgnoreControls.tsx:175), so it charges no gap and
+   * BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW is closed. A row kept past its debt masks
+   * a later offender with the same label triple, which is why the stale-row
+   * assertion below fails on one.
    */
-  const KNOWN_PHANTOM_ITEMS: PhantomLedgerRow[] = [
-    ...(["crewwarnings.html", "crewwarningscapped.html"] as const).map((surface) => ({
-      surface,
-      width: 375,
-      parent: "<div in dq-active-group-FIELD_UNREADABLE>",
-      child: "<span in dq-active-group-FIELD_UNREADABLE>",
-      axis: "column-gap" as const,
-      count: 1,
-      why: "BulkIgnoreControls.tsx:179 decorative hairline collapses to 0 width in a crowded row at 375px — pre-existing, deferred to BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW",
-    })),
-  ];
+  const KNOWN_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
 
   for (const { page: htmlPath, label } of NOPHANTOM_PAGES) {
     for (const { mode, width, height: vh } of MODES) {

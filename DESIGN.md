@@ -324,6 +324,8 @@ Two caveats:
 
 Verified in a real browser, never in jsdom (no layout computed there, and a class-presence assertion only restates the fix): `T-OVERVIEW-TIGHT` measures the slack below a section's last child with real extent, and `T-NOPHANTOM` walks the whole rendered modal for zero-extent in-flow items inside any gapped container — both in `tests/e2e/published-review-modal.layout.spec.ts`. Current sites: `components/admin/showpage/OverviewSection.tsx` (sheet/sync slot) and `ScheduleDayRow`'s 2-track time grid in `components/admin/wizard/step3ReviewSections.tsx`.
 
+**The zero-WIDTH sibling — same seam, different cause, and `empty:hidden` does not reach it.** A decorative `flex-1` rule between a label and a control is not childless; it is squeezed. When the row's other items fill the line, `flex-1` resolves `flex-basis: 0` with nothing left to grow into, the rule settles at 0 px, and the row still spends its `gap` on both sides of it. `:empty` never matches, so the §7a idiom above is no defense. Rule: a decorative rule in a row that can get crowded carries (a) a breakpoint that removes it from flow where it would collapse — `hidden min-[480px]:block`, the boundary MEASURED rather than assumed — and (b) a `min-w-*` floor at the widths where it is drawn, so the zero-width state is unreachable in containers the measurement never covered. Site: `components/admin/BulkIgnoreControls.tsx` (data-quality group eyebrow), where the rule measured 0 px at every width from 320 to 430 and first drew 31.4 px at 480. Spec: `docs/superpowers/specs/2026-07-24-dq-eyebrow-divider-and-confirm-bar-design.md`.
+
 ---
 
 ## 8. Iconography

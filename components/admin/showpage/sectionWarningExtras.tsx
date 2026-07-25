@@ -256,7 +256,7 @@ export function buildSectionWarningExtras(args: {
             : "mt-3 flex flex-col gap-3 border-t border-border pt-3"
         }
       >
-        {/* DQIGNORE-6 — the ACTIVE warnings grouped by code; each bulk "Ignore all N" chip is
+        {/* DQIGNORE-6 — the ACTIVE warnings grouped by code; each bulk "Ignore" chip is
             its group's eyebrow header, bound to the cards it ignores. BulkIgnoreControls renders
             BOTH the eyebrow/chip headers AND the grouped per-warning cards. Lone chip-less
             groups render cards WITHOUT the eyebrow header
