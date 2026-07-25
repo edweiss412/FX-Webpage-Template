@@ -619,4 +619,51 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       expect(geom.centreX).toBeLessThanOrEqual(geom.body.right - 12 + TOL);
     });
   }
+
+  // ── T-BACKDROP (spec §2.1.5) ─────────────────────────────────────────────
+  // The backdrop is `fixed inset-0 z-20` inside the hub root; the popover now
+  // lives in the portal host at z-40. The invariant THIS diff can break is that
+  // the popover's own surface still wins over the backdrop — they are no longer
+  // siblings in one stacking context, so the ordering that used to be local is
+  // now cross-subtree. jsdom does no hit-testing, so it can only be checked here.
+  //
+  // Deliberately NOT asserted: whether the TRIGGERS clear the backdrop. They do
+  // not, and they did not before this branch either — verified by running this
+  // same probe against origin/main's ShareHub.tsx, where the backdrop equally
+  // swallows a trigger tap. The root's open-gated `z-30` elevates the whole root
+  // (backdrop included) and does not order the backdrop against its
+  // non-positioned trigger siblings, so shareHub.test.tsx's class-level pin does
+  // not mean what its comment claims. Pre-existing, near-invisible in use (the
+  // backdrop's own handler closes the popover, so a trigger tap still dismisses,
+  // just without focus restore), and out of scope here: filed as
+  // BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS rather than entrenched as expected.
+  test("T-BACKDROP: the popover surface stays above the backdrop", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await ensureWatchedFolder();
+    await page.goto(`/admin?show=${held.slug}`);
+    const modal = page.locator(LOADED_REVIEW_MODAL);
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const popover = modal.getByTestId("share-hub-popover");
+    await expect(async () => {
+      await modal.getByTestId("share-hub-kebab").click();
+      await expect(popover).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 15_000 });
+
+    const hits = await page.evaluate(() => {
+      const body = document.querySelector('[data-testid="share-hub-popover"]')!;
+      const backdrop = document.querySelector('[data-testid="share-hub-backdrop"]')!;
+      const r = body.getBoundingClientRect();
+      const node = document.elementFromPoint(
+        Math.round(r.left + r.width / 2),
+        Math.round(r.top + r.height / 2),
+      );
+      return {
+        bodyWins: !!node && (node === body || body.contains(node)),
+        hitIsBackdrop: node === backdrop,
+      };
+    });
+
+    expect(hits.hitIsBackdrop, "backdrop is swallowing popover clicks").toBe(false);
+    expect(hits.bodyWins, "popover surface is not hit-testable").toBe(true);
+  });
 });

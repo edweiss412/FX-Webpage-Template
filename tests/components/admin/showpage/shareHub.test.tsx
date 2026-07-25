@@ -197,11 +197,18 @@ describe("ShareHub — open/close semantics", () => {
     expect(document.activeElement).toBe(popover());
   });
 
-  it("keeps both triggers clickable above the backdrop (impeccable critique P1)", () => {
-    // The backdrop is `fixed inset-0 z-20`. If the trigger group does not sit
-    // above it, a second click on the trigger lands on the overlay instead —
-    // the toggle path becomes dead code and jsdom cannot catch it (no
-    // z-index hit-testing), so this pins the stacking contract in source.
+  it("pins the backdrop and hub-root stacking LEVELS (not hit order)", () => {
+    // NOTE (2026-07-24): this pins class-level z values only, and the original
+    // title ("keeps both triggers clickable above the backdrop") overclaimed.
+    // A real-browser elementFromPoint probe shows the backdrop DOES swallow a
+    // trigger tap, on this branch and equally on origin/main: the root's
+    // open-gated `z-30` elevates the whole root, backdrop included, and does not
+    // order that fixed z-20 child against its non-positioned trigger siblings.
+    // Behaviourally near-invisible (the backdrop's own handler closes the
+    // popover, so the tap still dismisses, just without focus restore), so it is
+    // filed as BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS rather than fixed inside a
+    // placement diff. Kept because the LEVELS are still a real contract —
+    // T-BACKDROP in admin-lifecycle-layout.spec.ts is what checks paint order.
     renderHub();
     fireEvent.click(primary()); // the backdrop only exists while open
     const group = primary().parentElement!;
