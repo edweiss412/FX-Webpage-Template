@@ -13,7 +13,11 @@ import { describe, expect, test } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SAMPLING_PERIOD_MS } from "@/lib/drive/watchErrors";
-import { effectiveScheduleBlock, migrationFilesInApplyOrder } from "../helpers/cronSchedules";
+import {
+  effectiveScheduleBlock,
+  effectiveScheduleBlockFrom,
+  migrationFilesInApplyOrder,
+} from "../helpers/cronSchedules";
 
 const REGISTRY = join(
   process.cwd(),
@@ -134,6 +138,67 @@ describe("SAMPLING_PERIOD_MS agrees with the canonical refresh-watch schedule", 
     expect(scanned.length).toBeGreaterThan(100);
     // apply order, not directory order
     expect([...scanned]).toEqual([...scanned].sort());
+  });
+
+  describe("cron lifecycle replay (whole-diff R11)", () => {
+    // An earlier version collected only `cron.schedule` and took the last one, so
+    // a migration that unschedules the renewal job would stop renewals in
+    // production while both parity guards kept reading the old block and passing.
+    // Synthetic sources, so the ordering rules are tested without writing
+    // migration files into the repo.
+    const scheduleSql = (expr: string) =>
+      `perform cron.schedule('fxav_cron_refresh_watch', '${expr}', format($body$ select 1; $body$));`;
+
+    test("a later unschedule with no reschedule leaves the job ungoverned", () => {
+      expect(
+        effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+          scheduleSql("0 * * * *"),
+          "perform cron.unschedule('fxav_cron_refresh_watch');",
+        ]),
+      ).toBeNull();
+    });
+
+    test("unschedule THEN reschedule within one migration is still scheduled", () => {
+      // The real idempotency pattern at
+      // supabase/migrations/20260602000005_b3_schedule_notify_cron.sql:27.
+      const block = effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+        `perform cron.unschedule('fxav_cron_refresh_watch');\n${scheduleSql("*/15 * * * *")}`,
+      ]);
+      expect(block).toContain("*/15 * * * *");
+    });
+
+    test("schedule THEN unschedule within one migration is NOT scheduled", () => {
+      // Ordering, not counting: both events exist in the same file.
+      expect(
+        effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+          `${scheduleSql("0 * * * *")}\nperform cron.unschedule('fxav_cron_refresh_watch');`,
+        ]),
+      ).toBeNull();
+    });
+
+    test("a non-literal unschedule clears the job conservatively", () => {
+      // supabase/migrations/20260527000003_schedule_cron_jobs.sql:72 sweeps by
+      // LIKE pattern, naming no job. It cannot be attributed statically, so it
+      // clears — and because that migration reschedules immediately afterwards,
+      // the real tree still resolves (asserted above).
+      const sweep = "perform cron.unschedule(jobname) from cron.job where jobname like 'fxav%';";
+      expect(
+        effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [scheduleSql("0 * * * *"), sweep]),
+      ).toBeNull();
+      expect(
+        effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+          `${sweep}\n${scheduleSql("0 * * * *")}`,
+        ]),
+      ).toContain("0 * * * *");
+    });
+
+    test("a commented-out unschedule does not count", () => {
+      expect(
+        effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+          `${scheduleSql("0 * * * *")}\n-- perform cron.unschedule('fxav_cron_refresh_watch');`,
+        ]),
+      ).toContain("0 * * * *");
+    });
   });
 
   test("the period parser rejects shapes it cannot reason about", () => {
