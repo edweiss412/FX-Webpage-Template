@@ -69,7 +69,7 @@ _38 adversaries · 37 rejected · 1 survived · 0 unapplied._
 | N1: the block sits at TOP LEVEL, not nested in an at-rule | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31, A37, A38 |
 | N1: the component declares no keyframes of its own | A20 |
 | N1: the spec's normative block appears in globals.css BYTE FOR BYTE | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31 |
-| T-FLASH-COPY | A32 |
+| T-FLASH-COPY-RACE | A32 |
 | T-FLASH-REDUCED | A1, A15, A16, A23, A27, A29, A30, A31 |
 | T-FLASH-REST | A31, A36 |
 | T-FLASH-RESTART | A1, A9, A18, A23, A28 |
