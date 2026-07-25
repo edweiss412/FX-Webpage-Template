@@ -39,7 +39,7 @@ Each row is a decision already taken, with its ratification. Verify the citation
 | 6 | **The empty right corner is compensated with padding on the group, NOT a reserved spacer element.** Measured identical geometry (+4px / +2px) both ways; padding adds no element to a gapped row, which is this batch's whole point. | §3.1.5, measured. |
 | 7 | **`components/admin/showpage/ShowReviewModalSkeleton.tsx:152` keeps its `flex-1` Skeleton.** Its row is `flex w-full items-center gap-2` with one sibling and a `w-full` parent, so the bar always has width — it is not a collapsing pusher. The static guard that would have registered it is descoped (§6), so no registry exists; the row is documented here as the reason it is left alone. | §6. |
 | 8 | **`components/crew/sections/TravelSection.tsx:588` needs no fix — REFUTED, do not re-raise.** It looks like a second blank-eyebrow instance (identical classes) but its `<p>` always contains a `<span>` child, so the empty-element selector can never match. More importantly it is unreachable-blank: it renders only under `showStructured = seg.structured && hasContent` (`components/crew/sections/TravelSection.tsx:572`), and the `dateRaw: null` construction sets `structured: false` (`lib/crew/flightDisplay.ts:184`); structured segments always carry a `dateRaw` (`lib/crew/flightDisplay.ts:152`). | §3.3. |
-| 9 | **No new error codes, no §12.4 catalog edits, no migrations.** This batch is presentational plus test wiring. The three-way §12.4 lockstep and the `validation-schema-parity` gate are therefore N/A. | §7. |
+| 9 | **No new error codes, no §12.4 catalog edits, no migrations.** This batch is presentational plus test wiring, **plus the two small `hasRenderableCount` edits in §4.2** — noted so "presentational" is not read as "no logic changes at all". The three-way §12.4 lockstep and the `validation-schema-parity` gate are therefore N/A. | §7. |
 
 ## 2. Current state (cited)
 
@@ -85,7 +85,7 @@ The childless `flex-1` spacer at `components/admin/wizard/step3ReviewSections.ts
 
 #### 3.1.2 Count placement
 
-The count moves from a right-hand sibling into the centered group, immediately after the heading. It stays **outside** the `<Heading>` element so the heading's accessible name remains the section name alone. `showCount` logic is unchanged — it still comes from `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708`), which returns false unless the section is in `COUNT_SECTIONS` (`components/admin/wizard/step3ReviewSections.tsx:697` — `crew`, `contacts`, `rooms`, `warnings`) with a non-null count and a real `sectionId`, and additionally suppresses a flagged `(0)`.
+The count moves from a right-hand sibling into the centered group, immediately after the heading. Its *visibility* gains one gate (`hasRenderableCount`, §4.2); its membership and zero-suppression rules are unchanged. It stays **outside** the `<Heading>` element so the heading's accessible name remains the section name alone. `showCount` logic is unchanged — it still comes from `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708`), which returns false unless the section is in `COUNT_SECTIONS` (`components/admin/wizard/step3ReviewSections.tsx:697` — `crew`, `contacts`, `rooms`, `warnings`) with a non-null count and a real `sectionId`, and additionally suppresses a flagged `(0)`.
 
 **Consequence worth stating:** only 4 of the ~13 rendered sections ever show a count, so the name-only geometry is the common case, not the exception. Both are specified below.
 
@@ -258,16 +258,21 @@ a caller that needs one of them must add the other.
 `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708-714`) tests only `null`, membership, and
 `count === 0 && flagged` — so `NaN` would reach the chip and render "(NaN)".
 
-**Guard boundary — named explicitly (round-4 finding 4).** The guard goes **inside the exported
-`shouldShowSectionCount`** (`components/admin/wizard/step3ReviewSections.tsx:708-714`), which is therefore **changed** by this batch;
-§7's "no change to `shouldShowSectionCount`" is corrected to "no change to its
-membership/zero-suppression semantics". Putting it in the helper covers every caller through one
-boundary rather than duplicating a check at each rendered path.
+**Guard boundary — corrected (round-5/6 finding 1).** Round 4's answer was wrong: putting the check
+inside `shouldShowSectionCount` does NOT cover both paths. That helper has exactly one caller,
+`ModalSectionChrome` (`components/admin/wizard/step3ReviewSections.tsx:876`), while the legacy `BreakdownSection` path renders its count gated on
+nothing but `count !== null` (`components/admin/wizard/step3ReviewSections.tsx:1010`). A check inside the helper would leave legacy `(NaN)`
+intact while test 7 requires both paths to reject it.
 
-**The legacy no-chrome `BreakdownSection` path is explicitly IN the contract**, not exempt: it
-renders a count independently (`components/admin/wizard/step3ReviewSections.tsx:984-1011`), so a modal-only guard would still show
-`(NaN)` there. Because the guard lives in the shared helper, both paths are covered — and test 7
-asserts at both.
+**The implementable shared boundary** is a new small exported predicate called by BOTH paths:
+
+- `hasRenderableCount(count: number | null): boolean` → `count !== null && Number.isFinite(count)`.
+- `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708-714`) calls it first; its membership and zero-suppression
+  semantics are unchanged after that point.
+- The legacy conditional at `components/admin/wizard/step3ReviewSections.tsx:1010` **is replaced** by `hasRenderableCount(count)`. This is a real
+  edit to the legacy path, listed as scope in §3 and §7.
+
+Both render paths then share one boundary, and test 7 asserts all three non-finite values at both.
 
 **Disposition:** the guard treats a non-finite count as absent
 (`Number.isFinite(count)` gate), with a unit test passing **all three** named values — `NaN`,
@@ -391,7 +396,7 @@ census reconciled against a run.
 
 - No new §12.4 error codes, no `lib/messages/catalog.ts` edits, no `pnpm gen:spec-codes` run. Nothing here surfaces a code to a user.
 - No migrations, so `pnpm gen:schema-manifest` and the validation-project apply are N/A, and `validation-schema-parity` is unaffected.
-- No change to `COUNT_SECTIONS` (`components/admin/wizard/step3ReviewSections.tsx:697`) or `buildSheetDeepLink` behaviour — the count and link *placement* changes, their *derivation* does not. `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708`) **is** changed, but only to reject non-finite values (§4.2); its membership and zero-suppression semantics are untouched.
+- No change to `COUNT_SECTIONS` (`components/admin/wizard/step3ReviewSections.tsx:697`) or `buildSheetDeepLink` behaviour — the count and link *placement* changes, their *derivation* does not. **Two count-related code changes ARE in scope** (§4.2): `shouldShowSectionCount` (`components/admin/wizard/step3ReviewSections.tsx:708`) gains a `hasRenderableCount` call, and the legacy `BreakdownSection` count conditional (`components/admin/wizard/step3ReviewSections.tsx:1010`) is replaced by the same predicate. Neither alters membership or zero-suppression semantics.
 - `components/admin/showpage/ShowReviewModalSkeleton.tsx:152` unchanged (§1.1 item 7).
 - `components/crew/sections/TravelSection.tsx:588` unchanged (§1.1 item 8).
 - **The static guard (§6) is descoped** and files a backlog entry instead. Nothing in this batch claims repo-wide closure of the childless-growable class.
@@ -512,12 +517,21 @@ per unit of cost:
     later reintroduced *alongside* `ml-auto`. An assertion that cannot go red is not a TDD oracle
     (invariant 1) and does not detect reintroduction. So this test has two parts, and part (a) is
     the one that must be RED before the fix:
-    **(a) Zero-extent spacer detection at the three exact sites.** Mount each row in a deliberately
-    CROWDED fixture — narrow enough that a `flex-1` spacer resolves to 0 — and assert no in-flow
-    child of the row has zero main-axis extent. This is red on today's tree, green after the spacer
-    is deleted, and red again if one is reintroduced. Narrowly scoped to
-    `components/admin/BellPanel.tsx:323`, `components/admin/nav/AdminNav.tsx:144`, and
-    `components/admin/nav/OnboardingTopBar.tsx:67` — it does not revive the descoped repo-wide guard.
+    **(a) Reintroduction detection — PER SITE, each independently red before the fix.** Three
+    separate assertions; **aggregation across sites is prohibited**, because an aggregate can go red
+    on the nav rows while never exercising BellPanel at all (round-5/6 finding 2).
+    - **`components/admin/nav/AdminNav.tsx:144`** and
+      **`components/admin/nav/OnboardingTopBar.tsx:67`** — non-wrapping rows, so narrowing is
+      monotonic: mount each in a deliberately CROWDED fixture and assert no in-flow child of the row
+      has zero main-axis extent. Red today, green once the spacer is deleted.
+    - **`components/admin/BellPanel.tsx:323`** — a **structural absence** oracle instead. Its action
+      row is `flex-wrap` (`components/admin/BellPanel.tsx:288`), so narrowing can move the trailing
+      item to another flex line and the spacer regains that line's free width; zero extent occurs
+      only at a specifically calibrated boundary, making "narrow enough" fragile rather than reliably
+      red. Assert instead that the action row directly contains **no childless growable child
+      element** — red today (the `<span className="flex-1" />` at `components/admin/BellPanel.tsx:323` is exactly that), green
+      after deletion, red again on reintroduction, with no fixture calibration to get wrong.
+    Scoped to these three sites only; this does not revive the descoped repo-wide guard.
     **(b) Trailing alignment**, real browser, for all three repaired pushers
     (`BellPanel` action row, `AdminNav` top bar, `OnboardingTopBar`): assert the trailing
     cluster's **right edge is flush with the parent's content-box right edge** (±0.5px) at a wide
