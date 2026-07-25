@@ -24,7 +24,8 @@
 ## Meta-test inventory (declared)
 
 - **CREATES** tests/cross-cutting/no-absolute-self-redirect.test.ts — AST-based structural guard banning self-referential redirects under `app/`, filesystem-walked so a new route fails by default.
-- **CREATES** tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts — structural pin that the picker-flow spec is named in a CI workflow, so the un-skipped cases cannot go dark again (R2 finding 4).
+- **CREATES** tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts — structural pin that the picker-flow spec is named in a CI workflow command and that the signing key's value is 64 hex, so the un-skipped cases cannot go dark or crash on setup (R2 finding 4).
+- **EXTENDS** `tests/cross-cutting/ci-workflow-speedup.test.ts` — `PICKER_COOKIE_SIGNING_KEY` added to `REQUIRED_ENV` (`tests/cross-cutting/ci-workflow-speedup.test.ts:201-207`), the existing registry for runner-level vars a bare-runner webServer must inherit.
 - **EXTENDS** `tests/auth/_metaInfraContract.test.ts` — a `lib/auth/picker/clearIdentity.ts` row in `SUPABASE_CONSTRUCTOR_CONTRACT_FILES` (rows at `tests/auth/_metaInfraContract.test.ts:219-232`) **plus** a per-file destructuring assertion in the same describe, mirroring the sign-out precedent at `tests/auth/_metaInfraContract.test.ts:290-293`.
 - **Not applicable, with reasons:** advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — no `pg_advisory*` anywhere in the diff; sentinel-hiding and admin-alert-catalog meta-tests — no tile rendering, no `admin_alerts.upsert`; no-inline-email-normalization — no email handling. `tests/log/_metaMutationSurfaceObservability.test.ts` is not edited, but Task 4 changes how `clearIdentityAndSkip` satisfies it, so it is re-run in that task's gate.
 - **Layout-dimensions task:** not applicable — spec §5.1 declares no dimensional invariants (a hidden input is `display: none` and contributes no box).
@@ -283,22 +284,25 @@ Every claim below was grepped in this worktree on 2026-07-24. Findings that chan
 
 **Files:**
 
-- Modify: `.github/workflows/crew-e2e.yml` (the mobile-safari run step at lines 104-105)
+- Modify: `.github/workflows/crew-e2e.yml` (the job `env:` block and the mobile-safari run step at lines 104-105)
+- Modify: `.github/workflows/dev-gate-e2e.yml` (job `env:` block — see the registry note below)
+- Modify: `tests/cross-cutting/ci-workflow-speedup.test.ts` (`REQUIRED_ENV`, line 201-207)
 - Create: tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts
 
 **Rationale:** un-skipping is not enough. The only mobile-safari CI step names exactly one spec file, so the three regressions would stay dark and "real CI green" could pass without ever executing them (R2 finding 4).
 
 **Blocker found while planning this task — the job is missing the picker signing key.** `PICKER_COOKIE_SIGNING_KEY` appears in **no** workflow under `.github/workflows/` (grepped 2026-07-24), and the port-3000 webServer command at `playwright.config.ts:244-248` does not set it either. Two things break without it, both hard failures rather than skips:
 
-- `seedPickerCookie` (`tests/e2e/helpers/seedPickerCookie.ts:27`) calls `pickerCookieSigningKey()`, which **throws** when the variable is unset or is not 64 hex characters (`lib/env/pickerCookieSigningKey.ts:6-13`). The Mode B guest case stages a cookie through that helper, so it would die on setup.
+- `seedPickerCookie` (`tests/e2e/helpers/seedPickerCookie.ts:27`) calls `pickerCookieSigningKey()`, which **throws** when the variable is unset or is not 64 hex characters (`lib/env/pickerCookieSigningKey.ts:9`, and `lib/env/pickerCookieSigningKey.ts:12` for a malformed value). The Mode B guest case stages a cookie through that helper, so it would die on setup.
 - The server needs the same key to decode and re-sign the envelope, and `clearIdentityAndSkip` reads it through `clearIdentityCoreImpl`. Without it the guest action itself fails.
 
 This is why it works locally and would not work in CI: the key lives in the gitignored `.env.local` that `pnpm worktree:link-env` symlinks. The key is read at **runtime**, not at build time, so a single job-level `env:` entry covers both the Playwright process and the `pnpm start` server it spawns — no change to the inline webServer command is needed.
 
 **Steps:**
 
-- [ ] Write the failing structural pin: read `.github/workflows/crew-e2e.yml` and assert both that `tests/e2e/picker-flow.spec.ts` appears in a `playwright test` command line **and** that the job defines `PICKER_COOKIE_SIGNING_KEY` with a 64-hex value. Failure modes it catches: a future edit that drops the spec from the run and silently un-covers all four cases; and the key being removed or set to a malformed value, which would turn the guest case into a setup crash.
-- [ ] Add `PICKER_COOKIE_SIGNING_KEY` to the job's `env:` block (alongside `TEST_AUTH_SECRET` at `.github/workflows/crew-e2e.yml:67`), using a fixed 64-hex test constant in the same spirit as the other inline test secrets in that block. It is a test-only signing key for a local-Supabase run, not a production secret.
+- [ ] Write the failing structural pin: read `.github/workflows/crew-e2e.yml` and assert `tests/e2e/picker-flow.spec.ts` appears in a `playwright test` command line, and that the key's value there matches `/^[0-9a-f]{64}$/` — presence is covered by the `REQUIRED_ENV` extension below, but a malformed value would still throw at `lib/env/pickerCookieSigningKey.ts:11`, so the shape needs its own assertion. Failure modes it catches: a future edit that drops the spec from the run and silently un-covers all four cases; and a key that is present but not 64 hex, which turns the guest case into a setup crash rather than a clean failure.
+- [ ] Add `PICKER_COOKIE_SIGNING_KEY` to `REQUIRED_ENV` in `tests/cross-cutting/ci-workflow-speedup.test.ts:201-207` rather than inventing a bespoke env pin. That array is already the registry for exactly this class — "vars a bare-runner webServer must inherit at the runner level, because `playwright.config.ts` gives it no `env:` block" (`tests/cross-cutting/ci-workflow-speedup.test.ts:227-232`) — and it covers both `crew-e2e.yml` and `dev-gate-e2e.yml` through `BARE_RUNNER_WEBSERVER_WORKFLOWS` (`tests/cross-cutting/ci-workflow-speedup.test.ts:200`). Extending it closes the class instead of pinning one instance, and its anti-vacuity case at `tests/cross-cutting/ci-workflow-speedup.test.ts:214-218` then requires the key in `crew-e2e.yml` by construction.
+- [ ] Add the key to **both** workflows' `env:` blocks (alongside `TEST_AUTH_SECRET` at `.github/workflows/crew-e2e.yml:67` and `.github/workflows/dev-gate-e2e.yml:77`), using a fixed 64-hex test constant in the same spirit as the other inline test secrets there. It is a test-only signing key for a local-Supabase run, not a production secret. `dev-gate-e2e.yml` gets it for the same structural reason `HASH_FOR_LOG_PEPPER` is there: its webServer serves the whole app, so any request that reaches the picker chain would throw without it.
 - [ ] Add the spec to the existing mobile-safari step's file list (same `--project=mobile-safari` invocation, so no new job and no second server boot).
 - [ ] Gate: the new pin; `pnpm vitest run tests/cross-cutting`; confirm the workflow still parses with `pnpm exec js-yaml .github/workflows/crew-e2e.yml > /dev/null` (or the repo's existing workflow-lint gate if one covers it).
 - [ ] Commit: `ci(auth): run the picker-flow e2e spec in the mobile-safari job`
