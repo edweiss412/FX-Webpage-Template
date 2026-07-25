@@ -291,6 +291,9 @@ describe("classifyLocalDbUrlSource — synthetic shapes (spec §2.6)", () => {
       // whole-diff R3 finding 3 — the process OBJECT aliased, and key/env indirection.
       "const p = process;\nconst U = p.env.LOCAL_TEST_DATABASE_URL;",
       'import * as proc from "node:process";\nconst U = proc.env.LOCAL_TEST_DATABASE_URL;',
+      // The DEFAULT import is its own branch in the collector, and is the spelling a
+      // contributor is most likely to write (whole-diff R4).
+      'import proc from "node:process";\nconst U = proc.env.LOCAL_TEST_DATABASE_URL;',
       'const ENVKEY = "env";\nconst { [ENVKEY]: e } = process;\nconst U = e.LOCAL_TEST_DATABASE_URL;',
       "let u;\n({ LOCAL_TEST_DATABASE_URL: u } = process.env);",
       "let e;\n({ env: e } = process);\nconst U = e.LOCAL_TEST_DATABASE_URL;",
