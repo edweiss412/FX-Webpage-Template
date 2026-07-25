@@ -1357,6 +1357,42 @@ describe("R6: scanner changes are pinned", () => {
   // shared commentRanges(), so every attribution behaviour it had is re-pinned here.
   // R16 question 2, probed before the round reported: can the delimiter strip empty a
   // LEGITIMATE reason? Four shapes say no, and four empty shapes still fail to exempt.
+  // R16 question 1, probed before the round reported. Two results surprised me and BOTH
+  // were my expectation being wrong rather than a defect, so the real behaviour is pinned
+  // here to stop a later round reading either as a hole.
+  it("R16 exemption ordering: adjacency, element-start lines, and JSX-expression comments", () => {
+    const anchor = 'const A=()=><a href="x" target="_blank">One</a>;';
+    // A block comment that STARTS above and ENDS on the anchor's line still exempts.
+    expect(violations(`/* ${EXEMPTION_TEXT} reason\n   more */ ${anchor}`)).toEqual([]);
+    // Two exemptions and two anchors interleaved: each claims its own.
+    expect(
+      violations(
+        `// ${EXEMPTION_TEXT} r1\n${anchor}\n// ${EXEMPTION_TEXT} r2\nconst B=()=><a href="y" target="_blank">Two</a>;`,
+      ),
+    ).toEqual([]);
+    // ADJACENCY IS REQUIRED, by design since the rule was written: a comment two lines
+    // above does not reach the anchor. This is deliberate, not a gap -- widening it would
+    // let a distant comment silence something unrelated.
+    expect(
+      violations(`// ${EXEMPTION_TEXT} reason\nconst spacer = 1;\n${anchor}`).length,
+      "a non-adjacent comment must not exempt",
+    ).toBe(1);
+    // An anchor's line is its ELEMENT START, so a comment directly above `<a` works even
+    // when `target` sits several lines lower.
+    expect(
+      violations(
+        `const D=()=>(\n  // ${EXEMPTION_TEXT} reason\n  <a\n    href="x"\n    target="_blank"\n  >Go</a>\n);`,
+      ),
+    ).toEqual([]);
+    // A comment inside a JSX expression container is a comment: it exempts the anchor it
+    // precedes. There is nothing special about the container.
+    expect(
+      violations(
+        `const C=()=>(<div>\n  {/* ${EXEMPTION_TEXT} reason */}\n  <a href="x" target="_blank">Go</a>\n</div>);`,
+      ),
+    ).toEqual([]);
+  });
+
   it("R16 delimiter stripping keeps real reasons and rejects empty ones", () => {
     const anchor = 'const A=()=><a href="x" target="_blank">One</a>;';
     const exempts = [
