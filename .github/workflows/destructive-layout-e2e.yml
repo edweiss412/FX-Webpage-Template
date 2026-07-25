@@ -1,0 +1,75 @@
+name: Destructive-confirm layout e2e (standalone harnesses)
+# Runs the two self-contained real-browser specs that police the pending-discard
+# button pair, and that no other workflow covers:
+#
+#   pendingDiscardReal.layout      the AUTHORITATIVE proof. Renders the real
+#                                  NeedsAttentionInbox (hence the real
+#                                  PendingPanelDiscardButtons inside real card
+#                                  padding, the real action row and the real
+#                                  Retry sibling) and measures D1/D2/D3/D4/D7 at
+#                                  three live rails, idle and armed.
+#   pendingDiscardReflow.layout    the historical NEGATIVE control: it renders
+#                                  pre-reorder markup the product no longer
+#                                  contains, proving the harness reproduces the
+#                                  original defect so D1 is not tautological.
+#
+# Both are FULLY self-contained: beforeAll tsx-renders the real component tree out
+# of process, compiles token CSS from app/globals.css via the Tailwind CLI, and
+# serves it over its OWN node:http server. No app boot, no Supabase, no seed.
+#
+# NO env: block, deliberately. Unlike modal-header-layout-e2e.yml, this harness
+# imports no server chain — it renders a client component tree with a stub router —
+# so none of the HASH_FOR_LOG_PEPPER / Supabase demo keys are needed. If that ever
+# changes the job will fail loudly at import rather than silently mis-measure.
+#
+# WHY ITS OWN JOB (the #479 lesson): these specs live in
+# tests/e2e/standalone.config.ts, which Playwright's default config does not match.
+# Before this workflow, `pnpm exec playwright test <path>` reported "No tests found"
+# and they were runnable only by someone who knew to pass --config. A dark spec rots.
+on:
+  pull_request:
+    paths:
+      - "components/admin/PendingPanelDiscardButtons.tsx"
+      - "components/admin/NeedsAttentionInbox.tsx"
+      - "tests/e2e/_pendingDiscardHarness.tsx"
+      - "tests/e2e/pendingDiscardReal.layout.spec.ts"
+      - "tests/e2e/pendingDiscardReflow.layout.spec.ts"
+      - "tests/e2e/standalone.config.ts"
+      - "app/globals.css"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/destructive-layout-e2e.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  destructive-layout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
+      - name: Run destructive-confirm standalone layout specs (no webServer)
+        run: pnpm test:e2e:destructive-layout
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: destructive-layout-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

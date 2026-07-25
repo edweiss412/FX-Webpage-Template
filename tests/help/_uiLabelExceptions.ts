@@ -134,12 +134,12 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   {
     label: "Defer until modified",
     file: "app/help/admin/dashboard/page.mdx",
-    note: "Pending-panel discard action — components/admin/PendingPanelDiscardButtons.tsx:85.",
+    note: "Pending-panel discard action — components/admin/PendingPanelDiscardButtons.tsx:145.",
   },
   {
     label: "Permanently ignore",
     file: "app/help/admin/dashboard/page.mdx",
-    note: "Pending-panel discard action — components/admin/PendingPanelDiscardButtons.tsx:96.",
+    note: "Pending-panel discard action — components/admin/PendingPanelDiscardButtons.tsx:132.",
   },
   // (M12.12 Task 8: the dashboard MDX was rewritten to the live inbox model —
   // its first-seen action is now "Review", so the old "Review and apply"
