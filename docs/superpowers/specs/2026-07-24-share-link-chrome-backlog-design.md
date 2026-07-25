@@ -85,7 +85,7 @@ The cue fires when `token` from `useShareToken()` (`components/admin/showpage/Sh
 | Rotate on an INACTIVE crew link (unpublished or archived) | **no** | `onRotated` is not called at all when `isCrewLinkActive` is false (`app/admin/show/[slug]/RotateShareTokenButton.tsx:165`), so `token` never changes |
 | Rotation at a STRICTLY LOWER epoch, rejected by the monotonic gate (`app/admin/show/[slug]/ShareTokenContext.tsx:47`) | **no** | the gate returns the previous state object, so `token` is unchanged. Note the gate is `epoch >= held`, so an EQUAL epoch carrying a different token is ACCEPTED and correctly DOES cue — the URL really changed. Earlier drafts said `epoch <= current` is rejected, which overstates it (round-5 review, MEDIUM) |
 | Panel closed when the token changes | **no cue on the next open** | §3.3 clears the pending cue whenever `open` is false |
-| A token becomes `null` **while an earlier cue is still running** | **the running cue is CANCELLED** | the null transition clears `flash` outright (§3.2). Without this the cue outlives the element: the block unmounts with `flash` still set, and a token arriving back within the same 1600ms window (republish, or unarchive, both of which rotate and bump the epoch) remounts it wearing a stale attribute. Surfaced by round-1 adversarial review as HIGH; pinned by A7 |
+| A token becomes `null` **while an earlier cue is still running** | **the running cue is CANCELLED** | closed by the VISIBILITY predicate `(!open || !linkActive)`, since a null token forces `linkActive` false. The ternary's clearing half is redundant here and §3.2 records it as such (round-4 review). Without the cancel the cue outlives its element and a token returning inside the same window remounts it wearing a stale attribute (round-1 HIGH). The returning token need NOT come from a rotation: a republish flips `published` alone and rotates nothing (`supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:2`), which is the round-2 leak |
 
 ### §3.2 State
 
@@ -154,12 +154,14 @@ Applied to the target element as a bare data attribute — the component declare
 
 ### §3.3 Guard conditions (every input state)
 
-Per the mandatory guard-conditions rule. The cue consumes exactly two inputs — `token` (`string | null`) and `open` (`boolean`) — plus its own `flash` (`number | null`).
+Per the mandatory guard-conditions rule. The cue consumes FOUR inputs — `token` (`string | null`), `open` (`boolean`), and `published` plus `archived` via the derived `linkActive` (`components/admin/showpage/ShareHub.tsx:419`) — plus its own `flash` (`number | null`). The draft named only the first two, the same omission that produced the round-2 leak (round-6 review, MEDIUM).
 
 | Input state | Rendered result |
 |---|---|
-| `token === null` | target element not rendered (`linkActive` false, so the published or paused note renders instead, `components/admin/showpage/ShareHub.tsx:748-764`); no attribute, no cue |
-| `token` unchanged since last render | no attribute |
+| `token === null`, not archived | target element not rendered (`linkActive` false, so the unavailable or paused note renders instead, `components/admin/showpage/ShareHub.tsx:748-764`); no attribute, no cue |
+| `token === null`, archived | no note either — the whole share half is suppressed (`components/admin/showpage/ShareHub.tsx:704`). The draft claimed a note always renders (round-6 review, MEDIUM) |
+| `token` unchanged since last render, no cue in flight | no attribute |
+| `token` unchanged since last render, cue IN FLIGHT | **attribute PERSISTS.** The cue survives every unrelated re-render — a busy flip, a result banner mounting, a placement pass — and ends only on the timer or on the visibility predicate. An implementation that clears whenever the token did not change kills the cue within about one frame (round-6 review, MEDIUM: the draft's blanket "no attribute" row said exactly that) |
 | `token` changed, either side null | no attribute, AND any in-flight cue is cancelled (§3.1, §3.2) |
 | `token` changed, both non-null, `open === true` | attribute present for `SHARE_LINK_FLASH_MS`, then removed |
 | `token` changed, both non-null, `open === false` | `flash` set then immediately cleared in the same render pass; no attribute ever reaches the DOM (the panel is not mounted) |
@@ -435,7 +437,28 @@ Round 3 already triggered the comprehensive re-analysis. Round 4 found more of t
 - The matrix runs against the FINAL assertion set, once, not incrementally per repair. Running it per-repair is precisely how the reduced-motion assertion regressed — a later narrowing undid an earlier widening and nothing re-checked the whole.
 - **Commit before mutating.** Reverting an injected mutation with `git checkout --` discards uncommitted work in that file.
 
-### §9.1 Adversary register (the contract)
+### §9.1 The observable contract (closed) — and why the register alone was not enough
+
+Rounds 5 and 6 each asked "name a wrong implementation no adversary covers", and each time the answer was three or four more. That is not a defect in the answers; it is a property of the question. **The space of wrong implementations is unbounded, so an enumerated register can never be proven complete** — the same open-ended-list failure that enumerated test bodies had, one level up.
+
+So the register stops being the contract. The contract is a CLOSED specification of what must be OBSERVABLE, against which any deviation is detectable by construction rather than by having been foreseen:
+
+| # | Observable | Must be |
+|---|---|---|
+| O1 | the set of elements carrying `data-share-link-flash` | EXACTLY the one element with `data-testid="admin-current-share-link-url"`, or empty. Never two, never a different one |
+| O2 | the set of DOM nodes whose identity changes across an accepted token change | exactly the URL block. The Copy button, the row wrapper and the panel keep theirs |
+| O3 | the set of DOM nodes whose identity changes across timer expiry | empty |
+| O4 | with the attribute present and motion allowed, the resolved style on that element | both named keyframes, each `animation-duration` equal to `SHARE_LINK_FLASH_MS`, `animation-delay` `0s`, `animation-play-state` `running`; and the painted `background-color` AND `box-shadow` at t near 0 BOTH differ from their resting values |
+| O5 | at t at or past `SHARE_LINK_FLASH_MS` | painted `background-color` and `box-shadow` both equal their resting values, and the attribute is absent |
+| O6 | under `prefers-reduced-motion: reduce` | resolved animation is `none`, and BOTH painted values equal resting at every sample |
+| O7 | the attribute is present | if and only if §6.1 says the cue is live for the transition just applied |
+
+O1 through O7 are total: they constrain the full observable surface — which element, which identities change, both paints, both motion arms, and the presence predicate — so an implementation deviating in ANY way fails at least one. Including the three round-6 named that the register missed: the attribute on both the `<code>` and its wrapper fails O1; `key` moved to the wrapper fails O2, because the Copy button's identity changes with it; a non-zero `animation-delay` fails O4 twice over, on the delay clause and on the paint-at-t-near-0 clause, while leaving every duration, easing, stop, property, colour and width untouched.
+
+### §9.1.1 Adversary register — WORKED EXAMPLES, explicitly not exhaustive
+
+The register keeps its value as concrete mutations for the matrix to run, and as the record of what six review rounds actually found. It is no longer claimed complete, and completeness is no longer what the contract rests on: O1 to O7 are.
+
 
 | # | Wrong implementation | Why it is wrong |
 |---|---|---|
@@ -482,7 +505,12 @@ These survive here because they constrain WHAT must be measured, not how a row i
 
 **Why it exists.** A regex over CSS source sees fragments, not the cascade. A17, A18 and A16 all leave every fragment intact. Only a resolved computed style settles them.
 
-**Harness.** The shipped pattern from `tests/e2e/skeletonBandParity.spec.ts:123-127`: read the real `app/globals.css`, compile it through the Tailwind CLI, serve a synthetic page — extended per §9.2 item 2 to carry ShareHub's production ancestry.
+**Harness — the LIVE esbuild-bundled family, NOT the static one.** An earlier draft named `tests/e2e/skeletonBandParity.spec.ts:123-127`. That harness renders out of process to an HTML string and never hydrates, so it cannot reach this target at all: the cue lives inside a popover that renders only while `open` is true, and is portaled. A static render of ShareHub produces no popover, which makes §9.2 items 2 and 3 unreachable through it. This is the failure the project memo calls a static-render harness hiding client-only mounts.
+
+The correct template is `tests/e2e/hoverhelp-geometry.spec.ts`, whose subject is also a portaled popover, with its `tests/e2e/_hoverHelpGeometryLiveEntry.tsx` entry file. Two properties are load-bearing and both must be copied:
+
+- the real component tree is bundled with VERSION-PINNED esbuild (`tests/e2e/hoverhelp-geometry.spec.ts:58` pins `esbuild@0.28.0`, because Playwright's babel transform otherwise rewrites the bundle), and hydrated, so the popover can be opened and a real React remount driven;
+- the token CSS is compiled from `app/globals.css` through the Tailwind CLI with explicit `@source` entries naming each component file (`tests/e2e/hoverhelp-geometry.spec.ts:76` and `tests/e2e/hoverhelp-geometry.spec.ts:80-82`). An `@source` for `components/admin/showpage/ShareHub.tsx` is REQUIRED — without it the compiled stylesheet omits the very classes the cue paints over, and the spec measures a bare box while reporting green.
 
 **Wiring — four points, all required, none discoverable by convention.** A spec file that merely exists proves nothing here (`tests/e2e/standalone.config.ts:29-31` says so outright):
 
@@ -499,13 +527,13 @@ The adversary register covers the CUE. It cannot cover the rest of this spec, be
 
 | # | Obligation | Done when |
 |---|---|---|
-| K1 | `app/admin/show/[slug]/ShareChip.tsx` and `app/admin/show/[slug]/CrewPageLink.tsx` deleted | `rg 'ShareChip\|CrewPageLink' app components tests` returns nothing |
+| K1 | `app/admin/show/[slug]/ShareChip.tsx` and `app/admin/show/[slug]/CrewPageLink.tsx` deleted | `rg 'ShareChip\|CrewPageLink' app components tests` returns nothing. Note this obligation REACHES INTO a file §4 marks deliberately untouched: `app/admin/show/[slug]/ShareLinkCopyButton.tsx:26` documents its `compact` variant as being "for the per-show `ShareChip` pill", which is stale the moment the pill is gone. "Untouched" in §4 means its API and behaviour are untouched, not that a comment naming a deleted component may survive. Round-6 review surfaced the collision |
 | K2 | `tests/components/ShareChip.test.tsx` and `tests/components/CrewPageLink.test.tsx` deleted | same sweep |
-| K3 | the integration test renamed, its header comment rewritten, and its exact URL and clipboard assertions preserved (§4) | the file exists under the new name; the preserved assertions are present; `pnpm test` green |
+| K3 | the integration test renamed, its header comment rewritten, and EVERY item §4 lists as preserved actually preserved — not a paraphrase of it: the real two-tap Rotate driver, the mocked no-op `router.refresh()` that proves the update came from the client cache, the exact OLD url, the exact NEW url, both clipboard payloads, the OLD-token-nowhere-in-the-DOM sweep, the lower-epoch rejection case, and popover-scoped locators. Cue coverage is colocated in this same file | each listed item is present in the renamed file; `pnpm test` green |
 | K4 | the three stale cross-references updated (`tests/app/admin/rotateShareToken.test.tsx:9`, `tests/app/admin/rotateShareToken.test.tsx:10`, `tests/app/admin/rotateShareToken.test.tsx:73`) | no mention of the old filename or the deleted components survives |
 | K5 | all three backlog items removed from `BACKLOG.md` and archived with their resolutions in `BACKLOG-archive.md` (§5) | the section is gone from `BACKLOG.md`; three archive entries exist |
 | K6 | `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE` filed (§3.8) | the entry exists in `BACKLOG.md` |
-| K7 | `DESIGN.md` gains the constant with its owner, and BOTH false halves of the `DESIGN.md:274` preamble are corrected (§3.7) | the preamble no longer claims single-file ownership, nor that every listed constant paints nothing |
+| K7 | `DESIGN.md` gains (a) the constant with its owning module, (b) BOTH false halves of the `DESIGN.md:274` preamble corrected, and (c) the note §3.7 requires — what the cue is, its reduced-motion posture, and the measured ratios | all three present; the preamble no longer claims single-file ownership, nor that every listed constant paints nothing |
 | K8 | the four §9.3 wiring points all present | the browser spec runs in CI on a PR that touches `app/globals.css`, and `tests/ci/_metaE2eWorkflowCoverage.test.ts` is green |
 | K9 | `screenshots-drift` green on the real PR without rebaselining (§5.1) | the job reports no diff |
 
@@ -628,20 +656,33 @@ Also repaired from round 4: the browser spec must sample `boxShadow` as well as 
 
 Repairs: four wrong implementations were unregistered and are now A24 to A27 — dropping the `!open` arm (A6's mirror, and only one of the pair had been registered), moving the TypeScript constant and the CSS duration TOGETHER so every equality check still passes while the ratified value is gone, altering the hold stop, ring width, endpoint direction or easing while keeping properties and colours, and leaving a steady WASH under reduced motion (A19's mirror). §6.1's "rejects adversary" column is DELETED: five of its cells were behaviourally wrong, because that column was mechanically remapped from retired row names, and asserting rejection in prose is exactly what §9.0 exists to stop — rejection is matrix output. New §9.4 registers the nine completion obligations the cue-focused register structurally could not cover; the reviewer's framing was that every adversary could be rejected and the backlog closure still be incomplete. The stale-epoch claim was overstated: the gate is `epoch >= held` (`app/admin/show/[slug]/ShareTokenContext.tsx:47`), so an EQUAL epoch carrying a new token is accepted and correctly cues; only a strictly lower one is rejected. Finally the inversion had left stale cross-references — §9.1 versus §9.3 for the browser spec, a "every state row has a test" claim, and bogus sub-lettered adversary IDs the mechanical remap invented.
 
+**Round-6 adversarial review, and the second structural turn.** NEEDS-ATTENTION, four findings, all verified true. The reviewer also confirmed three things positively: A1 to A27 contained no behaviourally indistinguishable adversary, §6.1 is sufficient without a rejection column, and the hardcoded 1600ms is defensible given its explicit reduced-motion override.
+
+The decisive finding was the register being incomplete AGAIN — three more wrong implementations, one round after four had been added for the same reason. That is the signal that mattered: asking "name an uncovered wrong implementation" will always produce an answer, because the space of wrong implementations is unbounded. An enumerated register can never be proven complete, which is the open-ended-list failure that enumerated test bodies had, one level up. So §9.1 is now a CLOSED observable contract, O1 to O7, and the register is demoted to worked examples in §9.1.1. All three newly-named implementations fail a clause without having been foreseen — that is the point of the change.
+
+The most serious of the rest was a genuine correctness bug in §3.3, not bookkeeping: the guard table said an unchanged token means no attribute, full stop. During a live cue the component re-renders constantly — busy flips, the result banner mounting, placement passes — and every one of those has an unchanged token. Following the table as written would clear the cue within about a frame. The row is now split on whether a cue is in flight.
+
+Also repaired: §9.4 could certify incomplete work (K3 paraphrased §4's preserved assertions instead of naming them, K7 omitted the required DESIGN.md note, and K1's zero-result sweep collided with a stale comment in a file §4 marks untouched); §3.1 had a row calling the null-clear load-bearing while §3.2 records it redundant, and another claiming a republish rotates and bumps the epoch when it flips `published` alone; §3.3 omitted `linkActive` from its input model and claimed a note always renders when a token is null, which archived mode contradicts; and the numeric sweep had gone stale against its own text.
+
+Separately self-found: §9.3 named the STATIC harness (`skeletonBandParity`), which never hydrates and therefore cannot open a portaled popover at all — so the production-ancestry and real-remount obligations were unreachable through it. Corrected to the live esbuild-bundled `hoverhelp-geometry` template, including the version-pinned esbuild and the `@source` entry without which the compiled stylesheet omits the classes the cue paints over.
+
 **Numeric sweep.** Literals in this document and where each is single-sourced:
 
-- `1600` / `1.6` — the cue duration. §3.2 (`SHARE_LINK_FLASH_MS`), §3.4 CSS twice, §3.5, §8, §9.3. Adversaries A3, A14 and A25 together pin it: A3 and A14 force the TypeScript and the CSS to agree, A25 forces the agreed value to be this one rather than any other.
-- `1599` — never written as a literal; the spec expresses it as `SHARE_LINK_FLASH_MS - 1`, so it cannot drift.
-- `800` — §3.2, the illustrative interval between two changes inside the window.
-- `0%`, `45%`, `100%` — keyframe stops, §3.4 only. A13 rejects a body that drops the properties; A26 one that keeps them but moves the stops.
-- `2px` — ring width, §3.4 only; A26.
-- `3` and `4.5` — the WCAG non-text and AA floors, §3.7 and §9.2 item 5.
+- `1600` — the cue duration, as `SHARE_LINK_FLASH_MS` in §3.2, twice in the §3.4 CSS, and referenced in §3.5, §8 and O4/O5. Adversaries A3, A14 and A25 pin it jointly: A3 and A14 force TypeScript and CSS to agree, A25 forces the agreed value to be this one.
+- `1.6` — appears only where a RESOLVED CSS value is quoted (`1.6s`), never as an independent constant.
+- `1599` — never written as a literal; expressed as `SHARE_LINK_FLASH_MS - 1`, so it cannot drift.
+- `800` — §3.2 only, the illustrative interval between two changes inside the window. The sweep's earlier claim that it appeared elsewhere was wrong.
+- `0%`, `45%`, `100%` — keyframe stops, in §3.4 and again in A26 which is what rejects moving them.
+- `2px` — ring width, in §3.4 and again in A26.
+- `0s` — the required `animation-delay`, O4 only.
+- `3` and `4.5` — the WCAG non-text and AA floors, stated in §3.7's table; §9.2 item 5 references the pairs rather than repeating the numbers.
 - `308` — panel width, §2.1, matching `components/admin/showpage/ShareHub.tsx:699`.
 - `64` — share-token length, §1, matching `supabase/migrations/20260523000002_show_share_tokens.sql:41`.
 - `5` — the uncovered contrast pairs, §3.7 and §9.2 item 5.
 - `4` — the wiring points, §9.3.
+- `7` — the observable clauses O1 to O7.
 - Contrast ratios (16.88, 14.66, 8.84, 8.42, 8.03, 7.59, 7.41, 9.65) — computed output, stated once in §3.7's table.
-- Counts on three different axes, deliberately not reconciled: §3.5 has two RENDERED states, therefore one pair; §6.1 enumerates seventeen TRANSITIONS; §9.1 registers twenty-seven ADVERSARIES.
+- Counts on three different axes, deliberately not reconciled: §3.5 has two RENDERED states, therefore one pair; §6.1 enumerates seventeen TRANSITIONS; §9.1.1 lists twenty-seven WORKED-EXAMPLE adversaries, explicitly not a closed set.
 
 The draft's version of this sweep claimed `45%` and `2px` appeared only in §3.4 while A13 repeated both, and omitted `0%`, `100%` and the contrast literals while claiming to enumerate everything (round-2 review, LOW).
 
