@@ -3,10 +3,11 @@
  * (plan 2026-07-21-attention-modal-switcher-gallery Task 4)
  *
  * The server-side partition: which scenarios render in the switcher, which are
- * excluded and why. Two orthogonal axes — EXPRESSIBLE (the modal can reproduce
- * the placement) and VISIBLE (the modal shows something). Both the structural
- * and cut exclusion sets are PINNED to exact id lists so a catalog/derivation
- * drift fails loudly instead of silently adapting.
+ * excluded and why. Three orthogonal axes — EXPRESSIBLE (the modal can reproduce
+ * the placement), VISIBLE (the modal shows something), and SHOW-SCOPE REACHABLE
+ * (a real show can actually hold the alert). All three exclusion sets are PINNED
+ * to exact id lists so a catalog/derivation drift fails loudly instead of
+ * silently adapting.
  */
 import { describe, expect, test } from "vitest";
 import {
@@ -232,6 +233,20 @@ function minimal(id: string, over: Partial<AttentionScenario> = {}): AttentionSc
 // derives an item for EVERY declared alert and the modal renders it, so one
 // global code makes the whole card fiction. The mixed and carrier rows below
 // are the two assertions that fail under the rejected form.
+const HOLD_ONLY_FIXTURE = {
+  drive_file_id: "gallery-fixture-file",
+  domain: "crew_email" as const,
+  entity_key: "dana-reed",
+  held_value: { email: "old@example.test" },
+  proposed_value: {
+    disposition: "email_change" as const,
+    name: "Dana Reed",
+    email: "new@example.test",
+  },
+  base_modified_time: "2026-07-01T12:00:00.000Z",
+  kind: "mi11_pending" as const,
+};
+
 const alertRow = (code: string) => ({
   code,
   context: {},
@@ -283,6 +298,60 @@ describe("isShowScopeReachable (synthetic truth table)", () => {
         minimal("x", { alerts: [alertRow("LIVE_ROW_CONFLICT")], fixture: { archived: true } }),
       ),
     ).toBe(false);
+  });
+
+  // R2 finding 3: the empty-alerts row above only covers a BARE scenario. A
+  // broken predicate like `s.holds.length === 0 && !s.alerts.some(global)`
+  // passes every assertion above while wrongly excluding the holds-only
+  // scenario, so each non-alert carrier gets its own row.
+  test("carrier-only scenarios stay reachable (no alerts to judge)", () => {
+    const carriers: Array<[string, Partial<AttentionScenario>]> = [
+      ["holds", { holds: [HOLD_ONLY_FIXTURE] }],
+      ["warnings", { warnings: [{ severity: "warn", code: "UNKNOWN_FIELD", message: "x" }] }],
+      ["degraded", { degraded: true }],
+      ["feedNull", { feedNull: true }],
+      ["feedTruncated", { feedTruncated: true }],
+      [
+        "changeLog",
+        {
+          changeLog: [
+            {
+              occurred_at: "2026-07-01T12:00:00.000Z",
+              status: "applied",
+              summary: "s",
+              entity_ref: null,
+              change_kind: "crew_email",
+              individually_undoable: true,
+              source: "auto_apply",
+              acknowledged_at: null,
+            },
+          ],
+        },
+      ],
+      ["fixture", { fixture: { archived: true } }],
+      ["actionOutcomes", { actionOutcomes: {} }],
+      ["bucket", { bucket: { sectionAvailable: () => false } }],
+      ["landing", { landing: "overview" }],
+    ];
+    for (const [name, over] of carriers) {
+      expect(isShowScopeReachable(minimal("x", over)), `${name}-only must stay reachable`).toBe(
+        true,
+      );
+    }
+  });
+
+  test("a per-show alert PLUS every carrier is still reachable", () => {
+    expect(
+      isShowScopeReachable(
+        minimal("x", {
+          alerts: [alertRow("DRIVE_FETCH_FAILED")],
+          holds: [HOLD_ONLY_FIXTURE],
+          warnings: [{ severity: "warn", code: "UNKNOWN_FIELD", message: "x" }],
+          degraded: true,
+          fixture: { archived: true },
+        }),
+      ),
+    ).toBe(true);
   });
 
   test("only per-show alerts is reachable", () => {

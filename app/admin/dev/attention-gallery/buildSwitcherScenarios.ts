@@ -3,15 +3,20 @@
  * (spec 2026-07-21-attention-modal-switcher-gallery §3.2)
  *
  * The server-side partition feeding the switcher. A scenario RENDERS only if the
- * modal can both reproduce its placement (EXPRESSIBLE) and show something
- * (VISIBLE). The two exclusion axes are orthogonal, with `"structural"` taking
- * precedence in the label:
+ * modal can reproduce its placement (EXPRESSIBLE), show something (VISIBLE), and
+ * carry contents a real show can hold (SHOW-SCOPE REACHABLE). The three
+ * exclusion axes are orthogonal and evaluated in the order below; the first that
+ * fires owns the label:
  *   - structural: the scenario overrides a placement predicate the modal derives
  *     from its own data (`sectionAvailable` / `crewKeyRendered`) — not
  *     reproducible by fixture data, so rendering it would MISPLACE the item.
  *   - cut: the scenario DECLARES attention whose codes are cut from the
  *     published attention surface (`DOUG_EXCLUDED_CODES`), so it yields an empty
- *     modal the real modal also never presents.
+ *     modal the real modal also never presents. An AUDIENCE decision.
+ *   - global: a tier-1 scenario for a code whose producers always write
+ *     `show_id: null` (`GLOBAL_SCOPE_CODES`), so `fetchPerShowAlerts` can never
+ *     deliver it and the card would be fiction. A SCOPE decision, orthogonal to
+ *     audience — five codes are both, and `cut` wins because it runs first.
  * A scenario that declares NO attention (e.g. `T2_EMPTY`) is the clean-modal
  * baseline and RENDERS — a real, useful state.
  */

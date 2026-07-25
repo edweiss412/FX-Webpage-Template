@@ -367,7 +367,7 @@ test.describe("attention modal switcher gallery", () => {
     await expect(page.locator(DIALOG)).toHaveCount(0);
   });
 
-  test("excluded deep-links fall back to index 0; footnotes list structural labels and the cut count", async ({
+  test("excluded deep-links fall back to index 0; footnotes list structural labels and the cut + global counts", async ({
     page,
   }) => {
     expect(STRUCTURAL.length).toBe(3);
