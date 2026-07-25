@@ -830,23 +830,47 @@ it("the components map RETURNS no anchor override (runtime, not static)", () => 
 });
 
 it("no caller passes a components prop that could inject an anchor override", () => {
-  // The other half of R12 BLOCKING 2: `...components` means the ARGUMENT can carry an
-  // override, so the map's own source is not sufficient. @next/mdx is the only caller
-  // in this app and passes nothing, which this pins by asserting no source outside
-  // node_modules hands a `components=` prop to MDX content.
-  const roots = ["app", "components"];
+  // The other half of the MDX injection path: `useMDXComponents` spreads its argument
+  // and Next's compiled output resolves `...props.components` LAST, so a caller-supplied
+  // override wins over the map's own entries.
+  //
+  // This was a regex over comment-stripped source, and R13 BLOCKING 2 showed three
+  // misses (`{...{components:{a:External}}}`, `{...props}`,
+  // `React.createElement(Article, {components:{...}})`), one truncation exposure via
+  // stripCommentsSafely, and a FALSE positive on any file that imports MDX and passes an
+  // unrelated `components` prop. Parsing removes all four at once: a JSX attribute named
+  // `components` and an object-literal key named `components` are both decidable, and no
+  // MDX heuristic is needed, so nothing unrelated is dragged in.
+  //
+  // Measured: zero occurrences in the tree today, which is why this can be an absolute
+  // assertion rather than an allowlist. `{...props}` on an MDX component remains genuine
+  // residue -- undecidable without resolving the caller's props -- and is recorded in
+  // spec section 6.4 rather than papered over.
   const offenders: string[] = [];
-  for (const root of roots) {
+  for (const root of ["app", "components"]) {
     for (const abs of walkFiles(join(process.cwd(), root), /\.tsx?$/)) {
-      const code = stripCommentsSafely(readFileSync(abs, "utf8"));
-      if (/components\s*=\s*\{/.test(code) && /MDX|mdx/.test(code)) {
-        offenders.push(abs.slice(process.cwd().length + 1));
-      }
+      const src = readFileSync(abs, "utf8");
+      const sf = ts.createSourceFile(abs, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      const rel = abs.slice(process.cwd().length + 1);
+      const visit = (n: ts.Node): void => {
+        if (ts.isJsxAttribute(n) && n.name.getText() === "components") {
+          offenders.push(`${rel} (jsx attribute)`);
+        }
+        if (
+          (ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) &&
+          ts.isIdentifier(n.name) &&
+          n.name.text === "components"
+        ) {
+          offenders.push(`${rel} (object key)`);
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
     }
   }
   expect(
     offenders,
-    "a caller-supplied components map is outside per-file scanning; scan the override's own file or exempt it here with a reason",
+    "a caller-supplied components map wins over the root hook, so scan the override's own file or exempt it here with a reason",
   ).toEqual([]);
 });
 
@@ -1245,18 +1269,58 @@ describe("R6: scanner changes are pinned", () => {
       true,
       ts.ScriptKind.TS,
     );
+    // POSITION-scoped, not "every literal". R13 MEDIUM 4 showed a blanket walk flags
+    // `type X = "Target"`, an enum member, and any ordinary value -- none of which decide
+    // an attribute name. Accessor-name scoping was the other failed approach (R12 MEDIUM
+    // 6 evaded it five ways), so the hook is the SEMANTIC POSITION where a literal can
+    // actually change a name decision:
+    //   - either operand of ===, !==, ==, != (so `"Target" === attrName(a)` is caught)
+    //   - a `case` clause
+    //   - an argument to `.has(` / `.includes(`
+    //   - a property NAME, since a folded lookup treats `{"Target": …}` as `target`
     const literals: string[] = [];
-    const collect = (n: ts.Node): void => {
-      // Complete literals only. A template FRAGMENT is not a name: `Target${count}`
-      // has head text "Target", and reporting that was the overmatch half of review
-      // R12 HIGH 3. A no-substitution `` `Target` `` is a complete literal and stays
-      // covered.
-      if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
-        literals.push(n.text);
-      }
-      ts.forEachChild(n, collect);
+    const add = (n: ts.Node): void => {
+      if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) literals.push(n.text);
     };
-    collect(sf);
+    const walk = (n: ts.Node): void => {
+      if (ts.isBinaryExpression(n)) {
+        const k = n.operatorToken.kind;
+        if (
+          k === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+          k === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+          k === ts.SyntaxKind.EqualsEqualsToken ||
+          k === ts.SyntaxKind.ExclamationEqualsToken
+        ) {
+          add(n.left);
+          add(n.right);
+        }
+      }
+      if (ts.isCaseClause(n)) add(n.expression);
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+        const fn = n.expression.name.text;
+        if (fn === "has" || fn === "includes") {
+          n.arguments.forEach(add);
+          // ALSO the receiver: `["Target"].includes(attrName(a))` puts the name in the
+          // array, not the arguments, and that is precisely one of R12's evasion forms.
+          // Verified by appending it to the scanner and watching this test stay green.
+          const recv = n.expression.expression;
+          if (ts.isArrayLiteralExpression(recv)) recv.elements.forEach(add);
+          if (ts.isNewExpression(recv)) {
+            for (const a of recv.arguments ?? []) {
+              if (ts.isArrayLiteralExpression(a)) a.elements.forEach(add);
+            }
+          }
+        }
+      }
+      if (
+        (ts.isPropertyAssignment(n) || ts.isPropertySignature(n)) &&
+        (ts.isStringLiteral(n.name) || ts.isComputedPropertyName(n.name))
+      ) {
+        add(ts.isComputedPropertyName(n.name) ? n.name.expression : n.name);
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(sf);
     const offenders = literals.filter(
       (lit) => lit !== lit.toLowerCase() && CASE_INSENSITIVE_NAMES.has(lit.toLowerCase()),
     );
