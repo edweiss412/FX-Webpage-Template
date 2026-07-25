@@ -66,8 +66,8 @@ export function parseHotels(
   agg?: ParseAggregator,
 ): HotelReservationRow[] {
   // Try the structured HOTEL table first (v4 + v2 newer layouts)
-  const fromTable = parseHotelTable(markdown, agg);
-  if (fromTable.length > 0) return cap(fromTable, agg);
+  const fromTable = parseHotelTable(markdown);
+  if (fromTable.length > 0) return commitHotels(fromTable, agg);
 
   // Inline rows carry yearless "Check In: M/D"; infer the show's year from its
   // dates so we don't hard-code an era (the cell alone lacks the year).
@@ -75,11 +75,11 @@ export function parseHotels(
 
   // Try the inline "Hotel Reservations" row (v2 older layout, RIA forum, DCI RPAS)
   const fromInline = parseInlineHotelRow(markdown, contextYear);
-  if (fromInline.length > 0) return cap(fromInline, agg);
+  if (fromInline.length > 0) return commitHotels(pendingWithoutAmbiguities(fromInline), agg);
 
   // Try v1 "Hotel Stays" row (2024-05 east coast family office)
   const fromStays = parseHotelStaysRow(markdown, contextYear);
-  if (fromStays.length > 0) return cap(fromStays, agg);
+  if (fromStays.length > 0) return commitHotels(pendingWithoutAmbiguities(fromStays), agg);
 
   // D1: a recognized HOTEL / "Hotel Reservations" / "Hotel Stays" header that
   // parsed zero reservations (sub-parsers content-gate to []) is a silent
@@ -94,15 +94,64 @@ export function parseHotels(
   return [];
 }
 
-function cap(hotels: HotelReservationRow[], agg?: ParseAggregator): HotelReservationRow[] {
-  if (hotels.length > MAX_HOTELS) {
+/**
+ * An ambiguity STASHED against the reservation that produced it, rather than
+ * emitted at the site. Two consequences the emit-at-site shape cannot give:
+ *
+ *  - a reservation truncated by the cardinality cap never warns about a hotel
+ *    the operator will not see (ratified R4);
+ *  - a provisional row that `buildInlineReservations` later discards takes its
+ *    stash with it, so no rule is needed to suppress it.
+ */
+type HotelAmbiguity = {
+  kind: "guests";
+  reasons: string[];
+  rawCell: string;
+  parsedNames: string[];
+};
+
+type PendingHotel = { row: HotelReservationRow; ambiguities: HotelAmbiguity[] };
+
+/**
+ * The SINGLE commit point for every hotel warning (spec §5.2). Replaces `cap()`
+ * and absorbs the per-slot emit loop that `parseHotelTable` used to inline, so
+ * the rank gate lives in exactly one place instead of being re-derived per
+ * producer.
+ *
+ * Emission ORDER is load-bearing and observable: all surviving-reservation
+ * ambiguities first, THEN the cardinality warning. That is the order the
+ * pre-refactor code produced, and warning order is persisted.
+ */
+function commitHotels(pending: PendingHotel[], agg?: ParseAggregator): HotelReservationRow[] {
+  const kept = pending.slice(0, MAX_HOTELS);
+  kept.forEach((p, index) => {
+    for (const amb of p.ambiguities) {
+      emitHotelGuestSplitAmbiguity(agg, {
+        name: p.row.hotel_name,
+        reasons: amb.reasons,
+        rawCell: amb.rawCell,
+        // The reservation's position in the FINAL hotels array — the overlay's
+        // anchor (spec §5.3). Not its ordinal, and not its pre-filter slot.
+        index,
+        parsedNames: amb.parsedNames,
+        confirmationNo: null, // parsed-but-not-persisted (mirrors the pushed row)
+      });
+    }
+  });
+  if (pending.length > MAX_HOTELS) {
     // Log-only telemetry stays (HOTELS_PARSE_WARNING forensic stream); the aggregator
     // emit (§4.2b) promotes the same event to an operator-visible ParseWarning.
-    warn(`HOTEL_CARDINALITY_EXCEEDED: found ${hotels.length} hotels; truncating to ${MAX_HOTELS}.`);
-    emitHotelCardinalityExceeded(agg, { found: hotels.length, cap: MAX_HOTELS });
-    return hotels.slice(0, MAX_HOTELS);
+    warn(
+      `HOTEL_CARDINALITY_EXCEEDED: found ${pending.length} hotels; truncating to ${MAX_HOTELS}.`,
+    );
+    emitHotelCardinalityExceeded(agg, { found: pending.length, cap: MAX_HOTELS });
   }
-  return hotels;
+  return kept.map((p) => p.row);
+}
+
+/** Producers with no ambiguities yet (inline stashing lands in a later slice). */
+function pendingWithoutAmbiguities(rows: HotelReservationRow[]): PendingHotel[] {
+  return rows.map((row) => ({ row, ambiguities: [] }));
 }
 
 // ── v4/v2 Structured HOTEL table ─────────────────────────────────────────────
@@ -342,7 +391,7 @@ export function splitHotelNameAddress(combined: string | null): {
  *   |       | RESERVATION #3 |   | RESERVATION #4 |  (optional)
  *   ... repeat for res 3+4
  */
-function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservationRow[] {
+function parseHotelTable(markdown: string): PendingHotel[] {
   const HOTEL_HEADER_RE = buildCol0HeaderRe(["HOTEL"]);
   const headerMatch = HOTEL_HEADER_RE.exec(markdown);
   if (!headerMatch) return [];
@@ -522,38 +571,31 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
   // cap() sees the TRUE hotel count — a structured RESERVATION #5+ overflow used to be
   // silently dropped by a 1..MAX_HOTELS loop here, before cap() could emit
   // HOTEL_CARDINALITY_EXCEEDED (Codex R5).
-  const result: HotelReservationRow[] = [];
+  // Stash, never emit: `commitHotels` is the single commit point, so the rank
+  // gate that used to be re-derived here (`result.length < MAX_HOTELS`) lives in
+  // exactly one place (spec §5.2).
+  const result: PendingHotel[] = [];
   for (const i of [...slots.keys()].sort((a, b) => a - b)) {
     const slot = slots.get(i)!;
     // Only include slots that have at minimum a hotel_name (skip dash-only placeholders)
     if (!slot.hotel_name) continue;
-    // §4.2 single commit point: a stashed guest-split ambiguity emits ONLY when the hotel
-    // survives the cap. cap() keeps the first MAX_HOTELS name-resolved slots, so a row
-    // whose rank (result.length before push) is < MAX_HOTELS is kept; later ones are
-    // truncated and stay silent.
-    if (result.length < MAX_HOTELS) {
-      for (const amb of slot.guestAmbiguities) {
-        emitHotelGuestSplitAmbiguity(agg, {
-          name: slot.hotel_name,
-          reasons: amb.reasons,
-          rawCell: amb.rawCell,
-          // The reservation about to be pushed occupies `result.length` in the
-          // final hotels array — the overlay's `blockRef.index` anchor (spec §7).
-          index: result.length,
-          parsedNames: slot.names,
-          confirmationNo: null, // parsed-but-not-persisted (mirrors the pushed row)
-        });
-      }
-    }
     result.push({
-      ordinal: i,
-      hotel_name: slot.hotel_name ?? null,
-      hotel_address: slot.hotel_address ?? null,
-      names: slot.names,
-      confirmation_no: null, // parsed-but-not-persisted — see parseGuestCell
-      check_in: slot.check_in ?? null,
-      check_out: slot.check_out ?? null,
-      notes: null,
+      row: {
+        ordinal: i,
+        hotel_name: slot.hotel_name ?? null,
+        hotel_address: slot.hotel_address ?? null,
+        names: slot.names,
+        confirmation_no: null, // parsed-but-not-persisted — see parseGuestCell
+        check_in: slot.check_in ?? null,
+        check_out: slot.check_out ?? null,
+        notes: null,
+      },
+      ambiguities: slot.guestAmbiguities.map((amb) => ({
+        kind: "guests" as const,
+        reasons: amb.reasons,
+        rawCell: amb.rawCell,
+        parsedNames: slot.names,
+      })),
     });
   }
 
