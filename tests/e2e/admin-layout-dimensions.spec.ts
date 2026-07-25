@@ -23,6 +23,11 @@ import { test, expect, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
+import {
+  scanForPhantomGaps,
+  reconcilePhantomLedger,
+  type PhantomLedgerRow,
+} from "./helpers/phantomGap";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const TOL = 0.5;
@@ -311,4 +316,311 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
   // two-pane rail/content geometry inside the shell is pinned by
   // tests/e2e/step3-review-modal.layout.spec.ts §5.1.2).
   // The dashboard (/admin) tests above are UNAFFECTED by the rebuild and stay.
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phantom-gap probe on the REAL dashboard (BL-PHANTOM-GAP-PROBE-OTHER-SURFACES).
+//
+// The zero-extent-flex-item walk shipped scoped to the published review modal's
+// static harness, so every other surface was unmeasured. This is the dashboard
+// mount: same walk (tests/e2e/helpers/phantomGap.ts — read it for what the probe
+// can and cannot see), pointed at the live `/admin` tree with real seeded rows
+// instead of a fixture snapshot.
+//
+// WHY THE REAL ROUTE AND NOT A NEW STATIC HARNESS. A harness only ever renders
+// what its fixture draws, and this bug class IS a state that draws nothing — a
+// fixture chosen to look complete is exactly the fixture that cannot catch an
+// emptied-out wrapper. The live route renders whatever the seed actually holds.
+// The cost is that this file needs the e2e env, which is why the probe is wired
+// into a workflow in the same change rather than left to a manual run.
+//
+// WHAT IT ALREADY CAUGHT. The first run against this tree reported
+// `shows-table-header` charging its 16px row-gap for the trailing spacer span.
+// That was a PROBE defect, not a layout one: the header is 7 items across 7
+// column tracks in a SINGLE row (`rows=[44px]`), so no row gap is realized. The
+// walk was admitting a grid axis on item count; it now admits on realized track
+// count. Recorded here because the finding is the reason that rule changed, and
+// a later reader measuring the same header will otherwise re-derive it.
+test.describe("phantom gap — /admin dashboard (real route)", () => {
+  const DASHBOARD = '[data-testid="admin-dashboard"]';
+
+  /** Known, deferred instances. Empty is the correct state — see the helper's
+   *  `PhantomLedgerRow` for why a row is scoped and counted before adding one. */
+  const KNOWN_DASHBOARD_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
+
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  // BOTH viewports. The dashboard tree genuinely differs across the 1240px split
+  // boundary — at 390 the inbox is a mobile summary card and the shows table
+  // renders stacked meta rows; at 1280 the header row, the desktop inbox, and the
+  // auto-applied strip all appear instead. A wrapper populated in one branch can
+  // empty out in the other, so one width would measure half the surface.
+  //
+  // COVERAGE BOUNDARY: the ACTIVE bucket only. `/admin?bucket=archived` renders a
+  // different tree (`ArchivedShowRow`), but `pnpm db:seed` — what this workflow
+  // runs — seeds no archived shows (the archived fixture lives in the separate
+  // `seedWalkerFixtures.ts` extension seed), so a probe there would measure an
+  // empty bucket and anchor on nothing. Covering it means seeding an archived row
+  // first; carried as BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET.
+  //
+  // The inbox anchor is therefore PER WIDTH, and captured from a live run rather
+  // than guessed: at 390 the column's gapped container is the mobile summary
+  // card, at 1280 it is the desktop inbox wrapper. `dashboard-inbox-col` itself
+  // is NOT usable — its own children carry testids, so the walk labels them
+  // rather than the column, and the column never enters `visited`.
+  const INBOX_ANCHOR = {
+    390: "needs-attention-summary-card",
+    1280: "dashboard-inbox-desktop",
+  } as const;
+
+  for (const width of [390, 1280] as const) {
+    test(`T-NOPHANTOM-DASH @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto("/admin", { waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("admin-dashboard")).toBeVisible();
+      // The shows table must have rendered rows before measuring: an empty table
+      // is a different tree, and the row anchor below would fail for the wrong
+      // reason.
+      await expect(page.locator("[data-testid^='shows-table-row-']").first()).toBeAttached();
+
+      const found = await scanForPhantomGaps(page.locator(DASHBOARD));
+
+      // NON-VACUITY BY NAMED ANCHOR, never by a container count — a count floor is
+      // satisfiable by unrelated controls and breaks on a legitimate refactor.
+      // Two anchors: the stat strip proves the walk entered the dashboard body,
+      // and a shows-table ROW proves it descended into the table rather than
+      // stopping at the top-level columns. Both are present at both widths (the
+      // row label is the testid at 1280 and a nested `<div in shows-table-row-…>`
+      // at 390, so the anchor matches on the substring rather than equality).
+      expect(
+        found.visited.filter((v) => v === "stat-strip"),
+        `the walk reached the stat strip [@ ${width}]`,
+      ).not.toEqual([]);
+      expect(
+        found.visited.filter((v) => v.includes("shows-table-row-")),
+        `the walk descended into the shows table rows, not just the columns [@ ${width}]`,
+      ).not.toEqual([]);
+      // THIRD anchor, the other dashboard column. The first two live entirely in
+      // the shows column, so a tree with the attention inbox unmounted satisfied
+      // both and passed green over half the dashboard. The inbox column renders at
+      // both widths (a mobile summary card at 390, the full inbox at 1280) and the
+      // sibling stacking tests in this file already depend on it.
+      expect(
+        found.visited.filter((v) => v === INBOX_ANCHOR[width]),
+        `the walk reached ${INBOX_ANCHOR[width]} in the attention inbox column, not just the` +
+          ` shows column [@ ${width}] — gapped containers visited:` +
+          ` ${JSON.stringify(found.visited)}`,
+      ).not.toEqual([]);
+
+      // A gap whose used value the walk could not read (a mixed `calc()`) means
+      // the axis was SKIPPED — indistinguishable from a clean surface unless it
+      // is asserted on.
+      expect(
+        found.unresolved,
+        `every gap on this surface resolved to a used length [@ ${width}]`,
+      ).toEqual([]);
+
+      const { remaining, stale } = reconcilePhantomLedger(
+        found.offenders,
+        KNOWN_DASHBOARD_PHANTOM_ITEMS,
+        { surface: "/admin", width },
+      );
+      expect(
+        stale,
+        `stale ledger rows [@ ${width}] — the instance is gone, so delete the row (a row kept` +
+          ` past its debt masks a later offender with the same label triple)`,
+      ).toEqual([]);
+      expect(
+        remaining,
+        `zero-extent items charge their parent's gap and show as a seam no element accounts for [@ ${width}]`,
+      ).toEqual([]);
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phantom-gap probe on the published review modal AS THE USER GETS IT — the
+// hydrated `/admin?show=<slug>` route, not the static harness.
+//
+// This is NOT a duplicate of the 12 T-NOPHANTOM cases in
+// published-review-modal.layout.spec.ts. That suite renders the same component
+// tree with `react-dom/server` and never hydrates, which its own header calls
+// out as its blind spot: "client-only states (mid-publish, open popovers) remain
+// unreachable." Everything a client effect mounts, every branch that only exists
+// after hydration, and every wrapper fed by real seeded rows rather than a
+// fixture object is measured HERE and nowhere else.
+//
+// `/admin/show/<slug>` is deliberately not the URL: that path is now a 307 into
+// this one (app/admin/show/[slug]/page.tsx), kept only as the emailed deep-link
+// shape, so probing it would measure this exact tree one redirect later.
+test.describe("phantom gap — /admin?show=<slug> published review modal (hydrated)", () => {
+  const BASE = "published-show-review";
+  // `:has(title)` is what separates the LOADED modal from the streaming
+  // skeleton — the skeleton is a different tree, and measuring it would report
+  // its placeholders. Same guard the deep-link suite uses.
+  const MODAL = `[data-testid="${BASE}-modal"]:has([data-testid="${BASE}-title"])`;
+
+  /**
+   * Known, deferred instances — see the helper's `PhantomLedgerRow` for why a row
+   * is scoped and counted before adding one.
+   *
+   * BOTH rows are the SAME pre-existing defect, and the hydrated probe is what
+   * found it: `ModalSectionChrome`'s header row is `flex items-center gap-2.5`
+   * and ends with a childless `<span className="flex-1" />` pushing the flag pill
+   * and sheet link right (step3ReviewSections.tsx:916). At 375px with the seeded
+   * show's real content the row is full, `flex-1` resolves to ZERO width, and the
+   * row still charges 10px on BOTH sides of an invisible spacer. The static
+   * harness never showed it — its fixture rows are short enough that the spacer
+   * keeps width — which is the whole argument for probing the real route.
+   *
+   * Deferred rather than fixed here because the repair is a visual judgment about
+   * crowded-row behavior at narrow widths (drop the spacer below some width? give
+   * it a min-width? let the row wrap?) inside an admin UI component, which pulls
+   * in the invariant-8 impeccable dual gate — the same call #576 made for the
+   * BulkIgnoreControls hairline, which #580 then repaid in its own branch.
+   * Carried as BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW, which also records the
+   * three further unproven instances of this shape found by the class sweep.
+   *
+   * Labels are BUILT from `SEED_DRIVE_FILE_ID` rather than pasted: the label a
+   * scan emits embeds the show's drive_file_id, and a pasted copy would rot
+   * silently against a reseed instead of failing as a stale row.
+   *
+   * ACCEPTED LIMIT, shared by every ledger row in this repo: the triple is a
+   * SECTION-level label, not an element identity. If this spacer were fixed while
+   * a different zero-width child appeared under the same breakdown section, the
+   * replacement would carry the same triple and consume this row silently. The
+   * helper's `reconcilePhantomLedger` documents why no stronger identity is
+   * available from the DOM here.
+   */
+  const KNOWN_SHOW_MODAL_PHANTOM_ITEMS: PhantomLedgerRow[] = (["rooms", "warnings"] as const).map(
+    (section) => ({
+      surface: "/admin?show",
+      width: 375,
+      parent: `<div in wizard-step3-card-${SEED_DRIVE_FILE_ID}-breakdown-${section}>`,
+      child: `<span in wizard-step3-card-${SEED_DRIVE_FILE_ID}-breakdown-${section}>`,
+      axis: "column-gap" as const,
+      // gap-2.5 = 10px, charged on both sides of the collapsed spacer.
+      gap: 10,
+      count: 1,
+      why: "ModalSectionChrome's flex-1 header spacer collapses to 0 width in a crowded row at 375px — pre-existing, deferred to BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW",
+    }),
+  );
+
+  let slug = "";
+
+  test.beforeAll(async () => {
+    slug = await lookupSeededSlug();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  // BOTH viewports: 375 is the sheet presentation, 1280 the two-pane popup, and
+  // the rail/chip trees genuinely differ between them (the `lg:hidden` chip rail
+  // alone is why the harness suite runs both).
+  for (const width of [375, 1280] as const) {
+    test(`T-NOPHANTOM-SHOW @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      // The panel animates in from a transform. Measured mid-entrance the whole
+      // subtree reads zero-extent and the probe would report a modal's worth of
+      // offenders that do not exist — reduced motion plus the settle poll below
+      // is what makes the reading real.
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
+      // Suspense-streamed server loader — allow a dev-server compile on first hit.
+      await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+      // CONTENT, not just chrome. `:has(title)` and a laid-out panel height are
+      // both satisfied by the modal SHELL — the title sits in the header, which
+      // streams before the section column. A first CI run measured exactly that
+      // state and the walk found ZERO gapped containers, which the anchor caught
+      // (an empty offender list would otherwise have read as a clean surface).
+      // These two waits make the precondition explicit: the scroll pane exists,
+      // and at least one rail section has actually rendered into it.
+      await expect(page.locator(`${MODAL} [data-testid$="-review-content"]`)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(page.locator(`${MODAL} [data-testid*="-review-section-"]`).first()).toBeAttached(
+        { timeout: 30_000 },
+      );
+      // HYDRATION AND ITS EFFECTS, proven rather than assumed. Everything above
+      // is satisfied by streamed server HTML while the client bundle is still
+      // arriving, so the scan could finish before any effect-mounted subtree
+      // exists — and this case exists precisely to measure what hydration adds.
+      //
+      // The signal is `[data-inert-root][inert]`: ReviewModalShell inerts the
+      // admin shell from a `useEffect` while the dialog is open
+      // (ReviewModalShell.tsx §S3C-2). Effects never run on the server, so the
+      // attribute cannot appear in streamed markup, and it lands only after the
+      // shell's effects have COMMITTED — strictly stronger than React's
+      // `__reactFiber$…` stamp, which proves only that React has claimed the node
+      // and can be true while passive effects are still pending. Nothing in the
+      // markup substitutes: the rail's `aria-current`, for instance, is a
+      // `useState` INITIAL value and ships in the SSR output already.
+      await expect(page.locator("[data-inert-root][inert]").first()).toBeAttached({
+        timeout: 30_000,
+      });
+      // Settle: the panel must hold a real laid-out height before measuring.
+      await expect
+        .poll(
+          async () =>
+            page.locator(`${MODAL} [data-review-modal-panel]`).evaluate((el) => {
+              const r = el.getBoundingClientRect();
+              return r.height;
+            }),
+          { timeout: 15_000, message: "review panel reached a real laid-out height" },
+        )
+        .toBeGreaterThan(1);
+
+      const found = await scanForPhantomGaps(page.locator(MODAL));
+
+      // NON-VACUITY BY NAMED ANCHOR, never by a container count. The scroll pane
+      // proves the walk entered the section column; a rail SECTION proves it
+      // descended into the sections rather than stopping at the top level. Both
+      // are matched by SHAPE (the testid base is built from the show's
+      // drive_file_id, so an equality check would pin this file to one seed row).
+      expect(
+        found.visited.filter((v) => v.endsWith("-review-content")),
+        `the walk reached the section scroll pane [@ ${width}] —` +
+          ` gapped containers visited: ${JSON.stringify(found.visited)}`,
+      ).not.toEqual([]);
+      // PANEL CARD, not merely "something inside a section". The section wrapper
+      // form (`<div in …-review-section-…>`) is satisfied by a section's HEADING
+      // block alone, so a tree whose section BODIES all failed to render passed
+      // this anchor while proving nothing about them. The panel card IS the body.
+      expect(
+        found.visited.filter((v) => /-section-[a-z]+-panel-card/.test(v)),
+        `the walk descended into a rail section's panel card, not just the pane [@ ${width}] —` +
+          ` gapped containers visited: ${JSON.stringify(found.visited)}`,
+      ).not.toEqual([]);
+
+      expect(
+        found.unresolved,
+        `every gap on this surface resolved to a used length [@ ${width}]`,
+      ).toEqual([]);
+
+      const { remaining, stale } = reconcilePhantomLedger(
+        found.offenders,
+        KNOWN_SHOW_MODAL_PHANTOM_ITEMS,
+        { surface: "/admin?show", width },
+      );
+      expect(
+        stale,
+        `stale ledger rows [@ ${width}] — the instance is gone, so delete the row (a row kept` +
+          ` past its debt masks a later offender with the same label triple)`,
+      ).toEqual([]);
+      expect(
+        remaining,
+        `zero-extent items charge their parent's gap and show as a seam no element accounts for [@ ${width}]`,
+      ).toEqual([]);
+    });
+  }
 });

@@ -8,6 +8,24 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-PHANTOM-GAP-PROBE-OTHER-SURFACES — run the zero-extent-flex-item probe on the crew page and dashboard harnesses
+
+**Filed:** 2026-07-24 (branch `fix/overview-phantom-gap`). **Class:** layout hardening. **Effort:** S per harness.
+
+`T-NOPHANTOM` (tests/e2e/published-review-modal.layout.spec.ts) walks the rendered tree for in-flow items with zero extent on their parent's gap axis — an always-rendered wrapper whose entire content is state-gated is invisible but still charges its parent's `gap`. It found two instances on its first run: the reported Overview `overview-sheet-sync` slot (32px) and `ScheduleDayRow`'s time grid (4px per entry-less day). Both are now fixed with `empty:hidden`.
+
+The probe is scoped to the PUBLISHED MODAL tree only, so the crew page, the admin dashboard, and the wizard's own surfaces are unmeasured. A static sweep of `components/` + `app/` for the conditional-only-wrapper shape found no further true positives, but it cannot see the `{items.map(...)}` form — an empty array leaves no textual trace, and that is exactly the form the ScheduleDayRow instance took. So static coverage is not a substitute.
+
+**Work:** extract the probe into a shared helper and mount it in the existing standalone crew-page and dashboard layout harnesses. Expect false positives to need the same `checkVisibility()` treatment per surface (on the modal, the `lg:hidden` chip rail alone produced 25).
+
+**Status:** ✅ SHIPPED — `test/phantom-gap-probe-real-pages` (2026-07-25, PR #581). The walk lives in `tests/e2e/helpers/phantomGap.ts` (`scanForPhantomGaps` + `reconcilePhantomLedger`) and is mounted on the REAL routes rather than new harnesses — a fixture chosen to look complete is exactly the one that cannot catch an emptied-out wrapper. Mounts: `T-NOPHANTOM-DASH` on `/admin` (390 / 1280), `T-NOPHANTOM-SHOW` on the HYDRATED show modal at `/admin?show=<slug>` (375 / 1280 — the static harness never hydrates, which its own header names as its blind spot), and `T-NOPHANTOM-CREW` on all six crew sections (390 / 1000). All wired into `.github/workflows/phantom-gap-e2e.yml`, because both host specs were matched by playwright projects but invoked by no workflow — mounting a probe into a dark spec would have made the probe dark too.
+
+Two defects it paid for immediately: a PROBE defect (grid axes were admitted on item count; grid gaps sit between TRACKS, and track count is independent of item count in both directions — `shows-table-header`, 7 items across 7 tracks in one row, was reported as an offender it is not), and a real layout instance on the hydrated modal that no static fixture crowds enough to reveal, carried forward as `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW`.
+
+Not covered, deliberately: the wizard's own pre-publish surfaces, `BellPanel`, and the admin nav — no probe mount reaches them yet. Adding one is the same recipe (scan root + named non-vacuity anchor + a workflow step).
+
+---
+
 ## BL-HOVERHELP-PORTAL — portal the HoverHelp popover so it survives clipping ancestors
 
 **Filed:** 2026-07-20 (show-alert-compact spec, adversarial R2 F7/F8/F10) · **Class:** UI robustness · **Effort:** M (portal + positioning, or an anchor-positioning polyfill, plus containment assertions)
