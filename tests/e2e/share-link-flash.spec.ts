@@ -228,6 +228,8 @@ async function urlStyle(page: Page) {
       animationDirection: cs.animationDirection,
       animationIterationCount: cs.animationIterationCount,
       animationFillMode: cs.animationFillMode,
+      animationComposition: cs.animationComposition,
+      animationTimeline: cs.animationTimeline,
       backgroundColor: cs.backgroundColor,
       boxShadow: cs.boxShadow,
       hasAttr: el.hasAttribute("data-share-link-flash"),
@@ -282,6 +284,20 @@ test.describe("share-link cue — resolved style", () => {
     ]);
     expect(during!.animationIterationCount.split(",").map((t) => t.trim())).toEqual(["1", "1"]);
     expect(during!.animationFillMode.split(",").map((t) => t.trim())).toEqual(["none", "none"]);
+    // `animation-timeline` is the one that matters most here: a scroll-driven
+    // timeline re-times the whole cue while name, duration, delay, easing and
+    // play-state all still read exactly as asserted above. Pinned with
+    // composition so the longhand set is closed rather than leaving known gaps
+    // for a later round to find one at a time.
+    // Asserted as a value SET, not a fixed-length list: Chromium resolves these
+    // two to a single value rather than one per track, so pinning arity would
+    // fail for a reason that has nothing to do with the cue.
+    expect([...new Set(during!.animationComposition.split(",").map((t) => t.trim()))]).toEqual([
+      "replace",
+    ]);
+    expect([...new Set(during!.animationTimeline.split(",").map((t) => t.trim()))]).toEqual([
+      "auto",
+    ]);
 
     // BOTH paints actually move. Sampling one cannot see the other suppressed.
     expect(during!.backgroundColor).not.toBe(rest!.backgroundColor);
