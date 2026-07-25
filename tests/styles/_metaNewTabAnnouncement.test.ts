@@ -740,6 +740,27 @@ describe("MDX is compiled and scanned, not lexed", () => {
     );
   });
 
+  // The compiled module is walked in full, not just the page's returned markup, so an
+  // anchor reached indirectly is still classified. These are the shapes MDX makes
+  // easy and a lexer would never have seen.
+  it("classifies anchors reached indirectly through exports and components", () => {
+    expect(flags('export const link = <a href="x" target="_blank">Go</a>\n\n{link}')).toBe(true);
+    expect(flags('export function L(){ return <a href="x" target="_blank">Go</a> }\n\n<L />')).toBe(
+      true,
+    );
+    // A custom component given a target: it can forward it to an anchor, so it is
+    // classified on the strength of the attribute, not the tag name.
+    expect(flags('export const dest="_blank"\n\n<MyLink href="x" target={dest}>Go</MyLink>')).toBe(
+      true,
+    );
+    // Announced in an export is still fine.
+    expect(
+      flags(
+        'export const link = <a href="x" target="_blank" aria-label="Sheet (opens in a new tab)">Go</a>\n\n{link}',
+      ),
+    ).toBe(false);
+  });
+
   it("accepts an announced external anchor", () => {
     expect(
       flags('<a href="x" target="_blank" aria-label="Open the sheet (opens in a new tab)">Go</a>'),
