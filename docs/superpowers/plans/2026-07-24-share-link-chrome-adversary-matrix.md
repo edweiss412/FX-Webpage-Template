@@ -20,34 +20,34 @@ _30 adversaries · 29 rejected · 1 survived · 0 unapplied._
 
 | # | Wrong implementation | Rows red |
 |---|---|---|
-| A1 | never sets the attribute | 13 |
-| A2 | sets it, never clears it | 9 |
+| A1 | never sets the attribute | 11 |
+| A2 | sets it, never clears it | 4 |
 | A3 | clears on a duration other than the constant | 1 |
 | A4 | sets it unconditionally on mount | SURVIVED |
 | A5 | bumps on ANY token change, nulls included | 1 |
 | A6 | clears on !open alone | 1 |
 | A7 | clears on token-nullity alone | 1 |
 | A8 | cues for a rotation the epoch gate rejected | 2 |
-| A9 | omits key entirely | 7 |
+| A9 | omits key entirely | 2 |
 | A10 | uses key={flash} | 1 |
 | A11 | boolean instead of a nonce | 1 |
 | A12 | omits the effect cleanup | 2 |
-| A13 | empty keyframe bodies | 7 |
-| A14 | CSS duration drifts from the constant | 7 |
-| A15 | no reduced-motion override | 7 |
-| A16 | override present but outranked by a later rule | 7 |
+| A13 | empty keyframe bodies | 2 |
+| A14 | CSS duration drifts from the constant | 2 |
+| A15 | no reduced-motion override | 2 |
+| A16 | override present but outranked by a later rule | 2 |
 | A17 | later duplicate keyframes win the cascade | 2 |
-| A18 | ancestor-qualified rule suppresses it in the real tree | 7 |
-| A19 | ring suppressed while the wash still works | 7 |
+| A18 | ancestor-qualified rule suppresses it in the real tree | 4 |
+| A19 | ring suppressed while the wash still works | 2 |
 | A20 | keyframes moved into the component | 1 |
-| A23 | attribute on the wrapper row, not the code block | 7 |
+| A23 | attribute on the wrapper row, not the code block | 2 |
 | A24 | drops the !open arm | 2 |
-| A25 | constant AND CSS moved together | 9 |
+| A25 | constant AND CSS moved together | 5 |
 | A26 | hold stop and ring width altered, colours kept | 1 |
-| A27 | steady wash under reduced motion | 7 |
-| A28 | ancestor rule scoped to the real modal ROOT suppresses the cue | 7 |
-| A29 | selector widened to `html [data-...]` (defeats substring matching) | 7 |
-| A30 | the attribute rule is duplicated (a later copy wins the cascade) | 7 |
+| A27 | steady wash under reduced motion | 2 |
+| A28 | ancestor rule scoped to the real modal ROOT suppresses the cue | 4 |
+| A29 | selector widened to `html [data-...]` (defeats substring matching) | 2 |
+| A30 | the attribute rule is duplicated (a later copy wins the cascade) | 2 |
 | A22 | token retuned below the ring's contrast floor | 2 |
 | A21 | renders a wrong token / Copy writes a stale one | 2 |
 
@@ -57,12 +57,11 @@ _30 adversaries · 29 rejected · 1 survived · 0 unapplied._
 | N1: both keyframes are declared exactly once | A17 |
 | N1: the component declares no keyframes of its own | A20 |
 | N1: the shipped cue rules EQUAL the spec's normative block | A13, A14, A15, A16, A17, A18, A19, A25, A26, A27, A28, A29, A30 |
-| T-FLASH-REDUCED | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27, A28, A29, A30 |
-| T-FLASH-REST | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27, A28, A29, A30 |
-| T-FLASH-RESTART | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27, A28, A29, A30 |
-| T-FLASH-RUN | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27, A28, A29, A30 |
-| T-FLASH-SETTLE | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27, A28, A29, A30 |
-| T-FLASH-SOLE | A1, A2, A9, A13, A14, A15, A16, A18, A19, A23, A25, A27, A28, A29, A30 |
+| T-FLASH-REDUCED | A1, A15, A16, A27, A29, A30 |
+| T-FLASH-RESTART | A1, A9, A18, A28 |
+| T-FLASH-RUN | A1, A13, A14, A18, A19, A25, A28 |
+| T-FLASH-SETTLE | A2, A25 |
+| T-FLASH-SOLE | A1, A18, A23, A28 |
 | a STRICTLY LOWER epoch is rejected, so nothing cues | A8 |
 | a change while the panel is CLOSED never reaches the DOM | A24 |
 | a live cue SURVIVES unrelated re-renders | A1 |

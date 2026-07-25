@@ -421,6 +421,29 @@ ADVERSARIES.push([
   ],
 ]);
 
+/**
+ * A31 exists because honest row attribution exposed T-FLASH-REST as vacuous.
+ *
+ * While `runBrowser` credited every browser row on any failure, T-FLASH-REST
+ * appeared to reject 13 adversaries. Parsing the JSON reporter dropped it to
+ * ZERO — spec §9.0 says a row that rejects nothing is deleted, not kept for
+ * reassurance. The row is worth keeping, so give it the defect it is for: a cue
+ * that is never gated on the attribute at all and therefore paints at rest.
+ * Nothing else in the register reaches the resting state, because every other
+ * adversary mutates behavior that only exists after a rotate.
+ */
+ADVERSARIES.push([
+  "A31",
+  "cue ungated: the URL block animates at rest, with no attribute",
+  [
+    [
+      CSS,
+      "[data-share-link-flash] {\n  animation:",
+      '[data-testid="admin-current-share-link-url"] {\n  animation:',
+    ],
+  ],
+]);
+
 ADVERSARIES.push([
   "A22",
   "token retuned below the ring's contrast floor",
