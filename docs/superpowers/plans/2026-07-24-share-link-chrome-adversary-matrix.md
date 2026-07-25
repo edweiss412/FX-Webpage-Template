@@ -18,7 +18,7 @@ proven-equivalent mutant rather than a coverage hole — see the section after t
 
 <!-- BEGIN GENERATED -->
 
-_31 adversaries · 30 rejected · 1 survived · 0 unapplied._
+_37 adversaries · 36 rejected · 1 survived · 0 unapplied._
 
 | # | Wrong implementation | Rows red |
 |---|---|---|
@@ -34,23 +34,29 @@ _31 adversaries · 30 rejected · 1 survived · 0 unapplied._
 | A10 | uses key={flash} | 1 |
 | A11 | boolean instead of a nonce | 1 |
 | A12 | omits the effect cleanup | 2 |
-| A13 | empty keyframe bodies | 2 |
-| A14 | CSS duration drifts from the constant | 2 |
-| A15 | no reduced-motion override | 3 |
+| A13 | empty keyframe bodies | 3 |
+| A14 | CSS duration drifts from the constant | 3 |
+| A15 | no reduced-motion override | 4 |
 | A16 | override present but outranked by a later rule | 2 |
-| A17 | later duplicate keyframes win the cascade | 3 |
+| A17 | later duplicate keyframes win the cascade | 4 |
 | A18 | ancestor-qualified rule suppresses it in the real tree | 4 |
-| A19 | ring suppressed while the wash still works | 2 |
+| A19 | ring suppressed while the wash still works | 3 |
 | A20 | keyframes moved into the component | 1 |
 | A23 | attribute on the wrapper row, not the code block | 2 |
 | A24 | drops the !open arm | 2 |
-| A25 | constant AND CSS moved together | 5 |
-| A26 | hold stop and ring width altered, colours kept | 1 |
-| A27 | steady wash under reduced motion | 2 |
+| A25 | constant AND CSS moved together | 6 |
+| A26 | hold stop and ring width altered, colours kept | 2 |
+| A27 | steady wash under reduced motion | 3 |
 | A28 | ancestor rule scoped to the real modal ROOT suppresses the cue | 4 |
-| A29 | selector widened to `html [data-...]` (defeats substring matching) | 2 |
+| A29 | selector widened to `html [data-...]` (defeats substring matching) | 3 |
 | A30 | the attribute rule is duplicated (a later copy wins the cascade) | 2 |
-| A31 | cue ungated: the URL block animates at rest, with no attribute | 7 |
+| A31 | cue ungated: the URL block animates at rest, with no attribute | 8 |
+| A32 | copy button: drops the captured-url check, so a stale write still confirms | 1 |
+| A33 | copy button: no reset when the url rotates after a completed copy | 1 |
+| A34 | copy button: resets in a PASSIVE effect, painting one stale frame | 1 |
+| A35 | copy button: suppresses EVERY deferred confirmation, not only stale ones | 2 |
+| A36 | seeded at mount AND never cleared, so opening the panel cues with no rotate | 11 |
+| A37 | whole cue block nested inside `@media screen`, defeating contiguity | 2 |
 | A22 | token retuned below the ring's contrast floor | 2 |
 | A21 | renders a wrong token / Copy writes a stale one | 2 |
 
@@ -59,31 +65,36 @@ _31 adversaries · 30 rejected · 1 survived · 0 unapplied._
 | N0: SHARE_LINK_FLASH_MS is 1600 | A25 |
 | N1: both keyframes are declared exactly once | A17 |
 | N1: nothing ELSE in the stylesheet mentions the cue | A15, A16, A17, A18, A28, A30, A31 |
+| N1: the block sits at TOP LEVEL, not nested in an at-rule | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31, A37 |
 | N1: the component declares no keyframes of its own | A20 |
-| N1: the spec's normative block appears in globals.css BYTE FOR BYTE | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31 |
+| N1: the spec's normative block appears in globals.css BYTE FOR BYTE | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31, A37 |
 | T-FLASH-REDUCED | A1, A15, A16, A27, A29, A30, A31 |
-| T-FLASH-REST | A31 |
+| T-FLASH-REST | A31, A36 |
 | T-FLASH-RESTART | A1, A9, A18, A28 |
-| T-FLASH-RUN | A1, A13, A14, A18, A19, A25, A28, A31 |
-| T-FLASH-SETTLE | A2, A25, A31 |
-| T-FLASH-SOLE | A1, A18, A23, A28, A31 |
-| a STRICTLY LOWER epoch is rejected, so nothing cues | A8 |
-| a change while the panel is CLOSED never reaches the DOM | A24 |
+| T-FLASH-RUN | A1, A13, A14, A18, A19, A25, A28, A31, A36 |
+| T-FLASH-SETTLE | A2, A25, A31, A36 |
+| T-FLASH-SOLE | A1, A18, A23, A28, A31, A36 |
+| a STRICTLY LOWER epoch is rejected, so nothing cues | A8, A36 |
+| a change while the panel is CLOSED never reaches the DOM | A24, A36 |
+| a completed copy stops claiming Copied once the url rotates | A33, A34, A35 |
+| a copy of the CURRENT url still confirms (the guard is not blanket suppression) | A35 |
+| a copy still in flight when the url rotates never announces success | A32 |
 | a live cue SURVIVES unrelated re-renders | A1 |
 | a rotate updates the URL instantly — OLD then vanishes everywhere | A21 |
 | a rotation at a STRICTLY LOWER epoch is rejected — the URL does not regress | A8, A21 |
 | accent-edge is wired: @theme alias present, runtime value in ALL three blocks, dark blocks identical | A22 |
-| an UNPUBLISH mid-cue clears it even though the token never changed | A1, A6, A7 |
+| an UNPUBLISH mid-cue clears it even though the token never changed | A1, A6, A7, A36 |
 | archiving clears it (the whole share half goes) | A1 |
 | clears at exactly SHARE_LINK_FLASH_MS, not before | A1, A2, A3 |
-| closing mid-cue clears it, so reopening inside the window is clean | A1, A24 |
+| closing mid-cue clears it, so reopening inside the window is clean | A1, A24, A36 |
 | dark: accent-edge clears >=3:1 on every ground the flash ring touches | A22 |
 | expiry does NOT remount anything (N5) — a text selection survives it | A2, A10 |
-| marks the URL block, and EXACTLY that element | A1, A23 |
+| marks the URL block, and EXACTLY that element | A1, A23, A36 |
+| no cue on first render or first open | A36 |
 | null becoming a token does NOT cue | A5 |
 | re-arms on a second change so the later cue runs its full window | A1, A2, A11, A12, A25 |
 | remounts the URL block and NOTHING else (N4) | A9 |
-| unmounting mid-cue clears the CUE's timer | A12 |
+| unmounting mid-cue clears the CUE's timer | A12, A36 |
 
 <!-- END GENERATED -->
 
