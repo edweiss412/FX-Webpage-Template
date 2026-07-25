@@ -80,16 +80,21 @@ Applied, that fixes ownership as: **Task 1** the heading copy and the conditiona
 
 **Catches:** a merge that renames one heading but leaves the third group rendering.
 
+**Plus spec test 2, merged-group ordering** (plan R4 F6 — it had no owning task). Mount **two** actionable and **two** needs-look items and assert all four rows appear under the single "Needs you" heading in `deriveAttentionItems` order, actionable-first. One of each (the case above) cannot catch a merge that interleaves or re-sorts. Derive the expected id sequence from the fixture array, not a literal.
+
 **Implement.** `AttentionMenu.tsx`: replace the three filters with `needsYou` / `monitoring` (spec §2.1), the three heading blocks with two, and the three-branch `aria-label` with two. The two row RENDERERS stay as they are until Task 3 — this task partitions `needsYou` internally by `i.actionable` and renders both under one heading, so the diff is grouping only.
 
-**Fan-out — the heading copy and the conditional-site count, both in this commit.**
+**Also add heading testids** — `data-testid="attention-needsyou-heading"` and `data-testid="attention-monitoring-heading"` on the two heading **container `<div>`s** (not the inner `<span>`s). Plan R4 F3 established why: the container is the element whose whole block disappears on the O1↔O2 collapse, and a text locator selects the span instead, so Task 9's oracle would check the wrong node. Task 2's `element.contains` placement pin also gets a stable anchor instead of a text query.
+
+**Fan-out — the heading copy and the conditional-site count, both in this commit.** Sweep: `grep -rn 'Needs your confirmation\|Needs a look' tests/ lib/ components/ app/`. That returns matches in the per-section-chip surface too (`lib/admin/routedWarnings.ts`, `components/admin/wizard/step3ReviewSections.tsx`, `components/admin/review/ShowReviewSurface.tsx`, and the five test files in spec §7.1's leave-alone list) — those are a different component and stay untouched. The dropdown-heading consumers are exactly two test files:
 
 - `tests/components/admin/showpage/attentionMenuGroups.test.tsx:143-152` (aria-label now "Needs you") and `tests/components/admin/showpage/attentionMenuGroups.test.tsx:154-161` (heading now "Needs you").
+- `tests/dev/fullSplitCompositeRender.test.tsx` — **repaired HERE, not in Task 3** (plan R4 F1): `tests/dev/fullSplitCompositeRender.test.tsx:69` and `tests/dev/fullSplitCompositeRender.test.tsx:75` require the two retired headings; `tests/dev/fullSplitCompositeRender.test.tsx:100` and `tests/dev/fullSplitCompositeRender.test.tsx:101` re-query them for the document-order assertion, which collapses to one `follows(needsYouHeading, monHeading)` check. The negative membership pair at `tests/dev/fullSplitCompositeRender.test.tsx:124-125` keeps passing but becomes **vacuous** — it would assert the absence of strings that no longer exist anywhere. Re-point both at `"Needs you"` so the membership proof still proves something.
 - `tests/components/admin/showpage/pageTransitions.test.tsx:147` pins `"components/admin/showpage/AttentionMenu.tsx": 7` — a **scanner-derived count of conditional render sites**, not a copy assertion. (Spec §7.1 previously described this file as pinning the header case at `tests/components/admin/showpage/pageTransitions.test.tsx:144`; that is the comment above the row, not the assertion.) Removing a group removes conditional sites, so the integer moves. **Measure it — re-run the scanner, do not predict** (`tests/components/admin/showpage/pageTransitions.test.tsx:132` and `tests/components/admin/showpage/pageTransitions.test.tsx:143` both say "Verified by RUNNING the scanner, not by reasoning"). Annotate the delta in the row comment following the file's own convention (`8 → 7 → 6`, each with the task that moved it). Task 3 moves it again and updates it again.
 
 ### Task 2 — heading placement pin
 
-**Test first.** Spec test 5b: with both groups populated, assert the "Needs you" heading is NOT a descendant of the `max-h-96 overflow-y-auto` container and the "Monitoring" heading IS, using `element.contains`, not class names.
+**Test first.** Spec test 5b: with both groups populated, assert the `attention-needsyou-heading` container is NOT a descendant of the `max-h-96 overflow-y-auto` container and `attention-monitoring-heading` IS, using `element.contains`, not class names. Anchor on the testids Task 1 added, not on heading text — a text query resolves to the inner `<span>`, and the placement contract is about the container.
 
 **Catches:** a refactor that normalises both headings into the scroller, changing the pinned-label behaviour invisibly.
 
@@ -105,9 +110,32 @@ Applied, that fixes ownership as: **Task 1** the heading copy and the conditiona
 
 **Catches:** in order — a row left as a `<div>` with a link; a silent regression of the boundary row to a bare title; reversed precedence hiding the fix hint.
 
+**Plus spec tests 10 and 12** (plan R4 F6 — neither had an owning task):
+
+- **Test 10, merged-group regression guard.** Both event codes are already excluded at HEAD (spec §2.5), so this cannot fail first and is a characterisation test, not a TDD step — its comment must say so. Assert that `deriveAttentionItems` still yields zero items for `SHOW_FIRST_PUBLISHED` and `PICKER_EPOCH_RESET` **after** the merged-group derivation, i.e. that neither appears in `needsYou`. The pre-existing suites (`tests/admin/attentionExclusionSet.test.ts:107-120`, `tests/admin/pickerEpochCut.test.ts:20-39`) pin the upstream exclusion; nothing currently pins that this refactor does not resurrect them downstream. No `EVENT_SHAPED_CODES` export is introduced (spec §1.1).
+- **Test 12, warnings-channel jump — a COMPOSITION test.** For `PARSE_ERROR_LAST_GOOD`, assert `effectiveSectionId` resolves to `warnings` AND that the row's `onNavigate` payload carries that section. `tests/admin/anchorRouting.test.ts` already covers the resolver alone and Task 3's row tests cover a generic payload alone; neither catches a break between them, which is exactly what wiring a previously-inert row to `onNavigate` risks.
+
 **Implement.** Delete the needs-look row block (`AttentionMenu.tsx:185-222`); render every `needsYou` item through the actionable row shape with `hint ?? menuSubtitle` as the second line and the filled `TONE_DOT[item.tone]` dot.
 
-**Fan-out — every consumer of the retired row shape, all in this commit, no exceptions.** Deleting the block retires BOTH the `attention-needslook-row-*` testid and the in-row `<a>`. Enumerated by `grep -rn 'attention-needslook-row' tests/` and `grep -n '${MENU} a' tests/e2e/attention-pill-focus.spec.ts`, plus a read of each hit's surrounding assertion: four jsdom files and one e2e file. Per the ownership rule above, **all five are repaired here** — deferring any of them leaves this task red at its own commit.
+**Fan-out — TWO sweeps, because the change both retires an id and expands another.** Deleting the block retires the `attention-needslook-row-*` testid and the in-row `<a>`, AND moves those rows onto the surviving `attention-menu-row-*` prefix. Sweeping only the retired id misses every assertion about the surviving one's membership (plan R4 F4).
+
+- **Sweep A, retired:** `grep -rn 'attention-needslook-row' tests/` and `grep -n '${MENU} a' tests/e2e/attention-pill-focus.spec.ts`.
+- **Sweep B, expanded:** `grep -rn 'attention-menu-row' tests/`. Seven files match. Most are id-specific queries for rows that were already menu rows and stay valid; the ones that break are the **count and absence** assertions listed below.
+
+Per the ownership rule above, every hit from both sweeps is repaired here — deferring any leaves this task red at its own commit.
+
+**Sweep B breakages (exhaustive):**
+
+| Site | Today | After |
+| --- | --- | --- |
+| `tests/components/admin/showpage/attentionMenu.test.tsx:84-88` | expects the prefix query to return exactly `[hold:h1, alert:a1]` | `CLEARING` (`alert:c1`) joins the shape, so the expected array is three entries. The test's name, "renders only actionable rows, in order, with titles + subtitles", is retired vocabulary and is renamed with it. |
+| `tests/components/admin/showpage/attentionMenu.test.tsx:94` | `queryByTestId("attention-menu-row-alert:c1")` is null | Inverts — that is the row's new id. |
+| `tests/dev/fullSplitCompositeRender.test.tsx:70` | one prefixed row | Three (one actionable + two former needs-look). |
+| `tests/components/admin/showpage/pillFocusReconcile.test.tsx:259` | prefix absent in the `(1,1,0) → (0,1,0)` state | The surviving needs-look item now carries the prefix. The adjacent retired-id assertion at `tests/components/admin/showpage/pillFocusReconcile.test.tsx:260` is a separate edit in the table below. |
+
+Every other `attention-menu-row-*` assertion was checked and holds: they run on actionable-only or monitoring-only fixtures, or query one id that keeps its meaning. Notably `tests/e2e/published-show-attention.spec.ts:118`'s `toHaveCount(2)` is **verified invariant, not assumed** — that spec seeds exactly `AMBIGUOUS_EMAIL_BINDING` (`tests/e2e/published-show-attention.spec.ts:48`) and `SYNC_DELAYED_SEVERE` (`tests/e2e/published-show-attention.spec.ts:52`), neither of which is in `NEEDS_LOOK_CODE_LIST` or `SELF_HEALING_CODE_LIST` (`lib/adminAlerts/audience.ts:75-94`), so both are actionable and the count stays 2.
+
+**Sweep A breakages:**
 
 Also re-run the pageTransitions scanner and update `tests/components/admin/showpage/pageTransitions.test.tsx:147` again (Task 1 moved it once; collapsing the two row renderers moves it again).
 
@@ -116,7 +144,7 @@ Also re-run the pageTransitions scanner and update `tests/components/admin/showp
 | `tests/components/admin/showpage/attentionMenuGroups.test.tsx` | testid refs at `tests/components/admin/showpage/attentionMenuGroups.test.tsx:115`, `tests/components/admin/showpage/attentionMenuGroups.test.tsx:125`, `tests/components/admin/showpage/attentionMenuGroups.test.tsx:135`, `tests/components/admin/showpage/attentionMenuGroups.test.tsx:364`; plus the whole `describe("needs-a-look group")` block opening at `tests/components/admin/showpage/attentionMenuGroups.test.tsx:74` and closing at `tests/components/admin/showpage/attentionMenuGroups.test.tsx:140` (6 tests) | Four of those tests assert the link contract this spec deletes (`tests/components/admin/showpage/attentionMenuGroups.test.tsx:75` target/rel, `tests/components/admin/showpage/attentionMenuGroups.test.tsx:85` internal-anchor, `tests/components/admin/showpage/attentionMenuGroups.test.tsx:98` click-closes, `tests/components/admin/showpage/attentionMenuGroups.test.tsx:121` single-anchor). Rewrite the block against the merged row: hint still renders, row is a `<button>`, row contains no `<a>`. Do NOT delete the coverage — the `rel`/`target` assertions move to Task 4's card chip, which is where that contract now lives. The scroll-boundary assertion re-anchors on `attention-menu-row-*`. |
 | `tests/components/admin/showpage/pillFocusReconcile.test.tsx` | testid refs at `tests/components/admin/showpage/pillFocusReconcile.test.tsx:202`, `tests/components/admin/showpage/pillFocusReconcile.test.tsx:260`, `tests/components/admin/showpage/pillFocusReconcile.test.tsx:277`, `tests/components/admin/showpage/pillFocusReconcile.test.tsx:332`; plus two link-focus probes selecting `menu.querySelector("a")` at `tests/components/admin/showpage/pillFocusReconcile.test.tsx:186` and `tests/components/admin/showpage/pillFocusReconcile.test.tsx:270` | The testid refs re-anchor on `attention-menu-row-*`. **The two `querySelector("a")` probes lose their subject** — after this task the menu has no `<a>` at all, so `expect(target).not.toBeNull()` fails. Re-point both at the needs-look row button; that keeps the probe non-vacuous (the focused node still leaves the DOM) and is now the shape the §4 compound row actually exercises. |
 | `tests/components/admin/showpage/attentionMenu.test.tsx` | `tests/components/admin/showpage/attentionMenu.test.tsx:123`, `tests/components/admin/showpage/attentionMenu.test.tsx:140` | The first is the fail-visible boundary pin already scoped above. The second asserts the needs-look row is absent in a monitoring-only render — re-anchor on `attention-menu-row-*`. |
-| `tests/dev/fullSplitCompositeRender.test.tsx` | `tests/dev/fullSplitCompositeRender.test.tsx:77`, `tests/dev/fullSplitCompositeRender.test.tsx:87`, `tests/dev/fullSplitCompositeRender.test.tsx:93`; plus the group headings at `tests/dev/fullSplitCompositeRender.test.tsx:69` and `tests/dev/fullSplitCompositeRender.test.tsx:75`, and the in-row link assertions that follow each testid | Re-anchor the testids on `attention-menu-row-*` and fold the two group assertions into one "Needs you" heading. The in-row `getByRole("link")` assertions have no subject after this task — their contract moves to Task 4's card chip. **Repaired HERE, not in Task 6** (plan R3 F1): Task 6 changes only the pill string and the dev-scenario prose, and this file must already be green when Task 3 commits. |
+| `tests/dev/fullSplitCompositeRender.test.tsx` | `tests/dev/fullSplitCompositeRender.test.tsx:77`, `tests/dev/fullSplitCompositeRender.test.tsx:87`, `tests/dev/fullSplitCompositeRender.test.tsx:93`, and the in-row link assertions that follow each testid | Re-anchor the testids on `attention-menu-row-*`. The in-row `getByRole("link")` assertions have no subject after this task — their contract moves to Task 4's card chip. The group HEADINGS in this file are Task 1's (plan R4 F1); the row count at `tests/dev/fullSplitCompositeRender.test.tsx:70` is in the Sweep B table above. Three tasks touch this file — 1 (headings), 3 (rows), 5 (pill string) — and each must leave it green. |
 | `tests/e2e/attention-pill-focus.spec.ts` | `tests/e2e/attention-pill-focus.spec.ts:177-198` (the `§11.9 nav` sheet-link test), `tests/e2e/attention-pill-focus.spec.ts:258-264` (rescue probe (b), `stampFocused(page, "${MENU} a")`), `tests/e2e/attention-pill-focus.spec.ts:283-306` (generality cell `focus: "link"`, resolved at `tests/e2e/attention-pill-focus.spec.ts:305`) | Rewrite all three against `${MENU} [data-testid^="attention-menu-row-"]`. For the first, the href/target/rel half moves to Task 4's card chip and what survives is the navigation contract: press the row, assert the menu closed. The two focus probes stay non-vacuous — the focused node still leaves the DOM on `setItems(0,0,1)`. **Repaired HERE, not in Task 7** (plan R3 F1): Tasks 8b and 9 both add tests to this file and cannot run their red/green cycle against a suite that is red for unrelated reasons. `boot()`'s `${MENU} button, ${MENU} a` selector at `tests/e2e/attention-pill-focus.spec.ts:124` needs no change — the `button` arm still matches. |
 
 Verify with `npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-pill-focus.spec.ts` before committing; the file is not CI-wired until Task 7, so a local green is the only signal at this point.
@@ -143,6 +171,17 @@ Plus spec test 9b, the four-cell warnings matrix, which is the load-bearing proo
 
 **Prop threading — do not guess this.** The self-link guard compares the action's target section against **the card's effective section**, and `AttentionBanner` cannot currently see that value: `AttentionBannerProps` is `{ item, slug, now, highlighted, onResolved }` (`components/admin/review/AttentionBanner.tsx`), with no section field. The effective section is computed in `PublishedReviewModal` via `resolveEffectiveSection` and used by `bannerFor` (`components/admin/showpage/PublishedReviewModal.tsx:521-530`, `components/admin/showpage/PublishedReviewModal.tsx:551-556`). Add an `effectiveSectionId: RoutedSectionId` prop and pass `effectiveSectionId(item)` from `bannerFor`, so the card and the bucketing share one source. **Do not** compare against `item.sectionId` — that is the declared route and is wrong for exactly the fallback cases test 9b covers.
 
+**The prop is required, so every mount must supply it (plan R4 F2).** `grep -rn '<AttentionBanner' tests/ components/ app/` returns exactly four mounts. The plan previously named one; the other three fail typecheck the moment the prop lands:
+
+| Mount | Value to pass |
+| --- | --- |
+| `components/admin/showpage/PublishedReviewModal.tsx:522` (`bannerFor`) | `effectiveSectionId(item)` — the production path, above. |
+| `tests/components/admin/review/attentionBanner.test.tsx:65` (`renderBanner(it, over)` helper) | `effectiveSectionId={it.sectionId}` **as a default that `over` can override** — the helper spreads `over` last, and test 9b needs to override it to `"overview"` to prove the fallback case. This is the one site where a hardcoded value would break the task's own tests. |
+| `tests/components/admin/compactAlertCompoundTransitions.test.tsx:59` | The fixture's own `sectionId`. Lift `alertItem()` to a const first — the file currently calls the builder inline, so passing `alertItem().sectionId` would build a second, unrelated object. |
+| `tests/e2e/_compactAlertCardLiveEntry.tsx:135` | `bannerItem.sectionId` — already a module-level const. |
+
+**Do not** wire `resolveEffectiveSection` into the three test files. They mount a card directly and have no `placement` predicates to feed it; the declared route IS the effective section wherever the anchor is mounted, which is the case all three harnesses set up. `tests/e2e/_attentionAnchorEntry.tsx:27` mentions `<AttentionBanner>` in a comment only — it is a documented stand-in, not a mount, and needs no change.
+
 ### Task 5 — the badge
 
 **Test first.** Spec test 6: `1 issue` at count 1, `11 issues` at 11, `99+ issues` plus an `sr-only` exact count at 120, and the full visible string `11 issues · 1 monitoring` with real `" · "` text nodes. Derive counts from the fixture. Plus spec test 4b — degraded read with a live hold: pill interactive, reads `1 issue`, menu lists the hold, degraded Overview notice still present.
@@ -155,7 +194,7 @@ Plus spec test 9b, the four-cell warnings matrix, which is the load-bearing proo
 
 | File | Sites | Note |
 | --- | --- | --- |
-| `tests/components/admin/showpage/publishedPill.test.tsx` | the parameterised table at `tests/components/admin/showpage/publishedPill.test.tsx:69` through `tests/components/admin/showpage/publishedPill.test.tsx:75` (7 rows of exact pill strings), plus `tests/components/admin/showpage/publishedPill.test.tsx:111`, `tests/components/admin/showpage/publishedPill.test.tsx:132`, `tests/components/admin/showpage/publishedPill.test.tsx:149` | The largest pin. **Re-derive the table from the merged counts; do not string-substitute** — rows that differed only in the confirm/review split now collapse onto the same expected string, so a mechanical replace produces duplicate cases that no longer discriminate. |
+| `tests/components/admin/showpage/publishedPill.test.tsx` | the parameterised table at `tests/components/admin/showpage/publishedPill.test.tsx:69` through `tests/components/admin/showpage/publishedPill.test.tsx:75` (7 rows of exact pill strings), plus `tests/components/admin/showpage/publishedPill.test.tsx:119`, `tests/components/admin/showpage/publishedPill.test.tsx:126`, `tests/components/admin/showpage/publishedPill.test.tsx:127`, `tests/components/admin/showpage/publishedPill.test.tsx:132`, `tests/components/admin/showpage/publishedPill.test.tsx:149` | The largest pin. **Re-derive the table from the merged counts; do not string-substitute** — rows that differed only in the confirm/review split now collapse onto the same expected string, so a mechanical replace produces duplicate cases that no longer discriminate. `tests/components/admin/showpage/publishedPill.test.tsx:119`'s test name ("clearing items WITHOUT clearingKind default fail-visible into the review count") carries retired vocabulary and is renamed, not just re-stringed. `tests/components/admin/showpage/publishedPill.test.tsx:126-127` is the review-segment 99+ cap and its sr-only exact count. (An earlier draft of this table cited line 111 of the same file; that is the unchanged `"2 monitoring"` assertion and is NOT affected — plan R4 F5.) |
 | `tests/components/admin/showpage/publishedReviewModal.test.tsx` | `tests/components/admin/showpage/publishedReviewModal.test.tsx:451`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:461`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:488`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:494`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:512` | `tests/components/admin/showpage/publishedReviewModal.test.tsx:461`'s whole premise — "needs-look-only renders the INTERACTIVE '1 to review' pill" — is retired; it becomes a `1 issue` case, keeping the interactivity half of the assertion. |
 | `tests/app/admin/showReviewModalLoader.test.tsx` | `tests/app/admin/showReviewModalLoader.test.tsx:620` | Regex over `${n} to confirm`. |
 | `tests/e2e/published-show-attention.spec.ts` | `tests/e2e/published-show-attention.spec.ts:112`, `tests/e2e/published-show-attention.spec.ts:124`, `tests/e2e/published-show-attention.spec.ts:232`, `tests/e2e/published-show-attention.spec.ts:259`, and the header comment at `tests/e2e/published-show-attention.spec.ts:11` | **`desktop-chromium`, CI-wired** — the only file in this table whose staleness fails a real PR check rather than a local run. |
@@ -165,7 +204,11 @@ Plus spec test 9b, the four-cell warnings matrix, which is the load-bearing proo
 
 ### Task 6 — dev gallery
 
-**Test first.** No new assertions — Tasks 3 and 5 already repaired every assertion in `tests/dev/fullSplitCompositeRender.test.tsx`. This task's test step is to confirm the renamed scenario labels still satisfy `tests/dev/attentionScenariosTier1.test.ts:13-17`, which asserts the gallery covers every `ATTENTION_ROUTES` code.
+**Test first.** `tests/dev/fullSplitComposite.test.ts:22` asserts the Tier-3 label **exactly**: `expect(s.label).toBe("Everything at once: confirm, review, and monitoring")`. Update it to the renamed label — that is this task's failing-test-first step, and it is the only test that can fail for a Tier-2/Tier-3 label change (plan R4 F7).
+
+The §7.1b sweep that produced this task searched `lib/dev/` only, which is why this consumer was missed; the corrected sweep is `grep -rn 'confirm, review' lib/dev/ tests/`. A sweep of the other retired Tier-2/Tier-3 label strings finds no further test consumer.
+
+`tests/dev/attentionScenariosTier1.test.ts:13-17` is a **regression check, not this task's oracle** — it asserts Tier-1 route-code totality and cannot fail for a label rename. Run it to confirm no id changed; do not treat it as proof the rename worked.
 
 **Implement.** `lib/dev/attentionScenarios/tier2.ts` and `tier3.ts` only (spec §7.1b): rename the class-mix labels and the `T2_MONITORING_ONLY` description to the two-group vocabulary. Rename labels, not ids, unless the id itself names a retired class — an id change breaks the totality assertion above.
 
@@ -220,10 +263,25 @@ jsdom cannot compute layout, so all of the above must be Playwright.
 
 **The instant-collapse oracle needs stating precisely (plan R3 F2), because the naive one has no subject.** "Assert no transition property on the group wrappers" does not work after the merge: the needs-you group has **no wrapper element** — its rows render directly inside the scroller — and the rows themselves deliberately keep `transition-colors` as the pressable-row hover affordance (spec §4, "Row-level transition, new to the former needs-look rows"). An assertion of "no transitions here" would fail a correct implementation.
 
-The correct oracle is **set equality on `transition-property`**, not a forbid-regex:
+The correct oracle is **set equality on `transition-property`**, not a forbid-regex. Set equality is what makes it robust: a `not.toContain("opacity")` check passes against `transition-all`, which animates opacity.
 
-- Monitoring group wrapper (`[data-testid="attention-monitoring-group"]`) and both group headings: computed `transition-property` is exactly `none`. These are the elements that appear and disappear on the O1↔O2 collapse.
-- Needs-you rows: computed `transition-property` set equals exactly Tailwind's `transition-colors` set (`color`, `background-color`, `border-color`, `text-decoration-color`, `fill`, `stroke`). The point is what is ABSENT — no `opacity`, `transform`, `height`, or `all` — so a row can never animate its own removal. Collect the property list and compare as a set; a `not.toContain("opacity")` style check passes against `all`.
+- Elements that appear and disappear on the O1↔O2 collapse — `[data-testid="attention-monitoring-group"]`, `[data-testid="attention-needsyou-heading"]`, `[data-testid="attention-monitoring-heading"]`: computed `transition-property` is exactly `none`. **The heading testids go on the container `<div>`s** (Task 1), because those are the elements whose whole block unmounts; a text locator would select the inner `<span>` and miss a `transition-all` added to the container (plan R4 F3).
+- Needs-you rows: computed `transition-property` equals Tailwind's `transition-colors` output.
+
+**Do not hardcode the `transition-colors` property list.** In the installed Tailwind (4.2.4) it is TEN properties — `color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to` — and it has changed across minors. A literal pinned to a vendor version breaks on the next upgrade while proving nothing about this component. Derive it from the framework instead, in the same page:
+
+```js
+const expected = await page.evaluate(() => {
+  const probe = document.createElement("div");
+  probe.className = "transition-colors";
+  document.body.appendChild(probe);
+  const v = getComputedStyle(probe).transitionProperty;
+  probe.remove();
+  return v;
+});
+```
+
+Then assert each row's computed `transitionProperty` equals `expected`. Version-proof, and still catches `transition-all` — whose computed list cannot equal the probe's.
 
 Run on the live harness (`tests/e2e/attention-pill-focus.spec.ts`), the only one that can open the menu (§0.3). The panel entrance itself IS animated and is asserted separately — do not fold it into the same assertion.
 
