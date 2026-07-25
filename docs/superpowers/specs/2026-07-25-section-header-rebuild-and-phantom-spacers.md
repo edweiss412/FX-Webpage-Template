@@ -34,7 +34,7 @@ Each row is a decision already taken, with its ratification. Verify the citation
 | 1 | **Layout is D1: name + count centered, sheet link in the right corner.** Owner-selected 2026-07-25 from a measured 4-way comparison (C1 name+link centered / D1 / D2 all-centered / D3 balanced-gutter). | Owner decision, this session. §3.1 carries the measurements. |
 | 2 | **The pill gets its own centered line; it does NOT stay inline.** A centered name and an inline pill cannot share a row: measured, the inline variant reintroduces a 2-line name at 320px (the original bug) and lands the name 48–60px off the row's axis. | §3.1.4, measured. |
 | 3 | **Flagged/judgment sections therefore cost 72.8px instead of 44px, at every width.** Accepted. Only sections that need attention pay it; every ordinary section stays a single 44px row. This is the trade the centered layout forces — not an oversight. | §3.1.4. |
-| 4 | **Sheet link is a 20px glyph with a `before:inset-[-12px]` expanded hit area, NOT the `size-tap-min` box the card header uses.** Deliberate deviation from `components/admin/wizard/Step3ReviewModal.tsx:409`. Measured: a 44px corner box outweighs the 28px status icon and drags the name 8–29px left; the 20px glyph holds it within 4–17px. The 44px touch target is fully preserved (20 + 2×12 = 44). Hit-area idiom precedent: `components/admin/HoverHelp.tsx:537`. | §3.1.3, measured. |
+| 4 | **Sheet link is a 20px glyph with a `before:-inset-3` expanded hit area, NOT the `size-tap-min` box the card header uses.** Deliberate deviation from `components/admin/wizard/Step3ReviewModal.tsx:409`. Measured: a 44px corner box outweighs the 28px status icon and drags the name 8–29px left; the 20px glyph holds it within 4–17px. The 44px touch target is fully preserved (20 + 2×12 = 44). Hit-area idiom precedent: `components/admin/HoverHelp.tsx:547`, which pairs a `size-5` glyph with `before:-inset-3` for exactly this 44px result. **Tokenized, not a raw pixel value** — round 7 correctly noted that `before:inset-[-12px]` would hardcode px spacing in violation of `DESIGN.md:361`, the same rule this spec invokes to reject `pr-[30px]`. `-inset-3` resolves to `calc(var(--spacing) * -3)` = -12px, so 20 + 2x12 = 44px with no magic number. | §3.1.3, measured. |
 | 5 | **The name's residual off-centre spread across states (+4px to −17px) is accepted.** It follows from putting the count inside the centered group, which is decision 1. Not a defect to be engineered away with a compensating spacer. | §3.1.5. |
 | 6 | **The empty right corner is compensated with padding on the group, NOT a reserved spacer element.** Measured identical geometry (+4px / +2px) both ways; padding adds no element to a gapped row, which is this batch's whole point. | §3.1.5, measured. |
 | 7 | **`components/admin/showpage/ShowReviewModalSkeleton.tsx:152` keeps its `flex-1` Skeleton.** Its row is `flex w-full items-center gap-2` with one sibling and a `w-full` parent, so the bar always has width — it is not a collapsing pusher. The static guard that would have registered it is descoped (§6), so no registry exists; the row is documented here as the reason it is left alone. | §6. |
@@ -96,7 +96,7 @@ Becomes icon-only, in the right corner:
 ```
 className="relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text-subtle
            transition-colors duration-fast hover:text-text
-           before:absolute before:inset-[-12px] before:content-['']
+           before:absolute before:-inset-3 before:content-['']
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring
            focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
 ```
@@ -310,7 +310,7 @@ Tailwind v4 does not default `.flex` to `align-items: stretch`, so every relatio
 | breakdown section | panel card (`components/admin/wizard/step3ReviewSections.tsx:942`) | card spans the same width as the outer column — siblings that must not diverge | **ASSERTED ONLY** — this batch does not modify the panel card |
 | outer column | header line | line spans the column | `items-stretch` on the column **plus** `w-full` on the header line |
 | outer column | pill line | line spans the column, so `justify-center` centres against the full width | `items-stretch` on the column **plus** `w-full` on the pill line |
-| sheet link | its hit area | ≥44×44 despite a 20px box | `relative` + `before:absolute before:inset-[-12px]` |
+| sheet link | its hit area | ≥44×44 despite a 20px box | `relative` + `before:absolute before:-inset-3` |
 
 Height invariants to assert (epsilon **±0.5px**): header line 44px in every state; whole header
 44px with no pill and 72.8px with one, at 320/375/430/1280.
