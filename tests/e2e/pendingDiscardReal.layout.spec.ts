@@ -110,10 +110,13 @@ test.afterAll(async () => {
 
 type Box = { x: number; y: number; w: number; h: number; bottom: number; right: number };
 type Probe = {
-  found: { root: boolean; stacked: boolean; inline: boolean; buttons: boolean };
+  found: { row: boolean; root: boolean; stacked: boolean; inline: boolean; buttons: boolean };
   railW: number;
   rowW: number;
   rootW: number;
+  stackedW: number;
+  inlineW: number;
+  liveBranchW: number;
   rootHasWFull: boolean;
   rootHasContainer: boolean;
   liveBranch: "stacked" | "inline" | "none";
@@ -157,12 +160,16 @@ async function probe(page: import("@playwright/test").Page, state: StateName): P
         return { x: r.left, y: r.top, w: r.width, h: r.height, bottom: r.bottom, right: r.right };
       };
       const w = (el: Element | null) => (el ? el.getBoundingClientRect().width : -1);
-      const row = discardRoot ? discardRoot.parentElement : null;
+      // Addressed by id, not inferred: round 6 caught that `discardRoot.parentElement`
+      // would silently measure an intermediate wrapper, so the w-full oracle could
+      // pass while the root no longer filled the real action row.
+      const row = pick("pending-action-row") as HTMLElement | null;
 
       return {
         // `found` lets a missing element fail as a readable assertion rather than a
         // null deref, which is how round 5's version broke.
         found: {
+          row: row !== null,
           root: discardRoot !== null,
           stacked: branchStacked !== null,
           inline: branchInline !== null,
@@ -171,6 +178,9 @@ async function probe(page: import("@playwright/test").Page, state: StateName): P
         railW: w(rail),
         rowW: w(row),
         rootW: w(discardRoot),
+        stackedW: w(branchStacked),
+        inlineW: w(branchInline),
+        liveBranchW: liveStacked ? w(branchStacked) : w(branchInline),
         rootHasWFull: discardRoot ? discardRoot.classList.contains("w-full") : false,
         rootHasContainer: discardRoot ? discardRoot.classList.contains("@container") : false,
         liveBranch: liveStacked ? "stacked" : vis(branchInline) ? "inline" : "none",
@@ -193,6 +203,7 @@ for (const [state, width] of Object.entries(STATES) as [StateName, number][]) {
     const p = await probe(page, state);
 
     expect(p.found.root, "discard-root-* not found — is the fork implemented?").toBe(true);
+    expect(p.found.row, "pending-action-row-* not found — is the parent labelled?").toBe(true);
     // Read off RENDERED markup, not the source file: this is the assertion round 3
     // showed was missing everywhere, and it is why this spec exists.
     expect(p.rootHasContainer, "shipped root must carry @container").toBe(true);
@@ -276,4 +287,19 @@ test("the 576px threshold switches which branch is live (idle markup only)", asy
     TOL,
   );
   expect(at.defer.x).toBeLessThan(at.ignore.x);
+});
+
+test("D1: in the stacked branch, both buttons fill the branch width", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(baseUrl);
+  for (const state of ["rail320", "page390", "thresholdUnder617"] as StateName[]) {
+    const p = await probe(page, state);
+    expect(p.liveBranch, `${state} should be stacked`).toBe("stacked");
+    // Round 6: D1 was claimed but never measured. `self-start` on a button shrinks
+    // it to intrinsic width while keeping every canonical token, the 44px height,
+    // the correct order and one visible branch — the whole suite passed with D1
+    // false. Comparing against the BRANCH is the only assertion that catches it.
+    expect(Math.abs(p.defer.w - p.liveBranchW), `${state} Defer ${p.defer.w} vs branch ${p.liveBranchW}`).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(p.ignore.w - p.liveBranchW), `${state} Ignore ${p.ignore.w} vs branch ${p.liveBranchW}`).toBeLessThanOrEqual(TOL);
+  }
 });

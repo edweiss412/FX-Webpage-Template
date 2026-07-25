@@ -137,6 +137,8 @@ The fork keys on the **width of the card the buttons sit in**, not the width of 
 2. **Inline copy** — `<div data-testid="discard-branch-inline-${id}" className="hidden flex-wrap gap-2 @min-[576px]:flex">`, DOM order **Defer, then Ignore**.
 
 Both branch containers and the `@container` root carry test ids. That is not decoration: review round 5 found that a probe **inferring** the branches by DOM shape (`:scope > div > div`) matched nothing and reported `missing/missing`, so the "exactly one branch displayed" assertion stayed red no matter what shipped. A structural oracle that guesses at structure is a bug waiting to happen. The root is `<div data-testid="discard-root-${id}" className="w-full @container">`.
+
+**The action row is labelled too.** `components/admin/NeedsAttentionInbox.tsx:72` gains `data-testid="pending-action-row-${id}"`. Round 6 caught that the probe still inferred it as `discardRoot.parentElement`: an intermediate wrapper would silently become the measured "row", so the root-versus-row equality could pass while the root no longer filled the real action row — and the claim that every measured element is addressed by id was simply false. The row is the oracle for `w-full`, so it cannot be the one element left to inference.
 3. **Live region + error block** — rendered once, outside both copies.
 
 `hidden` resolves to `display: none`, which removes the element from the accessibility tree and from hit-testing, so exactly one copy is live at any width. Within each copy DOM order **is** visual order, so focus order and visual order agree without any reordering primitive — no `order`, no `flex-row-reverse`, no grid line placement.
@@ -343,7 +345,11 @@ Three new assertions (T1, T2, T3) added to `tests/styles/_metaDestructiveConfirm
 
 **T1 — single declaration.** Walking `components/`, `app/` and `lib/`, exactly one file declares the identifier `ARM_REVERT_MS`, and it is the shared module. The assertion is an equality against a one-element list, not "at most one" — the latter passes on zero, which is the vacuous-pass failure mode described in §5.2.1 (C-B).
 
-**T2 — the delay identifier must be a registered name.** For every non-exempt registry file, each `setTimeout` delay argument must be an **identifier drawn from an explicit allowlist**, never a numeric literal and never an unregistered name. The allowlist is a table in the test file: identifier → the surfaces allowed to use it → why it is not `ARM_REVERT_MS`.
+**T2 — a per-file identifier census, not a global allowlist.** A global allowlist binds identifiers to *files*, not to *purpose*, which round 6 showed is not enough: `PickerResetControl` legitimately uses `SUCCESS_DISMISS_MS` for its toast, so its **arm** timer could switch to that identifier and stay green — a 5-second revert with every guard passing.
+
+T2 therefore asserts a **census**: for each non-exempt registry file, the multiset of `{identifier → number of scheduler calls using it}` equals a checked-in expected map. `PickerResetControl` expects `{ARM_REVERT_MS: 1, SUCCESS_DISMISS_MS: 1}`. If its arm timer switched to the toast constant the census becomes `{SUCCESS_DISMISS_MS: 2}` and fails, naming the file. Adding or moving any timer forces a deliberate map edit.
+
+The identifiers themselves still come from an allowlist table (identifier → meaning → why it is not `ARM_REVERT_MS`); the census is what binds each one to a count per file.
 
 | Identifier | Meaning | Allowed because |
 |---|---|---|
@@ -381,7 +387,7 @@ Both were found by reading the helpers the guard will reuse, not by reasoning ab
 
 ### 5.3 Honest scope statement
 
-The guard **reduces** re-drift within registry membership; it does not eliminate it, and the earlier claim that it could not silently re-drift was too strong. Two holes remain, one inside registry membership and one outside.
+The guard **reduces** re-drift within registry membership; it does not eliminate it, and the earlier claim that it could not silently re-drift was too strong. **Three** holes remain — two inside registry membership, one outside. (An earlier draft said two while listing three; the census in §5.2 closes what was the fourth.)
 
 **Inside membership — lexical shadowing.** A registered file can import the shared constant correctly and then shadow it: `function arm(ARM_REVERT_MS = 3_000) { setTimeout(cb, ARM_REVERT_MS) }`. T1 sees the approved import, T2 sees an allowlisted identifier and an unchanged call count, T3 still sees the shared value at 4s — every guard green while the surface reverts at 3s. Closing this needs scope analysis, not regex; it is recorded here as a known hole rather than papered over.
 
@@ -447,7 +453,8 @@ Assertions carried here, because each needs the real tree:
 - **The root is not collapsed:** its measured width equals **the action row's** width, which is what `w-full` actually means. Comparing against the *rail* would be wrong by the card's 42px of borders and padding — it would reject a correct implementation, or push it toward overflow. The row is the exact oracle and needs no magic constant.
 - **Exactly one branch copy is displayed** at every rail, the hidden one measuring `0×0`.
 - **The 576px threshold is exercised directly.** Rails of **617px and 618px** put the *component* container at 575px and 576px. The 42px card inset is **measured, not computed**: rendering the real tree at 320 / 390 / 617 / 618 / 900px rails gives action-row widths of 278 / 348 / **575** / **576** / 858px — an inset of exactly 42px at every rail, with the two threshold rails landing on 575 and 576 as intended. Below the threshold must stack with Ignore above Defer; at it, one row with Defer on the left. Without these two rails nothing tested the boundary the threshold rationale rests on — the 320/390/900 rails give component widths of 278 / 348 / 858px, none of them near 576.
-- **D1** (buttons fill the stacked branch), **D2** (≥44px), **D3** (inline branch order), **D5** (Ignore above Defer when stacked). **Not D4 or D6** — both are armed-state claims, and this harness cannot render armed at all (see the scope note below).
+- **D1 — buttons fill the stacked branch**, asserted as `button.width === stackedBranch.width` within 0.5px. Round 6 found this was *claimed* but never measured: an idle Ignore carrying `self-start` shrinks to intrinsic width while keeping every canonical token, ≥44px height, correct order and one visible branch, so the whole suite passed with D1 false. Measuring the branch is the only thing that catches it.
+- **D2** (≥44px), **D3** (inline branch order), **D5** (Ignore above Defer when stacked). **Not D4 or D6** — both are armed-state claims, and this harness cannot render armed at all (see the scope note below).
 - **Production nesting holds:** the action row, card padding and `Retry` sibling are the real ones, so a future change to `components/admin/NeedsAttentionInbox.tsx` that breaks the container relationship fails *this* spec.
 
 **Declared scope, and the one thing it cannot reach.** `renderToStaticMarkup` emits markup, not behaviour: it cannot click, so it can only ever render the component's **initial idle** state, and `PendingPanelDiscardButtons` exposes no prop for an armed initial state (adding one would be product API existing solely for a test). So D4 (armed box equality) and D6 (armed growth from a pinned edge) **cannot be measured here**, and this harness does not claim them.
@@ -458,6 +465,7 @@ The binding therefore covers **every input to armed geometry**, each compared to
 
 | Bound | Why it matters to armed geometry |
 |---|---|
+| **idle** Ignore `className` | D4 and D6 compare idle **against** armed. `ml-4` on the idle branch alone leaves every other bound value unchanged, so the transcribed comparison stays green while production's Ignore actually moves when armed |
 | armed Ignore `className` | the armed skin itself |
 | armed Ignore **label text** | a longer label changes the armed width, which is the whole point of D6 |
 | **Defer** `className` **and label text** | the armed row's total is Defer + gap + armed Ignore. Defer's padding or a longer label pushes that total past the threshold just as surely as the Ignore side does — this row was missing from the first draft of the binding and is exactly the same class of hole as the `gap-24` one |
@@ -483,9 +491,9 @@ It also keeps the **armed** geometry panels (D4 and D6), which 6.3.a structurall
 
 ### 6.4 CI wiring (R5)
 
-- New `package.json` script `test:e2e:destructive-layout`, running `tests/e2e/pendingDiscardReflow.layout.spec.ts` under `tests/e2e/standalone.config.ts` (the config must be passed explicitly; Playwright's default config matches none of these specs).
+- New `package.json` script `test:e2e:destructive-layout`, running **both** `tests/e2e/pendingDiscardReal.layout.spec.ts` and `tests/e2e/pendingDiscardReflow.layout.spec.ts` under `tests/e2e/standalone.config.ts` (the config must be passed explicitly; Playwright's default config matches none of these specs). §6.5 depends on this script covering both — an earlier draft defined it as the reflow spec alone while §6.5 claimed both, which would have left the **authoritative** proof dark while the coverage row read `PATH_GATED`. The coverage meta-test does not validate reason text against the invoked spec list, so that contradiction would not have been caught by anything but a reader.
 - New workflow **.github/workflows/destructive-layout-e2e.yml**, modelled directly on `.github/workflows/modal-header-layout-e2e.yml` — same `actions/setup`, same Playwright browser cache, same failure-artifact upload, same `workflow_dispatch:` so close-out can fire it with `gh workflow run`. The harness self-hosts, so no `webServer` and no Supabase are needed; unlike the modal-header job it also needs no env block, because this harness renders static HTML strings and imports no server chain.
-- `paths:` triggers on `components/admin/PendingPanelDiscardButtons.tsx`, **`components/admin/NeedsAttentionInbox.tsx`**, **`tests/e2e/_pendingDiscardHarness.tsx`** (the authoritative spec consumes it, so a harness-only change must re-run the job) (the parent that supplies the container the query measures — a change to the action row or card padding can break the fork without touching the component), the layout spec itself, `tests/e2e/standalone.config.ts`, `app/globals.css`, `package.json`, `pnpm-lock.yaml`, and the workflow file.
+- `paths:` triggers on `components/admin/PendingPanelDiscardButtons.tsx`, **`components/admin/NeedsAttentionInbox.tsx`**, **`tests/e2e/_pendingDiscardHarness.tsx`**, **`tests/e2e/pendingDiscardReal.layout.spec.ts`**, `tests/e2e/pendingDiscardReflow.layout.spec.ts` (the authoritative spec consumes it, so a harness-only change must re-run the job) (the parent that supplies the container the query measures — a change to the action row or card padding can break the fork without touching the component), the layout spec itself, `tests/e2e/standalone.config.ts`, `app/globals.css`, `package.json`, `pnpm-lock.yaml`, and the workflow file.
 - **Coverage-registry row (mandatory companion).** `tests/ci/_metaE2eWorkflowCoverage.test.ts:84` currently records this spec as `UNSEEN`. Because the new workflow carries `pull_request.paths`, `tests/ci/_workflowCoverageScan.ts:105` classifies it as **`PATH_GATED`**, not universally covered. The row is updated to `PATH_GATED` in the same commit as the workflow. Leaving it at `UNSEEN` would keep a false claim that no workflow names the spec, while `BACKLOG.md` simultaneously says it is newly covered — the two would contradict, and the meta-test would fail.
 - The `BL-STANDALONE-CONFIG-CI-DARK` row's "Partially closed" note in `BACKLOG.md` is updated to record that one more spec is now covered and the remainder still dark.
 
