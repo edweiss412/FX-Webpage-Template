@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
-import { assertLocalDbUrl } from "../db/_remediationHelpers";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 import { cleanupAbandonedFinalize } from "@/lib/onboarding/sessionLifecycle";
 

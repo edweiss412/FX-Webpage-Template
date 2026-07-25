@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import postgres from "postgres";
 
 import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * F1 Task 1.6 — multi-shadow batch with a REJECT-choice shadow (real DB).
@@ -22,8 +23,9 @@ import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize
 
 // Phase-wide DB-connection convention: TEST_DATABASE_URL is the VALIDATION project in this
 // repo — every *.db.test.ts pins BOTH env vars to the local loopback (plan R19-1).
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "1d1d1d1d-4444-4444-8444-1d1d1d1d1d1d";
 const FOLDER = "finalize-cas-multi-shadow-folder";

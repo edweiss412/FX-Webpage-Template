@@ -9,6 +9,7 @@ import {
   type PreparedProcessOneFile,
 } from "@/lib/sync/runScheduledCronSync";
 import type { DriveListedFile } from "@/lib/drive/list";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * F1 Task 1.6 — MI-11 wizard/cron PARITY (real DB).
@@ -28,8 +29,9 @@ import type { DriveListedFile } from "@/lib/drive/list";
 
 // Phase-wide DB-connection convention: TEST_DATABASE_URL is the VALIDATION project in this
 // repo — every *.db.test.ts pins BOTH env vars to the local loopback (plan R19-1).
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "9c9c9c9c-3333-4333-8333-9c9c9c9c9c9c";
 const FOLDER = "finalize-cas-mi11-parity-folder";

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
-import { assertLocalDbUrl } from "../../../db/_remediationHelpers";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
 import type { DriveListedFile } from "@/lib/drive/list";

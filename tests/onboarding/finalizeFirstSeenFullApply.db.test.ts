@@ -7,6 +7,7 @@ import {
   type FinalizeRouteTx,
 } from "@/app/api/admin/onboarding/finalize/route";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * F1 Task 1.3 — Phase B first-seen finalize runs the FULL Phase-2 apply (real DB).
@@ -23,8 +24,9 @@ import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduled
 // Phase-wide DB-connection convention: TEST_DATABASE_URL is the VALIDATION project in this
 // repo — every *.db.test.ts pins BOTH env vars to the local loopback (plan R19-1), because the
 // route's databaseUrl() prefers TEST_DATABASE_URL ?? DATABASE_URL.
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "6f6f6f6f-4444-4444-8444-6f6f6f6f6f6f";
 const OTHER_SESSION = "9b9b9b9b-5555-4555-8555-9b9b9b9b9b9b";

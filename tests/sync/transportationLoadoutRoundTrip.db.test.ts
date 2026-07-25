@@ -4,13 +4,15 @@ import postgres from "postgres";
 import { makeSyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import type { PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import type { TransportationRow } from "@/lib/parser/types";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 // Real-DB round-trip for the cron write (replaceTransportation) + the Phase-1
 // change-detection read-back (readShowForPhase1). Catches the exact failure mode
 // a mocked test cannot: a dropped INSERT column (silent data loss) or a missing
 // canonicalize on loadout_email. Skips gracefully when the local DB is down.
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;

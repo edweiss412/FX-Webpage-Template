@@ -12,7 +12,7 @@ import { afterAll, beforeEach, expect, test, vi } from "vitest";
 import postgres from "postgres";
 import * as XLSX from "xlsx";
 
-import { assertLocalDbUrl } from "../db/_remediationHelpers";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
 import type { DriveListedFile } from "@/lib/drive/list";

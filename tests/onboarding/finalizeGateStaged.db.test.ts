@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import postgres from "postgres";
 
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Task B1 — the batch finish gate (`unresolvedManifestCount`, finalize/route.ts) drops `staged`.
@@ -21,8 +22,9 @@ import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/ro
  *   (b) a `hard_failed` manifest row must STILL 409 `ONBOARDING_NOT_RESOLVED` (stays blocking).
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "5c5c5c5c-3333-4333-8333-5c5c5c5c5c5c";
 const FOLDER = "finalize-gate-staged-folder";
