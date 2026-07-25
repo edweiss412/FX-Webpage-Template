@@ -230,6 +230,13 @@ either it cannot become external and is skipped. `.mdx` gets a lexical assertion
    `{...(COND ? { target: "_blank", rel: "…" } : {})}` where both branches are inline object
    literals whose properties are decidable literals drawn only from `{ target, rel }`.
 
+The `{ target, rel }` prop allowlist is derived from the tree, not guessed: all four gated
+spreads carry exactly `{ target: "_blank", rel: "noopener noreferrer" }` and nothing else, and neither
+`referrerPolicy` nor `download` appears on any anchor in the codebase. If a future anchor
+legitimately needs another prop, widen `SPREADABLE` in the scanner along with a self-test —
+do not weaken the allowlist to "any literal-valued prop", which is precisely the rule that let a
+spread smuggle in `aria-labelledby` / `aria-hidden` / `className` (review R4 BLOCKING 2).
+
 A value is decidable only if it is a string literal or a no-substitution template; a template
 WITH substitutions is not. Anything outside these shapes is reported as
 `unrecognized external-link shape (<why>)`.
