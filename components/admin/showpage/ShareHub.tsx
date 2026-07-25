@@ -50,19 +50,29 @@
  * tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts is the
  * registry that makes the next such overlay fail loudly instead of silently.
  *
- * Elevation (spec 2026-07-20-share-hub-fidelity-fixes §3): the root is `relative`
- * always but `z-30` ONLY while open. `z-index: auto` establishes no stacking
- * context, so the header attention menu's `z-20` panel
- * (AttentionMenu.tsx:99) participates directly in the shared ancestor context;
- * an unconditional `z-30` here therefore painted this hub's two NON-POSITIONED
- * trigger buttons above that menu and stole its clicks. Gating the class on
- * `open` is the whole fix — PublishedReviewModal's attention wrapper is
- * deliberately left as a bare `relative`. A trigger overpaints the menu only
- * if it carries a z-index >= the menu's level (20): `relative`, `z-0`, `z-10`,
- * and `isolate` all paint below the menu's z-20 (CSS 2.1 Appendix E), so none
- * of those reintroduces the defect — only a trigger z-index >= 20 does. The
- * real guard is the T-HUB-ZORDER real-browser test; shareHub.test.tsx adds a
- * cheap class-level z >= 20 check.
+ * Elevation: the root is a bare `relative` — no z-index at all.
+ *
+ * It used to carry `z-30` while open, to lift the popover (then an in-flow
+ * child) over sibling content. The popover portals out now, so nothing in this
+ * subtree needs raising, and the class is gone. `relative` stays because the
+ * root is still the caret's measurement anchor.
+ *
+ * History worth keeping, because it is easy to "restore": an UNCONDITIONAL
+ * `z-30` here once painted the two NON-POSITIONED trigger buttons above the
+ * header attention menu's `z-20` panel and stole its clicks
+ * (share-hub-fidelity-fixes §3). Gating on `open` was that fix; removing the
+ * class entirely supersedes it. A trigger overpaints the menu only at a z-index
+ * >= the menu's level (20) — `relative`, `z-0`, `z-10` and `isolate` all paint
+ * below it (CSS 2.1 Appendix E) — so a low z here is harmless and z >= 20 is
+ * not. T-HUB-ZORDER (published-review-modal.interactions.spec.ts) is the real
+ * guard; shareHub.test.tsx keeps a cheap class-level z >= 20 check.
+ *
+ * What `z-30` never did, despite a test title claiming otherwise, is order the
+ * `fixed z-20` backdrop against those same non-positioned triggers: it elevated
+ * the whole root, backdrop included. The backdrop has always swallowed trigger
+ * taps (verified against origin/main), tracked as
+ * BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS. Removing z-30 neither causes nor
+ * worsens it.
  *
  * Close semantics mirror the shipped CrewRowActions popover (#499): a backdrop
  * button that closes without focus restore, and Escape that closes WITH focus
@@ -540,7 +550,7 @@ export function ShareHub({
     <div
       ref={containerRef}
       data-testid="share-hub-root"
-      className={`relative flex items-center gap-2 max-sm:w-full ${open ? "z-30" : ""}`}
+      className="relative flex items-center gap-2 max-sm:w-full"
     >
       {open && (
         <button

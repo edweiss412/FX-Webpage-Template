@@ -214,7 +214,6 @@ describe("ShareHub — open/close semantics", () => {
     const group = primary().parentElement!;
     // Word-boundary, not substring: `toContain("z-30")` also passes on `z-300`
     // or `not-z-30`, neither of which emits the stacking rule this pins.
-    expect(group.className).toMatch(/(^|\s)z-30(\s|$)/);
     expect(screen.getByTestId("share-hub-backdrop").className).toMatch(/(^|\s)z-20(\s|$)/);
   });
 
@@ -257,17 +256,25 @@ describe("ShareHub — open/close semantics", () => {
 });
 
 describe("ShareHub — z-order (spec §3)", () => {
-  it("elevates its root ONLY while open, so a closed hub cannot paint over the attention menu", () => {
+  it("keeps the root a bare `relative` with NO z-index, open or closed", () => {
+    // The root used to gain `z-30` while open, to lift the in-flow popover over
+    // sibling content. The popover portals into the ReviewModalShell host now
+    // and carries its own z there, so nothing in this subtree needs raising.
+    // `relative` stays: the root is the caret's measurement anchor.
+    //
+    // Asserted in BOTH states, because the failure this replaces was an
+    // UNCONDITIONAL z-30 that painted the non-positioned triggers over the
+    // attention menu's z-20 panel and stole its clicks.
     renderHub();
     const root = primary().parentElement as HTMLElement;
     expect(root.className).toContain("relative");
-    expect(root.className).not.toContain("z-30");
+    expect(root.className).not.toMatch(/(^|\s)z-\d+(\s|$)/);
 
     fireEvent.click(primary());
-    expect(root.className).toContain("z-30");
+    expect(root.className).not.toMatch(/(^|\s)z-\d+(\s|$)/);
 
     fireEvent.click(primary());
-    expect(root.className).not.toContain("z-30");
+    expect(root.className).not.toMatch(/(^|\s)z-\d+(\s|$)/);
   });
 
   it("keeps BOTH triggers below the z-20 menu's stacking level", () => {
