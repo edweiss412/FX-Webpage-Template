@@ -65,9 +65,20 @@ function AttentionMenuPanel({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [entered, setEntered] = useState(false);
 
+  // Entrance flip inside the rAF callback (async — the rail-indicator idiom).
+  // MOUNT-SCOPED, deliberately separate from the listener effect below (whole-diff
+  // review 2026-07-25): `onClose` is a fresh closure on every parent render, so a
+  // combined effect re-runs on each one — cancelling the pending entrance frame
+  // and scheduling a replacement. Mid-entrance that RESTARTS the entrance, which
+  // §4's compound row says must not happen, and under rapid live updates it can
+  // starve the flip entirely. An empty dep list ties the frame to the panel's own
+  // mount lifecycle, which is what the contract actually describes.
   useEffect(() => {
-    // Entrance flip inside the rAF callback (async — the rail-indicator idiom).
     const raf = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       e.preventDefault();
@@ -88,7 +99,6 @@ function AttentionMenuPanel({
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("pointerdown", onPointerDown);
     return () => {
-      cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("pointerdown", onPointerDown);
     };

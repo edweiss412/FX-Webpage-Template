@@ -635,11 +635,19 @@ async function holdFrames(page: Page) {
       for (const cb of pending) cb(performance.now());
     };
     (window as unknown as { __heldFrameCount: () => number }).__heldFrameCount = () => queue.size;
+    // IDS, not just a count: a cancel-and-reschedule keeps the SIZE identical
+    // while replacing the callback, so a count can never see a re-trigger.
+    (window as unknown as { __heldFrameIds: () => number[] }).__heldFrameIds = () => [
+      ...queue.keys(),
+    ];
   });
 }
 
 const releaseFrames = (page: Page) =>
   page.evaluate(() => (window as unknown as { __releaseFrames: () => void }).__releaseFrames());
+
+const heldFrameIds = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __heldFrameIds: () => number[] }).__heldFrameIds());
 
 const panelClasses = (page: Page) => page.locator(MENU).evaluate((el) => el.className.split(/\s+/));
 
@@ -668,6 +676,13 @@ test.describe("§4 entrance and compound transitions", () => {
     await page.locator(MENU).evaluate((el) => {
       (el as HTMLElement).dataset.entranceProbe = "1";
     });
+    // The stamp alone is NOT enough (whole-diff review 2026-07-25): React
+    // reconciles this panel by component identity, so a cancelled-and-rescheduled
+    // entrance frame keeps the same DOM node and the stamp survives. Capture the
+    // queued frame IDS — cancellation removes an id, so a surviving id set proves
+    // the ORIGINAL entrance callback was never replaced.
+    const idsBefore = await heldFrameIds(page);
+    expect(idsBefore.length).toBeGreaterThan(0);
 
     await setItems(page, 0, 0, 1);
     // commit gate WHILE frames are still held — without it the released callback
@@ -677,10 +692,14 @@ test.describe("§4 entrance and compound transitions", () => {
       1,
     );
 
-    // same node, still carrying the stamp → the entrance was never re-triggered
+    // same node, still carrying the stamp → no remount
     expect(
       await page.locator(MENU).evaluate((el) => (el as HTMLElement).dataset.entranceProbe),
     ).toBe("1");
+    // and every frame held before the update is STILL held → the entrance
+    // callback was neither cancelled nor rescheduled
+    const idsAfter = await heldFrameIds(page);
+    for (const id of idsBefore) expect(idsAfter).toContain(id);
 
     await releaseFrames(page);
     await expect.poll(async () => (await panelClasses(page)).includes("scale-100")).toBe(true);
