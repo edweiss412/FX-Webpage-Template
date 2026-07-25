@@ -46,7 +46,27 @@ function splitRules(css: string): { prelude: string; body: string }[] {
   const out: { prelude: string; body: string }[] = [];
   let depth = 0;
   let buf = "";
-  for (const ch of css) {
+  let quote: string | null = null;
+  for (let i = 0; i < css.length; i++) {
+    const ch = css[i] as string;
+    // Quote-aware: a brace or semicolon inside a string or url() is DATA, not
+    // structure. `content: "{"` before the cue used to unbalance `depth` and
+    // swallow every rule after it (round-4 review).
+    if (quote) {
+      buf += ch;
+      if (ch === "\\") {
+        buf += css[i + 1] ?? "";
+        i++;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      buf += ch;
+      continue;
+    }
     // A statement at-rule (`@import "tailwindcss";`) has no block, so without
     // this it accumulates into the NEXT rule's prelude and corrupts that key.
     // Requires comments to be stripped FIRST — see `cueLeaves`.
@@ -103,6 +123,15 @@ function flatten(css: string, context = ""): Leaf[] {
  *
  * This is also why comment differences between the spec fence and the
  * stylesheet are not failures: only the rules are normative.
+ *
+ * SCOPE, stated because the earlier wording overclaimed: rules are selected by
+ * NAMING the cue. A rule that affects the cue without mentioning it — targeting
+ * the URL block by testid, by class, or through an ancestor — is invisible here
+ * and can still retune direction, iteration or fill (round-4 review). That gap
+ * is closed in the browser, where `T-FLASH-RUN` pins every resolved animation
+ * longhand; resolved style sees overrides regardless of how they were spelled.
+ * This test owns the cue's own rules being byte-exact; it does not own, and
+ * must not be read as owning, the absence of other rules.
  */
 function cueLeaves(css: string): string[] {
   return flatten(css.replace(/\/\*[\s\S]*?\*\//g, ""))

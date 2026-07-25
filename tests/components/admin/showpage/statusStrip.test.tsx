@@ -3,7 +3,9 @@
  * tests/components/admin/showpage/statusStrip.test.tsx (consolidated-admin-show-page Task 10)
  *
  * The pinned status strip (spec §4 element table, §6 mode matrix, §11 guards). The strip
- * is DISPLAY + 2 actions max (publish toggle, share hub); everything else lives in Overview.
+ * is DISPLAY + 2 actions max (publish toggle, share hub). Controls reached THROUGH the hub
+ * — rotate, reset, Email-crew, and since the lifecycle move Archive/Unarchive — live in its
+ * popover, which portals out of the strip; that is what keeps the two-action cap true.
  *
  * Failure modes caught:
  *   - live badge rendered when the show is not live (spec §4 "render only when live").
@@ -11,9 +13,10 @@
  *     contract (spec §11): formatRelative("never") must NOT reach the DOM.
  *   - the hub's crew-link row shown while the crew link is paused (unpublished) or archived, or with no
  *     token — a misleading dead link (spec §11 "no active share token → hidden").
- *   - archived strip still exposing the publish toggle / share hub (must be read-only),
- *     OR sneaking an Unarchive button into the strip (mock README delta 5: Unarchive is an
- *     Overview control; the strip caps at two actions).
+ *   - archived strip still exposing the publish toggle (must be read-only for publishing),
+ *     OR sneaking an Unarchive button into the strip itself rather than its popover — the
+ *     strip caps at two actions. NOTE: the hub GROUP is unconditional, archived included,
+ *     because Unarchive is only reachable through it.
  *   - an alert element coming BACK into the strip (modal-header-reconciliation §6.6
  *     relocated it to the modal header; rendered in both places = a duplicated count).
  *
@@ -28,6 +31,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 
 import { StatusStrip, type StatusStripProps } from "@/components/admin/showpage/StatusStrip";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
+
+const STRIP_SHOW_ID = "11111111-2222-4333-8444-555555555555";
 
 const routerRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -71,7 +76,7 @@ function baseProps(overrides: Partial<StatusStripProps> = {}): StatusStripProps 
     lastSyncStatus: "ok",
     now: NOW,
     // share-hub T4: threaded through to <ShareHub>.
-    showId: "11111111-2222-4333-8444-555555555555",
+    showId: STRIP_SHOW_ID,
     crewEmails: [],
     showTitle: "East Coast Broadcast Summit",
     pickerCrew: [],
@@ -378,10 +383,24 @@ describe("StatusStrip", () => {
       expect(screen.queryByTestId("strip-live-badge")).toBeNull();
     });
 
-    it("does NOT render an Unarchive button in the strip (Overview owns it — README delta 5)", () => {
+    it("keeps Unarchive OUT of the strip subtree even with the hub popover open", () => {
+      // The old form asserted this with the popover CLOSED and justified it as
+      // "Overview owns Unarchive". Both halves were wrong by round 4: Unarchive
+      // moved into the hub popover, and with the popover shut there is nothing
+      // to find, so the assertion passed vacuously (round-4 review).
+      //
+      // Opening it makes the test able to fail, and states the contract that is
+      // actually load-bearing: the popover PORTALS out, so the strip itself
+      // stays a two-action surface. That the popover holds Unarchive is
+      // shareHub.test.tsx's business (see "archived: the Show section holds
+      // Unarchive"); this owns the boundary between them.
       renderStrip({ archived: true, published: false }, { token: "TOK" });
+      fireEvent.click(screen.getByTestId("share-hub-primary"));
+
+      // Non-vacuity: it must exist SOMEWHERE, or "not in the strip" proves nothing.
+      expect(screen.getByTestId(`unarchive-show-button-${STRIP_SHOW_ID}`)).toBeTruthy();
       const strip = screen.getByTestId("show-status-strip");
-      expect(within(strip).queryByText(/unarchive/i)).toBeNull();
+      expect(within(strip).queryByTestId(`unarchive-show-button-${STRIP_SHOW_ID}`)).toBeNull();
     });
   });
 

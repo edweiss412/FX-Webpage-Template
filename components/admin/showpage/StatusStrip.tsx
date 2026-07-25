@@ -23,7 +23,8 @@
  * Mode boundaries (spec §6; title removed by modal-header-reconciliation §6.5):
  *   - Not archived            → PublishedToggle · [divider] · live badge (if live)
  *                               · sync age (if synced) · edited age (if content-edited)
- *                               · Re-sync · share hub (published + token only). The alert
+ *                               · Re-sync · the hub (the GROUP is unconditional; its
+ *                               crew-link half needs published + token). The alert
  *                               badge MOVED to the modal header (§6.6).
  *   - Archived (read-only)    → archived badge · sync age · edited age · the hub,
  *                               relabelled "Show actions". No toggle, no live badge, no

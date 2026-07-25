@@ -60,9 +60,9 @@ const USAGE = `share-link cue adversary matrix
 // ran this with `--help` to inspect its CLI surface and it silently began
 // executing instead — the worst possible response to "what does this do?".
 const KNOWN = new Set(["--quick", "--only", "-h", "--help"]);
-const unknown = argv.filter(
-  (a, i) => a.startsWith("-") && !KNOWN.has(a) && argv[i - 1] !== "--only",
-);
+// Positionals count too: a stray `A5` (meaning `--only A5`) was silently
+// ignored and the run did something other than what was asked (round-4 review).
+const unknown = argv.filter((a, i) => !KNOWN.has(a) && argv[i - 1] !== "--only");
 if (argv.includes("-h") || argv.includes("--help")) {
   console.log(USAGE);
   process.exit(0);
@@ -74,8 +74,15 @@ if (unknown.length) {
 
 const QUICK = argv.includes("--quick");
 const ONLY = (() => {
-  const i = argv.indexOf("--only");
-  if (i === -1) return null;
+  const hits = argv.reduce((n, a, i) => (a === "--only" ? [...n, i] : n), []);
+  if (hits.length > 1) {
+    console.error(
+      `--only given ${hits.length} times; only the first would take effect\n\n${USAGE}`,
+    );
+    process.exit(2);
+  }
+  const i = hits[0];
+  if (i === undefined) return null;
   const raw = argv[i + 1];
   // `--only --quick` silently selected ZERO adversaries and exited 0, writing a
   // zero-row report that reads as success; bare `--only` threw. Both are
@@ -440,6 +447,10 @@ function git(...args) {
 }
 
 const TARGETS = [HUB, CSS, CTX];
+/** Written (not mutated) by a full run, so it is NOT in TARGETS — restoring it
+ *  would revert the very output the run exists to produce. Checked for
+ *  cleanliness separately so a full run cannot overwrite uncommitted edits. */
+const REPORT_DOC = "docs/superpowers/plans/2026-07-24-share-link-chrome-adversary-matrix.md";
 
 /**
  * Refuse to run against dirty targets, and restore them no matter how the run
@@ -472,6 +483,17 @@ function lockHolder() {
   }
 }
 
+/** Age of the existing lock in ms, or null if it carries no readable timestamp. */
+function lockAgeMs() {
+  try {
+    const line = readFileSync(LOCK, "utf8").trim().split("\n")[1];
+    const t = line ? Date.parse(line) : NaN;
+    return Number.isFinite(t) ? Date.now() - t : null;
+  } catch {
+    return null;
+  }
+}
+
 function alive(pid) {
   try {
     process.kill(pid, 0); // signal 0 tests existence without delivering anything
@@ -481,18 +503,27 @@ function alive(pid) {
   }
 }
 
+/** A lock older than this cannot be a live run; the full matrix takes ~15 min. */
+const MAX_LOCK_AGE_MS = 2 * 60 * 60 * 1000;
+
 function acquireLock() {
+  const stamp = () => `${process.pid}\n${new Date().toISOString()}\n`;
   try {
-    writeFileSync(LOCK, `${process.pid}\n`, { flag: "wx" });
+    writeFileSync(LOCK, stamp(), { flag: "wx" });
     return;
   } catch {
     /* held — decide below whether the holder is real */
   }
+
   // A crashed or SIGKILLed run cannot clean up after itself, and an
-  // indefinitely-blocking lock is its own outage: every later run exits 2 until
-  // somebody deletes the file by hand. Take over a lock whose pid is gone.
+  // indefinitely-blocking lock is its own outage. Two independent staleness
+  // signals, because each alone has a failure mode: a dead pid is decisive but
+  // PIDs get REUSED, so an unrelated live process would wedge the lock forever;
+  // and age alone would evict a legitimately slow run.
   const holder = lockHolder();
-  if (holder !== null && alive(holder)) {
+  const age = lockAgeMs();
+  const stale = holder === null || !alive(holder) || (age !== null && age > MAX_LOCK_AGE_MS);
+  if (!stale) {
     console.error(
       `refusing to run: ${LOCK} is held by live pid ${holder}.\n` +
         "This script mutates tracked files; two concurrent runs strand mutants in\n" +
@@ -500,10 +531,20 @@ function acquireLock() {
     );
     process.exit(2);
   }
+
+  // Takeover is not atomic: two contenders can both see the dead holder and both
+  // write. Neither `wx` nor rename fixes that on its own, so resolve it AFTER the
+  // fact — both write, then both re-read, and only the one whose pid survived
+  // proceeds. The loser exits rather than mutating alongside the winner.
   console.warn(
-    `note: taking over a stale lock (${holder === null ? "unreadable" : `pid ${holder} gone`}).`,
+    `note: taking over a stale lock (${holder === null ? "unreadable" : !alive(holder) ? `pid ${holder} gone` : `age ${Math.round((age ?? 0) / 60000)}min`}).`,
   );
-  writeFileSync(LOCK, `${process.pid}\n`);
+  writeFileSync(LOCK, stamp());
+  const won = lockHolder();
+  if (won !== process.pid) {
+    console.error(`refusing to run: lost the stale-lock takeover race to pid ${won}.`);
+    process.exit(2);
+  }
 }
 
 function releaseLock() {
@@ -519,7 +560,11 @@ function releaseLock() {
 }
 
 function assertCleanTargets() {
-  const dirty = git("status", "--porcelain", "--", ...TARGETS).trim();
+  // A full run REWRITES the report doc and then prettifies it, so uncommitted
+  // edits there are destroyed just as surely as edits to a mutation target
+  // (round-4 review). Only full runs write it, so only they need it clean.
+  const checked = !ONLY && !QUICK ? [...TARGETS, REPORT_DOC] : TARGETS;
+  const dirty = git("status", "--porcelain", "--", ...checked).trim();
   if (dirty) {
     console.error(
       "refusing to run: mutation targets have uncommitted changes, which this " +
@@ -596,19 +641,69 @@ function runVitest() {
   }
 }
 
+/**
+ * Failing browser rows ONLY.
+ *
+ * This used to scrape `T-FLASH-[A-Z]+:` out of the combined output on any
+ * failure. Playwright prints EVERY test's title, passing ones included, so a
+ * single red row credited all six to the adversary — and the generated coverage
+ * table then presented that inflation as non-vacuity evidence. It was wrong in
+ * the direction that flatters the matrix, which is the worst direction
+ * (round-4 review, BLOCKING). Parse the JSON reporter instead of prose.
+ */
 function runBrowser() {
+  let stdout = "";
   try {
-    execFileSync("pnpm", ["test:e2e:share-link-flash"], {
+    stdout = execFileSync("pnpm", ["test:e2e:share-link-flash", "--", "--reporter=json"], {
       cwd: ROOT,
       stdio: "pipe",
       timeout: 600_000,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
     });
     return [];
   } catch (e) {
-    const out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
-    return [...out.matchAll(/(T-FLASH-[A-Z]+):/g)]
-      .map((m) => m[1])
-      .filter((v, i, a) => a.indexOf(v) === i);
+    stdout = `${e.stdout ?? ""}`;
+  }
+
+  // The reporter writes one JSON document to stdout; pnpm may prefix banner
+  // lines, so start at the first brace.
+  const start = stdout.indexOf("{");
+  if (start === -1)
+    throw new Error("browser run failed with no JSON report — cannot attribute rows");
+  let report;
+  try {
+    report = JSON.parse(stdout.slice(start));
+  } catch {
+    throw new Error("browser run produced unparseable JSON — refusing to guess which rows red");
+  }
+
+  const failed = new Set();
+  const walk = (suite) => {
+    for (const spec of suite.specs ?? []) {
+      const red = (spec.tests ?? []).some((t) =>
+        (t.results ?? []).some((r) => r.status !== "passed" && r.status !== "skipped"),
+      );
+      if (red) failed.add(spec.title.match(/^(T-FLASH-[A-Z]+)/)?.[1] ?? spec.title);
+    }
+    for (const child of suite.suites ?? []) walk(child);
+  };
+  for (const suite of report.suites ?? []) walk(suite);
+  return [...failed].sort();
+}
+
+// Unknown ids selected nothing and exited 0 — the same zero-adversary false
+// green as `--only --quick`, just reached by a typo instead of a flag
+// (round-4 review). Validate against the registry now that it is fully built.
+if (ONLY) {
+  const known = new Set(ADVERSARIES.map(([id]) => id));
+  const bogus = [...ONLY].filter((id) => !known.has(id));
+  if (bogus.length) {
+    console.error(
+      `--only names unknown adversary id(s): ${bogus.join(", ")}\n` +
+        `known ids: ${[...known].join(", ")}`,
+    );
+    process.exit(2);
   }
 }
 
@@ -667,11 +762,16 @@ writeFileSync(join(ROOT, "tmp", "adversary-matrix.json"), JSON.stringify(results
 // run that produced it. Partial runs never write — a `--only` or `--quick` run
 // would record a truthful-looking table over an incomplete matrix.
 if (!ONLY && !QUICK) {
+  // Labels and test titles are free text. A literal pipe ends the cell and a
+  // newline ends the row, so an unescaped one silently reshapes the table.
+  const cell = (v) => String(v).replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+
   const perAdversary = [
     "| # | Wrong implementation | Rows red |",
     "|---|---|---|",
     ...results.map(
-      (r) => `| ${r.id} | ${r.label} | ${r.status === "REJECTED" ? r.rows.length : r.status} |`,
+      (r) =>
+        `| ${cell(r.id)} | ${cell(r.label)} | ${r.status === "REJECTED" ? r.rows.length : r.status} |`,
     ),
   ].join("\n");
 
@@ -685,18 +785,32 @@ if (!ONLY && !QUICK) {
   const perTest = [
     "| Test row | Adversaries it rejects |",
     "|---|---|",
-    ...[...byRow.entries()].sort().map(([row, ids]) => `| ${row} | ${ids.join(", ")} |`),
+    ...[...byRow.entries()]
+      .sort()
+      .map(([row, ids]) => `| ${cell(row)} | ${cell(ids.join(", "))} |`),
   ].join("\n");
 
   const generated = `<!-- BEGIN GENERATED -->\n\n_${results.length} adversaries · ${results.length - survived.length - unapplied.length} rejected · ${survived.length} survived · ${unapplied.length} unapplied._\n\n${perAdversary}\n\n${perTest}\n\n<!-- END GENERATED -->`;
-  const doc = join(ROOT, "docs/superpowers/plans/2026-07-24-share-link-chrome-adversary-matrix.md");
+  const doc = join(ROOT, REPORT_DOC);
   const before = readFileSync(doc, "utf8");
-  const marked = /<!-- BEGIN GENERATED -->[\s\S]*<!-- END GENERATED -->/;
-  if (!marked.test(before)) {
-    console.error(`report doc is missing its GENERATED markers: ${doc}`);
+  // Non-greedy, and the pair must be unique. A greedy match across duplicated or
+  // nested markers spans the FIRST begin to the LAST end and silently deletes
+  // every line of authored prose in between (round-4 review).
+  const begins = (before.match(/<!-- BEGIN GENERATED -->/g) ?? []).length;
+  const ends = (before.match(/<!-- END GENERATED -->/g) ?? []).length;
+  if (begins !== 1 || ends !== 1) {
+    console.error(
+      `report doc must contain exactly one GENERATED marker pair (found ${begins} begin, ${ends} end): ${doc}`,
+    );
     process.exitCode = 1;
   } else {
-    writeFileSync(doc, before.replace(marked, generated));
+    // Replace with a FUNCTION, not a string: `$&`, `$1` and friends inside a
+    // string replacement are substitution patterns, and adversary labels are
+    // free text that can contain them.
+    writeFileSync(
+      doc,
+      before.replace(/<!-- BEGIN GENERATED -->[\s\S]*?<!-- END GENERATED -->/, () => generated),
+    );
     // Prettier owns markdown table alignment in this repo and format:check runs
     // in CI, so emitting raw pipes would leave the tree failing a gate right
     // after the matrix certified it.

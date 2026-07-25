@@ -63,7 +63,7 @@ export function ShareLinkCopyButton({
   // clipboard holds the OLD url, which is already dead for the whole crew. Left
   // alone, the button keeps asserting "Copied" while the block two pixels away
   // cues that the link just changed — the confirmation and the cue contradicting
-  // each other. Reset on any url change, and drop the pending timer with it.
+  // each other. Reset on any url change.
   //
   // Render-phase, matching how the hub derives its own cue state: an effect
   // would paint one frame of the stale label first.

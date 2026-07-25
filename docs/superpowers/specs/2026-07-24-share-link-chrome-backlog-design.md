@@ -474,7 +474,7 @@ The fix is to stop paraphrasing and make the artifact itself normative:
 >
 > **N7 — Presence predicate.** The attribute is present exactly when §6.1's transition table says the cue is live. §6.1 is disjoint and total over its input tuple, which is what makes this delegable.
 
-N1 is what closes the class: it admits no paraphrase gap, because there is no paraphrase. N2 to N7 cover what a CSS comparison cannot see — which element, which identities, what actually painted, and when.
+N1 is what closes the class: it admits no paraphrase gap, because there is no paraphrase. Its scope is the cue's OWN rules, selected by naming it — a rule that retunes the cue without mentioning it (by testid, class, or an ancestor) is outside N1 and is caught by N6's resolved-longhand pin instead. N1 owns byte-exactness; it does not own the absence of other rules. N2 to N7 cover what a CSS comparison cannot see — which element, which identities, what actually painted, and when.
 
 ### §9.1.1 Adversary register — WORKED EXAMPLES, explicitly not exhaustive
 

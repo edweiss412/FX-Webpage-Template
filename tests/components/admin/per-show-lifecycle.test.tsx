@@ -6,8 +6,10 @@
  * Lifecycle presentation on the consolidated page. The old page's standalone
  * "lifecycle" section (archived-disclosure / held-disclosure banners + inline
  * Publish button) is gone by design (spec §6): the StatusStrip conveys the state
- * (archived badge / publish toggle) and the Overview rail section owns the
- * Archive / Unarchive controls + the inactive-share notice. This suite preserves
+ * (archived badge / publish toggle) and the share hub's popover owns the
+ * Archive / Unarchive controls. (Both were the Overview rail section when this
+ * suite was written; the lifecycle move relocated them and retired the
+ * inactive-share notice.) This suite preserves
  * the load-bearing behaviors the old lifecycle test pinned that STILL exist:
  *   - the PublishedToggle enable/disable states across finalize-ownership (spec
  *     §3.2 / R3): held → OFF-enabled, publishing → OFF-disabled, live+finalize →

@@ -151,6 +151,22 @@ async function rotate(page: Page) {
  * construction and survives the URL block's keyed remount, which lands at the
  * same position with a new object.
  */
+/**
+ * Give every panel descendant a durable object identity before the rotate.
+ *
+ * An expando, deliberately — not a data attribute, which would be visible to
+ * selectors and could perturb the very styles being measured.
+ */
+async function stampPanel(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const panel = document.querySelector("[data-review-modal-panel]");
+    let n = 0;
+    for (const el of Array.from(panel?.querySelectorAll("*") ?? [])) {
+      (el as unknown as { __cs?: number }).__cs = n++;
+    }
+  });
+}
+
 async function animationCensus(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const panel = document.querySelector("[data-review-modal-panel]");
@@ -168,7 +184,13 @@ async function animationCensus(page: Page): Promise<string[]> {
       const n = getComputedStyle(el).animationName;
       if (!n || n === "none") continue;
       const testid = el.getAttribute("data-testid");
-      out.push(`${pathOf(el)}${testid ? `[${testid}]` : ""} :: ${n}`);
+      // The stamp, not the path, is what makes this an ELEMENT census. Paths
+      // identify POSITIONS: inserting a same-tag/same-testid sibling before an
+      // element while silencing the original preserved the entry at that path,
+      // so both directional diffs stayed empty (round-4 review). A survivor
+      // keeps its stamp; anything mounted after stamping reads NEW.
+      const stamp = (el as unknown as { __cs?: number }).__cs;
+      out.push(`#${stamp ?? "NEW"} ${pathOf(el)}${testid ? `[${testid}]` : ""} :: ${n}`);
     }
     return out.sort();
   });
@@ -203,6 +225,9 @@ async function urlStyle(page: Page) {
       animationDelay: cs.animationDelay,
       animationPlayState: cs.animationPlayState,
       animationTimingFunction: cs.animationTimingFunction,
+      animationDirection: cs.animationDirection,
+      animationIterationCount: cs.animationIterationCount,
+      animationFillMode: cs.animationFillMode,
       backgroundColor: cs.backgroundColor,
       boxShadow: cs.boxShadow,
       hasAttr: el.hasAttribute("data-share-link-flash"),
@@ -228,7 +253,9 @@ test.describe("share-link cue — resolved style", () => {
     const during = await urlStyle(page);
 
     expect(during!.hasAttr).toBe(true);
-    for (const track of TRACKS) expect(during!.animationName).toContain(track);
+    // EXACTLY the cue's two tracks, in order. Containment allowed a third track
+    // to ride along (round-4 review).
+    expect(during!.animationName.split(",").map((t) => t.trim())).toEqual(TRACKS);
     // A non-zero delay would clip the cue while leaving every duration, easing,
     // stop, property, colour and width untouched.
     expect(during!.animationDelay.split(",").map((s) => s.trim())).toEqual(["0s", "0s"]);
@@ -242,6 +269,19 @@ test.describe("share-link cue — resolved style", () => {
       "ease-out",
       "ease-out",
     ]);
+
+    // The remaining longhands, pinned because N1 CANNOT see them. N1 compares the
+    // cue's own rules, selected by name; a rule that never mentions the cue —
+    // targeting the URL block by testid, class or an ancestor — can still retune
+    // direction, iteration or fill and never enter that comparison set (round-4
+    // review). Resolved style is where those become visible, so this is the
+    // closure for that gap, not a duplicate of the stylesheet check.
+    expect(during!.animationDirection.split(",").map((t) => t.trim())).toEqual([
+      "normal",
+      "normal",
+    ]);
+    expect(during!.animationIterationCount.split(",").map((t) => t.trim())).toEqual(["1", "1"]);
+    expect(during!.animationFillMode.split(",").map((t) => t.trim())).toEqual(["none", "none"]);
 
     // BOTH paints actually move. Sampling one cannot see the other suppressed.
     expect(during!.backgroundColor).not.toBe(rest!.backgroundColor);
@@ -285,6 +325,7 @@ test.describe("share-link cue — resolved style", () => {
     page,
   }) => {
     await openHub(page);
+    await stampPanel(page);
     const before = await animationCensus(page);
     await rotate(page);
 
@@ -322,7 +363,15 @@ test.describe("share-link cue — resolved style", () => {
     expect(removed, "the rotate stopped motion that was already running").toEqual([]);
     expect(added).toHaveLength(1);
     expect(added[0]).toContain("admin-current-share-link-url");
-    for (const track of TRACKS) expect(added[0]).toContain(track);
+    // EXACT track set, not containment. `toContain` per track left a third
+    // track on the same element passing both assertions with added.length still
+    // 1 (round-4 review) — the stray-`opacity`-track defect the spec calls out.
+    const names = (added[0] ?? "")
+      .split(" :: ")[1]
+      ?.split(",")
+      .map((t) => t.trim())
+      .sort();
+    expect(names).toEqual([...TRACKS].sort());
   });
 
   test("T-FLASH-REDUCED: reduced motion paints nothing, with no residual ring", async ({
