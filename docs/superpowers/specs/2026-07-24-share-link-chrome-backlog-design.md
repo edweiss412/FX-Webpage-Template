@@ -225,7 +225,7 @@ Compound transitions:
 
 ### §3.6 Dimensional invariants
 
-**N/A.** The cue introduces no fixed-dimension parent and no new flex or grid child relationship. It animates `background-color` and `box-shadow` on an existing element whose box model is untouched — `box-shadow` does not participate in layout, and the element keeps the exact class string it has at `components/admin/showpage/ShareHub.tsx:715`. No parent-to-child dimension relationship changes, so no real-browser dimension assertion is warranted (and per R6 there is nowhere in CI to put one).
+**N/A.** The cue introduces no fixed-dimension parent and no new flex or grid child relationship. It animates `background-color` and `box-shadow` on an existing element whose box model is untouched — `box-shadow` does not participate in layout, and the element keeps the exact class string it has at `components/admin/showpage/ShareHub.tsx:715`. No parent-to-child dimension relationship changes, so no real-browser DIMENSION assertion is warranted. That is a separate question from §9.1's browser spec, which measures resolved ANIMATION rather than layout and does have a CI home (R6, reversed in round 2).
 
 ### §3.7 Contrast (DESIGN.md)
 
@@ -418,8 +418,9 @@ Only T1, T2, T8, T12, T14 and T16 are red-first. Calling the guards "RED" overst
 | T6 | GUARD | Open, rotate (assert present — the positive precondition, without which this row is vacuous), close, reopen inside the window: attribute ABSENT | same | reds against a cue that survives a close |
 | T7 | GUARD | Stale rotation (lower epoch, gate at `app/admin/show/[slug]/ShareTokenContext.tsx:47`): URL unchanged AND attribute ABSENT | same | reds against a cue keyed on the rotate event rather than on the token |
 | T11 | GUARD | Cue running (assert present first), token to null, then a token returns inside the window: ABSENT on the remounted block | same | round-1 HIGH: a null transition that fails to clear |
-| T15 | GUARD | Cue running (assert present first), `published` flips false with token and epoch UNCHANGED, republish inside the window: ABSENT | same | round-2 HIGH: the `linkActive` leak. Reds against a clear condition written over token-nullity instead of target-visibility. Distinct from T11 — here the token never changes at all |
+| T15 | GUARD | Cue running (assert present first), **a child reporting busy so the panel cannot auto-close**, `published` flips false with token and epoch UNCHANGED, then busy clears, then republish inside the window: ABSENT | same | round-2 HIGH: the `linkActive` leak. **The busy hold is what makes this row non-vacuous (round-3 review, HIGH).** Without it the lifecycle effect closes the popover on the `published` flip (`components/admin/showpage/ShareHub.tsx:490-495`), the `!open` arm alone clears `flash`, and the row passes against the very bug it targets. The production leak needs the busy path specifically: the close is DEFERRED while busy (`components/admin/showpage/ShareHub.tsx:491-493`) and then CANCELLED when busy clears (`components/admin/showpage/ShareHub.tsx:517-520`), so the panel stays open with `linkActive` false. Reds against a clear written over token-nullity instead of target-visibility |
 | T12 | RED | Two accepted token changes 800ms apart: the `<code>` element identity DIFFERS across the second change | same | the animation does not restart. jsdom cannot observe a repaint, but a remount is the mechanism that causes one, so element identity is the honest proxy; §9.1 T16 proves the repaint itself in a browser |
+| T17 | RED | Open, rotate (assert attribute present, capture the element), advance to `SHARE_LINK_FLASH_MS`: attribute gone AND **the element identity is UNCHANGED** | same | `key={flash}`. Round-3 review, HIGH: every other row passes against that key, because it also remounts on a token change — it just ALSO remounts when the timer clears, silently destroying a URL selection the admin made in order to copy by hand. T12 proves a remount happens on change; this row proves one does NOT happen on expiry. The pair is what pins `key={token}` specifically, and neither half alone does |
 | T13 | RED | `vi.getTimerCount()` is greater than zero with a cue in flight, and exactly zero after `unmount()` | same | a missing `return () => clearTimeout(t)`. Replaces the draft's S11 row, which pinned "no orphan-timer warning" — vacuous, since React 18 removed that warning and this repo is on react 19.2.4, and neither `tests/setup.ts` nor the RTL default enables StrictMode (round-2 review, MEDIUM). Idiom already shipped at `tests/devcapture/useDevCapture.test.tsx:350-352` |
 | T14 | RED | Two changes 800ms apart: attribute still present 1600ms after the FIRST change, gone 1600ms after the SECOND | same | a boolean instead of a nonce — the timer never re-arms and the second cue is cut short |
 | T8 | RED | Source scan of `app/globals.css`: (a) both `@keyframes` blocks exist **exactly once each**; (b) `share-link-flash-bg` declares `background-color` at a `0%,45%` hold of `var(--color-accent-tint)` and `100%` of `var(--color-surface-sunken)`; (c) `share-link-flash-ring` declares `box-shadow` from `0 0 0 2px var(--color-accent-edge)` to a transparent terminus; (d) `[data-share-link-flash]` runs BOTH names at exactly `SHARE_LINK_FLASH_MS`ms; (e) the ONLY `animation: none` for that selector is inside a `prefers-reduced-motion` block; (f) no `animation-play-state` anywhere for it; (g) `ShareHub` declares no keyframes | new transitions test under tests/components/admin/showpage/ (template: `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx:723-741`) | round-1 HIGH: name-only scans pass against empty bodies. Sub-assertions (a), (e) and (f) are round-2 MEDIUM: regex EXISTENCE cannot see the cascade, so a later duplicate keyframe, a later unconditional `animation: none`, or a `paused` play-state would all keep a body-only scan green. They bound the hole; they do not close it — T16 does |
@@ -442,7 +443,9 @@ Only T1, T2, T8, T12, T14 and T16 are red-first. Calling the guards "RED" overst
 | keys the cue on the rotate event | T7 |
 | omits the null-transition clear | T11 |
 | writes the clear over token-nullity instead of target-visibility | T15 |
-| omits `key={token}`, so the animation never restarts | T12, T16 |
+| omits `key={token}` entirely, so the animation never restarts | T12, T16 |
+| uses `key={flash}` — restarts on change but ALSO remounts at timer expiry, destroying a URL selection | T17 |
+| clears on `!open` alone, leaking a cue across a busy-deferred unpublish | T15 |
 | omits the effect cleanup | T13 |
 | uses a boolean instead of a nonce | T14 |
 | ships empty, wrong-property or wrong-color keyframes | T8(b), T8(c), T16 |
@@ -452,6 +455,34 @@ Only T1, T2, T8, T12, T14 and T16 are red-first. Calling the guards "RED" overst
 | moves keyframes into the component | T8(g) |
 | renders a wrong token, or copies a stale one | preserved exact-value assertions above |
 | retunes a token below the ring's contrast floor | T9 |
+
+### §9.0 Test-vacuity is now a tracked vector — the structural defense
+
+**Three consecutive review rounds have found the same class of defect: a test row that passes against the implementation it exists to reject.** Round 1: T8 green against empty keyframes. Round 2: six rows misclassified as red-first, a timer pair that a wrong constant satisfied, and cascade holes a regex cannot see. Round 3: T15 satisfied by the auto-close it forgot to suppress, T16 exercising a transition production never performs, and nothing at all separating `key={token}` from `key={flash}`.
+
+The project rule for a three-round same-vector recurrence is explicit: stop patching instances, re-analyse the vector comprehensively, and ship a structural defense **in this repair commit** rather than waiting for a fourth round to confirm. Patching only the three rows the reviewer named would repeat the drip that the rule exists to stop.
+
+**Comprehensive re-analysis.** Every row was re-audited against one question — *name an implementation that passes this row and should not.* Results:
+
+| Row | Passes against a wrong implementation? |
+|---|---|
+| T1, T2, T13, T14 | no — each names a distinct defect and reds on it |
+| T4, T5, T6, T7, T11 | no, given their positive preconditions (T6 and T11 gained theirs in round 2 and round 1 respectively) |
+| T3 | yes, weakly — it is a GUARD and cannot catch the seed defect it once claimed; labelled honestly rather than strengthened, because the seed is a review-time concern |
+| T12 | **partially** — it reds against no-key but NOT against `key={flash}`. Closed by the new T17 |
+| T15 | **yes** — closed by the busy hold |
+| T16 | **yes** — closed by exercising node replacement |
+| T8 | bounded, not closed; T16 is what closes it |
+| T9, T10 | n/a — PIN and GATE, not red-first by construction |
+
+**The structural defense: an executable adversary matrix.** The plan carries a task that, for every row of the adversary table below, BUILDS the named wrong implementation, runs the suite, and records which rows red. It is mutation testing scoped to this diff, and it converts the vector from "a reviewer finds a vacuous row each round" into "the implementer proves non-vacuity before review".
+
+Rules for that task:
+
+- Every adversary must red at least one row. An adversary that reds nothing is a coverage hole, not a passing grade.
+- Every row must red for at least one adversary, except T9 (PIN) and T10 (GATE), which are exempt by kind and declared so.
+- The matrix output — adversary, rows red, rows still green — goes in the PR body. A row that reds for nothing is deleted or strengthened before review, never shipped.
+- **Commit before mutating.** Reverting an injected mutation with `git checkout --` discards uncommitted work in that same file; the adversary edits land on a committed tree or not at all.
 
 ### §9.1 T16 — the real-browser cue spec
 
@@ -464,14 +495,15 @@ Only T1, T2, T8, T12, T14 and T16 are red-first. Calling the guards "RED" overst
 1. Without the attribute: `getComputedStyle(el).animationName === "none"`.
 2. With it: `animationName` resolves to BOTH `share-link-flash-bg` and `share-link-flash-ring`, `animationDuration` is `1.6s` twice, and `animationPlayState` is `running`.
 3. The paint actually moves: sample `backgroundColor` early in the hold and again after the animation ends, and assert they DIFFER and that the settled value equals the resting `--color-surface-sunken`. This is what an empty or mis-colored keyframe cannot fake.
-4. Remove and re-add the attribute across a frame and assert the animation restarts (a fresh `animationStartTime`, or an elapsed-time sample that reset) — the browser-side proof of `key={token}`, of which T12's element-identity check is only a proxy.
+4. Restart, exercising the PRODUCTION mechanism rather than a convenient stand-in (round-3 review, MEDIUM). React does not toggle the attribute on a surviving node; it REPLACES the node, and the replacement is inserted already carrying the attribute. So the step is: let the animation run partway, then replace the element with a fresh node that already has `data-share-link-flash` set, and assert the animation is running from near zero again (a reset elapsed time or a fresh `animationStartTime`). Removing and re-adding the attribute on the SAME node proves attribute-toggle restart, which is not the transition production performs.
 5. Under `emulateMedia({ reducedMotion: "reduce" })`, `animationName === "none"` and the background stays at rest. `skeletonBandParity.spec.ts:153` already does reduced-motion emulation in this harness.
 
-**Wiring — three points, all required, none discoverable by convention.** A spec file that merely exists proves nothing here (`tests/e2e/standalone.config.ts:29-31` says so outright):
+**Wiring — four points, all required, none discoverable by convention.** A spec file that merely exists proves nothing here (`tests/e2e/standalone.config.ts:29-31` says so outright):
 
 1. the spec file itself;
 2. an entry in the `testMatch` allow-list at `tests/e2e/standalone.config.ts:35` — without it Playwright reports "No tests found" and the failure looks like a bad path;
-3. a dedicated workflow that names the spec, modelled on `.github/workflows/phantom-gap-e2e.yml:158`, with `workflow_dispatch:` enabled so close-out can verify it without waiting for a trigger. Path filter: `app/globals.css`, `components/admin/showpage/ShareHub.tsx`, the spec, `tests/e2e/standalone.config.ts`, and the workflow itself.
+3. a dedicated workflow that names the spec, modelled on `.github/workflows/phantom-gap-e2e.yml:158`, with `workflow_dispatch:` enabled so close-out can verify it without waiting for a trigger;
+4. a row in the `_metaE2eWorkflowCoverage` registry. That guard "fails by default for NEW dark specs" (`tests/ci/_metaE2eWorkflowCoverage.test.ts:7`), and a spec whose only workflow is PATH-GATED does not count as covered — which is why `tests/e2e/phantomGapHelper.layout.spec.ts` carries a `PATH_GATED` row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:81`. Ours lands in the same bucket and needs its own row with a reason. This point was missing from the round-2 draft; the precedent is four commits old on `main` (`be0bf69b3`, "register the new e2e spec with the workflow-coverage guard"). Path filter: `app/globals.css`, `components/admin/showpage/ShareHub.tsx`, the spec, `tests/e2e/standalone.config.ts`, the workflow itself, AND the runtime inputs the harness actually depends on — `package.json`, `pnpm-lock.yaml`, `postcss.config.mjs`, `.github/actions/setup/**` (round-3 review, MEDIUM). The harness compiles real CSS through the Tailwind CLI and drives Playwright, so a dependency or setup-action bump can break the cue test while a filter listing only source paths skips the job entirely. The cited precedent lists exactly these: `.github/workflows/phantom-gap-e2e.yml:71-73` and `.github/workflows/phantom-gap-e2e.yml:79`.
 
 Leaving any one out reproduces `BL-STANDALONE-CONFIG-CI-DARK` — a spec green once at authoring time and never run again.
 
