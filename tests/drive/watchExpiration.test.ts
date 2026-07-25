@@ -271,10 +271,17 @@ describe("short-grant anomaly (§3.3)", () => {
     // parameter, and the first live match belongs to fxav_cron_sync — so an
     // edit to refresh-watch's own timeout would have left this green while the
     // constant went stale (R7 finding 1).
-    const jobIdx = live.indexOf("'fxav_cron_refresh_watch'");
+    // Anchor on the SCHEDULE call, not the bare job name: a future migration with
+    // a named `cron.unschedule('fxav_cron_refresh_watch')` would otherwise anchor
+    // the block at the unschedule and run to the NEXT schedule — silently reading
+    // a different job's timeout, which is the very bug this scoping fixes.
+    const jobIdx = live.indexOf("cron.schedule('fxav_cron_refresh_watch'");
     expect(jobIdx, "refresh-watch is no longer scheduled in this migration").toBeGreaterThan(-1);
     const blockEnd = live.indexOf("cron.schedule(", jobIdx + 1);
     const block = live.slice(jobIdx, blockEnd === -1 ? undefined : blockEnd);
+    // And prove the block really is refresh-watch's, so a future reshuffle cannot
+    // quietly hand us a neighbour's body.
+    expect(block).toContain("/api/cron/refresh-watch");
     const m = /timeout_milliseconds\s*:?=\s*([0-9_]+)/.exec(block);
     expect(m, "refresh-watch block no longer declares timeout_milliseconds").not.toBeNull();
     expect(T_EXEC_BUDGET_MS).toBe(Number(m![1]!.replace(/_/g, "")));
