@@ -100,7 +100,9 @@ export type StatusStripProps = {
    *  copy URL and the bound publish toggle — NOT a display label (the strip renders no
    *  title; the modal's `<h2>` owns it). */
   slug: string;
-  /** Read-only lifecycle state: hides every mutating strip affordance. */
+  /** Read-only lifecycle state: hides every mutating strip affordance EXCEPT the
+   *  hub, which stays mounted because Unarchive lives in its popover and is the
+   *  only way back. Read-only for publishing and syncing, not affordance-free. */
   archived: boolean;
   /** Current publish state (drives the wrapped toggle + the share hub's "active" gate). */
   published: boolean;
@@ -359,14 +361,16 @@ export function StatusStrip({
           test still passed. The trigger carries its own
           `data-testid="admin-resync-button"`; query that.
 
-          DOM order is normative, not merely visual: Copy is right-flushed by
-          `ml-auto`, so Copy-then-Re-sync would still LOOK right while producing
-          the tab order toggle → Copy → Re-sync → confirm controls, breaking
-          §10's confirm-proximity contract.
+          DOM order is normative, not merely visual: the right-flushed control is
+          now the HUB group (`ml-auto`), so hub-then-Re-sync would still LOOK
+          right while producing the tab order toggle → hub → Re-sync → confirm
+          controls, breaking §10's confirm-proximity contract. (This read
+          "Copy" until the hub absorbed the standalone copy-link.)
 
-          Archived shows get NO trigger — Re-sync mutates via /api/admin/sync,
-          which an archived show must not reach. Overview keeps the "paused
-          while archived" notice so the reason is still stated (§6.7).
+          Archived shows get NO Re-sync trigger — it mutates via /api/admin/sync,
+          which an archived show must not reach. The Overview "paused while
+          archived" notice that §6.7 pointed at was retired with the share
+          cluster; the archived badge now carries that state.
 
           Counted form: the MULTI-LINE `{!archived ? (` head is what §9's lexical
           scanner sees. Both `{archived ? null : …}` AND the one-line
@@ -397,9 +401,10 @@ export function StatusStrip({
       {/* share-hub T4. The hub replaces the standalone copy-link: URL, Copy,
           Email-crew, rotate and reset all live in its popover — and, since the
           lifecycle move, Archive/Unarchive too. That is why the group is now
-          UNCONDITIONAL: an archived show has no share half (the hub renders
-          kebab-only, read-only), but Unarchive lives in that popover, so gating
-          the group on `!archived` would strand the only way back.
+          UNCONDITIONAL: an archived show loses the SHARE half, but still renders
+          both triggers — the primary relabelled "Show actions" — because
+          Unarchive lives in that popover, so gating the group on `!archived`
+          would strand the only way back.
           `ml-auto` right-flushes the group against the band's content edge —
           which resolves only because the strip row is `w-full` (see above). */}
       <div

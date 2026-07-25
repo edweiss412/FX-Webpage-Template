@@ -526,8 +526,12 @@ function alive(pid) {
   }
 }
 
-/** A lock older than this cannot be a live run; the full matrix takes ~15 min. */
-const MAX_LOCK_AGE_MS = 2 * 60 * 60 * 1000;
+/** Past this, a lock is *reported* as suspicious. It is NEVER grounds to evict:
+ *  the timestamp is written once and never refreshed, and a full run can legitimately
+ *  exceed any threshold worth setting. Eviction on age alone reopens concurrent
+ *  tracked-file mutation, which is the entire failure this lock exists to prevent
+ *  (round-5 review). */
+const SUSPICIOUS_LOCK_AGE_MS = 2 * 60 * 60 * 1000;
 
 function acquireLock() {
   const stamp = () => `${process.pid}\n${new Date().toISOString()}\n`;
@@ -538,34 +542,43 @@ function acquireLock() {
     /* held — decide below whether the holder is real */
   }
 
-  // A crashed or SIGKILLed run cannot clean up after itself, and an
-  // indefinitely-blocking lock is its own outage. Two independent staleness
-  // signals, because each alone has a failure mode: a dead pid is decisive but
-  // PIDs get REUSED, so an unrelated live process would wedge the lock forever;
-  // and age alone would evict a legitimately slow run.
   const holder = lockHolder();
   const age = lockAgeMs();
-  const stale = holder === null || !alive(holder) || (age !== null && age > MAX_LOCK_AGE_MS);
-  if (!stale) {
+
+  // ONLY a dead (or unreadable) holder is stale. A live PID is respected no
+  // matter how old the lock is; if that PID was reused by an unrelated process
+  // the lock wedges, which is recoverable by deleting one file — strictly better
+  // than two mutation loops rewriting the same tracked files.
+  if (holder !== null && alive(holder)) {
+    const oldNote =
+      age !== null && age > SUSPICIOUS_LOCK_AGE_MS
+        ? `\nThe lock is ${Math.round(age / 60000)}min old. If pid ${holder} is NOT a matrix run` +
+          ` (PIDs get reused), delete ${LOCK} by hand.`
+        : "";
     console.error(
       `refusing to run: ${LOCK} is held by live pid ${holder}.\n` +
         "This script mutates tracked files; two concurrent runs strand mutants in\n" +
-        "each other's windows. Wait for that run to finish.",
+        `each other's windows. Wait for that run to finish.${oldNote}`,
     );
     process.exit(2);
   }
 
-  // Takeover is not atomic: two contenders can both see the dead holder and both
-  // write. Neither `wx` nor rename fixes that on its own, so resolve it AFTER the
-  // fact — both write, then both re-read, and only the one whose pid survived
-  // proceeds. The loser exits rather than mutating alongside the winner.
+  // Takeover must be EXCLUSIVE, and write-then-verify is not: two contenders can
+  // each write and each re-read their own pid before either mutates (round-5
+  // review). Unlink the dead lock, then re-create with `wx` — both may reach the
+  // unlink, but the kernel lets exactly one `wx` create succeed.
   console.warn(
-    `note: taking over a stale lock (${holder === null ? "unreadable" : !alive(holder) ? `pid ${holder} gone` : `age ${Math.round((age ?? 0) / 60000)}min`}).`,
+    `note: clearing a stale lock (${holder === null ? "unreadable" : `pid ${holder} gone`}).`,
   );
-  writeFileSync(LOCK, stamp());
-  const won = lockHolder();
-  if (won !== process.pid) {
-    console.error(`refusing to run: lost the stale-lock takeover race to pid ${won}.`);
+  try {
+    rmSync(LOCK, { force: true });
+  } catch {
+    /* another contender already cleared it */
+  }
+  try {
+    writeFileSync(LOCK, stamp(), { flag: "wx" });
+  } catch {
+    console.error("refusing to run: lost the stale-lock takeover race to a concurrent run.");
     process.exit(2);
   }
 }
@@ -832,7 +845,12 @@ if (!ONLY && !QUICK) {
   // every line of authored prose in between (round-4 review).
   const begins = (before.match(/<!-- BEGIN GENERATED -->/g) ?? []).length;
   const ends = (before.match(/<!-- END GENERATED -->/g) ?? []).length;
-  if (begins !== 1 || ends !== 1) {
+  // Order matters as much as count: a REVERSED pair passes the count check, the
+  // regex then matches nothing, the replace is a silent no-op, and the run still
+  // logs "report tables written" (round-5 review).
+  const ordered =
+    before.indexOf("<!-- BEGIN GENERATED -->") < before.indexOf("<!-- END GENERATED -->");
+  if (begins !== 1 || ends !== 1 || !ordered) {
     console.error(
       `report doc must contain exactly one GENERATED marker pair (found ${begins} begin, ${ends} end): ${doc}`,
     );
@@ -841,20 +859,29 @@ if (!ONLY && !QUICK) {
     // Replace with a FUNCTION, not a string: `$&`, `$1` and friends inside a
     // string replacement are substitution patterns, and adversary labels are
     // free text that can contain them.
-    writeFileSync(
-      doc,
-      before.replace(/<!-- BEGIN GENERATED -->[\s\S]*?<!-- END GENERATED -->/, () => generated),
+    const after = before.replace(
+      /<!-- BEGIN GENERATED -->[\s\S]*?<!-- END GENERATED -->/,
+      () => generated,
     );
-    // Prettier owns markdown table alignment in this repo and format:check runs
-    // in CI, so emitting raw pipes would leave the tree failing a gate right
-    // after the matrix certified it.
-    try {
-      execFileSync("npx", ["prettier", "--write", doc], { cwd: ROOT, stdio: "pipe" });
-    } catch (e) {
-      console.error(`report written but prettier failed; run it by hand: ${e.message}`);
+    if (after === before) {
+      // Guard against a silent no-op: if the markers somehow survive validation
+      // but the regex matches nothing, the run would report success having
+      // written nothing at all.
+      console.error(`report marker replacement matched nothing: ${doc}`);
       process.exitCode = 1;
+    } else {
+      writeFileSync(doc, after);
+      // Prettier owns markdown table alignment in this repo and format:check
+      // runs in CI, so emitting raw pipes would leave the tree failing a gate
+      // right after the matrix certified it.
+      try {
+        execFileSync("npx", ["prettier", "--write", doc], { cwd: ROOT, stdio: "pipe" });
+      } catch (e) {
+        console.error(`report written but prettier failed; run it by hand: ${e.message}`);
+        process.exitCode = 1;
+      }
+      console.log(`report tables written to ${doc}`);
     }
-    console.log(`report tables written to ${doc}`);
   }
 }
 

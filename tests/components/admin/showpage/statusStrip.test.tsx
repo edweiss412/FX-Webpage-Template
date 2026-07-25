@@ -3,7 +3,8 @@
  * tests/components/admin/showpage/statusStrip.test.tsx (consolidated-admin-show-page Task 10)
  *
  * The pinned status strip (spec §4 element table, §6 mode matrix, §11 guards). The strip
- * is DISPLAY + 2 actions max (publish toggle, share hub). Controls reached THROUGH the hub
+ * is DISPLAY + 3 actions max (publish toggle, Re-sync, share hub) — the budget the
+ * component's own header states. Controls reached THROUGH the hub
  * — rotate, reset, Email-crew, and since the lifecycle move Archive/Unarchive — live in its
  * popover, which portals out of the strip; that is what keeps the two-action cap true.
  *
@@ -15,7 +16,7 @@
  *     token — a misleading dead link (spec §11 "no active share token → hidden").
  *   - archived strip still exposing the publish toggle (must be read-only for publishing),
  *     OR sneaking an Unarchive button into the strip itself rather than its popover — the
- *     strip caps at two actions. NOTE: the hub GROUP is unconditional, archived included,
+ *     strip caps at three actions. NOTE: the hub GROUP is unconditional, archived included,
  *     because Unarchive is only reachable through it.
  *   - an alert element coming BACK into the strip (modal-header-reconciliation §6.6
  *     relocated it to the modal header; rendered in both places = a duplicated count).
@@ -391,7 +392,7 @@ describe("StatusStrip", () => {
       //
       // Opening it makes the test able to fail, and states the contract that is
       // actually load-bearing: the popover PORTALS out, so the strip itself
-      // stays a two-action surface. That the popover holds Unarchive is
+      // stays a three-action surface. That the popover holds Unarchive is
       // shareHub.test.tsx's business (see "archived: the Show section holds
       // Unarchive"); this owns the boundary between them.
       renderStrip({ archived: true, published: false }, { token: "TOK" });

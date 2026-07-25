@@ -264,7 +264,14 @@ test.describe("share-link cue — resolved style", () => {
     // stop, property, colour and width untouched.
     expect(during!.animationDelay.split(",").map((s) => s.trim())).toEqual(["0s", "0s"]);
     expect(during!.animationDuration.split(",").map((s) => s.trim())).toEqual(["1.6s", "1.6s"]);
-    expect(during!.animationPlayState).toContain("running");
+    // EXACT, not containment: a foreign rule setting `running, paused` passed
+    // toContain while leaving one cue track frozen — the running wash still
+    // moved the background and the paused ring still painted its 0% shadow, so
+    // every other assertion here stayed green (round-5 review).
+    expect(during!.animationPlayState.split(",").map((t: string) => t.trim())).toEqual([
+      "running",
+      "running",
+    ]);
     // Easing was unasserted everywhere until round-1 whole-diff review: the
     // source scan only proved the expected shorthand EXISTS, so a later
     // `animation-timing-function: linear` override left every assertion green

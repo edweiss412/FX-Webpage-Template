@@ -41,25 +41,69 @@ const norm = (css: string) =>
     .replace(/\s*([{};:,])\s*/g, "$1")
     .trim();
 
-/** Split a CSS blob into its top-level `prelude { body }` rules by brace depth. */
+/**
+ * Strip comments in a STRING-AWARE pass.
+ *
+ * Stripping them with a bare regex first removed literal `/*` bytes living
+ * inside quoted values, so the comparison was not byte-exact the way it claimed
+ * (round-5 review). Comments and strings have to be recognised in the same
+ * scan, because each can contain the other's opening delimiter.
+ */
+function stripComments(css: string): string {
+  let out = "";
+  let quote: string | null = null;
+  for (let i = 0; i < css.length; i++) {
+    const ch = css[i] as string;
+    if (quote) {
+      out += ch;
+      if (ch === "\\") {
+        out += css[i + 1] ?? "";
+        i++;
+      } else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      out += ch;
+      continue;
+    }
+    if (ch === "/" && css[i + 1] === "*") {
+      const close = css.indexOf("*/", i + 2);
+      i = close === -1 ? css.length : close + 1;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
+ * Split a CSS blob into its top-level `prelude { body }` rules by brace depth.
+ *
+ * Quote- AND url()-aware: a brace or semicolon inside a string or an UNQUOTED
+ * `url(...)` is data, not structure. Missing the url() case let an unquoted URL
+ * containing `{` unbalance the depth counter and drop real cue-affecting rules
+ * out of the flattened leaves entirely (round-5 review).
+ */
 function splitRules(css: string): { prelude: string; body: string }[] {
   const out: { prelude: string; body: string }[] = [];
   let depth = 0;
   let buf = "";
   let quote: string | null = null;
+  let inUrl = false;
   for (let i = 0; i < css.length; i++) {
     const ch = css[i] as string;
-    // Quote-aware: a brace or semicolon inside a string or url() is DATA, not
-    // structure. `content: "{"` before the cue used to unbalance `depth` and
-    // swallow every rule after it (round-4 review).
     if (quote) {
       buf += ch;
       if (ch === "\\") {
         buf += css[i + 1] ?? "";
         i++;
-      } else if (ch === quote) {
-        quote = null;
-      }
+      } else if (ch === quote) quote = null;
+      continue;
+    }
+    if (inUrl) {
+      buf += ch;
+      if (ch === ")") inUrl = false;
       continue;
     }
     if (ch === '"' || ch === "'") {
@@ -67,9 +111,13 @@ function splitRules(css: string): { prelude: string; body: string }[] {
       buf += ch;
       continue;
     }
+    if (/url\($/i.test(buf + ch)) {
+      inUrl = true;
+      buf += ch;
+      continue;
+    }
     // A statement at-rule (`@import "tailwindcss";`) has no block, so without
     // this it accumulates into the NEXT rule's prelude and corrupts that key.
-    // Requires comments to be stripped FIRST — see `cueLeaves`.
     if (ch === ";" && depth === 0) {
       buf = "";
       continue;
@@ -134,7 +182,7 @@ function flatten(css: string, context = ""): Leaf[] {
  * must not be read as owning, the absence of other rules.
  */
 function cueLeaves(css: string): string[] {
-  return flatten(css.replace(/\/\*[\s\S]*?\*\//g, ""))
+  return flatten(stripComments(css))
     .filter((l) => `${l.key}${l.body}`.includes("share-link-flash"))
     .map((l) => `${l.key}{${l.body}}`)
     .sort();

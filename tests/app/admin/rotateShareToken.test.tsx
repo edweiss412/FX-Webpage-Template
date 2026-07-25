@@ -4,8 +4,9 @@
 // share-link-instant-rotate-dedup: the ACTIVE success banner is now
 // CONFIRMATION-ONLY — it no longer renders the crew URL / Copy (that duplicated
 // the always-visible share hub). Instead the rotate hands the new
-// token+epoch to the shared ShareTokenProvider via onRotated, and every crew-URL
-// surface updates instantly. The R28 canonical-origin guarantee therefore now
+// token+epoch to the shared ShareTokenProvider via onRotated, and the crew-URL
+// surface updates instantly. ("Every" was written when there were three; the
+// hub popover's row is the only one left.) The R28 canonical-origin guarantee therefore now
 // lives on the ShareHub popover's crew-link row (via resolveOrigin), pinned in
 // tests/components/shareTokenRotateSurface.test.tsx.
 // Here we pin (test 1) that the active banner is confirmation-only and drives

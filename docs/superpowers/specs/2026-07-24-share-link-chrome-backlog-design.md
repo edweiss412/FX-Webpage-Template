@@ -313,7 +313,12 @@ Rename the file to tests/components/shareTokenRotateSurface.test.tsx and update 
 
 All three are updated in the same commit as the rename.
 
-**Deliberately untouched:** `app/admin/show/[slug]/ShareLinkCopyButton.tsx` and its `compact` variant (R4).
+**Partly touched, contrary to the R4 plan.** The `compact` variant is untouched, but `app/admin/show/[slug]/ShareLinkCopyButton.tsx` itself gained two guards once the cue landed, because a rotate invalidates what the clipboard holds — the OLD url is dead for the whole crew the moment the token changes, so a button still reading "Copied" asserts something false two pixels from the cue announcing the change:
+
+1. a render-phase reset of `copied` when `url` changes, so no frame paints the stale confirmation;
+2. a captured-url check in the async handler, so a `writeText` still in flight when the rotate lands does not announce success on resolution. The render-phase reset cannot cover this — it has already run, with the new url, before the promise settles.
+
+Both are pinned by `tests/components/admin/shareLinkCopyButtonRotate.test.tsx`, including a row proving the second guard is not blanket suppression. That file was added in round 5 after review found the guards shipped with no test at all; the red-first order invariant 1 requires was not followed here, and the tests were mutation-checked against both guards rather than merely written after the fact.
 
 ---
 
