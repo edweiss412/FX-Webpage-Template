@@ -107,59 +107,25 @@ Note the root list is `["components", "app", "lib"]` — constraint C-B. `walk` 
 
 **Commit:** `refactor(admin): source ARM_REVERT_MS from one module and pin it`
 
-### Task 2 — T2 identifier allowlist + self-checks
+### Task 2 — T2 identifier allowlist + the four bypass closures
 
-**Test first.** Add to the same file:
+**Test first.** T2 rejects any scheduler-call delay that is not a **registered identifier**. Spec §5.2 carries the allowlist table (`ARM_REVERT_MS`, `SUCCESS_DISMISS_MS`, `WATCHDOG_MS`) and is the authority; the task body reproduces it at execution time.
 
-```ts
-// Locate setTimeout calls in COMMENT-STRIPPED source (a commented-out example
-// must not trip the guard), but read the exemption from RAW source, because
-// stripComments deletes it (constraint C-A, tests/styles/_classScanUtils.ts:15-17).
-const TIMER_LITERAL = /setTimeout\([\s\S]*?,\s*(\d[\d_]*)\s*\)/g;
-const EXEMPT = /\/\/\s*not-arm-revert:/;
+Five assertions, because a literal ban alone is fail-open — `const CONFIRM_TIMEOUT = 3_000; setTimeout(cb, CONFIRM_TIMEOUT)` passes a literal ban, T1 and T3 simultaneously:
 
-it("T2: no destructive-confirm surface passes a numeric-literal setTimeout delay", () => {
-  const problems: string[] = [];
-  for (const file of new Set(REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file))) {
-    const raw = readFileSync(file, "utf8");
-    const stripped = stripComments(raw);
-    TIMER_LITERAL.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = TIMER_LITERAL.exec(stripped)) !== null) {
-      const lineNo = stripped.slice(0, m.index).split("\n").length;
-      const rawLines = raw.split("\n");
-      const near = rawLines.slice(Math.max(0, lineNo - 4), lineNo + 1).join("\n");
-      if (!EXEMPT.test(near)) problems.push(`${file}:${lineNo} literal delay ${m[1]}`);
-    }
-  }
-  expect(problems).toEqual([]);
-});
-```
+| Assertion | Closes | Concrete bypass it catches |
+|---|---|---|
+| delay must be an allowlisted identifier | the base case | `setTimeout(cb, 3_000)` and `setTimeout(cb, CONFIRM_TIMEOUT)` |
+| `ARM_REVERT_MS` references resolve to `@/lib/admin/destructiveConfirm`, matched on the **module specifier**, with no local rename of a foreign binding to that name | B1 | `import { THREE_SECONDS as ARM_REVERT_MS } from "./elsewhere"` — green under T1/T3 because T1 must ignore import bindings for the eleven migrated files to pass |
+| scan a scheduler **set** (`setTimeout`, `setInterval`, `AbortSignal.timeout`, `requestIdleCallback` with `timeout`) and fail on aliasing any of them | B2 | `const t = setTimeout; t(cb, 3000)` |
+| exemption binds to the **call**, not the file: on the call's own line or the line above, consumed by exactly one call | B3 | one legitimate `// not-arm-revert:` suppressing every other timer in the same file |
+| assert the **count** of detected scheduler calls per registry file against a checked-in expected count | B4 | a detector that silently stops matching — this is the assertion that makes the other four trustworthy |
 
-`m[1]` is `string | undefined` under `noUncheckedIndexedAccess`; it is only interpolated into a template literal, which accepts `undefined`, so this typechecks without a non-null assertion.
+**Self-check** (mandatory, per the vacuous-pass rule): fires on single-line, multiline, and nested-callback call shapes; does not fire on an allowlisted identifier; and carries one negative case per bypass B1-B4. A self-check that only proves `3000` is caught would let every closure above rot.
 
-**Anti-vacuity self-check** (the failure mode this catches: a regex that never matches would make T2 pass forever):
+**Expected state.** V2 measured zero literal-delay violations across all 18 registry files, so the base assertion lands green. That is stated plainly rather than dressed up: T2 is a fails-**forward** guard, and its self-check plus B4's count assertion are what prove it is not vacuous today.
 
-```ts
-it("T2 matcher self-check", () => {
-  const fire = (src: string) => {
-    TIMER_LITERAL.lastIndex = 0;
-    return TIMER_LITERAL.test(src);
-  };
-  expect(fire("setTimeout(() => setArmed(false), 3000)")).toBe(true);
-  expect(fire("setTimeout(() => setArmed(false), 3_000)")).toBe(true);
-  expect(fire("setTimeout(() => setArmed(false), ARM_REVERT_MS)")).toBe(false);
-  // C-A: the exemption must survive comment-stripping lookup
-  expect(EXEMPT.test(stripComments("// not-arm-revert: nope"))).toBe(false);
-  expect(EXEMPT.test("// not-arm-revert: yes")).toBe(true);
-});
-```
-
-The last two lines are the executable proof of constraint C-A: they demonstrate that looking the exemption up in stripped source finds nothing, which is exactly why T2 reads raw.
-
-**Expected state:** T2 passes immediately (V2 measured zero violations). That is fine and stated honestly — T2 is a fails-*forward* guard. Its self-check is what proves it is not vacuous, and the plan does not pretend T2 caught anything today.
-
-**Implementation.** Header comment on the registry file documenting T1/T2/T3, the exemption idiom, and spec §5.3's honest scope limit (a surface that never adopts the recipe pair is invisible to the registry, therefore to T2).
+**Implementation.** The allowlist table, the scheduler set, and a header comment documenting T1/T2/T3, the exemption idiom, and §5.3's residual scope limit (a surface that never adopts the recipe pair is invisible to the registry, hence to T2).
 
 **Commit:** `test(admin): require a registered timer identifier in destructive-confirm surfaces`
 
@@ -189,7 +155,7 @@ Update `tests/e2e/needs-attention-page.spec.ts:243` and `tests/e2e/needs-attenti
 
 ### Task 4 — Real-browser layout proof
 
-**Test first.** Rewrite `tests/e2e/pendingDiscardReflow.layout.spec.ts` to the container-keyed fork. Panels are fixed-width wrappers carrying `@container`, so one page exercises 280 / 576 / 720px without resizing the viewport — plus the `nofork-280-*` control (today's markup, which must show Ignore *below* Defer) and the retained `nobasis-280-*` reflow control. Assertions are spec §6.3's list, with the exact D1–D6 invariants from spec §4.7 inlined in the file header. Panel widths derive from one local threshold constant so a future change cannot leave a panel testing the old boundary.
+**Test first.** Rewrite `tests/e2e/pendingDiscardReflow.layout.spec.ts` to the container-keyed fork. Panels are fixed-width wrappers carrying `@container`, so one page exercises 280 / 576 / 720px without resizing the viewport — plus three controls: `nofork-280-*` (today's markup, which must show Ignore *below* Defer), `nobasis-328-*` (the reflow control, at **328px** — at 280px the idle pair is already wrapped and cannot reproduce a *relocation*, only width growth), and `prod-320-*`, a production-nesting panel carrying the real card padding, the `flex flex-wrap items-center gap-2` action row and the `Retry now` sibling. The last one exists because every other panel is a fixed-width wrapper, which manufactures a definite width the live tree does not hand the component — without it, D1-D6 can all pass while the shipped buttons collapse or overflow. Assertions are spec §6.3's list, with the exact D1–D6 invariants from spec §4.7 inlined in the file header. Panel widths derive from one local threshold constant so a future change cannot leave a panel testing the old boundary.
 
 Both negative controls are load-bearing: without `nofork-*`, "Ignore is above Defer" could pass on a harness that renders nothing meaningful; V-probe measured `nofork` at Defer `y192` / Ignore `y244`, so the control does reproduce the defect.
 
