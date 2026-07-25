@@ -40,6 +40,8 @@ alert-watch-channel-orphaned
 
 Post-change the rendered count is **128** and `excluded` grows 31 → 35. Task 4 checks the full 132-id list in as `RENDERED_IDS_BEFORE` and asserts the 128-id subtraction against it.
 
+**The checked-in list is SORTED, not capture-order.** `partitionScenarios` returns scenarios in `GROUP_ORDER` (`app/admin/dev/attention-gallery/buildSwitcherScenarios.ts:143-145`), so a verbatim capture compared against a `.sort()`ed actual would fail for the correct implementation. Both sides are lexicographic: the constant is sorted at check-in time and `.filter` preserves that order. (Round-2 review finding 2.)
+
 ## 0.1 Meta-test inventory
 
 - **CREATES** `tests/adminAlerts/_metaGlobalScopeCodes.test.ts (new)` — pins `GLOBAL_SCOPE_CODES` set-equal to the `globalOnlyCodes()` projection, so a producer-scope reclassification fails CI instead of drifting the gallery.
@@ -382,6 +384,8 @@ Plus the two existing composite pins, updated to their post-removal values:
 **Implementation:** remove the `SYNC_STALLED` row and its stale comment from `lib/dev/attentionScenarios/tier3.ts:113-114`, replacing the comment with one naming `DRIVE_FETCH_FAILED` as the only per-show-reachable self-healing code and why.
 
 **Commit:** `fix(admin-dev): no composite may carry a global-scope code; drop SYNC_STALLED from T3_FULL_SPLIT`
+
+> **STATUS: BLOCKED, awaiting a decision.** Implementation revealed that `T3_FULL_SPLIT` is not the only composite carrying a global code — nine do, because the tier-2 pickers select by audience and context but never by scope. Adding a scope filter to those pickers breaks the "actionable" axis outright: every context-free per-show-reachable code is auto-resolving, so there is no reachable code to pick. See spec §4.5. Task 4 shipped with the partition scoped to tier 1, so the nine composites keep their cards and are pinned as a visible list; this task waits on the decision about what the gallery's actionable axis should demonstrate. Removing `SYNC_STALLED` from `T3_FULL_SPLIT` alone would fix one of nine and leave the class open, which is the drip-feed pattern the project rules forbid.
 
 ---
 
