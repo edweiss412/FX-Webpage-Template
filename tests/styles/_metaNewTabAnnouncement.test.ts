@@ -267,21 +267,39 @@ function hintHasSiblingSpace(root: ts.Node): boolean {
         (ts.isJsxSelfClosingElement(child) && child.tagName.getText() === HINT) ||
         (ts.isJsxElement(child) && child.openingElement.tagName.getText() === HINT);
       if (!isHint) return;
-      const prev = children[i - 1];
-      if (!prev) {
+      // Walk BACKWARDS, modelling JSX whitespace stripping: a whitespace-only
+      // text node containing a newline is removed entirely by JSX, so it neither
+      // supplies a separator nor hides the sibling behind it.
+      for (let j = i - 1; j >= 0; j -= 1) {
+        const prev = children[j]!;
+        if (ts.isJsxText(prev)) {
+          const t = prev.text;
+          const whitespaceOnly = t.trim().length === 0;
+          if (whitespaceOnly) {
+            if (/\n/.test(t)) continue; // stripped by JSX: keep looking
+            return; // a real same-line space run
+          }
+          // Text with content: only its trailing run can separate, and JSX
+          // strips that run when it contains a newline. `Go\n  <Hint />` is the
+          // prettier-wrapped shape that renders as "Go(opens in a new tab)".
+          const trailing = t.slice(t.trimEnd().length);
+          if (trailing.length > 0 && !/\n/.test(trailing)) return;
+          ok = false;
+          return;
+        }
+        if (
+          ts.isJsxExpression(prev) &&
+          prev.expression &&
+          ts.isStringLiteral(prev.expression) &&
+          /^[ \u00a0]+$/.test(prev.expression.text)
+        ) {
+          return; // explicit {" "}
+        }
+        // Any other node (element, non-space expression) is adjacent content.
         ok = false;
         return;
       }
-      if (ts.isJsxText(prev) && /[ \u00a0]$/.test(prev.text)) return;
-      if (
-        ts.isJsxExpression(prev) &&
-        prev.expression &&
-        ts.isStringLiteral(prev.expression) &&
-        /^[ \u00a0]+$/.test(prev.expression.text)
-      ) {
-        return;
-      }
-      ok = false;
+      ok = false; // hint is the first child: nothing can separate it
     });
   };
   const walk = (n: ts.Node): void => {
@@ -466,6 +484,40 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     rejects(
       `const A = () => <a href="x" target="_blank">Go<NewTabHint /></a>;`,
       /needs a real sibling space/,
+    );
+  });
+
+  it("rejects the prettier-wrapped shape where JSX strips the whitespace", () => {
+    // `Go\n    <NewTabHint />` has a trailing indent run in its text node, but
+    // JSX removes any whitespace run containing a newline -- the rendered name
+    // is "Go(opens in a new tab)". An earlier version of this rule accepted it,
+    // because the raw text ends in spaces.
+    rejects(
+      `const A = () => (
+  <a href="x" target="_blank">
+    Go
+    <NewTabHint />
+  </a>
+);`,
+      /needs a real sibling space/,
+    );
+  });
+
+  it('accepts {" "} even when a stripped newline sits between it and the hint', () => {
+    // The live Group C shape: prettier puts {" "} and <NewTabHint /> on separate
+    // lines, so the intervening text node is newline-only and JSX drops it.
+    ok(
+      `const A = ({e}) => (
+  <a href="x" target="_blank">
+    Go
+    {e ? (
+      <>
+        {" "}
+        <NewTabHint />
+      </>
+    ) : null}
+  </a>
+);`,
     );
   });
 

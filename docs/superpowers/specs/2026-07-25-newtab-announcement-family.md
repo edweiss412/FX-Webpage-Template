@@ -43,7 +43,7 @@ Two reasons the narrow count undercounts:
    ```
 2. **`app/` is in the family** (1 anchor). `app/admin/show/[slug]/CrewPageLink.tsx:25` is shipped, and its `aria-label` at `app/admin/show/[slug]/CrewPageLink.tsx:27` carries no announcement. A guard scoped to `components/` could never catch an app-level regression.
 
-**2 already announce + 21 to fix.** Other external-navigation vectors, checked and absent: no `window.open(...)`, no form `target` attributes, no `<Link target=...>` in either tree. `app/` holds 13 `.mdx` files; none currently contains `_blank`, but §6 covers them so a future one cannot slip in.
+**23 anchors total = 2 that already announce + 21 to fix.** Both numbers appear throughout this spec and they are not in conflict: 23 is the family size, 21 is the fix count. After implementation the split reads 15 `NewTabHint` render sites plus 8 `aria-label` sites (the 6 Group B labels plus the 2 pre-existing ones), which also sums to 23. An independent mechanical scan reconciled to the same figures. Other external-navigation vectors, checked and absent: no `window.open(...)`, no form `target` attributes, no `<Link target=...>` in either tree. `app/` holds 13 `.mdx` files; none currently contains `_blank`, but §6 covers them so a future one cannot slip in.
 
 ## 2. Decision: mechanism is per-site, because the two mechanisms do not compose
 
