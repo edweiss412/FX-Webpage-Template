@@ -28,6 +28,7 @@ import {
   reconcilePhantomLedger,
   type PhantomLedgerRow,
 } from "./helpers/phantomGap";
+import { REAL_ROUTE_WIDTHS, ROW_WIDTHS } from "./_sectionHeaderWidths";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const TOL = 0.5;
@@ -515,38 +516,6 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
   // its placeholders. Same guard the deep-link suite uses.
   const MODAL = `[data-testid="${BASE}-modal"]:has([data-testid="${BASE}-title"])`;
 
-  /**
-   * Known, deferred instances — see the helper's `PhantomLedgerRow` for why a row
-   * is scoped and counted before adding one.
-   *
-   * BOTH rows are the SAME pre-existing defect, and the hydrated probe is what
-   * found it: `ModalSectionChrome`'s header row is `flex items-center gap-2.5`
-   * and ends with a childless `<span className="flex-1" />` pushing the flag pill
-   * and sheet link right (step3ReviewSections.tsx:916). At 375px with the seeded
-   * show's real content the row is full, `flex-1` resolves to ZERO width, and the
-   * row still charges 10px on BOTH sides of an invisible spacer. The static
-   * harness never showed it — its fixture rows are short enough that the spacer
-   * keeps width — which is the whole argument for probing the real route.
-   *
-   * Deferred rather than fixed here because the repair is a visual judgment about
-   * crowded-row behavior at narrow widths (drop the spacer below some width? give
-   * it a min-width? let the row wrap?) inside an admin UI component, which pulls
-   * in the invariant-8 impeccable dual gate — the same call #576 made for the
-   * BulkIgnoreControls hairline, which #580 then repaid in its own branch.
-   * Carried as BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW, which also records the
-   * three further unproven instances of this shape found by the class sweep.
-   *
-   * Labels are BUILT from `SEED_DRIVE_FILE_ID` rather than pasted: the label a
-   * scan emits embeds the show's drive_file_id, and a pasted copy would rot
-   * silently against a reseed instead of failing as a stale row.
-   *
-   * ACCEPTED LIMIT, shared by every ledger row in this repo: the triple is a
-   * SECTION-level label, not an element identity. If this spacer were fixed while
-   * a different zero-width child appeared under the same breakdown section, the
-   * replacement would carry the same triple and consume this row silently. The
-   * helper's `reconcilePhantomLedger` documents why no stronger identity is
-   * available from the DOM here.
-   */
   /** Known, deferred instances. EMPTY is the correct state: the two rows here
    *  described `ModalSectionChrome`'s childless `flex-1` header spacer, which the
    *  §3.1 rebuild deleted (spec 2026-07-25). The stale-row assertion below fails if
@@ -662,6 +631,225 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       expect(
         remaining,
         `zero-extent items charge their parent's gap and show as a seam no element accounts for [@ ${width}]`,
+      ).toEqual([]);
+    });
+  }
+  /**
+   * The WIDTH CHAIN — what makes the 61-case static matrix mean anything.
+   *
+   * `section-header-layout.layout.spec.ts` measures all 15 header cells inside
+   * containers of a fixed width per viewport, and every geometry contract it holds
+   * (name on one line, 44px header line, the centring offset) is conditioned on
+   * that width. Those numbers came from measuring this route once. Nothing pinned
+   * them afterwards, so a layout change to the modal's panes would leave the matrix
+   * measuring a width the product no longer renders — 61 green cases proving a
+   * counterfactual.
+   *
+   * This closes the loop from the other end: the REAL mount, at the same viewports,
+   * must produce exactly `ROW_WIDTHS`. Both sides import that constant, so the two
+   * specs cannot drift apart silently — one of them goes red.
+   *
+   * Content-box, not `getBoundingClientRect().width`: the rect includes padding,
+   * and the harness container's width IS a content width. Comparing the two
+   * directly would be off by the row's horizontal padding.
+   */
+  for (const width of REAL_ROUTE_WIDTHS) {
+    test(`section-header width chain @ ${width}: the real mount matches the harness fixture`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(MODAL, { timeout: 30_000 });
+
+      const found = await page.evaluate((modalSel) => {
+        const modal = document.querySelector(modalSel);
+        if (!(modal instanceof HTMLElement)) return { error: "modal not found" };
+
+        // A header ROW is the flex row whose first child is the decorative icon
+        // chip and which contains the section heading. Selected structurally
+        // because no production `data-testid` is added for this measurement.
+        const rows: Array<{ heading: string; contentWidth: number }> = [];
+        for (const heading of Array.from(modal.querySelectorAll("h3, h4"))) {
+          const group = heading.parentElement;
+          const row = group?.parentElement;
+          if (!(row instanceof HTMLElement)) continue;
+          const icon = row.firstElementChild;
+          if (!(icon instanceof HTMLElement) || icon.getAttribute("aria-hidden") !== "true") {
+            continue;
+          }
+          const cs = getComputedStyle(row);
+          const r = row.getBoundingClientRect();
+          rows.push({
+            heading: (heading.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 40),
+            contentWidth:
+              Math.round(
+                (r.width - parseFloat(cs.paddingLeft || "0") - parseFloat(cs.paddingRight || "0")) *
+                  100,
+              ) / 100,
+          });
+        }
+        return { error: null, rows };
+      }, MODAL);
+
+      expect(found.error, "modal shape").toBeNull();
+      if (found.error !== null) return;
+
+      // Non-vacuity: a tree that rendered no breakdown header would otherwise pass
+      // an assertion over an empty list.
+      expect(
+        found.rows.length,
+        `the hydrated modal rendered at least one section header [@ ${width}]`,
+      ).toBeGreaterThan(0);
+
+      const expected = ROW_WIDTHS[width];
+      const off = found.rows.filter((r) => Math.abs(r.contentWidth - expected) > 1);
+      expect(
+        off,
+        `every section-header row is ${expected}px wide at ${width}px, which is the width` +
+          ` _sectionHeaderCellHarness.tsx renders its 15 cells into. A mismatch means the` +
+          ` static matrix is measuring a width this route does not produce.`,
+      ).toEqual([]);
+    });
+  }
+  /**
+   * The §5 WIDTH CHAIN, asserted link by link on the real mount.
+   *
+   * Tailwind v4 does not default `.flex` to `align-items: stretch`, so every
+   * parent-child width relationship in the header's ancestry is explicit and
+   * individually breakable. §5 spells out five links; a single "the header is as
+   * wide as the pane" check would pass while an intermediate both narrowed and
+   * re-widened, and would attribute any failure to the wrong boundary.
+   *
+   * The walk is ANCESTOR-DERIVED rather than testid-derived. Only three nodes in
+   * the chain carry a `data-testid` (pane, registry section, panel card); the
+   * breakdown section and the outer column do not. Walking from the panel card up
+   * to the registry section asserts every node ON that path, which covers the two
+   * unlabelled links AND any node inserted between them later — a testid list
+   * would silently skip a new wrapper.
+   *
+   * CHILD BORDER-BOX vs PARENT CONTENT-BOX at every step, never rect-to-rect: the
+   * pane carries `p-tile-pad` (20px per side), so a naive rect equality is off by
+   * 40px at the first link and would misreport correct layout as an upstream
+   * defect. `clientWidth` is not the parent's content width either — it includes
+   * padding — so the paddings are subtracted from the computed style.
+   *
+   * §5 separates GUARANTEED links (this batch adds the class: outer column, header
+   * line, pill line) from ASSERTED-ONLY ones (pre-existing, not modified here).
+   * Both are checked; the distinction is about attribution, not coverage — an
+   * asserted-only failure means an upstream regression, not a defect in this batch.
+   */
+  for (const width of REAL_ROUTE_WIDTHS) {
+    test(`section-header §5 width chain @ ${width}: every link holds within 0.5px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(MODAL, { timeout: 30_000 });
+
+      const found = await page.evaluate((modalSel) => {
+        const modal = document.querySelector(modalSel);
+        if (!(modal instanceof HTMLElement)) return { error: "modal not found" };
+
+        const pane = modal.querySelector('[data-testid$="-review-content"]');
+        if (!(pane instanceof HTMLElement)) return { error: "content pane not found" };
+        const card = modal.querySelector('[data-testid*="-panel-card"]');
+        if (!(card instanceof HTMLElement)) return { error: "no panel card found" };
+
+        // The registry section this card lives in — the top of the walk.
+        let registry: HTMLElement | null = card.parentElement;
+        while (
+          registry &&
+          !(registry.getAttribute("data-testid") ?? "").includes("-review-section-")
+        ) {
+          registry = registry.parentElement;
+        }
+        if (!registry) return { error: "registry section ancestor not found" };
+
+        const contentWidth = (el: HTMLElement) => {
+          const cs = getComputedStyle(el);
+          return (
+            el.getBoundingClientRect().width -
+            parseFloat(cs.paddingLeft || "0") -
+            parseFloat(cs.paddingRight || "0") -
+            parseFloat(cs.borderLeftWidth || "0") -
+            parseFloat(cs.borderRightWidth || "0")
+          );
+        };
+        const describe = (el: HTMLElement) =>
+          `${el.tagName.toLowerCase()}` +
+          `${el.getAttribute("data-testid") ? `#${el.getAttribute("data-testid")}` : ""}` +
+          `[${(el.className || "").toString().slice(0, 36)}]`;
+
+        const links: Array<{ link: string; child: number; parentContent: number }> = [];
+        const addLink = (child: HTMLElement, parent: HTMLElement) => {
+          links.push({
+            link: `${describe(parent)} > ${describe(child)}`,
+            child: Math.round(child.getBoundingClientRect().width * 100) / 100,
+            parentContent: Math.round(contentWidth(parent) * 100) / 100,
+          });
+        };
+
+        // Link 1 — pane -> registry section (ASSERTED ONLY; the pane's padding is
+        // exactly the trap this comparison exists to avoid).
+        addLink(registry, pane);
+
+        // Links 2..n — every node on the path from the registry section down to the
+        // panel card, which is where the unlabelled breakdown section and outer
+        // column live.
+        const path: HTMLElement[] = [];
+        for (let el: HTMLElement | null = card; el && el !== registry; el = el.parentElement) {
+          path.unshift(el);
+        }
+        let parent: HTMLElement = registry;
+        for (const node of path) {
+          addLink(node, parent);
+          parent = node;
+        }
+
+        // The header block is a SIBLING of the panel card, not an ancestor of it —
+        // the first run of this walk found only 4 links because the descent above
+        // never passes through it. Its own link to the breakdown section is added
+        // explicitly. Located from the icon chip rather than by class, so a class
+        // rename does not silently drop these links from the chain.
+        const icon = card.parentElement?.querySelector('span[aria-hidden="true"]');
+        const headerLine = icon?.parentElement ?? null;
+        const column = headerLine?.parentElement ?? null;
+        if (!(headerLine instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+          return { error: "header line / outer column not found" };
+        }
+        const columnParent = column.parentElement;
+        if (!(columnParent instanceof HTMLElement)) {
+          return { error: "outer column has no parent" };
+        }
+        addLink(column, columnParent);
+        addLink(headerLine, column);
+        const pillLine = headerLine.nextElementSibling;
+        const hasPillLine = pillLine instanceof HTMLElement;
+        if (hasPillLine) addLink(pillLine, column);
+
+        return { error: null, links, hasPillLine, cardTestId: card.getAttribute("data-testid") };
+      }, MODAL);
+
+      expect(found.error, "modal shape").toBeNull();
+      if (found.error !== null) return;
+
+      // Non-vacuity, and it is the FLOOR that made the first run informative: five
+      // named links must be present — pane -> registry, registry -> breakdown,
+      // breakdown -> panel card, breakdown -> header block, header block -> header
+      // line — plus the pill line where a section has one. A walk that collapsed to
+      // a single link would otherwise pass trivially.
+      expect(
+        found.links.length,
+        `the chain walk found every link [@ ${width}] — got ${JSON.stringify(found.links.map((l) => l.link))}`,
+      ).toBeGreaterThanOrEqual(5);
+
+      const broken = found.links.filter((l) => Math.abs(l.child - l.parentContent) > 0.5);
+      expect(
+        broken,
+        `every §5 width link holds within 0.5px [@ ${width}]. A break here means every centring` +
+          ` offset in the static matrix is measured against the wrong box.`,
       ).toEqual([]);
     });
   }

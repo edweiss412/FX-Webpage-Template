@@ -32,6 +32,7 @@ import {
   type Step3SectionChrome,
 } from "@/components/admin/wizard/step3ReviewSections";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
+import { ROW_WIDTHS } from "./_sectionHeaderWidths";
 
 export const HARNESS_DFID = "drive-harness-section-header";
 
@@ -285,8 +286,10 @@ function hairlineMarkup(): string {
   );
 }
 
-/** The header-row content-box widths the spec measures at, per viewport. */
-export const ROW_WIDTHS = { 320: 280, 375: 335, 430: 390, 1280: 561 } as const;
+/** Re-exported so this file stays the single import for the layout spec, while the
+ *  values themselves live in a JSX-free module the real-route spec can also read
+ *  (see `_sectionHeaderWidths.ts` for why that separation exists). */
+export { ROW_WIDTHS };
 
 export function buildCells(): {
   dfid: string;

@@ -19,7 +19,7 @@
 | 375px    | 335px                 | 49.6px        | 81.8px, 2 lines |
 | 390px    | 350px                 | 49.6px        | 96.8px, 2 lines |
 | 430px    | 390px                 | 44px          | 116.2px, 1 line |
-| 1280px   | 561px                 | 44px          | 116.2px, 1 line |
+| 1280px   | 744px                 | 44px          | 116.2px, 1 line |
 
 At 320px the row is **2.8× its normal height** and the name is unreadable. Every number in this spec was measured in Chromium against the real component via the DB-free static harness (`tests/e2e/_step3ReviewModalHarness.tsx`, driven under the pattern that `tests/e2e/step3-review-modal.layout.spec.ts:118-190` establishes), at the header row's real content-box widths — never estimated. §11 records the measurement method so the plan can reproduce it.
 
@@ -600,7 +600,12 @@ So the plan can regenerate every number rather than trusting this document:
 2. Compile the real token CSS: prepend `@source "<harness.html>"` to a copy of `app/globals.css`, then `pnpm dlx @tailwindcss/cli@4.2.4`.
 3. Serve over `node:http` and measure with `getBoundingClientRect` plus `Range.getClientRects()` for text line boxes.
 4. **Set `box-sizing: content-box` on the width-pinned wrapper.** Tailwind's preflight sets `border-box` globally, so a padded wrapper measured at "335px" is really 319px of content. Every number in this spec's first draft was 16px narrow until this was fixed; the plan must not repeat it.
-5. Header row content-box widths per viewport: 320→280, 360→320, 375→335, 390→350, 430→390, 1280→561.
+5. Header row content-box widths per viewport: 320→280, 360→320, 375→335, 390→350, 430→390, 1280→744.
+   The 1280 figure read 561 until `section-header width chain @ 1280` measured the real mount and
+   reported 744 on all twelve rendered sections; 561 was an estimate of the pane that nothing had
+   ever compared against the product. Single source of truth now lives in
+   `tests/e2e/_sectionHeaderWidths.ts`, which both the static harness and the real-route
+   assertion import.
 
 ## 12. Citations
 

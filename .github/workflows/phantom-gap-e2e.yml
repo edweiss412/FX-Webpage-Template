@@ -64,8 +64,10 @@ on:
       - "tests/e2e/pusher-alignment.layout.spec.ts"
       - "tests/e2e/_sectionHeaderCellHarness.tsx"
       - "tests/e2e/_pusherRowsHarness.tsx"
-      - "tests/e2e/_sectionHeaderLiveEntry.tsx"
-      - "tests/e2e/_sectionHeaderBundle.mjs"
+      # The shared width constant. Listed because a change to it re-aims BOTH the
+      # static matrix and the real-route width-chain assertion, and neither spec
+      # file need be touched for that to happen.
+      - "tests/e2e/_sectionHeaderWidths.ts"
       - ".github/workflows/phantom-gap-e2e.yml"
       # WHAT THE TREES ARE MADE OF, not just what renders them. Two ledger rows
       # pin exact occurrence COUNTS against the seeded show, so anything that
@@ -185,6 +187,14 @@ jobs:
         run: pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts
       - name: Pusher alignment (standalone)
         run: pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts tests/e2e/pusher-alignment.layout.spec.ts
+      # The width chain, which is what stops the two standalone steps above from
+      # proving a counterfactual: they measure 15 header cells inside containers of
+      # a fixed width per viewport, and this asserts the REAL mount produces exactly
+      # those widths. Its own step rather than folded into the `-g "T-NOPHANTOM"`
+      # filter above, because that filter would not match it — a spec matched by a
+      # project but invoked by no step runs nowhere.
+      - name: Section-header width chain (real route)
+        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
