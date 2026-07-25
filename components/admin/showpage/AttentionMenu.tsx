@@ -4,12 +4,15 @@
  * components/admin/showpage/AttentionMenu.tsx
  * (published-show-alerts spec §5.2)
  *
- * The "N to confirm" dropdown anchored to the header attention pill. Disclosure
+ * The "N issues" dropdown anchored to the header attention pill. Disclosure
  * pattern, NOT role="menu" (rows are plain buttons; no arrow-key contract).
- * One row per ACTIONABLE item in derivation order; the needs-a-look and
- * Monitoring groups enumerate their items as read-only rows (monitoring rows:
- * title + auto-resolve note - monitoring-badge-expand §3.2), so nothing is
- * silently dark. Row click closes FIRST,
+ *
+ * The panel is an INDEX of a show's issues (attention-index §1): each entry
+ * points at one issue, whose full card renders where it is most relevant in the
+ * modal. TWO groups — "Needs you" (every row pressable, jump-only) and
+ * "Monitoring" (read-only rows: title + auto-resolve note,
+ * monitoring-badge-expand §3.2) — so nothing is silently dark. Row click closes
+ * FIRST,
  * then navigates (the jump owns the scroll; no exit animation competes with
  * the glide — spec §9).
  *

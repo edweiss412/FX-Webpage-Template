@@ -200,7 +200,12 @@ export function AttentionBanner({
         className="inline-flex min-h-tap-min items-center gap-1 text-xs font-medium text-warning-text underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg focus-visible:outline-none"
       >
         {a.action.external ? "Google Sheets" : a.action.label}
-        <span aria-hidden="true">↗</span>
+        {/* The ↗ means "leaves this app". An internal chip opens in the SAME tab,
+            so wearing the glyph would promise a new window and lie. Internal
+            chips are unreachable today (the self-link guard catches all four
+            internal-action codes), but the markup must be honest on its own —
+            the invariant is enforced by the guard, not by this element. */}
+        {a.action.external ? <span aria-hidden="true"> ↗</span> : null}
       </a>
     ) : null;
 
