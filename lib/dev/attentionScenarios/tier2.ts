@@ -4,7 +4,10 @@
 // AUTO_RESOLVING_CODES are themselves derived from the message catalog, so a
 // hardcoded pick would silently stop representing its axis the moment the
 // catalog moved.
-import { withDefaultContext } from "@/lib/dev/attentionScenarios/defaultContext";
+import {
+  withDefaultContext,
+  DEFAULT_SHARED_EMAIL,
+} from "@/lib/dev/attentionScenarios/defaultContext";
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { isAutoResolving, DOUG_EXCLUDED_CODES } from "@/lib/adminAlerts/audience";
@@ -252,11 +255,25 @@ function crewCode(): string {
 }
 
 function crewAlert(): ScenarioAlertRow {
-  return alert(crewCode(), {
-    galleryIdentity: {
-      segments: [{ label: "Crew", value: "Dana Reed" }],
-      global: null,
-    } as unknown as AlertIdentity,
+  const code = crewCode();
+  // A declared identity SUBSTITUTES for the resolved one
+  // (lib/dev/deriveScenarioAttention.ts:38), so it must mirror what production
+  // renders for THIS code. AMBIGUOUS_EMAIL_BINDING renders
+  // Show · email · "N crew rows" and has no crewName segment at all
+  // (lib/adminAlerts/alertIdentityMap.ts:60-66) — a Crew-only declaration was a
+  // card the resolver cannot produce. Codes that DO carry a crewName segment
+  // keep the Crew form. crewCode() is derived from ATTENTION_ROUTES and can
+  // move, so the shape follows the resolved code rather than being hardcoded.
+  const segments =
+    code === "AMBIGUOUS_EMAIL_BINDING"
+      ? [
+          { label: "Show", value: "Gallery Preview Show" },
+          { label: null, value: DEFAULT_SHARED_EMAIL },
+          { label: null, value: "2 crew rows" },
+        ]
+      : [{ label: "Crew", value: "Dana Reed" }];
+  return alert(code, {
+    galleryIdentity: { segments, global: null } as unknown as AlertIdentity,
   });
 }
 
@@ -815,9 +832,21 @@ export function modalStateScenarios(): AttentionScenario[] {
             ],
           },
         }),
+        // Production renders this code as Show · email · "N crew rows"
+        // (lib/adminAlerts/alertIdentityMap.ts:60-66) — there is no Crew
+        // segment. The previous declaration carried ONLY a Crew segment, a card
+        // the resolver cannot produce for this code; the count segment's
+        // "N crew rows" text mirrors formatCount
+        // (lib/adminAlerts/resolveAlertIdentities.ts:124). The crew under-row
+        // stack this scenario demos comes from the crew-scoped warnings below
+        // and from fan-out over context.crew_member_ids, not from this identity.
         alert("AMBIGUOUS_EMAIL_BINDING", {
           galleryIdentity: {
-            segments: [{ label: "Crew", value: CREW_STACK_SUBJECT }],
+            segments: [
+              { label: "Show", value: "Gallery Preview Show" },
+              { label: null, value: DEFAULT_SHARED_EMAIL },
+              { label: null, value: "2 crew rows" },
+            ],
           } as unknown as AlertIdentity,
         }),
       ],

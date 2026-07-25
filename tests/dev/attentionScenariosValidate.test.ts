@@ -851,3 +851,72 @@ describe("validateScenario - actionOutcomes (whole-diff R1 repairs)", () => {
     );
   });
 });
+
+describe("validator rejects producer-impossible identity/crewMatch states", () => {
+  const baseAlert = {
+    code: "AMBIGUOUS_EMAIL_BINDING",
+    raised_at: "2026-07-01T12:00:00.000Z",
+    occurrence_count: 1,
+  };
+  const idA = "cccccccc-0000-4000-8000-000000000002";
+  const idB = "cccccccc-0000-4000-8000-000000000003";
+  const ctx = { email: "avery@example.test", crew_member_ids: [idA, idB] };
+
+  const build = (over: Record<string, unknown>) => ({
+    id: "t-probe-identity",
+    tier: 1 as const,
+    label: "probe",
+    alerts: [{ ...baseAlert, context: ctx, ...over }],
+    holds: [],
+  });
+
+  test("rejects a crewMatch carrying duplicate ids", () => {
+    // Production DERIVES the match from context.crew_member_ids, which the
+    // validator already requires distinct, so [A, A, B] is a state no producer
+    // can emit. Checking only the DEDUPED count let it through: expectedCount 2
+    // matched the deduped size and the sorted-set agreement check also passed.
+    const errors = validateScenario(
+      build({ crewMatch: { crewMemberIds: [idA, idA, idB], expectedCount: 2 } }) as never,
+    );
+    expect(errors.join("\n")).toMatch(/crewMemberIds must be distinct/);
+  });
+
+  test("still accepts a well-formed distinct crewMatch", () => {
+    // Negative control: the rule above must not reject the legal form.
+    const errors = validateScenario(
+      build({
+        crewMatch: { crewMemberIds: [idA, idB], expectedCount: 2 },
+        galleryIdentity: {
+          segments: [
+            { label: "Show", value: "Gallery Preview Show" },
+            { label: null, value: "avery@example.test" },
+            { label: null, value: "2 crew rows" },
+          ],
+        },
+      }) as never,
+    );
+    expect(errors).toEqual([]);
+  });
+
+  test("rejects a declared identity missing the segments production renders", () => {
+    // `{ segments: [] }` previously satisfied the agreement rule vacuously:
+    // both comparisons were conditional on FINDING a matching-shaped segment.
+    const errors = validateScenario(build({ galleryIdentity: { segments: [] } }) as never);
+    expect(errors.join("\n")).toMatch(/must carry an email segment/);
+    expect(errors.join("\n")).toMatch(/must carry an "N crew rows" count segment/);
+  });
+
+  test("rejects an identity whose count contradicts its own context", () => {
+    const errors = validateScenario(
+      build({
+        galleryIdentity: {
+          segments: [
+            { label: null, value: "avery@example.test" },
+            { label: null, value: "5 crew rows" },
+          ],
+        },
+      }) as never,
+    );
+    expect(errors.join("\n")).toMatch(/count 5 disagrees with crew_member_ids.length 2/);
+  });
+});

@@ -172,8 +172,19 @@ function validateIdentityAgreement(row: ScenarioAlertRow, where: string, out: st
   const ctx = row.context;
   const segs = identity.segments as { label?: string; value?: unknown }[];
 
+  // Production renders this code as Show · email · "N crew rows"
+  // (lib/adminAlerts/alertIdentityMap.ts:60-66). A declared identity SUBSTITUTES
+  // for the resolved one (lib/dev/deriveScenarioAttention.ts:38), so an identity
+  // missing those segments demos a card the resolver cannot produce.
+  //
+  // Presence is required, not merely agreement-if-present: making both checks
+  // conditional on finding a matching-shaped segment meant `{ segments: [] }`
+  // satisfied the rule vacuously, and so did hiding a contradictory value in a
+  // segment shape the heuristics do not match.
   const emailSeg = segs.find((s) => typeof s.value === "string" && s.value.includes("@"));
-  if (emailSeg && typeof ctx.email === "string" && emailSeg.value !== ctx.email) {
+  if (!emailSeg) {
+    out.push(`${where}: galleryIdentity must carry an email segment (production renders one)`);
+  } else if (typeof ctx.email === "string" && emailSeg.value !== ctx.email) {
     out.push(
       `${where}: galleryIdentity email ${String(emailSeg.value)} disagrees with context.email ${ctx.email}`,
     );
@@ -181,7 +192,11 @@ function validateIdentityAgreement(row: ScenarioAlertRow, where: string, out: st
 
   const ids = ctx.crew_member_ids;
   const countSeg = segs.find((s) => typeof s.value === "string" && /^\d+\s/.test(s.value));
-  if (countSeg && Array.isArray(ids)) {
+  if (!countSeg) {
+    out.push(
+      `${where}: galleryIdentity must carry an "N crew rows" count segment (production renders one)`,
+    );
+  } else if (Array.isArray(ids)) {
     const declared = Number.parseInt(String(countSeg.value), 10);
     if (Number.isFinite(declared) && declared !== ids.length) {
       out.push(
@@ -219,9 +234,17 @@ function validateCrewMatch(row: ScenarioAlertRow, where: string, out: string[]):
     out.push(`${where}: crewMatch.expectedCount must be a number`);
     return;
   }
-  const deduped = new Set(ids).size;
-  if (cm.expectedCount !== deduped) {
-    out.push(`${where}: crewMatch.expectedCount must equal the deduped id count`);
+  // Duplicates are rejected outright rather than deduped away. Production
+  // DERIVES the match from context.crew_member_ids, which this validator already
+  // requires to be distinct, so a duplicate-bearing match is a state no producer
+  // can emit. Checking only the deduped count let `[A, A, B]` with
+  // expectedCount 2 pass both this and the agreement check below.
+  if (new Set(ids).size !== ids.length) {
+    out.push(`${where}: crewMatch.crewMemberIds must be distinct`);
+    return;
+  }
+  if (cm.expectedCount !== ids.length) {
+    out.push(`${where}: crewMatch.expectedCount must equal the id count`);
   }
 
   // §5 rule 2, no exceptions: production DERIVES crewMatch from

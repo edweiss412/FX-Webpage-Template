@@ -13,10 +13,37 @@
  */
 import { describe, expect, it } from "vitest";
 import { ALL_SCENARIOS } from "@/lib/dev/attentionScenarios/index";
+import {
+  DEFAULTED_CODES,
+  defaultContextForCode,
+} from "@/lib/dev/attentionScenarios/defaultContext";
 import { rendererReadKeys, HANDLED_SEGMENT_KINDS } from "@/lib/adminAlerts/rendererReadKeys";
 import { ALERT_IDENTITY_MAP } from "@/lib/adminAlerts/alertIdentityMap";
 
 describe("gallery scenarios supply the keys their cards read (spec §5)", () => {
+  it("each DEFAULTED code's default alone satisfies its renderer-read keys", () => {
+    // Where the teeth actually are for the nine defaulted codes.
+    //
+    // The row-level rule below CANNOT fail for them: the tier builders merge
+    // `defaultContextForCode` underneath every row before any assertion sees it,
+    // so a new scenario declaring `{}` is renderable by construction. That is the
+    // point of the table — it closes the recurrence class rather than swatting
+    // rows — but it does mean the row rule stops discriminating there.
+    //
+    // So the obligation moves here: if a renderer later adds a segment reading a
+    // key one of these defaults does not supply, THIS fails, while the row rule
+    // stays green. Derived from the live ALERT_IDENTITY_MAP via rendererReadKeys,
+    // never a hand-typed list.
+    expect(DEFAULTED_CODES.length, "the default table should not be empty").toBeGreaterThan(0);
+    const offenders: string[] = [];
+    for (const code of DEFAULTED_CODES) {
+      const supplied = new Set(Object.keys(defaultContextForCode(code)));
+      const missing = rendererReadKeys(code).filter((key) => !supplied.has(key));
+      if (missing.length > 0) offenders.push(`${code} default omits ${missing.join("+")}`);
+    }
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+
   it("every alert row carries its code's renderer-read keys", () => {
     const offenders: string[] = [];
     for (const scenario of ALL_SCENARIOS) {

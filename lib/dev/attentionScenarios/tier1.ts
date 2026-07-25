@@ -5,7 +5,10 @@
 // its routing row lands - no catalog edit, no drift, and no completeness
 // meta-test needed (which is why §1.1 can decline that gate without accepting
 // drift).
-import { withDefaultContext } from "@/lib/dev/attentionScenarios/defaultContext";
+import {
+  withDefaultContext,
+  DEFAULT_SHARED_EMAIL,
+} from "@/lib/dev/attentionScenarios/defaultContext";
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
 import { INTERNAL_CODE_ENUMS } from "@/lib/messages/__generated__/internal-code-enums";
 import type { ParseWarning } from "@/lib/parser/types";
@@ -58,9 +61,19 @@ export const ALERT_ROW_OVERRIDES: Partial<Record<string, Partial<Omit<ScenarioAl
     // The two identity-dependent codes: the resolver needs a UUID target, and the
     // gallery needs a declared identity because it cannot resolve one for a
     // synthetic row (§3.3). Materialize resolves the real thing instead.
+    // Production renders this code as Show · email · "N crew rows"
+    // (lib/adminAlerts/alertIdentityMap.ts:60-66) — it has NO crewName segment,
+    // so the previous Crew-only declaration demoed a card the resolver cannot
+    // produce. The email must equal the context's (the validator enforces the
+    // agreement), and the count text mirrors formatCount
+    // (lib/adminAlerts/resolveAlertIdentities.ts:124) over the two default ids.
     AMBIGUOUS_EMAIL_BINDING: {
       galleryIdentity: {
-        segments: [{ label: "Crew", value: "Dana Reed" }],
+        segments: [
+          { label: "Show", value: "Gallery Preview Show" },
+          { label: null, value: DEFAULT_SHARED_EMAIL },
+          { label: null, value: "2 crew rows" },
+        ],
       } as unknown as AlertIdentity,
     },
     OAUTH_IDENTITY_CLAIMED: {

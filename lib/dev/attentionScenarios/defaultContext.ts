@@ -24,8 +24,14 @@ const ROSTER_AVERY = "cccccccc-0000-4000-8000-000000000002";
 const ROSTER_BLAKE = "cccccccc-0000-4000-8000-000000000003";
 
 /** The shared address the duplicate-email alert is about. Two roster rows
- *  colliding on one address is precisely what the code reports. */
-const SHARED_EMAIL = "avery@example.test";
+ *  colliding on one address is precisely what the code reports.
+ *
+ *  Exported because a scenario declaring a `galleryIdentity` for
+ *  AMBIGUOUS_EMAIL_BINDING must render THIS address — the validator requires the
+ *  identity's email segment to equal `context.email`, and duplicating the
+ *  literal at the call site is how those two silently drift apart. */
+export const DEFAULT_SHARED_EMAIL = "avery@example.test";
+const SHARED_EMAIL = DEFAULT_SHARED_EMAIL;
 
 const DEFAULT_CONTEXT_BY_CODE: Record<string, Record<string, unknown>> = {
   // lib/auth/validateGoogleSession.ts:40 — plural ids + canonical email. The
@@ -69,6 +75,14 @@ const DEFAULT_CONTEXT_BY_CODE: Record<string, Record<string, unknown>> = {
     failed_sheet_names: ["II - Locked Sheet", "II - Missing Tab"],
   },
 };
+
+/**
+ * The codes this table covers. Exported so a test can assert the DEFAULTS
+ * THEMSELVES satisfy each code's renderer-read keys — the row-level rule cannot
+ * fail for these codes, because the builder merges the default before any
+ * assertion sees the row, so the table is where the teeth have to live.
+ */
+export const DEFAULTED_CODES: readonly string[] = Object.keys(DEFAULT_CONTEXT_BY_CODE);
 
 /**
  * The default context for `code`, or `{}` when the code's card reads nothing
