@@ -54,76 +54,84 @@ Each slice below lands **red → minimal implementation → green → commit** o
 
 **No red step, by nature** (scope-A finding 2): current code already emits before `cap()` and already uses `result.length`, so every proposed assertion passes pre-refactor. Its net is the characterization guards landed in `1e17e11ba` — emission order asserted by position, and `blockRef.index` with two survivors.
 
-**Adds one genuinely new case:** an over-cap **inline** parse whose truncated last reservation carries an ambiguity (scope-A finding 3). Rank gating currently exists only inside `parseHotelTable`, so an implementation that keeps it structured-only passes every existing test.
+**The over-cap inline case moved to S5** (R2-A finding 2): inline emission does not exist until S4, so at S2 that test would pass vacuously or fail because the emitter is missing — neither of which is the rank-gate red it claims.
 
-### S3 — the ADDRESS warning, end to end
+### S3 — the ADDRESS warning, ATOMIC (registration + every gate it trips)
 
-One slice: registration + types + overlay + emitter + UI + copy oracles. Splitting these is what made the first draft untypecheckable.
+**Why this is one commit and cannot be split.** Plan review R2 found the same defect in both scopes: this repo's structural gates fire the *instant* a code is registered. Adding `HOTEL_ADDRESS_SPLIT_AMBIGUOUS` to `AMBIGUITY_CODES` immediately trips the transform-sites walker (every ambiguity code must be declared); adding the `GAP_CLASSES` row immediately trips the exact-count assertions. So a slice that registers the code without also flipping the deferral and fixing the counts **cannot end green**. The repo's own three-lockstep rule already says this; R2 is that rule applied to the whole gate set.
 
-**Red:** the P3(a)/P3(b) emit tests, which fail because no emitter exists.
+**Red step:** the P3(a)/P3(b) emit tests — they fail because no emitter exists.
 
-**Contents.** Registration (spec §4 rows a–g, dd, plus **row h `WARNING_CARD_COPY_CODES` + `EXPECTED_TRIGGER_CONTEXT` and row i the `HOTEL` help-family check**, both unallocated in the first draft — scope-A finding 6); `pnpm gen:spec-codes` AND `pnpm gen:internal-code-enums`; the `hotel-name` `parsed`/`replacement` variants and both new `resolvable:false` reasons; `USE_RAW_CODES`; `applyReplacement`; and the six `UseRawControl` sites. `FIELD_LABELS.address` lands **with** its exact-map test update (`tests/admin/step3Buckets.test.ts:180`), which goes red the moment the key is added.
+**Everything in the one commit:**
 
-**Oracles that must land in THIS slice, not later** (scope-B finding 3): C9–C16, C19–C22 byte-for-byte; the two emitted messages; and the render assertions. A test written after the value it checks can never be red.
+- Registration spec §4 rows **a–i, dd** — master spec §12.4 new row AND the edit to the existing guest row; `pnpm gen:spec-codes`; `pnpm gen:internal-code-enums` (a *different* generator — running only the first leaves `internal-code-enums.ts` stale and fails the x2 gate).
+- Rows **u, v, ff, gg** — the `33→34` and `53→54` assertions, the embedded test NAMES, the numeric comments, the explicit ambiguity-code list, the full-universe comment. Unallocated in the first two drafts; both R2 scopes flagged it.
+- Row **ii/jj** — `FIELD_LABELS.address` **with** `tests/admin/step3Buckets.test.ts:180`, which goes red the moment the key is added.
+- **The S8 work, pulled forward**: flip BOTH `TRANSFORM_SITES` exempts, delete both BACKLOG rows and the section heading, extend `REQUIRED_DECLARATIONS`, and add the **zero-`deferred:BL-`-exempts** assertion (`REQUIRED_DECLARATIONS` alone cannot prove both flipped — the guest code is already present for the structured site).
+- Types, `USE_RAW_CODES`, `applyReplacement`, and the six `UseRawControl` sites.
+- **Named meta-test runs** (§1 promised these; no slice named them): `_metaWarningCardCopy`, `_metaCatalogCopyHygiene`, `_metaErrorCatalogDocs`, `_metaPopoverContextCoverage`.
+- Copy oracles **C9–C17 and C19–C22** byte-for-byte. **C17 was assigned to no slice** in the last draft.
+
+**Required discriminators — every one of these, or a wrong implementation passes:**
+
+| Oracle | The wrong implementation it kills |
+| ------ | --------------------------------- |
+| Full envelope on every emit: `severity`, complete `blockRef`, exact `rawSnippet`, `name` present only when resolved | `severity:"info"` or a wrong anchor, while code/reason/message/count all match |
+| **P0 privacy** on `Hotel #9999 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316` | the unstripped stash — every other P3(b) case is conf-free |
+| `resolution.parsed` cross-checked against the ACTUAL reservation | `{hotelName:null, hotelAddress:null}` — the overlay reads only `replacement` |
+| `contentHash` derived independently; two snippets differing AFTER collapsing hash differently | a fixed valid 64-hex constant |
+| **First-stash-wins by CONTENT** on `71 Wacker Drive 72 Main St Chicago, IL 60601`: survivor is the resolvable P3(b), not the P3(a) from `stripHotelNameConf`'s re-split | last-stash-wins, which silently downgrades a resolvable card to a disabled one |
+| P3(a) is `resolvable:false`, reason `no-split-to-undo` | an enabled no-op fix |
+| `segmentRawReading` returns TWO segments — a test that REJECTS the one-plain-segment fallback | correct constants, unmarked boundary |
+| Wizard renders `(hotel name and address)` | the `FIELD_LABELS` map assertion alone |
+| Undo applied at a **non-zero** `blockRef.index` | an overlay branch that always rewrites reservation 0 |
+| Two reservations, two address cards, distinct indices | parse-global first-wins |
+
+### S4 — the INLINE GUEST warning, ATOMIC
+
+Reuses the existing code and is never resolvable, so no overlay work — that is why it is separate from S3. But it likewise carries every gate its emission trips.
+
+**Red step:** the row 5 / row 6 discriminator pair.
+
+**In the one commit:** the predicate + emitter; `EXPECTED_CORPUS_WARN_CODES` (goes red the moment raw fixtures start emitting); the **per-fixture** corpus goldens for all 9 warning fixtures and every quiet fixture (S7 folded in — a generic S4 makes family totals pass before S7 could run, so S7 had no red boundary of its own); C1, C4–C8, C18 byte-for-byte.
 
 **Required discriminators:**
-- **P0 privacy** — `Hotel #9999 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316`: `replacement.hotelName` carries no conf token, and `applyUseRawDecisions` leaves `hotel_name` free of `#9999`. Every other P3(b) case is conf-free, so an unstripped implementation passes them all.
-- **P3(a) is NOT resolvable** — `resolvable:false`, reason `no-split-to-undo` (scope-A finding 4). An implementation enabling a no-op fix passes the reason and card-count tests otherwise.
-- **`segmentRawReading` returns TWO segments** — a test that REJECTS the existing one-plain-segment fallback (scope-B finding 4). Implementing the constants correctly while leaving the boundary unmarked otherwise passes everything.
-- **Wizard renders `(hotel name and address)`** — the `FIELD_LABELS` map assertion does not prove the phrase reaches the screen.
-- **Two reservations, two address cards**, distinct `blockRef.index`.
 
-### S4 — the INLINE GUEST warning, end to end
-
-Reuses the existing code and is never resolvable, so it needs no overlay work — which is why it is a separate slice from S3.
-
-**Red:** the row 5 / row 6 discriminator pair.
-
-**Required discriminators:**
-- **Row 5 vs row 6** — `Hyatt Place Check In: 5/1 Check Out: 5/2 Eric` (MUST emit) vs `Hyatt Place Check In: 5/1 Check Out: 5/2` (MUST NOT). Both parse to `names: []`, opposite requirements. Kills `groupIndex === 0 && names.length > 0` and "warn on every group-0 final return"; **no other test in this plan separates them.**
-- **P1 is NOT resolvable** — `resolvable:false`, reason `raw-not-guest-scoped`, **plus** proof that a decision for it cannot mutate `names` (scope-A finding 4). Reusing the resolvable structured-guest emitter otherwise passes.
-- One case per emitting enumeration row (1, 3, 4, 5), each `reasons === ["inline-boundary-judgment"]`. The Pattern-2 case must be one Pattern 1 cannot claim first (`lib/parser/blocks/hotels.ts:784`).
-- `exporter-xlsx/consultants`: 2 reservations, exactly **1** card.
-- C1, C4–C8, C18 byte-for-byte, landing with the values.
+- **Row 5 vs row 6** — `Hyatt Place Check In: 5/1 Check Out: 5/2 Eric` MUST emit; `Hyatt Place Check In: 5/1 Check Out: 5/2` MUST NOT. Both parse to `names: []`. Kills `groupIndex === 0 && names.length > 0` and "warn on every group-0 final return". **No other test separates them.**
+- **Row 2** — the no-guest early return stays silent (uncovered in the last draft).
+- **Row 7** — `exporter-xlsx/consultants`: 2 reservations, exactly 1 card.
+- **The three synthetic counterexamples the rewrite dropped**: the Mary-Ann learn-K case, the `Guests:` post-checkout case, the no-delimiter check-in case.
+- Full envelope on every emit, as in S3.
+- P1 is `resolvable:false`, reason `raw-not-guest-scoped`, **plus** proof a decision for it cannot mutate `names`.
+- Per-fixture exact counts and reasons — family totals are satisfied by one fixture emitting zero and another two.
 
 ### S5 — simultaneous ambiguities
 
-The four cases that fall between slices (scope-A finding 3):
+- **P1 + P3(b)**: `Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316`
+- **P1 + P3(a)**: `Hyatt Place Chicago 71 Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316`
+- Over-cap **inline** truncation. **This case belongs here, not in S2** — inline emission does not exist until S4, so at S2 it would pass vacuously or fail for the wrong reason.
 
-- **P1 + P3(b)** on one reservation: `Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316` → two warnings, one of each code.
-- **P1 + P3(a)** on one reservation: `Hyatt Place Chicago 71 Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316`.
-- Two reservations each carrying an address ambiguity (kills parse-global "first address warning wins").
-- Over-cap **inline** truncation (kills structured-only rank gating).
-
-**Kills:** a `commitHotels` that keeps only the first ambiguity per reservation — which passes every isolated test in S2, S3 and S4.
+**Kills:** a `commitHotels` keeping only the first ambiguity per reservation, and structured-only rank gating.
 
 ### S6 — propagation across all five callers
 
-**9 behavioral cells** (5 callers × P3(b), 4 × P3(a); the inline-no-guest × P3(a) cell is unobservable) **plus** the source-scanning meta-test.
+9 behavioral cells (5 callers × P3(b), 4 × P3(a)) plus the source-scanning meta-test.
 
-**The guard must be discriminating** (scope-A finding 5). A scanner that counts five calls and five nearby `ambiguity` tokens passes while one caller ignores its result. Required instead: for **each** `splitHotelNameAddress(` call site, parse the enclosing statement and assert the call's own result binding is the identifier subsequently passed to a stash — a per-call binding check, not a file-level token count. Ship it with a **negative fixture**: a synthetic source string where one caller drops its result, asserted to FAIL the scanner.
+**Each cell asserts the full payload, not mere presence** (R2-B finding 5): unchanged `{name,address}`, full envelope, exact `rawSnippet` for THAT caller, reservation-cross-checked `parsed`, independently derived `contentHash`. A caller can bind the right ambiguity and pair it with the wrong raw cell; a presence-only matrix and the scanner both pass.
 
-### S7 — corpus goldens, per fixture
+**The scanner must be a per-call binding check**, not a file-level token count: for each `splitHotelNameAddress(` site, assert the call's own result binding is the identifier subsequently passed to a stash. Ships with a **negative fixture** — synthetic source where one caller drops its result, asserted to FAIL the scanner.
 
-**Per-fixture exact counts and reasons, not family totals** (scope-B finding 5). Family totals are satisfied by one fixture emitting zero and another two. Each of the 9 warning fixtures asserts its own count and reason string; each quiet fixture asserts zero by code.
+### S10 — UI quality gate
 
-### S8 — close the deferrals
+`/impeccable critique` AND `/impeccable audit` with the canonical v3 setup gates. P0/P1 fixed or deferred via `DEFERRED.md`. Findings recorded in a close-out doc created by this slice, named for this plan with a CLOSEOUT suffix, §12.
 
-Flip both `TRANSFORM_SITES` exempts, delete both BACKLOG rows and the section heading, extend `REQUIRED_DECLARATIONS`, and add the **zero-`deferred:BL-`-exempts** assertion (scope-B finding 2). One commit — the walker cross-checks refs against BACKLOG.md.
-
-### S9 — remaining registry expectations
-
-`EXPECTED_CORPUS_WARN_CODES`, `tests/admin/warningFixAffordance.test.tsx:20`, `tests/components/UseRawControl.test.tsx:746`. Each lands **with** the change that makes it red, not after (scope-B finding 3); this slice exists only for rows no earlier slice touched.
-
-### S10 — UI quality gate (evaluation only, no TDD)
-
-`/impeccable critique` AND `/impeccable audit` on the UI diff with the canonical v3 setup gates. P0/P1 fixed or deferred via `DEFERRED.md`. **Findings and dispositions are recorded in a new close-out doc created by this slice, named for this plan with a CLOSEOUT suffix and placed alongside it, §12** (scope-B finding 6 — the first draft said "recorded" without naming a destination). This slice produces no test and is explicitly exempt from commit-per-task TDD.
+**Commits like any other slice.** The last draft exempted it from commit-per-task, which is wrong: it creates a tracked document and may edit `DEFERRED.md` and UI files. Evaluation needs no test; its tracked outputs still need a commit.
 
 ---
 
 ## 4. Checklist
 
-1. S1 … S10, each red → green → commit (S2 and S10 excepted, as stated)
+1. S1, S2, S3, S4, S5, S6, S10 — each red → green → commit. **S2 alone has no red step** (pure refactor; its net is the characterization guards). S10 has no test but still commits its tracked outputs. S7, S8 and S9 are folded into S3/S4, because this repo's structural gates fire the instant a code is registered, so registration and every gate it trips must land atomically.
 2. Self-review (numeric + citation sweep over this plan)
 3. **Adversarial review (cross-model)** to APPROVE — dispatch SPLIT by scope; a single whole-plan dispatch hit the wrapper's `total_timeout` at 1837s. `--attempt-max-secs` is capped at **1380**; a larger value makes `codex-guard` exit immediately without running
 4. Full gates: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, **`pnpm spec:lint`** on both the spec and this plan (registration edits the master spec, so spec:lint is load-bearing — scope-B finding 6)
