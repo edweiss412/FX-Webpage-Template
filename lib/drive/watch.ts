@@ -529,9 +529,9 @@ export async function subscribeToWatchedFolder(
     // touches `status='pending'` rows, so the DB would disagree with both the
     // alert and the return value while the previous channel stayed superseded.
     try {
-      // A lease whose REMAINING life at activation is too short cannot be
-      // renewed reliably at any phase (spec §2.1) — no lead value fixes that,
-      // so surface it rather than absorb it. We request WATCH_TTL_MS and
+      // A lease whose REMAINING life at activation is too short for renewal to
+      // be plausible (spec §2.1 — a heuristic, not a bound; nothing enforces the
+      // execution budget it is sized from), so surface it rather than absorb it. We request WATCH_TTL_MS and
       // Drive's floor for an unspecified request is 1h, so this should be
       // unreachable; if it fires, the cron cadence needs revisiting.
       //

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { renewalLeadMs, STALE_PENDING_MAX_AGE_MS } from "@/lib/drive/watchErrors";
+import {
+  RENEWAL_LIFE_FRACTION,
+  RENEWAL_MIN_LEAD_MS,
+  STALE_PENDING_MAX_AGE_MS,
+} from "@/lib/drive/watchErrors";
 import { setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 
@@ -89,16 +93,27 @@ class FakeWatchTx {
   // (The previous version claimed to reuse the helper and did not; whole-diff
   // R1 finding 4.) `args` is accepted for signature parity with the port; the
   // lead comes from the shared helper, which owns both constants.
-  async listRenewalDue(_args: { nowIso: string; minLeadMs: number; lifeFraction: number }) {
+  async listRenewalDue(args: { nowIso: string; minLeadMs: number; lifeFraction: number }) {
     this.operations.push("listRenewalDue");
-    const nowMs = Date.parse(_args.nowIso);
+    const nowMs = Date.parse(args.nowIso);
     return this.rows.filter((row) => {
       if (row.status !== "active" || row.expiresAt === null) return false;
       const expiresMs = Date.parse(row.expiresAt);
-      const createdMs = row.createdAt === undefined ? expiresMs : Date.parse(row.createdAt);
+      // `created_at` is NOT NULL in production
+      // (supabase/migrations/20260501001000_internal_and_admin.sql:291). Treating
+      // an omitted value as a zero-length lease would make a fixture "due" for a
+      // reason production can never produce (whole-diff R4-4).
+      if (row.createdAt === undefined) {
+        throw new Error(`FakeWatchTx: row ${row.id} is missing createdAt (NOT NULL in production)`);
+      }
+      const createdMs = Date.parse(row.createdAt);
       // Inverted/zero-length lease: due immediately, matching the SQL's first arm.
       if (expiresMs <= createdMs) return true;
-      return nowMs >= expiresMs - renewalLeadMs(expiresMs - createdMs);
+      // Uses the CALLER'S arguments, not module constants (R4-4): a fake that
+      // ignores them stays green when the caller assembles the wrong lead or
+      // fraction, which is exactly the drift the port change could introduce.
+      const lead = Math.max(args.minLeadMs, (expiresMs - createdMs) * args.lifeFraction);
+      return nowMs >= expiresMs - lead;
     });
   }
 
@@ -184,6 +199,10 @@ function seedActiveExpiring(tx: FakeWatchTx, folderIds: string[]) {
       watchedFolderId: folderId,
       webhookSecret: "old-secret",
       resourceId: "resource-1",
+      // A 24h lease created 25h ago and expired an hour ago, so it is due under
+      // any predicate. `createdAt` is mandatory: production's column is NOT NULL
+      // and the fake refuses to guess (whole-diff R4-4).
+      createdAt: new Date(tx.now.getTime() - 25 * 60 * 60 * 1000).toISOString(),
       expiresAt: new Date(tx.now.getTime() - 60 * 60 * 1000).toISOString(),
     });
   }
@@ -462,6 +481,40 @@ describe("Drive watch lifecycle", () => {
 
     expect(result).toEqual({ refreshed: ["folder-1"], orphaned: [], failures: [] });
     expect(subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
+  });
+
+  test("renewal uses the CALLER'S lead arguments, not module constants", async () => {
+    // Whole-diff R4-4: the fake previously ignored args.minLeadMs/lifeFraction,
+    // so a caller assembling the wrong values kept the DB-free suite green.
+    // This row is due ONLY because of the absolute floor: a 6h lease whose
+    // proportional lead (25% = 1.5h) has NOT yet elapsed, but which sits inside
+    // the 2h floor. Pass minLeadMs = 0 and it stops being due — which is exactly
+    // what a broken caller would do.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "floor-governed",
+      status: "active",
+      watchedFolderId: "folder-floor",
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      createdAt: new Date(tx.now.getTime() - 4 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(tx.now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    });
+
+    const due = await tx.listRenewalDue({
+      nowIso: tx.now.toISOString(),
+      minLeadMs: RENEWAL_MIN_LEAD_MS,
+      lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
+    });
+    expect(due.map((r) => r.watchedFolderId)).toEqual(["folder-floor"]);
+
+    // The discriminating half: drop the floor and the row is no longer due.
+    const withoutFloor = await tx.listRenewalDue({
+      nowIso: tx.now.toISOString(),
+      minLeadMs: 0,
+      lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
+    });
+    expect(withoutFloor).toEqual([]);
   });
 
   test("refresh isolates per-row failures and classifies by orphan reason", async () => {

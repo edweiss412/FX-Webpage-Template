@@ -4,9 +4,9 @@
 // the `cron.schedule` call in the migration and the canonical registry JSON.
 // Nothing tied them together, so a future cadence change could update the
 // existing cron-parity surfaces (tests/cross-cutting/pg-cron-coverage.test.ts)
-// while silently leaving the renewal guarantee and the short-grant anomaly
-// boundary computed against the OLD period — the guarantee would still "pass"
-// while being arithmetically wrong.
+// while silently leaving the renewal lead and the short-grant heuristic
+// computed against the OLD period — both would still "pass" while being
+// arithmetically wrong.
 //
 // DB-free: reads committed files only.
 import { describe, expect, test } from "vitest";

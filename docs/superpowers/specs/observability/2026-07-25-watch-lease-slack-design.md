@@ -51,7 +51,7 @@ Constants, all in `lib/drive/watchErrors.ts` beside the existing `STALE_PENDING_
 - `RENEWAL_LIFE_FRACTION` = **0.75** — proportional term: due once 75% of granted life has elapsed.
 - `RENEWAL_MIN_LEAD_MS` = **7_200_000** (2h) — absolute floor on remaining life at which a channel becomes due.
 - `SAMPLING_PERIOD_MS` = **3_600_000** (1h) — how often the predicate is sampled (`fxav_cron_refresh_watch`). Unchanged by this PR; named because §2.1's boundary depends on it.
-- `T_EXEC_BUDGET_MS` = **300_000** (5m) — upper bound on the delay between a refresh run's candidate query and any one row's renewal attempt. **Not an enforced timeout** (review R1 finding 1): `files.watch` carries no timeout (`lib/drive/client.ts:35-39`) and renewals run sequentially (`lib/drive/watch.ts:547-577`), so the only defensible ceiling is the scheduler's own request budget — pg_net is passed `timeout_milliseconds = 300000`, matching Vercel Functions' 300s default (`supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22`). An earlier draft used 60_000. Note that no value makes this a bound — see the heuristic framing below; the constant only sizes the detector.
+- `T_EXEC_BUDGET_MS` = **300_000** (5m) — a *margin*, not a bound, standing in for "one run's slack" when sizing the §3.3 heuristic. Nothing enforces it (R3 finding 1). **Not an enforced timeout** (review R1 finding 1): `files.watch` carries no timeout (`lib/drive/client.ts:35-39`) and renewals run sequentially (`lib/drive/watch.ts:547-577`), so the only defensible ceiling is the scheduler's own request budget — pg_net is passed `timeout_milliseconds = 300000`, matching Vercel Functions' 300s default (`supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22`). An earlier draft used 60_000. Note that no value makes this a bound — see the heuristic framing below; the constant only sizes the detector.
 
 ### 2.1 The timing invariant
 
@@ -61,12 +61,12 @@ A cadence design is only correct relative to how often its predicate is **sample
 L(G) = max(RENEWAL_MIN_LEAD_MS, G * (1 - RENEWAL_LIFE_FRACTION))
 ```
 
-the remaining-life threshold at which a channel becomes due. A channel activated at arbitrary phase is next examined at most `P + T` after activation.
+the remaining-life threshold at which a channel becomes due. A channel activated at arbitrary phase is *typically* next examined about `P` later, but nothing enforces that — see the heuristic framing below.
 
 | Granted life | Classification | Guarantee |
 |---|---|---|
 | remaining-at-activation `<= P + 2T` | **implausible** | flagged by the §3.3 heuristic. Note the quantity is REMAINING LIFE AT ACTIVATION, not the granted span `G` — the pending insert and Drive round-trip consume lease life before the channel is live. |
-| remaining-at-activation `> P + 2T` | **not flagged** | **no guarantee is claimed** — see below. |
+| remaining-at-activation `> P + 2T` | **not flagged** | **nothing is claimed** — see below. |
 
 **No timing guarantee is claimed at all** (whole-diff R3 finding 1). Three successive rounds found the guarantee framing indefensible for the same reason each time: any such claim is parameterised by `T_EXEC_BUDGET_MS`, and nothing enforces it — renewals run sequentially, `files.watch` has no per-call timeout, and pg_net may ignore its own timeout hint (`supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22`). A stalled earlier row can starve a later one regardless of threshold. The bound was widened twice chasing a property the constants cannot deliver.
 
@@ -74,11 +74,11 @@ the remaining-life threshold at which a channel becomes due. A channel activated
 
 **Post-activation observability is isolated** (whole-diff R1 finding 1). The anomaly's clock read and its log run *after* a committed activation, inside their own try/catch. Without that isolation a throwing clock or a rejecting sink would fall into the activation catch, raise `WATCH_CHANNEL_ORPHANED`, and return `orphaned` for a channel that is genuinely live — while `markOrphaned` (which only touches `status='pending'`) left the DB disagreeing with both the alert and the return value, and the previous channel already superseded. Two tests pin it: a throwing second clock read, and a sink that rejects only the anomaly code.
 
-**Worst-case remaining life at the renewing execution** is `min(G, L(G)) - P - T`, **not** `G - P - T`. The distinction matters and an earlier draft got it wrong: for the 24h grant we request, `L(G) = 6h`, so the true worst case is `6h - 1h - 5m = 4h55m` of remaining lease when the renewal actually runs — not 22h55m. Still ample; the point is that the margin comes from the *lead*, not the *lifetime*.
+**No worst-case margin is quoted.** Earlier drafts stated one (`min(G, L(G)) - P - T`); it depended on `T` being enforced, which it is not (R3 finding 1, R4 finding 2). The lease is what provides margin: 24h requested, renewed at 6h remaining.
 
 **That bound is an infimum, not an attained minimum** (review R1 finding 4). Under continuous arbitrary phase it is approached as the due-transition moves to just after a tick, but at the exact tick the `>=` predicate selects the row on that tick, so the value itself is never realized. The §5.1 sweep therefore asserts **every** sampled phase is `>=` the bound, plus that the near-worst phase lands within one phase-step epsilon of it — not exact equality, which a correct implementation would fail.
 
-**Where the clock is read is load-bearing** (review R1 finding 2). "Remaining life" means **remaining at successful activation**, not at request time. The pending row is inserted, Drive is called, and only then is the channel activated (`lib/drive/watch.ts:428-436`, `lib/drive/watch.ts:461-474`), so a nominal 62-minute grant that took two minutes to obtain has only 60 usable minutes. Measuring at request time would suppress the anomaly for exactly the leases that need it. `isGrantTooShort` therefore takes `remainingMsAtActivation`, and the emitted log field carries that name rather than `grantedMs`.
+**Where the clock is read is load-bearing** (review R1 finding 2, and it decides which side of the heuristic a lease lands on). "Remaining life" means **remaining at successful activation**, not at request time. The pending row is inserted, Drive is called, and only then is the channel activated (`lib/drive/watch.ts:428-436`, `lib/drive/watch.ts:461-474`), so a nominal 62-minute grant that took two minutes to obtain has only 60 usable minutes. Measuring at request time would suppress the anomaly for exactly the leases that need it. `isGrantTooShort` therefore takes `remainingMsAtActivation`, and the emitted log field carries that name rather than `grantedMs`.
 
 Note what the boundary says about today: a 1-hour grant sampled hourly is `G = P`, i.e. **anomalous** — which is exactly the §1.1 defect, stated as arithmetic rather than anecdote. It ceases to be anomalous the moment §3.1 lands.
 
@@ -106,7 +106,7 @@ where status = 'active'
       )
 ```
 
-`created_at` is used by the predicate. It is **not** added to the projected column list — the SELECT still returns `id, status, watched_folder_id, webhook_secret, resource_id, expires_at`, because no caller needs the value (R2 finding 3). The `drive_watch_channels_renewal_due_idx` partial index on `(expires_at) where status='active'` (`supabase/migrations/20260501001000_internal_and_admin.sql:306`) no longer covers the predicate; with a single-digit row count for a singleton folder this is a non-issue and the index stays for the GC path. **No new index** — stated so the omission is not read as an oversight.
+`created_at` is used by the predicate. It is **not** added to the projected column list — the SELECT still returns `id, status, watched_folder_id, webhook_secret, resource_id, expires_at`, because no caller needs the value (R2 finding 3). The `drive_watch_channels_renewal_due_idx` partial index on `(expires_at) where status='active'` (`supabase/migrations/20260501001000_internal_and_admin.sql:306`) no longer covers the predicate; with a single-digit row count for a singleton folder this is a non-issue and the index is left in place (it serves nothing; see below). **No new index** — stated so the omission is not read as an oversight.
 
 Behavior across grants (this table is the §5.2 test fixture set):
 
@@ -127,7 +127,7 @@ Behavior across grants (this table is the §5.2 test fixture set):
 `subscribeToWatchedFolder` compares the remaining life at activation against `SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS` on the activation path and, when the grant does not **exceed** it, emits:
 
 ```ts
-await log.error("drive watch grant too short to renew reliably", {
+void log.error("drive watch grant too short to renew reliably", {
   source: "drive.watch",
   code: "DRIVE_WATCH_GRANT_TOO_SHORT",
   watchedFolderId,
@@ -135,7 +135,7 @@ await log.error("drive watch grant too short to renew reliably", {
 });
 ```
 
-The bound is `<=`, not `<`: a lease of exactly one sampling period activated just after a tick expires at the next examination rather than strictly before it.
+The emit is deliberately NOT awaited and carries its own `.catch()` (see §3.1's post-activation note). The bound is `<=`, not `<`: a lease of exactly one sampling period activated just after a tick expires at the next examination rather than strictly before it.
 
 We request 24h and Drive's documented floor for an unspecified request is 1h, so after §3.1 this should be unreachable. If it ever fires, the cadence needs revisiting rather than the channel. It is `log.error` because error level always persists to `app_events` (`lib/log/logger.ts:22`), and it carries a `code` so the observe CLI and telemetry can filter it.
 
@@ -163,7 +163,7 @@ TDD per task. Each class names the failure mode it catches.
 
 1. **Constants and the §2.1 boundary** (`tests/drive/**`, DB-free). `L(G)` computed through the implementation for `G ∈ {P-ε, P, P+T, P+T+ε, 6h, 24h}`; the classification table asserted per row. **A phase sweep, not a formula restatement**: for each `G`, step the activation offset across a full period against a simulated fixed tick series and assert, for every `G > P+T`, that the channel is examined-and-due strictly before `expires_at` at **every** offset — and record the minimum remaining life at the renewing execution, asserting it equals `min(G, L(G)) - P - T` rather than `G - P - T`. *Catches:* the boundary being `<` instead of `<=`; the margin overstatement an earlier draft shipped; a constant edit that lets renewal be sampled after expiry.
 2. **`defaultWatchFolder` expiration** (`tests/drive/**`, DB-free). Request body carries `expiration` as a **string of milliseconds** equal to `injectedNow + WATCH_TTL_MS`, derived from the constant rather than a literal. A Drive response with a shorter expiration is stored verbatim; one already in the past is stored verbatim. *Catches:* sending seconds instead of milliseconds — the most likely silent mistake, which would request an expiry 46 years in the past.
-3. **Renewal predicate** (`tests/db/**`, real DB — this directory is the serial project; `tests/drive/**` is DB-free and would fail on the no-Supabase CI runner). Every row of the §3.2 table, each row's due-ness derived from its own `created_at`/`expires_at` and the constants, never wall-clock literals: 24h not-due at 17h and due at 19h; 6h due via the floor at 4h; 1h due immediately; `expires_at <= created_at` due immediately. **Negative control:** a freshly-created 24h lease that the RETIRED `expires_at < now() + 24h` threshold would renew and this predicate must not; mutation-verified. (An earlier draft described a floor-less variant predicate instead — that is not what the suite contains, R3 finding 4.) *Catches:* boundary direction, and a floor-less regression that silently reintroduces sampling-after-expiry.
+3. **Renewal predicate** (`tests/db/**`, real DB — this directory is the serial project; `tests/drive/**` is DB-free and would fail on the no-Supabase CI runner). Fixtures actually present, enumerated rather than claimed (R4 finding 3 caught the earlier over-claim): a 24h lease not-due at 17h elapsed and due at 19h; a 6h lease due via the floor at 4h; an already-expired lease; an inverted lease expiring in the past; an inverted lease expiring in the **future** (`created_at > expires_at > NOW + floor`, which the floor alone would miss); and a non-active row that must never be selected. **Negative control:** a freshly-created 24h lease that the RETIRED `expires_at < now() + 24h` threshold would renew and this predicate must not; mutation-verified. The 1h and 2h rows of the §3.2 table are covered by the DB-free lead arithmetic, not here.
 4. **Short-grant anomaly** (`tests/drive/**`, DB-free). Remaining-at-activation of `P`, of `P + T + 1ms`, and of exactly `P + 2T` all emit `DRIVE_WATCH_GRANT_TOO_SHORT` carrying `remainingMsAtActivation`; `P + 2T + 1ms` does not. A separate case models elapsed time between the two clock reads, so a regression to request-time measurement fails. Assert on the logger spy's fields, not on the message string. *Catches:* the `<` versus `<=` boundary flipping, and the `P + T` bound returning (being *examined* is not the same as *completing*).
 5. **Existing suites still pass** (this diff does modify `tests/drive/watch.test.ts`'s fake and four of its fixtures — R3 finding 4; "unmodified" was wrong) — `tests/drive/watch.test.ts` renewal cases (their fixtures gain `created_at`), `tests/cron/refreshWatchRoute.test.ts`, `tests/api/cron-sync.test.ts`. *Catches:* the widened SELECT or predicate breaking a caller.
 6. **Live validation probe (pre-merge).** After deploy, `pnpm observe watch --env validation` shows the next renewal producing a 24h `expiresAt` and the channel count dropping from 24/day toward 1/day.

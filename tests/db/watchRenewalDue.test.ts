@@ -176,8 +176,9 @@ describe("renewal predicate, through the production path (§3.2)", () => {
   });
 
   test("the renewal lead always exceeds one sampling period", async () => {
-    // The guarantee in §2.1 rests on this; a constant edit that broke it would
-    // otherwise only surface as leases expiring in production.
+    // Ordering the §2.1 heuristic depends on. Not a guarantee — nothing enforces
+    // the execution budget — but a constant edit inverting this would make the
+    // detector meaningless, and that should fail loudly here.
     expect(RENEWAL_MIN_LEAD_MS).toBeGreaterThan(SAMPLING_PERIOD_MS);
   });
 });
