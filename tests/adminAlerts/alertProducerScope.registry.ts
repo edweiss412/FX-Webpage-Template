@@ -19,6 +19,17 @@ export type ProducerScopeRow = {
   code: string;
   scope: "per-show" | "global";
   dynamic?: boolean;
+  /** Context-key dimension (spec 2026-07-24-gallery-alert-producer-parity §6).
+   *  `contextKeys` = keys written on EVERY branch of this site's context object
+   *  literal; `optionalContextKeys` = keys inside a conditional spread, which
+   *  the walker cannot prove are always written. `computedContext` marks a site
+   *  whose context comes from a variable, a helper call, or SQL, so no literal
+   *  cross-check is possible and the keys here are hand-authored — such a row
+   *  MUST also carry a provenance `note`. Independent of `dynamic`, which is
+   *  about the CODE axis, not the context axis. */
+  contextKeys?: readonly string[];
+  optionalContextKeys?: readonly string[];
+  computedContext?: true;
   /** A validation-seed migration harness (seeds the validation DB with fixture
    *  alerts), NOT a production alert producer. Registered so discovery stays
    *  complete, but excluded from the reachability projection. */
@@ -30,63 +41,161 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   // ── STATIC ──
   {
     site: "lib/auth/picker/cleanupStaleEntry.ts:111",
+    contextKeys: ["show_id", "stale_crew_member_id", "stale_epoch"],
     code: "PICKER_SELECTION_RACE",
     scope: "per-show",
   },
-  { site: "lib/auth/picker/resetPickerEpoch.ts:30", code: "PICKER_EPOCH_RESET", scope: "per-show" },
+  {
+    site: "lib/auth/picker/resetPickerEpoch.ts:30",
+    contextKeys: ["admin_email_hash", "new_epoch", "show_id"],
+    code: "PICKER_EPOCH_RESET",
+    scope: "per-show",
+  },
   {
     site: "lib/auth/validateGoogleSession.ts:40",
+    contextKeys: ["crew_member_ids", "email"],
     code: "AMBIGUOUS_EMAIL_BINDING",
     scope: "per-show",
   },
-  { site: "lib/notify/detect/stall.ts:15", code: "SYNC_STALLED", scope: "global" },
-  { site: "lib/sync/runManualSyncForShow.ts:185", code: "SHEET_UNAVAILABLE", scope: "per-show" },
-  { site: "lib/sync/runManualSyncForShow.ts:233", code: "DRIVE_FETCH_FAILED", scope: "per-show" },
+  { site: "lib/notify/detect/stall.ts:15", contextKeys: [], code: "SYNC_STALLED", scope: "global" },
+  {
+    site: "lib/sync/runManualSyncForShow.ts:185",
+    contextKeys: ["drive_file_id", "previous_last_seen_modified_time", "sheet_name"],
+    optionalContextKeys: ["failure_code"],
+    code: "SHEET_UNAVAILABLE",
+    scope: "per-show",
+  },
+  {
+    site: "lib/sync/runManualSyncForShow.ts:233",
+    contextKeys: [
+      "drive_file_id",
+      "failure_code",
+      "previous_last_seen_modified_time",
+      "sheet_name",
+    ],
+    code: "DRIVE_FETCH_FAILED",
+    scope: "per-show",
+  },
   {
     site: "lib/sync/runManualSyncForShow.ts:261",
+    computedContext: true,
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
+    note: "context built by buildParseErrorContext(lib/sync/runManualSyncForShow.ts:261); keys mirror the cron twin at lib/sync/runScheduledCronSync.ts:3386",
   },
   {
     site: "lib/sync/runScheduledCronSync.ts:375",
+    computedContext: true,
     code: "RESYNC_QUALITY_REGRESSED",
     scope: "per-show",
+    note: "context forwarded as a shorthand variable (lib/sync/runScheduledCronSync.ts:375)",
   },
   {
     site: "lib/sync/runScheduledCronSync.ts:2364",
+    contextKeys: [
+      "crew_count",
+      "drive_file_id",
+      "sheet_name",
+      "show_date",
+      "unpublish_token_expires_at",
+    ],
+    optionalContextKeys: ["data_gaps"],
     code: "SHOW_FIRST_PUBLISHED",
     scope: "per-show",
   },
-  { site: "lib/sync/runScheduledCronSync.ts:2573", code: "SHEET_UNAVAILABLE", scope: "per-show" },
-  { site: "lib/sync/runScheduledCronSync.ts:2633", code: "SHEET_UNAVAILABLE", scope: "per-show" },
-  { site: "lib/sync/runScheduledCronSync.ts:2652", code: "DRIVE_FETCH_FAILED", scope: "per-show" },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3386",
-    code: "PARSE_ERROR_LAST_GOOD",
+    site: "lib/sync/runScheduledCronSync.ts:2573",
+    contextKeys: ["drive_file_id", "previous_last_seen_modified_time", "sheet_name"],
+    code: "SHEET_UNAVAILABLE",
     scope: "per-show",
   },
-  { site: "lib/sync/runScheduledCronSync.ts:3421", code: "RESYNC_SHRINK_HELD", scope: "per-show" },
-  { site: "lib/sync/unpublishShow.ts:238", code: "SHOW_UNPUBLISHED", scope: "per-show" },
+  {
+    site: "lib/sync/runScheduledCronSync.ts:2633",
+    contextKeys: [
+      "drive_file_id",
+      "failure_code",
+      "previous_last_seen_modified_time",
+      "sheet_name",
+    ],
+    code: "SHEET_UNAVAILABLE",
+    scope: "per-show",
+  },
+  {
+    site: "lib/sync/runScheduledCronSync.ts:2652",
+    contextKeys: [
+      "drive_file_id",
+      "failure_code",
+      "previous_last_seen_modified_time",
+      "sheet_name",
+    ],
+    code: "DRIVE_FETCH_FAILED",
+    scope: "per-show",
+  },
+  {
+    site: "lib/sync/runScheduledCronSync.ts:3386",
+    computedContext: true,
+    code: "PARSE_ERROR_LAST_GOOD",
+    scope: "per-show",
+    note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3386)",
+  },
+  {
+    site: "lib/sync/runScheduledCronSync.ts:3421",
+    contextKeys: ["detail", "drive_file_id", "held_modified_time", "sheet_name"],
+    code: "RESYNC_SHRINK_HELD",
+    scope: "per-show",
+  },
+  {
+    site: "lib/sync/unpublishShow.ts:238",
+    contextKeys: ["drive_file_id", "sheet_name"],
+    code: "SHOW_UNPUBLISHED",
+    scope: "per-show",
+  },
   {
     site: "app/api/admin/onboarding/scan/route.ts:306",
+    contextKeys: ["failed_drive_file_ids", "failed_sheet_names", "folder_id", "wizard_session_id"],
     code: "ONBOARDING_SHEET_UNREADABLE",
     scope: "global",
   },
   {
     site: "app/api/auth/picker-bootstrap/route.ts:72",
+    contextKeys: ["route", "rpc_error_code", "rpc_error_message", "slug", "stage"],
     code: "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
     scope: "global",
   },
   {
     site: "app/api/auth/picker-bootstrap/route.ts:99",
+    contextKeys: [
+      "attempted_email_hash",
+      "route",
+      "rpc_error_code",
+      "rpc_error_message",
+      "show_id",
+    ],
     code: "PICKER_BOOTSTRAP_RPC_FAILED",
     scope: "global",
     note: "showId hard-coded null despite context.show_id present",
   },
-  { site: "app/auth/callback/route.ts:134", code: "OAUTH_IDENTITY_CLAIMED", scope: "per-show" },
-  { site: "app/auth/callback/route.ts:163", code: "CALLBACK_CLAIM_THREW", scope: "global" },
+  {
+    site: "app/auth/callback/route.ts:134",
+    contextKeys: [
+      "claimed_at_millis",
+      "crew_member_id",
+      "show_id",
+      "user_email",
+      "user_email_hash",
+    ],
+    code: "OAUTH_IDENTITY_CLAIMED",
+    scope: "per-show",
+  },
+  {
+    site: "app/auth/callback/route.ts:163",
+    contextKeys: ["error_name"],
+    code: "CALLBACK_CLAIM_THREW",
+    scope: "global",
+  },
   {
     site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:160",
+    contextKeys: ["failedKeys", "message", "sheet_name", "tileId"],
     code: "TILE_PROJECTION_FETCH_FAILED",
     scope: "per-show",
   },
@@ -94,6 +203,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   // ── DYNAMIC (one row per resolvable literal; code-completeness is the §3.0 residual risk) ──
   {
     site: "lib/drive/watch.ts:409",
+    computedContext: true,
     code: "WATCH_CHANNEL_ORPHANED",
     scope: "global",
     dynamic: true,
@@ -101,6 +211,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/reports/submit.ts:759",
+    computedContext: true,
     code: "REPORT_LEASE_THRASHING",
     scope: "per-show",
     dynamic: true,
@@ -108,6 +219,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/reports/submit.ts:784",
+    computedContext: true,
     code: "GITHUB_BOT_LOGIN_MISSING",
     scope: "global",
     dynamic: true,
@@ -115,6 +227,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/applyStaged.ts:1952",
+    contextKeys: ["drive_file_id"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",
     dynamic: true,
@@ -122,6 +235,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/applyStaged.ts:1962",
+    contextKeys: ["drive_file_id"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",
     dynamic: true,
@@ -129,6 +243,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/applyStaged.ts:1962",
+    contextKeys: ["drive_file_id"],
     code: "OPENING_REEL_PERMISSION_DENIED",
     scope: "per-show",
     dynamic: true,
@@ -136,6 +251,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/applyStaged.ts:1962",
+    contextKeys: ["drive_file_id"],
     code: "OPENING_REEL_NOT_VIDEO",
     scope: "per-show",
     dynamic: true,
@@ -143,6 +259,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/applyStaged.ts:1962",
+    contextKeys: ["drive_file_id"],
     code: "REEL_DRIFTED",
     scope: "per-show",
     dynamic: true,
@@ -150,6 +267,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/applyStaged.ts:1962",
+    contextKeys: ["drive_file_id"],
     code: "EMBEDDED_ASSET_DRIFTED",
     scope: "per-show",
     dynamic: true,
@@ -157,6 +275,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/applyStaged.ts:2000",
+    computedContext: true,
     code: "ROLE_FLAGS_NOTICE",
     scope: "per-show",
     dynamic: true,
@@ -164,6 +283,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/assetRecovery.ts:482",
+    contextKeys: ["snapshotRevisionId"],
     code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
     scope: "per-show",
     dynamic: true,
@@ -171,6 +291,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/assetRecovery.ts:501",
+    contextKeys: ["snapshotRevisionId"],
     code: "ASSET_RECOVERY_BYTES_EXCEEDED",
     scope: "per-show",
     dynamic: true,
@@ -178,6 +299,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/assetRecovery.ts:519",
+    contextKeys: ["currentSnapshotRevisionId", "snapshotRevisionId"],
     code: "ASSET_RECOVERY_REVISION_DRIFT",
     scope: "per-show",
     dynamic: true,
@@ -185,6 +307,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/assetRecovery.ts:560",
+    contextKeys: ["currentSnapshotRevisionId", "snapshotRevisionId"],
     code: "ASSET_RECOVERY_REVISION_DRIFT",
     scope: "per-show",
     dynamic: true,
@@ -192,6 +315,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/assetRecovery.ts:579",
+    contextKeys: ["snapshotRevisionId"],
     code: "ASSET_RECOVERY_REVISION_DRIFT",
     scope: "per-show",
     dynamic: true,
@@ -199,6 +323,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/assetRecovery.ts:590",
+    contextKeys: ["snapshotRevisionId"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",
     dynamic: true,
@@ -206,6 +331,14 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/runOnboardingScan.ts:1027",
+    contextKeys: [
+      "drive_file_id",
+      "file_name",
+      "folder_id",
+      "kind",
+      "sqlstate",
+      "wizard_session_id",
+    ],
     code: "LIVE_ROW_CONFLICT",
     scope: "global",
     dynamic: true,
@@ -213,6 +346,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "lib/sync/runScheduledCronSync.ts:2329",
+    computedContext: true,
     code: "ROLE_FLAGS_NOTICE",
     scope: "per-show",
     dynamic: true,
@@ -220,6 +354,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "app/api/drive/webhook/route.ts:298",
+    contextKeys: ["channel_id", "reason"],
     code: "WEBHOOK_TOKEN_INVALID",
     scope: "global",
     dynamic: true,
@@ -227,6 +362,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "app/api/drive/webhook/route.ts:314",
+    contextKeys: ["channel_id", "reason"],
     code: "WEBHOOK_TOKEN_INVALID",
     scope: "global",
     dynamic: true,
@@ -236,6 +372,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   // ── SQL ──
   {
     site: "supabase/migrations/20260527210003_validation_seed_admin_alert.sql:61",
+    computedContext: true,
     code: "p_code",
     scope: "per-show",
     dynamic: true,
@@ -244,6 +381,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "supabase/migrations/20260527210004_validation_seed_bot_login_alerts.sql:66",
+    computedContext: true,
     code: "GITHUB_BOT_LOGIN_MISSING",
     scope: "global",
     seed: true,
@@ -251,6 +389,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "supabase/migrations/20260527210004_validation_seed_bot_login_alerts.sql:67",
+    computedContext: true,
     code: "REPORT_LOOKUP_INCONCLUSIVE",
     scope: "per-show",
     seed: true,
@@ -258,6 +397,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   },
   {
     site: "supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:16",
+    computedContext: true,
     code: "SHOW_UNPUBLISHED",
     scope: "per-show",
     note: "upsert_admin_alert(p_show_id, ...)",
