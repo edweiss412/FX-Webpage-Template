@@ -20,6 +20,18 @@ Pre-existing for every HoverHelp consumer inside a scrolling admin surface; NOT 
 
 ---
 
+## BL-CREW-WARN-STACK-E2E-GEOMETRY — real-browser width-fill assertion for the crew under-row warning stack
+
+**Filed:** 2026-07-24 (retroactive — deferred in PR #534's body 2026-07-21, never filed) · **Status:** ✅ SHIPPED (2026-07-24, branch `test/crew-warn-stack-width-fill`) · **Class:** test coverage (real-browser layout)
+
+PR #534 descoped its Task 10 (real-browser layout) with: "`CrewUnderRowStack`'s parent is not fixed-dimension, so the rule's trigger doesn't apply; width-fill is unit-asserted. Deferred `BL-CREW-WARN-STACK-E2E-GEOMETRY`." The id was cited in the PR body but no row was ever added to BACKLOG.md, DEFERRED.md, or this archive — found by a PR-body-vs-ledger reconciliation sweep on 2026-07-24.
+
+PR #563 (crew-warning-attachment T5) had already landed real-browser geometry for the surface at `tests/e2e/published-review-modal.layout.spec.ts`: the under-row stack `[data-testid="crew-warn-stack-<key>"]` measured inside the crew panel card's border box on all four edges, and between its member's row and the next. Those are CONTAINMENT bounds, not the width-FILL equality the deferral named — a stack rendered at half width or indented satisfies them.
+
+**Shipped:** `T-WARN-WIDTHFILL @1280` + `@390` in that spec's existing T5 describe block (harness page `crewwarnings.html`, shared `TOL`; no new harness or config). Asserts `stack.x === row.x` and `stack.width === row.width` against the member ROW's measured box, where the row is resolved from the rendered name span upward to the hosting `<li>`'s direct child — never from the stack's own parent — and the resolver throws if the row turns out to contain the stack, so the equality cannot pass vacuously. Anti-vacuity floor (`row.w > viewport * 0.4`) plus `row.w === li.w` rule out a collapsed layout satisfying any equality. Negative-regression verified by hoisting the per-kind `pl-6` onto the stack (both viewports fail on left edge + width) and by `inline-flex` (fails on width).
+
+---
+
 ## BL-SPEC-LINT — mechanize the checkable subset of spec/plan pre-review passes
 
 **Filed:** 2026-07-19 (round-burn retrospective, PRs #470–#500) · **Class:** review-round reduction (tooling) · **Effort:** M (script + wiring into review-dispatch discipline)

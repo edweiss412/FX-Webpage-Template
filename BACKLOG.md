@@ -50,18 +50,6 @@ The DB-free serial→parallel reclassification (PR #528, closed unmerged) is cor
 
 ---
 
-## BL-CREW-WARN-STACK-E2E-GEOMETRY — real-browser width-fill assertion for the crew under-row warning stack
-
-**Filed:** 2026-07-24 (retroactive — deferred in PR #534's body 2026-07-21, never filed) · **Class:** test coverage (real-browser layout) · **Effort:** S (one assertion in an existing spec)
-
-PR #534 descoped its Task 10 (real-browser layout) with: "`CrewUnderRowStack`'s parent is not fixed-dimension, so the rule's trigger doesn't apply; width-fill is unit-asserted. Deferred `BL-CREW-WARN-STACK-E2E-GEOMETRY`." The id was cited in the PR body but no row was ever added to this file, DEFERRED.md, or the archive — found by a PR-body-vs-ledger reconciliation sweep on 2026-07-24.
-
-**Mostly superseded.** PR #563 (crew-warning-attachment T5) landed real-browser geometry for this surface at `tests/e2e/published-review-modal.layout.spec.ts:1050+`: the under-row stack `[data-testid="crew-warn-stack-<key>"]` is measured inside the crew panel card's border box on all four edges, and between its member's row and the next. The residual gap is narrow: those are CONTAINMENT bounds, not the width-FILL equality the deferral named (`stack.width === row.width` within tolerance), which remains jsdom-only (`tests/admin/wizard/crewWarnStack.test.tsx`) where no layout is computed.
-
-**Work:** add a width-fill equality assertion to the existing T5 describe block, reusing its harness page (`crewwarnings.html`) and `TOL`. No new harness or config needed.
-
-**Status:** open (residual only).
-
 ## BL-MODAL-REALTIME-UPDATED-CUE — freshness cue near the published modal's action clusters
 
 **Filed:** 2026-07-24 (retroactive — deferred in PR #505's body 2026-07-20, never filed) · **Class:** UI refinement · **Effort:** S
