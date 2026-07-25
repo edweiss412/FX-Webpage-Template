@@ -177,6 +177,18 @@ describe("T-S8: the coalescer THROTTLES, it does not debounce", () => {
     // first event's frame survives and runs on the next tick.
     expect(cancelled, "coalescer cancelled a pending frame mid-burst (debounce)").toEqual([]);
     expect(frames.size, "burst must collapse to exactly one pending frame").toBe(1);
+
+    // Run that frame, then burst AGAIN. Without the `frame = null` reset inside
+    // the callback, the guard stays latched: one frame runs and every later pan
+    // event is suppressed forever, which passes a first-burst-only assertion.
+    const pending = [...frames.values()];
+    frames.clear();
+    cancelled = [];
+    for (const cb of pending) cb(0);
+
+    for (let i = 0; i < 10; i++) vv.dispatchEvent(new Event("scroll"));
+    expect(frames.size, "coalescer latched: no frame scheduled after the first ran").toBe(1);
+    expect(cancelled, "second burst cancelled a pending frame").toEqual([]);
   });
 });
 
@@ -212,6 +224,23 @@ describe("T-S7: ShareHub's own zero-dimension recovery", () => {
     frames.clear();
     vv.dispatchEvent(new Event("resize"));
     expect(frames.size).toBeGreaterThan(0);
+
+    // Scheduling a frame is NOT recovery: a stale or cached degenerate-state
+    // path would also schedule. Run it and assert the RESTORED coordinates.
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const cb of pending) cb(0);
+
+    const pop = screen.getByTestId("share-hub-popover");
+    const boundsLeft = VV.offsetLeft + 8;
+    const boundsRight = VV.offsetLeft + VV.width - 8;
+    const width = Math.min(308, boundsRight - boundsLeft);
+    const expectedLeft = Math.min(
+      Math.max(TRIGGER.left + TRIGGER.width - width, boundsLeft),
+      boundsRight - width,
+    );
+    expect(pop.style.left).toBe(`${expectedLeft}px`);
+    expect(pop.style.visibility).not.toBe("hidden");
   });
 });
 
@@ -223,7 +252,20 @@ describe("T-S6: zoom never newly enters ShareHub's hidden branch", () => {
     const vv = new VisualViewportStub(120, 100, 10, 10);
     vi.stubGlobal("visualViewport", vv);
     const kebab = openHub();
-    stubRect(kebab, { left: 900, top: 700, width: 24, height: 24 });
+    // ShareHub reads containerRef.current (ShareHub.tsx:232), NOT the button, so
+    // stubbing only the button leaves the real anchor in-slice and the
+    // outside-slice branch is never exercised at all.
+    const OUT = { left: 900, top: 700, width: 24, height: 24 };
+    stubRect(kebab.parentElement ?? kebab, OUT);
+    stubRect(kebab, OUT);
+    // Precondition: the anchor really is outside the stubbed slice.
+    const sliceRight = 10 + 120;
+    const sliceBottom = 10 + 100;
+    expect(
+      OUT.left,
+      "anchor must be outside the slice for this case to mean anything",
+    ).toBeGreaterThan(sliceRight);
+    expect(OUT.top).toBeGreaterThan(sliceBottom);
     frames.clear();
     vv.dispatchEvent(new Event("scroll"));
     const pending = [...frames.values()];

@@ -84,9 +84,13 @@ function specifiersOf(code: string): { spec: string; clause: string }[] {
 
 /** Resolve an alias or relative specifier to a concrete file path, or null. */
 function resolveSpec(fromFile: string, spec: string): string | null {
+  // `moduleResolution: "bundler"` resolves a ".js" specifier to the ".ts"
+  // source, so the extension must be stripped before probing or
+  // `position.js` becomes `position.js.ts` and the rule silently misses.
+  const bare = spec.replace(/\.(js|jsx|mjs|cjs)$/, "");
   let base: string;
-  if (spec.startsWith("@/")) base = join(REPO_ROOT, spec.slice(2));
-  else if (spec.startsWith(".")) base = resolve(dirname(fromFile), spec);
+  if (bare.startsWith("@/")) base = join(REPO_ROOT, bare.slice(2));
+  else if (bare.startsWith(".")) base = resolve(dirname(fromFile), bare);
   else return null; // package import
   for (const cand of [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
     if (existsSync(cand) && statSync(cand).isFile()) return cand;
@@ -101,7 +105,11 @@ const importsCorePlacement = (file: string, code: string): boolean =>
   specifiersOf(code).some(
     (s) =>
       resolveSpec(file, s.spec) === CANONICAL.position &&
-      (/\bcomputePopoverPlacement\b/.test(s.clause) || /\*\s+as\s+\w+/.test(s.clause)),
+      // named, `* as ns`, AND bare `export *` - the last re-exports the core
+      // wholesale and was accepted by a clause filter that required a name.
+      (/\bcomputePopoverPlacement\b/.test(s.clause) ||
+        /\*\s+as\s+\w+/.test(s.clause) ||
+        /^\s*\*\s*$/.test(s.clause)),
   );
 
 const sourceFiles = ROOTS.flatMap((r) => walk(join(REPO_ROOT, r), []));
@@ -155,6 +163,8 @@ describe("popover placement consumers read the visible viewport, not the layout 
     expect(core(`import { computePopoverPlacement as c } from "../../lib/popover/position";`)).toBe(
       true,
     );
+    expect(core(`import { computePopoverPlacement } from "@/lib/popover/position.js";`)).toBe(true);
+    expect(core(`export * from "@/lib/popover/position";`)).toBe(true);
     // A DIFFERENT module exporting a same-named symbol is not the core.
     expect(core(`import { computePopoverPlacement } from "./localHelpers";`)).toBe(false);
     // An unrelated local module named `place` is NOT the policy module.
