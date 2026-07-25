@@ -94,6 +94,48 @@ function scheduleCallAt(sql: string, start: number): string {
 
 const escapeForRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/**
+ * Deliberately over-permissive scanner for ANY cron schedule/unschedule call.
+ *
+ * Six review rounds landed on one species: the strict matcher recognised less
+ * than the SQL actually allows, and the guards then silently pinned a superseded
+ * block. Widening the pattern each round is whack-a-mole — a regex will never be
+ * a PostgreSQL parser. So this exists to make the failure LOUD instead: anything
+ * this sees but `cronEventsForJob` cannot attribute is reported by
+ * `unattributableCronCalls`, and a test fails rather than a guard passing on
+ * stale data.
+ *
+ * Not `g`-flagged at module scope for `.test()` use — a global regex carries
+ * `lastIndex` between calls and would alternate true/false. Callers that need
+ * iteration build their own.
+ */
+const LOOSE_CRON_CALL = /cron\s*\.\s*(?:un)?schedule\s*\(/;
+
+/**
+ * Cron calls the strict matchers cannot attribute to a job.
+ *
+ * A `schedule` whose first argument is not a string literal cannot be assigned to
+ * a job name statically. An `unschedule` never appears here: a literal one is
+ * attributed, and a non-literal one is already handled conservatively as
+ * `opaque-unschedule`.
+ *
+ * Returns a short excerpt per site so a failure names what it choked on.
+ */
+export function unattributableCronCalls(sources: string[]): string[] {
+  const found: string[] = [];
+  for (const source of sources) {
+    const sql = stripSqlComments(source);
+    for (const m of sql.matchAll(/cron\s*\.\s*(un)?schedule\s*\(/g)) {
+      if (m[1]) continue; // unschedule: literal or opaque, both covered
+      const rest = sql.slice(m.index);
+      if (!/^cron\s*\.\s*schedule\s*\(\s*'[^']+'/.test(rest)) {
+        found.push(rest.slice(0, 80).replace(/\s+/g, " "));
+      }
+    }
+  }
+  return found;
+}
+
 export function cronEventsForJob(jobName: string, sources: string[]): CronEvent[] {
   // Whitespace-tolerant, NOT a literal `cron.schedule('name'` anchor (whole-diff
   // R12). Two migrations already write the call across lines —
@@ -102,9 +144,9 @@ export function cronEventsForJob(jobName: string, sources: string[]): CronEvent[
   // invisible to discovery, leaving the previous block effective while both
   // parity guards stayed green against a schedule production no longer used.
   const job = escapeForRegex(jobName);
-  const scheduleRe = new RegExp(`cron\\.schedule\\(\\s*'${job}'`, "g");
-  const unscheduleRe = new RegExp(`cron\\.unschedule\\(\\s*'${job}'`, "g");
-  const anyUnscheduleRe = /cron\.unschedule\(\s*/g;
+  const scheduleRe = new RegExp(`cron\\s*\\.\\s*schedule\\s*\\(\\s*'${job}'`, "g");
+  const unscheduleRe = new RegExp(`cron\\s*\\.\\s*unschedule\\s*\\(\\s*'${job}'`, "g");
+  const anyUnscheduleRe = /cron\s*\.\s*unschedule\s*\(\s*/g;
   const events: CronEvent[] = [];
 
   for (const source of sources) {
@@ -156,9 +198,12 @@ export function effectiveScheduleBlock(jobName: string): string {
   const sources = migrationFilesInApplyOrder()
     .map((name) => readFileSync(join(dir, name), "utf8"))
     // Most migrations touch no cron at all; skipping them avoids lexing ~100
-    // files. Order of the remainder is unchanged, and a file with neither call
-    // could not have contributed an event anyway.
-    .filter((sql) => sql.includes("cron.schedule(") || sql.includes("cron.unschedule("));
+    // files. Order of the remainder is unchanged, and a file with no cron call
+    // could not have contributed an event anyway. The predicate must be at least
+    // as permissive as the matchers, or it becomes the blind spot it is meant to
+    // optimise — an earlier version tested `includes("cron.schedule(")`, which
+    // would have skipped a whole file written in the spaced form.
+    .filter((sql) => LOOSE_CRON_CALL.test(stripSqlComments(sql)));
   const block = effectiveScheduleBlockFrom(jobName, sources);
   if (block === null) {
     throw new Error(`${jobName} is not scheduled by any migration`);

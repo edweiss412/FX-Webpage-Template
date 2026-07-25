@@ -18,6 +18,7 @@ import {
   effectiveScheduleBlock,
   effectiveScheduleBlockFrom,
   migrationFilesInApplyOrder,
+  unattributableCronCalls,
 } from "../helpers/cronSchedules";
 
 const REGISTRY = join(
@@ -50,7 +51,9 @@ function scheduleFromMigrations(jobName: string): string {
   // Whitespace-tolerant everywhere the call is matched (whole-diff R12): two
   // migrations already write `cron.schedule(` with the arguments on their own
   // lines, and a literal-anchored regex silently matches none of them.
-  const match = new RegExp(`cron\\.schedule\\(\\s*'${jobName}'\\s*,\\s*'([^']*)'`).exec(block);
+  const match = new RegExp(`cron\\s*\\.\\s*schedule\\s*\\(\\s*'${jobName}'\\s*,\\s*'([^']*)'`).exec(
+    block,
+  );
   if (!match) throw new Error(`${jobName}: schedule literal not found in its own block`);
   return match[1]!;
 }
@@ -258,6 +261,44 @@ describe("SAMPLING_PERIOD_MS agrees with the canonical refresh-watch schedule", 
          );`,
       ]);
       expect(block).toContain("0 */3 * * *");
+    });
+
+    test("every cron call in the tree is attributable — unknown forms fail LOUDLY", () => {
+      // Whole-diff R13, and the structural answer to six rounds of the same
+      // species. Each round found the strict matcher recognising less than SQL
+      // allows (block comments, dollar bodies, hard-coded paths, unschedule,
+      // multiline, then `cron.schedule (` with a space). Widening the pattern
+      // per round is whack-a-mole; a regex is not a PostgreSQL parser. This
+      // asserts the parser accounts for EVERY cron call a deliberately loose
+      // scanner can find, so the next unhandled form fails here with the text it
+      // choked on, instead of silently leaving a guard pinned to a stale block.
+      const dir = join(process.cwd(), "supabase/migrations");
+      const sources = migrationFilesInApplyOrder().map((n) => readFileSync(join(dir, n), "utf8"));
+      expect(unattributableCronCalls(sources)).toEqual([]);
+    });
+
+    test("a spaced call form is discovered, not skipped", () => {
+      // R13's exact report: `cron.schedule ('job', …)` is valid SQL.
+      const block = effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+        scheduleSql("0 * * * *"),
+        "perform cron.schedule ('fxav_cron_refresh_watch', '0 */3 * * *', format($body$ select 1; $body$));",
+      ]);
+      expect(block).toContain("0 */3 * * *");
+      expect(
+        effectiveScheduleBlockFrom("fxav_cron_refresh_watch", [
+          scheduleSql("0 * * * *"),
+          "perform cron . unschedule ('fxav_cron_refresh_watch');",
+        ]),
+      ).toBeNull();
+    });
+
+    test("a schedule whose job name is not a literal is reported, not ignored", () => {
+      // The form the strict matcher genuinely cannot attribute. It must surface
+      // rather than pass silently.
+      expect(
+        unattributableCronCalls(["perform cron.schedule(jobname, '0 * * * *', 'select 1;');"]),
+      ).toHaveLength(1);
+      expect(unattributableCronCalls([scheduleSql("0 * * * *")])).toEqual([]);
     });
 
     test("a commented-out unschedule does not count", () => {
