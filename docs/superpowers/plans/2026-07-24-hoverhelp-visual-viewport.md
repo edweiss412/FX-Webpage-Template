@@ -1,11 +1,23 @@
 # Visual-Viewport Popover Placement Implementation Plan
 
-**Spec:** `docs/superpowers/specs/2026-07-24-hoverhelp-visual-viewport.md` (round 6)
+**Spec:** `docs/superpowers/specs/2026-07-24-hoverhelp-visual-viewport.md` (round 7 — IMPLEMENTED)
 **Branch:** `fix/hoverhelp-visual-viewport`, worktree `/Users/ericweiss/FX-worktrees/hoverhelp-visual-viewport`
 **Closes:** `BL-HOVERHELP-VISUAL-VIEWPORT`
 **Autonomy:** user approved autonomous ship-through-to-merged-PR (2026-07-24 brainstorming gate); spec + plan user-review gates waived.
 
-**Round 6 hardens the property and corrects the record.** Round 5's review showed the property was vacuous on the fallback branch and that the structural guard could not even pass against the intended architecture. Both are fixed and VERIFIED by applying the complete implementation and running everything. **Round 5 closed the recurring vector with a property, not another boundary.** Round 4 descoped (deleting a whole task), but its replacement rule was still a geometric guess and round 4's review refuted it: the helper compared overlap against the RAW visual rect while the core compares the INSET one. Four guesses, four refutations. Spec R4 is now an OUTCOME test — compute with visible bounds, and if the result is `hidden`, use today's layout bounds instead — and spec R14 ships the property suite that proves it, in the same commit as the code (Task 2), per the escalation rule.
+**STATUS: Tasks 1-7 are LANDED as commits.** Six review rounds blocked on prose while verified code sat unused, and every "evidence that would settle it" the reviewer named was executable. The code is now committed and the documents CITE it, which removes the drift class those rounds kept finding.
+
+| task | commit | state |
+|---|---|---|
+| 1 RED e2e layer + CI paths | `37544ca44` | landed (declared-red) |
+| 2 viewport.ts + place.ts + unit + property | `45346f3c8` | landed |
+| 3+4 both consumers + guard (bounds AND listeners) | `cbc15debf` | landed — combined, because the e2e evidence required both present at once |
+| jsdom pins for both consumers | `162542e2e` | landed |
+| 7 bookkeeping | this commit | landed |
+
+Remaining: full local gates (Task 8), impeccable dual-gate (Task 9), whole-diff review (Task 10), ship (Task 11).
+
+**Round 6 hardened the property and corrected the record.** Round 5's review showed the property was vacuous on the fallback branch and that the structural guard could not even pass against the intended architecture. Both are fixed and VERIFIED by applying the complete implementation and running everything. **Round 5 closed the recurring vector with a property, not another boundary.** Round 4 descoped (deleting a whole task), but its replacement rule was still a geometric guess and round 4's review refuted it: the helper compared overlap against the RAW visual rect while the core compares the INSET one. Four guesses, four refutations. Spec R4 is now an OUTCOME test — compute with visible bounds, and if the result is `hidden`, use today's layout bounds instead — and spec R14 ships the property suite that proves it, in the same commit as the code (Task 2), per the escalation rule.
 
 ---
 
@@ -25,7 +37,7 @@ N/A: invariants 2, 3, 4, 5, 9, 10 — no DB path, no Supabase call, no mutation 
 <!-- spec-lint: ignore — file created BY this plan; not tracked until its task lands -->
 - `tests/components/admin/_metaPopoverViewportSource.test.ts` (Task 3) — DISCOVERS consumers by walking `components/` and `app/` for `computePopoverPlacement` call sites rather than reading a hardcoded list, so a third consumer added later fails by default. A hardcoded list is exactly what hid ShareHub in round 1. **Pre-verified against the live tree: discovery passes, four per-consumer assertions fail.**
 
-**e2e harness readiness.** (a) Boot: no dev server, no Supabase — the spec bundles its entry with pinned esbuild, compiles token CSS with the Tailwind CLI, serves over `node:http` on an ephemeral port in `beforeAll`, under `tests/e2e/standalone.config.ts` (`standalone-chromium`, `devices["Desktop Chrome"]`). (b) Readiness: the existing per-case gate (`open()` waits for `harness-ready`, then a converge-by-loop `clickOpen`) is reused unchanged. (c) Detach safety: rects are read via `page.evaluate` while the popover is open; zoom never unmounts a node.
+**e2e harness readiness.** (a) Boot: no dev server, no Supabase — the spec bundles its entry with pinned esbuild, compiles token CSS with the Tailwind CLI, serves over `node:http` on an ephemeral port in `beforeAll`, under `tests/e2e/standalone.config.ts` (`standalone-chromium`, `devices["Desktop Chrome"]`). (b) Readiness: the T-VV cases use a LOCAL `keyboardOpen` (focus+Enter), NOT the shared `clickOpen` — click-open leaves the pointer on the trigger so the mouse pan fires the hover-close and every rect becomes a zero rect. Each case then asserts `aria-expanded` before reading geometry. (c) Detach safety: rects are read via `page.evaluate` while the popover is open; zoom never unmounts a node.
 
 **Process correction (round 2 F2d).** Snippet verification writes to the session scratchpad, copies in, runs, and removes in the SAME command, with `git status` verified after. Round 2 observed leftover scratch files in the worktree while the reviewer was reading it; that cannot recur.
 
@@ -59,7 +71,7 @@ N/A: invariants 2, 3, 4, 5, 9, 10 — no DB path, no Supabase call, no mutation 
 
 Extend `tests/e2e/hoverhelp-geometry.spec.ts` with T-VV1..T-VV4 (spec §5) through `context.newCDPSession(page)`, using `Emulation.setPageScaleFactor` + `Input.synthesizeScrollGesture` (`gestureSourceType: "mouse"`) — **never** `synthesizePinchGesture`, measured as a silent no-op under this touchless project (spec §3.2).
 
-**Round 3 F3 is binding: a red run is evidence only if it is red for the right reason.** Each case asserts, in order: (1) the gesture moved `visualViewport` — `scale > 1` and offsets non-zero; (2) the fixture's popover is open; (3) the discrimination precondition — the pre-zoom rect, which is exactly what the layout-viewport implementation leaves on screen because `window` scroll never fires on a zoom-pan, is NOT inside the zoomed visual viewport; only then (4) the exact-coordinate verdict. "Old placement" is the **pre-zoom natural box**, never an implementation-constrained post-zoom box.
+**Round 3 F3 is binding: a red run is evidence only if it is red for the right reason.** Each case asserts, in order: (1) the ACHIEVED scale (round-6 F4: clamp cases are zoom-only, and `setPageScaleFactor` leaves offsets at 0, so demanding non-zero offsets there was impossible — only T-VV3 asserts pan offsets); (2) the fixture's popover is open; (3) the discrimination precondition — the pre-zoom rect, which is exactly what the layout-viewport implementation leaves on screen because `window` scroll never fires on a zoom-pan, is NOT inside the zoomed visual viewport; only then (4) the exact-coordinate verdict. "Old placement" is the **pre-zoom natural box**, never an implementation-constrained post-zoom box.
 
 <!-- spec-lint: ignore — file created BY this plan; not tracked until its task lands -->
 Also add `lib/popover/viewport.ts`, `lib/popover/place.ts`, and `components/admin/showpage/ShareHub.tsx` to the `pull_request` path filter in `.github/workflows/hoverhelp-geometry-e2e.yml` (spec §6). Wiring lands with the tests that need it.

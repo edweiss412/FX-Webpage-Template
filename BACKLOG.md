@@ -46,7 +46,7 @@ The DB-free serial→parallel reclassification (PR #528, closed unmerged) is cor
 
 `computePopoverPlacement` bounds body-host popovers by the LAYOUT viewport (`window.innerWidth/innerHeight`). Under pinch-zoom the visual viewport is a smaller, offset window onto the layout viewport, so an open popover can sit partially outside what the zoomed-in user can see. Ratified as out of scope for v1 (spec §1.1): admin surfaces are desktop-first, pinch-zoom on the crew page is transient, and the popover is dismissible/reopenable at the new zoom. Fix shape: use `window.visualViewport` (rect + `resize`/`scroll` events feeding the existing rAF coalescer) as the bounds rect when present.
 
-**Status:** open.
+**Status:** CLOSED — implemented per `docs/superpowers/specs/2026-07-24-hoverhelp-visual-viewport.md`. Scope grew during review: `ShareHub` carries the identical placement code and was fixed in the same change; WebKit is explicitly excluded (its coordinate convention is unverifiable in this repo's harness); and the guarantee that zoom can never newly hide a popover is pinned by a property suite rather than a boundary rule.
 
 ---
 
