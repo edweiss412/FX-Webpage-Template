@@ -268,21 +268,38 @@ new specs are **discovered** and that the harness emits the 15 cells.
    standalone spec cannot import a JSX tree directly: Playwright's transform rewrites JSX in every
    `.tsx` it loads, so `react-dom/server` cannot render it). Without this, T3 has nothing real to
    mount and would drift into synthetic markup that does not test the product components.
+
+   **Two seams must be opened, and round 3 was right that the plan had not named them:**
+   - **BellPanel's action row is unreachable as written.** `ActionCell` is private
+     (`components/admin/BellPanel.tsx:259`) and server-rendering `<BellPanel>` yields only its initial
+     loading state, so neither `isAutoResolving` branch can be emitted. T0 **extracts the presentational
+     action row as an exported `BellActionRow`** (props: `entry`, `onResolve`), leaves `ActionCell` as a
+     thin wrapper over it, and adds a behaviour-parity unit test asserting the wrapper renders the same
+     tree for both branches — so the extraction cannot silently change behaviour.
+   - **AdminNav needs a router context.** It calls `usePathname()`
+     (`components/admin/nav/AdminNav.tsx:70`), so the harness wraps it in
+     `AppRouterContext.Provider` from Next’s app-router-context shared-runtime module with a stub
+     carrying the pathname — the same seam `tests/e2e/_step3ReviewModalHarness.tsx` already uses for
+     `useRouter()` consumers. `OnboardingTopBar` needs no seam.
 2. Create tests/e2e/\_sectionHeaderCellHarness.tsx — a `tsx`-runnable harness (same main-guard pattern
    as `tests/e2e/_step3ReviewModalHarness.tsx`) emitting **one static tree per matrix cell** from the
    §1.1 input table below. The existing harness only emits fixed `normal` / `linkOnly` / `long` /
    `resolution` trees (`tests/e2e/_step3ReviewModalHarness.tsx:249-273`) and cannot produce the
    defensive, partial-provider, or status combinations, which is why a new harness is required.
-2. Create both spec files with a single trivially-passing smoke assertion each, add their names to
-   `standalone.config.ts:35` `testMatch`, and add all three new paths to `phantom-gap-e2e.yml`'s path
-   filters plus two run steps.
-3. Check `tests/ci/_metaE2eWorkflowCoverage.test.ts` for whether the new specs need coverage rows; add
-   them, or record "no row needed" with the reason.
+3. Create both spec files with a single trivially-passing smoke assertion each, add their names to
+   `standalone.config.ts:35` `testMatch`, and add **all FOUR new paths** to `phantom-gap-e2e.yml`'s path
+   filters — the two specs AND the two harnesses
+   (tests/e2e/\_sectionHeaderCellHarness.tsx, tests/e2e/\_pusherRowsHarness.tsx) — plus two run steps. A
+   harness is never matched by `testMatch`, so omitting it leaves a later harness-only PR CI-dark.
+4. **Add the two mandatory `PATH_GATED` rows** to `LOCAL_ONLY_ALLOWLIST`
+   (`tests/ci/_metaE2eWorkflowCoverage.test.ts:24-35`) — mandatory, not conditional (§0.1) — and **run
+   the meta-test**: `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`, expected green.
 4. Commit tools/one-off/childless-growable-census.ts (§0.4 sweep A).
 5. Run the §0.7 mechanical sweep and record findings against the tasks that own them.
-6. **Proof of discovery — exact commands and expected output:**
-   - `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts --list` → expect **1 test listed**, NOT "No tests found".
-   - same for tests/e2e/pusher-alignment.layout.spec.ts → **1 test listed**.
+6. **Proof of discovery AND execution — `--list` alone is not enough** (round-3 finding 4): a listed
+   spec can still fail to run. Both specs must be RUN and PASS before the T0 commit:
+   - `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts` → **1 passed** (the smoke case), never "No tests found".
+   - `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/pusher-alignment.layout.spec.ts` → **1 passed**.
    - `pnpm dlx tsx tests/e2e/_sectionHeaderCellHarness.tsx /tmp/cells.json && node -e "const c=require('/tmp/cells.json');if(Object.keys(c.cells).length!==15)throw new Error('expected 15 cells, got '+Object.keys(c.cells).length)"` → exits 0.
 7. Commit.
 
@@ -449,16 +466,21 @@ spacer that exists or returns, (b) a missing `ml-auto`.
 **Measured branch (spec §3.2): floor only, no breakpoint** — 22.94px at the narrowest real row (240px),
 reaching 0 only at ≤215px.
 
-1. **RED** — add a case to tests/e2e/section-header-layout.layout.spec.ts (same standalone config, so
-   already discoverable) using the LONGEST real title ("Wardrobe & key moments", longest of the five in
-   `components/admin/wizard/step3ReviewSections.tsx:386-401`) at a 240px row. Assert all three:
+1. **RED** — the mount was missing and round 3 was right: T0's cell harness emits only the 15
+   `ModalSectionChrome` cells, not the separate `EventDetailsBreakdown` hairline. **T0's cell harness
+   gains one additional fixture** rendering the real `EventDetailsBreakdown`
+   (`components/admin/wizard/step3ReviewSections.tsx:2099-2150`) with event-detail data whose only
+   populated group is **"Wardrobe & key moments"** — the longest of the five titles
+   (`components/admin/wizard/step3ReviewSections.tsx:386-401`) — inside a 240px-wide container. T0 adds
+   `data-testid="event-detail-group-rule"` to the rule so the selector is not positional, and the label is
+   its preceding sibling. Then in tests/e2e/section-header-layout.layout.spec.ts assert all three:
    (a) the rule is DRAWN (`width > 0`); (b) the resolved `min-width` is exactly **16px**; (c) the label
    does **not** wrap.
    - Command: `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts -g "hairline"`
    - Expected failure: **the single case fails on assertion (b)** — (a) and (c) already hold on the
      no-floor tree (22.94px, no wrap), which is exactly why (b) is what makes this task red. One
-     Playwright case named `hairline floor @ 240px row`, so the runner reports **1 failing / 1 passing**,
-     not three (round-2 finding 7).
+     Playwright case named `hairline floor @ 240px row`, so the runner reports **1 failed** in RED and
+     **1 passed** in GREEN — not "1 failing / 1 passing", which was incoherent (round-3 finding 5).
    - *Anti-tautology:* a short title cannot collapse, so the longest is mandatory or the test is vacuous.
 2. **GREEN** — add `min-w-4` to `components/admin/wizard/step3ReviewSections.tsx:2150`. No breakpoint.
    - PASS command: same; expect **1 passing case** (`hairline floor @ 240px row`).
@@ -494,9 +516,17 @@ assertion and so had no red proof.
 
 1. **RED** — add `T-NOPHANTOM-DASH [archived]` at both existing widths (390, 1280) against
    `/admin?bucket=archived`, gated on an archived row being attached so an empty bucket fails loudly.
-   - Command: `pnpm exec playwright test --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM-DASH \[archived\]"`
-   - Expected failure against the base seed: the attached-row gate fails — `pnpm db:seed` seeds no
-     archived shows, which is precisely the vacuity the gate exists to prevent.
+   - **Establish the base-seed-only state first** (round-3 finding 6 — otherwise a previous
+     `seedWalkerFixtures.ts` run against the persistent local DB leaves the archived row present and the
+     test passes before the change). `pnpm db:seed` is sufficient and verified: its `_locked_seed_ids`
+     sweep selects every `drive_file_id like 'seed-fixture:%'` (`supabase/seed.ts:546-550`) and deletes
+     those shows (`supabase/seed.ts:571-572`), which includes `seed-fixture:walker-archived`.
+     1. `pnpm db:seed`
+     2. Prove the anchor is ABSENT:
+        `psql "$TEST_DATABASE_URL" -At -c "select count(*) from public.shows where archived"` → `0`
+     3. RED: `pnpm exec playwright test --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM-DASH \[archived\]"`
+   - Expected failure: the attached-row gate fails on an empty archived bucket — precisely the vacuity
+     the gate exists to prevent.
 2. **GREEN** — add `pnpm dlx tsx supabase/seedWalkerFixtures.ts` after the existing `pnpm db:seed` step
    in `.github/workflows/phantom-gap-e2e.yml`, and run it locally. The fixture already exists:
    `walker-archived-2026` with `archived: true` (`supabase/seedWalkerFixtures.ts:117-123`).
@@ -514,36 +544,53 @@ committed only an already-green test — which is not failing-test → implement
 commit. **The transition assertions are therefore part of T2's own RED**, in the same commit as the
 header rebuild they govern. This section records the inventory T2 implements.
 
-**Why it must run in the real browser, not Vitest/jsdom.** Round 2 caught a real error: the earlier
-draft put `getComputedStyle(...).transitionProperty` in a Vitest test, where no compiled Tailwind
-stylesheet is loaded, so it would have observed jsdom defaults and passed vacuously regardless of the
-utilities in `app/globals.css`. The assertions live in tests/e2e/section-header-layout.layout.spec.ts,
-which serves the compiled stylesheet.
+**Why it must run in the real browser, not Vitest/jsdom.** Round 2 caught that
+`getComputedStyle(...).transitionProperty` in Vitest sees jsdom defaults, with no compiled Tailwind
+loaded, so it would pass vacuously. Round 3 then caught five further defects in the browser version.
+All are addressed below; each bullet names the defect it answers.
 
-**Spec §8 inventory, carried in full.** Heading level is fixed per call site and cannot transition, so
-the transitionable axes are status (clean/flagged/judgment) × count (shown/absent) × link
-(present/absent) = **12 states, 66 pairs**, every pair **instant — no animation**.
+**(a) Same-key compounds need a LIVE React root, not static markup.** A static-markup harness cannot
+update props under one mounted key, so it cannot prove same-key reconciliation. T0 therefore adds
+tests/e2e/\_sectionHeaderLiveEntry.tsx plus an esbuild bundle step, reusing the repo's existing live
+pattern (`tests/e2e/_step3ReviewModalLiveEntry.tsx` + `tests/e2e/_step3ReviewModalBundle.mjs`), which
+`createRoot`-renders the real component and exposes a `window` hook to push new props **without changing
+`key`**. The five compounds are driven through that hook.
 
-**How 66 pairs are covered executably** (round-2 finding 3 — "all 66 pairs" must not be prose): the
-treatment is a property of each STATE's rendered output, not of the path between two states. If no state
-attaches a transition or animation to the header's layout properties, then no pair can animate. So the
-executable form is a **loop over all 12 states** asserting, on the outer column, header line, and pill
-line:
+**(b) Normal motion, not reduced.** The cell harness sets `reducedMotion: "reduce"` for stable geometry,
+which suppresses `motion-safe:` utilities and would let a real animation pass. The transition cases run
+with **normal motion** (no `emulateMedia` reduced-motion), stated explicitly so the two case groups do
+not share a fixture default.
 
-- computed `transition-property` does not cover `height`, `width`, or `all`;
-- computed `animation-name` is `none`;
-- no `AnimatePresence` and no `initial`/`animate`/`exit` prop on any conditional site.
+**(c) EFFECTIVE transitions only.** `transition-property` computes to `all` on ordinary elements even
+when `transition-duration` is `0s`, so "does not cover `all`" would fail everywhere. The assertion is
+therefore: a violation exists only when `parseFloat(transitionDuration) > 0` **and** the property list
+covers a layout property (or is `all`); likewise `animation-name !== "none"` **and**
+`parseFloat(animationDuration) > 0`.
 
-Plus the **five compound cases** driven as real prop updates under the same `key`, which is where
-interleaving could otherwise hide: pill appears while count mutates; count changes while a pill is
-already present; pill+link together; count+link together; pill+count+link together.
+**(d) The layout-property set is complete**, not just height/width: `height`, `width`, `padding*`,
+`margin*`, `gap`/`row-gap`/`column-gap`, `flex-basis`, `min-width`/`min-height`,
+`max-width`/`max-height`, and `transform`.
 
-**The conditional sites enumerated** (post-rebuild equivalents of the pre-rebuild
-`components/admin/wizard/step3ReviewSections.tsx:894-900` icon chip,
-`components/admin/wizard/step3ReviewSections.tsx:911-926` heading/count group, and
-`components/admin/wizard/step3ReviewSections.tsx:928-940` pill/link): the status-icon tone ternary, the
-`showCount` conditional, the `sheetHref` conditional, and the pill-line conditional. Each is named in
-the test so a new conditional added later without a transition decision fails the audit.
+**(e) Every affected element, not only the three wrappers:** outer column, header line, pill line
+(**when present**), centred group, heading, count chip, sheet link, and pill. The sheet link's
+`transition-colors duration-fast` is **allowed** — the assertion is that its effective transition covers
+no layout property, so a colour-only transition passes and a layout one fails.
+
+**(f) Clean states have no pill line.** The 12-state loop skips the pill-line element in the six
+pill-less states and instead asserts it is **absent from the DOM** — which is also §T2's no-empty-wrapper
+contract, checked from the same place.
+
+**(g) "A new conditional fails the audit" is made executable**, not asserted. T2 adds a small
+source-level inventory over the `ModalSectionChrome` function body only: parse it with the TypeScript
+AST, collect every JSX-returning conditional (`?:` and `&&`), and assert the set equals a named registry
+of four — status-icon tone, `showCount`, `sheetHref`, pill line. A fifth conditional added later fails
+until it is registered with a transition decision. This is deliberately scoped to one function, not the
+repo-wide guard descoped in spec §6.
+
+**Spec §8 inventory.** Heading level is fixed per call site and cannot transition, so the transitionable
+axes are status (clean/flagged/judgment) × count (shown/absent) × link (present/absent) = **12 states,
+66 pairs**, every pair **instant — no animation**. The 12-state loop plus (c)-(f) proves no state
+attaches an effective layout transition, so no pair can animate; the five compounds cover interleaving.
 
 ### T8 — `DESIGN.md` updates  `docs(design):`
 
@@ -605,12 +652,13 @@ a separate gate from local green, then `gh pr merge --merge`, then fast-forward 
 
 ## 2. Task order and why
 
-T0 (infrastructure) → **T7 RED** → T1 (count) → T2 (header) → **T7 GREEN + commit** → T3 → T4 → T5 → T6
-→ T8 → T9 → T10 → T11.
+T0 (infrastructure) → T1 (count boundary) → **T2 (header layout AND transition audit — RED, implement,
+PASS, one commit)** → T3 → T4 → T5 → T6 → T8 → T9 → T10 → T11.
 
-T7's red state depends on the post-rebuild structure being *absent*, so its RED runs before T2 and its
-GREEN after — the only task whose two halves straddle another task, called out here rather than left
-implicit.
+**No task straddles another.** The transition audit lives inside T2 because it can only be red against
+the post-rebuild structure; §T7 is inventory-only and produces no separate commit. Round 2 flagged the
+straddled construction and round 3 correctly caught that this section still described it — it does not
+any more.
 
 ## 3. Verification before push
 
