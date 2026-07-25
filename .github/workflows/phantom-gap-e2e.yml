@@ -143,6 +143,13 @@ jobs:
         # anchor is a shows-table ROW, and the crew describe resolves the Waldorf
         # show + its share token in beforeAll and throws without them.
         run: pnpm db:seed
+      # The ARCHIVED bucket needs a row, and the base seed does not create one: its
+      # `_locked_seed_ids` sweep deletes every `seed-fixture:%` show, this fixture
+      # included. `walker-archived-2026` lives in the walker extension seed, so it
+      # runs AFTER the base seed. Without this, T-NOPHANTOM-DASH [archived] measures
+      # an empty bucket — which its exact-fixture gate fails on, by design.
+      - name: Seed the archived fixture (walker extension)
+        run: pnpm dlx tsx supabase/seedWalkerFixtures.ts
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:

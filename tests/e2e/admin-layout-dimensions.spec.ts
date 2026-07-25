@@ -359,12 +359,13 @@ test.describe("phantom gap — /admin dashboard (real route)", () => {
   // auto-applied strip all appear instead. A wrapper populated in one branch can
   // empty out in the other, so one width would measure half the surface.
   //
-  // COVERAGE BOUNDARY: the ACTIVE bucket only. `/admin?bucket=archived` renders a
-  // different tree (`ArchivedShowRow`), but `pnpm db:seed` — what this workflow
-  // runs — seeds no archived shows (the archived fixture lives in the separate
-  // `seedWalkerFixtures.ts` extension seed), so a probe there would measure an
-  // empty bucket and anchor on nothing. Covering it means seeding an archived row
-  // first; carried as BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET.
+  // COVERAGE: both buckets. `/admin?bucket=archived` renders a structurally
+  // different tree (`ArchivedShowRow` instead of `ShowsTable` rows), so a
+  // zero-extent child introduced there would trip this workflow's `components/**`
+  // trigger while both active-bucket cases stayed green. Closed 2026-07-25 by
+  // running `seedWalkerFixtures.ts` alongside `pnpm db:seed` in the workflow — the
+  // archived fixture (`walker-archived-2026`) lives in that extension seed, and the
+  // base seed alone leaves the bucket empty.
   //
   // The inbox anchor is therefore PER WIDTH, and captured from a live run rather
   // than guessed: at 390 the column's gapped container is the mobile summary
@@ -438,6 +439,55 @@ test.describe("phantom gap — /admin dashboard (real route)", () => {
       expect(
         remaining,
         `zero-extent items charge their parent's gap and show as a seam no element accounts for [@ ${width}]`,
+      ).toEqual([]);
+    });
+  }
+
+  /**
+   * The ARCHIVED bucket. A structurally different tree — `ArchivedShowRow` rather
+   * than `ShowsTable` rows — so it needs its own cases; the active-bucket walk
+   * never enters it.
+   *
+   * NON-VACUITY ANCHORS THE EXACT FIXTURE ROW, never a `[data-testid^=…]` prefix:
+   * the local database carries unrelated archived shows from other suites, and a
+   * prefix match would let one of those satisfy the gate while the fixture this
+   * case depends on was absent. `pnpm db:seed` alone does NOT create it — its
+   * `_locked_seed_ids` sweep deletes every `seed-fixture:%` show, including this
+   * one — so the workflow runs `seedWalkerFixtures.ts` after the base seed.
+   */
+  const ARCHIVED_ROW = "archived-show-row-walker-archived-2026";
+
+  for (const width of [390, 1280] as const) {
+    test(`T-NOPHANTOM-DASH [archived] @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto("/admin?bucket=archived", { waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("admin-dashboard")).toBeVisible();
+      // Fails loudly on an empty bucket rather than measuring nothing.
+      await expect(page.getByTestId(ARCHIVED_ROW)).toBeAttached();
+
+      const found = await scanForPhantomGaps(page.locator(DASHBOARD));
+
+      expect(
+        found.visited.filter((v) => v.includes(ARCHIVED_ROW)),
+        `the walk descended into ${ARCHIVED_ROW} [@ ${width}] — gapped containers` +
+          ` visited: ${JSON.stringify(found.visited)}`,
+      ).not.toEqual([]);
+      expect(
+        found.unresolved,
+        `every gap on the archived bucket resolved to a used length [@ ${width}]`,
+      ).toEqual([]);
+
+      const { remaining, stale } = reconcilePhantomLedger(
+        found.offenders,
+        KNOWN_DASHBOARD_PHANTOM_ITEMS,
+        { surface: "/admin?bucket=archived", width },
+      );
+      expect(stale, `stale ledger rows [archived @ ${width}]`).toEqual([]);
+      expect(
+        remaining,
+        `zero-extent items charge their parent's gap and show as a seam no element accounts for [archived @ ${width}]`,
       ).toEqual([]);
     });
   }
