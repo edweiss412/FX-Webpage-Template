@@ -36,7 +36,8 @@ This spec does not fix that parse. It makes the parser **say** when it made the 
 **Amendments applied after adversarial review R1** (do not re-derive; these ARE the repairs):
 
 - **R7 amended.** The original P3(b) predicate ("split happened and the resulting name contains a digit") was **wrong in both directions** and is withdrawn. Probe-verified: `"Hotel 71 71 E Wacker Dr Chicago, IL 60601"` splits **correctly** to name `"Hotel 71"` (the old predicate would warn on correct data and offer an undo that degrades it), while `"Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601"` **corrupts** the name to `"Hotel"` yet contains no digit (the old predicate stayed silent). Replaced by the candidate-count predicate in §3.1 P3(b).
-- **R8 amended.** The original blanket `no-isolated-raw` rationale was **factually false** for the 2025-05 corpus row, where Pattern 3 does isolate a guest-only substring after `Check Out: 5/15`. Resolution is now per-path (§6), and the reason string is only used where it is true.
+- **R8 amended, then restored (R2 finding 4).** An R1 repair briefly made P1 resolvable where Pattern 3's checkout strip "isolated" a guest region. R2 refuted it: the strip is positional, not semantic, so the region can contain note text, and accepting the fix would hide a crew member's lodging from their own page. R8 is back to a blanket `resolvable:false`, with a reason string that is true in every case (§6).
+- **R9 added (R2 findings 1–3).** Narrow guest predicates are withdrawn entirely. Two rounds produced five probe-verified silent holes, so P1 now fires on **every** inline reservation that produced a guest. Firing on a currently-correct parse is correct: the code means "a judgment was made", not "this is wrong". Corpus impact is 2 → 5 guest cards; ratified by the user 2026-07-25.
 
 ---
 
@@ -55,7 +56,7 @@ This spec does not fix that parse. It makes the parser **say** when it made the 
 2. **No-guest split** (`lib/parser/blocks/hotels.ts:756-778`).
 3. **Legacy Patterns 1/2/3** (`lib/parser/blocks/hotels.ts:783-819`) — dash-name (`lib/parser/blocks/hotels.ts:784`), multi-dash (`lib/parser/blocks/hotels.ts:792`), **title-case pairing** (`lib/parser/blocks/hotels.ts:802-819`). Pattern 3 is the weakest: it cannot tell a three-word person from two people, and when the cell has no literal "check out" the strip is a no-op so it pairs across the **entire** cell including the hotel name. That is the mechanism behind §1.
 
-**`consistent` is trivially true for a single later guest.** Probe-verified: `"Hyatt Regency Eric - 110525 John Smith - 103316"` yields `later === ["John Smith"]`, so `counts === [2]` and `consistent === true`; learn-K peels 2 words and produces `hotel_name:"Hyatt"`, `names:["Regency Eric","John Smith"]` — a live mis-parse. A `k` learned from ONE sample is a guess with no corroboration. This drives P2 (§3.1).
+**`consistent` is trivially true for a single later guest.** Probe-verified: `"Hyatt Regency Eric - 110525 John Smith - 103316"` yields `later === ["John Smith"]`, so `counts === [2]` and `consistent === true`; learn-K peels 2 words and produces `hotel_name:"Hyatt"`, `names:["Regency Eric","John Smith"]` — a live mis-parse. A `k` learned from ONE sample is a guess with no corroboration — and R2 showed that even two corroborating samples do not validate the FIRST guest's boundary (§3.1). This is one of the five holes that drove P1 to become unconditional.
 
 ### 2.3 `splitHotelNameAddress`
 
@@ -71,26 +72,46 @@ Because the splitter takes the FIRST match, a cell containing **two** street-phr
 
 ### 3.1 Predicates (normative)
 
-Four predicate rows across three sites (P3 has two disjoint arms). Each is pure; none changes a parsed value.
+Three predicate rows across two sites. Each is pure; none changes a parsed value.
 
 | ID | Site | Fires when | Reason string |
 | -- | ---- | ---------- | ------------- |
-| **P1** | `buildInlineHotel`, Pattern 3 (`lib/parser/blocks/hotels.ts:802-819`) | Patterns 1 and 2 both produced zero names, AND Pattern 3 produced ≥1 name, **AND the scanned region contains no explicit guest delimiter** — no `/` separator and no `guests?:` label (case-insensitive) | `"titlecase-pairing-fallback"` |
-| **P2** | `buildInlineHotel`, learn-K (`lib/parser/blocks/hotels.ts:696-747`) | `delims.length >= 2` AND **any** of: (i) `!consistent` (`lib/parser/blocks/hotels.ts:716`); (ii) `later.length < 2` — `k` learned from a single uncorroborated sample; (iii) the `names.length >= 2 && hotelPart.length > 0` guard at `lib/parser/blocks/hotels.ts:733` fails | `"learn-k-shape-disagreement"` |
-| **P3(a)** | `splitHotelNameAddress` (`lib/parser/blocks/hotels.ts:261`) | `STREET_ADDRESS_RE` misses AND `STREET_ADDRESS_ZIP_RE` matches the cleaned string | `"address-shape-unsplit"` |
-| **P3(b)** | `splitHotelNameAddress` (`lib/parser/blocks/hotels.ts:261`) | `STREET_ADDRESS_RE` matches at **more than one index** in the cleaned string (global-flag match count > 1) — the split point was a choice among candidates, not a determination | `"multiple-street-candidates"` |
+| **P1** | `buildInlineHotel` (`lib/parser/blocks/hotels.ts:642`), any path that produces guests | the reservation came from the **inline** path AND `names.length >= 1` after `stripConfTokens` | the producing path: `"learn-k-peel"`, `"legacy-dash-pattern"`, `"legacy-multidash-pattern"`, or `"titlecase-pairing"` |
+| **P3(a)** | `splitHotelNameAddress` (`lib/parser/blocks/hotels.ts:261`) | `STREET_ADDRESS_RE` misses AND `STREET_ADDRESS_ZIP_RE` matches, **both evaluated against `" " + cleaned`** | `"address-shape-unsplit"` |
+| **P3(b)** | `splitHotelNameAddress` (`lib/parser/blocks/hotels.ts:261`) | `STREET_ADDRESS_RE` matches at **more than one index** of `" " + cleaned` (global-flag match count > 1) — the split point was a choice among candidates, not a determination | `"multiple-street-candidates"` |
 
-**P1's delimiter exclusion** closes a crying-wolf case: probe-verified, `"Hyatt Place 123 Main St Check In: 5/1 Check Out: 5/2 Guests: Eric Weiss / John Smith"` parses **correctly** to `["Eric Weiss","John Smith"]`; the `/` and the `Guests:` label make the boundary explicit, so no judgment was made and no warning is owed.
+#### P1 is unconditional by design (R9)
 
-**P3(b)'s candidate count** is the corrected predicate (R7 amendment). Probe-verified separation over the cleaned strings of all 9 distinct corpus hotels plus both synthetic cases:
+R1 and R2 each found silent holes in a narrower predicate; the class is now named, so the structural defense ships here rather than after a third round (`docs/agents/spec-self-review.md:20`, `docs/agents/writing-plans.md:20`).
 
-| Input | Candidates | Fires |
-| ----- | ---------- | ----- |
-| `Hotel 71 71 E Wacker Dr Chicago, IL 60601` (correct split) | 1 | No |
-| `Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601` (corrupts to "Hotel") | **2** | **Yes** |
-| All 7 distinct corpus hotel strings (§9) | 1 each | No |
+**Why no narrower rule can work.** On an unlabeled inline line there is nothing separating the hotel name from the first guest, so the first guest's boundary is exactly the fact no other part of the line evidences. Every proxy tried failed, each probe-verified against the real parser:
 
-P1 and P2 are mutually reachable in one cell and both stash; the emitter collapses them to ONE warning per reservation carrying both reasons (mirrors `parseGuestCell`'s `reasons: string[]`, `lib/parser/blocks/hotels.ts:178`).
+| Proxy | Counter-example | Actual parse |
+| ----- | --------------- | ------------ |
+| "Pattern 3 was used" | `Hyatt Regency Eric Weiss - 110525` (Pattern 1) | `names: ["Hyatt Regency Eric Weiss"]` — the whole line as one guest |
+| "≥2 delimiters" | `Hyatt Regency Eric---110525` (1 delimiter) | `names: ["Hyatt Regency Eric"]` |
+| "later guests agree on shape" | `Hyatt Regency Mary Ann Smith - 110525 John Smith - 103316 Jane Doe - 103317` | `hotel_name: "Hyatt Regency Mary"`, `names: ["Ann Smith", …]` |
+| "an explicit delimiter is present" | `… Check Out: 5/2 Guests: Mary Ann Smith John Doe` | `["Mary Ann","Smith John"]`, `Doe` dropped |
+| "no explicit delimiter is present" | `Hyatt Place Check In: 5/1 Eric Weiss John Smith` | `names: ["Hyatt Place","Eric Weiss","John Smith"]` |
+
+**Firing on a correct parse is correct behavior, not crying wolf.** `AMBIGUITY_CODES` membership means "reports a JUDGMENT CALL the parser made while still PRODUCING a value" (`lib/parser/ambiguityCodes.ts:2-6`); the catalog copy says "we made a judgment call … spot-check", never "this is wrong" (`lib/messages/catalog.ts:1374-1375`). On an inline line that statement is true every time, including the three corpus shows whose guest lists are currently correct.
+
+**Non-firing inline cases** (no judgment about a guest boundary was made, so no warning is owed): the no-guest split path (`lib/parser/blocks/hotels.ts:756-778`, `names: []`), and any inline reservation whose final `names` is empty.
+
+#### P3 position-0 normalization (R2 finding 5)
+
+Both regexes require leading whitespace (`lib/parser/blocks/hotelConfTokens.ts:14`, `lib/parser/blocks/hotelConfTokens.ts:20`), so a candidate at index 0 is invisible without padding — exactly why `looksLikeStreetStart` prepends a space (`lib/parser/blocks/hotelConfTokens.ts:28-33`). Both predicate arms MUST evaluate against `" " + cleaned`. Probe-verified:
+
+| Input | Bare | Padded | Fires |
+| ----- | ---- | ------ | ----- |
+| `71 Wacker Drive 72 Main St Chicago, IL 60601` (splits to name `71 Wacker Drive`) | 1 | **2** | **Yes**, P3(b) |
+| `1515 Broadway New York, NY 10036` (suffixless, stays whole) | ZIP misses | ZIP **matches** | **Yes**, P3(a) |
+| `Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601` (corrupts to `Hotel`) | 2 | 2 | **Yes**, P3(b) |
+| `Hotel 71 71 E Wacker Dr Chicago, IL 60601` (correct split) | 1 | 1 | No |
+
+This does not change the split itself (R1): `splitHotelNameAddress` still execs the unpadded string, so a position-0 street start still never becomes the split point. The padding is read-only, for counting.
+
+Exactly ONE guest warning is emitted per inline reservation. Only one producing path runs per reservation, so `reasons` carries a single entry, but the field stays an array to match `parseGuestCell`'s existing shape (`lib/parser/blocks/hotels.ts:178`) and the structured emitter's `reasons: string[]` parameter (`lib/parser/warnings.ts:212`).
 
 **P3 purity.** `splitHotelNameAddress` gains an optional field on its return object; it does not gain an `agg` parameter and does not emit. Additive return-shape change — the 5 existing callers (`lib/parser/blocks/hotels.ts:413`, `lib/parser/blocks/hotels.ts:418`, `lib/parser/blocks/hotels.ts:607`, `lib/parser/blocks/hotels.ts:734`, `lib/parser/blocks/hotels.ts:765`) are unaffected.
 
@@ -100,7 +121,7 @@ P1 and P2 are mutually reachable in one cell and both stash; the emitter collaps
 
 | Predicate | Code | New? |
 | --------- | ---- | ---- |
-| P1, P2 | `HOTEL_GUEST_SPLIT_AMBIGUOUS` | No — reuses the existing code (`lib/messages/catalog.ts:1368`). `blockRef.index` discriminates instances. |
+| P1 | `HOTEL_GUEST_SPLIT_AMBIGUOUS` | No — reuses the existing code (`lib/messages/catalog.ts:1368`). `blockRef.index` discriminates instances. |
 | P3(a), P3(b) | `HOTEL_ADDRESS_SPLIT_AMBIGUOUS` | **Yes** — one new code. |
 
 ---
@@ -139,6 +160,10 @@ Every cell gets an action or an explicit N/A. Per the AGENTS.md three-lockstep r
 | **z** | `tests/messages/_metaCatalogCopyHygiene.test.ts` | New copy must not leak code names / regex fragments |
 | **aa** | `tests/messages/_metaErrorCatalogDocs.test.ts` | New code must satisfy the shared catalog-field validator |
 | **bb** | `tests/messages/_metaPopoverContextCoverage.test.ts` | Fails-by-default popover coverage gate |
+| **dd** | `lib/messages/__generated__/internal-code-enums.ts` | Generated parse-warning registry — confirm `pnpm gen:spec-codes` regenerates it and commit the result |
+| **ee** | `tests/admin/warningFixAffordance.test.tsx:20` | Explicit use-raw test allowlist. Without a row here the parity assertions stay green while omitting the new code |
+| **ff** | `tests/parser/dataGaps.test.ts:42`, `tests/parser/dataGaps.test.ts:74` | Beyond row `u`: the test NAME hard-codes "33", `GAP_CLASSES` length is asserted, and `tests/parser/dataGaps.test.ts:74` explicitly enumerates the ambiguity/cardinality feature codes |
+| **gg** | `tests/parser/dataGapsClassCompleteness.test.ts:68` | Full-universe numeric comment, missed by row `v` |
 | **cc** | `lib/parser/dataGaps.ts:370` `OPERATOR_ACTIONABLE_ANCHORED` | **N/A — do NOT add.** `HOTEL_GUEST_SPLIT_AMBIGUOUS` is absent from this set (verified); ambiguity codes are spot-check, not anchored-actionable. Recorded so a reviewer does not re-derive it. |
 
 Row `m` is load-bearing: `tests/parser/_metaTransformSitesWalker.test.ts:119-138` asserts every `deferred:BL-<REF>` exempt has a matching BACKLOG.md row. Flipping the exempts without deleting the rows leaves dead entries; deleting without flipping **fails the walker**. Both in one commit.
@@ -180,8 +205,7 @@ function commitHotels(pending: PendingHotel[], agg?: ParseAggregator): HotelRese
 | Warning | `resolution` | Rationale |
 | ------- | ------------ | --------- |
 | Structured guests (existing) | `resolvable: true`, `{kind:"hotels", names:[strippedRaw]}` | Unchanged (`lib/parser/warnings.ts:246-258`) |
-| **P1 where Pattern 3's checkout strip isolated a guest region** (`lib/parser/blocks/hotels.ts:803`, non-empty `postCheckout`) | `resolvable: true`, `{kind:"hotels", names:[<isolated region, conf-stripped>]}` | R8 amendment. A guest-only substring demonstrably exists — the 2025-05 corpus row is exactly this case. Claiming otherwise would ship false operator copy. |
-| **P1 with no isolated region / P2** | `resolvable: false`, reason `"no-isolated-raw"` | True here: the scanned text is the whole cell, interleaving hotel, address, dates and guests. Swapping it into `names` would publish the hotel name and check-in dates as crew-readable guest names. |
+| **P1 — every inline guest warning** | `resolvable: false`, reason `"raw-not-guest-scoped"` | R8 restored to a blanket rule (see below) |
 | **P3(b)** multiple candidates | `resolvable: true`, `{kind:"hotel-name", hotelName: <full cleaned cell>, hotelAddress: null}` | A split happened at a chosen candidate; undoing it restores the unsplit cell — a real state change, proven behaviorally in §8.1 |
 | **P3(a)** unsplit | `resolvable: false`, reason `"no-split-to-undo"` | No split occurred; parsed and raw are byte-identical, so an enabled control would be a guaranteed no-op |
 
@@ -190,14 +214,16 @@ New members in `lib/parser/types.ts:36-46`:
 ```ts
 parsed:      | { kind: "hotel-name"; hotelName: string | null; hotelAddress: string | null }
 replacement: | { kind: "hotel-name"; hotelName: string; hotelAddress: null }
-reason:      "empty-raw" | "invalid-dmy" | "no-isolated-raw" | "no-split-to-undo"
+reason:      "empty-raw" | "invalid-dmy" | "raw-not-guest-scoped" | "no-split-to-undo"
 ```
 
 Widening `reason` is type-safe by construction: `DISABLED_REASON` (`components/admin/UseRawControl.tsx:258`) is a `Record` over the union, so a missing copy row is a **compile error**. Same for `RADIOGROUP_LABEL` (`components/admin/UseRawControl.tsx:10`) over `parsed["kind"]`.
 
 Copy for the new disabled reasons (no em-dashes; straight apostrophes to match the existing siblings at `components/admin/UseRawControl.tsx:259-260`):
 
-- `no-isolated-raw` — "This hotel line mixes the hotel, the dates and the guests together, so there's no guest text on its own to swap in."
+- `raw-not-guest-scoped` — "We can't tell which part of this hotel line is only the guest list, so there's nothing safe to swap in."
+
+**Why P1 is never resolvable (R8, restored).** R2 finding 4 refuted the per-path amendment: a non-empty `postCheckout` region proves only that text follows the checkout token, **not** that the text is guests. Probe-verified — `"Hyatt Place Check In: 5/1 Check Out: 5/2 Eric Weiss arriving late"` parses `names: ["Eric Weiss"]`, but the isolated region is `"Eric Weiss arriving late"`. Publishing that as the replacement would put note text into a crew-readable guest field, and `namesReferAny` (`lib/data/getShowForViewer.ts:125`) returns false for it against the alias `"Eric Weiss"` — so accepting the fix would **hide Eric's lodging from his own crew page**, the precise harm this feature exists to surface. The strip is positional, never semantic; no inline path can prove guest-scoped raw text, so the blanket rule is the correct one and the reason string above is true in every case.
 - `no-split-to-undo` — "We left this line exactly as your sheet has it, so there's nothing to swap back."
 
 ---
@@ -207,6 +233,21 @@ Copy for the new disabled reasons (no em-dashes; straight apostrophes to match t
 `components/admin/UseRawControl.tsx` is a UI surface under AGENTS.md invariant 8 and the ROUTING.md hard rule: implemented by Opus, and shipped only after **both** `/impeccable critique` and `/impeccable audit` pass, P0/P1 fixed or deferred via `DEFERRED.md`.
 
 Pre-code mechanical checklist: em-dash ban in user-visible copy, apostrophe literals, 44px tap targets (`min-h-tap-min`), canonical type/token classes. No new color token, so no contrast meta-test.
+
+### 7.0 Normative copy for the new `hotel-name` kind (R2 finding 9)
+
+Every user-visible and accessibility-observable string the new resolvable kind introduces is fixed here, so the TDD contract has a single oracle. Straight apostrophes, no em-dashes, matching the existing siblings.
+
+| Surface | Site | Exact text |
+| ------- | ---- | ---------- |
+| Parsed-field label, name | `parsedFields`, `components/admin/UseRawControl.tsx:99` | `Hotel` |
+| Parsed-field label, address | same | `Address` |
+| Parsed-field value when `hotelName` is null | same | `(no hotel name read)` |
+| Parsed-field row when `hotelAddress` is null | same | **omitted entirely** — never rendered as an empty line, mirroring the rooms branch |
+| Raw-option formatted value | `components/admin/UseRawControl.tsx:239` | the full cleaned cell, verbatim |
+| Radiogroup accessible label | `RADIOGROUP_LABEL`, `components/admin/UseRawControl.tsx:10` | `Hotel name and address` |
+| Disabled reason, P3(a) | `DISABLED_REASON`, `components/admin/UseRawControl.tsx:258` | `We left this line exactly as your sheet has it, so there's nothing to swap back.` |
+| Disabled reason, P1 | same | `We can't tell which part of this hotel line is only the guest list, so there's nothing safe to swap in.` |
 
 ### 7.1 Dimensional Invariants
 
@@ -243,16 +284,18 @@ TDD per task (invariant 1): failing test → minimal implementation → passing 
 
 | Test | Input | Asserts |
 | ---- | ----- | ------- |
-| P1 fires | 2025-04 shape (no dashes, no literal "check out") | one `HOTEL_GUEST_SPLIT_AMBIGUOUS`, reasons `["titlecase-pairing-fallback"]` |
-| **P1 stays quiet on explicit delimiters** | `Hyatt Place 123 Main St Check In: 5/1 Check Out: 5/2 Guests: Eric Weiss / John Smith` | **zero** guest warnings; names still `["Eric Weiss","John Smith"]` |
-| **P2 fires on single-sample k** | `Hyatt Regency Eric - 110525 John Smith - 103316` | reasons contain `"learn-k-shape-disagreement"`. Catches R1 finding 1 — this input is a live mis-parse (`hotel_name:"Hyatt"`, `names:["Regency Eric",…]`) that the pre-repair predicate missed |
-| P2 fires on `!consistent` | mixed base-word counts across ≥2 later guests | same reason |
-| P2 quiet when corroborated | east-coast fixture (2 later guests, both 1 base word) | zero guest warnings |
+| **P1 fires on each producing path** — 4 cases, one per reason string | `learn-k-peel`: 2024-05 fixture · `legacy-dash-pattern`: `Hyatt Regency Eric Weiss - 110525` · `legacy-multidash-pattern`: `Hyatt Regency Eric---110525` · `titlecase-pairing`: 2025-04 fixture | one `HOTEL_GUEST_SPLIT_AMBIGUOUS` each, with the matching reason. The two synthetic inputs are probe-verified live mis-parses (`names:["Hyatt Regency Eric Weiss"]` / `["Hyatt Regency Eric"]`) that every narrow predicate in R1 and R2 missed |
+| **P1 fires on the R2 counter-examples** | `Hyatt Regency Mary Ann Smith - 110525 John Smith - 103316 Jane Doe - 103317` · `… Check Out: 5/2 Guests: Mary Ann Smith John Doe` · `Hyatt Place Check In: 5/1 Eric Weiss John Smith` | a warning for each. These are the five holes of §3.1; the unconditional predicate closes them and this test pins that |
+| **P1 quiet when inline produced no guests** | a guest-less inline cell (`Hyatt Regency - 1515 Madison Ave …`) | **zero** guest warnings — proves P1 is not "warn on every inline row" |
+| **P1 quiet on the structured path** | any structured fixture | no P1-sourced warning; the structured emit is unchanged |
 | **P3(b) quiet on a correct split** | `Hotel 71 71 E Wacker Dr Chicago, IL 60601` | **zero** address warnings; split still `{name:"Hotel 71", address:"71 E Wacker Dr …"}`. Catches R1 finding 2 |
 | **P3(b) fires on the corruption** | `Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601` | one warning, reason `"multiple-street-candidates"`, `resolvable:true` |
+| **P3(b) fires at position 0** | `71 Wacker Drive 72 Main St Chicago, IL 60601` | fires. Catches R2 finding 5: unpadded counting sees 1 candidate and stays silent while the name becomes `71 Wacker Drive` |
 | P3(a) fires | `Hyatt Place Chicago 71 Chicago, IL 60601` | reason `"address-shape-unsplit"`, `resolvable:false`, `"no-split-to-undo"` |
+| **P3(a) fires at position 0** | `1515 Broadway New York, NY 10036` | fires. Catches R2 finding 5 on the ZIP arm |
 | **P3(b) undo is behaviorally applied** | emit P3(b), then run `applyUseRawDecisions` with a "use raw" decision | the resulting `hotelReservations[i].hotel_name` equals the full cleaned cell AND `hotel_address === null`. Catches R1 finding 4: a payload-only assertion passes even if the `hotel-name` branch in `applyReplacement` is missing or misrouted |
-| **`blockRef.index` at a non-zero index** | structured parse where reservation #1 is a dash-only placeholder (skipped at `lib/parser/blocks/hotels.ts:486`) and #2 warns | emitted `index === 0`, and `applyUseRawDecisions` rewrites reservation #2 and **no other row**. Catches R1 finding 5: ordinal-vs-final-index drift |
+| **P1 replacement is never offered** | any P1 warning | `resolution.resolvable === false` and reason `"raw-not-guest-scoped"`; **and** no `UseRawDecision` for it mutates `names` when passed through `applyUseRawDecisions`. Catches R2 finding 4: the crew-page-hiding hazard |
+| **`blockRef.index` at index > 0** | structured parse with **two** surviving reservations where reservation #1 is preceded by a dash-only placeholder that is skipped (`lib/parser/blocks/hotels.ts:486`), and the **second surviving** row warns | emitted `index === 1` (not the ordinal), and `applyUseRawDecisions` rewrites **only** `hotelReservations[1]` — `hotelReservations[0]` is byte-identical afterwards. Catches R2 finding 6: the R1 repair asserted `index === 0` against a single-row array, where "no other row" was vacuous |
 | **Emission order** | 5 structured hotels, ambiguity on #1 | the guest ambiguity appears **before** `HOTEL_CARDINALITY_EXCEEDED` in `agg.warnings`, asserted by index not by code filter. Catches R1 finding 8 |
 | Rank gate, inline | >`MAX_HOTELS` inline reservations, ambiguity on the last | zero warnings for the truncated row (R4) |
 
@@ -260,7 +303,8 @@ Existing tests that must pass **unchanged**: `tests/parser/blocks/hotels.ambigui
 
 ### 8.2 Negative / no-spam tests
 
-- Each of the 8 quiet fixture shows (§9) parses with **zero** new warnings, extracted **by code** from `agg.warnings` so an unrelated warning cannot mask a regression.
+- Each of the 5 quiet fixture shows (§9) parses with **zero** new warnings, extracted **by code** from `agg.warnings` so an unrelated warning cannot mask a regression.
+- Each of the 5 warning fixture shows emits **exactly one** guest card with the reason string §9 names — pinning the count, not merely presence, so a predicate that fires twice per reservation fails.
 - `"Four Seasons Fort Lauderdale"` (no ZIP, no number) → no address warning. Proves P3 is not "warn whenever address is null".
 - A clean structured cell → exactly one warning path, no double-emit from the commit-point refactor.
 
@@ -272,7 +316,7 @@ Existing tests that must pass **unchanged**: `tests/parser/blocks/hotels.ambigui
 | `combined` cleans to `""` | `{name:null,address:null}`, no ambiguity (`lib/parser/blocks/hotels.ts:271`) |
 | Inline cell with zero guests | No guest warning; address predicate still evaluated |
 | Reservation whose `hotel_name` is null at emit | `blockRef.name` key **omitted**, never `undefined` (`exactOptionalPropertyTypes`; `lib/parser/warnings.ts:234-241`) |
-| Both P1 and P2 fire | ONE warning, `reasons` length 2 |
+| Inline reservation, any producing path | exactly ONE guest warning, `reasons` length 1 |
 | P3(a) and P3(b) across two invocations on one reservation | First stash wins; exactly one address warning. **Not** mutually exclusive per reservation (§3.1) |
 
 ### 8.4 Full gates before push
@@ -287,20 +331,28 @@ Probe over all **10** fixture shows in `fixtures/shows/raw/` on 2026-07-25 at br
 
 | Fixture basename | Guest card | Address card | Why |
 | ---------------- | ---------- | ------------ | --- |
-| `2025-04-asset-mgmt-cfo-coo` | **Yes** (P1) | No | Pattern 3 produced `["Four Seasons","Chicago Eric","Jeffrey Justice"]` |
-| `2025-05-redefining-fixed-income-private-credit` | **Yes** (P1) | No | Pattern 3; currently correct but fragile |
-| `2024-05-east-coast-family-office` | No | No | learn-K with 2 corroborating later guests |
-| `2025-03-dci-rpas-central` | No | No | Pattern 1 matched |
-| `2025-06-ria-investment-forum` | No | No | Pattern 2 matched |
+| `2024-05-east-coast-family-office` | **Yes** (`learn-k-peel`) | No | Inline, 3 guests. Currently parses correctly; the judgment is still unverifiable |
+| `2025-03-dci-rpas-central` | **Yes** (`legacy-dash-pattern`) | No | Inline, 5 guests. Currently correct |
+| `2025-04-asset-mgmt-cfo-coo` | **Yes** (`titlecase-pairing`) | No | Inline. Produced `["Four Seasons","Chicago Eric","Jeffrey Justice"]` — the live mis-parse of §1 |
+| `2025-05-redefining-fixed-income-private-credit` | **Yes** (`titlecase-pairing`) | No | Inline, 3 guests. Currently correct but fragile |
+| `2025-06-ria-investment-forum` | **Yes** (`legacy-multidash-pattern`) | No | Inline, 2 guests. Currently correct |
 | `2025-10-fixed-income-trading-summit` | No | No | Structured, clean |
 | `2025-10-consultants-roundtable` | No | No | No hotel reservations parsed |
 | `2026-03-rpas-central-four-seasons` | No | No | Structured, clean |
 | `2026-04-asset-mgmt-cfo-coo-waldorf` | No | No | Structured, clean |
 | `2026-05-fintech-forum-cto-summit` | No | No | Structured, clean |
 
-**Totals: 2 guest cards, 0 address cards across 10 shows.**
+**Totals: 5 guest cards, 0 address cards across 10 shows.** Probe-verified: exactly 5 shows parse via the inline path with ≥1 guest, one reservation each; the 5 structured shows are silent.
 
-Zero address cards is expected and accepted (R7): every corpus hotel string yields exactly 1 street-phrase candidate (§3.1), and none is suffixless. P3 is forward-looking; its synthetic emit tests (§8.1) prove it works and the corpus proves it does not over-fire.
+**Address-card accounting (R2 finding 8).** The corpus yields **9** distinct parsed hotel strings, not 7:
+
+| Group | Count | Candidates (padded) | P3(a)? |
+| ----- | ----- | ------------------- | ------ |
+| Address-bearing hotel strings | 7 | 1 each | No — suffix regex matches, so P3(a) is not evaluated |
+| `Four Seasons Fort Lauderdale` | 1 | **0** | No — ZIP regex also misses; nothing to split |
+| `Four Seasons Chicago Eric Weiss` | 1 | **0** | No — ZIP regex also misses |
+
+Zero address cards is expected and accepted (R7). No corpus string has >1 candidate and none is a suffixless address, so neither P3 arm fires. P3 is forward-looking: its synthetic emit tests (§8.1) prove it works, and the corpus proves it does not over-fire.
 
 ---
 
@@ -309,11 +361,13 @@ Zero address cards is expected and accepted (R7): every corpus hotel string yiel
 - `MAX_HOTELS` = **4** (`lib/parser/blocks/hotels.ts:47`)
 - Fixture shows = **10**
 - New message codes = **1**
-- Predicates = **4** rows (P1, P2, P3a, P3b)
-- New `resolvable:false` reasons = **2**
+- Predicates = **3** rows (P1, P3a, P3b) across 2 sites
+- P1 reason strings = **4** (one per producing path)
+- New `resolvable:false` reasons = **2** (`raw-not-guest-scoped`, `no-split-to-undo`)
 - New replacement kinds = **1** (`hotel-name`)
-- Registration surfaces = **29** (§4 rows a–cc, of which 1 is an explicit N/A)
-- Expected corpus cards = **2** guest, **0** address (§9)
+- Registration surfaces = **33** (§4 rows a–gg, of which 1 is an explicit N/A)
+- Expected corpus cards = **5** guest, **0** address (§9)
+- Distinct parsed corpus hotel strings = **9** (7 with 1 street candidate, 2 with 0)
 - Gap-class counts after this change: `DATA_GAP_CODES` **34**, `ALL_PERSISTED_WARNING_CODES` **54**
 
 ---
