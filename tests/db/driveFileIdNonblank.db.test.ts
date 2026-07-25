@@ -21,7 +21,9 @@ const LOCAL_URL = assertLocalDbUrl(
   process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
 );
 
-// All 14 public columns named exactly `drive_file_id` that get a nonblank CHECK.
+// All 15 public columns named exactly `drive_file_id` that get a nonblank CHECK.
+// (14 from 20260702120200; onboarding_rebuild_attempts added by 20260725000000, which closed a
+// 16-day gap where that table sat inside the original scope rule but uncovered.)
 const PUBLIC_NONBLANK_TABLES = [
   "shows",
   "pending_syncs",
@@ -35,6 +37,7 @@ const PUBLIC_NONBLANK_TABLES = [
   "show_change_log",
   "sync_holds",
   "agenda_extract_leases",
+  "onboarding_rebuild_attempts",
   "sync_log",
   "app_events",
 ];
@@ -132,7 +135,7 @@ describe("drive_file_id nonblank CHECK — behavioral (local Postgres)", () => {
     },
   );
 
-  test.skipIf(!dbUp)("all 14 public *_drive_file_id_nonblank CHECK constraints exist", async () => {
+  test.skipIf(!dbUp)("all 15 public *_drive_file_id_nonblank CHECK constraints exist", async () => {
     const rows = await sql!.unsafe(
       `select conname from pg_constraint
           where contype = 'c'
@@ -144,6 +147,80 @@ describe("drive_file_id nonblank CHECK — behavioral (local Postgres)", () => {
     for (const t of PUBLIC_NONBLANK_TABLES) {
       expect(found.has(`${t}_drive_file_id_nonblank`), `missing constraint for ${t}`).toBe(true);
     }
-    expect(PUBLIC_NONBLANK_TABLES.length).toBe(14);
+    expect(PUBLIC_NONBLANK_TABLES.length).toBe(15);
   });
+
+  // ── 20260725000000 — the four secondary-name / late-arriving columns ────────
+  // Spec docs/superpowers/specs/data-quality/2026-07-25-secondary-drive-id-nonblank.md §4.3.
+  // Introspection proves a constraint is DECLARED; only these prove the predicate BEHAVES.
+
+  test.skipIf(!dbUp)(
+    "shows.opening_reel_drive_file_id (nullable) accepts NULL, rejects blanks",
+    async () => {
+      const insert = `insert into public.shows
+          (drive_file_id, slug, title, client_label, template_version,
+           published, last_seen_modified_time, last_sync_status, opening_reel_drive_file_id)
+        values ($1, $2, 'Opening Reel Nonblank Test', 'Acme Corp', 'v4', true, now(), 'ok', $3)`;
+      const ids = (): [string, string] => [
+        `dfidnb-or-${randomUUID()}`,
+        `dfidnb-or-slug-${randomUUID()}`,
+      ];
+      for (const blank of ["", "   ", "\t"]) {
+        await expectRejected(insert, [...ids(), blank]);
+      }
+      await expectAccepted(insert, [...ids(), null]); // NULL → ok (nullable)
+      await expectAccepted(insert, [...ids(), `dfidnb-or-reel-${randomUUID()}`]);
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "wizard_finalize_checkpoints.last_processed_drive_file_id (nullable) accepts NULL, rejects blanks",
+    async () => {
+      // id / batches_completed / status all carry defaults; wizard_session_id is the only
+      // NOT NULL sibling without one.
+      const insert = `insert into public.wizard_finalize_checkpoints
+          (wizard_session_id, last_processed_drive_file_id)
+        values (gen_random_uuid(), $1)`;
+      for (const blank of ["", "   ", "\t"]) {
+        await expectRejected(insert, [blank]);
+      }
+      await expectAccepted(insert, [null]); // NULL → ok (nullable)
+      await expectAccepted(insert, [`dfidnb-wfc-${randomUUID()}`]);
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "onboarding_rebuild_attempts.drive_file_id (NOT NULL) rejects blanks",
+    async () => {
+      // attempts / escalation_logged / updated_at carry defaults. This column is half of the
+      // composite PK, which does NOT protect it — a blank is a legal distinct key value.
+      const insert = `insert into public.onboarding_rebuild_attempts
+          (wizard_session_id, drive_file_id)
+        values (gen_random_uuid(), $1)`;
+      for (const blank of ["", "   ", "\t"]) {
+        await expectRejected(insert, [blank]);
+      }
+      await expectAccepted(insert, [`dfidnb-ora-${randomUUID()}`]);
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "dev.shows.opening_reel_drive_file_id (nullable mirror) accepts NULL, rejects blanks",
+    async () => {
+      // The dev clone carries this column, so a public-only migration would leave it asymmetric.
+      const insert = `insert into dev.shows
+          (drive_file_id, slug, title, client_label, template_version,
+           published, last_seen_modified_time, last_sync_status, opening_reel_drive_file_id)
+        values ($1, $2, 'Dev Opening Reel Test', 'Acme Corp', 'v4', true, now(), 'ok', $3)`;
+      const ids = (): [string, string] => [
+        `dfidnb-devor-${randomUUID()}`,
+        `dfidnb-devor-slug-${randomUUID()}`,
+      ];
+      for (const blank of ["", "   ", "\t"]) {
+        await expectRejected(insert, [...ids(), blank]);
+      }
+      await expectAccepted(insert, [...ids(), null]);
+      await expectAccepted(insert, [...ids(), `dfidnb-devor-reel-${randomUUID()}`]);
+    },
+  );
 });

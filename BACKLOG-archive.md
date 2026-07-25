@@ -8,6 +8,37 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## Secondary-name Drive-ID columns — deferred from the drive_file_id nonblank CHECK (2026-07-02) — ✅ RESOLVED (2026-07-25)
+
+**Resolved by** `supabase/migrations/20260725000000_secondary_drive_id_nonblank.sql`, spec
+`docs/superpowers/specs/data-quality/2026-07-25-secondary-drive-id-nonblank.md`, plan
+`docs/superpowers/plans/2026-07-25-secondary-drive-id-nonblank/00-overview.md`.
+
+The empty/whitespace `drive_file_id` DB-CHECK work (migration `20260702120200_drive_file_id_nonblank.sql`) deliberately scoped itself to **every column named exactly `drive_file_id`** (14 public + 5 dev mirror). The two columns below are Drive-ID-bearing but carry a _secondary_ name and were not reachable-empty, so they were documented out of scope rather than silently dropped.
+
+### BL-OPENING-REEL-DRIVE-ID-NONBLANK — nonblank CHECK on `shows.opening_reel_drive_file_id`
+
+**Status:** ✅ RESOLVED (2026-07-25) · **Severity:** low (not reachable-empty) · **Class:** DEFENSE-IN-DEPTH
+
+Shipped as `shows_opening_reel_drive_file_id_nonblank` on both `public.shows` and `dev.shows` — the dev clone carries the column (`supabase/migrations/20260502000000_dev_schema_clone.sql:58`), so a public-only migration would have left it asymmetric. Nullable form: `check (opening_reel_drive_file_id is null or opening_reel_drive_file_id ~ '[^[:space:]]')`. Behavioral probes in `tests/db/driveFileIdNonblank.db.test.ts`.
+
+### BL-CHECKPOINT-CURSOR-DRIVE-ID-NONBLANK — nonblank CHECK on `wizard_finalize_checkpoints.last_processed_drive_file_id`
+
+**Status:** ✅ RESOLVED (2026-07-25) · **Severity:** low · **Class:** DEFENSE-IN-DEPTH
+
+Shipped as `wizard_finalize_checkpoints_drive_file_id_nonblank`. Two corrections to the original entry, both surfaced by adversarial review:
+
+- The entry called this "a cursor copy of an already-CHECK'd id." **There is no write path at all** — every non-DDL reference in `app/` and `lib/` is a read or a type (`app/admin/_finalizeCheckpoint.ts:64`, `:77`, `:24`; `lib/audit/noGlobalCursor.ts:39`, `:45`). Nothing writes the column, which makes the CHECK purely forward-looking protection.
+- The constraint name is squeezed from **both** ends. The conventional `<table>_<column>_nonblank` form is 65 bytes, past Postgres's 63-byte identifier limit, so it would be silently truncated; and it must KEEP the `_drive_file_id_nonblank` suffix, because `tests/db/validation-schema-parity.test.ts:261-263` filters the live constraint list on exactly that suffix — a name without it would sit in `expected`, never appear in `live`, and leave that gate permanently RED. Dropping the column-name prefix satisfies both at 50 bytes.
+
+### Also closed here: a third column that was never filed
+
+`public.onboarding_rebuild_attempts.drive_file_id` is named **exactly** `drive_file_id` and was therefore always INSIDE the original 2026-07-02 scope rule. It was created 16 days later (`supabase/migrations/20260718000000_onboarding_rebuild_attempts.sql:6`) and never picked up a CHECK — found by the pre-draft census, not by any backlog entry. It is half of a composite primary key, which provides no protection: a blank is a legal distinct key value. Shipped as `onboarding_rebuild_attempts_drive_file_id_nonblank`.
+
+That 16-day silent gap is why this work also landed an executable guard (`lib/driveIdCoverage/`, `tests/db/driveIdCoverage.db.test.ts`) that fails `unit-suite-db` — a worker of the required `unit-suite` aggregator — when a Drive-ID-bearing column lands uncovered. Its deliberately-undone parts are filed in `BACKLOG.md` as `BL-DRIVEID-CENSUS-QUERY-SELF-CHECK`, `BL-VALIDATION-PARITY-DEFINITION-MATCH`, `BL-VALIDATION-TARGET-BINDING`, and `BL-DRIVEID-BEHAVIORAL-COVERAGE`.
+
+---
+
 ## BL-PHANTOM-GAP-PROBE-OTHER-SURFACES — run the zero-extent-flex-item probe on the crew page and dashboard harnesses
 
 **Filed:** 2026-07-24 (branch `fix/overview-phantom-gap`). **Class:** layout hardening. **Effort:** S per harness.
