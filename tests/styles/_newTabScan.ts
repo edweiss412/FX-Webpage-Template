@@ -1055,30 +1055,24 @@ function hasSpreadOnHintPath(anchor: ts.JsxElement | ts.JsxSelfClosingElement): 
  * `getTrailingCommentRanges` over the parsed tree, and each range is replaced with
  * spaces so byte offsets and line numbers are preserved for every caller.
  */
-export function stripCommentsSafely(src: string): string {
-  // Strategy: the PARSE says where literals are; a simple lexical pass then blanks any
-  // comment start that is not inside one. Both halves are needed.
-  //
-  // A pure scanner pass is unsound: `ts.createScanner().scan()` cannot know a `/` begins
-  // a regex without the parser's rescan, so a VALID regex containing comment bytes --
-  // `/[/*]/`, `/a\/*b/` -- was read as a block-comment start and everything after it was
-  // DISCARDED (measured: truncated to `const re=/[`). Consumers then saw a fragment,
-  // which is how an appended non-lowercase literal became invisible (review R13 HIGH 3).
-  //
-  // A pure trivia walk is also insufficient: a comment can be the leading trivia of a
-  // TOKEN, and `{ /*c*/ ...props }` inside JSX attributes was reached by neither
-  // forEachChild nor getLeadingCommentRanges at that position.
-  //
-  // Comments are replaced with spaces, never deleted, so byte offsets and line numbers
-  // stay valid for every caller.
-  const sf = ts.createSourceFile(
-    "__strip.tsx",
-    src,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
-  const protected_: [number, number][] = [];
+/**
+ * Every comment range in `src`, found parse-informed.
+ *
+ * ONE implementation, shared by `stripCommentsSafely` and the exemption parser. They
+ * had separate scanner loops, so fixing one left the other bypassable: a valid regex
+ * containing comment bytes on the same line as an exemption comment made the parser
+ * mis-locate it and an unannounced anchor scanned clean (review R14 BLOCKING 1). The
+ * lesson generalizes -- after fixing a helper, enumerate its consumers -- and it is
+ * enforced structurally here by there being nothing left to diverge.
+ *
+ * Sound by construction: the PARSE reports where literals are (string, template parts,
+ * REGEX, JSX text), and a lexical pass only treats a `/` as a comment start outside
+ * them. A raw scanner cannot do this because it cannot know a `/` begins a regex
+ * without the parser's rescan.
+ */
+export function commentRanges(src: string): [number, number][] {
+  const sf = ts.createSourceFile("__cmt.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const protectedRanges: [number, number][] = [];
   const collect = (n: ts.Node): void => {
     if (
       ts.isStringLiteral(n) ||
@@ -1089,35 +1083,53 @@ export function stripCommentsSafely(src: string): string {
       ts.isTemplateTail(n) ||
       ts.isJsxText(n)
     ) {
-      protected_.push([n.getStart(sf), n.getEnd()]);
+      protectedRanges.push([n.getStart(sf), n.getEnd()]);
     }
     ts.forEachChild(n, collect);
   };
   collect(sf);
-  const inProtected = (i: number): boolean => protected_.some(([a, b]) => i >= a && i < b);
+  const inProtected = (i: number): boolean => protectedRanges.some(([a, b]) => i >= a && i < b);
 
-  const out = src.split("");
-  for (let i = 0; i < src.length - 1; i += 1) {
+  // A shebang is not a comment: blanking its bytes destroyed real content, and a URL
+  // inside it contains `//` (review R14 LOW 6).
+  let from = 0;
+  if (src.startsWith("#!")) {
+    const nl = src.search(/[\n\r\u2028\u2029]/);
+    from = nl === -1 ? src.length : nl;
+  }
+
+  // A `//` comment ends at ANY JavaScript line terminator, not only LF. CR, U+2028 and
+  // U+2029 are all valid, and stopping at LF alone blanked the rest of the file
+  // (review R14 BLOCKING 2).
+  const isLineTerminator = (ch: string | undefined): boolean =>
+    ch === "\n" || ch === "\r" || ch === "\u2028" || ch === "\u2029";
+
+  const out: [number, number][] = [];
+  for (let i = from; i < src.length - 1; i += 1) {
     if (src[i] !== "/" || inProtected(i)) continue;
     if (src[i + 1] === "/") {
-      let j = i;
-      while (j < src.length && src[j] !== "\n") {
-        out[j] = " ";
-        j += 1;
-      }
+      let j = i + 2;
+      while (j < src.length && !isLineTerminator(src[j])) j += 1;
+      out.push([i, j]);
       i = j;
     } else if (src[i + 1] === "*") {
-      let j = i;
-      while (j < src.length && !(src[j] === "*" && src[j + 1] === "/")) {
-        if (src[j] !== "\n" && src[j] !== "\r") out[j] = " ";
-        j += 1;
-      }
-      if (j < src.length) {
-        out[j] = " ";
-        out[j + 1] = " ";
-        j += 1;
-      }
-      i = j;
+      let j = i + 2;
+      while (j < src.length && !(src[j] === "*" && src[j + 1] === "/")) j += 1;
+      const endEx = Math.min(j + 2, src.length);
+      out.push([i, endEx]);
+      i = endEx - 1;
+    }
+  }
+  return out;
+}
+
+/** Blank every comment to spaces, preserving length, offsets and line numbers. */
+export function stripCommentsSafely(src: string): string {
+  const out = src.split("");
+  for (const [a, b] of commentRanges(src)) {
+    for (let i = a; i < b; i += 1) {
+      const ch = out[i];
+      if (ch !== "\n" && ch !== "\r" && ch !== "\u2028" && ch !== "\u2029") out[i] = " ";
     }
   }
   return out.join("");
@@ -1130,26 +1142,17 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
   // compliant or not. Consuming only when recording a violation let a compliant
   // anchor leave its exemption for a later broken one (review R3 HIGH 5).
   const exemptions: { endLine: number; used: boolean }[] = [];
-  {
-    const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, src);
-    let tok = scanner.scan();
-    while (tok !== ts.SyntaxKind.EndOfFileToken) {
-      if (
-        tok === ts.SyntaxKind.SingleLineCommentTrivia ||
-        tok === ts.SyntaxKind.MultiLineCommentTrivia
-      ) {
-        const text = scanner.getTokenText();
-        const at = text.indexOf(EXEMPTION);
-        if (at >= 0 && text.slice(at + EXEMPTION.length).trim().length > 0) {
-          exemptions.push({
-            endLine: sf.getLineAndCharacterOfPosition(scanner.getTokenEnd()).line + 1,
-            used: false,
-          });
-        }
-      }
-      tok = scanner.scan();
+  for (const [a, b] of commentRanges(src)) {
+    const text = src.slice(a, b);
+    const at = text.indexOf(EXEMPTION);
+    if (at >= 0 && text.slice(at + EXEMPTION.length).trim().length > 0) {
+      exemptions.push({
+        endLine: sf.getLineAndCharacterOfPosition(b).line + 1,
+        used: false,
+      });
     }
   }
+
   const claimExemption = (line: number): boolean => {
     const slot = exemptions.find((e) => !e.used && (e.endLine === line || e.endLine === line - 1));
     if (!slot) return false;

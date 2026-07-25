@@ -859,6 +859,26 @@ it("no caller passes a components prop that could inject an anchor override", ()
         // Identifier, string-literal, AND computed string-literal keys. A computed key
         // is exactly how `propNameLower` was evaded earlier, so the same shape is
         // covered here rather than waiting to be told (R14 question 2).
+        // A getter, a class property, and a factory-built property all reach
+        // props.components at runtime (review R14 BLOCKING 3), so any string literal
+        // "components" in a production root is reported. The production roots contain
+        // zero occurrences, so this stays absolute; the 29 safe occurrences R14 counted
+        // are all under tests/, which is not scanned here.
+        if (
+          (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) &&
+          n.text === "components"
+        ) {
+          offenders.push(`${rel} (string literal "components")`);
+        }
+        if (
+          (ts.isGetAccessorDeclaration(n) || ts.isPropertyDeclaration(n)) &&
+          ts.isIdentifier(n.name) &&
+          n.name.text === "components"
+        ) {
+          offenders.push(
+            `${rel} (${ts.isGetAccessorDeclaration(n) ? "getter" : "class property"})`,
+          );
+        }
         if (ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) {
           const nm = n.name;
           const key =
@@ -1124,6 +1144,43 @@ describe("R6: scanner changes are pinned", () => {
   // Edge cases probed from R14's question 1, all against the parse-informed strip. The
   // question was where a comment start can sit inside something the parse does not report
   // as a literal; these are the shapes that mattered.
+  // R14 BLOCKING 1 and 2, LOW 6: the comment finder is now ONE shared helper, and these
+  // pin the two bugs its rewrite fixed plus the shebang case.
+  it("R14 comment ranges: all JS line terminators, and a shebang is not a comment", () => {
+    // A `//` comment ends at ANY line terminator. Stopping at LF alone blanked the rest of
+    // the file, so a later `target =` or spread became invisible to the candidate net.
+    for (const sep of ["\n", "\r", "\u2028", "\u2029"]) {
+      const src = `const A=({dest})=><a href="x" target //c${sep} ={dest}>Go</a>;`;
+      expect(admitsCandidate(src), `must admit across separator ${JSON.stringify(sep)}`).toBe(true);
+    }
+    // A shebang is not a comment, and its content can contain `//` (a URL).
+    const shebang = "#!/usr/bin/env -S https://x.test/tool\nconst x=1;";
+    expect(stripCommentsSafely(shebang)).toBe(shebang);
+    // One implementation, so the exemption parser and the stripper cannot diverge: the
+    // exemption parser had its own scanner loop and stayed bypassable after the stripper
+    // was fixed.
+    const src = readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8");
+    const rawScannerLoops = (stripCommentsSafely(src).match(/ts\.createScanner\(/g) ?? []).length;
+    expect(rawScannerLoops, "no raw scanner loop may remain outside commentRanges").toBe(0);
+  });
+
+  // R14 BLOCKING 1: an exemption comment sharing a line with a regex containing comment
+  // bytes used to mis-locate, letting an unannounced anchor pass.
+  it("R14 an exemption cannot be forged from a string after a regex", () => {
+    // The phrase sits in a STRING, not a comment. The old scanner mis-read the regex as a
+    // block-comment start, swallowed the string into that "comment", found the marker
+    // inside it, and granted an exemption no author wrote. A real comment exempting a
+    // real anchor is intended behaviour and is covered by the exemption tests above.
+    for (const rx of ["/[/*]/", "/a\\/*b/", "/\\/\\//", "/https?:\\/\\//"]) {
+      const code =
+        `const re=${rx}; const msg = "no-newtab-announcement: fake";\n` +
+        'const A=()=><a href="x" target="_blank">Go</a>;';
+      expect(violations(code).join(" "), `a string must not exempt, with ${rx}`).toMatch(
+        /does not announce/,
+      );
+    }
+  });
+
   it("R14 comment stripping handles every literal position and terminates on bad input", () => {
     // Comment-like bytes are PRESERVED inside a template with substitutions, a JSX
     // attribute string, a type-position string, and a URL in a string.
@@ -1337,11 +1394,24 @@ describe("R6: scanner changes are pinned", () => {
       // a comparison?). Only flag a pattern that spells a known attribute name in
       // non-lowercase AND lacks the `i` flag -- with `/i` the casing cannot matter, and
       // the tag-name regex in this file is deliberately case-insensitive.
-      if (ts.isRegularExpressionLiteral(n)) {
+      // Position-scoped like every other rule: only a regex actually TESTED against a
+      // name accessor can decide a name. Collecting every regex reintroduced the
+      // blanket false-positive class -- `const diagnostic = /Target/` was reported
+      // although it cannot decide an attribute name (review R14 MEDIUM 5).
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        n.expression.name.text === "test" &&
+        ts.isRegularExpressionLiteral(n.expression.expression) &&
+        n.arguments.some((a) =>
+          /attrName|jsxAttrNameLower|propNameLower|\b(n|nm|name|key)\b/.test(a.getText()),
+        )
+      ) {
+        const rx = n.expression.expression;
         // [\\s\\S] rather than `.` with the /s flag: the project's tsc target rejects it
         // (TS1501), and I had already hit that once this PR and reintroduced it by
         // running vitest but not tsc before committing.
-        const m = /^\/([\s\S]*)\/([a-z]*)$/.exec(n.text);
+        const m = /^\/([\s\S]*)\/([a-z]*)$/.exec(rx.text);
         if (m && !m[2]!.includes("i")) {
           for (const word of m[1]!.split(/[^A-Za-z-]+/)) literals.push(word);
         }
@@ -1353,12 +1423,17 @@ describe("R6: scanner changes are pinned", () => {
           // ALSO the receiver: `["Target"].includes(attrName(a))` puts the name in the
           // array, not the arguments, and that is precisely one of R12's evasion forms.
           // Verified by appending it to the scanner and watching this test stay green.
+          // Recurse: `new Map([["Target", 1]]).has(...)` nests the name one level
+          // deeper than a Set's flat array, and only the outer elements were inspected
+          // (review R14 MEDIUM 4).
+          const addDeep = (node: ts.Node): void => {
+            add(node);
+            if (ts.isArrayLiteralExpression(node)) node.elements.forEach(addDeep);
+          };
           const recv = n.expression.expression;
-          if (ts.isArrayLiteralExpression(recv)) recv.elements.forEach(add);
+          if (ts.isArrayLiteralExpression(recv)) recv.elements.forEach(addDeep);
           if (ts.isNewExpression(recv)) {
-            for (const a of recv.arguments ?? []) {
-              if (ts.isArrayLiteralExpression(a)) a.elements.forEach(add);
-            }
+            for (const a of recv.arguments ?? []) addDeep(a);
           }
         }
       }
