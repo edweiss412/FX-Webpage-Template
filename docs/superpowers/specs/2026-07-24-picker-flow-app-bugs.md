@@ -163,7 +163,14 @@ Guest mode therefore has to be durable state, or the session has to go. The user
 
    **Derived origin.** The route form reads `request.nextUrl.origin`, which a Server Action has no equivalent of, so the action composes it from headers: scheme from `x-forwarded-proto` (falling back to `https`, since every deployed environment is TLS and local dev supplies the header), host from `x-forwarded-host` when present, otherwise `host`. A missing `host` header makes the derived origin unknowable, which is treated as a reject rather than an accept.
 3. **Clear the picker entry.** `clearIdentityCore(input)` exactly as today (`lib/auth/picker/clearIdentity.ts:64`). On `{ ok: false }`, return it and stop — nothing destructive has happened yet.
-4. **Sign out, device-locally.** `await (await createSupabaseServerClient()).auth.signOut({ scope: "local" })`, then clear any residual Supabase auth cookies. On a returned error or a thrown error: emit `log.error` with `code: "AUTH_SIGNOUT_FAILED"` and return `{ ok: false, code: "AUTH_SIGNOUT_FAILED" }` **without** redirecting.
+4. **Sign out, device-locally.** Two statements, not a chained one-liner, so the client is a named local and the returned error is destructured where the invariant-9 pin can see it:
+
+   ```ts
+   const supabase = await createSupabaseServerClient();
+   const { error } = await supabase.auth.signOut({ scope: "local" });
+   ```
+
+   Then clear any residual Supabase auth cookies. On a returned error or a thrown error: emit `log.error` with `code: "AUTH_SIGNOUT_FAILED"` and return `{ ok: false, code: "AUTH_SIGNOUT_FAILED" }` **without** redirecting.
 
    `scope: "local"` is load-bearing, not decoration. The installed `@supabase/auth-js` 2.105.1 defaults `signOut` to `{ scope: 'global' }` (installed source: GoTrueClient.js line 3176 under node_modules/.pnpm/@supabase+auth-js@2.105.1, reading `async signOut(options = { scope: 'global' })`), which revokes that user's refresh tokens on **every** device they own. A guest tapping a button on a shared iPad must not sign a colleague out of their phone (R1 finding 2). The app-wide `/auth/sign-out` route keeps its default global scope deliberately — there the person is signing themselves out on purpose — and this spec does not change it.
 
