@@ -1225,6 +1225,23 @@ describe("R6: scanner changes are pinned", () => {
     ).toMatch(/does not announce|unrecognized|not gated/);
   });
 
+  // R12 question 2: a spread of a same-file `const` object literal is DECIDABLE, and
+  // was silent on an unknown tag while the identical spread on an `<a>` was reported.
+  it("R12 a same-file const spread is resolved", () => {
+    expect(
+      violations(`const P={href:"x",target:"_blank"}; const A=()=><Foo {...P}>Go</Foo>;`).join(" "),
+    ).toMatch(/does not announce|unrecognized|not gated/);
+    // Two bindings of the same name means shadowing is possible, so it stays
+    // unresolvable and fails closed rather than guessing which one reaches the JSX.
+    const shadowed = probe(
+      `const P={href:"x",target:"_blank"}; function f(){ const P={}; return P; } const A=()=><Foo {...P}>Go</Foo>;`,
+    );
+    expect(shadowed.anchors, "an ambiguous binding must not be resolved").toBe(0);
+    // A genuinely opaque identifier remains the documented residue.
+    const opaque = probe(`const A=({P})=><Foo {...P}>Go</Foo>;`);
+    expect(opaque.anchors, "an unresolvable spread on an unknown tag is residue").toBe(0);
+  });
+
   // R10 BLOCKING 3: React writes `{ target, TARGET }` to ONE case-insensitive DOM
   // attribute and the LATER value wins, so reading the first normalized match took
   // the wrong value in both directions. Duplicates are ambiguous: fail closed.

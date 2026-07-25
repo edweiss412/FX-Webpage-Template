@@ -276,6 +276,26 @@ function spreadObjectLiterals(expr: ts.Expression): ts.ObjectLiteralExpression[]
   if (ts.isConditionalExpression(e)) {
     return [unparen(e.whenTrue), unparen(e.whenFalse)].filter(ts.isObjectLiteralExpression);
   }
+  // An identifier bound ONCE in this file to an object literal is decidable, so
+  // `const P = { href: "x", target: "_blank" }; <Foo {...P}>` is not residue -- it was
+  // silent before, while the same spread on an `<a>` was reported (review R12 question
+  // 2). Resolution is deliberately narrow: exactly one declaration of that name
+  // anywhere in the file, with an object-literal initializer. More than one binding
+  // means shadowing is possible, so it stays unresolvable and fails closed.
+  if (ts.isIdentifier(e)) {
+    const matches: ts.ObjectLiteralExpression[] = [];
+    let bindings = 0;
+    const visit = (n: ts.Node): void => {
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === e.text) {
+        bindings += 1;
+        const init = n.initializer ? unparen(n.initializer) : undefined;
+        if (init && ts.isObjectLiteralExpression(init)) matches.push(init);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(e.getSourceFile());
+    return bindings === 1 ? matches : [];
+  }
   return [];
 }
 
