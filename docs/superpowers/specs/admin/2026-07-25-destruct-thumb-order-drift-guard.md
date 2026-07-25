@@ -259,6 +259,14 @@ Measured at spec time: **zero** violations across all 18 distinct registry files
 
 **Matcher self-check.** Following the existing pattern at `_metaDestructiveConfirm.test.ts:143-148`, T1/T2 ship with a self-check proving the detector fires on a synthetic positive and does not fire on a synthetic negative — so the guard cannot pass vacuously.
 
+### 5.2.1 Two implementation constraints that would otherwise fail silently
+
+Both were found by reading the helpers the guard will reuse, not by reasoning about them. Each produces a guard that *passes* while doing nothing, which is the worst failure mode for a structural test.
+
+**C-A — the exemption comment must be read from RAW source.** `stripComments` (`tests/styles/_classScanUtils.ts:15-17`) deletes every `//` comment before returning, and the existing registry feeds its scan through it (`tests/styles/_metaDestructiveConfirm.test.ts:134`). If T2's exemption lookup reuses that stripped text, `// not-arm-revert: <reason>` is invisible: the exemption never applies, an author who correctly adds one still sees a red test, and the likely next move is deleting the guard rather than debugging it. T2 therefore reads the file **twice** — stripped text for locating `setTimeout` calls (so a commented-out example cannot trip it) and raw text for the exemption comment. The plan's test for this asserts an exempted fixture actually passes, which is the only way to prove the raw read happened.
+
+**C-B — T1 must walk `lib/`, which the existing registry does not.** `_metaDestructiveConfirm.test.ts:131` iterates `["components", "app"]` only. The shared constant lives in `lib/admin/destructiveConfirm.ts`, so a T1 that inherits that root list would scan every directory *except* the one holding the single legitimate declaration — and would then report zero declarations found, passing vacuously while proving nothing. T1 walks `["components", "app", "lib"]` and asserts the count of declaring files is exactly one **and** that the one is the expected path. Asserting only "at most one" would pass on zero.
+
 ### 5.3 Honest scope statement
 
 The guard closes re-drift **within registry membership**. Its one real hole: a wholly new destructive surface that never adopts the recipe token pair is invisible to the registry, by the registry's own declared scope (`_metaDestructiveConfirm.test.ts:10-12`), and so escapes T2 entirely. Such a surface still trips T1 the moment it names its constant `ARM_REVERT_MS` — but not if it invents `CONFIRM_TIMEOUT = 3000`. That residue is review-time territory, exactly as the existing registry says. The limitation is stated in the guard's header comment rather than papered over, and the guard is strictly better than today, where even the copy-paste-the-name case is unguarded.
