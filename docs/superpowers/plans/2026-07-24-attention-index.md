@@ -201,6 +201,9 @@ Plus spec test 9b, the four-cell warnings matrix, which is the load-bearing proo
 | `tests/e2e/published-review-modal.layout.spec.ts` | `tests/e2e/published-review-modal.layout.spec.ts:654` | `"99+ to confirm"`; Task 8a touches the same fixture. |
 | `tests/dev/fullSplitCompositeRender.test.tsx` | `tests/dev/fullSplitCompositeRender.test.tsx:53`, `tests/dev/fullSplitCompositeRender.test.tsx:56` | The exact composite string. Repaired here, NOT in Task 6. |
 | `tests/e2e/_publishedReviewModalHarness.tsx` | `tests/e2e/_publishedReviewModalHarness.tsx:54` | Doc comment only; update for accuracy. |
+| `tests/components/admin/showpage/pageTransitions.test.tsx` | `tests/components/admin/showpage/pageTransitions.test.tsx:137` | **Scanner-derived conditional-site count** for `PublishedReviewModal.tsx`, pinned at `11`. Collapsing two pill segments into one removes conditional sites, so this integer moves — same class Task 1 handles for `AttentionMenu.tsx` (plan R5 F1). Re-run the scanner, update the count, annotate the measured delta in the row comment per the file's `8 → 11` convention. **Measure, do not predict.** |
+
+Class check on that last row: those are the only two exact conditional-count pins among the three implementation files. `AttentionMenu.tsx` (`tests/components/admin/showpage/pageTransitions.test.tsx:147`) is owned by Tasks 1 and 3; `AttentionBanner.tsx` has no exact count pinned, so Task 4 needs no equivalent step.
 
 ### Task 6 — dev gallery
 
@@ -265,7 +268,7 @@ jsdom cannot compute layout, so all of the above must be Playwright.
 
 The correct oracle is **set equality on `transition-property`**, not a forbid-regex. Set equality is what makes it robust: a `not.toContain("opacity")` check passes against `transition-all`, which animates opacity.
 
-- Elements that appear and disappear on the O1↔O2 collapse — `[data-testid="attention-monitoring-group"]`, `[data-testid="attention-needsyou-heading"]`, `[data-testid="attention-monitoring-heading"]`: computed `transition-property` is exactly `none`. **The heading testids go on the container `<div>`s** (Task 1), because those are the elements whose whole block unmounts; a text locator would select the inner `<span>` and miss a `transition-all` added to the container (plan R4 F3).
+- Elements that appear and disappear on the O1↔O2 collapse — `[data-testid="attention-monitoring-group"]`, `[data-testid="attention-needsyou-heading"]`, `[data-testid="attention-monitoring-heading"]`: assert **effective zero duration**, NOT `transition-property: none` (plan R5 F2). An element with no transition declaration computes to CSS's initial `transition-property: all` with `transition-duration: 0s` — so an exact-`none` assertion fails all three correctly-instant elements and would push the implementer into unplanned `transition-none` styling work to satisfy a wrong oracle. The spec file already has the right helpers: `instant()` and `effectiveDurations()` (`tests/e2e/attention-pill-focus.spec.ts:440-470`), which apply CSS list repetition before checking. Reuse them rather than writing a fresh computed-style check. **The heading testids go on the container `<div>`s** (Task 1), because those are the elements whose whole block unmounts; a text locator would select the inner `<span>` and miss a `transition-all` added to the container (plan R4 F3).
 - Needs-you rows: computed `transition-property` equals Tailwind's `transition-colors` output.
 
 **Do not hardcode the `transition-colors` property list.** In the installed Tailwind (4.2.4) it is TEN properties — `color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to` — and it has changed across minors. A literal pinned to a vendor version breaks on the next upgrade while proving nothing about this component. Derive it from the framework instead, in the same page:
@@ -281,7 +284,7 @@ const expected = await page.evaluate(() => {
 });
 ```
 
-Then assert each row's computed `transitionProperty` equals `expected`. Version-proof, and still catches `transition-all` — whose computed list cannot equal the probe's.
+Then assert each row's computed `transitionProperty` equals `expected`. Version-proof, and still catches `transition-all` — whose computed list is `all`, which cannot equal the probe's. This set-equality form applies **only to the rows**, which genuinely carry `transition-colors`; the three instant elements use the zero-duration oracle above.
 
 Run on the live harness (`tests/e2e/attention-pill-focus.spec.ts`), the only one that can open the menu (§0.3). The panel entrance itself IS animated and is asserted separately — do not fold it into the same assertion.
 
