@@ -613,7 +613,12 @@ describe("every external link in the live tree announces its new tab", () => {
     const sc: Scan = { anchors: 0, violations: [] };
     for (const rel of files) {
       const code = readFileSync(join(process.cwd(), rel), "utf8");
-      if (!code.includes("_blank")) continue;
+      // Case-INSENSITIVE, and it must also admit files whose target is an
+      // expression or arrives via a spread. A `_blank` substring filter skipped
+      // `target="_BLANK"`, `target={t}` and `<a {...props}>` entirely, so the
+      // scanner never saw the very shapes it was taught to reject (review R5
+      // BLOCKING 1) -- my own inconsistency with the case-insensitive isBlank.
+      if (!/_blank/i.test(code) && !/target\s*=|\{\s*\.\.\./.test(code)) continue;
       scanSource(parse(rel, code), rel, sc);
     }
     // Anti-vacuity: the family exists, so a zero-anchor scan means the walker
@@ -666,7 +671,8 @@ describe("every external link in the live tree announces its new tab", () => {
     );
     expect(mdx.length, "mdx inventory should not be empty").toBeGreaterThan(0);
     const offenders = mdx.filter((rel) =>
-      readFileSync(join(process.cwd(), rel), "utf8").includes("_blank"),
+      // Case-insensitive: the same hole existed here.
+      /_blank/i.test(readFileSync(join(process.cwd(), rel), "utf8")),
     );
     expect(offenders).toEqual([]);
   });

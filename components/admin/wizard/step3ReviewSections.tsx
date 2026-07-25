@@ -848,7 +848,10 @@ function ElsewherePointerSentence({
 }
 
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
-function ModalSectionChrome({
+/** Exported for test only: R5 found the empty-`label` seam of its sheet-link
+ *  aria-label had no rendering coverage, and a hand-copied probe cannot prove the
+ *  real expression. */
+export function ModalSectionChrome({
   chrome,
   count,
   children,

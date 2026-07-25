@@ -100,9 +100,12 @@ function substitutedExprs(node: ts.Node): string[] {
  * modal labels, which are correct.
  */
 function guardedSubstitution(branch: ts.Node, condition: ts.Expression): boolean {
+  // EXACT match only. Treating `label` and `label.trim()` as interchangeable let
+  // `label ? `${label.trim()} (opens…)`` pass, where a whitespace-only label takes
+  // the truthy branch and the substitution trims to "" -- a phrase-only name
+  // (review R5 HIGH 3). The guard must prove the SAME expression non-empty.
   const cond = normPredicate(condition.getText());
-  const bare = cond.replace(/\.trim\(\)$/, "");
-  return substitutedExprs(branch).some((e) => e === cond || e.replace(/\.trim\(\)$/, "") === bare);
+  return substitutedExprs(branch).some((e) => e === cond);
 }
 
 function hasSubstitution(node: ts.Node): boolean {
@@ -480,7 +483,14 @@ function normPredicate(text: string): string {
     return x;
   };
   t = peel(t);
-  if (t.startsWith("!")) t = "!" + peel(t.slice(1));
+  if (t.startsWith("!")) {
+    const inner = t.slice(1);
+    const bare = peel(inner);
+    // Only drop the parens when the negated expression is a single atom.
+    // `!(e&&ready)` and `!e&&ready` are NOT equivalent, and peeling made them
+    // compare equal (review R5 BLOCKING 2).
+    t = /[&|?:]/.test(bare) ? `!(${bare})` : `!${bare}`;
+  }
   return t;
 }
 
@@ -612,7 +622,11 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
   const f = isBlankStr(named(whenFalse, "target"));
   if (t && f) return { kind: "literal" };
   if (!t && !f) return { kind: "not-external" };
-  return { kind: "gated", cond: t ? e.condition.getText() : `!${e.condition.getText()}` };
+  return {
+    kind: "gated",
+    // Parenthesized so a compound condition negates as a whole.
+    cond: t ? e.condition.getText() : `!(${e.condition.getText()})`,
+  };
 }
 
 /** Anything on the path from anchor to hint that blocks proof of visibility: a
@@ -639,7 +653,15 @@ function hasSpreadOnHintPath(anchor: ts.JsxElement | ts.JsxSelfClosingElement): 
         // A wrapper carrying its OWN name replaces the subtree's contribution,
         // so the hint inside it never reaches the anchor name (review R4
         // BLOCKING 4: `<span role="img" aria-label="icon">`).
-        if (nm === "aria-label" || nm === "aria-labelledby" || nm === "role") return true;
+        if (nm === "aria-label" || nm === "aria-labelledby") return true;
+        if (nm === "role") {
+          // `role="presentation"`/`none`/`group` do not rename the subtree, and
+          // rejecting them was pure developer friction (review R5 LOW 6). Only a
+          // role that takes its name from an author attribute is opaque here.
+          const v = attr.initializer ? stringOf(attr.initializer) : null;
+          if (v === null) return true; // dynamic role: fail closed
+          return !["presentation", "none", "group", "generic"].includes(v.trim());
+        }
         if (nm !== "className" && nm !== "style") return false;
         // Undecidable values (templates, conditionals) cannot be proven
         // non-hiding.

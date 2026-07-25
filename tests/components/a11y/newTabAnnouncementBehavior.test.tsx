@@ -43,6 +43,10 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { ActionCell } from "@/components/admin/BellPanel";
 import { AttentionBanner } from "@/components/admin/review/AttentionBanner";
 import { HealthAlertRowItem } from "@/components/admin/telemetry/HealthAlertsPanel";
+import {
+  ModalSectionChrome,
+  type Step3SectionChrome,
+} from "@/components/admin/wizard/step3ReviewSections";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 
 vi.mock("next/navigation", () => ({
@@ -293,6 +297,45 @@ describe("HealthAlertsPanel action anchors", () => {
     );
     expect(container.querySelector('[data-testid="health-alert-action-h1"]')).toBeNull();
     expect(container.textContent ?? "").not.toContain("opens in a new tab");
+  });
+});
+
+describe("the section-chrome sheet link renders its real fallback for an empty label", () => {
+  // R5 BLOCKING 4: this seam had NO rendering coverage — the probe below covers the
+  // two modal labels, but the chrome label reaches its anchor through an exported
+  // context, so the real component can and must be rendered.
+  const chrome = (label: string): Step3SectionChrome =>
+    ({
+      Icon: (() => null) as never,
+      label,
+      flagged: false,
+      dfid: "drive-abc-123",
+      sectionId: "crew",
+      sheetUrl: "https://docs.google.com/spreadsheets/d/drive-abc-123/edit",
+    }) as unknown as Step3SectionChrome;
+
+  test("empty label keeps the destination clause, with no dangling connective", () => {
+    const { container } = render(
+      <ModalSectionChrome chrome={chrome("")} count={null}>
+        <span>body</span>
+      </ModalSectionChrome>,
+    );
+    const link = container.querySelector<HTMLAnchorElement>('a[data-testid$="-sheetlink"]');
+    expect(link, "the sheet link must render").not.toBeNull();
+    expect(link!).toHaveAccessibleName(
+      "In sheet, view this section in Google Sheets (opens in a new tab)",
+    );
+  });
+
+  test("a real label interpolates and keeps the suffix", () => {
+    const { container } = render(
+      <ModalSectionChrome chrome={chrome("Crew")} count={null}>
+        <span>body</span>
+      </ModalSectionChrome>,
+    );
+    expect(
+      container.querySelector<HTMLAnchorElement>('a[data-testid$="-sheetlink"]')!,
+    ).toHaveAccessibleName("In sheet, view Crew in Google Sheets (opens in a new tab)");
   });
 });
 

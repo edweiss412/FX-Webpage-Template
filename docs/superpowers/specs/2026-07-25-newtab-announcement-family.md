@@ -140,8 +140,8 @@ Checked the boundary rather than assuming: `app/admin/show/[slug]/CrewPageLink.t
 
 | Site | Becomes |
 | --- | --- |
-| `components/admin/showpage/PublishedReviewModal.tsx:708` | `` `Open the source sheet for ${displayTitle} (opens in a new tab)` `` |
-| `components/admin/wizard/Step3ReviewModal.tsx:408` | `` `Open the source sheet for ${title} (opens in a new tab)` `` |
+| `components/admin/showpage/PublishedReviewModal.tsx:708` | `` `Open the source sheet for ${displayTitle} in Google Sheets (opens in a new tab)` `` (and the empty-`displayTitle` fallback keeps the destination clause) |
+| `components/admin/wizard/Step3ReviewModal.tsx:408` | `` `Open the source sheet for ${title} in Google Sheets (opens in a new tab)` `` |
 | `components/admin/wizard/step3ReviewSections.tsx:934` | §2.2 rewrite (label-in-name plus announcement) |
 | `components/admin/wizard/step3ReviewSections.tsx:3577` | `` `${alt} (opens in a new tab)` `` |
 | `components/crew/primitives/SourceLink.tsx:71` | §2.2 rewrite (label-in-name plus announcement) |
@@ -155,12 +155,18 @@ Plus the §2.2 label-in-name-only fix at `components/admin/wizard/VenueMapTile.t
 
 All four share one shape: no `aria-label`, `{action.label}`, and a `↗` already gated on the external flag.
 
-| Site | Gating expression |
-| --- | --- |
-| `components/admin/review/AttentionBanner.tsx:165` | `a.action.external` |
-| `components/admin/BellPanel.tsx:304` | `action.external` |
-| `components/admin/telemetry/HealthAlertsPanel.tsx:149` | `action.external` |
-| `components/admin/showpage/AttentionMenu.tsx:212` | `action.external`, from `item.alert.action` at `components/admin/showpage/AttentionMenu.tsx:183` |
+**Corrected after the rebase (see §1.3):** `AttentionMenu` LEFT the family — upstream turned it
+into a jump-only index with no action anchor — and `AttentionBanner` gained a second one, its
+"Google Sheets" destination chip for clearing-needs-you alerts. The four gated anchors are
+therefore two in `AttentionBanner` plus one each in `BellPanel` and `HealthAlertsPanel`. An
+independent AST census confirms exactly that set.
+
+| Site | Gating expression | Visible label |
+| --- | --- | --- |
+| `components/admin/review/AttentionBanner.tsx:165` (footer action) | `a.action.external` | `{a.action.label}` |
+| `components/admin/review/AttentionBanner.tsx:172` (destination chip) | `a.action.external` | static `Google Sheets` |
+| `components/admin/BellPanel.tsx:304` | `action.external` | `{action.label}` |
+| `components/admin/telemetry/HealthAlertsPanel.tsx:149` | `action.external` | `{action.label}` |
 
 Note the gating expressions are **not** textually identical: `AttentionBanner` reads `a.action.external` while the other three read `action.external`. §6 requirement **5** is therefore expressed as equality against the anchor's own effective `_blank` predicate, never identifier overlap. (Requirement 4 governs the announcement mechanisms themselves.)
 
