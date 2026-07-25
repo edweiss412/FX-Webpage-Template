@@ -1308,7 +1308,38 @@ describe("R6: scanner changes are pinned", () => {
         (n) =>
           `const A=()=><a href="x" target="_blank">Go <span ${n}="img" aria-label="icon"><NewTabHint /></span></a>;`,
       ],
+      [
+        "aria-labelledby",
+        (n) =>
+          `const A=()=><a href="x" target="_blank">Go <span ${n}="outside"><NewTabHint /></span></a>;`,
+      ],
+      [
+        "style",
+        (n) =>
+          `const A=()=><a href="x" target="_blank">Go <span ${n}={{ display: "none" }}><NewTabHint /></span></a>;`,
+      ],
     ];
+
+    // SELF-MAINTAINING: the fixture list must cover every attribute the scanner actually
+    // compares, or a newly-read attribute silently gets no casing coverage. That is exactly
+    // how `aria-labelledby` and `style` were missing until R17 asked (question 3), so the
+    // gap is now a test failure rather than a question someone has to think to ask.
+    const scannerSrc = stripCommentsSafely(
+      readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
+    );
+    const comparedNames = new Set(
+      [
+        ...scannerSrc.matchAll(
+          /(?:attrName\([^)]*\)|jsxAttrNameLower\([^)]*\)|propNameLower\([^)]*\)|\bn\b|\bnm\b|\bkey\b)\s*[=!]==?\s*"([^"]+)"/g,
+        ),
+        ...scannerSrc.matchAll(/\b(?:names|SPREADABLE)\.has\(\s*"([^"]+)"/g),
+      ].map((m) => m[1]!.toLowerCase()),
+    );
+    const covered = new Set(fixtures.map(([n]) => n.toLowerCase()));
+    expect(
+      [...comparedNames].filter((n) => !covered.has(n)),
+      "add a casing fixture for each attribute the scanner compares",
+    ).toEqual([]);
     const spellings = (n: string): string[] => [n.toUpperCase(), n[0]!.toUpperCase() + n.slice(1)];
     for (const [name, build] of fixtures) {
       const base = violations(build(name)).join(" | ");
