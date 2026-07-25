@@ -288,7 +288,24 @@ Applied alongside it:
 
 ---
 
-## 9. Upstream issue draft (codex-cli)
+## 9. Upstream issue — ALREADY FILED as openai/codex#24556
+
+**Do not open a new issue.** The shim defect was independently reported on 2026-05-26 as [openai/codex#24556](https://github.com/openai/codex/issues/24556) — "npm shims exit 0 when mirrored child signal is re-caught by the parent" — with the same root-cause analysis and the same proposed fix (remove the installed handlers before re-emitting the signal). It is still open, and the reporter has a patch prepared that they are holding pending a contribution invite, per the repo's invitation-only external-PR policy.
+
+What that issue lacked was evidence of real-world impact, so on 2026-07-24 our measurements were added as [a comment](https://github.com/openai/codex/issues/24556#issuecomment-5076747054): the 58%-of-651-sessions failure rate, the fact that a signalled run is byte-for-byte indistinguishable from a legitimately empty one, and the asymmetry that makes it hard to spot — **SIGKILL propagates correctly because no handler is installed for it**, so the polite signal every supervisor sends is the one that lies:
+
+```
+grandchild SIGTERM -> caller sees exitCode=0    signal=null
+grandchild SIGINT  -> caller sees exitCode=0    signal=null
+grandchild SIGHUP  -> caller sees exitCode=0    signal=null
+grandchild SIGKILL -> caller sees exitCode=null signal=SIGKILL   (correct)
+```
+
+(Reproduced independently against the standalone repro in §10 before posting; `bin/codex.js` is unchanged on this point through 0.146.0-alpha.6.)
+
+The draft below is retained because it is the clearest statement of the defect for anyone reading this file cold.
+
+### Draft (superseded by #24556)
 
 > **Title:** `bin/codex.js` exits 0 when the native binary is killed by SIGINT/SIGTERM/SIGHUP
 >
