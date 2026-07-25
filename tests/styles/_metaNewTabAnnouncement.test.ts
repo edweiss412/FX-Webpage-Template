@@ -71,62 +71,6 @@ function collectNameLiterals(src: string): string[] {
       }
     }
     if (ts.isCaseClause(n)) add(n.expression);
-    // A REGEX can decide a name too, and it is not a string literal so the four
-    // positions above miss it (R14 question 3: which mechanisms decide a name without
-    // a comparison?). Only flag a pattern that spells a known attribute name in
-    // non-lowercase AND lacks the `i` flag -- with `/i` the casing cannot matter, and
-    // the tag-name regex in this file is deliberately case-insensitive.
-    // Position-scoped like every other rule: only a regex actually TESTED against a
-    // name accessor can decide a name. Collecting every regex reintroduced the
-    // blanket false-positive class -- `const diagnostic = /Target/` was reported
-    // although it cannot decide an attribute name (review R14 MEDIUM 5).
-    if (
-      ts.isCallExpression(n) &&
-      ts.isPropertyAccessExpression(n.expression) &&
-      // `.exec` decides a name just as `.test` does (R15 question 3).
-      (n.expression.name.text === "test" || n.expression.name.text === "exec") &&
-      n.arguments.some((a) =>
-        /attrName|jsxAttrNameLower|propNameLower|\b(n|nm|name|key)\b/.test(a.getText()),
-      )
-    ) {
-      // The receiver may be an inline literal OR a same-file `const` bound to one --
-      // `const rx = /^(Target)$/; rx.test(attrName(a))` was missed (R15 question 3).
-      // Same one-binding rule as the spread resolver: more than one binding means
-      // shadowing is possible, so it is left alone rather than guessed.
-      const recv = n.expression.expression;
-      let rx: ts.RegularExpressionLiteral | null = ts.isRegularExpressionLiteral(recv)
-        ? recv
-        : null;
-      if (rx === null && ts.isIdentifier(recv)) {
-        const found: ts.RegularExpressionLiteral[] = [];
-        let bindings = 0;
-        const seek = (node: ts.Node): void => {
-          if (
-            ts.isVariableDeclaration(node) &&
-            ts.isIdentifier(node.name) &&
-            node.name.text === recv.text
-          ) {
-            bindings += 1;
-            const init = node.initializer;
-            if (init && ts.isRegularExpressionLiteral(init)) found.push(init);
-          }
-          ts.forEachChild(node, seek);
-        };
-        seek(sf);
-        if (bindings === 1 && found.length === 1) rx = found[0]!;
-      }
-      if (rx === null) {
-        ts.forEachChild(n, walk);
-        return;
-      }
-      // [\\s\\S] rather than `.` with the /s flag: the project's tsc target rejects it
-      // (TS1501), and I had already hit that once this PR and reintroduced it by
-      // running vitest but not tsc before committing.
-      const m = /^\/([\s\S]*)\/([a-z]*)$/.exec(rx.text);
-      if (m && !m[2]!.includes("i")) {
-        for (const word of m[1]!.split(/[^A-Za-z-]+/)) literals.push(word);
-      }
-    }
     if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
       const fn = n.expression.name.text;
       if (fn === "has" || fn === "includes") {
@@ -1033,6 +977,26 @@ it("no caller passes a components prop that could inject an anchor override", ()
                 ? nm.expression.text
                 : null;
           if (key === "components") offenders.push(`${rel} (object key)`);
+          // FAIL CLOSED on a computed key that is not a decidable literal. R15 built the
+          // name three ways a static pass cannot evaluate -- a template with a
+          // substitution, string concatenation, and Array.join -- each producing a real
+          // props.components. Rather than chase evaluation, an undecidable computed key in
+          // a production root is reported. The tree has zero, so this costs nothing.
+          // Narrowed to keys that could actually BUILD this word: an unrelated
+          // `{[flag]: …}` is legitimate and flagging it made the rule cry wolf on the live
+          // tree (app/admin/settings/roles/RoleMappingRow.tsx). All three of R15's forms
+          // contain the fragment, because you cannot concatenate to "components" without
+          // some part of it appearing in source.
+          if (
+            key === null &&
+            nm !== undefined &&
+            ts.isComputedPropertyName(nm) &&
+            /compo/i.test(nm.expression.getText())
+          ) {
+            offenders.push(
+              `${rel} (undecidable computed key: ${nm.expression.getText().slice(0, 40)})`,
+            );
+          }
         }
         ts.forEachChild(n, visit);
       };
@@ -1293,31 +1257,39 @@ describe("R6: scanner changes are pinned", () => {
   // source for two consumers, so its edge cases matter more than any one caller's.
   // R15 question 3, probed before the round reported: which name-deciding regex uses does
   // the position-scoped rule still miss? Two did.
-  it("R15 a const-held regex and .exec are covered; an unrelated regex is not", () => {
-    // Behavioural, not a source-string check: run the SAME collector the guard uses over
-    // synthetic sources. Two shapes were missed before -- a regex bound to a const and
-    // tested later, and `.exec` instead of `.test` -- while an unrelated diagnostic regex
-    // must stay silent so the false-positive class does not come back.
-    const flagged = (src: string): string[] =>
-      collectNameLiterals(src).filter(
-        (lit) => lit !== lit.toLowerCase() && CASE_INSENSITIVE_NAMES.has(lit.toLowerCase()),
-      );
+  it("R15 every attribute-name read is lowercased at the ENTRY POINT", () => {
+    // MODEL CHANGE, and the reason the regex branch is gone. Rounds 14 and 15 each found
+    // unreported regex forms -- .test, .exec, .match, .search,
+    // RegExp.prototype.test.call, new RegExp(...), a const-held literal -- and that vector
+    // is unbounded, so enumerating spellings cannot converge. Same conclusion the
+    // predicate-comparison vector reached at round six.
+    //
+    // The invariant that actually matters is narrower and decidable: EVERY attribute-name
+    // read goes through a helper that ASCII-lowercases it. Given that, a non-lowercase
+    // literal can never MATCH one, so such a literal is dead code -- still worth flagging
+    // as a typo, which the lowercase tripwire does -- rather than a hole. Proving the
+    // entry point sound replaces proving every comparison form is covered.
+    const src = stripCommentsSafely(
+      readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
+    );
+    const rawCompared = [
+      // No receiver pattern: requiring an identifier before `.name` missed a
+      // parenthesized cast, `(x as ts.JsxAttribute).name.getText() === "Target"`, which is
+      // exactly how someone would bypass the helpers in practice.
+      ...src.matchAll(/\.name\.(?:getText\(\)|text)\s*[=!]==?\s*"/g),
+    ].map((m) => m[0].trim());
     expect(
-      flagged('function f(a){ const rx = /^(Target)$/; return rx.test(attrName(a) ?? ""); }'),
-      "a const-held regex decides a name",
-    ).toEqual(["Target"]);
-    expect(
-      flagged('function f(a){ return /^(Target)$/.exec(attrName(a) ?? "") !== null; }'),
-      ".exec decides a name too",
-    ).toEqual(["Target"]);
-    expect(
-      flagged("const diag = /Target/; function f(m){ return diag.test(m); }"),
-      "a regex tested against an unrelated message decides nothing",
+      rawCompared,
+      "compare attribute names through attrName/jsxAttrNameLower/propNameLower, which lowercase",
     ).toEqual([]);
-    expect(
-      flagged('function f(a){ return /^(Target)$/i.test(attrName(a) ?? ""); }'),
-      "with /i the casing cannot matter",
-    ).toEqual([]);
+    // And the helpers must actually lowercase, or the guarantee above is vacuous.
+    for (const fn of ["attrName", "jsxAttrNameLower", "propNameLower"]) {
+      const body = src.slice(src.indexOf(`function ${fn}`));
+      expect(
+        body.slice(0, body.indexOf("\n}")),
+        `${fn} must lowercase, or the entry-point guarantee is vacuous`,
+      ).toContain("toLowerCase()");
+    }
   });
 
   it("R15 commentRanges distinguishes comments from division, regex and templates", () => {

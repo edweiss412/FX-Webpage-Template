@@ -1141,12 +1141,22 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
   // ONE comment exempts ONE anchor, claimed by the next CANDIDATE it precedes --
   // compliant or not. Consuming only when recording a violation let a compliant
   // anchor leave its exemption for a later broken one (review R3 HIGH 5).
-  const exemptions: { endLine: number; used: boolean }[] = [];
+  const exemptions: { startLine: number; endLine: number; used: boolean }[] = [];
   for (const [a, b] of commentRanges(src)) {
-    const text = src.slice(a, b);
+    // Strip the comment DELIMITERS before reading the reason: `/* marker: */` left `*/`
+    // behind, which `.trim()` counted as a non-empty reason, so a reasonless exemption
+    // silently exempted an anchor (review R15 HIGH 4).
+    const text = src
+      .slice(a, b)
+      .replace(/^\/\*+/, "")
+      .replace(/\*+\/$/, "")
+      .replace(/^\/\//, "");
     const at = text.indexOf(EXEMPTION);
     if (at >= 0 && text.slice(at + EXEMPTION.length).trim().length > 0) {
       exemptions.push({
+        // BOTH ends: the claim rule needs the start line to reject a TRAILING comment
+        // that would otherwise exempt an anchor ABOVE it (review R15 BLOCKING 1).
+        startLine: sf.getLineAndCharacterOfPosition(a).line + 1,
         endLine: sf.getLineAndCharacterOfPosition(b).line + 1,
         used: false,
       });
@@ -1154,7 +1164,15 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
   }
 
   const claimExemption = (line: number): boolean => {
-    const slot = exemptions.find((e) => !e.used && (e.endLine === line || e.endLine === line - 1));
+    // The contract is "the next candidate it PRECEDES". Matching endLine alone let a
+    // TRAILING comment exempt an anchor that started earlier on the same line, and with a
+    // comment between two anchors the FIRST consumed it -- the reverse of source order
+    // (review R15 BLOCKING 1). An exemption may therefore sit on the line above the
+    // anchor, or on the same line but STARTING before it is not enough: a same-line
+    // comment must begin before the anchor does, which a trailing comment never does.
+    const slot = exemptions.find(
+      (e) => !e.used && (e.endLine === line - 1 || (e.endLine === line && e.startLine < line)),
+    );
     if (!slot) return false;
     slot.used = true;
     return true;
