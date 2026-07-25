@@ -2094,6 +2094,34 @@ describe("R6: scanner changes are pinned", () => {
       "a real attribute name cannot be declared NOT_AN_ATTRIBUTE_NAME",
     ).toEqual([]);
 
+    // THE REVERSE CROSS-CHECK, added at R21 because its absence is what let `inert` sit in
+    // the guard's own name-affecting list while `hidesFromAccName` never mentioned it. A list
+    // asserting an attribute matters is not enforcement; nothing compared the list to the
+    // code. Every name this suite claims is case-insensitive must therefore either APPEAR in
+    // the scanner source, or be declared here as kept only for forward protection against a
+    // future hand-typed spelling. "Listed but never read" is then a decision someone made,
+    // not an oversight nobody noticed.
+    const FORWARD_PROTECTION_ONLY = new Map<string, string>([
+      ["download", "not read today; listed so a hand-typed `Download` still trips the rule"],
+      ["ping", "not read today; same forward protection"],
+      ["referrerpolicy", "not read today; same forward protection"],
+    ]);
+    const unread = [...CASE_INSENSITIVE_NAMES].filter(
+      (n) => !shaped.some((lit) => lit.toLowerCase() === n) && !FORWARD_PROTECTION_ONLY.has(n),
+    );
+    expect(
+      unread,
+      "these names are listed as case-insensitive but the scanner never mentions them: either handle them or declare them FORWARD_PROTECTION_ONLY",
+    ).toEqual([]);
+    // And the forward-protection declarations cannot rot the other way: once the scanner DOES
+    // read one, the declaration is wrong and must go.
+    expect(
+      [...FORWARD_PROTECTION_ONLY.keys()].filter((n) =>
+        shaped.some((lit) => lit.toLowerCase() === n),
+      ),
+      "the scanner now reads these, so remove their FORWARD_PROTECTION_ONLY rows",
+    ).toEqual([]);
+
     // Exclusions cannot rot either: an entry no longer present in the source is how a real
     // attribute name later slips in under a dead classification.
     expect(
