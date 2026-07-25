@@ -18,7 +18,7 @@ proven-equivalent mutant rather than a coverage hole — see the section after t
 
 <!-- BEGIN GENERATED -->
 
-_37 adversaries · 36 rejected · 1 survived · 0 unapplied._
+_38 adversaries · 37 rejected · 1 survived · 0 unapplied._
 
 | # | Wrong implementation | Rows red |
 |---|---|---|
@@ -57,6 +57,7 @@ _37 adversaries · 36 rejected · 1 survived · 0 unapplied._
 | A35 | copy button: suppresses EVERY deferred confirmation, not only stale ones | 2 |
 | A36 | seeded at mount AND never cleared, so opening the panel cues with no rotate | 11 |
 | A37 | whole cue block nested inside `@media screen`, defeating contiguity | 2 |
+| A38 | `@media screen` nesting hidden by escaped braces that balance the count | 1 |
 | A22 | token retuned below the ring's contrast floor | 2 |
 | A21 | renders a wrong token / Copy writes a stale one | 2 |
 
@@ -65,7 +66,7 @@ _37 adversaries · 36 rejected · 1 survived · 0 unapplied._
 | N0: SHARE_LINK_FLASH_MS is 1600 | A25 |
 | N1: both keyframes are declared exactly once | A17 |
 | N1: nothing ELSE in the stylesheet mentions the cue | A15, A16, A17, A18, A28, A30, A31 |
-| N1: the block sits at TOP LEVEL, not nested in an at-rule | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31, A37 |
+| N1: the block sits at TOP LEVEL, not nested in an at-rule | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31, A37, A38 |
 | N1: the component declares no keyframes of its own | A20 |
 | N1: the spec's normative block appears in globals.css BYTE FOR BYTE | A13, A14, A15, A17, A19, A25, A26, A27, A29, A31, A37 |
 | T-FLASH-REDUCED | A1, A15, A16, A27, A29, A30, A31 |
