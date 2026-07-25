@@ -39,10 +39,10 @@ and a generator under `scripts/`; neither is created.
 Each of these is decided. Verify the citation; do not re-derive the decision.
 
 1. **Coverage is decided by the constraint DEFINITION, never by its name.** §4.2. This is not an oversight in the naming convention — it is the reason a hand-edited `…_nonblank` constraint cannot fake coverage. Ratified by a prior review arc on this repo that spent 7 rounds on a text-normalizing predicate comparison: the normalizer equated 11 operator families that are not equivalent, and the same defect then reappeared in the sibling comparison path. The durable rule taken from it: never compare SQL predicates as normalized text — compare against a canonical rendering the database itself produced.
-2. **`wizard_finalize_checkpoints`'s constraint deliberately breaks the `<table>_<column>_nonblank` convention.** The conventional name is **65 bytes**, past Postgres's 63-byte identifier limit, and would be silently truncated. Measured, not assumed (§3.1). The chosen name is `wizard_finalize_checkpoints_cursor_nonblank` (43 bytes). Because coverage is definition-based (item 1), the deviation costs nothing.
+2. **`wizard_finalize_checkpoints`'s constraint shortens the conventional name, and the shortening is constrained from BOTH ends.** The conventional `<table>_<column>_nonblank` form is **65 bytes**, past Postgres's 63-byte identifier limit, and would be silently truncated (§3.1, measured). But it must ALSO keep the `_drive_file_id_nonblank` suffix, because the validation parity test's live query filters on `conname like '%\_drive\_file\_id\_nonblank'` (`tests/db/validation-schema-parity.test.ts:261-263`) — R4 finding 3 caught an earlier draft's `…_cursor_nonblank`, which would have put the parity test PERMANENTLY RED: the name would be in `expected` and could never appear in `live`. The chosen name drops the column-name prefix instead: `wizard_finalize_checkpoints_drive_file_id_nonblank`, 50 bytes, suffix intact.
 3. **Both canonical CHECK forms are accepted for a column of either nullability.** §3, §4.2. A CHECK fails only on FALSE and `NULL ~ '…'` is NULL, so the bare form and the `is null or …` form are behaviorally identical. Requiring the stylistically-matching form would produce false failures with no safety gain.
 4. **`public.onboarding_rebuild_attempts.drive_file_id` (U4) is in scope even though no backlog item covers it.** It is a column named *exactly* `drive_file_id` — inside the ORIGINAL 2026-07-02 scope rule — created 16 days after that migration and never covered (§2.2, verified live §2). Landing the guard without landing U4's CHECK would ship a red gate. This is not scope creep; it is the first thing the guard found.
-5. **The exemption list ships EMPTY and that is correct.** §4.3. It is not a zombie flag: all four of its rules (§4.5) are exercised by synthetic-input unit tests (§4.4, AC-8), and the two stale-row rules are what stop an empty list from silently becoming a permanent blindfold later.
+5. **The exemption list ships EMPTY and that is correct.** §4.3. It is not a zombie flag: all four of its rules (§4.5) are exercised by synthetic-input unit tests (§4.5, AC-9), and the two stale-row rules are what stop an empty list from silently becoming a permanent blindfold later.
 6. **The existing validation CHECK-parity test is EXTENDED, not re-architected.** §4.4. `tests/db/validation-schema-parity.test.ts:223-285` already asserts validation carries every public nonblank CHECK. Earlier drafts replaced it with a census-driven, identity-bound layer; R3 finding 1 showed that layer's identity binding was unsound (a URI's authority is not libpq's effective target). The change is now minimal: parse both nonblank migrations, move the pinned count. Separately, the schema MANIFEST records columns only (`scripts/schema-manifest/lib.ts:238-246`) and cannot see a constraint-only migration at all — a true and distinct fact that an early draft conflated with the above.
 7. **The census scans `public` + `dev` only — an allowlist of repo-owned schemas, not a vendor blocklist.** §4.1. Vendor schemas (`auth`, `storage`, `realtime`, …) cannot receive our constraints, and a blocklist naming them would go stale the moment Supabase adds a schema. §10 records the residual exposure if a third repo-owned schema ever appears.
 8. **No data-repair step, deliberately.** §3.3, §7. Zero violating rows exist on local (measured). If a target holds one, the apply must fail loudly rather than mutate operator data silently.
@@ -70,7 +70,7 @@ That scope rule was a reasonable line to draw once. It has two defects as a *dur
 
 So the deliverable is not just "add the two deferred CHECKs." It is: add every missing CHECK, then replace the prose scope rule with an executable artifact that fails red when a new Drive-ID-bearing column appears uncovered.
 
-**Framing note (durable lesson from a prior 8-round spec arc on this repo):** a prose enumeration of an executable property never completes — test bodies, adversary lists, observables, and transitions each failed the same way, one omission at a time. The fix that worked was to make the enumeration a NORMATIVE artifact and compare against it mechanically. This spec therefore makes the census a **normative committed artifact** and compares the live database against it, rather than restating a list in prose that a future migration can silently invalidate.
+**Framing note (durable lesson from a prior 8-round spec arc on this repo):** a prose enumeration of an executable property never completes — test bodies, adversary lists, observables, and transitions each failed the same way, one omission at a time. The fix that worked was to make the enumeration a NORMATIVE artifact and compare against it mechanically. This spec applies that lesson in its strongest available form: after the R3 collapse (§4.0) there is no committed census file at all — the enumeration is recomputed from the live database on every run, so there is nothing to hand-edit and nothing to go stale.
 
 ---
 
@@ -136,7 +136,7 @@ Constraint names (each `<table>_<column>_nonblank`, extending the parent's `<tab
 | ------ | --------------- |
 | U1 `public.shows.opening_reel_drive_file_id` | `shows_opening_reel_drive_file_id_nonblank` (41 bytes) |
 | U2 `dev.shows.opening_reel_drive_file_id` | `shows_opening_reel_drive_file_id_nonblank` (41 bytes) |
-| U3 `public.wizard_finalize_checkpoints.last_processed_drive_file_id` | `wizard_finalize_checkpoints_cursor_nonblank` (43 bytes) — **deviates from the convention on purpose**, see §3.1 |
+| U3 `public.wizard_finalize_checkpoints.last_processed_drive_file_id` | `wizard_finalize_checkpoints_drive_file_id_nonblank` (50 bytes) — **deviates from the convention on purpose**, see §3.1 |
 | U4 `public.onboarding_rebuild_attempts.drive_file_id` | `onboarding_rebuild_attempts_drive_file_id_nonblank` (50 bytes) |
 
 ### 3.1 Why U3's name breaks the convention
@@ -148,13 +148,18 @@ $ printf '%s' wizard_finalize_checkpoints_last_processed_drive_file_id_nonblank 
 65
 ```
 
-Postgres's identifier limit is 63 bytes (`NAMEDATALEN - 1`), so that name would be **silently truncated** to `…_drive_file_id_nonbla`. Truncation is deterministic and applied consistently to both the `drop constraint if exists` and the `add constraint`, so apply-twice safety would technically survive — but a name that does not appear anywhere in the source it was written in is a latent collision and a debugging trap. U3 therefore takes an explicit 43-byte name.
+Postgres's identifier limit is 63 bytes (`NAMEDATALEN - 1`), so that name would be **silently truncated** to `…_drive_file_id_nonbla`. Truncation is deterministic and applied consistently to both the `drop constraint if exists` and the `add constraint`, so apply-twice safety would technically survive — but a name that does not appear anywhere in the source it was written in is a latent collision and a debugging trap. U3 therefore takes a name that DROPS the column-name prefix `last_processed_`: 50 bytes.
 
 This is safe precisely because **coverage is definition-based, never name-based** (§1.1 item 1, §4.2). No test derives an expected constraint name from a table/column pair; coverage is matched on the constraint's definition (§4.2).
 
-§4.4 pins the general form of this hazard: every constraint name declared by a nonblank migration must be ≤ 63 bytes, so the next long-named column fails at test time rather than silently truncating.
+§4.1's identifier-length pin covers the general form of this hazard: every constraint name declared by a nonblank migration must be ≤ 63 bytes, so the next long-named column fails at test time rather than silently truncating.
 
-**The `cursor` token in that name is safe, and deliberately checked.** The AC-X.4 event trigger `no_global_cursor_columns` (`supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql:75-77`) fires on `ddl_command_end` and raises `check_violation` for any `public` column whose name matches `(^|_)cursor($|_)` (among other watermark shapes) and is absent from `_allowed_watermark_columns`. It scans **`information_schema.columns` only** (`supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql:57-64`) — constraint names are not columns, so `wizard_finalize_checkpoints_cursor_nonblank` cannot trip it.
+**Note on the earlier `cursor`-token name (superseded).** An earlier draft named this constraint
+`wizard_finalize_checkpoints_cursor_nonblank`; §1.1 item 2 records why it was replaced. The
+observation below is retained because it is what made that name look safe, and it remains true of any
+constraint name containing a watermark-shaped token.
+
+**A watermark-shaped token in a CONSTRAINT name is safe, and deliberately checked.** The AC-X.4 event trigger `no_global_cursor_columns` (`supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql:75-77`) fires on `ddl_command_end` and raises `check_violation` for any `public` column whose name matches `(^|_)cursor($|_)` (among other watermark shapes) and is absent from `_allowed_watermark_columns`. It scans **`information_schema.columns` only** (`supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql:57-64`) — constraint names are not columns, so `wizard_finalize_checkpoints_drive_file_id_nonblank` cannot trip it.
 
 ### 3.1.1 This migration DOES fire that event trigger
 
@@ -177,7 +182,7 @@ NOTICEs: 4
  dev.shows                          :: shows_opening_reel_drive_file_id_nonblank          :: CHECK (((opening_reel_drive_file_id IS NULL) OR (opening_reel_drive_file_id ~ '[^[:space:]]'::text)))
  public.onboarding_rebuild_attempts :: onboarding_rebuild_attempts_drive_file_id_nonblank :: CHECK ((drive_file_id ~ '[^[:space:]]'::text))
  public.shows                       :: shows_opening_reel_drive_file_id_nonblank          :: CHECK (((opening_reel_drive_file_id IS NULL) OR (opening_reel_drive_file_id ~ '[^[:space:]]'::text)))
- public.wizard_finalize_checkpoints :: wizard_finalize_checkpoints_cursor_nonblank        :: CHECK (((last_processed_drive_file_id IS NULL) OR (last_processed_drive_file_id ~ '[^[:space:]]'::text)))
+ public.wizard_finalize_checkpoints :: wizard_finalize_checkpoints_drive_file_id_nonblank        :: CHECK (((last_processed_drive_file_id IS NULL) OR (last_processed_drive_file_id ~ '[^[:space:]]'::text)))
 ROLLBACK
 ```
 
@@ -215,8 +220,8 @@ alter table dupprobe.b add constraint same_name check (x ~ 'q');   -- accepted
 Postgres enforces uniqueness on `(conrelid, contypid, conname)` — per **table**. The consequence is
 load-bearing and applies to every layer: **coverage is a property of a
 `(schema, table, column)` tuple and its definition, never of a constraint name.** Any lookup keyed on
-bare `conname` can be satisfied by a same-named constraint on a different table. §4.6 previously
-compared bare names and is corrected accordingly.
+bare `conname` can be satisfied by a same-named constraint on a different table. §4.4 records where
+this still bites the validation parity path.
 
 ### 3.2 CHECK migration matrix
 
@@ -258,8 +263,8 @@ Every layer the project's DB-touching checklist enumerates, per affected column:
 | cleanup function | N/A | N/A | N/A | rows deleted at `lib/onboarding/sessionLifecycle.ts:575` and `lib/onboarding/sessionLifecycle.ts:892` — deletion is unaffected by a CHECK |
 | PostgREST DML lockdown | N/A — `shows` lockdown posture unchanged by this spec | N/A | N/A | already locked down (`20260718000000_onboarding_rebuild_attempts.sql:21-22`); unchanged |
 | frontend form / audit page | N/A — no UI surface touched (§7) | N/A | N/A | N/A |
-| tests | behavioral probe (§4.7) + census row | behavioral probe + census row | behavioral probe + census row | behavioral probe + census row |
-| schema manifest | no change (constraint-only, §4.6) | dev not in manifest (public only) | no change | no change |
+| tests | behavioral probe (§4.3) + live census coverage (§4.1) | same | same | same |
+| schema manifest | no change (constraint-only, §8) | dev not in manifest (public only) | no change | no change |
 | validation apply | **required** (§8) | no-op there (`if exists`) | **required** | **required** |
 
 **Flag lifecycle table:** N/A — this change introduces no boolean config field, feature flag, or toggle. **Dimensional invariants / transition inventory:** N/A — no component, no rendered surface, no visual state (§7).
@@ -279,8 +284,9 @@ architecture all three rounds had been patching. **The design assumed CI has no 
 - `tests/db/**` is in the **serial** project: it is absent from `PARALLEL_TEST_GLOBS` and from
   `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48-52`), and the serial project takes everything not
   claimed by the parallel one (`vitest.config.ts:76-93`).
-- `unit-suite` is a **required** status check — stated in the workflow itself, at the pinned-CLI
-  comment: "unit-suite is a REQUIRED check, so a setup rate-limit flake would block merges."
+- the **`unit-suite` aggregator** is the required status check; `unit-suite-db` is a worker the
+  aggregator depends on, so it is *transitively* merge-blocking rather than itself the required
+  context (R4 finding 7). The workflow states the intent at the pinned-CLI comment: "unit-suite is a REQUIRED check, so a setup rate-limit flake would block merges."
 
 So an ordinary `tests/db/*.db.test.ts` runs against an all-migrations-applied database, on every PR,
 in a job that blocks the merge. Every mechanism below was invented to work around a database that was
@@ -418,15 +424,23 @@ displaying `postgres.<validation-ref>@…pooler.supabase.com` can connect to a l
 every authority check.
 
 So this spec does **not** re-architect that test. It makes the minimal change the new migration
-requires: the parse covers **both** nonblank migration files, and the pinned count moves from 14 to 18
-(14 + the four new constraints, of which three are public — see the note below). The mechanism, its
+requires: the parse covers **both** nonblank migration files, and the pinned count moves from 14 to 17
+(14 + the three PUBLIC constraints the new migration declares; the `dev.shows` one is excluded by the
+pattern's `public.` scoping). The mechanism, its
 superset assertion, its failure message, and its `TEST_DATABASE_URL` postures are otherwise untouched,
 because they are already reviewed, already shipping, and not what this change is about.
 
 Count note: the migration declares four constraints, three on `public` (`shows`,
 `wizard_finalize_checkpoints`, `onboarding_rebuild_attempts`) and one on `dev.shows`, and the existing
 regex is scoped to `alter table public.` (`tests/db/validation-schema-parity.test.ts:228-230`), so the pinned public count becomes 14 + 3 = 17.
-The plan verifies this against the parse rather than trusting the arithmetic here.
+**Verified against the real regex, not asserted** (2026-07-25): running the test's own pattern
+`/alter\s+table\s+public\.\w+\s+add\s+constraint\s+(\w+)\s+check/gi` over both files yields **14**
+public names from the parent migration and **3** from the new one
+(`shows_opening_reel_drive_file_id_nonblank`, `wizard_finalize_checkpoints_drive_file_id_nonblank`,
+`onboarding_rebuild_attempts_drive_file_id_nonblank`) — the `dev.shows` constraint is correctly
+excluded by the `public.` scoping. The pinned count therefore moves 14 → **17**. Note the pattern's
+`\s+` spans newlines, so the new migration's multi-line `alter table … / add constraint …` statements
+are matched; a formatting choice that a line-anchored pattern would have silently dropped.
 
 **The wrong-target problem is out of scope and stays open.** It predates this change, affects the whole
 `validation-schema-parity` job equally, and R3 finding 1 is the first time it has been articulated;
@@ -466,14 +480,14 @@ every future row lands in a reviewable diff, and §10 records this rather than p
 Shared values are defined once and referenced, not restated:
 
 - **The predicate** `~ '[^[:space:]]'` appears in exactly two places: the migration SQL, and a single exported constant used to construct both canonical definition strings in §4.2. No test re-spells it inline.
-- **23** — the census size as of 2026-07-25 — appears in §2 (17 public + 6 dev), §4.5's `>= 23` anchor floor, and AC-4. It is a **floor**, not an equality: a future migration adding a covered Drive-ID column must not fail this assertion. The exact set lives in the committed artifact, which is the normative record.
+- **23** — the census size as of 2026-07-25 — appears in §2 (17 public + 6 dev), §4.1's `>= 23` floor, and AC-6. It is a **floor**, not an equality: a future migration adding a covered Drive-ID column must not fail this assertion. The exact set lives in the committed artifact, which is the normative record.
 - **19 covered / 4 uncovered** in §2 sums to 23. After §3 lands: 23 covered, 0 uncovered, 0 exemptions.
 - **63 bytes** — the Postgres identifier limit (`NAMEDATALEN - 1`) — appears in §1.1 item 2, §3, §3.1, and §4.4, always as the same limit.
 - **65 bytes** — the conventional-but-too-long U3 name — appears only in §1.1 item 2 and §3.1, both citing the same `wc -c` measurement.
 - **Four constraint names** are stated once each in §3's table and referenced nowhere else by literal; §3.1 restates only U3's, as the subject of that section.
-- **14** appears only as a quotation of the EXISTING hardcoded literals being removed — `tests/db/validation-schema-parity.test.ts:237` (§1.1 item 6, §4.6) and `tests/db/driveFileIdNonblank.db.test.ts:147` (§4.7, AC-14). It is never this spec's own count. **15** is the post-change public exactly-named count, in §4.7 and AC-14 only.
+- **14** appears only as a quotation of the EXISTING hardcoded literals being removed — `tests/db/validation-schema-parity.test.ts:237` (§1.1 item 6, §4.4) and `tests/db/driveFileIdNonblank.db.test.ts:147` (§4.3, AC-11). It is never this spec's own count. **15** is the post-change public exactly-named count, in §4.3 and AC-11 only. **17** is the new pinned parse count, in §4.4 only.
 - **Acceptance criteria run AC-1 … AC-15** with no gaps and no duplicates; the set was renumbered when §4 collapsed in R3, and every AC now maps to a mechanism that still exists.
-- **Behavioral-probe counts** appear as `3 of 19` (today) and `7 of 23` (after this change) in §4.7 and §10 item 4, and nowhere else.
+- **Behavioral-probe counts** appear as `3 of 19` (today) and `7 of 23` (after this change) in §4.3 and §10 item 1, and nowhere else.
 - **8 / 16 / 4** — statements per pass, results across two passes, and first-pass NOTICEs — appear only in §3.1.2, all from the one measurement.
 - **The predicate** `~ '[^[:space:]]'` is spelled in the migration (§3) and in §4.2's two template constants; §4.2's two canaries assert the parent migration's constraints still render as those constants, so the spellings cannot drift apart silently.
 
@@ -509,7 +523,7 @@ $ psql "$LOCAL" -At -f nbsp-probe.sql
 
 So there is **no divergence** on this database: NBSP, em-space, and vertical tab are all inside `[:space:]` and all rejected, matching `/\S/`. The predicate is inherited on measured grounds, not on the parent's assertion.
 
-Scope of that measurement, stated honestly: it was taken on the local UTF8 stack. `[:space:]` remains locale-dependent in principle, so a target with a different `lc_ctype` could classify differently. The behavioral probes in §4.7 therefore assert only the ASCII cases (`""`, `"   "`, `"\t"`) — the set the parent migration committed to and the set that cannot vary — and this section records the Unicode result as a local measurement rather than a cross-target guarantee.
+Scope of that measurement, stated honestly: it was taken on the local UTF8 stack. `[:space:]` remains locale-dependent in principle, so a target with a different `lc_ctype` could classify differently. The behavioral probes in §4.3 therefore assert only the ASCII cases (`""`, `"   "`, `"\t"`) — the set the parent migration committed to and the set that cannot vary — and this section records the Unicode result as a local measurement rather than a cross-target guarantee.
 - **Extending the guard to other column classes** (`slug`, `share_token`, …). The mechanism generalizes; applying it elsewhere is a separate change with its own census.
 - **Touching `assertNonEmptyDriveFileId`** (`lib/drive/fetch.ts:145`) or any JS write path. This is DB-layer defense-in-depth only; no application behavior changes.
 
@@ -571,7 +585,16 @@ deliberate acceptance.
 5. **The guard sees columns whose NAME matches `drive_file_id`.** A Drive ID stored under an unrelated
    name is undetectable by this mechanism, and nothing here claims otherwise.
 
-**What it DOES guarantee, since three drafts understated it:** a new Drive-ID-bearing column that lands
-without a nonblank CHECK fails `unit-suite-db` — a required, merge-blocking check that boots a real
-database with all migrations applied (§4.0) — on the PR that introduces it. That is the fail-by-default
-property this work set out to deliver.
+6. **`BASE TABLE` excludes FOREIGN tables.** `information_schema.tables.table_type` distinguishes
+   `FOREIGN` from `BASE TABLE`, so a matching column on a public foreign table is invisible to the
+   census. No such table exists in this repo today, and a foreign table cannot carry a local CHECK
+   anyway — but the guard reports nothing rather than reporting it as unprotectable (R4 finding 5).
+
+**What it DOES guarantee — stated narrowly, because earlier drafts overclaimed in both directions:**
+a new column whose NAME matches `drive_file_id`, on a BASE TABLE in `public` or `dev`, that lands
+without a canonical nonblank CHECK and without an exemption row, and that the census query actually
+returns, makes the guard suite RED — and that suite runs in `unit-suite-db`, a worker of the required
+`unit-suite` aggregator, against a real all-migrations-applied database, on the PR that introduces it.
+Every clause in that sentence is load-bearing; items 1–6 above are the ways it does not apply. What is
+unambiguously better than the earlier drafts is *placement*: the guard runs in a merge-blocking path
+rather than the advisory `x-audits` job, which is a real improvement independent of detection surface.
