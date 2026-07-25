@@ -417,4 +417,70 @@ test.describe("share-link cue — resolved style", () => {
     expect(during!.backgroundColor).toBe(rest!.backgroundColor);
     expect(during!.boxShadow).toBe(rest!.boxShadow);
   });
+
+  test("T-FLASH-COPY-RACE: a clipboard write still in flight when the token rotates never confirms", async ({
+    page,
+  }) => {
+    // The ONLY executable proof of the captured-url guard's ordering under a
+    // real engine. The jsdom rows cannot reach it: RTL flushes passive effects
+    // before `rerender` returns, so `useLayoutEffect` and `useEffect` are
+    // indistinguishable there (round-6 review), and round-9 review pointed out
+    // the browser spec had no clipboard interaction at all — leaving the race
+    // asserted nowhere.
+    //
+    // A stalled `writeText` is what makes the window observable: the promise
+    // resolves AFTER the rotate has committed a new url, which is exactly the
+    // state where a stale confirmation would appear beside a token that is
+    // already dead for the whole crew.
+    await page.addInitScript(() => {
+      let release: (() => void) | null = null;
+      const w = window as unknown as { __clipboardCalls: number; __releaseClipboard: () => void };
+      w.__clipboardCalls = 0;
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: () => {
+            w.__clipboardCalls++;
+            return new Promise<void>((resolve) => {
+              release = () => resolve();
+            });
+          },
+        },
+      });
+      w.__releaseClipboard = () => release?.();
+    });
+
+    await openHub(page);
+    const copy = page.getByTestId("admin-current-share-link-copy-button");
+    await copy.click();
+    // Non-vacuity, and this is the whole ballgame. Asserting only the label here
+    // passed even with the guard REMOVED: if the override never installs, or the
+    // real clipboard rejects for lack of permission, `onClick`'s catch swallows
+    // it and the button sits at "Copy" forever — satisfying "never confirms" by
+    // never starting. Prove the stalled write is genuinely in flight.
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as unknown as { __clipboardCalls: number }).__clipboardCalls),
+      )
+      .toBe(1);
+    await expect(copy).toHaveText("Copy");
+
+    await rotate(page);
+    await page.evaluate(() =>
+      (window as unknown as { __releaseClipboard: () => void }).__releaseClipboard(),
+    );
+
+    // Resolution lands against the NEW url, so the guard must swallow it.
+    //
+    // SINGLE-SHOT reads, deliberately. `toHaveText` RETRIES until it matches, so
+    // a button that flashes "Copied" and reverts when its own 2s timer fires
+    // satisfies it — which is why this row passed with the guard removed. The
+    // defect is the stale confirmation EXISTING at all, so sample once, after
+    // two frames, and let the value be whatever it is.
+    await page.evaluate(
+      () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null)))),
+    );
+    expect(await copy.textContent()).toBe("Copy");
+    expect(await page.getByTestId("admin-current-share-link-copy-announce").textContent()).toBe("");
+  });
 });

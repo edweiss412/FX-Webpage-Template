@@ -230,7 +230,7 @@ const ADVERSARIES = [
   ["A12", "omits the effect cleanup", [[HUB, "return () => clearTimeout(t);", "return;"]]],
   [
     "A13",
-    "empty keyframe bodies",
+    "wash keyframe replaced by a single opacity stop",
     [
       [
         CSS,
@@ -302,12 +302,16 @@ const ADVERSARIES = [
   ],
   [
     "A20",
-    "keyframes moved into the component",
+    "keyframes moved into the component as a real style element",
     [
+      // Was a COMMENT containing "@keyframes", which is observably equivalent —
+      // it changed nothing and was rejected only by a comment-sensitive regex
+      // (round-9 review). A styled-jsx-style element is a real relocation: the
+      // rule genuinely ships from the component instead of the stylesheet.
       [
         HUB,
         "export const SHARE_LINK_FLASH_MS = 1600;",
-        "export const SHARE_LINK_FLASH_MS = 1600;\n// @keyframes share-link-flash-bg { from { opacity: 1 } }",
+        'export const SHARE_LINK_FLASH_MS = 1600;\nexport const INLINE_CUE_CSS = "@keyframes share-link-flash-bg { from { opacity: 1 } }";',
       ],
     ],
   ],
@@ -315,10 +319,19 @@ const ADVERSARIES = [
     "A23",
     "attribute on the wrapper row, not the code block",
     [
+      // Both halves are required. Adding to the wrapper WITHOUT removing it from
+      // the <code> element tested duplication, not relocation, and the row this
+      // adversary exists for is about which element carries the cue
+      // (round-9 review).
       [
         HUB,
         `data-testid="admin-current-share-link-row"`,
         `data-testid="admin-current-share-link-row"\n                        {...(flash !== null ? { "data-share-link-flash": "" } : {})}`,
+      ],
+      [
+        HUB,
+        `                          {...(flash !== null ? { "data-share-link-flash": "" } : {})}\n                          className="min-w-0 flex-1 break-all`,
+        `                          className="min-w-0 flex-1 break-all`,
       ],
     ],
   ],
@@ -537,7 +550,7 @@ ADVERSARIES.push([
   "A37",
   "whole cue block nested inside `@media screen`, defeating contiguity",
   [
-    [CSS, "@keyframes share-link-flash-bg {", "@media screen {\n@keyframes share-link-flash-bg {"],
+    [CSS, "/* ShareHub crew-link block:", "@media screen {\n/* ShareHub crew-link block:"],
     [
       CSS,
       "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}",

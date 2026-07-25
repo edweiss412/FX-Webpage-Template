@@ -24,12 +24,15 @@
  * announcement. Both guards were verified by removing them and watching exactly
  * one row red each, not by assuming it.
  *
- * KNOWN LIMIT: guard 2's `useLayoutEffect` vs passive-`useEffect` choice for
- * `urlRef` is NOT discriminated here. Catching it needs the promise to settle
- * between commit and passive effects, which RTL gives no hook for — `rerender`
- * has already flushed them when it returns (round-6 review). What the ref must
- * hold by the time an async handler reads it is argued at the call site; the
- * browser spec is where that ordering is actually observable.
+ * SCOPE: guard 2's `useLayoutEffect` vs passive-`useEffect` choice for `urlRef`
+ * is not discriminated HERE. Catching it needs the promise to settle between
+ * commit and passive effects, which RTL gives no hook for — `rerender` has
+ * already flushed them when it returns (round-6 review).
+ *
+ * It is no longer uncovered, though: `tests/e2e/share-link-flash.spec.ts`
+ * T-FLASH-COPY-RACE stalls a real `writeText`, rotates, then releases it, and
+ * reads the label ONCE — round-9 review was right that the browser spec had no
+ * clipboard interaction at all. That row reds with the guard removed.
  */
 import { useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
