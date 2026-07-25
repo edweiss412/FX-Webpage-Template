@@ -10,6 +10,7 @@ import { setLogSink, resetLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { RescanDecisionOutcome } from "@/lib/onboarding/applyRescanDecisionUnderLock";
+import { PrepareOnboardingFileError } from "@/lib/sync/runOnboardingScan";
 import {
   FakeFinalizeDb,
   pipelineWithHoldPort,
@@ -142,6 +143,35 @@ describe("finalize inline re-parse on modtime drift (Thread 3)", () => {
     const body = (await json(res)) as { per_row: Array<{ code: string }> };
     expect(body.per_row[0]?.code).toBe("DRIVE_FETCH_FAILED");
     expect(db.demoted.some((d) => d.code === "DRIVE_FETCH_FAILED")).toBe(true);
+    expect(fakeCore).not.toHaveBeenCalled();
+    expect(db.stagedShadows).not.toContain(D);
+  });
+
+  it("PARSE fault during inline re-parse: STAGED_PARSE_FAILED demote, not a Drive failure", async () => {
+    // BL-RESCAN-PREPARE-ERROR-GRANULARITY: the demote itself is unchanged; what
+    // changes is WHY Doug is told it happened. DRIVE_FETCH_FAILED tells him to check
+    // his Drive share settings, which is the wrong place when his sheet's structure
+    // is what broke. Asserts the persisted demote code too, not just the response
+    // body — the two drifting apart is the failure this pins.
+    const db = seededDb();
+    const fakeCore = vi.fn(
+      async (): Promise<RescanDecisionOutcome> => ({ kind: "clean_restamped", changed: true }),
+    );
+
+    const res = await handleOnboardingFinalize(
+      request(),
+      driftDeps(db, {
+        prepareOnboardingFiles: vi.fn(async () => {
+          throw new PrepareOnboardingFileError("parse", "unexpected section header");
+        }),
+        applyRescanDecisionUnderLock: fakeCore as never,
+      }),
+    );
+
+    const body = (await json(res)) as { per_row: Array<{ code: string }> };
+    expect(body.per_row[0]?.code).toBe("STAGED_PARSE_FAILED");
+    expect(db.demoted.some((d) => d.code === "STAGED_PARSE_FAILED")).toBe(true);
+    expect(db.demoted.some((d) => d.code === "DRIVE_FETCH_FAILED")).toBe(false);
     expect(fakeCore).not.toHaveBeenCalled();
     expect(db.stagedShadows).not.toContain(D);
   });
