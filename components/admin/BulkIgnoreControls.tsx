@@ -52,8 +52,9 @@ const ARM_REVERT_MS = 4_000;
 
 /**
  * DQIGNORE-6 — the ACTIVE data-quality list, grouped by code. Each group renders an
- * eyebrow (plain-language type label + hairline rule) UNLESS it is a lone chip-less
- * card (itemCount 1, no bulk), whose header adds nothing over the card itself and is
+ * eyebrow (plain-language type label + a hairline rule drawn only at >=480px) UNLESS it
+ * is a lone chip-less card (itemCount 1, no bulk), whose header adds nothing over the
+ * card itself and is
  * suppressed (spec 2026-07-24-dq-singleton-eyebrow-suppress §2.1: for cataloged codes
  * it verbatim-duplicates the card title; data-gap-labeled singletons are suppressed
  * too, nothing is grouped and nothing rides the row). Bulk-eligible groups render an

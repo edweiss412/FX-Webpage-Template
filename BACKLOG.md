@@ -4,18 +4,6 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
-## BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW — the warning-group hairline charges a gap it cannot fill at 375px
-
-**Filed:** 2026-07-24 (branch `fix/overview-phantom-gap`, found by `T-NOPHANTOM`). **Class:** layout polish. **Effort:** S, but it is a visual decision.
-
-`components/admin/BulkIgnoreControls.tsx:179` renders a decorative `h-px flex-1 bg-border` rule inside the group's `flex items-center gap-2` header row. At 375px, with a group label AND a bulk-ignore chip on the line, the label and chip consume the row, `flex-1` resolves to **zero width**, and the row still charges `gap-2` on BOTH sides of an invisible rule — one extra 8px of dead space that no visible element accounts for. Same class as the Overview phantom gap (`DESIGN.md` §7a), one order of magnitude smaller.
-
-Reproduced on the `crewwarnings` and `crewwarningscapped` harness fixtures at 375px only; 1280px has room for the rule, so it is genuinely absent there. Pre-existing — that component was not touched by the branch that found this.
-
-**Why deferred rather than fixed inline:** the repair is a judgment about crowded-row behavior at narrow widths, not a mechanical one. `empty:hidden` does NOT apply (the span is not empty, it is zero-WIDTH). The candidates each change how the row reads: hide the rule below a breakpoint, give it a `min-w-*` floor so it always draws something, or let the row wrap so the rule keeps a line of its own. That deserves its own before/after look at 375 with a real long label, in the component's own change.
-
-**Ledgered, not silenced:** `KNOWN_PHANTOM_ITEMS` in `tests/e2e/published-review-modal.layout.spec.ts` carries one row for it, subtracted from the offender list so the probe still fails on anything new. Fixing this makes that row stop matching; delete it in the same change.
-
 ## BL-PHANTOM-GAP-PROBE-OTHER-SURFACES — run the zero-extent-flex-item probe on the crew page and dashboard harnesses
 
 **Filed:** 2026-07-24 (branch `fix/overview-phantom-gap`). **Class:** layout hardening. **Effort:** S per harness.
