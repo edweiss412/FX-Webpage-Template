@@ -1265,49 +1265,73 @@ describe("R6: scanner changes are pinned", () => {
   // source for two consumers, so its edge cases matter more than any one caller's.
   // R15 question 3, probed before the round reported: which name-deciding regex uses does
   // the position-scoped rule still miss? Two did.
-  it("R15 every attribute-name read is lowercased at the ENTRY POINT", () => {
-    // MODEL CHANGE, and the reason the regex branch is gone. Rounds 14 and 15 each found
-    // unreported regex forms -- .test, .exec, .match, .search,
-    // RegExp.prototype.test.call, new RegExp(...), a const-held literal -- and that vector
-    // is unbounded, so enumerating spellings cannot converge. Same conclusion the
-    // predicate-comparison vector reached at round six.
+  it("R16 casing is BEHAVIOURALLY irrelevant for every attribute the guard reads", () => {
+    // MODEL CHANGE, second attempt. My structural version asserted things about SOURCE
+    // SHAPE -- no `.name.getText() === "Literal"`, no `const {name}` -- and R16 showed it
+    // does not enforce its own claim: a raw read passed to a regex, `let {name}`, a
+    // destructured PARAMETER, a comparison against a const, and an existential helper-body
+    // check all slipped through. Source-shape rules recreate the unbounded enumeration the
+    // deleted regex branch already lost twice.
     //
-    // The invariant that actually matters is narrower and decidable: EVERY attribute-name
-    // read goes through a helper that ASCII-lowercases it. Given that, a non-lowercase
-    // literal can never MATCH one, so such a literal is dead code -- still worth flagging
-    // as a typo, which the lowercase tripwire does -- rather than a hole. Proving the
-    // entry point sound replaces proving every comparison form is covered.
-    const src = stripCommentsSafely(
-      readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8"),
-    );
-    const rawCompared = [
-      // No receiver pattern: requiring an identifier before `.name` missed a
-      // parenthesized cast, `(x as ts.JsxAttribute).name.getText() === "Target"`, which is
-      // exactly how someone would bypass the helpers in practice.
-      ...src.matchAll(/\.name\.(?:getText\(\)|text)\s*[=!]==?\s*"/g),
-    ].map((m) => m[0].trim());
-    expect(
-      rawCompared,
-      "compare attribute names through attrName/jsxAttrNameLower/propNameLower, which lowercase",
-    ).toEqual([]);
-    // A DESTRUCTURED name bypasses the `.name.` shape entirely:
-    // `const { name } = a; name.getText() === "Target"` never touches a helper, so the
-    // lowercasing guarantee does not apply to it (R16 question 4). Reading the name that
-    // way is forbidden outright rather than pattern-matched at the comparison.
-    const destructured = [...src.matchAll(/\bconst\s*\{[^}]*\bname\b[^}]*\}\s*=/g)].map((m) =>
-      m[0].trim(),
-    );
-    expect(
-      destructured,
-      "do not destructure `name` off an attribute; call attrName/jsxAttrNameLower so it is lowercased",
-    ).toEqual([]);
-    // And the helpers must actually lowercase, or the guarantee above is vacuous.
-    for (const fn of ["attrName", "jsxAttrNameLower", "propNameLower"]) {
-      const body = src.slice(src.indexOf(`function ${fn}`));
+    // So assert the OBSERVABLE property instead: for every attribute this guard reads,
+    // scanning a fixture with the name spelled in a different case must produce the SAME
+    // verdict. No reading style can evade that, because it is measured at the output.
+    const fixtures: [string, (n: string) => string][] = [
+      ["target", (n) => `const A=()=><a href="x" ${n}="_blank">Go</a>;`],
+      [
+        "rel",
+        (n) =>
+          `const A=({e})=><a href="x" {...(e?{target:"_blank",${n}:"noreferrer"}:{})}>Go {e?<> <NewTabHint /></>:null}</a>;`,
+      ],
+      ["href", (n) => `const A=()=><Foo ${n}="x" target="_blank">Go</Foo>;`],
+      [
+        "aria-label",
+        (n) =>
+          `const A=()=><a href="x" target="_blank" ${n}="Open the sheet (opens in a new tab)">Go</a>;`,
+      ],
+      [
+        "aria-hidden",
+        (n) =>
+          `const A=()=><a href="x" target="_blank">Go <span ${n}="true"><NewTabHint /></span></a>;`,
+      ],
+      [
+        "hidden",
+        (n) => `const A=()=><a href="x" target="_blank">Go <span ${n}><NewTabHint /></span></a>;`,
+      ],
+      [
+        "className",
+        (n) =>
+          `const A=()=><a href="x" target="_blank">Go <span ${n}="hidden"><NewTabHint /></span></a>;`,
+      ],
+      [
+        "role",
+        (n) =>
+          `const A=()=><a href="x" target="_blank">Go <span ${n}="img" aria-label="icon"><NewTabHint /></span></a>;`,
+      ],
+    ];
+    const spellings = (n: string): string[] => [n.toUpperCase(), n[0]!.toUpperCase() + n.slice(1)];
+    for (const [name, build] of fixtures) {
+      const base = violations(build(name)).join(" | ");
+      for (const alt of spellings(name)) {
+        expect(
+          violations(build(alt)).join(" | "),
+          `"${alt}" must be treated exactly like "${name}"`,
+        ).toBe(base);
+      }
+    }
+
+    // The DUPLICATE-fold path needs its own coverage: none of the fixtures above have two
+    // attributes folding to one name, so removing that fold went undetected until a
+    // mutation showed it. Every case pattern must be reported, in either order.
+    for (const [first, second] of [
+      ["target", "TARGET"],
+      ["TARGET", "target"],
+      ["Target", "tArGeT"],
+    ]) {
       expect(
-        body.slice(0, body.indexOf("\n}")),
-        `${fn} must lowercase, or the entry-point guarantee is vacuous`,
-      ).toContain("toLowerCase()");
+        violations(`const A=()=><a href="x" ${first}="_self" ${second}="_blank">Go</a>;`).join(" "),
+        `duplicate ${first}/${second} must be reported`,
+      ).toMatch(/case-folding|unrecognized/);
     }
   });
 

@@ -1141,7 +1141,7 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
   // ONE comment exempts ONE anchor, claimed by the next CANDIDATE it precedes --
   // compliant or not. Consuming only when recording a violation let a compliant
   // anchor leave its exemption for a later broken one (review R3 HIGH 5).
-  const exemptions: { startLine: number; endLine: number; used: boolean }[] = [];
+  const exemptions: { end: number; endLine: number; used: boolean }[] = [];
   for (const [a, b] of commentRanges(src)) {
     // Strip the comment DELIMITERS before reading the reason: `/* marker: */` left `*/`
     // behind, which `.trim()` counted as a non-empty reason, so a reasonless exemption
@@ -1151,30 +1151,70 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
     // HIGH 4). Stripping the LEADING delimiters was dead code -- they sit before the
     // marker and can never reach the reason -- and a mutation proved it, so it is gone
     // rather than kept for symmetry.
-    const text = src.slice(a, b).replace(/\*+\/$/, "");
+    // Trailing delimiter, then jsdoc DECORATION. `/**\n * marker:\n *\n */` left a bare
+    // `*` after the marker, which counted as a reason (review R16 HIGH 2). Leading `*` on
+    // each continuation line is decoration, never content.
+    const text = src
+      .slice(a, b)
+      .replace(/\*+\/$/, "")
+      .split("\n")
+      .map((l) => l.replace(/^\s*\*+\s?/, ""))
+      .join("\n");
     const at = text.indexOf(EXEMPTION);
     if (at >= 0 && text.slice(at + EXEMPTION.length).trim().length > 0) {
       exemptions.push({
-        // BOTH ends: the claim rule needs the start line to reject a TRAILING comment
-        // that would otherwise exempt an anchor ABOVE it (review R15 BLOCKING 1).
-        startLine: sf.getLineAndCharacterOfPosition(a).line + 1,
+        // POSITION, not just line. Line comparison could not express "precedes" for a
+        // comment sharing a line with its anchor, and let two exemptions on one line drift
+        // across two anchors on the next (review R16 BLOCKING 1).
+        end: b,
         endLine: sf.getLineAndCharacterOfPosition(b).line + 1,
         used: false,
       });
     }
   }
 
-  const claimExemption = (line: number): boolean => {
-    // The contract is "the next candidate it PRECEDES". Matching endLine alone let a
-    // TRAILING comment exempt an anchor that started earlier on the same line, and with a
-    // comment between two anchors the FIRST consumed it -- the reverse of source order
-    // (review R15 BLOCKING 1). An exemption may therefore sit on the line above the
-    // anchor, or on the same line but STARTING before it is not enough: a same-line
-    // comment must begin before the anchor does, which a trailing comment never does.
-    const slot = exemptions.find(
-      (e) => !e.used && (e.endLine === line - 1 || (e.endLine === line && e.startLine < line)),
-    );
-    if (!slot) return false;
+  // An exemption belongs to the FIRST candidate that follows it, and to no other. Line
+  // arithmetic could not say that: a comment sharing a line with its anchor was
+  // unmatchable, and two exemptions on the preceding line drifted onto two separate
+  // anchors even though both pointed at the first (review R16 BLOCKING 1).
+  //
+  // So ownership is resolved positionally, in one pass over the candidates in source
+  // order, before any claiming happens. Adjacency is still required -- the comment must
+  // end on the anchor's line or the one above -- which is the long-standing rule that
+  // stops a distant comment silencing something unrelated.
+  const ownerOf = new Map<number, number>(); // candidate start -> exemption index
+  {
+    const starts: number[] = [];
+    const collectStarts = (node: ts.Node): void => {
+      if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+        const tg = ts.isJsxElement(node)
+          ? node.openingElement.tagName.getText()
+          : node.tagName.getText();
+        const at = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
+        if (isLinkCandidate(tg, at) && classifyShape(node).kind !== "not-external") {
+          starts.push(node.getStart());
+        }
+      }
+      ts.forEachChild(node, collectStarts);
+    };
+    collectStarts(sf);
+    starts.sort((x, y) => x - y);
+    exemptions.forEach((e, idx) => {
+      const owner = starts.find((s) => s >= e.end);
+      if (owner === undefined) return;
+      const ownerLine = sf.getLineAndCharacterOfPosition(owner).line + 1;
+      if (e.endLine !== ownerLine && e.endLine !== ownerLine - 1) return;
+      // First exemption to claim a candidate keeps it; a second pointing at the same
+      // candidate is stale and must NOT slide to a later anchor.
+      if (!ownerOf.has(owner)) ownerOf.set(owner, idx);
+    });
+  }
+
+  const claimExemption = (start: number): boolean => {
+    const idx = ownerOf.get(start);
+    if (idx === undefined) return false;
+    const slot = exemptions[idx]!;
+    if (slot.used) return false;
     slot.used = true;
     return true;
   };
@@ -1190,7 +1230,7 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
         if (shape.kind !== "not-external") {
           sc.anchors += 1;
           const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-          const exempted = claimExemption(line);
+          const exempted = claimExemption(node.getStart());
           const record = (reason: string): void => {
             if (!exempted) sc.violations.push({ file: path, line, reason });
           };
