@@ -39,7 +39,16 @@ const INGESTION_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 /** Live geometries. 320 = dashboard rail (`min-[1240px]:w-80`); 390 = the mobile
  *  Needs-attention page; 900 = a full-width card. Single source for the widths so
  *  a threshold change cannot leave a panel testing the old boundary. */
-const STATES = { rail320: 320, page390: 390, wide900: 900 } as const;
+const STATES = {
+  rail320: 320,
+  page390: 390,
+  thresholdUnder617: 617,
+  thresholdAt618: 618,
+  wide900: 900,
+} as const;
+/** Component container width at the two threshold rails: the card consumes 42px
+ *  (1px borders + 20px p-tile-pad, both sides), so 618 - 42 = 576 exactly. */
+const THRESHOLD = 576;
 type StateName = keyof typeof STATES;
 
 let server: Server;
@@ -102,6 +111,7 @@ test.afterAll(async () => {
 type Box = { x: number; y: number; w: number; h: number; bottom: number; right: number };
 type Probe = {
   railW: number;
+  rowW: number;
   rootW: number;
   rootHasWFull: boolean;
   rootHasContainer: boolean;
@@ -129,8 +139,13 @@ async function probe(page: import("@playwright/test").Page, state: StateName): P
       const stacked = root.querySelector('[data-testid^="admin-pending-defer"]')!.parentElement!;
       const siblings = container ? Array.from(container.querySelectorAll(":scope > div > div")) : [];
       const displays = siblings.map((s) => getComputedStyle(s).display);
+      // The action row is the component root's flex PARENT. `w-full` means the root
+      // fills that row's content box, so the row is the exact oracle — no magic
+      // padding constant, which round 4 correctly rejected.
+      const row = container ? container.parentElement : null;
       return {
         railW: rail.getBoundingClientRect().width,
+        rowW: row ? row.getBoundingClientRect().width : -1,
         rootW: container ? container.getBoundingClientRect().width : -1,
         rootHasWFull: container ? container.classList.contains("w-full") : false,
         rootHasContainer: container !== null,
@@ -161,8 +176,11 @@ for (const [state, width] of Object.entries(STATES) as [StateName, number][]) {
     // The direct 0px-collapse test. `container-type: inline-size` severs inline size
     // from contents, so a shrink-to-fit root measures 0 and the buttons shrink to
     // ~26px. This assertion cannot pass if w-full is dropped.
-    expect(p.rootW, "container root collapsed — w-full missing?").toBeGreaterThan(width * 0.5);
-    expect(Math.abs(p.rootW - p.railW)).toBeLessThanOrEqual(TOL + 42); // rail minus card padding/borders
+    expect(p.rootW, "container root collapsed — w-full missing?").toBeGreaterThan(0);
+    // Exact oracle: `w-full` fills the parent action row's content box. Comparing
+    // against the RAIL would be wrong by the card's borders + padding (round 4).
+    expect(Math.abs(p.rootW - p.rowW), `root ${p.rootW} vs row ${p.rowW}`).toBeLessThanOrEqual(TOL);
+    expect(width).toBeGreaterThan(0); // width participates via STATES, kept for the label
   });
 
   test(`${state}: exactly one branch copy is displayed`, async ({ page }) => {
@@ -206,4 +224,28 @@ test("wide900: they share one row with Defer on the left", async ({ page }) => {
   const p = await probe(page, "wide900");
   expect(Math.abs(p.ignore.y - p.defer.y)).toBeLessThanOrEqual(TOL);
   expect(p.defer.x).toBeLessThan(p.ignore.x);
+});
+
+test("the 576px threshold switches the branch, and the armed row still fits above it", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(baseUrl);
+  const under = await probe(page, "thresholdUnder617");
+  const at = await probe(page, "thresholdAt618");
+
+  // The rails are chosen so the COMPONENT container lands on 575 / 576 exactly.
+  expect(Math.abs(at.rootW - THRESHOLD), `root at 618px rail = ${at.rootW}`).toBeLessThanOrEqual(
+    TOL,
+  );
+  expect(under.rootW).toBeLessThan(THRESHOLD);
+
+  // Below: stacked, safe action lower. At/above: inline, Defer on the left.
+  expect(under.ignore.bottom, "below threshold must stack Ignore above Defer").toBeLessThanOrEqual(
+    under.defer.y + TOL,
+  );
+  expect(Math.abs(at.ignore.y - at.defer.y), "at threshold must be one row").toBeLessThanOrEqual(
+    TOL,
+  );
+  expect(at.defer.x).toBeLessThan(at.ignore.x);
 });

@@ -82,6 +82,8 @@ Every task: failing test → minimal implementation → passing test → commit 
 
 **Remaining in this task:** a new spec file **tests/e2e/pendingDiscardReal.layout.spec.ts** that consumes the harness JSON, compiles token CSS, serves it, and carries the 6.3.a assertion list — starting with the two that close the round-3 findings: `w-full` and `@container` present on the **rendered** root, and the root's measured width equal to the rail width (the direct test for the 0px collapse, which cannot pass if `w-full` is dropped).
 
+**Armed geometry does not live here.** `renderToStaticMarkup` cannot click, and the component has no armed-initial prop, so D4/D6 stay in the transcribed spec — bound to the component by a jsdom assertion that the real rendered armed className token set equals the harness's `IGNORE_ARMED` constant. Task 3 owns that binding test.
+
 **Commit:** `test(admin): measure the real discard tree in a browser`
 
 ### Task 1 — Shared `ARM_REVERT_MS` + T1/T3 guards

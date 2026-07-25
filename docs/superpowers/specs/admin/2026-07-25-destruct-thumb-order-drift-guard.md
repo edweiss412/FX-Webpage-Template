@@ -379,7 +379,11 @@ Both were found by reading the helpers the guard will reuse, not by reasoning ab
 
 ### 5.3 Honest scope statement
 
-The guard closes re-drift **within registry membership**. Its one real hole: a wholly new destructive surface that never adopts the recipe token pair is invisible to the registry, by the registry's own declared scope (`_metaDestructiveConfirm.test.ts:10-12`), and so escapes T2 entirely. Such a surface still trips T1 the moment it names its constant `ARM_REVERT_MS` — but not if it invents `CONFIRM_TIMEOUT = 3000`. That residue is review-time territory, exactly as the existing registry says. The limitation is stated in the guard's header comment rather than papered over, and the guard is strictly better than today, where even the copy-paste-the-name case is unguarded.
+The guard **reduces** re-drift within registry membership; it does not eliminate it, and the earlier claim that it could not silently re-drift was too strong. Two holes remain, one inside registry membership and one outside.
+
+**Inside membership:** a newly registered surface that schedules through a wrapper — `delay(3_000)`, `scheduleRevert(cb, confirmTimeout)` — has zero direct scheduler calls, so B4's count has nothing to compare, and a lowercase name defeats B5's uppercase-suffix heuristic. B5 is a heuristic and is labelled one; this is the case it misses.
+
+**Outside membership:** a wholly new destructive surface that never adopts the recipe token pair is invisible to the registry, by the registry's own declared scope (`_metaDestructiveConfirm.test.ts:10-12`), and so escapes T2 entirely. Such a surface still trips T1 the moment it names its constant `ARM_REVERT_MS` — but not if it invents `CONFIRM_TIMEOUT = 3000`. That residue is review-time territory, exactly as the existing registry says. The limitation is stated in the guard's header comment rather than papered over, and the guard is strictly better than today, where even the copy-paste-the-name case is unguarded.
 
 Per R6, `SUCCESS_DISMISS_MS` keeps its own per-file value and is **not** unified — but note T2 covers it incidentally, since T2 forbids the literal rather than requiring a particular constant. That is intentional and costs nothing: a success-toast timer must also be *named*, without this spec dictating what its value should be.
 
@@ -436,12 +440,17 @@ The only harness-supplied box is a bare `<div data-testid="rail" style="width:Np
 Assertions carried here, because each needs the real tree:
 
 - **`w-full` and `@container` are present on the shipped root**, read off the rendered markup rather than the source — the assertion round 3 showed was missing everywhere.
-- **The root is not collapsed:** its measured width equals the rail width. This is the direct test for the 0px failure; it cannot pass if `w-full` is dropped.
-- **Exactly one branch copy is displayed** at each of 320 / 390 / 900px, the hidden one measuring `0×0`.
+- **The root is not collapsed:** its measured width equals **the action row's** width, which is what `w-full` actually means. Comparing against the *rail* would be wrong by the card's 42px of borders and padding — it would reject a correct implementation, or push it toward overflow. The row is the exact oracle and needs no magic constant.
+- **Exactly one branch copy is displayed** at every rail, the hidden one measuring `0×0`.
+- **The 576px threshold is exercised directly.** Rails of **617px and 618px** put the *component* container at 575px and 576px, because the card consumes 42px through its 1px borders and 20px `p-tile-pad`. Below the threshold must stack with Ignore above Defer; at it, one row with Defer on the left. Without these two rails nothing tested the boundary the threshold rationale rests on — the 320/390/900 rails give component widths of 278 / 348 / 858px, none of them near 576.
 - **D1** (buttons fill the stacked branch), **D2** (≥44px), **D3/D6** (inline branch order and armed growth from a pinned left edge), **D5** (Ignore above Defer when stacked).
 - **Production nesting holds:** the action row, card padding and `Retry` sibling are the real ones, so a future change to `components/admin/NeedsAttentionInbox.tsx` that breaks the container relationship fails *this* spec.
 
-**Declared scope.** `renderToStaticMarkup` emits markup, not behaviour: this harness proves classes and layout, never client effects (`useEffect`, timers, `ResizeObserver`). Those stay in the jsdom suite, and the descoped focus transfer stays unproven by design (§4.9).
+**Declared scope, and the one thing it cannot reach.** `renderToStaticMarkup` emits markup, not behaviour: it cannot click, so it can only ever render the component's **initial idle** state, and `PendingPanelDiscardButtons` exposes no prop for an armed initial state (adding one would be product API existing solely for a test). So D4 (armed box equality) and D6 (armed growth from a pinned edge) **cannot be measured here**, and this harness does not claim them.
+
+**Where armed geometry lives, and why that is still honest.** Armed differs from idle by exactly one thing: the Ignore button's className and label, both produced by the same `pair()` helper. So armed geometry is measured in the transcribed spec (§6.3.b) — but the transcription is **bound to the component** by a jsdom assertion that the real rendered armed className token set equals the harness's `IGNORE_ARMED` constant, token for token. If the component's armed skin changes and the constant does not, that binding test fails and the geometry panels are known to be stale. Transcription without a binding assertion is what rounds 2 and 3 rejected; transcription *with* one is a normal, checkable indirection.
+
+Client effects (`useEffect`, timers) stay in the jsdom suite, and the descoped focus transfer stays unproven by design (§4.9).
 
 #### 6.3.b `tests/e2e/pendingDiscardReflow.layout.spec.ts` — transcribed controls (negative only)
 
@@ -452,19 +461,29 @@ The existing transcribed spec is **kept, and narrowed to negative controls**, wh
 | `nofork-278-*` | 278px, **today's** markup | ordering control — must show Ignore *below* Defer |
 | `nobasis-328-*` | 328px, pre-DESTRUCT-1 markup | reflow control, at the geometry the original defect was measured at (`docs/superpowers/specs/admin/2026-07-17-destruct1-armed-reflow.md:24`); at 278px the idle pair is already wrapped and cannot reproduce a *relocation* |
 
-No positive claim about the shipped component is made here any more — every one moved to 6.3.a. The source drift-guard also moves to 6.3.a, where it asserts against rendered markup rather than a source grep.
+It also keeps the **armed** geometry panels (D4 and D6), which 6.3.a structurally cannot reach — with the §6.3.a binding assertion standing behind them. Every other positive claim moved to 6.3.a, and the drift-guard moved with them, where it reads rendered markup rather than grepping source.
 
 ### 6.4 CI wiring (R5)
 
 - New `package.json` script `test:e2e:destructive-layout`, running `tests/e2e/pendingDiscardReflow.layout.spec.ts` under `tests/e2e/standalone.config.ts` (the config must be passed explicitly; Playwright's default config matches none of these specs).
 - New workflow **.github/workflows/destructive-layout-e2e.yml**, modelled directly on `.github/workflows/modal-header-layout-e2e.yml` — same `actions/setup`, same Playwright browser cache, same failure-artifact upload, same `workflow_dispatch:` so close-out can fire it with `gh workflow run`. The harness self-hosts, so no `webServer` and no Supabase are needed; unlike the modal-header job it also needs no env block, because this harness renders static HTML strings and imports no server chain.
-- `paths:` triggers on `components/admin/PendingPanelDiscardButtons.tsx`, **`components/admin/NeedsAttentionInbox.tsx`** (the parent that supplies the container the query measures — a change to the action row or card padding can break the fork without touching the component), the layout spec itself, `tests/e2e/standalone.config.ts`, `app/globals.css`, `package.json`, `pnpm-lock.yaml`, and the workflow file.
+- `paths:` triggers on `components/admin/PendingPanelDiscardButtons.tsx`, **`components/admin/NeedsAttentionInbox.tsx`**, **`tests/e2e/_pendingDiscardHarness.tsx`** (the authoritative spec consumes it, so a harness-only change must re-run the job) (the parent that supplies the container the query measures — a change to the action row or card padding can break the fork without touching the component), the layout spec itself, `tests/e2e/standalone.config.ts`, `app/globals.css`, `package.json`, `pnpm-lock.yaml`, and the workflow file.
 - **Coverage-registry row (mandatory companion).** `tests/ci/_metaE2eWorkflowCoverage.test.ts:84` currently records this spec as `UNSEEN`. Because the new workflow carries `pull_request.paths`, `tests/ci/_workflowCoverageScan.ts:105` classifies it as **`PATH_GATED`**, not universally covered. The row is updated to `PATH_GATED` in the same commit as the workflow. Leaving it at `UNSEEN` would keep a false claim that no workflow names the spec, while `BACKLOG.md` simultaneously says it is newly covered — the two would contradict, and the meta-test would fail.
 - The `BL-STANDALONE-CONFIG-CI-DARK` row's "Partially closed" note in `BACKLOG.md` is updated to record that one more spec is now covered and the remainder still dark.
 
 ### 6.5 Full-suite gates before push
 
-`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, the two e2e scripts above, and real CI green. Per project rule, local green is necessary but not sufficient for a CI-bound surface.
+`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, and real CI green. Per project rule, local green is necessary but not sufficient for a CI-bound surface.
+
+**Every changed e2e spec runs, and each is named with its command.** `pnpm test` is Vitest-only, so a broken Playwright consumer survives it silently — which is exactly how the third consumer nearly shipped unverified.
+
+| Spec | Command | Why it must run |
+|---|---|---|
+| `tests/e2e/pendingDiscardReal.layout.spec.ts` | `pnpm test:e2e:destructive-layout` | the authoritative real-tree proof |
+| `tests/e2e/pendingDiscardReflow.layout.spec.ts` | same script | negative controls + armed geometry |
+| `tests/e2e/needs-attention-page.spec.ts` | `pnpm test:e2e -- needs-attention-page` | **the only spec that exercises the real Next.js tree.** Its clicks retarget from the retired bare ids to the stacked ids; a wrong id or a wrong visibility assumption shows up here and nowhere else |
+
+`tests/e2e/needs-attention-page.spec.ts` is currently `UNSEEN` in `tests/ci/_metaE2eWorkflowCoverage.test.ts`. Close-out either wires it into a workflow or records an explicit reasoned allowlist entry; it may not be left dark while this change retargets its selectors. Both layout specs flip to `PATH_GATED` with the new workflow.
 
 ---
 
