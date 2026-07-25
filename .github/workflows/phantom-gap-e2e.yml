@@ -56,6 +56,16 @@ on:
       - "tests/e2e/helpers/**"
       - "tests/e2e/phantomGapHelper.layout.spec.ts"
       - "tests/e2e/standalone.config.ts"
+      # Section-header rebuild + pusher sweep (spec 2026-07-25). SIX entries:
+      # the two specs AND their four helpers. A helper is never matched by the
+      # standalone config's testMatch, so omitting one would leave a later
+      # helper-only PR CI-dark - the failure class this workflow exists to end.
+      - "tests/e2e/section-header-layout.layout.spec.ts"
+      - "tests/e2e/pusher-alignment.layout.spec.ts"
+      - "tests/e2e/_sectionHeaderCellHarness.tsx"
+      - "tests/e2e/_pusherRowsHarness.tsx"
+      - "tests/e2e/_sectionHeaderLiveEntry.tsx"
+      - "tests/e2e/_sectionHeaderBundle.mjs"
       - ".github/workflows/phantom-gap-e2e.yml"
       # WHAT THE TREES ARE MADE OF, not just what renders them. Two ledger rows
       # pin exact occurrence COUNTS against the seeded show, so anything that
@@ -160,6 +170,14 @@ jobs:
         run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"
       - name: Phantom-gap probe — crew page
         run: pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"
+      # Section-header rebuild + pusher sweep (spec 2026-07-25). `--reporter=list`
+      # is what makes the case counts visible in the log, so a reviewer can confirm
+      # from CI output that the cases actually RAN rather than inferring it from a
+      # green tick — the "runs nowhere and silently proves nothing" failure class.
+      - name: Section-header layout (standalone)
+        run: pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts
+      - name: Pusher alignment (standalone)
+        run: pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts tests/e2e/pusher-alignment.layout.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
