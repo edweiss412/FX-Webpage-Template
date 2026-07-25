@@ -1324,6 +1324,17 @@ describe("R6: scanner changes are pinned", () => {
         }
       }
       if (ts.isCaseClause(n)) add(n.expression);
+      // A REGEX can decide a name too, and it is not a string literal so the four
+      // positions above miss it (R14 question 3: which mechanisms decide a name without
+      // a comparison?). Only flag a pattern that spells a known attribute name in
+      // non-lowercase AND lacks the `i` flag -- with `/i` the casing cannot matter, and
+      // the tag-name regex in this file is deliberately case-insensitive.
+      if (ts.isRegularExpressionLiteral(n)) {
+        const m = /^\/(.*)\/([a-z]*)$/s.exec(n.text);
+        if (m && !m[2]!.includes("i")) {
+          for (const word of m[1]!.split(/[^A-Za-z-]+/)) literals.push(word);
+        }
+      }
       if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
         const fn = n.expression.name.text;
         if (fn === "has" || fn === "includes") {
