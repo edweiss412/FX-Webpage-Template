@@ -114,18 +114,30 @@ workflow is non-required and path-filtered to `tests/parser/mutation/**`, so it 
 --project mutation`, then surgical re-bless via `reconcileLedger` (drift bucket only). Trigger: the
 next mutation-file-touching PR or the next post-merge nightly triage.
 
-## BL-TEST-PG-CLIENT-TEARDOWN — leak-proof postgres.js clients in DB tests
+## BL-TEST-PG-CLIENT-TEARDOWN — leak-proof postgres.js clients in DB tests (WITHDRAWN 2026-07-24, measured)
 
-~55 test files (`tests/db/**`, `tests/notify/**`, `tests/sync/**`, `tests/onboarding/**`, `tests/agenda/**`, `tests/show/**`, `tests/app/admin/**`) create module-level `postgres(DB_URL, { max, prepare: false })` clients with **no `idle_timeout` and no `.end()`**. postgres.js default `idle_timeout` is 0 (never auto-close), so in the serial DB-test worker these pools hold their connections for the whole run and can exhaust local Postgres `max_connections` (~100) after a long session — surfacing as spurious "too many clients" failures on untouched code (the class `pnpm db:reset-pool` mitigates at runtime, added 2026-07-06).
+**Status:** WITHDRAWN — the premise did not survive measurement. Superseded by the structural guard at `tests/cross-cutting/db-test-connection-hygiene.test.ts`. Do not implement the `makeTestSql` migration described below; it is recorded only so a future reader does not re-derive it.
 
-Structural fix (scoped, TDD, needs local DB to verify — do NOT blind-sweep):
+**What the entry claimed.** ~55 test files create module-level `postgres(DB_URL, { max, prepare: false })` clients with no `idle_timeout` and no `.end()`; since postgres.js defaults `idle_timeout` to 0 (never auto-close), those pools hold their connections for the whole serial DB run and can exhaust local Postgres `max_connections` (~100) after a long session, surfacing as spurious "too many clients" failures on untouched code. The proposed fix was a shared `tests/db/testSql.ts` → `makeTestSql()` factory with `idle_timeout` plus an `endAllTestSql()` teardown, migrating ~55 files, hand-auditing the advisory-lock/concurrency tests that deliberately hold a connection, and a meta-test banning direct `postgres(` calls.
 
-1. Shared factory `tests/db/testSql.ts` → `makeTestSql(opts)` returning `postgres(url, { max: 1, idle_timeout: 1, prepare: false, ...opts })`, registered in a module-level set; export `endAllTestSql()`.
-2. Global per-file teardown: `afterAll(endAllTestSql)` (or the vitest global-teardown hook) so any factory client closes at end of each test file.
-3. Migrate the ~55 files to the factory. **Exclude / hand-audit** the connection-hold tests — `*concurrency*`, `advisoryLock*`, deadlock/lock-topology tests — where an aggressive `idle_timeout` could drop a held connection mid-test and break lock semantics. Those keep an explicit long-lived client with a manual `.end()`.
-4. Structural meta-test: fail if a `tests/**` file calls `postgres(` directly instead of `makeTestSql(` (allowlist the audited lock-hold exceptions).
+**What is actually true.** The counts were partly an artifact of `grep postgres(`, which also matches the loopback-guard regex literals several helpers declare (`/^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])/`) — three of the files the entry counted as unclosed clients construct no client at all. Real figures: 162 client constructions across 122 files, 93 of them (70 files) with no `idle_timeout`, 42 files constructing at import time. But `.end(` appears 218 times against those 162 constructions, and only two files show a create/end deficit (`tests/db/_holdsHelpers.ts`, `tests/db/_remediationHelpers.ts`) — both `newConn()` factories where the caller owns the close.
 
-Trigger to promote out of backlog: next time a full local suite exhausts the pool and `db:reset-pool` between runs stops being enough.
+More decisively, the stated mechanism cannot fire. The serial project runs on vitest's forks pool with the default `isolate: true`, so **every test file gets its own child process** and the kernel closes its sockets when that process exits. Nothing carries into the next file. Verified two ways: a 3-file probe recording `process.pid` returned 3 distinct pids, and the full serial project was measured end to end.
+
+**Measurement (2026-07-24).** Full `vitest run --project=serial` — 837 files, 7651 tests, 474s — sampling `pg_stat_activity` every 0.5s (881 samples), after `pnpm db:reset-pool` reaped 0 stale backends:
+
+|                              |       |
+| ---------------------------- | ----- |
+| `max_connections` (local)    | 100   |
+| Baseline backends            | 20    |
+| Peak total backends          | 33    |
+| **Peak held by postgres.js** | **6** |
+
+postgres.js sets no `application_name`, so its backends are the unnamed ones; the named backends are PostgREST, realtime, `pg_cron`, and `pg_net`. Peak 6 is exactly the `max: 6` pool in `tests/db/_holdsHelpers.ts` — across 837 files the suite never exceeded a **single file's** pool, leaving 67 connections unused at peak. A 70-file `idle_timeout` sweep would have bought nothing, at the cost of churn plus real risk of dropping a held connection mid-test in the 26 advisory-lock/deadlock/concurrency files.
+
+**What replaced it.** The measurement is only true while the isolation holds, and three config edits would each break it silently: `isolate: false` on the serial project, `pool: "threads"` (workers share a process, so sockets outlive the file), or `fileParallelism: true` on serial. `tests/cross-cutting/db-test-connection-hygiene.test.ts` pins all three plus `poolOptions.<pool>.isolate`, and carries an import-time-client census floor so it cannot pass vacuously. All four were mutation-verified. If any of those edits ever becomes desirable, the `makeTestSql` work above becomes necessary again — that is the real trigger, not a connection count.
+
+**`db:reset-pool` stays**, for a different cause than this entry named: concurrent load from several worktrees, dev servers, and `psql` sessions sharing one local Postgres. Baseline alone is 20 of 100 with nothing running.
 
 ---
 
