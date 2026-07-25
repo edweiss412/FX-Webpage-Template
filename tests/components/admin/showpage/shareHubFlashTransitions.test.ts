@@ -47,6 +47,13 @@ function splitRules(css: string): { prelude: string; body: string }[] {
   let depth = 0;
   let buf = "";
   for (const ch of css) {
+    // A statement at-rule (`@import "tailwindcss";`) has no block, so without
+    // this it accumulates into the NEXT rule's prelude and corrupts that key.
+    // Requires comments to be stripped FIRST — see `cueLeaves`.
+    if (ch === ";" && depth === 0) {
+      buf = "";
+      continue;
+    }
     if (ch === "{") {
       depth++;
       if (depth === 1) {
@@ -85,9 +92,20 @@ function flatten(css: string, context = ""): Leaf[] {
   });
 }
 
-/** The cue's own leaves, in a stable order, from either side of the comparison. */
+/**
+ * The cue's own leaves, in a stable order, from either side of the comparison.
+ *
+ * Comments are stripped BEFORE splitting, not inside `norm`. Stripping them
+ * afterwards left `splitRules` walking comment text as if it were CSS, so a
+ * `;` inside a comment truncated the buffer and stranded the comment's tail in
+ * the next rule's prelude — with its opening `/*` already gone, nothing could
+ * remove it and the key was garbage. Prose is not CSS; take it out first.
+ *
+ * This is also why comment differences between the spec fence and the
+ * stylesheet are not failures: only the rules are normative.
+ */
 function cueLeaves(css: string): string[] {
-  return flatten(css)
+  return flatten(css.replace(/\/\*[\s\S]*?\*\//g, ""))
     .filter((l) => `${l.key}${l.body}`.includes("share-link-flash"))
     .map((l) => `${l.key}{${l.body}}`)
     .sort();
