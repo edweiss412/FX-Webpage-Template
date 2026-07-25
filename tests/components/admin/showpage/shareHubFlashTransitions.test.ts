@@ -60,6 +60,15 @@ function depthAt(css: string, index: number): number {
       else if (ch === quote) quote = null;
       continue;
     }
+    // A backslash escape is legal OUTSIDE strings too — `.escape\}` is a valid
+    // class selector — and counting the escaped brace as structural let a
+    // crafted pair of wrappers balance out while nesting the block inside
+    // `@media screen`, defeating both this check and its EOF self-check
+    // (round-8 review). Skip the escaped character, whatever it is.
+    if (ch === "\\") {
+      i++;
+      continue;
+    }
     if (ch === '"' || ch === "'") {
       quote = ch;
       continue;

@@ -546,6 +546,34 @@ ADVERSARIES.push([
   ],
 ]);
 
+/**
+ * A38 is round-8's escalation of A37: the same `@media screen` nesting, but
+ * with escaped braces in class selectors on either side so the brace counts
+ * cancel. It defeated the top-level check AND its end-of-file self-check —
+ * `.escape\}` is a valid selector, and counting that brace as structural made
+ * a nested block look top-level while the file still balanced.
+ *
+ * Registered separately from A37 because it is a distinct defect: A37 catches a
+ * scanner that does not look at context at all, A38 catches one that looks but
+ * mis-lexes escapes.
+ */
+ADVERSARIES.push([
+  "A38",
+  "`@media screen` nesting hidden by escaped braces that balance the count",
+  [
+    [
+      CSS,
+      "/* ShareHub crew-link block:",
+      "@media screen {\n.escape\\} {\n  color: red;\n}\n/* ShareHub crew-link block:",
+    ],
+    [
+      CSS,
+      "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}",
+      "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}\n}\n.escape\\{ {\n  color: red;\n}",
+    ],
+  ],
+]);
+
 ADVERSARIES.push([
   "A22",
   "token retuned below the ring's contrast floor",
