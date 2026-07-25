@@ -9,9 +9,11 @@
  *
  * Contracts pinned:
  *   1. Active roster rows submit via selectIdentity.
- *   2. Claimed rows render `data-claimed="true"`, a lock icon, and a
- *      GET form pointing at /auth/sign-in?next=<encoded tokenized URL>
- *      (P-R35 deactivated-row contract).
+ *   2. Claimed rows render `data-claimed="true"`, a lock icon, and a GET form
+ *      pointing at BARE /auth/sign-in with `next` in a hidden input (P-R35
+ *      deactivated-row contract). Not in the action query: a GET submit rebuilds
+ *      the query from the form's own fields and discards whatever the action
+ *      held, which is how the return target was being lost.
  *   3. Banner copy is the cataloged crewFacing string from MESSAGE_CATALOG
  *      (NOT the raw code; AGENTS.md invariant 5).
  *   4. Empty roster renders the PICKER_EMPTY_ROSTER copy.
@@ -25,6 +27,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { PickerInterstitial } from "@/app/show/[slug]/[shareToken]/_PickerInterstitial";
+import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 
 afterEach(cleanup);
 
@@ -82,19 +85,49 @@ describe("<PickerInterstitial>", () => {
     expect(getByTestId("picker-roster-list")).toBeTruthy();
   });
 
+  test("claimed row carries the section through the hidden next input", () => {
+    const { getAllByTestId } = render(
+      <PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} s="budget" />,
+    );
+    const form = (getAllByTestId("picker-roster-row")[0] as HTMLButtonElement).closest("form")!;
+    const next = form.querySelector('input[name="next"]') as HTMLInputElement;
+    expect(next.value).toBe(
+      buildShowReturnUrl(baseProps.slug, baseProps.shareToken, { s: "budget" }),
+    );
+    expect(next.value).toContain("s=budget");
+  });
+
+  test("a bogus section is dropped rather than propagated", () => {
+    const { getAllByTestId } = render(
+      <PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} s="not-a-section" />,
+    );
+    const form = (getAllByTestId("picker-roster-row")[0] as HTMLButtonElement).closest("form")!;
+    const next = form.querySelector('input[name="next"]') as HTMLInputElement;
+    // buildShowReturnUrl allow-lists the section; anything else is omitted.
+    expect(next.value).toBe(`/show/${baseProps.slug}/${baseProps.shareToken}`);
+    expect(next.value).not.toContain("not-a-section");
+  });
+
   test("claimed row deactivates: data-claimed=true + lock glyph + GET form to /auth/sign-in (P-R35)", () => {
     const { getAllByTestId } = render(<PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} />);
     const row = getAllByTestId("picker-roster-row")[0] as HTMLButtonElement;
     expect(row.getAttribute("data-claimed")).toBe("true");
     const form = row.closest("form")!;
     expect(form.method.toLowerCase()).toBe("get");
-    const expectedHref = `/auth/sign-in?next=${encodeURIComponent(
-      `/show/${baseProps.slug}/${baseProps.shareToken}`,
-    )}`;
-    // The form action attribute exposes the rendered URL (HTMLFormElement
-    // resolves it against the current origin; we read the raw attribute
-    // to compare against the spec-mandated wire shape).
-    expect(form.getAttribute("action")).toBe(expectedHref);
+    // A GET submit rebuilds the query string from the form's own fields and
+    // DISCARDS the action URL's query, so `next` has to ride a hidden input.
+    // Action and input are asserted SEPARATELY: a "fix" that carries next in
+    // both places would look right in the DOM and still lose it on submit.
+    expect(form.getAttribute("action")).toBe("/auth/sign-in");
+    expect(form.getAttribute("action")).not.toContain("?");
+    const next = form.querySelector('input[name="next"]') as HTMLInputElement | null;
+    expect(next).not.toBeNull();
+    // Derived from the same builder the component uses, never a hardcoded path,
+    // so a change to buildShowReturnUrl cannot leave a stale literal passing.
+    expect(next!.value).toBe(buildShowReturnUrl(baseProps.slug, baseProps.shareToken, {}));
+    // Raw, not percent-encoded: the browser encodes form values on submit, and
+    // pre-encoding here would double-encode the path.
+    expect(next!.value.startsWith("/show/")).toBe(true);
     // The form action must NOT bind to selectIdentity; a hand-crafted
     // submission through selectIdentity would also redirect (per
     // PICKER_IDENTITY_CLAIMED), but the UI contract is that the picker

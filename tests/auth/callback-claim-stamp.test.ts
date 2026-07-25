@@ -81,7 +81,9 @@ describe("OAuth callback claim-stamp hook", () => {
     );
 
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/me");
+    // Host-relative now: the callback's redirect no longer rebuilds an absolute
+    // URL from request.url (lib/http/hostRelativeRedirect.ts).
+    expect(locationOf(response)).toBe("/me");
     expect(state.serviceRpc).toHaveBeenCalledWith("claim_oauth_identity", {
       p_email: "crew@fxav.test",
     });

@@ -28,6 +28,21 @@ function locationOf(response: Response): string {
   return location!;
 }
 
+/**
+ * Self-referential redirects now emit a HOST-RELATIVE Location (lib/http/
+ * hostRelativeRedirect.ts) so the host cannot flip and drop the auth cookie.
+ * Asserting the leading slash here means a future re-absolutization fails on
+ * every one of these cases, not only where a literal happens to be compared.
+ * `locationOf` stays for the one assertion that is legitimately absolute — the
+ * Google OAuth endpoint, which is an external target.
+ */
+function relativeLocationOf(response: Response): string {
+  const location = locationOf(response);
+  expect(location.startsWith("/"), `expected a host-relative Location, got ${location}`).toBe(true);
+  expect(location.startsWith("//")).toBe(false);
+  return location;
+}
+
 function setCookieLines(response: Response): string[] {
   const header = response.headers.get("set-cookie");
   return header ? header.split(/,\s*(?=[^;,=]+(?:=|;))/) : [];
@@ -75,8 +90,8 @@ describe("OAuth start route", () => {
 
     expect(server.client.auth.signInWithOAuth).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe(
-      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
+    expect(relativeLocationOf(response)).toBe(
+      "/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
     );
   });
 
@@ -121,7 +136,7 @@ describe("OAuth callback route", () => {
 
     expect(server.client.auth.exchangeCodeForSession).toHaveBeenCalledWith("abc");
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/me");
+    expect(relativeLocationOf(response)).toBe("/me");
   });
 
   test("crew-only successful callback honors explicit /me next path", async () => {
@@ -132,7 +147,7 @@ describe("OAuth callback route", () => {
     );
 
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/me");
+    expect(relativeLocationOf(response)).toBe("/me");
   });
 
   test("crew-only successful callback with explicit /admin/dev redirects to /me", async () => {
@@ -143,7 +158,7 @@ describe("OAuth callback route", () => {
     );
 
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/me");
+    expect(relativeLocationOf(response)).toBe("/me");
   });
 
   test("crew-only successful callback with explicit /admin/anything redirects to /me", async () => {
@@ -154,7 +169,7 @@ describe("OAuth callback route", () => {
     );
 
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/me");
+    expect(relativeLocationOf(response)).toBe("/me");
   });
 
   test("admin successful callback with no next keeps the /admin fallback (R15)", async () => {
@@ -172,7 +187,7 @@ describe("OAuth callback route", () => {
     const response = await GET(new NextRequest("https://crew.fxav.test/auth/callback?code=abc"));
 
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/admin");
+    expect(relativeLocationOf(response)).toBe("/admin");
   });
 
   test("admin successful callback honors explicit /admin/dev next path", async () => {
@@ -188,7 +203,7 @@ describe("OAuth callback route", () => {
     );
 
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/admin/dev");
+    expect(relativeLocationOf(response)).toBe("/admin/dev");
   });
 
   test("exchanges ?code= and redirects to the validated next path", async () => {
@@ -202,7 +217,7 @@ describe("OAuth callback route", () => {
 
     expect(server.client.auth.exchangeCodeForSession).toHaveBeenCalledWith("abc");
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/me/profile");
+    expect(relativeLocationOf(response)).toBe("/me/profile");
     expect(response.headers.get("set-cookie")).toContain(
       "sb-test-auth-token-code-verifier=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
     );
@@ -242,8 +257,8 @@ describe("OAuth callback route", () => {
     );
 
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe(
-      `https://crew.fxav.test/auth/sign-in?code=OAUTH_STATE_INVALID&next=${encodeURIComponent(TOKENIZED_SHOW_PATH)}`,
+    expect(relativeLocationOf(response)).toBe(
+      `/auth/sign-in?code=OAUTH_STATE_INVALID&next=${encodeURIComponent(TOKENIZED_SHOW_PATH)}`,
     );
   });
 
@@ -256,8 +271,8 @@ describe("OAuth callback route", () => {
 
     expect(server.client.auth.exchangeCodeForSession).toHaveBeenCalledWith("abc");
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe(
-      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
+    expect(relativeLocationOf(response)).toBe(
+      "/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
     );
   });
 
@@ -305,7 +320,7 @@ describe("OAuth sign-out route", () => {
 
     expect(server.client.auth.signOut).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(303);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/auth/sign-in");
+    expect(relativeLocationOf(response)).toBe("/auth/sign-in");
     const setCookies = setCookieLines(response).join("\n");
     expect(setCookies).toContain(
       "__Host-fxav_picker=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",

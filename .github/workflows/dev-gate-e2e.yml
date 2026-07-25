@@ -75,6 +75,11 @@ jobs:
           # :3004 server's test-secret-fixture — signInAs sends this as Bearer
           # and the server compares against its own TEST_AUTH_SECRET.
           TEST_AUTH_SECRET: "fxav-m3-test-auth-2026-DO-NOT-SHIP"
+          # Defensive: none of this workflow's projects calls
+          # pickerCookieSigningKey() today, so no gate and no run here proves this
+          # entry. Its webServer serves the whole app, so a future spec reaching the
+          # picker chain would throw without it.
+          PICKER_COOKIE_SIGNING_KEY: "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
           # Boot ONLY the :3001/:3002/:3003 dev-gate webServers — see the
           # workflow header + playwright.config.ts filter. Without this, all five
           # servers cold-build and contend on the with-admin-dev-flag lock.

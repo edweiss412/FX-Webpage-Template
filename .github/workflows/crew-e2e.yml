@@ -1,11 +1,13 @@
-name: Crew e2e (mobile-safari)
-# Runs the crew client-side section-toggle e2e (tests/e2e/crew-section-toggle.spec.ts,
-# the mobile-safari Playwright project) against a real browser + a seeded local
-# Supabase. This is the FIRST CI job to run the mobile-safari project — the rest of
-# that project (crew-page.spec + the M4 tile specs) is still dead-in-CI; lifting it
-# wholesale is filed as BL-RESURRECT-MOBILE-SAFARI-E2E (it would surface latent
-# failures in long-unran specs, so it is its own task). This job is scoped to the
-# one spec so the perf gate + the 0-network/dimensional proofs run in CI now.
+name: Crew e2e (mobile-safari + desktop-chromium)
+# Runs two crew e2e specs against a real browser + a seeded local Supabase: the
+# client-side section-toggle suite (tests/e2e/crew-section-toggle.spec.ts, under
+# mobile-safari) and the crew picker flow (tests/e2e/picker-flow.spec.ts, under
+# desktop-chromium — WebKit cannot store the server-set Secure picker cookie over
+# plain http, see the step comment). The rest of the
+# mobile-safari project (crew-page.spec + the M4 tile specs) is still dead-in-CI;
+# lifting it wholesale is filed as BL-RESURRECT-MOBILE-SAFARI-E2E (it would surface
+# latent failures in long-unran specs, so it is its own task). This job stays scoped
+# to the specs that carry live gates rather than the whole project.
 #
 # Why this spec needs CI: it proves the section-toggle win in a real browser —
 #   • a section tab tap fires ZERO data requests (no server round-trip; freshness
@@ -22,15 +24,31 @@ name: Crew e2e (mobile-safari)
 # (real-CI-green is its own gate — the local-passes-CI-fails class).
 on:
   pull_request:
-    paths:
-      - "components/crew/**"
-      - "app/show/**"
-      - "lib/crew/**"
-      - "lib/data/getShowForViewer.ts"
-      - "tests/e2e/crew-section-toggle.spec.ts"
-      - "tests/e2e/helpers/**"
-      - "playwright.config.ts"
-      - ".github/workflows/crew-e2e.yml"
+    # INVERTED, after six review rounds each found another missing entry in an
+    # allow-list (leaf files, then whole trees, then build inputs like
+    # next.config.ts / tsconfig.json / instrumentation.ts / the pretest
+    # generators). An allow-list of "things that can affect this job" cannot be
+    # completed by inspection: these specs drive whole rendered routes and the job
+    # builds the app, so almost any code or config file can break them.
+    #
+    # paths-ignore cannot be incomplete in the DANGEROUS direction. Anything not
+    # listed here triggers the job, so a new build input, config file or module is
+    # covered the day it lands. The list holds documentation only — prose cannot
+    # change what the app does — and the pin in
+    # tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts asserts exactly that:
+    # the workflow uses paths-ignore, and every entry is a docs pattern.
+    paths-ignore:
+      # Deliberately TINY. Two rounds of "surely this is inert" were both wrong:
+      #   - `**/*.md` also ignored fixtures/shows/raw/*.md, which supabase/seed.ts
+      #     reads (seed.ts:15) and crew-section-toggle depends on;
+      #   - `docs/**` is a BUILD INPUT — prebuild's manifest reads the master spec
+      #     and plan files (scripts/pretest-gen.mjs:20+), so a docs change can alter
+      #     generated artifacts or fail the cold build.
+      # What is left is prose that no script reads: root-level markdown (README,
+      # AGENTS, the ledgers), issue templates, and the licence.
+      - "*.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "LICENSE"
   workflow_dispatch:
 
 # Cancel a superseded run when the PR branch is re-pushed — this job boots
@@ -65,6 +83,11 @@ jobs:
       # MUST match the :3000 webServer's inline TEST_AUTH_SECRET — signInAs sends
       # this as Authorization: Bearer and the server compares against its own.
       TEST_AUTH_SECRET: "fxav-m3-test-auth-2026-DO-NOT-SHIP"
+      # Test-only picker-cookie signing key. pickerCookieSigningKey() throws when
+      # unset or not 64 hex, so seedPickerCookie and the server both need it; read
+      # at runtime, so this one job-level entry reaches the Playwright process AND
+      # the `pnpm start` server it spawns.
+      PICKER_COOKIE_SIGNING_KEY: "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
       # Boot ONLY the :3000 baseline server (playwright.config.ts filter).
       CREW_E2E_ONLY: "1"
     steps:
@@ -101,8 +124,21 @@ jobs:
       # browser binaries are restored from the cache above on a hit.
       - run: pnpm exec playwright install-deps chromium webkit
       - run: pnpm exec playwright install chromium webkit
-      - name: Run crew section-toggle e2e (mobile-safari, :3000 only)
-        run: pnpm exec playwright test --project=mobile-safari tests/e2e/crew-section-toggle.spec.ts
+      # ONE invocation for both specs, not one per project. Each Playwright process
+      # owns and tears down its own webServer, and in CI that server is a cold
+      # `pnpm build && pnpm start` — so two steps would pay the heaviest phase
+      # twice inside this job's timeout. Passing both projects and both files lets
+      # each project's testMatch claim its own spec: mobile-safari runs
+      # crew-section-toggle, desktop-chromium runs picker-flow (verified with
+      # --list: 5 + 6 tests, 2 files, no overlap).
+      #
+      # picker-flow is on desktop-chromium deliberately. Measured 2026-07-25: over
+      # plain http WebKit refuses to STORE the server's Set-Cookie for the
+      # `__Host-`-prefixed Secure picker envelope, so the first-contact bootstrap
+      # and every real selection fail to persist there and a correct
+      # implementation reads as broken; Chromium's localhost exemption stores it.
+      - name: Run crew section-toggle + picker-flow e2e (:3000 only)
+        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

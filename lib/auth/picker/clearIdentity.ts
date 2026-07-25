@@ -9,6 +9,9 @@ import {
   encodePickerCookie,
 } from "@/lib/auth/picker/cookieEnvelope";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
+import { isValidClearIdentityInput } from "@/lib/auth/picker/validateClearIdentityInput";
+import { isSupabaseAuthCookieName } from "@/lib/auth/supabaseAuthCookieNames";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { log } from "@/lib/log";
 
@@ -16,9 +19,6 @@ import { log } from "@/lib/log";
 // picker COOKIE — it writes NO database rows at all, let alone getShowForViewer DATA. Nothing to
 // revalidate; the LIVE viewerVersionToken handles any per-viewer freshness.
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
-const TOKEN_RE = /^[0-9a-f]{64}$/;
 const MAX_AGE_SEC = 7_776_000;
 
 export type ClearIdentityInput = {
@@ -52,13 +52,125 @@ export async function clearIdentity(formData: FormData): Promise<ClearIdentityRe
   return clearIdentityCore(input);
 }
 
+/**
+ * Mode B "Continue as guest".
+ *
+ * Clearing the picker entry alone cannot work: `google_mismatch` is decided
+ * before the picker cookie is ever consulted (lib/auth/picker/
+ * resolveShowPageAccess.ts), so the gate would simply re-render. Signing the
+ * browser out is what makes the chain resolve to `first_contact`, which the
+ * existing `?gate=skip` guard already honors — so page.tsx is untouched.
+ *
+ * Order is load-bearing: the picker entry goes FIRST. If sign-out then fails,
+ * the person sees a gate again and the tap is retryable, with no stale identity
+ * reachable — Mode B while the session survives, or the first-contact welcome if
+ * revocation landed and only the cookie sweep failed. The reverse order would
+ * leave a live foreign session beside a stale picker identity, and the next request would render the show body as that
+ * person — exactly what the mismatch gate exists to prevent.
+ */
 export async function clearIdentityAndSkip(formData: FormData): Promise<ClearIdentityResult> {
-  // no-telemetry: FormData-parse + skip redirect; PICKER_IDENTITY_CLEARED emit fires in clearIdentityCoreImpl
+  // no-telemetry: FormData-parse + skip redirect; PICKER_IDENTITY_CLEARED emit fires in
+  // clearIdentityCoreImpl, and the AUTH_SIGNOUT_FAILED emit below covers this function's
+  // own failure branch.
   const input = parseFormData(formData);
   if (!input) return { ok: false, code: "PICKER_INVALID_INPUT" };
+  // Validate before anything destructive, not inside the core: a malformed direct
+  // submission must not sign the person out and only then report the error.
+  if (!isValidClearIdentityInput(input)) return { ok: false, code: "PICKER_INVALID_INPUT" };
+
   const result = await clearIdentityCore(input);
   if (!result.ok) return result;
+
+  const signedOut = await signOutThisDevice(input.showId);
+  if (!signedOut.ok) return signedOut;
+
   redirect(buildShowReturnUrl(input.slug, input.shareToken, { s: input.s, gate: "skip" }));
+}
+
+/**
+ * Ends the Supabase session on THIS browser only.
+ *
+ * `scope: "local"` is not decoration: the library default is `{ scope: 'global' }`,
+ * which revokes the user's refresh tokens on every device they own. A guest
+ * tapping a button on a shared iPad must not sign a colleague out of their phone.
+ * The app-wide /auth/sign-out route keeps the global default deliberately.
+ */
+async function signOutThisDevice(showId: string): Promise<ClearIdentityResult> {
+  // Each boundary is caught SEPARATELY and reported with its own `stage`.
+  // Invariant 9 wants faults discriminable, and these three are not the same
+  // event: a constructor throw means nothing was revoked, a signOut fault means
+  // the session is probably still live, and a sweep failure means the session IS
+  // already revoked and only a residual cookie remains. Collapsing them into one
+  // catch — the first version — logged three materially different residual states
+  // under one indistinguishable message.
+  const fail = (stage: string, error: unknown): ClearIdentityResult => {
+    // Deliberately NO redirect on any of these: redirecting would send the person
+    // onward with state half-applied. Returning re-renders a gate, which is
+    // itself the retry affordance — Mode B while the session survives, or the
+    // first-contact welcome once revocation landed (see the `sweep` stage).
+    log.error("guest sign-out failed", {
+      source: "auth.picker.clearIdentityAndSkip",
+      code: "AUTH_SIGNOUT_FAILED",
+      stage,
+      showId,
+      error,
+    });
+    // The forensic code rides the telemetry emit above, where the §12.4 producer
+    // scan strips it (lib/messages/__internal__/stripLogEmissionCalls.ts). The
+    // RETURNED code has to be a catalogued one: a `code:` literal in a returned
+    // object reads as a user-facing §12.4 producer, and AUTH_SIGNOUT_FAILED is
+    // deliberately forensic-only, with no catalog row and no crew copy.
+    return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
+  };
+
+  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  try {
+    supabase = await createSupabaseServerClient();
+  } catch (error) {
+    // Nothing revoked: the env is misconfigured. Next render is still Mode B.
+    return fail("client_construction", error);
+  }
+
+  // Returned error and thrown fault are DISTINCT stages. Invariant 9 requires the
+  // two paths be distinguishable, and `if (error) throw error` collapsed them into
+  // one telemetry shape — a gateway rejecting the revocation and the client
+  // blowing up mid-call are different operational events.
+  let returnedError: unknown;
+  try {
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    returnedError = error;
+  } catch (error) {
+    // Revocation did not land: the foreign session survives, so the next render is
+    // Mode B again. The picker entry is already gone, so nothing is exposed.
+    return fail("sign_out_threw", error);
+  }
+  if (returnedError) return fail("sign_out_returned_error", returnedError);
+
+  try {
+    // Belt and braces, mirroring the sign-out route: signOut's SSR adapter
+    // attempts its own cookie deletion and swallows write failures, so clear any
+    // residual shard explicitly. Never touches the picker envelope.
+    const cookieStore = await cookies();
+    for (const cookie of cookieStore.getAll()) {
+      if (!isSupabaseAuthCookieName(cookie.name)) continue;
+      cookieStore.set(cookie.name, "", {
+        path: "/",
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        maxAge: 0,
+      });
+    }
+  } catch (error) {
+    // Revocation ALREADY LANDED here — only the belt-and-braces sweep failed. So
+    // unlike the two stages above, the next render is not necessarily Mode B: if
+    // the SSR adapter's own deletion succeeded, or once the access token expires,
+    // the chain resolves to first-contact and the welcome gate's CTA reaches the
+    // picker. Spec §4.3's matrix records both branches.
+    return fail("residual_cookie_sweep", error);
+  }
+
+  return { ok: true };
 }
 
 export async function clearIdentityCore(input: ClearIdentityInput): Promise<ClearIdentityResult> {
@@ -71,11 +183,8 @@ export async function clearIdentityCore(input: ClearIdentityInput): Promise<Clea
 }
 
 async function clearIdentityCoreImpl(input: ClearIdentityInput): Promise<ClearIdentityResult> {
-  if (
-    !SLUG_RE.test(input.slug) ||
-    !TOKEN_RE.test(input.shareToken) ||
-    !UUID_RE.test(input.showId)
-  ) {
+  // Same predicate the guest action runs up front, so the two cannot drift.
+  if (!isValidClearIdentityInput(input)) {
     return { ok: false, code: "PICKER_INVALID_INPUT" };
   }
 

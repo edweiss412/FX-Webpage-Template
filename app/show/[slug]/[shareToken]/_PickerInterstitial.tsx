@@ -12,9 +12,14 @@
  *   - Roster rows are submit buttons. ACTIVE rows POST through
  *     `selectIdentity`; CLAIMED rows (claimed_via_oauth_at IS NOT NULL,
  *     P-R35 deactivated-row contract) render a lock icon, the
- *     data-claimed="true" hook, and a GET form to /auth/sign-in?next=
- *     so a tap routes the user through OAuth recovery instead of
- *     bouncing off PICKER_IDENTITY_CLAIMED at the action layer.
+ *     data-claimed="true" hook, and a GET form to /auth/sign-in that
+ *     carries `next` in a HIDDEN INPUT, so a tap routes the user through
+ *     OAuth recovery instead of bouncing off PICKER_IDENTITY_CLAIMED at
+ *     the action layer. The hidden input is not incidental: a GET submit
+ *     rebuilds the query string from the form's own fields and discards
+ *     whatever the action URL carried, so describing this as an
+ *     "/auth/sign-in?next=" action is the exact ambiguity that lost the
+ *     return target and sent crew to /admin (validateNextParam's fallback).
  *   - When roster is empty, render the PICKER_EMPTY_ROSTER cataloged
  *     copy. The page route always passes a roster (possibly empty);
  *     fail-closed render is the responsibility of the resolver / route.
@@ -31,8 +36,11 @@
  *   PICKER_IDENTITY_CLAIMED throws NEXT_REDIRECT per Pin-2 contract).
  */
 
+import { redirect } from "next/navigation";
+
 import { messageFor } from "@/lib/messages/lookup";
 import { selectIdentity } from "@/lib/auth/picker/selectIdentity";
+import { isValidShowPathPair } from "@/lib/auth/picker/validateClearIdentityInput";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { StaleCleanupAutoSubmit } from "./_StaleCleanupAutoSubmit";
 
@@ -73,7 +81,37 @@ async function selectIdentityFormAction(formData: FormData): Promise<void> {
   "use server";
   // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker selectIdentity,
   // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
-  await selectIdentity(formData);
+  const result = await selectIdentity(formData);
+  if (!result.ok) return;
+
+  // Redirect on success, rather than relying on selectIdentity's
+  // `revalidatePath` alone.
+  //
+  // This form is submitted from `?gate=skip` — that is where the guest flow
+  // lands, and where the picker is reachable at all. `revalidatePath` takes a
+  // PATH and ignores the query string, so the `?gate=skip` entry was re-served
+  // and the action's own re-render came back as the picker again: the person
+  // tapped their name and stayed exactly where they were, until they happened
+  // to reload.
+  //
+  // Invisible in development, and only with more than one name on the roster —
+  // a single-member roster resolves for its own reasons and hides it. So it
+  // reproduces ONLY under `pnpm build && pnpm start`, which is what CI runs and
+  // `pnpm dev` is not (playwright.config.ts). Measured: crew-shell 0 / picker 1
+  // immediately after the tap, then crew-shell 1 after a reload.
+  //
+  // Redirecting to the canonical URL also drops `gate=skip`, which has no
+  // meaning once a selection exists — it asks to skip a gate the person has
+  // just passed.
+  const slug = formData.get("slug");
+  const shareToken = formData.get("shareToken");
+  const s = formData.get("s");
+  if (typeof slug !== "string" || typeof shareToken !== "string") return;
+  // buildShowReturnUrl interpolates both segments unencoded. selectIdentity
+  // validated them already or it would not have returned ok; re-checking here
+  // keeps that guarantee local to the redirect that depends on it.
+  if (!isValidShowPathPair({ slug, shareToken })) return;
+  redirect(buildShowReturnUrl(slug, shareToken, { s: typeof s === "string" ? s : undefined }));
 }
 
 export function PickerInterstitial({
@@ -85,10 +123,6 @@ export function PickerInterstitial({
   staleCleanupHint,
   s,
 }: PickerInterstitialProps) {
-  const signInRecoveryUrl = `/auth/sign-in?next=${encodeURIComponent(
-    buildShowReturnUrl(slug, shareToken, { s }),
-  )}`;
-
   return (
     <main
       data-testid="picker-interstitial-root"
@@ -153,7 +187,19 @@ export function PickerInterstitial({
               if (isClaimed) {
                 return (
                   <li key={c.id}>
-                    <form action={signInRecoveryUrl} method="GET">
+                    {/* `next` rides a hidden input, NOT the action query: a GET
+                        submit rebuilds the query string from the form's own
+                        fields and discards whatever the action URL carried, so
+                        the return target was being dropped and sign-in landed on
+                        a bare /auth/sign-in. Raw value — the browser
+                        percent-encodes it on submit. Same shape as
+                        app/auth/sign-in/SignInButton.tsx. */}
+                    <form action="/auth/sign-in" method="GET">
+                      <input
+                        type="hidden"
+                        name="next"
+                        value={buildShowReturnUrl(slug, shareToken, { s })}
+                      />
                       <button
                         type="submit"
                         data-testid="picker-roster-row"
