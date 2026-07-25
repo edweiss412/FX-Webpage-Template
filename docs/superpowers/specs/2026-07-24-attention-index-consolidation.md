@@ -295,7 +295,7 @@ Highest-value pins within that set:
 | --- | --- |
 | `tests/components/admin/showpage/attentionMenuGroups.test.tsx` | All three headings, the empty-header conditional, the `aria-label` fallthrough (`tests/components/admin/showpage/attentionMenuGroups.test.tsx:143-159`, `tests/components/admin/showpage/attentionMenuGroups.test.tsx:315-319`) |
 | `tests/dev/fullSplitCompositeRender.test.tsx` | Exact pill string `1 to confirm · 2 to review · 2 monitoring`, group order, needs-look rows with their links (`tests/dev/fullSplitCompositeRender.test.tsx:69-125`) |
-| `tests/components/admin/showpage/pageTransitions.test.tsx` | The "Needs your confirmation" header case at `tests/components/admin/showpage/pageTransitions.test.tsx:144` |
+| `tests/components/admin/showpage/pageTransitions.test.tsx` | A **scanner-derived count** of conditional render sites in the component — `"components/admin/showpage/AttentionMenu.tsx": 7` at `tests/components/admin/showpage/pageTransitions.test.tsx:147`. Not a copy assertion: the "Needs your confirmation" text at `tests/components/admin/showpage/pageTransitions.test.tsx:144` is the comment explaining the last delta. Removing a group moves the integer, so it must be re-measured by running the scanner (twice — once when the groups merge, once when the row renderers collapse), never predicted |
 | `tests/components/admin/showpage/pillFocusReconcile.test.tsx` | Focus reconciliation — extended by §6 test 13 |
 
 
@@ -323,7 +323,9 @@ Total: 20 tests in 1 file
 
 The actual debt is CI wiring: `tests/ci/_metaE2eWorkflowCoverage.test.ts:49` records the file as `UNSEEN`, meaning no workflow runs it. So it is not dead code and editing it is not pointless — but changes to it are not verified by CI either. **Three of its assertions depend on the inner needs-look `<a>` this spec deletes** (`tests/e2e/attention-pill-focus.spec.ts:177-198`, `tests/e2e/attention-pill-focus.spec.ts:258-264`, `tests/e2e/attention-pill-focus.spec.ts:283-306`), so the file must be updated to the pressable-row contract BEFORE it is wired — wiring first would switch on a job this change immediately breaks. The plan updates it, runs it under the standalone config, and, if green, wires it into a workflow and updates the coverage registry. **It must not be added to `playwright.config.ts`'s `desktop-chromium` project**, which would boot an unrelated app server instead of the standalone harness this spec was written for. Pre-existing condition, not caused by this change.
 
-**Two matches are a different surface and must NOT be rewritten.** `tests/components/admin/wizard/Step3ReviewModal.test.tsx` and `publishedWarningsPanel.test.tsx` match on the per-section chip "Needs a look", which this spec does not retire (§2.1). They are listed so the implementer checks them for accidental coupling and then leaves them alone. `tests/components/admin/wizard/sectionCountChip.test.ts` is the same case.
+**Five matches are a different surface and must NOT be rewritten.** These match on the per-section chip "Needs a look", which this spec does not retire (§2.1). Listed so the implementer checks them for accidental coupling and then leaves them alone: `tests/components/admin/wizard/Step3ReviewModal.test.tsx`, `publishedWarningsPanel.test.tsx`, `tests/components/admin/wizard/sectionCountChip.test.ts`, `tests/components/admin/showpage/flaggedZeroCountHeader.test.tsx:49` (chip on a zero-count flagged section), and `tests/components/admin/showpage/mappedSectionActiveFlag.test.tsx:154`.
+
+The last of those is the one to be careful with: it asserts chip **absence** (`queryAllByText("Needs a look").length === 0`). An implementer who "resolves" it by deleting the string leaves a test that still passes while proving nothing.
 
 ### 7.2 dataGaps sweep (19 files) — recorded as a NO-CHANGE verification
 
