@@ -105,7 +105,7 @@ Sites needing `computedContext` on the context axis at plan time — **re-derive
 - `allowedKeys(code)` = union over that code's rows of (`contextKeys` and `optionalContextKeys`)
 - `guaranteedKeys(code)` = intersection over that code's rows of `contextKeys`
 
-A code whose only rows are `computedContext` still returns the hand-authored sets from those rows. A code with **no** row (13 of the 45) returns empty sets, making §5's subset rule vacuous for it — assert that explicitly so the vacuity is a stated property rather than an accident.
+A code whose only rows are `computedContext` still returns the hand-authored sets from those rows. A code with **no** row (13 of the 45) returns empty sets — and empty does NOT mean permissive: a naive subset check against an empty allowed-set rejects every non-empty context. Task 6 therefore SKIPS the subset rule entirely for no-row codes. Assert here that `allowedKeys` is empty for exactly those 13, and add a test naming one of them (`EMAIL_DELIVERY_FAILED`) whose representative context is non-empty, proving the bypass is required rather than cosmetic.
 
 **Failure mode this catches:** a single-site sample mistaken for the key universe, which would reject a legitimate branch-specific key — the round-1 HIGH. **Anti-tautology:** expectations are derived from the registry rows, and `SHEET_UNAVAILABLE` is asserted by name because it is the live proof that union differs from intersection.
 
@@ -113,67 +113,62 @@ A code whose only rows are `computedContext` still returns the hand-authored set
 
 ---
 
-## Task 4: Split the conflated validator case
+## Task 4: Repair all 28 degenerate fixture rows (BEFORE any new rule lands)
 
-**Failing test first.** In `tests/admin/crewMatchFanout.test.ts`, add to the `validateScenario` describe: a scenario whose `AMBIGUOUS_EMAIL_BINDING` row carries `context: { crew_member_id: <uuid> }` must be REJECTED with an error naming both codes; one carrying `{ email, crew_member_ids: [uuidA, uuidB] }` plus a conforming `galleryIdentity` must be ACCEPTED. `OAUTH_IDENTITY_CLAIMED` keeps its current accept/reject behavior. The first two fail today (the historical defect currently *passes* validation — that is the regression this pins).
+**This task moved earlier deliberately.** An earlier plan ordering put the validator rules first and the fixture repair last, which knowingly left two commits with a red catalog — a direct violation of the per-task TDD invariant (failing test, implementation, **passing** test, commit). Repairing the fixtures first keeps every commit green: the rules in Tasks 5-6 then land against a catalog that already satisfies them, and their own failing tests use **synthetic** scenarios constructed inside the test file, never the live catalog.
 
-**Implementation.** Replace `lib/dev/attentionScenarios/validate.ts:106-120`'s fall-through with one case per code, per §4: `AMBIGUOUS_EMAIL_BINDING` requires ≥2 distinct UUIDs in `context.crew_member_ids` and a non-blank `context.email`, and requires a `galleryIdentity` carrying Show + email + crew-row-count segments; `OAUTH_IDENTITY_CLAIMED` unchanged (UUID `context.crew_member_id`, exactly one `Crew` segment).
+**Failing test first.** Assert, over the live catalog, that every alert row supplies the renderer-read keys its own code reads — a single data-driven test over `ALL_SCENARIOS` x `rendererReadKeys(code)`. It fails today with **28 offending rows across 10 codes**, which is the concrete list this task closes.
 
-**Boundary cases, each its own assertion** (§4): `crew_member_ids` of length 1 → reject; duplicate members → reject; non-array → reject; empty array → reject; non-UUID member → reject. Distinct message per case.
+**Implementation.** Repair per spec §7. Measured breakdown (`npx tsx`, 2026-07-24):
+
+| Rows | Code | Keys to add |
+|---|---|---|
+| 8 | `LIVE_ROW_CONFLICT` | `file_name` |
+| 7 | `AMBIGUOUS_EMAIL_BINDING` | `email`, `crew_member_ids` (two roster ids) — plus agreeing `galleryIdentity` |
+| 5 | `DRIVE_FETCH_FAILED` | `sheet_name` |
+| 2 | `ONBOARDING_SHEET_UNREADABLE` | `failed_sheet_names` |
+| 1 | `OAUTH_IDENTITY_CLAIMED` | `user_email`; also swap the non-roster id for a roster member |
+| 1 | `ROLE_FLAGS_NOTICE` | `role_change_crew_names` |
+| 1 | `PICKER_SELECTION_RACE` | `stale_crew_member_id` (must be a roster id) |
+| 1 | `BRANCH_PROTECTION_DRIFT` | `repo` |
+| 1 | `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` | `repo` |
+| 1 | `WIZARD_SESSION_SUPERSEDED_RACE` | `file_name`, `attempted_action` |
+
+Values come from each code's entry in `PRODUCER_CONTEXT_LIST` (Task 1), so the fixtures mirror real producer output rather than inventing shapes. `lib/dev/attentionScenarios/tier2.ts:245` is the shared `crewAlert()` helper — count its call sites rather than assuming one.
+
+**Class-sweep before finishing.** Re-run both sweeps and record output in the commit body: the UUID sweep (`rg -n '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' lib/dev/attentionScenarios/*.ts`, every hit must be a roster member) and the renderer-read sweep (must report 0 offending rows).
+
+**Failure mode this catches:** gallery cards rendering `"some sheets"` / `"a crew member"` / `"this show"` instead of real values — the degenerate form that hid the original bug for a month.
+
+**Commit:** `fix(dev): give every gallery alert row the context its card actually reads`
+
+---
+
+## Task 5: Split the conflated validator case
+
+**Failing test first.** In `tests/admin/crewMatchFanout.test.ts`, using **synthetic scenarios built in the test**, not catalog entries: an `AMBIGUOUS_EMAIL_BINDING` row carrying `context: { crew_member_id: <uuid> }` must be REJECTED with an error naming both codes; one carrying `{ email, crew_member_ids: [a, b] }` plus a conforming `galleryIdentity` must be ACCEPTED; `OAUTH_IDENTITY_CLAIMED` keeps its current accept/reject behavior. The first fails today — the historical defect currently PASSES validation, which is the regression this pins.
+
+**Implementation.** Replace `lib/dev/attentionScenarios/validate.ts:106-120`'s fall-through with one case per code, per spec §4. `AMBIGUOUS_EMAIL_BINDING`: at least 2 distinct UUIDs in `context.crew_member_ids`, non-blank `context.email`, and a `galleryIdentity` carrying Show + email + crew-row-count segments. `OAUTH_IDENTITY_CLAIMED`: unchanged.
+
+**Boundary cases, each its own assertion with a distinct message:** `crew_member_ids` length 1; duplicate members; non-array; empty array; non-UUID member.
+
+**Green-catalog check:** Task 4 already repaired the catalog, so `tests/dev/attentionScenariosTier1.test.ts` and `tests/dev/attentionScenariosIndex.test.ts` must stay green through this commit. If they go red, Task 4 was incomplete — fix Task 4's repair, not this rule.
 
 **Commit:** `fix(dev): validate AMBIGUOUS_EMAIL_BINDING against its own producer context shape`
 
 ---
 
-## Task 5: Generic gallery-to-producer binding rules
+## Task 6: Generic gallery-to-producer binding rules
 
-**Failing test first.** Five cases pinning the rules, each using a shape that passes today, plus three that must stay ACCEPTED:
+**Failing test first.** Synthetic scenarios again, never catalog entries. REJECT: (a) a key outside `allowedKeys(code)` — fixture is the real historical defect, `crew_member_id` on `AMBIGUOUS_EMAIL_BINDING`; (b) a row omitting a key in `rendererReadKeys ∩ allowedKeys`; (c) a crew UUID belonging to no row of that scenario's roster; (d) a `crewMatch` on any code other than `AMBIGUOUS_EMAIL_BINDING`; (e) a `crewMatch` disagreeing with `context.crew_member_ids`; (f) a `galleryIdentity` whose email or count disagrees with context. ACCEPT: (g) `context: {}` for a code reading no context; (h) a key written by only some of its code's sites (`SHEET_UNAVAILABLE.failure_code`); (i) any context for one of the 13 no-registry-row codes (subset rule skipped).
 
-REJECT: (a) a row carrying a key outside `allowedKeys(code)` — fixture is the real historical defect, `crew_member_id` on `AMBIGUOUS_EMAIL_BINDING`; (b) a row omitting a key in `rendererReadKeys(code)` intersect `allowedKeys(code)`; (c) a row declaring a crew UUID belonging to no row of that scenario's roster; (d) a `crewMatch` on any code other than `AMBIGUOUS_EMAIL_BINDING`; (d2) a `crewMatch` whose ids disagree with `context.crew_member_ids` — no exceptions, since Task 7's fallback declares no override; (e) a `galleryIdentity` whose email or crew-row count disagrees with `context`.
+**Implementation.** Add the rules to `validateAlert` (`lib/dev/attentionScenarios/validate.ts:154`) per spec §5, including `rendererReadKeys` from the spec's segment-kind table and the **no-registry-row bypass**: when a code has no `PRODUCER_SCOPE` row, skip the subset check entirely and fall the required-key check back to `rendererReadKeys` alone. Without that bypass an empty `allowedKeys` rejects every non-empty context — a round-1 plan BLOCKING. Preserve the `DEV_SCENARIO_TAG_KEY` exemption (`lib/dev/attentionScenarios/validate.ts:159`).
 
-ACCEPT: (f) a row carrying `context: {}` for a code whose card reads no context; (g) a row with no `crewMatch`; (h) a row whose key is written by only some of its code's producer sites (`SHEET_UNAVAILABLE.failure_code`).
+**Green-catalog check:** the live catalog must stay green through this commit too. Task 4 is what makes that true.
 
-**Implementation.** Add the rules to `validateAlert` (`lib/dev/attentionScenarios/validate.ts:154`) per spec §5. Implement `rendererReadKeys(code)` from the spec's per-segment-kind table, walking `ALERT_IDENTITY_MAP[code].segments`:
-
-| Segment kind | Context key required |
-|---|---|
-| `showName` | none (resolved from the `show_id` column) |
-| `email` | `EMAIL_FIELD_BY_CODE[code] ?? "email"` |
-| `crewName` | the spec's own `key` |
-| `contextField` | the spec's own `key` |
-| `count` | the UNDERLYING key: `crew_member_count` maps to `crew_member_ids`, `role_change_count` to `changes`, `failed_sheet_names_count` to `failed_sheet_names` |
-
-Add a totality test asserting this mapping covers every `kind` in the `SegmentSpec` union, so a new segment kind fails loudly instead of silently contributing nothing. Preserve the `DEV_SCENARIO_TAG_KEY` exemption (`lib/dev/attentionScenarios/validate.ts:159`).
-
-**Roster scoping.** The membership rule resolves against **that scenario's own** roster, not the six-row default — a scenario declaring `volumes.crew = N` has an N-row roster (`lib/dev/publishedModalFixture.ts:484-488`). This is what makes Task 7's beyond-cap case expressible without an exemption; getting it wrong reintroduces the round-1 BLOCKING.
-
-**The 70-row constraint is a hard acceptance criterion.** After this task, `tests/dev/attentionScenariosTier1.test.ts` and `tests/dev/attentionScenariosIndex.test.ts` must still pass with zero scenario edits beyond Tasks 6-7. If any of the 70 empty-context alert rows starts failing, the `rendererReadKeys` derivation is wrong — fix the derivation, never the scenarios.
-
-**Anti-tautology:** case (a) uses the actual historical defect as its fixture, so the test would have caught the real bug. The roster case derives the roster from the fixture builder rather than hardcoding ids, so a roster edit cannot silently neuter it.
+**Anti-tautology:** case (a) uses the actual historical defect as its fixture, so the test would have caught the real bug. The roster case derives the roster from the fixture builder rather than hardcoding ids.
 
 **Commit:** `feat(dev): bind gallery scenario contexts to their producers' key sets`
-
----
-
-## Task 6: Repair all five stale fixture rows
-
-**Failing test first.** Tasks 4 and 5 already turn these rows red. Add one explicit assertion that the tier-1 `AMBIGUOUS_EMAIL_BINDING` scenario derives a non-undefined `crewMatch` whose ids resolve to rendered roster indexes via `buildCrewRowResolver`.
-
-**Implementation.** Five rows, not two — the class-sweep inventory in spec §7:
-
-| Row | Code | Repair |
-|---|---|---|
-| `lib/dev/attentionScenarios/tier1.ts:61` | `AMBIGUOUS_EMAIL_BINDING` | plural `crew_member_ids` + `email`, roster ids, agreeing identity |
-| `lib/dev/attentionScenarios/tier1.ts:67` | `OAUTH_IDENTITY_CLAIMED` | id only — swap `7a1b2c3d-…` for a roster member; the singular key is CORRECT for this code |
-| `lib/dev/attentionScenarios/tier2.ts:245` | `crewCode()` helper | same as tier1:61; count the `crewAlert()` call sites rather than assuming one |
-| `lib/dev/attentionScenarios/tier2.ts:809` | `AMBIGUOUS_EMAIL_BINDING` | same as tier1:61 |
-| `lib/dev/attentionScenarios/tier3.ts:55` | `AMBIGUOUS_EMAIL_BINDING` | same as tier1:61 |
-
-Roster ids come from `lib/dev/publishedModalFixture.ts:107-113`. Identity segments must satisfy Task 5 rule (e): email equals `context.email`, count equals `crew_member_ids.length`.
-
-**Class-sweep before finishing.** Re-run `rg -n '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' lib/dev/attentionScenarios/*.ts` and confirm every hit is a roster member. Record the command and output in the commit body.
-
-**Commit:** `fix(dev): give the gallery crew-alert scenarios their real producer context`
 
 ---
 
@@ -184,13 +179,13 @@ Roster ids come from `lib/dev/publishedModalFixture.ts:107-113`. Identity segmen
 - `scenarioIdForCode("alert", "AMBIGUOUS_EMAIL_BINDING")` derives a **fanned-out** placement;
 - the new tier-2 fallback scenario id derives a **section-top** placement.
 
-Both fail before the new scenario exists (after Task 6 every ambiguous-email scenario fans out). A third, weaker existential assertion covers the rest of the catalog. Naming the ids is the point: an existential-only pin can be satisfied by an unrelated scenario after the intended one regresses — that was a round-1 MEDIUM.
+Both fail before the new scenario exists (after Task 4 every ambiguous-email scenario fans out). A third, weaker existential assertion covers the rest of the catalog. Naming the ids is the point: an existential-only pin can be satisfied by an unrelated scenario after the intended one regresses.
 
-**Implementation — no `crewMatch` override.** Add one tier-2 scenario declaring `volumes: { crew: 35 }`, which grows its roster to 35 rows (`lib/dev/publishedModalFixture.ts:484-488`, ids from `genCrewRow`, `lib/dev/publishedModalFixture.ts:273-279`). Put **two real roster ids in `context.crew_member_ids`, at least one at index >= 30**. Declare NO `crewMatch`.
+**Implementation — no `crewMatch` override.** Add one tier-2 scenario declaring `volumes: { crew: 35 }`, growing its roster to 35 rows (`lib/dev/publishedModalFixture.ts:484-488`, ids from `genCrewRow`, `lib/dev/publishedModalFixture.ts:273-279`). Put **two real roster ids in `context.crew_member_ids`, at least one at index >= 30**. Declare NO `crewMatch`.
 
-Why no override: production derives `crewMatch` from `context.crew_member_ids` (`lib/adminAlerts/deriveAlertRowFields.ts:60-72`), so an override naming an id absent from context is a state production cannot emit — putting a fiction in the gallery, the exact defect class this bundle exists to remove. With both ids in context, derivation produces the `crewMatch` itself, Task 5's context-agreement rule holds structurally, and `buildCrewRowResolver`'s `CREW_CAP` slice (`lib/admin/crewRowMatch.ts:64`) gives the beyond-cap id `hits === 0`, so the resolver returns null (`lib/admin/crewRowMatch.ts:46`) and the banner lands section-top — the real documented production fallback.
+Why no override: production derives `crewMatch` from `context.crew_member_ids` (`lib/adminAlerts/deriveAlertRowFields.ts:60-72`), so an override naming an id absent from context is a state production cannot emit — a fiction in the gallery, the exact defect class this bundle removes. With both ids in context, derivation produces the `crewMatch` itself, Task 6's context-agreement rule holds structurally, and `buildCrewRowResolver`'s `CREW_CAP` slice (`lib/admin/crewRowMatch.ts:64`) gives the beyond-cap id `hits === 0`, so the resolver returns null (`lib/admin/crewRowMatch.ts:46`) and the banner lands section-top — the real documented production fallback.
 
-**Generated ids — derived at plan time, re-derived at implementation time.** `genCrewRow` builds `cccccccc-0000-4000-8000-${pad3(i)}000000000` then `.slice(0, 36)`. The growth loop starts from the existing roster length, so with the 6 default rows present, `volumes.crew = 35` appends `genCrewRow(7)` through `genCrewRow(35)`, making **0-based index 30 (the 31st row) equal to `genCrewRow(31)` = `cccccccc-0000-4000-8000-031000000000`**. Verified by direct computation (2026-07-24): all 35 ids match the validators' `UUID_RE`, all are distinct, none collides with the six default roster ids. Pair it with an in-cap roster id (for example the default row at index 1) so the scenario has the >= 2 ids that spec §4 requires.
+**Generated ids — derived at plan time, re-derived at implementation time.** `genCrewRow` builds `cccccccc-0000-4000-8000-${pad3(i)}000000000` then `.slice(0, 36)`. The growth loop starts from the existing roster length, so with the 6 default rows present, `volumes.crew = 35` appends `genCrewRow(7)` through `genCrewRow(35)`, making **0-based index 30 (the 31st row) equal to `genCrewRow(31)` = `cccccccc-0000-4000-8000-031000000000`**. Verified by direct computation (2026-07-24): all 35 ids match the validators' `UUID_RE`, all are distinct, none collides with the six default roster ids. Pair it with an in-cap roster id so the scenario has the >= 2 ids spec §4 requires.
 
 **Anti-tautology:** assertions run `bucketAttention` over each scenario's derived items and inspect which bucket the banner landed in — never a container that could render either, never the scenario's own declaration.
 
@@ -223,4 +218,4 @@ Fix-forward on any failure; do not merge on a red gate. Verify pre-existing fail
 - **Layout-dimensions / transition-audit tasks:** N/A — no component renders differently as a result of this bundle; the gallery's visual change comes entirely from fixture data flowing through unchanged components.
 - **Structural-defense calibration:** the defense (Tasks 2, 3, 5) ships in the same bundle as the instance fix (Task 6), per the "nameable at first occurrence" tightening — not deferred to a later round.
 - **Round-1 adversarial findings** (2 BLOCKING, 6 HIGH, 3 MEDIUM) were all accepted and folded into the spec before this plan was finalized; Tasks 1, 3, 5, 6, and 7 were rewritten to match. The plan was never dispatched for review in its pre-repair form.
-- **Ordering risk:** Tasks 4 and 5 deliberately turn the catalog red before Task 6 repairs it. Each of those commits therefore has a failing catalog test by construction. This is the TDD invariant working as intended, but Task 6 must land in the same PR; the branch is never merged between Task 4 and Task 6.
+- **No red window (round-1 plan BLOCKING, fixed).** An earlier ordering put the rules before the repair, leaving two commits knowingly red — a direct violation of the per-task TDD invariant. The repair is now Task 4, ahead of every new rule, and the rule tasks assert against SYNTHETIC scenarios built inside their test files rather than the live catalog. Every commit is green on its own.
