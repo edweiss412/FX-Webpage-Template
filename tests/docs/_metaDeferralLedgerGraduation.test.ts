@@ -23,8 +23,22 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-/** A deferral entry heading: `### SOME-ID — human text`. */
+/**
+ * Entry-heading matchers, ONE PER LEDGER — deliberately not a single widened
+ * regex.
+ *
+ * DEFERRED entries are level 3 (`### SOME-ID — text`). BACKLOG entries are
+ * `BL-`-prefixed and appear at BOTH levels (`## BL-…` in the active queue,
+ * `###` for some archived ones). Widening the DEFERRED regex to `##|###` would
+ * misclassify prose section headings as ids — `## CREWWARN instance
+ * discriminator`, `## CI speedup — …`, `## CI unit-suite sharding`,
+ * `## BLOCKRES — BlockedRowResolver`, `## INFO-tab data-fidelity audit`. Note
+ * that requiring a following em-dash does not filter those: `## BLOCKRES — …`
+ * has that shape too. The `BL-` prefix is what makes the backlog matcher
+ * ledger-specific.
+ */
 const DEFERRAL_ID = /^### ([A-Z0-9][A-Z0-9-]+)/gm;
+const BACKLOG_ID = /^#{2,3} (BL-[A-Z0-9-]+)/gm;
 
 /**
  * Deferrals graduated to the archive since this guard shipped. NOT a mirror of
@@ -40,6 +54,21 @@ const GRADUATED = [
   "SHAREHUB-ARCHIVE-GRAVITY-CUE-1",
 ] as const;
 
+/**
+ * Backlog entries graduated to the archive since this guard covered that pair.
+ * Same contract as GRADUATED above: not a mirror of the historical archive.
+ */
+const BACKLOG_GRADUATED = [
+  // fix/picker-flow-app-bugs (2026-07-25). The three app-behavior blockers
+  // behind the skipped picker-flow e2e stubs, all fixed in that branch.
+  "BL-PICKER-BOOTSTRAP-HOST-FLIP",
+  "BL-PICKER-GATE-SKIP-MISMATCH",
+  "BL-PICKER-CLAIMED-ROW-NEXT-DROP",
+] as const;
+
+/** The follow-up that branch filed when it descoped the bespoke origin gate. */
+const ORIGIN_GATE_ID = "BL-SERVER-ACTION-ORIGIN-GATE";
+
 // process.cwd() is the project root under vitest — the convention
 // tests/cross-cutting/vitest-projects-partition.test.ts already uses.
 // import.meta.url is NOT a file: URL under vitest's transform, so
@@ -49,6 +78,9 @@ const read = (rel: string): string => readFileSync(join(process.cwd(), rel), "ut
 
 const idsIn = (rel: string): Set<string> =>
   new Set(Array.from(read(rel).matchAll(DEFERRAL_ID), (m) => m[1]!));
+
+const backlogIdsIn = (rel: string): Set<string> =>
+  new Set(Array.from(read(rel).matchAll(BACKLOG_ID), (m) => m[1]!));
 
 describe("deferral ledger graduation", () => {
   it("no id is both active and archived", () => {
@@ -68,5 +100,50 @@ describe("deferral ledger graduation", () => {
       expect(archived.has(id), `${id} missing from DEFERRED-archive.md`).toBe(true);
       expect(active.has(id), `${id} still in DEFERRED.md`).toBe(false);
     }
+  });
+});
+
+describe("backlog ledger graduation", () => {
+  it("no id is both active and archived", () => {
+    // Same shape the DEFERRED pair guards, and the actual risk in a two-file
+    // move: an entry copied into the archive without being deleted from the
+    // active queue, or a re-opened entry left behind in the archive.
+    const active = backlogIdsIn("BACKLOG.md");
+    const archived = backlogIdsIn("BACKLOG-archive.md");
+    const both = [...active].filter((id) => archived.has(id));
+    expect(both).toEqual([]);
+  });
+
+  it("every graduated id is archive-only", () => {
+    const active = backlogIdsIn("BACKLOG.md");
+    const archived = backlogIdsIn("BACKLOG-archive.md");
+    for (const id of BACKLOG_GRADUATED) {
+      expect(archived.has(id), `${id} missing from BACKLOG-archive.md`).toBe(true);
+      expect(active.has(id), `${id} still in BACKLOG.md`).toBe(false);
+    }
+  });
+
+  it("the archived picker-flow section names the branch that resolved it", () => {
+    // Provenance: without it a reader cannot tell which change closed these, and
+    // both design documents promise the note.
+    expect(read("BACKLOG-archive.md")).toContain("fix/picker-flow-app-bugs");
+  });
+
+  it("the descoped origin-gate follow-up is filed with its substance intact", () => {
+    const backlog = read("BACKLOG.md");
+    expect(backlogIdsIn("BACKLOG.md").has(ORIGIN_GATE_ID)).toBe(true);
+
+    // A heading-only entry must fail: the whole point of filing it is to carry
+    // the reasoning forward. Section body from this heading to the next.
+    const start = backlog.indexOf(ORIGIN_GATE_ID);
+    const rest = backlog.slice(start);
+    const nextHeading = rest.slice(1).search(/\n#{2,3} /);
+    const body = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
+    expect(body.length).toBeGreaterThan(400);
+
+    // Matched loosely so a reworded entry still passes, but an empty one cannot.
+    expect(body).toMatch(/Origin/i); // the residual: a cross-site POST with no Origin
+    expect(body).toMatch(/blast radius|no read|escalation/i); // what it can actually do
+    expect(body).toMatch(/trusted[- ]proxy/i); // the open decision
   });
 });
