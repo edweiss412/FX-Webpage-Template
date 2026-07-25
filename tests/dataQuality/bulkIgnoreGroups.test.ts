@@ -9,7 +9,7 @@ const w = (code: string, rawSnippet?: string): ParseWarning => ({
   ...(rawSnippet !== undefined ? { rawSnippet } : {}),
 });
 
-// Failure mode this guards: a bulk "Ignore all N of this type" that either
+// Failure mode this guards: a bulk ignore-all-of-this-type control that either
 // (a) inserts a coarse code-level row (masking future distinct rows), or
 // (b) double-counts identical-content cards that share ONE fingerprint, or
 // (c) offers a bulk action for a single warning (no clicks saved).

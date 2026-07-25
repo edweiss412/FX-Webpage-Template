@@ -5,8 +5,8 @@
  * Real-browser 390px geometry for the data-quality group eyebrow row in
  * <BulkIgnoreControls>: the eyebrow label must WRAP (never ellipsize), the row
  * must not overflow horizontally, and the eyebrow and chip bounding boxes must
- * stay disjoint — in BOTH chip states, because the armed morph ("Ignore all 2"
- * -> "Confirm ignore all 2") lengthens the chip and re-allocates row width
+ * stay disjoint — in BOTH chip states, because the armed morph ("Ignore" ->
+ * "Are you sure?") re-allocates row width
  * (spec §2.6 geometric interaction). jsdom computes none of this.
  *
  * HARNESS (standalone, no app boot — pattern:

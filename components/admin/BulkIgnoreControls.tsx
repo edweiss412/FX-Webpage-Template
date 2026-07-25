@@ -57,7 +57,7 @@ const ARM_REVERT_MS = 4_000;
  * suppressed (spec 2026-07-24-dq-singleton-eyebrow-suppress §2.1: for cataloged codes
  * it verbatim-duplicates the card title; data-gap-labeled singletons are suppressed
  * too, nothing is grouped and nothing rides the row). Bulk-eligible groups render an
- * inline "Ignore all N" chip on that eyebrow row; the group's cards render below, and a
+ * inline "Ignore" chip on that eyebrow row; the group's cards render below, and a
  * partial-failure notice (if any) renders below the acting group's cards. The chip's
  * two-tap arm→confirm guard, single-armed-panel-wide invariant (one shared armedCode +
  * timer), and per-fingerprint fan-out are unchanged from DQIGNORE-2/§4 G4. Renders null

@@ -6,7 +6,7 @@ export type BulkIgnoreGroup = { code: string; items: BulkIgnoreItem[] };
 
 /**
  * Group the ACTIVE ignorable warnings by code into distinct-content sets, keeping only
- * codes with >=2 distinct contents — the threshold at which a bulk "Ignore all N" saves
+ * codes with >=2 distinct contents — the threshold at which one bulk "Ignore" chip saves
  * clicks over per-card ignoring (DQIGNORE-2).
  *
  * Content is keyed on the SAME basis as `warningFingerprint` (code + normalized
