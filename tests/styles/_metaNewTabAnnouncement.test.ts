@@ -171,7 +171,7 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
   it("rejects a conditional label whose phrase sits in only one branch", () => {
     rejects(
       `const A = ({t}) => <a href="x" target="_blank" aria-label={t ? \`Sheet for \${t} (opens in a new tab)\` : "Sheet"}>Go</a>;`,
-      /does not announce/,
+      /must announce in that label|does not announce/,
     );
   });
 
@@ -226,8 +226,16 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
       `const A = () => <a href="x" {...externalLinkProps}>Go</a>;`,
       /not statically resolvable/,
     );
+    // Once the resolver walks nested objects, a SINGLY-declared P resolves, so
+    // this is now flagged as a real unannounced external link rather than as
+    // unresolvable -- a strictly better outcome than failing closed.
     rejects(
       `const P = { target: "_blank" }; const A = ({e}) => <a href="x" {...(e ? P : {})}>Go</a>;`,
+      /does not announce/,
+    );
+    // Ambiguity still fails closed: the same name declared twice is scope-blind.
+    rejects(
+      `function f(){ const P = { target: "_blank" }; return <a href="x" {...P}>Go</a>; } function g(){ const P = {}; return null; }`,
       /not statically resolvable/,
     );
   });
@@ -321,11 +329,11 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     // a label that announces exactly when the link does NOT open a tab.
     rejects(
       `const A=({e})=><a href="x" target={e?"_blank":undefined} aria-label={e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
-      /does not announce|no destination/,
+      /must announce in that label|does not announce|no destination/,
     );
     rejects(
       `const A=({e})=><a href="x" target={e?undefined:"_blank"} aria-label={e?"Go (opens in a new tab)":"Go"}>Go</a>;`,
-      /does not announce|no destination/,
+      /must announce in that label|does not announce|no destination/,
     );
     ok(
       `const A=({e})=><a href="x" target={e?undefined:"_blank"} aria-label={e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
@@ -378,6 +386,88 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     rejects(`const A=({p})=><a href="x" target={p.target}>Go</a>;`, /not statically resolvable/);
     rejects(`const A=()=><a href="x" target={pick()}>Go</a>;`, /not statically resolvable/);
     rejects(`const A=()=><a href="x" {...build()}>Go</a>;`, /not statically resolvable/);
+  });
+
+  // ── Regression pins for whole-diff review R2 ────────────────────────────
+  it("R2-1 label predicate must be the TARGET's, not any flag", () => {
+    rejects(
+      `const A=({e,ready})=><a href="x" target={e?"_blank":undefined} aria-label={ready?"Go (opens in a new tab)":"Go"}>Go</a>;`,
+      /must announce in that label|does not announce/,
+    );
+    // Valid inverted spelling: !e chooses the other branch, still correct.
+    ok(
+      `const A=({e})=><a href="x" target={e?"_blank":undefined} aria-label={!e?"Go":"Go (opens in a new tab)"}>Go</a>;`,
+    );
+  });
+
+  it("R2-1 predicate normalization must not collapse whitespace inside strings", () => {
+    rejects(
+      `const A=({mode})=><a href="x" target={mode === "x y" ? "_blank" : undefined}>Go {mode === "xy" ? <> <NewTabHint /></> : null}</a>;`,
+      /not gated by the anchor's effective _blank predicate/,
+    );
+  });
+
+  it("R2-2 fails closed on every nested / shorthand / computed spread shape", () => {
+    for (const code of [
+      `const A=()=><a href="x" {...{...externalLinkProps}}>Go</a>;`,
+      `const A=({target})=><a href="x" {...{target}}>Go</a>;`,
+      `const A=()=><a href="x" {...{["target"]:"_blank"}}>Go</a>;`,
+    ]) {
+      const sc = probe(code);
+      expect(sc.anchors, `must discover: ${code}`).toBeGreaterThan(0);
+      expect(sc.violations.length, `must flag: ${code}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("R2-2 a later spread cannot mask an earlier explicit target", () => {
+    rejects(
+      `const A=()=><a href="x" target="_blank" {...{ "aria-label": "Go" }}>Go <NewTabHint /></a>;`,
+      /must announce in that label|naming override/,
+    );
+  });
+
+  it("R2-3 a naming override cannot be rescued by a hint child", () => {
+    rejects(
+      `const A=()=><a href="x" target="_blank" aria-label="Go">Go <NewTabHint /></a>;`,
+      /must announce in that label/,
+    );
+    rejects(
+      `const A=()=><a href="x" target="_blank" aria-labelledby="t">Go <NewTabHint /></a>;`,
+      /must announce in that label/,
+    );
+  });
+
+  it("R2-3 rejects a substitution that can only ever be empty", () => {
+    rejects(
+      'const A=({e})=><a href="x" target="_blank" aria-label={`${e ? "" : ""} (opens in a new tab)`}>Go</a>;',
+      /no destination/,
+    );
+  });
+
+  it('R2-4 native hidden="false" is TRUTHY, and dynamic hiding fails closed', () => {
+    rejects(
+      `const A=()=><a href="x" target="_blank">Go <span hidden="false"><NewTabHint /></span></a>;`,
+      /hidden from the accessible name/,
+    );
+    rejects(
+      `const A=({hide})=><a href="x" target="_blank">Go <span className={hide ? "hidden" : ""}><NewTabHint /></span></a>;`,
+      /hidden from the accessible name/,
+    );
+  });
+
+  it("R2-5 one exemption comment exempts exactly ONE anchor", () => {
+    const code = [
+      "// no-newtab-announcement: first anchor only",
+      'const A = () => <a href="x" target="_blank">One</a>;',
+      'const B = () => <a href="y" target="_blank">Two</a>;',
+    ].join("\n");
+    const sc = probe(code);
+    expect(sc.anchors).toBe(2);
+    expect(sc.violations.length, "the second anchor must still be flagged").toBe(1);
+  });
+
+  it("R2-7 an exhaustive ternary hint is unconditional, not a violation", () => {
+    ok(`const A=({e})=><a href="x" target="_blank">Go {e ? <NewTabHint /> : <NewTabHint />}</a>;`);
   });
 
   it("honors an inline exemption comment", () => {
