@@ -71,159 +71,48 @@ For `tests/e2e/pendingDiscardReflow.layout.spec.ts` (Task 4):
 
 ## 4. Tasks
 
-Every task: failing test → minimal implementation → passing test → commit (invariant 1). One commit per task (invariant 6).
+The design changed at round 9 from a container-keyed fork to a plain reorder (spec §4). Tasks 0-4 below are recorded as **DONE** with what actually shipped; the remainder are outstanding.
 
-### Task 0 — Real-component mounting harness (already spiked)
+### Task 0 — Real-component mounting harness — **DONE**
 
-**Why it is task zero.** Spec §6.3 explains it: two review rounds failed on the same vector, that a transcribed harness can pass while the shipped component differs. Every positive geometry claim in this plan depends on measuring the real tree, so the harness precedes the code it verifies.
+`tests/e2e/_pendingDiscardHarness.tsx` renders the real `NeedsAttentionInbox` (hence the real component inside real card padding, real action row, real `Retry now` sibling) out of process under `tsx`. It now emits an **armed** panel per rail by substituting the component's own exported `IGNORE_ARMED_CLASS` / `IGNORE_ARMED_LABEL`, so both panels originate from the component and nothing is transcribed.
 
-**Already built and run as a spike** (`tests/e2e/_pendingDiscardHarness.tsx`, committed). It renders the real `NeedsAttentionInbox` with one `pending_ingestion` item — hence the real `PendingPanelDiscardButtons`, real card padding, real action row, real `Retry now` sibling — via `renderToStaticMarkup`, out of process under `tsx`, following `tests/e2e/_statusStripToggleHarness.tsx`.
+That substitution is what withdrew M2: with no transcription left to bind, the binding table and the six holes review found in it ceased to exist rather than being fixed.
 
-**Spike output, recorded:** against today's markup at a 1280px viewport, `rail320` reproduces the defect from the real tree (`admin-pending-ignore-*` below `admin-pending-defer-*`) and `wide900` shows both on one row with `Retry` inline. This is §2.5's premise proven by the component.
+### Task 1 — Shared `ARM_REVERT_MS` + T1/T2/T3 — **DONE**
 
-**Remaining in this task:** a new spec file **tests/e2e/pendingDiscardReal.layout.spec.ts** that consumes the harness JSON, compiles token CSS, serves it, and carries the 6.3.a assertion list — starting with the two that close the round-3 findings: `w-full` and `@container` present on the **rendered** root, and the root's measured width equal to the rail width (the direct test for the 0px collapse, which cannot pass if `w-full` is dropped).
+`lib/admin/destructiveConfirm.ts` created; all 11 local declarations replaced with imports. No behavioural change (every site already used `4_000`), verified by 5996 tests across 507 files staying green. T1/T2/T3 and a T2 self-check landed with a non-vacuity floor of 11 detected scheduler calls.
 
-**Every element the probe reads is addressed by test id, never inferred from DOM shape.** Round 5 found a probe that guessed the branches via `:scope > div > div`, matched nothing, and reported `missing/missing` — an assertion that could never go green regardless of what shipped. The probe also reports a `found` map so a missing element fails as a readable assertion (`discard-root-* not found — is the fork implemented?`) rather than a null deref.
+### Task 2 — Reorder the component — **DONE**
 
-**Armed geometry does not live here.** `renderToStaticMarkup` cannot click, and the component has no armed-initial prop, so D4/D6 stay in the transcribed spec — bound to the component by a jsdom assertion covering **every input to armed geometry**: the armed Ignore className, its label text, both branch container classNames, and the root className. Binding the button class alone leaves the `gap-2` → `gap-24` false-green that round 5 found. Task 3 owns that binding test.
+Ignore moved before Defer; `basis-full sm:basis-auto` deleted; armed label shortened to `"Tap again to confirm"` (328.51px → 161.98px), which is also exactly what the live region already announces. The component exports its two Ignore skins and labels for the harness.
 
-**Commit:** `test(admin): measure the real discard tree in a browser`
+### Task 3 — jsdom coverage — **DONE**
 
-### Task 1 — Shared `ARM_REVERT_MS` + T1/T3 guards
+Test 2 (DOM order), test 6 (single live region survives the reorder), test 7 (no `basis-full`/`sm:basis-auto`, idle or armed). The persistent-status test moved off `nextElementSibling` — the reorder puts Defer between Ignore and the region — and keeps every behavioural assertion it had. The DESTRUCT-1 class test inverted.
 
-**Test first.** Extend `tests/styles/_metaDestructiveConfirm.test.ts`:
+### Task 4 — Real-browser proof — **DONE**
 
-```ts
-const CONST_MODULE = "lib/admin/destructiveConfirm.ts";
-const DECL = /(?:^|\n)\s*(?:export\s+)?const\s+ARM_REVERT_MS\s*=/;
+`tests/e2e/pendingDiscardReal.layout.spec.ts`: 16 assertions across 3 rails × idle/armed covering D1, D2, D3, D4, D7. All measured **panel-relative** — comparing absolute `y` across two panels measures where the panel sits, not where the button sits, which cost one debugging cycle. `tests/e2e/pendingDiscardReflow.layout.spec.ts` narrowed to the historical negative control, with its old drift-guard inverted.
 
-it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
-  const declaring: string[] = [];
-  for (const root of ["components", "app", "lib"]) {
-    for (const file of walk(root)) {
-      if (DECL.test(stripComments(readFileSync(file, "utf8")))) {
-        declaring.push(file);
-      }
-    }
-  }
-  // Asserting equality, not "at most one": "<= 1" passes on zero (constraint C-B).
-  expect(declaring).toEqual([CONST_MODULE]);
-});
+### Task 5 — CI wiring — **OUTSTANDING**
 
-it("T3: the shared value is the ratified 4s (DEFERRED-archive.md:1228)", async () => {
-  const mod = await import("@/lib/admin/destructiveConfirm");
-  expect(mod.ARM_REVERT_MS).toBe(4_000);
-});
-```
+`package.json` script `test:e2e:destructive-layout` running **both** layout specs under `tests/e2e/standalone.config.ts`. New workflow **.github/workflows/destructive-layout-e2e.yml** modelled on `modal-header-layout-e2e.yml` (same setup action, Playwright cache, failure-artifact upload, `workflow_dispatch:`), no `env:` block — the harness imports no server chain.
 
-Note the root list is `["components", "app", "lib"]` — constraint C-B. `walk` already filters to `.ts`/`.tsx` (`tests/styles/_classScanUtils.ts:7-14`). `DECL` matches the declaration with or without `export`, so a local `const ARM_REVERT_MS` in a component is caught as well as the module's exported one.
+`paths:` must include `components/admin/PendingPanelDiscardButtons.tsx`, `components/admin/NeedsAttentionInbox.tsx`, `tests/e2e/_pendingDiscardHarness.tsx`, both layout specs, `tests/e2e/standalone.config.ts`, `app/globals.css`, `package.json`, `pnpm-lock.yaml`, and the workflow file.
 
-**Expected failure:** `declaring` has 11 entries, none of them the module (which does not exist).
+**Mandatory companion:** flip both specs' rows in `tests/ci/_metaE2eWorkflowCoverage.test.ts` from `UNSEEN` to `PATH_GATED`. That meta-test is already red on the new spec, so this task cannot be skipped silently.
 
-**Implementation.** Create the new module **lib/admin/destructiveConfirm.ts** exporting `ARM_REVERT_MS = 4_000` with the ratification comment. Replace the local declaration in all **11** files (spec §2.2 table) with `import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";`. Each file keeps its existing explanatory comment, minus the now-false "declared locally" phrasing.
+Complete only when `gh workflow run` reports a green run on the branch — local green is not sufficient for a CI-bound surface.
 
-**No behavioural change** — every site already used `4_000`, so the existing per-surface timer tests (which advance past 4s) are untouched. Confirm by running them, not by asserting it.
+### Task 6 — Backlog + stale anchors — **OUTSTANDING**
 
-**Commit:** `refactor(admin): source ARM_REVERT_MS from one module and pin it`
+Delete all three `BL-DESTRUCT-*` rows and the family section. `BL-DESTRUCT-FORK-FOCUS-TRANSFER` is **withdrawn, not filed** — there is no fork to cross. Correct the three stale line anchors (`tests/help/_uiLabelExceptions.ts:137`, `tests/help/_uiLabelExceptions.ts:142`, `tests/e2e/needs-attention-page.spec.ts:53`) once line numbers are final.
 
-### Task 2 — T2 identifier allowlist + the four bypass closures
+### Task 7 — Invariant-8 impeccable dual-gate — **OUTSTANDING**
 
-**Test first.** T2 rejects any scheduler-call delay that is not a **registered identifier**. Spec §5.2 carries the allowlist table (`ARM_REVERT_MS`, `SUCCESS_DISMISS_MS`, `WATCHDOG_MS`) and is the authority; the task body reproduces it at execution time.
+`/impeccable critique` and `/impeccable audit` on the diff. The armed-label change is user-visible copy and is the thing most likely to draw a finding — it is a deliberate trade (width, and matching the live-region announcement) and should be defended or revised on its merits, not waved through.
 
-Five assertions, because a literal ban alone is fail-open — `const CONFIRM_TIMEOUT = 3_000; setTimeout(cb, CONFIRM_TIMEOUT)` passes a literal ban, T1 and T3 simultaneously:
+### Task 8 — Whole-diff cross-model review, then ship — **OUTSTANDING**
 
-| Assertion | Closes | Concrete bypass it catches |
-|---|---|---|
-| delay must be an allowlisted identifier | the base case | `setTimeout(cb, 3_000)` and `setTimeout(cb, CONFIRM_TIMEOUT)` |
-| `ARM_REVERT_MS` references resolve to `@/lib/admin/destructiveConfirm`, matched on the **module specifier**, with no local rename of a foreign binding to that name | B1 | `import { THREE_SECONDS as ARM_REVERT_MS } from "./elsewhere"` — green under T1/T3 because T1 must ignore import bindings for the eleven migrated files to pass |
-| scan a scheduler **set** (`setTimeout`, `setInterval`, `AbortSignal.timeout`, `requestIdleCallback` with `timeout`) and fail on aliasing any of them | B2 | `const t = setTimeout; t(cb, 3000)` |
-| exemption binds to the **call**, not the file: on the call's own line or the line above, consumed by exactly one call | B3 | one legitimate `// not-arm-revert:` suppressing every other timer in the same file |
-| assert the **count** of detected scheduler calls per registry file against a checked-in expected count | B4 | a detector that silently stops matching — this is the assertion that makes the other four trustworthy |
-
-**Self-check** (mandatory, per the vacuous-pass rule): fires on single-line, multiline, and nested-callback call shapes; does not fire on an allowlisted identifier; and carries one negative case per bypass B1-B4. A self-check that only proves `3000` is caught would let every closure above rot.
-
-**Expected state.** V2 measured zero literal-delay violations across all 18 registry files, so the base assertion lands green. That is stated plainly rather than dressed up: T2 is a fails-**forward** guard, and its self-check plus B4's count assertion are what prove it is not vacuous today.
-
-**Implementation.** The allowlist table, the scheduler set, and a header comment documenting T1/T2/T3, the exemption idiom, and §5.3's residual scope limit (a surface that never adopts the recipe pair is invisible to the registry, hence to T2).
-
-**Commit:** `test(admin): require a registered timer identifier in destructive-confirm surfaces`
-
-### Task 3 — Fork the render on container width (jsdom)
-
-**Test first.** In `tests/components/admin/pendingIngestionActions.test.tsx`, retarget the existing ~10 `getByTestId` calls to the `-inline-` ids (spec §4.4), then add the eleven tests of spec §6.2. Each carries a comment naming the concrete failure mode it catches; the table in §6.2 is the authority and is reproduced in the task body at execution time.
-
-Two of them exist specifically because the other would not catch the bug:
-
-- **2a parity** compares the two copies to each other — catches drift *apart*.
-- **2b canonical tokens** checks each button against a literal required set — catches drift *together*, which parity is structurally blind to. This was a round-1 review finding and my original reasoning about it was backwards.
-
-Tests 10 and 11 cover the compound `error + armed` exits that the flat five-state model missed (spec §4.8).
-
-**Implementation.** Restructure `components/admin/PendingPanelDiscardButtons.tsx` per spec §4.1: a `w-full @container` root (the `w-full` is mandatory — see below), one local `pair(variant)` helper, a `data-testid="discard-root-${id}"` root, stacked copy `[ignore, defer]` in `data-testid="discard-branch-stacked-${id}"` with `flex flex-col items-stretch gap-2 @min-[576px]:hidden`, inline copy `[defer, ignore]` in `data-testid="discard-branch-inline-${id}"` with `hidden flex-wrap gap-2 @min-[576px]:flex`, live region and error block hoisted out so each renders once. Remove `basis-full sm:basis-auto`.
-
-Two tokens are load-bearing and each has its own failure mode:
-
-- **`flex` on the stacked container.** Without it the element is `display:block`, `items-stretch` is inert, and a source guard checking only `flex-col`/`items-stretch` still passes.
-- **`w-full` on the `@container` root.** `container-type: inline-size` severs inline size from contents, and the root is a shrink-to-fit flex item in the card's action row (`components/admin/NeedsAttentionInbox.tsx:72`). Without a definite width the wrapper collapses to `0px` and the buttons shrink to `26px` — measured, silent, no error. Spec §4.1 carries the measurement.
-
-Update `tests/e2e/needs-attention-page.spec.ts:243` and `tests/e2e/needs-attention-page.spec.ts:250` to the **stacked** ids — that spec sets `MOBILE` (390px) at `tests/e2e/needs-attention-page.spec.ts:232`, so the stacked copy is the live one. Targeting inline there would click a `display:none` node and fail on actionability, which reads as a flake rather than a wiring error.
-
-**Also in this task:** rewrite the persistent-status test at `tests/components/admin/pendingIngestionActions.test.tsx:282`. It reaches the live region via `btn.nextElementSibling` and re-checks that adjacency after the timer decays; moving the region outside both copies makes that `null`. It is relocated to `getByRole("status")` — unambiguous once exactly one region exists — keeping every behavioural assertion it already made.
-
-**Commit:** `fix(admin): key the discard fork on container width, safe action first`
-
-### Task 4 — Narrow the transcribed spec to negative controls
-
-**M1 is red until this task lands, by design.** The §6.6 meta-test reports `D4` as declared-but-unmeasured, because D4 (armed box equality) lives in the transcribed spec and this task is what writes it. Do not weaken M1 to make it green — a fails-forward guard reporting outstanding work is the guard working.
-
-**Test first.** Per spec §6.3.b the transcribed spec keeps only what transcription is legitimately good at — rendering markup the product no longer contains. Every positive claim moves to Task 0's real-tree spec. Panels are fixed-width wrappers carrying `@container`, so one page exercises 280 / 576 / 720px without resizing the viewport — plus three controls: `nofork-280-*` (today's markup, which must show Ignore *below* Defer), `nobasis-328-*` (the reflow control, at **328px** — at 280px the idle pair is already wrapped and cannot reproduce a *relocation*, only width growth), and `prod-320-*`, a production-nesting panel carrying the real card padding, the `flex flex-wrap items-center gap-2` action row and the `Retry now` sibling. The last one exists because every other panel is a fixed-width wrapper, which manufactures a definite width the live tree does not hand the component — without it, D1-D6 can all pass while the shipped buttons collapse or overflow. Assertions are spec §6.3's list, with the exact D1–D6 invariants from spec §4.7 inlined in the file header. Panel widths derive from one local threshold constant so a future change cannot leave a panel testing the old boundary.
-
-Both negative controls are load-bearing: without `nofork-*`, "Ignore is above Defer" could pass on a harness that renders nothing meaningful; V-probe measured `nofork` at Defer `y192` / Ignore `y244`, so the control does reproduce the defect.
-
-Rewrite the drift-guard test (currently `tests/e2e/pendingDiscardReflow.layout.spec.ts:165-173`) to assert the source contains `@container`, `flex`, `items-stretch`, `@min-[576px]:hidden`, `@min-[576px]:flex` **and does NOT contain** `basis-full` or `sm:basis-auto`. The negative half is what makes it bite — asserting only presence would still pass if the old markup survived alongside the new.
-
-**Commit:** `test(admin): prove the forked discard order in a real browser`
-
-### Task 5 — CI wiring (spec §6.4)
-
-`package.json`: add `"test:e2e:destructive-layout"` running **both** specs under `tests/e2e/standalone.config.ts` — `tests/e2e/pendingDiscardReal.layout.spec.ts` (the real-tree proof) and `tests/e2e/pendingDiscardReflow.layout.spec.ts` (the negative controls).
-
-**Verified fail-by-default:** adding the new spec immediately turned `tests/ci/_metaE2eWorkflowCoverage.test.ts` red — `dark specs - wire a workflow or add a reasoned allowlist entry` listing `tests/e2e/pendingDiscardReal.layout.spec.ts`. That is the registry doing its job, and it means this task cannot be skipped silently. **Both** rows flip to `PATH_GATED` when the workflow lands.
-
-New workflow **.github/workflows/destructive-layout-e2e.yml**, modelled on `.github/workflows/modal-header-layout-e2e.yml`: same `actions/checkout` + `./.github/actions/setup`, same Playwright browser cache keyed on `pnpm-lock.yaml`, same `install-deps chromium` + `install chromium`, same failure-artifact upload, `workflow_dispatch:` enabled. **No `env:` block** — unlike the modal-header job, this harness renders static HTML strings and imports no server chain, so none of the `HASH_FOR_LOG_PEPPER` / Supabase demo keys are needed. `paths:` per spec §6.4.
-
-Update the `BL-STANDALONE-CONFIG-CI-DARK` row in `BACKLOG.md`: one more spec covered, remainder still dark.
-
-**Verification is not local-green.** Per the project's "local-passes-CI-fails is its own bug class" rule, this task is complete only after `gh workflow run destructive-layout-e2e.yml` reports a green run on the branch.
-
-**Commit:** `infra: run the destructive-confirm layout spec in CI`
-
-### Task 6 — Backlog hygiene + stale anchors (spec §7, §2.4)
-
-Delete all three `BL-DESTRUCT-*` rows and the now-empty family section with its preceding `---`. Correct the three stale line anchors (`tests/help/_uiLabelExceptions.ts:137`, `tests/help/_uiLabelExceptions.ts:142`, `tests/e2e/needs-attention-page.spec.ts:53`) to the post-fork line numbers — done last, so the numbers are final.
-
-**Commit:** `docs(backlog): close the destructive-confirm family`
-
-### Task 7 — Invariant-8 impeccable dual-gate
-
-`components/admin/PendingPanelDiscardButtons.tsx` is under `components/`, so both `/impeccable critique` and `/impeccable audit` run on the diff, with the canonical v3 setup gates (the skill's context loader pulling PRODUCT.md + DESIGN.md, then the register reference read). P0/P1 fixed or explicitly deferred via a `DEFERRED.md` entry. Findings and dispositions recorded in §12 of the close-out.
-
-**Pre-code mechanical checklist** (run before Task 3's implementation, not after): em-dash ban in user-visible copy, apostrophe literals, `min-h-tap-min` on both copies' buttons, canonical type/token classes. No new colour token is introduced, so no contrast meta-test is needed.
-
-### Task 8 — Self-review
-
-Numeric sweep + self-consistency sweep across spec and plan. Re-run V1–V10 after the code lands and confirm the recorded outputs still hold (V2 in particular: the diff must not introduce the first literal delay).
-
-### Task 9 — Adversarial review (cross-model)
-
-Codex, via `scripts/codex-guard.mjs`, on the whole diff. Brief carries REVIEWER-ONLY framing, fresh-eyes posture, and spec §1.1's do-not-relitigate list. Iterate to APPROVE.
-
-### Task 10 — Ship
-
-`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, both e2e scripts → push → **real CI green** → `gh pr merge --merge` → fast-forward local `main` and verify `git rev-list --left-right --count main...origin/main` == `0  0`.
-
----
-
-## 5. Risks carried from the spec
-
-Spec §9's table applies unchanged. The one this plan adds machinery for: **two live copies of a destructive control.** Containment is Task 3's `pair()` helper (one source expression), tests 2/3/7 (parity plus independent class pinning), and Task 4's real-browser one-copy-per-breakpoint assertion. No single one of those is sufficient alone, which is why all three ship together.
+`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, both e2e scripts, `pnpm test:e2e -- needs-attention-page` → push → real CI green → `gh pr merge --merge` → verify `git rev-list --left-right --count main...origin/main` reports `0  0`.
