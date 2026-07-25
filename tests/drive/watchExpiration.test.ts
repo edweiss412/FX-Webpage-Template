@@ -11,8 +11,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 import type { WatchTx } from "@/lib/drive/watch";
-import { stripSqlComments } from "../helpers/sqlComments";
-import { effectiveScheduleBlock } from "../helpers/cronSchedules";
 
 const driveMock = {
   watchArgs: [] as Array<{ fileId?: string; requestBody?: Record<string, unknown> }>,
@@ -253,83 +251,13 @@ describe("short-grant anomaly (§3.3)", () => {
     });
   });
 
-  test("T_EXEC_BUDGET_MS is READ FROM the scheduler migration, not restated", async () => {
-    // R6 finding 5: the previous version asserted the literal 300_000 twice and
-    // never opened the migration it cited, so changing the scheduler timeout
-    // while leaving the constant alone kept it green. It now parses the value.
-    const { T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
-    // Scoped to refresh-watch's OWN schedule block, and discovered by scanning
-    // every migration rather than naming one (whole-diff R10). All seven jobs
-    // declare the same parameter, so an unscoped match would read
-    // fxav_cron_sync's timeout (R7 finding 1); and because migrations are
-    // immutable, a timeout change arrives as a NEW file that a hard-coded path
-    // would never open. `effectiveScheduleBlock` takes the LAST live schedule
-    // for the job across all migrations, with comments stripped first so a
-    // commented-out declaration cannot supply the value (R8 finding 3).
-    const block = effectiveScheduleBlock("fxav_cron_refresh_watch");
-    // And prove the block really is refresh-watch's, so a future reshuffle cannot
-    // quietly hand us a neighbour's body.
-    expect(block).toContain("/api/cron/refresh-watch");
-    const m = /timeout_milliseconds\s*:?=\s*([0-9_]+)/.exec(block);
-    expect(m, "refresh-watch block no longer declares timeout_milliseconds").not.toBeNull();
-    expect(T_EXEC_BUDGET_MS).toBe(Number(m![1]!.replace(/_/g, "")));
-  });
-
-  // The guard above is only as good as its comment stripping. R8 finding 3
-  // mutation-confirmed that the previous whole-line `--` filter let a
-  // block-commented declaration win, so the stripper gets its own tests: each
-  // case is a comment shape that, unstripped, makes the parity check read a
-  // value the database will never use.
-  describe("stripSqlComments (guards the parity check above)", () => {
-    const declaredValue = (sql: string) =>
-      /timeout_milliseconds\s*:?=\s*([0-9_]+)/.exec(stripSqlComments(sql))?.[1];
-
-    test("a block-commented declaration loses to the live one (R8 finding 3's mutation)", () => {
-      expect(
-        declaredValue("/* timeout_milliseconds := 300000 */\n timeout_milliseconds := 600000"),
-      ).toBe("600000");
-    });
-
-    test("a trailing inline comment cannot supply the value", () => {
-      expect(declaredValue("select 1; -- timeout_milliseconds := 300000\n")).toBeUndefined();
-    });
-
-    test("nested block comments are consumed whole, as PostgreSQL lexes them", () => {
-      expect(declaredValue("/* outer /* inner */ timeout_milliseconds := 300000 */\n")).toBe(
-        undefined,
-      );
-    });
-
-    test("slash-star inside a line comment does NOT open a block comment", () => {
-      // The exact shape at migration line 6. If this regresses, the naive
-      // block-first order silently eats live SQL that follows.
-      const sql = "-- see app/api/cron/*/route.ts\n timeout_milliseconds := 300000\n";
-      expect(declaredValue(sql)).toBe("300000");
-    });
-
-    test("comment markers inside single-quoted literals are data, not comments", () => {
-      expect(stripSqlComments("select '-- not a comment';")).toBe("select '-- not a comment';");
-      expect(stripSqlComments("select 'it''s -- fine';")).toBe("select 'it''s -- fine';");
-    });
-
-    test("a declaration commented out INSIDE a dollar-quoted job body still loses", () => {
-      // The shape that actually matters, and the one that survived the first fix:
-      // every timeout in this migration sits inside `format($body$ … $body$)`.
-      // Treating that body as an opaque literal (which is how PostgreSQL lexes
-      // it, but NOT how pg_net later executes it) left the commented value
-      // visible to the regex.
-      const sql = [
-        "perform cron.schedule('fxav_cron_refresh_watch', '0 * * * *', format($body$",
-        "  select net.http_get(",
-        "    /* timeout_milliseconds := 300000 */ timeout_milliseconds := 600000",
-        "  );",
-        "$body$, vercel_url || '/api/cron/refresh-watch'));",
-      ].join("\n");
-      expect(declaredValue(sql)).toBe("600000");
-      // and the body's own string literals survive, so block scoping still works
-      expect(stripSqlComments(sql)).toContain("/api/cron/refresh-watch");
-    });
-  });
+  // T_EXEC_BUDGET_MS is pinned against the LIVE `cron.job` row in
+  // tests/cross-cutting/pg-cron-coverage.test.ts, not parsed out of the migration
+  // text here. Whole-diff rounds R8-R16 each found another lexical corner where a
+  // hand-rolled SQL scanner silently read the wrong value; the database has
+  // already resolved comments, dollar quoting, identifier case and name
+  // resolution correctly, so the assertion belongs where that result is read.
+  // This file stays DB-free and asserts only the constants' relationships.
 });
 
 describe("post-activation observability cannot change the outcome (§3.3)", () => {

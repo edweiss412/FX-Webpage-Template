@@ -33,6 +33,7 @@ import { describe, expect, test, beforeAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { cronPeriodMs } from "../helpers/cronPeriod";
 
 // Canonical job table — read from the sibling JSON in the M12.1 plan dir so the
 // test, spec §2.3, and T3 migration share a single source of truth. Adding a
@@ -201,6 +202,44 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
     );
     expect(present).toBe("t");
   });
+
+  liveDbTest(
+    "SAMPLING_PERIOD_MS and T_EXEC_BUDGET_MS match the LIVE refresh-watch job",
+    async () => {
+      // Spec: docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md §2.1.
+      //
+      // Both constants are derived from the renewal job's cadence and declared
+      // timeout, and both are used to compute a renewal lead and a short-grant
+      // heuristic. If the job changes and the constants do not, nothing breaks
+      // loudly — the arithmetic just becomes wrong.
+      //
+      // Asserted against `cron.job`, i.e. what PostgreSQL actually resolved and
+      // runs, NOT against the migration text. Whole-diff rounds R8-R16 all landed
+      // on one species: a hand-rolled scanner reading migration SQL and silently
+      // getting the wrong value (comments, dollar quotes, case, quoting, name
+      // resolution, stored function bodies…). The database has already done that
+      // parsing correctly, and this suite already reads it.
+      const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
+      const raw = psql(
+        String.raw`SELECT coalesce(json_agg(json_build_object('schedule', schedule, 'command', command)), '[]'::json) FROM cron.job WHERE jobname = 'fxav_cron_refresh_watch'`,
+      );
+      const rows = JSON.parse(raw) as Array<{ schedule: string; command: string }>;
+      expect(rows, "fxav_cron_refresh_watch is not scheduled").toHaveLength(1);
+      const job = rows[0]!;
+
+      expect(cronPeriodMs(job.schedule)).toBe(SAMPLING_PERIOD_MS);
+
+      // Prove the row really is refresh-watch's before trusting its timeout.
+      expect(job.command).toContain("/api/cron/refresh-watch");
+      const timeouts = [...job.command.matchAll(/timeout_milliseconds\s*:?=\s*([0-9_]+)/g)];
+      // Exactly one, so a second occurrence (a URL, a debug string) cannot make
+      // the first silently win — the R16 finding against the text-scraping version.
+      expect(timeouts, "expected exactly one timeout_milliseconds in the job command").toHaveLength(
+        1,
+      );
+      expect(T_EXEC_BUDGET_MS).toBe(Number(timeouts[0]![1]!.replace(/_/g, "")));
+    },
+  );
 
   liveDbTest("cron.job has fxav_cron_* rows matching the canonical pg-cron-jobs.json", () => {
     // R4 F10: escape '\' so underscore is literal (not single-char wildcard).
