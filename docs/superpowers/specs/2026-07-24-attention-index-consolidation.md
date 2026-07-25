@@ -314,14 +314,14 @@ grep -rln 'confirm, review\|MONITORING_ONLY\|clearingKind' lib/dev/
 
 `tests/dev/attentionScenariosTier1.test.ts:13-17` asserts the gallery covers every `ATTENTION_ROUTES` code, so a scenario rename must keep that totality intact.
 
-**One listed suite is DARK and currently proves nothing.** `tests/e2e/attention-pill-focus.spec.ts` exists (21.7KB of tests) but appears **zero** times in `playwright.config.ts`, and `npx playwright test --list` collects zero tests from it. Every project's `testMatch` is an explicit allow-list, and the config says so directly: "a spec absent from this regex runs NOWHERE and silently proves nothing" (`playwright.config.ts:87-88`). Verified at draft time:
+**One listed suite is unwired from CI, though it does run locally.** `tests/e2e/attention-pill-focus.spec.ts` matches no project in `playwright.config.ts` (`grep -c` returns 0), but that is not the whole picture: it is explicitly allow-listed by the purpose-built standalone harness at `tests/e2e/standalone.config.ts:36`, under which it collects 20 tests:
 
 ```
-grep -c "attention-pill-focus" playwright.config.ts   # 0
-npx playwright test --list | grep -c attention-pill-focus  # 0
+$ npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-pill-focus.spec.ts --list
+Total: 20 tests in 1 file
 ```
 
-Editing it as part of this change would produce the appearance of coverage with none of the substance. The plan must therefore run it locally first and then either wire it into `desktop-chromium`'s `testMatch` alongside the other `published-review-modal.*` specs, or record it as pre-existing dark debt with a backlog reference. This spec does not decide which — it only forbids silently editing a file that never executes. Pre-existing condition, not caused by this change.
+The actual debt is CI wiring: `tests/ci/_metaE2eWorkflowCoverage.test.ts:49` records the file as `UNSEEN`, meaning no workflow runs it. So it is not dead code and editing it is not pointless — but changes to it are not verified by CI either. The plan runs it under the standalone config and, if green, wires it into a workflow and updates the coverage registry. **It must not be added to `playwright.config.ts`'s `desktop-chromium` project**, which would boot an unrelated app server instead of the standalone harness this spec was written for. Pre-existing condition, not caused by this change.
 
 **Two matches are a different surface and must NOT be rewritten.** `tests/components/admin/wizard/Step3ReviewModal.test.tsx` and `publishedWarningsPanel.test.tsx` match on the per-section chip "Needs a look", which this spec does not retire (§2.1). They are listed so the implementer checks them for accidental coupling and then leaves them alone. `tests/components/admin/wizard/sectionCountChip.test.ts` is the same case.
 

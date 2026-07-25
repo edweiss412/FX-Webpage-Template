@@ -11,17 +11,17 @@
 Every file, symbol, and count below was verified against the live tree at `9e20048db`. Commands and their output:
 
 ```
-$ grep -rl '"Needs your confirmation"|"Needs a look"|Needs your confirmation|attention-needslook-row|
-    attention-monitoring-group|attention-menu-row|attention-pill-monitoring-segment|alert-pill' tests/ lib/dev/ app/ | wc -l
+$ grep -rl '"Needs your confirmation"\|"Needs a look"\|Needs your confirmation\|attention-needslook-row\|attention-monitoring-group\|attention-menu-row\|attention-pill-monitoring-segment\|alert-pill' tests/ lib/dev/ app/ | wc -l
 20
 
-$ grep -rln 'confirm, review|MONITORING_ONLY|clearingKind' lib/dev/ | wc -l
+$ grep -rln 'confirm, review\|MONITORING_ONLY\|clearingKind' lib/dev/ | wc -l
 2
 
 $ grep -c "attention-pill-focus" playwright.config.ts
 0
-$ npx playwright test --list | grep -c attention-pill-focus
-0
+
+$ npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-pill-focus.spec.ts --list
+Total: 20 tests in 1 file
 ```
 
 Implementation surface, current sizes:
@@ -105,7 +105,17 @@ Each task: failing test → minimal implementation → passing test → commit. 
 
 **Catches:** test 8 catches an implementation that always renders the chip; test 9 catches one that swaps note-for-chip only when an action exists, which would leave the note on `ASSET_RECOVERY_BYTES_EXCEEDED`.
 
+Plus spec test 9b, the four-cell warnings matrix, which is the load-bearing proof of §2.3's external-only claim. For EACH of `PARSE_ERROR_LAST_GOOD` and `RESYNC_QUALITY_REGRESSED`:
+
+| | warnings section available | warnings section unavailable |
+| --- | --- | --- |
+| Expected | item lands in `notes`, **no card** produced | falls through to an Overview card, and that card carries **no chip** |
+
+**Catches:** without the unavailable column, an implementation that suppresses the chip for `SHOW_UNPUBLISHED` while rendering an internal chip on either warnings-unavailable fallback passes tests 7, 8, and 9 and still violates §2.3.
+
 **Implement.** `AttentionBanner.tsx`: for non-actionable needs-you items, replace `footerRight`'s note with the chip, drop `footerLeft`'s action link, and apply the self-link guard (spec §2.3).
+
+**Prop threading — do not guess this.** The self-link guard compares the action's target section against **the card's effective section**, and `AttentionBanner` cannot currently see that value: `AttentionBannerProps` is `{ item, slug, now, highlighted, onResolved }` (`components/admin/review/AttentionBanner.tsx`), with no section field. The effective section is computed in `PublishedReviewModal` via `resolveEffectiveSection` and used by `bannerFor` (`components/admin/showpage/PublishedReviewModal.tsx:521-530`, `components/admin/showpage/PublishedReviewModal.tsx:551-556`). Add an `effectiveSectionId: RoutedSectionId` prop and pass `effectiveSectionId(item)` from `bannerFor`, so the card and the bucketing share one source. **Do not** compare against `item.sectionId` — that is the declared route and is wrong for exactly the fallback cases test 9b covers.
 
 ### Task 5 — the badge
 
@@ -121,21 +131,22 @@ Each task: failing test → minimal implementation → passing test → commit. 
 
 **Implement.** `lib/dev/attentionScenarios/tier2.ts` and `tier3.ts` (spec §7.1b): rename the class-mix labels and the `T2_MONITORING_ONLY` description to the two-group vocabulary. Keep every scenario id that `tests/dev/attentionScenariosTier1.test.ts:13-17` requires for `ATTENTION_ROUTES` totality — rename labels, not ids, unless the id itself names a retired class.
 
-### Task 7 — dispose of the dark spec
+### Task 7 — wire the unwired focus spec into CI
 
-**Naming the file on the command line does NOT bypass `testMatch`** — verified:
+`tests/e2e/attention-pill-focus.spec.ts` is absent from every `playwright.config.ts` project, but it is NOT dead: `tests/e2e/standalone.config.ts:36` allow-lists it and it collects 20 tests there (§0). The real debt is that no workflow runs it — `tests/ci/_metaE2eWorkflowCoverage.test.ts:49` records it as `UNSEEN`.
+
+Run it under its own harness:
 
 ```
-$ npx playwright test tests/e2e/attention-pill-focus.spec.ts --list
-Total: 0 tests in 0 files
+npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-pill-focus.spec.ts
 ```
 
-`testMatch` is the collection gate, so a path argument filters within it rather than overriding it. To run the spec at all, add its entry to `desktop-chromium`'s `testMatch` FIRST, as a throwaway edit, then run it and record the result in the handoff.
+- **Green:** wire the standalone spec into the workflow that runs the other standalone specs and update the coverage registry entry from `UNSEEN` in the same commit. Note in the handoff that this switches on pre-existing coverage rather than adding new coverage.
+- **Red:** do not wire it. File `BL-ATTENTION-PILL-FOCUS-UNWIRED` in `BACKLOG.md` with the failure output, and record in the handoff that the change was validated against the spec's other suites instead.
 
-- **Green:** keep the entry, commit it on its own, and note in the handoff that this is pre-existing coverage being switched on rather than new coverage written.
-- **Red or flaky:** revert the throwaway `testMatch` edit. File `BL-ATTENTION-PILL-FOCUS-DARK` in `BACKLOG.md` with the failure output, and state in the handoff that the spec file itself was left untouched, because editing a spec that never runs books coverage that does not exist.
+**Do NOT add it to `playwright.config.ts`'s `desktop-chromium` project.** That boots the ordinary app server rather than the standalone harness this spec was written against.
 
-Either way this task does not block the others.
+This task does not block the others.
 
 ### Task 8 — layout and invariants (real browser)
 
