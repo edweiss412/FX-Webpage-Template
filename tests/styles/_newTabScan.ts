@@ -58,13 +58,12 @@ const LINK_TAGS = new Set(["a", "Link"]);
  *      what makes it URL-shaped, and anything accepting it can forward both to an
  *      anchor.
  *
- * `href` is required in rule 2, not incidental: `<Tabs target="_blank" />` selects a
- * TAB, and treating it as a link was already pinned as wrong. R8's own probe carried
- * `href` alongside `target`, so requiring the pair catches it while leaving
- * non-URL `target` props alone. Keying on the attributes rather than on "has a
- * spread" is also deliberate: every `<div {...props}>` would otherwise become an
- * unrecognized-shape violation. The residue -- a component with a member-expression
- * tag whose ONLY target arrives through a conditional spread -- is in spec 6.4.
+ * `href` is the discriminator, not `target`: `<Tabs target="_blank" />` selects a TAB,
+ * and treating it as a link was already pinned as wrong. Anchoring on `href` means a
+ * `<div {...props}>` never becomes a violation, while an href-bearing element whose
+ * target arrives through a SPREAD is still classified -- that case was the residue
+ * this rule originally accepted, closed after a probe showed it silently produced
+ * zero anchors.
  */
 function isLinkCandidate(tag: string, attrs: ts.JsxAttributes): boolean {
   const last = tag.split(".").pop() ?? tag;
@@ -72,7 +71,12 @@ function isLinkCandidate(tag: string, attrs: ts.JsxAttributes): boolean {
     return true;
   }
   const names = new Set(attrs.properties.map((a) => attrName(a)));
-  return names.has("target") && names.has("href");
+  if (!names.has("href")) return false;
+  // `href` plus EITHER a target attribute or any spread. Requiring a literal
+  // `target` attribute left `<Foo.Bar href="x" {...(e ? { target: "_blank" } : {})}>`
+  // unclassified -- admitted by the file net, zero anchors, no violation. Found by
+  // probing the residue this rule had recorded as accepted, before R9 ran.
+  return names.has("target") || attrs.properties.some((a) => ts.isJsxSpreadAttribute(a));
 }
 
 export type Violation = { file: string; line: number; reason: string };

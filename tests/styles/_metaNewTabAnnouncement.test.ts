@@ -915,10 +915,22 @@ describe("R6: scanner changes are pinned", () => {
     expect(
       violations(`const A=({dest})=><UI.Link href="x" target={dest}>Go</UI.Link>;`).join(" "),
     ).toMatch(/does not announce|unrecognized/);
+    // An href-bearing element whose target arrives through a SPREAD is classified
+    // too. Requiring a literal `target` attribute left this silently unclassified:
+    // zero anchors, no violation. Found by probing the residue the rule had recorded
+    // as accepted, before R9 ran.
+    expect(
+      violations(
+        `const A=({e})=><Foo.Bar href="x" {...(e?{target:"_blank"}:{})}>Go</Foo.Bar>;`,
+      ).join(" "),
+    ).toMatch(/does not announce|unrecognized|not gated/);
     // But `target` WITHOUT `href` is not a URL target: <Tabs target="x" /> selects a
-    // tab. Requiring the pair is what keeps that pin (line 231) true.
+    // tab. Anchoring on `href` is what keeps that pin (line 231) true, and what keeps
+    // every `<div {...props}>` from becoming a violation.
     const tabs = probe(`const A = () => <Tabs target="_blank" />;`);
     expect(tabs.anchors, "a non-URL target prop must not become an anchor").toBe(0);
+    const div = probe(`const A=({props})=><div {...props}>Go</div>;`);
+    expect(div.anchors, "a spread-only non-link element must not become an anchor").toBe(0);
   });
 
   // R8 MEDIUM 3: the MDX net matched `target =` anywhere, including prose and a
