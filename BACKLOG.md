@@ -363,27 +363,31 @@ Transform sites the transform-sites walker (`tests/parser/_metaTransformSitesWal
 
 ---
 
-## Crew-page share-link chrome (2026-07-14, share-link-instant-rotate-dedup)
+## Share hub follow-ups (2026-07-25, share-link-chrome-backlog)
 
-### BL-CREWPAGE-ROTATE-URL-FLASH — one-shot highlight on the crew URL when it updates after a rotate
+### BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE — a remote rotation is silent under reduced motion
 
-**Status:** OPEN (2026-07-14, share-link-instant-rotate-dedup) · **Severity:** low · **Class:** UI POLISH
+**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** UI A11Y
 
-The instant-rotate rework updates the crew URL on every surface (header ShareChip, ShareLinkBody card, CrewPageLink) the moment a rotate resolves, and the confirmation-only banner says "The updated link is shown above." The swap itself is silent — the token is an opaque random string, so an admin watching the banner may not register that the URL above just changed. Deferred (impeccable critique P2): a brief reduced-motion-safe highlight/flash on `admin-current-share-link-url` (and the chip) keyed on the epoch advance would draw the eye, but it introduces a new transient visual state that needs its own transition-inventory + reduced-motion handling + test, and the banner copy already directs attention upward. Trigger to promote: admin feedback that a rotate's new URL is easy to miss.
+The crew-URL cue fires on ANY accepted token change, including another admin's rotation arriving through `router.refresh()`. On that path no banner mounts — the success banner renders off `result`, local state that only this browser's own action sets (`app/admin/show/[slug]/RotateShareTokenButton.tsx:82`, written at `:159`). So a reduced-motion admin watching a remotely-rotated link gets neither the cue nor an announcement.
 
-### BL-CREWPAGE-SHARE-CHIP-TOKEN-DISCIPLINE — replace `max-w-[16rem]` magic + confirm tap-target width on crew-link chrome
+NOT a regression: before the cue, a remote rotation swapped the URL silently for everyone, so this diff adds a signal for one group and removes none. Deliberately not fixed there because the fix is a new announcement surface — a live region owned by ShareHub that speaks a change this browser did not initiate needs its own copy, politeness level and repeat-suppression design, plus a decision about whether a background URL change should interrupt a screen-reader user at all. Trigger: an a11y pass on the admin share surfaces, or a report of a surprise URL change.
 
-**Status:** OPEN (2026-07-14, share-link-instant-rotate-dedup) · **Severity:** low · **Class:** UI TOKEN DISCIPLINE
+### BL-HELP-STRIP-COPYLINK-STALE — help prose still describes the retired strip copy-link
 
-`ShareChip.tsx` uses an arbitrary `max-w-[16rem]` (pre-existing, mirrored from the prior inline chip) rather than a named width token, and `CrewPageLink.tsx` sets `min-h-tap-min` but no `min-w` (text width clears 44px in practice but is not guaranteed). Both are pre-existing patterns carried forward verbatim by the component-extraction refactor, not regressions. Deferred: token-izing the width + adding an explicit min-width is cosmetic and app-wide (the same magic appears elsewhere); batch it with a DESIGN token pass. Trigger to promote: a DESIGN.md token-discipline sweep.
+**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** DOCS
 
-### BL-CREWPAGE-ROTATE-FOCUS-MGMT — restore keyboard focus across the two-tap rotate state edges
+Two claims in `app/help/admin/per-show-panel/page.mdx` describe a status-strip copy-link that the share-hub consolidation removed: `:7` lists it among the strip's contents, and `:30` places the Re-sync button "between the sync line and the copy-link button". Both are user-visible and both are wrong.
 
-**Status:** OPEN (2026-07-14, share-link-instant-rotate-dedup) · **Severity:** low · **Class:** A11Y
+Pre-existing debt from `docs/superpowers/specs/2026-07-20-share-hub-design.md:104`, not from the milestone that surfaced it, and deliberately out of scope there: correcting shipped user copy pulls in the help screenshot surface (`help-affordances`, `screenshots-drift`), which a code-comment sweep should not. Trigger: the next help pass, which can own the regeneration.
 
-The `RotateShareTokenButton` two-tap state machine (idle → confirm → resolving → idle) unmounts the focused button on each edge, so a keyboard user's focus drops to `<body>` after tapping Rotate and again after the action resolves. Pre-existing (the state machine + 3s auto-revert predate the instant-rotate dedup; this diff only changed the success-banner content), and impeccable-audit-rated P2 (not a WCAG-A blocker — the controls remain reachable by re-tabbing). Deferred: a correct fix moves focus to the Confirm button on entering confirm and to the idle Rotate button (or the banner) on resolve via a ref/effect, plus `waitFor`-based focus assertions (async activeElement). Out of scope for a dedup/instant-update refactor. Trigger to promote: an a11y pass on the admin per-show action rows.
+### BL-SHAREHUB-OPEN-TIMER-LEAK — opening the hub arms a timer that survives unmount
 
----
+**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** RESOURCE HYGIENE
+
+Measured while writing the cue's teardown coverage: rendering ShareHub arms zero timers, opening the popover arms one, and unmounting the tree leaves that one behind. The cue's own timer cleans up correctly — the leak predates it and belongs to something the popover mounts.
+
+Consequence today is limited to test hygiene: it makes a global `vi.getTimerCount()` assertion unusable, which is why `shareHubFlashState.test.tsx` measures a delta against a post-open baseline rather than expecting zero. Trigger: bisect the popover's children for the un-cleared `setTimeout`, or promote if a real leak surfaces under repeated modal open/close.
 
 ## Destructive-confirm family (2026-07-16/17, destructive-confirm-pass + destruct1-armed-reflow)
 

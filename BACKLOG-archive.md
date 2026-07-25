@@ -394,3 +394,29 @@ The **canonical master spec** requires an MI-9 LEAD-bit set-membership change (c
 **But the live code auto-applies it.** The "Phase 2 Task 2.1 decision rule" (`lib/sync/phase1.ts:504-511`, landed 2026-06-09 — a month after amendment #8) over-broadened to "MI-11 is the ONLY gated invariant; every other invariant auto-applies", sweeping MI-9 LEAD-bit into `outcome: "pass"` (auto-apply). `tests/sync/phase1.test.ts:807-849` **pins the wrong behavior** (asserts MI-9 LEAD-gain and LEAD-loss → `"pass"`). No document ratifies auto-apply; per invariant 7 (spec canonical) this is an **unratified divergence / security bug**: a LEAD promotion/demotion in a sheet currently grants/revokes ops+financial access silently, without the required staged admin review.
 
 **Fix:** route MI-9 LEAD-bit items to the staging path so Phase-1 returns `outcome: "stage"` (whole parse to `pending_syncs`, Phase 2 not executed), per §6.8 + the drive-sync test plan ("Phase 1 returns `stage`; `pending_syncs` row exists; Phase 2 NOT executed"). Compose with the existing shrink-held (MI-6/7/13/14), MI-11 hold, debounce, and first-seen gates. Correct `phase1.test.ts:807-849` to assert `stage` for the MI-9 cases + add a dedicated MI-9-stages regression. Non-LEAD `role_flags` deltas stay auto-apply with `ROLE_FLAGS_NOTICE` (unchanged). **Blocks/precedes** `BL-AUTOAPPLIED-FIELD-STRUCTURED-DIFF` (REDESIGN-3): once MI-9 stages it never reaches the auto-applied `field_changed` writer, simplifying that feature. Trigger: fix NOW per owner decision 2026-07-17 (chosen over shipping REDESIGN-3 first).
+
+---
+
+## Crew-page share-link chrome (2026-07-14, share-link-instant-rotate-dedup) — ALL THREE RESOLVED 2026-07-25
+
+Closed by `share-link-chrome-backlog` (spec `docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md`, plan `docs/superpowers/plans/2026-07-24-share-link-chrome-backlog.md`).
+
+### BL-CREWPAGE-ROTATE-URL-FLASH — RESOLVED (built)
+
+A one-shot cue now marks the crew-URL block when the share-token changes: a 2px `accent-edge` ring plus a brief `accent-tint` wash, 1600ms, no cue at all under reduced motion.
+
+Two premises in the original entry had gone stale and were corrected before building. It named three surfaces to highlight; `ShareLinkBody` had been deleted by the share-hub consolidation and the other two were orphans, so exactly ONE live crew-URL surface existed — the ShareHub popover's row, which conveniently sits five rows above the rotate control that triggers it.
+
+### BL-CREWPAGE-SHARE-CHIP-TOKEN-DISCIPLINE — RESOLVED BY DELETION
+
+`ShareChip.tsx` and `CrewPageLink.tsx` were mounted by no production module and imported only by their own tests. Minting a `--spacing-*` token to describe dead code is worse than deleting it, so both components and both test files are gone.
+
+**Recorded so it is not re-derived:** the item deferred itself on the grounds that "the same magic appears elsewhere". That was false against the live tree — `max-w-[16rem]` occurred exactly ONCE, in the file now deleted. There was no app-wide pattern to batch with.
+
+### BL-CREWPAGE-ROTATE-FOCUS-MGMT — CLOSED, SUPERSEDED (zero code)
+
+The requested fix — restoring keyboard focus after a rotate resolves — is a RATIFIED ACCEPTED RESIDUAL, not an open defect. `docs/superpowers/specs/admin/2026-07-16-destructive-confirm-pass.md:34` scopes C5 to cancel and auto-revert paths only; `:82` enumerates the submit-outcome matrix and names Rotate explicitly, accepting focus loss where the control is replaced by a status element, announced through the existing `role="status"`.
+
+The cancel/auto-revert half the item also wanted was already shipped: C3 focuses the cancel button on confirm-open (`app/admin/show/[slug]/RotateShareTokenButton.tsx:115`), C5 restores the trigger (`:106`, `:126`).
+
+**Recorded so it is not refiled:** this item asks for behavior a ratified spec deliberately declined. Reopening it means revisiting that spec, not implementing this entry.
