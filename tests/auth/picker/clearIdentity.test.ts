@@ -309,13 +309,35 @@ describe("clearIdentityAndSkip — guest sign-out (spec §4.3)", () => {
     expect(cookieSet).not.toHaveBeenCalled();
   });
 
-  test("a clearIdentityCore failure returns before any sign-out attempt", async () => {
+  test("a clearIdentityCore failure BEFORE any write returns before any sign-out", async () => {
     seedEntry();
     vi.mocked(cookies).mockRejectedValueOnce(new Error("cookie store down"));
     await expect(clearIdentityAndSkip(fdFull())).resolves.toEqual({
       ok: false,
       code: "PICKER_RESOLVER_LOOKUP_FAILED",
     });
+    expect(supabaseMock.signOut).not.toHaveBeenCalled();
+    expect(cookieSet).not.toHaveBeenCalled();
+  });
+
+  test("a clearIdentityCore failure AFTER the deletion is staged still skips sign-out", async () => {
+    seedEntry();
+    // The partial-mutation state spec §4.3's matrix documents: the cookie write
+    // precedes revalidatePath and the emit, so a throw after it is caught and
+    // returned as { ok: false } with the deletion ALREADY staged. Injecting at
+    // the initial cookies() read (the test above) never reaches this state, so
+    // wrong sign-out behavior here would have stayed green.
+    vi.mocked(revalidatePath).mockImplementationOnce(() => {
+      throw new Error("revalidate failed after the cookie write");
+    });
+    await expect(clearIdentityAndSkip(fdFull())).resolves.toEqual({
+      ok: false,
+      code: "PICKER_RESOLVER_LOOKUP_FAILED",
+    });
+    // Deletion staged...
+    expect(cookieSet).toHaveBeenCalled();
+    // ...and the session deliberately left alone: the picker entry is gone, so
+    // the person lands back on Mode B with nothing exposed and can retry.
     expect(supabaseMock.signOut).not.toHaveBeenCalled();
   });
 
@@ -333,11 +355,23 @@ describe("clearIdentityAndSkip — guest sign-out (spec §4.3)", () => {
       },
     ],
     [
-      "the cookie sweep throws",
+      "signOut throws rather than returning an error",
       () => {
         supabaseMock.signOut.mockImplementationOnce(async () => {
           calls.push("signOut");
-          throw new Error("cookie write forbidden");
+          throw new Error("network down");
+        });
+      },
+    ],
+    [
+      "the residual-cookie sweep throws AFTER signOut succeeded",
+      () => {
+        // Injected on the sweep itself, not on signOut: the previous version of
+        // this case made signOut throw and so proved nothing about the sweep.
+        // Moving the sweep outside the catch would now fail here.
+        cookieSet.mockImplementation((name: string) => {
+          calls.push("cookieSet");
+          if (name.startsWith("sb-")) throw new Error("cookie write forbidden");
         });
       },
     ],

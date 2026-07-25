@@ -8,10 +8,12 @@
  *     rows via the service-role client so the tokenized URL resolves through
  *     `resolve_show_by_slug_and_token`. Each test seeds a UNIQUE show
  *     (random drive_file_id + slug) so single-worker runs don't collide.
- *   - seedPickerCookie  — signs a `__Host-fxav_picker` envelope with the SAME
- *     PICKER_COOKIE_SIGNING_KEY the server uses and writes it via
- *     context.addCookies so a staged selection (fresh / stale / mismatched)
- *     is observable.
+ *   - seedPickerCookie  — NO LONGER USED BY THIS SPEC (2026-07-25). It injects a
+ *     signed `__Host-fxav_picker` envelope via context.addCookies, which
+ *     Chromium's CDP rejects outright for a `__Host-` cookie ("Invalid cookie
+ *     fields") and which WebKit accepts but then will not let the server
+ *     overwrite. Staged selections are now made by DRIVING the picker, so the
+ *     server mints the envelope itself. The helper remains for other specs.
  *   - claimStamp        — sets `crew_members.claimed_via_oauth_at` directly
  *     (the column lives on crew_members; the retired M9.5 per-crew auth table
  *     was dropped in 20260523000099_cutover_drop_m9_5.sql) so the
@@ -40,7 +42,7 @@ import { claimStamp } from "./helpers/claimStamp";
 import { admin } from "./helpers/supabaseAdmin";
 import { isSupabaseAuthCookieName } from "@/lib/auth/supabaseAuthCookieNames";
 
-// Canonical mobile-safari baseURL (playwright.config.ts). Overridable via
+// Canonical desktop-chromium baseURL (playwright.config.ts). Overridable via
 // PICKER_E2E_BASE_URL for a focused local run against a hand-started dev server
 // on a non-default port; CI always uses the default.
 const BASE_URL = process.env.PICKER_E2E_BASE_URL ?? "http://127.0.0.1:3000";
@@ -72,7 +74,13 @@ test("slug-only show URL returns 404 (R35; relies only on C1 route move)", async
   expect(res?.status()).toBe(404);
 });
 
-test("first-contact gate -> tap 'Sign in with Google' -> OAuth happy path -> show body renders", async ({
+// NOT the real OAuth round trip: after asserting the Mode A gate and its CTA
+// href, this authenticates through the test-auth endpoint (signInAs) and revisits.
+// What it proves is the picker BOOTSTRAP leg — a Google session that matches a
+// crew row, with no cookie entry yet, redirecting through
+// /api/auth/picker-bootstrap and rendering the resolved crew shell. That is the
+// leg the host-flip fix unblocked. The provider handshake itself is not covered.
+test("first-contact gate -> sign-in CTA href -> authed revisit bootstraps and renders the show body", async ({
   browser,
 }) => {
   const show = track(
@@ -223,15 +231,16 @@ test("Mode B 'Continue as guest' atomically clears the stale entry and lands on 
 
     // Assert the cookie contract from the RESPONSE, not from the browser jar.
     //
-    // Why: this project runs picker-flow under mobile-safari (WebKit) against
-    // plain http. The picker cookie is `__Host-`-prefixed and `Secure`, and the
-    // helper seeds it with context.addCookies, which injects straight into the
-    // jar and bypasses the Secure/http rule the server cannot bypass. Measured
-    // via a Playwright trace: the action emits
-    // `__Host-fxav_picker=; Max-Age=0` and the app stops honoring the entry (the
-    // picker renders, which only happens when the resolver sees no selection AND
-    // no Google session) — yet ctx.cookies() still reports a ghost entry for it.
-    // Asserting the jar would therefore fail on a correct implementation.
+    // Why: the picker cookie is `__Host-`-prefixed and `Secure`, and over plain
+    // http the browser jar is not a trustworthy oracle for it. Measured with a
+    // Playwright trace while this suite still ran under WebKit: the action
+    // emitted `__Host-fxav_picker=; Max-Age=0` and the app stopped honoring the
+    // entry (the picker rendered, which happens only when the resolver sees no
+    // selection AND no Google session) — yet ctx.cookies() still reported a
+    // ghost entry, so asserting the jar failed on a CORRECT implementation.
+    // The suite now runs under desktop-chromium (see playwright.config.ts) and
+    // stages state by driving the picker rather than injecting a cookie, but the
+    // response remains the precise oracle for what the server actually sent.
     //
     // Alice's entry cleared, and the whole envelope dropped since it held only
     // this show:
