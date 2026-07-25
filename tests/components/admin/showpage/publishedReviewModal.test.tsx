@@ -26,7 +26,7 @@ import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 // One unified next/navigation mock: useShowModalNav (useRouter/useSearchParams),
-// StatusStrip's copy-link + feed/warning controls (useRouter().refresh()).
+// StatusStrip's share hub + feed/warning controls (useRouter().refresh()).
 const routerPush = vi.fn();
 // Stable spy (NOT a fresh vi.fn() per useRouter() call): the revalidate-on-open
 // contract asserts a CALL COUNT across renders — a per-call fn made that vacuous.
@@ -764,17 +764,19 @@ describe("PublishedReviewModal body (spec §6.1/§6.4)", () => {
   });
 
   // T-ARCHIVED-BAND: read-only mode must not degrade the band into an empty
-  // bordered seam. `archived` removes the toggle, the copy-link and the live
+  // bordered seam. `archived` removes the toggle, the share hub and the live
   // badge (StatusStrip.tsx), so the band's content is at its thinnest here — if
   // the archived strip ever rendered nothing, the band would still paint its
   // border and the panel would grow a hairline for no reason.
-  it("archived: the band still renders non-empty (archived badge), with no toggle, copy-link or live badge", () => {
+  it("archived: the band still renders non-empty (archived badge), with no toggle or live badge", () => {
     renderModal({ archived: true, published: false, isLive: true });
     const band = screen.getByTestId(`${TB}-subheader`);
     const strip = within(band).getByTestId("show-status-strip");
     expect(within(strip).getByTestId("strip-archived-badge").textContent).toMatch(/read-only/i);
     expect(band.textContent?.trim().length ?? 0).toBeGreaterThan(0);
     expect(within(band).queryByTestId("strip-publish-toggle")).toBeNull();
+    // Retirement pin, not an archived-state assertion: the standalone strip
+    // copy-link is gone in EVERY lifecycle now that the share hub absorbed it.
     expect(within(band).queryByTestId("strip-copy-link")).toBeNull();
     expect(within(band).queryByTestId("strip-live-badge")).toBeNull();
   });

@@ -4,9 +4,9 @@
  * components/admin/showpage/StatusStrip.tsx (consolidated-admin-show-page spec §4/§6/§11)
  *
  * The slim, pinned status strip that stays under the admin nav while the rail sections
- * scroll. DISPLAY + 3 actions max — the publish toggle, Re-sync and the copy-link.
+ * scroll. DISPLAY + 3 actions max — the publish toggle, Re-sync and the share hub.
  *
- * The budget was 2 (toggle + copy-link, "everything else lives in Overview") until
+ * The budget was 2 (toggle + the share affordance, "everything else lives in Overview") until
  * modal-header-reconciliation §4.3, a RATIFIED amendment: Re-sync moves here, and
  * duplicating the control across the strip and Overview was explicitly rejected —
  * there is exactly ONE Re-sync. Share panel, archive/unarchive and alert detail
@@ -15,16 +15,17 @@
  *
  * All data arrives as plain props (the page shell wires it); this component fetches nothing
  * and defines no server actions. The publish toggle carries its own bound action through
- * (`setPublished`); the copy-link consumes `ShareTokenProvider` so a rotate updates the
- * copied URL instantly (spec §4 "within ShareTokenProvider context").
+ * (`setPublished`); the share hub consumes `ShareTokenProvider` so a rotate updates the
+ * crew URL instantly (spec §4 "within ShareTokenProvider context"). The strip's own
+ * standalone copy-link was retired when the hub absorbed it.
  *
  * Mode boundaries (spec §6; title removed by modal-header-reconciliation §6.5):
  *   - Not archived            → PublishedToggle · [divider] · live badge (if live)
  *                               · sync age (if synced) · edited age (if content-edited)
- *                               · Re-sync · copy-link (published + token only). The alert
+ *                               · Re-sync · share hub (published + token only). The alert
  *                               badge MOVED to the modal header (§6.6).
  *   - Archived (read-only)    → archived badge · sync age · edited age. No toggle,
- *                               no copy-link, no live badge, no Re-sync — zero mutating
+ *                               no share hub, no live badge, no Re-sync — zero mutating
  *                               affordances.
  *
  * Sync age vs edited age (2026-07-17 sync-cell): the badge shows the last-CHECKED time
@@ -36,7 +37,7 @@
  *   - `lastSyncedAt` null     → OMIT the sync-age element entirely. `formatRelative` returns
  *                               "never" for null; rendering that would violate the omit
  *                               contract, so the null is guarded BEFORE the call.
- *   - no active share token   → copy-link hidden. "Active" = published: an unpublished show
+ *   - no active share token   → the hub's crew-link row hides. "Active" = published: an unpublished show
  *                               keeps its token but the crew link is paused, so copying it
  *                               would hand out a dead link.
  *
@@ -96,7 +97,7 @@ export type StatusStripProps = {
   slug: string;
   /** Read-only lifecycle state: hides every mutating strip affordance. */
   archived: boolean;
-  /** Current publish state (drives the wrapped toggle + the copy-link "active" gate). */
+  /** Current publish state (drives the wrapped toggle + the share hub's "active" gate). */
   published: boolean;
   /** Finalize ownership — disables the toggle in both publish states (passthrough). */
   finalizeOwned: boolean;
@@ -194,13 +195,15 @@ export function StatusStrip({
       id="share-access"
       data-testid="show-status-strip"
       // Full band width is what makes right-flush reachable (§8): `ml-auto` on
-      // the copy button only reaches the band's content edge if this row spans
-      // it. VERIFIED by measurement — swapping `w-full` for `w-fit` fails
-      // T-COPY-FLUSH by ~470px at 1280 (published-review-modal.layout.spec.ts).
+      // the trailing control only reaches the band's content edge if this row
+      // spans it. VERIFIED by measurement — swapping `w-full` for `w-fit` failed
+      // the flush assertion by ~470px at 1280. That assertion is now T-HUB-FLUSH
+      // (published-review-modal.layout.spec.ts); it superseded T-COPY-FLUSH when
+      // the hub absorbed the standalone copy-link.
       //
       // Honest note: `w-full` is DEFENSIVE, not load-bearing today. The band is
       // a block-level, non-flex container, so this block-level flex row already
-      // fills it; T-COPY-FLUSH passes with `w-full` removed. It is kept because
+      // fills it; the flush assertion passes with `w-full` removed. It is kept because
       // the guarantee would evaporate the moment the band became a flex
       // container — the strip would then shrink-wrap as a flex item (this
       // repo's Tailwind v4 does not default `.flex` to align-items: stretch)

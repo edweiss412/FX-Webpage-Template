@@ -22,9 +22,17 @@ import { useEffect, useRef, useState } from "react";
  * spellings for one axis is the defect being fixed — so the boolean is
  * REPLACED, not kept as a deprecated alias.
  *
- *   - "accent"  — the default fill. `CurrentShareLinkPanel` via ShareLinkBody.
- *   - "compact" — icon-only, for the per-show `ShareChip` pill.
- *   - "outline" — neutral bordered, for the published modal's control strip.
+ *   - "accent"  — the default fill. The ONLY variant with a live call site
+ *                 today: the ShareHub popover's crew-link row.
+ *   - "compact" — icon-only. Its call site (a per-show header pill) was deleted
+ *                 with the orphaned chip; retained with test-only coverage.
+ *   - "outline" — neutral bordered. Its call site (the status strip's copy-link)
+ *                 was retired when the share hub absorbed it; likewise retained
+ *                 with test-only coverage.
+ *
+ * Keeping the two call-site-less variants is deliberate, not drift: removing
+ * either is a decision about this component's API, out of scope for the
+ * milestones that removed their consumers.
  *
  * Behavior (clipboard write, 2s reset, sr-only announce) is identical across
  * all three; only presentation and accessible-name strategy differ.

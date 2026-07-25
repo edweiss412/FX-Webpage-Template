@@ -120,7 +120,7 @@ export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = 
             <Skeleton className="h-6 w-32 rounded-pill" />
             {/* Re-sync trigger */}
             <Skeleton className="h-6 w-20 rounded-pill" />
-            {/* copy link — right-flushed, matching the strip's `ml-auto` */}
+            {/* share hub — right-flushed, matching the strip's `ml-auto` */}
             <Skeleton className="ml-auto h-6 w-36 rounded-pill" />
           </div>
           {/* <sm stacked mirror (stacked-band spec §6): same row/divider/gap

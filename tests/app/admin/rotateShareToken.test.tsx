@@ -3,11 +3,11 @@
 //
 // share-link-instant-rotate-dedup: the ACTIVE success banner is now
 // CONFIRMATION-ONLY — it no longer renders the crew URL / Copy (that duplicated
-// the always-visible share-link card). Instead the rotate hands the new
+// the always-visible share hub). Instead the rotate hands the new
 // token+epoch to the shared ShareTokenProvider via onRotated, and every crew-URL
 // surface updates instantly. The R28 canonical-origin guarantee therefore now
-// lives on the CARD surfaces (ShareChip / CrewPageLink / ShareHub popover, all via
-// resolveOrigin), pinned in tests/components/shareTokenInstantUpdate.test.tsx.
+// lives on the ShareHub popover's crew-link row (via resolveOrigin), pinned in
+// tests/components/shareTokenRotateSurface.test.tsx.
 // Here we pin (test 1) that the active banner is confirmation-only and drives
 // onRotated with the fresh token+epoch, and (test 2, R27) the inactive gating.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -70,7 +70,7 @@ describe("RotateShareTokenButton — canonical origin + inactive gating", () => 
     expect(screen.queryByTestId("admin-rotate-share-token-copy-button")).toBeNull();
     // the fresh token+epoch flow to the shared cache → the card/chip/link update
     // instantly (the canonical-origin URL is pinned on those surfaces in
-    // tests/components/shareTokenInstantUpdate.test.tsx).
+    // tests/components/shareTokenRotateSurface.test.tsx).
     expect(onRotated).toHaveBeenCalledWith(NEW_TOKEN, 4);
   });
 

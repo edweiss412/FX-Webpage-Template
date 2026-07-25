@@ -3,15 +3,15 @@
  * tests/components/admin/showpage/statusStrip.test.tsx (consolidated-admin-show-page Task 10)
  *
  * The pinned status strip (spec §4 element table, §6 mode matrix, §11 guards). The strip
- * is DISPLAY + 2 actions max (publish toggle, copy link); everything else lives in Overview.
+ * is DISPLAY + 2 actions max (publish toggle, share hub); everything else lives in Overview.
  *
  * Failure modes caught:
  *   - live badge rendered when the show is not live (spec §4 "render only when live").
  *   - sync-age element rendered (as "never") when last_synced_at is null — the omit
  *     contract (spec §11): formatRelative("never") must NOT reach the DOM.
- *   - copy-link shown while the crew link is paused (unpublished) or archived, or with no
+ *   - the hub's crew-link row shown while the crew link is paused (unpublished) or archived, or with no
  *     token — a misleading dead link (spec §11 "no active share token → hidden").
- *   - archived strip still exposing the publish toggle / copy link (must be read-only),
+ *   - archived strip still exposing the publish toggle / share hub (must be read-only),
  *     OR sneaking an Unarchive button into the strip (mock README delta 5: Unarchive is an
  *     Overview control; the strip caps at two actions).
  *   - an alert element coming BACK into the strip (modal-header-reconciliation §6.6
