@@ -286,6 +286,14 @@ WITH substitutions is not. Anything outside these shapes is reported as
 - **A correct-but-unusual shape is reported**, e.g. an announcing `aria-label` arriving through
   a spread. The author moves to an approved shape or adds a reasoned exemption. A false positive
   costs one comment; a false negative ships a silent link.
+- **Non-JSX anchor construction is out of scope, and verified absent.** The scanner walks JSX
+  elements, so `React.createElement("a", { target: "_blank" })` and an anchor injected through
+  `dangerouslySetInnerHTML` are invisible to it. Verified 2026-07-25 against the live tree: the only
+  `createElement` call is `document.createElement("div")` for a portal container
+  (`components/admin/FinalizeButton.tsx:636`), and the only `dangerouslySetInnerHTML` is the
+  no-FOUC theme script in `app/layout.tsx:59`. Neither creates a link. A tag held in a variable
+  (`const T = "a"`) and a namespaced tag (`<svg:a>`) ARE both classified, because the explicit
+  `target` attribute rule does not depend on the tag name.
 - **Document-level `<base target="_blank">` is out of scope.** It would make every relative
   anchor external without any per-anchor syntax to inspect. None exists in the tree; a lexical
   assertion that none is introduced is tracked in `DEFERRED.md`.
