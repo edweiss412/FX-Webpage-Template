@@ -28,15 +28,19 @@ function item(over: {
   id?: string;
   tone?: "critical" | "notice";
   menuSubtitle?: string | null;
+  actionable?: boolean;
+  clearingKind?: "self_heal" | "needs_look";
+  sectionId?: AttentionItem["sectionId"];
   alert?: Partial<NonNullable<AttentionItem["alert"]>>;
 }): AttentionItem {
   return {
     id: over.id ?? "alert:a1",
     kind: "alert",
     tone: over.tone ?? "notice",
-    sectionId: "crew",
+    sectionId: over.sectionId ?? "crew",
     crewKey: null,
-    actionable: true,
+    actionable: over.actionable ?? true,
+    ...(over.clearingKind ? { clearingKind: over.clearingKind } : {}),
     menuTitle: "Role flags changed",
     menuSubtitle: over.menuSubtitle === undefined ? "Crew · John Redcorn" : over.menuSubtitle,
     alert: {
@@ -308,5 +312,150 @@ describe("AttentionBanner", () => {
     expect(
       c2.querySelector('[data-attention-anchor="alert:a1"]')!.getAttribute("aria-current"),
     ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Destination chip (attention-index §2.3, plan Task 4)
+//
+// For needs-you items that are NOT actionable, the footer-right slot holds a
+// destination chip instead of the auto-clear note, and footerLeft's duplicate
+// action link is dropped. The chip is EXTERNAL-ONLY: every chip that can render
+// reads "Google Sheets ↗", because the only internal-action needs-look codes
+// route their card to the same section their action targets.
+// ---------------------------------------------------------------------------
+
+const SHEET_HREF = "https://docs.google.com/spreadsheets/d/FILE/edit#gid=0";
+
+function needsLookItem(over: Parameters<typeof item>[0] = {}) {
+  return item({ actionable: false, clearingKind: "needs_look", ...over });
+}
+
+describe("destination chip", () => {
+  // Spec test 7.
+  test("external action: footer-right holds the Google Sheets chip; note gone, no duplicate link", () => {
+    renderBanner(
+      needsLookItem({
+        sectionId: "overview",
+        alert: {
+          code: "SHEET_UNAVAILABLE",
+          autoClearNote: "Clears when the sheet is reachable again.",
+          action: { label: "Open in Sheet", href: SHEET_HREF, external: true },
+        },
+      }),
+    );
+    const chip = screen.getByTestId("attention-banner-destination-a1");
+    expect(chip).toHaveAttribute("href", SHEET_HREF);
+    expect(chip).toHaveAttribute("target", "_blank");
+    expect(chip).toHaveAttribute("rel", "noopener noreferrer");
+    expect(chip.textContent).toContain("Google Sheets");
+    // the note is replaced, not merely hidden
+    expect(screen.queryByTestId("attention-banner-autoclear-a1")).toBeNull();
+    // footerLeft's action link is gone — the chip is the single way out
+    expect(screen.queryByTestId("attention-banner-action-a1")).toBeNull();
+    // "Raised ..." survives
+    expect(screen.getByText(/Raised/)).toBeInTheDocument();
+  });
+
+  // Spec test 8 — the anti-tautology case for test 7. A naive implementation
+  // that always renders the chip passes 7 and fails this. The mechanism is the
+  // `external` gate: this action is internal, so no chip can render.
+  test("an internal action renders NO chip (card and action both in Overview)", () => {
+    renderBanner(
+      needsLookItem({
+        sectionId: "overview",
+        alert: {
+          code: "SHOW_UNPUBLISHED",
+          autoClearNote: "Clears when the show is published again.",
+          action: { label: "Go to Overview", href: "/admin?show=x#overview", external: false },
+        },
+      }),
+    );
+    expect(screen.queryByTestId("attention-banner-destination-a1")).toBeNull();
+    expect(screen.queryByTestId("attention-banner-autoclear-a1")).toBeNull();
+    expect(screen.getByText(/Raised/)).toBeInTheDocument();
+  });
+
+  // Spec test 9. The note assertion is the load-bearing half:
+  // ASSET_RECOVERY_BYTES_EXCEEDED is a reachable needs-look code with no
+  // registered action, so an implementation that swaps note-for-chip only when
+  // an action exists leaves the note in place for it and still passes 7 and 8.
+  test("null action: no chip, no crash, and the auto-clear note is ABSENT", () => {
+    renderBanner(
+      needsLookItem({
+        sectionId: "overview",
+        alert: {
+          code: "ASSET_RECOVERY_BYTES_EXCEEDED",
+          autoClearNote: "Clears when the gallery fits.",
+          action: null,
+        },
+      }),
+    );
+    expect(screen.queryByTestId("attention-banner-destination-a1")).toBeNull();
+    expect(screen.queryByTestId("attention-banner-autoclear-a1")).toBeNull();
+    expect(screen.getByText(/Raised/)).toBeInTheDocument();
+  });
+
+  // Spec test 9b, warnings-UNAVAILABLE column. The notes channel normally
+  // intercepts these two codes before the card path, but when the warnings
+  // section is unavailable they fall THROUGH to an Overview card — the state an
+  // earlier spec draft wrongly called unreachable. Their actions are internal,
+  // so the `external` gate keeps them chip-less there too.
+  test.each(["PARSE_ERROR_LAST_GOOD", "RESYNC_QUALITY_REGRESSED"])(
+    "%s on the Overview fallback carries NO chip (internal action)",
+    (code) => {
+      renderBanner(
+        needsLookItem({
+          sectionId: "warnings",
+          alert: {
+            code,
+            autoClearNote: "Clears on the next good sync.",
+            action: { label: "Go to Overview", href: "/admin?show=x#overview", external: false },
+          },
+        }),
+      );
+      expect(screen.queryByTestId("attention-banner-destination-a1")).toBeNull();
+      expect(screen.queryByTestId("attention-banner-autoclear-a1")).toBeNull();
+    },
+  );
+
+  // §2.3 says an internal-destination chip is NOT implemented and would need an
+  // amendment. So an internal action renders NO chip AT ALL — not a same-tab
+  // chip wearing the action's own label. Deliberately uses a card section that
+  // DIFFERS from the action's target, so an implementation gated on same-section
+  // routing rather than on `external` would render a chip here and fail.
+  test("an internal action renders NO chip even when it points at a DIFFERENT section", () => {
+    renderBanner(
+      needsLookItem({
+        // card in warnings, action targets overview: the sections DIFFER, so a
+        // same-section rule would render a chip here — only the `external` gate
+        // suppresses it
+        sectionId: "warnings",
+        alert: {
+          code: "PARSE_ERROR_LAST_GOOD",
+          autoClearNote: "Clears on the next good sync.",
+          action: { label: "Go to Overview", href: "/admin?show=x#overview", external: false },
+        },
+      }),
+    );
+    expect(screen.queryByTestId("attention-banner-destination-a1")).toBeNull();
+    // and it does not silently fall back to the row-style inline action link
+    expect(screen.queryByTestId("attention-banner-action-a1")).toBeNull();
+  });
+
+  test("monitoring (self-heal) cards are unchanged: auto-clear note, no chip", () => {
+    renderBanner(
+      needsLookItem({
+        clearingKind: "self_heal",
+        sectionId: "overview",
+        alert: {
+          code: "SYNC_STALLED",
+          autoClearNote: "Clears when syncing resumes.",
+          action: { label: "Open in Sheet", href: SHEET_HREF, external: true },
+        },
+      }),
+    );
+    expect(screen.getByTestId("attention-banner-autoclear-a1")).toBeInTheDocument();
+    expect(screen.queryByTestId("attention-banner-destination-a1")).toBeNull();
   });
 });

@@ -46,7 +46,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/appHealthIndicator.layout.spec.ts": UNSEEN,
   "tests/e2e/attention-anchor-placement.spec.ts": PATH_GATED,
   "tests/e2e/attention-modal-gallery.spec.ts": UNSEEN,
-  "tests/e2e/attention-pill-focus.spec.ts": UNSEEN,
+  "tests/e2e/attention-pill-focus.spec.ts": PATH_GATED,
   "tests/e2e/autoAppliedCardGrid.layout.spec.ts": UNSEEN,
   "tests/e2e/bell-panel-layout.spec.ts": PATH_GATED,
   "tests/e2e/blocked-row-resolver-transitions.spec.ts": UNSEEN,

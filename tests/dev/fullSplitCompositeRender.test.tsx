@@ -50,14 +50,16 @@ function mountScenario() {
 }
 
 describe("t3-full-attention-split renders the full taught state", () => {
-  it("pill: exactly '1 to confirm · 2 to review · 1 monitoring' on an interactive BUTTON", () => {
+  // main changed this scenario's monitoring count 2 -> 1 while this branch
+  // changed the vocabulary; the resolution takes BOTH.
+  it("pill: exactly '3 issues · 1 monitoring' on an interactive BUTTON", () => {
     mountScenario();
     const pill = screen.getByTestId("published-show-review-alert-pill");
-    expect(visibleText(pill)).toBe("1 to confirm · 2 to review · 1 monitoring");
+    expect(visibleText(pill)).toBe("3 issues · 1 monitoring");
     expect(pill.tagName).toBe("BUTTON");
   });
 
-  it("menu: all three groups with headers, links, and enumerated monitoring rows", () => {
+  it("menu: two groups with headers, links, and enumerated monitoring rows", () => {
     mountScenario();
     const pill = screen.getByTestId("published-show-review-alert-pill");
     // §5.2 auto-open may have opened the menu already (actionable > 0); only
@@ -65,40 +67,41 @@ describe("t3-full-attention-split renders the full taught state", () => {
     if (!screen.queryByTestId("published-show-review-attention-menu")) fireEvent.click(pill);
     const menu = screen.getByTestId("published-show-review-attention-menu");
 
-    // confirmation group: header + exactly one actionable row (the hold)
-    expect(within(menu).getByText("Needs your confirmation")).toBeInTheDocument();
-    expect(menu.querySelectorAll('[data-testid^="attention-menu-row-"]')).toHaveLength(1);
+    // merged needs-you group: ONE header (attention-index §2.1) over the hold
+    // plus the two former needs-look rows.
+    expect(within(menu).getByText("Needs you")).toBeInTheDocument();
+    expect(within(menu).queryByText("Needs your confirmation")).toBeNull();
+    expect(within(menu).queryByText("Needs a look")).toBeNull();
+    // one merged group: the hold plus the two former needs-look rows
+    expect(menu.querySelectorAll('[data-testid^="attention-menu-row-"]')).toHaveLength(3);
 
-    // needs-a-look group: heading present, and each link asserted INSIDE its
-    // OWN row (whole-diff R1 P2: a menu-wide query would pass with the links
-    // rendered under a different group).
-    expect(within(menu).getByText("Needs a look")).toBeInTheDocument();
-    const sheetRow = within(menu).getByTestId(
-      "attention-needslook-row-alert:t3-full-attention-split-alert-0",
-    );
-    const sheetLink = within(sheetRow).getByRole("link", { name: /Open in Sheet/ });
-    expect(sheetLink).toHaveAttribute(
-      "href",
-      "https://docs.google.com/spreadsheets/d/gallery-fixture-file/edit#gid=0",
-    );
-    expect(sheetLink).toHaveAttribute("target", "_blank");
-    expect(sheetLink.textContent).toContain("↗");
-    const overviewRow = within(menu).getByTestId(
-      "attention-needslook-row-alert:t3-full-attention-split-alert-1",
-    );
-    const overviewLink = within(overviewRow).getByRole("link", { name: /Go to Overview/ });
-    expect(overviewLink).not.toHaveAttribute("target");
-    expect(overviewLink.getAttribute("href")).toMatch(/#overview$/);
+    // attention-index §2.2: the inner action links are GONE — the row itself is
+    // the affordance, and the way out moved onto the card as a destination chip
+    // (§2.3, covered by the AttentionBanner suite). Each row is asserted to be a
+    // pressable button carrying NO link, scoped to its own testid so a link
+    // rendered anywhere else in the menu could not satisfy it.
+    for (const id of [
+      "attention-menu-row-alert:t3-full-attention-split-alert-0",
+      "attention-menu-row-alert:t3-full-attention-split-alert-1",
+    ]) {
+      const row = within(menu).getByTestId(id);
+      expect(row.tagName).toBe("BUTTON");
+      expect(row.querySelectorAll("a")).toHaveLength(0);
+    }
+    // the fix hints survive as the rows' second line
+    expect(
+      within(menu).getByText(/Re-share the sheet with the service account\./),
+    ).toBeInTheDocument();
     // the two self-heal items must NOT get needs-look rows
-    expect(menu.querySelectorAll('[data-testid^="attention-needslook-row-"]')).toHaveLength(2);
+    // the two sheet-fix rows are now ordinary needs-you rows (no inner links)
+    expect(menu.querySelectorAll('[data-testid^="attention-needslook-row-"]')).toHaveLength(0);
 
     // monitoring group: "Monitoring" is the LAST group heading in document
     // order, and the rows are scoped to the group wrapper's own testid.
     const monHeading = within(menu).getByText("Monitoring");
     const follows = (a: Node, b: Node) =>
       (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-    expect(follows(within(menu).getByText("Needs your confirmation"), monHeading)).toBe(true);
-    expect(follows(within(menu).getByText("Needs a look"), monHeading)).toBe(true);
+    expect(follows(within(menu).getByText("Needs you"), monHeading)).toBe(true);
     // monitoring-badge-expand §3.2: the summary is retired; the group
     // enumerates one row per self-heal item. Expected titles resolved
     // INDEPENDENTLY of the rendered props via the message catalog (the
@@ -121,7 +124,8 @@ describe("t3-full-attention-split renders the full taught state", () => {
     }
     // Membership proof: monitoring rows live in the Monitoring group ONLY —
     // no other group's heading inside the group wrapper.
-    expect(within(group).queryByText("Needs your confirmation")).toBeNull();
-    expect(within(group).queryByText("Needs a look")).toBeNull();
+    // Re-pointed at the SURVIVING heading (attention-index §2.1): asserting the
+    // absence of retired strings would be vacuous — they exist nowhere now.
+    expect(within(group).queryByText("Needs you")).toBeNull();
   });
 });

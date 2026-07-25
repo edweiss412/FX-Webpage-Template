@@ -18,6 +18,7 @@ import {
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
 import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import { assertLocalDbUrlIfSet } from "@/tests/db/_localDbUrl";
 import { bellExcludedCodes } from "@/lib/admin/bellAudience";
 
 type Warn = ParseResult["warnings"][number];
@@ -255,10 +256,19 @@ describe("RESYNC_QUALITY_REGRESSED delivery contract (structural)", () => {
 // unchanged 40→40 sync (so the bell's unread clock stays quiet), and DO advance on a material
 // 40→80 change with context.baseline preserved. Skips-with-notice when TEST_DATABASE_URL absent.
 
-// When a DB URL is EXPLICITLY configured (CI sets TEST_DATABASE_URL), the mandatory anti-storm
-// proof must NOT silently skip on a broken connection (Codex whole-diff R1) — a guard test below
-// fails fast in that case. Absent any URL (local dev), the loopback default may skip cleanly.
-const DB_URL_EXPLICIT = process.env.TEST_DATABASE_URL ?? process.env.LOCAL_TEST_DATABASE_URL;
+// When a DB URL is EXPLICITLY configured (the x-audits workflows set TEST_DATABASE_URL), the
+// mandatory anti-storm proof must NOT silently skip on a broken connection (Codex whole-diff R1)
+// — a guard test below fails fast in that case. Absent any URL (local dev, and the merge-gating
+// unit-suite legs, which boot a local Supabase and set only VITEST_EXCLUDE_ENV_BOUND), the
+// loopback default may skip cleanly.
+//
+// Only the LOCAL_ leg is loopback-guarded (spec 2026-07-24-test-safety-hardening-batch §2.2).
+// TEST_DATABASE_URL is the validation project and this suite is deliberately validation-capable,
+// so it stays unconstrained; but a REMOTE value arriving through LOCAL_TEST_DATABASE_URL would
+// otherwise reach the DELETEs in cleanup() below, which is exactly the hazard the guard exists
+// to remove. A file-level exemption would have preserved it.
+const DB_URL_EXPLICIT =
+  process.env.TEST_DATABASE_URL ?? assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL);
 const DB_URL = DB_URL_EXPLICIT ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 const ORIG_ENV = {

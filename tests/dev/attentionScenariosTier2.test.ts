@@ -259,7 +259,15 @@ describe("tier 2 structural matrix", () => {
     for (const s of tier1AlertScenarios()) expect(s.bucket, s.id).toBeUndefined();
   });
 
-  test("t2-class-mix derives all three pill classes", () => {
+  // attention-index §2.4: the label names PILL segments, so it takes the pill's
+  // vocabulary (issues/monitoring), NOT the panel headings (Needs you/Monitoring).
+  // Pinned because nothing else asserts this label — without it the rename could
+  // ship wrong copy, or be skipped entirely, and stay green (plan R7 F1).
+  test("t2-class-mix label uses the pill's two-segment vocabulary", () => {
+    expect(byId(T2_CLASS_MIX).label).toBe("One of each pill class: issues, monitoring");
+  });
+
+  test("t2-class-mix derives all three clearing classes", () => {
     const items = deriveScenarioAttention(byId(T2_CLASS_MIX));
     expect(items.some((i) => i.actionable)).toBe(true);
     expect(items.some((i) => !i.actionable && i.clearingKind === "needs_look")).toBe(true);

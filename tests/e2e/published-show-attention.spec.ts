@@ -8,7 +8,7 @@
  * click → scroll+flash into the scroller viewport, in-row crew banner
  * placement, Esc semantics (menu first, modal second — the capture-phase
  * contract), click-outside, and the optimistic resolve lifecycle
- * (2 to confirm → 1 to confirm → In sync) without a reload.
+ * (2 issues → 1 issue → In sync) without a reload.
  *
  * Serial: the resolve test mutates admin_alerts, so it runs LAST and the
  * earlier tests are read-only.
@@ -109,7 +109,7 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await signInAs(page, ADMIN_FIXTURE);
   });
 
-  test("auto-open on arrival: menu visible with both actionable rows; pill reads '2 to confirm'", async ({
+  test("auto-open on arrival: menu visible with both actionable rows; pill reads '2 issues'", async ({
     page,
   }) => {
     await openModal(page);
@@ -121,7 +121,7 @@ test.describe("published show attention surface (spec §5/§6)", () => {
       clone.querySelectorAll('.sr-only, [aria-hidden="true"]').forEach((n) => n.remove());
       return clone.textContent!.replace(/\s+/g, " ").trim();
     });
-    expect(visible).toBe("2 to confirm");
+    expect(visible).toBe("2 issues");
   });
 
   // Un-skipped by warning-trim-undefer §6.3/§6.4: id-matched fan-out. Seeds the
@@ -229,7 +229,7 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await expect(page.locator(MENU)).toBeVisible();
   });
 
-  test("resolve lifecycle: 2 to confirm → 1 to confirm → In sync, without reload (LAST — mutates)", async ({
+  test("resolve lifecycle: 2 issues → 1 issue → In sync, without reload (LAST — mutates)", async ({
     page,
   }) => {
     await openModal(page);
@@ -256,7 +256,7 @@ test.describe("published show attention surface (spec §5/§6)", () => {
     await page
       .locator(`${MODAL} [data-testid="per-show-alert-resolve-${overviewAlertId}"]`)
       .click();
-    await expect(page.locator(PILL)).toContainText("1 to confirm");
+    await expect(page.locator(PILL)).toContainText("1 issue");
     // The resolved item's actionable affordance is gone (either Confirmed swap
     // or reconciled unmount — never a still-clickable resolve button).
     await expect(

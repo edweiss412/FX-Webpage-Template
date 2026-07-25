@@ -58,13 +58,9 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import {
-  VIEWPORT_INSET,
-  computePopoverPlacement,
-  insetRect,
-  intersectRects,
-  type Rect,
-} from "@/lib/popover/position";
+import { type Rect } from "@/lib/popover/position";
+import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import type { ReactNode } from "react";
 
 /**
@@ -223,22 +219,15 @@ export function HoverHelp({
     // (a) clear previous inline constraints so measurement is natural
     body.style.maxHeight = "";
     body.style.maxWidth = "";
-    const viewportRect: Rect = {
-      left: 0,
-      top: 0,
-      width: window.innerWidth,
-      height: window.innerHeight,
-      right: window.innerWidth,
-      bottom: window.innerHeight,
-    };
-    // Body-host bounds degenerate to the viewport (spec §4.2): the body
-    // element's own CONTENT box is irrelevant to where a viewport-anchored
-    // popover may go (an all-absolute page gives document.body a zero-height
-    // rect, which would wrongly collapse the bounds).
-    const hostRect = host === document.body ? viewportRect : toRect(host.getBoundingClientRect());
-    const bounds = insetRect(intersectRects(hostRect, viewportRect), VIEWPORT_INSET);
+    // Body-host bounds degenerate to the viewport: the body element's own
+    // CONTENT box is irrelevant to where a viewport-anchored popover may go (an
+    // all-absolute page gives document.body a zero-height rect, which would
+    // wrongly collapse the bounds). `null` says exactly that; the bounds
+    // composition and the never-newly-hidden guarantee live in lib/popover/place.ts.
+    const hostRectOrNull = host === document.body ? null : toRect(host.getBoundingClientRect());
     const naturalRect = body.getBoundingClientRect();
-    const placement = computePopoverPlacement({
+    const placement = placeWithinVisibleViewport(window, {
+      hostRect: hostRectOrNull,
       trigger: toRect(trigger.getBoundingClientRect()),
       naturalSize: { width: naturalRect.width, height: naturalRect.height },
       wrappedHeightAt: (w) => {
@@ -247,7 +236,6 @@ export function HoverHelp({
         body.style.maxWidth = "";
         return h;
       },
-      bounds,
       preferredSide: placementProp,
       align,
     });
@@ -279,6 +267,14 @@ export function HoverHelp({
     body.dataset["popoverSide"] = placement.side;
     // (d) convert viewport point to host offsets (spec §4.2 host formulas);
     // shared by body and caret so the two paths cannot drift.
+    const hostRect = hostRectOrNull ?? {
+      left: 0,
+      top: 0,
+      width: 0,
+      height: 0,
+      right: 0,
+      bottom: 0,
+    };
     const isBodyHostEl = host === document.body;
     const toHostOffsets = (pt: { x: number; y: number }) => ({
       left: isBodyHostEl
@@ -331,6 +327,13 @@ export function HoverHelp({
     const caretEl = caretRef.current;
     window.addEventListener("scroll", schedule, { capture: true, passive: true }); // (b)
     window.addEventListener("resize", schedule); // (c)
+    // (b2) Pinch-zoom pan does NOT fire window scroll (measured), so the visual
+    // viewport is its own event source. Gated on the ENGINE, never on current
+    // dimensions: a viewport reporting zero size at open must still be
+    // subscribed or its recovery resize can never arrive.
+    const vv = isVisualViewportEngine(window) ? window.visualViewport : null;
+    vv?.addEventListener("scroll", schedule);
+    vv?.addEventListener("resize", schedule);
     const ro = new ResizeObserver(schedule); // (d): trigger + body + host
     if (trigger) ro.observe(trigger);
     if (body) ro.observe(body);
@@ -338,6 +341,8 @@ export function HoverHelp({
     return () => {
       window.removeEventListener("scroll", schedule, { capture: true });
       window.removeEventListener("resize", schedule);
+      vv?.removeEventListener("scroll", schedule);
+      vv?.removeEventListener("resize", schedule);
       if (trigger) ro.unobserve(trigger);
       if (body) ro.unobserve(body);
       ro.unobserve(host);

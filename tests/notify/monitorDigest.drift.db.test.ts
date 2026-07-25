@@ -2,13 +2,15 @@ import { afterAll, describe, expect, test } from "vitest";
 import postgres from "postgres";
 import { buildMonitorDigestModel } from "@/lib/notify/monitorDigest";
 import type { DigestBuilderSql } from "@/lib/notify/digest";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 // Flow 6.2 §3.1 / plan Task 7 Step 4: DB-integration filter proof for drift. Proves
 // status='applied' AND s.published AND the inner join (the round-3/4 contamination
 // guard): a non-applied row must not become the current row; unpublished + orphan
 // rows must not enter the candidate set.
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;

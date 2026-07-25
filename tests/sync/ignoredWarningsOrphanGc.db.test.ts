@@ -5,14 +5,16 @@ import { makeSyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import type { PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import type { ParseWarning } from "@/lib/parser/types";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 // DQIGNORE-3: on apply (parse_warnings full-replace), prune ignored_warnings rows whose
 // content fingerprint is no longer present in the new parse — a warning that was ignored and
 // has since been fixed/removed. Runs in the SAME locked apply tx (single-holder). A still-present
 // warning keeps its fingerprint, so its ignore SURVIVES (recurrence preserved). Real DB: a mocked
 // test cannot prove the DELETE targets exactly the orphaned fingerprints. Skips if the DB is down.
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;

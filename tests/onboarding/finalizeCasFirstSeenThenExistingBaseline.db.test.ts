@@ -6,6 +6,7 @@ import { runPhase1 } from "@/lib/sync/phase1";
 import type { ParseResult } from "@/lib/parser/types";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
 import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Scan → (out-of-band show create) → Phase B → Phase D first-seen→existing regression
@@ -38,8 +39,9 @@ import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize
  * cannot pass by accident.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "6e6e6e6e-7777-4777-8777-6e6e6e6e6e6e";
 const FOLDER = "finalize-cas-firstseen-existing-folder";

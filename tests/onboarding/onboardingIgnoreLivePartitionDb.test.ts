@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import postgres from "postgres";
 
 import { handleWizardPendingIngestionPermanentIgnore } from "@/app/api/admin/onboarding/pending_ingestions/[id]/permanent_ignore/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Task C1 — onboarding "Ignore" writes the DURABLE LIVE partition.
@@ -23,8 +24,9 @@ import { handleWizardPendingIngestionPermanentIgnore } from "@/app/api/admin/onb
  * predicate purgeWizardRows uses (lib/onboarding/sessionLifecycle.ts:168).
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "c1c1c1c1-1111-4111-8111-c1c1c1c1c1c1";
 const FOLDER = "c1-ignore-folder";

@@ -8,6 +8,7 @@ import {
 } from "@/app/api/admin/onboarding/finalize-cas/route";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { cleanupAbandonedFinalize } from "@/lib/onboarding/sessionLifecycle";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * F1 Task 1.5 — Phase D `applyShadow` routes through the shared apply core (real DB).
@@ -29,8 +30,9 @@ import { cleanupAbandonedFinalize } from "@/lib/onboarding/sessionLifecycle";
 
 // Phase-wide DB-connection convention: TEST_DATABASE_URL is the VALIDATION project in this
 // repo — every *.db.test.ts pins BOTH env vars to the local loopback (plan R19-1).
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "7a7a7a7a-1111-4111-8111-7a7a7a7a7a7a";
 const OTHER_SESSION = "8b8b8b8b-2222-4222-8222-8b8b8b8b8b8b";

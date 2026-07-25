@@ -51,7 +51,7 @@ import type { ParseWarning } from "@/lib/parser/types";
 import type { ChangesSectionProps } from "@/components/admin/showpage/ChangesSection";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 
-/** N overview-routed actionable items — the pill renders "N to confirm"
+/** N overview-routed actionable items — the pill renders "N issues"
  *  (published-show-alerts §5.1); the count param keeps its harness semantics. */
 export function harnessAttentionItems(count: number): AttentionItem[] {
   return Array.from({ length: count }, (_, i) => ({
