@@ -110,7 +110,8 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
     showId: SHOW_ID,
     context: { snapshotRevisionId: "rev-1" },
   },
-  // 11. lib/drive/watch.ts:486-497 markWatchOrphanedWithTx — global
+  // 11. markWatchOrphanedWithTx (lib/drive/watch.ts) — global. Intentionally
+  //     unpinned: a line range here rots on every edit to that file (R3-4).
   {
     code: "WATCH_CHANNEL_ORPHANED",
     showId: null,

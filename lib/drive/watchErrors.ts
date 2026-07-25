@@ -22,14 +22,11 @@ export const RENEWAL_LIFE_FRACTION = 0.75;
 export const RENEWAL_MIN_LEAD_MS = 7_200_000;
 // How often the renewal predicate is sampled (`fxav_cron_refresh_watch`).
 export const SAMPLING_PERIOD_MS = 3_600_000;
-// Upper bound on the delay between a refresh run's candidate query and any one
-// row's renewal attempt. NOT an enforced timeout: `files.watch` has no timeout
-// (lib/drive/client.ts) and renewals run sequentially, so the only defensible
-// ceiling is the scheduler's own request budget — pg_net is passed
-// timeout_milliseconds = 300000, matching Vercel Functions' 300s default
-// (supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22). Using a
-// smaller value would let a 62-65 minute grant be classified "guaranteed" while
-// actually expiring before a later row is reached in a slow run.
+// A margin, NOT an enforceable bound. Renewals run sequentially with no
+// per-call timeout, and pg_net's timeout_milliseconds may be ignored outright
+// (supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22), so nothing
+// reserves this much time for reaching any particular row. It is the order of
+// magnitude of "one run's slack", used to size the anomaly heuristic below.
 export const T_EXEC_BUDGET_MS = 300_000;
 
 /**
@@ -45,31 +42,28 @@ export function renewalLeadMs(grantedMs: number): number {
 }
 
 /**
- * True when a lease's REMAINING LIFE AT SUCCESSFUL ACTIVATION is too short for
- * this sampling cadence to renew it safely.
+ * Heuristic: is this lease's remaining life at activation pathologically short
+ * for the renewal cadence?
  *
- * The measurement edge is activation, not request time: the pending insert and
- * the Drive round-trip both consume lease life, so a nominal grant that took two
- * minutes to obtain has two fewer usable minutes. Measuring at request time
- * would suppress the anomaly for exactly the leases that need it.
+ * **This is a detector, not a guarantee** (whole-diff R3 finding 1). Three
+ * successive rounds found the guarantee framing indefensible, each time for the
+ * same reason: any timing claim here is parameterised by `T_EXEC_BUDGET_MS`,
+ * which nothing enforces — renewals are sequential, `files.watch` has no
+ * per-call timeout, and a stalled earlier row can starve a later one no matter
+ * what threshold is chosen. The bound was widened twice (`P + T`, then
+ * `2 * (P + T)`) chasing a property the constants cannot deliver.
  *
- * THE GUARANTEE, stated as the tests verify it (whole-diff R2 finding 1). Two
- * earlier bounds were wrong because they were tuned against an informal claim:
- * `P + T` left only `T` at the next examination, and `2 * (P + T)` was sold as
- * "survives missing a tick" — which the 2h floor cannot deliver, since missing a
- * tick needs `lead > 2P + T` (125m) and the floor is 120m. Rather than tune a
- * third time, the claim is now the weaker one that actually holds:
+ * So the claim is now only what it is: `P + 2T` is the point below which a
+ * lease is short enough that renewal is *implausible* rather than merely tight
+ * — one sampling period to be noticed, plus budget to reach the row and
+ * complete a `files.watch` round-trip. Crossing it means the cadence assumption
+ * is broken and someone should look; staying above it promises nothing.
  *
- *   A due channel is examined strictly before expiry, with enough life left to
- *   COMPLETE a renewal.
+ * The real safety margin comes from the LEASE, not from this check: we request
+ * 24h and renew at 6h remaining, so the heuristic should never fire.
  *
- * Examination lands within `P + T` of becoming due (`T` = worst-case delay from
- * the candidate query to reaching this row). Completing the renewal needs a
- * further budget, and `T` is the same order, so the lease must satisfy
- * `G > P + 2T`. Below that, no lead value helps: the channel is due from birth
- * and still cannot finish in time.
- *
- * `<=` rather than `<` so the exact-boundary lease is treated as unsafe.
+ * Measured at activation rather than request time — the pending insert and the
+ * Drive round-trip both consume lease life.
  */
 export function isGrantTooShort(remainingMsAtActivation: number): boolean {
   return !(remainingMsAtActivation > SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS);

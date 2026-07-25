@@ -540,13 +540,25 @@ export async function subscribeToWatchedFolder(
       // two minutes to obtain has two fewer usable minutes.
       const remainingMs = Date.parse(watch.expiration) - (deps.now ?? (() => Date.now()))();
       if (Number.isFinite(remainingMs) && isGrantTooShort(remainingMs)) {
-        await log.error("drive watch grant too short to renew reliably", {
-          source: "drive.watch",
-          code: "DRIVE_WATCH_GRANT_TOO_SHORT",
-          watchedFolderId: folderId,
-          channelId: watch.id,
-          remainingMsAtActivation: remainingMs,
-        });
+        // NOT awaited (whole-diff R3 finding 3): the inner catch contains a
+        // rejecting sink, but not a sink that never settles — awaiting one would
+        // hold `subscribeToWatchedFolder` open after the activation already
+        // committed, so the caller could observe a timeout for a live channel.
+        // Same fire-and-forget posture as the sibling emit above and the infra
+        // fault emit in gcWatchChannels.
+        void log
+          .error("drive watch grant too short to renew reliably", {
+            source: "drive.watch",
+            code: "DRIVE_WATCH_GRANT_TOO_SHORT",
+            watchedFolderId: folderId,
+            channelId: watch.id,
+            remainingMsAtActivation: remainingMs,
+          })
+          // The .catch is load-bearing, not decoration: unawaited, a rejecting
+          // sink escapes the enclosing try as an UNHANDLED rejection, which
+          // Node can turn into a process exit. Awaiting instead would reinstate
+          // the never-settling-sink hang this fire-and-forget avoids.
+          .catch(() => {});
       }
     } catch {
       // Post-commit observability is best-effort by contract. Losing the

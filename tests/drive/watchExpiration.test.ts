@@ -343,36 +343,31 @@ describe("renewalLeadMs is the single definition of the lead (§2.1)", () => {
     expect(renewalLeadMs(0)).toBe(RENEWAL_MIN_LEAD_MS);
   });
 
-  test("PHASE SWEEP: a lease longer than the anomaly bound is always renewed before expiry", async () => {
-    const { renewalLeadMs, SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS, WATCH_TTL_MS } =
-      await import("@/lib/drive/watchErrors");
-    const P = SAMPLING_PERIOD_MS;
-    const T = T_EXEC_BUDGET_MS;
-    const grants = [2 * (P + T) + 1, 6 * 3_600_000, WATCH_TTL_MS];
-    const STEP = 60_000;
+  test("the heuristic threshold is ordered correctly against the renewal lead", async () => {
+    // The phase sweep this replaces modelled an idealized tick series and could
+    // not fail for any realistic input (whole-diff R3 finding 2): it never
+    // constrained the first tick to fall after activation, and its shortest
+    // grant was not the boundary it claimed to exercise. Rather than repair a
+    // model of a guarantee the constants cannot deliver (R3 finding 1), assert
+    // the ordering that actually matters and is enforceable.
+    const {
+      renewalLeadMs,
+      SAMPLING_PERIOD_MS,
+      T_EXEC_BUDGET_MS,
+      RENEWAL_MIN_LEAD_MS,
+      WATCH_TTL_MS,
+    } = await import("@/lib/drive/watchErrors");
 
-    for (const G of grants) {
-      let worstRemaining = Number.POSITIVE_INFINITY;
-      // Activation can land at any phase relative to the fixed tick series.
-      for (let offset = 0; offset < P; offset += STEP) {
-        const activatedAt = offset;
-        const expiresAt = activatedAt + G;
-        const dueAt = expiresAt - renewalLeadMs(G);
-        // First tick strictly after `dueAt`, plus the worst-case delay before
-        // this row is reached within that run.
-        const firstTickAfterDue = Math.ceil(dueAt / P) * P;
-        const examinedAt = firstTickAfterDue + T;
-        // Not merely "before expiry" — there must be a completion budget left,
-        // which is the property the P + 2T bound actually claims (R2 finding 1).
-        expect(examinedAt).toBeLessThan(expiresAt);
-        expect(expiresAt - examinedAt).toBeGreaterThan(T);
-        worstRemaining = Math.min(worstRemaining, expiresAt - examinedAt);
-      }
-      // The infimum, not an attained minimum: assert it stays above the bound
-      // rather than equalling it (the discontinuity at the tick prevents
-      // equality, so an exact-equality assertion would fail a correct impl).
-      expect(worstRemaining).toBeGreaterThan(T);
-      expect(worstRemaining).toBeGreaterThanOrEqual(Math.min(G, renewalLeadMs(G)) - P - T);
-    }
+    // The lease we actually request is renewed with hours to spare — that, not
+    // the heuristic, is where the safety comes from.
+    expect(renewalLeadMs(WATCH_TTL_MS)).toBeGreaterThan(SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS);
+
+    // The floor alone already exceeds the heuristic threshold, so any lease long
+    // enough to be governed by the floor is comfortably clear of it.
+    expect(RENEWAL_MIN_LEAD_MS).toBeGreaterThan(SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS);
+
+    // And the heuristic sits above one bare sampling period, so a lease that
+    // could only ever be seen once is still flagged.
+    expect(SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS).toBeGreaterThan(SAMPLING_PERIOD_MS);
   });
 });
