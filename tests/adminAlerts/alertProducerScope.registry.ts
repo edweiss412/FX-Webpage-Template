@@ -220,6 +220,13 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "const; tx.upsertAdminAlert passes no showId -> null",
   },
   {
+    site: "lib/crew/sweepTileRenderAlerts.ts:47",
+    contextKeys: ["tileId", "message", "sheet_name", "viewerKey"],
+    code: "TILE_SERVER_RENDER_FAILED",
+    scope: "per-show",
+    note: "post-response tile sweep; viewerKey is the observer discriminator",
+  },
+  {
     site: "lib/reports/submit.ts:759",
     computedContext: true,
     contextKeys: ["idempotency_key", "depth"],
