@@ -228,8 +228,10 @@ async function urlStyle(page: Page) {
       animationDirection: cs.animationDirection,
       animationIterationCount: cs.animationIterationCount,
       animationFillMode: cs.animationFillMode,
-      animationComposition: cs.animationComposition,
-      animationTimeline: cs.animationTimeline,
+      // Read through getPropertyValue: `animation-timeline` is not on this TS
+      // lib's CSSStyleDeclaration, and the camelCase accessor does not typecheck.
+      animationComposition: cs.getPropertyValue("animation-composition"),
+      animationTimeline: cs.getPropertyValue("animation-timeline"),
       backgroundColor: cs.backgroundColor,
       boxShadow: cs.boxShadow,
       hasAttr: el.hasAttribute("data-share-link-flash"),
@@ -292,12 +294,12 @@ test.describe("share-link cue — resolved style", () => {
     // Asserted as a value SET, not a fixed-length list: Chromium resolves these
     // two to a single value rather than one per track, so pinning arity would
     // fail for a reason that has nothing to do with the cue.
-    expect([...new Set(during!.animationComposition.split(",").map((t) => t.trim()))]).toEqual([
-      "replace",
-    ]);
-    expect([...new Set(during!.animationTimeline.split(",").map((t) => t.trim()))]).toEqual([
-      "auto",
-    ]);
+    expect([
+      ...new Set(during!.animationComposition.split(",").map((t: string) => t.trim())),
+    ]).toEqual(["replace"]);
+    expect([...new Set(during!.animationTimeline.split(",").map((t: string) => t.trim()))]).toEqual(
+      ["auto"],
+    );
 
     // BOTH paints actually move. Sampling one cannot see the other suppressed.
     expect(during!.backgroundColor).not.toBe(rest!.backgroundColor);
