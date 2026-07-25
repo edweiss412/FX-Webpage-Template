@@ -1042,7 +1042,11 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
 //     above the next row;
 //   - the fallback group block ([data-testid="section-warning-controls-crew"])
 //     is fully contained in the crew panel card rect (left/right/top/bottom);
-//   - card bottom >= extras bottom (no overflow out of the border).
+//   - card bottom >= extras bottom (no overflow out of the border);
+//   - the under-row stack FILLS its member's row horizontally — same left edge,
+//     same width (BL-CREW-WARN-STACK-E2E-GEOMETRY, the residual of PR #534's
+//     descoped Task 10: containment bounds the stack loosely inside the card,
+//     it does not pin the stack to the row it belongs to).
 //
 // Fixture (crewwarnings.html): "Crew Member A (5/3 ONLY)" raw blockRef name →
 // strips to the rendered "Crew Member A" row (under-row); "Ghost Crew" matches
@@ -1114,6 +1118,118 @@ test.describe("crew warning placement — containment (crew-warning-attachment T
       rowB.y + TOL,
     );
   });
+
+  /** Border box AND content box (`left`/`width` only) for one element.
+   *  BOTH are needed: `box-sizing: border-box` keeps horizontal padding INSIDE
+   *  the border box, so a `pl-6` hoisted from the per-kind wrapper onto the
+   *  stack leaves `getBoundingClientRect()` byte-identical while insetting
+   *  every card by 24px. Only the content box sees it. */
+  type Span = { borderLeft: number; borderW: number; contentLeft: number; contentW: number };
+
+  /** The under-row stack's spans, plus its member ROW's spans — the row derived
+   *  from the rendered NAME (never from the stack's own parent, which would make
+   *  the equality a restatement of `display: block`): find the name span, walk up
+   *  to the direct child of the hosting <li>. Throws if the resolved row turns
+   *  out to CONTAIN the stack, so a future markup collapse fails the test instead
+   *  of satisfying it vacuously. */
+  async function stackVsRowSpans(
+    page: Page,
+    stackSel: string,
+  ): Promise<{ stack: Span; row: Span; liW: number }> {
+    return page.locator(CREW_SECTION).evaluate((section, sel) => {
+      const spanOf = (el: Element): Span => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const padL = Number.parseFloat(cs.paddingLeft);
+        const padR = Number.parseFloat(cs.paddingRight);
+        const bL = Number.parseFloat(cs.borderLeftWidth);
+        const bR = Number.parseFloat(cs.borderRightWidth);
+        return {
+          borderLeft: r.x,
+          borderW: r.width,
+          contentLeft: r.x + bL + padL,
+          contentW: r.width - bL - bR - padL - padR,
+        };
+      };
+      const stack = section.querySelector(sel);
+      if (!stack) throw new Error(`stack ${sel} not found in crew section`);
+      const li = stack.closest("li");
+      if (!li) throw new Error("stack has no hosting <li>");
+      const nameSpan = [...li.querySelectorAll("span")].find(
+        (s) => s.textContent?.trim() === "Crew Member A",
+      );
+      if (!nameSpan) throw new Error("name span 'Crew Member A' not found in the hosting li");
+      let row: HTMLElement = nameSpan as HTMLElement;
+      while (row.parentElement && row.parentElement !== li) {
+        row = row.parentElement as HTMLElement;
+      }
+      if (row.contains(stack)) {
+        throw new Error("resolved row CONTAINS the stack — equality would be tautological");
+      }
+      return {
+        stack: spanOf(stack),
+        row: spanOf(row),
+        liW: spanOf(li).contentW,
+      };
+    }, stackSel);
+  }
+
+  for (const vp of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    // T-WARN-WIDTHFILL (BL-CREW-WARN-STACK-E2E-GEOMETRY). `w-full` on
+    // CrewUnderRowStack is unit-asserted for class PRESENCE only
+    // (tests/admin/wizard/crewWarnStack.test.tsx) — jsdom computes no layout, so
+    // nothing proves the class resolves to the row's extent.
+    //
+    // Concrete failure modes this catches (each verified by mutation):
+    //   - `w-fit` on the stack shrinks it to its widest card instead of filling
+    //     the row (border-box width). Caught at 1280 only: at 390 the widest card
+    //     already fills the narrow row, so shrink-to-fit and fill are
+    //     geometrically identical there — hence BOTH viewports run;
+    //   - the 24px per-kind indent (crewwarn-underrow-polish §2, `pl-6` on the
+    //     wrapper INSIDE the stack, so each kind opts in) hoisted onto the stack
+    //     itself, double-indenting every kind (content box only — the border box
+    //     is unchanged, which is why both spans are measured);
+    //   - a horizontal margin on the stack, or x-padding added to the hosting
+    //     <li> that the row picks up and the stack does not (or vice versa).
+    test(`T-WARN-WIDTHFILL @${vp.width}: under-row stack fills its member's row (border box + content box)`, async ({
+      page,
+    }) => {
+      await openHarness(page, vp, "crewwarnings.html");
+      await expect(page.locator(STACK), "under-row stack present for the stripped key").toHaveCount(
+        1,
+      );
+
+      const { stack, row, liW } = await stackVsRowSpans(page, STACK);
+
+      // Anti-vacuity floor: a collapsed layout (both boxes ~0-wide) satisfies any
+      // equality. The row spans the panel card, so it is a large fraction of the
+      // viewport at BOTH widths measured here.
+      expect(row.contentW, "row has real extent").toBeGreaterThan(vp.width * 0.4);
+      expect(Math.abs(row.borderW - liW), "row itself fills the hosting li").toBeLessThanOrEqual(
+        TOL,
+      );
+
+      expect(
+        Math.abs(stack.borderLeft - row.borderLeft),
+        "stack border-box left === row border-box left",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        Math.abs(stack.borderW - row.borderW),
+        "stack border-box width === row border-box width",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        Math.abs(stack.contentLeft - row.contentLeft),
+        "stack content-box left === row content-box left (no inset of its own)",
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        Math.abs(stack.contentW - row.contentW),
+        "stack content-box width === row content-box width",
+      ).toBeLessThanOrEqual(TOL);
+    });
+  }
 
   test("T-WARN-INCARD @1280: unmatched warning's fallback group is contained in the crew panel card", async ({
     page,
