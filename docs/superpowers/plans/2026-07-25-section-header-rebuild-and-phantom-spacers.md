@@ -52,16 +52,31 @@ from `docs/agents/writing-plans.md` was checked:
 
 ### 0.2 Advisory-lock holder topology
 
-**N/A — no `pg_advisory*` path is touched.** Presentational components, two count predicates, one CSS
-token, test files, two workflow/config files, `DESIGN.md`, and the backlog files. No RPC, no migration,
-no table write — so `validation-schema-parity` and `pnpm gen:schema-manifest` are N/A too.
+**NOT N/A — round 5 correctly refuted the earlier declaration.** T6 adds execution of
+`supabase/seedWalkerFixtures.ts`, which writes `shows`, `pending_syncs`, and `pending_ingestions` inside
+a transaction, so a lock topology applies even though this batch writes no new SQL.
+
+**Holder topology, enumerated (invariant 2's single-holder rule).** For each of the four
+`show:<drive_file_id>` hashkeys the walker seed touches, the lock is acquired at **exactly one layer**:
+the transaction-local, `drive_file_id`-sorted `pg_advisory_xact_lock` sweep inside the seed script itself
+(`supabase/seedWalkerFixtures.ts:301-312`). There is no JS-side wrapper lock and no nested SECURITY
+DEFINER acquisition, so no second holder exists and no deadlock surface is added. **This batch adds no
+new lock holder** — it only invokes an existing, already-compliant script from a workflow step.
+
+That topology is already structurally pinned by
+`tests/db/seed-restage-fixture.test.ts:120-149` (exactly four per-show locks, in sorted order). **T6
+re-runs it** — `pnpm vitest run tests/db/seed-restage-fixture.test.ts` — so a change to the seed's lock
+set is caught by this batch rather than assumed stable.
+
+No migration and no schema change, so `validation-schema-parity` and `pnpm gen:schema-manifest` remain
+N/A.
 
 ### 0.3 e2e harness-readiness checklist
 
 | | Static harness (T0's new specs) | Real-route probe (archived bucket, T6) |
 | - | ------------------------------- | -------------------------------------- |
 | **Boot** | none — `tests/e2e/standalone.config.ts`; markup rendered by a `tsx` subprocess, CSS compiled by the Tailwind CLI, served from `node:http` | `phantom-gap-e2e.yml` boots local Supabase + the :3000 baseline server (`BASELINE_SERVER_ONLY=1`) |
-| **Readiness gate** | *Static cell/pusher harnesses:* `waitUntil: "load"` **plus** `emulateMedia({ reducedMotion: "reduce" })` so entrance animation is collapsed and geometry is final. *Live transition root (separate contract):* wait on an explicit **hydration readiness flag** the entry sets after `createRoot(...).render`, and run with **NORMAL motion** — no reduced-motion emulation, since that would suppress `motion-safe:` utilities the audit exists to catch. **Never `networkidle` alone.** | existing `expect(getByTestId("admin-dashboard")).toBeVisible()` **plus** `expect(locator("[data-testid^='archived-show-row-']").first()).toBeAttached()` — an empty bucket is a different tree and must fail loudly, not measure nothing |
+| **Readiness gate** | *Static cell/pusher harnesses:* `waitUntil: "load"` **plus** `emulateMedia({ reducedMotion: "reduce" })` so entrance animation is collapsed and geometry is final. *Live transition root (separate contract):* wait on an explicit **hydration readiness flag** the entry sets after `createRoot(...).render`, and run with **NORMAL motion** — no reduced-motion emulation, since that would suppress `motion-safe:` utilities the audit exists to catch. **Never `networkidle` alone.** | existing `expect(getByTestId("admin-dashboard")).toBeVisible()` **plus** `expect(getByTestId("archived-show-row-walker-archived-2026")).toBeAttached()` — the EXACT fixture, never a `[data-testid^=…]` prefix match (round-5 finding 9) — an empty bucket is a different tree and must fail loudly, not measure nothing |
 | **Detach-safety** | each measurement is a single `page.evaluate` reading all rects synchronously in one pass; no `locator.evaluate` sampler that can outlive its element | anchors asserted attached before `scanForPhantomGaps` walks |
 | **Env** | `HASH_FOR_LOG_PEPPER` + `JWT_SIGNING_SECRET` required or the harness throws at import (`lib/email/hashForLog.ts:9`) | the workflow already sets both |
 
@@ -322,12 +337,17 @@ new specs are **discovered** and that the harness emits the 15 cells.
    `resolution` trees (`tests/e2e/_step3ReviewModalHarness.tsx:249-273`) and cannot produce the
    defensive, partial-provider, or status combinations, which is why a new harness is required.
 3. Create both spec files with a single trivially-passing smoke assertion each, add their names to
-   `standalone.config.ts:35` `testMatch`, and add **all FIVE new paths** to `phantom-gap-e2e.yml`'s path
-   filters — the two specs AND the three helpers
-   (tests/e2e/\_sectionHeaderCellHarness.tsx, tests/e2e/\_pusherRowsHarness.tsx,
-   tests/e2e/\_sectionHeaderLiveEntry.tsx; the bundle script tests/e2e/\_sectionHeaderBundle.mjs makes five
-   helper+spec paths in total) — plus two run steps. A helper is never matched by `testMatch`, so omitting
-   one leaves a later helper-only PR CI-dark.
+   `standalone.config.ts:35` `testMatch`, and add **all SIX new paths (enumerated below)** to `phantom-gap-e2e.yml`'s path
+   filters. **SIX entries, enumerated so an implementer cannot miscount** (round-5 finding 5 — the
+   earlier "FIVE" was arithmetically wrong because the bundle script needs a filter of its own):
+   1. tests/e2e/section-header-layout.layout.spec.ts
+   2. tests/e2e/pusher-alignment.layout.spec.ts
+   3. tests/e2e/_sectionHeaderCellHarness.tsx
+   4. tests/e2e/_pusherRowsHarness.tsx
+   5. tests/e2e/_sectionHeaderLiveEntry.tsx
+   6. tests/e2e/_sectionHeaderBundle.mjs
+   Plus two run steps. A helper is never matched by `testMatch`, so omitting any one leaves a later
+   helper-only PR CI-dark.
 4. **Add the two mandatory `PATH_GATED` rows** to `LOCAL_ONLY_ALLOWLIST`
    (`tests/ci/_metaE2eWorkflowCoverage.test.ts:24-35`) — mandatory, not conditional (§0.1) — and **run
    the meta-test**: `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`, expected green.
@@ -477,15 +497,21 @@ spacer that exists or returns, (b) a missing `ml-auto`.
 
 1. **RED** — fill in tests/e2e/pusher-alignment.layout.spec.ts. **Per site, never aggregated** (an
    aggregate can go red on the nav rows while never exercising BellPanel).
-   - **(a) Structural absence at ALL THREE sites — no width calibration anywhere.** Assert that each
-     row, rendered from tests/e2e/\_pusherRowsHarness.tsx, directly contains **no childless growable
-     child element**. Red today (each row holds its `flex-1` span), green after deletion, red again on
-     reintroduction. Uniform across the three because calibrating a "crowded" width is fragile for all
-     of them, not just BellPanel: BellPanel's row is `flex-wrap`
-     (`components/admin/BellPanel.tsx:288`) so narrowing moves the trailing item to a new line and the
-     spacer regains width, while `AdminNav` and `OnboardingTopBar` gate children on breakpoints
-     (`min-[360px]`, `min-[440px]`, `min-[840px]`), so their content is not monotonic in width either.
-     Structural absence needs no calibrated number and cannot go quietly green.
+   - **(a) Per the APPROVED spec §9.3, which this plan does not get to override.** Round 5 correctly
+     caught that an earlier draft replaced the spec's oracle at all three sites with structural absence;
+     the spec reserves that for BellPanel alone. Restored:
+     - **`components/admin/nav/AdminNav.tsx:144` and `components/admin/nav/OnboardingTopBar.tsx:67` —
+       CROWDED-ROW REALIZED ZERO-EXTENT**, as spec §9.3 requires: mount each row from
+       tests/e2e/\_pusherRowsHarness.tsx in a deliberately crowded fixture and assert no in-flow child
+       has zero main-axis extent. The crowding width is an **output of T0**, which measures each row's
+       spacer across 320-1280 and records the width at which it reaches 0; T3 pins its fixture below
+       that and cites the measured number. If T0's measurement shows a row cannot be driven to zero at
+       any supported width, that is a spec-level finding and T3 escalates it rather than silently
+       substituting a different oracle.
+     - **`components/admin/BellPanel.tsx:323` — STRUCTURAL ABSENCE**, per spec §9.3, because its row is
+       `flex-wrap` (`components/admin/BellPanel.tsx:288`): narrowing moves the trailing item to a new
+       line and the spacer regains that line's free width, so zero extent occurs only at a calibrated
+       boundary. Assert the action row directly contains no childless growable child.
    - **(b)** trailing cluster's right edge flush with the parent content-box right edge (±0.5px) at a
      wide width; no overflow at 320px. For `BellPanel`, **both** mutually exclusive trailing branches —
      `entry.isAutoResolving` true (auto-note `<p>`) and false (resolve `<button>`),
