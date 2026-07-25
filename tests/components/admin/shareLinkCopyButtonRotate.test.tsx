@@ -29,10 +29,18 @@
  * commit and passive effects, which RTL gives no hook for — `rerender` has
  * already flushed them when it returns (round-6 review).
  *
- * It is no longer uncovered, though: `tests/e2e/share-link-flash.spec.ts`
- * T-FLASH-COPY-RACE stalls a real `writeText`, rotates, then releases it, and
- * reads the label ONCE — round-9 review was right that the browser spec had no
- * clipboard interaction at all. That row reds with the guard removed.
+ * `tests/e2e/share-link-flash.spec.ts` T-FLASH-COPY-RACE stalls a real
+ * `writeText`, rotates, releases it, and reads the label ONCE. That row reds
+ * with the COMPARISON removed, so the guard's existence is proven in a real
+ * engine.
+ *
+ * Its TIMING is still not proven, and saying otherwise would be false: the row
+ * awaits the whole rotate before releasing the promise, by which point a
+ * passive effect has updated `urlRef` too (round-10 review). Creating the
+ * commit-to-passive-effect window from Playwright is not something I found a
+ * way to do. The gap is registered as adversary A39 rather than left as this
+ * paragraph — it SURVIVES, the generated report says so, and it closes itself
+ * the day a harness can reach that window.
  */
 import { useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";

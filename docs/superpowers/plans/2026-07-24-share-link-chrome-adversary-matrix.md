@@ -3,6 +3,8 @@
 Spec §9.0/§9.1.1, plan Task 6. Produced by `node scripts/share-link-flash-adversary-matrix.mjs`
 against a committed tree, full mode (browser spec included).
 
+**Survivors are declared, in two kinds.** `EQUIVALENT_SURVIVORS` (A4) change nothing observable — proven, not assumed. `UNPROVEN_SURVIVORS` (A39) are genuinely wrong AND genuinely uncaught: A39 needs a promise to settle between commit and passive effects, which no harness here can arrange. Listing one is an admission with a name attached, not a pass. Neither fails the run; anything else that survives does.
+
 **What a row means.** A row is a TEST, not an assertion. Both collectors record test titles, so an adversary that reds any one of a test's assertions credits the whole row; removing a single assertion need not change this table. The matrix shows every registered wrong implementation is caught by SOME row — not that each assertion is load-bearing. Assertions with a history of being vacuous were mutation-checked by hand and say so at the site.
 
 Totals and both tables are generated below. The one survivor is A4, which is a

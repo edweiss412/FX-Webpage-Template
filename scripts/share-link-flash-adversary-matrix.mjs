@@ -302,16 +302,17 @@ const ADVERSARIES = [
   ],
   [
     "A20",
-    "keyframes moved into the component as a real style element",
+    "keyframes moved into the component as a rendered <style> element",
     [
-      // Was a COMMENT containing "@keyframes", which is observably equivalent —
-      // it changed nothing and was rejected only by a comment-sensitive regex
-      // (round-9 review). A styled-jsx-style element is a real relocation: the
-      // rule genuinely ships from the component instead of the stylesheet.
+      // Twice inert before this. First a COMMENT containing "@keyframes", then
+      // an unused exported STRING — both changed nothing observable and were
+      // rejected only because a source regex saw the bytes (rounds 9 and 10).
+      // Rendering the tag is the actual relocation: the rule really does ship
+      // from the component, and the stylesheet really does lose it.
       [
         HUB,
-        "export const SHARE_LINK_FLASH_MS = 1600;",
-        'export const SHARE_LINK_FLASH_MS = 1600;\nexport const INLINE_CUE_CSS = "@keyframes share-link-flash-bg { from { opacity: 1 } }";',
+        '      className="relative flex items-center gap-2 max-sm:w-full"\n    >\n',
+        '      className="relative flex items-center gap-2 max-sm:w-full"\n    >\n      <style>{"@keyframes share-link-flash-bg { from { opacity: 1 } }"}</style>\n',
       ],
     ],
   ],
@@ -587,6 +588,32 @@ ADVERSARIES.push([
   ],
 ]);
 
+/**
+ * A39 makes an admitted coverage gap EXECUTABLE instead of prose.
+ *
+ * The captured-url guard reads `urlRef`, written in a LAYOUT effect so it holds
+ * the new url before any passive effect runs. Round-10 review established that
+ * nothing proves the LAYOUT part: T-FLASH-COPY-RACE awaits the whole rotate
+ * before releasing the clipboard promise, by which time a passive effect has
+ * updated the ref too, and A32 removes the comparison rather than its timing.
+ *
+ * Creating the commit-to-passive-effect window from Playwright is not something
+ * I found a way to do. Rather than leave the gap as a sentence in a header,
+ * register the mutation: if it survives, the report says so in the table, and
+ * any future harness that CAN reach the window turns this row green by itself.
+ */
+ADVERSARIES.push([
+  "A39",
+  "urlRef written in a PASSIVE effect instead of a layout effect",
+  [
+    [
+      COPY,
+      "  useLayoutEffect(() => {\n    urlRef.current = url;",
+      "  useEffect(() => {\n    urlRef.current = url;",
+    ],
+  ],
+]);
+
 ADVERSARIES.push([
   "A22",
   "token retuned below the ring's contrast floor",
@@ -804,7 +831,19 @@ function runVitest() {
     return [];
   } catch (e) {
     const out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
-    return [...out.matchAll(/×\s+(.+?)\s+\d+ms/g)].map((m) => m[1].trim());
+    const rows = [...out.matchAll(/×\s+(.+?)\s+\d+ms/g)].map((m) => m[1].trim());
+    // A mutation that breaks the BUILD produces a non-zero exit with no `×`
+    // rows at all, which read as "nothing failed" and reported SURVIVED — the
+    // exact false-green this tool exists to prevent (round-10, found while
+    // fixing A20). A suite that could not run is an infrastructure fault, not a
+    // coverage result, so refuse to score it.
+    if (!rows.length) {
+      throw new Error(
+        "vitest exited non-zero but reported no failing rows — the mutant probably does not compile. " +
+          "Fix the adversary so it produces runnable code; a build break is not a rejection.",
+      );
+    }
+    return rows;
   }
 }
 
@@ -1029,7 +1068,15 @@ if (!ONLY && !QUICK) {
  *  nulls the seeded flash in the same render pass. Recorded here so a correct
  *  full run exits 0 — failing on it made every honest rerun red (round-6). */
 const EQUIVALENT_SURVIVORS = new Set(["A4"]);
-const unexpectedSurvivors = survived.filter((r) => !EQUIVALENT_SURVIVORS.has(r.id));
+/** Survivors that are NOT equivalent — they are genuinely wrong and genuinely
+ *  uncaught. Listing one here is an admission with a name attached, not a pass:
+ *  A39 needs a promise to settle between commit and passive effects, which no
+ *  harness here can arrange (round-10). Keeping it registered means the gap is
+ *  visible in the generated table, and closes itself the day a harness can. */
+const UNPROVEN_SURVIVORS = new Set(["A39"]);
+const unexpectedSurvivors = survived.filter(
+  (r) => !EQUIVALENT_SURVIVORS.has(r.id) && !UNPROVEN_SURVIVORS.has(r.id),
+);
 // The check has to run BOTH ways. A declared equivalent that comes back REJECTED
 // is evidence of an unrelated failure — a broken baseline, browser infra — not
 // of stronger coverage, and one-directional checking let that exit 0 reporting
