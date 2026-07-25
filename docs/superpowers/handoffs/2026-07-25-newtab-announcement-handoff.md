@@ -620,3 +620,76 @@ shared the box with a `codex-guard` dispatch (a render assertion took 5289ms). C
 12/12 green on a head containing every component change in this PR, and every commit after it
 touches only `tests/styles/**` and docs, so the component failures cannot be attributed to the new
 work. CI's sharded isolated runners are the arbiter here, not a contended local box.
+
+## R19 — the fourth source-reading model fails, so stop reading the source
+
+R19 (NEEDS-ATTENTION, two HIGHs) confirmed the R17/R18 work independently — 23 anchors / 0
+violations across 246 files, 13 MDX files compiled, each terminator site regressed and its witness
+flipped, the `href` fixture decisive — and then broke the shape model three ordinary ways:
+
+- a regex literal: `/^FetchPriority$/.test(name)`
+- an unquoted property key: `{FetchPriority: true}[name]`
+- reusing an already-excluded spelling: `name === "static"`
+
+The third is the one worth dwelling on. **One commit earlier I had written that collision into spec
+§6.4 as "possible in principle; no such collision exists today."** It was not a principle, it was a
+live evasion, and calling it theoretical is what let it ship. A residual risk that an attacker-free
+one-line edit can reach is not residual.
+
+**Four source-reading models have now failed here:** accessor-name scoping (R12), a blanket literal
+walk (R13), regex over reading forms (R18), literal shape (R19). Each had to enumerate something —
+positions, forms, or node kinds — and the enumeration is what kept losing. The fifth model does not
+read the source at all.
+
+`NAME_AFFECTING_ATTRIBUTES` is a closed list from an **external** authority (HTML global attributes,
+`<a>` attributes, `role`, every ARIA state/property, the JSX aliases). For each name, scanning the
+same fixture with a different case must yield the same verdict. No reading form can evade a check
+that never consults the source, and an attribute outside the list cannot change an accessible name,
+so its casing cannot cause this defect. The closed list is therefore the single highest-value thing
+to audit in the whole guard: an omission there is silent, not loud.
+
+### Two things about my own fix
+
+**The first version of the sweep passed all three R19 mutations.** Every base fixture was in the
+announcing state, and an announcing base cannot observe a read that SUPPRESSES a violation — the
+verdict is `""` either way. Both polarities were required. This is the third time in this PR that a
+default-state assertion proved nothing.
+
+**Two of the three mutations were not valid mutations.** They referenced `attrs` before its
+shadowing declaration inside the same block and died with `ReferenceError`, and because I grepped
+the output for `AssertionError` the crash was invisible — it read as "the mutation did not fail."
+A mutation must stay runnable to be valid, and a filter narrower than "did the suite go red" hides
+exactly this.
+
+### R19 finding 2 was a process miss, not a code defect
+
+Spec §6.4 still ratified the semantic-position collector R18 deleted, so the canonical spec
+disagreed with the implementation. Invariant 7 makes the spec authoritative; recording a model
+change in the handoff is not a substitute for amending it. §6.4 now carries the behavioural model,
+the four failed source-reading models, the both-polarities requirement, and why the hand-built
+fixtures remain alongside the sweep.
+
+## Self-audit against R20's questions, run before R20 reported
+
+Working the review's own "look hardest" list rather than waiting for it found four more:
+
+| Question | Outcome |
+| --- | --- |
+| Is the closed list actually closed? | **No.** `alt` was missing — an `<img alt>` child contributes to the enclosing anchor's computed name, and §1.1 already discusses the scanner reading it. Added with `placeholder`, `value`, `label`; a case-sensitive `alt` read now fails by name. |
+| Are the bases sufficient? | `hidesFromAccName` walks every ancestor up to the anchor (`tests/styles/_newTabScan.ts:416`), so a one-level wrapper never reached depth ≥ 2. Deep bases added; the ancestor path is mutation-proven via a case-sensitive `inert` read. |
+| Can a case-sensitive read still hide? | Only in attribute VALUES, which the sweep deliberately does not vary — `className` tokens are genuinely case-sensitive. The one arguable case, `aria-hidden="FALSE"`, fails CLOSED, so the conservative reading can only cost a false positive. Stated in §6.4. |
+| Does any comment still overclaim? | Yes — a test was titled "nameShapedLiterals is blind to reading FORM", the exact claim R19 refuted. Retitled, and the four forms it genuinely cannot see are now assertions instead of prose. |
+
+**Honesty note on the deep bases:** they are NOT independently mutation-provable today, because the
+ancestor walk IS uniform — every mutation the deep base catches, the one-level base also catches.
+That is recorded in the test comment rather than implied, so a later reader does not cite it as
+proven. They guard a future non-uniform walk.
+
+### A gate that does not gate is not a gate
+
+I committed a `spec:lint` hard failure **twice**. `spec:lint` reads any backticked token starting
+with `:` as a citation with an empty path, so both a bare `` `:` `` in prose about characters and a
+shorthand second citation `` `:439` `` are hard failures. Neither `tsc`, `eslint`, nor vitest sees
+them. The reason they landed is the shape of the command: the check ran, printed `1 hard`, and
+`git commit` ran anyway because it was chained after rather than conditioned on the result. Every
+commit after this point is gated with an `if`.
