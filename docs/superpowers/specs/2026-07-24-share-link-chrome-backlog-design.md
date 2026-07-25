@@ -25,7 +25,7 @@ Each row is a decision already ratified, with the citation that ratifies it. A r
 | R3 | **`app/admin/show/[slug]/ShareChip.tsx` and `app/admin/show/[slug]/CrewPageLink.tsx` are orphans** — imported by no production module. Already recorded as such, with cleanup named as backlog material. This spec is that cleanup. | `docs/superpowers/specs/2026-07-18-admin-show-modal.md:214`; verified live in §11 |
 | R4 | **`ShareLinkCopyButton`'s `variant="compact"` is NOT removed** even though this diff deletes its last production call site. It joins `variant="outline"`, which is ALREADY production-orphaned with test-only coverage under a ratified spec. Two variants in the same accepted condition is the status quo, not new debt introduced here. Removing either is a separate decision about that component's API, out of scope. `outline`'s ONLY production assignment was `StatusStrip.tsx:261` (`docs/superpowers/specs/2026-07-18-modal-header-reconciliation.md:628`), and the share-hub consolidation then removed that render outright (`docs/superpowers/specs/2026-07-20-share-hub-design.md:104`, "StatusStrip copy-link render + its `copyUrl` derivation"). Confirmed executable: the only two live call sites today are `app/admin/show/[slug]/ShareChip.tsx:44` (`compact`) and `components/admin/showpage/ShareHub.tsx:719` (`accent`) — see §11. Test-only coverage survives at `tests/components/admin/shareLinkCopyButtonVariant.test.tsx:60` (`outline`) and `tests/components/admin/shareLinkCopyButtonVariant.test.tsx:149` (`compact`) |
 | R5 | **Reduced motion renders NO cue at all** — deliberately NOT the shipped `[data-step3-warning-flash]` fallback, which leaves a steady tint (`app/globals.css:848-852`). That fallback is right for a persistent jump-target the user must still locate; it is wrong for a one-shot "this just changed" cue, where a permanent tint would assert a state that is no longer true. On the LOCAL rotate path nothing is lost — the `role="status"` banner announces the change (`app/admin/show/[slug]/RotateShareTokenButton.tsx:271-282`). On the REMOTE path it is silent; that residual is disclosed and bounded in §3.8 rather than waved away. | This spec §3.4, §3.8 |
-| R6 | **REVERSED in round 2. A real-browser spec IS added, with its own dedicated workflow.** The draft justified skipping one on the claim that the standalone Playwright config "is invoked by NO CI workflow". That claim is FALSE and the reviewer was right to call it: five dedicated workflows invoke it today, each naming its own spec subset — `.github/workflows/phantom-gap-e2e.yml:158` is the clearest example, and `package.json:52` and `package.json:53` are named script entries doing the same. What IS true is narrower: the config is never run WHOLESALE, so a spec added to it stays dark unless a workflow names it (`.github/workflows/modal-header-layout-e2e.yml:39` says exactly that about the ~15 specs still dark). Since the cost is a workflow file that five precedents show how to write, and since the source scan provably cannot close the CSS cascade holes in §9 A13, the browser spec is the correct call rather than a residual to disclose. §9.1 specifies it. | `.github/workflows/phantom-gap-e2e.yml:158`; `.github/workflows/modal-header-layout-e2e.yml:39`; `package.json:52` |
+| R6 | **REVERSED in round 2. A real-browser spec IS added, with its own dedicated workflow.** The draft justified skipping one on the claim that the standalone Playwright config "is invoked by NO CI workflow". That claim is FALSE and the reviewer was right to call it: five dedicated workflows invoke it today, each naming its own spec subset — `.github/workflows/phantom-gap-e2e.yml:158` is the clearest example, and `package.json:52` and `package.json:53` are named script entries doing the same. What IS true is narrower: the config is never run WHOLESALE, so a spec added to it stays dark unless a workflow names it (`.github/workflows/modal-header-layout-e2e.yml:39` says exactly that about the ~15 specs still dark). Since the cost is a workflow file that five precedents show how to write, and since a source scan provably cannot close the CSS cascade holes registered as A16 to A18, the browser spec is the correct call rather than a residual to disclose. §9.3 specifies it. | `.github/workflows/phantom-gap-e2e.yml:158`; `.github/workflows/modal-header-layout-e2e.yml:39`; `package.json:52` |
 | R7 | **The cue fires on ANY token change while the panel is open**, including another admin's rotate arriving via `router.refresh()` — not only on this admin's own rotate. A crew URL changing underneath you is exactly the event the cue exists to report. Scoping it to own-rotate-only would need `onRotated` threading that buys nothing. | This spec §3.1 |
 | R8 | **`SHARE_LINK_FLASH_MS` is a NEW constant, not a reuse of `WARNING_HIGHLIGHT_MS`** — same 1600ms value, different surface. `WARNING_HIGHLIGHT_MS` is pinned to its own module by the source-marker audit and must stay there. | `components/admin/wizard/Step3ReviewModal.tsx:106`; `components/admin/review/ShowReviewSurface.tsx:59-64` (the comment recording that pinning) |
 | R9 | **No new error-catalog code, no telemetry, no server action, no RPC, no migration.** The change is a client-side visual cue plus two file deletions. Plan-wide invariants 2, 3, 4, 5, 9 and 10 have no surface here. | This spec §10 |
@@ -83,7 +83,7 @@ The cue fires when `token` from `useShareToken()` (`components/admin/showpage/Sh
 | A token becomes `null` (show went ineligible; authoritative null at a strictly-advanced epoch) | **no** | guarded on `token !== null`; and the target element does not render at all — `linkActive` is false, so the panel shows the unavailable or paused note instead (`components/admin/showpage/ShareHub.tsx:748-764`) |
 | `ShareHub` remounts (modal reopened; the provider is keyed by show id at its mount, `app/admin/_showReviewModal.tsx:415`, and the modal's remount-per-show behaviour is established at `app/admin/page.tsx:167-171`) | **no** | fresh mount reseeds `prevToken` |
 | Rotate on an INACTIVE crew link (unpublished or archived) | **no** | `onRotated` is not called at all when `isCrewLinkActive` is false (`app/admin/show/[slug]/RotateShareTokenButton.tsx:165`), so `token` never changes |
-| Stale rotation rejected by the monotonic gate (`app/admin/show/[slug]/ShareTokenContext.tsx:47`) | **no** | the gate returns the previous state object; `token` is unchanged |
+| Rotation at a STRICTLY LOWER epoch, rejected by the monotonic gate (`app/admin/show/[slug]/ShareTokenContext.tsx:47`) | **no** | the gate returns the previous state object, so `token` is unchanged. Note the gate is `epoch >= held`, so an EQUAL epoch carrying a different token is ACCEPTED and correctly DOES cue — the URL really changed. Earlier drafts said `epoch <= current` is rejected, which overstates it (round-5 review, MEDIUM) |
 | Panel closed when the token changes | **no cue on the next open** | §3.3 clears the pending cue whenever `open` is false |
 | A token becomes `null` **while an earlier cue is still running** | **the running cue is CANCELLED** | the null transition clears `flash` outright (§3.2). Without this the cue outlives the element: the block unmounts with `flash` still set, and a token arriving back within the same 1600ms window (republish, or unarchive, both of which rotate and bump the epoch) remounts it wearing a stale attribute. Surfaced by round-1 adversarial review as HIGH; pinned by A7 |
 
@@ -231,7 +231,7 @@ Compound transitions:
 
 ### §3.6 Dimensional invariants
 
-**N/A.** The cue introduces no fixed-dimension parent and no new flex or grid child relationship. It animates `background-color` and `box-shadow` on an existing element whose box model is untouched — `box-shadow` does not participate in layout, and the element keeps the exact class string it has at `components/admin/showpage/ShareHub.tsx:715`. No parent-to-child dimension relationship changes, so no real-browser DIMENSION assertion is warranted. That is a separate question from §9.1's browser spec, which measures resolved ANIMATION rather than layout and does have a CI home (R6, reversed in round 2).
+**N/A.** The cue introduces no fixed-dimension parent and no new flex or grid child relationship. It animates `background-color` and `box-shadow` on an existing element whose box model is untouched — `box-shadow` does not participate in layout, and the element keeps the exact class string it has at `components/admin/showpage/ShareHub.tsx:715`. No parent-to-child dimension relationship changes, so no real-browser DIMENSION assertion is warranted. That is a separate question from §9.3's browser spec, which measures resolved ANIMATION rather than layout and does have a CI home (R6, reversed in round 2).
 
 ### §3.7 Contrast (DESIGN.md)
 
@@ -351,7 +351,7 @@ Stated explicitly so a reviewer does not read absence as omission.
 | Flag lifecycle table | **N/A** — no boolean config field or toggle is added. `flash` is transient component state with one writer and one reader, both in §3.2. |
 | Build-vs-runtime gate | **N/A** — no env-gated behavior. |
 | Cap/truncation | **N/A** — no list is rendered or extended. |
-| Empirical spike (stateful/race surface) | **The draft's claim here was wrong and is withdrawn (round-1 review, MEDIUM).** It described "two states with a single monotonic trigger". The RENDERED result has two states, but the state the code must get right is the product of `token` (three-valued: unchanged, changed-both-non-null, changed-with-a-null), `open` (two-valued) and `flash` (null or a nonce), with a timer whose lifetime can outlive the target element. Calling that two states is exactly what let the null-transition defect through. Replaced by the exhaustive interaction table in §6.1, which is the comprehensive re-analysis this rule asks for; every row of it has a test in §9. No probe harness is required on top of that: nothing here is an undocumented framework contract. The one ordering question — whether a CSS animation restarts across an attribute remove then re-add in separate commits — is answered by the shipped step3 precedent, which does exactly this via `setAttribute`/`removeAttribute` plus `setTimeout` (`components/admin/review/ShowReviewSurface.tsx:531-533` and `components/admin/review/ShowReviewSurface.tsx:506`). |
+| Empirical spike (stateful/race surface) | **The draft's claim here was wrong and is withdrawn (round-1 review, MEDIUM).** It described "two states with a single monotonic trigger". The RENDERED result has two states, but the state the code must get right is the product of `token` (three-valued: unchanged, changed-both-non-null, changed-with-a-null), `open` (two-valued) and `flash` (null or a nonce), with a timer whose lifetime can outlive the target element. Calling that two states is exactly what let the null-transition defect through. Replaced by the exhaustive interaction table in §6.1, which is the comprehensive re-analysis this rule asks for; every row states a required result; which test proves it is the plan's business (§9.0). No probe harness is required on top of that: nothing here is an undocumented framework contract. The one ordering question — whether a CSS animation restarts across an attribute remove then re-add in separate commits — is answered by the shipped step3 precedent, which does exactly this via `setAttribute`/`removeAttribute` plus `setTimeout` (`components/admin/review/ShowReviewSurface.tsx:531-533` and `components/admin/review/ShowReviewSurface.tsx:506`). |
 
 ### §6.1 State-interaction table (the withdrawn spike's replacement)
 
@@ -359,25 +359,27 @@ Exhaustive over the transitions the cue can observe. "Cue in flight" means `flas
 
 The clear condition `(!open || !linkActive)` is deliberately written over the TARGET'S VISIBILITY rather than over any one of its causes, so rows S4, S6, S9, S12 and S13 are all closed by one predicate instead of five patches.
 
-| # | Transition | Cue in flight on entry | Result | Rejects adversary |
-|---|---|---|---|---|
-| S1 | token unchanged, any `open`, any `linkActive` | either | no change | A4 |
-| S2 | token A to B, `open` true, `linkActive` true | no | attribute on, element remounts, timer armed | A1, A2 |
-| S3 | token A to B, `open` true, `linkActive` true | yes | element remounts so both keyframes restart; nonce bumps; timer re-armed | A9, A10, A11 |
-| S4 | token A to B, `open` false | either | `flash` set then cleared in the same render pass; nothing reaches the DOM | A6 |
-| S5 | token to null, any `open` | no | no cue; `linkActive` goes false and the block unmounts | A5 |
-| S6 | token to null, any `open` | **yes** | cue cancelled by the `!linkActive` arm — round-1 HIGH | A5 |
-| S7 | null to token, any `open` | no | no cue (both-non-null guard) | A5 |
-| S8 | null to token, any `open` | yes | unreachable once S6 holds; asserted rather than assumed — the plan drives S6 then S8 and proves absence on the remounted block | A5 |
-| S9 | `open` true to false | yes | `flash` cleared on the close render | A6 |
-| S10 | stale rotation rejected by the epoch gate | either | `token` never changes, so S1 | A8 |
-| S11 | unmount with a cue in flight | yes | effect cleanup clears the timer | A12 |
-| S12 | **pure unpublish** — `published` true to false, token and epoch UNCHANGED (`supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:2` puts rotation and the epoch bump explicitly out of scope) | **yes** | cue cancelled by the `!linkActive` arm. Without it the block unmounts with `flash` still set | A6, A7 |
-| S13 | **republish inside the window** — `published` false to true, token still UNCHANGED | no (S12 cleared it) | block remounts with NO attribute. A cue here would announce a rotation that never happened | A6, A7 |
-| S14 | **archive** — `archived` false to true | either | `linkActive` false, and the whole share half is suppressed (`components/admin/showpage/ShareHub.tsx:704`); same arm as S12 | A6, A7 |
-| S15 | first mount / remount of `ShareHub` (modal reopened, provider keyed by show id at `app/admin/_showReviewModal.tsx:415`) | n/a — fresh state | `prevToken` seeds to `token`, `flash` starts null: no cue | A4 |
-| S16 | `open` false to true with no token change | n/a | nothing set the cue while closed (S4), so no attribute | A6, A6 |
-| S17 | timer expiry with the panel still open | yes | attribute removed; `key` unchanged, so NO remount and any text selection survives | A2, A3 |
+**No "rejects adversary" column.** An earlier draft carried one, mechanically remapped from retired row names. Round-5 review found five of its cells behaviourally wrong — S3 cannot reject A10 (`key={flash}` remounts and re-arms correctly on a second change; it fails only at expiry), S4/S9/S16 cannot reject A6 (an `!open`-only clear handles those transitions correctly), and S5/S6 cannot reject A5 (the `!linkActive` arm clears the token-to-null bump anyway) — plus a duplicated cell. Which adversary a transition rejects is MATRIX OUTPUT, computed by running the mutation, not a claim prose can make reliably; asserting it here reintroduces exactly the failure §9.0 exists to end. This table states transitions and their required RESULTS, and stops there.
+
+| # | Transition | Cue in flight on entry | Result |
+|---|---|---|---|
+| S1 | token unchanged, any `open`, any `linkActive` | either | no change |
+| S2 | token A to B, `open` true, `linkActive` true | no | attribute on, element remounts, timer armed |
+| S3 | token A to B, `open` true, `linkActive` true | yes | element remounts so both keyframes restart; nonce bumps; timer re-armed |
+| S4 | token A to B, `open` false | either | `flash` set then cleared in the same render pass; nothing reaches the DOM |
+| S5 | token to null, any `open` | no | no cue; `linkActive` goes false and the block unmounts |
+| S6 | token to null, any `open` | **yes** | cue cancelled by the `!linkActive` arm — round-1 HIGH |
+| S7 | null to token, any `open` | no | no cue (both-non-null guard) |
+| S8 | null to token, any `open` | yes | unreachable once S6 holds; asserted rather than assumed — the plan drives S6 then S8 and proves absence on the remounted block |
+| S9 | `open` true to false | yes | `flash` cleared on the close render |
+| S10 | stale rotation rejected by the epoch gate | either | `token` never changes, so S1 |
+| S11 | unmount with a cue in flight | yes | effect cleanup clears the timer |
+| S12 | **pure unpublish** — `published` true to false, token and epoch UNCHANGED (`supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:2` puts rotation and the epoch bump explicitly out of scope) | **yes** | cue cancelled by the `!linkActive` arm. Without it the block unmounts with `flash` still set |
+| S13 | **republish inside the window** — `published` false to true, token still UNCHANGED | no (S12 cleared it) | block remounts with NO attribute. A cue here would announce a rotation that never happened |
+| S14 | **archive** — `archived` false to true | either | `linkActive` false, and the whole share half is suppressed (`components/admin/showpage/ShareHub.tsx:704`); same arm as S12 |
+| S15 | first mount / remount of `ShareHub` (modal reopened, provider keyed by show id at `app/admin/_showReviewModal.tsx:415`) | n/a — fresh state | `prevToken` seeds to `token`, `flash` starts null: no cue |
+| S16 | `open` false to true with no token change | n/a | nothing set the cue while closed (S4), so no attribute |
+| S17 | timer expiry with the panel still open | yes | attribute removed; `key` unchanged, so NO remount and any text selection survives |
 
 ## §7 Mode boundaries
 
@@ -416,7 +418,7 @@ Four consecutive review rounds have found the same class of defect: **a test row
 
 Round 3 already triggered the comprehensive re-analysis. Round 4 found more of the same vector anyway, which under the project rule means that analysis was incomplete and the response is no longer another pass of prose repairs: **declare the vector unresolved and converge structurally.**
 
-**Root cause.** This spec has been pre-specifying executable test BODIES in prose and then reasoning about whether each would red. That reasoning has now been wrong in four consecutive rounds, and twice the wrongness was introduced BY a repair — round 3's uniqueness rewrite of A13(e) silently dropped the existence half that round 2 had added, and round 3's busy hold for A6 fixed one vacuity while leaving a second. Prose cannot settle "does this assertion fail against that implementation?" Only running it can. A document that keeps asserting it will keep being wrong.
+**Root cause.** This spec has been pre-specifying executable test BODIES in prose and then reasoning about whether each would red. That reasoning has now been wrong in four consecutive rounds, and twice the wrongness was introduced BY a repair — round 3's uniqueness rewrite of the reduced-motion assertion silently dropped the existence half round 2 had added (that gap is now registered as A15), and round 3's busy hold for the unpublish row fixed one vacuity while leaving a second. Prose cannot settle "does this assertion fail against that implementation?" Only running it can. A document that keeps asserting it will keep being wrong.
 
 **The convergence: invert the artifact.** Adversaries are design-level, stable, and verifiable by reading. Test bodies are executable detail, only verifiable by execution. So:
 
@@ -430,7 +432,7 @@ Round 3 already triggered the comprehensive re-analysis. Round 4 found more of t
 
 - Every adversary must be rejected by at least one row. An adversary nothing reds against is a coverage hole, and the fix is a new test, never a note.
 - Every row must reject at least one adversary. A row that rejects nothing is deleted, not kept for reassurance. Two exemptions, declared: the contrast pins and the typecheck gate, which are regression guards rather than red-first rows.
-- The matrix runs against the FINAL assertion set, once, not incrementally per repair. Running it per-repair is precisely how A13(e) regressed — a later narrowing undid an earlier widening and nothing re-checked the whole.
+- The matrix runs against the FINAL assertion set, once, not incrementally per repair. Running it per-repair is precisely how the reduced-motion assertion regressed — a later narrowing undid an earlier widening and nothing re-checked the whole.
 - **Commit before mutating.** Reverting an injected mutation with `git checkout --` discards uncommitted work in that file.
 
 ### §9.1 Adversary register (the contract)
@@ -444,7 +446,7 @@ Round 3 already triggered the comprehensive re-analysis. Round 4 found more of t
 | A5 | bumps on ANY token change, including a null on either side | a transient read fault recovering, or a show regaining eligibility, reads as a rotation and fires a false cue. **This, not the missing null-clear, is the real adversary for the both-non-null guard** — round-4 review showed the null-CLEAR half is redundant, since the visibility predicate already clears whenever `linkActive` goes false. The guard's load-bearing direction is null-to-token, where `linkActive` becomes TRUE and nothing else would suppress the cue |
 | A6 | clears on `!open` alone | a cue survives a busy-deferred unpublish and replays on republish |
 | A7 | clears on token-nullity alone | same leak, reached through the `published` axis instead |
-| A8 | keys the cue on the rotate EVENT rather than on the token changing | a rotation the epoch gate REJECTED still flashes |
+| A8 | keys the cue on the rotate EVENT rather than on the token changing | a rotation the epoch gate rejected — strictly lower epoch, `app/admin/show/[slug]/ShareTokenContext.tsx:47` — still flashes |
 | A9 | omits `key` entirely | the animation never restarts, so a second rotation inside the window is nearly invisible |
 | A10 | uses `key={flash}` | restarts correctly on a change but ALSO remounts at timer expiry, destroying a URL selection made in order to copy by hand |
 | A11 | uses a boolean instead of a nonce | the timer never re-arms; the second cue is cut short at the first deadline |
@@ -460,6 +462,10 @@ Round 3 already triggered the comprehensive re-analysis. Round 4 found more of t
 | A21 | renders a wrong token, or leaves Copy writing a stale one | the admin shares a dead link. Rejected by the exact-value assertions §4 preserves, NOT by any cue row |
 | A22 | retunes `accent-tint`, `accent-edge` or `surface-sunken` below the ring's contrast floor | the cue stops being perceivable |
 | A23 | puts the attribute on the wrapper row rather than the `<code>` | the ring draws around the wrong box |
+| A24 | drops the `!open` arm, clearing on `!linkActive` alone | a cue set while the panel is shut survives to replay on the next open. A6 is its mirror (dropping `!linkActive`); neither covers the other, and round-5 review found only one of the pair registered |
+| A25 | moves the TypeScript constant AND the CSS duration together to some other value | every drift check compares the two against EACH OTHER, so a coordinated move keeps them agreeing while the ratified duration is gone. Rejected by pinning the literal itself — the `DESIGN.md` interaction-constants row and §3.4 both name `1600`, and one of them must be asserted as a value, not as an equality |
+| A26 | keeps the properties and colours but alters the `0%,45%` hold, the `2px` ring width, the endpoint direction (fading IN rather than out), or the easing | the cue paints, so a property-and-colour check passes, while the ratified treatment is not what ships. A13 covers substance; this covers shape |
+| A27 | leaves a steady background wash under reduced motion | the mirror of A19's static ring. R5 rules out any residual paint, not merely residual motion, and a check written only against the ring cannot see a wash |
 
 ### §9.2 Coverage obligations that are design-level, not row-level
 
@@ -486,6 +492,24 @@ These survive here because they constrain WHAT must be measured, not how a row i
 4. a row in the `_metaE2eWorkflowCoverage` registry. That guard "fails by default for NEW dark specs" (`tests/ci/_metaE2eWorkflowCoverage.test.ts:7`) and a path-gated workflow does not count as covered — which is why `tests/e2e/phantomGapHelper.layout.spec.ts` carries a `PATH_GATED` row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:81`. Precedent four commits old on `main`: `be0bf69b3`.
 
 Leaving any one out reproduces `BL-STANDALONE-CONFIG-CI-DARK` — a spec green once at authoring time and never run again.
+
+### §9.4 Completion obligations (the non-cue half of the contract)
+
+The adversary register covers the CUE. It cannot cover the rest of this spec, because the rest is not an implementation with wrong variants — it is a set of deliverables that are either done or not. Round-5 review made the gap concrete: **every adversary could be rejected, the cue could ship perfectly, and the backlog closure could still be incomplete.** So these are contract items in their own right, each verifiable by inspection rather than by mutation:
+
+| # | Obligation | Done when |
+|---|---|---|
+| K1 | `app/admin/show/[slug]/ShareChip.tsx` and `app/admin/show/[slug]/CrewPageLink.tsx` deleted | `rg 'ShareChip\|CrewPageLink' app components tests` returns nothing |
+| K2 | `tests/components/ShareChip.test.tsx` and `tests/components/CrewPageLink.test.tsx` deleted | same sweep |
+| K3 | the integration test renamed, its header comment rewritten, and its exact URL and clipboard assertions preserved (§4) | the file exists under the new name; the preserved assertions are present; `pnpm test` green |
+| K4 | the three stale cross-references updated (`tests/app/admin/rotateShareToken.test.tsx:9`, `tests/app/admin/rotateShareToken.test.tsx:10`, `tests/app/admin/rotateShareToken.test.tsx:73`) | no mention of the old filename or the deleted components survives |
+| K5 | all three backlog items removed from `BACKLOG.md` and archived with their resolutions in `BACKLOG-archive.md` (§5) | the section is gone from `BACKLOG.md`; three archive entries exist |
+| K6 | `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE` filed (§3.8) | the entry exists in `BACKLOG.md` |
+| K7 | `DESIGN.md` gains the constant with its owner, and BOTH false halves of the `DESIGN.md:274` preamble are corrected (§3.7) | the preamble no longer claims single-file ownership, nor that every listed constant paints nothing |
+| K8 | the four §9.3 wiring points all present | the browser spec runs in CI on a PR that touches `app/globals.css`, and `tests/ci/_metaE2eWorkflowCoverage.test.ts` is green |
+| K9 | `screenshots-drift` green on the real PR without rebaselining (§5.1) | the job reports no diff |
+
+K4, K7 and K8 are the ones a "the feature works" reading would miss, which is why they are enumerated rather than left to the plan.
 
 ## §10 Out of scope
 
@@ -586,7 +610,7 @@ Two HIGH, both real design defects the round-1 repairs did not reach:
 1. **The nonce re-armed the timer but never repainted.** A CSS animation does not restart while an already-present attribute stays present, so a second rotation inside the window changed the URL with almost no signal — directly contradicting R7. The draft had called the case unreachable; it is not, because R7 admits remote rotations and nothing spaces two admins 1600ms apart. Fixed with `key={token}` (§3.2), pinned by T12 and conclusively by T16.
 2. **The state model omitted `linkActive`.** `components/admin/showpage/ShareHub.tsx:419` folds `published` and `archived` into the target's presence, and a pure unpublish deliberately does NOT rotate the token or bump the epoch (`supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:2`) — so the block can unmount with the token untouched, stranding a live cue that a republish then replays over an UNCHANGED url. The clear condition now reads target VISIBILITY, `(!open || !linkActive)`, which closes the whole class in one predicate rather than per-cause; rows S12 to S14 and T15 pin it.
 
-The LOW citation finding was the most consequential of the rest: **R6's premise was simply false.** Five workflows do invoke the standalone Playwright config; the true statement is only that it is never run wholesale, so a spec stays dark unless a workflow names it. With a browser spec therefore cheap and precedented, and with the round-2 MEDIUM showing a source scan provably cannot see the cascade, R6 is REVERSED and §9.1 specifies the spec plus its three wiring points.
+The LOW citation finding was the most consequential of the rest: **R6's premise was simply false.** Five workflows do invoke the standalone Playwright config; the true statement is only that it is never run wholesale, so a spec stays dark unless a workflow names it. With a browser spec therefore cheap and precedented, and with the round-2 MEDIUM showing a source scan provably cannot see the cascade, R6 is REVERSED and §9.3 specifies the spec plus its four wiring points.
 
 Also repaired: S11's pin was vacuous (React 19 emits no orphan-timer warning and neither `tests/setup.ts` nor the RTL default enables StrictMode) and became a real `vi.getTimerCount()` assertion, T13; six rows were misclassified RED when they only ever guard against one specific wrong implementation, so §9 gained a GUARD kind and honest per-row labels; T3's named adversary was wrong and is restated; the timer rows admitted an early cutoff and now check at `SHARE_LINK_FLASH_MS - 1`; T8 gained uniqueness and no-override sub-assertions; the §4 rework had quietly dropped the exact URL and clipboard assertions; and the DESIGN.md preamble was false in two ways, not the one the round-1 repair fixed.
 
@@ -600,19 +624,24 @@ Round 3 had already triggered the mandatory comprehensive re-analysis. Round 4 f
 
 Also repaired from round 4: the browser spec must sample `boxShadow` as well as `backgroundColor` and must render ShareHub's production ancestry (a bare node cannot see an ancestor-qualified override) — both now obligations A18, A19 and §9.2; the workflow filter gained `pnpm-workspace.yaml` and `tsconfig.json` (`.github/workflows/phantom-gap-e2e.yml:84-85`); and three citation line numbers drifted.
 
+**Round-5 adversarial review.** NEEDS-ATTENTION, five findings, all verified true. **The vector finally MOVED**: none of the five was a vacuous test. Every one was about the newly-introduced register's own completeness or internal consistency, which is what the inversion was for — the class that ran rounds 1 through 4 is closed.
+
+Repairs: four wrong implementations were unregistered and are now A24 to A27 — dropping the `!open` arm (A6's mirror, and only one of the pair had been registered), moving the TypeScript constant and the CSS duration TOGETHER so every equality check still passes while the ratified value is gone, altering the hold stop, ring width, endpoint direction or easing while keeping properties and colours, and leaving a steady WASH under reduced motion (A19's mirror). §6.1's "rejects adversary" column is DELETED: five of its cells were behaviourally wrong, because that column was mechanically remapped from retired row names, and asserting rejection in prose is exactly what §9.0 exists to stop — rejection is matrix output. New §9.4 registers the nine completion obligations the cue-focused register structurally could not cover; the reviewer's framing was that every adversary could be rejected and the backlog closure still be incomplete. The stale-epoch claim was overstated: the gate is `epoch >= held` (`app/admin/show/[slug]/ShareTokenContext.tsx:47`), so an EQUAL epoch carrying a new token is accepted and correctly cues; only a strictly lower one is rejected. Finally the inversion had left stale cross-references — §9.1 versus §9.3 for the browser spec, a "every state row has a test" claim, and bogus sub-lettered adversary IDs the mechanical remap invented.
+
 **Numeric sweep.** Literals in this document and where each is single-sourced:
 
-- `1600` / `1.6` — the cue duration. §3.2 (`SHARE_LINK_FLASH_MS`), §3.4 CSS twice, §3.5, §8, A2, A13(d), A11, §9.1. Single-sourced by A13(d)'s equality pin against the exported constant; A17 checks the resolved `1.6s`.
-- `1599` — expressed in the spec as `SHARE_LINK_FLASH_MS - 1`, never as a literal, so it cannot drift.
-- `800` — A9 and A11, the interval between two changes, chosen strictly inside the window.
-- `0%`, `45%`, `100%` — keyframe stops. §3.4 and A13(b); the pair must move together and A13(b) is what forces that.
-- `2px` — ring width. §3.4 and A13(c).
-- `3` and `4.5` — the WCAG non-text and AA floors, §3.7 and A22.
+- `1600` / `1.6` — the cue duration. §3.2 (`SHARE_LINK_FLASH_MS`), §3.4 CSS twice, §3.5, §8, §9.3. Adversaries A3, A14 and A25 together pin it: A3 and A14 force the TypeScript and the CSS to agree, A25 forces the agreed value to be this one rather than any other.
+- `1599` — never written as a literal; the spec expresses it as `SHARE_LINK_FLASH_MS - 1`, so it cannot drift.
+- `800` — §3.2, the illustrative interval between two changes inside the window.
+- `0%`, `45%`, `100%` — keyframe stops, §3.4 only. A13 rejects a body that drops the properties; A26 one that keeps them but moves the stops.
+- `2px` — ring width, §3.4 only; A26.
+- `3` and `4.5` — the WCAG non-text and AA floors, §3.7 and §9.2 item 5.
 - `308` — panel width, §2.1, matching `components/admin/showpage/ShareHub.tsx:699`.
 - `64` — share-token length, §1, matching `supabase/migrations/20260523000002_show_share_tokens.sql:41`.
-- `5` — the uncovered contrast pairs, §3.7 and A22.
+- `5` — the uncovered contrast pairs, §3.7 and §9.2 item 5.
+- `4` — the wiring points, §9.3.
 - Contrast ratios (16.88, 14.66, 8.84, 8.42, 8.03, 7.59, 7.41, 9.65) — computed output, stated once in §3.7's table.
-- Row and state counts: §3.5 has two RENDERED states, therefore one pair; §6.1 enumerates seventeen TRANSITIONS, a different axis.
+- Counts on three different axes, deliberately not reconciled: §3.5 has two RENDERED states, therefore one pair; §6.1 enumerates seventeen TRANSITIONS; §9.1 registers twenty-seven ADVERSARIES.
 
 The draft's version of this sweep claimed `45%` and `2px` appeared only in §3.4 while A13 repeated both, and omitted `0%`, `100%` and the contrast literals while claiming to enumerate everything (round-2 review, LOW).
 
