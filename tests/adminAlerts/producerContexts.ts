@@ -43,7 +43,7 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
     showId: SHOW_ID,
     context: { email: "shared@gmail.com", crew_member_ids: [CREW_ID, OTHER_SHOW_CREW_ID] },
   },
-  // 2. app/auth/callback/route.ts:134-142
+  // 2. app/auth/callback/route.ts:146-154
   {
     code: "OAUTH_IDENTITY_CLAIMED",
     showId: SHOW_ID,
@@ -54,7 +54,7 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
       user_email: "jane@gmail.com",
     },
   },
-  // 3. app/api/auth/picker-bootstrap/route.ts:95-104 (§5b: show_id lives in context, row stays null-scoped)
+  // 3. app/api/auth/picker-bootstrap/route.ts:96-105 (§5b: show_id lives in context, row stays null-scoped)
   {
     code: "PICKER_BOOTSTRAP_RPC_FAILED",
     showId: null,
@@ -66,7 +66,7 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
       route: "picker-bootstrap",
     },
   },
-  // 4. app/api/auth/picker-bootstrap/route.ts:72-82 — global (no resolvable show)
+  // 4. app/api/auth/picker-bootstrap/route.ts:73-83 — global (no resolvable show)
   {
     code: "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
     showId: null,
@@ -78,7 +78,7 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
       route: "picker-bootstrap",
     },
   },
-  // 5. app/auth/callback/route.ts:161-166 — global
+  // 5. app/auth/callback/route.ts:173-178 — global
   { code: "CALLBACK_CLAIM_THREW", showId: null, context: { error_name: "TypeError" } },
   // 6. lib/auth/picker/cleanupStaleEntry.ts:105-113
   {

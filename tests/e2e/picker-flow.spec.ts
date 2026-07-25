@@ -8,10 +8,12 @@
  *     rows via the service-role client so the tokenized URL resolves through
  *     `resolve_show_by_slug_and_token`. Each test seeds a UNIQUE show
  *     (random drive_file_id + slug) so single-worker runs don't collide.
- *   - seedPickerCookie  — signs a `__Host-fxav_picker` envelope with the SAME
- *     PICKER_COOKIE_SIGNING_KEY the server uses and writes it via
- *     context.addCookies so a staged selection (fresh / stale / mismatched)
- *     is observable.
+ *   - seedPickerCookie  — NO LONGER USED BY THIS SPEC (2026-07-25). It injects a
+ *     signed `__Host-fxav_picker` envelope via context.addCookies, which
+ *     Chromium's CDP rejects outright for a `__Host-` cookie ("Invalid cookie
+ *     fields") and which WebKit accepts but then will not let the server
+ *     overwrite. Staged selections are now made by DRIVING the picker, so the
+ *     server mints the envelope itself. The helper remains for other specs.
  *   - claimStamp        — sets `crew_members.claimed_via_oauth_at` directly
  *     (the column lives on crew_members; the retired M9.5 per-crew auth table
  *     was dropped in 20260523000099_cutover_drop_m9_5.sql) so the
@@ -36,14 +38,38 @@ import { test, expect } from "@playwright/test";
 import { NON_ADMIN_CREW_FIXTURE, ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs } from "./helpers/signInAs";
 import { seedShowWithCrew, type SeededShow } from "./helpers/seedShowWithCrew";
-import { seedPickerCookie } from "./helpers/seedPickerCookie";
 import { claimStamp } from "./helpers/claimStamp";
 import { admin } from "./helpers/supabaseAdmin";
+import { isSupabaseAuthCookieName } from "@/lib/auth/supabaseAuthCookieNames";
 
-// Canonical mobile-safari baseURL (playwright.config.ts). Overridable via
+// Canonical desktop-chromium baseURL (playwright.config.ts). Overridable via
 // PICKER_E2E_BASE_URL for a focused local run against a hand-started dev server
 // on a non-default port; CI always uses the default.
 const BASE_URL = process.env.PICKER_E2E_BASE_URL ?? "http://127.0.0.1:3000";
+
+/**
+ * Timeout for a render that follows a Server Action round trip.
+ *
+ * Tapping a roster row runs `selectIdentity` on the server, sets the picker
+ * cookie, and re-renders the route as `resolved` — a full POST plus RSC render,
+ * which on a cold runner (prod build, first hit of the route, Supabase in
+ * Docker) does not fit Playwright's 5s default.
+ *
+ * A longer wait was FIRST added here for the wrong reason. The guest case was
+ * failing in CI and passing locally, that read as cold-runner latency, and 30s
+ * did not fix it: the element was never going to appear, because
+ * `selectIdentity` revalidated a PATH while the picker is reached at
+ * `?gate=skip`, so the query variant was re-served and the tap changed nothing
+ * until a reload. The real fix is the redirect in `_PickerInterstitial`'s form
+ * action; see the comment there. The lesson worth keeping: local runs `pnpm
+ * dev` and CI runs `pnpm build && pnpm start` (playwright.config.ts), so a
+ * green local run proves nothing about CI for this suite — reproduce with
+ * `CI=1`.
+ *
+ * The named wait stays because the round trip is genuinely slow on a cold
+ * runner, but it is a latency allowance and nothing more.
+ */
+const AFTER_SERVER_ACTION = { timeout: 30_000 } as const;
 
 // admin-show-modal: the per-show surface is the /admin?show= review modal. The
 // Suspense SKELETON shares the shell testIdBase, and both frames transiently
@@ -72,16 +98,13 @@ test("slug-only show URL returns 404 (R35; relies only on C1 route move)", async
   expect(res?.status()).toBe(404);
 });
 
-// SKIP: app-behavior blocker, not a helper/config gap. The authed leg redirects
-// through /api/auth/picker-bootstrap, whose NextResponse.redirect(new URL(path,
-// request.url)) canonicalizes the host 127.0.0.1 -> localhost (request.url
-// reports `localhost` even under `pnpm start -H 127.0.0.1`; NEXT_PUBLIC_SITE_ORIGIN
-// does not influence it). That host flip drops the 127.0.0.1-scoped Supabase auth
-// cookie, so the revisit resolves to Mode A instead of needs_picker_bootstrap and
-// crew-shell never renders. Verified reproducing under both `pnpm dev` and
-// `pnpm build && pnpm start`. Enable once the bootstrap redirect emits a
-// host-relative Location (app fix in app/api/auth/picker-bootstrap/route.ts).
-test.skip("first-contact gate -> tap 'Sign in with Google' -> OAuth happy path -> show body renders", async ({
+// NOT the real OAuth round trip: after asserting the Mode A gate and its CTA
+// href, this authenticates through the test-auth endpoint (signInAs) and revisits.
+// What it proves is the picker BOOTSTRAP leg — a Google session that matches a
+// crew row, with no cookie entry yet, redirecting through
+// /api/auth/picker-bootstrap and rendering the resolved crew shell. That is the
+// leg the host-flip fix unblocked. The provider handshake itself is not covered.
+test("first-contact gate -> sign-in CTA href -> authed revisit bootstraps and renders the show body", async ({
   browser,
 }) => {
   const show = track(
@@ -122,7 +145,9 @@ test.skip("first-contact gate -> tap 'Sign in with Google' -> OAuth happy path -
     const authed = await authedCtx.newPage();
     await signInAs(authed, NON_ADMIN_CREW_FIXTURE, { baseUrl: BASE_URL });
     await authed.goto(url, { waitUntil: "networkidle" });
-    await expect(authed.getByTestId("crew-shell")).toBeVisible();
+    // Same cold-runner exposure: this render follows the picker-bootstrap redirect
+    // and its claim RPC.
+    await expect(authed.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
     const chip = authed.getByTestId("identity-chip");
     await expect(chip).toBeVisible();
     await expect(chip).toContainText("Alice Cooper");
@@ -168,16 +193,7 @@ test("Mode B shared-device: Google session matches no crew row -> 'Signed in as 
   }
 });
 
-// SKIP: app-behavior blocker. "Continue as guest" (clearIdentityAndSkip) clears
-// the stale picker entry, but the browser STILL carries the authed non-roster
-// Google session, so the post-action resolve is reason: 'google_mismatch' (NOT
-// 'first_contact'); page.tsx honors ?gate=skip only for 'first_contact', so the
-// Mode B mismatch gate re-renders and picker-interstitial-root never mounts.
-// Confirmed by direct repro: after the guest click the page stays on the Mode B
-// gate (mismatch header still visible), not the picker. Enable once the gate
-// semantics let a present-but-cleared session reach the picker via ?gate=skip
-// (app decision in app/show/[slug]/[shareToken]/page.tsx + clearIdentityAndSkip).
-test.skip("Mode B 'Continue as guest' atomically clears the stale entry and lands on the picker", async ({
+test("Mode B 'Continue as guest' atomically clears the stale entry and lands on the picker", async ({
   browser,
 }) => {
   const showA = track(
@@ -190,55 +206,110 @@ test.skip("Mode B 'Continue as guest' atomically clears the stale entry and land
   );
   const urlA = `/show/${showA.slug}/${showA.shareToken}`;
   const aliceId = showA.crew.find((c) => c.name === "Alice Cooper")!.id;
+  // Bob is unclaimed, so tapping his row selects an identity rather than routing
+  // through OAuth recovery — that is what makes the durability leg possible.
+  const bobId = showA.crew.find((c) => c.name === "Bob Marley")!.id;
 
   const ctx = await browser.newContext({ baseURL: BASE_URL });
   try {
     const page = await ctx.newPage();
-    // Mode B premise: the signed-in non-admin fixture is not on show A's roster.
-    await signInAs(page, NON_ADMIN_CREW_FIXTURE, { baseUrl: BASE_URL });
-    // Stage a stale picker entry referencing Alice (a mismatched identity).
-    await seedPickerCookie(
-      ctx,
-      [{ showId: showA.showId, crewMemberId: aliceId, epoch: showA.pickerEpoch }],
-      { url: BASE_URL },
+
+    // Stage the stale entry by DRIVING the real selection, not by injecting the
+    // cookie. seedPickerCookie cannot be used here: the envelope is `__Host-`
+    // prefixed and `Secure`, and over plain http neither browser can round-trip
+    // it both ways — Chromium's CDP rejects addCookies for a `__Host-` cookie
+    // outright ("Invalid cookie fields"), while WebKit accepts the injection but
+    // then refuses to store the server's own Set-Cookie, so a correct
+    // implementation looks broken. Driving the picker makes the SERVER mint the
+    // entry, which is both closer to the real chain and harness-proof.
+    await page.goto(`${urlA}?gate=skip`, { waitUntil: "networkidle" });
+    await expect(page.getByTestId("picker-interstitial-root")).toBeVisible();
+    await page
+      .locator(`[data-testid="picker-roster-row"][data-crew-member-id="${aliceId}"]`)
+      .click();
+    await expect(page.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
+    await expect(page.getByTestId("identity-chip")).toContainText(
+      "Alice Cooper",
+      AFTER_SERVER_ACTION,
     );
+
+    // Mode B premise: now sign in as the fixture that is NOT on show A's roster,
+    // so the browser carries Alice's picker entry AND a non-roster Google session.
+    await signInAs(page, NON_ADMIN_CREW_FIXTURE, { baseUrl: BASE_URL });
 
     await page.goto(urlA, { waitUntil: "networkidle" });
     // Mode B gate renders; "Continue as guest" is the clearIdentityAndSkip form.
     await expect(page.getByTestId("sign-in-or-skip-gate-mismatch-header")).toBeVisible();
+
+    // Capture the action's own response: its Set-Cookie headers are the ONLY
+    // reliable oracle for the cookie contract here. See the note below the click.
+    const actionResponse = page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url().includes(`/show/${showA.slug}/`),
+    );
     await page.getByTestId("sign-in-or-skip-gate-continue-as-guest-cta").click();
+    // headersArray(), not headers(): Chromium omits set-cookie from the plain
+    // headers object, and repeated set-cookie headers only survive as an array.
+    const setCookie = (await (await actionResponse).headersArray())
+      .filter((h) => h.name.toLowerCase() === "set-cookie")
+      .map((h) => h.value)
+      .join("\n");
 
     // The action clears the stale entry and redirects to ?gate=skip -> picker.
     await page.waitForURL(/\/show\/.+\/.+\?gate=skip/);
     await expect(page.getByTestId("picker-interstitial-root")).toBeVisible();
 
-    // The picker cookie no longer contains Alice's entry for this show.
-    const cookies = await ctx.cookies(BASE_URL);
-    const pickerCookie = cookies.find((c) => c.name === "__Host-fxav_picker");
-    // clearIdentityAndSkip strips the show's entry; the cookie is either cleared
-    // or re-signed without showA's selection. Either way Alice must be gone.
-    if (pickerCookie && pickerCookie.value) {
-      const payload = pickerCookie.value.split(".")[0]!;
-      const decoded = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(
-        "utf8",
-      );
-      expect(decoded).not.toContain(aliceId);
-      expect(decoded).not.toContain(showA.showId);
-    }
+    // Assert the cookie contract from the RESPONSE, not from the browser jar.
+    //
+    // Why: the picker cookie is `__Host-`-prefixed and `Secure`, and over plain
+    // http the browser jar is not a trustworthy oracle for it. Measured with a
+    // Playwright trace while this suite still ran under WebKit: the action
+    // emitted `__Host-fxav_picker=; Max-Age=0` and the app stopped honoring the
+    // entry (the picker rendered, which happens only when the resolver sees no
+    // selection AND no Google session) — yet ctx.cookies() still reported a
+    // ghost entry, so asserting the jar failed on a CORRECT implementation.
+    // The suite now runs under desktop-chromium (see playwright.config.ts) and
+    // stages state by driving the picker rather than injecting a cookie, but the
+    // response remains the precise oracle for what the server actually sent.
+    //
+    // Alice's entry cleared, and the whole envelope dropped since it held only
+    // this show:
+    expect(setCookie).toContain("__Host-fxav_picker=;");
+    expect(setCookie).toContain("Max-Age=0");
+    // The sign-out contract: scope "local" ends THIS browser's session only, so a
+    // colleague's other devices keep theirs, but this one's auth cookie is gone.
+    const clearedNames = setCookie
+      .split("\n")
+      .map((line) => line.split("=")[0]!.trim())
+      .filter((name) => isSupabaseAuthCookieName(name));
+    expect(clearedNames.length).toBeGreaterThan(0);
+
+    // Reaching the picker once is what the REJECTED design also achieved (spec
+    // §4.2), so the durable property is what this proves: pick the unclaimed
+    // row, land on the show body...
+    const bobRow = page.locator(
+      `[data-testid="picker-roster-row"][data-crew-member-id="${bobId}"]`,
+    );
+    await bobRow.click();
+    await expect(page.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
+    await expect(page.getByTestId("identity-chip")).toContainText(
+      "Bob Marley",
+      AFTER_SERVER_ACTION,
+    );
+
+    // ...and survive a reload carrying NO ?gate=skip. A one-request-only fix
+    // fails here, which is the whole point.
+    await page.goto(urlA, { waitUntil: "networkidle" });
+    await expect(page.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
+    await expect(page.getByTestId("identity-chip")).toContainText(
+      "Bob Marley",
+      AFTER_SERVER_ACTION,
+    );
   } finally {
     await ctx.close();
   }
 });
 
-// SKIP: app-behavior blocker. The claimed-row recovery control is
-// <form action="/auth/sign-in?next=<encoded>" method="GET"> with NO hidden
-// inputs (_PickerInterstitial.tsx:154). On a GET submit the browser DISCARDS the
-// action URL's query string and rebuilds it from the (empty) form fields, so the
-// navigation lands on bare /auth/sign-in with no ?next=. waitForURL(/auth/sign-in
-// \?next=/) therefore never matches (final page snapshot is /auth/sign-in with no
-// next). Enable once the claimed-row form carries `next` as a hidden input rather
-// than in the action query (app fix in _PickerInterstitial.tsx).
-test.skip("Deactivated row: tapping a claimed crew member redirects through /auth/sign-in", async ({
+test("Deactivated row: tapping a claimed crew member redirects through /auth/sign-in", async ({
   browser,
 }) => {
   const show = track(

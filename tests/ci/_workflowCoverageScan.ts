@@ -9,7 +9,8 @@
  * An invocation COUNTS only when ALL hold:
  *   - the workflow declares a `pull_request` trigger (workflow_dispatch-only
  *     and push-only are post-merge/manual discovery, not a PR gate);
- *   - the workflow has NO `pull_request.paths` filter (an enumerated filter
+ *   - the workflow has NO `pull_request.paths` or `paths-ignore` filter (either form
+ *     is a filter: the job does not run on every PR. An enumerated filter
  *     that fires on the spec file but not on production dependencies is the
  *     documented dark-path hole — spec R12-R16);
  *   - neither the job head nor the RUN STEP itself carries `if:` or
@@ -97,7 +98,11 @@ export function scanWorkflowCoverage({ workflows, packageScripts }: Opts): {
     const on = onBlock(yaml);
     const pr = pullRequestBlock(on);
     const hasPr = pr !== null || /(^|\n)on\s*:\s*\[[^\]\n]*pull_request/.test(yaml);
-    const hasPathsFilter = pr !== null && /(^|\n)\s*paths\s*:/.test(pr);
+    // `paths-ignore` is a path filter too. Matching only `paths:` mis-classified an
+    // exclusion-filtered workflow as PR-blocking-capable, which would silently mark
+    // its specs "covered" even though the job does not run on every PR (found while
+    // reviewing fix/picker-flow-app-bugs, where crew-e2e.yml moved to paths-ignore).
+    const hasPathsFilter = pr !== null && /(^|\n)\s*paths(-ignore)?\s*:/.test(pr);
 
     for (const job of jobs(yaml)) {
       const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
@@ -111,7 +116,7 @@ export function scanWorkflowCoverage({ workflows, packageScripts }: Opts): {
         for (const spec of resolveSpecs(cmd)) {
           if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
           else if (hasPathsFilter)
-            rejected.push({ file, spec, reason: "pull_request.paths filter" });
+            rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
           else if (jobIf || stepIf) rejected.push({ file, spec, reason: "if: condition present" });
           else if (jobCoe || stepCoe) rejected.push({ file, spec, reason: "continue-on-error" });
           else if (SUPPRESS_RE.test(cmd))
