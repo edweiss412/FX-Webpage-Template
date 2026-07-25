@@ -1457,7 +1457,28 @@ describe("R6: scanner changes are pinned", () => {
         `const A=()=><a href="x" target="_blank">Go<span ${n}="v"><NewTabHint /></span></a>;`;
       const onWrapperOk = (n: string): string =>
         `const A=()=><a href="x" target="_blank">Go <span ${n}="v"><NewTabHint /></span></a>;`;
-      for (const build of [onAnchorBad, onAnchorOk, onWrapperBad, onWrapperOk]) {
+      // DEPTH. The hidden/aria-hidden check walks every ancestor up to the anchor
+      // (`_newTabScan.ts:416`), so a one-level wrapper does not exercise depth >= 2. A read that
+      // only fires on a deeper ancestor would pass a shallow-only sweep -- and "the walk uses the
+      // same helper at every level" is an assumption about the implementation, which is exactly
+      // what a behavioural check must not rely on.
+      //
+      // Stated honestly: this pair is NOT independently mutation-provable today, because the walk
+      // IS uniform, so every mutation that the deep base catches the one-level base also catches.
+      // It is here so that a future non-uniform walk cannot evade the sweep, not because a current
+      // defect requires it. Recorded rather than implied, so nobody later reads it as proven.
+      const onDeepBad = (n: string): string =>
+        `const A=()=><a href="x" target="_blank">Go<span><span ${n}="v"><NewTabHint /></span></span></a>;`;
+      const onDeepOk = (n: string): string =>
+        `const A=()=><a href="x" target="_blank">Go <span><span ${n}="v"><NewTabHint /></span></span></a>;`;
+      for (const build of [
+        onAnchorBad,
+        onAnchorOk,
+        onWrapperBad,
+        onWrapperOk,
+        onDeepBad,
+        onDeepOk,
+      ]) {
         const base = violations(build(name)).join(" | ");
         for (const alt of [name.toUpperCase(), name[0]!.toUpperCase() + name.slice(1)]) {
           expect(
