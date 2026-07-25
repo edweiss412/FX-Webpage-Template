@@ -12,11 +12,15 @@ Per `docs/agents/writing-plans.md` ("Pre-draft code-verification pass"), every f
 
 | Claim | Verified |
 | --- | --- |
-| Five `request.url`-derived redirect expressions | `app/api/auth/picker-bootstrap/route.ts:188`, `app/api/auth/picker-bootstrap/route.ts:210`, `app/auth/callback/route.ts:16`, `app/auth/callback/route.ts:31`, `app/auth/sign-out/route.ts:132` |
-| Redirect-wrapper names are asserted by the auth audit | `lib/audit/authChain.ts:130` matches `redirect`, `redirectTo`, `signInRedirect`; `lib/audit/authChain.ts:170` greps the sign-out POST body for `PICKER_COOKIE_NAME` and `Max-Age=0` |
+| Six `request.url`-derived redirect expressions | `app/api/auth/picker-bootstrap/route.ts:188`, `app/api/auth/picker-bootstrap/route.ts:210`, `app/auth/callback/route.ts:16`, `app/auth/callback/route.ts:31`, `app/auth/sign-out/route.ts:132`, `app/api/auth/google/start/route.ts:8` (built) with `app/api/auth/google/start/route.ts:11` (redirected). Only `app/api/auth/google/start/route.ts:65` is external |
+| The `authChain` redirect-ordering audit is **dead code** | `auditM5AuthFile` (`lib/audit/authChain.ts:177`) has no callers; the live X.3 audit is `auditProjectAuthChains` (`lib/audit/authPrimitives.ts:815`), which carries no redirect-ordering or cookie-literal rule. Wrapper names are kept for minimal diff, not for gate compliance |
 | `clearIdentityAndSkip` shape | `lib/auth/picker/clearIdentity.ts:55`, redirect at `lib/auth/picker/clearIdentity.ts:61`, `clearIdentityCore` at `lib/auth/picker/clearIdentity.ts:64`, the `PICKER_IDENTITY_CLEARED` emit at `lib/auth/picker/clearIdentity.ts:114`, and the `// no-telemetry:` comment at `lib/auth/picker/clearIdentity.ts:56` |
-| `clearIdentity` (non-skip) has no app callers | grep over `app/` and `lib/` returns only its definition and a doc mention at `lib/crew/resolveActiveSection.ts:9` |
+| `clearIdentity` (non-skip) has exactly one caller | `components/auth/IdentityChip.tsx:23` — the identity chip's "not me" control. It must **not** gain sign-out |
 | `createSupabaseServerClient` throws on missing env | `lib/supabase/server.ts:41-45` |
+| `signOut` defaults to global scope | installed `@supabase/auth-js` 2.105.1, GoTrueClient.js line 3176: `async signOut(options = { scope: 'global' })`. The guest path must pass `{ scope: "local" }` |
+| Same-origin gate precedent for a destructive handler | `app/auth/sign-out/route.ts:78-87` |
+| Input validation currently sits downstream of the destructive step | regexes at `lib/auth/picker/clearIdentity.ts:74-80`, inside `clearIdentityCoreImpl` |
+| `/auth/sign-in` reads and validates `next` | `app/auth/sign-in/page.tsx:71-72` (line 52 is only the type member) |
 | Invariant-9 walker covers `lib/auth` | `tests/auth/_metaInfraContract.test.ts:337`; registry array at `tests/auth/_metaInfraContract.test.ts:219-232`; constructor-inside-`try` scan at `tests/auth/_metaInfraContract.test.ts:242` |
 | Existing test harness for `clearIdentity` | `tests/auth/picker/clearIdentity.test.ts:15-31` mocks `next/cache`, `next/navigation` (redirect throws a `NEXT_REDIRECT` digest), `next/headers`, and `@/lib/log` via `vi.hoisted` |
 | Claimed-row form | `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:88` builds the URL, and `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:156` is its only consumer |
@@ -62,26 +66,26 @@ Assertions, each with the failure mode it catches:
 | `Location` for `"/show/a/b?s=budget&gate=skip"` is byte-identical | Query loss, which would silently drop the section deep-link |
 | Response body is empty and `Location` is the only header asserted | A helper that leaks a body into a redirect |
 | Each of `undefined`, `null`, the empty string, a bare `foo`, a protocol-relative path, an absolute `https` URL, a backslash-bearing path, and a control-character-bearing path throws `InvalidRelativeRedirectPathError` | Open redirect via protocol-relative or absolute path; a guard that only checks the first character |
+| Status `null`, `NaN`, `302.5`, `200`, and `404` each throw; `300` and `399` are accepted | A `??` default that turns `null` into 302, and a non-redirect status emitted with a `Location` header, which has no redirect semantics |
 
 **Implementation:** the new file lib/http/hostRelativeRedirect.ts per spec §3.2. The guard runs before any response is constructed.
 
 **Gate:** `pnpm vitest run tests/lib/hostRelativeRedirect.test.ts`, `pnpm typecheck`.
 **Commit:** `feat(infra): add a host-relative redirect helper`
 
-### Task 2 — apply the helper to all five sites, plus the structural guard
+### Task 2 — apply the helper to all six sites, plus the structural guard
 
 **Test first:** the new file tests/cross-cutting/no-absolute-self-redirect.test.ts, written to fail against the current tree (it will report all five sites before the fix).
 
-The walker: recursively read every `.ts` and `.tsx` under `app/`, and for each file flag
+The detector is an exported pure function so it can be tested directly, and the test has the three layers spec §3.4 requires:
 
-1. any `NextResponse.redirect(` whose argument text contains `new URL(` together with `request.url` or `req.url`, and
-2. any `NextResponse.redirect(<ident>` where `<ident>` is assigned from `new URL(..., request.url)` or `new URL(..., req.url)` earlier in the same file (covers site 5's variable form).
+1. **Fixtures per form.** Synthetic sources: inline `NextResponse.redirect(new URL(p, request.url))`; variable-assigned `const url = new URL(p, request.url); return NextResponse.redirect(url)`; the `req.url` spelling of each. Three negatives that must NOT flag: `NextResponse.redirect(data.url)`, a `new URL` with an absolute base, and a `new URL(..., request.url)` never passed to a redirect.
+2. **Tree walk.** The same detector over every `.ts` and `.tsx` under `app/`; flagged list must be empty. This is what fails before the fix and after any revert.
+3. **Coverage floor.** The walk visited more than 50 files.
 
-It asserts the flagged list is empty **and** that the walk visited more than 50 files, so a broken glob cannot pass vacuously.
+**Implementation:** rewrite the six expressions per spec §3.3. `redirectTo` and both `signInRedirect` helpers keep their names, signatures, and positions; each `signInRedirect` switches to `URLSearchParams`. `app/auth/sign-out/route.ts` changes line 132 only.
 
-**Implementation:** rewrite the five expressions per spec §3.3. `redirectTo` and `signInRedirect` keep their names, signatures, and positions; `signInRedirect` switches to `URLSearchParams`. `app/auth/sign-out/route.ts` changes line 132 only.
-
-**Gate:** the new guard test; `pnpm test:audit:x3-trust-domain` (proves `lib/audit/authChain.ts` still sees the wrapper names and the sign-out POST literals — the specific regression this task risks); `pnpm vitest run tests/api tests/auth`; `pnpm typecheck`.
+**Gate:** the new guard test; `pnpm test:audit:x3-trust-domain`; `pnpm vitest run tests/api tests/auth`; `pnpm typecheck`. Note the x3 gate does **not** cover the redirect-ordering expectation in `lib/audit/authChain.ts` — that function is unreferenced (spec §3.3), so the wrapper names are preserved by discipline, and this task's own diff review is what enforces it.
 **Commit:** `fix(auth): emit host-relative redirects so the auth cookie survives`
 
 ### Task 3 — shared Supabase auth-cookie matcher
@@ -95,18 +99,21 @@ It asserts the flagged list is empty **and** that the walk visited more than 50 
 
 ### Task 4 — "Continue as guest" signs out
 
-**Test first:** extend `tests/auth/picker/clearIdentity.test.ts`, adding a `@/lib/supabase/server` mock alongside the existing four mocks (`tests/auth/picker/clearIdentity.test.ts:15-31`).
+**Test first:** extend `tests/auth/picker/clearIdentity.test.ts`, adding mocks for `@/lib/supabase/server` and `next/headers`'s `headers()` alongside the existing four (`tests/auth/picker/clearIdentity.test.ts:15-31`).
 
 | Assertion | Catches |
 | --- | --- |
-| A single shared `calls: string[]` array records `"signOut"` and `"cookieSet"` in that order; the assertion is `expect(calls.indexOf("signOut")).toBeLessThan(calls.indexOf("cookieSet"))` | A correct-calls, wrong-order implementation — the ordering is the atomicity contract, so "both were called" is not enough |
-| Every cookie whose name satisfies `isSupabaseAuthCookieName` is set with `maxAge: 0`; `__Host-fxav_picker` is not cleared by that sweep | A sweep that misses a shard, or one that eats the picker cookie |
-| Happy path still throws the `NEXT_REDIRECT` digest carrying `?gate=skip` | Losing the redirect, which would leave the user on a blank action response |
-| `signOut` returning `{ error }` → result is `{ ok: false, code: "AUTH_SIGNOUT_FAILED" }`, `log.error` emitted with that `code`, **no** `NEXT_REDIRECT` thrown, and the picker cookie untouched | A failure that still redirects, which loops the user back to Mode B with state half-applied |
-| `createSupabaseServerClient` **throwing** → same result and same emit | Handling only the returned-error path, so a misconfigured environment loops |
-| `clearIdentity` (non-skip) never constructs a Supabase client | Scope creep into the non-guest path |
+| A shared `calls: string[]` records `"cookieSet"` and `"signOut"`, asserted as `calls.indexOf("cookieSet") < calls.indexOf("signOut")` | The reversed order, which on a picker-clear failure strands a live foreign session beside a stale picker identity and exposes it on the next render |
+| `signOut` is called with exactly `{ scope: "local" }` | The library default `{ scope: 'global' }`, which revokes a colleague's sessions on all their devices |
+| A malformed slug, share-token, or show-id returns `PICKER_INVALID_INPUT` and the `createSupabaseServerClient` mock has **zero** calls | Validation left downstream, so a malformed direct submission signs the person out and only then reports the error |
+| A cross-site header shape (`sec-fetch-site: cross-site`, and separately a mismatched `origin` with no `sec-fetch-site`) returns `PICKER_INVALID_INPUT` with zero client constructions | UI reachability treated as authorization for a destructive exported action |
+| A `clearIdentityCore` infra failure returns before any sign-out attempt | A picker-clear failure that still destroys the session |
+| Every cookie satisfying `isSupabaseAuthCookieName` is set with `maxAge: 0`; `__Host-fxav_picker` is not cleared by that sweep | A sweep that misses a shard, or one that eats the picker cookie |
+| Happy path throws the `NEXT_REDIRECT` digest carrying `?gate=skip` | Losing the redirect, leaving the person on a blank action response |
+| Each of: `signOut` returning `{ error }`, `createSupabaseServerClient` throwing, and the cookie sweep throwing returns `{ ok: false, code: "AUTH_SIGNOUT_FAILED" }`, emits that code, and throws **no** `NEXT_REDIRECT` | A failure that still redirects and loops the person back to Mode B; handling only one of three real failure shapes |
+| `clearIdentity` (non-skip) never constructs a Supabase client | Scope creep into the identity-chip "not me" path (`components/auth/IdentityChip.tsx:23`) |
 
-**Implementation:** spec §4.3 — sign-out first inside one `try`/`catch` that also destructures `{ error }`, then `clearIdentityCore`, then redirect. Replace the `// no-telemetry:` comment at `lib/auth/picker/clearIdentity.ts:56` with the code-carrying emit. Add a `lib/auth/picker/clearIdentity.ts` row to `SUPABASE_CONSTRUCTOR_CONTRACT_FILES` (`tests/auth/_metaInfraContract.test.ts:219-232`) **in this commit**.
+**Implementation:** spec §4.3, in its five numbered steps — validate, same-origin gate, picker clear, device-local sign-out, redirect. Hoist the slug/token/uuid regexes at `lib/auth/picker/clearIdentity.ts:74-80` into a shared exported predicate used by both `clearIdentityAndSkip` and `clearIdentityCoreImpl` so the two cannot drift. Keep the `// no-telemetry:` comment at `lib/auth/picker/clearIdentity.ts:56` and add the code-carrying `log.error`. Add a `lib/auth/picker/clearIdentity.ts` row to `SUPABASE_CONSTRUCTOR_CONTRACT_FILES` (`tests/auth/_metaInfraContract.test.ts:219-232`) **in this commit**.
 
 **Gate:** the extended test; `pnpm vitest run tests/auth tests/log`; `pnpm test:audit:x3-trust-domain`; `pnpm typecheck`.
 **Commit:** `fix(auth): sign the device out when crew continue as guest`
@@ -115,7 +122,7 @@ It asserts the flagged list is empty **and** that the walk visited more than 50 
 
 **Test first:** extend `tests/components/SignInOrSkipGate.test.tsx` to assert Mode B renders the amended sentence through `messageFor`, and that the CTA label is still exactly "Continue as guest". Catches a catalog edit that never reaches the surface, and a surface that hardcodes copy instead of reading the catalog.
 
-**Implementation, all in one commit** (per `AGENTS.md`): the section-12.4 prose row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3082`; `pnpm gen:spec-codes`; the `crewFacing` field at `lib/messages/catalog.ts:3496`. New wording is fixed in spec §4.4 — no em-dash, straight apostrophes. The master spec is **not** run through Prettier.
+**Implementation, all in one commit** (per `AGENTS.md`): the section-12.4 prose row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3082`; `pnpm gen:spec-codes`; the `crewFacing` field at `lib/messages/catalog.ts:3496`. New wording is fixed in spec §4.4 — it says "signs this device out", never "out of Google", and the `followUp` field is left byte-identical. No em-dash, straight apostrophes. The master spec is **not** run through Prettier.
 
 **Gate:** `pnpm test:audit:x1-catalog-parity`; the extended component test; `pnpm vitest run tests/messages`.
 **Commit:** `fix(auth): say that continuing as guest signs the device out`
@@ -131,7 +138,7 @@ It asserts the flagged list is empty **and** that the walk visited more than 50 
 
 ### Task 7 — un-skip the three e2e stubs
 
-**Implementation:** drop `.skip` at `tests/e2e/picker-flow.spec.ts:84`, `tests/e2e/picker-flow.spec.ts:180`, and `tests/e2e/picker-flow.spec.ts:241`, and delete each stub's now-stale `// SKIP:` comment block. Add one assertion to the `tests/e2e/picker-flow.spec.ts:180` case: after the guest tap, the context carries no cookie satisfying `isSupabaseAuthCookieName` — the new contract, and the one thing the pre-existing assertions do not cover. Correct the stub-count comment at `playwright.config.ts:56` to name the single remaining stub. `tests/e2e/picker-flow.spec.ts:293` stays skipped.
+**Implementation:** drop `.skip` at `tests/e2e/picker-flow.spec.ts:84`, `tests/e2e/picker-flow.spec.ts:180`, and `tests/e2e/picker-flow.spec.ts:241`, and delete each stub's now-stale `// SKIP:` comment block. Extend the `tests/e2e/picker-flow.spec.ts:180` case per spec §6.2 with the three added assertions: no cookie satisfying `isSupabaseAuthCookieName` remains; tapping the unclaimed row (Bob) renders `crew-shell` with his identity chip; and a bare reload with no `?gate=skip` still renders `crew-shell`. That last step is the durability proof — without it a one-request-only fix passes, which is the exact design spec §4.2 rejects. Correct the stub-count comment at `playwright.config.ts:56` to name the single remaining stub. `tests/e2e/picker-flow.spec.ts:293` stays skipped.
 
 **Gate:** `pnpm playwright test tests/e2e/picker-flow.spec.ts --project=mobile-safari` with the loopback `TEST_DATABASE_URL` override, all four cases accounted for (three pass, one skipped).
 **Commit:** `test(auth): un-skip the three picker-flow stubs their fixes unblocked`
@@ -145,7 +152,7 @@ It asserts the flagged list is empty **and** that the walk visited more than 50 
 
 ### Task 9 — invariant-8 impeccable dual-gate
 
-Run `/impeccable critique` **and** `/impeccable audit` on the `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` diff, both with the canonical v3 setup gates (the context.mjs context load of PRODUCT.md and DESIGN.md, then the register reference read). Both run with subagents, never inline. P0 and P1 findings are fixed or explicitly deferred with a `DEFERRED.md` entry; findings and dispositions go in the PR body.
+Run `/impeccable critique` **and** `/impeccable audit` on all three UI-surface files in this diff — `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx`, `app/auth/callback/route.ts`, and `app/auth/sign-out/route.ts` (any `app/` file outside `app/api/**` is a UI surface under invariant 8) — both with the canonical v3 setup gates (the context.mjs context load of PRODUCT.md and DESIGN.md, then the register reference read). Both run with subagents, never inline. P0 and P1 findings are fixed or explicitly deferred with a `DEFERRED.md` entry; findings and dispositions go in §12 of this plan and in the PR body, since this branch has no milestone handoff doc to carry the usual §12 record.
 
 Pre-code mechanical checklist, applied before the gate rather than discovered by it: no em-dash in user-visible copy (Task 5's sentence), straight apostrophes, 44px tap targets untouched (`min-h-tap-min` stays on the row), canonical type and token classes unchanged, no new color token.
 
@@ -176,3 +183,14 @@ Push, open the PR with the spec summary and the impeccable dispositions, wait fo
 | Section-12.4 copy edit drifts from the catalog | Task 5 is one commit with all three updates and the x1 gate |
 | e2e passes locally, fails in CI | Task 12 treats real CI green as its own gate; the two host-binding traps (`E2E_PORT`, non-loopback `TEST_DATABASE_URL`) are named in §0.2 |
 | A guest sign-out failure loops the user | Task 4 asserts the no-redirect-on-failure branch explicitly, in both the returned-error and thrown-error shapes |
+
+---
+
+## 12. Findings and dispositions
+
+Populated during execution. Two records live here:
+
+- **Impeccable dual-gate (Task 9):** every P0 through P3 finding from `/impeccable critique` and `/impeccable audit` across the three UI-surface files, each marked fixed or deferred with its `DEFERRED.md` entry. This section stands in for the milestone-handoff §12 record, which this standalone branch does not have.
+- **Cross-model review rounds (Task 11):** each round's findings, the verification that confirmed or refuted them, and the repair. Refuted claims are recorded with their refutation so a later round does not re-derive them.
+
+Spec-round dispositions are already recorded in §10 of the spec document.
