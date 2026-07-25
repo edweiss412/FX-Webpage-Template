@@ -8,6 +8,46 @@ export type WatchErrorClass = "config" | "drive_api" | "db";
 export const ESCALATION_THRESHOLD = 3;
 export const STALE_PENDING_MAX_AGE_MS = 3_600_000;
 
+// Lease-slack constants (spec 2026-07-25-watch-lease-slack-design §2).
+//
+// Requested channel lifetime. Google's documented maximum for the `files`
+// resource is 86400s; omitting `expiration` yields their 1h default, which is
+// what left every lease with ~1s of renewal slack.
+export const WATCH_TTL_MS = 86_400_000;
+// A channel is renewal-due once this fraction of its GRANTED life has elapsed…
+export const RENEWAL_LIFE_FRACTION = 0.75;
+// …but never with less than this much life remaining. The floor exists because
+// the predicate is sampled on a fixed cron tick: a purely proportional trigger
+// is unsafe on short grants (spec §2.1).
+export const RENEWAL_MIN_LEAD_MS = 7_200_000;
+// How often the renewal predicate is sampled (`fxav_cron_refresh_watch`).
+export const SAMPLING_PERIOD_MS = 3_600_000;
+// Upper bound on one run's execution time before it reaches a given row —
+// a margin in the §2.1 boundary arithmetic, not a timeout.
+export const T_EXEC_BUDGET_MS = 60_000;
+
+/**
+ * Remaining-life threshold at which a channel granted `grantedMs` becomes
+ * renewal-due: `max(RENEWAL_MIN_LEAD_MS, grantedMs * (1 - RENEWAL_LIFE_FRACTION))`.
+ *
+ * Exported so the SQL predicate, the timing tests, and the short-grant check all
+ * reason about one definition rather than three copies of the arithmetic.
+ */
+export function renewalLeadMs(grantedMs: number): number {
+  if (!Number.isFinite(grantedMs)) return RENEWAL_MIN_LEAD_MS;
+  return Math.max(RENEWAL_MIN_LEAD_MS, grantedMs * (1 - RENEWAL_LIFE_FRACTION));
+}
+
+/**
+ * True when a granted lifetime is too short for this sampling cadence to renew
+ * reliably at any phase (spec §2.1). The bound is `<=`, not `<`: a lease of
+ * exactly one sampling period, activated just after a tick, expires AT the next
+ * examination rather than strictly before it.
+ */
+export function isGrantTooShort(grantedMs: number): boolean {
+  return !(grantedMs > SAMPLING_PERIOD_MS + T_EXEC_BUDGET_MS);
+}
+
 const CONFIG_PATTERNS = [
   /DRIVE_WEBHOOK_BASE_URL is required/i,
   /invalid_grant/i,

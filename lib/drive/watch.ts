@@ -4,8 +4,10 @@ import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/u
 import { getDriveClient } from "@/lib/drive/client";
 import {
   classifyWatchError,
+  isGrantTooShort,
   redactWatchError,
   STALE_PENDING_MAX_AGE_MS,
+  WATCH_TTL_MS,
 } from "@/lib/drive/watchErrors";
 import { log } from "@/lib/log";
 import { getActiveWatchedFolder as defaultGetActiveWatchedFolder } from "@/lib/appSettings/getWatchedFolderId";
@@ -76,7 +78,10 @@ export type SubscribeDeps = {
     folderId: string;
     channelId: string;
     webhookSecret: string;
+    nowMs: number;
   }) => Promise<{ id: string; resourceId: string; expiration: string }>;
+  /** Injectable clock (epoch ms) so the requested `expiration` is testable. */
+  now?: () => number;
 };
 
 export type RefreshDeps = {
@@ -337,6 +342,7 @@ async function defaultWatchFolder(args: {
   folderId: string;
   channelId: string;
   webhookSecret: string;
+  nowMs: number;
 }): Promise<{ id: string; resourceId: string; expiration: string }> {
   const response = await getDriveClient().files.watch({
     fileId: args.folderId,
@@ -345,6 +351,12 @@ async function defaultWatchFolder(args: {
       type: "web_hook",
       address: webhookPublicUrl(),
       token: args.webhookSecret,
+      // Ask for Google's documented maximum for the `files` resource. Omitting
+      // this yields their 1-hour default, which is what left every lease being
+      // renewed at the instant it expired (spec §1.2). MILLISECONDS as a string
+      // — seconds here would request an expiry decades in the past and Drive
+      // would silently fall back to the default again.
+      expiration: String(args.nowMs + WATCH_TTL_MS),
     },
   });
   const data = response.data;
@@ -427,12 +439,14 @@ export async function subscribeToWatchedFolder(
 
   await runTx((tx) => subscribeWithTx(tx, folderId, channelId, webhookSecret));
 
+  const nowMs = (deps.now ?? (() => Date.now()))();
   let watch: { id: string; resourceId: string; expiration: string };
   try {
     watch = await (deps.watchFolder ?? defaultWatchFolder)({
       folderId,
       channelId,
       webhookSecret,
+      nowMs,
     });
   } catch (err) {
     const errorClass = classifyWatchError(err);
@@ -471,6 +485,21 @@ export async function subscribeToWatchedFolder(
       watchedFolderId: folderId,
       expiresAt: watch.expiration,
     });
+    // A lease no longer than one sampling period cannot be renewed reliably at
+    // any phase (spec §2.1) — no lead value fixes that, so surface it rather
+    // than absorb it. We request WATCH_TTL_MS and Drive's floor for an
+    // unspecified request is 1h, so this should be unreachable; if it fires,
+    // the cron cadence needs revisiting, not the channel.
+    const grantedMs = Date.parse(watch.expiration) - nowMs;
+    if (Number.isFinite(grantedMs) && isGrantTooShort(grantedMs)) {
+      await log.error("drive watch grant too short to renew reliably", {
+        source: "drive.watch",
+        code: "DRIVE_WATCH_GRANT_TOO_SHORT",
+        watchedFolderId: folderId,
+        channelId: watch.id,
+        grantedMs,
+      });
+    }
     return activated;
   } catch (err) {
     const errorClass = classifyWatchError(err);

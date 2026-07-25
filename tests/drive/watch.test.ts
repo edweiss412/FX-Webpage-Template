@@ -223,14 +223,20 @@ describe("Drive watch lifecycle", () => {
     });
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
 
+    // `now` is injected and the granted lease is 25h so this fixture models a
+    // REALISTIC grant. Before the lease-slack work the expiration here was
+    // arbitrary (it predates `expiration` mattering); left as-is it is a lease
+    // in the past relative to the real clock, which now correctly trips the
+    // DRIVE_WATCH_GRANT_TOO_SHORT anomaly path and its awaited error emit.
     const result = await subscribeToWatchedFolder("folder-1", {
       tx,
       uuid: () => "new-channel",
       webhookSecret: () => "secret-1",
+      now: () => Date.parse("2026-05-10T12:00:00.000Z"),
       watchFolder: vi.fn(async () => ({
         id: "new-channel",
         resourceId: "resource-1",
-        expiration: "2026-05-10T13:00:00.000Z",
+        expiration: "2026-05-11T13:00:00.000Z",
       })),
     });
 
@@ -241,7 +247,7 @@ describe("Drive watch lifecycle", () => {
         id: "new-channel",
         status: "active",
         resourceId: "resource-1",
-        expiresAt: "2026-05-10T13:00:00.000Z",
+        expiresAt: "2026-05-11T13:00:00.000Z",
       }),
     ]);
     expect(tx.operations).toEqual(["insertPending:new-channel", "activatePending:new-channel"]);
