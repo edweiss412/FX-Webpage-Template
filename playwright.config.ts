@@ -53,12 +53,13 @@ export default defineConfig({
       // route doesn't depend on any of the dev-build / prod-build env gates.
       name: "mobile-safari",
       // `picker-flow` deliberately does NOT run here — it is in desktop-chromium.
-      // Measured 2026-07-25: over plain http neither engine can round-trip the
-      // `__Host-`-prefixed, Secure picker envelope. WebKit accepts an injected
-      // cookie but refuses to STORE the server's own Set-Cookie, so the
+      // Measured 2026-07-25: over plain http WebKit refuses to STORE the server's
+      // own Set-Cookie for the `__Host-`-prefixed, Secure picker envelope, so the
       // first-contact bootstrap and any real selection never persist and a
       // correct implementation reads as broken. Chromium's localhost exemption
-      // does store it, which is why the suite lives there.
+      // DOES store it, which is why the suite lives there. (Chromium has the
+      // mirror-image limit — its CDP rejects addCookies for a `__Host-` cookie —
+      // so that suite stages state by driving the picker instead of injecting.)
       testMatch:
         /(sample|crew-page|crew-section-toggle|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|stage-restricted-crew-schedule|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
@@ -389,8 +390,10 @@ export default defineConfig({
     // Boot ONLY the :3004 webServer for the help-affordances walker (see the
     // long comment above the webServer array).
     if (process.env.HELP_DOCS_WALKER_ONLY) return server.url === "http://localhost:3004";
-    // Boot ONLY the :3000 baseline server for the crew-e2e CI job (mobile-safari
-    // project, crew-section-toggle.spec). Without this the :3001-:3004 servers
+    // Boot ONLY the :3000 baseline server for the crew-e2e CI job. That job runs
+    // crew-section-toggle.spec under mobile-safari AND picker-flow.spec under
+    // desktop-chromium; both projects point at :3000, so one server serves both.
+    // Without this the :3001-:3004 servers
     // also cold-build (4 wasted builds contending on the with-admin-dev-flag
     // lock); the crew specs only need :3000. See .github/workflows/crew-e2e.yml.
     // CREW_E2E_ONLY is the original (crew-e2e.yml) name; BASELINE_SERVER_ONLY is

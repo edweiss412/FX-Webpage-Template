@@ -62,7 +62,48 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * Scope collisions — the class review found in the first implementation, which
+ * keyed one file-global map by name with last-declaration-wins. Both directions
+ * are pinned, because a file-global map fails BOTH ways and passing one of these
+ * while failing the other would look like a partial fix.
+ */
+const SCOPE_CASES: Array<[string, string, number]> = [
+  [
+    "a safe later `url` must not mask an earlier dangerous one",
+    `function a(request: NextRequest) {
+       const url = new URL(p, request.url);
+       return NextResponse.redirect(url);
+     }
+     function b(request: NextRequest) {
+       const url = new URL(request.url);
+       return json({ q: url.search });
+     }`,
+    1,
+  ],
+  [
+    "a later dangerous `url` must not taint an earlier safe redirect",
+    // Dangerous declaration LAST on purpose: under last-declaration-wins the
+    // safe redirect in a() resolves to b()'s initializer and is falsely flagged.
+    // With the order reversed this case would pass even on the unsound version,
+    // so it would discriminate nothing.
+    `function a() {
+       const url = "https://fixed.example/next";
+       return NextResponse.redirect(url);
+     }
+     function b(request: NextRequest) {
+       const url = new URL(p, request.url);
+       return json({ url });
+     }`,
+    0,
+  ],
+];
+
 describe("no absolute self-redirect under app/", () => {
+  it.each(SCOPE_CASES)("%s", (_label, body, expected) => {
+    expect(auditSource("fixture.ts", body)).toHaveLength(expected);
+  });
+
   it.each(POSITIVES)("flags %s", (_label, body) => {
     expect(auditSource("fixture.ts", body)).toHaveLength(1);
   });

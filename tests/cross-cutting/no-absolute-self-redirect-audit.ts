@@ -15,6 +15,15 @@
  * helper. No current call site uses those shapes, and a diff introducing one
  * would be visible in review. The job is to stop the KNOWN class from silently
  * returning, not to be a sound dataflow analysis (spec §3.4).
+ *
+ * Resolution IS scope-aware, though. An earlier revision keyed one file-global
+ * map by identifier name with last-declaration-wins, which review found unsound
+ * in both directions: two handlers in one file both using the common name `url`
+ * would overwrite each other, so a dangerous declaration could be masked by a
+ * later safe one (false negative) or a safe one flagged by an earlier dangerous
+ * one (false positive). `app/api/auth/picker-bootstrap/route.ts` already
+ * declares a safe `url`, so the collision was live, not theoretical. Lookups now
+ * walk outward from the reference through its enclosing scopes.
  */
 import ts from "typescript";
 
@@ -31,25 +40,73 @@ export function parseSource(fileName: string, source: string): ts.SourceFile {
   return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 }
 
-/** Declaration initializers by identifier name — last declaration wins. */
-function collectInitializers(sf: ts.SourceFile): Map<string, ts.Expression> {
-  const map = new Map<string, ts.Expression>();
+/**
+ * Nearest-enclosing-scope lookup for `const x = <init>` by identifier.
+ *
+ * Walks outward from the reference: the innermost function/block that declares
+ * the name wins, so same-named locals in sibling handlers cannot collide.
+ */
+function scopeOf(node: ts.Node): ts.Node | undefined {
+  let cur: ts.Node | undefined = node.parent;
+  while (cur !== undefined) {
+    if (
+      ts.isBlock(cur) ||
+      ts.isSourceFile(cur) ||
+      ts.isFunctionDeclaration(cur) ||
+      ts.isFunctionExpression(cur) ||
+      ts.isArrowFunction(cur) ||
+      ts.isMethodDeclaration(cur)
+    ) {
+      return cur;
+    }
+    cur = cur.parent;
+  }
+  return undefined;
+}
+
+/** Declarations directly inside one scope (not nested functions' bodies). */
+function declaredIn(scope: ts.Node, name: string): ts.Expression | undefined {
+  let found: ts.Expression | undefined;
   const visit = (node: ts.Node): void => {
+    if (found !== undefined) return;
     if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
+      node.name.text === name &&
       node.initializer !== undefined
     ) {
-      map.set(node.name.text, node.initializer);
+      found = node.initializer;
+      return;
+    }
+    // Do not descend into a nested function: its locals are a different scope.
+    if (
+      node !== scope &&
+      (ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isArrowFunction(node) ||
+        ts.isMethodDeclaration(node))
+    ) {
+      return;
     }
     ts.forEachChild(node, visit);
   };
-  ts.forEachChild(sf, visit);
-  return map;
+  ts.forEachChild(scope, visit);
+  return found;
+}
+
+/** Resolve an identifier to its initializer, innermost scope first. */
+function initializerFor(ref: ts.Node, name: string): ts.Expression | undefined {
+  let scope = scopeOf(ref);
+  while (scope !== undefined) {
+    const hit = declaredIn(scope, name);
+    if (hit !== undefined) return hit;
+    scope = ts.isSourceFile(scope) ? undefined : scopeOf(scope);
+  }
+  return undefined;
 }
 
 /** True for `request.url` / `req.url`, or an identifier holding one. */
-function isRequestUrl(expr: ts.Expression, inits: Map<string, ts.Expression>, hops = 0): boolean {
+function isRequestUrl(expr: ts.Expression, hops = 0): boolean {
   if (
     ts.isPropertyAccessExpression(expr) &&
     expr.name.text === "url" &&
@@ -60,14 +117,14 @@ function isRequestUrl(expr: ts.Expression, inits: Map<string, ts.Expression>, ho
   }
   // Captured base: `const base = request.url; new URL(p, base)`.
   if (ts.isIdentifier(expr) && hops < MAX_HOPS) {
-    const init = inits.get(expr.text);
-    if (init !== undefined) return isRequestUrl(init, inits, hops + 1);
+    const init = initializerFor(expr, expr.text);
+    if (init !== undefined) return isRequestUrl(init, hops + 1);
   }
   return false;
 }
 
 /** True for `new URL(<path>, request.url)`, or an identifier holding one. */
-function isSelfUrl(expr: ts.Expression, inits: Map<string, ts.Expression>, hops = 0): boolean {
+function isSelfUrl(expr: ts.Expression, hops = 0): boolean {
   if (
     ts.isNewExpression(expr) &&
     ts.isIdentifier(expr.expression) &&
@@ -76,12 +133,12 @@ function isSelfUrl(expr: ts.Expression, inits: Map<string, ts.Expression>, hops 
     expr.arguments.length >= 2
   ) {
     const base = expr.arguments[1];
-    return base !== undefined && isRequestUrl(base, inits);
+    return base !== undefined && isRequestUrl(base);
   }
   // Variable-assigned and alias chains: `const url = new URL(...); const u = url;`
   if (ts.isIdentifier(expr) && hops < MAX_HOPS) {
-    const init = inits.get(expr.text);
-    if (init !== undefined) return isSelfUrl(init, inits, hops + 1);
+    const init = initializerFor(expr, expr.text);
+    if (init !== undefined) return isSelfUrl(init, hops + 1);
   }
   return false;
 }
@@ -96,13 +153,12 @@ function isNextResponseRedirect(expr: ts.Expression): boolean {
 }
 
 export function findSelfRedirects(sf: ts.SourceFile): SelfRedirectFinding[] {
-  const inits = collectInitializers(sf);
   const findings: SelfRedirectFinding[] = [];
 
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && isNextResponseRedirect(node.expression)) {
       const target = node.arguments[0];
-      if (target !== undefined && isSelfUrl(target, inits)) {
+      if (target !== undefined && isSelfUrl(target)) {
         findings.push({
           line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
           text: node.getText(sf).split("\n")[0]!.trim(),

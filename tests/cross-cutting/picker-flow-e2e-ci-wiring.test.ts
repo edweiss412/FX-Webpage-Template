@@ -29,14 +29,34 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const SPEC = "tests/e2e/picker-flow.spec.ts";
-const read = (wf: string): string =>
+const readRaw = (wf: string): string =>
   readFileSync(join(process.cwd(), ".github/workflows", wf), "utf8");
 
 /**
+ * Workflow text with comment lines removed.
+ *
+ * Every assertion below runs on this, not the raw file: review found all three
+ * checks passing against COMMENTED-OUT wiring, since `# run: playwright test …`,
+ * `# PICKER_COOKIE_SIGNING_KEY: …` and `# - "path"` all satisfy a naive match. A
+ * guard that greens on disabled wiring is worse than no guard.
+ */
+const read = (wf: string): string =>
+  readRaw(wf)
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+
+/**
  * Every surface a change to which should re-run this suite. Derived by walking
- * the spec's and its helpers' imports plus the runtime surfaces the cases drive
- * — three review rounds each caught another omission when the list was written
- * from memory instead.
+ * the spec's and its helpers' imports plus the runtime surfaces the cases drive.
+ *
+ * FOUR review rounds each caught another omission, so treat the list as
+ * discovered rather than derived. The last round added the module-evaluated and
+ * schema dependencies: `lib/email/hashForLog.ts`, `lib/log/**`, `lib/messages/**`
+ * and `lib/adminAlerts/**` are all reached by the picker-bootstrap route the
+ * first-contact case drives, and `supabase/migrations/**` defines the resolver,
+ * claim and selection RPCs plus the tables the seed helpers write, so a schema
+ * change can break every case in the file.
  */
 const REQUIRED_PATHS = [
   SPEC,
@@ -50,7 +70,12 @@ const REQUIRED_PATHS = [
   "lib/crew/**",
   "lib/supabase/server.ts",
   "lib/email/canonicalize.ts",
+  "lib/email/hashForLog.ts",
   "lib/env/pickerCookieSigningKey.ts",
+  "lib/log/**",
+  "lib/messages/**",
+  "lib/adminAlerts/**",
+  "supabase/migrations/**",
 ] as const;
 
 /** Bare-runner workflows whose webServer inherits runner-level env. */

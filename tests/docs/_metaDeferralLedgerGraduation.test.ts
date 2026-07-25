@@ -124,9 +124,14 @@ describe("backlog ledger graduation", () => {
   });
 
   it("the archived picker-flow section names the branch that resolved it", () => {
-    // Provenance: without it a reader cannot tell which change closed these, and
-    // both design documents promise the note.
-    expect(read("BACKLOG-archive.md")).toContain("fix/picker-flow-app-bugs");
+    // Provenance, scoped to the section rather than the whole archive: a global
+    // substring match would pass on the branch name appearing anywhere in ~130
+    // unrelated historical entries.
+    const archive = read("BACKLOG-archive.md");
+    const start = archive.indexOf(BACKLOG_GRADUATED[0]);
+    expect(start, `${BACKLOG_GRADUATED[0]} not found in the archive`).toBeGreaterThan(-1);
+    const section = archive.slice(Math.max(0, start - 4000), start + 4000);
+    expect(section).toContain("fix/picker-flow-app-bugs");
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
@@ -141,9 +146,20 @@ describe("backlog ledger graduation", () => {
     const body = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
     expect(body.length).toBeGreaterThan(400);
 
-    // Matched loosely so a reworded entry still passes, but an empty one cannot.
-    expect(body).toMatch(/Origin/i); // the residual: a cross-site POST with no Origin
-    expect(body).toMatch(/blast radius|no read|escalation/i); // what it can actually do
-    expect(body).toMatch(/trusted[- ]proxy/i); // the open decision
+    // Loose enough that a rewording passes, specific enough that padding does
+    // not. Review found the previous version satisfiable by the id alone:
+    // /Origin/i matches "BL-SERVER-ACTION-ORIGIN-GATE", so it asserted nothing.
+    // Each pattern below therefore requires a PHRASE the entry cannot lose and
+    // still carry its meaning.
+    //
+    // the residual — a cross-site request arriving with no Origin header:
+    expect(body).toMatch(/no\s+`?Origin`?\s+header|without\s+(that\s+|an?\s+)?`?Origin`?/i);
+    // the blast radius — what a forced call can actually do, and cannot:
+    expect(body).toMatch(/signs?\s+the\s+victim|logout|sign(s|ed)?\s+out/i);
+    expect(body).toMatch(/no\s+(response\s+data|read)|no\s+privilege|no\s+escalation/i);
+    // the open decision that has to come first:
+    expect(body).toMatch(/trusted[- ]proxy/i);
+    // and the pickup trigger, so the entry stays actionable:
+    expect(body).toMatch(/trigger|pick this up|next\s+auth/i);
   });
 });
