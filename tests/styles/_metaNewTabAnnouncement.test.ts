@@ -781,6 +781,19 @@ describe("R6: scanner changes are pinned", () => {
     ).toMatch(/does not announce|unrecognized|cannot be proven non-hiding/);
   });
 
+  // (4b) DEFERRED.md NEWTAB-GUARD-UNDECIDABLE-2 item (b) is CLOSED by the same
+  // change. That entry's own prescribed fix was "reject call expressions", and a
+  // call is not an approved gating shape, so the effectful-predicate case R4
+  // demonstrated (a deterministic `next()` true only once, opening a tab with no
+  // announcement) is now REPORTED rather than silently accepted.
+  it("an effectful gating predicate is reported, closing the R4 deferral", () => {
+    expect(
+      violations(
+        `const A=({next})=><a href="x" {...(next()?{target:"_blank"}:{})}>Go {next()?<> <NewTabHint /></>:null}</a>;`,
+      ).join(" "),
+    ).toMatch(/not gated|unrecognized/);
+  });
+
   // (5) File admission: case-insensitive _blank, dynamic targets, and spreads all
   // reach the scanner. R5's filter was case-SENSITIVE, so a real `_BLANK` file was
   // never scanned even though a synthetic fixture proved the shape was rejected.
