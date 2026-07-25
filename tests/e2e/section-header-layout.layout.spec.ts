@@ -375,3 +375,238 @@ for (const spec of MATRIX) {
     });
   }
 }
+
+/**
+ * T2 — the centring contract, measured rather than restated.
+ *
+ * The rebuilt header centres the name + count between a left icon and a right
+ * corner link. A section with NO link (Diagrams, "Report an issue", the defensive
+ * empty-dfid states) would centre its name 15px further right if nothing replaced
+ * the link's slot, so `pr-header-link-slot` reserves it.
+ *
+ * WHY THIS IS NOT A RESTATEMENT OF THE CSS: every number below is READ FROM THE
+ * RENDER, and the token's value is derived twice by two independent routes that
+ * must agree.
+ *
+ *   route 1 (no-link cells) — the reserved padding must equal the link box plus
+ *     the row gap, since that is exactly what disappears when the link does.
+ *   route 2 (every cell)    — the ink's centre must sit `(icon - link) / 2` right
+ *     of the row's centre. The icon is wider than the link, so a PERFECTLY centred
+ *     group is not the contract; symmetry with the link-bearing case is.
+ *
+ * A hardcoded `30` would satisfy neither: route 1 recomputes it from two other
+ * measurements, and route 2 never mentions it.
+ *
+ * The centre is taken from the rendered INK (the union of the name's text rects
+ * and the count chip), not from the flex container's box. The box is centred by
+ * construction — asserting on it would pass with `justify-start` on a name that
+ * happens to fill the row. The ink is what the eye judges.
+ */
+const CENTRING_TOLERANCE_PX = 1;
+
+for (const viewport of [320, 375, 430, 1280] as const) {
+  test(`header centring @ ${viewport}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: Math.max(viewport, 900), height: 900 });
+
+    const measured: Array<{
+      cell: string;
+      hasLink: boolean;
+      iconWidth: number;
+      linkWidth: number | null;
+      padRight: number;
+      rowGap: number;
+      inkCentre: number;
+      rowCentre: number;
+    }> = [];
+
+    for (const spec of MATRIX) {
+      await page.goto(`${baseUrl}${spec.cell}-${viewport}.html`, { waitUntil: "load" });
+      const m = await page.evaluate(
+        ({ cell }) => {
+          const root = document.querySelector(`[data-cell="${cell}"]`);
+          if (!(root instanceof HTMLElement)) return { error: `cell root not found: ${cell}` };
+          const icon = root.querySelector('span[aria-hidden="true"]');
+          const row = icon?.parentElement;
+          if (!(icon instanceof HTMLElement) || !(row instanceof HTMLElement)) {
+            return { error: "icon/row not found" };
+          }
+          const heading = root.querySelector("h3, h4");
+          if (!(heading instanceof HTMLElement)) return { error: "heading not found" };
+          const group = heading.parentElement;
+          if (!(group instanceof HTMLElement)) return { error: "centred group not found" };
+          const link = root.querySelector("a[href]");
+
+          // Ink extent: the name's own text rects plus the count chip, if present.
+          const rects: DOMRect[] = [];
+          for (const n of Array.from(heading.childNodes)) {
+            if (n.nodeType !== Node.TEXT_NODE || (n.textContent ?? "").trim() === "") continue;
+            const r = document.createRange();
+            r.selectNodeContents(n);
+            rects.push(...Array.from(r.getClientRects()).filter((x) => x.width > 0.5));
+          }
+          const countEl = Array.from(root.querySelectorAll("span")).find((el) =>
+            /^\(\d+\)$/.test((el.textContent ?? "").trim()),
+          );
+          if (countEl instanceof HTMLElement) rects.push(countEl.getBoundingClientRect());
+          if (rects.length === 0) return { error: "no ink measured" };
+
+          const rowRect = row.getBoundingClientRect();
+          const rowCs = getComputedStyle(row);
+          const groupCs = getComputedStyle(group);
+          return {
+            error: null,
+            hasLink: link !== null,
+            iconWidth: icon.getBoundingClientRect().width,
+            linkWidth: link instanceof HTMLElement ? link.getBoundingClientRect().width : null,
+            padRight: parseFloat(groupCs.paddingRight || "0"),
+            rowGap: parseFloat(rowCs.columnGap || "0"),
+            inkCentre:
+              (Math.min(...rects.map((r) => r.left)) + Math.max(...rects.map((r) => r.right))) / 2,
+            // Content-box centre: the row's own padding must not read as slack.
+            rowCentre:
+              (rowRect.left +
+                parseFloat(rowCs.paddingLeft || "0") +
+                (rowRect.right - parseFloat(rowCs.paddingRight || "0"))) /
+              2,
+          };
+        },
+        { cell: spec.cell },
+      );
+
+      expect(m.error, `${spec.cell} fixture shape`).toBeNull();
+      if (m.error !== null) return;
+      measured.push({ cell: spec.cell, ...m } as (typeof measured)[number]);
+    }
+
+    expect(measured.length, "every matrix cell measured").toBe(MATRIX.length);
+
+    // The link box is one width across every cell that has one — established here
+    // so the rest of the test can treat it as the reserve without assuming a value.
+    const linkWidths = [
+      ...new Set(measured.filter((m) => m.linkWidth !== null).map((m) => m.linkWidth!)),
+    ];
+    expect(
+      linkWidths.length,
+      `one link box width across link cells, saw ${linkWidths.join("/")}`,
+    ).toBe(1);
+    const linkWidth = linkWidths[0]!;
+    expect(linkWidth, "the corner link renders a real box").toBeGreaterThan(0);
+
+    // Route 1 — the reserve, recomputed. Link cells reserve nothing; the rest
+    // reserve exactly what the link plus its gap occupied.
+    for (const m of measured) {
+      if (m.hasLink) {
+        expect(m.padRight, `${m.cell}: a link cell reserves no extra slot`).toBeCloseTo(0, 1);
+      } else {
+        expect(
+          m.padRight,
+          `${m.cell}: the reserved slot is the link box (${linkWidth}px) plus the row gap (${m.rowGap}px)`,
+        ).toBeCloseTo(linkWidth + m.rowGap, 1);
+      }
+    }
+
+    // Route 2 — the ink lands on one axis regardless of whether a link renders.
+    for (const m of measured) {
+      const expected = (m.iconWidth - linkWidth) / 2;
+      const actual = m.inkCentre - m.rowCentre;
+      expect(
+        Math.abs(actual - expected),
+        `${m.cell} @ ${viewport}: name+count sits (icon ${m.iconWidth} - link ${linkWidth}) / 2 = ` +
+          `${expected.toFixed(2)}px right of centre, measured ${actual.toFixed(2)}px`,
+      ).toBeLessThan(CENTRING_TOLERANCE_PX);
+    }
+
+    // And the cross-check the two routes exist for: cells sharing an icon size land
+    // on the SAME offset whether or not they carry a link. This is the assertion
+    // that fails if `pr-header-link-slot` is dropped — route 2 would fail with it,
+    // but only this one names the link/no-link pair as the thing being compared.
+    const byIcon = new Map<number, number[]>();
+    for (const m of measured) {
+      const key = Math.round(m.iconWidth);
+      byIcon.set(key, [...(byIcon.get(key) ?? []), m.inkCentre - m.rowCentre]);
+    }
+    for (const [icon, offsets] of byIcon) {
+      const spread = Math.max(...offsets) - Math.min(...offsets);
+      expect(
+        spread,
+        `icon ${icon}px: every cell centres on one axis, link or not (spread ${spread.toFixed(2)}px)`,
+      ).toBeLessThan(CENTRING_TOLERANCE_PX * 2);
+    }
+  });
+}
+
+/**
+ * T2 — the corner link's tap target, proven by HIT TESTING rather than by geometry.
+ *
+ * The link paints a 20px icon and expands its hit area with a `::before` overlay
+ * (`before:absolute before:-inset-3`). `getBoundingClientRect()` CANNOT see that:
+ * a pseudo-element contributes no box to its host's rect, so a rect-based check
+ * would report 20px and fail a passing implementation — or, worse, pass a broken
+ * one that grew the icon instead of the target.
+ *
+ * `elementFromPoint` is the oracle because it answers the question a thumb asks.
+ */
+const TAP_MIN_PX = 44;
+
+test("corner link carries a 44px tap target @ 375", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto(`${baseUrl}G1-clean-375.html`, { waitUntil: "load" });
+
+  const m = await page.evaluate((tapMin) => {
+    const link = document.querySelector('[data-cell="G1-clean"] a[href]');
+    if (!(link instanceof HTMLElement)) return { error: "corner link not found" };
+    const r = link.getBoundingClientRect();
+    // The overlay's own box, read from the pseudo-element's resolved inset rather
+    // than assumed: -inset-3 on a 20px icon is 44px, but the check must fail if the
+    // token changes underneath it.
+    const inset = parseFloat(getComputedStyle(link, "::before").insetBlockStart || "0");
+    const box = {
+      left: r.left + inset,
+      top: r.top + inset,
+      right: r.right - inset,
+      bottom: r.bottom - inset,
+    };
+    const probe = (x: number, y: number) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit === link || (hit instanceof Node && link.contains(hit));
+    };
+    return {
+      error: null,
+      iconWidth: r.width,
+      targetWidth: box.right - box.left,
+      targetHeight: box.bottom - box.top,
+      // Viewport coordinates, which is what elementFromPoint takes. Corners are
+      // inset 1px so a rounding difference does not probe the pixel outside.
+      corners: [
+        probe(box.left + 1, box.top + 1),
+        probe(box.right - 1, box.top + 1),
+        probe(box.left + 1, box.bottom - 1),
+        probe(box.right - 1, box.bottom - 1),
+      ],
+      centre: probe((box.left + box.right) / 2, (box.top + box.bottom) / 2),
+      // Just outside the expanded box: proves the target is bounded, so a full-row
+      // overlay swallowing neighbouring clicks reads as a failure, not a pass.
+      outside: probe(box.left - 3, (box.top + box.bottom) / 2),
+    };
+  }, TAP_MIN_PX);
+
+  expect(m.error, "fixture shape").toBeNull();
+  if (m.error !== null) return;
+
+  expect(m.iconWidth, "the PAINTED icon stays small — the target grows, not the glyph").toBeCloseTo(
+    20,
+    0,
+  );
+  expect(m.targetWidth, `tap target width >= ${TAP_MIN_PX}px`).toBeGreaterThanOrEqual(TAP_MIN_PX);
+  expect(m.targetHeight, `tap target height >= ${TAP_MIN_PX}px`).toBeGreaterThanOrEqual(TAP_MIN_PX);
+  expect(m.corners, "all four corners of the expanded target hit the link").toEqual([
+    true,
+    true,
+    true,
+    true,
+  ]);
+  expect(m.centre, "the target's centre hits the link").toBe(true);
+  expect(m.outside, "the target does not extend past its own expanded box").toBe(false);
+});
