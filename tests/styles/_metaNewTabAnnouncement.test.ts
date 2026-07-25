@@ -1338,7 +1338,10 @@ describe("R6: scanner changes are pinned", () => {
       // non-lowercase AND lacks the `i` flag -- with `/i` the casing cannot matter, and
       // the tag-name regex in this file is deliberately case-insensitive.
       if (ts.isRegularExpressionLiteral(n)) {
-        const m = /^\/(.*)\/([a-z]*)$/s.exec(n.text);
+        // [\\s\\S] rather than `.` with the /s flag: the project's tsc target rejects it
+        // (TS1501), and I had already hit that once this PR and reintroduced it by
+        // running vitest but not tsc before committing.
+        const m = /^\/([\s\S]*)\/([a-z]*)$/.exec(n.text);
         if (m && !m[2]!.includes("i")) {
           for (const word of m[1]!.split(/[^A-Za-z-]+/)) literals.push(word);
         }
