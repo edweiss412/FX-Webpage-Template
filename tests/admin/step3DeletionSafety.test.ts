@@ -15,6 +15,13 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
+import {
+  classifyRetiredPathOccurrences,
+  hrefHitsRetiredPage,
+  resolveNavHrefs,
+  type OccurrenceKind,
+} from "./stagedPageRefScan";
+
 const ROOTS = ["app", "components", "lib"];
 
 function walk(dir: string): string[] {
@@ -30,7 +37,14 @@ function walk(dir: string): string[] {
   return out;
 }
 
-const SOURCES = ROOTS.flatMap((r) => walk(r)).map((path) => ({
+// next.config.ts is scanned too: the 307 redirect whose SOURCE is the retired path
+// lives there, outside every root, so a root-only scan cannot see the one file that
+// is allowed to name it in code (spec 2026-07-24-test-safety-hardening-batch §3.3).
+//
+// readFileSync, never a shelled-out grep: components/admin/wizard/Step3Review.tsx
+// carries a raw NUL byte, so `file(1)` reports it as `data` and grep skips it
+// silently — it holds one of the ratified references below (spec §3.2a).
+const SOURCES = [...ROOTS.flatMap((r) => walk(r)), "next.config.ts"].map((path) => ({
   path,
   src: readFileSync(path, "utf8"),
 }));
@@ -61,22 +75,58 @@ describe("Step-3 consolidation deletion safety (spec §11)", () => {
     expect(offenders, `retired-surface import(s) survived:\n${offenders.join("\n")}`).toEqual([]);
   });
 
-  test("no in-app <Link href> out to the retired staged page", () => {
+  // Layer A — every occurrence of the retired path, pinned by POSITION KIND rather
+  // than by count. A count-only allow-list accepts "delete the ratified comment,
+  // add `const routes = { staged: … }`" at an unchanged total; the kind vector does
+  // not (BL-STEP3-STAGED-LINK-GUARD-HELPER-BYPASS, whole-diff R1 finding 5b).
+  const RATIFIED_RETIRED_PATH_REFS: Record<string, OccurrenceKind[]> = {
+    // The finalize race row's `re_apply_url` builder. Ratified by spec §4.6: old
+    // URLs 307 to /admin, so the value is a redirect entrypoint, not in-app nav.
+    "app/api/admin/onboarding/finalize/route.ts": ["string-literal"],
+    // The 307 itself: its explanatory comment plus the `source` pattern.
+    "next.config.ts": ["comment", "string-literal"],
+    // Prose only — each names the retired page to explain what replaced it.
+    "app/admin/show/staged/[stagedId]/page.tsx": ["comment"],
+    "components/admin/wizard/Step3Review.tsx": ["comment"],
+    "lib/audit/trustDomains.ts": ["comment"],
+    "lib/parser/dataGaps.ts": ["comment"],
+  };
+
+  test("every retired-path reference is one of the ratified ones, in its ratified form", () => {
+    const live: Record<string, OccurrenceKind[]> = {};
+    for (const { path, src } of SOURCES) {
+      const kinds = classifyRetiredPathOccurrences(src, path);
+      if (kinds.length > 0) live[path] = kinds;
+    }
+    expect(
+      live,
+      "the retired /admin/onboarding/staged/ page is referenced somewhere new, or a " +
+        "ratified reference changed kind (comment turned into code) or disappeared. " +
+        "Update RATIFIED_RETIRED_PATH_REFS deliberately, or remove the reference.",
+    ).toEqual(RATIFIED_RETIRED_PATH_REFS);
+  });
+
+  // Layer B — resolve what <Link>/<a> hrefs actually POINT AT, so a helper-built or
+  // concatenated href cannot slip past a lexical scan.
+  test("no in-app <Link href> resolves to the retired staged page", () => {
     const offenders: string[] = [];
     for (const { path, src } of SOURCES) {
-      src.split("\n").forEach((line, i) => {
-        // A page-nav link: an href to the staged PAGE (not the /api/... routes,
-        // which are legitimate mutation endpoints).
-        if (
-          line.includes("href") &&
-          line.includes("/admin/onboarding/staged/") &&
-          !line.includes("/api/")
-        ) {
-          offenders.push(`${path}:${i + 1}`);
-        }
-      });
+      for (const href of resolveNavHrefs(src, path)) {
+        if (hrefHitsRetiredPage(href.value)) offenders.push(`${path}:${href.line} → ${href.value}`);
+      }
     }
-    expect(offenders, `staged-page <Link href> survived:\n${offenders.join("\n")}`).toEqual([]);
+    expect(offenders, `staged-page nav href survived:\n${offenders.join("\n")}`).toEqual([]);
+  });
+
+  // Layer C — the assembled form has no contiguous literal for Layer A to catch and
+  // is not necessarily an href for Layer B to resolve.
+  test("no file assembles the retired path from segments", () => {
+    const offenders = SOURCES.filter(({ path, src }) =>
+      classifyRetiredPathOccurrences(src, path).includes("assembled"),
+    ).map(({ path }) => path);
+    expect(offenders, `retired path assembled from segments in:\n${offenders.join("\n")}`).toEqual(
+      [],
+    );
   });
 
   test("CleanupAbandonedFinalizeButton is RE-HOMED, not deleted (still imported)", () => {
