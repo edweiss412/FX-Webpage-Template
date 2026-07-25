@@ -49,8 +49,9 @@ function coveredBy(filters: string[], path: string): boolean {
 
 /**
  * Walk the harness's TRANSITIVE import graph and return every repository source
- * file it pulls in (tests/** excluded — those are covered by their own filter
- * entries).
+ * file it pulls in, INCLUDING `tests/**` helpers — the workflow enumerates only
+ * today's direct helpers, so a newly imported one would otherwise sit outside
+ * the gate unseen (whole-diff review round 5).
  *
  * Derived, not hand-maintained (whole-diff review rounds 2 and 3). Two
  * successive enumerated lists both shipped with omissions — first
@@ -60,13 +61,15 @@ function coveredBy(filters: string[], path: string): boolean {
  * check is to compute it.
  *
  * This is a LEXICAL closure, deliberately CONSERVATIVE and larger than the real
- * bundle: an esbuild metafile at the same commit reports 155 production inputs,
- * while this walker reports 321, because it also follows type-only edges and
- * imports that "use server" elision strips (round 4 measured both). Over-
- * covering is the safe direction for a path gate — every real input is inside
- * the closure, so the job can only fire more often than strictly needed, never
- * less. Calling all 321 "bundled" would be wrong, and this comment exists so
- * nobody repeats that claim.
+ * bundle. Three counts, all measured at this commit and easy to conflate:
+ *   155 — actual production inputs, per an esbuild metafile
+ *   321 — production files in this lexical closure (it also follows type-only
+ *         edges and imports that "use server" elision strips)
+ *   323 — the full closure, i.e. those 321 plus 2 `tests/**` helpers
+ * Over-covering is the safe direction for a path gate: every real input is
+ * inside the closure, so the job can only fire more often than strictly needed,
+ * never less. Calling any of these "bundled files" would be wrong, and this
+ * comment exists so nobody repeats that claim.
  */
 function harnessImportGraph(entry: string): string[] {
   const EXT = [".ts", ".tsx", ".mjs", ".js"];

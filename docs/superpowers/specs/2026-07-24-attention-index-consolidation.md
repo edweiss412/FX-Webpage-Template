@@ -130,7 +130,7 @@ So the label rule has one live branch:
 | `action.external` | Chip label | Applies to |
 | --- | --- | --- |
 | `true` | `Google Sheets ↗` | the 6 `openSheet` codes (`lib/adminAlerts/alertActions.ts:163-168`) |
-| `false` | no chip | unreachable in practice, by both bullets above |
+| `false` | no chip | ALL internal-action codes — the chip requires `external`, so this branch has no markup at all |
 
 An internal-destination chip is therefore **not** implemented. If a future code gains an internal action *and* renders a card in a different section from its target, that is a new case requiring a spec amendment — not something the implementer should generalise for speculatively.
 

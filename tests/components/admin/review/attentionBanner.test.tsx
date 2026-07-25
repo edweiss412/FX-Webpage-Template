@@ -427,7 +427,9 @@ describe("destination chip", () => {
   test("an internal action renders NO chip even when it points at a DIFFERENT section", () => {
     renderBanner(
       needsLookItem({
-        // card in warnings, action targets overview → guard does NOT suppress
+        // card in warnings, action targets overview: the sections DIFFER, so a
+        // same-section rule would render a chip here — only the `external` gate
+        // suppresses it
         sectionId: "warnings",
         alert: {
           code: "PARSE_ERROR_LAST_GOOD",

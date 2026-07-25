@@ -34,8 +34,8 @@ on:
       # BROAD BY MEASUREMENT, not by preference. The harness esbuild-bundles the
       # REAL modal tree: an esbuild metafile reports 155 production inputs, and a
       # conservative LEXICAL closure over the same entry (which also follows
-      # type-only and server-elided edges) reports 321 files across 43 top-level
-      # directories. Two successive attempts at an enumerated list both shipped
+      # type-only and server-elided edges) reports 321 production files across 43
+      # top-level directories, or 323 counting the two tests/** helpers. Two successive attempts at an enumerated list both shipped
       # with omissions, which is the point: no hand-maintained list can track a
       # graph that size. These globs cover the lexical closure, and
       # tests/ci/attentionPillFocusWorkflow.test.ts WALKS it to prove it.

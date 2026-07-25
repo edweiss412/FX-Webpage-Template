@@ -601,16 +601,30 @@ describe("PublishedReviewModal attention menu behavior (spec §5.2/§6.2/§6.3)"
       { code: "EMBEDDED_ASSET_DRIFTED" },
     );
     renderModal({ attentionItems: [ITEM] });
+    const railItem = (id: string) =>
+      document.querySelector<HTMLElement>(`[data-testid$="-review-rail-item-${id}"]`)!;
+    const activeRail = () =>
+      [...document.querySelectorAll('[aria-current="true"]')]
+        .map((el) => el.getAttribute("data-testid") ?? "")
+        .filter((t) => t.includes("-review-rail-item-"))
+        .map((t) => t.replace(/^.*-review-rail-item-/, ""));
+
+    // PRECONDITION: move OFF Overview first. ShowReviewSurface initialises
+    // `active` to the first extra section, which IS Overview — so asserting
+    // "Overview is current" after the press would pass even if the row never
+    // jumped at all, including under a production guard like
+    // `if (!item.actionable) return` (whole-diff review round 6).
+    fireEvent.click(railItem("rooms"));
+    expect(activeRail(), "precondition: rail moved off Overview").toEqual(["rooms"]);
+
     // §5.2 auto-open fires only when an ACTIONABLE item exists; this one is not,
     // so the pill has to be opened first.
     fireEvent.click(screen.getByTestId(`${TB}-alert-pill`));
     fireEvent.click(await screen.findByTestId(`attention-menu-row-${ITEM.id}`));
 
-    const current = document.querySelectorAll('[aria-current="true"]');
-    const ids = [...current].map((el) => el.getAttribute("data-testid") ?? "");
-    // the jump activated OVERVIEW (where the card is), never rooms (the route)
-    expect(ids.some((id) => id.endsWith("-review-rail-item-overview"))).toBe(true);
-    expect(ids.some((id) => id.endsWith("-review-rail-item-rooms"))).toBe(false);
+    // the press moved the rail BACK to Overview — where the card landed — rather
+    // than to `rooms`, the item's declared route
+    expect(activeRail()).toEqual(["overview"]);
   });
 
   // A production-mount test of the chip: the card-side suite renders
