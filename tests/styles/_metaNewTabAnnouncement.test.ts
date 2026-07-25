@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parse, scanSource, walkFiles, type Scan } from "@/tests/styles/_newTabScan";
+import { PHRASE, parse, scanSource, walkFiles, type Scan } from "@/tests/styles/_newTabScan";
 
 // ── Synthetic scanner self-tests (§6 requirement 7) ────────────────────────
 // Without these the guard is unfalsifiable: the live tree exercises only
@@ -344,6 +344,40 @@ describe("every external link in the live tree announces its new tab", () => {
       sc.violations.map((v) => `${v.file}:${v.line} ${v.reason}`),
       "unannounced external links",
     ).toEqual([]);
+  });
+
+  it("the announcement copy lives only in the expected files (spec §6.8 census)", () => {
+    // File SET, not an occurrence count: every §5 empty-interpolation fallback
+    // adds a second literal in the same label, so a magic number goes stale the
+    // moment a fallback is added. Comments are stripped first, because a doc
+    // comment mentioning the phrase would otherwise inflate the census -- the
+    // exact failure mode that made an earlier count wrong.
+    const files = [
+      ...walkFiles(join(process.cwd(), "components"), /\.tsx$/),
+      ...walkFiles(join(process.cwd(), "app"), /\.tsx$/),
+    ].map((abs) => abs.slice(process.cwd().length + 1));
+    const stripComments = (src: string): string =>
+      src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+    const carriers = files
+      .filter((rel) =>
+        stripComments(readFileSync(join(process.cwd(), rel), "utf8")).includes(PHRASE),
+      )
+      .sort();
+    expect(carriers).toEqual(
+      [
+        // The single definition.
+        "components/shared/NewTabHint.tsx",
+        // Group B label sites (§4).
+        "app/admin/show/[slug]/CrewPageLink.tsx",
+        "components/admin/showpage/PublishedReviewModal.tsx",
+        "components/admin/wizard/Step3ReviewModal.tsx",
+        "components/admin/wizard/step3ReviewSections.tsx",
+        "components/crew/primitives/SourceLink.tsx",
+        // The two labels that already announced before this sweep (§2).
+        "components/admin/wizard/Step3SheetCard.tsx",
+        "components/admin/wizard/VenueMapTile.tsx",
+      ].sort(),
+    );
   });
 
   it("no .mdx file carries an external target (move such links into a .tsx component)", () => {

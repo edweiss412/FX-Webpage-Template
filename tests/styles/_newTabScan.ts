@@ -37,7 +37,7 @@ export function walkFiles(dir: string, ext: RegExp): string[] {
   });
 }
 
-const PHRASE = "opens in a new tab";
+export const PHRASE = "opens in a new tab";
 const HINT = "NewTabHint";
 const EXEMPTION = "no-newtab-announcement:";
 const LINK_TAGS = new Set(["a", "Link"]);
