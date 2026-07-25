@@ -384,6 +384,14 @@ WITH substitutions is not. Anything outside these shapes is reported as
   decision: either operand of an equality comparison, a `case` clause, an argument OR array/Set
   receiver of `.has`/`.includes`, and a property name. Concatenated and runtime-built names remain
   undetectable by any static scan, and that limit is stated rather than implied.
+- **The undecidable-computed-key rule guards against accident, not obfuscation.** An expression-built
+  `components` key (a template substitution, a concatenation, an `Array.join`) is reported, narrowed
+  to keys whose source contains the fragment `compo`. That test is evadable by `String.fromCharCode`
+  or an imported constant, and that is accepted: the threat model is an author who does not realise a
+  caller-supplied map wins, not one who is hiding it — anyone willing to obfuscate the key can
+  equally edit the guard. Flagging every undecidable computed key was tried and reported a legitimate
+  dynamic key in `app/admin/settings/roles/RoleMappingRow.tsx`, and a guard that cries wolf gets
+  deleted. A genuinely dynamic override gets an explicit allowlist row with a reason.
 - **A caller-supplied MDX components map is outside per-file scanning.** `useMDXComponents` spreads
   its argument, so the map's own source cannot prove the runtime map is override-free. Two
   assertions close it together: the map's returned object declares no `a`/`Link` key (parsed, not

@@ -984,9 +984,17 @@ it("no caller passes a components prop that could inject an anchor override", ()
           // a production root is reported. The tree has zero, so this costs nothing.
           // Narrowed to keys that could actually BUILD this word: an unrelated
           // `{[flag]: …}` is legitimate and flagging it made the rule cry wolf on the live
-          // tree (app/admin/settings/roles/RoleMappingRow.tsx). All three of R15's forms
-          // contain the fragment, because you cannot concatenate to "components" without
-          // some part of it appearing in source.
+          // tree (app/admin/settings/roles/RoleMappingRow.tsx).
+          //
+          // STATED LIMIT, not an oversight (R16 question 3): this fragment test IS evadable
+          // -- `String.fromCharCode(...)`, an imported constant, or a computed lookup can
+          // spell the key with no part of it in source. That is accepted deliberately,
+          // because the threat model here is ACCIDENT, not an author who is deliberately
+          // hiding an override: anyone willing to obfuscate a key can equally edit this
+          // guard. The alternative, flagging every undecidable computed key, was tried and
+          // reported a legitimate dynamic key, and a guard that cries wolf gets deleted.
+          // If an override ever needs to be dynamic, the honest fix is an explicit
+          // allowlist row here with a reason.
           if (
             key === null &&
             nm !== undefined &&
