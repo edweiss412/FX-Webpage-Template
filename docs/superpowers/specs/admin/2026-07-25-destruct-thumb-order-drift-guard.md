@@ -456,8 +456,9 @@ Assertions:
 1. Delete the `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE` and `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS` rows.
 2. Delete the `BL-DESTRUCT-STACK-THUMB-ORDER` row, resolved by this branch.
 3. Update the `BL-STANDALONE-CONFIG-CI-DARK` row per §6.4.
+4. **Add** `BL-DESTRUCT-FORK-FOCUS-TRANSFER` (§4.9): keyboard focus drops to `<body>` when a container resize crosses the fork threshold while one of the two discard buttons is focused. Severity low, class UI A11Y, same tier as the accepted `BL-CREWPAGE-ROTATE-FOCUS-MGMT`. Records why it was descoped — no real-component browser harness exists for this component, so the effect could not be verified without transcribing it — and the trigger to promote: a mounting harness of the kind that exists for the Step 3 modal, or any a11y pass on the admin action rows.
 
-All three rows are now gone, so the family section and its preceding `---` rule are removed entirely.
+All three original rows are gone. The family section and its preceding `---` rule are removed; the one new row above is filed under the ordinary backlog body, not under a revived family heading.
 
 **Where the history goes.** The section is deleted, so the resolution note cannot live on its heading. Each row's disposition is recorded in this branch's PR body and in `DEFERRED-archive.md`, which already carries the 2026-07-17 resolutions at `DEFERRED-archive.md:1224` and `DEFERRED-archive.md:1230` and gains a new entry for the thumb-order row. That is the project's existing home for closed work; duplicating it into a stub BACKLOG heading would create a second source of truth.
 

@@ -183,15 +183,9 @@ Two tokens are load-bearing and each has its own failure mode:
 
 Update `tests/e2e/needs-attention-page.spec.ts:243` and `tests/e2e/needs-attention-page.spec.ts:250` to the **stacked** ids — that spec sets `MOBILE` (390px) at `tests/e2e/needs-attention-page.spec.ts:232`, so the stacked copy is the live one. Targeting inline there would click a `display:none` node and fail on actionability, which reads as a flake rather than a wiring error.
 
+**Also in this task:** rewrite the persistent-status test at `tests/components/admin/pendingIngestionActions.test.tsx:282`. It reaches the live region via `btn.nextElementSibling` and re-checks that adjacency after the timer decays; moving the region outside both copies makes that `null`. It is relocated to `getByRole("status")` — unambiguous once exactly one region exists — keeping every behavioural assertion it already made.
+
 **Commit:** `fix(admin): key the discard fork on container width, safe action first`
-
-### Task 3b — Focus transfer across the fork boundary
-
-**Test first.** A real-browser assertion (jsdom cannot host it — no layout, so no crossing). Focus the stacked Ignore in a 280px wrapper, widen past 576px, assert `document.activeElement` is the inline Ignore rather than `<body>`; then the reverse direction. Also assert the negative: if focus was *outside* this component when the crossing happens, focus is not stolen.
-
-**Implementation.** A `ResizeObserver` on the wrapper; on each crossing, if `document.activeElement` is one of this component's four buttons, move focus to the same logical control in the newly-shown copy. `armed` is unaffected — it lives above both copies.
-
-**Commit:** `fix(admin): keep keyboard focus when the discard fork switches copies`
 
 ### Task 4 — Real-browser layout proof
 
