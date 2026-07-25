@@ -360,6 +360,68 @@ That is now three separate instances on this PR of **a class recurring inside it
 spread depth). It is the strongest argument available for pairing every fix with a structural pin
 and a mutation, rather than trusting that a passing suite means a working guard.
 
+## R11, R12, and where the review loop stopped
+
+**R11** (3 BLOCKING + 1 HIGH + 1 MEDIUM). The worst was a half-fix of mine: the duplicate
+case-folded rule covered spread OBJECTS only, so direct JSX duplicates walked past it.
+`<a target="_self" TARGET="_blank">` scanned CLEAN while React applied the later value and really
+opened a new tab, and `aria-label` beside `ARIA-LABEL` let an announcing label be replaced by a
+silent one *while still counting as compliant* — green and wrong, the worst shape a guard can have.
+The HIGH was a process failure worth naming: I deleted the MDX lexer but left its CONTRACT behind,
+so the spec still said "MDX never reaches scanSource" and named the deleted `mdxForbidden()`, and a
+dead regex sat unused. Deleting code without deleting its contract leaves the next reader with two
+incompatible truths.
+
+**R12** (2 BLOCKING + 1 HIGH + 1 MEDIUM). Its HIGH invalidated a fix I had been confident in:
+`ts.createScanner().scan()` is not parser-equivalent for templates. It fell out of phase around
+template expressions, so appended literals were invisible — including the decisive witness, a late
+`"aria-labelledby"` mutated to `"Aria-LabelledBy"`, which let a mutated scanner accept an
+unannounced anchor — while ALSO overmatching an unrelated `` `Target${count}` `` fragment. Wrong in
+both directions simultaneously. Now a real parse and node walk, restricted to complete literals.
+R12 also found `unparen` stripping only parentheses (so `as const` / `satisfies` / `!` hid
+resolvable spreads), three false-positive sources in the duplicate rule, and that the
+components-map regexes passed **all seven** override shapes.
+
+### The fix-introduces-the-next-defect pattern, five times
+
+| Fix | Defect it introduced |
+| --- | --- |
+| Casing sweep across nine sites | The ninth reopened the dynamic-`className` hole |
+| Meta-test written to prevent that | Flagged `LINK_TAGS.has("Link")`, which is legitimately case-sensitive |
+| Resolvable-spread candidacy (R10) | Unwrapped one level, so nested spreads stayed silent |
+| MDX lexer → compiler | Introduced a vacuity path: an empty compile would pass for the wrong reason |
+| Intrinsic-tag scoping (R12 MEDIUM) | Excluded camelCase intrinsics like `<clipPath>` |
+
+Every one was found by executing the new code, never by reading it. That is why each fix in this PR
+ships with a mutation that proves its pin fails without it — a passing suite is not evidence that a
+guard works.
+
+## The review loop stopped at R13 on an external quota limit
+
+R13 was dispatched against `1a497dcbb..10f6ee5aa` and returned `no_verdict` after three attempts,
+each dying in 10-20 seconds:
+
+```
+ERROR: You've hit your usage limit. ... try again at Jul 31st, 2026 7:48 PM
+```
+
+Per AGENTS.md a `no_verdict` is an infrastructure fault and never "the reviewer found nothing" — and
+this one is not a transient flake that clears in minutes, it is a six-day quota exhaustion. **Twelve
+rounds completed** (R1 through R12), every finding fixed or explicitly deferred with a reason.
+
+What the record supports, stated without inflation:
+
+- **Rounds 5 through 12 found only GUARD defects. Not one changed what a user or screen reader
+  experiences.** The 21 remediated anchors and the live census (23 anchors, 0 violations) have been
+  stable since R4.
+- CI is green on the final head, 190 tests pass, `tsc`/eslint/prettier are clean, `spec:lint` is 0
+  hard, and every guard fix is mutation-verified.
+- The residual risk is a *guard* fail-open that twelve rounds did not reach — future regression
+  protection, not shipped behavior.
+
+Whether to merge on that basis, wait for the quota, or route the final round to a different
+reviewer is the owner's call, not this run's, so it was escalated rather than decided.
+
 ## A gate I retired rather than satisfied
 
 The local full-suite gate is **not** green and cannot be made green here. A peer session (PID
