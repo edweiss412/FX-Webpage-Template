@@ -56,8 +56,17 @@ function coveredBy(filters: string[], path: string): boolean {
  * successive enumerated lists both shipped with omissions — first
  * `AttentionBanner` and `sectionAttention`, then `needsLookHints` and
  * `audience`, then a further seven including `CompactAlertCard` and
- * `lib/messages/lookup`. The graph is 300+ files across 40+ directories, so a
- * list was never going to track it; the only honest check is to compute it.
+ * `lib/messages/lookup`. A list was never going to track it; the only honest
+ * check is to compute it.
+ *
+ * This is a LEXICAL closure, deliberately CONSERVATIVE and larger than the real
+ * bundle: an esbuild metafile at the same commit reports 155 production inputs,
+ * while this walker reports 321, because it also follows type-only edges and
+ * imports that "use server" elision strips (round 4 measured both). Over-
+ * covering is the safe direction for a path gate — every real input is inside
+ * the closure, so the job can only fire more often than strictly needed, never
+ * less. Calling all 321 "bundled" would be wrong, and this comment exists so
+ * nobody repeats that claim.
  */
 function harnessImportGraph(entry: string): string[] {
   const EXT = [".ts", ".tsx", ".mjs", ".js"];
@@ -87,14 +96,14 @@ function harnessImportGraph(entry: string): string[] {
     } catch {
       return;
     }
-    // Three forms: `... from "x"` (covers import, import type, and export-from),
-    // dynamic `import("x")`, and side-effect `import "x"`. The last one has no
-    // `from`, so it needs its own alternative — there is no repo-local instance
-    // in the graph today, which is exactly why it would rot unnoticed.
+    // Four forms: `... from "x"` (covers import, import type, and export-from),
+    // dynamic `import("x")`, side-effect `import "x"` (no `from` clause), and
+    // `require("x")`. The last two have no repo-local instance in the graph
+    // today, which is exactly why they would rot unnoticed.
     for (const m of src.matchAll(
-      /from\s+["']([^"']+)["']|import\(["']([^"']+)["']\)|^\s*import\s+["']([^"']+)["']/gm,
+      /from\s+["']([^"']+)["']|import\(["']([^"']+)["']\)|^\s*import\s+["']([^"']+)["']|require\(["']([^"']+)["']\)/gm,
     )) {
-      const spec = m[1] ?? m[2] ?? m[3];
+      const spec = m[1] ?? m[2] ?? m[3] ?? m[4];
       if (!spec) continue;
       const resolved = resolveSpec(spec, file);
       if (resolved) walk(resolved);
@@ -107,7 +116,17 @@ function harnessImportGraph(entry: string): string[] {
 
 describe("attention-pill-focus CI wiring", () => {
   const yaml = readFileSync(join(ROOT, WORKFLOW), "utf8");
-  const filters = [...yaml.matchAll(/^\s+- "([^"]+)"$/gm)].map((m) => m[1]!);
+  /**
+   * ONLY `on.pull_request.paths` — not every quoted list item in the file
+   * (whole-diff review round 4). The loose version accepted a path that appeared
+   * anywhere in the YAML, so a dependency could be dropped from the real gate and
+   * still "pass" because it survived in a comment or an unrelated sequence.
+   */
+  const filters = (() => {
+    const block = /\n {4}paths:\n((?: {6}- "[^"]+"\n| *#[^\n]*\n)+)/.exec(yaml);
+    if (!block) throw new Error("no on.pull_request.paths sequence found");
+    return [...block[1]!.matchAll(/^ {6}- "([^"]+)"$/gm)].map((m) => m[1]!);
+  })();
 
   it("invokes the spec under the standalone config", () => {
     // the runner is reached through a package script, so accept either form

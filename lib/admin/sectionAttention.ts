@@ -84,6 +84,26 @@ export function resolveEffectiveSection(
   return declared;
 }
 
+/**
+ * The section an attention-index ROW jumps to.
+ *
+ * Exists so production and its test cannot drift: `PublishedReviewModal`'s
+ * `navigateTo` builds its `AttentionJump.sectionId` from this and nothing else,
+ * and the composition test calls the SAME function. An earlier version of that
+ * test called `resolveEffectiveSection` directly, which meant `navigateTo` could
+ * emit `item.sectionId` or a hard-coded Overview and the test could not notice
+ * (whole-diff review rounds 2-4 all landed on this).
+ *
+ * It is deliberately a one-line wrapper: the value is the SHARED CALL SITE, not
+ * the arithmetic.
+ */
+export function jumpSectionFor(
+  item: AttentionItem,
+  placement: PlacementPredicates,
+): RoutedSectionId {
+  return resolveEffectiveSection(item, placement);
+}
+
 function bucket(map: SectionAttention, sectionId: RoutedSectionId): SectionAttentionBucket {
   let b = map.get(sectionId);
   if (!b) {

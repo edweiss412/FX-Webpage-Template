@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 /**
- * Attention-menu clearing groups
- * (spec 2026-07-21-attention-needs-attention-split §3.4, §11.6-§11.8).
+ * Attention-menu groups
+ * (spec 2026-07-24-attention-index-consolidation §2.1/§2.2, superseding the
+ * three-group split in 2026-07-21-attention-needs-attention-split §3.4).
  *
- * Failure modes caught: a needs-look row acquiring extra interactive
- * descendants; external links missing the full rel contract; internal links
- * leaking target/rel; monitoring items enumerated instead of summarized; a
- * dead link on a failed action resolution; a link click leaving the menu open.
+ * Failure modes caught: a third group surviving the merge; a needs-you row
+ * regressing to a non-pressable shape or regaining an inner link; the
+ * fail-visible boundary row losing its second line; hint/subtitle precedence
+ * inverting; monitoring items summarized instead of enumerated, or gaining an
+ * interactive descendant; a heading moving relative to the scroll container.
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -461,9 +463,9 @@ describe("monitoring group (monitoring-badge-expand §3.2: enumerated rows)", ()
 
 describe("scroll boundary (whole-diff review 2026-07-22)", () => {
   it("needs-you rows and the monitoring group live INSIDE the max-h scroll container", () => {
-    // 12 needs-look rows are producible (every needs-look code at once); links
+    // 12 needs-look rows are producible (every needs-look code at once); rows
     // below the fold must stay reachable, so the scroll boundary wraps ALL
-    // groups, not just the actionable rows.
+    // groups, not just the rows that were "actionable" under the old split.
     renderMenu([
       item("a1", "PARSE_ERROR", { actionable: true }),
       needsLook("nl1", "SHEET_UNAVAILABLE", {

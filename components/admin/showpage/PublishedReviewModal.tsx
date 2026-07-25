@@ -49,7 +49,11 @@ import {
   type AttentionAnchor,
   type RoutedSectionId,
 } from "@/lib/admin/attentionItems";
-import { bucketAttention, resolveEffectiveSection } from "@/lib/admin/sectionAttention";
+import {
+  bucketAttention,
+  jumpSectionFor,
+  resolveEffectiveSection,
+} from "@/lib/admin/sectionAttention";
 import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
@@ -417,7 +421,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
 
   const navigateTo = (item: AttentionItem) => {
     jumpNonceRef.current += 1;
-    setJump({ itemId: item.id, sectionId: effectiveSectionId(item), nonce: jumpNonceRef.current });
+    // jumpSectionFor is the SHARED derivation the composition test also calls —
+    // see its doc comment. Do not inline `effectiveSectionId(item)` here again:
+    // that is what let the jump target drift away from where the card lands
+    // without any test noticing.
+    setJump({
+      itemId: item.id,
+      sectionId: jumpSectionFor(item, placement),
+      nonce: jumpNonceRef.current,
+    });
   };
 
   // Plain function (React Compiler memoizes; a manual useCallback over doneIds

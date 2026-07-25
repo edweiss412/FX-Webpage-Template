@@ -183,16 +183,7 @@ Plus spec test 9b, the four-cell warnings matrix, which is the load-bearing proo
 
 **Implement.** `AttentionBanner.tsx`: for non-actionable needs-you items, replace `footerRight`'s note with the chip, drop `footerLeft`'s action link, and apply the self-link guard (spec §2.3).
 
-**Prop threading — do not guess this.** The self-link guard compares the action's target section against **the card's effective section**, and `AttentionBanner` cannot currently see that value: `AttentionBannerProps` is `{ item, slug, now, highlighted, onResolved }` (`components/admin/review/AttentionBanner.tsx`), with no section field. The effective section is computed in `PublishedReviewModal` via `resolveEffectiveSection` and used by `bannerFor` (`components/admin/showpage/PublishedReviewModal.tsx:521-530`, `components/admin/showpage/PublishedReviewModal.tsx:551-556`). Add an `effectiveSectionId: RoutedSectionId` prop and pass `effectiveSectionId(item)` from `bannerFor`, so the card and the bucketing share one source. **Do not** compare against `item.sectionId` — that is the declared route and is wrong for exactly the fallback cases test 9b covers.
-
-**The prop is required, so every mount must supply it (plan R4 F2).** `grep -rn '<AttentionBanner' tests/ components/ app/` returns exactly four mounts. The plan previously named one; the other three fail typecheck the moment the prop lands:
-
-| Mount | Value to pass |
-| --- | --- |
-| `components/admin/showpage/PublishedReviewModal.tsx:522` (`bannerFor`) | `effectiveSectionId(item)` — the production path, above. |
-| `tests/components/admin/review/attentionBanner.test.tsx:65` (`renderBanner(it, over)` helper) | `effectiveSectionId={it.sectionId}` **as a default that `over` can override** — the helper spreads `over` last, and test 9b needs to override it to `"overview"` to prove the fallback case. This is the one site where a hardcoded value would break the task's own tests. |
-| `tests/components/admin/compactAlertCompoundTransitions.test.tsx:59` | The fixture's own `sectionId`. Lift `alertItem()` to a const first — the file currently calls the builder inline, so passing `alertItem().sectionId` would build a second, unrelated object. |
-| `tests/e2e/_compactAlertCardLiveEntry.tsx:135` | `bannerItem.sectionId` — already a module-level const. |
+**Prop threading — SUPERSEDED, do not implement.** This task originally added an `effectiveSectionId: RoutedSectionId` prop to `AttentionBanner`, threaded through all four mounts, to feed a self-link guard that suppressed a chip pointing at the card's own section. **None of that shipped.** Once the chip was gated on `action.external` (whole-diff review round 2), the guard became unreachable — it required `!external` — so the guard, `sectionOfHref`, the prop, and its four call sites were all deleted as dead code. The sole executable rule is `isClearingNeedsYou && a.action?.external`. Retained here as the record of a design that was specified and then removed, not as an instruction.
 
 **Comment repair, same commit (plan R6 F1).** Test 9b is what makes the warnings-unavailable fallthrough a tested guarantee rather than dead defensive code, so this task also updates `lib/admin/sectionAttention.ts:111-115`. Replace "The warnings section is unconditional today, so the fallback is defensive." with a statement that the fallthrough is a correctness guarantee under the index contract — every entry must have a landing place — citing the spec. Comment only; no executable line changes.
 

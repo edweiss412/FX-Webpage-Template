@@ -1,6 +1,8 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bucketAttention, resolveEffectiveSection } from "@/lib/admin/sectionAttention";
+import { bucketAttention, jumpSectionFor } from "@/lib/admin/sectionAttention";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 
 const it_ = (code: string, sectionId: string, crewKey: string | null = null): AttentionItem =>
@@ -154,15 +156,36 @@ describe("jump target and landing place agree, per route family (spec test 12)",
   ])("%s (routed %s): the JUMP target equals the LANDING place", (code, route) => {
     for (const available of [true, false]) {
       const item = it_(code, route);
-      // Jump side: the SAME production function navigateTo calls, fed the SAME
-      // placement predicates the modal gives bucketAttention. Both sides are
-      // DERIVED — an earlier version compared the landing place to hard-coded
-      // strings, which meant a wrong jump target could never fail it (whole-diff
-      // review round 2, 2026-07-25).
-      const jumpTo = resolveEffectiveSection(item, placementWith(available));
+      // Jump side: the SAME EXPORTED FUNCTION `navigateTo` builds its
+      // AttentionJump.sectionId from, fed the same placement predicates the
+      // modal gives bucketAttention. Calling `resolveEffectiveSection` here
+      // instead — as two earlier versions of this test did — left production
+      // free to emit item.sectionId or a hard-coded Overview without failing
+      // anything, because nothing tied the test to the call site
+      // (whole-diff review rounds 2-4).
+      const jumpTo = jumpSectionFor(item, placementWith(available));
       const landsIn = landedIn(item, available);
       expect(jumpTo, `${code}, anchor ${available ? "mounted" : "absent"}`).toBe(landsIn);
     }
+  });
+
+  // The shared builder only helps while production actually calls it. Without
+  // this, someone could inline `resolveEffectiveSection(item, placement)` back
+  // into navigateTo, the test above would keep passing against the now-unused
+  // helper, and the coupling this whole repair rests on would be gone silently.
+  it("navigateTo builds its jump section from jumpSectionFor, not an inlined copy", () => {
+    const src = readFileSync(
+      join(process.cwd(), "components/admin/showpage/PublishedReviewModal.tsx"),
+      "utf8",
+    );
+    const navigateTo = /const navigateTo = \(item: AttentionItem\) => \{([\s\S]*?)\n  \};/.exec(
+      src,
+    );
+    expect(navigateTo, "navigateTo not found — did it move or get renamed?").not.toBeNull();
+    expect(navigateTo![1]).toContain("jumpSectionFor(item, placement)");
+    // and not a re-inlined derivation
+    expect(navigateTo![1]).not.toContain("resolveEffectiveSection(");
+    expect(navigateTo![1]).not.toMatch(/sectionId:\s*item\.sectionId/);
   });
 
   it("no needs-look route can be dropped in EITHER availability state", () => {

@@ -138,7 +138,7 @@ The chip carries no verb. Every verb tried in design committed to an amount of w
 
 **Self-link suppression — SPECIFIED, then removed as provably dead (implementation review round 2, 2026-07-25).** The reasoning below is why the external-only claim is true, and it stands. But the guard it describes cannot fire in the shipped code: the chip requires `action.external`, and the guard required `!action.external`, so the two conditions are mutually exclusive. Keeping it would have kept `sectionOfHref`, the `effectiveSectionId` prop, and its four call sites alive for a branch nothing can reach. **The `external` gate is the whole mechanism.** If an internal chip is ever specified, it needs an amendment anyway, and the guard comes back with it. Retained here as the derivation, not as a description of shipped code:
 
-**Original guard text.** `SHOW_UNPUBLISHED` and `RESYNC_SHRINK_HELD` both route their card to the `overview` section (`lib/admin/attentionItems.ts:136`, `lib/admin/attentionItems.ts:130`) *and* point their action at `#overview` (`lib/adminAlerts/alertActions.ts:171`, `lib/adminAlerts/alertActions.ts:141-149`). The chip would point at the place the card already is. When `action.external === false` and the action's target section equals `effectiveSectionId(item)`, **no chip renders** and the footer keeps only the "Raised …" line. This guard is what makes the external-only statement true from the card side, so it is load-bearing rather than redundant with the table above.
+**Original guard text (SUPERSEDED — describes a mechanism that was removed before merge; kept only as the record of what was specified).** `SHOW_UNPUBLISHED` and `RESYNC_SHRINK_HELD` both route their card to the `overview` section (`lib/admin/attentionItems.ts:136`, `lib/admin/attentionItems.ts:130`) *and* point their action at `#overview` (`lib/adminAlerts/alertActions.ts:171`, `lib/adminAlerts/alertActions.ts:141-149`). The chip would point at the place the card already is. When `action.external === false` and the action's target section equals `effectiveSectionId(item)`, **no chip renders** and the footer keeps only the "Raised …" line. This guard is what makes the external-only statement true from the card side, so it is load-bearing rather than redundant with the table above.
 
 Actionable cards and monitoring cards are unchanged: the resolve button and the `autoClearNote` respectively.
 
@@ -364,11 +364,11 @@ No new colour token is introduced — the destination chip reuses the existing w
 | 11 | Of those, codes that can actually reach the panel | §9 reconciliation below |
 | 3 | Self-healing codes | `lib/adminAlerts/audience.ts:75-79` |
 | 6 | `openSheet` (external) needs-look codes | `alertActions.ts:163-168` |
-| 2 | Notes-channel codes: internal action; carded only when the warnings section is unavailable, chip-less in both states because the chip requires an external action | `lib/admin/parseAttentionNote.ts:23`, `lib/admin/sectionAttention.ts:111-128` |
-| 2 | Internal-action codes that would have self-linked, chip-less by §2.3 | `SHOW_UNPUBLISHED`, `RESYNC_SHRINK_HELD` |
+| 2 | Notes-channel codes: internal action, so chip-less in both states (the chip requires an external action) | `lib/admin/parseAttentionNote.ts:23`, `lib/admin/sectionAttention.ts:111-128` |
+| 2 | Further internal-action codes, chip-less for the same reason | `SHOW_UNPUBLISHED`, `RESYNC_SHRINK_HELD` |
 | 0 | Codes this spec removes from the index (both already excluded at HEAD) | §2.5 |
 | 2 | Codes landing on the warnings panel when it is available, and on an Overview card when it is not | §2.2, §2.3 |
-| 4 | Internal-action needs-look codes, all chip-less via the self-link guard | §2.3 |
+| 4 | Internal-action needs-look codes, all chip-less because the chip requires an external action | §2.3 |
 | 3 | ALERT codes that can reach the merged group's button-clearable half | `ROLE_FLAGS_NOTICE`, `AMBIGUOUS_EMAIL_BINDING`, `LIVE_ROW_CONFLICT`. Holds also occupy that half but clear through the Changes section's approve/reject control, not a resolve button (§1.1) |
 | 99 | Pill visible count cap | `PublishedReviewModal.tsx:789` |
 | 44 | Tap-target floor in px | §5 |
@@ -376,7 +376,7 @@ No new colour token is introduced — the destination chip reuses the existing w
 
 `NEEDS_LOOK_CODE_LIST` has 12 entries but only **11** can reach the panel, and the twelfth is worth stating because it looks like an omission otherwise. `USE_RAW_DECISION_STALE` is in the list (`lib/adminAlerts/audience.ts:92`) and in the catalog (`lib/messages/catalog.ts:207`), but it is NOT an admin-alert producer code — it is absent from `ADMIN_ALERTS_CODES` (`tests/messages/adminAlertsRegistry.ts:9`), and `tests/admin/_metaAttentionRoutes.test.ts:14` asserts `ATTENTION_ROUTES` keys are set-equal to that registry, so it has no route and never becomes an attention item. It sits in the list only to type the fix-hint map.
 
-The remaining 11 reconcile as `6 + 2 + 2 + 1`: 6 external-chip; 2 notes-channel (internal action, intercepted before the card path when warnings is available and self-link-suppressed on the Overview fallback when it is not, so chip-less in both states); 2 self-link-suppressed (`SHOW_UNPUBLISHED`, `RESYNC_SHRINK_HELD`); 1 with a route but no registered action (`ASSET_RECOVERY_BYTES_EXCEEDED` — routed at `lib/admin/attentionItems.ts:120`, absent from `ALERT_ACTION_CODES` at `lib/adminAlerts/alertActions.ts:13-37`). **Only the first bucket ever renders a chip** (§2.3).
+The remaining 11 reconcile as `6 + 2 + 2 + 1`: 6 external-chip; 2 notes-channel (internal action, intercepted before the card path when warnings is available and still chip-less on the Overview fallback when it is not, since the chip requires an external action); 2 further internal-action codes, chip-less for the same reason (`SHOW_UNPUBLISHED`, `RESYNC_SHRINK_HELD`); 1 with a route but no registered action (`ASSET_RECOVERY_BYTES_EXCEEDED` — routed at `lib/admin/attentionItems.ts:120`, absent from `ALERT_ACTION_CODES` at `lib/adminAlerts/alertActions.ts:13-37`). **Only the first bucket ever renders a chip** (§2.3).
 
 ---
 
