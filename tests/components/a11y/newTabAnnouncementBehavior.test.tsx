@@ -385,38 +385,46 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
   const Hint = (): React.ReactElement => <span className="sr-only">(opens in a new tab)</span>;
 
   test("agrees that aria-hidden, <template> and {true} remove content from the name", () => {
-    const cases: [string, React.ReactElement, string][] = [
+    const cases: [string, () => React.ReactElement, string][] = [
       [
         "aria-hidden label",
-        <a href="x" target="_blank">
-          <span aria-hidden="true">Go</span> <Hint />
-        </a>,
+        () => (
+          <a href="x" target="_blank">
+            <span aria-hidden="true">Go</span> <Hint />
+          </a>
+        ),
         "(opens in a new tab)",
       ],
       [
         "template label",
-        <a href="x" target="_blank">
-          <template>Go</template> <Hint />
-        </a>,
+        () => (
+          <a href="x" target="_blank">
+            <template>Go</template> <Hint />
+          </a>
+        ),
         "(opens in a new tab)",
       ],
       [
         "{true} contributes nothing, {0} does",
-        <a href="x" target="_blank">
-          {0} <Hint />
-        </a>,
+        () => (
+          <a href="x" target="_blank">
+            {0} <Hint />
+          </a>
+        ),
         "0 (opens in a new tab)",
       ],
       [
         "visible label",
-        <a href="x" target="_blank">
-          <span>Go</span> <Hint />
-        </a>,
+        () => (
+          <a href="x" target="_blank">
+            <span>Go</span> <Hint />
+          </a>
+        ),
         "Go (opens in a new tab)",
       ],
     ];
     for (const [label, jsx, expected] of cases) {
-      const { container, unmount } = render(jsx);
+      const { container, unmount } = render(jsx());
       expect(container.querySelector("a"), label).toHaveAccessibleName(expected);
       unmount();
     }
@@ -427,28 +435,32 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
     // details content is not shown; real browsers honour both. This harness does not, so a
     // toHaveAccessibleName assertion CANNOT catch either regression. If one of these ever
     // starts failing, the harness gained the capability -- delete the case and rely on it.
-    const notModelled: [string, React.ReactElement][] = [
+    const notModelled: [string, () => React.ReactElement][] = [
       [
         "inert wrapper",
-        <a href="x" target="_blank">
-          Go{" "}
-          <span inert>
-            <Hint />
-          </span>
-        </a>,
+        () => (
+          <a href="x" target="_blank">
+            Go{" "}
+            <span inert>
+              <Hint />
+            </span>
+          </a>
+        ),
       ],
       [
         "closed details",
-        <a href="x" target="_blank">
-          Go{" "}
-          <details>
-            <Hint />
-          </details>
-        </a>,
+        () => (
+          <a href="x" target="_blank">
+            Go{" "}
+            <details>
+              <Hint />
+            </details>
+          </a>
+        ),
       ],
     ];
     for (const [label, jsx] of notModelled) {
-      const { container, unmount } = render(jsx);
+      const { container, unmount } = render(jsx());
       expect(
         container.querySelector("a"),
         `${label}: harness still includes the hint`,
