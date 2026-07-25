@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * set_published_pull_sheet_override RPC (spec 2026-07-23 §3.2), real DB.
@@ -8,8 +9,9 @@ import postgres from "postgres";
  * grant leak to authenticated/anon.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 const loopback = /127\.0\.0\.1|localhost/.test(LOCAL_URL);
 const d = loopback ? describe : describe.skip;
 

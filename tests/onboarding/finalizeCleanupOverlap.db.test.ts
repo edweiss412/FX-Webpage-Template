@@ -3,6 +3,7 @@ import postgres from "postgres";
 
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
 import { cleanupAbandonedFinalize } from "@/lib/onboarding/sessionLifecycle";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * F1 Task 1.3 (plan R25-1/R29-1) — Phase B lock-order overlap regression.
@@ -21,8 +22,9 @@ import { cleanupAbandonedFinalize } from "@/lib/onboarding/sessionLifecycle";
 
 // Phase-wide DB-connection convention: TEST_DATABASE_URL is the VALIDATION project in this
 // repo — every *.db.test.ts pins BOTH env vars to the local loopback (plan R19-1).
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "7a7a7a7a-3333-4333-8333-7a7a7a7a7a7a";
 const FOLDER = "finalize-cleanup-overlap-folder";

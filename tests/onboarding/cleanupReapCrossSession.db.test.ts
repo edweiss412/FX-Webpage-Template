@@ -18,7 +18,7 @@
  */
 import { afterAll, describe, expect, test } from "vitest";
 import postgres from "postgres";
-import { assertLocalDbUrl } from "../db/_remediationHelpers";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 import {
   cleanupAbandonedFinalize,
   reapStaleOnboardingSessions,

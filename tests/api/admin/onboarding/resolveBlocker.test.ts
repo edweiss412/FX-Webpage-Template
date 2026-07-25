@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Task 6 — POST /api/admin/onboarding/resolve-blocker SCAFFOLD (body/session guards only).
@@ -36,8 +37,9 @@ vi.mock("@/lib/log/logAdminOutcome", () => ({
 import { handleResolveBlocker } from "@/app/api/admin/onboarding/resolve-blocker/route";
 import { SHOW_ARCHIVED_IMMUTABLE } from "@/lib/sync/lifecycleGuards";
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "6a6a6a6a-1111-4111-8111-6a6a6a6a6a6a";
 const OTHER_SESSION = "6b6b6b6b-2222-4222-8222-6b6b6b6b6b6b";

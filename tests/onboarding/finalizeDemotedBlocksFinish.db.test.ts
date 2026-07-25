@@ -3,6 +3,7 @@ import postgres from "postgres";
 
 import { PostgresOnboardingScanTx, type PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * whole-diff R1 HIGH — demoted finalize-failure rows block finish on the RETRY (real DB).
@@ -28,8 +29,9 @@ import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/ro
 // Phase-wide DB convention: TEST_DATABASE_URL is the VALIDATION project in this repo — every
 // *.db.test.ts pins BOTH env vars to local loopback (plan R19-1), because the route's
 // databaseUrl() prefers TEST_DATABASE_URL ?? DATABASE_URL.
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "5d5d5d5d-2222-4222-8222-5d5d5d5d5d5d";
 const FOLDER = "demoted-block-folder";

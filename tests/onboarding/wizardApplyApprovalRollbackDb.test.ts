@@ -5,6 +5,7 @@ import { PostgresOnboardingScanTx, type PostgresTransaction } from "@/lib/sync/r
 import { applyStaged } from "@/lib/sync/applyStaged";
 import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 import type { DriveListedFile } from "@/lib/drive/list";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * BL-APPLYSTAGED-SUPERSESSION-ROLLBACK (PR #87) real-DB partial-commit regression.
@@ -23,8 +24,9 @@ import type { DriveListedFile } from "@/lib/drive/list";
  * other dep runs against the real DB.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "a1a1a1a1-2222-4222-8222-a1a1a1a1a1a1";
 const FOLDER = "apply-rollback-folder";

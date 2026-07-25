@@ -6,6 +6,7 @@ import { runPhase1 } from "@/lib/sync/phase1";
 import type { ParseResult } from "@/lib/parser/types";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
 import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Scan → Phase B → Phase D re-onboarding regression (real DB, production write path).
@@ -34,8 +35,9 @@ import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize
 
 // Phase-wide DB-connection convention: TEST_DATABASE_URL is the VALIDATION project in this
 // repo — every *.db.test.ts pins BOTH env vars to the local loopback (plan R19-1).
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "5d5d5d5d-6666-4666-8666-5d5d5d5d5d5d";
 const FOLDER = "finalize-cas-ms-precision-folder";

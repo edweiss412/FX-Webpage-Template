@@ -10,6 +10,7 @@ import {
 import { runPhase1 } from "@/lib/sync/phase1";
 import type { ArchivedPullSheetTab, ParseResult, ParsedSheet } from "@/lib/parser/types";
 import { rescanWizardSheet, type RescanDeps } from "@/lib/onboarding/rescanWizardSheet";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
  * Pull-sheet override — production reader injection (GAP 3) + rescan persist (GAP 2), real DB.
@@ -19,8 +20,9 @@ import { rescanWizardSheet, type RescanDeps } from "@/lib/onboarding/rescanWizar
  *    discard) through `applyRescanDecisionUnderLock` → runScan → `upsertLivePendingSync`.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 const SESSION = "6c6c6c6c-2222-4222-8222-6c6c6c6c6c6c";
 const FOLDER = "pso-scan-folder";
 const DRIVE = "drive-pso-1";

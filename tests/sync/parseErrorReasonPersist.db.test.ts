@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 describe("producer wiring", () => {
   it("builds its PARSE_ERROR_LAST_GOOD context via buildParseErrorContext, wiring phase1.code", () => {
@@ -17,8 +18,9 @@ describe("producer wiring", () => {
 // Local Supabase DB (the repo's established *.db.test.ts pattern): prefer an
 // explicit LOCAL_TEST_DATABASE_URL, else the loopback default. TEST_DATABASE_URL
 // in this worktree points at the remote pooler and must NOT be used here.
-const DB =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const DB = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 // Full host-boundary match (the block does destructive cleanup): the host must be
 // exactly a loopback name, followed by a port/path delimiter or end-of-string, so a
 // remote like `postgres.example.com` is NOT accepted.

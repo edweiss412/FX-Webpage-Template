@@ -222,4 +222,26 @@ describe("every LOCAL_TEST_DATABASE_URL read in tests/ is guarded (spec §2.6)",
         "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts",
     ).toBe(53);
   });
+
+  test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {
+    // tests/sync/qualityRegressionLifecycle.test.ts deliberately runs against the
+    // validation project when TEST_DATABASE_URL is set (its own gate at :439-449
+    // fails rather than skips when an explicit URL cannot connect). Guarding that
+    // leg would break it by design; leaving the LOCAL_ leg unguarded would keep the
+    // remote-DELETE hazard alive in the one file that DELETEs from admin_alerts and
+    // shows. Both halves are asserted here because either alone is wrong.
+    const path = "tests/sync/qualityRegressionLifecycle.test.ts";
+    const src = readFileSync(join(process.cwd(), path), "utf8");
+
+    expect(classifyLocalDbUrlSource(src, path)).toMatchObject({
+      envReads: 1,
+      unguardedReads: 0,
+      exemptReason: null,
+    });
+    expect(src).toContain("assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL)");
+    expect(src, "the validation leg must stay unconstrained").toContain(
+      "process.env.TEST_DATABASE_URL ??",
+    );
+    expect(src).not.toContain("assertLocalDbUrl(process.env.TEST_DATABASE_URL");
+  });
 });
