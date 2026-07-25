@@ -16,7 +16,7 @@
  * path is not a cosmetic defect: it leaves the job dark for changes to that
  * input, which is the exact failure the gate exists to remove.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -36,16 +36,34 @@ const REQUIRED_PATHS = [
   "tests/e2e/_step3ReviewModalBundle.mjs",
   "tests/e2e/standalone.config.ts",
   "tsconfig.json",
-  "components/admin/showpage/AttentionMenu.tsx",
-  "components/admin/showpage/PublishedReviewModal.tsx",
   "app/globals.css",
   "package.json",
   "pnpm-lock.yaml",
   WORKFLOW,
 ];
 
+/** Production surfaces the live harness actually executes. DERIVED from the
+ *  harness's own imports rather than copied from the workflow — a REQUIRED_PATHS
+ *  list that mirrors the yaml can only ever agree with it, so it could never
+ *  catch the omission this test exists to catch (whole-diff review 2026-07-25).
+ *  Each entry must be covered by SOME filter line, exactly or by glob prefix. */
+const HARNESS_PRODUCTION_DEPS = [
+  "components/admin/showpage/PublishedReviewModal.tsx",
+  "components/admin/showpage/AttentionMenu.tsx",
+  "components/admin/review/AttentionBanner.tsx",
+  "components/admin/review/publishedAdapter.ts",
+  "lib/admin/sectionAttention.ts",
+  "lib/admin/attentionItems.ts",
+];
+
+/** True when `path` is matched by a filter entry, exactly or via a `/**` glob. */
+function coveredBy(filters: string[], path: string): boolean {
+  return filters.some((f) => (f.endsWith("/**") ? path.startsWith(f.slice(0, -2)) : f === path));
+}
+
 describe("attention-pill-focus CI wiring", () => {
   const yaml = readFileSync(join(ROOT, WORKFLOW), "utf8");
+  const filters = [...yaml.matchAll(/^\s+- "([^"]+)"$/gm)].map((m) => m[1]!);
 
   it("invokes the spec under the standalone config", () => {
     // the runner is reached through a package script, so accept either form
@@ -66,6 +84,21 @@ describe("attention-pill-focus CI wiring", () => {
   it("fires on every direct harness, production, and toolchain input", () => {
     const missing = REQUIRED_PATHS.filter((p) => !yaml.includes(`"${p}"`));
     expect(missing, `path filter omits: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("fires on every production surface the harness executes", () => {
+    // These are read from the harness's import graph, not from the yaml, so an
+    // omission in the workflow shows up here as a real failure.
+    const missing = HARNESS_PRODUCTION_DEPS.filter((d) => !coveredBy(filters, d));
+    expect(missing, `path filter does not cover: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("the harness's production imports still resolve to files that exist", () => {
+    // Guards the list above from rotting into a fiction: a renamed surface must
+    // fail here rather than silently stop being checked.
+    for (const dep of HARNESS_PRODUCTION_DEPS) {
+      expect(existsSync(join(ROOT, dep)), `${dep} no longer exists`).toBe(true);
+    }
   });
 
   it("is classified PATH_GATED, not UNSEEN, in the coverage registry", () => {

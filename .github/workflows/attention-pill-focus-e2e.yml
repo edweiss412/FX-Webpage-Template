@@ -25,8 +25,16 @@ on:
       - "tests/e2e/_step3ReviewModalBundle.mjs"
       - "tests/e2e/standalone.config.ts"
       - "tsconfig.json"
-      - "components/admin/showpage/AttentionMenu.tsx"
-      - "components/admin/showpage/PublishedReviewModal.tsx"
+      # The harness renders the REAL modal tree, so the job must fire on the
+      # production surfaces it executes — not just the two files the spec is
+      # named after. AttentionBanner renders for every synthetic alert item, and
+      # sectionAttention supplies bucketAttention/resolveEffectiveSection on
+      # every render. Globs rather than single files: the harness mounts whole
+      # subtrees, and an enumerated list silently rots as they grow.
+      - "components/admin/showpage/**"
+      - "components/admin/review/**"
+      - "lib/admin/sectionAttention.ts"
+      - "lib/admin/attentionItems.ts"
       - "app/globals.css"
       - "package.json"
       - "pnpm-lock.yaml"
