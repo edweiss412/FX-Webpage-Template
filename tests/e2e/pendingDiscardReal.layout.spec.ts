@@ -39,17 +39,12 @@ const INGESTION_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 /** Live geometries. 320 = dashboard rail (`min-[1240px]:w-80`); 390 = the mobile
  *  Needs-attention page; 900 = a full-width card. Single source for the widths so
  *  a threshold change cannot leave a panel testing the old boundary. */
-const STATES = {
-  rail320: 320,
-  page390: 390,
-  thresholdUnder617: 617,
-  thresholdAt618: 618,
-  wide900: 900,
-} as const;
-/** Component container width at the two threshold rails: the card consumes 42px
- *  (1px borders + 20px p-tile-pad, both sides), so 618 - 42 = 576 exactly. */
-const THRESHOLD = 576;
-type StateName = keyof typeof STATES;
+/** Rails mirroring live geometry. Content width is the rail minus the card's 42px
+ *  (1px borders + 20px p-tile-pad, both sides): 278 / 348 / 858px. */
+const RAILS = { rail320: 278, page390: 348, wide900: 858 } as const;
+type RailName = keyof typeof RAILS;
+/** Idle pair needs 315.94px, armed pair 324.72px — so only rail320 must wrap. */
+const FITS: Record<RailName, boolean> = { rail320: false, page390: true, wide900: true };
 
 let server: Server;
 let baseUrl: string;
@@ -109,233 +104,90 @@ test.afterAll(async () => {
 });
 
 type Box = { x: number; y: number; w: number; h: number; bottom: number; right: number };
-type Probe = {
-  found: { row: boolean; root: boolean; stacked: boolean; inline: boolean; buttons: boolean };
-  railW: number;
-  rowW: number;
-  rootW: number;
-  stackedW: number;
-  inlineW: number;
-  liveBranchW: number;
-  rootHasWFull: boolean;
-  rootHasContainer: boolean;
-  liveBranch: "stacked" | "inline" | "none";
-  stackedDisplay: string;
-  inlineDisplay: string;
-  defer: Box;
-  ignore: Box;
-};
+type Probe = { found: boolean; defer: Box; ignore: Box };
 
-async function probe(page: import("@playwright/test").Page, state: StateName): Promise<Probe> {
+async function probe(
+  page: import("@playwright/test").Page,
+  state: string,
+): Promise<Probe> {
   return page.evaluate(
     ({ state, id }) => {
       const root = document.querySelector(`[data-state="${state}"]`)!;
-      const pick = (t: string) => root.querySelector(`[data-testid="${t}-${id}"]`);
-      const rail = root.querySelector('[data-testid="rail"]')!;
-
-      // Every element is ADDRESSED by test id, never inferred from DOM shape.
-      // Round 5: a probe that guessed the branches via `:scope > div > div`
-      // matched nothing and reported missing/missing, so the assertion could
-      // never go green no matter what shipped.
-      const discardRoot = pick("discard-root") as HTMLElement | null;
-      const branchStacked = pick("discard-branch-stacked") as HTMLElement | null;
-      const branchInline = pick("discard-branch-inline") as HTMLElement | null;
-      // Variant-suffixed button ids (the bare ones are retired by §4.4). Whichever
-      // branch is live owns the pair we measure.
-      const deferStacked = pick("admin-pending-defer-stacked") as HTMLElement | null;
-      const deferInline = pick("admin-pending-defer-inline") as HTMLElement | null;
-      const ignoreStacked = pick("admin-pending-ignore-stacked") as HTMLElement | null;
-      const ignoreInline = pick("admin-pending-ignore-inline") as HTMLElement | null;
-
-      const vis = (el: HTMLElement | null) =>
-        el !== null && getComputedStyle(el).display !== "none";
-      const liveStacked = vis(branchStacked);
-      const defer = liveStacked ? deferStacked : deferInline;
-      const ignore = liveStacked ? ignoreStacked : ignoreInline;
-
+      const defer = root.querySelector(`[data-testid="admin-pending-defer-${id}"]`);
+      const ignore = root.querySelector(`[data-testid="admin-pending-ignore-${id}"]`);
       const ZERO = { x: 0, y: 0, w: 0, h: 0, bottom: 0, right: 0 };
+      // PANEL-RELATIVE. The idle and armed panels are separate sections stacked down
+      // the page, so comparing absolute coordinates across them measures where the
+      // panel sits, not where the button sits — which is a bug in the oracle, not the
+      // component. Everything below is relative to this panel's own origin.
+      const o = root.getBoundingClientRect();
       const b = (el: Element | null) => {
         if (!el) return ZERO;
         const r = el.getBoundingClientRect();
-        return { x: r.left, y: r.top, w: r.width, h: r.height, bottom: r.bottom, right: r.right };
+        return {
+          x: r.left - o.left,
+          y: r.top - o.top,
+          w: r.width,
+          h: r.height,
+          bottom: r.bottom - o.top,
+          right: r.right - o.left,
+        };
       };
-      const w = (el: Element | null) => (el ? el.getBoundingClientRect().width : -1);
-      // Addressed by id, not inferred: round 6 caught that `discardRoot.parentElement`
-      // would silently measure an intermediate wrapper, so the w-full oracle could
-      // pass while the root no longer filled the real action row.
-      const row = pick("pending-action-row") as HTMLElement | null;
-
-      return {
-        // `found` lets a missing element fail as a readable assertion rather than a
-        // null deref, which is how round 5's version broke.
-        found: {
-          row: row !== null,
-          root: discardRoot !== null,
-          stacked: branchStacked !== null,
-          inline: branchInline !== null,
-          buttons: defer !== null && ignore !== null,
-        },
-        railW: w(rail),
-        rowW: w(row),
-        rootW: w(discardRoot),
-        stackedW: w(branchStacked),
-        inlineW: w(branchInline),
-        liveBranchW: liveStacked ? w(branchStacked) : w(branchInline),
-        rootHasWFull: discardRoot ? discardRoot.classList.contains("w-full") : false,
-        rootHasContainer: discardRoot ? discardRoot.classList.contains("@container") : false,
-        liveBranch: liveStacked ? "stacked" : vis(branchInline) ? "inline" : "none",
-        stackedDisplay: branchStacked ? getComputedStyle(branchStacked).display : "missing",
-        inlineDisplay: branchInline ? getComputedStyle(branchInline).display : "missing",
-        defer: b(defer),
-        ignore: b(ignore),
-      };
+      return { found: defer !== null && ignore !== null, defer: b(defer), ignore: b(ignore) };
     },
     { state, id: INGESTION_ID },
   );
 }
 
-for (const [state, width] of Object.entries(STATES) as [StateName, number][]) {
-  test(`${state}: the shipped root carries w-full + @container and does NOT collapse`, async ({
-    page,
-  }) => {
+for (const rail of Object.keys(RAILS) as RailName[]) {
+  for (const variant of ["", "armed"] as const) {
+    const state = `${rail}${variant}`;
+
+    test(`${state}: D2 — both buttons clear ${TAP_MIN}px`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(baseUrl);
+      const p = await probe(page, state);
+      expect(p.found, `${state}: buttons not found`).toBe(true);
+      expect(p.defer.h, "D2: Defer below tap minimum").toBeGreaterThanOrEqual(TAP_MIN - TOL);
+      expect(p.ignore.h, "D2: Ignore below tap minimum").toBeGreaterThanOrEqual(TAP_MIN - TOL);
+    });
+
+    test(`${state}: D1/D3 — ${FITS[rail] ? "one line, Ignore left" : "wrapped with Ignore ABOVE"}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(baseUrl);
+      const p = await probe(page, state);
+      if (FITS[rail]) {
+        // D3: where the pair fits, it must NOT stack — the whole point of the reorder
+        // over an always-stack design.
+        expect(Math.abs(p.ignore.y - p.defer.y), `D3 ${state}: should share one line`).toBeLessThanOrEqual(TOL);
+        expect(p.ignore.x, `D3 ${state}: Ignore should be left of Defer`).toBeLessThan(p.defer.x);
+      } else {
+        // D1: where it cannot fit, the SAFE control must be the lower one.
+        expect(p.ignore.bottom, `D1 ${state}: Ignore must sit above Defer`).toBeLessThanOrEqual(
+          p.defer.y + TOL,
+        );
+      }
+    });
+  }
+
+  test(`${rail}: D4 — arming never moves Ignore's box origin`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(baseUrl);
-    const p = await probe(page, state);
-
-    expect(p.found.root, "discard-root-* not found — is the fork implemented?").toBe(true);
-    expect(p.found.row, "pending-action-row-* not found — is the parent labelled?").toBe(true);
-    // Read off RENDERED markup, not the source file: this is the assertion round 3
-    // showed was missing everywhere, and it is why this spec exists.
-    expect(p.rootHasContainer, "shipped root must carry @container").toBe(true);
-    expect(p.rootHasWFull, "shipped root must carry w-full").toBe(true);
-
-    // The direct 0px-collapse test. `container-type: inline-size` severs inline size
-    // from contents, so a shrink-to-fit root measures 0 and the buttons shrink to
-    // ~26px. This assertion cannot pass if w-full is dropped.
-    expect(p.rootW, "container root collapsed — w-full missing?").toBeGreaterThan(0);
-    // Exact oracle: `w-full` fills the parent action row's content box. Comparing
-    // against the RAIL would be wrong by the card's borders + padding (round 4).
-    expect(Math.abs(p.rootW - p.rowW), `root ${p.rootW} vs row ${p.rowW}`).toBeLessThanOrEqual(TOL);
-    expect(width).toBeGreaterThan(0); // width participates via STATES, kept for the label
-  });
-
-  test(`${state}: exactly one branch copy is displayed`, async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(baseUrl);
-    const p = await probe(page, state);
-    expect(p.found.stacked && p.found.inline, "both branch containers must exist").toBe(true);
-    const hiddenCount = [p.stackedDisplay, p.inlineDisplay].filter((d) => d === "none").length;
-    expect(hiddenCount, `displays: ${p.stackedDisplay} / ${p.inlineDisplay}`).toBe(1);
-    expect(p.liveBranch, "exactly one branch must be live").not.toBe("none");
-  });
-
-  test(`${state}: D2 — tap targets clear ${TAP_MIN}px`, async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(baseUrl);
-    const p = await probe(page, state);
-    expect(p.found.buttons, "variant-suffixed button ids not found").toBe(true);
-    expect(p.defer.h, "D2: Defer below tap minimum").toBeGreaterThanOrEqual(TAP_MIN - TOL);
-    expect(p.ignore.h, "D2: Ignore below tap minimum").toBeGreaterThanOrEqual(TAP_MIN - TOL);
+    const idle = await probe(page, rail);
+    const armed = await probe(page, `${rail}armed`);
+    // Structural: Ignore is the first flex item, so a longer armed label extends
+    // rightward and pushes Defer. This is the DESTRUCT-1 guarantee without basis-full.
+    expect(Math.abs(armed.ignore.x - idle.ignore.x), `D4 ${rail}: Ignore left edge moved`).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(armed.ignore.y - idle.ignore.y), `D4 ${rail}: Ignore top edge moved`).toBeLessThanOrEqual(TOL);
   });
 }
 
-test("D5: rail320 + page390 — the safe action is NOT above the destructive one", async ({ page }) => {
+test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
-  for (const state of ["rail320", "page390"] as StateName[]) {
-    const p = await probe(page, state);
-    const stacked = p.ignore.y >= p.defer.bottom - TOL || p.defer.y >= p.ignore.bottom - TOL;
-    if (stacked) {
-      // D5: when they stack, Ignore must be ABOVE Defer.
-      expect(p.ignore.bottom, `D5 ${state}: Ignore must sit above Defer when stacked`).toBeLessThanOrEqual(
-        p.defer.y + TOL,
-      );
-    } else {
-      // D3: when they share a row, Defer must be on the LEFT.
-      expect(p.defer.x, `D3 ${state}: Defer must be left of Ignore when inline`).toBeLessThan(p.ignore.x);
-    }
-  }
-});
-
-test("wide900: they share one row with Defer on the left", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(baseUrl);
-  const p = await probe(page, "wide900");
-  expect(Math.abs(p.ignore.y - p.defer.y)).toBeLessThanOrEqual(TOL);
-  expect(p.defer.x).toBeLessThan(p.ignore.x);
-});
-
-test("the 576px threshold switches which branch is live (idle markup only)", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(baseUrl);
-  const under = await probe(page, "thresholdUnder617");
-  const at = await probe(page, "thresholdAt618");
-
-  // The rails are chosen so the COMPONENT container lands on 575 / 576 exactly.
-  expect(Math.abs(at.rootW - THRESHOLD), `root at 618px rail = ${at.rootW}`).toBeLessThanOrEqual(
-    TOL,
-  );
-  expect(under.rootW).toBeLessThan(THRESHOLD);
-
-  // Below: stacked, safe action lower. At/above: inline, Defer on the left.
-  expect(under.ignore.bottom, "below threshold must stack Ignore above Defer").toBeLessThanOrEqual(
-    under.defer.y + TOL,
-  );
-  expect(Math.abs(at.ignore.y - at.defer.y), "at threshold must be one row").toBeLessThanOrEqual(
-    TOL,
-  );
-  expect(at.defer.x).toBeLessThan(at.ignore.x);
-});
-
-test("D1: in the stacked branch, both buttons fill the branch width", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(baseUrl);
-  for (const state of ["rail320", "page390", "thresholdUnder617"] as StateName[]) {
-    const p = await probe(page, state);
-    expect(p.liveBranch, `${state} should be stacked`).toBe("stacked");
-    // Round 6: D1 was claimed but never measured. `self-start` on a button shrinks
-    // it to intrinsic width while keeping every canonical token, the 44px height,
-    // the correct order and one visible branch — the whole suite passed with D1
-    // false. Comparing against the BRANCH is the only assertion that catches it.
-    expect(Math.abs(p.defer.w - p.liveBranchW), `${state} Defer ${p.defer.w} vs branch ${p.liveBranchW}`).toBeLessThanOrEqual(TOL);
-    expect(Math.abs(p.ignore.w - p.liveBranchW), `${state} Ignore ${p.ignore.w} vs branch ${p.liveBranchW}`).toBeLessThanOrEqual(TOL);
-  }
-});
-
-test("D3: inline button widths are intrinsic, not stretched", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(baseUrl);
-  for (const state of ["thresholdAt618", "wide900"] as StateName[]) {
-    const p = await probe(page, state);
-    expect(p.liveBranch, `${state} should be inline`).toBe("inline");
-    // Round 7: D3 was measured only as shared-row placement + left-to-right order.
-    // Giving both inline buttons flex growth preserves the row, the ordering, the
-    // threshold switch, the tap heights and D6's pinned left edge while D3 is false.
-    // Neither button may fill the branch.
-    expect(p.defer.w, `${state} Defer stretched to branch width`).toBeLessThan(p.liveBranchW - TOL);
-    expect(p.ignore.w, `${state} Ignore stretched to branch width`).toBeLessThan(
-      p.liveBranchW - TOL,
-    );
-    expect(p.defer.right).toBeLessThan(p.ignore.x);
-  }
-});
-
-test("D7: the shipped markup contains no basis-full or sm:basis-auto", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(baseUrl);
-  // Round 8: the basis-full-absence guard was claimed but neither measured here
-  // nor D-numbered, so M1 could not require it. Retaining `basis-full
-  // sm:basis-auto` lets a container at >=576px inside a viewport below 640px
-  // select the inline branch while both buttons keep full basis and wrap,
-  // recreating the ordering defect. Read off RENDERED markup, not source.
   const markup = await page.evaluate(() => document.body.innerHTML);
-  expect(markup.includes("basis-full"), "D7: basis-full still present in shipped markup").toBe(
-    false,
-  );
-  expect(
-    markup.includes("sm:basis-auto"),
-    "D7: sm:basis-auto still present in shipped markup",
-  ).toBe(false);
+  expect(markup.includes("basis-full"), "D7: basis-full still in shipped markup").toBe(false);
+  expect(markup.includes("sm:basis-auto"), "D7: sm:basis-auto still in shipped markup").toBe(false);
 });

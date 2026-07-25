@@ -179,7 +179,7 @@ describe("pending-ingestion action buttons (live host: NeedsAttentionInbox)", ()
 // sibling "Defer until modified" stays one-tap (§7 exemption).
 describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)", () => {
   const ID = "pi-g1";
-  const ARMED_LABEL = "Confirm stop tracking this sheet permanently";
+  const ARMED_LABEL = "Tap again to confirm";
 
   afterEach(() => {
     vi.useRealTimers();
@@ -279,7 +279,9 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     vi.useFakeTimers();
     const { getByTestId } = renderButtons();
     const btn = getByTestId(`admin-pending-ignore-${ID}`);
-    const region = btn.nextElementSibling as HTMLElement;
+    // The live region is no longer Ignore's next sibling: the reorder puts Defer
+    // between them. Address it by role, which is unambiguous (exactly one exists).
+    const region = btn.closest("div")!.parentElement!.querySelector('[role="status"]') as HTMLElement;
     expect(region).not.toBeNull();
     expect(region.getAttribute("role")).toBe("status");
     expect(region.className.split(/\s+/)).toContain("sr-only");
@@ -290,7 +292,7 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
       vi.advanceTimersByTime(4_000);
     });
     // Same persistently-mounted element, emptied — never unmounted.
-    expect(btn.nextElementSibling).toBe(region);
+    expect(btn.closest("div")!.parentElement!.querySelector('[role="status"]')).toBe(region);
     expect(region.textContent).toBe("");
   });
 });
@@ -299,24 +301,45 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
 // buttons stack full-width < sm so the armed morph does not relocate the
 // confirm hit-target. Guard the shipped classes at the source; the real-browser
 // geometric proof lives in tests/e2e/pendingDiscardReflow.layout.spec.ts.
-describe("DESTRUCT-1 responsive-stack classes (PendingPanelDiscardButtons)", () => {
-  const ID = "pi-d1";
+describe("D7: the responsive-stack basis is GONE (reorder design)", () => {
+  const ID = "pi-d7";
+  function renderButtons() {
+    return render(<PendingPanelDiscardButtons pendingIngestionId={ID} />);
+  }
   function tokens(el: HTMLElement) {
     return el.className.split(/\s+/);
   }
-  test("both discard buttons carry basis-full sm:basis-auto in idle AND armed", () => {
-    const { getByTestId } = render(<PendingPanelDiscardButtons pendingIngestionId={ID} />);
+
+  test("neither discard button carries basis-full or sm:basis-auto, idle OR armed", () => {
+    const { getByTestId } = renderButtons();
     const defer = getByTestId(`admin-pending-defer-${ID}`);
     const ignore = getByTestId(`admin-pending-ignore-${ID}`);
-    // idle
     for (const el of [defer, ignore]) {
-      expect(tokens(el)).toContain("basis-full");
-      expect(tokens(el)).toContain("sm:basis-auto");
+      expect(tokens(el)).not.toContain("basis-full");
+      expect(tokens(el)).not.toContain("sm:basis-auto");
     }
-    // armed (first tap) — the morphed class branch must keep the stack tokens
-    fireEvent.click(ignore);
-    expect(ignore.textContent).toBe("Confirm stop tracking this sheet permanently");
-    expect(tokens(ignore)).toContain("basis-full");
-    expect(tokens(ignore)).toContain("sm:basis-auto");
+    fireEvent.click(ignore); // arm
+    expect(tokens(getByTestId(`admin-pending-ignore-${ID}`))).not.toContain("basis-full");
+  });
+
+  test("[2] Ignore precedes Defer in the DOM, so a wrap puts the safe action lower", () => {
+    // The whole fix. jsdom has no layout, so this pins ORDER; the geometry that
+    // follows from it is proven in tests/e2e/pendingDiscardReal.layout.spec.ts.
+    const { getByTestId } = renderButtons();
+    const defer = getByTestId(`admin-pending-defer-${ID}`);
+    const ignore = getByTestId(`admin-pending-ignore-${ID}`);
+    const rel = ignore.compareDocumentPosition(defer);
+    expect(rel & Node.DOCUMENT_POSITION_FOLLOWING, "Ignore must come first").toBeTruthy();
+  });
+
+  test("[6] exactly one role=status live region, and it survives the reorder", () => {
+    const { container, getByTestId } = renderButtons();
+    const regions = container.querySelectorAll('[role="status"]');
+    expect(regions.length).toBe(1);
+    const region = regions[0] as HTMLElement;
+    expect(region.className.split(/\s+/)).toContain("sr-only");
+    expect(region.textContent).toBe("");
+    fireEvent.click(getByTestId(`admin-pending-ignore-${ID}`));
+    expect(region.textContent).toBe("Tap again to confirm.");
   });
 });

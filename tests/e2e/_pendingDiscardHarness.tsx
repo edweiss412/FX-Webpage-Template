@@ -72,11 +72,6 @@ function wrap(node: React.ReactElement): React.ReactElement {
  * The real inbox inside a fixed-width rail. `width` mirrors a live geometry:
  *   320 — the dashboard Needs-attention rail (`min-[1240px]:w-80`)
  *   390 — the mobile Needs-attention page
- *   618 — chosen so the COMPONENT container lands on the 576px threshold: the card
- *         consumes 42px through its 1px borders and 20px `p-tile-pad`, so 618-42=576.
- *         Without this rail nothing exercises the boundary the threshold rationale
- *         rests on (review round 4).
- *   617 — one pixel below, so the switchover itself is pinned rather than assumed.
  *   900 — a full-width card on a mid-size viewport
  * The rail div carries ONLY a width; every other box, padding and class below it
  * comes from the real component tree.
@@ -99,6 +94,21 @@ export function railHtml(width: number): string {
   );
 }
 
+/** The armed skin + label, imported from the component so the harness cannot
+ *  drift from it. The component exports these precisely so this harness needs no
+ *  transcription — which is what removes the need for a binding meta-test. */
+import { IGNORE_ARMED_CLASS, IGNORE_ARMED_LABEL, IGNORE_IDLE_CLASS, IGNORE_IDLE_LABEL } from "@/components/admin/PendingPanelDiscardButtons";
+
+/** Same tree, with the Ignore button in its armed state. Produced by substituting
+ *  the component's OWN exported armed class + label into the rendered markup, so
+ *  both panels originate from the component. */
+export function armedHtml(width: number): string {
+  const idle = railHtml(width);
+  return idle
+    .replace(IGNORE_IDLE_CLASS, IGNORE_ARMED_CLASS)
+    .replace(`>${IGNORE_IDLE_LABEL}<`, `>${IGNORE_ARMED_LABEL}<`);
+}
+
 export type HarnessJson = Record<string, string>;
 
 if (process.argv[1] && process.argv[1].endsWith("_pendingDiscardHarness.tsx")) {
@@ -106,10 +116,11 @@ if (process.argv[1] && process.argv[1].endsWith("_pendingDiscardHarness.tsx")) {
   if (!out) throw new Error("usage: tsx _pendingDiscardHarness.tsx <out.json>");
   const states: HarnessJson = {
     rail320: railHtml(320),
+    rail320armed: armedHtml(320),
     page390: railHtml(390),
-    thresholdUnder617: railHtml(617),
-    thresholdAt618: railHtml(618),
+    page390armed: armedHtml(390),
     wide900: railHtml(900),
+    wide900armed: armedHtml(900),
   };
   writeFileSync(out, JSON.stringify(states, null, 2));
 }

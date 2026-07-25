@@ -37,6 +37,22 @@ const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try
 // destructive surface (DESTRUCT-2): ARM_REVERT_MS.
 const ARM_REVERT_MS = 4_000;
 
+/* The two Ignore skins and their labels, exported so tests/e2e/_pendingDiscardHarness.tsx
+ * can render an ARMED panel from the component's own strings. renderToStaticMarkup
+ * cannot click, and the armed state differs only by this class + label — sourcing both
+ * from here means the harness never transcribes them, so no binding meta-test is needed
+ * to keep a transcription honest. */
+export const IGNORE_IDLE_CLASS =
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+export const IGNORE_ARMED_CLASS =
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+export const IGNORE_IDLE_LABEL = "Permanently ignore";
+/* Shortened from "Confirm stop tracking this sheet permanently" (328.51px -> 161.98px),
+ * which is what let the armed row stop wrapping at the 348px Needs-attention page.
+ * It is also exactly what the sr-only live region below already announces, so the
+ * visible label now matches what assistive tech hears. */
+export const IGNORE_ARMED_LABEL = "Tap again to confirm";
+
 export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -106,33 +122,34 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          data-testid={`admin-pending-defer-${pendingIngestionId}`}
-          onClick={() => handleClick("defer_until_modified")}
-          disabled={isRunning}
-          className="inline-flex basis-full sm:basis-auto min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        >
-          {state.kind === "running" && state.pendingKind === "defer_until_modified"
-            ? "Deferring…"
-            : "Defer until modified"}
-        </button>
+        {/* Ignore is FIRST so a wrap puts the irreversible action on the upper line
+            and the safe one below it, nearest the thumb. Being the first flex item
+            also means arming extends rightward and pushes Defer, never moving
+            Ignore's own box — the DESTRUCT-1 guarantee, now structural rather than
+            bought with `basis-full`. */}
         <button
           type="button"
           data-testid={`admin-pending-ignore-${pendingIngestionId}`}
           onClick={onGuardedIgnoreClick}
           disabled={isRunning}
-          className={
-            armed
-              ? "inline-flex basis-full sm:basis-auto min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-              : "inline-flex basis-full sm:basis-auto min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          }
+          className={armed ? IGNORE_ARMED_CLASS : IGNORE_IDLE_CLASS}
         >
           {armed
-            ? "Confirm stop tracking this sheet permanently"
+            ? IGNORE_ARMED_LABEL
             : state.kind === "running" && state.pendingKind === "permanent_ignore"
               ? "Ignoring…"
-              : "Permanently ignore"}
+              : IGNORE_IDLE_LABEL}
+        </button>
+        <button
+          type="button"
+          data-testid={`admin-pending-defer-${pendingIngestionId}`}
+          onClick={() => handleClick("defer_until_modified")}
+          disabled={isRunning}
+          className={IGNORE_IDLE_CLASS}
+        >
+          {state.kind === "running" && state.pendingKind === "defer_until_modified"
+            ? "Deferring…"
+            : "Defer until modified"}
         </button>
         {/* Persistent sr-only live region: announces the silent label morph to
             screen readers (impeccable P2). Always mounted — conditional
