@@ -117,5 +117,7 @@ ambiguous and left the report claiming an unapplied count it no longer had.
 Round-1 whole-diff review caught the mismatch; the anchor is now unique to the
 wash track and this table is the post-fix result.
 
-The run also gained an easing adversary path: the browser probe now reads
-, which nothing asserted before.
+The run also gained an easing adversary path: the browser probe now reads the
+resolved `animation-timing-function`, which nothing asserted anywhere before —
+the source scan only proved the shorthand EXISTED, so a later `linear` override
+would have left every assertion green while violating the ratified curve.

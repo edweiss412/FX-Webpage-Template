@@ -68,8 +68,8 @@ describe("RotateShareTokenButton — canonical origin + inactive gating", () => 
     // dedup: the banner no longer duplicates the URL / Copy the hub shows.
     expect(screen.queryByTestId("admin-rotate-share-token-url")).toBeNull();
     expect(screen.queryByTestId("admin-rotate-share-token-copy-button")).toBeNull();
-    // the fresh token+epoch flow to the shared cache → the card/chip/link update
-    // instantly (the canonical-origin URL is pinned on those surfaces in
+    // the fresh token+epoch flow to the shared cache → the hub's crew-link row
+    // updates instantly (the canonical-origin URL is pinned on that surface in
     // tests/components/shareTokenRotateSurface.test.tsx).
     expect(onRotated).toHaveBeenCalledWith(NEW_TOKEN, 4);
   });
