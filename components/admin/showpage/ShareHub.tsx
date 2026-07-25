@@ -130,6 +130,16 @@ const CARET_SIZE_PX = 10;
  *  `--radius-md`, the same value `CARET_EDGE_INSET` encodes for the triangle. */
 const CARET_CORNER_INSET_PX = 12;
 
+/** One-shot highlight window on the crew-URL block after the share-token
+ *  changes. Paired with the `[data-share-link-flash]` keyframes in
+ *  app/globals.css, which the spec makes normative; keep this value and the CSS
+ *  duration in sync (a drift pin in shareHubFlashTransitions asserts both).
+ *
+ *  A separate constant from `WARNING_HIGHLIGHT_MS` despite the shared value:
+ *  that one is pinned to Step3ReviewModal by the source-marker audit and stays
+ *  there. */
+export const SHARE_LINK_FLASH_MS = 1600;
+
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
 export type ShareHubProps = {
