@@ -3773,6 +3773,18 @@ describe("R6: scanner changes are pinned", () => {
     ]) {
       reports(span(attr), /hidden from the accessible name/, `stringifies to "true": ${attr}`);
     }
+    // The array stringifier's own rules. `String([a,b])` joins with a COMMA, so two fragments that
+    // would concatenate to "true" do not: joining with "" instead would report this as hidden.
+    expect(
+      violations(span('aria-hidden={["tr","ue"]}')),
+      'String(["tr","ue"]) is "tr,ue", not "true"',
+    ).toEqual([]);
+    // A SPREAD makes the array undecidable, so it fails closed rather than resolving to "".
+    reports(
+      span("aria-hidden={[...x]}"),
+      /hidden from the accessible name/,
+      "an array with a spread cannot be resolved",
+    );
     // ...and the ones that genuinely cannot, including the numeric family (HIGH 8).
     for (const attr of [
       "aria-hidden={[]}",

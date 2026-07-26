@@ -932,6 +932,11 @@ function staticStringValue(e0: ts.Expression): string | null {
         continue;
       }
       if (ts.isSpreadElement(el)) return null;
+      // `String([null])` is "", not "null" -- a nullish element contributes an EMPTY slot. No
+      // current consumer distinguishes the two (nothing compares against "" or "null"), so a
+      // mutation of this arm changes no verdict. Kept anyway, because this helper's contract is to
+      // compute the real string value and the alternative is a stringifier that is quietly wrong;
+      // the comment says so rather than implying a mechanism it does not currently drive.
       if (isProvablyNullish(el)) {
         parts.push("");
         continue;
