@@ -1341,6 +1341,13 @@ function isProvablyNullish(e0: ts.Expression): boolean {
   if (e.kind === ts.SyntaxKind.NullKeyword) return true;
   if (isGlobalRef(e, "undefined")) return true;
   if (ts.isVoidExpression(e)) return true; // `void 0` is undefined, whatever the operand
+  // NULLISHNESS COMPOSES, and leaving it out was a fail-open: `(false || null) ?? "true"` really
+  // evaluates to "true" and hides, but the `??` rule asked this helper about `false || null`, got
+  // "not nullish", and took the LEFT operand instead of the right (review R35). Every other value
+  // question already composed through `pickedOperand`; this one did not, so the nesting had to be
+  // exactly one level deep to slip through.
+  const picked = pickedOperand(e);
+  if (picked !== null) return isProvablyNullish(picked);
   if (ts.isConditionalExpression(e)) {
     const cond = unparen(e.condition);
     if (isLiteralTruthy(cond)) return isProvablyNullish(e.whenTrue);

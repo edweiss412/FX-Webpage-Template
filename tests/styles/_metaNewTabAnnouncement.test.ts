@@ -2018,6 +2018,27 @@ describe("R6: scanner changes are pinned", () => {
         `selected operand carries no destination: ${expr}`,
       );
     }
+    // NESTED selection: nullishness has to compose too, or the `??` rule asks about the wrong
+    // operand. `(false || null) ?? "true"` really evaluates to "true" and hides (review R35).
+    for (const v of [
+      '(false || null) ?? "true"',
+      '(null ?? null) ?? "true"',
+      '(true && null) ?? "true"',
+      '(false || undefined) ?? "true"',
+    ]) {
+      reports(
+        `const A=()=><a href="x" target="_blank">Go <span aria-hidden={${v}}><NewTabHint /></span></a>;`,
+        /hidden from the accessible name/,
+        `nested selection evaluates to "true": ${v}`,
+      );
+    }
+    // ...and the same nesting evaluating to something else does NOT hide.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank">Go <span aria-hidden={(false || null) ?? "false"}><NewTabHint /></span></a>;',
+      ),
+      'nested selection evaluating to "false" is visible',
+    ).toEqual([]);
     // ...and the mirror cases still pass, so operand selection is not a blanket rejection.
     for (const expr of [
       "{true && <span>Go</span>}",

@@ -1739,3 +1739,21 @@ never has to read. Two notes on building it: tsc rejects a literal `null ?? 0` a
 (TS2871), so those rows carry the evaluated value with the source spelling kept in the label; and the
 row set is only as good as its coverage, so a NEW attribute kind or value form needs a row rather
 than a fixture.
+
+### Nullishness had to compose too — the last helper that did not
+
+Read from R35's probe trail: `(false || null) ?? "true"` evaluates to `"true"`, so it hides, and the
+scanner accepted it. `(null ?? null) ?? "true"`, `(true && null) ?? "true"` and
+`(false || undefined) ?? "true"` all behaved the same way.
+
+The mechanism is precise. R34 made every value question compose through one helper, `pickedOperand` —
+truthiness, falsiness, React-omission, can-it-render-`"true"`. **`isProvablyNullish` was the one that
+did not**, and the `??` arm of `pickedOperand` calls it to decide which operand is selected. So asking
+about `false || null` returned "not nullish", `??` took the LEFT operand instead of the right, and the
+value resolved to `"null"` rather than `"true"`. The nesting had to be exactly one level deep to slip
+through — a flat `null ?? "true"` was always right.
+
+That is the R34 fix being incomplete in the one place its own mechanism depended on: a helper used BY
+the composition layer also has to compose. Worth checking directly whenever a "one helper owns this
+question" refactor lands — the callers get audited, and the callee that the layer itself consults
+does not.
