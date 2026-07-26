@@ -214,7 +214,16 @@ Cost: one ~5 min DB-free job on every PR, replacing six jobs that each pay the s
 
 Deleted: `attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignore-eyebrow-e2e.yml`, `hoverhelp-geometry-e2e.yml`, `modal-header-layout-e2e.yml`, `share-link-flash-e2e.yml` — **six**. `phantom-gap-e2e.yml` survives (its other two legs run default-config specs) but loses its standalone leg, which PR #605 grew from one spec to three (`phantomGapHelper.layout`, `section-header-layout.layout`, `pusher-alignment.layout`) — all three subsumed by the whole-config job.
 
-**A required-suite test reads one of the deleted workflows.** `tests/ci/attentionPillFocusWorkflow.test.ts` opens `attention-pill-focus-e2e.yml` at module initialization, asserts its path-filter contract, and asserts the spec's `PATH_GATED` allowlist row. Deleting that workflow reddens `unit-suite` — a live required context (§2.5) — regardless of whether the new browser job passes. PR2 therefore deletes that test in the same commit: every property it pins (the spec runs; it is registered) is subsumed by the whole-config job plus the stale-branch check, and a test asserting a path filter that no longer exists is asserting the absence of the thing this PR removes on purpose.
+**A required-suite test reads one of the deleted workflows.** `tests/ci/attentionPillFocusWorkflow.test.ts` opens `attention-pill-focus-e2e.yml` at module initialization, asserts its path-filter contract, and asserts the spec's `PATH_GATED` allowlist row. Deleting that workflow reddens `unit-suite` — a live required context (§2.5) — regardless of whether the new browser job passes. PR2 therefore deletes that test in the same commit. Its four assertions were read individually rather than dismissed in aggregate:
+
+| assertion | disposition |
+| --- | --- |
+| "invokes the spec under the standalone config" | **subsumed** — the spec is in the config and the config runs |
+| "fires on every direct harness, production, and toolchain input" | **strictly weaker** than an unfiltered job, which fires on everything |
+| "fires on EVERY production file in the harness's transitive import graph" | same — trivially satisfied when there is no filter |
+| "is classified `PATH_GATED`, not `UNSEEN`, in the coverage registry" | **intentionally inverted** — the row is deleted because the spec becomes genuinely covered |
+
+The third is the interesting one: that test existed to police a hand-maintained path filter against a component graph that keeps growing — the precise maintenance burden §4.2 removes. Deleting it is not losing coverage; it is retiring a guard whose subject no longer exists.
 
 The other five retiring workflows were checked for the same shape; only this one has a reader.
 
