@@ -26,8 +26,20 @@ import { describe, expect, it } from "vitest";
 const ROOT = process.cwd();
 const E2E = join(ROOT, "tests/e2e");
 
-/** The permitted invocation point, plus this guard (its fixtures hold the strings). */
-const EXEMPT = new Set(["helpers/liveEntryToolchain.ts", "_metaLiveEntryToolchain.test.ts"]);
+/**
+ * Files allowed to own a toolchain invocation. Every entry needs a reason —
+ * an unreasoned exemption is how a second owner goes invisible.
+ */
+const EXEMPT = new Map<string, string>([
+  ["helpers/liveEntryToolchain.ts", "the permitted invocation point"],
+  ["_metaLiveEntryToolchain.test.ts", "this guard; its fixtures necessarily contain the strings"],
+  [
+    "_step3ReviewModalBundle.mjs",
+    "needs esbuild's PLUGIN API (useServerElision / emptyNodeBuiltins) to replicate " +
+      "Next's `use server` elision — a CLI invocation cannot express a resolver plugin, " +
+      "so this cannot route through the helper. See its own header for the full rationale.",
+  ],
+]);
 
 const TOOLCHAIN = ["esbuild", "@tailwindcss/cli", "tailwindcss"] as const;
 
@@ -35,8 +47,49 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/@]/g, "\\$&");
 }
 
+/**
+ * Remove comments WITHOUT destroying string literals. A naive `//` strip eats
+ * the rest of a line containing e.g. `"http://x"` or `"foo//bar"`, which would
+ * hide a real invocation later on that line.
+ */
 function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  let out = "";
+  let i = 0;
+  let quote: string | null = null;
+  while (i < src.length) {
+    const c = src[i] as string;
+    const next = src[i + 1];
+    if (quote) {
+      if (c === "\\") {
+        out += c + (next ?? "");
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      while (i < src.length && src[i] !== "\n") i += 1;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
 }
 
 /**
@@ -45,21 +98,51 @@ function stripComments(src: string): string {
  */
 export function toolchainInvocations(source: string): string[] {
   const code = stripComments(source);
-  return TOOLCHAIN.filter((bin) =>
-    new RegExp(`["'\`](?:dlx|exec)["'\`]\\s*,\\s*["'\`]${escapeRe(bin)}(@[\\d.]+)?["'\`]`).test(
-      code,
-    ),
-  );
+  return TOOLCHAIN.filter((bin) => {
+    const b = escapeRe(bin);
+    const v = "(?:@[\\d.]+)?";
+    return [
+      // ["dlx","esbuild"] / ["exec","tailwindcss"], optionally via a `--` separator
+      new RegExp(
+        `["'\`](?:dlx|exec)["'\`]\\s*,\\s*(?:["'\`]--["'\`]\\s*,\\s*)?["'\`]${b}${v}["'\`]`,
+      ),
+      // a single command string: execSync("pnpm exec esbuild ...")
+      new RegExp(`["'\`][^"'\`]*\\bpnpm\\s+(?:dlx|exec)\\s+(?:--\\s+)?${b}${v}\\b`),
+      // direct API use
+      new RegExp(`from\\s+["'\`]${b}["'\`]|require\\(\\s*["'\`]${b}["'\`]`),
+    ].some((re) => re.test(code));
+  });
 }
 
 function walk(dir: string = E2E): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()
       ? walk(join(dir, entry.name))
-      : /\.tsx?$/.test(entry.name)
+      : /\.(tsx?|mjs|cjs|js)$/.test(entry.name)
         ? [relative(E2E, join(dir, entry.name))]
         : [],
   );
+}
+
+/**
+ * Package scripts referenced from the given sources.
+ *
+ * Must resolve BOTH shapes this repo uses: the argument-array form
+ * `spawnSync("pnpm", ["db:seed"])` and the command-string form
+ * `pnpm run build:x`. A textual `pnpm <name>` scan alone misses the array
+ * form, which is how `help-docs-setup.ts:34` invokes its seed.
+ */
+export function referencedScripts(sources: string[], scriptNames: string[]): string[] {
+  return scriptNames.filter((name) => {
+    const n = escapeRe(name);
+    const patterns = [
+      new RegExp(
+        `["'\`]pnpm["'\`]\\s*,\\s*\\[\\s*(?:["'\`](?:run|exec)["'\`]\\s*,\\s*)?["'\`]${n}["'\`]`,
+      ),
+      new RegExp(`\\bpnpm\\s+(?:run\\s+)?${n}(?![\\w:.-])`),
+    ];
+    return sources.some((src) => patterns.some((re) => re.test(src)));
+  });
 }
 
 function candidates(): string[] {
@@ -98,6 +181,19 @@ describe("live-entry toolchain is invoked from exactly one place", () => {
     expect(offenders, "the esbuild API belongs behind the helper").toEqual([]);
   });
 
+  it("the script-reference detector resolves the shapes this repo actually uses", () => {
+    // Positive fixtures, both real shapes:
+    expect(referencedScripts(['spawnSync("pnpm", ["db:seed"], {})'], ["db:seed", "other"])).toEqual(
+      ["db:seed"],
+    );
+    expect(referencedScripts(['execSync("pnpm run build:x")'], ["build:x"])).toEqual(["build:x"]);
+    expect(
+      referencedScripts(["const s = `pnpm test:e2e:standalone`;"], ["test:e2e:standalone"]),
+    ).toEqual(["test:e2e:standalone"]);
+    // Negative: a script name that merely appears as a substring of another word.
+    expect(referencedScripts(['const x = "prebuild:xylophone";'], ["build:xy"])).toEqual([]);
+  });
+
   it("no package script reachable from tests/e2e invokes a toolchain binary", () => {
     // Spec §3.3 clause 3: moving the invocation into a package script would
     // otherwise satisfy a filesystem-only scan of tests/e2e.
@@ -105,9 +201,7 @@ describe("live-entry toolchain is invoked from exactly one place", () => {
       scripts: Record<string, string>;
     };
     const sources = candidates().map((f) => readFileSync(join(E2E, f), "utf8"));
-    const referenced = Object.keys(scripts).filter((name) =>
-      sources.some((src) => src.includes(`pnpm ${name}`) || src.includes(`"${name}"`)),
-    );
+    const referenced = referencedScripts(sources, Object.keys(scripts));
     const offenders = referenced.filter((name) =>
       TOOLCHAIN.some((bin) => new RegExp(`\\b${escapeRe(bin)}\\b`).test(scripts[name] ?? "")),
     );
