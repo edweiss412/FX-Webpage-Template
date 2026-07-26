@@ -325,3 +325,62 @@ for (const vw of VIEWPORTS) {
     expect(listStyle, `summary suppresses the UA marker @ ${vw}`).toBe("none");
   });
 }
+
+// ── T4: the chevron's rotation actually animates.
+//
+// Its own test rather than a rider on a dimension assertion, because a class that compiles to
+// NOTHING looks identical to a deliberately-instant transition. That is not hypothetical here:
+// a Tailwind `duration-fast` class emits no duration at all in this repo, since Tailwind v4
+// resolves `duration-<name>` from `--transition-duration-<name>` and this project defines only
+// `--duration-*`. The rule therefore has to be hand-written CSS consuming `var(--duration-fast)`.
+test("chevron: rotation has a real transition-duration (§5.2)", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto(baseUrl);
+  await page.waitForSelector('[data-testid="agenda-schedule"]');
+
+  const chevron = page.locator("[data-agenda-day-chevron]").first();
+  const style = await chevron.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { duration: cs.transitionDuration, property: cs.transitionProperty };
+  });
+
+  // Fails before the rule lands: with no transition the computed duration is "0s".
+  expect(style.duration, "chevron has a non-zero transition-duration").not.toBe("0s");
+  expect(style.property, "the transition targets transform").toMatch(/transform|all/);
+});
+
+test("chevron: reduced motion collapses a duration that is otherwise NON-zero (§5.2)", async ({
+  browser,
+}) => {
+  // Both halves in one test on purpose. Asserting only "reduced motion gives 0s" passes
+  // vacuously while no transition exists at all -- the expected value equals the default state,
+  // so the assertion cannot fail for the reason it claims. Measured: that is exactly what the
+  // first version of this test did before the CSS landed. The precondition below is what makes
+  // the second assertion mean anything.
+  const normal = await browser.newContext({ viewport: { width: 390, height: 900 } });
+  const normalPage = await normal.newPage();
+  await normalPage.goto(baseUrl);
+  await normalPage.waitForSelector('[data-testid="agenda-schedule"]');
+  const moving = await normalPage
+    .locator("[data-agenda-day-chevron]")
+    .first()
+    .evaluate((el) => getComputedStyle(el).transitionDuration);
+  expect(moving, "precondition: the chevron animates without the preference").not.toBe("0s");
+  await normal.close();
+
+  const reduced = await browser.newContext({
+    reducedMotion: "reduce",
+    viewport: { width: 390, height: 900 },
+  });
+  const reducedPage = await reduced.newPage();
+  await reducedPage.goto(baseUrl);
+  await reducedPage.waitForSelector('[data-testid="agenda-schedule"]');
+  const still = await reducedPage
+    .locator("[data-agenda-day-chevron]")
+    .first()
+    .evaluate((el) => getComputedStyle(el).transitionDuration);
+  // Free via the token rewrite at app/globals.css:419, but ONLY because the rule consumes
+  // var(--duration-fast). A hardcoded duration would ignore the preference entirely.
+  expect(still, "reduced motion zeroes the chevron duration").toBe("0s");
+  await reduced.close();
+});

@@ -711,6 +711,20 @@ body {
   }
 }
 
+/* Agenda day disclosure (components/crew/AgendaScheduleBlock): the chevron rotates as the
+   row opens. HAND-WRITTEN rather than a Tailwind `duration-fast` class, and that is the whole
+   point of this block: Tailwind v4 resolves `duration-<name>` from `--transition-duration-<name>`,
+   which this project never defines -- it defines `--duration-*`. A `duration-fast` class therefore
+   emits NO duration and is invisible to the reduced-motion block below, which only rewrites
+   `--duration-*`. Consuming the variable directly is what makes reduced motion free here, the same
+   way the admin-alert panel above does it. */
+[data-agenda-day-chevron] {
+  transition: transform var(--duration-fast) ease-out;
+}
+details[open] > summary [data-agenda-day-chevron] {
+  transform: rotate(90deg);
+}
+
 /* Step-3 "More" review modal (components/admin/wizard/Step3ReviewModal).
    The responsive overlay that replaced the inline height-morph breakdown (and,
    since Task 8, the retired Step3DetailsDialog): a bottom SHEET that rises on
