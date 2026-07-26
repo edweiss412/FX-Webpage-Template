@@ -148,12 +148,14 @@ Measured against the real card geometry (available content widths 278 / 348 / 85
 | Geometry | Idle | Armed |
 |---|---|---|
 | 320px dashboard rail (278px content) | stacked, Ignore above | stacked, Ignore above |
-| 390px Needs-attention page (348px) | **side by side** | **side by side** (with §4.2's label) |
+| 358px mobile page (316px content) | knife-edge — 315.94px against 316px, asserted neither way | stacked, Ignore above |
 | 900px card (858px) | **side by side** | **side by side** |
 
 Safe in every case, and it stacks only where the pair genuinely does not fit.
 
-**D4 becomes structural.** Ignore is the first flex item, so arming can never move it: a longer armed label pushes *Defer* to the next line, while Ignore's box origin is unchanged. Measured — Ignore sits at `x37` idle and `x37` armed at both 320px and 390px. The DESTRUCT-1 invariant that needed `basis-full` to hold is now a consequence of the ordering.
+**D4 is structural, but it took two mechanisms — and the first one alone was not enough.** Ignore being the first flex item fixes its origin *within* the row. It does not fix the row's own position: because `"Confirm ignore"` is shorter than `"Permanently ignore"`, arming used to shrink the whole discard island, and at parent widths around 440-460px that let the island un-wrap from below `Retry now` to beside it — carrying the confirm target **dx +107.2px, dy −52px between the two taps**. That is the DESTRUCT-1 defect, and this spec claimed structural immunity to it for several revisions. Whole-diff review R9 F1 caught it.
+
+The second mechanism closes it: the Ignore button reserves a **constant width** (`min-w-ignore`, `--spacing-ignore: 10rem`, sized above the wider idle label with cross-platform headroom), so the island's width is invariant and no wrap transition can occur on arm at any parent width. Verified by sweeping **121 rail widths from 300 to 900px**: zero widths where Ignore moves on arm, and zero where Defer is the upper control. The 440px case is kept as a permanent regression rail.
 
 ### 4.2 Armed label
 
@@ -167,11 +169,11 @@ The practical effect is better than intended: at the real mobile page the *idle*
 
 The shipped split is label = **verb**, live region = **consequence**:
 
-- `"Confirm ignore"` matches the family idiom exactly and leaves 59.62px of slack on the 348px page.
+- `"Confirm ignore"` matches the family idiom exactly. With the reserved width both states measure 160px, so the armed row is the same size as idle rather than narrower.
 - The live region now says what dies, so a screen-reader user hears the consequence at the moment it matters.
 - For a sighted user the permanence signal is carried by the idle label they just tapped ("Permanently ignore"), the amber fill, and the second deliberate tap.
 
-`"Confirm ignore forever"` was measured (176.8px) and **rejected**: its armed row clears the 348px page by only 8.46px, the same thin cross-platform margin this spec rejected when choosing between a 512px and 576px threshold. Applying that rule inconsistently would have been the defect, not the width.
+`"Confirm ignore forever"` was measured (176.8px) and **rejected** for exceeding the reserved width, which would have reintroduced exactly the width-change-on-arm this design now forbids.
 
 The **idle** labels are unchanged. "Permanently ignore" and "Defer until modified" carry the safety words, and `tests/help/_uiLabelExceptions.ts:135-143` pins both against the help MDX — shortening them would trade real clarity for the one geometry (the 278px rail) that still cannot fit a row.
 
@@ -231,7 +233,7 @@ Two assertions — **T1 and T3** — added to `tests/styles/_metaDestructiveConf
 
 Earlier revisions specified a per-file scheduler census, an import-provenance check, a scheduler-alias ban, and three meta-tests policing all of it. Six adversarial rounds found a new bypass in that machinery every round, and the sixth found it producing **false positives** — `const copy = "ARM_REVERT_MS"` or a type-only import would fail it. A guard that blocks harmless changes gets deleted by the next person who trips it, which is worse than no guard.
 
-What ships is **T1** (exactly one declaration, in the shared module — asserted as equality against a one-element list, since "at most one" would pass on zero) and **T3** (the value is the ratified 4s), each with a self-check. Together they close the problem this work started from: eleven independently copy-pasted `4_000` literals, any one of which could drift.
+What ships is **T1** (exactly one declaration, in the shared module — asserted as equality against a one-element list, since "at most one" would pass on zero, and carrying a matcher self-check) and **T3** (the value is the ratified 4s, a direct assertion on the export that needs no self-check). Together they close the problem this work started from: eleven independently copy-pasted `4_000` literals, any one of which could drift.
 
 ### 5.3 Honest scope statement
 
@@ -276,7 +278,7 @@ What changes is how little it now has to prove. Panels:
 | Panel | Rail | Role |
 |---|---|---|
 | `rail320` | 320px (278px content) | the pair does not fit — must stack with Ignore above |
-| `page390` | 390px (348px content) | the pair fits — must stay on one line |
+| `page390` | 358px rail / 316px content — the REAL mobile page | knife-edge (315.94px vs 316px), asserted neither way | stacked, Ignore above |
 | `wide900` | 900px (858px content) | fits with slack |
 
 Assertions:
@@ -371,7 +373,7 @@ All three original rows are gone. The family section and its preceding `---` rul
 | Risk | Likelihood | Mitigation |
 |---|---|---|
 | A screen reader announces the arm twice | low | One live region, unchanged by the reorder; asserted by §6.2 test 6 |
-| The reorder fails to preserve DESTRUCT-1's zero-reflow guarantee | low | `basis-full` is deliberately **removed**, so its absence is required rather than a regression. The guarantee now holds structurally — Ignore is the first flex item, so arming extends rightward and pushes Defer. D4 proves it, with the pre-DESTRUCT-1 panel as negative control |
+| The reorder fails to preserve DESTRUCT-1's zero-reflow guarantee | low | `basis-full` is deliberately **removed**, so its absence is required rather than a regression. The guarantee holds because Ignore is the first flex item AND reserves a constant width, so the island's width is invariant and no wrap transition can occur on arm. R9 F1 showed first-flex-item alone was NOT sufficient: with a shrinking armed label the island un-wrapped beside Retry at ~440px, moving the target 107px. D4 plus the band440 regression rail prove it |
 | Test-id rename misses a consumer | low | Consumers enumerated in §2.4 by grep; the bare ids cease to exist, so a missed consumer fails loudly rather than matching two nodes |
 | The new workflow is itself dark | low | `workflow_dispatch:` enabled; close-out fires it with `gh workflow run` and confirms a green run before merge (§6.4) |
 | A surface points its arm timer at some other value | medium, **not mitigated** | T1/T3 pin where the constant lives and what it equals, nothing more. Detecting this needs to know which call IS the arm timer — semantic, and §5.3 explains why six rounds showed a regex cannot decide it |

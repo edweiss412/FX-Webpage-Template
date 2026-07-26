@@ -390,8 +390,8 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
 
 // DESTRUCT-1's guarantee — the armed morph must not relocate the confirm hit-target —
 // SURVIVES the reorder, but is now bought structurally rather than with `basis-full`:
-// Ignore is the first flex item, so a longer armed label extends rightward and pushes
-// Defer, never itself. The real-browser proof is D4 in
+// Ignore is the first flex item, so the Ignore button reserves a constant width, so arming
+// cannot change the island's width at all. The real-browser proof is D4 in
 // tests/e2e/pendingDiscardReal.layout.spec.ts.
 // D7. `basis-full sm:basis-auto` forced both buttons full-width below `sm`, which made
 // the pair ALWAYS stack there. The reorder deletes it so the row wraps on available

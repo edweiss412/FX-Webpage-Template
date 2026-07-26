@@ -161,6 +161,12 @@ if (process.argv[1] && process.argv[1].endsWith("_pendingDiscardHarness.tsx")) {
     rail320armed: armedHtml(320),
     page358: railHtml(358),
     page358armed: armedHtml(358),
+    // 440 is the REGRESSION rail. Whole-diff R9 F1: with a shrinking armed label the
+    // island un-wrapped from below "Retry now" to beside it here, moving the confirm
+    // target dx +107.2px / dy -52px between the two taps. A constant-width Ignore
+    // removes the transition; this rail is kept so it cannot come back unnoticed.
+    band440: railHtml(440),
+    band440armed: armedHtml(440),
     wide900: railHtml(900),
     wide900armed: armedHtml(900),
   };

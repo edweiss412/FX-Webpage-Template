@@ -79,7 +79,7 @@ The design changed at round 9 from a container-keyed fork to a plain reorder (sp
 
 That substitution is what withdrew M2: with no transcription left to bind, the binding table and the six holes review found in it ceased to exist rather than being fixed.
 
-### Task 1 — Shared `ARM_REVERT_MS` + T1 and T3 landed, each with a self-check. (An intermediate T2 census layer was built across review rounds and then deleted — see spec §5.2.)
+### Task 1 — Shared `ARM_REVERT_MS` + T1 landed with a matcher self-check; T3 is a direct assertion on the exported value and needs none. (An intermediate T2 census layer was built across review rounds and then deleted — see spec §5.2.)
 
 `lib/admin/destructiveConfirm.ts` created; all 11 local declarations replaced with imports. No behavioural change (every site already used `4_000`), verified by 5996 tests across 507 files staying green. T1 and T3 landed, each with a self-check. (An intermediate T2 census with an 11-call floor was built and later deleted — see §5.2.)
 

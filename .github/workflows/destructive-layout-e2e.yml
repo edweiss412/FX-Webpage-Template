@@ -31,6 +31,11 @@ on:
     paths:
       - "components/admin/PendingPanelDiscardButtons.tsx"
       - "components/admin/NeedsAttentionInbox.tsx"
+      # The harness rails mirror production geometry: 320 is the dashboard grid track,
+      # 358 is a 390px viewport minus the layout's page gutter. A change to either
+      # source silently invalidates the hard-coded rails, so both gate this job.
+      - "app/admin/layout.tsx"
+      - "components/admin/Dashboard.tsx"
       # The harness renders the REAL Retry sibling, whose width determines how much
       # the discard island gets. A change there can break D1/D3 without touching the
       # discard component, so both it and the button it renders gate this job.

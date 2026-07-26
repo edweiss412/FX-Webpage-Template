@@ -43,10 +43,18 @@ const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try
  * Ignore button. NOTE the armed state is NOT only this class + label: it also fills the
  * live region and mounts the consequence paragraph below the row. The harness therefore
  * proves the armed ROW's geometry, which those two cannot affect — not the whole tree. */
+/* Ignore reserves a constant width across idle and armed. Whole-diff R9 F1 measured
+ * the alternative: because "Confirm ignore" (125.64px) is SHORTER than "Permanently
+ * ignore" (153.2px), arming shrank the island — and at parent widths around 440-460px
+ * that let the island un-wrap from below "Retry now" to beside it, moving the confirm
+ * target by dx +107.2px, dy -52px BETWEEN THE TWO TAPS. That is exactly the DESTRUCT-1
+ * defect, and D4 was documented as structurally preventing it. A fixed width makes the
+ * island's width invariant, so no wrap transition can occur on arm at ANY parent width
+ * — which is what "structural" has to mean. */
 export const IGNORE_IDLE_CLASS =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+  "inline-flex min-w-ignore min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 export const IGNORE_ARMED_CLASS =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+  "inline-flex min-w-ignore min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 export const IGNORE_IDLE_LABEL = "Permanently ignore";
 /* Shortened from "Confirm stop tracking this sheet permanently" (328.51px), which is
  * what let the armed row stop wrapping at the 348px Needs-attention page.

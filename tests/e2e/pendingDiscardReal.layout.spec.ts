@@ -40,7 +40,7 @@ const INGESTION_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 /** Rail → button content width (rail minus the card's 42px: 1px borders + 20px
  *  p-tile-pad, both sides). `page358` is a 390px viewport minus the admin layout's
  *  16px `px-page-pad-mobile` per side — R8 F1 caught the earlier 390 as 32px too wide. */
-const RAILS = { rail320: 278, page358: 316, wide900: 858 } as const;
+const RAILS = { rail320: 278, page358: 316, band440: 398, wide900: 858 } as const;
 type RailName = keyof typeof RAILS;
 /** Idle pair needs 315.94px, armed pair 324.72px — so only rail320 must wrap. */
 /** Idle pair needs 315.94px; armed needs 288.38px, because "Confirm ignore" is SHORTER
@@ -49,6 +49,9 @@ type RailName = keyof typeof RAILS;
  *  flip on font metrics, so no rail predicts one-line-vs-stacked any more. The tests
  *  assert the safety property whichever way it lands, plus a definite one-line
  *  expectation only where there is real slack. */
+/** R9 F2: this was declared and never used, so nothing required the wide card to stay
+ *  on one line — `w-full` on both buttons would have passed D1/D3/D7. It is asserted
+ *  explicitly below instead. */
 const WIDE_SLACK: RailName = "wide900";
 
 let server: Server;
@@ -187,7 +190,8 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
     const idle = await probe(page, rail);
     const armed = await probe(page, `${rail}armed`);
     // Structural: Ignore is the first flex item, so a longer armed label extends
-    // rightward and pushes Defer. This is the DESTRUCT-1 guarantee without basis-full.
+    // The Ignore button reserves a constant width, so the island's width is invariant
+    // and no wrap transition can occur on arm. DESTRUCT-1's guarantee without basis-full.
     expect(
       Math.abs(armed.ignore.x - idle.ignore.x),
       `D4 ${rail}: Ignore left edge moved`,
@@ -205,4 +209,45 @@ test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page
   const markup = await page.evaluate(() => document.body.innerHTML);
   expect(markup.includes("basis-full"), "D7: basis-full still in shipped markup").toBe(false);
   expect(markup.includes("sm:basis-auto"), "D7: sm:basis-auto still in shipped markup").toBe(false);
+});
+
+test(`${WIDE_SLACK}: a card with real slack must NOT stack`, async ({ page }) => {
+  // The safety assertions accept stacking whichever way a width lands, which is right
+  // at knife-edge widths and wrong here: at 858px of content the pair uses 322.74px,
+  // so stacking would mean something regressed (both buttons full-width, a stray
+  // basis, a wrap forced by a container change). R9 F2.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(baseUrl);
+  for (const state of [WIDE_SLACK, `${WIDE_SLACK}armed`]) {
+    const p = await probe(page, state);
+    expect(Math.abs(p.ignore.y - p.defer.y), `${state} must share one line`).toBeLessThanOrEqual(
+      TOL,
+    );
+    expect(p.ignore.x, `${state}: Ignore left of Defer`).toBeLessThan(p.defer.x);
+  }
+});
+
+test("D4 regression: arming never moves Ignore, at the width where it once did", async ({
+  page,
+}) => {
+  // Pinning the concrete defect R9 F1 found rather than only the general property:
+  // at a 440px rail the island used to un-wrap on arm and carry the confirm target
+  // 107px right and 52px up, between tap 1 and tap 2.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(baseUrl);
+  const idle = await probe(page, "band440");
+  const armed = await probe(page, "band440armed");
+  expect(
+    Math.abs(armed.ignore.x - idle.ignore.x),
+    "band440: Ignore left edge moved on arm",
+  ).toBeLessThanOrEqual(TOL);
+  expect(
+    Math.abs(armed.ignore.y - idle.ignore.y),
+    "band440: Ignore top edge moved on arm",
+  ).toBeLessThanOrEqual(TOL);
+  // The mechanism: a constant-width Ignore keeps the island's width invariant.
+  expect(
+    Math.abs(armed.ignore.w - idle.ignore.w),
+    "Ignore width must not change on arm",
+  ).toBeLessThanOrEqual(TOL);
 });
