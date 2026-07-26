@@ -596,7 +596,13 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
       // this scanner cannot see.
       const tag = child.tagName.getText();
       if (!/^[a-z]/.test(tag) || tag.includes(".")) return true; // component
-      const names = ["alt", "aria-label", "title", "aria-labelledby"];
+      // MEASURED against dom-accessibility-api rather than reasoned. Two corrections came out
+      // of it: `value` DOES contribute (`<input type="text" value="Go" />` computes
+      // "Go (opens in a new tab)"), and `title` does NOT -- it is only a fallback when no other
+      // name source exists, and the anchor's own content is one, so `<span title="Go" />`
+      // computes to the phrase alone. Including `title` was a fail-open; omitting `value` was a
+      // false positive. `defaultValue` is React's spelling of the same attribute.
+      const names = ["alt", "aria-label", "aria-labelledby", "value", "defaultvalue"];
       for (const a of child.attributes.properties) {
         if (!ts.isJsxAttribute(a)) continue;
         if (!names.includes(jsxAttrNameLower(a))) continue;

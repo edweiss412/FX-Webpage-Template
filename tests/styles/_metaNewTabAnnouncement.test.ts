@@ -60,7 +60,9 @@ const CASE_INSENSITIVE_NAMES = new Set([
   "type",
   // R25: read to decide whether a self-closing element names anything.
   "alt",
-  "title",
+  // R26 (measured): `value` contributes to the name, `title` does not.
+  "value",
+  "defaultvalue",
 ]);
 
 /** Attributes that can affect an element's computed accessible name or its visibility, from an
@@ -1776,6 +1778,9 @@ describe("R6: scanner changes are pinned", () => {
       'const A=()=><a href="x" target="_blank"><Label /> <NewTabHint /></a>;',
       'const A=({t})=><a href="x" target="_blank"><img alt={t} /> <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><img alt="Go" /> <NewTabHint /></a>;',
+      // MEASURED: an input's value DOES contribute, so omitting `value` was a false positive.
+      'const A=()=><a href="x" target="_blank"><input type="text" value="Go" /> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span aria-label="Go" /> <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
@@ -1808,6 +1813,9 @@ describe("R6: scanner changes are pinned", () => {
       'const A=()=><a href="x" target="_blank"><input type="text" /> <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><br /> <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><img alt="" /> <NewTabHint /></a>;',
+      // MEASURED: a `title` attribute is only a name FALLBACK, so it contributes nothing when
+      // the anchor has content. Treating it as a destination was a fail-open.
+      'const A=()=><a href="x" target="_blank"><span title="Go" /> <NewTabHint /></a>;',
       // Attribute VALUES for `type` are case-insensitive in the DOM.
       'const A=()=><a href="x" target="_blank"><input type="HIDDEN" value="Go" /> <NewTabHint /></a>;',
       // Falsiness and renders-nothing are ORTHOGONAL: an object is truthy but renders nothing,
