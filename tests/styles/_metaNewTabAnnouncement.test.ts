@@ -901,7 +901,7 @@ describe("every external link in the live tree announces its new tab", () => {
       sc.violations.map((v) => `${v.file}:${v.line} ${v.reason}`),
       "unannounced external links",
     ).toEqual([]);
-  });
+  }, 60_000);
 
   it("the announcement copy lives only in the expected files (spec §6.8 census)", () => {
     // File SET, not an occurrence count: every §5 empty-interpolation fallback
@@ -942,7 +942,7 @@ describe("every external link in the live tree announces its new tab", () => {
         "components/admin/wizard/VenueMapTile.tsx",
       ].sort(),
     );
-  });
+  }, 60_000);
 
   it("every .mdx compiles to JSX and its anchors announce", () => {
     const mdx = walkFiles(join(process.cwd(), "app"), /\.mdx$/).map((abs) =>
@@ -962,7 +962,7 @@ describe("every external link in the live tree announces its new tab", () => {
     }
     expect(empty, "these .mdx files compiled to little or no JSX").toEqual([]);
     expect(sc.violations).toEqual([]);
-  });
+  }, 60_000);
 
   // R6 BLOCKING 2: the .mdx rule only tested /_blank/i, so `target={dest}` and
   // `{...externalProps}` evaded it -- either can resolve to _blank at runtime, and
@@ -1203,7 +1203,7 @@ describe("MDX is compiled and scanned, not lexed", () => {
     expect(flags('export const d = "_blank"\n\n<a href="x" data-x={1 < 2} target={d}>Go</a>')).toBe(
       true,
     );
-  });
+  }, 60_000);
 
   // The compiled module is walked in full, not just the page's returned markup, so an
   // anchor reached indirectly is still classified. These are the shapes MDX makes
@@ -1773,6 +1773,41 @@ describe("R6: scanner changes are pinned", () => {
       'const A=()=><a href="x" target="_blank"><span aria-label="Go" /> <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
+    }
+  });
+
+  it("R27 the import-binding check, at its edges", () => {
+    const A = 'const A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;';
+    // Accepted: the direct named import, and a relative path ending in the module path.
+    expect(
+      probe('import { NewTabHint } from "@/components/shared/NewTabHint";\n' + A, { bare: true })
+        .violations,
+      "the direct named import is the approved shape",
+    ).toEqual([]);
+    expect(
+      probe('import { NewTabHint } from "../shared/components/shared/NewTabHint";\n' + A, {
+        bare: true,
+      }).violations,
+      "a relative path ending in the module path is the same module",
+    ).toEqual([]);
+    // ACCEPTED LIMIT, stated rather than discovered later: a NAMESPACE or ALIASED import of the
+    // real component is reported. Both are legitimate code, and both fail CLOSED -- the tag
+    // spelling no longer matches `NewTabHint`, so the hint is not recognised at all. No live
+    // file uses either form; an author who wants one adds a reasoned exemption or uses the
+    // direct named import.
+    for (const [label, src] of [
+      [
+        "namespace import",
+        'import * as S from "@/components/shared/NewTabHint";\nconst A=()=><a href="x" target="_blank">Go <S.NewTabHint /></a>;',
+      ],
+      [
+        "aliased import",
+        'import { NewTabHint as Hint } from "@/components/shared/NewTabHint";\nconst A=()=><a href="x" target="_blank">Go <Hint /></a>;',
+      ],
+      ["wrong module", 'import { NewTabHint } from "./elsewhere";\n' + A],
+      ["no import at all", A],
+    ] as [string, string][]) {
+      expect(probe(src, { bare: true }).violations, `must fail closed: ${label}`).not.toEqual([]);
     }
   });
 

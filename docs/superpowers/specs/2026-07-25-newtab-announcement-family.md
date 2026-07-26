@@ -464,6 +464,18 @@ WITH substitutions is not. Anything outside these shapes is reported as
   cannot catch an `inert` or closed-`<details>` regression — only the guard can.** Do not "verify"
   either rule against the harness and conclude the guard is wrong.
 
+- **The hint must be BOUND, not merely spelled — and two legitimate import forms fail closed.**
+  Trusting the spelling `NewTabHint` meant one line, `const NewTabHint = () => null`, defeated the
+  guard entirely while React announced nothing (R27). The hint must now be imported from
+  `components/shared/NewTabHint` (or be that file), and `Link` from `next/link`; an absent or
+  unresolvable import means untrusted.
+
+  The accepted cost: a **namespace** import (`import * as S`, used as `<S.NewTabHint />`) and an
+  **aliased** import (`{ NewTabHint as Hint }`, used as `<Hint />`) are both reported, because the
+  tag spelling no longer matches and the hint is not recognised at all. Both are legitimate code.
+  No live file uses either form, so the cost is zero today; an author who wants one uses the direct
+  named import or adds a reasoned exemption. Stated here rather than left for someone to hit.
+
 - **Anything handed to a CALLEE is not proof of rendering, including component children.** The
   callee decides. This guard found that fact three times before naming it: a JSX attribute (R4), a
   call argument (R25), and finally component children (R26b) — which look like containment and are
