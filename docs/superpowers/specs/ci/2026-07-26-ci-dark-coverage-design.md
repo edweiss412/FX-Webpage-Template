@@ -400,7 +400,7 @@ Five completed cross-model rounds: **46 accepted findings, none disputed** (11 /
 | r6b | died ~1 minute in, tree frozen |
 | r6c | died, third consecutive |
 
-Not the reaper — `~/.claude/hooks/.reap-codex-last` logged "gated: 5 live codex tree(s) active; no orphans" with an empty kill log. The box was at **load 11.1 with 10 concurrent Claude sessions** and 4 Codex processes, which is the likelier cause and is also the condition under which `feedback_contended_box_invalidates_perf_measurements` says results stop being trustworthy.
+Not the reaper — the hook's last-action file under ~/.claude/hooks/ (per-machine, untracked) logged "gated: 5 live codex tree(s) active; no orphans" with an empty kill log. The box was at **load 11.1 with 10 concurrent Claude sessions** and 4 Codex processes, which is the likelier cause and is also the condition under which `feedback_contended_box_invalidates_perf_measurements` says results stop being trustworthy.
 
 Per the `AGENTS.md` ladder — `no_verdict` is an infrastructure fault and bounded retries do not change escalation policy — round 6 was replaced by an **inlined adversarial pass**, recorded here rather than presented as an approval. It produced two findings, both applied above:
 
