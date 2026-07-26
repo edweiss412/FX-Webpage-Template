@@ -137,7 +137,7 @@ Add `"@tailwindcss/cli": "4.2.4"` as an exact devDependency, plus a version-pari
 
 New meta-test tests/e2e/\_metaLiveEntryToolchain.test.ts, filesystem-walked so a new spec fails by default:
 
-1. No file under `tests/e2e/**` names `dlx`, `esbuild`, `@tailwindcss/cli`, or `tailwindcss` as a command string. The last spelling matters most: the CLI's binary is `tailwindcss`, so a guard naming only packages misses the real invocation.
+1. No file under `tests/e2e/**` **other than the helper itself** names `dlx`, `esbuild`, `@tailwindcss/cli`, or `tailwindcss` as a command string. The helper is the one permitted invocation point and is exempted **by path**, not by an open exemption list — an earlier draft declared an empty exemption list while the helper necessarily names both binaries, so PR1 could never have gone green. The `tailwindcss` spelling matters most: that is the CLI's actual binary name, so a guard naming only packages misses the real invocation.
 2. No file under `tests/e2e/**` except the helper imports `esbuild` — otherwise a spec calls the JS API directly and skips the helper.
 3. No `package.json` script referenced from `tests/e2e/**` names a toolchain binary, which would move the invocation just outside a filesystem-only scan.
 
@@ -168,9 +168,19 @@ No `webServer`, no Supabase, no `pnpm build` — the specs boot their own `node:
 
 **The command must not be piped.** `tests/ci/_workflowCoverageScan.ts:30` reads a trailing `| tee`, `| cat`, or `| grep` as exit-code suppression and refuses to count it. `x-audits.yml` uses exactly that idiom with `set -o pipefail`, which the scanner cannot see — copying it would mark the job non-blocking and silently re-darken all 28 specs while the guard stayed green.
 
-**Env comes from the config.** Two specs need server env at module load. Rather than copy `.github/workflows/modal-header-layout-e2e.yml:74`'s nine variables into the new workflow, `tests/e2e/standalone.config.ts` sets deterministic demo fallbacks with `process.env.X ??= …`. `??=` is load-bearing: a real `.env.local` value already loaded by `tests/e2e/helpers/loadTestEnv.ts` still wins, so this composes with that helper instead of overriding it. Today the same defect is patched twice — `loadTestEnv` fixes a developer machine, the workflow env fixes CI, and the two failing specs are covered by the CI half only, which is precisely why retiring that workflow breaks them.
+**Env comes from the config.** Two specs need server env at module load. Rather than copy `.github/workflows/modal-header-layout-e2e.yml:74`'s nine variables into the new workflow, `tests/e2e/standalone.config.ts` sets deterministic demo fallbacks with `process.env.X ??= …`. **Precedence, stated correctly** (an earlier draft had it backwards): Playwright evaluates the config **before** loading any test module, so a top-level `process.env.X ??=` there populates the variable first, and `tests/e2e/helpers/loadTestEnv.ts:17` — which uses `@next/env`, and `@next/env` preserves already-defined process values — will **not** override it. So the config defaults win over `.env.local`, not the other way round.
 
-**Shape validated before specification:** a draft of this YAML was fed through `scanWorkflowCoverage` with an explicitly named spec and came back `covered: [spec]`, `rejected: []`.
+That is acceptable and deliberate: the defaults are the same demo values `playwright.config.ts` already uses for its port-3004 server, and every one of them is a placeholder rather than a credential. But the spec must not claim a local-composition contract it does not have, so it does not. Today the same defect is patched twice — `loadTestEnv` fixes a developer machine, the workflow env fixes CI, and the two failing specs are covered by the CI half only, which is precisely why retiring that workflow breaks them.
+
+**The scanner must learn one thing, or PR2 is incoherent.** `scanWorkflowCoverage` extracts only explicit `tests/e2e/*.spec.ts` paths and `pnpm` aliases (`tests/ci/_workflowCoverageScan.ts:87`). The whole-config command names **no spec**, so as things stand the new job would mark nothing covered and deleting 29 allowlist rows would redden the meta-test.
+
+An earlier "validated against the real scanner" claim in this spec was **vacuous and is retracted**: the draft fed to the scanner carried an explicitly named spec, so it exercised a different command shape than the one shipping.
+
+This is not a re-litigation of the descope. What was descoped is the *narrowing semantics* — `--grep`, `--shard`, forwarded call-site arguments, inert-token grammar — which four rounds could not make sound. What PR2 needs is narrower than that and is an existence dependency:
+
+> A `run:` command matching **exactly** `pnpm exec playwright test --config <path>`, with **no other arguments of any kind**, covers every spec that config's `testMatch` matches. Any deviation — an extra flag, a positional argument, a different verb order — yields **no claim at all**.
+
+The workflow's command is written to that literal shape (so the default reporter is used rather than `--reporter=list`), and `configSpecs` is supplied by the meta-test, which imports the config and reads resolved `testMatch` values — proven executable: 10 projects resolve for the default config and 30 specs for the standalone one. Recognizing one exact string cannot be attacked on grammar, because there is no grammar; anything that is not that string is not recognized.
 
 ### §4.2 Why no path filter
 
@@ -181,6 +191,10 @@ Cost: one ~5 min DB-free job on every PR, replacing six jobs that each pay the s
 ### §4.3 Retirements
 
 Deleted: `attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignore-eyebrow-e2e.yml`, `hoverhelp-geometry-e2e.yml`, `modal-header-layout-e2e.yml`, `share-link-flash-e2e.yml` — **six**. `phantom-gap-e2e.yml` survives (its other two legs run default-config specs) but loses its standalone leg, which PR #605 grew from one spec to three (`phantomGapHelper.layout`, `section-header-layout.layout`, `pusher-alignment.layout`) — all three subsumed by the whole-config job.
+
+**A required-suite test reads one of the deleted workflows.** `tests/ci/attentionPillFocusWorkflow.test.ts` opens `attention-pill-focus-e2e.yml` at module initialization, asserts its path-filter contract, and asserts the spec's `PATH_GATED` allowlist row. Deleting that workflow reddens `unit-suite` — a live required context (§2.5) — regardless of whether the new browser job passes. PR2 therefore deletes that test in the same commit: every property it pins (the spec runs; it is registered) is subsumed by the whole-config job plus the stale-branch check, and a test asserting a path filter that no longer exists is asserting the absence of the thing this PR removes on purpose.
+
+The other five retiring workflows were checked for the same shape; only this one has a reader.
 
 The `pnpm test:e2e:*` scripts are **kept**: three shipped plan docs cite them as verification commands, and single-spec shortcuts are the local ergonomics whose absence let these specs rot. `test:e2e:standalone` joins them.
 
@@ -206,8 +220,8 @@ So `unit-suite-db` already has a Postgres whose `cron.job` rows were produced **
 
 1. Remove the `pg-cron-coverage` entry from `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`).
 2. Add the CI anti-vacuity requirement (§5.3).
-3. Add an `x-audits.yml` job modelled on `validation-schema-parity` (`.github/workflows/x-audits.yml:313`) running with `PG_CRON_COVERAGE_TARGET=validation`.
-4. Correct **three** stale doc sites: the `ENV_BOUND_EXCLUDES` comment, `.github/workflows/unit-suite.yml`, and the suite's own header (`tests/cross-cutting/pg-cron-coverage.test.ts:2-9`), which declares it `LOCAL-ONLY` and "NOT wired into CI".
+3. Add an `x-audits.yml` job modelled on `validation-schema-parity` (`.github/workflows/x-audits.yml:313`) running with `PG_CRON_COVERAGE_TARGET=validation`. **It needs three env values, not one.** The suite's `beforeAll` refuses to run unless `TEST_DATABASE_URL` is non-local, `VALIDATION_SUPABASE_PROJECT_REF` is set, and the URL *contains* the ref (`tests/cross-cutting/pg-cron-coverage.test.ts:110`). The cited template supplies only `TEST_DATABASE_URL` (`.github/workflows/x-audits.yml:336`), so copying it verbatim produces a job that fails before reaching a single live assertion.
+4. Correct **five** stale doc sites: the `ENV_BOUND_EXCLUDES` comment, `.github/workflows/unit-suite.yml`, the suite's own header (`tests/cross-cutting/pg-cron-coverage.test.ts:2-9`), which declares it `LOCAL-ONLY` and "NOT wired into CI"; and two in `tests/cross-cutting/vitest-projects-partition.test.ts` — `tests/cross-cutting/vitest-projects-partition.test.ts:146` and `tests/cross-cutting/vitest-projects-partition.test.ts:178` state there are three env-bound files, and `tests/cross-cutting/vitest-projects-partition.test.ts:231` labels `pg-cron-coverage` env-bound. All become false the moment the array entry is removed.
 
 ### §5.2a The exclusion is CI-conditional
 
@@ -238,7 +252,10 @@ Host assertions are **out of scope** and filed as `BL-PG-CRON-HOST-ASSERTION` (�
 
 ### §6.1 `admin-lifecycle-transitions`
 
-Add to `.github/workflows/lifecycle-layout-e2e.yml:81`, after repairing the three pre-hydration click-swallow failures with the `toPass` hydration-retry pattern the sibling layout spec already uses. Acceptance is **five consecutive green runs**; the recorded failure mode is cases that move between runs, so one green proves nothing.
+Add to `.github/workflows/lifecycle-layout-e2e.yml:81`, after repairing **two** distinct failure classes — an earlier draft named only the first, which would have made AC-6 unreachable:
+
+1. **Three pre-hydration click-swallow flakes**, whose failing cases move between runs. Repair with the `toPass` hydration-retry pattern the sibling layout spec already uses.
+2. **A deterministic assertion against a retired testid.** `tests/e2e/admin-lifecycle-transitions.spec.ts:305` expects `admin-share-link-inactive`, which **no production module emits** — recorded at `BACKLOG.md` in the phantom-gap probe entry. This fails every run, so no amount of flake work reaches five greens. Repair against whatever the current surface renders, or delete the assertion if the behaviour it covered is gone. Acceptance is **five consecutive green runs**; the recorded failure mode is cases that move between runs, so one green proves nothing.
 
 Its allowlist row is deleted in the same PR: that workflow is unfiltered, so adding the spec makes it genuinely covered and the shadowing assertion fires while an `UNSEEN` row survives.
 
@@ -263,7 +280,9 @@ Two rotted assertions:
 | --- | --- | --- |
 | tests/e2e/\_metaLiveEntryToolchain.test.ts | **created** — no file names a toolchain binary; only the helper imports `esbuild`; no referenced package script names one | PR1 |
 | Tailwind version-parity test | **created** — resolved CLI and `tailwindcss` agree on major and minor | PR1 |
-| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **extended** — every `testMatch` branch resolves; allowlist shrinks by 29 rows to 60 | PR2 |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **extended** — every `testMatch` branch resolves; minimal `--config` recognition; allowlist shrinks by 29 rows to 60 | PR2 |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` (again) | **edited** — PR4 deletes the lifecycle row and rewrites the gallery row, so 60 is PR2's figure, not the final four-PR state | PR4 |
+| `tests/ci/attentionPillFocusWorkflow.test.ts` | **deleted** — it reads a workflow PR2 retires and would redden the required `unit-suite` | PR2 |
 | `tests/cross-cutting/pg-cron-coverage.test.ts` | **extended** — CI-hard `psql` requirement, non-zero live-test count | PR3 |
 
 Not touched, with reason: `tests/log/_auditableMutations.ts` (no mutation surface), `tests/auth/_metaInfraContract.test.ts` (no Supabase call boundary), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no lock path).
