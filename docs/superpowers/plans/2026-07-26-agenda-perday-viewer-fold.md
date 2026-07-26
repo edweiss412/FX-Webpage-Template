@@ -49,6 +49,16 @@ Every file, symbol, and line this plan names was verified against `origin/main` 
 
 N/A — declared above. No task in this plan opens a transaction or acquires a lock.
 
+## New test files — collection and environment wiring (writing-plans rule)
+
+Verified rather than assumed, because a missing environment pragma costs a round on its own:
+
+- **Collection needs no wiring.** `vitest.projects.ts:34` sets `BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"]`, so both new files are collected by the default suite with no `testMatch` entry to add.
+- **Project partition: SERIAL, by default.** Neither `tests/agenda` nor `tests/components/crew` appears in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:64`), and the file's own comment at `vitest.projects.ts:18` says new directories default to SERIAL, which is the safe side. Nothing to add.
+- **`tests/components/crew/agendaScheduleBlockFold.test.tsx (NEW)` MUST carry `// @vitest-environment jsdom` as its FIRST line.** The default environment is `node` (`vitest.config.ts:68`), so a render test without the pragma fails on `document` being undefined. The sibling `tests/components/crew/sourceLink.test.tsx:1` carries exactly that pragma — copy the shape.
+- **`tests/agenda/agendaViewerDays.test.ts (NEW)` needs NO pragma** — it tests a pure function and `node` is correct for it.
+- No new e2e spec file is created, so no `playwright.config.ts` `testMatch` change is needed. Task 7 wires the EXISTING `agendaScheduleLayout.spec.ts`, which `tests/e2e/standalone.config.ts:36` already matches.
+
 ## Execution order (green at every commit)
 
 **T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9**
