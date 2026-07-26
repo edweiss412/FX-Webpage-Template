@@ -113,11 +113,31 @@ import {
  * the whole difference the geometry tests care about. */
 const IDLE_STACK = renderToStaticMarkup(<IgnoreLabelStack variant="idle" />);
 const ARMED_STACK = renderToStaticMarkup(<IgnoreLabelStack variant="armed" />);
-if (IDLE_STACK === ARMED_STACK || !ARMED_STACK.includes(IGNORE_ARMED_LABEL)) {
-  throw new Error(
-    "IgnoreLabelStack no longer distinguishes idle from armed, so substituting one for " +
-      "the other would be a no-op and every armed panel would silently be idle markup",
-  );
+/** Which label variants a rendered stack leaves in the accessibility tree. Every stack
+ *  CONTAINS every label — that is the whole point of the reservation — so asking whether
+ *  the armed string appears is vacuous (R11 F1). The real question is which variant is
+ *  shown, and `aria-hidden` is the marker that answers it in markup. */
+function shownVariants(stack: string): string[] {
+  return Array.from(stack.matchAll(/<span([^>]*)>/g))
+    .map(([, attrs]) => attrs ?? "")
+    .filter((attrs) => attrs.includes("data-ignore-label") && !attrs.includes("aria-hidden"))
+    .map((attrs) => /data-ignore-label="([^"]+)"/.exec(attrs)?.[1] ?? "?");
+}
+{
+  const idleShown = shownVariants(IDLE_STACK);
+  const armedShown = shownVariants(ARMED_STACK);
+  if (
+    idleShown.join() !== "idle" ||
+    armedShown.join() !== "armed" ||
+    !ARMED_STACK.includes(IGNORE_ARMED_LABEL)
+  ) {
+    throw new Error(
+      "IgnoreLabelStack must show exactly the requested variant and nothing else — got " +
+        `idle=[${idleShown.join()}] armed=[${armedShown.join()}]. If it stops ` +
+        "distinguishing the two, substituting one for the other is a no-op and every " +
+        "armed panel is silently idle markup.",
+    );
+  }
 }
 
 /** Same tree, with the Ignore button in its armed state, produced by substituting the

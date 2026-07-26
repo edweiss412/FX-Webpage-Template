@@ -75,7 +75,7 @@ The design changed at round 9 from a container-keyed fork to a plain reorder (sp
 
 ### Task 0 — Real-component mounting harness — **DONE**
 
-`tests/e2e/_pendingDiscardHarness.tsx` renders the real `NeedsAttentionInbox` (hence the real component inside real card padding, real action row, real `Retry now` sibling) out of process under `tsx`. It now emits an **armed** panel per rail by substituting the component's own exported `IGNORE_ARMED_CLASS` / `IGNORE_ARMED_LABEL`, so both panels originate from the component and nothing is transcribed.
+`tests/e2e/_pendingDiscardHarness.tsx` renders the real `NeedsAttentionInbox` (hence the real component inside real card padding, real action row, real `Retry now` sibling) out of process under `tsx`. It now emits an **armed** panel per rail by substituting the component's own exported `IGNORE_ARMED_CLASS` and the markup of `IgnoreLabelStack` rendered at `variant="armed"`, so both panels originate from the component and nothing is transcribed.
 
 That substitution is what withdrew M2: with no transcription left to bind, the binding table and the six holes review found in it ceased to exist rather than being fixed.
 
@@ -132,7 +132,7 @@ Both halves ran as isolated sub-agents, which the skill mandates; an inline run 
 
 | Finding | Severity | Disposition |
 |---|---|---|
-| Armed label was verbatim the live region's text, so the pair conveyed strictly less than before and the consequence was stated nowhere | P1 | **Fixed.** Split into label = verb (`"Confirm ignore"`, matching the family idiom) and live region = consequence, plus a visible line under the row for sighted users. `"Confirm ignore forever"` was measured (176.8px) and rejected for clearing the 348px page by only 8.46px |
+| Armed label was verbatim the live region's text, so the pair conveyed strictly less than before and the consequence was stated nowhere | P1 | **Fixed.** Split into label = verb (`"Confirm ignore"`, matching the family idiom) and live region = consequence, plus a visible line under the row for sighted users. `"Confirm ignore forever"` was measured (176.8px) and rejected — it would become the reserved width in every state, putting the pair at 339.5px against the real 316px mobile page |
 | Enter key-repeat defeated the two-tap guard — Chrome activates on keydown, which auto-repeats, while Space (keyup) was immune | P1 | **Fixed.** First attempt used a 350ms dwell; the whole-diff review showed that only throttles, since repeats continue past any window. Now keys on `event.repeat`, requiring a real release-and-repress. Test [13] sends 12 repeats and asserts none confirm |
 | Bare `ring-offset-2` violates `DESIGN.md:40` (17.90:1 white halo in dark mode) | P1 | **Fixed.** `ring-offset-surface`. This diff had re-authored those exact strings into exported constants, so it was ours to fix |
 | No `aria-busy` while running; live region silent mid-action | P1 | **Fixed.** `aria-busy` on both buttons, live region announces progress |
@@ -148,4 +148,4 @@ Both halves ran as isolated sub-agents, which the skill mandates; an inline run 
 
 ### Considered and kept, against the critique's recommendation
 
-The critique rated **destructive-left at wide widths** a P1 and recommended reverting to Defer-first with a rail-only fork. Kept, because: the owner chose the reorder on measured evidence after nine rounds; the rail-only fork is precisely the container-query design whose verification cost caused those rounds; and the critique's own analysis notes that at 348px left is the *harder* thumb reach for a right-handed grip, which argues for the current order on the surface where it matters most. Recorded here rather than silently overridden — an impeccable critique is not authoritative against a ratified owner decision, but it should not vanish either.
+The critique rated **destructive-left at wide widths** a P1 and recommended reverting to Defer-first with a rail-only fork. Kept, because: the owner chose the reorder on measured evidence after nine rounds; the rail-only fork is precisely the container-query design whose verification cost caused those rounds; and the critique's own analysis notes that at the mobile page width left is the *harder* thumb reach for a right-handed grip, which argues for the current order on the surface where it matters most. Recorded here rather than silently overridden — an impeccable critique is not authoritative against a ratified owner decision, but it should not vanish either.

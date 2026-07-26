@@ -143,7 +143,7 @@ Shipped alongside it, from the impeccable gate and the reviews that followed: th
 
 **Why this works.** `flex-wrap` already decides per-container whether the pair fits. What was wrong was only the *order* it wrapped into. With Ignore first, a wrap puts Ignore on the upper line and Defer below — the safe control nearest the thumb — and where there is room, nothing wraps at all.
 
-Measured against the real card geometry (available content widths 278 / 348 / 858px):
+Measured against the real card geometry (available content widths 278 / 316 / 398 / 858px):
 
 | Geometry | Idle | Armed |
 |---|---|---|
@@ -179,7 +179,7 @@ The shipped split is label = **verb**, live region = **consequence**:
 - The live region now says what dies, so a screen-reader user hears the consequence at the moment it matters.
 - For a sighted user the permanence signal is carried by the idle label they just tapped ("Permanently ignore"), the amber fill, and the second deliberate tap.
 
-`"Confirm ignore forever"` was measured (176.8px) and **rejected** for exceeding the reserved width, which would have reintroduced exactly the width-change-on-arm this design now forbids.
+`"Confirm ignore forever"` was measured (176.8px) and **rejected**: it is wider than the idle label, so it would become the reserved width and make *every* state 176.8px, pushing the pair to 339.5px against the 316px mobile page. Note this is a sizing argument, not a drift argument — the structural stack would reserve the longer variant in every state, so width would stay invariant (R11 F3 corrected an earlier claim that it would reintroduce drift).
 
 The **idle** labels are unchanged. "Permanently ignore" and "Defer until modified" carry the safety words, and `tests/help/_uiLabelExceptions.ts:135-143` pins both against the help MDX — shortening them would trade real clarity for the one geometry (the 278px rail) that still cannot fit a row.
 
@@ -206,7 +206,7 @@ Recorded because earlier drafts specified all of it, and six review rounds were 
 |---|---|---|---|
 | D1 | when the row wraps, `ignore.bottom ≤ defer.top` | Ignore is the first flex item | §6.3 at 278px, idle and armed |
 | D2 | both buttons ≥44px tall | `min-h-tap-min` (`app/globals.css:162`) | §6.3 at every width |
-| D3 | where the pair fits, both sit on one line with Ignore left | `flex-wrap` with no basis | §6.3 at 348px and 858px |
+| D3 | where the pair fits, both sit on one line with Ignore left | `flex-wrap` with no basis | §6.3 at 398px and 858px — the widths with real slack, not the 316px knife edge |
 | D4 | Ignore's box origin **and width** are identical idle vs armed | Two mechanisms: Ignore is the **first** flex item, fixing its origin within the row; and `IgnoreLabelStack` reserves the widest label variant, fixing the island's width so the row itself cannot re-wrap on arm | §6.3 comparing idle and armed panels at 4 rails, plus `bigtext440` under enlarged text |
 | D7 | shipped markup contains no `basis-full` and no `sm:basis-auto` | deleted in §4.1 | §6.3, read off rendered markup |
 
@@ -293,11 +293,11 @@ Assertions:
 
 - **D1** — at `rail320`, `ignore.bottom ≤ defer.top + 0.5`, idle **and** armed.
 - **D2** — both buttons ≥44px at every rail.
-- **D3** — at `page390` and `wide900`, `ignore.y === defer.y` and `ignore.x < defer.x`.
-- **D4** — `ignore.x` and `ignore.y` are identical between the idle and armed panels at every rail. This is the DESTRUCT-1 guarantee, now structural (§4.1).
+- **D3** — at `band440` and `wide900`, `ignore.y === defer.y` and `ignore.x < defer.x`. Not at `page358`: 315.95px against 316px is a font-metric coin flip, so that rail asserts the safety property whichever way it lands.
+- **D4** — `ignore.x`, `ignore.y` **and `ignore.w`** (plus `defer.w`) are identical between the idle and armed panels at every rail. Width is asserted alongside the origin because width is the mechanism that keeps the origin fixed — R11 F2 caught the loop asserting only the origin. This is the DESTRUCT-1 guarantee, now structural (§4.1).
 - **D7** — the rendered markup contains no `basis-full` and no `sm:basis-auto`.
 
-**Armed panels are SUBSTITUTED, not re-rendered — stated precisely.** `renderToStaticMarkup` cannot click, and the component exposes no armed-initial prop. The harness therefore takes the idle markup and substitutes the component's **own exported** `IGNORE_ARMED_CLASS` and `IGNORE_ARMED_LABEL`, so neither can drift from the component.
+**Armed panels are SUBSTITUTED, not re-rendered — stated precisely.** `renderToStaticMarkup` cannot click, and the component exposes no armed-initial prop. The harness therefore takes the idle markup and substitutes the component's **own exported** `IGNORE_ARMED_CLASS` plus the markup of `IgnoreLabelStack` rendered at `variant="armed"`, so neither can drift from the component. It swaps the rendered label STACK, not a label string — the stack is what reserves the width, so it is the whole difference the geometry tests measure.
 
 What that proves is the armed **row's** token geometry — exactly what D1/D3/D4 measure. What it does **not** prove is the complete armed tree: the real armed render also fills the status region and mounts the consequence paragraph. Today that paragraph sits below the row and cannot affect row geometry, but **armed-only structure landing inside the row would invalidate these panels while they stayed green**. That limit is written in the harness file itself, not only here. Whole-diff review R3 F5 caught the earlier wording claiming these were real armed renders.
 
@@ -382,6 +382,6 @@ All three original rows are gone. The family section and its preceding `---` rul
 |---|---|---|
 | A screen reader announces the arm twice | low | One live region, unchanged by the reorder; asserted by §6.2 test 6 |
 | The reorder fails to preserve DESTRUCT-1's zero-reflow guarantee | low | `basis-full` is deliberately **removed**, so its absence is required rather than a regression. The guarantee holds because Ignore is the first flex item AND reserves the width of its widest label variant, so the island's width is invariant and no wrap transition can occur on arm. R9 F1 showed first-flex-item alone was NOT sufficient: with a shrinking armed label the island un-wrapped beside Retry at ~440px, moving the target 107px. R10 F1 showed a numeric floor was not sufficient either: enlarged text outgrows it and the asymmetry returns. D4 plus the `band440` and `bigtext440` regression rails prove it |
-| Test-id rename misses a consumer | low | Consumers enumerated in §2.4 by grep; the bare ids cease to exist, so a missed consumer fails loudly rather than matching two nodes |
+| Test-id rename misses a consumer | low | **Withdrawn — no rename shipped.** The test ids are unchanged, so there is no consumer to miss. Kept as a row because earlier revisions planned a rename and reviewers have twice re-derived its absence (R7, R11) |
 | The new workflow is itself dark | low | `workflow_dispatch:` enabled; close-out fires it with `gh workflow run` and confirms a green run before merge (§6.4) |
 | A surface points its arm timer at some other value | medium, **not mitigated** | T1/T3 pin where the constant lives and what it equals, nothing more. Detecting this needs to know which call IS the arm timer — semantic, and §5.3 explains why six rounds showed a regex cannot decide it |

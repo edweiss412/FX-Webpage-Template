@@ -320,6 +320,14 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     await act(async () => {
       fireEvent.click(getByTestId(`admin-pending-ignore-${ID}`)); // confirm -> running
     });
+    /* R11 F1: "Ignoring…" is a third label variant and nothing asserted it was ever the
+     * shown one. Because all three variants stay mounted for the width reservation, a
+     * running state that failed to select its variant would keep the idle word on screen
+     * with every layout and aria-busy assertion still green. */
+    expect(
+      shownLabel(getByTestId(`admin-pending-ignore-${ID}`)),
+      "the running state must show its own label, not the idle one",
+    ).toBe("Ignoring…");
     for (const testid of [`admin-pending-ignore-${ID}`, `admin-pending-defer-${ID}`]) {
       expect(getByTestId(testid).getAttribute("aria-busy"), `${testid} must report busy`).toBe(
         "true",

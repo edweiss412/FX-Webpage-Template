@@ -14,7 +14,7 @@
  *              flips to true; controls disable; label becomes
  *              "Dismissing…").
  *              Click Cancel → back to idle.
- *              3s of inaction → auto-revert to idle.
+ *              4s of inaction → auto-revert to idle.
  *   pending  → derived from useFormStatus() inside the parent <form>.
  *              On happy path the page revalidates and the banner
  *              re-mounts. On failure (Supabase / RLS / network error
@@ -47,7 +47,7 @@
  * useFormStatus REQUIRES this component to be a child of the form —
  * it reads pending state from the nearest ancestor <form>.
  *
- * The 3s auto-revert protects Doug from a misfired tap on a P0 alert
+ * The 4s auto-revert protects Doug from a misfired tap on a P0 alert
  * (brief §1 + §11): if he tapped Resolve and put his phone down to
  * call a cue, the state reverts to idle automatically.
  */
@@ -70,7 +70,7 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
   const confirmRowRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef(false);
 
-  // Clear the 3s auto-revert timer if the component unmounts (e.g.,
+  // Clear the 4s auto-revert timer if the component unmounts (e.g.,
   // banner re-renders after an alert resolves elsewhere) or if the
   // user clicks Confirm/Cancel before it fires.
   const clearAutoRevert = () => {

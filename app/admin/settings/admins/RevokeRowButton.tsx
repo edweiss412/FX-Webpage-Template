@@ -11,7 +11,7 @@
  *   confirm  → [ Confirm revoke ] (orange) + [ Cancel ] sibling
  *              Click confirm → submits the form.
  *              Click Cancel → back to idle.
- *              3s of inaction → auto-revert to idle.
+ *              4s of inaction → auto-revert to idle.
  *   resolving→ confirm button disabled, label "Revoking…", until the
  *              Server Action completes (page revalidates and the row
  *              moves to the REVOKED section).

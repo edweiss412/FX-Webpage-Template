@@ -36,7 +36,7 @@ const INGESTION_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
  *  Needs-attention page; 900 = a full-width card. Single source for the widths so
  *  a threshold change cannot leave a panel testing the old boundary. */
 /** Rails mirroring live geometry. Content width is the rail minus the card's 42px
- *  (1px borders + 20px p-tile-pad, both sides): 278 / 348 / 858px. */
+ *  (1px borders + 20px p-tile-pad, both sides): 278 / 316 / 398 / 858px. */
 /** Rail → button content width (rail minus the card's 42px: 1px borders + 20px
  *  p-tile-pad, both sides). `page358` is a 390px viewport minus the admin layout's
  *  16px `px-page-pad-mobile` per side — R8 F1 caught the earlier 390 as 32px too wide. */
@@ -205,6 +205,18 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
       Math.abs(armed.ignore.y - idle.ignore.y),
       `D4 ${rail}: Ignore top edge moved`,
     ).toBeLessThanOrEqual(TOL);
+    /* R11 F2: D4 promises origin AND width, but this loop asserted only the origin —
+     * width was pinned at band440/bigtext440 only, so a width-only regression at
+     * rail320, page358 or wide900 passed. Width is the mechanism that keeps the origin
+     * fixed (it is what stops the island re-wrapping), so it belongs at every rail. */
+    expect(
+      Math.abs(armed.ignore.w - idle.ignore.w),
+      `D4 ${rail}: Ignore width changed on arm`,
+    ).toBeLessThanOrEqual(TOL);
+    expect(
+      Math.abs(armed.defer.w - idle.defer.w),
+      `D4 ${rail}: Defer width changed on arm`,
+    ).toBeLessThanOrEqual(TOL);
   });
 }
 
@@ -239,6 +251,50 @@ test("D4 under enlarged text: arming still cannot change Ignore's width", async 
   expect(armed.ignore.y, "big text: Defer must not become the upper control").toBeLessThanOrEqual(
     armed.defer.y + TOL,
   );
+});
+
+test("exactly one Ignore label variant is painted, in every panel", async ({ page }) => {
+  /* R11 F1: the reservation works by keeping all three variants mounted, so nothing in
+   * the geometry tests would notice if two variants were painted at once, or none.
+   * Layout would be identical either way and every D-assertion would stay green.
+   *
+   * WHAT THIS PROVES, precisely: that `invisible` really resolves to
+   * `visibility: hidden` in a real engine and leaves exactly one variant painted. Only
+   * a browser can test that — jsdom applies no CSS, so there `invisible` is an inert
+   * class name and every variant is equally "visible".
+   *
+   * WHAT IT DOES NOT PROVE: that the BUTTON selects the right variant for its state.
+   * The armed panels here are built by substituting a stack rendered directly with
+   * `variant="armed"` (see armedHtml), which bypasses the button's own selection. A
+   * mutant pinning the button to `variant="idle"` passes this test and fails four
+   * assertions in tests/components/admin/pendingIngestionActions.test.tsx, which is
+   * where selection is covered. Verified by running that mutant, not assumed. */
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(baseUrl);
+  const result = await page.evaluate((id) => {
+    const rows: { panel: string; painted: string[]; text: string[] }[] = [];
+    for (const sec of Array.from(document.querySelectorAll("[data-state]"))) {
+      const btn = sec.querySelector(`[data-testid="admin-pending-ignore-${id}"]`);
+      if (!btn) continue;
+      const spans = Array.from(btn.querySelectorAll("[data-ignore-label]"));
+      const painted = spans.filter((s) => getComputedStyle(s).visibility !== "hidden");
+      rows.push({
+        panel: sec.getAttribute("data-state") ?? "?",
+        painted: painted.map((s) => s.getAttribute("data-ignore-label") ?? "?"),
+        text: painted.map((s) => (s.textContent ?? "").trim()),
+      });
+    }
+    return rows;
+  }, INGESTION_ID);
+  expect(result.length, "no panels were inspected").toBeGreaterThan(0);
+  for (const row of result) {
+    expect(row.painted, `${row.panel}: exactly one variant must be painted`).toHaveLength(1);
+    const expected = row.panel.endsWith("armed") ? "armed" : "idle";
+    expect(row.painted[0], `${row.panel}: wrong variant painted`).toBe(expected);
+    expect(row.text[0], `${row.panel}: painted variant has the wrong words`).toBe(
+      expected === "armed" ? "Confirm ignore" : "Permanently ignore",
+    );
+  }
 });
 
 test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page }) => {

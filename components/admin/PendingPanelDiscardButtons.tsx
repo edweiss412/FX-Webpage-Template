@@ -51,7 +51,7 @@ export const IGNORE_ARMED_CLASS =
   "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 export const IGNORE_IDLE_LABEL = "Permanently ignore";
 /* Shortened from "Confirm stop tracking this sheet permanently" (328.51px), which is
- * what let the armed row stop wrapping at the 348px Needs-attention page.
+ * what let the armed row stop wrapping at the Needs-attention page (316px of content).
  *
  * "Confirm ignore" (125.64px) not "Tap again to confirm": impeccable critique P1 found
  * the latter was VERBATIM the live region's text, so the pair conveyed strictly less
@@ -59,7 +59,7 @@ export const IGNORE_IDLE_LABEL = "Permanently ignore";
  * (ArchiveShowButton "Confirm archive", ResolveAlertButton "Confirm dismiss") and the
  * consequence moves into the live region below, which is where a screen-reader user
  * gets it. "Confirm ignore forever" was measured too (176.8px) and rejected: its armed
- * row clears the 348px page by 8.46px, the same thin cross-platform margin rejected
+ * row would not fit the 316px page at all, and it would become the reserved width in every state rather than only the armed one
  * elsewhere in this spec. */
 export const IGNORE_ARMED_LABEL = "Confirm ignore";
 export const IGNORE_RUNNING_LABEL = "Ignoring…";
