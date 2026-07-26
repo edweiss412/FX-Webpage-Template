@@ -1924,3 +1924,53 @@ from `findHint`, so the two walks cannot disagree.
 
 Eight mutations red. Two orphaned helpers deleted (`isNumericish`, and earlier `styleObjectLiteralHides`),
 both surfaced by a new eslint warning rather than by review.
+
+## R37 — seven findings, and the FOURTH copy of the selection logic
+
+R37 reviewed `34778342a` and reported the drift. All seven were live on the current head when checked.
+
+| # | Finding | Direction |
+| --- | --- | --- |
+| 1 | `import X = require(…)` nested in a namespace body binds the name | fail-open |
+| 2 | an unconditional HIDDEN hint made the conditional VISIBLE one look unconditional | fail-open |
+| 3 | separator / gating / hint-path rules treated non-contributing hints as active | false positive |
+| 4 | `staticStringValue` had its OWN `&&`/`||`/`??` arms, so R36's always-boolean rule never reached it | false positive |
+| 5 | `constantNumber` refused binary `+` even with two numeric operands | false positive |
+| 6 | the object stringifier rejected decidable shapes (computed/numeric keys, `__proto__` non-assignments) | false positive |
+| 7 | the array stringifier lost decidable element families | false positive |
+
+**Finding 4 is the fourth instance in this PR of one question answered in several places.** The ledger
+now reads: six equivalent branches (R31–R35), R36's fix to `pickedOperand` that never reached
+`rendersNothing` or `expressionDestination`, R37's enum/namespace added to the module-level helper
+only, and now `staticStringValue`'s private copy of the selection arms. Every one of these was the
+same defect wearing a different hat, and the fix each time was to delete a copy rather than update it.
+
+**Finding 2 is the sharpest fail-open of the round.** `Go {flag && <NewTabHint />} <span
+aria-hidden="true"><NewTabHint /></span>` announces nothing when `flag` is false, and the
+unconditionality check passed because the HIDDEN instance carried no condition. A hidden hint is not
+an announcement, so only name-CONTRIBUTING instances may answer questions about the announcement --
+now filtered once and shared by the gating, unconditionality and separator rules.
+
+**Two fixes here required separating decidability from hiding.** Delegating the hint-path className
+check straight to `classNameHides` downgraded the message for `className="hidden"` from the precise
+"hidden from the accessible name" to the vaguer "cannot be proven non-hiding" -- caught by two
+existing fixtures. "Cannot be PROVEN" is a claim about undecidability; a class that definitely hides is
+decided. `classNameDecidable` now answers that question separately.
+
+Two arms were deleted rather than pinned after surviving mutation: the numeric non-nullish arm in
+`pickedOperand` (every consumer already has `cannotRenderTrue` downstream) and, earlier, a duplicate
+return. Two more were pinned once a fixture existed that only they could satisfy -- the comma-join
+argument needed an array of TWO undecidable elements, since `staticStringValue` decides everything
+simpler on its own.
+
+### Process failure worth recording
+
+A greedy string replacement deleted three whole functions (`isLiteralTruthy`, `bigIntLiteralIsZero`,
+`expressionDestination`) -- 152 lines -- because I sliced from a marker inside one function to a marker
+that occurs after several others. `tsc` caught it immediately, and the region was restored byte-exact
+from `git show HEAD:<path>` while keeping the uncommitted fixes in other regions.
+
+Two habits that made this recoverable rather than expensive: the previous fixes were already committed,
+and every edit is applied to a file under version control with a clean tree between rounds. The habit
+that caused it: bounding a replacement by a marker that is not unique to the function being edited.
+Bound the slice to the FUNCTION, and assert the replaced span is the size you expect.

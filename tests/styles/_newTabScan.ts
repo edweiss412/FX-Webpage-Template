@@ -484,6 +484,9 @@ function isShadowedAt(at: ts.Node, name: string): boolean {
     // still failed open (review R37 probe trail). Putting them in `declares`, which `isShadowedAt`
     // consults at every scope INCLUDING module scope, removes the duplicate inventory instead of
     // adding a third copy.
+    // `import X = require("…")` binds at whatever scope it sits in, including inside a namespace
+    // body -- the module-level helper only scans top-level statements (review R37).
+    if (ts.isImportEqualsDeclaration(n) && n.name.text === name) return true;
     if (ts.isEnumDeclaration(n) && n.name.text === name) return true;
     if (ts.isModuleDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name) return true;
     return false;
@@ -803,6 +806,11 @@ function constantNumber(e0: ts.Expression): number | null {
     const r = constantNumber(e.right);
     if (l === null || r === null) return null;
     switch (e.operatorToken.kind) {
+      case ts.SyntaxKind.PlusToken:
+        // Safe HERE, unlike in `cannotRenderTrue`: both operands already resolved to NUMBERS, so this
+        // is addition, never concatenation. `open={1 + 1}` and `hidden={1 + -1}` were reported for
+        // want of this (review R37).
+        return l + r;
       case ts.SyntaxKind.AsteriskToken:
         return l * r;
       case ts.SyntaxKind.SlashToken:
@@ -924,6 +932,13 @@ function pickedOperand(e0: ts.Expression): ts.Expression | null {
         // be a literal to be known non-nullish (review R36). Without this, `{(!x) ?? "Dest"}` was
         // credited as a destination although React omits the boolean it evaluates to.
         if (isAlwaysBoolean(left)) return left;
+        // NOTE: no numeric arm here. A number is indeed never nullish, but every consumer that
+        // would care already has `cannotRenderTrue` downstream, which rescues `(+x) ?? "true"` on its
+        // own -- a mutation deleting the arm changed no verdict across `aria-hidden`, `hidden` and
+        // `open`. Left out rather than kept as a line that reads like the mechanism and is not.
+        // A NUMBER is never nullish either, so `??` keeps it: `aria-hidden={(+x) ?? "true"}` yields
+        // the number and cannot be "true" (review R37).
+        if (cannotRenderTrue(left) && !isProvablyNullish(left)) return left;
         if (isLiteralTruthy(left) || isLiteralFalsy(left)) return left;
         return null;
       default:
@@ -1009,15 +1024,41 @@ function staticStringValue(e0: ts.Expression): string | null {
     // Only a DEFAULT toString gives "[object Object]". Any member that could override string
     // conversion makes the value undecidable.
     const overrides = e.properties.some((prop) => {
+      if (ts.isSpreadAssignment(prop)) return true; // unknown shape
       const nm = prop.name;
-      const key =
-        nm !== undefined && (ts.isIdentifier(nm) || ts.isStringLiteral(nm)) ? nm.text : null;
-      if (key === null) return true; // computed or spread: unknown shape
+      let key: string | null = null;
+      if (nm !== undefined) {
+        if (ts.isIdentifier(nm) || ts.isStringLiteral(nm)) key = nm.text;
+        // A NUMERIC key is an ordinary own property, and a COMPUTED key with a decidable value is
+        // just that value. Rejecting both as "unknown shape" reported `{["x"]:1}` and `{0:1}`,
+        // which stringify to "[object Object]" like any other plain object (review R37).
+        else if (ts.isNumericLiteral(nm)) key = nm.text;
+        else if (ts.isComputedPropertyName(nm)) key = staticStringValue(nm.expression);
+      }
+      if (key === null) return true; // genuinely undecidable key
       // `__proto__` in an object literal SETS THE PROTOTYPE, so an inherited `toString` can return
       // "true" even though the literal declares none of its own (review R36, measured: the attribute
       // really is emitted as "true"). `Symbol.toPrimitive` arrives as a computed key, already caught
       // above.
-      return key === "toString" || key === "valueOf" || key === "__proto__";
+      if (key === "toString" || key === "valueOf") return true;
+      // ONLY `__proto__: <value>` as a property ASSIGNMENT sets the prototype, and only a
+      // non-primitive value has any effect. A shorthand, method or accessor named `__proto__` is an
+      // ordinary own property, and `__proto__: 1` is ignored at runtime -- all three were reported
+      // (review R37).
+      if (key === "__proto__") {
+        if (!ts.isPropertyAssignment(prop)) return false;
+        const v = unparen(prop.initializer);
+        if (isProvablyNullish(v)) return false;
+        return !(
+          ts.isStringLiteral(v) ||
+          ts.isNumericLiteral(v) ||
+          ts.isBigIntLiteral(v) ||
+          ts.isNoSubstitutionTemplateLiteral(v) ||
+          v.kind === ts.SyntaxKind.TrueKeyword ||
+          v.kind === ts.SyntaxKind.FalseKeyword
+        );
+      }
+      return false;
     });
     return overrides ? null : "[object Object]";
   }
@@ -1042,24 +1083,13 @@ function staticStringValue(e0: ts.Expression): string | null {
       const r = staticStringValue(e.right);
       return l === null || r === null ? null : l + r;
     }
-    const left = unparen(e.left);
-    if (e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
-      if (isLiteralTruthy(left)) return staticStringValue(e.right);
-      if (isLiteralFalsy(left)) return staticStringValue(left);
-      return null;
-    }
-    if (e.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
-      if (isLiteralTruthy(left)) return staticStringValue(left);
-      if (isLiteralFalsy(left)) return staticStringValue(e.right);
-      return null;
-    }
-    // `??` was missing entirely. NOT falsiness: `0 ?? x` is `0`.
-    if (e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
-      if (isProvablyNullish(left)) return staticStringValue(e.right);
-      if (isLiteralTruthy(left) || isLiteralFalsy(left)) return staticStringValue(left);
-      return null;
-    }
   }
+  // SELECTION through the shared helper. This function had its OWN &&/||/?? arms, which is why R36's
+  // always-boolean rule never reached it: `className={(!x) ?? "hidden"}` stayed undecidable and was
+  // reported (review R37). Fourth copy of this logic found in this PR -- each copy silently withheld
+  // a fix from its own callers.
+  const picked = pickedOperand(e);
+  if (picked !== null) return staticStringValue(picked);
   return null;
 }
 
@@ -1535,6 +1565,16 @@ function cannotRenderTrue(e0: ts.Expression): boolean {
   // NUMBERS, however, always stringify to numeric text. Literals, signed literals, the numeric
   // globals, bitwise/arithmetic operators -- none can be "true" (review R35 HIGH 8).
   if (ts.isBigIntLiteral(e) || ts.isNumericLiteral(e)) return true;
+  // An ARRAY joins with commas, so with zero or 2+ elements it can never be exactly "true"; with one
+  // element it equals that element's own string. This recovers the decidable element families the
+  // stringifier gives up on -- `[/re/]`, `[1*2]`, `[Infinity]`, `[()=>1]` were all reported (R37).
+  if (ts.isArrayLiteralExpression(e)) {
+    if (e.elements.some((el) => ts.isSpreadElement(el))) return false; // unknown length
+    if (e.elements.length !== 1) return true;
+    const only = e.elements[0]!;
+    if (ts.isOmittedExpression(only)) return true; // a hole stringifies to ""
+    return cannotRenderTrue(only) || staticStringValue(only) !== "true";
+  }
   if (isGlobalRef(e, "NaN")) return true;
   if (isGlobalIdentifier(e, "Infinity")) return true;
   if (ts.isPrefixUnaryExpression(e)) {
@@ -1596,6 +1636,23 @@ function cannotRenderTrue(e0: ts.Expression): boolean {
   return false;
 }
 
+/** Can the class list be DECIDED at all? Distinct from "does it hide".
+ *
+ *  The hint-path rule reports "cannot be proven non-hiding", which is a statement about
+ *  UNDECIDABILITY -- a class that definitely hides IS decided, and should be reported by the precise
+ *  hidden-from-the-name rule instead. Delegating that rule to `classNameHides` conflated the two and
+ *  downgraded the message for `className="hidden"` (caught by two existing fixtures).
+ */
+function classNameDecidable(init: ts.JsxAttributeValue | undefined): boolean {
+  if (!init) return true;
+  const e = ts.isJsxExpression(init) ? init.expression : init;
+  if (e === undefined) return true;
+  const resolved = unparen(pickedOperand(e) ?? e);
+  // A boolean or nullish value carries no token whatever React does with it.
+  if (isProvablyNullish(resolved) || isAlwaysBoolean(resolved)) return true;
+  return staticStringValue(e) !== null;
+}
+
 /** Does a `class` / `className` value hide this element?
  *
  *  A CSS class list is TOKENS, and `\b(hidden|invisible)\b` is not a token test: a hyphen is a
@@ -1623,6 +1680,17 @@ function classNameHides(init: ts.JsxAttributeValue | undefined): boolean {
   );
   if (decided !== null) {
     return decided.split(/\s+/).some((t) => HIDING.has(utility(t)));
+  }
+  // A value that is provably a BOOLEAN or nullish cannot contain a hiding TOKEN, whatever React does
+  // with it: an omitted attribute has no class list, and a stringified boolean is "true" or "false".
+  // Without this the raw-text fallback matched the word in the SOURCE -- `className={(!x) ?? "hidden"}`
+  // was reported although the value is the boolean, not the string (review R37).
+  const value = ts.isJsxExpression(init) ? init.expression : undefined;
+  if (value !== undefined) {
+    // RESOLVE selection first: `(!x) ?? "hidden"` evaluates to the boolean, so the string in the
+    // source is never a class token (review R37).
+    const resolved = unparen(pickedOperand(value) ?? value);
+    if (isProvablyNullish(resolved) || isAlwaysBoolean(resolved)) return false;
   }
   // Dynamic: fail closed on a delimited mention, where a hyphen is NOT a delimiter.
   const raw = init.getText();
@@ -2179,10 +2247,13 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
   // prop, a call argument, a template substitution -- so a dead hint in one of those positions
   // poisoned a perfectly separated real one (review R36). Passing the accepted nodes aligns the two
   // walks BY CONSTRUCTION rather than by keeping two allowlists in step.
+  // CONTRIBUTING instances only. A HIDDEN hint contributes no name, so whether a space precedes it
+  // cannot matter -- including it reported `Go <NewTabHint /><span aria-hidden><NewTabHint /></span>`,
+  // where the visible hint is correctly separated (review R37).
   if (out.found)
     out.separated = hintHasSiblingSpace(
       anchor,
-      out.instances.map((h) => h.node),
+      out.instances.filter((h) => !h.hidden).map((h) => h.node),
     );
   return out;
 }
@@ -2622,8 +2693,12 @@ function hasSpreadOnHintPath(anchor: ts.JsxElement | ts.JsxSelfClosingElement): 
           // separate decision), and a dynamic style object stays opaque.
           if (obj !== null && ts.isObjectLiteralExpression(obj)) return styleObjectHides(init);
         }
-        // Undecidable class values (templates, conditionals) cannot be proven non-hiding.
-        return !isDecidableLiteral(attr.initializer);
+        // CLASS values delegate to the same rule that decides hiding, exactly as `style` does above.
+        // Asking `isDecidableLiteral` reported every non-literal className as unprovable, including
+        // values that are provably a BOOLEAN and therefore cannot carry a hiding token at all --
+        // `className={(!x) ?? "hidden"}` (review R37). `classNameHides` already fails closed on a
+        // genuinely dynamic value, so opacity and hiding are one question, asked once.
+        return !classNameDecidable(attr.initializer);
       });
       if (opaque) next = true;
     }
@@ -2848,12 +2923,19 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
                   negated: shape.cond.startsWith("!"),
                 }
               : { kind: "static" };
+          // Only instances that can CONTRIBUTE to the accessible name may answer questions about
+          // the announcement. A hidden instance is not an announcement, and treating it as one let an
+          // unconditional HIDDEN hint mask the fact that the only visible hint was conditional:
+          // `Go {flag && <Hint/>} <span aria-hidden><Hint/></span>` announces nothing when flag is
+          // false, and the unconditionality check passed because the hidden one had no condition
+          // (review R37). Same reason the separator and gating checks below use this list.
           const label = labelAnnounces(attrs, polarity);
           const named = (which: string): boolean =>
             attrs.properties.some((a) => ts.isJsxAttribute(a) && jsxAttrNameLower(a) === which);
           const hasLabelledBy = named("aria-labelledby");
           const hasLabelAttr = named("aria-label") || hasLabelledBy;
           const hint = findHint(node);
+          const contributing = hint.instances.filter((h) => !h.hidden);
 
           if (hasLabelledBy) {
             // `aria-labelledby` OUTRANKS `aria-label` in the accessible-name computation, so an
@@ -2903,10 +2985,13 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
               text: shape.cond.replace(/^!/, ""),
               negated: shape.cond.startsWith("!"),
             };
-            if (hint.instances.some((h) => !sameCondition(h.conditions, want))) {
+            if (contributing.some((h) => !sameCondition(h.conditions, want))) {
               record("hint is not gated by the anchor's effective _blank predicate");
             }
-          } else if (hint.instances.every((h) => h.conditions.length > 0)) {
+          } else if (
+            contributing.length > 0 &&
+            contributing.every((h) => h.conditions.length > 0)
+          ) {
             // Unconditionally external, so the hint must render unconditionally.
             // Proving an arbitrary conditional chain exhaustive is undecidable in
             // general -- R3 defeated the both-branches heuristic with

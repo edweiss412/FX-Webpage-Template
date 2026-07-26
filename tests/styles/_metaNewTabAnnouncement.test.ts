@@ -3995,6 +3995,84 @@ describe("R6: scanner changes are pinned", () => {
     ).not.toEqual([]);
   });
 
+  it("R37 contributing instances, one more selection copy, and stringifier precision", () => {
+    const A = (inner: string): string[] =>
+      violations(`const A=({flag,x,cls,hide,Wrap,f})=><a href="x" target="_blank">${inner}</a>;`);
+    // Fail-open: only instances that CONTRIBUTE to the name may answer questions about it. An
+    // unconditional HIDDEN hint made the conditional VISIBLE one look unconditional.
+    expect(
+      A('Go {flag && <NewTabHint />} <span aria-hidden="true"><NewTabHint /></span>'),
+      "a hidden instance must not vouch for a conditional visible one",
+    ).not.toEqual([]);
+    // ...and the mirror: a hidden instance must not make a correctly separated one look adjacent.
+    expect(
+      A('Go <NewTabHint /><span aria-hidden="true"><NewTabHint /></span>').filter((r) =>
+        /sibling space/.test(r),
+      ),
+      "a hidden instance must not poison separation",
+    ).toEqual([]);
+    // Fail-open: `import X = require(...)` binds inside a namespace body too.
+    expect(
+      probe(
+        'import { NewTabHint } from "@/components/shared/NewTabHint";\nnamespace N { import NaN = require("x"); export const A = () => <a href="x" target="_blank">Go <span hidden={NaN}><NewTabHint /></span></a>; }',
+        { bare: true },
+      ).violations,
+      "a nested import-equals binds the name",
+    ).not.toEqual([]);
+    // The FOURTH copy of the selection logic: `staticStringValue` had its own arms, so R36's
+    // always-boolean rule never reached it.
+    expect(
+      A('Go <span className={(!x) ?? "hidden"}><NewTabHint /></span>'),
+      "boolean class value",
+    ).toEqual([]);
+    expect(
+      A('Go <span aria-hidden={(+x) ?? "true"}><NewTabHint /></span>'),
+      "numeric ?? is the number",
+    ).toEqual([]);
+    // `constantNumber` may use `+` once BOTH operands are numbers -- that is addition, not concat.
+    expect(A("Go <details open={1 + 1}><NewTabHint /></details>"), "1 + 1 is truthy").toEqual([]);
+    expect(A("Go <span hidden={1 + -1}><NewTabHint /></span>"), "1 + -1 is falsy").toEqual([]);
+    // Stringifier precision: decidable objects and arrays that cannot be "true".
+    for (const attr of [
+      'aria-hidden={{["x"]:1}}',
+      "aria-hidden={{0:1}}",
+      "aria-hidden={{__proto__:1}}",
+      "aria-hidden={{__proto__(){ return 1; }}}",
+      "aria-hidden={[/re/]}",
+      "aria-hidden={[1*2]}",
+      "aria-hidden={[Infinity]}",
+      "aria-hidden={[()=>1]}",
+      // TWO undecidable elements: `staticStringValue` gives up, so only the comma-join argument in
+      // `cannotRenderTrue` can decide this -- with 2+ elements the result always contains a comma.
+      "aria-hidden={[/re/,/re2/]}",
+      "aria-hidden={[()=>1,()=>2]}",
+    ]) {
+      expect(A(`Go <span ${attr}><NewTabHint /></span>`), `cannot be "true": ${attr}`).toEqual([]);
+    }
+    // ...and the ones that still can, including the prototype trick.
+    for (const attr of [
+      'aria-hidden={["true"]}',
+      "aria-hidden={[true]}",
+      'aria-hidden={{__proto__:{toString(){return "true";}}}}',
+      "aria-hidden={[...x]}",
+    ]) {
+      expect(A(`Go <span ${attr}><NewTabHint /></span>`), `can be "true": ${attr}`).not.toEqual([]);
+    }
+    // A definitely-hiding class keeps the PRECISE message; only an undecidable one is "unproven".
+    expect(
+      A('Go <span className="hidden"><NewTabHint /></span>').some((r) =>
+        /hidden from the accessible name/.test(r),
+      ),
+      "a decided hiding class reports the precise reason",
+    ).toBe(true);
+    expect(
+      A("Go <span className={`${cls} hidden`}><NewTabHint /></span>").some((r) =>
+        /cannot be proven non-hiding/.test(r),
+      ),
+      "an undecidable class reports unproven",
+    ).toBe(true);
+  });
+
   it("the naming and separation questions stay DUAL, never drifting", () => {
     // Both rules consult `rendersNothing`, and they must reach OPPOSITE conclusions from it: a value
     // that renders nothing is transparent to SEPARATION (look further left) and absent as a
