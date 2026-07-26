@@ -11,7 +11,7 @@
  *   confirm  → [ Confirm revoke ] (orange) + [ Cancel ] sibling
  *              Click confirm → submits the form.
  *              Click Cancel → back to idle.
- *              3s of inaction → auto-revert to idle.
+ *              4s of inaction → auto-revert to idle.
  *   resolving→ confirm button disabled, label "Revoking…", until the
  *              Server Action completes (page revalidates and the row
  *              moves to the REVOKED section).
@@ -33,10 +33,10 @@ import { useActionState } from "react";
 import { getDougFacing, getRequiredDougFacing } from "@/lib/messages/lookup";
 
 import { revokeAdminAction, type AdminEmailActionResult } from "./actions";
+import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
-const ARM_REVERT_MS = 4_000;
 
 // Task 7.1: no-response watchdog. A React server action dispatched via
 // useActionState routes a THROWN/hung action to the error boundary, not

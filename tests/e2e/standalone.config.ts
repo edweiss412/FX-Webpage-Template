@@ -41,7 +41,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch:
-    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|published-review-modal\.layout|skeletonBandParity|stackedBandLayout|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|pendingDiscardReflow\.layout|wizard-blocker-modal\.layout|compact-alert-card-layout|resolve-label-layout|attention-anchor-placement|attention-pill-focus|hoverhelp-geometry|bulk-ignore-eyebrow\.layout|phantomGapHelper\.layout|share-link-flash|section-header-layout\.layout|pusher-alignment\.layout)\.spec\.ts/,
+    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|published-review-modal\.layout|skeletonBandParity|stackedBandLayout|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|pendingDiscardReflow\.layout|wizard-blocker-modal\.layout|compact-alert-card-layout|resolve-label-layout|attention-anchor-placement|attention-pill-focus|hoverhelp-geometry|bulk-ignore-eyebrow\.layout|phantomGapHelper\.layout|share-link-flash|section-header-layout\.layout|pusher-alignment\.layout|pendingDiscardReal\.layout)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,

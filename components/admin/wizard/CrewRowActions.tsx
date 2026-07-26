@@ -25,10 +25,10 @@ import { useEffect, useId, useRef, useState, useTransition, type KeyboardEvent }
 
 import { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelection";
 import { useDevActionOverride } from "@/components/admin/dev/actionOverrideContext";
+import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert — harmonized 4s across destructive surfaces
 // (DESTRUCT-2; mirrors app/admin/show/[slug]/PickerResetControl.tsx:29).
-const ARM_REVERT_MS = 4_000;
 
 export type CrewRowOutcome = { kind: "ok" | "error"; message: string };
 

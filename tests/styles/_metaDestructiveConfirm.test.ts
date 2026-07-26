@@ -200,3 +200,74 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
     }
   });
 });
+
+/**
+ * T1 / T3 — the arm-revert timing contract, reduced to what is actually provable.
+ *
+ * WHAT THIS COVERS. `ARM_REVERT_MS` is declared exactly once, in the shared module,
+ * and its value is the ratified 4s. That closes the problem this work started from:
+ * eleven independently copy-pasted `4_000` literals with no shared definition, any
+ * one of which could drift.
+ *
+ * WHAT IT DELIBERATELY DOES NOT COVER, and why. Earlier revisions added a per-file
+ * scheduler census, an import-provenance check, a scheduler-alias ban, and three
+ * meta-tests policing all of it. Six adversarial rounds found a new bypass in that
+ * machinery every single round — and the last round found it producing FALSE
+ * POSITIVES: `const copy = "ARM_REVERT_MS"` or a type-only import would fail it, so
+ * it had begun blocking harmless changes. A guard that cries wolf gets deleted by
+ * the next person who trips it, which is strictly worse than no guard.
+ *
+ * "Did someone point the arm timer at a different value, by any means?" needs to
+ * know which call IS the arm timer. That is a semantic question; a regex over source
+ * text cannot answer it, and six rounds of evidence say so. It is review-time
+ * territory, and §5.3 of the spec says that plainly rather than implying otherwise.
+ */
+describe("META arm-revert timing contract (spec §5.2)", () => {
+  const CONST_MODULE = "lib/admin/destructiveConfirm.ts";
+  /* R17 F1: a single-line `const` pattern was fail-open — `let`/`var`, a declaration
+   * split across lines, and a destructured binding all define ARM_REVERT_MS while
+   * matching nothing, so "exactly one declaration" could be false and still pass.
+   * Comment LINES are dropped first (whole-file comment stripping misparses TSX — see
+   * R15 F1), then the surviving code is joined so a multi-line declaration is still one
+   * subject. */
+  const DECL =
+    /(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(?:ARM_REVERT_MS\s*[=:]|\{[^}]*\bARM_REVERT_MS\b[^}]*\}\s*=)/;
+  /* R16 F2: this used stripComments() on whole-file source. Regex comment stripping
+   * misparses TS/TSX — a "/*" inside a STRING opens a span that a later "*\/" string
+   * closes, deleting the live code between them from inspection, so a real duplicate
+   * declaration could go unseen. Measured on this repo: app/admin/layout.tsx has 3
+   * comment opens and 1 close before its own className. Judge each line instead; a
+   * declaration is a single line here, so nothing is lost by not spanning. */
+  const declaresArmRevert = (source: string) =>
+    DECL.test(
+      source
+        .split("\n")
+        .filter((line) => {
+          const t = line.trim();
+          return !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
+        })
+        .join("\n"),
+    );
+
+  it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
+    const declaring: string[] = [];
+    for (const root of ["components", "app", "lib"]) {
+      for (const file of walk(root)) {
+        if (declaresArmRevert(readFileSync(file, "utf8"))) declaring.push(file);
+      }
+    }
+    // Equality, not "at most one": `<= 1` would pass on zero, proving nothing.
+    expect(declaring).toEqual([CONST_MODULE]);
+  });
+
+  it("T1 self-check: the matcher finds a declaration and ignores a mere reference", () => {
+    expect(DECL.test("const ARM_REVERT_MS = 4_000;")).toBe(true);
+    expect(DECL.test("export const ARM_REVERT_MS = 4_000;")).toBe(true);
+    expect(DECL.test("setTimeout(cb, ARM_REVERT_MS);")).toBe(false);
+  });
+
+  it("T3: the shared value is the ratified 4s", async () => {
+    const mod = await import("@/lib/admin/destructiveConfirm");
+    expect(mod.ARM_REVERT_MS, "4s ratified 2026-07-17, DEFERRED-archive.md:1228").toBe(4_000);
+  });
+});

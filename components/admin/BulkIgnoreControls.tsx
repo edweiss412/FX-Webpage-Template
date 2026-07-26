@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import type { BulkIgnoreGroup } from "@/lib/dataQuality/bulkIgnoreGroups";
 import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
+import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 export type BulkIgnoreGroupWithLabel = BulkIgnoreGroup & {
   /** Plain-language type label (catalog title / data-gap label), or null. Never the raw code. */
@@ -47,8 +48,6 @@ const BTN =
 // unregistered one.
 const ARMED_BTN =
   "inline-flex min-h-tap-min w-full max-w-full items-center justify-center self-start whitespace-normal rounded-sm border border-transparent bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg min-[480px]:w-auto min-[480px]:justify-start";
-
-const ARM_REVERT_MS = 4_000;
 
 /**
  * DQIGNORE-6 — the ACTIVE data-quality list, grouped by code. Each group renders an
