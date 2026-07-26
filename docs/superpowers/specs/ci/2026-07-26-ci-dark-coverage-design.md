@@ -46,7 +46,7 @@ Measured 2026-07-26 against `origin/main` at `eb7ef456b`, after **two** mid-flig
 | Quantity | Value |
 | --- | --- |
 | `tests/e2e/*.spec.ts` files | 90 |
-| Rows in `LOCAL_ONLY_ALLOWLIST` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:36`) | 89 |
+| Rows in `LOCAL_ONLY_ALLOWLIST` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:35`) | 89 |
 | Specs covered by a PR-blocking-capable workflow | 1 (`admin-lifecycle-layout`) |
 | Specs named by a workflow but rejected (all for a path filter) | 24 |
 
@@ -69,7 +69,7 @@ Validated by executing `scanWorkflowCoverage` over the real workflow set, not a 
 Three counts that are easy to conflate, so state them separately:
 
 - **15** specs go dark → covered (16 dark branches, less `packlist-rescan-recovery`, which PR1 removes from the config rather than fixing).
-- **29** allowlist rows are deleted — the dark ones plus those already covered by *path-filtered* workflows, which the scanner rejects and which therefore still carry rows today. An unfiltered job covers those properly, so their rows must go too or the shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:153`) fails.
+- **29** allowlist rows are deleted — the dark ones plus those already covered by *path-filtered* workflows, which the scanner rejects and which therefore still carry rows today. An unfiltered job covers those properly, so their rows must go too or the shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:164`) fails.
 - **`packlist-rescan-recovery` keeps its row**, correctly: after PR1 it is in no config and no workflow, so it is genuinely dark and its row states that (`BL-HARNESS-PACKLIST-SERVER-GRAPH`).
 
 ### §2.3 Baselines
@@ -97,7 +97,7 @@ The bare-env run adds two more — `step3-review-modal.interactions` and `step3-
 
 ### §2.5 Branch protection — measured, because the in-repo claim is stale
 
-`tests/ci/_metaE2eWorkflowCoverage.test.ts:11` says protection requires "ONLY the `quality` context". False. Live, `main` requires twelve: `quality`, `unit-suite`, `x1`–`x6`, `validation-schema-parity`, `affordance-matrix-parity`, `postgrest-dml-lockdown`, `traceability-audit`. `scripts/generate-traceability.ts` independently resolves a third, different list of eight.
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:12` says protection requires "ONLY the `quality` context". False. Live, `main` requires twelve: `quality`, `unit-suite`, `x1`–`x6`, `validation-schema-parity`, `affordance-matrix-parity`, `postgrest-dml-lockdown`, `traceability-audit`. `scripts/generate-traceability.ts` independently resolves a third, different list of eight.
 
 Consequences: **none of the six retiring workflows is required** (and no workflow declares a `needs:` on them), so §4.3 cannot break merges; **`unit-suite` IS required**, so PR3's edit modifies a merge-blocking check and its `workflow_dispatch` verification is mandatory; the new job is advisory because it is absent from that list.
 
@@ -380,7 +380,7 @@ Three formulations failed. Matching a filename in a `run:` block counts `echo`, 
 
 Today `tests/admin/test-auth-gate.test.ts` runs nowhere and `tests/cross-cutting/email-canonicalization.test.ts` runs only in a job with a job-level `if:` and a `| tee` — both invisible to any check built so far. **Trigger:** a third entry joining that array, or a dark-exclusion incident.
 
-Also filed: the stale "only `quality` is required" comment at `tests/ci/_metaE2eWorkflowCoverage.test.ts:11` (§2.5), a one-line docs fix PR2 records.
+Also filed: the stale "only `quality` is required" comment at `tests/ci/_metaE2eWorkflowCoverage.test.ts:12` (§2.5), a one-line docs fix PR2 records.
 
 ---
 
