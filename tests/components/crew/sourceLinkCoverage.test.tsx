@@ -55,6 +55,7 @@ import {
 } from "@/lib/sheet-links/buildSheetDeepLink";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "./sections/_ledgerProp";
 
 // `getShowForViewer`/`getShowForViewer`-adjacent `upsertAdminAlert` (via
 // WrappedSection's throw arm) must be a no-op even though no section throws on
@@ -188,13 +189,55 @@ function renderSection(node: React.ReactNode) {
 function renderAllSections(data: ShowForViewer) {
   return renderSection(
     <>
-      <CrewSection data={data} viewer={adminViewer} today={FROZEN_TODAY} showId="show-1" />
-      <TravelSection data={data} viewer={adminViewer} today={FROZEN_TODAY} showId="show-1" />
-      <VenueSection data={data} viewer={adminViewer} today={FROZEN_TODAY} showId="show-1" />
-      <GearSection data={data} viewer={adminViewer} today={FROZEN_TODAY} showId="show-1" />
-      <ScheduleSection data={data} viewer={adminViewer} today={FROZEN_TODAY} showId="show-1" />
-      <BudgetSection data={data} viewer={adminViewer} today={FROZEN_TODAY} showId="show-1" />
-      <TodaySection data={data} viewer={adminViewer} today={FROZEN_TODAY} showId="show-1" />
+      <CrewSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      <TravelSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      <VenueSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      <GearSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      <ScheduleSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      <BudgetSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
+      <TodaySection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />
     </>,
   );
 }
@@ -347,7 +390,13 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
     // the Codex whole-diff finding that the whole cluster was gated on link presence.
     const data: ShowForViewer = { ...fullFixture(), driveFileId: null };
     const { container } = renderSection(
-      <ScheduleSection data={data} viewer={adminViewer} today={FROZEN_TODAY} showId="show-1" />,
+      <ScheduleSection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={FROZEN_TODAY}
+        showId="show-1"
+      />,
     );
     const card = container.querySelector('[data-card-id="schedule-days"]')!;
     expect(card.querySelector('[data-slot="card-report-trigger"]')).not.toBeNull();

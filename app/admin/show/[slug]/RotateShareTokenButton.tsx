@@ -12,9 +12,9 @@
  *   - Two-tap state machine (idle → confirm → resolving → idle).
  *   - Confirm copy WARNS that the existing URL will stop working.
  *   - On success the new token+epoch flow to the shared ShareTokenProvider via
- *     `onRotated`, so the always-visible share-link card (and header chip / crew
- *     link) update INSTANTLY. The success banner is therefore CONFIRMATION-ONLY —
- *     it points at the updated card rather than duplicating the URL/Copy/email.
+ *     `onRotated`, so the ShareHub popover's crew-link row updates INSTANTLY. The
+ *     success banner is therefore CONFIRMATION-ONLY — it points at the updated
+ *     row rather than duplicating the URL/Copy/email.
  *   - On failure: generic refused banner (the typed code surfaces to admin_alerts
  *     via the action body, not to the UI).
  */
@@ -54,15 +54,15 @@ export function RotateShareTokenButton({
    * does NOT call `onRotated` (an inactive show never surfaces a copyable URL).
    */
   isCrewLinkActive?: boolean;
-  /** Compact share-card labeled-row rendering (label/description left, button right). */
+  /** Compact labeled-row rendering inside the share hub (label/description left, button right). */
   compact?: boolean;
   rowLabel?: string;
   rowDescription?: string;
   /**
    * Called on a successful rotate of an ACTIVE crew link with the freshly-minted
    * token and its epoch (both from the atomic rotateShareToken result). The
-   * ShareTokenProvider's monotonic-epoch gate uses these to update every crew-URL
-   * surface instantly. Omitted for standalone use.
+   * ShareTokenProvider's monotonic-epoch gate uses these to update the crew-URL
+   * row instantly. Omitted for standalone use.
    */
   onRotated?: (newToken: string, newEpoch: number) => void;
   /**
@@ -158,8 +158,8 @@ export function RotateShareTokenButton({
         const r = await (overrideRotate ?? rotateShareToken)({ showId });
         setResult(r);
         if (r.ok) {
-          // Push the new token+epoch into the shared cache so the card / chip / crew
-          // link update instantly (only for an active crew link — an inactive show
+          // Push the new token+epoch into the shared cache so the hub's crew-link
+          // row updates instantly (only for an active crew link — an inactive show
           // must not surface a copyable URL). router.refresh() is the backstop that
           // re-reads other server-derived data.
           if (isCrewLinkActive) onRotated?.(r.new_share_token, r.new_epoch);

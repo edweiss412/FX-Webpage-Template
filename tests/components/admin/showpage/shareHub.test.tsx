@@ -121,8 +121,8 @@ describe("ShareHub — triggers", () => {
   // Archived is read-only for SHARING — the crew link, Copy, Email, rotate and
   // reset are all gone — but the hub is still the one home for the lifecycle
   // control. The primary must therefore stay LABELLED rather than degrading to
-  // a bare kebab: an archived show has never rendered a hub before, so a
-  // three-dot glyph is the operator's only clue that a way back exists
+  // a bare kebab: before this change an archived show rendered no hub at all,
+  // so a three-dot glyph is the operator's only clue that a way back exists
   // (impeccable critique P1 — recognition, not recall).
   it("archived: the primary relabels to 'Show actions' rather than disappearing", () => {
     renderHub({ archived: true });

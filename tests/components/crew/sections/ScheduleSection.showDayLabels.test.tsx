@@ -4,6 +4,7 @@ import { cleanup, render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { aggregateDays } from "@/lib/crew/agendaDisplay";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { ledgerProp } from "./_ledgerProp";
 
 afterEach(cleanup);
 
@@ -28,6 +29,7 @@ describe("ScheduleSection — Show Day numbering (bug #316 item 2)", () => {
     });
     const { container } = render(
       <ScheduleSection
+        {...ledgerProp()}
         data={data}
         viewer={adminViewer}
         today={new Date("2025-10-19T12:00:00Z")}

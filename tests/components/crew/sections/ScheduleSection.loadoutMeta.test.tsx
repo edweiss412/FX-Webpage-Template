@@ -4,6 +4,7 @@ import { render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { ScheduleDay } from "@/lib/parser/types";
+import { ledgerProp } from "./_ledgerProp";
 
 // Regression for audit idx34/#169: a Show-phase fragment day whose ONLY
 // run-of-show entry is a load-out that the per-viewer gate drops
@@ -29,6 +30,7 @@ const SHOW_START = "8:00 AM";
 function renderWith(runOfShow: Record<string, ScheduleDay>) {
   return render(
     <ScheduleSection
+      {...ledgerProp()}
       data={makeShowForViewer({
         show: { dates: DATES },
         runOfShow,

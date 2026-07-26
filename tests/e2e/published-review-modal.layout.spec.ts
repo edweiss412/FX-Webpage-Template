@@ -300,8 +300,9 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
 
       // NO footer element exists in the published modal — the shell renders the
       // footer wrapper only when the consumer provides one, and the published
-      // modal omits it (spec §6.1: publish toggle lives in the StatusStrip,
-      // archive in Overview). Asserted in BOTH modes.
+      // modal omits it (spec §6.1: publish toggle lives in the StatusStrip;
+      // archive was in Overview then, and is in the share hub's popover now —
+      // either way, not a footer). Asserted in BOTH modes.
       await expect(page.locator(FOOTER), `no footer element @ ${mode}`).toHaveCount(0);
     });
 

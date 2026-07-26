@@ -6,8 +6,10 @@
  * Lifecycle presentation on the consolidated page. The old page's standalone
  * "lifecycle" section (archived-disclosure / held-disclosure banners + inline
  * Publish button) is gone by design (spec §6): the StatusStrip conveys the state
- * (archived badge / publish toggle) and the Overview rail section owns the
- * Archive / Unarchive controls + the inactive-share notice. This suite preserves
+ * (archived badge / publish toggle) and the share hub's popover owns the
+ * Archive / Unarchive controls. (Both were the Overview rail section when this
+ * suite was written; the lifecycle move relocated them and retired the
+ * inactive-share notice.) This suite preserves
  * the load-bearing behaviors the old lifecycle test pinned that STILL exist:
  *   - the PublishedToggle enable/disable states across finalize-ownership (spec
  *     §3.2 / R3): held → OFF-enabled, publishing → OFF-disabled, live+finalize →
@@ -17,8 +19,10 @@
  *     matching the old page whose lifecycle section only rendered for archived||held.
  *
  * The Archive-hidden-during-Publishing behavior (dropped in the Task 13 rebuild, restored
- * per the Task 13 review Finding 1) is owned by OverviewSection's `finalizeOwned` prop; the
- * strip toggle is independently frozen and the archive server action still refuses.
+ * per the Task 13 review Finding 1) is owned by `finalizeOwned`, which the lifecycle move
+ * relocated from OverviewSection to ShareHub (ShareHub.tsx:151) along with the control
+ * itself; the strip toggle is independently frozen and the archive server action still
+ * refuses.
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,13 +45,8 @@ vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
 vi.mock("@/lib/adminAlerts/fetchPerShowAlerts", () => ({
   fetchPerShowAlerts: async () => [],
 }));
-vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
-  const React = await import("react");
-  return {
-    CurrentShareLinkPanel: () =>
-      React.createElement("div", { "data-testid": "admin-current-share-link-panel" }),
-  };
-});
+// (A vi.mock for the deleted CurrentShareLinkPanel lived here. Mocking a module
+// that no longer exists is inert, so it went stale silently — round-7 review.)
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:00:00.000Z") }));
 vi.mock("@/lib/data/loadShowShareToken", () => ({

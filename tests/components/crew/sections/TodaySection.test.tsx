@@ -24,6 +24,7 @@ import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { StageRestriction } from "@/lib/parser/types";
+import { ledgerProp } from "./_ledgerProp";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -80,6 +81,7 @@ test("Today renders hero + key-times + Tonight/Where/Need-something + dress + no
   });
   const { container } = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -106,6 +108,7 @@ test('Today "Where" card surfaces the venue city as a discrete row; name shows c
   });
   const { container } = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -135,6 +138,7 @@ test('Today "Where" omits the City row when no city is derivable', () => {
   });
   const { container } = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -155,6 +159,7 @@ test('Today "Where" hides the Loading dock row when its value is a sentinel', ()
   });
   const { container } = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -197,7 +202,13 @@ test("Show notes aggregate all 5 sources in order; transport note gated by trans
     contacts: [{ kind: "venue", name: "C", notes: "CONTACT_NOTE", phone: "555-0000", email: null }],
   });
   const admin = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const notes = admin.container.querySelector('[data-testid="today-notes"]')!;
   const order = ["VENUE_NOTE", "HOTEL_NOTE", "ROOM_NOTE", "TRANSPORT_NOTE", "CONTACT_NOTE"].map(
@@ -207,6 +218,7 @@ test("Show notes aggregate all 5 sources in order; transport note gated by trans
   expect([...order]).toEqual([...order].sort((a, b) => a - b));
   const crew = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       // c1 (default fixture row): a real roster member with empty flags; the transport row
       // has driver_name null → gate closed, TRANSPORT_NOTE hidden. Post-8.2 an unmatched id
@@ -235,6 +247,7 @@ test("client_contact never appears; Need-something uses the deterministic action
   });
   const { container } = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -255,13 +268,20 @@ test("contacts fetch error → admin sees the contacts degraded block; crew sees
   // Contacts is ungated, so the degraded block is admin-only; crew sees omission.
   const data = makeShowForViewer({ tileErrors: { contacts: "boom" }, contacts: [] });
   const admin = render(
-    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   ).container;
   const block = admin.querySelector('[data-testid="section-tile-error-contacts"]');
   expect(block).toBeTruthy();
   expect(block!.textContent ?? "").not.toContain("boom"); // human-readable, no raw error string
   const crew = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
@@ -322,7 +342,13 @@ test.each(matrix)(
   ({ today, showAnchorDate }) => {
     const data = makeMultiDay();
     const { getByTestId } = render(
-      <TodaySection data={data} viewer={adminViewer} today={at(today)} showId="s1" />,
+      <TodaySection
+        {...ledgerProp()}
+        data={data}
+        viewer={adminViewer}
+        today={at(today)}
+        showId="s1"
+      />,
     );
     // Key times card exists (set/strike are show-wide → always present here).
     const strip = getByTestId("key-times-strip");
@@ -364,6 +390,7 @@ test("unknown_asterisk viewer → resolveKeyTimes {} → NO set/show/strike rows
   ];
   const { queryByTestId, container } = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "ua" }}
       today={at("2026-10-08")}
@@ -416,6 +443,7 @@ test("Load Out/Strike stage viewer → today KeyTimesStrip has NO set anchor, St
   };
   const { container } = render(
     <TodaySection
+      {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}

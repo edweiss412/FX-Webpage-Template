@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { STALE_PENDING_MAX_AGE_MS } from "@/lib/drive/watchErrors";
+import {
+  renewalLeadMs,
+  RENEWAL_LIFE_FRACTION,
+  RENEWAL_MIN_LEAD_MS,
+  STALE_PENDING_MAX_AGE_MS,
+} from "@/lib/drive/watchErrors";
 import { setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 
@@ -43,6 +48,11 @@ class FakeWatchTx {
     this.rows.push({
       id: row.id,
       status: "pending",
+      // Mirrors the production DEFAULT now() on created_at
+      // (supabase/migrations/20260501001000_internal_and_admin.sql:291). Without
+      // it a subscribe-then-refresh lifecycle hits listRenewalDue's NOT NULL
+      // guard and fails in a way production cannot (R7 finding 2).
+      createdAt: this.now.toISOString(),
       watchedFolderId: row.watchedFolderId,
       webhookSecret: row.webhookSecret,
       resourceId: null,
@@ -83,13 +93,39 @@ class FakeWatchTx {
     this.alerts.push(input);
   }
 
-  async listExpiringActive(thresholdIso: string) {
-    this.operations.push("listExpiringActive");
-    const threshold = Date.parse(thresholdIso);
-    return this.rows.filter(
-      (row) =>
-        row.status === "active" && row.expiresAt !== null && Date.parse(row.expiresAt) < threshold,
-    );
+  // Mirrors PostgresWatchTx.listRenewalDue, and CALLS renewalLeadMs rather than
+  // restating its arithmetic — an independent copy here is exactly how the
+  // DB-free suite could stay green while production used different semantics.
+  // (The previous version claimed to reuse the helper and did not; whole-diff
+  // R1 finding 4.) `args` is NOT decorative and NOT mere signature parity: it is
+  // threaded into `renewalLeadMs` below, which has no defaults
+  // (`lib/drive/watchErrors.ts` — deliberately, per R7 finding 2). That is what
+  // makes a wrong caller-assembled lead or fraction observable here rather than
+  // silently corrected. (The earlier wording claimed the opposite and
+  // contradicted the call site 20 lines down; whole-diff R8 finding 4.)
+  async listRenewalDue(args: { nowIso: string; minLeadMs: number; lifeFraction: number }) {
+    this.operations.push("listRenewalDue");
+    const nowMs = Date.parse(args.nowIso);
+    return this.rows.filter((row) => {
+      if (row.status !== "active" || row.expiresAt === null) return false;
+      const expiresMs = Date.parse(row.expiresAt);
+      // `created_at` is NOT NULL in production
+      // (supabase/migrations/20260501001000_internal_and_admin.sql:291). Treating
+      // an omitted value as a zero-length lease would make a fixture "due" for a
+      // reason production can never produce (whole-diff R4-4).
+      if (row.createdAt === undefined) {
+        throw new Error(`FakeWatchTx: row ${row.id} is missing createdAt (NOT NULL in production)`);
+      }
+      const createdMs = Date.parse(row.createdAt);
+      // Inverted/zero-length lease: due immediately, matching the SQL's first arm.
+      if (expiresMs <= createdMs) return true;
+      // Calls the SHARED helper with the CALLER'S arguments (R4-4, R5-4): a fake
+      // that restates the arithmetic, or that substitutes module constants for
+      // the caller's values, stays green when the caller assembles a wrong lead
+      // or fraction — exactly the drift the port change could introduce.
+      const lead = renewalLeadMs(expiresMs - createdMs, args.minLeadMs, args.lifeFraction);
+      return nowMs >= expiresMs - lead;
+    });
   }
 
   async listGcCandidates() {
@@ -174,6 +210,10 @@ function seedActiveExpiring(tx: FakeWatchTx, folderIds: string[]) {
       watchedFolderId: folderId,
       webhookSecret: "old-secret",
       resourceId: "resource-1",
+      // A 24h lease created 25h ago and expired an hour ago, so it is due under
+      // any predicate. `createdAt` is mandatory: production's column is NOT NULL
+      // and the fake refuses to guess (whole-diff R4-4).
+      createdAt: new Date(tx.now.getTime() - 25 * 60 * 60 * 1000).toISOString(),
       expiresAt: new Date(tx.now.getTime() - 60 * 60 * 1000).toISOString(),
     });
   }
@@ -223,14 +263,21 @@ describe("Drive watch lifecycle", () => {
     });
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
 
+    // `now` is injected so this fixture no longer reads as a lease in the past
+    // against the real clock (which would trip the DRIVE_WATCH_GRANT_TOO_SHORT
+    // path this test is not about). The 25h span deliberately EXCEEDS Drive's
+    // documented 24h maximum: it is a synthetic longer-than-requested response,
+    // exercising that we store what Drive returns rather than what we asked for.
+    // It is not a claim that Drive grants 25h (whole-diff R2 finding 4).
     const result = await subscribeToWatchedFolder("folder-1", {
       tx,
       uuid: () => "new-channel",
       webhookSecret: () => "secret-1",
+      now: () => Date.parse("2026-05-10T12:00:00.000Z"),
       watchFolder: vi.fn(async () => ({
         id: "new-channel",
         resourceId: "resource-1",
-        expiration: "2026-05-10T13:00:00.000Z",
+        expiration: "2026-05-11T13:00:00.000Z",
       })),
     });
 
@@ -241,7 +288,7 @@ describe("Drive watch lifecycle", () => {
         id: "new-channel",
         status: "active",
         resourceId: "resource-1",
-        expiresAt: "2026-05-10T13:00:00.000Z",
+        expiresAt: "2026-05-11T13:00:00.000Z",
       }),
     ]);
     expect(tx.operations).toEqual(["insertPending:new-channel", "activatePending:new-channel"]);
@@ -418,7 +465,7 @@ describe("Drive watch lifecycle", () => {
     ]);
   });
 
-  test("refreshWatchSubscriptions renews active rows expiring within 24 hours", async () => {
+  test("refreshWatchSubscriptions renews active rows inside their renewal window", async () => {
     const tx = new FakeWatchTx();
     tx.rows.push({
       id: "due-channel",
@@ -426,7 +473,10 @@ describe("Drive watch lifecycle", () => {
       watchedFolderId: "folder-1",
       webhookSecret: "old-secret",
       resourceId: "resource-1",
-      expiresAt: "2026-05-10T00:00:00.000Z",
+      // 24h lease created 05-08T16:00, expiring 05-09T16:00. At tx.now
+      // (05-09T12:00) it has 4h left against a 6h renewal lead, so it is due.
+      createdAt: "2026-05-08T16:00:00.000Z",
+      expiresAt: "2026-05-09T16:00:00.000Z",
     });
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
     const subscribeToWatchedFolder = vi.fn(async () => ({
@@ -442,6 +492,163 @@ describe("Drive watch lifecycle", () => {
 
     expect(result).toEqual({ refreshed: ["folder-1"], orphaned: [], failures: [] });
     expect(subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
+  });
+
+  test("renewal uses the CALLER'S lead arguments, not module constants", async () => {
+    // Whole-diff R4-4: the fake previously ignored args.minLeadMs/lifeFraction,
+    // so a caller assembling the wrong values kept the DB-free suite green.
+    // This row is due ONLY because of the absolute floor: a 6h lease whose
+    // proportional lead (25% = 1.5h) has NOT yet elapsed, but which sits inside
+    // the 2h floor. Pass minLeadMs = 0 and it stops being due — which is exactly
+    // what a broken caller would do.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "floor-governed",
+      status: "active",
+      watchedFolderId: "folder-floor",
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      createdAt: new Date(tx.now.getTime() - 4 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(tx.now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    });
+
+    const due = await tx.listRenewalDue({
+      nowIso: tx.now.toISOString(),
+      minLeadMs: RENEWAL_MIN_LEAD_MS,
+      lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
+    });
+    expect(due.map((r) => r.watchedFolderId)).toEqual(["folder-floor"]);
+
+    // The discriminating half: drop the floor and the row is no longer due.
+    const withoutFloor = await tx.listRenewalDue({
+      nowIso: tx.now.toISOString(),
+      minLeadMs: 0,
+      lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
+    });
+    expect(withoutFloor).toEqual([]);
+  });
+
+  test("the CALLER assembles the correct minLeadMs (through refreshWatchSubscriptions)", async () => {
+    // R7 finding 2: the floor fixture calls the fake DIRECTLY, so zeroing the
+    // caller's minLeadMs was not discriminated by the DB-free suite. This drives
+    // the real assembly path with a 6h lease at 4h elapsed: due via the 2h floor
+    // (proportional lead is only 1.5h), NOT due if the caller passes 0.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "caller-floor",
+      status: "active",
+      watchedFolderId: "folder-caller-floor",
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      createdAt: new Date(tx.now.getTime() - 4 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(tx.now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    });
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "x" }));
+
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder: subscribe,
+    });
+
+    expect(subscribe).toHaveBeenCalledWith("folder-caller-floor");
+    expect(result.refreshed).toEqual(["folder-caller-floor"]);
+  });
+
+  test("subscribe-then-refresh is a valid lifecycle in the fake (created_at is stamped)", async () => {
+    // R7 finding 2: insertPending omitted created_at, so a row the fake itself
+    // created was then rejected by listRenewalDue's NOT NULL guard — a failure
+    // production cannot produce, since the column defaults to now().
+    const tx = new FakeWatchTx();
+    const { subscribeToWatchedFolder, refreshWatchSubscriptions } =
+      await import("@/lib/drive/watch");
+    await subscribeToWatchedFolder("folder-lifecycle", {
+      tx,
+      uuid: () => "lifecycle-channel",
+      webhookSecret: () => "secret-1",
+      now: () => tx.now.getTime(),
+      watchFolder: vi.fn(async () => ({
+        id: "lifecycle-channel",
+        resourceId: "resource-1",
+        expiration: new Date(tx.now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      })),
+    });
+
+    // Must not throw, and the freshly-activated 24h lease is not yet due.
+    await expect(
+      refreshWatchSubscriptions({
+        tx,
+        now: () => tx.now,
+        subscribeToWatchedFolder: vi.fn(async () => ({
+          outcome: "active" as const,
+          channelId: "y",
+        })),
+      }),
+    ).resolves.toEqual({ refreshed: [], orphaned: [], failures: [] });
+  });
+
+  test("the CALLER assembles the correct lifeFraction (through refreshWatchSubscriptions)", async () => {
+    // R5 finding 3, and the reason the direct-call test below is not enough: that
+    // one proves the FAKE honours the fraction, not that the caller passes the
+    // right one. This drives the real assembly path. A 24h lease at 10h elapsed
+    // is not due under the correct complement (lead 6h, due at 18h) but IS due
+    // under the uncomplemented value (lead 18h, due at 6h) — so inverting
+    // `1 - RENEWAL_LIFE_FRACTION` at the call site fails here.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "caller-probe",
+      status: "active",
+      watchedFolderId: "folder-caller",
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      createdAt: new Date(tx.now.getTime() - 10 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(tx.now.getTime() + 14 * 60 * 60 * 1000).toISOString(),
+    });
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "x" }));
+
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder: subscribe,
+    });
+
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(result).toEqual({ refreshed: [], orphaned: [], failures: [] });
+  });
+
+  test("renewal discriminates a wrong lifeFraction, not just a wrong floor", async () => {
+    // R5 finding 3: the floor fixture above passes under BOTH 0.25 and an
+    // inverted 0.75, so it could not catch a caller that passed the fraction
+    // uncomplemented. A 24h lease at 10h elapsed does discriminate:
+    //   correct  (0.25) -> lead 6h,  due at 18h elapsed -> NOT due
+    //   inverted (0.75) -> lead 18h, due at  6h elapsed -> due
+    // A caller regression would renew every 24h lease after 6h instead of 18h.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "fraction-probe",
+      status: "active",
+      watchedFolderId: "folder-fraction",
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      createdAt: new Date(tx.now.getTime() - 10 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(tx.now.getTime() + 14 * 60 * 60 * 1000).toISOString(),
+    });
+
+    const correct = await tx.listRenewalDue({
+      nowIso: tx.now.toISOString(),
+      minLeadMs: RENEWAL_MIN_LEAD_MS,
+      lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
+    });
+    expect(correct).toEqual([]);
+
+    const inverted = await tx.listRenewalDue({
+      nowIso: tx.now.toISOString(),
+      minLeadMs: RENEWAL_MIN_LEAD_MS,
+      lifeFraction: RENEWAL_LIFE_FRACTION, // the uncomplemented value
+    });
+    expect(inverted.map((r) => r.watchedFolderId)).toEqual(["folder-fraction"]);
   });
 
   test("refresh isolates per-row failures and classifies by orphan reason", async () => {
@@ -478,7 +685,7 @@ describe("Drive watch lifecycle", () => {
 
   test("refresh catches a list_expiring DB failure into the typed failures channel (never rejects)", async () => {
     const tx = new FakeWatchTx();
-    tx.listExpiringActive = async () => {
+    tx.listRenewalDue = async () => {
       throw new Error("connection refused");
     };
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
@@ -500,7 +707,10 @@ describe("Drive watch lifecycle", () => {
       watchedFolderId: "folder-1",
       webhookSecret: "old-secret",
       resourceId: "resource-1",
-      expiresAt: "2026-05-10T00:00:00.000Z",
+      // 24h lease created 05-08T16:00, expiring 05-09T16:00. At tx.now
+      // (05-09T12:00) it has 4h left against a 6h renewal lead, so it is due.
+      createdAt: "2026-05-08T16:00:00.000Z",
+      expiresAt: "2026-05-09T16:00:00.000Z",
     });
     const events: string[] = [];
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
@@ -522,7 +732,7 @@ describe("Drive watch lifecycle", () => {
     } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
 
     expect(result).toEqual({ refreshed: ["folder-1"], orphaned: [], failures: [] });
-    expect(tx.operations).toEqual(["listExpiringActive"]);
+    expect(tx.operations).toEqual(["listRenewalDue"]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
   });
 
@@ -535,7 +745,10 @@ describe("Drive watch lifecycle", () => {
       watchedFolderId: "folder-1",
       webhookSecret: capturedSecret,
       resourceId: "resource-1",
-      expiresAt: "2026-05-10T00:00:00.000Z",
+      // 24h lease created 05-08T16:00, expiring 05-09T16:00. At tx.now
+      // (05-09T12:00) it has 4h left against a 6h renewal lead, so it is due.
+      createdAt: "2026-05-08T16:00:00.000Z",
+      expiresAt: "2026-05-09T16:00:00.000Z",
     });
     const before = structuredClone(tx.rows);
     const events: string[] = [];
@@ -561,7 +774,7 @@ describe("Drive watch lifecycle", () => {
       failures: [{ folderId: "folder-1", operation: "subscribe" }],
     });
     expect(tx.rows).toEqual(before);
-    expect(tx.operations).toEqual(["listExpiringActive"]);
+    expect(tx.operations).toEqual(["listRenewalDue"]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
 
     const rec = logRecords.find((r) => r.message === "refresh-watch renewal failed")!;
@@ -623,7 +836,10 @@ describe("Drive watch lifecycle", () => {
       watchedFolderId: "folder-1",
       webhookSecret: "secret-1",
       resourceId: "resource-1",
-      expiresAt: "2026-05-10T00:00:00.000Z",
+      // 24h lease created 05-08T16:00, expiring 05-09T16:00. At tx.now
+      // (05-09T12:00) it has 4h left against a 6h renewal lead, so it is due.
+      createdAt: "2026-05-08T16:00:00.000Z",
+      expiresAt: "2026-05-09T16:00:00.000Z",
     });
     const events: string[] = [];
     const { gcWatchChannels } = await import("@/lib/drive/watch");
@@ -1124,8 +1340,11 @@ describe("Drive watch telemetry", () => {
     watchedFolderId: "folder-1",
     webhookSecret: "old-secret",
     resourceId: "resource-1",
-    // Expires before the FakeWatchTx `now` (2026-05-09T12:00Z) + 24h threshold.
-    expiresAt: "2026-05-10T00:00:00.000Z",
+    // 24h lease created 05-08T16:00, expiring 05-09T16:00. At the FakeWatchTx
+    // `now` (2026-05-09T12:00Z) it has 4h left against a 6h renewal lead
+    // (25% of a 24h grant), so it is inside its renewal window.
+    createdAt: "2026-05-08T16:00:00.000Z",
+    expiresAt: "2026-05-09T16:00:00.000Z",
   });
 
   test("refreshWatchSubscriptions logs DRIVE_WATCH_RENEWAL_FAILED when a renewal orphans", async () => {
@@ -1199,9 +1418,11 @@ describe("Drive watch telemetry", () => {
   test("refreshWatchSubscriptions logs DRIVE_WATCH_INFRA_FAULT and re-propagates on infra fault", async () => {
     const cause = new Error("connection reset by peer");
     class ThrowingTx extends FakeWatchTx {
-      override async listExpiringActive(
-        _thresholdIso: string,
-      ): ReturnType<FakeWatchTx["listExpiringActive"]> {
+      override async listRenewalDue(_args: {
+        nowIso: string;
+        minLeadMs: number;
+        lifeFraction: number;
+      }): ReturnType<FakeWatchTx["listRenewalDue"]> {
         throw cause;
       }
     }
@@ -1223,7 +1444,7 @@ describe("Drive watch telemetry", () => {
     const fault = faults[0]!;
     expect(fault.level).toBe("error");
     expect(fault.source).toBe("drive.watch");
-    expect(fault.context.operation).toBe("drive_watch_channels.list_expiring_active");
+    expect(fault.context.operation).toBe("drive_watch_channels.list_renewal_due");
     // Redacted message (R5-1 contract) — never a raw error object.
     expect(fault.context).not.toHaveProperty("error");
     expect(String(fault.context.errorMessage)).toContain("connection reset by peer");

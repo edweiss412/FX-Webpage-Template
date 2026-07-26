@@ -31,6 +31,7 @@ import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
+import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
 /** Sentinel-guarded read of an optional financials field (§8.3 contract). */
 function shown(value: string | null): string {
@@ -41,12 +42,15 @@ export function BudgetSection({
   data,
   viewer,
   showId,
+  ledger,
   cardReport = DEFAULT_CARD_REPORT,
 }: {
   data: ShowForViewer;
   viewer: Viewer;
   today: Date;
   showId: string;
+  /** Per-request tile ledger, threaded from _CrewShell. */
+  ledger: TileRenderLedger;
   cardReport?: CardReportContext;
 }): JSX.Element {
   // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The Budget
@@ -65,6 +69,7 @@ export function BudgetSection({
   // the page once the old FinancialsTile shell is deleted (§4.13 / wp-13).
   return (
     <WrappedSection
+      ledger={ledger}
       tileId="crew:budget:rows"
       showId={showId}
       sheetName={data.show.title}

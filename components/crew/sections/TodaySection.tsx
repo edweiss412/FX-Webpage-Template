@@ -64,6 +64,7 @@ import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
+import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
 // Ported from NotesTile.tsx (:57-58) — the 5-source aggregation caps.
 const TRUNCATE_AT = 280;
@@ -152,6 +153,8 @@ type TodaySectionProps = {
   viewer: Viewer;
   today: Date;
   showId: string;
+  /** Per-request tile ledger, threaded from _CrewShell. */
+  ledger: TileRenderLedger;
   cardReport?: CardReportContext;
 };
 
@@ -160,6 +163,7 @@ export function TodaySection({
   viewer,
   today,
   showId,
+  ledger,
   cardReport = DEFAULT_CARD_REPORT,
 }: TodaySectionProps): JSX.Element {
   // Single canonical viewer resolution: flags / restriction / name / isAdmin.
@@ -172,6 +176,7 @@ export function TodaySection({
   return (
     <div data-testid="section-today" className="flex flex-col gap-4">
       <WrappedSection
+        ledger={ledger}
         tileId="crew:today:notes"
         showId={showId}
         sheetName={data.show.title}

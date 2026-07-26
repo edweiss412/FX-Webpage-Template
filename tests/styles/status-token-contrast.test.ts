@@ -235,6 +235,32 @@ describe("accent token contrast floors (2026-07-16 token pass)", () => {
     expect(contrast(accent, dark.surface)).toBeGreaterThanOrEqual(DOT_FLOOR);
   });
 
+  // ── Share-link cue ring (spec 2026-07-24-share-link-chrome-backlog-design
+  //    §3.7 / §9.2 item 5) ────────────────────────────────────────────────────
+  //
+  // The cue draws a 2px accent-edge ring around the crew-URL block, so the edge
+  // stops being decorative in dark: it IS the change signal, on both grounds it
+  // touches. Five pairs were uncovered before this, and the spec draft
+  // overstated the existing coverage — the dark row above reads
+  // `--color-accent-runtime` and pins the accent TRACK, not the edge.
+  //
+  // These are regression PINS, green on arrival by construction. Their job is to
+  // fail when a future retune of accent-edge, accent-tint or surface-sunken
+  // drops the ring below the non-text floor at the cue's peak or at its rest.
+  for (const mode of MODES) {
+    it(`${mode.name}: accent-edge clears >=3:1 on every ground the flash ring touches`, () => {
+      const edge = tokenIn(mode.src, "--color-accent-edge-runtime");
+      const tint = tokenIn(mode.src, "--color-accent-tint-runtime");
+      const sunken = tokenIn(mode.src, "--color-surface-sunken-runtime");
+      // Peak of the cue: the block is washed with accent-tint.
+      expect(contrast(edge, tint)).toBeGreaterThanOrEqual(DOT_FLOOR);
+      // After the wash settles: the block is back to its resting fill.
+      expect(contrast(edge, sunken)).toBeGreaterThanOrEqual(DOT_FLOOR);
+      // Outward edge, against the popover ground.
+      expect(contrast(edge, mode.surface)).toBeGreaterThanOrEqual(DOT_FLOOR);
+    });
+  }
+
   it("accent-edge is wired: @theme alias present, runtime value in ALL three blocks, dark blocks identical", () => {
     expect(css).toMatch(/--color-accent-edge:\s*var\(--color-accent-edge-runtime\)\s*;/);
     const lightVal = tokenIn(block(":root {"), "--color-accent-edge-runtime");
