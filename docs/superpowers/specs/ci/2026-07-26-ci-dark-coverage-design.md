@@ -31,7 +31,7 @@ Ratified with the owner during brainstorming 2026-07-26. A reviewer may verify t
 | The live-entry toolchain fix covers **every** call site, including specs already wired into CI — not just the two red ones. Per-instance patching is the class-sweep anti-pattern in `AGENTS.md`. | Owner, brainstorming Q2 |
 | One whole-config workflow; the five per-feature standalone workflows are **retired**, not kept alongside. Their hand-maintained component `paths:` lists are a rot surface being deleted, not reproduced. | Owner, brainstorming Q3 |
 | The new standalone workflow carries **no** `pull_request.paths` / `paths-ignore` filter. This is forced by the scanner contract (§4.2), not a preference. | This spec §4.2 |
-| New jobs are advisory at the GitHub layer. Branch protection requires only the `quality` context (owner-directed solo posture); enforcement is the ship pipeline's all-checks-green gate. | `tests/ci/_metaE2eWorkflowCoverage.test.ts:11` |
+| The new e2e jobs are advisory at the GitHub layer; enforcement is the ship pipeline's all-checks-green gate. **Not** because "only `quality` is required" — that in-repo claim is stale (§2.6) — but because none of the new or retired jobs is in the live required set. | §2.6, measured |
 | `cron.job.command` assertions remain text matching. Proving a job *fires* needs a per-job smoke test and stays open (§9). | `BACKLOG.md` `BL-PG-CRON-COVERAGE-UNRUN`, whole-diff R18 |
 | No UI surface is touched. No file under `components/`, no file under `app/` except none, no `app/globals.css`, no `DESIGN.md`, no `tailwind.config.*`. The invariant-8 impeccable dual-gate therefore does **not** apply, and there are no Dimensional Invariants or Transition Inventory sections because no component renders. | `AGENTS.md` invariant 8 scope definition |
 | No DB migration, no `pg_advisory*` call path, no `SECURITY DEFINER` RPC. Invariant 2's holder-topology rule is N/A. | This spec §5 |
@@ -122,6 +122,27 @@ Decisive asymmetry: `resolve-label-layout.spec.ts:68` and `compact-alert-card-la
 | `esbuild@0.28.0` | `package.json:107` (devDependency, exact pin) | yes | The 8 `dlx esbuild@0.28.0` calls fetch a package already on disk at the identical version. Pure waste plus a network dependency. |
 | @tailwindcss/cli 4.2.4 | **not declared** | no (`node_modules/@tailwindcss/` holds only `postcss`) | The 25 `dlx @tailwindcss/cli` calls are a genuine network fetch with no local equivalent. Must be added as a pinned devDependency before the job can be trusted offline. |
 | `tailwindcss` | `package.json:119` (`^4`) | yes | Different package from `@tailwindcss/cli`; not a substitute. |
+
+### §2.6 Branch protection — measured, because the in-repo claim is stale
+
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:11` states that branch protection "deliberately requires ONLY the `quality` context." That is **false today**. Read live from the GitHub API, `main` requires **twelve** contexts:
+
+```
+quality, unit-suite, x1-catalog-parity, x2-no-raw-codes, x3-trust-domain,
+x4-no-global-cursor, x5-email-canonicalization, x6-pg-cron-pivot,
+validation-schema-parity, affordance-matrix-parity, postgrest-dml-lockdown,
+traceability-audit
+```
+
+`scripts/generate-traceability.ts`'s `loadRequiredChecksFromSpec()` independently resolves eight of those, so the repo has two disagreeing internal sources and neither matches the live setting exactly. This spec relies on the live setting.
+
+Three consequences, all load-bearing:
+
+1. **None of the five retiring workflows is a required context**, so §4.3's retirements cannot break merges. Independently confirmed: no workflow declares a `needs:` on any of them either.
+2. **`unit-suite` IS required.** PR3 edits `ENV_BOUND_EXCLUDES`, which lands in that job, so PR3 modifies a merge-blocking check — the §10 risk row and its `workflow_dispatch` verification requirement are not precautionary, they are mandatory.
+3. The new standalone job is advisory because it is not in that list, not because the required set is a single context.
+
+The stale comment is left for a follow-up rather than edited here: correcting it is a one-line docs change in a file PR2 already touches, and PR2 records it.
 
 ---
 
@@ -495,7 +516,7 @@ Registries deliberately not touched: `tests/log/_auditableMutations.ts` (no muta
 | Risk | Mitigation |
 | --- | --- |
 | Retiring a workflow drops coverage the new job does not actually provide | G1 + G2 land in the same PR as the retirements; the shadowing assertion fails if a retired spec is neither covered nor allowlisted. Additionally the plan runs the full standalone config locally before the retirement commit and records the spec list. |
-| `ENV_BOUND_EXCLUDES` edit reddens the required `unit-suite` check | The change is one array entry, and the suite it admits is proven green against a bootstrapped local DB before the commit. `unit-suite.yml` has `workflow_dispatch`, so it is verified by a real Actions run before merge, per the local-passes-CI-fails discipline in `AGENTS.md`. |
+| `ENV_BOUND_EXCLUDES` edit reddens `unit-suite`, which §2.6 confirms is a LIVE required context | The change is one array entry, and the suite it admits is proven green against a bootstrapped local DB before the commit. `unit-suite.yml` has `workflow_dispatch`, so it is verified by a real Actions run before merge, per the local-passes-CI-fails discipline in `AGENTS.md`. |
 | The unfiltered standalone job slows every PR | Measured DB-free and build-free; ~5 min including setup, replacing five jobs that each pay the same setup today. Net job count on a PR touching `components/` goes down. |
 | `@tailwindcss/cli` pin drifts from `tailwindcss` | Real, and not mitigated by pinning alone: the new CLI entry is exact (`4.2.4`) but `tailwindcss` stays a range (`package.json:119`, `"^4"`), so an install can pair the fixed CLI with a different Tailwind minor. PR1 adds a meta-test asserting the resolved versions of the two packages agree on major **and** minor, failing loudly on the drift rather than rendering a harness against a mismatched engine. |
 | `admin-lifecycle-transitions` remains flaky after repair | AC-6 requires five consecutive greens. If it does not reach that, the spec is left dark with a recorded reason and the item stays open — an admitted flake is worse than a known gap. |
