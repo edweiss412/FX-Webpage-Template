@@ -84,9 +84,10 @@ export type ParseWarning = {
   // 2026-07-15-extend-role-scope-vocab §5.1).
   roleToken?: string;
   // Precomputed "use the sheet's raw value" resolution payload (spec
-  // 2026-07-10-structural-transform-use-raw §6). ALWAYS set for the three
+  // 2026-07-10-structural-transform-use-raw §6). ALWAYS set for the four
   // recoverable structural-transform codes (ROOM_HEADER_SPLIT_AMBIGUOUS,
-  // HOTEL_GUEST_SPLIT_AMBIGUOUS, DATE_ORDER_SUGGESTS_DMY) — carries the parsed
+  // HOTEL_GUEST_SPLIT_AMBIGUOUS, DATE_ORDER_SUGGESTS_DMY,
+  // HOTEL_ADDRESS_SPLIT_AMBIGUOUS) — carries the parsed
   // transform value, the raw replacement, and the content hash used to pin an
   // admin decision (or `{resolvable:false, reason}` when the raw can't be used).
   // ABSENT on every other warning: absence discriminates a legacy/non-recoverable

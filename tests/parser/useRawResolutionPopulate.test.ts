@@ -7,8 +7,11 @@ import { newAggregator } from "@/lib/parser/warnings";
 import { stripConfirmationTokens } from "@/lib/parser/blocks/hotelConfTokens";
 import type { ParseWarning } from "@/lib/parser/types";
 
-// Task 2 (spec §6): the three recoverable warning builders attach a `resolution`
-// payload (parsed transform value + raw replacement + content hash).
+// Task 2 (spec §6): the recoverable warning builders attach a `resolution`
+// payload (parsed transform value + raw replacement + content hash). This file
+// covers the original three codes; HOTEL_ADDRESS_SPLIT_AMBIGUOUS payloads are
+// pinned in tests/parser/warnings.addressAmbiguity.test.ts and
+// tests/parser/hotelAddressIntegration.test.ts.
 //
 // Anti-tautology: content hashes are computed by test-local code that implements
 // the spec §5 serialization DIRECTLY (collapse + sha256hex, and the length-prefixed

@@ -1,6 +1,6 @@
 # Hotel ambiguity coverage (2026-07-25)
 
-**Status:** Draft → self-review → adversarial review R1–R9 (all BLOCKING, all repaired) → R10 pending
+**Status:** Draft → self-review → adversarial review R1–R9 (all BLOCKING, all repaired) → spec loop ENDED at R9 by user ratification (2026-07-25): the two unconverged vectors (copy truth, test-oracle discrimination) moved to plan + TDD per `docs/agents/spec-self-review.md:22`, where their convergence is executable tests. Plan: `docs/superpowers/plans/parser/2026-07-25-hotel-ambiguity-coverage.md`.
 **Closes:** `BL-PARSER-HOTEL-INLINE-AMBIGUITY`, `BL-PARSER-ADDRESS-SPLIT-AMBIGUITY` (BACKLOG.md §"Parser ambiguity-warning coverage (2026-07-07, ambiguity-warnings-v1)")
 **Extends:** `docs/superpowers/specs/parser/2026-07-07-ambiguity-warnings-v1-design.md` (§3.1/§3.2 registry, §4.2 guest emit, §6 transform-sites walker, §7 overlay anchors)
 

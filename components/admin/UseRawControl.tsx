@@ -51,7 +51,7 @@ export type UseRawControlState =
   | "legacy-unavailable"
   | "pending";
 
-/** The three in-scope codes (the caller also filters; the control guards too). */
+/** The four in-scope codes (the caller also filters; the control guards too). */
 const IN_SCOPE = new Set([
   "ROOM_HEADER_SPLIT_AMBIGUOUS",
   "HOTEL_GUEST_SPLIT_AMBIGUOUS",
