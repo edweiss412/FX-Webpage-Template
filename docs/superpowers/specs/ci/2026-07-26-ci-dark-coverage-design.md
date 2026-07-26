@@ -8,7 +8,7 @@
 
 <!-- spec-lint: not-ui — no UI surface is modified; the app/ and components/ citations are incidental (scope-exclusion statements and workflow path filters this spec removes). Ratified §1.1. -->
 
-Files this spec CREATES are written unbackticked (tests/e2e/helpers/liveEntryToolchain.ts, .github/workflows/standalone-e2e.yml) so they are not read as citations to existing code.
+Files this spec CREATES are written unbackticked (tests/e2e/helpers/liveEntryToolchain.ts, .github/workflows/standalone-e2e.yml) so they are not read as citations to existing code. The same applies to the files it DELETES — the seven retired per-feature workflows and tests/ci/attentionPillFocusWorkflow.test.ts — which stop being tracked the moment §4.3 lands.
 
 ---
 
@@ -168,13 +168,15 @@ The guard asserts the **absence of a shape** with an explicitly empty exemption 
 
 ### §4.1 The workflow
 
-New workflow .github/workflows/standalone-e2e.yml: `actions/checkout@v4` → `./.github/actions/setup` → Playwright chromium cache → `pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts`, plus an `if: failure()` artifact upload. Concurrency block copied from the existing e2e workflows. `timeout-minutes: 20` against a measured 1.9 min.
+New workflow .github/workflows/standalone-e2e.yml: `actions/checkout@v4` → `./.github/actions/setup` → Playwright chromium cache → `pnpm exec playwright test --config tests/e2e/standalone.config.ts`, plus an `if: failure()` artifact upload. Concurrency block copied from the existing e2e workflows. `timeout-minutes: 20` against a measured 1.9 min.
+
+**The command carries NO `--reporter=list`, deliberately.** An earlier draft of this paragraph specified one, contradicting the literal the scanner recognizes two subsections below — the workflow would have claimed nothing and the deleted allowlist rows would have left every member dark. Corrected here rather than left for a reader to reconcile; the config already sets `reporter: "list"` internally, so no output is lost.
 
 No `webServer`, no Supabase, no `pnpm build` — the specs boot their own `node:http` server (`tests/e2e/standalone.config.ts:4`).
 
 **The command must not be piped.** `tests/ci/_workflowCoverageScan.ts:30` reads a trailing `| tee`, `| cat`, or `| grep` as exit-code suppression and refuses to count it. `x-audits.yml` uses exactly that idiom with `set -o pipefail`, which the scanner cannot see — copying it would mark the job non-blocking and silently re-darken all 28 specs while the guard stayed green.
 
-**Env comes from the config.** Two specs need server env at module load. Rather than copy `.github/workflows/modal-header-layout-e2e.yml:74`'s nine variables into the new workflow, `tests/e2e/standalone.config.ts` sets deterministic demo fallbacks with `process.env.X ??= …`. **Precedence, stated correctly** (an earlier draft had it backwards): Playwright evaluates the config **before** loading any test module, so a top-level `process.env.X ??=` there populates the variable first, and `tests/e2e/helpers/loadTestEnv.ts:17` — which uses `@next/env`, and `@next/env` preserves already-defined process values — will **not** override it. So the config defaults win over `.env.local`, not the other way round.
+**Env comes from the config.** Two specs need server env at module load. Rather than copy .github/workflows/modal-header-layout-e2e.yml:74's nine variables into the new workflow, `tests/e2e/standalone.config.ts` sets deterministic demo fallbacks with `process.env.X ??= …`. **Precedence, stated correctly** (an earlier draft had it backwards): Playwright evaluates the config **before** loading any test module, so a top-level `process.env.X ??=` there populates the variable first, and `tests/e2e/helpers/loadTestEnv.ts:17` — which uses `@next/env`, and `@next/env` preserves already-defined process values — will **not** override it. So the config defaults win over `.env.local`, not the other way round.
 
 That is acceptable and deliberate: the defaults are the same demo values `playwright.config.ts` already uses for its port-3004 server, and every one of them is a placeholder rather than a credential. But the spec must not claim a local-composition contract it does not have, so it does not. Today the same defect is patched twice — `loadTestEnv` fixes a developer machine, the workflow env fixes CI, and the two failing specs are covered by the CI half only, which is precisely why retiring that workflow breaks them.
 
@@ -220,15 +222,15 @@ Cost: one ~5 min DB-free job on every PR, replacing seven jobs that each pay the
 
 ### §4.3 Retirements
 
-> **AMENDMENT (re-measured at PR2 branch time, after `main` advanced ~190 commits during PR1).** The counts below were taken when this spec was written and have all moved. Re-resolving every workflow's `run:` commands through their `pnpm` aliases against the live tree now yields **seven** retirements, not six: `destructive-layout-e2e.yml` joins them (alias `test:e2e:destructive-layout` runs `pendingDiscardReal.layout` + `pendingDiscardReflow.layout`, **both** `testMatch` members, and the workflow has a single job, so it is fully subsumed). `testMatch` now holds **31** specs, not 30 — `pendingDiscardReal.layout` was added and `packlist-rescan-recovery` removed by PR1. `LOCAL_ONLY_ALLOWLIST` now holds **92** rows, not 89. The deletion set is re-derived from the scanner's actual output at implementation time rather than from any frozen list here; the numbers in this section are provenance, not contract (§2). Measurement script and full output: the PR2 commit that introduces the whole-config workflow.
+> **AMENDMENT (re-measured at PR2 branch time, after `main` advanced ~190 commits during PR1).** The counts below were taken when this spec was written and have all moved. Re-resolving every workflow's `run:` commands through their `pnpm` aliases against the live tree now yields **seven** retirements, not six: destructive-layout-e2e.yml joins them (alias `test:e2e:destructive-layout` runs `pendingDiscardReal.layout` + `pendingDiscardReflow.layout`, **both** `testMatch` members, and the workflow has a single job, so it is fully subsumed). `testMatch` now holds **31** specs, not 30 — `pendingDiscardReal.layout` was added and `packlist-rescan-recovery` removed by PR1. `LOCAL_ONLY_ALLOWLIST` now holds **92** rows, not 89. The deletion set is re-derived from the scanner's actual output at implementation time rather than from any frozen list here; the numbers in this section are provenance, not contract (§2). Measurement script and full output: the PR2 commit that introduces the whole-config workflow.
 >
-> This is the same drift the cluster exists to fix, observed on itself: an eighth per-feature workflow (`share-link-flash-e2e.yml`) and a 31st spec both landed *while the PR removing them was in review*, and PR1's guard caught a fresh `pnpm dlx` invocation on merge. Ship the guard with the sweep; the sweep alone loses to the rate of new work.
+> This is the same drift the cluster exists to fix, observed on itself: an eighth per-feature workflow (share-link-flash-e2e.yml) and a 31st spec both landed *while the PR removing them was in review*, and PR1's guard caught a fresh `pnpm dlx` invocation on merge. Ship the guard with the sweep; the sweep alone loses to the rate of new work.
 
-Deleted: `attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignore-eyebrow-e2e.yml`, `destructive-layout-e2e.yml`, `hoverhelp-geometry-e2e.yml`, `modal-header-layout-e2e.yml`, `share-link-flash-e2e.yml` — **seven**.
+Deleted: attention-anchor-e2e.yml, attention-pill-focus-e2e.yml, bulk-ignore-eyebrow-e2e.yml, destructive-layout-e2e.yml, hoverhelp-geometry-e2e.yml, modal-header-layout-e2e.yml, share-link-flash-e2e.yml — **seven**.
 
 **Verified mechanically, not assumed:** resolving each of the seven workflows' run commands (including through `pnpm` script aliases) yields 11 spec invocations — 1, 1, 1, 2, 1, 4, 1 — and **every one is a member of `standalone.config.ts`'s `testMatch`**. So the whole-config job is a strict superset of what the seven provide, and no coverage is lost by deleting them. The check is a script over the live workflow files rather than a reading of them, because "all of these are in the config" is exactly the kind of claim that is true until someone adds a spec. `phantom-gap-e2e.yml` survives (its other two legs run default-config specs) but loses its standalone leg, which PR #605 grew from one spec to three (`phantomGapHelper.layout`, `section-header-layout.layout`, `pusher-alignment.layout`) — all three subsumed by the whole-config job.
 
-**A required-suite test reads one of the deleted workflows.** `tests/ci/attentionPillFocusWorkflow.test.ts` opens `attention-pill-focus-e2e.yml` at module initialization, asserts its path-filter contract, and asserts the spec's `PATH_GATED` allowlist row. Deleting that workflow reddens `unit-suite` — a live required context (§2.5) — regardless of whether the new browser job passes. PR2 therefore deletes that test in the same commit. Its four assertions were read individually rather than dismissed in aggregate:
+**A required-suite test reads one of the deleted workflows.** tests/ci/attentionPillFocusWorkflow.test.ts opens attention-pill-focus-e2e.yml at module initialization, asserts its path-filter contract, and asserts the spec's `PATH_GATED` allowlist row. Deleting that workflow reddens `unit-suite` — a live required context (§2.5) — regardless of whether the new browser job passes. PR2 therefore deletes that test in the same commit. Its four assertions were read individually rather than dismissed in aggregate:
 
 | assertion | disposition |
 | --- | --- |
@@ -335,7 +337,7 @@ Two rotted assertions:
 | Tailwind version-parity test | **created** — resolved CLI and `tailwindcss` agree on major and minor | PR1 |
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **extended** — every `testMatch` branch resolves; minimal `--config` recognition; allowlist shrinks by 29 rows to 60 | PR2 |
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` (again) | **edited** — PR4 deletes the lifecycle row and rewrites the gallery row, so 60 is PR2's figure, not the final four-PR state | PR4 |
-| `tests/ci/attentionPillFocusWorkflow.test.ts` | **deleted** — it reads a workflow PR2 retires and would redden the required `unit-suite` | PR2 |
+| tests/ci/attentionPillFocusWorkflow.test.ts | **deleted** — it reads a workflow PR2 retires and would redden the required `unit-suite` | PR2 |
 | `tests/cross-cutting/pg-cron-coverage.test.ts` | **extended** — CI-hard `psql` requirement, non-zero live-test count | PR3 |
 
 Not touched, with reason: `tests/log/_auditableMutations.ts` (no mutation surface), `tests/auth/_metaInfraContract.test.ts` (no Supabase call boundary), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no lock path).
@@ -423,8 +425,8 @@ Per the `AGENTS.md` ladder — `no_verdict` is an infrastructure fault and bound
 
 | Risk | Mitigation |
 | --- | --- |
-| Retiring the per-feature workflows drops coverage the new job does not provide | The stale-branch check and the 28-row deletion land in the same commit; the shadowing assertion fails if a retired spec is neither covered nor allowlisted. The full config is run locally before the retirement commit. |
+| Retiring the per-feature workflows drops coverage the new job does not provide | The stale-branch check and the row deletion land in the same commit; the shadowing assertion fails if a retired spec is neither covered nor allowlisted. The full config is run locally before the retirement commit (measured: 404 passed, exit 0). |
 | `ENV_BOUND_EXCLUDES` edit reddens `unit-suite`, a live required context (§2.5) | One array entry; the suite is proven green against a bootstrapped local DB first; `unit-suite.yml` has `workflow_dispatch`, so it is verified by a real Actions run before merge. |
-| The unfiltered job slows every PR | Measured 1.9 min, DB-free and build-free; replaces seven jobs that each pay the same setup. |
+| The unfiltered job slows every PR | Measured 3.3 min at implementation time (1.9 min when first measured, before the config grew), DB-free and build-free; replaces seven jobs that each pay the same setup. |
 | Removing `packlist-rescan-recovery` loses coverage | It is dark today, so nothing that runs is lost; §10.2 records the restoration path with its full diagnosis. |
 | `admin-lifecycle-transitions` stays flaky | AC-6 requires five consecutive greens; if it cannot reach that, it stays dark with a recorded reason. An admitted flake is worse than a known gap. |

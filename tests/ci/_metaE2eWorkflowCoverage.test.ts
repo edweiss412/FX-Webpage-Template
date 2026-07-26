@@ -229,9 +229,41 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
     );
     expect(r.rejected[0]!.reason).toBe("continue-on-error");
   });
-  it("rejects exit-code suppression", () => {
-    const r = S(base("  pull_request:", "", `playwright test ${spec} || true`));
-    expect(r.rejected[0]!.reason).toBe("exit-code suppression");
+  it("rejects exit-code suppression in ANY status-replacing form", () => {
+    // An adversarial round walked past the previous leak-enumeration with all
+    // three of these. The gate is now an allowlist, so the list below is a
+    // regression pin rather than the definition.
+    for (const tail of ["|| true", "|| :", "; true", "; exit 0", "| sed -n 1p", "| tee out.txt"]) {
+      const r = S(base("  pull_request:", "", `playwright test ${spec} ${tail}`));
+      expect(r.covered.has(spec), `must not cover: ${tail}`).toBe(false);
+      expect(r.rejected[0]!.reason).toBe("exit-code suppression");
+    }
+  });
+
+  it("still counts a PRECEDING && chain, which does not swallow status", () => {
+    const r = S(base("  pull_request:", "", `pnpm setup && playwright test ${spec}`));
+    expect(r.covered.has(spec)).toBe(true);
+  });
+
+  it("rejects continue-on-error in any form that is not literally false", () => {
+    // `${{ true }}` is an expression GitHub evaluates to true; matching the
+    // literal `true` missed it entirely and reported false coverage.
+    for (const value of ["true", "${{ true }}", "${{ github.event_name == 'push' }}", "'true'"]) {
+      const job = S(
+        base("  pull_request:", `    continue-on-error: ${value}\n`, `playwright test ${spec}`),
+      );
+      expect(job.covered.has(spec), `job-level: ${value}`).toBe(false);
+    }
+    // …and an explicit `false` must still COUNT, or the gate is just off.
+    const ok = S(
+      base("  pull_request:", "    continue-on-error: false\n", `playwright test ${spec}`),
+    );
+    expect(ok.covered.has(spec)).toBe(true);
+  });
+
+  it("rejects a step-level continue-on-error expression placed before run:", () => {
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - continue-on-error: \${{ true }}\n        run: playwright test ${spec}\n`;
+    expect(S(w).covered.has(spec)).toBe(false);
   });
 });
 

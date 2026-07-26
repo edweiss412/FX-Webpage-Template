@@ -27,7 +27,33 @@
  */
 
 const SPEC_RE = /tests\/e2e\/[\w.-]+\.spec\.ts/g;
-const SUPPRESS_RE = /(\|\|\s*true)|(;\s*exit\s+0)|(\|\s*(tee|cat|grep)[^|]*$)/;
+/**
+ * Whether the line that invokes a spec can swallow a non-zero exit.
+ *
+ * ALLOWLIST, not a leak hunt. The previous version enumerated three leak
+ * forms (`|| true`, `; exit 0`, a trailing `tee|cat|grep` pipe) and an
+ * adversarial round walked straight past all three with `|| :`, `; true`, and
+ * `| sed -n 1p`. Enumerating bad shapes loses to whoever writes the next one,
+ * so this asks the opposite question: is anything AT ALL chained after the
+ * invocation that could replace its status?
+ *
+ * `;`, `|`, and `||` are all status-replacing (`a; b` and `a | b` both report
+ * b's status absent `pipefail`, and `a || b` runs b precisely when a failed).
+ * `&&` is NOT: `setup && playwright test …` still fails the step when either
+ * side fails, and real workflows here use it, so it stays allowed.
+ *
+ * Scoped to the lines that actually carry an invocation, so an unrelated
+ * `echo … | tee` elsewhere in a multi-line run block does not disqualify a
+ * step. Where it is ambiguous this errs toward REJECTING — a false "dark"
+ * reading costs an allowlist row with a reason, while a false "covered" one
+ * silently deletes real coverage.
+ */
+function suppressesExit(cmd: string): boolean {
+  return cmd
+    .split("\n")
+    .filter((line) => /\bplaywright\b|\bpnpm\b/.test(line))
+    .some((line) => /[;|]/.test(line));
+}
 
 /**
  * The ONE command form that covers a whole config rather than a named spec.
@@ -102,6 +128,27 @@ function jobs(yaml: string): Array<{ head: string; steps: string[] }> {
   });
 }
 
+/**
+ * Whether a block declares `continue-on-error` in any status-swallowing form.
+ *
+ * ALLOWLIST again: only a literal `false` is safe. Matching literal `true`
+ * missed `${{ true }}` — an expression GitHub evaluates to true — and would
+ * equally miss `${{ github.event_name == 'push' }}` or a `yes`/`on` YAML
+ * boolean. Anything that is not exactly `false` is treated as swallowing,
+ * because the scanner cannot evaluate an expression and must not guess in the
+ * permissive direction.
+ */
+function hasContinueOnError(block: string): boolean {
+  const m = block.match(/(^|\n)\s*continue-on-error\s*:\s*([^\n]*)/);
+  if (!m) return false;
+  return (
+    m[2]!
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .toLowerCase() !== "false"
+  );
+}
+
 export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = {} }: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
@@ -138,20 +185,20 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
 
     for (const job of jobs(yaml)) {
       const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
-      const jobCoe = /(^|\n)\s*continue-on-error\s*:\s*true/.test(job.head);
+      const jobCoe = hasContinueOnError(job.head);
       for (const step of job.steps) {
         const runMatch = step.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
         if (!runMatch) continue;
         const cmd = runMatch[2]!;
         const stepIf = /(^|\n)\s*if\s*:/.test(step);
-        const stepCoe = /(^|\n)\s*continue-on-error\s*:\s*true/.test(step);
+        const stepCoe = hasContinueOnError(step);
         for (const spec of resolveSpecs(cmd)) {
           if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
           else if (hasPathsFilter)
             rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
           else if (jobIf || stepIf) rejected.push({ file, spec, reason: "if: condition present" });
           else if (jobCoe || stepCoe) rejected.push({ file, spec, reason: "continue-on-error" });
-          else if (SUPPRESS_RE.test(cmd))
+          else if (suppressesExit(cmd))
             rejected.push({ file, spec, reason: "exit-code suppression" });
           else covered.add(spec);
         }

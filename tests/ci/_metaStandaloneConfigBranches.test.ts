@@ -31,20 +31,35 @@ const ROOT = process.cwd();
 const CONFIG = "tests/e2e/standalone.config.ts";
 
 describe("standalone config testMatch has no stale branches", () => {
-  it("parses the alternation, and fails loudly if the config's shape changes", () => {
-    // A silently-empty parse is the failure mode this guard exists to prevent,
-    // so the parser's own contract is pinned before it is trusted below.
-    const branches = testMatchBranches(
-      "testMatch:\n    /(alpha\\.layout|beta|gamma-thing)\\.spec\\.ts/,\n  timeout: 1,\n",
+  it("reads the LIVE testMatch only, never a commented-out or stringified one", () => {
+    // The fail-open an adversarial round found: a text scan matches the first
+    // regex-shaped thing it sees, so a commented-out OLD config above a
+    // narrowed live one makes this guard validate branches Playwright never
+    // runs — and makes the coverage meta-test delete rows for specs that no
+    // longer run. Pinned first, because both callers trust this reader.
+    const decoy = [
+      "// testMatch: /(ghost-one|ghost-two)\\.spec\\.ts/,",
+      'const doc = "testMatch: /(stringy)\\\\.spec\\\\.ts/";',
+      "export default defineConfig({",
+      "  testMatch: /(alpha\\.layout|beta|gamma-thing)\\.spec\\.ts/,",
+      "});",
+    ].join("\n");
+    expect(testMatchBranches(decoy)).toEqual(["alpha.layout", "beta", "gamma-thing"]);
+  });
+
+  it("throws rather than returning nothing when the config shape changes", () => {
+    // A reader that silently returns [] makes the real assertion below pass
+    // vacuously, which is the failure mode this guard exists to prevent.
+    expect(() => testMatchBranches("export default defineConfig({ testDir: '.' });")).toThrow(
+      /no live testMatch/i,
     );
-    expect(branches).toEqual(["alpha.layout", "beta", "gamma-thing"]);
-    expect(() => testMatchBranches("testDir: '.',")).toThrow(/could not locate/i);
+    expect(() =>
+      testMatchBranches("export default defineConfig({ testMatch: /whatever/ });"),
+    ).toThrow(/unrecognised testMatch shape/i);
   });
 
   it("every branch resolves to an existing spec file", () => {
     const branches = testMatchBranches(readFileSync(join(ROOT, CONFIG), "utf8"));
-    // Guards against a parse that "succeeds" against a mangled config and
-    // returns one useless branch — the assertion below would then be vacuous.
     expect(branches.length).toBeGreaterThan(20);
 
     const stale = branches.filter((b) => !existsSync(join(ROOT, "tests/e2e", `${b}.spec.ts`)));

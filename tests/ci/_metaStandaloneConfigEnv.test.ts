@@ -3,26 +3,24 @@
  *
  * Two specs in the standalone config reach the REAL server chain at module
  * load (`requireAdmin` -> `hashForLog` -> `lib/log` -> `lib/supabase/server`),
- * where module-level guards throw on missing env. Today that is patched
- * TWICE: `tests/e2e/helpers/loadTestEnv.ts` fixes a developer machine, and
- * `.github/workflows/modal-header-layout-e2e.yml` copies nine variables into
- * one workflow's `env:`. Only the CI half covers the failing specs — which is
- * precisely why retiring that workflow would break them.
+ * where module-level guards throw on missing env. That used to be patched
+ * twice — `tests/e2e/helpers/loadTestEnv.ts` for a developer machine, and one
+ * workflow's `env:` block for CI — so retiring that workflow would have broken
+ * them. The fallbacks now live in the config, once.
  *
- * So the fallbacks move into the config, once, where every consumer of the
- * config gets them.
+ * PRECEDENCE, stated correctly. Playwright evaluates the config BEFORE loading
+ * any test module, so a top-level `process.env.X ??=` lands first, and
+ * `loadTestEnv` (via `@next/env`, which preserves already-defined process
+ * values) will NOT override it. The config defaults therefore WIN over
+ * `.env.local`.
  *
- * PRECEDENCE, stated correctly. Playwright evaluates the config BEFORE
- * loading any test module, so a top-level `process.env.X ??=` here populates
- * the variable first, and `loadTestEnv` (via `@next/env`, which preserves
- * already-defined process values) will NOT override it. The config defaults
- * therefore win over `.env.local`, not the other way round.
+ * That is acceptable only because every value is a placeholder rather than a
+ * credential, so this pins that property instead of assuming it.
  *
- * That is deliberate and acceptable ONLY because every value is a
- * placeholder rather than a credential — the same demo values
- * `playwright.config.ts` already uses. This test pins that property, because
- * the day someone adds a real secret here is the day the precedence becomes
- * a leak rather than a convenience.
+ * Every check reads the AST, never the source text: an adversarial round
+ * showed all three of the original text checks could be satisfied by
+ * COMMENTED-OUT assignments, which is fail-open in the worst direction for a
+ * guard whose whole job is to notice a real credential.
  *
  * Spec: docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §4.1.
  */
@@ -30,10 +28,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import {
+  defaultsPrecedeDefineConfig,
+  envDefaults,
+  envHardAssignments,
+} from "./_standaloneConfigScan";
+
 const ROOT = process.cwd();
 const CONFIG = "tests/e2e/standalone.config.ts";
 
-/** The nine variables the retiring workflow supplied. */
+/** The nine variables the retired workflow supplied. */
 const REQUIRED = [
   "HASH_FOR_LOG_PEPPER",
   "JWT_SIGNING_SECRET",
@@ -49,50 +53,48 @@ const REQUIRED = [
 describe("standalone config carries its own env fallbacks", () => {
   const source = readFileSync(join(ROOT, CONFIG), "utf8");
 
-  it("defaults every variable the retired workflow supplied, non-destructively", () => {
-    const missing = REQUIRED.filter(
-      (name) => !new RegExp(`process\\.env\\.${name}\\s*\\?\\?=`).test(source),
-    );
-    expect(missing, `${CONFIG} must default these with ??= so a real env still wins`).toEqual([]);
+  it("ignores commented-out and stringified assignments", () => {
+    // The exact fail-open an adversarial round found: a text scan reads these
+    // as real. Pinned first, because every assertion below trusts this reader.
+    const decoy = [
+      '// process.env.HASH_FOR_LOG_PEPPER ??= "commented";',
+      '/* process.env.SUPABASE_URL ??= "block-commented"; */',
+      "const doc = 'process.env.JWT_SIGNING_SECRET ??= \"in-a-string\"';",
+      'process.env.REAL_ONE ??= "live";',
+    ].join("\n");
+    expect([...envDefaults(decoy).keys()]).toEqual(["REAL_ONE"]);
+  });
+
+  it("defaults exactly the required set, by name", () => {
+    // Set equality, not a count: an earlier version asserted only the NUMBER
+    // of assignments, which a duplicate plus a missing name satisfies.
+    expect(new Set(envDefaults(source).keys())).toEqual(new Set(REQUIRED));
   });
 
   it("uses ??= and never bare assignment, so a caller's env is never clobbered", () => {
-    for (const name of REQUIRED) {
-      const bare = new RegExp(`process\\.env\\.${name}\\s*=[^=]`);
-      expect(bare.test(source), `${name} must not be assigned unconditionally`).toBe(false);
-    }
+    expect(envHardAssignments(source)).toEqual([]);
   });
 
   it("sets the defaults BEFORE defineConfig, or Playwright loads tests first", () => {
-    const firstDefault = source.search(/process\.env\.\w+\s*\?\?=/);
-    const define = source.search(/export default defineConfig/);
-    expect(firstDefault).toBeGreaterThan(-1);
-    expect(firstDefault).toBeLessThan(define);
+    expect(defaultsPrecedeDefineConfig(source)).toBe(true);
   });
 
   it("carries no value that looks like a real credential", () => {
-    // The precedence above means these WIN over .env.local. That is only safe
-    // while every value is a placeholder, so the property is pinned, not
-    // assumed. Demo Supabase JWTs are allowed by their well-known issuer.
-    // Resolve `const X = "…"` indirection: an earlier version of this test
-    // matched inline literals only, so a credential parked behind a const
-    // would have passed unread.
-    const consts = new Map(
-      [...source.matchAll(/const (\w+)\s*=\s*\n?\s*"([^"]*)"/g)].map((m) => [m[1]!, m[2]!]),
-    );
-    const assigned = [...source.matchAll(/process\.env\.(\w+)\s*\?\?=\s*(?:"([^"]*)"|(\w+))/g)].map(
-      (m) => [m[0]!, m[1]!, m[2] ?? consts.get(m[3]!)] as const,
-    );
-    expect(assigned.length).toBe(REQUIRED.length);
-    // Every value must have RESOLVED — an unresolved const would otherwise
-    // skip both branches below and assert nothing.
-    expect(assigned.filter(([, , v]) => v === undefined).map(([, n]) => n)).toEqual([]);
-    for (const [, name, value] of assigned) {
-      if (value!.startsWith("eyJ")) {
-        const body = JSON.parse(Buffer.from(value!.split(".")[1]!, "base64url").toString()) as {
-          iss?: string;
-        };
-        expect(body.iss, `${name} must be a demo token, not a project token`).toBe("supabase-demo");
+    // The precedence above means these WIN over .env.local, so the guard is
+    // load-bearing. A demo Supabase JWT is identified by its well-known
+    // issuer AND its well-known signature — checking `iss` alone trusts an
+    // unsigned payload an attacker controls, which an adversarial round
+    // correctly flagged.
+    const DEMO_SIGNATURES = new Set([
+      "CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+      "EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+    ]);
+    for (const [name, value] of envDefaults(source)) {
+      if (value.startsWith("eyJ")) {
+        const [, payload, signature] = value.split(".");
+        const body = JSON.parse(Buffer.from(payload!, "base64url").toString()) as { iss?: string };
+        expect(body.iss, `${name}: must be a demo token`).toBe("supabase-demo");
+        expect(DEMO_SIGNATURES.has(signature!), `${name}: unknown signature`).toBe(true);
       } else {
         expect(value, `${name} must be an obvious placeholder`).toMatch(/test|demo|127\.0\.0\.1/i);
       }
