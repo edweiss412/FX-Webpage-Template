@@ -943,11 +943,28 @@ function runVitest() {
     }
   }
 
-  const rows = files.flatMap((f) =>
+  // A failed task is not automatically a REJECTION. A test that timed out, or a
+  // hook that blew up, fails for reasons that have nothing to do with the mutant
+  // — and crediting it certifies an adversary the assertions never actually
+  // caught (round-17 review, a false REJECTED). Runner slowness must never
+  // manufacture coverage, so treat these as infrastructure faults instead.
+  const NON_ASSERTION = /timed out|hook failed|beforeAll|afterAll|beforeEach|afterEach/i;
+  const failures = files.flatMap((f) =>
     (f.assertionResults ?? [])
       .filter((a) => a.status === "failed")
-      .map((a) => a.fullName ?? a.title),
+      .map((a) => ({
+        name: a.fullName ?? a.title,
+        messages: (a.failureMessages ?? []).join("\n"),
+      })),
   );
+  const nonAssertion = failures.filter((f) => NON_ASSERTION.test(f.messages));
+  if (nonAssertion.length) {
+    throw new Error(
+      `vitest rows failed for non-assertion reasons (${nonAssertion.map((f) => f.name).join(", ")}) — ` +
+        "timeouts and hook faults are infrastructure, not evidence the mutant was caught.",
+    );
+  }
+  const rows = failures.map((f) => f.name);
 
   // Reconcile the child's OUTCOME with what the report claims. A non-zero exit
   // with no failing rows means the process died for a reason the report cannot
@@ -1063,6 +1080,20 @@ function runBrowser() {
   if (stalled.length) {
     throw new Error(
       `browser rows never produced a result: ${stalled.map((s) => s.title).join(", ")} — infrastructure fault`,
+    );
+  }
+
+  // Playwright maps a TIMED-OUT test to the `unexpected` outcome, which the scan
+  // below would credit as red — so a slow runner could reject a mutant with no
+  // assertion establishing it (round-17 review, a false REJECTED). A timeout is
+  // never evidence, in either direction.
+  const timedOut = seen.filter((spec) =>
+    (spec.tests ?? []).some((t) => (t.results ?? []).some((r) => r.status === "timedOut")),
+  );
+  if (timedOut.length) {
+    throw new Error(
+      `browser rows timed out (${timedOut.map((s) => s.title).join(", ")}) — ` +
+        "infrastructure fault, not evidence the mutant was caught.",
     );
   }
 
