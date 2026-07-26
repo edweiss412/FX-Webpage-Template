@@ -1097,6 +1097,34 @@ function runBrowser() {
     );
   }
 
+  // A red row must be red for an ASSERTION, positively demonstrated.
+  //
+  // Playwright records a worker crash or a browser death as an ordinary `failed`
+  // result, which sails through identity, completeness and exit reconciliation
+  // and falsely rejects the mutant (round-18 review). Enumerating crash messages
+  // would be the same unbounded-list trap this harness has already lost to
+  // twice, so require the positive signature instead: a genuine failure from
+  // these rows carries an `expect(` error, verified against a real red report.
+  const stripAnsi = (t) => String(t).replace(/\u001b\[[0-9;]*m/g, "");
+  const assertionFailed = (res) =>
+    (res.errors ?? []).some((e) => /\bexpect\(/.test(stripAnsi(e.message ?? ""))) ||
+    /\bexpect\(/.test(stripAnsi(res.error?.message ?? ""));
+
+  const crashed = [];
+  for (const spec of seen) {
+    for (const t of spec.tests ?? []) {
+      for (const res of t.results ?? []) {
+        if (res.status === "failed" && !assertionFailed(res)) crashed.push(spec.title);
+      }
+    }
+  }
+  if (crashed.length) {
+    throw new Error(
+      `browser rows failed without an assertion error (${[...new Set(crashed)].join(", ")}) — ` +
+        "a worker or browser fault is infrastructure, not evidence the mutant was caught.",
+    );
+  }
+
   const failed = new Set();
   const walk = (suite) => {
     for (const spec of suite.specs ?? []) {
