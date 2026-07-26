@@ -3901,6 +3901,41 @@ describe("R6: scanner changes are pinned", () => {
     }
   });
 
+  it("the naming and separation questions stay DUAL, never drifting", () => {
+    // Both rules consult `rendersNothing`, and they must reach OPPOSITE conclusions from it: a value
+    // that renders nothing is transparent to SEPARATION (look further left) and absent as a
+    // DESTINATION (it contributes no name). A value that renders text is the reverse. So for each
+    // value below exactly ONE of the two rules fires -- if a future change makes one consult a
+    // different notion of "renders nothing", this asymmetry breaks and one of these flips.
+    //
+    // This is the invariant behind the R36 fix, where the separation rule had been answering the
+    // naming question's helper (`staticStringValue`) instead: `{null}` stringifies to "null" but
+    // renders nothing, and that single mismatch produced six false positives.
+    const reasons = (src: string): string[] =>
+      violations(`const A=()=><a href="x" target="_blank">${src}</a>;`);
+    for (const [mid, rendersText] of [
+      ["{null}", false],
+      ["{false}", false],
+      ["{[]}", false],
+      ['{false && "x"}', false],
+      ['{" "}', false],
+      ['{"x"}', true],
+    ] as [string, boolean][]) {
+      const asSeparator = reasons(`Open ${mid}<NewTabHint />`).some((r) => /sibling space/.test(r));
+      const asDestination = reasons(`${mid} <NewTabHint />`).some((r) =>
+        /only visible content/.test(r),
+      );
+      expect(
+        asSeparator,
+        `${mid}: renders ${rendersText ? "TEXT so it is adjacency" : "nothing so it is transparent"}`,
+      ).toBe(rendersText);
+      expect(
+        asDestination,
+        `${mid}: renders ${rendersText ? "TEXT so it IS a destination" : "nothing so it is no destination"}`,
+      ).toBe(!rendersText);
+    }
+  });
+
   it("value composition is CLOSED: every helper resolves nesting", () => {
     // R34 routed every value question through `pickedOperand`; R35 then found `isProvablyNullish`
     // was the one helper the layer CONSULTS that did not itself compose. That is a property of the
