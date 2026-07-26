@@ -8,6 +8,7 @@ import type { ParseWarning } from "@/lib/parser/types";
 import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 import { CompactAlertHelp } from "@/components/admin/compactAlertHelp";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import type { ReactNode } from "react";
 
 /**
@@ -280,7 +281,7 @@ export function PerShowActionableWarnings({
             rel="noopener noreferrer"
             className={`inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:outline-none ${linkOffsetClass}`}
           >
-            Open in Sheet <span aria-hidden="true">↗</span>
+            Open in Sheet <span aria-hidden="true">↗</span> <NewTabHint />
           </a>
         ) : null;
 

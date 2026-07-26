@@ -1,0 +1,913 @@
+# New-tab announcement family sweep — design
+
+**Date:** 2026-07-25 · **Backlog item:** `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y` (PR2 of the BL-NULLCODE-STAMP-BATCH-2 residual sweep) · **Owner:** Opus / Claude Code (UI work per `ROUTING.md`)
+
+**Revision R6.** Review rounds R1 to R5 raised 6, 11, 7, 6, and 5 findings; all 35 were confirmed against live code and are addressed here. R3 first ran the two mandated passes R1/R2 skipped — `pnpm spec:lint` (attached to every dispatch since) and the `docs/agents/spec-self-review.md` checklist — whose omission caused four of R2's findings.
+
+**The structural guard (§6) has now absorbed findings in four consecutive rounds** (§6 predicate holes, an unimplementable `.mdx` rule, missing branch polarity, an undefined both-branch case, and no self-tests). Per `docs/agents/spec-self-review.md:22`, a vector surviving three rounds stops being patched in prose: the guard is therefore settled by a **prototype with the §6 requirement 7 synthetic self-tests**, built before the remaining implementation, and §6 is authoritative only where the prototype confirms it.
+
+## 1. Problem
+
+A link that opens a new tab tells sighted users so with a `↗` glyph or an external-link icon. That glyph is `aria-hidden="true"` at every site that has one, so a screen-reader user hears only "Open in Sheet" and gets no warning that activating the link leaves the page. On the venue floor — the primary context for this app — an unannounced context switch is disorienting, and back-navigation does not return you.
+
+Two sites already announce, via an `aria-label` naming both destination and behavior: `components/admin/wizard/VenueMapTile.tsx:138` and `components/admin/wizard/Step3SheetCard.tsx:152`. That is the established convention. Twenty-one other new-tab anchors do not follow it.
+
+## 1.1 Resolved scope — do not relitigate
+
+| Decision | Ratification |
+| --- | --- |
+| The copy string is exactly `(opens in a new tab)`, lowercase, parenthesized | matches both shipped sites verbatim: `components/admin/wizard/VenueMapTile.tsx:138`, `components/admin/wizard/Step3SheetCard.tsx:152` |
+| Mechanism is per-site (label-string vs `sr-only` span), not one uniform sweep | §2 — `aria-label` replaces the accessible name, so a span on a labelled element is dead markup |
+| The two existing announcement sites keep the `aria-label` MECHANISM (not necessarily their current text: `VenueMapTile`'s label is rewritten for label-in-name per §2.2) | §2 — their labels name a destination the visible text does not |
+| Announcement hints on the four alert-action anchors are gated on `action.external` | §4 Group C — `external: false` builders return same-app hrefs (`lib/adminAlerts/alertActions.ts:61`, `lib/adminAlerts/alertActions.ts:90`, `lib/adminAlerts/alertActions.ts:127`) |
+| The tap-target half of the backlog item is already shipped and out of scope | `components/admin/PerShowActionableWarnings.tsx:281` carries `min-h-tap-min` |
+| No real-browser Playwright task; jsdom is sufficient | §5.1 and §5.2 — no fixed-dimension parent gains a sized child (the two arrow wrappers are unstyled inline spans around existing glyphs) and no visual state changes |
+| Scope covers `components/` AND `app/` | §1.2 — **CrewPageLink.tsx:25** (deleted upstream, §1.4) is a same-family defect |
+| Three WCAG 2.5.3 failures inside the family are fixed; a repo-wide 2.5.3 audit is not | §2.2, §9 |
+| Only empty-`alt` is unreachable by construction; empty `title`, `displayTitle`, and `label` ARE reachable and each gets a boundary test | §5 and §7 — `alt` is defaulted upstream at `components/admin/wizard/step3ReviewSections.tsx:3663`; `label` reaches the anchor through the exported `Step3SectionChromeContext` (`components/admin/wizard/step3ReviewSections.tsx:551`) |
+
+## 1.2 Census (verified 2026-07-25 against `b449656`)
+
+**Count `_blank` as a value, not `target="_blank"` as an attribute literal.** The literal-attribute grep finds 18 anchors in 12 files under `components/`; the true family is **23 anchors in 17 files** across both trees:
+
+```
+grep -rn '_blank' components/ app/ | wc -l     # 23
+grep -rl '_blank' components/ app/ | wc -l     # 17
+```
+
+Two reasons the narrow count undercounts:
+
+1. **Conditional spreads** (4 anchors) apply the attribute through a spread, so no literal appears:
+   ```tsx
+   {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+   ```
+2. **`app/` is in the family** (1 anchor). **CrewPageLink.tsx:25** (deleted upstream, §1.4) is shipped, and its `aria-label` at **CrewPageLink.tsx:27** (deleted upstream, §1.4) carries no announcement. A guard scoped to `components/` could never catch an app-level regression.
+
+**23 anchors total = 2 that already announce + 21 to fix.** Both numbers appear throughout this spec and they are not in conflict: 23 is the family size, 21 is the fix count. After implementation the split reads 15 `NewTabHint` render sites plus 8 `aria-label` sites (the 6 Group B labels plus the 2 pre-existing ones), which also sums to 23. An independent mechanical scan reconciled to the same figures. Other external-navigation vectors, checked and absent: no `window.open(...)`, no form `target` attributes, no `<Link target=...>` in either tree. `app/` holds 13 `.mdx` files; none currently contains `_blank`, but §6 covers them so a future one cannot slip in.
+
+### 1.4 SUPERSEDED: the family is 22 anchors, not 23 — CrewPageLink was deleted upstream
+
+Every count and citation in §1.2 and §1.3 below is **historically accurate and now one anchor
+stale.** During review, upstream landed `refactor(admin): delete the orphaned share chip and crew-page
+link`, which removed **CrewPageLink.tsx** (deleted upstream, §1.4) and its test. That component was this
+spec's sole `app/` member and one of the six Group B label sites.
+
+Current, re-derived from the guard after merging 70 upstream commits (28 changed `.tsx`/`.mdx` files):
+
+| | As written in §1.2 | Actual before the deletion | Now |
+| --- | --- | --- | --- |
+| family anchors | 23 | 23 | **22** |
+| files containing `_blank` | 17 | **16** | **15** |
+| Group B label sites | 6 | 6 | **5** |
+| files carrying the phrase | 8 | 8 | **7** |
+| live violations | 0 | 0 | **0** |
+
+**The file count was wrong before the deletion too**, and the anchor count was not. §1.3 recorded
+that `AttentionMenu` left the family while `AttentionBanner` gained a second anchor — that keeps the
+anchor total at 23 but reduces the FILE total from 17 to 16, and only the anchor total got
+re-derived. A per-file figure and a per-anchor figure move independently, and §1.3's "still 23
+anchors" was read as "nothing changed" (review R29 item 4). Current figures are re-derived from the
+guard, not adjusted arithmetically.
+
+The `app/`-is-in-the-family argument in §1.2 is unchanged as a *rationale* — a guard scoped to
+`components/` still could not catch an app-level regression, and the guard still scans both trees —
+but it no longer has a live example. Zero violations across all 28 changed upstream files, which is
+the third time this guard has been exercised by real churn rather than by its own fixtures.
+
+Sections below are left as written rather than rewritten in place, so the numbers a reviewer may have
+quoted still resolve. Read this section first where they disagree.
+
+### 1.3 Composition changed under a rebase; the totals did not
+
+Rebasing onto 82 upstream commits swapped one family member for another, and the guard caught it. `components/admin/showpage/AttentionMenu.tsx` no longer renders an action anchor at all (upstream turned that menu into a jump-only index, so the row's exit moved to the card), which removes it from Group C. In the same window `components/admin/review/AttentionBanner.tsx` gained a NEW external anchor: a "Google Sheets" destination chip for clearing-needs-you alerts. It arrived unannounced and the per-anchor guard failed on it immediately, which is precisely the fail-by-default behavior §6 exists to provide.
+
+Net effect: still 23 anchors, 15 hint sites, 13 phrase literals; Group C is now the banner's footer action, the banner's destination chip, `BellPanel`, and `HealthAlertsPanel`. **Do not treat the unchanged totals as evidence nothing moved** — re-derive the composition from the guard rather than from this document if the branch is rebased again.
+
+## 2. Decision: mechanism is per-site, because the two mechanisms do not compose
+
+`aria-label` **replaces** an element's accessible name — verified empirically against the installed accessible-name implementations, not assumed from spec text. An appended `sr-only` span is therefore silently ignored on any element that already has an `aria-label`:
+
+| Site already has `aria-label`? | Mechanism |
+| --- | --- |
+| Yes | Extend the label string with ` (opens in a new tab)`. Do NOT add a span; it would be dead markup. |
+| No | Append a real space text node then the `NewTabHint` element, leaving visible text as the name base. |
+
+**Why not convert everything to `aria-label`:** it duplicates visible copy into a second string that drifts, and it re-opens WCAG 2.5.3 at every site. **Why not convert the two existing sites to the span:** their labels name a destination the visible text does not, and downgrading them would lose information.
+
+### 2.1 NewTabHint primitive
+
+A new component at `components/shared/` (planned file, no citation available yet) exporting `NewTabHint`, whose entire body renders one visually-hidden span containing exactly `(opens in a new tab)`:
+
+```tsx
+export function NewTabHint(): JSX.Element {
+  return <span className="sr-only">(opens in a new tab)</span>;
+}
+```
+
+Its doc comment MUST NOT repeat the parenthesized copy string (a lexical census would count the comment) and MUST NOT contain an em dash (`DESIGN.md:350` bans them in copy, and `scripts/spec-lint.ts` scans code blocks). It is deliberately not a wrapper around `<a>`: the 21 sites have divergent class strings, testids, and conditional props, so a wrapper would force a 21-site refactor instead of a one-line addition.
+
+### 2.2 Three pre-existing WCAG 2.5.3 failures get fixed, not preserved
+
+WCAG 2.5.3 Label in Name (Level A) requires the accessible name to contain the visually presented text. Three family anchors fail today, and R1's append-only rule would have locked all three in:
+
+| Site | Visible text | Current `aria-label` | Contains it? |
+| --- | --- | --- | --- |
+| `components/admin/wizard/step3ReviewSections.tsx:934` | `In sheet` at `components/admin/wizard/step3ReviewSections.tsx:937` | `Open the source sheet for ${label}` | No |
+| `components/crew/primitives/SourceLink.tsx:71` | `In sheet` at `components/crew/primitives/SourceLink.tsx:75` | `View this section in the source sheet` | No |
+| `components/admin/wizard/VenueMapTile.tsx:138` | `Directions` at `components/admin/wizard/VenueMapTile.tsx:125` | `Open the venue in Google Maps (opens in a new tab)` | No |
+
+The third is one of the two sites §2 otherwise preserves: it announces correctly but still fails 2.5.3. Its `Directions` span at `components/admin/wizard/VenueMapTile.tsx:120` is **not** `aria-hidden`; the comment at `components/admin/wizard/VenueMapTile.tsx:141` calling the inner visual decorative does not remove the visible-label requirement. `SourceLink` is crew-facing, so it is the highest-impact of the three.
+
+**Decision: fix all three while editing these exact lines.** Leaving a Level-A failure on a line this spec is already rewriting, in a change whose subject is the accessible naming of external links, is not defensible. New labels contain the visible words AND keep the destination information. **Comma separators, never em dashes** (`DESIGN.md:350`):
+
+- `components/admin/wizard/step3ReviewSections.tsx:934` → `` `In sheet, open the source sheet for ${label} (opens in a new tab)` ``
+- `components/crew/primitives/SourceLink.tsx:71` → `In sheet, view this section in the source sheet (opens in a new tab)`
+- `components/admin/wizard/VenueMapTile.tsx:138` → `Directions, open the venue in Google Maps (opens in a new tab)`
+
+Visible text is untouched at all three; only labels change.
+
+## 3. Exact copy
+
+`(opens in a new tab)` — matching both shipped sites verbatim. Any new phrasing would make the codebase inconsistent with itself and defeat the §6 census.
+
+### 3.1 The separator must be a real sibling space text node (MANDATORY)
+
+```tsx
+{label}<span className="sr-only"> (opens in a new tab)</span>   // WRONG: "Open in Sheet(opens in a new tab)"
+{label} <NewTabHint />                                          // correct
+{label}{" "}<NewTabHint />                                      // correct, equivalent
+```
+
+**Why, stated accurately:** this is a property of the `dom-accessibility-api` implementations Testing Library uses, **not** normative AccName 1.2 — that standard's text-node step returns textual contents and does not say each node is individually trimmed, and real browsers may insert the separator themselves. The repo has **two** installed versions (`pnpm-lock.yaml` resolves `dom-accessibility-api` 0.5.16 for `@testing-library/dom` and 0.6.3 for `@testing-library/jest-dom`, which backs `toHaveAccessibleName`); both were probed and both drop a space written inside the span while retaining a sibling space. The prescription stands regardless: we cannot depend on non-uniform behavior across two harness versions and several browser accessibility engines.
+
+**Not a same-line rule.** Prettier compiles a literal JSX space and `{" "}` to the same `" "` child, and preserves the separator as `{" "}` when it wraps. The load-bearing requirement is that a real sibling space text node exists.
+
+**A space adjacent to a line break is not a separator at all.** JSX deletes a whitespace run once it contains a line terminator, so `Go \n<NewTabHint />` renders `Go(opens in a new tab)` — the space does **not** survive, and neither does any run built from `\r`, U+2028, or U+2029. Across a line break the separator must be the explicit `{" "}` form. The guard models this over all four terminators; modelling it with `\n` alone read three of them as same-line spaces and passed the very shape §3.1 exists to reject.
+
+This shape shipped undetected here once, as `View details<span className="sr-only"> for …</span>` reading `"detailsfor …"`, because tests matched substrings and never the boundary. Hence §7's anchored assertions.
+
+## 4. Site inventory and disposition
+
+### Group A — no `aria-label`; append a space plus the NewTabHint element (11 anchors)
+
+| Site | Visible label |
+| --- | --- |
+| `components/admin/PerShowActionableWarnings.tsx:279` | `Open in Sheet ↗` |
+| `components/admin/NoteWarningCard.tsx:83` | `Open in Sheet ↗` |
+| `components/admin/wizard/step3ReviewSections.tsx:2964` | `Open in Sheet ↗` |
+| `components/admin/wizard/step3ReviewSections.tsx:3188` | `Open PDF ↗` |
+| `components/admin/wizard/step3ReviewSections.tsx:3386` | `Open the source sheet ↗` |
+| `components/admin/wizard/step3ReviewSections.tsx:3684` | `Open diagrams folder in Drive` plus icon |
+| `components/admin/settings/DriveConnectionPanel.tsx:242` | `Open folder` plus icon |
+| `components/admin/wizard/Step2Verify.tsx:500` | `Open the folder →` |
+| `components/admin/wizard/Step2Verify.tsx:550` | `Open the folder →` (second instance) |
+| `components/crew/sections/VenueSection.tsx:249` | `Open in Maps` (crew-facing) |
+| `components/shared/ReportModal.tsx:581` | `View on GitHub` |
+
+`components/crew/sections/VenueSection.tsx:250` carries `rel="noreferrer"` without `noopener`; normalize it to `rel="noopener noreferrer"` since the anchor is being edited anyway.
+
+**Two Group A anchors also need their decorative arrow hidden.** `components/admin/wizard/Step2Verify.tsx:504` and `components/admin/wizard/Step2Verify.tsx:554` render `Open the folder →` where the `→` is a **plain text node, not `aria-hidden`** — unlike the five sibling sites that wrap their glyph (`components/admin/PerShowActionableWarnings.tsx:283`, `components/admin/NoteWarningCard.tsx:88`, and three in `components/admin/wizard/step3ReviewSections.tsx`). So a screen reader announces the arrow today, and without a change the expected name would be `Open the folder → (opens in a new tab)`, baking a decorative glyph into the very name this diff curates. Wrap both arrows in `aria-hidden="true"`: no visible change, one attribute, on lines already being edited, and it makes the family internally consistent. Expected names become `Open the folder (opens in a new tab)`.
+
+Checked the boundary rather than assuming: **CrewPageLink.tsx:30** (deleted upstream, §1.4) has the same arrow but carries an `aria-label`, so its content is ignored; the other bare-arrow sites (`components/admin/HoverHelp.tsx:609`, `components/admin/HelpAffordance.tsx:113`, both "Learn more →") are internal links and outside this family.
+
+### Group B — has `aria-label`; extend the label string (6 anchors)
+
+| Site | Becomes |
+| --- | --- |
+| `components/admin/showpage/PublishedReviewModal.tsx:708` | `` `Open the source sheet for ${displayTitle} in Google Sheets (opens in a new tab)` `` (and the empty-`displayTitle` fallback keeps the destination clause) |
+| `components/admin/wizard/Step3ReviewModal.tsx:408` | `` `Open the source sheet for ${title} in Google Sheets (opens in a new tab)` `` |
+| `components/admin/wizard/step3ReviewSections.tsx:934` | §2.2 rewrite (label-in-name plus announcement) |
+| `components/admin/wizard/step3ReviewSections.tsx:3577` | `` `${alt} (opens in a new tab)` `` |
+| `components/crew/primitives/SourceLink.tsx:71` | §2.2 rewrite (label-in-name plus announcement) |
+| **CrewPageLink.tsx:27** (deleted upstream, §1.4) | `Open crew page (opens in a new tab)`; also normalize `rel` at **CrewPageLink.tsx:26** (deleted upstream, §1.4) |
+
+Plus the §2.2 label-in-name-only fix at `components/admin/wizard/VenueMapTile.tsx:138`, which already announces.
+
+`components/admin/wizard/step3ReviewSections.tsx:3577` is a deliberate nameless-link guard (WCAG 2.4.4 and 4.1.2) on a staged-diagram image link named by its `alt`. Appending the phrase preserves that guard, so it is not exempt.
+
+### Group C — dynamic spread; announcement must be conditional (4 anchors)
+
+Three of the four share one shape: no `aria-label`, `{action.label}`, and a `↗` already gated on the external flag. The fourth is the banner's destination chip, whose visible text is the STATIC string `Google Sheets` (`components/admin/review/AttentionBanner.tsx:170`), so its computed name is `Google Sheets (opens in a new tab)`. It is gated identically; only the label source differs.
+
+**Corrected after the rebase (see §1.3):** `AttentionMenu` LEFT the family — upstream turned it
+into a jump-only index with no action anchor — and `AttentionBanner` gained a second one, its
+"Google Sheets" destination chip for clearing-needs-you alerts. The four gated anchors are
+therefore two in `AttentionBanner` plus one each in `BellPanel` and `HealthAlertsPanel`. An
+independent AST census confirms exactly that set.
+
+| Site | Gating expression | Visible label |
+| --- | --- | --- |
+| `components/admin/review/AttentionBanner.tsx:165` (footer action) | `a.action.external` | `{a.action.label}` |
+| `components/admin/review/AttentionBanner.tsx:172` (destination chip) | `a.action.external` | static `Google Sheets` |
+| `components/admin/BellPanel.tsx:304` | `action.external` | `{action.label}` |
+| `components/admin/telemetry/HealthAlertsPanel.tsx:149` | `action.external` | `{action.label}` |
+
+Note the gating expressions are **not** textually identical: `AttentionBanner` reads `a.action.external` while the other three read `action.external`. §6 requirement **5** is therefore expressed as equality against the anchor's own effective `_blank` predicate, never identifier overlap. (Requirement 4 governs the announcement mechanisms themselves.)
+
+**The hint MUST be gated on the same condition as the `↗` and the `target`.** `AlertActionLink` is `{ label: string; href: string; external: boolean }` (`lib/adminAlerts/alertActions.ts:39`), and every `external: false` builder returns a **same-app** href: fragments at `lib/adminAlerts/alertActions.ts:61` and `lib/adminAlerts/alertActions.ts:90`, and a plain route (`/admin/onboarding`) at `lib/adminAlerts/alertActions.ts:127`. Not all are fragments, but none opens a tab, so announcing one would be a false statement to exactly the users who cannot see that it did not happen.
+
+```tsx
+{action.label}
+{action.external ? <span aria-hidden="true"> ↗</span> : null}
+{action.external ? <> <NewTabHint /></> : null}
+```
+
+## 5. Guard conditions
+
+| Input state | Behavior |
+| --- | --- |
+| `action.external === false` (Group C) | No hint, no `↗`, no `target` |
+| `href` null or absent | Anchor is not rendered today (`href ? (…) : null`); unchanged, so no hint on a non-link |
+| Empty `${title}` at `components/admin/wizard/Step3ReviewModal.tsx:408` | Destination clause must survive: `Open the source sheet (opens in a new tab)`, never `for  (` with a double space. Reachable from a render seam, so §7 tests it |
+| Empty `${displayTitle}` at `components/admin/showpage/PublishedReviewModal.tsx:708` | **Reachable, and needs its own test.** `displayTitle` is `title \|\| slug` at `components/admin/showpage/PublishedReviewModal.tsx:241`, and the fixture helper accepts arbitrary prop overrides, so `{ title: "", slug: "" }` renders the anchor with an empty interpolation while `openSheetHref` stays populated. Same rule as `title`; §7 tests it separately rather than assuming `title`'s case covers it |
+| Empty `alt` at `components/admin/wizard/step3ReviewSections.tsx:3577` | **Unreachable by construction.** `components/admin/wizard/step3ReviewSections.tsx:3663` defaults it (`alt={stub.alt?.trim() \|\| ...}`), so a blank alt never reaches the anchor. No anchor-level fallback is added; §7 asserts the upstream default instead of a fallback that could never fire |
+| Empty `${label}` at `components/admin/wizard/step3ReviewSections.tsx:934` | **Reachable — the R3 "unreachable by construction" claim was wrong.** `Step3SectionChromeContext` is exported at `components/admin/wizard/step3ReviewSections.tsx:551` and consumed at `components/admin/wizard/step3ReviewSections.tsx:996`, and existing tests already provide arbitrary context values through it (`tests/components/admin/anchorMount.test.tsx:39`). `label` accepts any string, so `label: ""` renders the anchor with an empty interpolation, no cast or source change required. Same rule as `title`; §7 tests it |
+| `action.label` empty (Group C) | Anchor is already effectively nameless today; the hint renders, and the test records the pre-existing gap rather than masking it |
+| A site gains `aria-label` later | Mechanism flips per §2; §6 accepts either form, so it cannot regress to neither |
+
+## 5.1 Dimensional Invariants
+
+**None — this diff creates no parent-to-child dimension relationship.** Justification, since the project rule requires an explicit statement rather than silence.
+
+The diff adds two kinds of element. First, the visually-hidden hint span. The `sr-only` utility is clip-based (absolute, 1px, `clip-path`), not `display: none`, so it contributes **zero** layout size and cannot change any parent's content box, flex distribution, or wrap behavior. No fixed-height or fixed-width parent gains a child.
+
+Second — and this is why the R4 rationale needed widening — the arrow fix at `components/admin/wizard/Step2Verify.tsx:504` and `components/admin/wizard/Step2Verify.tsx:554` wraps two **currently bare text glyphs** in `<span aria-hidden="true">`. Those spans are visible, so unlike the hint they do create inline boxes. **Correction (impeccable gate, measured):** this is FALSE in a flex parent. Both Step2Verify anchors are gap-less `inline-flex`, so wrapping the glyph turns it into its own flex item and the preceding text run's trailing space is trimmed — a measured 4.05px loss at 16px in Chromium (134.08px to 130.03px), with the arrow visually touching the preceding letter. jsdom cannot see this. The fix is a non-breaking space INSIDE the aria-hidden span (`Open the folder<span aria-hidden="true">&nbsp;→</span>`), which restores the original width and, because the span is aria-hidden, leaves the accessible name untouched. The hint span itself IS dimensionally inert (absolutely positioned, so never a flex item — verified identical `getBoundingClientRect` to 3dp at 320px and 390px, including inside `gap-*` and `truncate` parents). Nothing here is a fixed-dimension parent gaining a sized child, which is the condition the project rule targets.
+
+The Group B and §2.2 changes are string-only. Therefore no real-browser layout assertion is warranted, and §7 explains why jsdom suffices.
+
+## 5.2 Transition Inventory
+
+**None — no visual state changes.** The hint is static from first render, has no enter or exit, no hover, focus, or open state, and no animation. Group C's conditional render is driven by a per-alert data flag (`action.external`), not by an interactive state transition, so there is no pair to enumerate: an anchor's `external` value does not change while mounted. Nothing in this diff touches an `AnimatePresence`, a ternary render of competing visual states, or a `transition-*` utility.
+
+## 6. Structural guard: a per-anchor SHAPE ALLOWLIST (amended R4)
+
+**AMENDMENT (2026-07-25, ratified here per invariant 7).** This section previously specified a
+leak-hunting guard: recognize every conditional/spread form, resolve identifiers, and prove an
+anchor unannounced. Whole-diff reviews R1, R2 and R3 each found a NEW fail-open shape under
+that model — nested spreads, computed keys, shadowed identifiers and parameters,
+spread-supplied `aria-label`, spread-supplied `hidden`, partially-exhaustive ternaries, plus
+(R4) case-insensitive `_BLANK`, template-valued targets, and hints passed as props. That is not
+a run of bugs; a static pass cannot soundly resolve arbitrary TSX, so "prove it is broken"
+leaks by construction. `docs/agents/spec-self-review.md:22` caps iteration on a surviving
+vector at three rounds.
+
+**The guard is therefore INVERTED and this spec now requires the inverted form.** Implemented in
+`tests/styles/_newTabScan.ts`, driven by `tests/styles/_metaNewTabAnnouncement.test.ts`.
+
+### 6.1 Candidate discovery
+
+Filesystem-walk `components/**/*.tsx` and `app/**/*.tsx` (never a hard-coded list). An `<a>` or
+`<Link>` is a CANDIDATE if it carries a `target` attribute or ANY spread attribute; without
+either it cannot become external and is skipped. `.mdx` **is compiled and then scanned by the same pass** — it does NOT get a separate lexical rule.
+`compileMdxToJsx()` runs `@mdx-js/mdx` with `jsx: true` and hands the result to `scanSource`, so MDX
+and TSX share one enforcement path. Four earlier rounds of hand-written lexical rules each produced
+a new defect (§6.4), which is why the model changed. The compiled module is walked in full, so an
+anchor bound to an `export const`, returned from an exported function, or handed to a custom
+component is classified too. The live test asserts each file compiles to real JSX before scanning
+it, so an empty compile cannot make the guard pass for the wrong reason. **Props injected through
+MDX's runtime components map are outside any per-file scan**, so a separate test pins that
+`mdx-components.tsx` declares no anchor override and injects no `target`.
+
+### 6.2 Approved shapes (everything else is a finding)
+
+1. **Literal** — `target="_blank"` (ASCII case-insensitive per the HTML spec) with NO spread
+   attribute on the element.
+2. **Gated** — no `target` attribute, and exactly ONE spread of the form
+   `{...(COND ? { target: "_blank", rel: "…" } : {})}` where both branches are inline object
+   literals whose properties are decidable literals drawn only from `{ target, rel }`.
+
+The `{ target, rel }` prop allowlist is derived from the tree, not guessed: all four gated
+spreads carry exactly `{ target: "_blank", rel: "noopener noreferrer" }` and nothing else, and neither
+`referrerPolicy` nor `download` appears on any anchor in the codebase. If a future anchor
+legitimately needs another prop, widen `SPREADABLE` in the scanner along with a self-test —
+do not weaken the allowlist to "any literal-valued prop", which is precisely the rule that let a
+spread smuggle in `aria-labelledby` / `aria-hidden` / `className` (review R4 BLOCKING 2).
+
+A value is decidable only if it is a string literal or a no-substitution template; a template
+WITH substitutions is not. Anything outside these shapes is reported as
+`unrecognized external-link shape (<why>)`.
+
+### 6.3 Announcement verification for an approved shape
+
+- An element carrying `aria-label` or `aria-labelledby` must announce IN THAT LABEL; a
+  `NewTabHint` child is inert beneath a naming override. The label's non-phrase remainder,
+  after stripping punctuation, must be non-empty, and a substitution only supplies a
+  destination when the enclosing conditional's own test guards it non-empty.
+- Otherwise a `NewTabHint` must be present in CHILD position (not passed as a prop), preceded by
+  a real sibling space (JSX whitespace-stripping modelled), not hidden by `aria-hidden`, the
+  native `hidden` attribute, or a hiding class, and not beneath any element whose attributes
+  cannot be proven non-hiding (a spread, an undecidable `className`/`style`, or its own
+  `aria-label`/`aria-labelledby`). A `role` counts as a naming override ONLY when it is not
+  `presentation`, `none`, `group`, or `generic`: those four do not rename their subtree, and the
+  installed accessible-name implementation computes `Go (opens in a new tab)` through each, so
+  rejecting them was pure developer friction (review R5 LOW 6).
+- **Gated** anchors require the hint under a condition whole-expression-equal to the effective
+  `_blank` predicate, with branch polarity computed rather than compared textually.
+- **Literal** anchors require an UNCONDITIONAL hint. Proving an arbitrary conditional chain
+  exhaustive is undecidable (R3 defeated a both-branches heuristic with
+  `e ? ready && <Hint/> : <Hint/>`), so the approved shape avoids the question.
+- One inline `// no-newtab-announcement: <reason>` comment exempts exactly ONE candidate — the
+  next one it precedes, compliant or not — and requires a non-empty reason. The ship-time
+  exemption count is zero.
+- A comment-stripped copy census pins the FILE SET carrying the phrase (not an occurrence
+  count, which goes stale as fallbacks are added), stripped via the TypeScript scanner rather
+  than regexes.
+- Synthetic scanner self-tests are MANDATORY, one per accept/reject branch, because the live
+  tree exercises only the two shipped shapes.
+
+### 6.4 Accepted limits (ratified, not oversights)
+
+- **A correct-but-unusual shape is reported**, e.g. an announcing `aria-label` arriving through
+  a spread. The author moves to an approved shape or adds a reasoned exemption. A false positive
+  costs one comment; a false negative ships a silent link.
+- **No MDX component map injects `target`, verified.** MDX resolves intrinsic tags through a
+  components map, so an anchor override there could make every help-page link external with nothing
+  per-file to inspect. Checked 2026-07-25: `mdx-components.tsx` is 34 lines and defines no anchor override, no `target`, and no `Link` — so the compiled-per-file scan is complete for this tree.
+  The compiled output routes intrinsic tags as `_components.a`, whose last segment is `a`, so the
+  existing link-tag rule classifies them without special-casing. Re-check this file if a components
+  map ever gains an anchor override.
+- **Non-JSX anchor construction is out of scope, and verified absent.** The scanner walks JSX
+  elements, so `React.createElement("a", { target: "_blank" })` and an anchor injected through
+  `dangerouslySetInnerHTML` are invisible to it. Verified 2026-07-25 against the live tree: the only
+  `createElement` call is `document.createElement("div")` for a portal container
+  (`components/admin/FinalizeButton.tsx:636`), and the only `dangerouslySetInnerHTML` is the
+  no-FOUC theme script in `app/layout.tsx:59`. Neither creates a link. A tag held in a variable
+  (`const T = "a"`) and a namespaced tag (`<svg:a>`) ARE both classified, because the explicit
+  `target` attribute rule does not depend on the tag name.
+- **Document-level `<base target="_blank">` is out of scope.** It would make every relative
+  anchor external without any per-anchor syntax to inspect. None exists in the tree; a lexical
+  assertion that none is introduced is tracked in `DEFERRED.md`.
+- **Expression IDENTITY is also a narrow subset.** Proving a guard non-empties its OWN
+  substitution (`title.trim() ? ` + "`${title.trim()} …`" + `) needs the two expressions to be the SAME
+  one. That comparison accepts only: an identifier, a property access (recording optional-chain),
+  an element access with a literal or identifier key, a ZERO-ARGUMENT call over any of those, and
+  `!` over any of them. An earlier version serialized arbitrary expressions and fell back to
+  whitespace-stripped source text for anything unsupported, which erased token boundaries and
+  collided genuinely different expressions: `new F()` with `newF()`, `await x` with `awaitx`,
+  `typeof x` with `typeofx`, `x as string` with `xasstring`, a one-space template with an empty
+  one, and any two literals differing only by an internal space (`get(/a b/)` with `get(/ab/)`).
+  It also dropped optional-chain tokens and call type arguments, colliding `obj?.[key]` with
+  `obj[key]`, `fn?.()` with `fn()`, and `fn<T>()` with `fn()`. R7 gave a witness for each where
+  the substitution evaluated to `""` and the computed name was the bare phrase. A partial
+  serializer over a full grammar cannot be made injective by adding cases, so the subset is
+  explicit and everything outside it fails closed. All shipped labels are inside it.
+- **The candidate-admission net for TSX tests raw text AND a comment-stripped copy, and the union
+  decides.** A raw-text-only regex missed a comment between `target` and its `=`, and between a
+  spread's brace and its dots. Stripping alone would be unsafe, so the union is used: it can only
+  admit MORE, which is the fail-closed direction. `target` matching is case-INSENSITIVE, since HTML
+  attribute names are and React emits `TARGET={x}` with a warning rather than dropping it. This net
+  applies to TSX only; MDX no longer has a lexical net at all.
+- **Attribute NAMES are matched ASCII-lowercased; VALUES keep their case.** HTML attribute names
+  are case-insensitive and React forwards an unknown casing to the DOM with only a dev warning, so
+  `TARGET="_blank"` opens a tab and `ARIA-HIDDEN="true"` really hides. The candidate net was
+  case-insensitive while the classifier compared names verbatim, so all 63 non-lowercase spellings
+  of `target` were admitted and then skipped with zero anchors and zero violations (review R8
+  BLOCKING 1). One camelCase literal survived the first sweep and silently reopened the
+  dynamic-`className` hole, which is why the property is now guaranteed BEHAVIOURALLY (see the
+  closed-list sweep below) rather than by a literal scan. The literal tripwire still runs, but as a
+  secondary accident-catcher only — earlier revisions of this section presented it as the guarantee,
+  and R19 showed a source scan cannot be one.
+- **A link candidate is a known link tag (including a member expression whose last segment is one,
+  `UI.Link`), OR any element with an explicit `target` attribute, OR any element with `href` plus a
+  spread.** Tag membership alone missed `<Tags.External href="x" target="_blank">`, which React
+  renders as a real anchor named only "Go" (review R8 BLOCKING 2). Requiring `target` AND `href`
+  then missed `<Foo target="_blank" {...spreadHref}>` and `<RouterLink href="x" {...spreadTarget}>`
+  (review R9 BLOCKING 1).
+
+  **This reverses an earlier decision, deliberately.** R8's resolution kept `<Tabs target="_blank" />`
+  unclassified, on the reasoning that a non-URL `target` prop selects a tab rather than a window.
+  R9 showed the price: an explicit `target` whose `href` arrives by spread was skipped entirely.
+  The tie goes to failing CLOSED, so an explicit `target` is always classified; R9's census confirms
+  no live component carries `target` without `href`, and a genuine non-URL `target` prop costs one
+  exemption comment. A spread-only element with neither attribute is still not a candidate, which
+  is what keeps every `<div {...props}>` out. Residue, accepted: an unknown tag where BOTH `href`
+  and `target` arrive inside one unresolvable spread.
+- **MDX is COMPILED and scanned, not lexed.** Four rounds went into hand-written lexical rules for
+  MDX and each produced a new defect: a bare `target\s*=` matched prose and autolink query strings
+  (R8); a character class excluding angle brackets ended the tag at any inner `>` (R9); then a
+  quote-and-brace scanner miscounted braces inside regex literals, treated fenced code as live JSX,
+  and ran past a quoted attribute ending in a backslash (R10, three separate findings). A lexer for
+  a real grammar is the wrong model. `.mdx` sources now go through `@mdx-js/mdx` (already a repo
+  devDependency) with `jsx: true`, and the compiled JSX is handed to the SAME `scanSource` used for
+  TSX. Prose and fenced code become string literals; regex literals, escapes and attribute quoting
+  become the compiler's problem. **MDX and TSX are one enforcement path now, not two**, which is
+  what removes the class rather than the instance.
+- **Runtime-transparent wrappers are stripped; non-transparent ones stay residue.** Stripped:
+  parentheses, `as`, `satisfies`, non-null `!`, type assertions (including `as unknown as T` chains,
+  which unwrap repeatedly), and comma expressions — a comma expression evaluates to its LAST operand,
+  so `{...(0, {href, target})}` really forwards the object. Stripping only parentheses left every
+  other form invisible (review R12 BLOCKING 1; the comma case was probed from R13's brief). NOT
+  stripped, deliberately: an IIFE is a call and an `await` is a promise, so neither is statically
+  resolvable and treating them as transparent would be false confidence rather than coverage. Both
+  halves are pinned, so a later round neither reads the IIFE silence as a hole nor "fixes" it into
+  unsoundness.
+- **The duplicate-fold rule applies to INTRINSIC tags only, folds ASCII only, and runs after the
+  not-external return.** Props on a custom component are ordinary JavaScript keys and
+  case-sensitive, so `<UI.Link Mode mode>` is two distinct props; `toLowerCase()` also folds
+  Unicode, which rejected distinct `Σ` and `σ`; and running before the early return dragged
+  internal anchors in as external violations (review R12 MEDIUM 4). A guard that cries wolf gets
+  deleted, so its false-positive surface is a defect and not a conservative virtue.
+- **Comment stripping is parse-informed, because a token scan alone truncates files.**
+  `ts.createScanner().scan()` cannot know a `/` begins a regex without the parser's rescan, so a
+  VALID regex containing comment bytes (`/[/*]/`, `/a\/*b/`) was read as a block-comment start and
+  everything after it was DISCARDED — every consumer silently saw a fragment (review R13 HIGH 3).
+  The parse now supplies literal ranges (string, template parts, regex, JSX text) and a lexical pass
+  blanks only comment starts outside them. Comments become spaces rather than being deleted, so byte
+  offsets and line numbers stay valid for callers that report positions.
+- **Casing coverage is BEHAVIOURAL and reads no source. AMENDED at R19 — this supersedes the
+  semantic-position rule this section previously ratified.** Four source-reading models were tried
+  and each failed: accessor-name scoping (evaded five ways, R12), a blanket literal walk (false
+  positives on type positions and enum members, R13), regex over reading forms (`.includes` invisible,
+  R18), and literal shape (a regex literal, an unquoted property key, and reusing an excluded
+  spelling all invisible, R19). Every one of those had to enumerate something — positions, forms, or
+  node kinds — and the enumeration is what kept losing.
+
+  The guarantee is therefore measured at the output, not inferred from the source. The set of
+  attributes that can affect a computed accessible name is closed and **externally** defined (HTML
+  global attributes, `<a>` attributes, `role`, every ARIA state/property, and the JSX aliases
+  `className` / `htmlFor`). For each, scanning the same fixture with the name spelled in a different
+  case must produce the same verdict, in **both polarities** — a violating base and an announcing
+  base — because an announcing-only base cannot observe a read that SUPPRESSES a violation. No
+  reading form can evade this, because the source is never consulted; an attribute outside the closed
+  list behaves identically in either spelling, because HTML attribute names are ASCII
+  case-insensitive, so casing cannot be the defect there. (Not the stronger claim that it cannot
+  affect the name at all -- see the narrowing two bullets below.)
+
+  The hand-built per-attribute fixtures remain, because they prove the specific behaviour each
+  attribute drives (a hidden hint, a naming override, a stripped separator) which a same-verdict
+  sweep cannot. The sweep proves coverage; the fixtures prove meaning. A meta-assertion requires
+  every fixture attribute to appear in the closed list, so the sweep cannot silently skip one.
+
+- **`popover` is an ENUMERATED attribute, not a boolean one (R32 BLOCKING 3).** The earlier rule
+  treated it as boolean and claimed "all values measured", when the behavioural table covered only
+  `false` and `undefined`. Measured properly, React PRESERVES `popover=""`, `{0}`, `{1}`, `"auto"`
+  and `"bogus"` — every one of which starts the element hidden, since the HTML Standard maps an
+  invalid value to the `manual` state — and OMITS `popover={true}`, which is what the bare
+  `<span popover>` spelling means. So the rule was fail-open on the five preserved values and a false
+  positive on the omitted ones, from one wrong category.
+
+- **Value classification is per ATTRIBUTE KIND, because React is (R33).** The single most repeated
+  defect in this guard's history is asking "is this a literal?" when the question is "is this
+  decidable?", and the second is assuming one answer covers every attribute. It does not:
+
+  | Kind | Example | `{true}` | `{a === b}` | `""` |
+  | --- | --- | --- | --- | --- |
+  | boolean DOM | `hidden`, `inert`, `open` | renders, HIDES | undecidable → fail closed | falsy → omitted |
+  | enumerated | `popover` | omitted → visible | provably omitted → visible | preserved → hides |
+  | ARIA string | `aria-hidden` | `"true"` → hides | undecidable → fail closed | not `"true"` → visible |
+
+  So `hidden` and `popover` genuinely disagree about booleans, and a shared helper would be wrong for
+  one of them. The predicates are `isProvablyNullish` (shared), `reactOmitsValue` (nullish **plus**
+  booleans, `popover` only), `isLiteralTruthy` / `isLiteralFalsy` (JS truthiness, used for operand
+  and branch selection), and `staticStringValue` (the string a value evaluates to). Each is measured
+  in the behaviour suite rather than argued here.
+
+  **Decidable is wider than literal.** Operand selection was fail-open for signed numbers, BigInts in
+  any radix, regexes, `typeof`, function / arrow / class expressions, `new`, and JSX — all definitely
+  truthy, none of them "literals" (R33 BLOCKING 2). Zero BigInts are parsed by VALUE, since matching
+  the spelling `/^0+n$/` missed `0x0n` and was wrong in both directions at once (R33 BLOCKING 3).
+
+  **And decidability COMPOSES (R34 BLOCKING 2).** `?:`, `&&`, `||` and `??` each select one operand,
+  so every question about the value — truthy, nullish, omitted by React, can-it-render-`"true"` —
+  has the same answer for the whole expression as for the operand chosen. Three helpers were each
+  answering that partially and disagreeing, so the selection now lives in ONE place
+  (`pickedOperand`) and the others defer to it. The missing falsy spellings closed at the same time:
+  `void 0`, `-0n`, `-NaN`, and an evaluated-empty template.
+
+  **A name is not a binding (R34 BLOCKING 1).** `undefined` and `NaN` were classified by SPELLING —
+  the exact mistake R27 fixed for `NewTabHint`. `function A(undefined) { … hidden={undefined} }` is
+  valid code in which the identifier is a parameter, and every rule reasoning about "the global"
+  was then reasoning about a value that is not there. Both now resolve through the same
+  `isShadowedAt` walk the hint uses.
+
+  **Per-hint state is ALL, not ANY (R34 HIGH 5).** A hidden instance beside a VISIBLE one does not
+  remove the announcement — the visible one still renders it, and
+  `Go <NewTabHint/> <span aria-hidden><NewTabHint/></span>` computes exactly
+  `"Go (opens in a new tab)"` (measured). The anchor is unannounced only when EVERY instance is
+  hidden.
+
+  **And the same rule governs every OTHER question about the announcement (R37).** "ALL, not ANY" was
+  applied to the hidden flag alone, which left three consumers reading the raw instance list: the
+  unconditionality check, the `_blank`-gating check, and separation. A HIDDEN instance is not an
+  announcement, so it may not answer questions about one — and the fail-open that proved it is worth
+  keeping in view:
+
+  ```tsx
+  <a target="_blank">Go {flag && <NewTabHint />} <span aria-hidden="true"><NewTabHint /></span></a>
+  ```
+
+  With `flag` false this announces nothing, yet the unconditionality check passed because the HIDDEN
+  instance carried no condition and vouched for the conditional visible one. The three consumers now
+  share one filtered list of name-contributing instances. Precedence is deliberate: a hint that is
+  hidden reports THAT, not that it is unseparated — absence from the name is the more fundamental fact
+  and the vaguer message would bury it.
+
+- **"Cannot be PROVEN non-hiding" is a claim about UNDECIDABILITY, not about hiding (R37).** The
+  hint-path rule and the hiding rule answer different questions, and collapsing them downgraded the
+  message for `className="hidden"` from the precise reason to the vaguer one. A class that definitely
+  hides is DECIDED; only a value the scanner cannot evaluate is unproven. `classNameDecidable` answers
+  the first question, `classNameHides` the second.
+
+- **A null-prototype object is UNDECIDABLE, not `"[object Object]"` (R38-era sweep).** `{__proto__:
+  null}` has no inherited `toString`, so `String()` on it THROWS (`Cannot convert object to primitive
+  value`, measured — React's render throws too). An earlier version exempted it as a harmless
+  prototype assignment; that exemption claimed a crashing value was decidably safe.
+
+- **A dynamic PREDICATE does not make a spread undecidable when every branch hides (R34 BLOCKING 4).**
+  `{{...(flag ? {display:"none"} : {visibility:"hidden"})}}` hides whichever branch runs, and so does
+  the identical-branch form. Only the BRANCHES need to be decidable, not the test — the same shape
+  as an agreeing conditional in `staticStringValue`. One visible branch makes it opaque again.
+
+- **A style object is an ordered sequence of writes, and a spread is a write (R33 BLOCKING 4).**
+  Scanning properties independently was wrong in both directions: `{{...(true ? {display:"none"} :
+  {})}}` hid and scanned clean, while `{{display:"none", ...(true ? {display:"block"} : {})}}` is
+  visible and was reported. The object resolves in source order with last-write-wins, seeing through
+  a conditional whose branches are decidable. An undecidable spread makes the WHOLE object opaque
+  rather than being skipped — skipping would let an earlier hiding write survive a later unknown one.
+
+- **A style KEY is a JavaScript property name; a style VALUE is CSS (R33 HIGH 8).** Three
+  neighbouring rules with three different answers, each measured:
+  `{{DISPLAY:"NONE"}}` makes React emit `-d-i-s-p-l-a-y:NONE` and styles nothing, so keys are
+  compared EXACTLY; `{{display:"NONE"}}` really hides, so values ARE folded; `{{" display ":"none"}}`
+  really hides, so keys are trimmed. Folding the key reported valid markup, and a fixture written one
+  round earlier asserted that false positive was correct.
+
+- **Inline `style` is read through the AST, not as text (R32 BLOCKING 5).** Five consecutive rounds
+  each deleted one more value-transparent wrapper from a raw-text matcher — quotes (R27), backticks
+  (R28), comments (R30), parentheses (R31) — and R32 supplied two that no amount of deletion can
+  reach, because they require EVALUATION: `display: (0, "none")` and
+  `display: (true ? "none" : "block")`. The comment claiming every transparent wrapper had been
+  removed was false when it was written. The rule now walks the object literal and evaluates each
+  property value, which also retires the two hazards the text version needed special cases for: a
+  quoted or computed key is just a key, and `backfaceVisibility` can no longer collide with
+  `visibility` because keys are compared exactly rather than by substring.
+
+- **The casing sweep varies attribute NAMES, not attribute VALUES, and that boundary is
+  deliberate.** Attribute names are ASCII case-insensitive in HTML, so a case-sensitive name read
+  is unambiguously a defect. Values are not uniform: a `className` token is genuinely
+  case-sensitive (`HIDDEN` is a different CSS class from `hidden`), so folding it would be wrong.
+  **The one value the scanner DOES fold is `aria-hidden`, and R31 replaced this paragraph's account
+  of it.** The old text said the scanner exempted only the exact literal `false`, so `aria-hidden="FALSE"`
+  was reported. That is no longer what the code does, and the reasoning behind it was backwards.
+  Measured against both installed AccName versions, they agree and only the EXACT, untrimmed,
+  lowercase `"true"` hides:
+
+  | Value | Both AccName versions compute |
+  | --- | --- |
+  | `aria-hidden="true"` | `Go` — hidden |
+  | `aria-hidden="TRUE"`, `"True"`, `" true "` | `Go (opens in a new tab)` — VISIBLE |
+  | `aria-hidden="false"`, `"FALSE"` | `Go (opens in a new tab)` — visible |
+
+  The value is EVALUATED before that comparison, not pattern-matched: a template substitution reaches
+  the DOM, so `aria-hidden={`${true}`}` really does hide and `aria-hidden={`true${false}`}` really
+  does not (R32 BLOCKING 2, wrong in both directions from one weak read).
+
+  The scanner compares case-insensitively after trimming, so it treats `"TRUE"` as hiding and reports
+  the anchor. **That is deliberately stricter than the harness** — one of the four divergences listed
+  under "THE FOUR STRICTER-THAN-HARNESS DIVERGENCES" below: browsers may fold an enumerated ARIA value where `dom-accessibility-api` does not, and the
+  costly error is a silently unannounced link, not a reported valid one. Do not "fix" the scanner to
+  match a `toHaveAccessibleName` result here — the divergence is the point, and both sides of it are
+  pinned in `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`.
+
+  Value-casing remains out of scope for the *sweep* — which varies names — and this one comparison
+  lives in the hiding rule instead.
+
+- **The destination rule reports only when the anchor is PROVABLY label-less, and its residual
+  risk is one undecidable case.** An external link whose accessible name is the announcement alone
+  (`<span aria-hidden="true">Go</span> <NewTabHint />` computes to `"(opens in a new tab)"`) is
+  reported. Three defects were found in this rule by probing it after writing it, and all three were
+  the same mistake — a DECIDABLE case sitting in the undecidable bucket:
+
+  | Wrongly treated as opaque | Reality |
+  | --- | --- |
+  | a component child (`<Label />`) and `<img alt="Go" />` | both contribute a name; the rule required literal TEXT |
+  | a fragment (`<>Go</>`) | walked as an element and rejected by the `isJsxElement` guard |
+  | `{" "}`, `{null}`, `{false}`, `{undefined}` | literals contribute nothing, yet counted as a destination |
+
+  **The tag-based half was replaced rather than extended, per the trigger stated below.** After R22
+  added `<template>`, probing found five more of the same shape — `<dialog>`, `<script>`, `<style>`,
+  `<noscript>`, `<datalist>`. Enumerating them one finding at a time is the losing pattern this guard
+  has already hit four times, so the rule is stated from the HTML Standard's hidden-elements
+  categories: content that is **never rendered** and elements **not shown unless `open`**
+  (`<details>`, `<dialog>`).
+
+  **Stated exactly, because "from the standard's categories" was claimed twice before while the set
+  was in fact hand-curated** — the error that produced the `<rp>` finding (R29) and the wrong reason
+  for excluding `<title>` (R30). The set is `template`, `script`, `style`, `noscript`, `datalist`,
+  `rp`, `noembed`, `noframes`, `param`, `title`. The standard's list also contains `base`,
+  `basefont`, `head`, `link`, `meta` and `area`, which are deliberately absent, and each absence is
+  measured rather than argued:
+
+  | Excluded | Measured reason |
+  | --- | --- |
+  | `link`, `meta`, `base`, `area` | React THROWS on children — "is a self-closing tag and must neither have `children`" — so none can ever carry a text label |
+  | `head`, `basefont` | render in this harness and contribute their text; obsolete or structurally absurd inside an `<a>`, with no live usage, so they are left out rather than added on a guess |
+
+  <a id="stricter-than-harness"></a>
+
+  **THE FIVE STRICTER-THAN-HARNESS DIVERGENCES.** These are the only places the scanner deliberately
+  disagrees with `dom-accessibility-api`, and each one follows the BROWSER because the harness cannot
+  see what a browser sees. This is the single list; earlier sections that mention "stricter than the
+  harness" mean exactly these four and must not re-enumerate a partial set — three separate partial
+  lists is how the count drifted from two to four unnoticed.
+
+  | Case | What a browser does | What the harness computes |
+  | --- | --- | --- |
+  | `inert` | removes the subtree from the a11y tree | still reads the text |
+  | `noscript` | `display: none` when scripting is enabled | still reads the text |
+  | `visibility: collapse` | on a non-table element, treated as `hidden` | still reads the text (it special-cases only the `hidden` string) |
+  | `aria-hidden="TRUE"` | may fold an enumerated ARIA value | hides only on the exact lowercase `"true"` |
+  | a hiding CLASS (`hidden`, `invisible`, `md:hidden`) | the stylesheet hides the subtree | jsdom loads no CSS, so it still reads the text |
+
+  **The class row is the one that cannot be checked at all**, and it was missing from this list until
+  R35 was in flight. jsdom applies no CSS, so `className="hidden"` wrapping the hint still computes
+  the full name (measured) — the harness has no way to confirm or refute the rule. INLINE style is
+  different and IS modelled (`display:none` and `visibility:hidden` both hide in the harness), which
+  is why the agreement matrix can cover style but not class.
+
+  All five are measured and pinned in `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`,
+  each next to the neighbouring case the harness DOES model, so the disagreement reads as a measured
+  pair rather than an untested rule. **A `toHaveAccessibleName` result showing the harness disagrees
+  is not a finding for any of them** — do not "fix" the guard to match one.
+
+  **The stale claim that used to close this paragraph — "metadata elements are deliberately excluded:
+  none is valid inside an `<a>`" — is struck.** It survived one round past the finding that refuted
+  it, sitting directly beneath a set that now CONTAINS `title` (R31 MEDIUM 8). The reason `title` is
+  in the set is that React hoists it out of the anchor, not that it cannot appear there; the reason
+  the others are out is the measured table above. `title` and `style` are also real attribute names,
+  which is why both sit in the guard's `CASE_INSENSITIVE_NAMES` — without that its own classification
+  check reads them as silenced attributes.
+
+  **`<title>` is TWO elements, and the tag name alone cannot tell them apart (R31 HIGH 5).** In the
+  SVG namespace it is neither hoisted nor hidden: it renders in place and NAMES the graphic, so
+  `<a target="_blank"><svg><title>Go</title></svg> <NewTabHint /></a>` computes
+  `"Go (opens in a new tab)"` and is CORRECT — the guard reported it.
+
+  **It names only as the svg's DIRECT CHILD, and the first fix for this got that wrong.** An "is
+  there an `<svg>` anywhere above me" ancestor walk is a fail-OPEN hole: per SVG-AAM an `<svg>` takes
+  its name from its OWN direct-child `<title>`, and a deeper one names its nearest graphics container
+  instead — which is not the anchor's name. Measured:
+
+  | Shape | Accessible name |
+  | --- | --- |
+  | `<svg><title>Go</title></svg>` | `Go (opens in a new tab)` — NAMES |
+  | `<svg><g><title>Go</title></g></svg>` | `(opens in a new tab)` — names nothing |
+  | `<svg><div><title>Go</title></div></svg>` | `(opens in a new tab)` — names nothing |
+  | `<svg><foreignObject><title>Go</title></foreignObject></svg>` | `(opens in a new tab)` — names nothing |
+
+  The `<div>` / `<p>` rows carry a subtlety worth recording: a CLIENT React render keeps the title in
+  the SVG namespace (`createElementNS` inherits from the parent) while SSR markup reparsed by the HTML
+  parser breaks out to XHTML — the two render paths genuinely DISAGREE on namespace, and both were
+  measured. They agree on the verdict, so the rule is a direct-parent test and deliberately does not
+  model foreign-content breakout; a namespace-tracking rule would have to stay correct under two
+  different sets of rules for no gain. A tag-name set is the wrong shape here, and so is an ancestor
+  walk.
+
+  **MEASURED, not assumed — and the guard is deliberately stricter than the test harness.** Rendering
+  each shape and computing the name with `dom-accessibility-api` 0.6.3 gives:
+
+  | Shape | Computed accessible name |
+  | --- | --- |
+  | `<span aria-hidden="true">Go</span> <NewTabHint />` | `(opens in a new tab)` |
+  | `<span>Go</span> <NewTabHint />` | `Go (opens in a new tab)` |
+  | `<template>Go</template> <NewTabHint />` | `(opens in a new tab)` |
+  | `{0} <NewTabHint />` | `0 (opens in a new tab)` |
+  | `<span aria-hidden="true">Go</span> {true} <NewTabHint />` | `(opens in a new tab)` |
+  | `Go <details><NewTabHint /></details>` | `Go (opens in a new tab)` |
+  | `Go <span inert><NewTabHint /></span>` | `Go (opens in a new tab)` |
+
+  **Both installed implementations agree on all of these** — `dom-accessibility-api` 0.5.16 (behind
+  `@testing-library/dom`'s role-name filtering) and 0.6.3 (behind `toHaveAccessibleName`) return
+  identical strings for every row, so none of this is a version artifact.
+
+  The first five confirm the rules directly. **The last two do not, and that is expected**: jsdom
+  performs no rendering and `dom-accessibility-api` models neither `inert` nor a closed `<details>`,
+  while the HTML Standard says inert subtrees are not exposed to accessibility APIs and closed
+  details content is not shown. Real browsers honour both. So the static guard is STRICTER than the
+  harness, which has a concrete consequence worth stating: **a `toHaveAccessibleName` assertion
+  cannot catch an `inert` or closed-`<details>` regression — only the guard can.** Do not "verify"
+  either rule against the harness and conclude the guard is wrong.
+
+- **The hint must be BOUND, not merely spelled — and two legitimate import forms fail closed.**
+  Trusting the spelling `NewTabHint` meant one line, `const NewTabHint = () => null`, defeated the
+  guard entirely while React announced nothing (R27). The hint must now be imported from
+  `components/shared/NewTabHint` (or be that file), and `Link` from `next/link`; an absent or
+  unresolvable import means untrusted.
+
+  The accepted cost: a **namespace** import (`import * as S`, used as `<S.NewTabHint />`) and an
+  **aliased** import (`{ NewTabHint as Hint }`, used as `<Hint />`) are both reported, because the
+  tag spelling no longer matches and the hint is not recognised at all. Both are legitimate code.
+  No live file uses either form, so the cost is zero today; an author who wants one uses the direct
+  named import or adds a reasoned exemption. Stated here rather than left for someone to hit.
+
+- **Anything handed to a CALLEE is not proof of rendering, including component children.** The
+  callee decides. This guard found that fact three times before naming it: a JSX attribute (R4), a
+  call argument (R25), and finally component children (R26b) — which look like containment and are
+  semantically `props.children`. `<Drop>Go</Drop>` renders nothing when `Drop` returns null, and
+  `<External target="_blank">Go <NewTabHint /></External>` renders an unannounced anchor when
+  `External` discards what it was handed.
+
+  **Component-mediated content therefore fails CLOSED in both walks**, which inverted two cases
+  previously ratified as acceptable. The posture was chosen by measurement, not preference: no live
+  anchor takes its label from a component — all 22 use literal text, and components appear only as
+  `aria-hidden` icons — so the strictness costs nothing today, and a legitimate future case takes one
+  reasoned exemption. Had even one real anchor depended on component-supplied content, the answer
+  would have been the reverse; re-measure before changing it.
+
+  **One principled exemption:** a KNOWN link component (`Link`) is trusted, because rendering its
+  children is the contract that makes it a link component. Without that carve-out the posture would
+  report every `<Link>` anchor. Failing closed is not the same as trusting nothing — the contracts
+  relied on are named.
+
+- **A naming attribute must APPLY to its element, and a reference must resolve.** `alt` names only
+  `img` / `area` / `input`, so `<br alt="Go" />` names nothing (R26b). `aria-labelledby` is excluded
+  from the proof entirely: it points at another element, a dangling reference names nothing, and the
+  target cannot be resolved statically, so treating it as evidence was a fail-open.
+
+  **R31 closed the other half of that: `aria-labelledby` also OUTRANKS `aria-label`.** Excluding it
+  from the proof is not enough, because an anchor may carry both — and then the announcement written
+  into `aria-label` is dead text. Measured, `<a aria-label="Go (opens in a new tab)"
+  aria-labelledby="n">` computes `"Go"` from the referenced element and never announces, while the
+  same source with a DANGLING reference falls back and computes `"Go (opens in a new tab)"`. Two
+  reachable names from identical source, decided by a document the guard cannot see. So an anchor
+  carrying `aria-labelledby` is reported whatever else it carries; a legitimate use takes one
+  reasoned exemption. The earlier rule read the two attributes as interchangeable, which let the
+  weaker one satisfy the guard while the stronger one silently decided the name.
+
+  Naming attributes
+  are checked on paired and self-closing elements alike — inspecting them only on self-closing gave
+  equivalent markup opposite verdicts.
+
+  **Hint discovery is an ALLOWLIST of render positions, for the same reason the main shape rule is.**
+  Listing the positions that DISCARD a hint is unbounded — review R25 supplied `??`, a call argument
+  and a comma expression, and probing immediately afterwards found six more (an object-literal
+  property, a template substitution, `void`, `typeof`, `!`, and property access). A JSX child
+  expression renders its VALUE, so the set of forms that PRESERVE that value is closed: the
+  expression itself, parenthesised / `as` / `satisfies` / non-null wrappers, both conditional
+  branches, `&&` / `||` / `??` operands with their conditions, the last operand of a comma, array
+  elements, and JSX children. Anything else is not a render position and fails closed. The risk an
+  allowlist carries is the mirror image — reporting correct code — so six render positions are
+  pinned as must-accept cases alongside the eight must-report ones.
+
+  **The literal-operator surface is now CLOSED, which is what acting on this section's own trigger
+  looked like.** Rather than wait for another round, the operators were enumerated directly: `&&`,
+  `||`, `??`, the conditional, and the comma (via `unparen`). `||` and `??` were both missing and
+  both fail-open. Note `??` tests NULLISH rather than falsiness — `{0 ?? "D"}` yields `0`, which
+  renders. What remains outside is opaque BY CONSTRUCTION rather than by omission: calls,
+  identifiers, member access, and templates with substitutions, none of which a static pass can
+  evaluate. That is a closed statement about the grammar, not another list to extend.
+
+  After those, the undecidable bucket holds exactly one thing: **a genuinely dynamic expression that
+  renders nothing at runtime** (`{maybeLabel}` where the value is `""`). That is assumed to carry a
+  destination, deliberately — failing closed there would report every `{label}` anchor in the tree,
+  which is most of them. So this rule fails OPEN on dynamic content by design and CLOSED on
+  everything statically decidable. Further refinement of the decidable side is not expected; if a
+  fourth defect appears there, the shape list is the thing to replace, not extend.
+
+  **The closed list is closed for CASING, not for hiding — narrowed at R21.** The original wording
+  claimed an attribute outside the list "cannot change an accessible name" -- RETRACTED, because
+  it is too strong.
+  `data-*` is an open-ended family, and a CSS rule such as `[data-state="closed"] { display: none }`
+  hides a subtree through an attribute no enumeration can predict (review R21 BLOCKING 3). What is
+  actually true, and all the sweep needs, is narrower: **HTML attribute names are ASCII
+  case-insensitive, so `DATA-STATE` and `data-state` produce identical DOM and match the same
+  selector.** R21's own witness confirms it — both spellings gave the same result. Casing therefore
+  cannot be the defect for any attribute outside the list, which is exactly the property the sweep
+  asserts.
+
+  **Separately, CSS-driven hiding is an accepted limit.** The scanner recognises `hidden`,
+  `aria-hidden`, `inert`, a closed `<details>`, hiding `class`/`className` tokens, and inline
+  `display:none` / `visibility:hidden`. It does NOT read the repo's stylesheets, so a rule keyed on a
+  `data-*` attribute, or any selector-driven hide, is invisible to it. Making that visible would mean
+  embedding a CSS engine and resolving cascade order, which is a different tool. No live anchor uses
+  a `data-*` hide; the risk is a future one, and it is recorded here rather than left to look
+  handled. `open` on `<details>` was a genuine omission and is now handled — note it is the only
+  hiding condition here expressed by an attribute's ABSENCE, which is why a presence-scanning loop
+  could not have found it.
+
+  **Value CONTENT is a different question, and it IS in scope.** Pinning every fixture to one
+  neutral value made the sweep vacuous for any read gated on the value: a case-sensitive `class`
+  read firing only when the value contains `hidden` agreed across both spellings, because a neutral
+  value never contains it, while real markup diverged and a hidden announcement was accepted
+  (review R20 HIGH 1). The sweep therefore crosses each name with the values that reach the
+  scanner's value-dependent branches — a neutral value, the `class`/`className` `hidden` token,
+  `true`, the `aria-hidden="false"` exemption, a style object, a style string — plus the bare
+  valueless form boolean attributes take. Not varying the value is not the same as values not
+  mattering, and that distinction is what the first version of this sweep got wrong.
+
+- **The lowercase-name literal tripwire is SECONDARY and is not a completeness proof.** It collects
+  name-shaped literals from the AST and flags any non-lowercase spelling of a known attribute name.
+  R19 established that source reading cannot be complete here — a regex literal and an unquoted
+  property key are both invisible to it — so it exists to catch the ACCIDENT (a camelCase literal
+  typed by hand during a sweep, which is how this class recurred once) and must never be cited as
+  evidence of coverage. Its exclusion list cannot name any attribute in the closed list, and cannot
+  retain an entry that has left the source; both are asserted.
+- **The undecidable-computed-key rule guards against accident, not obfuscation.** An expression-built
+  `components` key (a template substitution, a concatenation, an `Array.join`) is reported, narrowed
+  to keys whose source contains the fragment `compo`. That test is evadable by `String.fromCharCode`
+  or an imported constant, and that is accepted: the threat model is an author who does not realise a
+  caller-supplied map wins, not one who is hiding it — anyone willing to obfuscate the key can
+  equally edit the guard. Flagging every undecidable computed key was tried and reported a legitimate
+  dynamic key in `app/admin/settings/roles/RoleMappingRow.tsx`, and a guard that cries wolf gets
+  deleted. A genuinely dynamic override gets an explicit allowlist row with a reason.
+- **A caller-supplied MDX components map is outside per-file scanning.** `useMDXComponents` spreads
+  its argument, so the map's own source cannot prove the runtime map is override-free. Two
+  assertions close it together: the map's returned object declares no `a`/`Link` key (parsed, not
+  regexed — seven override shapes defeated the regexes, review R12 BLOCKING 2), and no source parses to a
+  `components` JSX attribute or object key at all (a regex here missed a spread-wrapped prop, a
+  `createElement` call, and `{...props}`, and falsely flagged unrelated `components` props — review
+  R13 BLOCKING 2). A caller's `{...props}` remains undecidable residue. Separately neither assertion
+  is sufficient; the runtime check on the returned map is the third layer.
+- **Duplicate case-folded property names in an approved spread fail closed.** React writes
+  `{ target: "_self", TARGET: "_blank" }` to ONE case-insensitive DOM attribute and the LATER value
+  wins, so reading the first normalized match took the wrong value in both directions (review R10
+  BLOCKING 3). Ambiguity is not resolvable statically, so the shape is reported.
+- **A RESOLVABLE inline spread contributes its property names to candidacy.**
+  `<Foo {...{href:"x", target:"_blank"}}>` and the conditional form were skipped even though both
+  props are statically visible, and a forwarding component renders a real external anchor (review
+  R10 BLOCKING 2). The residue is now only an UNRESOLVABLE spread on an unknown tag.
+- **Object-literal property names inside an approved spread are lowercased too.** They were
+  compared verbatim, so `{ TARGET: "_BLANK", REL: "NoOpener" }` was reported as an unrecognized
+  shape: fail-closed, but it contradicts the casing contract and rejects a correctly announced link
+  (review R9 MEDIUM 3). The lowercase-literal meta-test was also far too narrow -- it matched only
+  variables literally named `n` or `nm` -- and now covers every name accessor and set-membership
+  helper.
+- **A COMPOUND gating predicate is reported, not compared.** Only an identifier, a
+  property-access chain, or `!` applied to either is an approved gate. Deciding whether two
+  different compound predicates denote the same runtime condition is not something a static pass
+  can do: six review rounds each produced a new pair that a textual normalizer wrongly equated,
+  and R6 alone enumerated eleven operator families (`!(e && ready)` vs `!e && ready`,
+  `!(x === y)` vs `!x === y`, `!(n > 0)` vs `!n > 0`, nullish, comma, bitwise, `instanceof`,
+  conditional, ...), each a state where the tab opens silently. So the question is no longer
+  asked. Predicates are compared as AST structural keys, and a compound predicate on either side
+  fails closed. All four shipped gated anchors gate on member expressions, so the present cost is
+  zero; a future compound gate costs one exemption or a named boolean.
+- **An effectful predicate evaluated twice** (`{...(next() ? … )}` with `next()` also gating the
+  hint) cannot be proven consistent statically. Textual equality is the guarantee; identity of
+  side effects is not. No such predicate exists in the tree, and the approved shapes discourage
+  it.
+
+## 7. Tests (TDD per task — failing test first)
+
+Structural coverage proves a token is present, not that the name is right. R2 demonstrated two implementations that satisfy every structural check while producing a broken name, and R1's "one site per group" minimum would have let them survive on nine untested Group A anchors. Therefore:
+
+**AMENDMENT (2026-07-25, ratified here per invariant 7):** the per-anchor behavioral table
+below is REDUCED to the load-bearing subset. Cross-model review R2 judged the remaining
+fourteen assertions ritual once the guard was corrected, and named three blocks as carrying
+real risk: `BellPanel`, `HealthAlertsPanel`, and the exact empty-interpolation outputs. Those
+three are implemented; per-anchor announcement PRESENCE is carried structurally by §6, which
+fails closed on any shape it cannot verify. What remains required:
+
+- Anchored accessible-name coverage for `AttentionBanner`, `BellPanel` and `HealthAlertsPanel`
+  (positive AND `external: false` negative), since the AST rule cannot prove a runtime name.
+- Anchored coverage where a fixture already exists: `SourceLink`, `CrewPageLink`,
+  `PublishedReviewModal`, `Step3ReviewModal`, `step3ReviewSections`, `VenueMapTile`.
+- The three empty-interpolation seams RENDERED, reading the computed accessible name, plus a
+  parity guard binding the probe to the shipped `aria-label` expression.
+
+The superseded requirement, kept for provenance:
+
+- ~~**Table-driven anchored accessible-name assertion for ALL 22 anchors**~~ — the 21 being fixed PLUS `components/admin/wizard/VenueMapTile.tsx:138`, whose label §2.2 rewrites. One table, one case per anchor, `expect(link).toHaveAccessibleName(/^…\(opens in a new tab\)$/)` anchored at both ends so the §3.1 separator bug fails. A substring match would pass the buggy `"Open in Sheet(opens in a new tab)"`. `toHaveAccessibleName` is already used at `tests/components/ReSyncButton.test.tsx:418`.
+
+  **VenueMapTile must be in this table, not only in the label-in-name check.** Its existing tests assert href, target, and visual presence but never the accessible name, so a "fix" of `Directions (opens in a new tab)` would satisfy the label-in-name assertion, the §6 remainder guard, and the copy census while silently dropping the Google Maps destination that §2.2 requires it to keep. Only the exact-name case catches that.
+- **Group C negative test** (highest-value test in the diff): each of the four renderers with `action.external === false`, asserting the name contains no new-tab phrasing and no `target` is set.
+- **Label-in-name assertions for the three §2.2 sites:** accessible name contains the visible string (`In sheet`, `In sheet`, `Directions`). These pin the WCAG fix and fail if someone later "simplifies" a label.
+- **Visible-text isolation:** clone the anchor, strip `.sr-only` descendants, assert trimmed `textContent` still equals the intended visible label — catches a "fix" that changed visible copy.
+- **Empty-interpolation tests for all THREE reachable seams** (§5): `title` at `components/admin/wizard/Step3ReviewModal.tsx:408`; `displayTitle` via `{ title: "", slug: "" }` at `components/admin/showpage/PublishedReviewModal.tsx:708`; and `label` via a `Step3SectionChromeContext` provider with `label: ""` at `components/admin/wizard/step3ReviewSections.tsx:934`. Each asserts the name keeps its destination clause, contains no double space, **and ends no clause on a dangling connective.** The first two assertions alone are insufficient: `Open the source sheet for (opens in a new tab)` and `In sheet, open the source sheet for (opens in a new tab)` both contain the destination and have no consecutive spaces, yet are exactly the malformed output §5 forbids. Assert the full expected string per seam (anchored equality, as with the 22-case table), not a pair of weaker properties. For `alt` — the one genuinely unreachable case — assert the UPSTREAM default at `components/admin/wizard/step3ReviewSections.tsx:3663` instead; an anchor-level fallback test there would be tautological.
+- **NewTabHint unit test:** renders a `sr-only` span whose text is exactly the canonical string.
+- **Existing assertions that must be updated** (found by sweeping the test tree for current Group B label literals; each is an exact-label expectation this diff changes): **CrewPageLink.test.tsx:36** (deleted upstream, §1.4), `tests/components/crew/sourceLink.test.tsx:51`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:348`, `tests/components/admin/wizard/Step3ReviewModal.test.tsx:271`, `tests/components/admin/wizard/Step3ReviewModal.test.tsx:1242`, `tests/components/admin/wizard/step3ReviewSections.test.tsx:913`, `tests/components/admin/wizard/step3ReviewSections.test.tsx:923`. The last file's test names also describe the anchor label as mirroring the image `alt`, which stops being exact once the suffix is added; rename accordingly.
+
+- **One committed byte-for-byte baseline also breaks, and a `.ts`/`.tsx` grep does not find it.** `tests/components/admin/review/__fixtures__/step3-header-baseline.html` contains the old `Open the source sheet for Asset Mgmt Summit` label, and `tests/components/admin/review/reviewModalShell.test.tsx:362` asserts `normalizeIds(header.innerHTML)` equals that fixture exactly. The `Step3ReviewModal` label change WILL fail it. **Regenerate the fixture in the same task as the label edit** and confirm the anti-vacuity guard at `tests/components/admin/review/reviewModalShell.test.tsx:361` (`expected.length > 500`) still holds afterward. Sweep for affected expectations across `.html`, `.snap`, `.json`, and `.md` as well as `.ts`/`.tsx`; this fixture was the only non-source hit.
+
+Real-browser Playwright assertions are not required: §5.1 establishes there is no layout dimension, and jsdom computes accessible names, which is the entire behavioral surface.
+
+### 7.1 Why anchored equality is safe in jsdom here (verified, not assumed)
+
+jsdom computes no CSS, so `display:none`-gated text is NOT excluded from its accessible-name computation — a divergence documented at `tests/components/ReSyncButton.test.tsx:345`, where a responsive label block forced that test to scope its assertion and defer real-browser name equality to a Playwright spec. (That citation is a comment plus a scoped workaround, not an executable assertion of the divergence; it is cited as the project's record of the behavior, not as proof.)
+
+**This concern applies to only 15 of the 22 anchors.** An anchor with an `aria-label` takes its name from that label, not its content (§2), so CSS-gated descendants cannot affect it — that immunizes all 6 Group B anchors plus `components/admin/wizard/VenueMapTile.tsx:138` by construction. Only the content-named anchors are at risk: 11 Group A plus 4 Group C.
+
+**Checked: none of those 15 contains CSS-gated text.** Responsive-hidden text does exist in the target files — `components/admin/wizard/Step2Verify.tsx:643`, `components/admin/wizard/Step3ReviewModal.tsx:521`, `components/admin/wizard/Step3ReviewModal.tsx:610` — plus decorative `sm:hidden` handles and carets at `components/shared/ReportModal.tsx:479`, `components/admin/BellPanel.tsx:1123` and `components/admin/BellPanel.tsx:1138`. All sit **outside** the `_blank` anchors (`Step3ReviewModal`'s anchor is at `components/admin/wizard/Step3ReviewModal.tsx:405`; `Step2Verify`'s are at `components/admin/wizard/Step2Verify.tsx:500` and `components/admin/wizard/Step2Verify.tsx:550`). Every in-anchor span is plain text or `aria-hidden="true"`, and `sr-only` is clip-based, so it is legitimately part of the name in both jsdom and real browsers.
+
+**Constraint:** if a site later gains CSS-gated text inside its anchor, scope that assertion the way `tests/components/ReSyncButton.test.tsx:345` does rather than asserting whole-anchor equality, and say so in the test header.
+
+## 8. Quality gates
+
+- **Invariant 8 (impeccable dual-gate)** applies; the diff touches `components/` and `app/`. `/impeccable critique` AND `/impeccable audit` via subagents, P0/P1 fixed or deferred via `DEFERRED.md`, before the whole-diff Codex review.
+- **Pre-push:** `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
+- **`pnpm spec:lint`** on this document, clean, with output attached to every review dispatch (`docs/agents/spec-self-review.md:23`).
+- Ship-time exemption list empty (§6 requirement 6).
+
+## 9. Out of scope (deliberate)
+
+- **Tap targets** — already shipped (`components/admin/PerShowActionableWarnings.tsx:281`).
+- **`rel` normalization** beyond the two anchors already being edited (`components/crew/sections/VenueSection.tsx:250`, **CrewPageLink.tsx:26** (deleted upstream, §1.4)).
+- **A repo-wide WCAG 2.5.3 audit.** §2.2 fixes the three failures found inside this family. If more surface while implementing, file a backlog item rather than growing this diff.
+- **Non-anchor external navigation** — none exists (§1.2, checked).
+- **Changing any visible copy.** Labels and hidden text only.
+
+## 10. Files touched
+
+New: the `NewTabHint` component under `components/shared/`, the meta-test under `tests/styles/`, and behavioral test files per §7.
+
+Edited: the 21 anchors in §4 plus the §2.2 label fix at `components/admin/wizard/VenueMapTile.tsx:138`, spanning **16 distinct files** — the 17 files containing `_blank`, minus `components/admin/wizard/Step3SheetCard.tsx`, which is the only family file needing no change. Plus the existing expectations in §7 — seven exact-label assertions across **five** test files (`Step3ReviewModal.test.tsx` and `step3ReviewSections.test.tsx` each carry two), plus the byte baseline `tests/components/admin/review/__fixtures__/step3-header-baseline.html` and its test `tests/components/admin/review/reviewModalShell.test.tsx` — and `BACKLOG.md` to close the item.

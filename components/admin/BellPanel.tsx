@@ -82,6 +82,7 @@ import { INLINE_IDENTITY_CODES } from "@/lib/adminAlerts/alertIdentityMap";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 import { resolveActionLabels } from "@/lib/adminAlerts/resolveActionLabel";
 import type { BellEntry, BellFeedResult } from "@/lib/admin/bellFeed";
@@ -259,10 +260,14 @@ const HELP_LINK =
 /**
  * The action row, exported so a real-component harness can mount it.
  *
- * WHY EXPORTED: the layout probe in tests/e2e/pusher-alignment.layout.spec.ts must
- * assert this row contains no childless growable child (its `flex-1` pusher). It
- * could not reach it while this was private: server-rendering <BellPanel> yields
- * only the initial loading state, so neither `isAutoResolving` branch is emitted.
+ * WHY EXPORTED (two independent reasons, both load-bearing):
+ *  - the layout probe in tests/e2e/pusher-alignment.layout.spec.ts must assert this
+ *    row contains no childless growable child (its `flex-1` pusher). It could not
+ *    reach it while this was private: server-rendering <BellPanel> yields only the
+ *    initial loading state, so neither `isAutoResolving` branch is emitted.
+ *  - the action anchors carry the new-tab announcement, and behavioral coverage of
+ *    them was judged load-bearing (the static guard proves the hint is present and
+ *    gated; only a render proves the resulting accessible name).
  *
  * The `resolving` state lives HERE, with the markup that reads it — the manual
  * branch uses it for the button's disabled/aria-busy and its pending copy — so a
@@ -319,6 +324,12 @@ export function BellActionRow({ entry, onRefetch }: { entry: BellEntry; onRefetc
           >
             {action.label}
             {action.external ? <span aria-hidden="true"> ↗</span> : null}
+            {action.external ? (
+              <>
+                {" "}
+                <NewTabHint />
+              </>
+            ) : null}
           </a>
         ))
       ) : null}
