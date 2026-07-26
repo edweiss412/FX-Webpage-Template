@@ -430,6 +430,41 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
     }
   });
 
+  test("the PREMISE of the casing rule: React normalises attribute-name case", () => {
+    // The entire behavioural casing sweep rests on this, and it was asserted only in spec prose
+    // until now. If React DROPPED a non-lowercase attribute instead of normalising it, then
+    // `TARGET="_blank"` would not open a tab, `ARIA-HIDDEN` would not hide, and the casing rule
+    // would be guarding nothing. Measured, it normalises:
+    //
+    //   TARGET="_blank"      -> target="_blank"       the tab really opens
+    //   ARIA-HIDDEN="true"   -> aria-hidden="true"    the hint really is hidden
+    //
+    // Two rounds of this PR were spent on claims about behaviour that turned out to be wrong
+    // (a hand-curated "from the spec" tag list, and `<title>` being impossible inside an anchor),
+    // so the load-bearing premises are measured rather than argued.
+    const upperTarget = { href: "x", TARGET: "_blank" } as unknown as Record<string, never>;
+    const { container: c1, unmount: u1 } = render(<a {...upperTarget}>Go</a>);
+    expect(c1.querySelector("a")?.getAttribute("target"), "TARGET normalises to target").toBe(
+      "_blank",
+    );
+    u1();
+
+    const upperAriaHidden = { "ARIA-HIDDEN": "true" } as unknown as Record<string, never>;
+    const { container: c2, unmount: u2 } = render(
+      <a href="x" target="_blank">
+        Go{" "}
+        <span {...upperAriaHidden}>
+          <Hint />
+        </span>
+      </a>,
+    );
+    expect(
+      c2.querySelector("a"),
+      "ARIA-HIDDEN really hides, so the announcement is lost",
+    ).toHaveAccessibleName("Go");
+    u2();
+  });
+
   test("the hidden / aria-hidden VALUE rules, measured -- note the asymmetry", () => {
     // These rules date from R1 HIGH 4 and R2 HIGH 4 and were justified in prose for 25 rounds
     // without ever being measured. They are all correct, and the ASYMMETRY is the point:
