@@ -258,13 +258,14 @@ describe("parseHotels — commitHotels invariants (T2)", () => {
       .filter(
         (w) => w.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS" || w.code === "HOTEL_CARDINALITY_EXCEEDED",
       )
-      .map((w) => w.code);
-    // Asserted by POSITION, not by code filter: an implementation emitting
-    // ambiguity #1, cardinality, ambiguity #2 passes a code-filtered check.
+      .map((w) => `${w.code}@${w.blockRef?.index ?? "-"}`);
+    // Asserted by POSITION with the INDEX attached (whole-diff R5 f4): two
+    // same-code entries compared by code alone cannot detect reversed
+    // index-0/index-1 emission, which changes the persisted warning order.
     expect(seq).toEqual([
-      "HOTEL_GUEST_SPLIT_AMBIGUOUS",
-      "HOTEL_GUEST_SPLIT_AMBIGUOUS",
-      "HOTEL_CARDINALITY_EXCEEDED",
+      "HOTEL_GUEST_SPLIT_AMBIGUOUS@0",
+      "HOTEL_GUEST_SPLIT_AMBIGUOUS@1",
+      "HOTEL_CARDINALITY_EXCEEDED@-",
     ]);
   });
 

@@ -10,7 +10,7 @@
 
 import type { ParseWarning, RoomKind, UseRawResolution } from "./types";
 import { collapse, contentHashForRawSnippet, contentHashForDateTokens } from "./useRawContentHash";
-import { stripConfirmationTokens } from "./blocks/hotelConfTokens";
+import { normalizeHotelCellText, stripConfirmationTokens } from "./blocks/hotelConfTokens";
 
 export type RawUnrecognized = { block: string; key: string; value: string };
 
@@ -388,7 +388,12 @@ export function emitHotelAddressSplitAmbiguity(
   if (params.reason === "address-shape-unsplit") {
     resolution = { resolvable: false, reason: "no-split-to-undo" };
   } else {
-    const strippedRaw = stripConfirmationTokens(params.rawCell);
+    // The replacement is built from the SAME cleaned text the splitter read
+    // (quotes/zero-width out), then conf-stripped — a raw-cell replacement
+    // would persist quote characters into crew-readable hotel_name (R5 f2).
+    // The contentHash below stays on the PRE-strip cell: the invalidation key
+    // must change whenever the sheet text changes, conf-only edits included.
+    const strippedRaw = stripConfirmationTokens(normalizeHotelCellText(params.rawCell));
     resolution =
       strippedRaw === ""
         ? { resolvable: false, reason: "empty-raw" }

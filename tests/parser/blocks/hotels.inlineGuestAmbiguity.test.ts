@@ -83,6 +83,23 @@ describe("inline hotel guest ambiguity", () => {
     });
   });
 
+  // Whole-diff R5 f1: the legacy matchers are ASCII-title-case, so a line with
+  // guest EVIDENCE (a dash-conf delimiter or bare conf#) whose name defeats
+  // every pattern — non-ASCII, all-caps, initials — used to reach the final
+  // return with examinedGuestRegion false: guest silently lost, zero warnings,
+  // the feature's motivating harm. Guest evidence at the final return IS an
+  // examined guest region, whatever the patterns lifted.
+  describe("guest evidence with pattern-defeating names still warns", () => {
+    it.each([
+      ["non-ASCII name", "Hyatt Regency José Núñez - 110525 Check In: 5/1 Check Out: 5/2"],
+      ["all-caps name", "Hyatt Regency JANE SMITH - 110525 Check In: 5/1 Check Out: 5/2"],
+    ])("warns on %s", (_label, cell) => {
+      const { warnings } = guestWarnings(inline(cell));
+      expect(warnings, "guest evidence present — silence is a guest-loss").toHaveLength(1);
+      expect(warnings[0]!.blockRef).toMatchObject({ index: 0 });
+    });
+  });
+
   describe("stays silent where no boundary was judged", () => {
     it("no-guest split path (row 2)", () => {
       const { hotels, warnings } = guestWarnings(inline("Hyatt Regency - 1515 Madison Ave"));

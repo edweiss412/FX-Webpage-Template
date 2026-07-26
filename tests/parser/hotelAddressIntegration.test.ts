@@ -241,11 +241,12 @@ describe("multi-group inline cells anchor the address warning at row 0", () => {
     const w = agg.warnings.filter((x) => x.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS");
     expect(w, "row 7: later rows inherit, only row 0's split was judged").toHaveLength(1);
     expect(w[0]!.blockRef?.index).toBe(0);
-    // The fragment is group 0's segment — never the parent cell, and never a
-    // later guest-only fragment (whose text an undo would write into the row).
-    expect(w[0]!.rawSnippet).not.toContain("Marriott");
-    expect(w[0]!.rawSnippet).not.toContain("Jane Doe");
-    expect(w[0]!.rawSnippet!.length).toBeLessThan(TWO_AMBIGUOUS.length);
+    // The fragment is EXACTLY group 0's segment (cut inclusive of its own
+    // "Check Out"), pinned by content, not by exclusions — a mutant passing any
+    // shorter slice of segment 0 would survive a not-the-parent-cell check
+    // while its use-raw replacement rewrote hotel_name to that slice
+    // (whole-diff R5 f3).
+    expect(w[0]!.rawSnippet).toBe(`${SEGMENT_0} Check In: 3/1 Check Out: 3/2`);
   });
 
   it("never lets a later guest-only fragment become an undo replacement", () => {
@@ -258,9 +259,10 @@ describe("multi-group inline cells anchor the address warning at row 0", () => {
     const w = agg.warnings.filter((x) => x.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS");
     expect(w).toHaveLength(1);
     expect(w[0]!.blockRef?.index).toBe(0);
-    const res = w[0]!.resolution as { replacement?: { hotelName?: string } };
-    if (res.replacement?.hotelName) {
-      expect(res.replacement.hotelName).not.toContain("Eric Weiss");
-    }
+    // Pinned exactly (whole-diff R5 f3): the fragment is segment 0 verbatim,
+    // and this P3(a) shape is unresolvable — so there is no replacement that
+    // COULD carry the later guest-only fragment into hotel_name.
+    expect(w[0]!.rawSnippet).toBe(`${SEGMENT_0} Check In: 3/1 Check Out: 3/2`);
+    expect(w[0]!.resolution).toEqual({ resolvable: false, reason: "no-split-to-undo" });
   });
 });

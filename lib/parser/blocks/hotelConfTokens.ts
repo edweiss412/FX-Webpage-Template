@@ -111,6 +111,23 @@ export function stripConfirmationTokens(rawCell: string): string {
   return stripConfTokens(flat);
 }
 
+/**
+ * The character-level cleaning `splitHotelNameAddress` applies before it reads
+ * a cell — zero-width characters out, straight/smart double-quotes to spaces,
+ * whitespace collapsed. Shared so the "undo the split" replacement is built
+ * from the SAME cleaned text the parser's own reading came from; a replacement
+ * built from the raw cell persists quote characters into crew-readable
+ * hotel_name that the normal parse never shows (whole-diff R5 f2). One
+ * definition — the splitter and the emitter must never drift.
+ */
+export function normalizeHotelCellText(s: string): string {
+  return s
+    .replace(/[​-‍﻿]/g, "") // zero-width: ZWSP / ZWNJ / ZWJ / BOM
+    .replace(/["“”]/g, " ") // straight + smart double-quotes → space
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
 // transform sites in this file that rest on a JUDGMENT the parser could get wrong.
 // None here — pure conf-token/street regex policy; no value-producing judgment transforms.

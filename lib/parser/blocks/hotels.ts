@@ -32,6 +32,7 @@ import {
 import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
 import {
   stripConfTokens,
+  normalizeHotelCellText,
   looksLikeStreetStart,
   STREET_ADDRESS_RE,
   STREET_ADDRESS_ZIP_RE,
@@ -361,11 +362,8 @@ export function splitHotelNameAddress(combined: string | null): {
   ambiguity?: AddressSplitAmbiguity;
 } {
   if (!combined) return { name: null, address: null };
-  const cleaned = combined
-    .replace(/[​-‍﻿]/g, "") // zero-width: ZWSP / ZWNJ / ZWJ / BOM
-    .replace(/["“”]/g, " ") // straight + smart double-quotes → space
-    .replace(/\s+/g, " ")
-    .trim();
+  // Shared with the emitter's replacement path — see normalizeHotelCellText.
+  const cleaned = normalizeHotelCellText(combined);
   if (!cleaned) return { name: null, address: null };
   // The address begins at the first street number that starts a SUFFIXED street
   // phrase (see STREET_ADDRESS_RE). Suffix-only by design: a suffixless tail (a
@@ -877,6 +875,22 @@ function buildInlineHotel(raw: string, ordinal: number, contextYear: string | nu
   const checkInMatch = /check\s+in[:\s]+(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i.exec(text);
   const checkOutMatch = /check\s+out[:\s]+(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i.exec(text);
 
+  // Guest EVIDENCE in this cell: a dash-run + 4+-digit conf# that is NOT a
+  // street number, a bare 6+-digit conf, or a #-conf — the same signals the
+  // no-Check-In branch's `hasGuest` gate reads. Used by the final-return
+  // classification (spec §3.1 rows 5/6): evidence present means a guest region
+  // was examined even when every pattern lifted nothing.
+  const hasGuestEvidence = (): boolean => {
+    if (/\b\d{6,}\b|#\s*\d{4,}/.test(text)) return true;
+    const re = /[-–—]{1,3}\s*#?\s*(\d{4,})\b/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const numStart = m.index + m[0].length - m[1]!.length;
+      if (!looksLikeStreetStart(" " + text.slice(numStart))) return true;
+    }
+    return false;
+  };
+
   // v1 "Hotel Stays" / no-Check-In dash-delimited shape (east-coast):
   // "<hotel name+address> <Guest>[ <Initial>] <dash-run> #?<conf> ...". With no
   // "Check In:" marker to separate hotel from guests, the weak Pattern 1/2/3
@@ -1055,6 +1069,15 @@ function buildInlineHotel(raw: string, ordinal: number, contextYear: string | nu
       }
     }
   }
+
+  // A final return reached WITH guest evidence (a dash-conf delimiter or a
+  // bare conf#) examined the guest region even when every pattern lifted
+  // nothing — non-ASCII ("José Núñez"), all-caps, or initialed names defeat
+  // the ASCII title-case matchers, and the guest silently vanishing with no
+  // operator signal is the feature's motivating harm (whole-diff R5 f1; spec
+  // §3.1 row 5's rationale: a scan that yields nothing is a guest-loss, not a
+  // non-judgment). Row 6 — no warning — requires NO guest evidence at all.
+  if (!examinedGuestRegion && hasGuestEvidence()) examinedGuestRegion = true;
 
   // Extract hotel name: strip any "Check In" suffix first
   const hotelNameRaw = text

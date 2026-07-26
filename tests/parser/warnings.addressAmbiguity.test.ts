@@ -138,6 +138,35 @@ describe("emitHotelAddressSplitAmbiguity", () => {
     expect(rep.kind).toBe("hotel-name");
     expect((rep as { hotelName: string }).hotelName).not.toMatch(/9999/);
     expect((rep as { hotelName: string }).hotelName).not.toMatch(/#/);
+    // The hash is derived from the PRE-strip cell (the invalidation key must
+    // change whenever the SHEET text changes, including a confirmation-only
+    // edit) — while the replacement is the stripped text. Hashing the stripped
+    // form instead would let a conf-only sheet edit keep a stale decision
+    // alive (whole-diff R5 f5).
+    const res = RESOLVABLE(agg.warnings[0]!.resolution);
+    expect(res.contentHash).toBe(contentHashForRawSnippet(RAW));
+    expect(res.contentHash).not.toBe(
+      contentHashForRawSnippet((res.replacement as { hotelName: string }).hotelName),
+    );
+  });
+
+  // Whole-diff R5 f2: the splitter quote-cleans before splitting, so `parsed`
+  // is quote-free — but a replacement built from the raw cell would persist
+  // straight/smart quotes into crew-readable hotel_name, undoing the render
+  // sanitation the parser's own reading applies.
+  it("cleans quotes and zero-width characters out of the replacement", () => {
+    const agg = newAggregator();
+    emitHotelAddressSplitAmbiguity(agg, {
+      reason: "multiple-street-candidates",
+      rawCell: "“Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601”",
+      index: 0,
+      name: "Hotel",
+      parsedName: "Hotel",
+      parsedAddress: "71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601",
+    });
+    const rep = RESOLVABLE(agg.warnings[0]!.resolution).replacement as { hotelName: string };
+    expect(rep.hotelName).toBe("Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601");
+    expect(rep.hotelName).not.toMatch(/["“”​-‍﻿]/);
   });
 
   // Two snippets that differ only in whitespace collapse to the same canonical
