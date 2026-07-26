@@ -88,7 +88,7 @@ implementation ("fold iff my index is absent from the set") would fold EVERY day
 which is the worst outcome this feature can produce. So the component treats an empty `rows` as "all",
 and a test asserts that directly rather than trusting the producer.
 
-**The two arms are a discriminated union on purpose, and `{ kind: "subset"; days: <empty> }` must be
+**The two arms are a discriminated union on purpose, and `{ kind: "subset"; rows: <empty> }` must be
 unreachable.** An earlier plan draft described the fail-open case as "returns the empty set". That is the
 one ambiguity this feature cannot contain: an empty `Set` reads equally well as *no day is the viewer's, so
 fold everything*, which silently hides the viewer's own day. The discriminant makes the dangerous reading
