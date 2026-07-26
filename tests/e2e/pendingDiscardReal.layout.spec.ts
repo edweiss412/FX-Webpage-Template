@@ -374,20 +374,43 @@ test("the declared rails still match the production geometry they mirror", () =>
    * contract, so read it directly. A source scan is the right tool here: these are
    * Tailwind class strings and a token, none of which the harness can measure without
    * booting the app. */
-  const dashboard = readFileSync(join(REPO_ROOT, "components", "admin", "Dashboard.tsx"), "utf8");
+  /* R15 F1: a bare `includes()` on raw source would also match a commented-out or
+   * superseded occurrence. The first attempt at this stripped comments with a regex and
+   * was WORSE — a `/*` inside a string in app/admin/layout.tsx opened a span the
+   * non-greedy match closed far too late (3 opens, 1 close before the token), deleting
+   * the real className and failing the guard. Regex comment-stripping does not survive
+   * TSX. So do not rewrite the source: require the token to appear on a line that is
+   * live code carrying it in the attribute it belongs to. */
+  const src = (path: string) => readFileSync(join(REPO_ROOT, path), "utf8").split("\n");
+  const onLiveLine = (lines: string[], token: string, context: string) =>
+    lines.some((l) => {
+      const t = l.trim();
+      return l.includes(token) && l.includes(context) && !t.startsWith("//") && !t.startsWith("*");
+    });
+
+  const dashboard = src("components/admin/Dashboard.tsx");
+  /* TWO independent constraints decide this rail's width, and checking only the grid
+   * track left the other free to move (R15 F1). The track sizes the column; the panel
+   * itself also pins `w-80`. Both must hold for rail320 to be the real rail. */
   expect(
-    dashboard.includes("min-[1240px]:grid-cols-[minmax(0,1fr)_20rem]"),
+    onLiveLine(dashboard, "min-[1240px]:grid-cols-[minmax(0,1fr)_20rem]", "className"),
     "rail320 mirrors the dashboard's 20rem Needs-attention track; that track changed",
   ).toBe(true);
-
-  const adminLayout = readFileSync(join(REPO_ROOT, "app", "admin", "layout.tsx"), "utf8");
   expect(
-    adminLayout.includes("px-page-pad-mobile"),
+    onLiveLine(dashboard, "min-[1240px]:w-80", "className"),
+    "rail320 also assumes the panel pins w-80 (=20rem); that constraint changed",
+  ).toBe(true);
+
+  const adminLayout = src("app/admin/layout.tsx");
+  expect(
+    onLiveLine(adminLayout, "px-page-pad-mobile", "className"),
     "page358 assumes the admin layout pads the mobile page with px-page-pad-mobile",
   ).toBe(true);
 
-  const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
-  const pad = /--spacing-page-pad-mobile:\s*(\d+)px/.exec(globals)?.[1];
+  const padLine = src("app/globals.css").find(
+    (l) => l.includes("--spacing-page-pad-mobile:") && !l.trim().startsWith("/*"),
+  );
+  const pad = /--spacing-page-pad-mobile:\s*(\d+)px/.exec(padLine ?? "")?.[1];
   expect(pad, "page-pad-mobile token not found in globals.css").toBeDefined();
   /* page358 = a 390px viewport minus this token per side. If the token moves, the rail
    * is testing a page width production no longer has — exactly R8 F1's error. */
@@ -403,25 +426,24 @@ test("the spec and plan name exactly the rails this suite runs", () => {
    *
    * Deliberately scoped to rail NAMES, not counts or measurements. Names are a closed
    * set the code owns; a count guard would need the runner, and pinning measurements in
-   * prose is what caused the churn in the first place. */
-  const railNames = Object.keys(RAILS).concat("bigtext440");
+   * prose is what caused the churn in the first place — so the plan no longer states
+   * counts at all rather than restating them each round (R15 F3). */
+  const expected = [...Object.keys(RAILS), "bigtext440"].sort();
+  /* SET EQUALITY, not containment (R15 F2). Requiring each real name to appear, plus a
+   * hand-listed few to be absent, lets any OTHER stale name survive — and a retired list
+   * can only ever name drift someone already noticed. Extracting every rail-shaped token
+   * and comparing sets makes the guard closed: a name the code does not have fails
+   * whether or not anyone thought to list it. */
+  const RAIL_SHAPED = /\b(?:rail|page|band|wide|bigtext)\d{3}\b/g;
   for (const doc of [
-    join(REPO_ROOT, "docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md"),
-    join(REPO_ROOT, "docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md"),
+    "docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md",
+    "docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md",
   ]) {
-    const text = readFileSync(doc, "utf8");
-    for (const rail of railNames) {
-      expect(text.includes(rail), `${doc.split("/").pop()} never mentions rail ${rail}`).toBe(true);
-    }
-    /* Rail names that were renamed away. If one reappears in prose, the document is
-     * describing a harness that no longer exists — which is exactly what R12 F3 and
-     * R14 F4 caught by hand. */
-    for (const retired of ["page390", "rail390", "page348"]) {
-      expect(
-        text.includes(retired),
-        `${doc.split("/").pop()} still names retired rail ${retired}`,
-      ).toBe(false);
-    }
+    const text = readFileSync(join(REPO_ROOT, doc), "utf8");
+    const named = [...new Set(text.match(RAIL_SHAPED) ?? [])].sort();
+    expect(named, `${doc.split("/").pop()} names a different rail set than the suite runs`).toEqual(
+      expected,
+    );
   }
 });
 
