@@ -1851,16 +1851,20 @@ function hintHasSiblingSpace(root: ts.Node): boolean {
         return trailing.length > 0 && !LINE_TERMINATORS.test(trailing);
       }
       if (ts.isJsxExpression(prev) && prev.expression) {
-        // What matters is the character IMMEDIATELY before the hint, so a decidable string separates
-        // when it ENDS with a space -- not only when it is entirely spaces. The whitespace-ONLY test
-        // rejected `{"Open "}<NewTabHint />`, which renders "Open (opens in a new tab)" correctly,
-        // and that is the exact shape MDX compiles text into: `<a …>{"Open "}<NewTabHint /></a>`. So
-        // every correctly-announced MDX anchor was reported, and `{`Open `}` in TSX with it. Latent
-        // rather than live only because the census currently has no MDX anchor.
         const lit = staticStringValue(prev.expression);
-        if (lit === null) return false; // opaque: cannot prove a separator
-        if (lit.length === 0) continue; // contributes nothing: keep looking further left
-        return /[ \u00a0]$/.test(lit);
+        // ORDER MATTERS. A trailing space is checked FIRST, because `{" "}` is a whitespace-only
+        // string: `rendersNothing` calls that nothing (correct for NAMING -- a space adds no name)
+        // and it is exactly what SEPARATES. Checking transparency first broke the explicit-space
+        // separator, which four tests caught immediately.
+        if (lit !== null && /[ \u00a0]$/.test(lit)) return true;
+        // Then transparency: a child that renders NOTHING contributes no characters, so the question
+        // passes through to whatever is further left. `Open {false && "x"}<Hint/>` renders "Open "
+        // then nothing then the hint. Asking what the value STRINGIFIES to got this wrong --
+        // `{null}` stringifies to "null" while rendering nothing at all (review R36 probe trail).
+        if (rendersNothing(prev.expression)) continue;
+        // A decidable string that does NOT end with a space is rendered text, so it is adjacency.
+        if (lit !== null) return false;
+        return false; // opaque: cannot prove a separator
       }
       return false; // adjacent content
     }

@@ -1843,3 +1843,28 @@ So the matrix pins the direction that has actually gone wrong and cannot pin the
 because the first version of that commit message claimed both directions were verified — a false
 premise in the permanent record is the same defect class as a wrong reason in the code, and this
 document is what later rounds cite as evidence.
+
+### A child that renders nothing is transparent to separation — and the ORDER matters
+
+From R36's probe trail: it tested `{false && "x"}` and `{true ? null : "x"}` immediately before the
+hint. Both render NOTHING, so `Open {false && "x"}<NewTabHint />` renders "Open " then nothing then
+the hint and the space still separates — but the rule reported all of them. Six false positives in
+total, and three of them (`{null}`, `{false}`, `{undefined}`) predate the MDX separator fix.
+
+The cause is asking the wrong question: `staticStringValue` answers "what does this STRINGIFY to", and
+`{null}` stringifies to `"null"` while rendering nothing at all.
+
+**Then the fix broke the explicit-space separator, and four tests caught it immediately.** `{" "}` is a
+whitespace-only string, so `rendersNothing` calls it nothing — correct for NAMING, since a space adds
+no accessible name, and exactly wrong for SEPARATION, where a space is the whole point. Checking
+transparency before the trailing-space test made `Open{" "}<NewTabHint />` report.
+
+So the order is load-bearing, and all three states are pinned:
+
+1. a decidable string ending in a space separates (`{" "}`, `{"Open "}`)
+2. otherwise, a child that renders nothing is transparent — look further left
+3. otherwise, decidable rendered text is adjacency
+
+Mutation confirms each: removing transparency fails 1 test, removing the trailing-space check fails 5,
+and SWAPPING the two fails 4. The same value gets opposite answers from the naming question and the
+separation question, which is why one helper cannot serve both.

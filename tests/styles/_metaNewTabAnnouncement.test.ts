@@ -3748,6 +3748,28 @@ describe("R6: scanner changes are pinned", () => {
     expect(sep('{"Open"}<NewTabHint />'), "no trailing space is still a defect").toBe(true);
     expect(sep('{""}{"x"}<NewTabHint />'), "adjacent content is still a defect").toBe(true);
     expect(sep("{label}<NewTabHint />"), "an opaque value cannot prove a separator").toBe(true);
+    // A child that RENDERS NOTHING is transparent to separation: it contributes no characters, so the
+    // question passes through to whatever is further left. Asking what the value STRINGIFIES to got
+    // this wrong -- `{null}` stringifies to "null" while rendering nothing (review R36 probe trail).
+    for (const tail of [
+      "{[]}",
+      "{[null]}",
+      '{false && "x"}',
+      '{true ? null : "x"}',
+      "{null}",
+      "{false}",
+      "{undefined}",
+      "{void 0}",
+    ]) {
+      expect(
+        sep(`Open ${tail}<NewTabHint />`),
+        `renders nothing, so the space still separates: ${tail}`,
+      ).toBe(false);
+      // ...and with no space anywhere the defect still reports.
+      expect(sep(`Open${tail}<NewTabHint />`), `no space anywhere: ${tail}`).toBe(true);
+    }
+    // Rendered text immediately before the hint is still adjacency.
+    expect(sep('Open {"x"}<NewTabHint />'), "rendered text adjacent to the hint").toBe(true);
     // The MDX path end to end, through the real compiler.
     const sc: Scan = { anchors: 0, violations: [] };
     const mdx =
