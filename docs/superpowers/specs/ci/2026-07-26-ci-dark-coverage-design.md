@@ -17,7 +17,7 @@ A test that no workflow invokes is not coverage. It is a file that once passed. 
 
 1. **A Playwright config nothing invokes.** `tests/e2e/standalone.config.ts` holds an explicit `testMatch` allow-list (`tests/e2e/standalone.config.ts:35`). Specs in it are unreachable via the default config, so `pnpm exec playwright test tests/e2e/<one>.spec.ts` reports `No tests found` — a failure that reads as a bad path, not a missing project.
 2. **A workflow run-list nothing added to.** `tests/e2e/admin-lifecycle-transitions.spec.ts` is matched by the `mobile-safari` project (`playwright.config.ts:64`) but named by no workflow.
-3. **A vitest exclusion nobody watches.** `tests/cross-cutting/pg-cron-coverage.test.ts` is listed in `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) with a comment claiming it "runs against the validation project." Nothing runs it.
+3. **A vitest exclusion nobody watches.** `tests/cross-cutting/pg-cron-coverage.test.ts` is listed in `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) with a comment claiming it "runs against the validation project." Nothing runs it **in CI** — and the mechanism is subtler than an unconditional exclude, which matters for the fix (§5.2a).
 
 The cost is not theoretical. Measured 2026-07-26 (§2.3): two dark standalone specs are **red on `main` right now**, and the mechanism is exactly the rot this class predicts — a shared harness entry grew a Node-builtin import, the specs that CI runs were given stub aliases, and the dark copies were never updated because nothing observed them break.
 
@@ -427,6 +427,17 @@ This is the same shape as the `#603` finding recorded in `feedback_guard_machine
 ### §5.2 Changes
 
 1. Remove `"**/tests/cross-cutting/pg-cron-coverage.test.ts"` from `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) so it runs in the `serial` project, i.e. in `unit-suite-db`, against the bootstrapped local DB.
+
+### §5.2a The exclusion is CI-conditional, and that changes what "nothing runs it" means
+
+`ENV_BOUND_EXCLUDES` is **not** an unconditional project exclude. It is applied to the serial project's `exclude` only when `VITEST_EXCLUDE_ENV_BOUND=1`, which is set in exactly two places, both in `.github/workflows/unit-suite.yml` (`.github/workflows/unit-suite.yml:122` and `.github/workflows/unit-suite.yml:152` — the DB and no-DB legs). The array's own comment explains why a project-level exclude is required at all: vitest **ignores the CLI `--exclude` flag** when a project already defines `exclude`, a bug that silently broke the first run of the project split.
+
+Two consequences the earlier draft glossed:
+
+- **Locally the suite already runs** as part of the serial project; it is dark in CI only. The §1 framing "nothing runs it" is true of CI and false of a developer machine — which is precisely why it rotted unnoticed: it passes for anyone who runs the suite locally.
+- **Removing the array entry is the correct and sufficient fix**, because the array is exactly what the CI env var applies. But the fix works *by* the env-var path, not by deleting an always-on exclude, and a plan step that reasons about it the other way would look for a project `exclude` that is not there in a local run.
+
+This also closes a round-2 observation that was under-weighted at the time: a job env var can silently change which files a vitest project collects, so G3 asserting *resolved* config inclusion (§4.4 G3) must resolve it **under the same env the CI job sets**, or it will certify a file that CI in fact excludes.
 2. Correct **three** stale documentation sites, not one — the claim is repeated in each and all three become false the moment PR3 lands:
    - the `ENV_BOUND_EXCLUDES` comment claiming the suite "runs against the validation project";
    - the surrounding explanation in `.github/workflows/unit-suite.yml`;
