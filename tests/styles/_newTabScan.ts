@@ -738,7 +738,34 @@ function rendersNothing(e: ts.Expression): boolean {
  *  already owns the machinery to answer this, so the fix is to use it rather than to trust the name.
  */
 function isGlobalRef(n: ts.Node, name: "undefined" | "NaN"): boolean {
-  return ts.isIdentifier(n) && n.text === name && !isShadowedAt(n, name);
+  if (!ts.isIdentifier(n) || n.text !== name) return false;
+  if (isShadowedAt(n, name)) return false;
+  // An IMPORT binds the name too, and `isShadowedAt` deliberately ignores imports -- for
+  // `NewTabHint` the import IS the trusted binding, so counting it would reject every real call
+  // site. For a GLOBAL the opposite holds: `import NaN from "x"` (or `{ v as NaN }`, or `* as NaN`)
+  // makes the identifier an arbitrary module value, so nothing may be assumed about it. The same
+  // helper answering opposite questions for two callers is why this is checked here and not there
+  // (review R35).
+  return !isImportedName(n.getSourceFile(), name);
+}
+
+/** Is `name` bound by ANY import in this file -- default, named, aliased, or namespace? */
+function isImportedName(sf: ts.SourceFile, name: string): boolean {
+  for (const st of sf.statements) {
+    if (!ts.isImportDeclaration(st) || st.importClause === undefined) continue;
+    const clause = st.importClause;
+    if (clause.name !== undefined && clause.name.text === name) return true;
+    const b = clause.namedBindings;
+    if (b === undefined) continue;
+    if (ts.isNamespaceImport(b)) {
+      if (b.name.text === name) return true;
+      continue;
+    }
+    for (const el of b.elements) {
+      if (el.name.text === name) return true;
+    }
+  }
+  return false;
 }
 
 /** Definitely-falsy literals. `0` and `""` are falsy but `0` still RENDERS, which is why this

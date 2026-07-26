@@ -1696,3 +1696,22 @@ the first attempt swept it up and broke an R23 fixture immediately.
 Both findings came from the matrix on the day it was written, against rules that had already survived
 five review rounds. That is the argument for deriving expectations from the runtime rather than from
 a fixture author's model of it.
+
+### Read from R35's probe trail: an IMPORT binds the name too
+
+R35's stderr showed it testing `import NaN from "x"`, `import { v as NaN }` and `import * as NaN`.
+All four forms (including `import undefined`) fail open at `63a3ed7de`: the identifier is an
+arbitrary module value, so `hidden={NaN}` might be truthy and hide the announcement, and the scanner
+accepted it.
+
+The cause is a helper answering opposite questions for two callers. **`isShadowedAt` deliberately
+ignores imports** — for `NewTabHint` the import IS the trusted binding, so counting it would reject
+every real call site. For a GLOBAL the opposite holds: an import of that name means nothing may be
+assumed. So `isGlobalRef` asks separately, via a new `isImportedName` covering default, named,
+aliased and namespace bindings.
+
+This is the R34 finding one level deeper. That round fixed "spelling is not a binding" for these two
+identifiers; this one is "the binding check I reused was built for the opposite polarity". A shared
+helper is only shareable if both callers want the same answer, and `isShadowedAt`'s docstring says
+plainly that it excludes imports — the information needed to catch this was already written down at
+the call site I was reusing.

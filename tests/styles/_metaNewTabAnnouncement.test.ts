@@ -3565,12 +3565,37 @@ describe("R6: scanner changes are pinned", () => {
         "local const undefined",
         'function A(){ const undefined = true; return <a href="x" target="_blank">Go <span inert={undefined}><NewTabHint /></span></a>; }',
       ],
+      // An IMPORT binds the name too. `isShadowedAt` deliberately ignores imports -- for the hint,
+      // the import IS the trusted binding -- so the global check has to ask separately (R35).
+      [
+        "default import named NaN",
+        'import NaN from "x";\nconst A=()=><a href="x" target="_blank">Go <span hidden={NaN}><NewTabHint /></span></a>;',
+      ],
+      [
+        "aliased import named NaN",
+        'import { v as NaN } from "x";\nconst A=()=><a href="x" target="_blank">Go <span hidden={NaN}><NewTabHint /></span></a>;',
+      ],
+      [
+        "namespace import named NaN",
+        'import * as NaN from "x";\nconst A=()=><a href="x" target="_blank">Go <span hidden={NaN}><NewTabHint /></span></a>;',
+      ],
+      [
+        "default import named undefined",
+        'import undefined from "x";\nconst A=()=><a href="x" target="_blank">Go <span aria-hidden={undefined}><NewTabHint /></span></a>;',
+      ],
     ] as [string, string][]) {
       expect(
         probe(IMP + body, { bare: true }).violations,
         `must fail closed, the name is locally bound: ${label}`,
       ).not.toEqual([]);
     }
+    // ...while the GENUINE global is still trusted, or the rule would reject every real use.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank">Go <span hidden={NaN}><NewTabHint /></span></a>;',
+      ),
+      "the real global NaN is falsy, so React omits the attribute",
+    ).toEqual([]);
     // BLOCKING 2: falsiness composes through selection, and three falsy spellings were missing.
     for (const expr of [
       "{void 0 || HID}",
