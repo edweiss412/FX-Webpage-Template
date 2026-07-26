@@ -2045,6 +2045,7 @@ describe("R6: scanner changes are pinned", () => {
       "aria-hidden={undefined}",
       "aria-hidden={null}",
       "aria-hidden={0}",
+      "aria-hidden={false}",
       'aria-hidden="false"',
     ]) {
       expect(
@@ -2066,6 +2067,12 @@ describe("R6: scanner changes are pinned", () => {
       'aria-hidden="true"',
       "aria-hidden={true}",
       "aria-hidden={flag}",
+      // Folded case and trimmed: STRICTER than the harness on purpose. dom-accessibility-api hides
+      // only on the exact lowercase "true" (measured in the behaviour suite), but a browser may fold
+      // an enumerated ARIA value, and an unannounced link costs more than a reported valid one.
+      'aria-hidden="TRUE"',
+      'aria-hidden="True"',
+      'aria-hidden=" true "',
     ]) {
       expect(
         violations(

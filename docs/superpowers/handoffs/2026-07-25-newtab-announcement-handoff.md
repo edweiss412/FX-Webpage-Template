@@ -19,7 +19,7 @@ down this document are historical and were accurate when written.
 - 11 Group A anchors: sibling space + the hint. Group B anchors: phrase appended to an existing `aria-label` (6 at the time, 5 after the upstream deletion). 4 Group C anchors: hint gated on `action.external` (they are same-app links when false).
 - 3 WCAG 2.5.3 (Level A) label-in-name failures fixed: `step3ReviewSections.tsx` and the crew-facing `SourceLink.tsx` read "In sheet" while their labels never contained it; `VenueMapTile.tsx` reads "Directions" while its label never contained that.
 - 2 bare `→` glyphs wrapped `aria-hidden` in `Step2Verify.tsx`; `rel` normalized on 3 anchors.
-- `tests/styles/_metaNewTabAnnouncement.test.ts` + `tests/styles/_newTabScan.ts` — per-anchor TSX AST guard, 53 tests.
+- `tests/styles/_metaNewTabAnnouncement.test.ts` + `tests/styles/_newTabScan.ts` — per-anchor TSX AST guard. **125 tests as of R31** (53 when this line was first written; every review round since added fixtures, and R31 alone added 40). §12 carries the per-round record.
 
 ## §12 — UI close-out (impeccable v3 dual-gate)
 
@@ -427,7 +427,7 @@ left registered) and that does not make an unnecessary escalation cheap.
 What the record supports, stated without inflation:
 
 - **Rounds 5 through 12 found only GUARD defects. Not one changed what a user or screen reader
-  experiences.** The 21 remediated anchors and the live census (23 anchors, 0 violations) have been
+  experiences.** The 21 remediated anchors and the live census (22 anchors, 0 violations) have been
   stable since R4.
 - CI is green on the final head, 190 tests pass, `tsc`/eslint/prettier are clean, `spec:lint` is 0
   hard, and every guard fix is mutation-verified.
@@ -467,7 +467,7 @@ accessor name.
 ## What the last rounds cost, and what they were worth
 
 Rounds 5 through 13 found **no defect in shipped behavior**. Every finding was in the guard. The 21
-remediated anchors and the live census (23 anchors, 0 violations) have been stable since R4.
+remediated anchors and the live census (22 anchors, 0 violations) have been stable since R4.
 
 That is not an argument that the rounds were wasted — they closed real under-reporting in a guard
 whose entire job is to fail loudly — but it is the honest shape of the work, and it is why the
@@ -1211,3 +1211,64 @@ mid-transition. Verified three ways — the diff touches no `supabase/` files, t
 and the job's `conclusion` was `null`. The monitor was then fixed to withhold failure reports until
 every required context has reported, because the cost of mis-training on noise is waving through the
 real one.
+
+## R31 — eight findings, six code fixes, and the false-positive direction
+
+Every R31 finding was in the guard; the shipped behaviour and the live census (22 anchors, 0
+violations) were untouched, as they have been since R4. What makes this round worth reading is the
+DIRECTION of the errors: **four of the six code defects were false POSITIVES** — the guard reporting
+markup that renders a perfectly good announcement.
+
+| # | Finding | Direction |
+| --- | --- | --- |
+| 1 | `aria-labelledby` outranks `aria-label`; an anchor with both never announces | fail-OPEN |
+| 2 | `{<span aria-hidden="true">Go</span>}` treated as opaque, so a non-destination counted as one | fail-OPEN |
+| 3 | `var NewTabHint` in a block shadows a use site outside it, invisible to an ancestor walk | fail-OPEN |
+| 4 | `display: ("none")` missed by the raw-text matcher | fail-OPEN |
+| 5 | An SVG `<title>` renders and NAMES; the guard reported it as no-destination | false positive |
+| 6 | `hidden={undefined}`, `popover={false}` read as hiding when React omits the attribute | false positive |
+| 7 | The always-boolean set was called closed and pinned in part | untested branch |
+| 8 | Docs contradicted the code and each other | stale |
+
+A fail-open hole is the failure this guard exists to prevent, so it gets the attention. But a guard
+that reports valid markup is not "safely conservative" — it is how a guard earns the exemptions that
+eventually hollow it out, and the exemption is permanent while the false positive that motivated it
+is forgotten. Findings 5 and 6 would each have produced one.
+
+### The mechanism was wrong twice in the same fix, and mutation caught both
+
+My first pass on finding 6 routed `aria-hidden` through the same omission helper as `hidden` /
+`popover` / `inert`. It produced the CORRECT verdict for `aria-hidden={0}` — visible — by a false
+route: React drops a falsy value from a coerced BOOLEAN attribute, but keeps it on a STRING one and
+really does render `aria-hidden="0"`. Because the wrong route answered first, the branch stating the
+real reason was unreachable, and a mutation deleting that branch entirely changed no test.
+
+The second attempt passed a `kind: "boolean" | "string"` flag. A mutation that ignored the flag
+outright ALSO changed no verdict — no falsy `aria-hidden` value hides under either reading — so the
+flag documented a distinction it could not affect. **An equivalent mutant is a verdict, not a
+nuisance.** The third shape is two separate functions, `omittedByReact` and `ariaHiddenHides`, each
+stating only what is true of its own attribute type; every branch of both is now individually
+mutation-pinned (14 mutations, all red).
+
+This is the R30 error class recurring inside its own fix: right answer, wrong reason, and the wrong
+reason is what survives review, because a reviewer checks what a rule DOES.
+
+### The spec's account of `aria-hidden` casing was backwards, and measurement settled it
+
+§6.4 claimed the scanner exempted only the exact literal `false`, so `aria-hidden="FALSE"` was
+reported — and called that a safe fail-closed reading. Measured against BOTH installed AccName
+versions, they agree that only the exact, untrimmed, lowercase `"true"` hides: `"TRUE"`, `"True"` and
+`" true "` are all VISIBLE. So the scanner's case-fold makes it **stricter than the harness**, in the
+same family as `noscript` and `inert` — justified because a browser may fold an enumerated ARIA value
+where `dom-accessibility-api` does not, and a silently unannounced link costs more than a reported
+valid one. Both sides of the divergence are now pinned: the behaviour suite measures the harness, the
+scanner suite asserts the guard reports the folded spellings. The old paragraph reached a defensible
+posture through a false premise, which is the third instance of that shape this round.
+
+### Two of the guard's own meta-checks caught my edits mid-flight
+
+The stale-exclusion check flagged `false` the moment folding the hiding attributes removed its
+comparison; the attribute-classification check flagged the new tag names `svg` and `foreignObject`,
+and later the `"boolean"` / `"string"` flag values. Both fired within seconds of the edit that
+invalidated them. Meta-checks that police the guard's own bookkeeping keep paying for themselves —
+they are the only mechanism here that has never needed a review round to find its own defect.

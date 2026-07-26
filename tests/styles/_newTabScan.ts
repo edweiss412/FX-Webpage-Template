@@ -841,7 +841,7 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
       // A COMPONENT is undecidable in both directions: it may render a label, or discard the
       // children it was given. R26b BLOCKING 1 showed trusting it is a fail-open --
       // `<Drop>Go</Drop>` renders nothing when `Drop` returns null. Failing CLOSED is chosen
-      // because no live anchor takes its label from a component (all 23 use literal text, with
+      // because no live anchor takes its label from a component (all 22 use literal text, with
       // components only as aria-hidden icons), so the strictness costs nothing today and a
       // legitimate future case takes one reasoned exemption.
       if (!/^[a-z]/.test(tag) || tag.includes(".")) continue;
@@ -868,7 +868,7 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
       // `alt` on an image. No attribute on any other nested element is proof.
       //
       // Cost, measured before choosing: no live anchor relies on a nested element's attribute
-      // for its label (all 23 use literal text), so this reports nothing today. A future case
+      // for its label (all 22 use literal text), so this reports nothing today. A future case
       // takes one reasoned exemption, and that is cheaper than a rule that has been wrong three
       // rounds running.
       const ALT_ELEMENTS = new Set(["img", "area"]);
@@ -948,20 +948,51 @@ function inSvgNamespace(el: ts.Node): boolean {
 }
 
 /** Does React OMIT this attribute from the DOM entirely, so its presence in the source hides
- *  nothing? `false`, `null` and `undefined` are dropped for any attribute; a BOOLEAN DOM
- *  attribute drops every falsy value, `0` and `""` included. All measured -- see the value table
- *  in tests/components/a11y/newTabAnnouncementBehavior.test.tsx (review R31 HIGH 6). */
+ *  nothing?
+ *
+ *  The answer depends on the attribute's TYPE, and conflating the two was a right-answer-wrong-
+ *  reason bug in the first R31 fix -- caught by mutation, not by review. A BOOLEAN DOM attribute
+ *  (`hidden`, `popover`, `inert`) is coerced, so every falsy value is dropped, `0` and `""`
+ *  included. An ARIA attribute is a STRING: React drops only `null` and `undefined`, and
+ *  `aria-hidden={0}` really does render `aria-hidden="0"` (measured). Reading `0` as "omitted"
+ *  reached the correct verdict for that case by a false route, which made the branch that states
+ *  the real reason unreachable -- a deleted-branch mutation proved it changed no test.
+ *
+ *  All values measured; see the table in tests/components/a11y/newTabAnnouncementBehavior.test.tsx
+ *  (review R31 HIGH 6). */
 function omittedByReact(a: ts.JsxAttribute): boolean {
   if (!a.initializer) return false; // bare attribute: `hidden` means true
   const init = a.initializer;
-  if (ts.isJsxExpression(init)) {
-    if (!init.expression) return true; // `hidden={}` contributes no value
-    const e = unparen(init.expression);
-    if (e.kind === ts.SyntaxKind.NullKeyword) return true;
-    if (ts.isIdentifier(e) && e.text === "undefined") return true;
-    return isLiteralFalsy(e);
-  }
-  return isLiteralFalsy(init);
+  const e = ts.isJsxExpression(init) ? (init.expression ? unparen(init.expression) : null) : init;
+  if (e === null) return true; // `hidden={}` contributes no value
+  if (e.kind === ts.SyntaxKind.NullKeyword) return true;
+  if (ts.isIdentifier(e) && e.text === "undefined") return true;
+  return isLiteralFalsy(e); // `hidden=""` and `hidden={0}` are coerced and dropped
+}
+
+/** Is `aria-hidden` hiding? ARIA hides only on the literal string "true", so every other literal
+ *  is VISIBLE and only a dynamic value fails closed.
+ *
+ *  Deliberately does NOT reuse `omittedByReact`. The first R31 fix routed it through there, which
+ *  answered `aria-hidden={0}` correctly for a false reason -- React keeps a falsy value on a string
+ *  attribute and really does render `aria-hidden="0"` -- and made the branch stating the real reason
+ *  unreachable. Passing a `kind` flag instead was worse: a mutation that ignored the flag entirely
+ *  changed no verdict, because no falsy aria-hidden value hides either way, so the flag documented a
+ *  distinction it could not affect. Two rules with different mechanisms, kept apart. */
+function ariaHiddenHides(a: ts.JsxAttribute): boolean {
+  const init = a.initializer;
+  if (!init) return true; // bare `aria-hidden` renders aria-hidden="true"
+  const e = ts.isJsxExpression(init) ? (init.expression ? unparen(init.expression) : null) : init;
+  if (e === null) return false;
+  // React drops `null` and `undefined` from an ARIA attribute, so nothing reaches the DOM.
+  if (e.kind === ts.SyntaxKind.NullKeyword) return false;
+  if (ts.isIdentifier(e) && e.text === "undefined") return false;
+  if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (e.kind === ts.SyntaxKind.FalseKeyword) return false; // R1 HIGH 4
+  if (ts.isNumericLiteral(e)) return false; // renders aria-hidden="0", which is not "true"
+  const lit = stringOf(e);
+  if (lit !== null) return lit.trim().toLowerCase() === "true";
+  return true; // dynamic: fail closed
 }
 
 /** Elements shown only when `open` is present and truthy. `<details>` shows its `<summary>`
@@ -1013,9 +1044,9 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
   for (const a of attrs.properties) {
     const n = attrName(a);
     if (!ts.isJsxAttribute(a)) continue;
-    // ONE value rule for all four hiding attributes, because the previous per-attribute spellings
-    // disagreed with each other and with React: `hidden={undefined}` was read as hiding and
-    // `popover={false}` was read as hiding on PRESENCE alone, while React omits the attribute
+    // The three BOOLEAN hiding attributes share one value rule, because the previous per-attribute
+    // spellings disagreed with each other and with React: `hidden={undefined}` was read as hiding,
+    // and `popover={false}` was read as hiding on PRESENCE alone, while React omits the attribute
     // entirely in both cases and the announcement is fully visible (review R31 HIGH 6). That is a
     // FALSE POSITIVE -- reporting code that is correct -- not a safe over-approximation, and a
     // guard that cries wolf on valid markup gets exemptions written around it.
@@ -1024,24 +1055,17 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
     // `hidden` omitted for `false`, `null`, `undefined`, `0` AND `""` -- every falsy value, since
     // React coerces a boolean DOM attribute; `popover` omitted for `false`, `null`, `undefined`;
     // `inert` omitted for `false`, `undefined`.
-    if (n === "hidden" || n === "aria-hidden" || n === "popover" || n === "inert") {
+    //
+    // `aria-hidden` is NOT in this group. It is a STRING attribute with different mechanics, and
+    // folding it in here is what produced a right-answer-wrong-reason branch -- see
+    // `ariaHiddenHides`.
+    if (n === "hidden" || n === "popover" || n === "inert") {
       if (omittedByReact(a)) continue;
-      if (n !== "aria-hidden") return true; // present with a truthy or dynamic value: fail closed
-      // `aria-hidden` is a STRING attribute, and ARIA hides only on the literal "true".
-      // `aria-hidden="false"` is visible (R2 HIGH 4) and so is `aria-hidden={0}`, which React
-      // renders as `aria-hidden="0"` -- measured, and the reason this is not folded into the
-      // boolean rule above. A dynamic value cannot be decided, so it fails closed.
-      const init = a.initializer;
-      if (!init) return true; // bare `aria-hidden` renders aria-hidden="true"
-      const e = ts.isJsxExpression(init) && init.expression ? unparen(init.expression) : init;
-      if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
-      if (ts.isNumericLiteral(e)) continue;
-      const lit = stringOf(e);
-      if (lit !== null) {
-        if (lit.trim().toLowerCase() === "true") return true;
-        continue;
-      }
-      return true; // dynamic: fail closed
+      return true; // present with a truthy or dynamic value: fail closed
+    }
+    if (n === "aria-hidden") {
+      if (ariaHiddenHides(a)) return true;
+      continue;
     }
     // `class` AND `className`. React forwards a literal `class` to the DOM (dev warning
     // only), so `<span class="hidden">` really hides -- and this function used to read

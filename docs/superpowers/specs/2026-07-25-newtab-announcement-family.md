@@ -442,12 +442,27 @@ WITH substitutions is not. Anything outside these shapes is reported as
   deliberate.** Attribute names are ASCII case-insensitive in HTML, so a case-sensitive name read
   is unambiguously a defect. Values are not uniform: a `className` token is genuinely
   case-sensitive (`HIDDEN` is a different CSS class from `hidden`), so folding it would be wrong.
-  The one place a value comparison could be argued is `aria-hidden="FALSE"`, which the scanner
-  treats as hidden because it only exempts the exact literal `false`
-  (`tests/styles/_newTabScan.ts:435` and `tests/styles/_newTabScan.ts:439`). That direction FAILS CLOSED — an invalid ARIA token
-  produces a report, not a silent pass — so the conservative reading costs a possible false
-  positive and never a missed announcement. Value-casing is therefore out of scope for the sweep,
-  stated here rather than left to look like an oversight.
+  **The one value the scanner DOES fold is `aria-hidden`, and R31 replaced this paragraph's account
+  of it.** The old text said the scanner exempted only the exact literal `false`, so `aria-hidden="FALSE"`
+  was reported. That is no longer what the code does, and the reasoning behind it was backwards.
+  Measured against both installed AccName versions, they agree and only the EXACT, untrimmed,
+  lowercase `"true"` hides:
+
+  | Value | Both AccName versions compute |
+  | --- | --- |
+  | `aria-hidden="true"` | `Go` — hidden |
+  | `aria-hidden="TRUE"`, `"True"`, `" true "` | `Go (opens in a new tab)` — VISIBLE |
+  | `aria-hidden="false"`, `"FALSE"` | `Go (opens in a new tab)` — visible |
+
+  The scanner compares case-insensitively after trimming, so it treats `"TRUE"` as hiding and reports
+  the anchor. **That is deliberately stricter than the harness**, in the same family as `noscript` and
+  `inert`: browsers may fold an enumerated ARIA value where `dom-accessibility-api` does not, and the
+  costly error is a silently unannounced link, not a reported valid one. Do not "fix" the scanner to
+  match a `toHaveAccessibleName` result here — the divergence is the point, and both sides of it are
+  pinned in `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`.
+
+  Value-casing remains out of scope for the *sweep* — which varies names — and this one comparison
+  lives in the hiding rule instead.
 
 - **The destination rule reports only when the anchor is PROVABLY label-less, and its residual
   risk is one undecidable case.** An external link whose accessible name is the announcement alone
@@ -484,10 +499,22 @@ WITH substitutions is not. Anything outside these shapes is reported as
   scripting is enabled, so a real browser running this app does not render it — but the harness
   applies no CSS and computes `"Go (opens in a new tab)"` for a `<noscript>` label. The guard treats
   it as non-rendering, which is right for the runtime and cannot be confirmed by the harness. Do not
-  "fix" the guard to match a `toHaveAccessibleName` result here. Metadata elements are deliberately excluded from the first set:
-  none is valid inside an `<a>`, and `title` and `style` are also real attribute names, so listing
-  them as tag names made the guard's own classification ambiguous — which its anti-silencing
-  assertion caught.
+  "fix" the guard to match a `toHaveAccessibleName` result here.
+
+  **The stale claim that used to close this paragraph — "metadata elements are deliberately excluded:
+  none is valid inside an `<a>`" — is struck.** It survived one round past the finding that refuted
+  it, sitting directly beneath a set that now CONTAINS `title` (R31 MEDIUM 8). The reason `title` is
+  in the set is that React hoists it out of the anchor, not that it cannot appear there; the reason
+  the others are out is the measured table above. `title` and `style` are also real attribute names,
+  which is why both sit in the guard's `CASE_INSENSITIVE_NAMES` — without that its own classification
+  check reads them as silenced attributes.
+
+  **`<title>` is TWO elements, and the tag name alone cannot tell them apart (R31 HIGH 5).** In the
+  SVG namespace it is neither hoisted nor hidden: it renders in place and NAMES the graphic, so
+  `<a target="_blank"><svg><title>Go</title></svg> <NewTabHint /></a>` computes
+  `"Go (opens in a new tab)"` and is CORRECT — the guard reported it. A `<title>` inside a
+  `<foreignObject>` is HTML again and is hoisted away, so the nearest of the two ancestors decides.
+  Both measured. A tag-name set is the wrong shape for any rule whose answer depends on namespace.
 
   **MEASURED, not assumed — and the guard is deliberately stricter than the test harness.** Rendering
   each shape and computing the name with `dom-accessibility-api` 0.6.3 gives:
@@ -535,7 +562,7 @@ WITH substitutions is not. Anything outside these shapes is reported as
 
   **Component-mediated content therefore fails CLOSED in both walks**, which inverted two cases
   previously ratified as acceptable. The posture was chosen by measurement, not preference: no live
-  anchor takes its label from a component — all 23 use literal text, and components appear only as
+  anchor takes its label from a component — all 22 use literal text, and components appear only as
   `aria-hidden` icons — so the strictness costs nothing today, and a legitimate future case takes one
   reasoned exemption. Had even one real anchor depended on component-supplied content, the answer
   would have been the reverse; re-measure before changing it.
@@ -548,7 +575,19 @@ WITH substitutions is not. Anything outside these shapes is reported as
 - **A naming attribute must APPLY to its element, and a reference must resolve.** `alt` names only
   `img` / `area` / `input`, so `<br alt="Go" />` names nothing (R26b). `aria-labelledby` is excluded
   from the proof entirely: it points at another element, a dangling reference names nothing, and the
-  target cannot be resolved statically, so treating it as evidence was a fail-open. Naming attributes
+  target cannot be resolved statically, so treating it as evidence was a fail-open.
+
+  **R31 closed the other half of that: `aria-labelledby` also OUTRANKS `aria-label`.** Excluding it
+  from the proof is not enough, because an anchor may carry both — and then the announcement written
+  into `aria-label` is dead text. Measured, `<a aria-label="Go (opens in a new tab)"
+  aria-labelledby="n">` computes `"Go"` from the referenced element and never announces, while the
+  same source with a DANGLING reference falls back and computes `"Go (opens in a new tab)"`. Two
+  reachable names from identical source, decided by a document the guard cannot see. So an anchor
+  carrying `aria-labelledby` is reported whatever else it carries; a legitimate use takes one
+  reasoned exemption. The earlier rule read the two attributes as interchangeable, which let the
+  weaker one satisfy the guard while the stronger one silently decided the name.
+
+  Naming attributes
   are checked on paired and self-closing elements alike — inspecting them only on self-closing gave
   equivalent markup opposite verdicts.
 

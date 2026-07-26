@@ -507,6 +507,32 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
       unmount();
     }
 
+    // The aria-hidden VALUE table. Both installed AccName versions agree, and only the EXACT,
+    // untrimmed, lowercase "true" hides. The scanner folds case and trims, so it is deliberately
+    // STRICTER than this harness on "TRUE" / " true " -- browsers may fold an enumerated ARIA value
+    // where dom-accessibility-api does not, and a silently unannounced link costs more than a
+    // reported valid one. Both sides of that divergence are pinned: this test measures the harness,
+    // and the scanner suite asserts the guard reports the folded spellings.
+    for (const [value, expected] of [
+      ["true", "Go"],
+      ["TRUE", "Go (opens in a new tab)"],
+      ["True", "Go (opens in a new tab)"],
+      [" true ", "Go (opens in a new tab)"],
+      ["false", "Go (opens in a new tab)"],
+      ["FALSE", "Go (opens in a new tab)"],
+    ] as [string, string][]) {
+      const { container, unmount } = render(
+        <a href="x" target="_blank">
+          Go{" "}
+          <span aria-hidden={value as "true" | "false"}>
+            <Hint />
+          </span>
+        </a>,
+      );
+      expect(container.querySelector("a"), `aria-hidden="${value}"`).toHaveAccessibleName(expected);
+      unmount();
+    }
+
     // `<title>` is TWO elements, and the namespace decides. React hoists the HTML one out of the
     // anchor; the SVG one stays put and NAMES the graphic.
     const svgTitle = render(
