@@ -42,7 +42,7 @@ The service account still has access to the old folder and the folder still exis
 - The webhook ingress keeps receiving pings for the abandoned folder, and the handler reads the folder from the CHANNEL row, not from `app_settings` (`app/api/drive/webhook/route.ts:82`), so work is genuinely performed against a folder nobody watches.
 - Only when the old folder's renewal eventually DOES fail does the alert appear, naming the current folder (D-B as written).
 
-§3.2 fixes the renewal loop, which fixes the attribution as a consequence. Scoping only the alert (the other option the backlog names) would have left every bullet above in place; the user was shown both and chose the renewal fix (§1.1a item 3).
+Worth stating plainly, because it reframes D-B: **the canonical spec already required the prior folder's channels to be superseded on promotion** (AC-6.18 and §5.5.5's Revoke clause), so this is an unimplemented acceptance criterion rather than an undesigned case. §3.2.4 implements it; §3.2 fixes the renewal loop, which fixes the attribution as a consequence. Scoping only the alert (the other option the backlog names) would have left every bullet above in place; the user was shown both and chose the renewal fix (§1.1a item 3).
 
 ### 1.4 What is NOT wrong
 
@@ -79,8 +79,8 @@ Ratified by the user on 2026-07-26 during brainstorming, from a rendered side-by
 | D5 | Folder filter source | `getActiveWatchedFolder()`, read ONCE per run, already imported at `lib/drive/watch.ts:15`. Injectable through `RefreshDeps` for tests. |
 | D6 | Folder-read failure posture | `infra_error` or a thrown read → renew EVERYTHING (today's behaviour, fail-open). `no_folder_configured` → renew NOTHING (§3.2.2). |
 | D7 | How the folder-read fault is reported | A durable forensic emit only. `RefreshResult` is UNCHANGED, and no `failures` row is recorded — in particular not the `'*'` sentinel, which reconcile reads as "renewal state for every folder is unknown" to suppress auto-resolve (`lib/drive/watch.ts:846-852`); a fail-open run in which every folder WAS renewed must not suppress it (§3.2.3). |
-| D8 | Drive-call bound | Both a `MethodOptions` `timeout` + `signal` on the call AND an outer race deadline, because `MethodOptions.timeout` reaches only the API request and not the credential fetch that precedes it (§3.3.1). |
-| D9 | Loop bound | A per-row budget and a per-run budget, the latter reusing the existing `T_EXEC_BUDGET_MS`. Its doc comment, which currently says nothing enforces it, is corrected to state exactly what now does and what still does not (§3.3.3). |
+| D8 | Drive-call bound | The per-call `{timeout, retry: false}` pair ONLY. The outer race an earlier draft proposed is withdrawn: it could not cancel what it abandoned, and its rejection let an activation commit after the caller recorded the row as failed (§3.3.1a). |
+| D9 | Loop bound | A per-run budget only, reusing the existing `T_EXEC_BUDGET_MS`, and stated as `budget + one worst-case iteration` because a pre-iteration check cannot bound the iteration it admits (§3.3.2). |
 | D10 | Atomic alert transport | `PostgresWatchTx.upsertAdminAlert` calls `public.upsert_admin_alert` over its own `sql` connection. The RPC is `security definer` and `language sql` (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql:18-27`), so it is reachable from the pg connection with no signature change (§3.4). |
 | D11 | `lib/adminAlerts/upsertAdminAlert.ts` | Unchanged. It keeps its other 24 importing modules; only the watch port stops routing through it, and its import is removed from `lib/drive/watch.ts:3` (§3.4.3). |
 
@@ -89,7 +89,6 @@ Ratified by the user on 2026-07-26 during brainstorming, from a rendered side-by
 New, in `lib/drive/watchErrors.ts` alongside the existing lease constants (`lib/drive/watchErrors.ts:8-30`). Every later section references these NAMES, never the literals.
 
 - `DRIVE_CALL_TIMEOUT_MS` = **15_000** (15s) — the per-Drive-call bound, applied to `files.watch` and `channels.stop`. The value is the one the master spec claimed for years while nothing implemented it (BACKLOG.md, entry `BL-WATCH-DRIVE-CALL-TIMEOUT`); implementing it at the promised number rather than a new one keeps the corrected spec wording and the code in agreement.
-- `REFRESH_ROW_BUDGET_MS` = **30_000** (30s) — the bound on ONE folder's whole renewal attempt: pending insert, `files.watch`, activation. Strictly greater than `DRIVE_CALL_TIMEOUT_MS` so a Drive timeout is attributed to the Drive call rather than to the row budget; the 15s of headroom covers the two DB round-trips either side of it.
 - `REFRESH_RUN_BUDGET_MS` = **`T_EXEC_BUDGET_MS`** — not a new literal. Defined as an alias so the run budget and the value `isGrantTooShort` reasons from cannot drift apart, and asserted equal by a unit test rather than written twice.
 
 Unchanged and explicitly NOT touched: `WATCH_TTL_MS` (86_400_000), `RENEWAL_LIFE_FRACTION` (0.75), `RENEWAL_MIN_LEAD_MS` (7_200_000), `SAMPLING_PERIOD_MS` (3_600_000), `T_EXEC_BUDGET_MS` (300_000), `STALE_PENDING_MAX_AGE_MS` (3_600_000), `ESCALATION_THRESHOLD` (3).
@@ -138,14 +137,20 @@ The reap selects `status = 'active' and expires_at <= now`. It deliberately does
 
 This is the load-bearing correctness point of §3.1. BACKLOG.md's `BL-WATCH-EXPIRED-ACTIVE-ROW` entry offers "on renewal failure, transition the old row out of `active`" as the fix direction. Taken literally that is a regression: with `WATCH_TTL_MS` at 24h and `RENEWAL_MIN_LEAD_MS` at 2h, a renewal fires with hours of lease remaining, and the old channel is still delivering webhooks for all of it. Retiring it on a transient Drive 500 would hand those hours to GC and call `channels.stop` on a working channel. Expiry is the only condition under which the old row is provably dead, because Google stops delivering at `expires_at` whatever our table says.
 
-`expires_at` is NOT NULL for any `active` row — guaranteed by `drive_watch_channels_active_requires_drive_state` — so the predicate needs no null arm. A NULL would evaluate to NULL and not be selected in any case.
+**The predicate has two arms, not one, and it reads the DATABASE's clock.**
+
+The first arm is expiry: `expires_at <= now()`. The second is the invalid-lease class: `expires_at <= created_at`. Both are required, and the second is not optional tidiness — `listRenewalDue` deliberately selects invalid leases through its own explicit disjunct (`lib/drive/watch.ts:239-247`, whose comment warns against deleting it), and `tests/db/watchRenewalDue.test.ts:141-153` pins the case of an inverted lease whose `expires_at` is in the FUTURE. An expiry-only reap would leave exactly that row `active` and renewal-due, so refresh would retry it forever — the very condition §3.1 exists to end, surviving inside the fix (spec R1 finding 2). Reaping it is also what routes it to recovery: `hasLiveActiveChannel` tests `expires_at > now` (`lib/drive/watch.ts:314`), so a future-dated inverted lease reads as LIVE to reconcile and would otherwise be recovered by nobody.
+
+**`now()` is evaluated in SQL, not passed in from JavaScript.** A JS timestamp would make the "provably dead" claim rest on the app and database clocks agreeing: a fast app clock retires a channel Google is still delivering on — and because the webhook handler matches `status = 'active'` only (`app/api/drive/webhook/route.ts:79-102`) while GC deliberately skips `channels.stop` for `expired` (§3.1.4), those deliveries would be dropped with no cleanup to explain it. Using the database's own clock removes the premise rather than documenting the risk. The renewal read keeps its injected clock, which is an existing tested contract; only the reap is DB-timed.
+
+`expires_at` is NOT NULL for any `active` row — guaranteed by `drive_watch_channels_active_requires_drive_state` — so neither arm needs a null guard. A NULL would evaluate to NULL and not be selected in any case.
 
 #### 3.1.3 Port method and placement
 
 New `WatchTx` member (`lib/drive/watch.ts:46-70`):
 
 ```ts
-expireDeadActive(nowIso: string): Promise<string[]>;   // returns reaped ids
+expireDeadActive(): Promise<string[]>; // returns reaped ids; takes NO clock (see 3.1.2)
 ```
 
 `PostgresWatchTx` implementation:
@@ -154,17 +159,19 @@ expireDeadActive(nowIso: string): Promise<string[]>;   // returns reaped ids
 update public.drive_watch_channels
    set status = 'expired'
  where status = 'active'
-   and expires_at <= $1::timestamptz
+   and (expires_at <= now() or expires_at <= created_at)
  returning id
 ```
 
-In `refreshWatchSubscriptions`, the reap and the renewal read move into ONE `runTx` callback so both observe a single snapshot and the ordering is structural rather than incidental:
+In `refreshWatchSubscriptions`, the reap and the renewal read move into ONE `runTx` callback, reap first:
 
 ```
-runTx(tx => { const reaped = await tx.expireDeadActive(nowIso);
+runTx(tx => { const reaped = await tx.expireDeadActive();
               const due    = await tx.listRenewalDue({…});
               return { reaped, due }; })
 ```
+
+**What that transaction buys is atomicity and ordering — NOT a single snapshot.** `sql.begin` runs at PostgreSQL's default READ COMMITTED isolation (`lib/drive/watch.ts:356-365`), where every statement takes its own snapshot, so the renewal read can observe rows committed after the reap (spec R1 finding 9). An earlier draft claimed one snapshot; that was a stronger guarantee than the primitive provides, and the design does not need it. What it needs is that the reap is committed-or-not together with the read, and that no reaped row can appear in `due` — both of which ordering inside one transaction does deliver.
 
 Consequences, all intended:
 
@@ -229,6 +236,27 @@ The fail-open condition is therefore reported the way every other diagnostic on 
 
 Reconcile performs its own `getActiveWatchedFolder` call (`lib/drive/watch.ts:806`). Two independent reads in one tick can in principle disagree — if the first fails and the second succeeds, refresh renewed everything while reconcile scoped to one folder. **This is accepted, not overlooked:** both branches are fail-open, both record their own diagnostic, and the disagreement window is one tick. Coupling them would mean threading refresh's read into reconcile, which re-creates the durable-transport problem that R4 of the deferred design removed (`docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md:70`).
 
+#### 3.2.4 Supersede the prior folder's channels at promotion — the master spec already requires this
+
+Spec R1 finding 4 established that this design contradicted the canonical spec, and the sharpest instance is not a wording drift: **AC-6.18 already mandates that after a folder change the prior folder's rows are `status = 'superseded'`** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3846`), and §5.5.5's Revoke clause states it as behaviour — "mark all `active` rows for the prior folder `superseded` (DB-only)" (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1331`).
+
+`promoteSettings` does not do it (`app/api/admin/onboarding/finalize-cas/route.ts:779-805`). This is not a gap in the design, it is an unimplemented shipped acceptance criterion — and `BL-WATCH-ALERT-FOLDER-SCOPE` names the exact site in its own text ("folder promotion supersedes nothing"). Leaving old-folder rows `active` until natural expiry, as an earlier draft of §3.2 proposed, would have shipped a design that violates AC-6.18 while claiming to close the entry that cites it.
+
+**So the promotion path supersedes, in the same transaction as the settings swap:**
+
+```sql
+update public.drive_watch_channels
+   set status = 'superseded', superseded_at = now()
+ where status = 'active'
+   and watched_folder_id is distinct from <the newly promoted folder id>
+```
+
+Scoped by `is distinct from` the new folder rather than by naming the old one: `promoteSettings` returns the new `watched_folder_id` and the old value is already overwritten by the time the statement runs, and any OTHER stale active row deserves the same treatment. Same transaction as the `app_settings` update, so a rolled-back promotion cannot orphan the previous folder's channel.
+
+**The §3.2 folder filter is still required, and is not redundant with this.** Promotion is one way a non-configured folder can hold an `active` row; it is not the only one. The env-var fallback (`firstBootEnvFolderId`, `lib/appSettings/getWatchedFolderId.ts:20-22`) can change under a running deployment, a promotion can fail after its Drive subscribe, and rows can be edited directly. Supersession fixes the wizard path at its root; the filter is the standing guarantee that refresh never renews a folder nobody watches. Both, not either.
+
+**Registry impact is contained:** the route is already a registered admin mutation (`tests/log/_auditableMutations.ts:35`, `POST` → `SHOW_FINALIZED`), so this adds behaviour to a registered surface rather than creating an unregistered one. No new `AUDITABLE_MUTATIONS` row.
+
 ### 3.3 Bound every Drive call and the loop around it
 
 #### 3.3.1 The per-call bound is the repo's existing idiom, verbatim
@@ -248,43 +276,37 @@ Both options are load-bearing:
 
 `DRIVE_CALL_TIMEOUT_MS` at 15s sits inside the existing family: `DRIVE_FILES_GET_TIMEOUT_MS` = 8_000 (`lib/drive/fetch.ts:109`) and `DRIVE_EXPORT_TIMEOUT_MS` = 45_000 (`lib/drive/fetch.ts:79`).
 
-#### 3.3.1a The outer deadline, and the one gap that justifies it
+#### 3.3.1a There is no outer deadline, and why
 
-`timeout` bounds the HTTP request. It does **not** bound the credential fetch that precedes it: `getDriveClient()` hands `google.drive` a `GoogleAuth` instance (`lib/drive/client.ts:35-39, 41-46`) which performs its own token request on its own transport before the API call is issued, where no `MethodOptions` applies. A hung token endpoint is exactly the stall D-C describes, and it is invisible to the per-call option.
+An earlier draft of this spec wrapped each renewal row in an outer race (`withDriveCallDeadline`, in a new module under lib/drive/) on the reasoning that the per-call `timeout` cannot reach the credential fetch. **That design is withdrawn.** It was refuted on three counts, and the third is a correctness hazard rather than a shortfall:
 
-That gap — plus the two DB round-trips either side of the Drive call — is the whole justification for an outer budget, and it is bounded at the row level (§3.3.2) rather than by wrapping each Drive call twice.
+1. **It cannot cancel what it abandons.** The wrapper surrounded `subscribeToWatchedFolder`, whose signature accepts no `AbortSignal` (`lib/drive/watch.ts:470-473`). A fired deadline rejects the outer promise while the underlying work continues — so an activation can COMMIT after refresh has already recorded that row as failed and moved on (`activatePending`, `lib/drive/watch.ts:157-186`). That produces a live channel the caller believes does not exist, and a second subscribe attempt against the same folder from reconcile in the same tick. A bound that manufactures duplicate channels is worse than no bound.
+2. **It does not close the gap it was justified by.** The credential fetch happens inside `GoogleAuth`'s own transport before the API request is issued, and neither the outer race nor `MethodOptions` reaches it — rejecting the race leaves that socket live exactly as before.
+3. **It bounded nothing the per-call option does not already bound.** `timeout` cancels the Drive request itself (§3.3.1).
 
-New module, lib/drive/callDeadline.ts, exporting:
+So this design has exactly one Drive-call bound — the per-call option pair — plus the loop bound in §3.3.2.
 
-```ts
-export class DriveCallTimeoutError extends Error { readonly operation: string; readonly timeoutMs: number; }
-export function withDriveCallDeadline<T>(operation: string, timeoutMs: number, fn: () => Promise<T>): Promise<T>;
-```
+**Named residual, not a silent gap.** A stalled `GoogleAuth` credential fetch remains unbounded. Nothing in this diff bounds it and nothing in it claims to. It is filed as its own backlog entry (§7) rather than left implicit, because the previous draft's error was precisely that it *claimed* to have closed this.
 
-`timeoutMs` must be `> 0`; a non-positive value throws immediately as a programming error rather than aborting on arm, so a mis-wired constant fails loudly instead of silently turning every call into an instant abort (pinned in §6.1). It arms an **unref'd** timer (so it never holds the event loop open on its own — same discipline as `lib/drive/fetch.ts:282-283` and `lib/drive/stallGuard.ts:41-42`), races `fn()` against a `DriveCallTimeoutError` rejection, and clears the timer in a `finally`.
+#### 3.3.2 The loop bound, stated as what it actually is
 
-It takes no `AbortSignal` parameter, because there is nothing left for it to abort: the Drive call cancels itself via `timeout`, and a stalled `GoogleAuth` token fetch exposes no cancellation seam to pass one to. The wrapper therefore bounds how long the LOOP waits, and does not claim to cancel the work it stopped waiting for. Stating that limit is the point; a signal parameter would imply a cancellation this design cannot deliver.
+Before each iteration the loop compares elapsed time against `REFRESH_RUN_BUDGET_MS`. On exhaustion it stops, records `{folderId, operation: "run_budget"}` for each unprocessed row, and emits `DRIVE_WATCH_RUN_BUDGET_EXHAUSTED`.
 
-**Why a third helper.** Neither existing mechanism fits: `createStallGuard` (`lib/drive/stallGuard.ts:32-58`) is an IDLE timer for a chunked stream, reset on every chunk, so it never bounds total time; the export guard at `lib/drive/fetch.ts:269-312` is a total-time budget but is inlined into `fetchXlsxExportBytes` and surfaces its expiry as a transient `DriveFetchError(504)` for `withDriveRetry`, which is the wrong shape for a path with no retry layer.
+**The bound is `REFRESH_RUN_BUDGET_MS + one worst-case iteration`, not `REFRESH_RUN_BUDGET_MS`.** A check placed before an iteration cannot bound that iteration: a row entering the loop one millisecond under budget still runs to completion. Stating the loop bound as the budget alone would be false, and this spec has already had one timing claim refuted for exactly that kind of imprecision (§3.3.1a). A worst-case iteration is two bounded Drive calls plus the DB round-trips and the unbounded credential fetch above — which is why the residual matters and is named rather than hidden.
 
-#### 3.3.2 Per-row budget
+`REFRESH_ROW_BUDGET_MS` is **retired from §2.1** along with the wrapper it parameterised. There is no per-row bound in this design.
 
-Each iteration of the renewal loop wraps its whole `subscribe(row.watchedFolderId)` call in `withDriveCallDeadline("refresh.row", REFRESH_ROW_BUDGET_MS, …)`. This is where the §3.3.1a gap is closed: it bounds the credential fetch and the two DB round-trips, none of which the per-call `timeout` reaches. A row-budget expiry is recorded as `failures.push({folderId, operation: "subscribe"})` on the existing catch path (`lib/drive/watch.ts:684-695`) — no new branch.
+#### 3.3.3 The `T_EXEC_BUDGET_MS` comment, corrected but not upgraded
 
-#### 3.3.3 Per-run budget, and the comment it makes true
+`T_EXEC_BUDGET_MS`'s doc comment says it is "A margin, NOT an enforceable bound … nothing reserves this much time for reaching any particular row" (`lib/drive/watchErrors.ts:25-30`). That becomes partly false and is rewritten to exactly what is now true:
 
-Before each iteration the loop checks elapsed time against `REFRESH_RUN_BUDGET_MS`. On exhaustion it stops, records `{folderId, operation: "run_budget"}` for each unprocessed row, and emits `DRIVE_WATCH_RUN_BUDGET_EXHAUSTED`.
+- **Now enforced:** the renewal loop stops starting new rows once `REFRESH_RUN_BUDGET_MS` has elapsed.
+- **Still NOT enforced:** the in-flight iteration when the budget expires (§3.3.2); the credential fetch; the platform's willingness to keep the invocation alive; and `pg_net`'s `timeout_milliseconds`, which may be ignored outright (`supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22`).
 
-`T_EXEC_BUDGET_MS`'s current doc comment says it is "A margin, NOT an enforceable bound … nothing reserves this much time for reaching any particular row" (`lib/drive/watchErrors.ts:25-30`). That becomes partly false and must be rewritten in the same commit, to exactly what is now true and no further:
-
-- **Now enforced:** the JS-side renewal loop will not spend longer than `REFRESH_RUN_BUDGET_MS` before abandoning the remaining rows, and no single row will occupy more than `REFRESH_ROW_BUDGET_MS` of it.
-- **Still NOT enforced:** the platform's willingness to keep the invocation alive, and `pg_net`'s `timeout_milliseconds`, which may be ignored outright (`supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22`). A run can still be killed mid-loop from outside.
-
-`isGrantTooShort`'s `P + 2T` heuristic (`lib/drive/watchErrors.ts:82-84`) therefore stays a heuristic. Its doc comment's central claim — that any timing guarantee is parameterised by a budget nothing enforces — is now half-retired, and the honest replacement is that the budget is enforced *within the process* and not *around it*. **Do not upgrade the heuristic to a guarantee in this diff** (§8.4).
-
+`isGrantTooShort`'s `P + 2T` heuristic (`lib/drive/watchErrors.ts:82-84`) therefore stays a heuristic. **Do not upgrade it to a guarantee in this diff** (§8.4).
 #### 3.3.4 Classification
 
-Two distinct error shapes can now arrive: a gaxios `GaxiosError` with `code === "TimeoutError"` from the per-call `timeout` (`lib/drive/fetch.ts:90-92`), and a `DriveCallTimeoutError` from the row budget. Both reach `classifyWatchError` (`lib/drive/watchErrors.ts:103-108`) and both return `"drive_api"`: neither is a `DriveWatchInfraError`, and neither message matches a `CONFIG_PATTERNS` entry. That is the correct class — a Drive call that did not answer is a Drive-API fault, not a config or DB fault — and it is reached by the existing default rather than by a new pattern. §6 pins it with an assertion, because "correct by default" is exactly the kind of claim that silently stops being true when someone adds a pattern.
+A per-call timeout surfaces as a gaxios `GaxiosError` with `code === "TimeoutError"` (`lib/drive/fetch.ts:90-92`). It reaches `classifyWatchError` (`lib/drive/watchErrors.ts:103-108`) and returns `"drive_api"`: it is not a `DriveWatchInfraError`, and its message matches no `CONFIG_PATTERNS` entry. With §3.3.1a's wrapper withdrawn this is the only timeout shape the watch path produces. That is the correct class — a Drive call that did not answer is a Drive-API fault, not a config or DB fault — and it is reached by the existing default rather than by a new pattern. §6 pins it with an assertion, because "correct by default" is exactly the kind of claim that silently stops being true when someone adds a pattern.
 
 ### 3.4 Commit the alert in the transaction it appears to be in
 
@@ -306,7 +328,9 @@ await this.rows(`select public.upsert_admin_alert($1::uuid, $2::text, $3::jsonb)
 
 #### 3.4.2 The jsonb parameter is stringified deliberately
 
-`JSON.stringify(input.context)` with an explicit `jsonb` cast in the SQL, NOT the raw object. Handing postgres.js a JS object for a `jsonb` parameter risks a double-encoded value — a jsonb STRING containing JSON rather than a jsonb OBJECT — which would make every `context->>'…'` read in the alert consumers return NULL while nothing errors. Two readers would break silently: `readUnresolvedWatchAlert`'s `alert.context?.error_class` and `error_message` (`lib/drive/watchEscalation.ts:101, 155`) and the RPC's own `p_context ? 'failedKeys'` test. §6 pins `jsonb_typeof(context) = 'object'` and a key read against the real DB, which is the only assertion shape that can observe this.
+`JSON.stringify(input.context)` with an explicit `jsonb` cast in the SQL, NOT the raw object.
+
+**The failure mode is loud, not silent** (spec R1 finding 10, which corrected this section's reasoning while leaving its prescription intact). An earlier draft claimed postgres.js would silently double-encode a raw object into a jsonb STRING. It does not: an untyped object falls through to string coercion as `[object Object]` (postgres.js 3.4.9, its inferred-type path in src/types.js), and the jsonb cast then fails outright, aborting the transaction. So the raw-object form is caught the first time it runs rather than corrupting rows quietly — which is a better failure than the one this section used to describe, and does not change what to write. Two readers would break silently: `readUnresolvedWatchAlert`'s `alert.context?.error_class` and `error_message` (`lib/drive/watchEscalation.ts:101, 155`) and the RPC's own `p_context ? 'failedKeys'` test. §6 pins `jsonb_typeof(context) = 'object'` and a key read against the real DB, which is the only assertion shape that can observe this.
 
 #### 3.4.3 What changes for callers — and what does not
 
@@ -367,25 +391,36 @@ Every registry this diff touches, each verified against the live tree.
 | `tests/messages/_metaAdminAlertProducer.test.ts` | **N/A, verified:** its detector is Supabase-client-scoped — `/\.from\(\s*["']admin_alerts["']\s*\)[\s\S]{0,400}?\.(?:insert|upsert)\s*\(/` (`tests/messages/_metaAdminAlertProducer.test.ts:42-43`). §3.4.1 writes through the canonical `upsert_admin_alert` RPC, which is what that guard exists to require, and does so over a pg connection that matches no part of the pattern. The precedent is already in this file: `resolveStaleWebhookTokenInvalid` issues a raw `update public.admin_alerts` (`lib/drive/watch.ts:322-335`) and passes today. |
 | `tests/cross-cutting/vitest-projects-partition.test.ts:222-242` | **N/A, verified:** it asserts a representative sample of DB/FS-heavy files resolve to the SERIAL project, not an exhaustive registry. A new `tests/db/*.db.test.ts` is admitted by directory glob, exactly as the existing `tests/db/watchRenewalDue.test.ts` is, so no wiring entry is added. |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | **N/A, verified:** this diff adds no `pg_advisory`/`hashtext` call and the watch surface has zero holders today (§1.1a item 6), so there is no lock topology to pin. Declared explicitly because the writing-plans rules require a positive statement either way. |
+| `tests/drive/watchExpiration.test.ts:46-63` | **MUST be edited, and the compiler will NOT tell you.** This is a SECOND `WatchTx` fake, and it returns its object literal `as unknown as WatchTx` — a cast that disables excess/missing-property checking, so adding `expireDeadActive` to the port produces no type error here and the omission surfaces only as a runtime `undefined is not a function`. The file's own header comment says exactly this: "When the port changes, grep this file explicitly; the compiler will not do it for you." Add `expireDeadActive: unexpected("expireDeadActive")`, matching how every other unused member is declared. |
+| `tests/drive/watchExpiration.test.ts:15-35` | **MUST be extended.** Its `driveMock` declares `watch: async (args) => …` — a ONE-parameter mock that never observes a second argument. The §6.1 assertion that `files.watch` receives `{timeout, retry: false}` cannot be written against it as-is; the mock gains an options parameter and records it. Without this the option-pair test is unwritable, not merely weak (spec R1 finding 8). |
+| `tests/drive/watch.test.ts` multi-row isolation fixtures | **Audit required.** Fixtures that seed already-expired `active` rows are now CONSUMED by the reap before `listRenewalDue` runs, so a test whose subject is renewal isolation can pass while exercising no renewal at all — a silent vacuity, not a failure. Every fixture row with an `expiresAt` in the past is re-dated to sit inside its lease unless the test's subject IS expiry. |
 | `tests/db/validation-schema-parity.test.ts` | Runs unchanged and, per §4.1, is expected to see no manifest diff. It therefore does NOT protect the validation apply — §4.4. |
 | `RefreshResult` deep-equality assertions (`tests/drive/watch.test.ts`, `tests/sync/_metaInfraContract.test.ts`, `tests/cron/refreshWatchRoute.test.ts`, `tests/api/cron-sync.test.ts`, `tests/cron/cronRouteSummaries.test.ts`) | **N/A, by design:** §3.2.3 keeps `RefreshResult` and the cron response body byte-identical, so none of the five files changes. This row exists because an earlier draft added a field here and wrongly called it additive. |
 | `lib/audit/watermark-symbols.generated.ts` | **N/A, verified:** it lists `drive_watch_channels.superseded_at` (`lib/audit/watermark-symbols.generated.ts:17`) — a column symbol. No column is added or removed. |
 
-### 4.4 The validation-project apply is un-guarded, and this is how it is closed
+### 4.4 The validation-project apply IS guardable — extend the gate that already exists
 
-Normally the `validation-schema-parity` gate catches a forgotten validation apply. It cannot here: the manifest is a per-table column-name array with no constraint data (§4.1), so a CHECK-only migration produces no manifest diff and both of the gate's layers stay green whether or not the migration reached validation.
+An earlier draft of this section asserted that no gate could catch a forgotten validation apply, because the schema manifest stores only column names per table (§4.1), and compensated with a manual `pg_get_constraintdef` paste into the PR body. **That assertion was false** (spec R1 finding 3).
 
-If it is forgotten, the failure is silent and delayed: `expired` is rejected by the live CHECK, the reap throws, the whole refresh transaction rolls back every tick, and renewals stop entirely on the only deployed environment — reported only as a `DRIVE_WATCH_INFRA_FAULT`.
+`tests/db/validation-schema-parity.test.ts:216-290` already carries a CHECK-constraint parity layer, added for precisely this blind spot — its own comment says Layers 1-2 "are COLUMNS-only … so a CHECK-only migration … that never reached validation would slip past them silently. This layer closes that blind spot." It derives the expected constraint-name set FROM the migration text and asserts the validation database contains all of them, so a skipped surgical apply is red CI rather than a stale note in a merged PR.
 
-So the apply is a first-class plan task with an explicit verification, not a checklist line:
+**This diff extends that layer** with a parallel block for the status CHECK: parse the new migration supabase/migrations/20260726000000_drive_watch_expired_status.sql for `alter table public.<t> add constraint <name> check`, and assert the validation database has `drive_watch_channels_status_check` **with `'expired'` in its definition**. The definition check matters and the name check alone does not: the constraint name already exists in validation today, carrying the OLD six-value list, so a name-only superset assertion passes whether or not the migration was applied. That is the same vacuity the existing layer guards against with its `toBe(17)` count.
 
-```sh
-supabase db query --linked "<contents of the migration>"
-supabase db query --linked "select pg_get_constraintdef(oid) from pg_constraint \
-  where conname = 'drive_watch_channels_status_check'"
-```
+It is added as its own parsed block rather than by appending the migration to `NONBLANK_MIGRATIONS`, whose `expect(expected.size).toBe(17)` non-vacuity guard is scoped to the `*_drive_file_id_nonblank` family and would have to move for an unrelated reason.
 
-The second command's output must contain `'expired'`. That output is pasted into the PR body as evidence. `notify pgrst, 'reload schema'` is not required — a CHECK change alters no column, function, or relationship in PostgREST's schema cache — and is not run, so the PR does not imply it was needed.
+The manual apply is still performed — `supabase db query --linked "<migration SQL>"` — but it is now verified by CI instead of by a pasted claim. Without the apply, the extended layer fails. `notify pgrst, 'reload schema'` remains unnecessary and unrun: a CHECK alters no column, function, or relationship in PostgREST's schema cache.
+
+### 4.6 Master-spec amendments (AGENTS.md invariant 7)
+
+The canonical spec is `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`. Three of its statements become false when this diff lands, and invariant 7 requires amending it rather than letting two authoritative documents demand incompatible behaviour. Each amendment is a DELETION and replacement of the superseded sentence, tagged `**Amended 2026-07-26**` with a pointer to this spec, matching how the 2026-07-25 lease-slack amendments are recorded in the same sections.
+
+| Canonical statement | Location | Amendment |
+| --- | --- | --- |
+| "**No client-side timeout is applied** (amended 2026-07-25) … Adding a real timeout is tracked as `BL-WATCH-DRIVE-CALL-TIMEOUT`." | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1320` | Replaced by the per-call `{timeout: DRIVE_CALL_TIMEOUT_MS, retry: false}` pair (§3.3.1), with the residual credential-fetch stall named (§3.3.1a). The `BL-WATCH-DRIVE-CALL-TIMEOUT` reference is removed because the entry is closed by this diff. |
+| Renew "for any `active` row that has burned …" — no folder scoping. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1330` | Scoped to the configured folder (§3.2), with the three read outcomes stated. |
+| The channel status set, which lists `pending`/`active`/`superseded`/`stopping`/`stopped`/`orphaned`. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1299` and the §5.5.6 GC per-status list | `expired` added, with its meaning (aged out, distinct from `orphaned` = we failed to create it) and its GC treatment (collected, but no `channels.stop` — §3.1.4). |
+
+**AC-6.18 is NOT amended.** It already states the behaviour this diff implements (§3.2.4); it was simply never satisfied. Its status changes from unimplemented to implemented, which is not a spec change.
 
 ### 4.5 Flag lifecycle
 
@@ -421,21 +456,21 @@ TDD per AGENTS.md invariant 1: every test below is written failing first. Each r
 |---|---|
 | A failing REAP still returns `{refreshed: [], orphaned: [], failures: [{folderId: '*', operation: 'list_expiring'}]}` and does NOT reject | §3.1.3a plus the registered never-rejects contract. Catches the reap escaping as a rejection into the cron route, and catches someone "improving" the failure label and breaking five existing assertions. |
 | A failing reap emits `operation: "drive_watch_channels.expire_dead_active"`; a failing renewal read still emits `operation: "drive_watch_channels.list_renewal_due"` | Both directions, because a hardcoded operation misattributes the reap and a naively dynamic one breaks `tests/drive/watch.test.ts:1447`. |
+| An inverted lease (`expires_at <= created_at`) whose `expires_at` is in the FUTURE is reaped, and does NOT appear in `due` | Spec R1 finding 2, the class an expiry-only predicate misses. Mirrors the row `tests/db/watchRenewalDue.test.ts:141-153` already pins as renewal-due, and fails against a single-arm predicate. |
+| The reap uses the DATABASE clock: a row expired only under a skewed JS clock is NOT reaped | §3.1.2. Set the injected JS clock hours ahead of real time and assert an unexpired row survives. Catches a reimplementation that reintroduces a `nowIso` parameter. |
+| Each of the four forensic codes is emitted on its intended branch, observed through a sink spy | Spec R1 finding 8: allowlist membership in `NEW_FORENSIC_CODES` is static and proves only that a string is permitted, never that the branch emits it. |
 | The reap runs BEFORE the renewal read | `tx.operations` equals `["expireDeadActive", "listRenewalDue", …]`. Catches a reap ordered after the read, which would leave the stale row in `due` for one more tick — the entire fix silently reduced to a no-op. Order, not mere presence. |
-| An expired-and-due row produces **zero** subscribe attempts from refresh | The executable form of §3.1.3. Asserts the spy's call COUNT is 0, not that some other row was renewed. |
+| An expired row **whose folder IS the configured one** produces zero subscribe attempts from refresh | The executable form of §3.1.3. Asserts the spy's call COUNT is 0. The configured-folder qualifier is load-bearing (spec R1 finding 8): without it the §3.2 folder filter alone yields zero calls, and the test passes whether or not the reap works. |
 | Folder filter passes the configured folder and drops the rest | Asserts the subscribe spy's ARGUMENT is the configured folder id, and that a stale-folder row yields no call. Catches a filter that counts right and selects wrong. |
 | `no_folder_configured` → zero subscribe calls | Catches a fail-open default leaking into the not-configured branch. |
 | Folder read returns `infra_error` → ALL rows renewed, `DRIVE_WATCH_FOLDER_READ_FAILED` emitted, and the returned object `toEqual`s the pre-change shape with an EMPTY `failures` array | D7, and three assertions in one because they fail independently: fail-open renewal, the durable record, and no `'*'` row (which would suppress reconcile's auto-resolve on a healthy cycle). The `toEqual` against the old shape is what pins §3.2.3's promise that the result type did not change. |
 | Folder read THROWS → same as `infra_error` | Catches recorded-not-thrown being lost, i.e. a throw escaping `refreshWatchSubscriptions` into the route handler. |
 | `defaultWatchFolder` passes `{ timeout: DRIVE_CALL_TIMEOUT_MS, retry: false }` as the SECOND argument to `files.watch`, and `defaultStopChannel` the same to `channels.stop` | Asserts both fields by value on a mock drive client. `retry: false` is the half that matters: without it gaxios's internal retry multiplies the budget and the timeout bounds nothing, which no timing test would notice. |
-| `withDriveCallDeadline` rejects with `DriveCallTimeoutError` at the budget, carrying `operation` and `timeoutMs` | Catches a wrapper that resolves-with-undefined or throws an untyped error, either of which would make a stall look like a Drive-side failure with no attribution. |
-| `withDriveCallDeadline` clears its timer on the success path | Catches a leaked timer holding the event loop open after a fast call. |
-| A never-settling `watchFolder` yields `{outcome: "orphaned", reason: "watch_create_failed"}` within the budget | Fake timers. Catches the timeout not being wired into the subscribe path at all. |
-| Both timeout shapes (a `GaxiosError` with `code: "TimeoutError"`, and `DriveCallTimeoutError`) classify as `error_class: "drive_api"` | §3.3.4. Catches a future `CONFIG_PATTERNS` addition silently re-classifying a timeout as `config`, which escalates immediately (`lib/drive/watchEscalation.ts:102`). |
+| A `files.watch` that rejects with a `TimeoutError`-shaped `GaxiosError` yields `{outcome: "orphaned", reason: "watch_create_failed"}` and an alert whose `error_class` is `drive_api` | R1-8: the earlier version injected `deps.watchFolder`, which BYPASSES `defaultWatchFolder` and therefore never exercised the option pair or the timeout at all — it proved only that a rejecting function rejects. This drives the real `defaultWatchFolder` against a mocked drive client. |
+| A `GaxiosError` with `code: "TimeoutError"` classifies as `error_class: "drive_api"` | §3.3.4. Catches a future `CONFIG_PATTERNS` addition silently re-classifying a timeout as `config`, which escalates immediately (`lib/drive/watchEscalation.ts:102`). |
 | Run-budget exhaustion stops the loop and records the remainder | Asserts processed count, `failures` rows for unprocessed folders, and the warn emit. Catches a budget check that logs but keeps iterating. |
 | GC skips `channels.stop` for `expired`, calls it for `orphaned` with a `resourceId`, and marks BOTH stopped | Asserts the stop spy's call list by channel id. A count-only assertion would pass if it skipped the wrong one. |
 | `REFRESH_RUN_BUDGET_MS === T_EXEC_BUDGET_MS` | Catches the alias drifting into a second literal. |
-| `withDriveCallDeadline` throws on a non-positive `timeoutMs` | Catches a mis-wired constant turning every Drive call into an instant abort, which would look like a total Drive outage. |
 
 ### 6.2 Real DB (`tests/db/watchRenewalDue.test.ts` extended, plus one new suite)
 
@@ -445,8 +480,7 @@ Both resolve their connection through `assertLocalDbUrl(process.env.LOCAL_TEST_D
 |---|---|
 | The CHECK accepts `'expired'` and still rejects an unknown value | Catches a migration that was written but never applied locally, and one that widened the constraint to anything. |
 | Through the real `refreshWatchSubscriptions`: an expired-active row ends as `status='expired'`, is absent from `listRenewalDue`, present in `listGcCandidates` | The §5 inversion. Runs the production `PostgresWatchTx` SQL, so it catches SQL that a fake would let pass. |
-| A row still INSIDE its lease whose renewal fails is NOT reaped | §3.1.2 — the regression that "retire on failure" would have shipped. Kills a live channel if it fails. |
-| Reaping frees the per-folder active slot: a re-subscribe for the same folder succeeds after a reap | Catches a `drive_watch_channels_one_active_per_folder_idx` violation, which would surface only under the reap-then-resubscribe sequence. |
+| A row still INSIDE its lease, **and demonstrably renewal-due**, whose renewal fails is NOT reaped | §3.1.2 — the regression "retire on failure" would have shipped. The renewal-due qualifier is load-bearing (spec R1 finding 8): a row that is not due never reaches the renewal seam, so the test would pass without ever exercising the failure it names. Derive its lease from `renewalLeadMs` so it is due by construction, not by a hardcoded date. |
 | `markWatchOrphanedWithTx` inside a transaction that then throws leaves **no** `admin_alerts` row and an unchanged channel status | The direct proof of §3.4. Fails today: the alert commits over its own connection. Nothing weaker can observe this. |
 | The raised alert's `context` satisfies `jsonb_typeof(context) = 'object'` and `context->>'watched_folder_id'` equals the folder id | §3.4.2 double-encoding. A jsonb STRING passes a naive "a row exists" assertion and breaks every consumer. |
 | The alert's `occurrence_count` increments on a second raise | Proves the RPC's real `on conflict … do update` body ran over the pg connection, not just that an insert happened. |
@@ -464,6 +498,7 @@ Before implementing §3.3, `rg -n 'getDriveClient\(\)' lib/ app/` enumerates eve
 - `BL-PG-CRON-COVERAGE-UNRUN` and `BL-CRON-REGISTRY-MIGRATION-PARITY` (BACKLOG.md). Adjacent to the same cron job, unrelated to these four defects.
 - The webhook handler's folder resolution (`app/api/drive/webhook/route.ts:82`). §1.3 notes that an abandoned folder's pings become bounded at ≤ 24h instead of permanent; making the handler itself folder-aware is a separate change and is not made here.
 - Retiring `'stopping'` from the CHECK (§8.2).
+- **Bounding the `GoogleAuth` credential fetch.** Named residual from §3.3.1a: the per-call `timeout` reaches the Drive request but not the token request that precedes it on `GoogleAuth`'s own transport, and no supported per-call knob was found for it. Filed as a new backlog entry rather than left implicit — the withdrawn outer-race design failed precisely because it claimed to have closed this.
 
 ---
 
@@ -481,6 +516,6 @@ Before implementing §3.3, `rg -n 'getDriveClient\(\)' lib/ app/` enumerates eve
 
 **8.6 What this hands to `BL-WATCH-RECONCILE-BACKOFF`.** The blocking premise of the deferred design was "refresh, not reconcile, is the dominant retry path, and it is ungated" (BACKLOG.md, entry `BL-WATCH-RECONCILE-BACKOFF`). After §3.1 refresh does not retry an expired folder at all, and after §3.2 it does not touch a non-configured one, so reconcile's `!live` branch (`lib/drive/watch.ts:877-881`) becomes the **single** retry surface — which is precisely where the deferred ladder attaches. That entry stays OPEN; its constants and cadence prescriptions were falsified across five rounds and must be re-derived, not resumed (`docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md:10`).
 
-**8.7 "The manifest should show a diff for a CHECK change."** It does not — the manifest is a column-name array per table. That is why §4.4 makes the validation apply an explicit task with a `pg_get_constraintdef` verification pasted into the PR body, instead of relying on the parity gate.
+**8.7 "The manifest should show a diff for a CHECK change."** It does not — the manifest is a column-name array per table. But that does NOT leave the validation apply unguarded, and an earlier draft of this spec wrongly said it did: `tests/db/validation-schema-parity.test.ts:216-290` already carries a CHECK-parity layer built for this blind spot, and §4.4 extends it rather than substituting a manual paste.
 
 **8.8 "No impeccable gate was run."** Correctly so: AGENTS.md invariant 8 scopes the dual-gate to files under app/ except app/api/**, files under components/, an app/globals.css @theme block, DESIGN.md, and the Tailwind config. This diff touches none of them (§4.1).
