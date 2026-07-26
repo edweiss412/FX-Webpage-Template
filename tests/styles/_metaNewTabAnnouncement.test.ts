@@ -4108,6 +4108,28 @@ describe("R6: scanner changes are pinned", () => {
     for (const [label, inner, shouldReport] of cases) {
       expect(verdict(inner).length > 0, label).toBe(shouldReport);
     }
+    // GATING is the THIRD consumer of the contributing filter and had no coverage of its own. On a
+    // conditionally-external anchor the hint must be gated on the SAME predicate, and a hidden
+    // instance must neither satisfy that requirement nor break it.
+    const gated = (children: string): string[] => {
+      const sc: Scan = { anchors: 0, violations: [] };
+      const src = `const A = ({e}) => <a href="x" {...(e ? { target: "_blank" } : {})}>${children}</a>;`;
+      scanSource(parse("/synthetic/gated.tsx", HINT_IMPORT + src), "/synthetic/gated.tsx", sc);
+      return sc.violations.map((v) => v.reason);
+    };
+    expect(gated("Go {e ? <> <NewTabHint /></> : null}"), "gated on the same predicate").toEqual(
+      [],
+    );
+    expect(gated("Go <NewTabHint />"), "ungated on a gated anchor").not.toEqual([]);
+    expect(
+      gated('Go {e ? <> <NewTabHint /></> : null} <span aria-hidden="true"><NewTabHint /></span>'),
+      "a HIDDEN ungated instance must not break a correctly gated visible one",
+    ).toEqual([]);
+    expect(
+      gated('Go <NewTabHint /> {e ? <span aria-hidden="true"><NewTabHint /></span> : null}'),
+      "a HIDDEN gated instance must not vouch for an ungated visible one",
+    ).not.toEqual([]);
+
     // PRECEDENCE: a hidden-only hint reports that it is HIDDEN, not that it is unseparated -- being
     // absent from the name is the more fundamental fact, and the vaguer message would hide it.
     expect(
