@@ -8,34 +8,24 @@
  * workflow's `env:` block for CI — so retiring that workflow would have broken
  * them. The fallbacks now live in the config, once.
  *
- * PRECEDENCE, stated correctly. Playwright evaluates the config BEFORE loading
- * any test module, so a top-level `process.env.X ??=` lands first, and
- * `loadTestEnv` (via `@next/env`, which preserves already-defined process
- * values) will NOT override it. The config defaults therefore WIN over
- * `.env.local`.
+ * These assertions OBSERVE the config running (`_standaloneConfigProbe.ts`)
+ * rather than reading its source. Two adversarial rounds broke two successive
+ * static readers — a regex one with a comment, its AST successor with
+ * `if (false)`, uncalled functions, duplicate `??=`, lexical scope, and
+ * bracket member access. The questions here are all "what does this module
+ * DO", so the module is run and the answers read off.
  *
- * That is acceptable only because every value is a placeholder rather than a
- * credential, so this pins that property instead of assuming it.
- *
- * Every check reads the AST, never the source text: an adversarial round
- * showed all three of the original text checks could be satisfied by
- * COMMENTED-OUT assignments, which is fail-open in the worst direction for a
- * guard whose whole job is to notice a real credential.
+ * The properties below are the REAL contract, not a proxy for it: a caller's
+ * value survives, an absent one gets a placeholder default. An earlier version
+ * asserted source ORDER relative to `defineConfig`, which is not the actual
+ * requirement — Playwright awaits evaluation of the whole config module before
+ * loading any test module — and would have failed a legitimate config.
  *
  * Spec: docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §4.1.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import {
-  defaultsPrecedeDefineConfig,
-  envDefaults,
-  envHardAssignments,
-} from "./_standaloneConfigScan";
-
-const ROOT = process.cwd();
-const CONFIG = "tests/e2e/standalone.config.ts";
+import { probeConfig } from "./_standaloneConfigProbe";
 
 /** The nine variables the retired workflow supplied. */
 const REQUIRED = [
@@ -50,54 +40,47 @@ const REQUIRED = [
   "SUPABASE_SERVICE_ROLE_KEY",
 ];
 
-describe("standalone config carries its own env fallbacks", () => {
-  const source = readFileSync(join(ROOT, CONFIG), "utf8");
+/**
+ * The exact values the config is allowed to install. Pinned EXACTLY rather
+ * than pattern-matched: an adversarial round noted that `/test|demo/` accepts
+ * a real pepper containing "test", and that a hostname can contain
+ * "127.0.0.1" as a substring. A frozen set has no such slack — adding a value
+ * here is a deliberate, reviewable edit, which is the actual control.
+ */
+const ALLOWED_DEFAULTS: Record<string, string> = {
+  HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic",
+  JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min",
+  NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
+  SUPABASE_URL: "http://127.0.0.1:54321",
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+  NEXT_PUBLIC_SUPABASE_ANON_KEY:
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+  SUPABASE_ANON_KEY:
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+  SUPABASE_SECRET_KEY:
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+  SUPABASE_SERVICE_ROLE_KEY:
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+};
 
-  it("ignores commented-out and stringified assignments", () => {
-    // The exact fail-open an adversarial round found: a text scan reads these
-    // as real. Pinned first, because every assertion below trusts this reader.
-    const decoy = [
-      '// process.env.HASH_FOR_LOG_PEPPER ??= "commented";',
-      '/* process.env.SUPABASE_URL ??= "block-commented"; */',
-      "const doc = 'process.env.JWT_SIGNING_SECRET ??= \"in-a-string\"';",
-      'process.env.REAL_ONE ??= "live";',
-    ].join("\n");
-    expect([...envDefaults(decoy).keys()]).toEqual(["REAL_ONE"]);
-  });
+describe("standalone config env fallbacks (observed, not parsed)", () => {
+  it("installs exactly the expected placeholder for every required name", () => {
+    const { env } = probeConfig(REQUIRED);
+    // Set equality by NAME, then value equality — a count alone is satisfied
+    // by a duplicate plus a missing name.
+    expect(new Set(Object.keys(env))).toEqual(new Set(REQUIRED));
+    const unset = REQUIRED.filter((n) => env[n] === null);
+    expect(unset, "config must default every one of these").toEqual([]);
+    expect(env).toEqual(ALLOWED_DEFAULTS);
+  }, 120_000);
 
-  it("defaults exactly the required set, by name", () => {
-    // Set equality, not a count: an earlier version asserted only the NUMBER
-    // of assignments, which a duplicate plus a missing name satisfies.
-    expect(new Set(envDefaults(source).keys())).toEqual(new Set(REQUIRED));
-  });
-
-  it("uses ??= and never bare assignment, so a caller's env is never clobbered", () => {
-    expect(envHardAssignments(source)).toEqual([]);
-  });
-
-  it("sets the defaults BEFORE defineConfig, or Playwright loads tests first", () => {
-    expect(defaultsPrecedeDefineConfig(source)).toBe(true);
-  });
-
-  it("carries no value that looks like a real credential", () => {
-    // The precedence above means these WIN over .env.local, so the guard is
-    // load-bearing. A demo Supabase JWT is identified by its well-known
-    // issuer AND its well-known signature — checking `iss` alone trusts an
-    // unsigned payload an attacker controls, which an adversarial round
-    // correctly flagged.
-    const DEMO_SIGNATURES = new Set([
-      "CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
-      "EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
-    ]);
-    for (const [name, value] of envDefaults(source)) {
-      if (value.startsWith("eyJ")) {
-        const [, payload, signature] = value.split(".");
-        const body = JSON.parse(Buffer.from(payload!, "base64url").toString()) as { iss?: string };
-        expect(body.iss, `${name}: must be a demo token`).toBe("supabase-demo");
-        expect(DEMO_SIGNATURES.has(signature!), `${name}: unknown signature`).toBe(true);
-      } else {
-        expect(value, `${name} must be an obvious placeholder`).toMatch(/test|demo|127\.0\.0\.1/i);
-      }
-    }
-  });
+  it("never clobbers a value the caller already set", () => {
+    // The behavioural form of "uses ??= and not =". Syntax-independent: it
+    // catches `process.env.X = …`, `process.env["X"] = …`, an assignment
+    // inside a helper, or any other shape, because it observes the outcome.
+    const preset = Object.fromEntries(REQUIRED.map((n) => [n, `CALLER-${n}`]));
+    const { env } = probeConfig(REQUIRED, preset);
+    expect(env).toEqual(preset);
+  }, 120_000);
 });

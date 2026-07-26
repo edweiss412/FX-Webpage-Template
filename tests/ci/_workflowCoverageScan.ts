@@ -163,14 +163,7 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
       .map((mm) => mm[1]!)
       .filter((name) => name in packageScripts)
       .flatMap((name) => resolveSpecs(packageScripts[name]!));
-    // Whole-config recognition. Applied to `cmd` only: `resolveSpecs` already
-    // recurses into each alias body, so a command moved into package.json
-    // arrives here AS `cmd` on the recursive call and is recognized there.
-    // An explicit alias-body pass was written first and PROVEN DEAD by
-    // mutation — deleting it left the alias test green.
-    const wholeConfig = cmd.trim().match(WHOLE_CONFIG_RE);
-    const fromConfig = wholeConfig ? (configSpecs[wholeConfig[1]!] ?? []) : [];
-    return [...direct, ...aliases, ...fromConfig];
+    return [...direct, ...aliases];
   };
 
   for (const [file, yaml] of Object.entries(workflows)) {
@@ -192,7 +185,18 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
         const cmd = runMatch[2]!;
         const stepIf = /(^|\n)\s*if\s*:/.test(step);
         const stepCoe = hasContinueOnError(step);
-        for (const spec of resolveSpecs(cmd)) {
+        // Whole-config claim. Evaluated against the ENTIRE run block, and
+        // deliberately NOT through alias resolution: an adversarial round
+        // claimed full coverage for `echo pnpm test:e2e:standalone`, for a
+        // `set +e` block, and for a backgrounded `… &`, because alias
+        // recursion applied the exact match to the package-script BODY while
+        // qualification only ever saw the outer command. Requiring the whole
+        // run block to BE the literal removes the shell reasoning entirely —
+        // there is no surrounding context left to smuggle anything into.
+        const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
+        const fromConfig = wholeConfigMatch ? (configSpecs[wholeConfigMatch[1]!] ?? []) : [];
+
+        for (const spec of [...resolveSpecs(cmd), ...fromConfig]) {
           if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
           else if (hasPathsFilter)
             rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });

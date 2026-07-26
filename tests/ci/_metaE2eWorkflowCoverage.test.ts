@@ -23,7 +23,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scanWorkflowCoverage } from "./_workflowCoverageScan";
-import { testMatchBranches } from "./_standaloneConfigScan";
+import { branchesOf, probeConfig } from "./_standaloneConfigProbe";
 
 const ROOT = process.cwd();
 
@@ -122,9 +122,9 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
   // Whole-config membership, resolved from the LIVE config rather than listed
   // here: a hand-maintained copy would drift the moment a spec is registered,
   // and drift in a coverage guard reads as coverage.
-  const standaloneMembers = testMatchBranches(
-    readFileSync(join(ROOT, "tests/e2e/standalone.config.ts"), "utf8"),
-  ).map((b) => `tests/e2e/${b}.spec.ts`);
+  const standaloneMembers = branchesOf(probeConfig([]).testMatchSource).map(
+    (b) => `tests/e2e/${b}.spec.ts`,
+  );
 
   const { covered } = scanWorkflowCoverage({
     workflows,
@@ -330,13 +330,29 @@ describe("the whole-config rule (spec §4.1)", () => {
     expect([...r.covered]).toEqual(["tests/e2e/alpha.spec.ts"]);
   });
 
-  it("recognizes the literal through a pnpm alias, so package.json cannot evade it", () => {
-    const r = scanWorkflowCoverage({
-      workflows: { "w.yml": wf("pnpm test:e2e:standalone") },
-      packageScripts: { "test:e2e:standalone": `pnpm exec playwright test --config ${CFG}` },
-      configSpecs: { [CFG]: members },
-    });
-    expect([...r.covered].sort()).toEqual([...members].sort());
+  it("claims nothing when the literal is wrapped in ANY shell context", () => {
+    // An adversarial round claimed full coverage for all three of these,
+    // because alias recursion applied the exact match to the package-script
+    // BODY while qualification only saw the outer command. The whole-config
+    // claim now requires the entire run block to BE the literal, so an alias
+    // does not carry it either — `pnpm test:e2e:standalone` is deliberately
+    // NOT recognized, and that is the safe direction: it reads as dark rather
+    // than as falsely covered.
+    const scripts = { "test:e2e:standalone": `pnpm exec playwright test --config ${CFG}` };
+    for (const run of [
+      "echo pnpm test:e2e:standalone",
+      "pnpm test:e2e:standalone",
+      `pnpm exec playwright test --config ${CFG} &`,
+      "|\n          set +e\n          pnpm test:e2e:standalone\n          true",
+      `# pnpm exec playwright test --config ${CFG}`,
+    ]) {
+      const r = scanWorkflowCoverage({
+        workflows: { "w.yml": wf(run) },
+        packageScripts: scripts,
+        configSpecs: { [CFG]: members },
+      });
+      expect([...r.covered], `must claim nothing: ${run}`).toEqual([]);
+    }
   });
 
   it("claims nothing for a config it was given no member list for", () => {
