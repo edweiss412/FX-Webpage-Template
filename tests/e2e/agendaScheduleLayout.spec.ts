@@ -47,14 +47,6 @@ const TOL = 0.5;
 const VIEWPORTS = [320, 390, 720] as const;
 const BODY_PAD = 16; // mirrors the crew page's `px-4` content gutter
 
-// A worst-case title: a single UNBREAKABLE long token (no spaces, no hyphens —
-// hyphens are CSS soft-break opportunities). This is the adversarial input for
-// the §6 "long titles wrap, not overflow" invariant: `min-w-0` on the grid text
-// cell + `wrap-break-word` (overflow-wrap: break-word) must break it across
-// lines so it stays within the column at 320px.
-const LONG_TITLE =
-  "AdaptingToUnpredictabilityInGlobalAssetManagementQuarterlyInvestorSummitKeynoteSessionXY"; // 90 chars
-
 // Affordance row + schedule block, transcribed VERBATIM from the components so
 // the measured geometry exercises the real Tailwind classes (not a paraphrase).
 function agendaHtml(): string {
@@ -209,10 +201,8 @@ for (const vw of VIEWPORTS) {
       visible.length,
       `exactly the open day's sessions are painted @ ${vw} (folded days contribute none)`,
     ).toBe(2);
-    const sessions = allSessions;
-    const n = visible.length;
     for (const i of visible) {
-      const s = await rectOf(sessions.nth(i));
+      const s = await rectOf(allSessions.nth(i));
       expect(s.width, `session ${i} width <= column @ ${vw}`).toBeLessThanOrEqual(col.width + TOL);
       expect(s.right, `session ${i} right within column @ ${vw}`).toBeLessThanOrEqual(
         col.right + TOL,
