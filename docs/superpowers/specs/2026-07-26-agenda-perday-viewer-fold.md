@@ -71,10 +71,22 @@ result — the viewer's day set has to reach `AgendaScheduleBlock`, whose props 
 ```ts
 export type ViewerAgendaDays =
   | { kind: "all" } // render every day expanded, and no marker
-  | { kind: "subset"; days: ReadonlySet<string> }; // these ISO dates are the viewer's
+  | { kind: "subset"; rows: ReadonlySet<number> }; // INDICES into extraction.days
 
 viewerDays?: ViewerAgendaDays; // default: { kind: "all" }
 ```
+
+**`rows`, not ISO dates — see §2.5 fact 1.** `AgendaDay.date` is always `null` in production, so a set of
+dates gives the component nothing to match on. Indices are what it can actually use: it maps
+`extraction.days` and already has the index in hand (`components/crew/AgendaScheduleBlock.tsx:70`
+destructures `(day, di)`).
+
+**An empty `rows` set must be treated as `{ kind: "all" }` by the consumer, defensively.** The type does
+not make `{ kind: "subset"; rows: <empty> }` unconstructible — an earlier revision claimed it was
+"unreachable", which is a convention, not a guarantee, and a caller can produce it. The natural
+implementation ("fold iff my index is absent from the set") would fold EVERY day including the viewer's,
+which is the worst outcome this feature can produce. So the component treats an empty `rows` as "all",
+and a test asserts that directly rather than trusting the producer.
 
 **The two arms are a discriminated union on purpose, and `{ kind: "subset"; days: <empty> }` must be
 unreachable.** An earlier plan draft described the fail-open case as "returns the empty set". That is the
@@ -140,7 +152,50 @@ viewer's day set also does NOT need `aggregateDays`. `visibleShowDays(data.show.
 dateRestriction)` is the hoistable piece. Any plan task that moves `aggregateDays` or `allDays`
 above `agendaArea` is wrong on this point and must be rejected in plan self-review.
 
-**The hoist is verified feasible, not assumed.** `visibleShowDays` needs exactly two inputs (`lib/crew/agendaDisplay.ts:144-147`): `dates` and `dateRestriction`. `dateRestriction` is destructured from `resolveViewerContext` at `components/crew/sections/ScheduleSection.tsx:101`, which sits **above** `agendaArea` in the same function body, and `data.show.dates` is available throughout. The gap was 40 lines at `0c2b9ad00` and 46 at `d62d620e8`; the durable fact is the ORDER, not the distance. So the three lines move up as-is with no reordering of any other statement and no new prop. If a later refactor moves `resolveViewerContext` below the agenda area, this section is void. Verify the order first: `git show origin/main:components/crew/sections/ScheduleSection.tsx | grep -n "resolveViewerContext(viewer\|const agendaArea"` and confirm the former's line number is the smaller one.
+**The hoist is verified feasible, not assumed.** (Note: per §2.5 fact 3 the COMPLETENESS domain is the aggregate day set, not `visibleShowDays`' output — but the hoisted derivation itself is still the `visibleShowDays` call the existing in-callback code makes, so the feasibility argument below is about that call.) `visibleShowDays` needs exactly two inputs (`lib/crew/agendaDisplay.ts:144-147`): `dates` and `dateRestriction`. `dateRestriction` is destructured from `resolveViewerContext` at `components/crew/sections/ScheduleSection.tsx:101`, which sits **above** `agendaArea` in the same function body, and `data.show.dates` is available throughout. The gap was 40 lines at `0c2b9ad00` and 46 at `d62d620e8`; the durable fact is the ORDER, not the distance. So the three lines move up as-is with no reordering of any other statement and no new prop. If a later refactor moves `resolveViewerContext` below the agenda area, this section is void. Verify the order first: `git show origin/main:components/crew/sections/ScheduleSection.tsx | grep -n "resolveViewerContext(viewer\|const agendaArea"` and confirm the former's line number is the smaller one.
+
+## 2.5 SPIKE — measured facts that invalidated two earlier contract revisions
+
+This section exists because the matching contract took findings in two consecutive review rounds. The
+project rule for a design-correctness vector that survives repeated rounds is to stop patching prose and
+probe instead, so these are **measured** facts, each with the command or citation that produced it. They
+reshape the contract in §3, and any later revision that contradicts one of them is wrong.
+
+**1. `AgendaDay.date` is ALWAYS `null` in production.** `lib/agenda/extractAgendaSchedule.ts:653` is the
+only place an `AgendaDay` is constructed, and it hardcodes `date: null`:
+
+```
+days.push({ dayLabel: label ?? "", date: null, sessions: [session] });
+```
+
+`normalizeAgendaExtraction` only validates and passes the field through
+(`lib/agenda/normalizeAgendaExtraction.ts:39` and `lib/agenda/normalizeAgendaExtraction.ts:47`), so nothing ever fills it.
+
+**Consequences, both load-bearing.** The `{day.date ? … : …}` branch at
+`components/crew/AgendaScheduleBlock.tsx:74` always takes the null arm in production, so the "no date
+span" case in §5 is the ONLY reachable one rather than an edge case. And a matcher that returns ISO dates
+gives the component nothing it can compare against — **the matcher must return row indices into
+`extraction.days`.** An earlier revision returned `ReadonlySet<string>` of ISO dates; that could not have
+worked.
+
+**2. Day identity comes only from `dayLabel`, and in the live corpus it parses.**
+`parseIsoFromDayLabel` (`lib/crew/agendaDayForToday.ts:36`) needs a full date-bearing label. The
+representative real labels from the 6-PDF corpus are all date-bearing and all parse
+(`tests/crew/agendaDayForToday.test.ts:19-30`, e.g. `"Tuesday, March 2 4 , 202 6"` → `2026-03-24`,
+including pdfjs glyph-split digits); `"Day 1"` and `"Friday"` are the documented null cases at
+`tests/crew/agendaDayForToday.test.ts:31`. So label matching is the primary path and it works on real
+data — this feature is feasible, which was worth confirming before redesigning around it.
+
+**3. The viewer's restriction can include days OUTSIDE `showDays`.**
+`effectiveViewerDateRestriction` (`lib/crew/stageSchedule.ts:48`) builds `{ kind: "explicit", days:
+workedDays }` from `aggregateDays(dates)` (`lib/crew/stageSchedule.ts:56`, returned at `lib/crew/stageSchedule.ts:66`), and
+aggregate days include travel-in and travel-out, not just show days.
+
+**Consequence:** an earlier revision defined the completeness domain as
+`new Set(visibleShowDays(...))` — the show-day intersection — specifically to handle an out-of-show
+assignment. That was backwards: it DROPS a travel day the viewer is genuinely assigned, so completeness
+passes while that day folds. The domain must be the viewer's restriction days intersected with the
+**aggregate** day set, not the show-day set.
 
 ## 3. Matching, and why it must fail open
 
@@ -167,15 +222,25 @@ above `agendaArea` is wrong on this point and must be rejected in plan self-revi
    Stated as SETS of ISO date strings, deliberately — not as counts of matched extraction rows, which two
    reachable inputs would break:
 
-   - `R` = `new Set(visibleShowDays(data.show.dates, dateRestriction))`. Using that function's output is
-     what makes a restriction day OUTSIDE the show's days a non-issue: it returns
-     `showDays.filter((d) => allowed.has(d))` (`lib/crew/agendaDisplay.ts:152`), i.e. the intersection, so
-     an out-of-show assignment is excluded by construction rather than by a guard someone has to remember.
-     Wrapping it in a `Set` also absorbs a malformed `showDays` that repeats a date.
-   - `L` = the set of dates in `R` that the matcher located in **at least one** extraction day. "At least
-     one" matters: an extraction can legitimately carry two blocks for the same date, and a count-based
-     comparison would then make `|L| > |R|`, fail the equality, and fail open on an extraction that was
-     actually understood completely. With sets, duplicates collapse and both blocks mark correctly.
+   - `R` = the viewer's restriction dates intersected with the **aggregate** day set:
+     `new Set(aggregateDays(data.show.dates).map((d) => d.date).filter((d) => d !== null && restrictionAllows(d)))`.
+     **NOT `visibleShowDays`** — see §2.5 fact 3. An earlier revision used the show-day intersection
+     specifically to neutralise an out-of-show assignment, and that was backwards: stage-derived
+     restrictions are BUILT from `aggregateDays` (`lib/crew/stageSchedule.ts:56`, returned at `lib/crew/stageSchedule.ts:66`) and
+     legitimately include travel-in and travel-out dates, so intersecting with `showDays` DROPS a day the
+     viewer is actually assigned. Completeness would then pass while that day folds.
+
+     The aggregate set is the correct domain because it is the same set the day cards below are built
+     from, so "the viewer's days" means the same thing in both places. A `Set` still absorbs a malformed
+     `dates` that repeats a date, and the `d !== null` filter is required because an aggregate day can
+     carry a null date.
+   - `L` = the set of **dates** in `R` that the matcher located in at least one extraction day. `L` is a
+     set of DATES even though the matcher's OUTPUT is row indices (§2.5 fact 1) — the two representations
+     do different jobs and conflating them is what an earlier revision got wrong. "At least one" matters:
+     an extraction can legitimately carry two blocks for the same date, and counting located ROWS would
+     make `|located| > |R|` on a duplicate. Worse, in the R3 scenario — restriction May 5 + May 6, two
+     May 5 headings, `"Day 3"` for May 6 — counting rows gives `2 == 2` and wrongly declares completeness,
+     folding May 6. Counting distinct DATES gives `|L| = 1 ≠ 2 = |R|` and correctly fails open.
 
    Fold only when `L` covers `R` — and since `L ⊆ R` by construction, that is exactly `L.size === R.size`.
    Otherwise return the fail-open variant and expand everything. Partial knowledge is treated as no
@@ -230,10 +295,10 @@ folds because nothing is non-matching.
 | `confidence !== "high"` or `days.length === 0` | nothing — existing gate at `AgendaScheduleBlock.tsx:58`, unchanged |
 | `dateRestriction.kind === "none"` | all days expanded, no folding, and no marker per THE MARKER RULE (no day is the viewer's) |
 | `kind === "unknown_asterisk"` | unreachable — early return at `ScheduleSection.tsx:172` returns JSX that omits `{agendaArea}` entirely (the variable is built at `components/crew/sections/ScheduleSection.tsx:147` but never rendered on that branch) |
-| `kind === "explicit"`, one day resolves | that day expanded + marked; others fold |
-| `kind === "explicit"`, several resolve but not all | matching days expanded + marked; only non-matching fold |
-| `kind === "explicit"`, ALL days resolve | all expanded, nothing folds, and no marker per THE MARKER RULE |
-| `kind === "explicit"`, none resolve | ALL days expanded, no marker (fail open) |
+| `kind === "explicit"`, **every** restriction day LOCATED, and some extraction day is not the viewer's | the located days expanded + marked; the rest fold |
+| `kind === "explicit"`, **every** restriction day located, and they are ALL of the extraction's days | all expanded, nothing folds, no marker per THE MARKER RULE |
+| `kind === "explicit"`, **any** restriction day NOT located | ALL days expanded, no marker — fail open per §3 constraint 3. **This row supersedes the "one day resolves" and "several resolve but not all" rows an earlier revision had here**, which said to fold the rest and would therefore have folded a day the viewer works whenever its label did not parse. Partial location is not partial folding; it is no folding. |
+| `kind === "explicit"`, no restriction day located | ALL days expanded, no marker (the degenerate case of the row above) |
 | viewer's day is the only day in the extraction | nothing to fold, and no marker per THE MARKER RULE (cf. the DQ singleton-eyebrow precedent) |
 | a folded day has zero sessions | still render its row with the count (`0 sessions`), so the fold is not silently empty |
 | `day.date === null` | summary shows the label only; no empty date span. `AgendaScheduleBlock.tsx:74` already guards this for the expanded heading |
@@ -328,21 +393,39 @@ unordered pair, with both directions considered.
 | --- | --- | --- |
 | 1 | collapsed+unmarked ↔ expanded+unmarked | the viewer toggling ANOTHER day. Instant both ways — native disclosure, no animation needed beyond the chevron. |
 | 2 | collapsed+marked ↔ expanded+marked | the viewer toggling THEIR OWN day. Instant both ways, same as pair 1; the marker does not animate. |
-| 3 | collapsed+unmarked ↔ collapsed+marked | **unreachable.** Marked-ness is decided server-side per day from `dateRestriction` and never changes without a new render. |
-| 4 | expanded+unmarked ↔ expanded+marked | **unreachable**, same reason as pair 3. |
-| 5 | collapsed+unmarked ↔ expanded+marked | **unreachable** — would require open-ness AND marked-ness to change together. |
-| 6 | collapsed+marked ↔ expanded+unmarked | **unreachable**, same reason as pair 5. |
+| 3 | collapsed+unmarked ↔ collapsed+marked | **REACHABLE — corrected in review R3 (MEDIUM).** Instant, no animation. |
+| 4 | expanded+unmarked ↔ expanded+marked | **REACHABLE**, same mechanism as pair 3. Instant. |
+| 5 | collapsed+unmarked ↔ expanded+marked | **REACHABLE** in principle (both dimensions change at once) but only by the pair-3 mechanism composed with a user toggle. Instant either way. |
+| 6 | collapsed+marked ↔ expanded+unmarked | **REACHABLE**, same as pair 5. Instant. |
 
-Two pairs are reachable and both are instant; four are unreachable because marked-ness is fixed at
-render. If a future change makes the marker client-toggleable, pairs 3 to 6 become reachable and this
-table is void — re-derive it rather than amending it.
+**All six pairs are reachable, and every one is instant.** An earlier revision called pairs 3 to 6
+unreachable on the grounds that marked-ness "never changes without a new render". That sentence is true and
+still misleading: a new render happens WITHOUT a page load. `ShowRealtimeBridge → router.refresh()`
+re-renders `_CrewShell` with all section bodies fresh while the client controller stays mounted, and the
+freshness invariant at `components/crew/CrewSections.tsx:13-19` states exactly that. So a sheet edit that
+changes the viewer's assignment from May 5 to May 6 flips May 5 expanded+marked → collapsed+unmarked and
+May 6 the other way, on a page nobody reloaded.
+
+Two consequences worth stating rather than discovering:
+
+- **A `<details>` the viewer opened stays open across the refresh.** Open-ness is a DOM property of the
+  element, not React state, so a re-render that produces the same element does not reset it. That is the
+  desired behaviour — a refresh must not collapse what the viewer opened — but it means open-ness and
+  marked-ness genuinely vary independently at runtime, which is the whole reason the state space is a
+  product rather than a list.
+- **The marker must update on refresh even while the row stays open.** The plan's transition audit covers
+  this as a compound case: mark/unmark a row whose `<details>` is open, and assert both the marker change
+  and that the row did not collapse.
 
 **Mechanism note — `duration-fast` as a Tailwind class emits NOTHING in this repo.** Measured against
 this checkout, not assumed:
 
 ```
 grep -c "transition-duration-fast" app/globals.css   ->  0
-grep -rn "duration-fast" components/ | grep -c className  ->  118
+grep -rn "duration-fast" components/ | grep -cE 'className|class='  ->  118
+(179 lines mention the token at all; 118 is the count of CLASS-attribute uses, which is the
+ claim being made. Review R3 reported 124 from a broader pattern — the narrower number is the
+ one that matches the sentence.)
 app/globals.css:223   --duration-fast: 120ms;
 app/globals.css:419   --duration-fast: 0ms;      (inside @media (prefers-reduced-motion: reduce))
 ```
