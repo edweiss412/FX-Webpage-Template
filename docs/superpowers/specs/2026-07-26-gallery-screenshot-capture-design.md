@@ -23,7 +23,7 @@ produces a **local review artifact** — NOT a CI drift gate.
 | Local review artifact only: no CI job, no committed baselines, no byte-comparison gate, no Docker/amd64 pinning | User answer "Local review artifact" in the brainstorming session, 2026-07-26. AGENTS.md byte-gate discipline applies only to committed byte-compared baselines, which this feature deliberately has none of. |
 | Capture matrix: 1280×800 desktop viewport, light + dark. No mobile viewport in v1 | User answer "Desktop, light+dark", 2026-07-26. |
 | Approach: new project inside `playwright.screenshots.config.ts` reusing the port-3004 prod-build webServer | User answer "A: screenshots-harness project", 2026-07-26. |
-| Output directory is gitignored; sweeps are regenerate-on-demand | Follows from "local review artifact". Staleness is acceptable by design; the index file's generatedAt makes it visible. |
+| Output directory is gitignored; sweeps are regenerate-on-demand | Follows from "local review artifact". Staleness is acceptable by design; the index file's generatedAt plus each entry's capturedAt make it visible. |
 | Shared capture helpers are extracted from `scripts/help-screenshots.ts` into a new capture-core module (§3; mechanical move, no behavior change) | Design approval, 2026-07-26. The help path keeps its exact current semantics; the help screenshot suite re-run is the regression proof (§8.3). |
 | generatedAt in index.json uses `new Date().toISOString()` | This is a plain node/Playwright script, not a Workflow script; no determinism contract applies to a gitignored artifact. |
 
@@ -48,7 +48,11 @@ fast enough to always do both themes).
 
 ## 3. Architecture
 
-Four files change / are added:
+Primary components (four numbered below). Full diff inventory: those four, plus
+`package.json` (the script line), `.gitignore` (the output dir), the three
+extraction-coupled updates named in item 1 (help capture guard file, screenshots-drift
+path filter, required-path list), the `LOCAL_ONLY_ALLOWLIST` row named in item 3, and
+the new unit-test files of §8.1.
 
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 
@@ -118,6 +122,11 @@ Four files change / are added:
 3. **`tests/e2e/screenshots-gallery-capture.spec.ts` (new)** — one test calling
    `captureGallery()` (pattern: `tests/e2e/screenshots-help-capture.spec.ts`, which is a
    single `test()` invoking `captureAll()`), followed by postcondition assertions (§8.2).
+   Its FIRST import is `./helpers/loadTestEnv` — `captureGallery()`'s import chain
+   reaches server modules that throw at module evaluation without `.env.local` values
+   (`HASH_FOR_LOG_PEPPER` et al., `lib/email/hashForLog.ts:6-13`); the gallery
+   acceptance spec pins the same must-be-first pattern
+   (`tests/e2e/attention-modal-gallery.spec.ts:42-44`).
    Because it is deliberately not CI-covered, the same commit adds a reasoned row to
    `LOCAL_ONLY_ALLOWLIST` in `tests/ci/_metaE2eWorkflowCoverage.test.ts` — the
    filesystem-walked coverage guard (its dark-spec assertion at
@@ -142,8 +151,9 @@ Four files change / are added:
      fixtures; the gallery needs no such seed (scenario data is fixture-built
      server-side in `partitionScenarios()`, and `requireDeveloper()` admits the
      fixture's `developer:true` JWT claim without an `admin_emails` row). A running,
-     migrated local Supabase IS still a prerequisite: `signInAs` deletes and re-creates
-     the fixture user in Supabase Auth via the test-auth route
+     migrated local Supabase IS still a prerequisite: `signInAs` first deletes the
+     fixture user DIRECTLY via the service-role Supabase admin client, then re-creates
+     it through the test-auth route
      (`tests/e2e/helpers/signInAs.ts:48-66`), and the page gate calls the
      `is_session_live` / `is_developer` RPCs (`lib/auth/requireDeveloper.ts:172-200`).
      `pnpm preflight` already fail-louds on an unreachable local DB. Because the sweep
@@ -226,20 +236,28 @@ throw. Missing `TEST_AUTH_SECRET` → throw (existing contract).
   `public/help/screenshots/`).
 - Full sweep (no `GALLERY_SCENARIO`): delete the directory's contents first, then
   recreate — no orphaned files from renamed/removed scenarios.
-- Filtered sweep: capture only the targeted scenarios; index.json is rewritten whole
-  under one invariant — **the index lists exactly the currently-rendered scenarios that
-  have files on disk after the run**. Concretely:
-  - Targeted scenarios: files overwritten; if the new run produces no overflow shot
-    where the previous one did, the stale `-overflow.webp` files are DELETED and the
-    index slots become null (no orphaned companions).
-  - Prior-index entries whose id is no longer in the current rendered set (renamed or
-    removed scenario): entry pruned AND its files deleted.
-  - Non-targeted scenarios present in the prior index with files still on disk: entry
-    carried forward unchanged.
-  - Currently-rendered scenarios never captured (no files on disk, e.g. newly added and
-    not targeted): OMITTED from the index — a filtered run yields a partial index by
-    design; the full sweep restores completeness. No placeholder entries.
-  - `generatedAt` always reflects the current run.
+- Filtered sweep: capture only the targeted scenarios, then run the **end-of-run
+  reconciliation** that makes the invariant enforced rather than assumed — **after any
+  run, the index lists exactly the currently-rendered scenarios whose files exist on
+  disk, and the output dir contains no file the index does not reference.**
+  Reconciliation order:
+  1. Build candidate entries: freshly captured scenarios (new files, new `capturedAt`)
+     plus prior-index entries for non-targeted ids — with `label`/`tier`/`group`/`codes`
+     REFRESHED from the current catalog (id is the join key; only `files` and
+     `capturedAt` carry over), so index metadata always reflects the current catalog
+     (§7 contract).
+  2. Drop any candidate whose id is not in the current rendered set (renamed/removed
+     scenario), and any carried-forward candidate with a missing referenced file
+     (e.g. a previously crashed run) — a dropped entry's surviving files are deleted.
+  3. Delete every file in the output dir not referenced by a surviving entry (covers
+     stale `-overflow.webp` companions when a re-captured scenario no longer overflows,
+     and unindexed leftovers of any origin). Index slots for absent overflow shots are
+     null.
+  4. Currently-rendered scenarios with no files (e.g. newly added, not targeted):
+     OMITTED — a filtered run yields a partial index by design; the full sweep restores
+     completeness. No placeholder entries.
+  - `generatedAt` reflects the current run; each entry's `capturedAt` reflects when ITS
+    files were shot, so carried-forward age stays visible (§1.1 staleness row).
 - Filter parsing: split on `,`, trim, drop empties; result deduplicated. Order follows
   the rendered (group-sorted) order, not the filter's.
 
@@ -257,6 +275,7 @@ throw. Missing `TEST_AUTH_SECRET` → throw (existing contract).
       "tier": "<tier>",
       "group": "<ScenarioGroupId>",
       "codes": ["<string>", "..."],
+      "capturedAt": "<ISO-8601 of the run that shot this entry's files>",
       "files": {
         "light": "t2-multi-hold-light.webp",
         "dark": "t2-multi-hold-dark.webp",
@@ -299,11 +318,14 @@ TDD per task (invariant 1). Three layers:
      picker (§4 step 7). Failure modes caught: height-tie between rail and content pane
      must select the wider pane (the round-1 review defect); no scrollable candidate →
      null; single candidate → itself; area tie → last in document order.
-   - index merge lifecycle (§6): all four filtered-run cases — stale overflow slot
-     nulled + file scheduled for deletion, removed-id entry pruned, non-targeted entry
-     carried forward, never-captured id omitted. The merge is a pure function over
-     (priorIndex, capturedEntries, renderedIds, filesOnDisk); expected outputs derived
-     from constructed fixtures, not mirrored from the implementation.
+   - index reconciliation (§6): every rule — stale overflow slot nulled + its file in
+     the delete set, removed-id entry pruned (files in the delete set), non-targeted
+     entry carried with metadata REFRESHED from the current catalog and `capturedAt`
+     preserved, carried entry with a missing referenced file dropped, unreferenced
+     on-disk file in the delete set, never-captured id omitted. The reconciliation is a
+     pure function over (priorIndex, capturedEntries, renderedCatalog, filesOnDisk) →
+     (index, filesToDelete); expected outputs derived from constructed fixtures, not
+     mirrored from the implementation.
    - scenario-identity guard message: on label mismatch the constructed error names the
      scenario id and the stale-server remedy (§5). Failure mode caught: a silent
      fallback-to-index-0 sweep mislabeling every capture.
@@ -320,12 +342,14 @@ TDD per task (invariant 1). Three layers:
    (`vitest.config.ts:22` additionally drops env-bound `.test` files in the
    unit-suite CI lane). It runs only via `pnpm screenshot:gallery`, locally, on
    demand. **No CI workflow references it** (§1.1); the `LOCAL_ONLY_ALLOWLIST` row
-   (§3 item 3) records that exemption structurally. After `captureGallery()` returns,
-   the same test asserts postconditions so a silently-degenerate sweep cannot pass:
-   index.json exists and parses; every `files` value in it exists on disk; the on-disk
-   WebP count equals the index's non-null file references (no orphans); entry count
-   equals `partitionScenarios().rendered.length` (full-sweep run); and the index's
-   `viewport` equals the §1.1 1280×800 matrix.
+   (§3 item 3) records that exemption structurally. The capture spec ALWAYS runs the
+   full unfiltered sweep — `GALLERY_SCENARIO` is a manual knob for iterating locally,
+   never set by the package script, so the partial-index semantics of §6 do not apply
+   to this test. After `captureGallery()` returns, the test asserts postconditions so a
+   silently-degenerate sweep cannot pass: index.json exists and parses; every `files`
+   value in it exists on disk; the on-disk WebP count equals the index's non-null file
+   references (no orphans); entry count equals `partitionScenarios().rendered.length`;
+   and the index's `viewport` equals the §1.1 1280×800 matrix.
 3. **Help-path regression (same-host pre/post comparison):** comparing a host capture
    against the COMMITTED baselines cannot prove the extraction changed nothing — the
    baselines are pinned-image linux/amd64 bytes and a dev-host capture legitimately
@@ -346,8 +370,8 @@ TDD per task (invariant 1). Three layers:
   no `DESIGN.md` change (invariant-8 surface definition).
 - No new mutation surface in repo code: the script adds no route handler and no server
   action, so invariant-10 registries gain no row. Precision matters here: the sweep is
-  NOT free of writes — `signInAs` churns the fixture user in Supabase Auth through the
-  existing test-auth route (`tests/e2e/helpers/signInAs.ts:48-66`) — but those are
+  NOT free of writes — `signInAs` churns the fixture user in Supabase Auth (admin-client
+  delete, then route-based create; `tests/e2e/helpers/signInAs.ts:48-66`) — but those are
   pre-existing harness surfaces, unchanged by this feature. The gallery page's own
   `GalleryWriteGuard` containment (`page.tsx` header notes) is untouched, and the
   script performs no app-table mutation of its own.
@@ -364,6 +388,6 @@ TDD per task (invariant 1). Three layers:
 | 6 commit style | Bare `infra:` for the tooling/config/script commits (the established M0 convention per AGENTS.md rule 6); `docs:` for spec/plan documents. |
 | 7 spec canonical | This spec; no master-spec conflict (dev tooling, outside §12.4 etc.). |
 | 8 impeccable | N/A (§9). |
-| 9 Supabase call-boundary | N/A — no Supabase client calls in the script (auth goes through the test-auth HTTP route via `signInAs`). |
+| 9 Supabase call-boundary | No NEW Supabase call sites: the script's only Supabase touch is the existing `signInAs` helper (admin-client delete + route create), unchanged by this feature. |
 | 10 mutation telemetry | N/A (§9). |
 | 11 worktree | Work happens in `FX-worktrees/gallery-screenshot-capture`. |
