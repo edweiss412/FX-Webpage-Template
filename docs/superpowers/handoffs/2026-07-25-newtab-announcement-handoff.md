@@ -1773,3 +1773,46 @@ turn: falsy, truthy, nullish and React-omission each flip one of them red.
 The distinction worth keeping: the individual fixtures pin the CASES the reviewer found; this pins the
 INVARIANT that made them findable. A new helper joining the layer without composing trips it, which is
 what "closing a class" means as opposed to fixing its members.
+
+## R35 — eight findings, and the deletion I got wrong
+
+R35 reviewed `25722edde`, six commits back, and said so. Two findings (nullish composition, the
+hint-path style rule) were already fixed from its own probe trail before it reported. The other six
+were live, and one of them is a correction to a decision I recorded as settled.
+
+| # | Finding | Direction |
+| --- | --- | --- |
+| 1 | style `"hides"` sentinel discarded ordered writes | BOTH |
+| 2 | the `isAlwaysBoolean` conditional arm I DELETED is not equivalent under nesting | BOTH |
+| 4 | truthiness missed agreeing branches and one-sided polarity | BOTH |
+| 5 | `cannotRenderTrue` exempted arrays, objects and `new` — all can stringify to `"true"` | fail-open |
+| 6 | enums, namespaces and `import X = require(…)` bind the name too | fail-open |
+| 8 | numeric primitives (`Infinity`, `~0`, arithmetic) reported as hiding | false positive |
+
+**Finding 2 is the one worth the most.** I deleted that arm after four fixtures failed to kill it and
+wrote it up as the sixth equivalent branch. All four were vacuous: each passed through
+`rendersNothing`'s or `reactOmitsValue`'s OWN conditional handling, and those callers only inspect the
+TOP level. Nest the conditional inside `&&` and neither is reached —
+`(flag ? a === b : !x) && c === d` is always a boolean, and without the arm the recursive check
+returns false. So the arm was load-bearing all along and I removed it on the strength of evidence I
+had already identified as unreliable in this very document.
+
+**"Four fixtures could not kill it" is not "deleting it changes nothing"** when every fixture reached
+the verdict by a different route. The equivalent-mutant rule needs that qualifier: before deleting,
+confirm at least one fixture exercises the branch by a path nothing else can serve — which is exactly
+the check I had written down two sections earlier and did not apply to my own conclusion.
+
+**Finding 5 is a fail-open I introduced one round earlier.** `cannotRenderTrue` exempted three
+object-producing families on the reasoning that objects stringify to `[object Object]`. That holds
+only for a DEFAULT `toString`: `String(["true"])` is exactly `"true"`, and so are `[true]`,
+`{toString(){return "true"}}` and `new String("true")`. The fix moved arrays and objects into
+`staticStringValue`, which now decides them properly (`[]` is `""`, `{}` is `[object Object]`, a
+`toString`/`valueOf` member makes it undecidable) and left `new` undecidable. `+` is deliberately
+excluded from the numeric family for the same reason: `"tr" + "ue"` is `"true"`.
+
+Finding 1 replaced the sentinel with BRANCH EXPANSION: the object expands into one resolved map per
+combination of decidable conditional-spread branches, each resolved in source order, and hides iff
+EVERY alternative hides. That handles nesting and later writes together, and the 16-alternative bound
+is itself pinned by a five-spread fixture.
+
+Eight mutations red.

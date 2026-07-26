@@ -272,7 +272,11 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["true", 'attribute value (R31: `aria-hidden` hides only on the literal string "true")'],
   ["collapse", "CSS keyword (a hiding `visibility` value)"],
   ["invisible", "CSS class TOKEN, not an attribute (the class-list hiding set)"],
-  ["hides", "internal verdict from styleObjectHides's apply(), not a name"],
+  // R35: numeric globals and the two members that can override string conversion. None is an
+  // attribute name; all three are JS identifiers the value rules reason about.
+  ["Infinity", 'JS numeric global (stringifies to numeric text, never "true")'],
+  ["toString", "object member that can override string conversion"],
+  ["valueOf", "object member that can override string conversion"],
   ["NaN", "JS global, one of the three falsy values that is not a plain literal (R32 HIGH 7)"],
   ["null", "how `${null}` STRINGIFIES inside a template -- a value, never a name (R33)"],
   ["false", "attribute value: staticStringValue renders the boolean literals as text"],
@@ -3722,6 +3726,145 @@ describe("R6: scanner changes are pinned", () => {
       /hidden from the accessible name/,
       "every instance hidden",
     );
+  });
+
+  it("a string that ENDS with a space separates -- the shape MDX compiles to", () => {
+    // The separator rule accepted a whitespace-ONLY expression, so `{"Open "}<NewTabHint />` was
+    // reported although it renders "Open (opens in a new tab)" correctly. That is exactly what MDX
+    // compiles prose into -- `<a …>{"Open "}<NewTabHint /></a>` -- so every correctly-announced MDX
+    // anchor would have been reported. Latent only because the census has no MDX anchor today.
+    const sep = (inner: string): boolean =>
+      violations(`const A=({label})=><a href="x" target="_blank">${inner}</a>;`).some((r) =>
+        /sibling space/.test(r),
+      );
+    expect(sep('{"Open "}<NewTabHint />'), "a trailing space separates").toBe(false);
+    expect(sep("{`Open `}<NewTabHint />"), "a template ending in a space separates").toBe(false);
+    expect(sep('{"Open\u00a0"}<NewTabHint />'), "a non-breaking space separates").toBe(false);
+    // The empty string must be adjacent to the HINT, with the real separator further LEFT -- a
+    // literal space after it would satisfy the rule before this branch is ever reached, which is how
+    // the first version of this fixture failed to pin it.
+    expect(sep('Open {""}<NewTabHint />'), "an empty string looks further left").toBe(false);
+    // ...and the defect the rule exists to catch still reports.
+    expect(sep('{"Open"}<NewTabHint />'), "no trailing space is still a defect").toBe(true);
+    expect(sep('{""}{"x"}<NewTabHint />'), "adjacent content is still a defect").toBe(true);
+    expect(sep("{label}<NewTabHint />"), "an opaque value cannot prove a separator").toBe(true);
+    // The MDX path end to end, through the real compiler.
+    const sc: Scan = { anchors: 0, violations: [] };
+    const mdx =
+      'import { NewTabHint } from "@/components/shared/NewTabHint";\n\n<a href="https://x.example" target="_blank">Open <NewTabHint /></a>';
+    scanSource(parse("/synthetic/doc.mdx", compileMdxToJsx(mdx)), "/synthetic/doc.mdx", sc);
+    expect(sc.anchors, "the MDX anchor must be discovered").toBe(1);
+    expect(sc.violations, "a correctly-announced MDX anchor must be accepted").toEqual([]);
+  });
+
+  it("R35 stringification, restored boolean arm, ordered style writes, module bindings", () => {
+    const H = 'import { NewTabHint } from "@/components/shared/NewTabHint";\n';
+    const span = (attr: string): string =>
+      `const A=({flag,a,b,c,d,x,rest,display})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`;
+    // BLOCKING 5: arrays, objects and `new` were exempted wholesale, and every one can stringify to
+    // "true". `String(["true"])` IS "true".
+    for (const attr of [
+      'aria-hidden={["true"]}',
+      "aria-hidden={[true]}",
+      'aria-hidden={{toString(){ return "true"; }}}',
+      'aria-hidden={{valueOf(){ return "true"; }}}',
+      'aria-hidden={new String("true")}',
+      'aria-hidden={"tr" + "ue"}',
+    ]) {
+      reports(span(attr), /hidden from the accessible name/, `stringifies to "true": ${attr}`);
+    }
+    // ...and the ones that genuinely cannot, including the numeric family (HIGH 8).
+    for (const attr of [
+      "aria-hidden={[]}",
+      "aria-hidden={{}}",
+      'aria-hidden={["a","b"]}',
+      "aria-hidden={Infinity}",
+      "aria-hidden={-Infinity}",
+      "aria-hidden={~0}",
+      "aria-hidden={1 * 2}",
+      "aria-hidden={5 % 2}",
+      "aria-hidden={1 << 3}",
+    ]) {
+      expect(violations(span(attr)), `cannot be "true": ${attr}`).toEqual([]);
+    }
+    // BLOCKING 2: the conditional arm of `isAlwaysBoolean`, RESTORED. Nesting it inside `&&` reaches
+    // neither caller's own conditional handling, which is why four earlier fixtures were vacuous.
+    for (const attr of [
+      "popover={(flag ? a === b : !x) && c === d}",
+      "popover={(flag ? a === b : !x) || c === d}",
+    ]) {
+      expect(violations(span(attr)), `always boolean, so React omits it: ${attr}`).toEqual([]);
+    }
+    // BLOCKING 4: one-sided polarity, and agreeing branches under a dynamic test.
+    for (const attr of ["hidden={x && 0}", 'inert={x && ""}', 'hidden={flag ? 0 : ""}']) {
+      expect(violations(span(attr)), `always falsy, so React omits it: ${attr}`).toEqual([]);
+    }
+    for (const attr of ["open={x || 1}", 'open={flag ? 1 : "x"}']) {
+      expect(
+        violations(
+          `const A=({flag,x})=><a href="x" target="_blank">Go <details ${attr}><NewTabHint /></details></a>;`,
+        ),
+        `always truthy, so the details is open: ${attr}`,
+      ).toEqual([]);
+    }
+    expect(violations(span("hidden={flag ? 1 : 0}")), "mixed polarity stays closed").not.toEqual(
+      [],
+    );
+    // BLOCKING 1: style writes are ORDERED, through nesting and past a conditional spread.
+    const style = (v: string): string =>
+      `const A=({flag,rest,display})=><a href="x" target="_blank"><span style=${v}>Go</span> <NewTabHint /></a>;`;
+    reports(
+      style('{{...{...(flag ? {display:"none"} : {visibility:"hidden"})}}}'),
+      /only visible content is the announcement/,
+      "a nested spread must not swallow the verdict",
+    );
+    expect(
+      violations(
+        style(
+          '{{...(flag ? {display:"none"} : {visibility:"hidden"}), display:"block", visibility:"visible"}}',
+        ),
+      ),
+      "later writes neutralise every hiding key",
+    ).toEqual([]);
+    expect(
+      violations(style('{{display:"none", display}}')),
+      "a shorthand on the SAME key neutralises the write",
+    ).toEqual([]);
+    // The branch-expansion BOUND is observable: five conditional spreads are 32 alternatives, past
+    // the limit of 16, so the object becomes opaque rather than expanding without end. Every branch
+    // here hides, so without the bound it would report -- which is how this fixture distinguishes
+    // "bounded" from "unbounded" instead of leaving the guard unexercised.
+    {
+      const spread = '...(flag ? {display:"none"} : {visibility:"hidden"})';
+      const five = [spread, spread, spread, spread, spread].join(", ");
+      expect(
+        violations(style(`{{${five}}}`)),
+        "past the alternative bound the object is opaque, not hiding",
+      ).toEqual([]);
+      // ...and four spreads (16 alternatives) still fits, so the bound is where it says it is.
+      const four = [spread, spread, spread, spread].join(", ");
+      expect(
+        violations(style(`{{${four}}}`)),
+        "within the bound every alternative still hides",
+      ).not.toEqual([]);
+    }
+    // BLOCKING 6: enums, namespaces and `import =` all bind the name at module level.
+    for (const [label, decl] of [
+      ["enum", "enum NaN { A }"],
+      ["namespace", "namespace NaN { export const x = 1; }"],
+      ["import equals", 'import NaN = require("x");'],
+    ] as [string, string][]) {
+      expect(
+        probe(
+          H +
+            `${decl}\nconst A=()=><a href="x" target="_blank">Go <span hidden={NaN}><NewTabHint /></span></a>;`,
+          {
+            bare: true,
+          },
+        ).violations,
+        `must fail closed, ${label} binds NaN at module level`,
+      ).not.toEqual([]);
+    }
   });
 
   it("value composition is CLOSED: every helper resolves nesting", () => {

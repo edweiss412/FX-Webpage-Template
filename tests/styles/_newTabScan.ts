@@ -740,30 +740,45 @@ function rendersNothing(e: ts.Expression): boolean {
 function isGlobalRef(n: ts.Node, name: "undefined" | "NaN"): boolean {
   if (!ts.isIdentifier(n) || n.text !== name) return false;
   if (isShadowedAt(n, name)) return false;
-  // An IMPORT binds the name too, and `isShadowedAt` deliberately ignores imports -- for
-  // `NewTabHint` the import IS the trusted binding, so counting it would reject every real call
-  // site. For a GLOBAL the opposite holds: `import NaN from "x"` (or `{ v as NaN }`, or `* as NaN`)
-  // makes the identifier an arbitrary module value, so nothing may be assumed about it. The same
-  // helper answering opposite questions for two callers is why this is checked here and not there
-  // (review R35).
-  return !isImportedName(n.getSourceFile(), name);
+  // A MODULE-LEVEL binding of the name replaces the global, and `isShadowedAt` deliberately does
+  // not inventory these -- for `NewTabHint` the import IS the trusted binding, so counting it would
+  // reject every real call site. For a GLOBAL the opposite holds. Imports were the first form found
+  // (R35); enums, namespaces and `import X = require(...)` came from the same review's fuller list,
+  // and an enum or namespace binds a TRUTHY object, so `hidden={NaN}` genuinely hides.
+  return !isModuleBoundName(n.getSourceFile(), name);
 }
 
-/** Is `name` bound by ANY import in this file -- default, named, aliased, or namespace? */
-function isImportedName(sf: ts.SourceFile, name: string): boolean {
+/** Is `name` bound at MODULE level by a form `isShadowedAt` does not inventory?
+ *
+ *  `isShadowedAt` handles variables, functions, classes, parameters and loop bindings. For a GLOBAL
+ *  the question is wider: any module-level binding of that name replaces it. R35 BLOCKING 6 listed
+ *  four more forms, all of which type-check and all of which fail open when missed -- an ENUM or a
+ *  NAMESPACE binds a truthy object, so `hidden={NaN}` really hides.
+ */
+function isModuleBoundName(sf: ts.SourceFile, name: string): boolean {
   for (const st of sf.statements) {
-    if (!ts.isImportDeclaration(st) || st.importClause === undefined) continue;
-    const clause = st.importClause;
-    if (clause.name !== undefined && clause.name.text === name) return true;
-    const b = clause.namedBindings;
-    if (b === undefined) continue;
-    if (ts.isNamespaceImport(b)) {
-      if (b.name.text === name) return true;
+    // `import X`, `import {X}`, `import {y as X}`, `import * as X`
+    if (ts.isImportDeclaration(st) && st.importClause !== undefined) {
+      const clause = st.importClause;
+      if (clause.name !== undefined && clause.name.text === name) return true;
+      const b = clause.namedBindings;
+      if (b !== undefined) {
+        if (ts.isNamespaceImport(b)) {
+          if (b.name.text === name) return true;
+        } else {
+          for (const el of b.elements) {
+            if (el.name.text === name) return true;
+          }
+        }
+      }
       continue;
     }
-    for (const el of b.elements) {
-      if (el.name.text === name) return true;
-    }
+    // `import X = require("…")`
+    if (ts.isImportEqualsDeclaration(st) && st.name.text === name) return true;
+    // `enum X {}` binds a truthy object; `namespace X {}` likewise.
+    if (ts.isEnumDeclaration(st) && st.name.text === name) return true;
+    if (ts.isModuleDeclaration(st) && ts.isIdentifier(st.name) && st.name.text === name)
+      return true;
   }
   return false;
 }
@@ -785,6 +800,19 @@ function isLiteralFalsy(n: ts.Expression): boolean {
   // SELECTION composes: whichever operand or branch is taken decides falsiness.
   const picked = pickedOperand(n);
   if (picked !== null) return isLiteralFalsy(picked);
+  // An undecidable TEST does not matter when both branches share a polarity, and `x && <falsy>` is
+  // falsy however `x` is bound -- truthy `x` yields the falsy right, falsy `x` yields falsy `x`
+  // (review R35 BLOCKING 4).
+  if (ts.isConditionalExpression(n)) {
+    return isLiteralFalsy(unparen(n.whenTrue)) && isLiteralFalsy(unparen(n.whenFalse));
+  }
+  if (
+    ts.isBinaryExpression(n) &&
+    n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+    isLiteralFalsy(unparen(n.right))
+  ) {
+    return true;
+  }
   // The three falsy values that are not plain literals (review R32 HIGH 7). React omits an
   // attribute for each of them -- measured for `hidden` and `inert` -- and the helper claimed to
   // recognise "every falsy value" while missing all three.
@@ -888,6 +916,44 @@ function staticStringValue(e0: ts.Expression): string | null {
     }
     return out;
   }
+  // ARRAYS and OBJECTS stringify, and R35 BLOCKING 5 showed why exempting them wholesale was a
+  // fail-open: `String(["true"])` is exactly "true". Decide them here instead, so the one comparison
+  // against "true" happens in one place:
+  //   []                 -> ""                 visible
+  //   ["true"] / [true]  -> "true"             HIDES
+  //   {}                 -> "[object Object]"  visible
+  //   { toString(){…} }  -> undecidable        fail closed
+  if (ts.isArrayLiteralExpression(e)) {
+    const parts: string[] = [];
+    for (const el of e.elements) {
+      // A hole and a nullish element both render as an empty slot in the joined string.
+      if (ts.isOmittedExpression(el)) {
+        parts.push("");
+        continue;
+      }
+      if (ts.isSpreadElement(el)) return null;
+      if (isProvablyNullish(el)) {
+        parts.push("");
+        continue;
+      }
+      const part = staticStringValue(el);
+      if (part === null) return null;
+      parts.push(part);
+    }
+    return parts.join(",");
+  }
+  if (ts.isObjectLiteralExpression(e)) {
+    // Only a DEFAULT toString gives "[object Object]". Any member that could override string
+    // conversion makes the value undecidable.
+    const overrides = e.properties.some((prop) => {
+      const nm = prop.name;
+      const key =
+        nm !== undefined && (ts.isIdentifier(nm) || ts.isStringLiteral(nm)) ? nm.text : null;
+      if (key === null) return true; // computed or spread: unknown shape
+      return key === "toString" || key === "valueOf";
+    });
+    return overrides ? null : "[object Object]";
+  }
   if (ts.isConditionalExpression(e)) {
     const cond = unparen(e.condition);
     if (isLiteralTruthy(cond)) return staticStringValue(e.whenTrue);
@@ -967,6 +1033,17 @@ function isLiteralTruthy(n: ts.Expression): boolean {
   }
   const picked = pickedOperand(n);
   if (picked !== null) return isLiteralTruthy(picked);
+  // Mirror of the falsy side: agreeing branches, and `x || <truthy>` is truthy however `x` is bound.
+  if (ts.isConditionalExpression(n)) {
+    return isLiteralTruthy(unparen(n.whenTrue)) && isLiteralTruthy(unparen(n.whenFalse));
+  }
+  if (
+    ts.isBinaryExpression(n) &&
+    n.operatorToken.kind === ts.SyntaxKind.BarBarToken &&
+    isLiteralTruthy(unparen(n.right))
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -1316,11 +1393,18 @@ function isAlwaysBoolean(n: ts.Expression): boolean {
     }
   }
   if (n.kind === ts.SyntaxKind.TrueKeyword || n.kind === ts.SyntaxKind.FalseKeyword) return true;
-  // NOTE: no conditional arm. Both callers already decide a conditional compositionally --
-  // `rendersNothing` requires both branches to render nothing, `reactOmitsValue` requires both to be
-  // omitted -- so an arm here changed no verdict under four different fixtures aimed at it. Deleted
-  // rather than kept: the sixth equivalent branch in this guard, and the third whose fixture kept
-  // passing through a neighbouring rule instead.
+  // RESTORED at R35, and the deletion was my error. I removed this arm after four fixtures failed to
+  // pin it and concluded it was equivalent -- but all four were vacuous, passing through
+  // `rendersNothing`'s or `reactOmitsValue`'s own conditional handling. Those callers only look at
+  // the TOP level, so nesting the conditional inside `&&` or `||` reaches neither:
+  // `(flag ? a === b : !x) && c === d` is always a boolean, and without this arm the recursive
+  // operand check returns false (review R35 BLOCKING 2).
+  //
+  // The lesson is about the evidence, not the arm: "four fixtures could not kill it" is not
+  // "deleting it changes nothing" when every fixture took a different route to the verdict.
+  if (ts.isConditionalExpression(n)) {
+    return isAlwaysBoolean(unparen(n.whenTrue)) && isAlwaysBoolean(unparen(n.whenFalse));
+  }
   return false;
 }
 
@@ -1381,17 +1465,55 @@ function reactOmitsValue(e0: ts.Expression): boolean {
  */
 function cannotRenderTrue(e0: ts.Expression): boolean {
   const e = unparen(e0);
+  // A REGEX literal stringifies to its own source with slashes (`/true/` -> "/true/"), so it can
+  // never be exactly "true".
   if (ts.isRegularExpressionLiteral(e)) return true;
-  if (ts.isArrayLiteralExpression(e) || ts.isObjectLiteralExpression(e)) return true;
+  // Function, arrow and class sources always contain `=>`, `function` or `class`.
   if (ts.isFunctionExpression(e) || ts.isArrowFunction(e) || ts.isClassExpression(e)) return true;
-  if (ts.isNewExpression(e)) return true;
   if (ts.isTypeOfExpression(e)) return true; // "string" | "number" | ... never "true"
+  //
+  // DELIBERATELY ABSENT: arrays, object literals, and `new`. The first version of this helper
+  // exempted all three and that was a fail-OPEN I introduced (review R35 BLOCKING 5), because each
+  // really can stringify to "true":
+  //
+  //   aria-hidden={["true"]}                        -> String(["true"]) is "true"
+  //   aria-hidden={[true]}                          -> same
+  //   aria-hidden={{toString(){ return "true" }}}    -> "true"
+  //   aria-hidden={new String("true")}               -> "true"
+  //
+  // Every one renders `aria-hidden="true"` and hides. "It is an object, so it stringifies to
+  // [object Object]" is true only for a DEFAULT toString, which nothing here guarantees.
+  //
+  // NUMBERS, however, always stringify to numeric text. Literals, signed literals, the numeric
+  // globals, bitwise/arithmetic operators -- none can be "true" (review R35 HIGH 8).
   if (ts.isBigIntLiteral(e) || ts.isNumericLiteral(e)) return true;
-  if (
-    ts.isPrefixUnaryExpression(e) &&
-    (e.operator === ts.SyntaxKind.MinusToken || e.operator === ts.SyntaxKind.PlusToken)
-  ) {
-    return ts.isNumericLiteral(e.operand) || ts.isBigIntLiteral(e.operand);
+  if (isGlobalRef(e, "NaN")) return true;
+  if (ts.isIdentifier(e) && e.text === "Infinity" && !isShadowedAt(e, "Infinity")) return true;
+  if (ts.isPrefixUnaryExpression(e)) {
+    const op = e.operator;
+    // `~x` is always an int32; `-x` / `+x` coerce to number.
+    if (op === ts.SyntaxKind.TildeToken) return true;
+    if (op === ts.SyntaxKind.MinusToken || op === ts.SyntaxKind.PlusToken) {
+      return cannotRenderTrue(e.operand) || isNumericish(e.operand);
+    }
+  }
+  if (ts.isBinaryExpression(e)) {
+    // Every arithmetic and bitwise operator coerces to a number -- EXCEPT `+`, which concatenates:
+    // `"tr" + "ue"` is exactly "true", so it must not join this family.
+    const numericOps = new Set<ts.SyntaxKind>([
+      ts.SyntaxKind.MinusToken,
+      ts.SyntaxKind.AsteriskToken,
+      ts.SyntaxKind.SlashToken,
+      ts.SyntaxKind.PercentToken,
+      ts.SyntaxKind.AsteriskAsteriskToken,
+      ts.SyntaxKind.AmpersandToken,
+      ts.SyntaxKind.BarToken,
+      ts.SyntaxKind.CaretToken,
+      ts.SyntaxKind.LessThanLessThanToken,
+      ts.SyntaxKind.GreaterThanGreaterThanToken,
+      ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
+    ]);
+    if (numericOps.has(e.operatorToken.kind)) return true;
   }
   const picked = pickedOperand(e);
   if (picked !== null) return cannotRenderTrue(picked);
@@ -1399,6 +1521,14 @@ function cannotRenderTrue(e0: ts.Expression): boolean {
     return cannotRenderTrue(e.whenTrue) && cannotRenderTrue(e.whenFalse);
   }
   return false;
+}
+
+/** Is this expression definitely a NUMBER (so its string form is numeric text)? */
+function isNumericish(e0: ts.Expression): boolean {
+  const e = unparen(e0);
+  if (ts.isNumericLiteral(e) || ts.isBigIntLiteral(e)) return true;
+  if (isGlobalRef(e, "NaN")) return true;
+  return ts.isIdentifier(e) && e.text === "Infinity" && !isShadowedAt(e, "Infinity");
 }
 
 /** Does a `class` / `className` value hide this element?
@@ -1453,36 +1583,49 @@ function styleObjectHides(init: ts.JsxAttributeValue | undefined): boolean {
     display: new Set(["none"]),
     visibility: new Set(["hidden", "collapse"]),
   };
-  // LAST WRITE WINS, and a spread is a write. Scanning properties independently was wrong in both
-  // directions (review R33 BLOCKING 4): `{{...(true ? {display:"none"} : {})}}` hid and scanned
-  // clean, while `{{display:"none", ...(true ? {display:"block"} : {})}}` is visible and was
-  // reported. Resolve the object in source order into a final value per key; `undefined` marks a
-  // key an undecidable write may have overwritten.
-  const resolved = new Map<string, string | undefined>();
-  const apply = (o: ts.ObjectLiteralExpression): boolean | "hides" => {
+  // LAST WRITE WINS, and a spread is a write (review R33 BLOCKING 4). A conditional spread whose
+  // every branch hides is decidable even when its PREDICATE is not (R34 BLOCKING 4) -- but the first
+  // version of that fix returned a terminal "hides" sentinel, which discarded ordered writes in two
+  // ways (review R35 BLOCKING 1): a nested spread swallowed the sentinel, and any later write that
+  // neutralised the hiding key was ignored.
+  //
+  // So the object expands into ALTERNATIVES -- one resolved map per combination of decidable
+  // conditional-spread branches -- each resolved in source order. It hides iff EVERY alternative
+  // hides, which is the same question asked once per possible runtime object instead of once per
+  // property.
+  type Resolved = Map<string, string | undefined>;
+  const LIMIT = 16; // a bound on branch explosion; beyond it the object is treated as opaque
+  const expand = (o: ts.ObjectLiteralExpression, seed: readonly Resolved[]): Resolved[] | null => {
+    let alts: Resolved[] = seed.map((m) => new Map(m));
     for (const prop of o.properties) {
       if (ts.isSpreadAssignment(prop)) {
         const inner = unparen(prop.expression);
         const picked = pickObjectLiteral(inner);
-        if (picked === null) {
-          // An undecidable PREDICATE does not make the spread undecidable when every branch hides
-          // the same way: `flag ? {display:"none"} : {visibility:"hidden"}` hides whichever runs
-          // (review R34 BLOCKING 4). Only the branches need to be decidable, not the test.
-          const branches = conditionalObjectBranches(inner);
-          if (branches !== null && branches.every((b) => styleObjectLiteralHides(b)))
-            return "hides";
-          return false; // genuinely unknown: the whole object is opaque
+        if (picked !== null) {
+          const next = expand(picked, alts);
+          if (next === null) return null;
+          alts = next;
+          continue;
         }
-        if (apply(picked) === false) return false;
+        const branches = conditionalObjectBranches(inner);
+        if (branches === null) return null; // genuinely unknown spread: opaque
+        const merged: Resolved[] = [];
+        for (const branch of branches) {
+          const next = expand(branch, alts);
+          if (next === null) return null;
+          merged.push(...next);
+          if (merged.length > LIMIT) return null;
+        }
+        alts = merged;
         continue;
       }
       if (!ts.isPropertyAssignment(prop)) {
-        // Shorthand or a method: its VALUE is opaque, so mark the key unknown rather than skipping
-        // it, which would let an earlier hiding write survive a later unknown one.
+        // Shorthand or method: only its OWN key becomes unknown. Skipping it would let an earlier
+        // hiding write survive a later unknown one.
         const n = prop.name;
         const k = ts.isIdentifier(n) || ts.isStringLiteral(n) ? n.text : null;
-        if (k === null) return false;
-        resolved.set(k.trim(), undefined);
+        if (k === null) return null;
+        for (const m of alts) m.set(k.trim(), undefined);
         continue;
       }
       const name = prop.name;
@@ -1491,25 +1634,28 @@ function styleObjectHides(init: ts.JsxAttributeValue | undefined): boolean {
       else if (ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name))
         key = name.text;
       else if (ts.isComputedPropertyName(name)) key = staticStringValue(name.expression);
-      if (key === null) return false; // an undecidable KEY could be any property
+      if (key === null) return null; // an undecidable KEY could be any property
       // TRIM but do NOT fold case. A React style key is a JavaScript property name, not a CSS
       // property name: `{DISPLAY:"NONE"}` makes React emit `-d-i-s-p-l-a-y:NONE`, which styles
-      // nothing, so folding it reported valid markup (review R33 HIGH 8). Surrounding whitespace
-      // IS tolerated by the CSS parser -- `{" display ":"none"}` really hides (measured).
-      resolved.set(key.trim(), staticStringValue(prop.initializer) ?? undefined);
+      // nothing, so folding it reported valid markup (review R33 HIGH 8). Surrounding whitespace IS
+      // tolerated by the CSS parser -- `{" display ":"none"}` really hides (measured).
+      const value = staticStringValue(prop.initializer) ?? undefined;
+      for (const m of alts) m.set(key.trim(), value);
     }
-    return true;
+    return alts;
   };
-  const applied = apply(obj);
-  if (applied === "hides") return true; // a spread whose every branch hides
-  if (applied === false) return false; // anything undecidable: opaque, unchanged posture
-  for (const [key, value] of resolved) {
-    const hiding = HIDING[key];
-    if (hiding === undefined || value === undefined) continue;
-    // CSS KEYWORDS are case-insensitive, unlike the key: `display:"NONE"` really hides (measured).
-    if (hiding.has(value.trim().toLowerCase())) return true;
-  }
-  return false;
+  const mapHides = (m: Resolved): boolean => {
+    for (const [key, value] of m) {
+      const hiding = HIDING[key];
+      if (hiding === undefined || value === undefined) continue;
+      // CSS KEYWORDS are case-insensitive, unlike the key: `display:"NONE"` really hides (measured).
+      if (hiding.has(value.trim().toLowerCase())) return true;
+    }
+    return false;
+  };
+  const alternatives = expand(obj, [new Map()]);
+  if (alternatives === null) return false; // opaque: unchanged posture
+  return alternatives.length > 0 && alternatives.every(mapHides);
 }
 
 /** The object-literal branches of a conditional, when both are literals; otherwise null. */
@@ -1519,13 +1665,6 @@ function conditionalObjectBranches(e0: ts.Expression): ts.ObjectLiteralExpressio
   const a = pickObjectLiteral(e.whenTrue);
   const b = pickObjectLiteral(e.whenFalse);
   return a !== null && b !== null ? [a, b] : null;
-}
-
-/** Does this object literal, considered ALONE, hide? Used to decide a conditional spread whose
- *  predicate is dynamic but whose branches all hide. */
-function styleObjectLiteralHides(o: ts.ObjectLiteralExpression): boolean {
-  const fake = ts.factory.createJsxExpression(undefined, o);
-  return styleObjectHides(fake);
 }
 
 /** The object literal this expression definitely evaluates to, or null. Sees through a conditional
@@ -1706,13 +1845,17 @@ function hintHasSiblingSpace(root: ts.Node): boolean {
         const trailing = t.slice(t.trimEnd().length);
         return trailing.length > 0 && !LINE_TERMINATORS.test(trailing);
       }
-      if (
-        ts.isJsxExpression(prev) &&
-        prev.expression &&
-        ts.isStringLiteral(prev.expression) &&
-        /^[ \u00a0]+$/.test(prev.expression.text)
-      ) {
-        return true; // explicit {" "}
+      if (ts.isJsxExpression(prev) && prev.expression) {
+        // What matters is the character IMMEDIATELY before the hint, so a decidable string separates
+        // when it ENDS with a space -- not only when it is entirely spaces. The whitespace-ONLY test
+        // rejected `{"Open "}<NewTabHint />`, which renders "Open (opens in a new tab)" correctly,
+        // and that is the exact shape MDX compiles text into: `<a …>{"Open "}<NewTabHint /></a>`. So
+        // every correctly-announced MDX anchor was reported, and `{`Open `}` in TSX with it. Latent
+        // rather than live only because the census currently has no MDX anchor.
+        const lit = staticStringValue(prev.expression);
+        if (lit === null) return false; // opaque: cannot prove a separator
+        if (lit.length === 0) continue; // contributes nothing: keep looking further left
+        return /[ \u00a0]$/.test(lit);
       }
       return false; // adjacent content
     }
