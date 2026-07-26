@@ -54,16 +54,12 @@ on:
       - "app/layout.tsx"
       - "playwright.config.ts"
       - "tests/e2e/helpers/**"
-      - "tests/e2e/phantomGapHelper.layout.spec.ts"
-      - "tests/e2e/standalone.config.ts"
-      # Section-header rebuild + pusher sweep (spec 2026-07-25). SIX entries:
-      # the two specs AND their four helpers. A helper is never matched by the
-      # standalone config's testMatch, so omitting one would leave a later
-      # helper-only PR CI-dark - the failure class this workflow exists to end.
-      - "tests/e2e/section-header-layout.layout.spec.ts"
-      - "tests/e2e/pusher-alignment.layout.spec.ts"
-      - "tests/e2e/_sectionHeaderCellHarness.tsx"
-      - "tests/e2e/_pusherRowsHarness.tsx"
+      # The standalone specs and harnesses that used to be listed here
+      # (phantomGapHelper.layout, section-header-layout.layout,
+      # pusher-alignment.layout and their four harness files) are gone from this
+      # filter along with the legs that ran them. standalone-e2e.yml runs them
+      # unfiltered on every PR, so a filter entry here would only re-trigger this
+      # job for specs it no longer executes.
       # The shared width constant. Listed because a change to it re-aims BOTH the
       # static matrix and the real-route width-chain assertion, and neither spec
       # file need be touched for that to happen.
@@ -166,27 +162,17 @@ jobs:
       # prefix and not the two names: a probe case added to this file is picked
       # up without a workflow edit, which is the failure mode that left the host
       # specs dark in the first place.
-      # The walk's OWN branch coverage. No dev server and no database — it runs
-      # under the standalone config against synthetic pages, because the product
-      # trees below contain no percentage gap, no `calc()` gap, no subgrid, no
-      # vertical writing mode, and no transformed SVG. Every rule the walk carries
-      # for those could otherwise regress silently while all ten mounted cases
-      # stayed green. Ordered FIRST: if the instrument is broken, the readings
-      # below mean nothing.
-      - name: Phantom-gap helper — branch coverage
-        run: pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts tests/e2e/phantomGapHelper.layout.spec.ts
+      # The three standalone-config legs this job used to carry (phantomGapHelper.
+      # layout, section-header-layout.layout, pusher-alignment.layout) moved to
+      # standalone-e2e.yml, which runs the WHOLE config unfiltered on every PR.
+      # They are members of that config, so they are strictly better covered
+      # there: this job is path-filtered, which the coverage scanner correctly
+      # refuses to count. What stays here is the real-mount work below, which the
+      # standalone config cannot run.
       - name: Phantom-gap probe — /admin dashboard + show modal
         run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"
       - name: Phantom-gap probe — crew page
         run: pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"
-      # Section-header rebuild + pusher sweep (spec 2026-07-25). `--reporter=list`
-      # is what makes the case counts visible in the log, so a reviewer can confirm
-      # from CI output that the cases actually RAN rather than inferring it from a
-      # green tick — the "runs nowhere and silently proves nothing" failure class.
-      - name: Section-header layout (standalone)
-        run: pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts
-      - name: Pusher alignment (standalone)
-        run: pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts tests/e2e/pusher-alignment.layout.spec.ts
       # The width chain, which is what stops the two standalone steps above from
       # proving a counterfactual: they measure 15 header cells inside containers of
       # a fixed width per viewport, and this asserts the REAL mount produces exactly

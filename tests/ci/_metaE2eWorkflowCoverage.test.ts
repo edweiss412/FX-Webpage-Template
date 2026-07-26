@@ -9,10 +9,15 @@
  * blessed.
  *
  * Guarantee scope (spec R18 honesty correction): "covered" means the spec
- * RUNS AND REPORTS on every PR. Branch protection requires only the `quality`
- * context (owner-directed solo posture, plans DEFERRED.md 2026-06-22 entry),
- * so GitHub-enforced merge blocking is out of any scanner's reach; the ship
- * pipeline's all-checks-green gate is the procedural enforcement.
+ * RUNS AND REPORTS on every PR — NOT that GitHub will block a merge on it.
+ *
+ * The claim that "branch protection requires only the `quality` context" was
+ * STALE and is corrected here: measured 2026-07-26, the live required set
+ * holds TWELVE contexts. The e2e jobs are advisory not because one context is
+ * required, but because none of them is in that set. Merge blocking is out of
+ * any scanner's reach either way; the ship pipeline's all-checks-green gate is
+ * the procedural enforcement. Measurement: spec
+ * docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §2.5.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -37,8 +42,6 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-changes-feed-layout.spec.ts": UNSEEN,
   "tests/e2e/admin-dev.spec.ts": UNSEEN,
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
-  "tests/e2e/pusher-alignment.layout.spec.ts": PATH_GATED,
-  "tests/e2e/section-header-layout.layout.spec.ts": PATH_GATED,
   "tests/e2e/admin-layout.spec.ts": UNSEEN,
   "tests/e2e/admin-lifecycle-transitions.spec.ts": UNSEEN,
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
@@ -46,26 +49,14 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-phase2-surfaces.spec.ts": UNSEEN,
   "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
   "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
-  "tests/e2e/agendaBreakdown.layout.spec.ts": UNSEEN,
-  "tests/e2e/agendaScheduleLayout.spec.ts": UNSEEN,
-  "tests/e2e/appHealthIndicator.layout.spec.ts": UNSEEN,
-  "tests/e2e/attention-anchor-placement.spec.ts": PATH_GATED,
   "tests/e2e/attention-modal-gallery.spec.ts": UNSEEN,
-  "tests/e2e/attention-pill-focus.spec.ts": PATH_GATED,
-  "tests/e2e/autoAppliedCardGrid.layout.spec.ts": UNSEEN,
   "tests/e2e/bell-panel-layout.spec.ts": PATH_GATED,
-  "tests/e2e/blocked-row-resolver-transitions.spec.ts": UNSEEN,
-  "tests/e2e/bulk-ignore-eyebrow.layout.spec.ts": UNSEEN,
-  "tests/e2e/collapse-panel-morph.spec.ts": UNSEEN,
-  "tests/e2e/compact-alert-card-layout.spec.ts": UNSEEN,
   "tests/e2e/crew-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-page.spec.ts": UNSEEN,
-  "tests/e2e/dataQualityBadge.layout.spec.ts": UNSEEN,
   "tests/e2e/deep-link-walker.spec.ts": UNSEEN,
   "tests/e2e/dev-capture.spec.ts": UNSEEN,
   "tests/e2e/developer-tier.spec.ts": UNSEEN,
-  "tests/e2e/developer-toggle-layout.spec.ts": UNSEEN,
   "tests/e2e/empty-state-reachability.spec.ts": UNSEEN,
   "tests/e2e/empty-state.spec.ts": UNSEEN,
   "tests/e2e/help-auth.spec.ts": UNSEEN,
@@ -73,7 +64,6 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/help-pages.spec.ts": UNSEEN,
   "tests/e2e/help-screenshots-clock-pipeline.spec.ts": UNSEEN,
   "tests/e2e/help-typography.spec.ts": UNSEEN,
-  "tests/e2e/hoverhelp-geometry.spec.ts": PATH_GATED,
   "tests/e2e/layout-dimensions.spec.ts": UNSEEN,
   "tests/e2e/me-page.spec.ts": UNSEEN,
   "tests/e2e/needs-attention-page.spec.ts": UNSEEN,
@@ -83,30 +73,16 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/onboarding-wizard-step1.spec.ts": UNSEEN,
   "tests/e2e/pack-list.spec.ts": UNSEEN,
   "tests/e2e/packlist-rescan-recovery.spec.ts": UNSEEN,
-  "tests/e2e/phantomGapHelper.layout.spec.ts": PATH_GATED,
-  "tests/e2e/pendingDiscardReal.layout.spec.ts": PATH_GATED,
-  "tests/e2e/pendingDiscardReflow.layout.spec.ts": PATH_GATED,
   "tests/e2e/picker-flow.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/published-review-modal.closeFreshness.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.crew-actions.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.deeplink.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.interactions.spec.ts": PATH_GATED,
-  "tests/e2e/published-review-modal.layout.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.prefetch.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.realtime.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.reopen.spec.ts": PATH_GATED,
   "tests/e2e/published-show-attention.spec.ts": UNSEEN,
   "tests/e2e/report-modal.spec.ts": UNSEEN,
-  "tests/e2e/resolve-label-layout.spec.ts": UNSEEN,
-  // Its own dedicated workflow (share-link-flash-e2e.yml), path-gated like the
-  // rest of the standalone family — but with a DELIBERATELY BROAD filter
-  // (components/**, lib/**, app/admin/**), because the harness hydrates the real
-  // StatusStrip -> ShareHub tree and its bundle pulls 155 production inputs. A
-  // per-file filter for a graph that size was drafted five times and was short
-  // every time. Not the BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella: this one is
-  // wired, it is only path-gated rather than unconditional.
-  "tests/e2e/share-link-flash.spec.ts":
-    "dedicated path-gated PR workflow share-link-flash-e2e.yml (broad component/lib/admin filter); not PR-blocking-capable per the scanner contract",
   "tests/e2e/right-now-transitions.spec.ts": UNSEEN,
   "tests/e2e/right-now.spec.ts": UNSEEN,
   "tests/e2e/role-spoof.spec.ts": UNSEEN,
@@ -116,25 +92,16 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/schedule-tile.spec.ts": UNSEEN,
   "tests/e2e/screenshots-help-capture.spec.ts": UNSEEN,
   "tests/e2e/sign-in-page.spec.ts": UNSEEN,
-  "tests/e2e/skeletonBandParity.spec.ts": PATH_GATED,
   "tests/e2e/source-link-dimensional.spec.ts": UNSEEN,
   // Landed on main via the sibling strip-mobile-stacked-band branch while this
   // guard was in flight - part of the pre-existing inventory, not a post-guard
   // regression.
-  "tests/e2e/stackedBandLayout.spec.ts": UNSEEN,
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": UNSEEN,
   "tests/e2e/status-financials.spec.ts": UNSEEN,
-  "tests/e2e/statusStripToggleLayout.spec.ts": PATH_GATED,
-  "tests/e2e/step3-review-modal.interactions.spec.ts": PATH_GATED,
-  "tests/e2e/step3-review-modal.layout.spec.ts": PATH_GATED,
-  "tests/e2e/step3-review-page.layout.spec.ts": UNSEEN,
-  "tests/e2e/step3-schedule-bookend-layout.spec.ts": UNSEEN,
   "tests/e2e/telemetry-layout.spec.ts": UNSEEN,
   "tests/e2e/theme-toggle.spec.ts": UNSEEN,
-  "tests/e2e/toggle-edge-layout.spec.ts": UNSEEN,
   "tests/e2e/transport-tile.spec.ts": UNSEEN,
   "tests/e2e/warning-panel-polish.spec.ts": UNSEEN,
-  "tests/e2e/wizard-blocker-modal.layout.spec.ts": UNSEEN,
 };
 
 describe("e2e workflow coverage (spec §6 item 6)", () => {
