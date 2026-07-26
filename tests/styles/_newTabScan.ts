@@ -770,17 +770,11 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
   // NOT_RENDERED: content is never rendered (script-supporting and metadata elements).
   // NOT_SHOWN_UNLESS_OPEN: rendered only when `open` is present and truthy.
   if (NOT_RENDERED_TAGS.has(tag)) return true;
-  // `<input type="hidden">` is not rendered, so neither its value nor anything it could name
-  // reaches the accessible name (review R24 BLOCKING 2).
-  if (tag === "input") {
-    const typeAttr = attrs.properties.find((a) => attrName(a) === "type");
-    if (typeAttr && ts.isJsxAttribute(typeAttr) && typeAttr.initializer) {
-      // The DOM normalises `input.type`, so `type="HIDDEN"` really is a hidden input
-      // (review R25 BLOCKING 4). This is one of the few attribute VALUES that is
-      // case-insensitive; className tokens are not, which is why the fold is scoped here.
-      if ((stringOf(typeAttr.initializer) ?? "").toLowerCase() === "hidden") return true;
-    }
-  }
+  // NOTE: there is deliberately no `<input type="hidden">` branch. It was added at R24 and a
+  // systematic mutation sweep later showed removing it changed no test: `<input>` is a void
+  // element, so it can never be an ancestor between the anchor and the hint, and R28's narrowed
+  // destination model already rejects every nested-element attribute. Dead code deleted rather
+  // than left with a comment claiming it does something.
   if (NOT_SHOWN_UNLESS_OPEN.has(tag)) {
     // `open` must be PROVABLY true. React omits the attribute for every falsy value, so
     // `open={0}`, `open={null}`, `open={undefined}` and a dynamic `open={isOpen}` can all

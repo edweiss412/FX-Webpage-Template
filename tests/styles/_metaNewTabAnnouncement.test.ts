@@ -232,7 +232,6 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["noscript", "intrinsic tag name (content never rendered)"],
   ["datalist", "intrinsic tag name (content never rendered)"],
   ["dialog", "intrinsic tag name (not shown unless open)"],
-  ["input", 'intrinsic tag name (R24: type="hidden" is not rendered)'],
   ["img", "intrinsic tag name (R26b: one of the elements `alt` applies to)"],
   ["area", "intrinsic tag name (R26b: one of the elements `alt` applies to)"],
   ["Link", "component tag name"],
@@ -1839,6 +1838,39 @@ describe("R6: scanner changes are pinned", () => {
     ).toEqual([]);
   });
 
+  it('aria-hidden="false" is VISIBLE at the SCANNER level', () => {
+    // Found by a systematic mutation sweep, not by a review round: removing the
+    // `aria-hidden="false"` exemption changed no test in this file. The behavioural suite pins
+    // what the HARNESS computes; this pins what the SCANNER decides, and those are different
+    // assertions. The casing sweep could not catch it either -- both spellings shift together,
+    // so same-verdict parity still holds.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank">Go <span aria-hidden="false"><NewTabHint /></span></a>;',
+      ),
+      'aria-hidden="false" does not hide, so the hint still announces',
+    ).toEqual([]);
+    // A STRING "false" is ALSO visible for aria-hidden, which is where it differs from the
+    // native boolean `hidden`. Measured: both compute "Go (opens in a new tab)". My first version
+    // of this test asserted the opposite and the test caught me -- the fourth assertion of mine
+    // this PR that encoded belief rather than behaviour.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank">Go <span aria-hidden={"false"}><NewTabHint /></span></a>;',
+      ),
+      'aria-hidden={"false"} is a valid ARIA false, unlike the native boolean `hidden`',
+    ).toEqual([]);
+    // The truthy spellings DO hide, so the exemption must be narrow.
+    for (const v of ['"true"', "{true}"]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <span aria-hidden=${v}><NewTabHint /></span></a>;`,
+        ),
+        `aria-hidden=${v} must hide`,
+      ).not.toEqual([]);
+    }
+  });
+
   it("R28 whitespace spread, template-literal styles, and a bounded visibility match", () => {
     const hid = '<span aria-hidden="true">Go</span>';
     for (const src of [
@@ -2678,6 +2710,7 @@ describe("R6: scanner changes are pinned", () => {
       // destination proof), but kept so a hand-typed `Value` still trips the lowercase rule.
       // The reverse cross-check flagged these the moment they went unread -- the check working
       // as designed on its own author.
+      ["type", "not read since the dead input-type branch was deleted; forward protection"],
       ["value", "not read since R28; kept for forward protection"],
       ["defaultvalue", "not read since R28; kept for forward protection"],
     ]);
