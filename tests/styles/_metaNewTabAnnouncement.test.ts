@@ -1742,6 +1742,13 @@ describe("R6: scanner changes are pinned", () => {
       a("{(<NewTabHint />).props}"), // property access
       a("{drop(<NewTabHint />)}"), // call argument: the callee decides
       a("{(<NewTabHint />, null)}"), // comma yields the LAST operand
+      // These four were never enumerated anywhere -- the allowlist rejects them BY
+      // CONSTRUCTION, which is the property that makes it the right model rather than a
+      // longer list. Each hands the element to a callee that decides whether to render it.
+      a("{tag`${(<NewTabHint />)}`}"), // a tagged template's function decides
+      a("{React.createElement(C, null, <NewTabHint />)}"), // a call argument
+      a("{<C {...{ children: <NewTabHint /> }} />}"), // children via a spread attribute
+      a("{({ get x() { return <NewTabHint />; } }).x}"), // a getter body
     ]) {
       expect(violations(src), `must report: ${src}`).not.toEqual([]);
     }
