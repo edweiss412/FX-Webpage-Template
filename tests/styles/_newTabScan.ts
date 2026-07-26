@@ -655,7 +655,12 @@ function isLiteralTruthy(n: ts.Expression): boolean {
  *  JsxElement, which every `ts.isJsxElement` guard then rejected. */
 function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean {
   for (const child of children) {
-    if (isHintElement(child)) continue; // the announcement is not a destination
+    // The announcement is not a destination. SUBSUMED as of R28: `NewTabHint` is a component, so
+    // the untrusted-component rule below already skips it, and a mutation sweep confirmed
+    // removing this line changes no test. Kept because it states the intent at the top of the
+    // walk where a reader looks for it -- but it is not the mechanism, and the comment says so
+    // rather than letting someone preserve the wrong line.
+    if (isHintElement(child)) continue;
     if (ts.isJsxText(child)) {
       if (child.text.trim().length > 0) return true;
       continue;

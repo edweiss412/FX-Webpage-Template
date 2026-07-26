@@ -2150,6 +2150,12 @@ describe("R6: scanner changes are pinned", () => {
       'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {true} <NewTabHint /></a>;',
       // An empty array renders nothing; a non-empty one may render anything.
       'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {[]} <NewTabHint /></a>;',
+      // A BARE object literal child. Pinned because a mutation sweep showed the objectLiteral
+      // branch of rendersNothing was never exercised: every earlier case had the object as the
+      // LEFT operand of `&&`, which isLiteralTruthy handles instead. Note React actually THROWS
+      // on an object child (R26b), so this verdict is about broken code, and reporting it is the
+      // right answer either way.
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span> {({})} <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must report: ${src}`).not.toEqual([]);
     }
