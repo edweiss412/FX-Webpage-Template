@@ -8,6 +8,14 @@ export type WatchErrorClass = "config" | "drive_api" | "db";
 export const ESCALATION_THRESHOLD = 3;
 export const STALE_PENDING_MAX_AGE_MS = 3_600_000;
 
+/**
+ * How many reaped/skipped ids a single forensic emit carries. The true totals
+ * always travel in the sibling `*Count` fields, so the cap costs no signal —
+ * and the ids are sorted BEFORE capping, because `UPDATE … RETURNING` has no
+ * ordering contract and an execution-plan change would otherwise vary the set.
+ */
+export const REAP_ID_LOG_CAP = 20;
+
 // Lease-slack constants (spec 2026-07-25-watch-lease-slack-design §2).
 //
 // Requested channel lifetime. Google's documented maximum for the `files`

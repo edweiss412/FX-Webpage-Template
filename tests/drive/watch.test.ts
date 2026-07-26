@@ -29,7 +29,7 @@ afterEach(() => {
 
 type WatchRow = {
   id: string;
-  status: "pending" | "active" | "superseded" | "orphaned" | "stopped";
+  status: "pending" | "active" | "superseded" | "orphaned" | "expired" | "stopped";
   watchedFolderId: string;
   webhookSecret: string;
   resourceId: string | null;
@@ -85,8 +85,31 @@ class FakeWatchTx {
 
   async markOrphaned(id: string) {
     this.operations.push(`markOrphaned:${id}`);
-    const row = this.rows.find((existing) => existing.id === id);
+    // Mirrors production's `status = 'pending'` filter
+    // (lib/drive/watch.ts markOrphaned). A permissive fake would mask
+    // BL-WATCH-EXPIRED-ACTIVE-ROW, which IS that filter.
+    const row = this.rows.find((existing) => existing.id === id && existing.status === "pending");
     if (row) row.status = "orphaned";
+  }
+
+  // Mirrors PostgresWatchTx.expireDeadActive EXACTLY, including the two-arm
+  // predicate and the two DIFFERENT target statuses (spec §3.1.2). A fake that
+  // collapses them hides the leak the split exists to prevent: an invalid lease
+  // may still have a LIVE Drive channel, so it must reach GC's stop call.
+  async expireDeadActive(): Promise<Array<{ id: string; status: "expired" | "superseded" }>> {
+    this.operations.push("expireDeadActive");
+    const out: Array<{ id: string; status: "expired" | "superseded" }> = [];
+    for (const row of this.rows) {
+      if (row.status !== "active" || !row.expiresAt || !row.createdAt) continue;
+      const expires = Date.parse(row.expiresAt);
+      const created = Date.parse(row.createdAt);
+      const dead = expires <= this.now.getTime();
+      const invalid = expires <= created;
+      if (!dead && !invalid) continue;
+      row.status = dead ? "expired" : "superseded";
+      out.push({ id: row.id, status: row.status });
+    }
+    return out;
   }
 
   async upsertAdminAlert(input: { code: string; context: Record<string, unknown> }) {
@@ -130,7 +153,9 @@ class FakeWatchTx {
 
   async listGcCandidates() {
     this.operations.push("listGcCandidates");
-    return this.rows.filter((row) => row.status === "superseded" || row.status === "orphaned");
+    return this.rows.filter(
+      (row) => row.status === "superseded" || row.status === "orphaned" || row.status === "expired",
+    );
   }
 
   async markStopped(id: string) {
@@ -210,11 +235,14 @@ function seedActiveExpiring(tx: FakeWatchTx, folderIds: string[]) {
       watchedFolderId: folderId,
       webhookSecret: "old-secret",
       resourceId: "resource-1",
-      // A 24h lease created 25h ago and expired an hour ago, so it is due under
-      // any predicate. `createdAt` is mandatory: production's column is NOT NULL
-      // and the fake refuses to guess (whole-diff R4-4).
-      createdAt: new Date(tx.now.getTime() - 25 * 60 * 60 * 1000).toISOString(),
-      expiresAt: new Date(tx.now.getTime() - 60 * 60 * 1000).toISOString(),
+      // A 24h lease created 19h ago with 5h remaining: still INSIDE its lease,
+      // and renewal-due because 5h < the 6h lead for a 24h grant. It used to be
+      // dated an hour PAST expiry, which the §3.1.2 reap now consumes before
+      // `listRenewalDue` runs — that would leave this test exercising only the
+      // reap while still passing its own name. `createdAt` is mandatory:
+      // production's column is NOT NULL and the fake refuses to guess.
+      createdAt: new Date(tx.now.getTime() - 19 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(tx.now.getTime() + 5 * 60 * 60 * 1000).toISOString(),
     });
   }
 }
@@ -732,7 +760,8 @@ describe("Drive watch lifecycle", () => {
     } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
 
     expect(result).toEqual({ refreshed: ["folder-1"], orphaned: [], failures: [] });
-    expect(tx.operations).toEqual(["listRenewalDue"]);
+    // The reap now precedes the read inside the same transaction (spec §3.1.3).
+    expect(tx.operations).toEqual(["expireDeadActive", "listRenewalDue"]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
   });
 
@@ -774,7 +803,8 @@ describe("Drive watch lifecycle", () => {
       failures: [{ folderId: "folder-1", operation: "subscribe" }],
     });
     expect(tx.rows).toEqual(before);
-    expect(tx.operations).toEqual(["listRenewalDue"]);
+    // The reap now precedes the read inside the same transaction (spec §3.1.3).
+    expect(tx.operations).toEqual(["expireDeadActive", "listRenewalDue"]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
 
     const rec = logRecords.find((r) => r.message === "refresh-watch renewal failed")!;
@@ -1574,5 +1604,99 @@ describe("Drive watch telemetry", () => {
         (r) => r.message === "stale pending watch channels swept" && r.level === "warn",
       ),
     ).toEqual([]);
+  });
+});
+
+describe("watch renewal lifecycle — reap and GC (spec §3.1)", () => {
+  test("the reap runs BEFORE the renewal read, in that order", async () => {
+    const tx = new FakeWatchTx();
+    const subscribe = vi.fn(async (folderId: string) => ({
+      outcome: "active" as const,
+      channelId: `c-${folderId}`,
+    }));
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    await refreshWatchSubscriptions({
+      tx: tx as never,
+      now: () => tx.now,
+      subscribeToWatchedFolder: subscribe,
+      getActiveWatchedFolder: async () => ({ folderId: "folder-1", folderName: null }),
+    });
+    // ORDER, not presence: a reap ordered AFTER the read leaves the stale row in
+    // `due` and reduces the whole fix to a no-op.
+    expect(tx.operations.slice(0, 2)).toEqual(["expireDeadActive", "listRenewalDue"]);
+  });
+
+  test("a genuinely expired row is reaped to `expired`; an inverted lease with a FUTURE expiry to `superseded`", async () => {
+    const tx = new FakeWatchTx();
+    const t = tx.now.getTime();
+    tx.rows.push({
+      id: "dead",
+      status: "active",
+      watchedFolderId: "folder-dead",
+      webhookSecret: "s",
+      resourceId: "r",
+      createdAt: new Date(t - 30 * 3_600_000).toISOString(),
+      expiresAt: new Date(t - 6 * 3_600_000).toISOString(),
+    });
+    tx.rows.push({
+      id: "inverted",
+      status: "active",
+      watchedFolderId: "folder-inv",
+      webhookSecret: "s",
+      resourceId: "r",
+      createdAt: new Date(t + 30 * 3_600_000).toISOString(),
+      expiresAt: new Date(t + 24 * 3_600_000).toISOString(),
+    });
+    tx.rows.push({
+      id: "healthy",
+      status: "active",
+      watchedFolderId: "folder-ok",
+      webhookSecret: "s",
+      resourceId: "r",
+      createdAt: new Date(t - 3_600_000).toISOString(),
+      expiresAt: new Date(t + 23 * 3_600_000).toISOString(),
+    });
+
+    await tx.expireDeadActive();
+
+    // Assert the resulting STATUS, not merely that the rows left `active`: a
+    // status-blind assertion passes while a possibly-live Drive channel is
+    // abandoned with nothing left to stop it (spec §3.1.2).
+    expect(tx.rows.find((r) => r.id === "dead")!.status).toBe("expired");
+    expect(tx.rows.find((r) => r.id === "inverted")!.status).toBe("superseded");
+    expect(tx.rows.find((r) => r.id === "healthy")!.status).toBe("active");
+  });
+
+  test("GC skips channels.stop for `expired` but calls it for `superseded`, and marks both stopped", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "exp",
+      status: "expired",
+      watchedFolderId: "f",
+      webhookSecret: "s",
+      resourceId: "r-exp",
+      createdAt: tx.now.toISOString(),
+      expiresAt: tx.now.toISOString(),
+    });
+    tx.rows.push({
+      id: "sup",
+      status: "superseded",
+      watchedFolderId: "f2",
+      webhookSecret: "s",
+      resourceId: "r-sup",
+      createdAt: tx.now.toISOString(),
+      expiresAt: tx.now.toISOString(),
+    });
+    const stopChannel = vi.fn(async () => {});
+
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+    const result = await gcWatchChannels({ tx: tx as never, stopChannel });
+
+    // Assert the spy's call LIST by channel id — a count-only assertion passes
+    // if it skipped the wrong one.
+    expect(stopChannel.mock.calls.map((c) => (c as unknown as [{ id: string }])[0].id)).toEqual([
+      "sup",
+    ]);
+    expect(result.stopped.sort()).toEqual(["exp", "sup"]);
   });
 });

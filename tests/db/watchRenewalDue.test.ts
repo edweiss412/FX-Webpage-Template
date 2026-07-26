@@ -28,7 +28,12 @@ const databaseUrl = assertLocalDbUrl(
 
 const sql = postgres(databaseUrl, { max: 1, idle_timeout: 1, prepare: false });
 
-const NOW = new Date("2026-07-25T12:00:00.000Z");
+// The reap (spec §3.1.2) reads the DATABASE's `now()`, so a fixture dated
+// against a JS constant is already expired by real database time and gets
+// consumed before `listRenewalDue` runs. Read the database clock once and use
+// THAT for both the injected JS clock and every fixture, so the two agree by
+// construction — which is what the production code now requires of them.
+let NOW = new Date("2026-07-25T12:00:00.000Z");
 const HOUR = 3_600_000;
 
 /** Insert an active channel with an explicit granted lifetime. */
@@ -60,14 +65,30 @@ async function foldersProductionWouldRenew(): Promise<string[]> {
   return attempted.sort();
 }
 
+/** Status of a seeded row after the production refresh path has run. */
+async function statusAfterRefresh(id: string, folderId: string): Promise<string> {
+  const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+  await refreshWatchSubscriptions({
+    now: () => NOW,
+    subscribeToWatchedFolder: async () => ({ outcome: "active" as const, channelId: "x" }),
+    getActiveWatchedFolder: async () => ({ folderId, folderName: null }),
+  });
+  const [row] = await sql<{ status: string }[]>`
+    select status from public.drive_watch_channels where id = ${id}
+  `;
+  return row!.status;
+}
+
 describe("renewal predicate, through the production path (§3.2)", () => {
   // The production path resolves its own connection from TEST_DATABASE_URL
   // (lib/drive/watch.ts databaseUrl()). Point it at the SAME guarded local URL
   // for the duration of this suite, and restore afterwards — without this the
   // code under test would connect somewhere other than the rows we inserted.
   const priorTestDatabaseUrl = process.env.TEST_DATABASE_URL;
-  beforeAll(() => {
+  beforeAll(async () => {
     process.env.TEST_DATABASE_URL = databaseUrl;
+    const rows = await sql<{ now: Date }[]>`select now() as now`;
+    NOW = new Date(rows[0]!.now);
   });
   afterAll(async () => {
     if (priorTestDatabaseUrl === undefined) delete process.env.TEST_DATABASE_URL;
@@ -119,38 +140,38 @@ describe("renewal predicate, through the production path (§3.2)", () => {
     expect(grantedMs * (1 - RENEWAL_LIFE_FRACTION)).toBeLessThan(RENEWAL_MIN_LEAD_MS);
   });
 
-  test("a lease already past expiry is still due (it never leaves the query)", async () => {
-    // Pre-existing behavior, pinned deliberately: this row also never leaves
-    // `status='active'`, which is BL-WATCH-EXPIRED-ACTIVE-ROW. Documented here
-    // so a future reader sees it is known rather than missed.
+  test("a lease already past expiry is REAPED to `expired`, not renewed", async () => {
+    // Inverted deliberately (spec §5). This test used to pin
+    // BL-WATCH-EXPIRED-ACTIVE-ROW — a row that never left `status='active'` and
+    // so was retried on every tick forever. §3.1.2 now reaps it out of the
+    // renewal query before that query runs.
     const created = new Date(NOW.getTime() - 30 * HOUR);
     const expires = new Date(NOW.getTime() - 6 * HOUR);
     await insertActive("rp-expired", "renewpred-expired", created, expires);
 
-    expect(await foldersProductionWouldRenew()).toEqual(["renewpred-expired"]);
+    expect(await statusAfterRefresh("rp-expired", "renewpred-expired")).toBe("expired");
   });
 
-  test("a zero-length or inverted lease is due immediately", async () => {
+  test("a zero-length or inverted lease already past `now` is reaped to `expired`", async () => {
     const created = new Date(NOW.getTime() + HOUR);
-    const expires = new Date(NOW.getTime()); // expires_at <= created_at
+    const expires = new Date(NOW.getTime()); // expires_at <= created_at, and <= now
     await insertActive("rp-skew", "renewpred-skew", created, expires);
 
-    expect(await foldersProductionWouldRenew()).toEqual(["renewpred-skew"]);
+    expect(await statusAfterRefresh("rp-skew", "renewpred-skew")).toBe("expired");
   });
 
-  test("an inverted lease expiring in the FUTURE is also due immediately", async () => {
-    // Whole-diff R1 finding 3: the earlier fixture used expires = NOW, so it
-    // proved only that an ALREADY-EXPIRED inverted lease is due. With
-    // created_at > expires_at > NOW + the floor, the proportional term is
-    // negative, greatest() picks the 2h floor, and the row would NOT be
-    // selected — despite being exactly the nonsense the contract says to
-    // replace at the first opportunity.
+  test("an inverted lease expiring in the FUTURE is reaped to `superseded`, NOT `expired`", async () => {
+    // The status is the assertion, not merely that the row left `active`
+    // (spec §3.1.2). Its `expires_at` is 24h out, so Drive may still be
+    // delivering on this channel — `superseded` is the status whose GC path
+    // calls channels.stop. Routing it to `expired` would skip that call and
+    // abandon a possibly-live channel with nothing left to stop it.
     const expires = new Date(NOW.getTime() + 24 * HOUR);
     const created = new Date(NOW.getTime() + 30 * HOUR); // created AFTER expiry
     expect(expires.getTime() - NOW.getTime()).toBeGreaterThan(RENEWAL_MIN_LEAD_MS);
     await insertActive("rp-inv-future", "renewpred-inv-future", created, expires);
 
-    expect(await foldersProductionWouldRenew()).toEqual(["renewpred-inv-future"]);
+    expect(await statusAfterRefresh("rp-inv-future", "renewpred-inv-future")).toBe("superseded");
   });
 
   test("non-active rows are never renewed regardless of expiry", async () => {
