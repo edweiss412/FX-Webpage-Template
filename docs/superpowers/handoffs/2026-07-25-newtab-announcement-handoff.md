@@ -1757,3 +1757,19 @@ That is the R34 fix being incomplete in the one place its own mechanism depended
 the composition layer also has to compose. Worth checking directly whenever a "one helper owns this
 question" refactor lands — the callers get audited, and the callee that the layer itself consults
 does not.
+
+### Composition closure, asserted as a PROPERTY rather than as cases
+
+R34 routed every value question through `pickedOperand`. R35 then found the one helper the layer
+CONSULTS that did not itself compose. Fixing that instance leaves the same question open for the next
+helper someone adds, so the property is now asserted directly: **each consumer must resolve a value
+nested one level deeper than the shape its own fixtures use.**
+
+Seven cases, one per consumer — `hidden`, `inert`, `popover`, `open`, a style value, a child
+expression, and a template — each wrapping a nested selection such as `(false || null) ?? 0`. All
+seven agree with the runtime today. Verified load-bearing by removing composition from each helper in
+turn: falsy, truthy, nullish and React-omission each flip one of them red.
+
+The distinction worth keeping: the individual fixtures pin the CASES the reviewer found; this pins the
+INVARIANT that made them findable. A new helper joining the layer without composing trips it, which is
+what "closing a class" means as opposed to fixing its members.

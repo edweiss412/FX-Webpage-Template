@@ -3724,6 +3724,55 @@ describe("R6: scanner changes are pinned", () => {
     );
   });
 
+  it("value composition is CLOSED: every helper resolves nesting", () => {
+    // R34 routed every value question through `pickedOperand`; R35 then found `isProvablyNullish`
+    // was the one helper the layer CONSULTS that did not itself compose. That is a property of the
+    // set, not of one rule, so this asserts the property: each consumer must resolve a value nested
+    // one level deeper than the shape its own fixtures use. If a new helper joins the layer and does
+    // not compose, one of these flips.
+    const hid = '<span aria-hidden="true">Go</span>';
+    const cases: Array<[string, string, "accept" | "report"]> = [
+      [
+        "hidden, nested falsy",
+        "Go <span hidden={(false || null) ?? 0}><NewTabHint /></span>",
+        "accept",
+      ],
+      [
+        "inert, nested nullish",
+        "Go <span inert={(null ?? null) ?? void 0}><NewTabHint /></span>",
+        "accept",
+      ],
+      [
+        "popover, nested boolean",
+        "Go <span popover={(null ?? false) || false}><NewTabHint /></span>",
+        "accept",
+      ],
+      [
+        "open, nested truthy",
+        "Go <details open={(null ?? 0) || 1}><NewTabHint /></details>",
+        "accept",
+      ],
+      [
+        "style value, nested",
+        '<span style={{display: (false || null) ?? "none"}}>Go</span> <NewTabHint />',
+        "report",
+      ],
+      ["child expression, nested falsy", `{(null ?? 0) || ${hid}} <NewTabHint />`, "report"],
+      [
+        "aria-hidden, nested inside a template",
+        'Go <span aria-hidden={`${(false || null) ?? "tr"}ue`}><NewTabHint /></span>',
+        "report",
+      ],
+    ];
+    for (const [label, inner, want] of cases) {
+      const got =
+        violations(`const A=()=><a href="x" target="_blank">${inner}</a>;`).length > 0
+          ? "report"
+          : "accept";
+      expect(got, `${label}: nesting must resolve the same way one level deeper`).toBe(want);
+    }
+  });
+
   it("the base case: an external anchor with no hint at all", () => {
     // The guard's most fundamental violation, and until the coverage meta-test below was written no
     // fixture NAMED it -- the shadow fixtures reach it but assert only that something reported.
