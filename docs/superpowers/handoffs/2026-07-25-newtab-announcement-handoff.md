@@ -1148,3 +1148,66 @@ candidate admission — roughly 36 decision clauses:
 Twenty-nine review rounds found none of these, and that is not a criticism of the reviewer: a review
 examines what it is pointed at, and a sweep examines what the code actually branches on. They are
 different instruments. The sweep costs one scripted loop per surface and should have run at R10.
+
+## R30 — and the error class worth more than any single fix
+
+R30 raised four BLOCKING plus the stale summary. Two are ordinary (a comment inside a style object
+defeating a raw-text matcher; four more lexical scopes for the shadow walk, including module scope,
+where a top-level redeclaration is an error and this guard's stated policy is not to adjudicate
+validity, so it fails closed). Two are not.
+
+**My own R29 fix was half a fix.** I made prefix-boolean handling depend on the operand being a
+decidable literal, so `{!label}` and `{n > 0}` stayed fail-open. React renders NEITHER boolean, so the
+operand never mattered. The corrected rule is grammar-closed — `!x`, the eight comparisons,
+`instanceof`, `in`, `delete` — with `typeof` excluded because it yields a STRING, pinned as the
+boundary. A fix that addresses the reported instance while leaving the general case open looks like
+progress and is a smaller fraction of the work than it appears.
+
+**The `<title>` reason was factually wrong, and that is a distinct error class.** I had written that
+metadata elements "cannot meaningfully occur inside an anchor". React 19 HOISTS a nested `<title>`
+out, so its text genuinely never reaches the name — the conclusion happened to be safe, the stated
+reason was false, and the element did need handling.
+
+That is the second time in this PR I was wrong about BEHAVIOUR rather than about a LIST:
+
+| Round | The claim | The reality |
+| --- | --- | --- |
+| R23 | the non-rendered tag set "names the HTML Standard's categories" | it was assembled from memory; `<rp>` was missing |
+| R26b | metadata elements cannot occur inside an anchor | React 19 hoists `<title>`; the element renders nowhere useful, for a different reason |
+
+Both passed every list-correctness check, because the list was never the defect. **A wrong reason
+survives review far longer than a wrong entry**, since a reviewer checks what a rule does rather than
+why it claims to be safe.
+
+### The response: measure the premises, don't argue them
+
+So the spec was audited for behavioural claims that existed only as prose, and the load-bearing one
+was measured:
+
+**React normalises a non-lowercase attribute NAME rather than dropping it.** Everything about the
+casing apparatus rests on this — the behavioural sweep, the lowercase tripwire, the closed list. If
+React dropped such attributes, `TARGET="_blank"` would not open a tab and the whole mechanism would
+guard nothing. Measured: `TARGET="_blank"` renders `target="_blank"`, and `ARIA-HIDDEN="true"` renders
+`aria-hidden="true"` with the name computing to `"Go"`. Pinned.
+
+The non-rendered tag set is now stated EXACTLY, on the third attempt, with every exclusion measured
+rather than argued: `link`, `meta`, `base` and `area` are excluded because React THROWS on their
+children ("is a self-closing tag and must neither have `children`") so none can ever hold a label;
+`head` and `basefont` are excluded because they measurably RENDER here and are structurally absurd
+inside an `<a>` with no live usage. `noscript` is documented as a stricter-than-harness case beside
+`inert`: `display: none` only when scripting is enabled, so a real browser does not render it while
+the harness computes `"Go (opens in a new tab)"` — with an explicit instruction not to "fix" the guard
+to match a `toHaveAccessibleName` result there.
+
+### Two CI signals, triaged in opposite directions
+
+One was REAL and no local run could have caught it: upstream's orphan-removal commit added a
+filesystem guard forbidding a deleted component's identifier anywhere under `app/`, `components/` or
+`tests/`, and the comment explaining the census change named it. My merge resolution was right about
+the code and wrong about the prose.
+
+One was an ARTIFACT: `validation-schema-parity` reported failing while a superseded run was
+mid-transition. Verified three ways — the diff touches no `supabase/` files, the gate passes on `main`,
+and the job's `conclusion` was `null`. The monitor was then fixed to withhold failure reports until
+every required context has reported, because the cost of mis-training on noise is waving through the
+real one.
