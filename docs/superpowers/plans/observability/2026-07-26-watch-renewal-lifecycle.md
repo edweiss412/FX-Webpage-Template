@@ -178,8 +178,9 @@ Plus the late-activation pair from spec §3.2.4: a pending old-folder row is orp
 **Implementation** — spec §3.2.4, THREE parts, all required (the first two alone leave the race open):
 
 1. promotion supersedes old-folder `active` rows and orphans old-folder `pending` rows, both inside the SAME transaction as the settings swap;
-2. `activatePending` returns its affected-row count and `activateWithTx` throws on zero, routing into the existing `activate_failed_after_watch_created` path — today the count is discarded (`lib/drive/watch.ts:174-185`) and activation reports success unconditionally (`lib/drive/watch.ts:445-453`);
-3. `activatePending` revalidates the folder against `app_settings` in the same statement, with the `not exists` arm that keeps the env-fallback/first-boot case working. **This is the only part that closes the wider race** where the pending row is created AFTER promotion commits, which (1) cannot see and (2) cannot detect.
+2. `activatePending` returns its affected-row count and `activateWithTx` throws on zero, routing into the existing `activate_failed_after_watch_created` path — today the count is discarded (`lib/drive/watch.ts:174-185`) and activation reports success unconditionally (`lib/drive/watch.ts:445-453`).
+
+**There is NO third part.** An earlier revision added an `app_settings` revalidation inside `activatePending`; spec §3.2.4 descoped it after three review rounds, because its subquery reads a READ COMMITTED snapshot and cannot close the window, and because its fallback arm mis-modelled `no_folder_configured`. Do not reintroduce it. AC-6.18 moves from "never satisfied" to "satisfied except under a narrow concurrent-promotion schedule"; the residual is filed as a backlog entry in Task 6.
 
 **Signature fan-out for (2):** the port type (`lib/drive/watch.ts:48-53`) returns `Promise<void>` today. Changing it touches the principal fake (`tests/drive/watch.test.ts:63-84`) and the cast-disabled fake plus its overrides (`tests/drive/watchExpiration.test.ts:52`, `tests/drive/watchExpiration.test.ts:138-160`) — and the cast means the compiler will NOT flag the stale members.
 
