@@ -4,7 +4,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-07-25 — 7 terminal-status entries graduated to the archive (30 on the prior 2026-07-24 pass). All seven had been annotated CLOSED / WITHDRAWN / RESOLVED in place rather than moved, which is the drift this header exists to catch; `tests/docs/_metaDeferralLedgerGraduation.test.ts` now fails on a terminal status in this file, so the class cannot silently reopen.
+Last reconciled: 2026-07-25 — the three phantom-gap items graduated on `feat/section-header-rebuild-phantom-spacers` (7 terminal-status entries graduated earlier the same day; 30 on the prior 2026-07-24 pass). All seven had been annotated CLOSED / WITHDRAWN / RESOLVED in place rather than moved, which is the drift this header exists to catch; `tests/docs/_metaDeferralLedgerGraduation.test.ts` now fails on a terminal status in this file, so the class cannot silently reopen.
 
 ---
 
@@ -87,44 +87,69 @@ It does not run: no workflow references `admin-lifecycle-transitions`, so it is 
 
 **Surfaced by:** round-4 adversarial review of #598, which found it while checking that branch's retirement of the testid. Recorded rather than fixed there: out of scope for that PR, and it cannot be validated without first un-darkening it.
 
-## BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET — probe the archived dashboard bucket
+## BL-HEADER-LINK-AFFORDANCE-CLASS — the corner sheet link paints as non-interactive, in three spellings, across three call sites
 
-**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, adversarial review R3 finding 1). **Class:** layout hardening (coverage). **Effort:** S (seed + one case).
+**Filed:** 2026-07-26 (post-merge independent design review of PR #605 — see that batch's close-out §12 for why the review landed late). **Class:** UI affordance + a11y. **Effort:** S per item, M if taken as the class sweep it should be. **Gate:** invariant-8 impeccable dual-run, since every item is a UI surface.
 
-`T-NOPHANTOM-DASH` measures `/admin` in its ACTIVE bucket only. `/admin?bucket=archived` renders a structurally different tree — `ArchivedShowRow` (`components/admin/ArchivedShowRow.tsx`) instead of `ShowsTable` rows — so a zero-extent child introduced there triggers the `phantom-gap-e2e` workflow via `components/**` while both dashboard cases stay green.
+Six findings, all verified live against `839eed829`. Items 1 and 4 are **class-wide** — the same shape exists on sibling sheet links that this batch never touched — so fixing only the section header would leave the class open and the inconsistency worse.
 
-Not simply added as a third case: `pnpm db:seed` (what the workflow runs) seeds **no archived shows** — the archived fixture lives in the separate `supabase/seedWalkerFixtures.ts` extension seed — so a probe there today would measure an empty bucket, anchor on nothing, and be exactly the vacuous green the anchors exist to prevent.
+1. **The link is coloured with a token DESIGN.md forbids for action targets.** `--color-text-subtle` is documented "Never used for action targets" (`DESIGN.md:27`) and "never an action target" (`DESIGN.md:58`). The rebuilt corner link uses `text-text-subtle`, and so does `components/admin/showpage/PublishedReviewModal.tsx:721`. Pre-existing on both counts — but the rebuild removed the words "In sheet", so the colour is now carrying the entire affordance rather than sitting beside a text link. Fix: `text-text` at rest, `text-text-strong` on hover, at BOTH sites, and add an `active:` state — a tap currently gives no feedback until a new tab loads.
+2. **No new-tab cue.** `components/admin/wizard/Step3SheetCard.tsx:152` appends "(opens in a new tab)" to its accessible name; the rebuilt link's `aria-label` does not, while carrying `target="_blank"`. The visible words used to imply it. Fix: match the sibling's phrasing.
+3. **The justifying comment cites the wrong precedent.** It reads "the show card's own header already uses an icon-only sheet link, so this is a consistency fix." `Step3SheetCard.tsx` renders a TEXT title link with a trailing glyph — not icon-only. The genuine icon-only precedent is `PublishedReviewModal.tsx:721`. The decision is fine; its stated reason points at the wrong sibling and should not be inherited by the next author.
+4. **One 44px hit area, three spellings, three aria phrasings.** `size-tap-min` on a 44px box (PublishedReviewModal), `size-5` plus `before:-inset-3` (the rebuild), and an inline glyph after text (Step3SheetCard). Pick one idiom and one phrasing; a shared component is the obvious end state.
+5. **The hit overlay bleeds onto the name.** `before:-inset-3` is 12px against the row's `gap-2.5` (10px), and the anchor is `relative` while the centred name group is not positioned — so the overlay paints over the gap plus roughly 2px of the name. The last sliver of a full-width name opens the sheet. **The tap-target test cannot catch this**: it asserts that points inside the expanded box DO hit the link (the intended behaviour) and probes just outside at `box.left - 3`, which is beyond the overlay. Fix: `before:-inset-y-3 before:-inset-x-2.5`, and extend the test to assert the overlay does not cover the heading's rect.
+6. **Sub-blocks take a top-level footprint.** `min-h-tap-min` is unconditional on the header line (`components/admin/wizard/step3ReviewSections.tsx:919`), so the Diagrams sub-block — which never renders a link, so the tap floor buys nothing there — occupies the same 44px as a peer section, working against the deliberate `size-6` / `text-sm` subordination. Fix: `${sub ? "" : "min-h-tap-min"}`.
 
-**Work:** seed one archived show in the phantom-gap job (either extend `seed.ts` or run the walker-fixture seed alongside it), then add a `T-NOPHANTOM-DASH [archived]` case at both widths anchored on an `archived-show-row-<slug>` container captured from a live `visited` dump.
+**Out of bounds: the centred title.** Both reviewers raised it; it is owner-ratified from a measured four-way comparison. Do not reopen it here. One factual note from that discussion is worth carrying, and is a datum rather than an opinion: **all four compared options were centred variants, so no left-aligned baseline was ever measured.** If the scan-axis cost is revisited, that measurement is what is missing.
 
-## BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW — `empty:hidden` the TravelRow eyebrow
+**Why this was not caught pre-merge.** The invariant-8 gate ran single-context after four sub-agent dispatches went unanswered for ~25 minutes; three of them were still working and reported hours later. The single-context run scored the surface 32/40 where the independent pair scored 30 and 29, and both independent agents rated _Recognition over recall_ at 2 — the lowest score either gave — for the reason item 1 describes.
 
-**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, found by `T-NOPHANTOM-CREW`). **Class:** layout hardening. **Effort:** XS (one class), plus the invariant-8 impeccable dual gate.
+## BL-HEADER-PROBE-RESIDUAL-VACUITY — four adversarial-review findings the section-header probes do not close
 
-`TravelRow` renders its eyebrow `<p>` unconditionally inside a `flex flex-col gap-0.5` stack (`components/crew/sections/TravelSection.tsx:120-123`). A ground leg whose stage was promoted to the primary line passes `label=""` (`:403`) — deliberate, and the comment there calls the blank eyebrow "acceptable per its presentational contract". It is not free: an empty `<p>` is still a flex item, so the stack charges 2px above a line that paints nothing. Two legs on the seeded show, at both widths; ledgered in `KNOWN_CREW_PHANTOM_ITEMS` (`tests/e2e/crew-layout-dimensions.spec.ts`).
+**Filed:** 2026-07-26 (branch `feat/section-header-rebuild-phantom-spacers`, adversarial review round 3). **Class:** test hardening. **Effort:** M, and read the rationale before spending it.
 
-**Work:** add `empty:hidden` to that `<p>` (the DESIGN.md §7a idiom — the element keeps its slot and costs nothing when empty), then delete the two ledger rows; the stale-row assertion fails if they are kept past the repair. Watch the `:empty` caveat: a stray `{" "}` in the eyebrow would silently re-enable the gap.
+Three review rounds produced 13 / 14 / 13 findings, all one vector: _this assertion can be vacuous in some configuration the test does not enter._ Rounds 1 and 2 were repaired in full. Round 3 was repaired except the four below, which are recorded rather than fixed because the vector was ruled **non-convergent** — each round names a new configuration (a theme, a viewport, `:active`, a transition delay, SVG SMIL, `clip-path`, `mask`, `filter`) and the set of ways to move a box or paint nothing is open-ended. The project's own rule for this shape is to stop enumerating and change the mechanism, which rounds 2 and 3 already did twice (the property ban-list became an allowlist; the paint heuristic became `checkVisibility` plus a pixel test).
 
-A class sweep for the same shape (an empty STRING becoming an element's entire rendered content) found no second instance — every other `? "" :` in `components/` is a className fragment or a pluralization suffix inside larger text.
+**Open, with what each would cost:**
 
-## BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW — decide crowded-row behavior for childless `flex-1` spacers
+1. **The real-route width chain anchors only 375 and 1280.** 320 and 430 are assumed, so a breakpoint changing pane padding at either would leave 60 static matrix cases green against counterfactual container widths. Closing it means two more hydrated-modal mounts in `tests/e2e/admin-layout-dimensions.spec.ts` (~2 min of CI each).
+2. **`:active`, and simultaneous hover+focus, are not swept.** `active:transition-transform` on the corner link would shift it during a real press. The three swept states (idle, hover, focus) do not compose.
+3. **SVG SMIL is invisible to the sweep.** An `<animateTransform>` inside the status icon moves geometry while every CSS channel reads `none`. No such element exists in the tree today; `lucide-react` emits static paths.
+4. **Exotic paint suppression.** `clip-path: inset(50%)`, a transparent `mask`, and `filter: opacity(0)` are now checked, but the check is pattern-based — a computed `clip-path` expressed differently, or a partially transparent mask, would slip through.
 
-**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, found by `T-NOPHANTOM-SHOW`). **Class:** layout hardening (UI judgment). **Effort:** S per site, plus the invariant-8 impeccable dual gate.
+**Before picking any of these up, decide whether the answer is a fifth heuristic or a different instrument.** A visual-regression baseline over the header row would subsume 2, 3 and 4 at once by comparing PIXELS instead of enumerating the ways pixels can go missing — and the repo already has the pinned-Docker discipline that such a gate requires (see the byte-comparison rule in AGENTS.md). That is likely the better spend than another round of property lists.
 
-A childless `<span className="flex-1" />` used as a right-pusher is a flex ITEM. In a row with enough real content to consume the line, `flex-1` resolves to ZERO width and the row still charges its `gap` on BOTH sides of an invisible spacer — the same class as the `BulkIgnoreControls` hairline (`BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW`, repaid on #580 by hiding the rule below 480px).
+**What IS covered, so this entry is not read as "the probes are weak":** 89 standalone layout cases and 4 real-route cases, green in CI; 18 mutations run across the batch, each mapped to a distinct catcher; the transition sweep runs both themes x four widths x three states with per-channel duration AND delay; pusher absence runs at three widths with a pixel-level paint test; chain coverage is anchored on the canonical `SectionId` list rather than on the rendered DOM.
 
-**Proven, currently ledgered** (`KNOWN_SHOW_MODAL_PHANTOM_ITEMS` in `tests/e2e/admin-layout-dimensions.spec.ts`): `ModalSectionChrome`'s header row, `components/admin/wizard/step3ReviewSections.tsx:916` — `flex items-center gap-2.5` with the spacer before the flag pill / sheet link. Charges 10px on each side at 375px on the seeded show's Rooms and Warnings breakdowns. Invisible to the static harness, whose fixture rows are short enough that the spacer keeps width; the hydrated real-route probe is what surfaced it.
+## BL-HEADER-FONT-FALLBACK-WRAP — nothing loads Inter, so a bare-Linux client gets a much wider fallback
 
-**Unproven instances of the same shape** (class sweep, 2026-07-25 — each sits in a gapped flex row, none currently measured by any probe mount):
+**Filed:** 2026-07-26 (branch `feat/section-header-rebuild-phantom-spacers`, surfaced by real CI). **Class:** typography robustness. **Effort:** S (load the font) or M (make the affected rows font-independent).
 
-| site                                                   | parent row                                                                                                                       |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `components/admin/wizard/step3ReviewSections.tsx:2150` | `flex items-center gap-2.5` (`h-px flex-1 bg-border` hairline — same shape as the repaid BulkIgnoreControls one, different file) |
-| `components/admin/BellPanel.tsx:323`                   | `flex flex-wrap items-center gap-x-2 gap-y-1` (wrapped, so it charges BOTH axes)                                                 |
-| `components/admin/nav/AdminNav.tsx:144`                | admin nav row                                                                                                                    |
-| `components/admin/nav/OnboardingTopBar.tsx:67`         | `flex items-center gap-3`                                                                                                        |
+`app/globals.css` sets `--font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`, and **nothing loads Inter** — there is no `@font-face` rule and no `next/font` import anywhere. Every named entry after it is a system face, so a client with none of them (Chrome on a bare Linux install, which is what a GitHub Actions runner is) falls through to generic `sans-serif` and gets DejaVu Sans. DejaVu is substantially wider than SF Pro.
 
-**Work:** one visual decision, applied consistently across all five — hide below a width, give the spacer a `min-w`, switch the row to `justify-between` and drop the spacer entirely, or let the row wrap. Then delete the two ledger rows (the stale-row assertion fails if they are kept past the repair) and extend a probe mount to whichever surfaces the unproven sites live on.
+Measured consequence: the event-detail group title "Wardrobe & key moments" fills the 240px narrowest real row unaided under DejaVu, so it wraps to two lines (33.59px vs 16.8px) where SF Pro leaves 22.94px of room for the decorative rule beside it. The `min-w-4` floor that is free on every targeted device is not free there.
+
+**This is narrow, not theoretical.** Every device the product actually targets resolves an earlier entry in the stack — iOS/macOS `-apple-system`, Android `ui-sans-serif`, Windows `Segoe UI` — so no crew member or admin sees the DejaVu rendering. It is reachable only on a desktop Linux browser lacking all six named faces.
+
+**Work, either of:** (a) self-host the intended face and add an `@font-face` (or a `next/font` import), which makes every measurement in this repo font-deterministic and retires a whole class of local-vs-CI divergence; or (b) leave the stack alone and make the affected rows font-independent — `whitespace-nowrap` plus truncation on the closed-set group titles, so a wide fallback shortens the label instead of adding a line.
+
+**Do not "fix" this by widening the tolerance in `tests/e2e/section-header-layout.layout.spec.ts`.** That test pins its own font to the Arial / Liberation Sans metric-compatible pair for exactly one measurement, deliberately and with the reason in a comment, so the floor assertion reads the same on macOS, Windows and the Ubuntu runner. Relaxing it instead would hide this entry's finding.
+
+## BL-CHILDLESS-GROWABLE-STATIC-GUARD — static guard against childless growable flex items
+
+**Filed:** 2026-07-25 (branch `feat/section-header-rebuild-phantom-spacers`, DESCOPED from that branch's spec §6 after three adversarial rounds). **Class:** layout hardening (structural defense). **Effort:** M — the cost is the rule, not the walker.
+
+The five sites `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW` repaid are covered by two executable oracles (`tests/e2e/pusher-alignment.layout.spec.ts`, `tests/e2e/section-header-layout.layout.spec.ts`) and by the phantom-gap probe mounts. Neither sees a SIXTH site written tomorrow: the probe only reaches surfaces it is mounted on, and both layout specs name their rows explicitly. A source-scanning guard would fail-by-default on a new one.
+
+**Why it is not written yet, and what a future attempt must clear.** Three rounds could not converge a rule that agreed with its own prototype. The written rule selected 27 registry rows; the prototype walker selected 17. The disagreements were all real ambiguity in "childless" and "growable", not implementation bugs:
+
+- `flex-1` on an element whose only child is a conditional that renders `null` in some states is childless SOMETIMES — a static scan cannot evaluate the condition, and both "always flag" and "never flag" produce false results on live code.
+- A growable element that PAINTS (the `h-px bg-border` hairline) is not the defect; the defect is a growable element that paints nothing. Distinguishing them statically means reasoning about which utility classes produce a painted box, which is an open-ended list.
+- The `style={{ flex: … }}` prop form has no className to match, so a className-only rule is fail-open on it — and that is exactly the escape hatch a class-sweep guard exists to close.
+
+Per `docs/agents/spec-self-review.md`'s 3-round cap, the guard was descoped rather than shipped at 63% agreement with itself.
+
+**Work, if revived:** start from the PROTOTYPE, not the prose — write the walker first, run it over `components/` + `app/`, and let the actual output define the rule (the reverse of the order that failed). Expect the deliverable to be an ALLOWLIST of accepted shapes rather than a leak hunt, per the same lesson `feedback_static_guard_allowlist_shapes_not_leak_hunting` records from PR #592. A guard that flags a painted hairline is worse than no guard, because the exemption comment it forces teaches the next author that the shape is fine.
 
 ## Descoped from the CI-dark coverage cluster (2026-07-26) — read before re-attempting any of these
 
