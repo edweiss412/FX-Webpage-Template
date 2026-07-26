@@ -464,6 +464,32 @@ WITH substitutions is not. Anything outside these shapes is reported as
   cannot catch an `inert` or closed-`<details>` regression — only the guard can.** Do not "verify"
   either rule against the harness and conclude the guard is wrong.
 
+- **Anything handed to a CALLEE is not proof of rendering, including component children.** The
+  callee decides. This guard found that fact three times before naming it: a JSX attribute (R4), a
+  call argument (R25), and finally component children (R26b) — which look like containment and are
+  semantically `props.children`. `<Drop>Go</Drop>` renders nothing when `Drop` returns null, and
+  `<External target="_blank">Go <NewTabHint /></External>` renders an unannounced anchor when
+  `External` discards what it was handed.
+
+  **Component-mediated content therefore fails CLOSED in both walks**, which inverted two cases
+  previously ratified as acceptable. The posture was chosen by measurement, not preference: no live
+  anchor takes its label from a component — all 23 use literal text, and components appear only as
+  `aria-hidden` icons — so the strictness costs nothing today, and a legitimate future case takes one
+  reasoned exemption. Had even one real anchor depended on component-supplied content, the answer
+  would have been the reverse; re-measure before changing it.
+
+  **One principled exemption:** a KNOWN link component (`Link`) is trusted, because rendering its
+  children is the contract that makes it a link component. Without that carve-out the posture would
+  report every `<Link>` anchor. Failing closed is not the same as trusting nothing — the contracts
+  relied on are named.
+
+- **A naming attribute must APPLY to its element, and a reference must resolve.** `alt` names only
+  `img` / `area` / `input`, so `<br alt="Go" />` names nothing (R26b). `aria-labelledby` is excluded
+  from the proof entirely: it points at another element, a dangling reference names nothing, and the
+  target cannot be resolved statically, so treating it as evidence was a fail-open. Naming attributes
+  are checked on paired and self-closing elements alike — inspecting them only on self-closing gave
+  equivalent markup opposite verdicts.
+
   **Hint discovery is an ALLOWLIST of render positions, for the same reason the main shape rule is.**
   Listing the positions that DISCARD a hint is unbounded — review R25 supplied `??`, a call argument
   and a comma expression, and probing immediately afterwards found six more (an object-literal
