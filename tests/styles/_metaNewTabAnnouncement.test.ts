@@ -270,6 +270,9 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   // removed the `stringOf(e) === "false"` comparison -- and the stale-exclusion check caught it
   // immediately, which is that check earning its place.
   ["true", 'attribute value (R31: `aria-hidden` hides only on the literal string "true")'],
+  ["collapse", "CSS keyword (a hiding `visibility` value)"],
+  ["NaN", "JS global, one of the three falsy values that is not a plain literal (R32 HIGH 7)"],
+  ["false", "attribute value: staticStringValue renders the boolean literals as text"],
   ["presentation", "role value"],
   ["typescript", "module name"],
   ["undefined", "JS identifier name, not an attribute (R22: literal-expression evaluation)"],
@@ -1919,6 +1922,119 @@ describe("R6: scanner changes are pinned", () => {
     ).not.toEqual([]);
   });
 
+  it("R32 selected operands, evaluated values, popover as an enumerated attribute", () => {
+    const hid = '<span aria-hidden="true">Go</span>';
+    // BLOCKING 4: `&&`, `||`, `??`, a comma and a literal-array SPREAD all SELECT an operand. Leaving
+    // them opaque credited a destination the accessible name never contains. Each of these has no
+    // destination once the aria-hidden element is discounted.
+    for (const expr of [
+      `{true && ${hid}}`,
+      `{false || ${hid}}`,
+      `{null ?? ${hid}}`,
+      `{undefined ?? ${hid}}`,
+      `{(0, ${hid})}`,
+      `{[...[${hid}]]}`,
+      `{[...[], ${hid}]}`,
+      // Neither branch is picked by the test, but NEITHER carries a destination, so the test
+      // cannot matter.
+      `{flag ? ${hid} : null}`,
+      `{flag ? ${hid} : ${hid}}`,
+    ]) {
+      expect(
+        violations(`const A=({flag})=><a href="x" target="_blank">${expr} <NewTabHint /></a>;`),
+        `must report, the selected operand carries no destination: ${expr}`,
+      ).not.toEqual([]);
+    }
+    // ...and the mirror cases still pass, so operand selection is not a blanket rejection.
+    for (const expr of [
+      "{true && <span>Go</span>}",
+      "{false || <span>Go</span>}",
+      `{false && ${hid}}`, // yields `false`, renders nothing -- but `Go` text below carries it
+      '{[...[<span key="k">Go</span>]]}',
+      "{flag ? <span>Go</span> : <span>Also Go</span>}",
+    ]) {
+      expect(
+        violations(`const A=({flag})=><a href="x" target="_blank">Go ${expr} <NewTabHint /></a>;`),
+        `must accept: ${expr}`,
+      ).toEqual([]);
+    }
+    // BLOCKING 2: aria-hidden values are EVALUATED, so template substitutions count.
+    for (const attr of [
+      "aria-hidden={`${true}`}",
+      'aria-hidden={`tr${"ue"}`}',
+      "aria-hidden={`${'true'}`}",
+    ]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must report, this evaluates to "true": ${attr}`,
+      ).not.toEqual([]);
+    }
+    // ...and a template that evaluates to something else does NOT hide (the false-positive half).
+    for (const attr of [
+      "aria-hidden={`true${false}`}",
+      "aria-hidden={`${false}`}",
+      "aria-hidden={`no${'pe'}`}",
+    ]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must accept, this does not evaluate to "true": ${attr}`,
+      ).toEqual([]);
+    }
+    // BLOCKING 5: style VALUES are evaluated, not pattern-matched.
+    for (const style of [
+      '{{display: (0, "none")}}',
+      '{{visibility: (0, "hidden")}}',
+      '{{visibility: (0, "collapse")}}',
+      '{{display: true ? "none" : "block"}}',
+      '{{display: false ? "block" : "none"}}',
+      '{{visibility: `hid${"den"}`}}',
+      '{{display: "no" + "ne"}}',
+      '{{["dis" + "play"]: "none"}}',
+      '{{"DISPLAY": "NONE"}}',
+    ]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
+        ),
+        `must report, the destination is hidden: ${style}`,
+      ).not.toEqual([]);
+    }
+    // ...and the near-misses the old text matcher had to special-case stay accepted.
+    for (const style of [
+      '{{backfaceVisibility: "hidden"}}',
+      '{{display: "block"}}',
+      '{{display: pick("none")}}',
+      '{{visibility: "visible"}}',
+    ]) {
+      expect(
+        violations(
+          `const A=({pick})=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
+        ),
+        `must accept: ${style}`,
+      ).toEqual([]);
+    }
+    // HIGH 7: the three falsy values that are not plain literals. React omits the attribute.
+    for (const attr of [
+      "hidden={-0}",
+      "hidden={NaN}",
+      "hidden={0n}",
+      "inert={-0}",
+      "inert={NaN}",
+      "inert={0n}",
+    ]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must accept, React omits the attribute: ${attr}`,
+      ).toEqual([]);
+    }
+  });
+
   it("R31 expression containers holding JSX, hoisted var shadows, paren styles, SVG title", () => {
     const IMP = 'import { NewTabHint } from "@/components/shared/NewTabHint";\n';
     const hid = '<span aria-hidden="true">Go</span>';
@@ -1964,10 +2080,6 @@ describe("R6: scanner changes are pinned", () => {
         'function A(xs){ for (var NewTabHint of xs) {} return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
       ],
       [
-        "block-level function declaration",
-        'function A(cond){ if(cond){ function NewTabHint(){ return null; } } return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
-      ],
-      [
         "var in a module-level block",
         '{ var NewTabHint = () => null; }\nconst A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;',
       ],
@@ -1977,15 +2089,38 @@ describe("R6: scanner changes are pinned", () => {
         `must fail closed: ${label}`,
       ).not.toEqual([]);
     }
-    // A `var` inside a NESTED function belongs to that function and shadows nothing out here.
-    expect(
-      probe(
-        IMP +
-          'function A(){ function inner(){ var NewTabHint = () => null; return NewTabHint; } return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
-        { bare: true },
-      ).violations,
-      "a var in a nested function is not a shadow at this use site",
-    ).toEqual([]);
+    // Declarations that CANNOT reach the use site must not be reported. R32 HIGH 6: the first
+    // version counted a block-level `function` declaration as a shadow, calling that "stricter than
+    // the language" -- but these files are ES modules, so strict mode makes it block-scoped and it
+    // never reaches a use site outside its block. Deliberate strictness is not a defence when it
+    // rejects code an author would reasonably write.
+    for (const [label, body] of [
+      [
+        "var in a nested function",
+        'function A(){ function inner(){ var NewTabHint = () => null; return NewTabHint; } return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+      ],
+      [
+        "block-level function declaration (block-scoped in a module)",
+        'function A(cond){ if(cond){ function NewTabHint(){ return null; } } return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+      ],
+      [
+        "block-level function declaration at module level",
+        '{ function NewTabHint(){ return null; } }\nconst A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;',
+      ],
+      [
+        "var inside a namespace body",
+        'namespace N { var NewTabHint = () => null; }\nconst A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;',
+      ],
+      [
+        "var inside a class static block",
+        'class C { static { var NewTabHint = () => null; } }\nconst A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;',
+      ],
+    ] as [string, string][]) {
+      expect(
+        probe(IMP + body, { bare: true }).violations,
+        `must ACCEPT, the declaration cannot reach the use site: ${label}`,
+      ).toEqual([]);
+    }
     // BLOCKING 4: parentheses are transparent to the VALUE, and React emits display:none.
     for (const style of [
       '{{display: ("none")}}',
@@ -2054,6 +2189,9 @@ describe("R6: scanner changes are pinned", () => {
       "popover={false}",
       "popover={undefined}",
       "popover={null}",
+      // Bare `popover` IS `popover={true}`, and React omits a boolean from an enumerated attribute.
+      "popover",
+      "popover={true}",
       "inert={false}",
       "inert={undefined}",
       "aria-hidden={undefined}",
@@ -2074,8 +2212,12 @@ describe("R6: scanner changes are pinned", () => {
       "hidden",
       "hidden={true}",
       'hidden="false"',
-      "popover",
       'popover="auto"',
+      // Enumerated, not boolean: every value React PRESERVES starts hidden, empty string included.
+      'popover=""',
+      "popover={0}",
+      "popover={1}",
+      'popover="bogus"',
       "inert",
       "aria-hidden",
       'aria-hidden="true"',

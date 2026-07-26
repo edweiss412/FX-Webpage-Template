@@ -438,6 +438,24 @@ WITH substitutions is not. Anything outside these shapes is reported as
   sweep cannot. The sweep proves coverage; the fixtures prove meaning. A meta-assertion requires
   every fixture attribute to appear in the closed list, so the sweep cannot silently skip one.
 
+- **`popover` is an ENUMERATED attribute, not a boolean one (R32 BLOCKING 3).** The earlier rule
+  treated it as boolean and claimed "all values measured", when the behavioural table covered only
+  `false` and `undefined`. Measured properly, React PRESERVES `popover=""`, `{0}`, `{1}`, `"auto"`
+  and `"bogus"` — every one of which starts the element hidden, since the HTML Standard maps an
+  invalid value to the `manual` state — and OMITS `popover={true}`, which is what the bare
+  `<span popover>` spelling means. So the rule was fail-open on the five preserved values and a false
+  positive on the omitted ones, from one wrong category.
+
+- **Inline `style` is read through the AST, not as text (R32 BLOCKING 5).** Five consecutive rounds
+  each deleted one more value-transparent wrapper from a raw-text matcher — quotes (R27), backticks
+  (R28), comments (R30), parentheses (R31) — and R32 supplied two that no amount of deletion can
+  reach, because they require EVALUATION: `display: (0, "none")` and
+  `display: (true ? "none" : "block")`. The comment claiming every transparent wrapper had been
+  removed was false when it was written. The rule now walks the object literal and evaluates each
+  property value, which also retires the two hazards the text version needed special cases for: a
+  quoted or computed key is just a key, and `backfaceVisibility` can no longer collide with
+  `visibility` because keys are compared exactly rather than by substring.
+
 - **The casing sweep varies attribute NAMES, not attribute VALUES, and that boundary is
   deliberate.** Attribute names are ASCII case-insensitive in HTML, so a case-sensitive name read
   is unambiguously a defect. Values are not uniform: a `className` token is genuinely
@@ -453,6 +471,10 @@ WITH substitutions is not. Anything outside these shapes is reported as
   | `aria-hidden="true"` | `Go` — hidden |
   | `aria-hidden="TRUE"`, `"True"`, `" true "` | `Go (opens in a new tab)` — VISIBLE |
   | `aria-hidden="false"`, `"FALSE"` | `Go (opens in a new tab)` — visible |
+
+  The value is EVALUATED before that comparison, not pattern-matched: a template substitution reaches
+  the DOM, so `aria-hidden={`${true}`}` really does hide and `aria-hidden={`true${false}`}` really
+  does not (R32 BLOCKING 2, wrong in both directions from one weak read).
 
   The scanner compares case-insensitively after trimming, so it treats `"TRUE"` as hiding and reports
   the anchor. **That is deliberately stricter than the harness**, in the same family as `noscript` and

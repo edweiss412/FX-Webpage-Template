@@ -513,23 +513,28 @@ function isShadowedAt(at: ts.Node, name: string): boolean {
    *
    * The declaration is not on the path from the use site to the function, so no ancestor-only walk
    * can see it -- the model was wrong, not the list. Scans the whole function body WITHOUT entering
-   * a nested function, where a `var` belongs to that function instead. A block-level `function`
-   * declaration counts too: it is block-scoped in a module's strict mode, so counting it is
-   * stricter than the language, which is this guard's stated policy rather than an oversight.
+   * a nested function, where a `var` belongs to that function instead.
+   *
+   * `var` ONLY. The first version also counted a block-level `function` declaration, described as
+   * "stricter than the language" -- but these files are ES modules, so strict mode applies and such
+   * a declaration IS block-scoped and does not reach a use site outside its block. That produced
+   * false positives on valid code (review R32 HIGH 6), and "deliberately stricter" is not a defence
+   * when the strictness rejects markup an author would reasonably write. Namespace bodies and class
+   * static blocks are their own `var` scopes and are not entered either, for the same reason.
    */
   const hoistedBinds = (scope: ts.Node): boolean => {
     let found = false;
     const walk = (n: ts.Node): void => {
       if (found) return;
-      // CLASSIFY BEFORE DESCENDING, and check a function declaration's own NAME before treating it
-      // as a nested scope -- the first version bailed on `isFunctionLike` first, so a block-level
-      // `function NewTabHint(){}` was skipped as "somebody else's var scope" without ever having
-      // its name read. The fixture for it was already written, which is the only reason it surfaced.
-      if (ts.isFunctionDeclaration(n) && n.name !== undefined && n.name.text === name) {
-        found = true;
+      // Every construct that starts a new `var` scope. Missing any of these turns a declaration
+      // that cannot reach the use site into a reported shadow.
+      if (
+        ts.isFunctionLike(n) ||
+        ts.isModuleDeclaration(n) ||
+        ts.isClassStaticBlockDeclaration(n)
+      ) {
         return;
       }
-      if (ts.isFunctionLike(n)) return; // its own `var` scope
       if (ts.isVariableDeclarationList(n) && (n.flags & ts.NodeFlags.BlockScoped) === 0) {
         // A `var` list, including a `for (var … )` initializer, which is not a VariableStatement.
         if (n.declarations.some((d) => bindsName(d.name))) {
@@ -742,7 +747,77 @@ function isLiteralFalsy(n: ts.Expression): boolean {
   if (ts.isIdentifier(n) && n.text === "undefined") return true;
   if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text.length === 0;
   if (ts.isNumericLiteral(n)) return Number(n.text) === 0;
+  // The three falsy values that are not plain literals (review R32 HIGH 7). React omits an
+  // attribute for each of them -- measured for `hidden` and `inert` -- and the helper claimed to
+  // recognise "every falsy value" while missing all three.
+  if (ts.isBigIntLiteral(n)) return /^0+n$/.test(n.text);
+  if (ts.isIdentifier(n) && n.text === "NaN") return true;
+  // `-0` is a prefix MINUS applied to `0`, not a numeric literal, so the check above never saw it.
+  if (
+    ts.isPrefixUnaryExpression(n) &&
+    (n.operator === ts.SyntaxKind.MinusToken || n.operator === ts.SyntaxKind.PlusToken) &&
+    ts.isNumericLiteral(n.operand)
+  ) {
+    return Number(n.operand.text) === 0;
+  }
   return false;
+}
+
+/**
+ * The STRING a value expression evaluates to, or null when that cannot be decided statically.
+ *
+ * Two rules need this and both were doing their own weaker version. `stringOf` discarded template
+ * SUBSTITUTIONS, so `aria-hidden={`${true}`}` scanned clean while React emitted `aria-hidden="true"`
+ * and the announcement left the accessible name (review R32 BLOCKING 2). The style matcher worked on
+ * raw TEXT, so a comma expression or a literal conditional slipped through even though React emits
+ * the hiding declaration (review R32 BLOCKING 5). Both are the same missing capability: evaluate the
+ * value-transparent wrappers instead of pattern-matching around them.
+ */
+function staticStringValue(e0: ts.Expression): string | null {
+  const e = unparen(e0);
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
+  if (ts.isNumericLiteral(e)) return String(Number(e.text));
+  if (e.kind === ts.SyntaxKind.TrueKeyword) return "true";
+  if (e.kind === ts.SyntaxKind.FalseKeyword) return "false";
+  if (ts.isTemplateExpression(e)) {
+    let out = e.head.text;
+    for (const span of e.templateSpans) {
+      const part = staticStringValue(span.expression);
+      if (part === null) return null; // one dynamic substitution makes the whole value unknown
+      out += part + span.literal.text;
+    }
+    return out;
+  }
+  if (ts.isConditionalExpression(e)) {
+    const cond = unparen(e.condition);
+    if (isLiteralTruthy(cond)) return staticStringValue(e.whenTrue);
+    if (isLiteralFalsy(cond)) return staticStringValue(e.whenFalse);
+    return null;
+  }
+  if (ts.isBinaryExpression(e)) {
+    // NOTE: no comma branch. `unparen` already resolves a comma expression to its right operand
+    // before this function sees it, so one here would be unreachable -- a mutation deleting it
+    // changed no test, which is how it was caught rather than shipped as a comment claiming to be
+    // the mechanism.
+    // String concatenation of two decidable operands.
+    if (e.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const l = staticStringValue(e.left);
+      const r = staticStringValue(e.right);
+      return l === null || r === null ? null : l + r;
+    }
+    const left = unparen(e.left);
+    if (e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      if (isLiteralTruthy(left)) return staticStringValue(e.right);
+      if (isLiteralFalsy(left)) return staticStringValue(left);
+      return null;
+    }
+    if (e.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
+      if (isLiteralTruthy(left)) return staticStringValue(left);
+      if (isLiteralFalsy(left)) return staticStringValue(e.right);
+      return null;
+    }
+  }
+  return null;
 }
 
 /** Definitely-truthy literals. Arrays and objects are ALWAYS truthy however empty they are --
@@ -777,11 +852,20 @@ function expressionDestination(e0: ts.Expression): boolean | null {
   }
   if (ts.isArrayLiteralExpression(e)) {
     // `{[<span aria-hidden="true">Go</span>]}` renders exactly like the bare element. A hole
-    // contributes nothing; a spread is opaque.
+    // contributes nothing; a spread of a LITERAL array is decidable and was previously not
+    // (review R32 BLOCKING 4 -- and its existing fixture passed only through `rendersNothing`,
+    // so the branch was unpinned as well as incomplete).
     let anyOpaque = false;
     for (const el of e.elements) {
       if (ts.isOmittedExpression(el)) continue;
       if (ts.isSpreadElement(el)) {
+        const inner = unparen(el.expression);
+        if (ts.isArrayLiteralExpression(inner)) {
+          const d = expressionDestination(inner);
+          if (d === true) return true;
+          if (d === null) anyOpaque = true;
+          continue;
+        }
         anyOpaque = true;
         continue;
       }
@@ -792,12 +876,43 @@ function expressionDestination(e0: ts.Expression): boolean | null {
     return anyOpaque ? null : false;
   }
   if (ts.isConditionalExpression(e)) {
-    // Only when the test PICKS a branch, matching how `rendersNothing` treats a literal test. An
-    // undecidable test leaves the whole thing opaque rather than guessing a branch.
     const t = unparen(e.condition);
     if (isLiteralTruthy(t)) return expressionDestination(e.whenTrue);
     if (isLiteralFalsy(t)) return expressionDestination(e.whenFalse);
+    // Neither branch decidable-by-test, but if BOTH branches independently carry no destination
+    // then the test cannot matter -- whichever runs, nothing is named (review R32 BLOCKING 4).
+    const a = expressionDestination(e.whenTrue);
+    const b = expressionDestination(e.whenFalse);
+    if (a === false && b === false) return false;
+    if (a === true && b === true) return true;
     return null;
+  }
+  // `&&`, `||` and `??` SELECT an operand, exactly as in `rendersNothing`. Leaving them opaque
+  // meant `{true && <span aria-hidden="true">Go</span>}` credited a destination the accessible name
+  // never contains (review R32 BLOCKING 4). Mirrors that function deliberately: two rules deciding
+  // the same operand-selection question must not drift apart.
+  if (ts.isBinaryExpression(e)) {
+    const op = e.operatorToken.kind;
+    const left = unparen(e.left);
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+      if (isLiteralFalsy(left)) return expressionDestination(left);
+      if (isLiteralTruthy(left)) return expressionDestination(e.right);
+      return null;
+    }
+    if (op === ts.SyntaxKind.BarBarToken) {
+      if (isLiteralTruthy(left)) return expressionDestination(left);
+      if (isLiteralFalsy(left)) return expressionDestination(e.right);
+      return null;
+    }
+    if (op === ts.SyntaxKind.QuestionQuestionToken) {
+      // NOT falsiness: `0 ?? x` yields `0`, which renders "0".
+      const nullish =
+        left.kind === ts.SyntaxKind.NullKeyword ||
+        (ts.isIdentifier(left) && left.text === "undefined");
+      if (nullish) return expressionDestination(e.right);
+      if (isLiteralTruthy(left) || isLiteralFalsy(left)) return expressionDestination(left);
+      return null;
+    }
   }
   return null; // `{label}`, a call, a member access: opaque
 }
@@ -991,12 +1106,80 @@ function ariaHiddenHides(a: ts.JsxAttribute): boolean {
   // React drops `null` and `undefined` from an ARIA attribute, so nothing reaches the DOM.
   if (e.kind === ts.SyntaxKind.NullKeyword) return false;
   if (ts.isIdentifier(e) && e.text === "undefined") return false;
-  if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
-  if (e.kind === ts.SyntaxKind.FalseKeyword) return false; // R1 HIGH 4
-  if (ts.isNumericLiteral(e)) return false; // renders aria-hidden="0", which is not "true"
-  const lit = stringOf(e);
-  if (lit !== null) return lit.trim().toLowerCase() === "true";
-  return true; // dynamic: fail closed
+  // EVALUATE the value rather than pattern-matching it. `stringOf` discarded template
+  // substitutions, so `aria-hidden={`${true}`}` and ``aria-hidden={`tr${"ue"}`}`` both scanned
+  // clean while React emitted `aria-hidden="true"` and the announcement left the name -- and
+  // ``aria-hidden={`true${false}`}`` was reported although it emits the harmless "truefalse"
+  // (review R32 BLOCKING 2, wrong in both directions from one weak read).
+  const lit = staticStringValue(e);
+  if (lit === null) return true; // dynamic: fail closed
+  // Folded and trimmed: deliberately STRICTER than the harness, which hides only on the exact
+  // lowercase "true". See the value table in the behaviour suite.
+  return lit.trim().toLowerCase() === "true";
+}
+
+/** Does an inline `style` object hide this element?
+ *
+ *  Reads the object literal through the AST (R32 BLOCKING 5). A property hides when its KEY is
+ *  exactly `display` or `visibility` -- both in the CSS-property spelling and in the camelCase React
+ *  spelling, though neither of those two has one -- and its VALUE evaluates to a hiding keyword.
+ *  Keys are compared exactly, which is what makes `backfaceVisibility` safe; CSS keywords are
+ *  case-insensitive, so the value is folded.
+ *
+ *  A style prop that is not an object literal (`style={s}`, a spread) is opaque and does NOT hide
+ *  here. That is unchanged behaviour, and the hint-path rule reports a non-literal style separately;
+ *  widening it in this pass would be a scope change, not a fix. */
+function styleObjectHides(init: ts.JsxAttributeValue | undefined): boolean {
+  if (!init || !ts.isJsxExpression(init) || !init.expression) return false;
+  const obj = unparen(init.expression);
+  if (!ts.isObjectLiteralExpression(obj)) return false;
+  const HIDING: Record<string, ReadonlySet<string>> = {
+    display: new Set(["none"]),
+    visibility: new Set(["hidden", "collapse"]),
+  };
+  for (const prop of obj.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue; // shorthand / spread / method: opaque
+    const name = prop.name;
+    let key: string | null = null;
+    if (ts.isIdentifier(name)) key = name.text;
+    else if (ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) key = name.text;
+    else if (ts.isComputedPropertyName(name)) key = staticStringValue(name.expression);
+    if (key === null) continue;
+    const hiding = HIDING[key.trim().toLowerCase()];
+    if (hiding === undefined) continue;
+    const value = staticStringValue(prop.initializer);
+    if (value !== null && hiding.has(value.trim().toLowerCase())) return true;
+  }
+  return false;
+}
+
+/** Does `popover` hide this element?
+ *
+ *  `popover` is an ENUMERATED attribute, not a boolean one, and treating it as boolean was wrong in
+ *  both directions (review R32 BLOCKING 3). Measured against React 19.2.4:
+ *
+ *    popover="" / {""} / {0} / {1} / "auto" / "bogus"  -> PRESERVED, and every one starts hidden
+ *    popover={true} (which is what bare `<span popover>` means) -> OMITTED, so it hides nothing
+ *    popover={false} / {null} / {undefined}                     -> OMITTED
+ *
+ *  An invalid value is not a free pass: the HTML Standard maps it to the `manual` state, so
+ *  `popover="bogus"` is still a popover and still starts hidden. */
+function popoverHides(a: ts.JsxAttribute): boolean {
+  const init = a.initializer;
+  if (!init) return false; // bare `popover` is `{true}`, which React omits
+  const e = ts.isJsxExpression(init) ? (init.expression ? unparen(init.expression) : null) : init;
+  if (e === null) return false;
+  if (
+    e.kind === ts.SyntaxKind.TrueKeyword ||
+    e.kind === ts.SyntaxKind.FalseKeyword ||
+    e.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isIdentifier(e) && e.text === "undefined")
+  ) {
+    return false; // React omits all four
+  }
+  // Any string or number REACHES the DOM, empty string included, and puts the element in a popover
+  // state. A value that cannot be decided fails closed.
+  return true;
 }
 
 /** Elements shown only when `open` is present and truthy. `<details>` shows its `<summary>`
@@ -1056,16 +1239,26 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
     // guard that cries wolf on valid markup gets exemptions written around it.
     //
     // Measured, not reasoned (all pinned in tests/components/a11y/newTabAnnouncementBehavior.test.tsx):
-    // `hidden` omitted for `false`, `null`, `undefined`, `0` AND `""` -- every falsy value, since
-    // React coerces a boolean DOM attribute; `popover` omitted for `false`, `null`, `undefined`;
-    // `inert` omitted for `false`, `undefined`.
+    // `hidden` and `inert` are omitted for every falsy value -- `false`, `null`, `undefined`, `0`,
+    // `""`, and also `-0`, `NaN` and `0n` -- because React coerces a boolean DOM attribute.
     //
-    // `aria-hidden` is NOT in this group. It is a STRING attribute with different mechanics, and
-    // folding it in here is what produced a right-answer-wrong-reason branch -- see
+    // `popover` is NOT one of them, and the "all values measured" claim that used to sit here was
+    // unsupported: the table covered only `false` and `undefined` (review R32 BLOCKING 3). Measured
+    // properly, React PRESERVES `popover=""`, `popover={0}`, `popover={1}`, `popover="auto"` and
+    // `popover="bogus"` -- every one of which starts hidden -- and OMITS `popover={true}`, which
+    // includes the bare `<span popover>` spelling. So it was wrong in BOTH directions: fail-open on
+    // the four preserved values, false positive on the two omitted ones.
+    //
+    // `aria-hidden` is NOT in this group either. It is a STRING attribute with different mechanics,
+    // and folding it in here is what produced a right-answer-wrong-reason branch -- see
     // `ariaHiddenHides`.
-    if (n === "hidden" || n === "popover" || n === "inert") {
+    if (n === "hidden" || n === "inert") {
       if (omittedByReact(a)) continue;
       return true; // present with a truthy or dynamic value: fail closed
+    }
+    if (n === "popover") {
+      if (popoverHides(a)) return true;
+      continue;
     }
     if (n === "aria-hidden") {
       if (ariaHiddenHides(a)) return true;
@@ -1084,28 +1277,18 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
       if (/\b(hidden|invisible)\b/.test(v)) return true;
     }
     if (n === "style") {
-      // Tolerate a QUOTED or COMPUTED property key and fold the VALUE's case: React emits
-      // `style="display:none"` for `{{ "display": "none" }}` and for `{{ display: "NONE" }}`
-      // alike, and the earlier regex required a bare key and lowercase value, so both scanned
-      // clean (review R27 BLOCKING 4). CSS property names and these keyword values are
-      // case-insensitive; class TOKENS are not, which is why this fold is scoped to `style`.
-      // Strip quotes, brackets AND BACKTICKS: `display: \`none\`` slipped through because a
-      // template literal is not a quote (review R28 BLOCKING 5). And bound `visibility` at a
-      // word start, or it matches INSIDE `backfaceVisibility`, which manufactured a violation
-      // on `{{ backfaceVisibility: "hidden" }}` -- wrong in both directions at once.
-      // Comments inside the object literal defeated a raw-text match:
-      // `style={{ display: /* hidden */ "none" }}` did not match (review R30 BLOCKING 3). Strip
-      // comments FIRST, using the same parse-informed helper the file-level scan uses, then the
-      // quotes/brackets/backticks.
-      // PARENTHESES too: `display: ("none")` is the same value at runtime and React emits
-      // `style="display:none"` (review R31 BLOCKING 4). Every wrapper that is transparent to the
-      // VALUE has to come off, and each one of them has now cost a round -- quotes at R27,
-      // backticks at R28, comments at R30, parens here. Stripping them cannot manufacture a match:
-      // the regex needs `none` immediately after the colon, so `display: fn("none")` still folds to
-      // `display: fnnone` and does not match.
-      const v = stripCommentsSafely(a.initializer?.getText() ?? "").replace(/["'`\[\]()]/g, "");
-      if (/(^|[^a-z])display\s*:\s*none/i.test(v)) return true;
-      if (/(^|[^a-z])visibility\s*:\s*(hidden|collapse)/i.test(v)) return true;
+      // MODEL CHANGE at R32. This was a raw-TEXT match, and five consecutive rounds each removed
+      // one more wrapper that is transparent to the value: quotes (R27), backticks (R28), comments
+      // (R30), parentheses (R31), and then R32 supplied `display: (0, "none")` and
+      // `display: (true ? "none" : "block")`, which no amount of stripping can reach because they
+      // require EVALUATION, not deletion. The comment claiming every transparent wrapper had been
+      // removed was false when written.
+      //
+      // So the rule now reads the object literal through the AST and evaluates each property value
+      // with `staticStringValue`. That also retires the two hazards the text version needed special
+      // handling for: a computed or quoted key is just a key, and `backfaceVisibility` can no longer
+      // be confused with `visibility` because keys are compared exactly rather than by substring.
+      if (styleObjectHides(a.initializer)) return true;
     }
   }
   return false;

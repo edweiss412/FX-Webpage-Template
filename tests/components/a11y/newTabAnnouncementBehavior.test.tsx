@@ -507,6 +507,89 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
       unmount();
     }
 
+    // R32: `popover` is an ENUMERATED attribute, not a boolean one. React PRESERVES every string and
+    // number -- empty string included -- and each of those starts the element hidden; it OMITS the
+    // booleans, and bare `<span popover>` IS `popover={true}`. Reading it as boolean was wrong in
+    // both directions at once.
+    for (const [label, props, expected] of [
+      ["popover=''", { popover: "" }, "Go"],
+      ["popover={0}", { popover: 0 }, "Go"],
+      ["popover={1}", { popover: 1 }, "Go"],
+      ['popover="auto"', { popover: "auto" }, "Go"],
+      ['popover="bogus"', { popover: "bogus" }, "Go"],
+      ["popover={true}", { popover: true }, "Go (opens in a new tab)"],
+      ["bare popover", { popover: true }, "Go (opens in a new tab)"],
+    ] as [string, Record<string, unknown>, string][]) {
+      const { container, unmount } = render(
+        <a href="x" target="_blank">
+          Go{" "}
+          <span {...(props as Record<string, never>)}>
+            <Hint />
+          </span>
+        </a>,
+      );
+      expect(container.querySelector("a"), label).toHaveAccessibleName(expected);
+      unmount();
+    }
+
+    // R32: the three falsy values that are not plain literals. React omits the attribute for each.
+    for (const [label, props] of [
+      ["hidden={-0}", { hidden: -0 }],
+      ["hidden={NaN}", { hidden: NaN }],
+      ["hidden={0n}", { hidden: BigInt(0) }],
+      ["inert={-0}", { inert: -0 }],
+      ["inert={NaN}", { inert: NaN }],
+      ["inert={0n}", { inert: BigInt(0) }],
+    ] as [string, Record<string, unknown>][]) {
+      const { container, unmount } = render(
+        <a href="x" target="_blank">
+          Go{" "}
+          <span {...(props as Record<string, never>)}>
+            <Hint />
+          </span>
+        </a>,
+      );
+      expect(container.querySelector("a"), label).toHaveAccessibleName("Go (opens in a new tab)");
+      unmount();
+    }
+
+    // R32: a template SUBSTITUTION reaches the DOM, so the value has to be evaluated, not matched.
+    for (const [label, value, expected] of [
+      ["`${true}`", `${true}`, "Go"],
+      ['`tr${"ue"}`', `tr${"ue"}`, "Go"],
+      ["`true${false}`", `true${false}`, "Go (opens in a new tab)"],
+    ] as [string, string, string][]) {
+      const { container, unmount } = render(
+        <a href="x" target="_blank">
+          Go{" "}
+          <span aria-hidden={value as "true" | "false"}>
+            <Hint />
+          </span>
+        </a>,
+      );
+      expect(container.querySelector("a"), `aria-hidden={${label}}`).toHaveAccessibleName(expected);
+      unmount();
+    }
+
+    // R32: style values behind a literal conditional or a template still reach the DOM. The COMMA
+    // case `display: (0, "none")` is pinned in the scanner suite instead of here: it is a
+    // source-level shape, and tsc rejects a bare comma expression outright (TS2695), so it cannot be
+    // written in this file. What it relies on is JS evaluation order, not React behaviour.
+    for (const [label, style] of [
+      ["literal conditional", { display: true ? "none" : "block" } as const],
+      ["template", { visibility: `hid${"den"}` as "hidden" }],
+    ] as [string, React.CSSProperties][]) {
+      const { container, unmount } = render(
+        <a href="x" target="_blank">
+          <span style={style}>Go</span> <Hint />
+        </a>,
+      );
+      expect(container.querySelector("a"), `style ${label}`).toHaveAccessibleName(
+        "(opens in a new tab)",
+      );
+      unmount();
+    }
+
     // The aria-hidden VALUE table. Both installed AccName versions agree, and only the EXACT,
     // untrimmed, lowercase "true" hides. The scanner folds case and trims, so it is deliberately
     // STRICTER than this harness on "TRUE" / " true " -- browsers may fold an enumerated ARIA value

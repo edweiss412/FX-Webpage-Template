@@ -1302,3 +1302,54 @@ caught the bookkeeping consequence of an edit before any test did. Second, this 
 recurring once more: the previous fix reached the right verdict on the case it was written for
 (`<svg><title>`) while being wrong about the mechanism (namespace, not parentage), and the wrong
 mechanism is what opened the hole one level down.
+
+## R32 — seven findings, and the one I had already fixed
+
+R32 reviewed `5e93e9d49`, one commit behind. Its BLOCKING 1 is the SVG `<title>` ancestor-walk hole
+recorded in the previous section — found independently, from the same probe trail, and already fixed
+in `11d54ab5a`. Independent arrival at the same defect is worth noting: it was reachable from the
+code, not a lucky guess.
+
+The other six were all real, and the shape of the round repeats R31's:
+
+| # | Finding | Direction |
+| --- | --- | --- |
+| 2 | `stringOf` discards template substitutions, so `aria-hidden={`${true}`}` scanned clean | BOTH |
+| 3 | `popover` treated as a boolean attribute when it is ENUMERATED | BOTH |
+| 4 | `expressionDestination` left `&&` / `\|\|` / `??` / both-branch conditionals / literal-array spreads opaque | fail-open |
+| 5 | Style matched as raw TEXT, so a comma expression and a literal conditional slipped through | fail-open |
+| 6 | `hoistedBinds` crossed namespace and class-static-block scopes, and counted block-scoped functions | false positive |
+| 7 | `isLiteralFalsy` missed `-0`, `NaN` and `0n` while claiming to cover every falsy value | false positive |
+
+**Findings 2 and 3 were wrong in BOTH directions from a single mistake**, which is the most useful
+thing in this round. One weak value-read made `aria-hidden={`${true}`}` fail open AND
+`aria-hidden={`true${false}`}` a false positive; one wrong attribute CATEGORY made five preserved
+`popover` values fail open AND the two omitted ones false positives. A defect in how a value is
+CLASSIFIED does not have a direction — it produces both, and finding one half is not evidence the
+other half is absent.
+
+**Finding 6 retracts a choice I defended one round earlier.** R31 added block-level `function`
+declarations to the shadow walk, described as "stricter than the language, which is this guard's
+stated policy". These files are ES modules, so strict mode makes such a declaration block-scoped: it
+cannot reach a use site outside its block, and reporting it is simply wrong. "Deliberately stricter"
+is only a defence when the strictness tracks a real runtime difference — as it does for `noscript`,
+`inert` and the `aria-hidden` case-fold, each of which has a measured browser-vs-harness divergence
+behind it. It is not a defence when it rejects code an author would reasonably write.
+
+**Finding 5 forced the model change the previous four rounds were avoiding.** Each of R27, R28, R30
+and R31 deleted one more transparent wrapper from a raw-text matcher, and each time the comment was
+updated to claim the set was now complete. It never was, because deletion cannot evaluate. Reading
+the object literal through the AST ends the series and retires two special cases with it.
+
+### A branch of my own fix was unreachable, again
+
+I added a comma-expression branch to `staticStringValue` and another to `expressionDestination`. A
+mutation deleting the first changed no test — because `unparen` has resolved comma expressions to
+their right operand since R13, before either function sees the node. Both branches were deleted
+rather than kept as comments claiming a mechanism they do not provide. That is the third
+equivalent-mutant this PR, and the second inside a fix written to close a review finding.
+
+### CI note
+
+The Vercel check on `11d54ab5a` failed with `upgradeToPro=build-rate-limit` — an account build-rate
+limit, not a code failure, and Vercel is not one of the twelve required contexts.
