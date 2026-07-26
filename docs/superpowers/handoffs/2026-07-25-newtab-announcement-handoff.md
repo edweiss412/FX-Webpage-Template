@@ -1466,3 +1466,24 @@ write survive a later unknown one, and the fixture that distinguishes those two 
 (`{{display:"none", ...rest}}`) was the last surviving mutation of the round.
 
 Ten mutations, all red. 252 tests green.
+
+### Second branch sweep, over the R33 fixes
+
+Same procedure, run while R34 was in flight. Four survivors, three of them real gaps:
+
+- **`isProvablyNullish`'s both-branches arm.** The obvious fixture — `popover={cond ? null :
+  undefined}` — could NOT pin it, because `reactOmitsValue` has a conditional arm of its own and
+  reaches the same verdict without it. The path that actually depends on the shared helper is
+  `hidden` / `inert`, via `omittedByReact`. **A fixture aimed at the wrong caller looks like coverage
+  and is not** — the same defect as a fixture that passes through the fail-closed default, one level
+  over: right assertion, wrong route.
+- **A style SHORTHAND (`{{display:"none", visibility}}`).** Marking only its own key unknown versus
+  treating the whole object as opaque produced identical results on every existing fixture. They
+  differ exactly when the shorthand names a DIFFERENT key from the hiding write, and the shorthand
+  must not rescue it: that markup really is hidden.
+- **`pickObjectLiteral`'s conditional arm**, unpinned until a decidable conditional spread existed.
+- Function / arrow / class truthiness, `void`, and template truthiness were already covered.
+
+Running the sweep after each fix round is now the highest-yield step in this PR's loop: two rounds in
+a row it found defects in the code the reviewer had just reviewed, and this time it found a coverage
+defect the reviewer would not have — a fixture pointed at a caller that could not exercise the rule.

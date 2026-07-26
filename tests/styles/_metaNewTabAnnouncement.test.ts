@@ -2014,6 +2014,10 @@ describe("R6: scanner changes are pinned", () => {
       '{{display: "NONE"}}',
       // CSS tolerates whitespace around the property name, and React passes the key through.
       '{{" display ": "none"}}',
+      // A SHORTHAND makes only its OWN key unknown -- it cannot rescue an earlier hiding write on a
+      // DIFFERENT key. Treating the whole object as opaque instead would accept these.
+      '{{display: "none", visibility}}',
+      '{{visibility: "hidden", display}}',
       // R33 BLOCKING 4: last write wins, and a spread is a write.
       '{{...(true ? {display: "none"} : {})}}',
       '{{display: "block", ...(true ? {display: "none"} : {})}}',
@@ -2040,7 +2044,7 @@ describe("R6: scanner changes are pinned", () => {
     ]) {
       expect(
         violations(
-          `const A=({hideStyles,display,rest})=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
+          `const A=({hideStyles,display,rest,visibility})=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
         ),
         `must accept, an unreadable style object is opaque: ${style}`,
       ).toEqual([]);
@@ -2074,8 +2078,16 @@ describe("R6: scanner changes are pinned", () => {
       "popover={!x}",
       "popover={cond ? true : false}",
       "popover={x instanceof Date}",
+      // Both branches nullish, so the value is undefined either way and React omits the attribute.
+      "popover={cond ? null : undefined}",
+      "popover={cond ? void 0 : null}",
       "inert={void 0}",
       "hidden={void 0}",
+      // Both branches nullish: undefined either way, so React omits it. This pins the shared
+      // `isProvablyNullish` conditional arm -- the `popover` path cannot, because `reactOmitsValue`
+      // has a conditional arm of its own and reaches the same verdict without it.
+      "hidden={cond ? null : undefined}",
+      "inert={cond ? void 0 : null}",
     ]) {
       expect(
         violations(
