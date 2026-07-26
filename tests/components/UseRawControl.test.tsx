@@ -971,4 +971,30 @@ describe("hotel-name — normative copy oracles", () => {
     const q = renderWith({ resolvable: false, reason });
     expect(q.getByText(copy)).toBeTruthy();
   });
+
+  // Whole-diff R3 finding 4: the two oracles below were the remaining holes —
+  // a wrong formatRaw branch (rendering parsed.hotelName instead of the
+  // replacement) and an empty null-name row both shipped green on the suite
+  // above.
+  it("renders the raw choice VALUE from replacement.hotelName, not the parsed name", () => {
+    const q = renderWith(resolution);
+    const rawNode = q.container.querySelector('[data-testid$="use-raw-raw"]')!;
+    expect(rawNode, "the raw reading node must render").toBeTruthy();
+    // Scoped to the raw node so the parsed rows (which independently render
+    // "Hotel 71" and the address) cannot satisfy this by concatenation.
+    const text = rawNode.textContent!.replace(/\s+/g, " ").trim();
+    expect(text).toBe("Hotel 71 71 E Wacker Dr Chicago, IL 60601");
+    // Discriminator: the parsed-name-only mutant renders exactly "Hotel 71".
+    expect(text).not.toBe(resolution.parsed.hotelName);
+  });
+
+  it('renders the exact "(no hotel name read)" placeholder for a null parsed name', () => {
+    const q = renderWith({
+      ...resolution,
+      parsed: { ...resolution.parsed, hotelName: null },
+    });
+    const parsedNode = q.container.querySelector('[data-testid$="use-raw-parsed"]')!;
+    expect(parsedNode, "the parsed reading node must render").toBeTruthy();
+    expect(parsedNode.textContent).toContain("(no hotel name read)");
+  });
 });
