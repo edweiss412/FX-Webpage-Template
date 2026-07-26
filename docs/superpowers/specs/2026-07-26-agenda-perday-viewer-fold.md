@@ -138,11 +138,28 @@ above `agendaArea` is wrong on this point and must be rejected in plan self-revi
    worst this feature can produce, and a test that only covers total failure passes straight through it.
 
    **The rule: fold nothing unless EVERY day in the viewer's restriction was located in this extraction.**
-   Let `R` = the viewer's restriction days that fall within the show's days, and `L` = the subset of `R`
-   the matcher located in this extraction's day list. Fold only when `L` is complete — `|L| == |R|`.
+
+   Stated as SETS of ISO date strings, deliberately — not as counts of matched extraction rows, which two
+   reachable inputs would break:
+
+   - `R` = `new Set(visibleShowDays(data.show.dates, dateRestriction))`. Using that function's output is
+     what makes a restriction day OUTSIDE the show's days a non-issue: it returns
+     `showDays.filter((d) => allowed.has(d))` (`lib/crew/agendaDisplay.ts:152`), i.e. the intersection, so
+     an out-of-show assignment is excluded by construction rather than by a guard someone has to remember.
+     Wrapping it in a `Set` also absorbs a malformed `showDays` that repeats a date.
+   - `L` = the set of dates in `R` that the matcher located in **at least one** extraction day. "At least
+     one" matters: an extraction can legitimately carry two blocks for the same date, and a count-based
+     comparison would then make `|L| > |R|`, fail the equality, and fail open on an extraction that was
+     actually understood completely. With sets, duplicates collapse and both blocks mark correctly.
+
+   Fold only when `L` covers `R` — and since `L ⊆ R` by construction, that is exactly `L.size === R.size`.
    Otherwise return the fail-open variant and expand everything. Partial knowledge is treated as no
    knowledge, because a partially-correct fold silently hides a day the viewer needs while looking
    perfectly normal on screen.
+
+   Both edge cases above get their own test in the plan; neither is hypothetical — a duplicated day block
+   is ordinary PDF output, and an out-of-show restriction day appears whenever a crew member's assignment
+   spans a travel day the extraction does not cover.
 
    This makes the matcher's contract all-or-nothing per link, which is also what makes it testable: the
    completeness comparison is a single assertion, whereas "which days did we probably get right" is not.

@@ -95,9 +95,19 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
     returns `{ kind: "all" }`. *Catches the worst outcome this feature can produce — a day the viewer
     actually works, folded, while the page looks perfectly normal. A suite testing only total match
     failure passes straight through this.*
-  - the completeness comparison itself: `|located| == |restrictionDaysWithinShow|` decides fold vs
-    fail-open. Assert both sides of the boundary with one day missing and with none missing. *Catches an
-    implementation that folds on "some days matched".*
+  - the completeness comparison itself, as SETS not counts (spec §3): fold iff `L.size === R.size` where
+    `R = new Set(visibleShowDays(...))` and `L` is the subset of `R` located in at least one extraction
+    day. Assert both sides of the boundary — one day missing, and none missing. *Catches an implementation
+    that folds on "some days matched".*
+  - **a restriction day OUTSIDE the show's days does not block folding.** Fixture: the viewer is assigned a
+    travel date the extraction never covers. Because `R` comes from `visibleShowDays`, which returns the
+    intersection (`lib/crew/agendaDisplay.ts:152`), that date is not in `R` and completeness still holds.
+    *Catches an implementation that builds `R` from `dateRestriction.days` directly and then fails open
+    forever for anyone with a travel-day assignment.*
+  - **a date appearing TWICE in the extraction still folds correctly.** Fixture: two day blocks carrying
+    the same ISO date, both the viewer's. With set semantics `L.size === R.size` holds and both blocks are
+    marked. *Catches a count-based comparison, which would make `|L| > |R|` and fail open on an extraction
+    that was in fact understood completely.*
   - all four fallback conditions, each negated independently (4 cases): `matched !== null`; some label parsed; a `showDays` element is null; `ext.days.length !== showDays.length`. *Catches: a fallback that fires when it must not — the null-element case is the one the spec calls easy to miss.*
   - no day resolves → returns the fail-open variant, NOT an empty day set. **The return type must make this impossible to confuse** (see the contract below). *Catches the inversion that would hide the viewer's own day — the worst outcome this feature can produce.*
   - derive every expected index from the fixture's own dimensions; never hardcode. *A 2-day fixture must be unable to satisfy a 4-day assertion.*
