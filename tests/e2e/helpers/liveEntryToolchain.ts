@@ -23,7 +23,7 @@
  * under `tests/e2e/**` names a toolchain binary.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const REPO_ROOT = process.cwd();
@@ -84,38 +84,35 @@ export function bundleLiveEntry({
 }
 
 export interface CssOptions {
-  /** Absolute paths listed as `@source` entries. */
-  sources: string[];
-  /** Absolute path of the stylesheet to write. */
+  /** Absolute path of an ALREADY-WRITTEN entry stylesheet (the `-i` input). */
+  entryCss: string;
+  /** Absolute path of the compiled stylesheet to write (the `-o` output). */
   outFile: string;
-  /** Directory for the intermediate entry CSS. */
-  workDir: string;
 }
 
 /**
- * Build harness CSS with the LOCAL Tailwind CLI.
+ * Compile a harness stylesheet with the LOCAL Tailwind CLI.
  *
- * The helper reads `app/globals.css` itself: all 28 call sites did so
- * identically, so the path lives here once instead of 28 times.
+ * DELIBERATELY NARROW. An earlier version also owned building the entry
+ * stylesheet from a `sources` list plus `app/globals.css`. That consolidation
+ * was abandoned: the 28 call sites construct their entry CSS in materially
+ * different ways (inline template literals, `sources.map`, an array of
+ * pre-formatted `@source` directives), and a mechanical rewrite of all of them
+ * produced 54 TypeScript errors across 12 files. The PR's goal is removing the
+ * per-run NETWORK FETCH, which this achieves; deduplicating the `globals.css`
+ * read is cosmetic and not worth restructuring 28 harnesses for.
  *
  * The binary is named `tailwindcss` — the PACKAGE is `@tailwindcss/cli`, and
  * the `tailwindcss` package itself ships no `bin` in v4, so the name resolves
  * unambiguously.
  */
-export function buildEntryCss({ sources, outFile, workDir }: CssOptions): void {
-  if (sources.length === 0) {
-    // An empty source list yields a stylesheet with no utilities, which renders
-    // an unstyled harness and fails downstream as a confusing layout error
-    // rather than as the configuration mistake it is.
-    throw new Error("buildEntryCss: needs at least one source");
+export function compileEntryCss({ entryCss, outFile }: CssOptions): void {
+  if (!existsSync(entryCss)) {
+    throw new Error(`compileEntryCss: entry stylesheet does not exist: ${entryCss}`);
   }
-  if (!existsSync(workDir)) {
-    throw new Error(`buildEntryCss: work directory does not exist: ${workDir}`);
+  if (!existsSync(dirname(outFile))) {
+    throw new Error(`compileEntryCss: output directory does not exist: ${dirname(outFile)}`);
   }
-
-  const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
-  const entryCss = join(workDir, "entry.css");
-  writeFileSync(entryCss, [...sources.map((s) => `@source "${s}";`), globals].join("\n"));
 
   execFileSync("pnpm", ["exec", "tailwindcss", "-i", entryCss, "-o", outFile], {
     cwd: REPO_ROOT,

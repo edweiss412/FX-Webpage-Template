@@ -1,83 +1,72 @@
 /**
  * tests/e2e/helpers/liveEntryToolchain.css.test.ts
  *
- * Unit cover for the CSS half of the live-entry toolchain helper
- * (plan 2026-07-26-ci-dark-coverage-pr1 Task 3).
+ * Unit cover for the CSS half of the live-entry toolchain helper.
  *
- * MEASURED CAVEAT, and it shapes every assertion below. `app/globals.css:1`
- * is `@import "tailwindcss"`, which turns on automatic content detection, and
- * `:17` then excludes `../tests`. Building this entry with and without its
+ * MEASURED CAVEAT that shapes these assertions. `app/globals.css:1` is
+ * `@import "tailwindcss"`, which turns on automatic content detection, and
+ * `:17` then excludes `../tests`. Compiling an entry with and without its
  * `@source` lines produces **byte-identical** output (161016 both ways, zero
- * classes unique to either). So the CSS the CLI emits cannot distinguish a
- * helper that forwards sources from one that silently drops them.
+ * classes unique to either). So the emitted stylesheet cannot distinguish much
+ * about what was fed in — asserting on its contents is close to vacuous, and
+ * an earlier version of this file proved that by staying green under a
+ * mutation that dropped the sources entirely.
  *
- * Asserting on the emitted stylesheet would therefore be VACUOUS — verified by
- * mutation: deleting the `@source` lines from the helper left an
- * output-based assertion green. These cases assert the helper's OWN behaviour
- * (the intermediate it writes, the guards it enforces) instead, which is what
- * the helper is actually responsible for.
+ * What IS the helper's responsibility, and what these cases pin: it runs the
+ * LOCAL Tailwind binary against the entry it was given, writes the output
+ * where it was told, and refuses bad inputs by name instead of surfacing an
+ * opaque CLI error.
  */
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { buildEntryCss } from "./liveEntryToolchain";
+import { compileEntryCss } from "./liveEntryToolchain";
 
 const ROOT = process.cwd();
 
-describe("buildEntryCss", () => {
-  it("forwards every source into the entry CSS, ahead of the globals preamble", () => {
-    const work = mkdtempSync(join(tmpdir(), "css-helper-"));
-    const a = join(ROOT, "components", "admin", "CompactAlertCard.tsx");
-    const b = join(ROOT, "tests", "e2e", "_compactAlertCardLiveEntry.tsx");
+function entryFixture(): { work: string; entryCss: string } {
+  const work = mkdtempSync(join(tmpdir(), "css-helper-"));
+  const entryCss = join(work, "entry.css");
+  writeFileSync(
+    entryCss,
+    `@source "${join(ROOT, "components", "admin", "CompactAlertCard.tsx")}";\n` +
+      readFileSync(join(ROOT, "app", "globals.css"), "utf8"),
+  );
+  return { work, entryCss };
+}
 
-    buildEntryCss({ sources: [a, b], outFile: join(work, "out.css"), workDir: work });
-
-    // The intermediate is the helper's actual output; the CLI's stylesheet is
-    // insensitive to it (see the module header), so this is where a dropped
-    // source is observable. Mutation-verified: removing the `@source` mapping
-    // from the helper turns this red.
-    const entry = readFileSync(join(work, "entry.css"), "utf8");
-    expect(entry).toContain(`@source "${a}";`);
-    expect(entry).toContain(`@source "${b}";`);
-    expect(entry.indexOf(`@source "${a}";`)).toBeLessThan(entry.indexOf("@import"));
-  });
-
-  it("produces a stylesheet the CLI actually generated", () => {
-    const work = mkdtempSync(join(tmpdir(), "css-helper-"));
+describe("compileEntryCss", () => {
+  it("compiles the given entry into the given output", () => {
+    const { work, entryCss } = entryFixture();
     const outFile = join(work, "out.css");
 
-    buildEntryCss({
-      sources: [join(ROOT, "components", "admin", "CompactAlertCard.tsx")],
-      outFile,
-      workDir: work,
-    });
+    compileEntryCss({ entryCss, outFile });
 
     expect(existsSync(outFile)).toBe(true);
     const css = readFileSync(outFile, "utf8");
-    // Proves the CLI ran and emitted a real sheet rather than copying the
-    // input: the theme layer is compiled, and the source `@source` directives
-    // are consumed rather than passed through.
+    // Compiled, not copied: the theme layer is expanded and the `@source`
+    // directive is consumed rather than passed through.
     expect(css).toMatch(/--color-/);
     expect(css).not.toContain("@source ");
     expect(css.length).toBeGreaterThan(50_000);
   });
 
-  it("rejects an empty source list rather than emitting an unstyled sheet", () => {
-    const work = mkdtempSync(join(tmpdir(), "css-helper-"));
+  it("names a missing entry stylesheet", () => {
+    const { work } = entryFixture();
     expect(() =>
-      buildEntryCss({ sources: [], outFile: join(work, "out.css"), workDir: work }),
-    ).toThrow(/at least one source/i);
+      compileEntryCss({ entryCss: join(work, "nope.css"), outFile: join(work, "out.css") }),
+    ).toThrow(/entry stylesheet does not exist/i);
   });
 
-  it("names a missing work directory", () => {
+  it("names a missing output directory", () => {
+    const { entryCss } = entryFixture();
     expect(() =>
-      buildEntryCss({
-        sources: [join(ROOT, "components", "admin", "CompactAlertCard.tsx")],
-        outFile: join(tmpdir(), "no-such-css-dir", "out.css"),
-        workDir: join(tmpdir(), "no-such-css-dir"),
+      compileEntryCss({
+        entryCss,
+        outFile: join(tmpdir(), "no-such-css-out-dir", "out.css"),
       }),
-    ).toThrow(/work directory does not exist/i);
+    ).toThrow(/output directory does not exist/i);
   });
 });

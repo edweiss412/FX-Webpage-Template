@@ -25,12 +25,11 @@
  *     tests/e2e/bulk-ignore-eyebrow.layout.spec.ts
  */
 import { test, expect, type Page } from "@playwright/test";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
-import { bundleLiveEntry } from "./helpers/liveEntryToolchain";
+import { bundleLiveEntry, compileEntryCss } from "./helpers/liveEntryToolchain";
 
 // CommonJS package — Playwright's CJS loader provides __dirname.
 const REPO_ROOT = resolve(__dirname, "..", "..");
@@ -69,11 +68,7 @@ test.beforeAll(async () => {
     entryCss,
     `@source "${join(REPO_ROOT, "components", "admin", "BulkIgnoreControls.tsx")}";\n${globals}`,
   );
-  execFileSync(
-    "pnpm",
-    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
-  );
+  compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
 
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";
