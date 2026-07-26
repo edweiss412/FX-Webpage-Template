@@ -120,10 +120,11 @@ unit-test file, `tests/scripts/gallery-screenshots.test.ts` (§8.1).
      `reducedMotion: "reduce"`. Pages per scenario. **Theme contexts are strictly
      sequential, never concurrent or pre-authenticated:** context A is created,
      signed in, fully captured, and CLOSED before context B's `signInAs` runs —
-     `signInAs` deletes the shared fixture user, which revokes any prior live session
-     (`is_session_live` checks the auth user,
-     `supabase/migrations/20260622000004_is_session_live_rpc.sql:21-24`), so a second
-     sign-in mid-sweep would invalidate the first context's session.
+     `signInAs` deletes the shared fixture user, and user deletion cascades to
+     `auth.sessions`, which `is_session_live` checks by the JWT's `session_id`
+     (`supabase/migrations/20260622000004_is_session_live_rpc.sql:21-24`; the cascade
+     is pinned by `tests/db/isSessionLive.test.ts:155`), so a second sign-in mid-sweep
+     would invalidate the first context's session.
 
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 
@@ -211,8 +212,18 @@ unit-test file, `tests/scripts/gallery-screenshots.test.ts` (§8.1).
    `{scrollHeight, clientHeight, clientWidth}[]` so it is unit-testable (§8.1). If a
    scroller is selected: set its `scrollTop` to max, double-rAF, re-shoot →
    `<id>-<theme>-overflow.webp`. If none: no companion file.
-8. `encodeWebp` both PNGs, write to output dir (§6).
-9. Append the scenario's index.json entry (§7).
+8. `encodeWebp` both PNGs, write to the run's STAGING subdir
+   (`screenshots/attention-gallery/.staging/`) — never directly to canonical names.
+9. Collect the scenario's index.json entry (§7) in memory.
+
+After ALL targeted captures succeed, the run FINALIZES: reconciliation (§6) computes
+the delete set, staged WebPs are renamed onto their canonical names, deletions apply,
+and index.json is written LAST. A crash before finalize leaves the prior canonical
+files and index fully intact (the leftover `.staging/` dir is discarded at the start of
+the next run), so a filtered recapture can never leave mixed-generation files under a
+carried-forward `capturedAt`. Residual: a crash DURING the finalize's rename window can
+still mix generations; that milliseconds-wide residual is accepted for a local
+regenerate-on-demand artifact (§1.1) — the recovery is rerunning the sweep.
 
 ## 5. Scenario-identity guard
 
@@ -243,20 +254,25 @@ throw. Missing `TEST_AUTH_SECRET` → throw (existing contract).
 - Output: `screenshots/attention-gallery/` under the repo root. New `.gitignore` entry:
   `/screenshots/` (top-level only; does NOT shadow the committed
   `public/help/screenshots/`).
-- Full sweep (no `GALLERY_SCENARIO`): delete the directory's contents first, then
-  recreate — no orphaned files from renamed/removed scenarios.
+- Full sweep (no `GALLERY_SCENARIO`): same staged-capture + finalize protocol as
+  filtered runs (§4) — no upfront directory wipe (a crash mid-sweep must leave the
+  prior artifact intact); the finalize's reconciliation deletes every unreferenced
+  WebP, so renamed/removed scenarios leave no orphans. The `.staging/` subdir is
+  discarded at run start and exempt from the reconciliation's `*.webp` universe.
 - Filtered sweep: capture only the targeted scenarios, then run the **end-of-run
   reconciliation** that makes the invariant enforced rather than assumed — **after any
   run, the index lists exactly the currently-rendered scenarios whose files exist on
   disk, and the output dir contains no WEBP file the index does not reference** (the
   file universe of the reconciliation is `*.webp`; index.json itself is exempt).
-  Prior-index boundary: an absent, unreadable, or JSON/schema-invalid prior index.json
-  is treated as an EMPTY prior (the filtered capture proceeds; the rebuilt index holds
-  the captured entries plus whatever reconciliation salvages from disk-consistent prior
-  state — with no readable prior, that is just the captured entries). The
-  invalid-prior case additionally prints a one-line warning naming the file. A
-  first-ever filtered invocation is therefore a targeted capture, never an ENOENT
-  failure. Reconciliation order:
+  Prior-index boundary: a dedicated loader, `loadPriorIndex(path)` →
+  `{ prior: Index | null, warning: string | null }`, distinguishes the states — absent
+  file → `{ prior: null, warning: null }`; unreadable or JSON/schema-invalid →
+  `{ prior: null, warning: "<one line naming the file and defect>" }` (printed by the
+  caller). Reconciliation itself stays pure over `prior | null` and treats null as an
+  EMPTY prior: the filtered capture proceeds and the rebuilt index holds the captured
+  entries plus whatever reconciliation salvages from disk-consistent prior state —
+  with no readable prior, just the captured entries. A first-ever filtered invocation
+  is therefore a targeted capture, never an ENOENT failure. Reconciliation order:
   1. Build candidate entries: freshly captured scenarios (new files, new `capturedAt`)
      plus prior-index entries for non-targeted ids — with `label`/`tier`/`group`/`codes`
      REFRESHED from the current catalog (id is the join key; only `files` and
@@ -341,8 +357,9 @@ TDD per task (invariant 1). Three layers:
      entry carried with metadata REFRESHED from the current catalog and `capturedAt`
      preserved, carried entry with a missing referenced file dropped, unreferenced
      on-disk file in the delete set, never-captured id omitted, and the prior-index
-     boundary states (absent prior → empty prior; malformed/schema-invalid prior →
-     empty prior + warning). The reconciliation is a pure function over
+     boundary states (absent prior → `loadPriorIndex` yields null prior + null warning;
+     malformed/schema-invalid prior → null prior + one-line warning — asserted on the
+     loader, not the reconciliation). The reconciliation is a pure function over
      (priorIndex | null, capturedEntries, renderedCatalog, filesOnDisk) →
      (index, filesToDelete); expected outputs derived from constructed fixtures, not
      mirrored from the implementation.
