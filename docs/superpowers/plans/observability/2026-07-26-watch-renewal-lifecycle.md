@@ -21,7 +21,7 @@ Concretely, this plan does NOT restate — it references:
 | The reap predicate, its two arms and two target statuses | spec §3.1.2, §3.1.3 |
 | GC's per-status stop-and-transition table | spec §3.1.4 |
 | The admin health tier change | spec §3.1.5 |
-| The three folder-read outcomes, INCLUDING that a failed read renews nothing AND records a `'*'` failures row | spec §3.2.2 and §3.2.3 |
+| The folder-read contract (all four outcomes) | spec §3.2.2 — the single normative table. Do not restate any part of it here. |
 | The three-part promotion/activation fix | spec §3.2.4 |
 | The Drive-call option pair and the loop bound | spec §3.3 |
 | The jsonb parameter form | spec §3.4.2 |
@@ -40,7 +40,7 @@ Where a task below names one of these, it names it as a POINTER plus whatever ex
 4. **`refreshWatchSubscriptions` never rejects.** Registered executable contract at `tests/sync/_metaInfraContract.test.ts:46-51`, exercised at `tests/sync/_metaInfraContract.test.ts:869-883`. Every task that adds a statement or a branch to that function preserves it.
 5. **No UI surface** — AGENTS.md invariant 8 (impeccable dual-gate) does not apply; verified in §4.1 and §8.8.
 6. **Post-commit emits only.** Every new `log.*` call fires after its transaction returns, never inside it (AGENTS.md invariant 10).
-7. **Task 6 is not optional.** The migration must reach the validation project, and `validation-schema-parity` cannot detect its absence (§4.4). Skipping it degrades the only deployed environment silently.
+7. **Task 6 is not optional.** The migration must reach the validation project. `validation-schema-parity` DOES detect a missing apply, because §4.4 extends its CHECK-parity layer to assert the constraint DEFINITION contains `expired` — that extension is Task 1's, and Task 6 verifies the apply actually happened.
 
 ## Meta-test inventory (declared per the writing-plans rule)
 
@@ -50,7 +50,7 @@ Settled at spec time in §4.3; each row was verified with a live grep. Summary o
 | --- | --- |
 | `tests/db/_metaLocalDbUrlGuard.test.ts:396-402` | **BUMP** the exact scanned-file count `toBe(56)` → `toBe(57)`. **Task 1** adds that file (the new tests/db/watchLifecycle.db.test.ts); an earlier revision of this row credited Task 2. |
 | `tests/log/_auditableMutations.ts` `NEW_FORENSIC_CODES` | **ADD** the four §2.2 codes. Verified no size assertion exists (`grep -rn "NEW_FORENSIC_CODES.size" tests/` → no matches). |
-| `tests/adminAlerts/alertProducerScope.registry.ts:214` | **MUST update — line-pinned, and a guaranteed suite failure if missed.** It pins the producer as `site: "lib/drive/watch.ts:463"`, and line 463 is currently the `tx.upsertAdminAlert({` call. Tasks 2 and 5 both insert code above it, so the anchor moves. `tests/adminAlerts/_metaAlertProducerScope.test.ts:148-157` requires exact discovered/registered equality and rejects a stale anchor as loudly as an unregistered one. **Re-derive the anchor in EVERY commit that shifts it — Tasks 2, 3b and 5 — not once at the end.** Deferring it to Task 6 means Task 2 cannot commit green and Tasks 3-5 inherit a red suite, violating the per-task green rule (plan R7 BLOCKING). The re-derivation is mechanical: grep for the `tx.upsertAdminAlert({` call and update the pinned line. |
+| `tests/adminAlerts/alertProducerScope.registry.ts:214` | **MUST update — line-pinned, and a guaranteed suite failure if missed.** It pins the producer as `site: "lib/drive/watch.ts:463"` and `tests/adminAlerts/_metaAlertProducerScope.test.ts:148-157` demands exact bidirectional equality. **Re-derive the anchor in EVERY commit that edits `lib/drive/watch.ts` above that call — which is Tasks 1, 2, 3, 4 and 5, not a subset** (Task 1 the status union, Task 2 the reap and GC, Task 3 the `RefreshDeps` member, Task 4 the imports and call options, Task 5 the port body and exports). Naming only some of them leaves the others unable to commit green. |
 | `tests/drive/watchExpiration.test.ts:46-63` | **MUST edit.** A SECOND `WatchTx` fake, returned `as unknown as WatchTx` — the cast means a missing `expireDeadActive` is NOT a compile error, only a runtime failure. Its own header comment says the compiler will not catch it. |
 | `tests/drive/watchExpiration.test.ts:15-35` | **MUST extend.** One-parameter `driveMock.watch`; Task 4's option-pair assertion is unwritable until it records a second argument. |
 | `tests/sync/_metaInfraContract.test.ts` | **No REGISTRY row changes, but the executable fixture at `tests/sync/_metaInfraContract.test.ts:871` MUST be edited** — it supplies only `listRenewalDue`, so after reap-first it fails on the missing member and still returns the same generic `failures` shape, passing for the wrong operation. The two registry rows themselves are load-bearing and preserved, not edited (constraint 4 above). |
@@ -104,7 +104,7 @@ supabase db query --linked "select pg_get_constraintdef(oid) from pg_constraint 
   where conname = 'drive_watch_channels_status_check'"
 ```
 
-The second command's output must contain `'expired'`. Task 6 then only VERIFIES it, and no longer owns the apply.
+The second command's output must contain `'expired'`. Task 6 does not repeat the apply; it only re-reads the constraint to paste current evidence into the PR body.
 
 **Extend the executable validation gate** (spec §4.4). Add a parallel block to `tests/db/validation-schema-parity.test.ts` (alongside the existing CHECK layer at `tests/db/validation-schema-parity.test.ts:216-290`) that parses the new migration for its constraint name and asserts the validation database's `drive_watch_channels_status_check` **definition contains `'expired'`**. Assert the definition, not just the name: the name already exists in validation today carrying the OLD six-value list, so a name-only superset check passes whether or not the migration was applied. Add it as its own parsed block, NOT by appending to `NONBLANK_MIGRATIONS` — that array's `expect(expected.size).toBe(17)` non-vacuity guard is scoped to the `*_drive_file_id_nonblank` family.
 
@@ -144,12 +144,12 @@ The second command's output must contain `'expired'`. Task 6 then only VERIFIES 
 
 **Existing-tree work this task must do** (plan-normative: these are facts about the current suite, not restatements of the spec):
 
-- **The zero-due gate needs its own test, in this task.** Spec §6 has the row; it is not optional and it is not covered by the other folder-read cases. Both regressions must fail it: always recording `'*'` (the false 500 this repair exists to prevent), and returning before the folder read so the forensic emit never fires. The two zero-due call sites below are where it lives.
+- **The zero-due gate needs its own test, in this task.** Spec §6 has the row and spec §3.2.2's fourth outcome is the contract; neither is restated here. It is not covered by the other folder-read cases.
 - **Nine call sites need an injected folder read**, not seven: the seven due-row calls at `tests/drive/watch.test.ts:487`, `tests/drive/watch.test.ts:549`, `tests/drive/watch.test.ts:671`, `tests/drive/watch.test.ts:723`, `tests/drive/watch.test.ts:757`, `tests/drive/watch.test.ts:1360`, `tests/drive/watch.test.ts:1391`, PLUS the zero-due-row calls at `tests/drive/watch.test.ts:580` and `tests/drive/watch.test.ts:611`, which still reach the helper because §3.2 reads the folder BEFORE the loop. Without injection each performs the real service-role read and DB-free behaviour depends on ambient environment.
 - **`tests/drive/watch.test.ts:654-683` must be rewritten, not just injected into.** Task 2 re-dates its expired fixtures, after which all four folders are due — but one configured folder admits at most one, so its four-subscription assertion at `tests/drive/watch.test.ts:677` is unreachable by ANY injection. Rewrite as the folder-filter contract: four in-lease rows on four folders, one configured, exactly one subscribe call, asserting its ARGUMENT.
 - **`tests/db/watchRenewalDue.test.ts` harness redesign — the FOLDER half only:** `foldersProductionWouldRenew()` takes the configured folder id and injects `getActiveWatchedFolder`. The two-row window test runs twice, once per configured folder, so the renewal predicate — not the new filter — is still what excludes the not-yet row. **The database-clock conversion is NOT here; it belongs to Task 2** (see that task's ordering note).
 
-**Implementation** — §3.2: `RefreshDeps` gains `getActiveWatchedFolder?: typeof defaultGetActiveWatchedFolder` (already imported at `lib/drive/watch.ts:15`); ONE read before the loop; the three §3.2.2 outcomes; `skippedFolderIds` sorted then capped at 20. `RefreshResult`'s TYPE is **unchanged**, but a failed folder read now renews nothing AND — only when `due` is non-empty — records `{folderId: '*', operation: 'folder_read'}`; on a zero-due tick the read's failure cost nothing and recording it would force a false 500 and mark a live channel renewal-dirty — fail-closed without the failure row would let a run that renewed nothing return 200 and let reconcile auto-resolve the alert (spec §3.2.3, R6 finding 1).
+**Implementation** — spec §3.2 and the §3.2.2 table: `RefreshDeps` gains `getActiveWatchedFolder?: typeof defaultGetActiveWatchedFolder` (already imported at `lib/drive/watch.ts:15`); ONE read before the loop; behaviour per the table, not restated here. `RefreshResult`'s TYPE is unchanged.
 
 **Commit:** `fix(drive): renew only the configured watched folder`
 
@@ -210,12 +210,12 @@ Plus, same file: the raised alert satisfies `jsonb_typeof(context) = 'object'` a
 
 ## Task 6: Validation apply, registries, gates, and the residual class
 
-1. **Verify** the validation apply Task 1 performed, and paste the evidence into the PR body (§4.4):
+1. **Re-read** the validation constraint (do NOT re-apply — Task 1 applied it) and paste the evidence into the PR body (§4.4):
    `supabase db query --linked "<migration SQL>"` then
    `supabase db query --linked "select pg_get_constraintdef(oid) from pg_constraint where conname = 'drive_watch_channels_status_check'"` — output must contain `'expired'`.
 2. **`NEW_FORENSIC_CODES`**: add all four §2.2 codes.
 3. **Amend the two stale comments** §5 lists: `lib/drive/watch.ts:873-875` (reconcile's "already had its attempt via refresh" — the expired-active exception no longer exists) and the `T_EXEC_BUDGET_MS` doc block if Task 4 left anything. Deletions and replacements, not notes appended beside the superseded text.
-4. **Apply the five master-spec amendments** specified in spec §4.6, each a DELETION and replacement tagged `**Amended 2026-07-26**`: the "No client-side timeout is applied" clause (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1303`, inside the Create bullet), the unscoped renewal rule (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1320`), the status set (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1294-1299` plus the GC per-status list at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1327-1329`), and **the canonical DDL CHECK at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1287-1289`, which still lists only the original statuses** and was missed by the first amendment inventory. AC-6.18 **IS** amended: Task 3b satisfies it only outside a concurrent-promotion schedule, so leaving the criterion absolute keeps two canonical documents in conflict (spec §4.6). **This engages the §12.4 three-way lockstep only if a catalog row changes; it does not, so no `pnpm gen:spec-codes` run is needed** — but re-run `pnpm spec:lint` on the master spec after editing.
+4. **Apply every master-spec amendment in spec §4.6** — that table is the authority and this step deliberately does NOT enumerate them, because an enumeration here went stale twice (it said "three", then "five", while §4.6 now carries ten). Each is a DELETION and replacement tagged `**Amended 2026-07-26**`. Re-run `pnpm spec:lint` on the master spec afterwards.
 5. **Verify all THREE residual backlog entries exist** (they were filed with the spec repairs, not deferred to this task): `BL-WATCH-PROMOTION-ACTIVATION-RACE`, `BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED`, `BL-DRIVE-API-CALLS-UNBOUNDED-APP-ROUTES`. An earlier revision promised the first here and filed only the other two.
 6. **(Already done in step 5 — do not create a second entry.)** `BL-DRIVE-API-CALLS-UNBOUNDED-APP-ROUTES` exists with all eight sites; step 5 verifies it. An earlier revision told the implementer to file it again (plan R5 finding 5), so the sweep is recorded rather than silently half-done.
 7. **Update `BACKLOG.md`**: mark the four entries closed with this PR; leave `BL-WATCH-RECONCILE-BACKOFF` OPEN and add the §8.6 note that its decisive blocker is cleared and reconcile is now the single retry surface.
