@@ -4078,6 +4078,46 @@ describe("R6: scanner changes are pinned", () => {
     ).toBe(true);
   });
 
+  it("instance filtering: hidden instances are ignored, visible ones never are", () => {
+    // The contributing-instance filter is the newest behavioural change (R37), so this covers BOTH
+    // directions: a hidden instance must not vouch for anything, and filtering must not make the
+    // guard miss a real defect among the visible ones.
+    const verdict = (inner: string): string[] =>
+      violations(`const A=({flag,other})=><a href="x" target="_blank">${inner}</a>;`);
+    const cases: Array<[string, string, boolean]> = [
+      ["every instance hidden", 'Go <span aria-hidden="true"><NewTabHint /></span>', true],
+      ["the only instance is conditional", "Go {flag && <NewTabHint />}", true],
+      [
+        "visible unconditional beside a hidden conditional",
+        'Go <NewTabHint /> {flag && <span aria-hidden="true"><NewTabHint /></span>}',
+        false,
+      ],
+      [
+        "visible CONDITIONAL beside a hidden unconditional",
+        'Go {flag && <NewTabHint />} <span aria-hidden="true"><NewTabHint /></span>',
+        true,
+      ],
+      [
+        "two visible, both conditional",
+        "Go {flag && <NewTabHint />} {other && <NewTabHint />}",
+        true,
+      ],
+      ["two visible, one unconditional", "Go {flag && <NewTabHint />} <NewTabHint />", false],
+      ["hidden only, and unseparated", 'Go<span aria-hidden="true"><NewTabHint /></span>', true],
+    ];
+    for (const [label, inner, shouldReport] of cases) {
+      expect(verdict(inner).length > 0, label).toBe(shouldReport);
+    }
+    // PRECEDENCE: a hidden-only hint reports that it is HIDDEN, not that it is unseparated -- being
+    // absent from the name is the more fundamental fact, and the vaguer message would hide it.
+    expect(
+      verdict('Go<span aria-hidden="true"><NewTabHint /></span>').some((r) =>
+        /hidden from the accessible name/.test(r),
+      ),
+      "hidden takes precedence over unseparated",
+    ).toBe(true);
+  });
+
   it("the naming and separation questions stay DUAL, never drifting", () => {
     // Both rules consult `rendersNothing`, and they must reach OPPOSITE conclusions from it: a value
     // that renders nothing is transparent to SEPARATION (look further left) and absent as a

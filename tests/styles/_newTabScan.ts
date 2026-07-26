@@ -2992,10 +2992,12 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
             if (contributing.some((h) => !sameCondition(h.conditions, want))) {
               record("hint is not gated by the anchor's effective _blank predicate");
             }
-          } else if (
-            contributing.length > 0 &&
-            contributing.every((h) => h.conditions.length > 0)
-          ) {
+            // No `contributing.length > 0` guard: it cannot be reached. `hint.hidden` is true exactly
+            // when EVERY instance is hidden, so an empty contributing list always takes the earlier
+            // hidden branch. A mutation neutralising the guard changed no test in the whole suite,
+            // and unlike `__proto__: null` the line was correct -- just unreachable, which is a
+            // guard implying a case that cannot occur.
+          } else if (contributing.every((h) => h.conditions.length > 0)) {
             // Unconditionally external, so the hint must render unconditionally.
             // Proving an arbitrary conditional chain exhaustive is undecidable in
             // general -- R3 defeated the both-branches heuristic with
