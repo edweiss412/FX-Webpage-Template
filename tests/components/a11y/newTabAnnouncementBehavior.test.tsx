@@ -38,7 +38,7 @@ import type { JSX } from "react";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { ActionCell } from "@/components/admin/BellPanel";
+import { BellActionRow } from "@/components/admin/BellPanel";
 import { AttentionBanner } from "@/components/admin/review/AttentionBanner";
 import { HealthAlertRowItem } from "@/components/admin/telemetry/HealthAlertsPanel";
 import {
@@ -175,17 +175,17 @@ describe("BellPanel action anchors", () => {
           external,
         },
       ],
-    }) as unknown as Parameters<typeof ActionCell>[0]["entry"];
+    }) as unknown as Parameters<typeof BellActionRow>[0]["entry"];
 
   test("external action announces the new tab", () => {
-    const { container } = render(<ActionCell entry={entry(true)} onRefetch={() => {}} />);
+    const { container } = render(<BellActionRow entry={entry(true)} onRefetch={() => {}} />);
     const link = container.querySelector<HTMLAnchorElement>('[data-testid="bell-action-b1-0"]')!;
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAccessibleName("Open in Sheet (opens in a new tab)");
   });
 
   test("INTERNAL action does not claim to open a new tab", () => {
-    const { container } = render(<ActionCell entry={entry(false)} onRefetch={() => {}} />);
+    const { container } = render(<BellActionRow entry={entry(false)} onRefetch={() => {}} />);
     const link = container.querySelector<HTMLAnchorElement>('[data-testid="bell-action-b1-0"]')!;
     expect(link).not.toHaveAttribute("target");
     expect(link).toHaveAccessibleName("Open in Sheet");
@@ -286,9 +286,11 @@ describe("the section-chrome sheet link renders its real fallback for an empty l
     );
     const link = container.querySelector<HTMLAnchorElement>('a[data-testid$="-sheetlink"]');
     expect(link, "the sheet link must render").not.toBeNull();
-    expect(link!).toHaveAccessibleName(
-      "In sheet, view this section in Google Sheets (opens in a new tab)",
-    );
+    // Phrasing follows main's icon-only redesign of this corner link
+    // (feat/section-header-rebuild-phantom-spacers): with no visible words left,
+    // WCAG 2.5.3 label-in-name no longer constrains the label, so it reads
+    // "Open the source sheet" rather than mirroring a visible "In sheet".
+    expect(link!).toHaveAccessibleName("Open the source sheet (opens in a new tab)");
   });
 
   test("a real label interpolates and keeps the suffix", () => {
@@ -299,7 +301,7 @@ describe("the section-chrome sheet link renders its real fallback for an empty l
     );
     expect(
       container.querySelector<HTMLAnchorElement>('a[data-testid$="-sheetlink"]')!,
-    ).toHaveAccessibleName("In sheet, view Crew in Google Sheets (opens in a new tab)");
+    ).toHaveAccessibleName("Open the source sheet for Crew (opens in a new tab)");
   });
 });
 

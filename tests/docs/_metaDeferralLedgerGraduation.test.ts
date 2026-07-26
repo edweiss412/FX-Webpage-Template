@@ -142,6 +142,20 @@ const BACKLOG_GRADUATED = [
   { id: "BL-SHAREHUB-ARM-VIEWPORT-REVEAL", provenance: "feat/sharehub-archive-copy-reveal" },
   // 2026-07-25: shipped, not reconciled -- PR #592 closed it by implementing it.
   { id: "BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y", provenance: "fix/newtab-announcement-family" },
+  // feat/section-header-rebuild-phantom-spacers (2026-07-25). The three
+  // phantom-gap items, all repaid in that branch.
+  {
+    id: "BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW",
+    provenance: "feat/section-header-rebuild-phantom-spacers",
+  },
+  {
+    id: "BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW",
+    provenance: "feat/section-header-rebuild-phantom-spacers",
+  },
+  {
+    id: "BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET",
+    provenance: "feat/section-header-rebuild-phantom-spacers",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
