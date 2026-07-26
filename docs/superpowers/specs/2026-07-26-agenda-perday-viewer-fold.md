@@ -129,9 +129,10 @@ grep -c "throw" lib/crew/agendaDisplay.ts   ->  0
 imports:  shouldHideGenericOptional, stripAgendaUrls  (+ types only)
 ```
 
-**`aggregateDays` cannot throw.** It is `push`/`sort`/`map` over a `Map`, in a file with zero `throw`
-statements and no import that introduces one. So the constraint was never real, and the contradiction
-dissolves by deleting the constraint rather than by weakening the domain.
+**`aggregateDays` contains no `throw` statement.** It is `push`/`sort`/`map` over a `Map`, in a file with zero
+`throw` statements and no import that introduces one. R4 read that as "cannot throw" and withdrew the
+constraint on that basis; R5 then showed the reading was wrong, and R7 showed the same wrong reading had
+spread to four more statements. **All of `aggregateDays`, `visibleShowDays` and `visibleDays` read `showDays` unvalidated, so ALL of them can throw at runtime** even though none contains a `throw` statement — `.filter`, spread, `for…of` and `.sort` all fault on a non-array or a non-string element (review R7, HIGH: five live statements still called this work total). That is precisely why the hoisted block needs the capture-and-rethrow containment; "total" is a statement about the source text, not the runtime domain.
 
 **The withdrawal was itself too broad — review R5 (HIGH) found the throw I did not look for.** The R4
 check was `grep -c throw` → 0, which proves only that no `throw` STATEMENT exists. It does not prove the
@@ -825,7 +826,7 @@ line, so the plan can rely on it without re-deriving:
 | `resolveViewerContext` sits ABOVE `agendaArea` — the hoist's whole premise | `components/crew/sections/ScheduleSection.tsx:101` vs `components/crew/sections/ScheduleSection.tsx:147`, same function body |
 | The four positional-fallback conditions of the EXISTING function, incl. its null-element guard (the NEW matcher needs no such guard -- its domain is non-null `AggregateDay[]`; see §3) | `lib/crew/agendaDayForToday.ts:64-71`, exactly as written |
 | `parseIsoFromDayLabel` is separately exported and reusable | `lib/crew/agendaDayForToday.ts:36` |
-| `visibleShowDays` takes only `dates` + `dateRestriction` and cannot throw | `lib/crew/agendaDisplay.ts:144-150`, no `throw` in body |
+| `visibleShowDays` takes only `dates` + `dateRestriction` (it CAN throw on unvalidated `showDays`; see §2) and cannot throw | `lib/crew/agendaDisplay.ts:144-150`, no `throw` in body |
 | Day rows are `div > h3 + ul` today | `components/crew/AgendaScheduleBlock.tsx:70-79` |
 | The `confidence !== "high"` / empty-days gate | `components/crew/AgendaScheduleBlock.tsx:58` |
 | `day.date === null` already guarded in the heading | `components/crew/AgendaScheduleBlock.tsx:74` |
