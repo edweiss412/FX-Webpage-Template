@@ -740,9 +740,71 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
     });
   }
 
+  // Read the configured folder ONCE, before the loop (spec §3.2.1). A per-row
+  // read would additionally admit more than one folder if configuration changed
+  // mid-loop, which is why §6 asserts the call count rather than only the
+  // resulting selection.
+  //
+  // Behaviour is the §3.2.2 table, which is the single normative statement of
+  // it — see the spec, not this comment, for the contract.
+  let folderRead: Awaited<ReturnType<typeof defaultGetActiveWatchedFolder>>;
+  try {
+    folderRead = await (deps.getActiveWatchedFolder ?? defaultGetActiveWatchedFolder)();
+  } catch (cause) {
+    // Recorded-not-thrown: an unhandled throw here would reach the cron route
+    // handler, and `refreshWatchSubscriptions` never rejects — a registered,
+    // executable contract (tests/sync/_metaInfraContract.test.ts).
+    folderRead = {
+      kind: "infra_error",
+      operation: "readActiveWatchedFolderId",
+      source: "thrown_error",
+      cause,
+    };
+  }
+
+  if ("kind" in folderRead && folderRead.kind === "infra_error") {
+    // FAIL CLOSED: renew nothing. Fail-open is what unbounded the promotion-race
+    // residual, and the lease already absorbs a transient read failure (a
+    // channel is due ~6h before expiry against an hourly cron).
+    void log.warn("refresh-watch configured-folder read failed", {
+      source: "drive.watch",
+      code: "DRIVE_WATCH_FOLDER_READ_FAILED",
+      dueCount: due.length,
+      errorMessage: redactWatchError(
+        String((folderRead.cause as { message?: unknown })?.message ?? folderRead.cause),
+      ),
+    });
+    return {
+      refreshed: [],
+      orphaned: [],
+      // Gated on `due.length` (spec §3.2.2, fourth row): on a tick where nothing
+      // was due, the renewal query already established that no row needed
+      // renewing, so nothing was skipped. Recording the wildcard there would
+      // force a false 500 and mark a live channel renewal-dirty.
+      failures: due.length > 0 ? [{ folderId: "*", operation: "folder_read" }] : [],
+    };
+  }
+
+  const configuredFolderId = "kind" in folderRead ? null : folderRead.folderId;
+  const renewable = configuredFolderId
+    ? due.filter((row) => row.watchedFolderId === configuredFolderId)
+    : [];
+  const skipped = due.filter((row) => !renewable.includes(row));
+  if (skipped.length > 0) {
+    const skippedFolderIds = [...new Set(skipped.map((row) => row.watchedFolderId))].sort();
+    void log.info("watch renewal skipped a non-configured folder", {
+      source: "drive.watch",
+      code: "DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER",
+      skippedFolderIds: skippedFolderIds.slice(0, REAP_ID_LOG_CAP),
+      skippedCount: skippedFolderIds.length,
+      configuredFolderId,
+      reason: configuredFolderId ? "not_configured_folder" : "no_folder_configured",
+    });
+  }
+
   const subscribe =
     deps.subscribeToWatchedFolder ?? ((folderId: string) => subscribeToWatchedFolder(folderId));
-  for (const row of due) {
+  for (const row of renewable) {
     try {
       const result = await subscribe(row.watchedFolderId);
       if (result.outcome === "active") {

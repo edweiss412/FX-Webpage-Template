@@ -227,6 +227,21 @@ function seedOpenWebhookTokenInvalidAlert(tx: FakeWatchTx, channelId: string) {
   });
 }
 
+/**
+ * Injects the configured-folder read for tests whose subject is the renewal
+ * PREDICATE rather than the §3.2 folder filter. Returns the folder of the first
+ * active row the test seeded, so those tests keep exercising what they were
+ * written for. Without an injection each call would perform the real
+ * service-role settings read and DB-free behaviour would depend on ambient
+ * environment state.
+ */
+function folderOf(tx: FakeWatchTx) {
+  return async () => {
+    const row = tx.rows.find((r) => r.status === "active") ?? tx.rows[0];
+    return { folderId: row?.watchedFolderId ?? "unset-folder", folderName: null };
+  };
+}
+
 function seedActiveExpiring(tx: FakeWatchTx, folderIds: string[]) {
   for (const folderId of folderIds) {
     tx.rows.push({
@@ -516,6 +531,7 @@ describe("Drive watch lifecycle", () => {
       tx,
       now: () => tx.now,
       subscribeToWatchedFolder,
+      getActiveWatchedFolder: folderOf(tx) as never,
     });
 
     expect(result).toEqual({ refreshed: ["folder-1"], orphaned: [], failures: [] });
@@ -578,6 +594,7 @@ describe("Drive watch lifecycle", () => {
       tx,
       now: () => tx.now,
       subscribeToWatchedFolder: subscribe,
+      getActiveWatchedFolder: folderOf(tx) as never,
     });
 
     expect(subscribe).toHaveBeenCalledWith("folder-caller-floor");
@@ -640,6 +657,7 @@ describe("Drive watch lifecycle", () => {
       tx,
       now: () => tx.now,
       subscribeToWatchedFolder: subscribe,
+      getActiveWatchedFolder: folderOf(tx) as never,
     });
 
     expect(subscribe).not.toHaveBeenCalled();
@@ -679,36 +697,45 @@ describe("Drive watch lifecycle", () => {
     expect(inverted.map((r) => r.watchedFolderId)).toEqual(["folder-fraction"]);
   });
 
-  test("refresh isolates per-row failures and classifies by orphan reason", async () => {
+  // Rewritten for the §3.2 folder filter: a single run can only renew the ONE
+  // configured folder, so the original four-folders-in-one-pass premise is gone.
+  // The test's actual subject — that each outcome is classified into the right
+  // channel — is preserved by running each case as its own single-folder pass,
+  // which is what production does anyway.
+  test.each([
+    ["active", "refreshed"],
+    ["watch_create_failed", "orphaned"],
+    ["activate_failed_after_watch_created", "failures"],
+    ["infra", "failures"],
+  ] as const)("refresh classifies a %s outcome into `%s`", async (kind, bucket) => {
     const tx = new FakeWatchTx();
     const { refreshWatchSubscriptions, DriveWatchInfraError } = await import("@/lib/drive/watch");
-    seedActiveExpiring(tx, ["folder-a", "folder-b", "folder-c", "folder-d"]);
-    const subscribe = vi.fn(async (folderId: string) => {
-      if (folderId === "folder-a") return { outcome: "active", channelId: "a" } as const;
-      if (folderId === "folder-b")
-        return { outcome: "orphaned", channelId: "b", reason: "watch_create_failed" } as const;
-      if (folderId === "folder-c")
-        return {
-          outcome: "orphaned",
-          channelId: "c",
-          reason: "activate_failed_after_watch_created",
-        } as const;
-      throw new DriveWatchInfraError("drive_watch_channels.insert_pending", new Error("db down"));
+    seedActiveExpiring(tx, ["folder-x"]);
+    const subscribe = vi.fn(async () => {
+      if (kind === "active") return { outcome: "active", channelId: "a" } as const;
+      if (kind === "infra")
+        throw new DriveWatchInfraError("drive_watch_channels.insert_pending", new Error("db down"));
+      return { outcome: "orphaned", channelId: "c", reason: kind } as const;
     });
 
     const result = await refreshWatchSubscriptions({
       tx,
       now: () => tx.now,
-      subscribeToWatchedFolder: subscribe,
+      subscribeToWatchedFolder: subscribe as never,
+      getActiveWatchedFolder: folderOf(tx) as never,
     });
 
-    expect(subscribe).toHaveBeenCalledTimes(4);
-    expect(result.refreshed).toEqual(["folder-a"]);
-    expect(result.orphaned).toEqual(["folder-b"]);
-    expect(result.failures).toEqual([
-      { folderId: "folder-c", operation: "activate_pending" },
-      { folderId: "folder-d", operation: "subscribe" },
-    ]);
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    if (bucket === "refreshed") expect(result.refreshed).toEqual(["folder-x"]);
+    else if (bucket === "orphaned") expect(result.orphaned).toEqual(["folder-x"]);
+    else {
+      expect(result.failures).toEqual([
+        {
+          folderId: "folder-x",
+          operation: kind === "infra" ? "subscribe" : "activate_pending",
+        },
+      ]);
+    }
   });
 
   test("refresh catches a list_expiring DB failure into the typed failures channel (never rejects)", async () => {
@@ -718,7 +745,11 @@ describe("Drive watch lifecycle", () => {
     };
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
 
-    const result = await refreshWatchSubscriptions({ tx, now: () => tx.now });
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      getActiveWatchedFolder: folderOf(tx) as never,
+    });
 
     expect(result).toEqual({
       refreshed: [],
@@ -757,6 +788,7 @@ describe("Drive watch lifecycle", () => {
       },
       now: () => tx.now,
       subscribeToWatchedFolder,
+      getActiveWatchedFolder: folderOf(tx) as never,
     } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
 
     expect(result).toEqual({ refreshed: ["folder-1"], orphaned: [], failures: [] });
@@ -795,6 +827,7 @@ describe("Drive watch lifecycle", () => {
         events.push("drive:subscribe");
         throw new Error(`renewal failed: token=${capturedSecret} Bearer ya29.zzz`);
       }),
+      getActiveWatchedFolder: folderOf(tx) as never,
     } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
 
     expect(result).toEqual({
@@ -1391,6 +1424,7 @@ describe("Drive watch telemetry", () => {
       tx,
       now: () => tx.now,
       subscribeToWatchedFolder,
+      getActiveWatchedFolder: folderOf(tx) as never,
     });
 
     // Post-merge contract (this branch): failed renewals land in the typed
@@ -1418,7 +1452,12 @@ describe("Drive watch telemetry", () => {
       channelId: "renewed-channel",
     }));
 
-    await refreshWatchSubscriptions({ tx, now: () => tx.now, subscribeToWatchedFolder });
+    await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder,
+      getActiveWatchedFolder: folderOf(tx) as never,
+    });
 
     expect(records().filter((r) => r.code === "DRIVE_WATCH_RENEWAL_FAILED")).toEqual([]);
   });
@@ -1462,7 +1501,11 @@ describe("Drive watch telemetry", () => {
     // Post-merge contract (this branch): refresh NEVER rejects — a list_expiring
     // infra fault becomes the typed "*" failures row (spec §3.2 Hardening / R5-3);
     // scheduler visibility comes from the route's 500 contract instead of a throw.
-    const result = await refreshWatchSubscriptions({ tx, now: () => tx.now });
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      getActiveWatchedFolder: folderOf(tx) as never,
+    });
     expect(result).toEqual({
       refreshed: [],
       orphaned: [],
@@ -1698,5 +1741,117 @@ describe("watch renewal lifecycle — reap and GC (spec §3.1)", () => {
       "sup",
     ]);
     expect(result.stopped.sort()).toEqual(["exp", "sup"]);
+  });
+});
+
+describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
+  function dueRow(tx: FakeWatchTx, folderId: string, id = `ch-${folderId}`) {
+    const t = tx.now.getTime();
+    tx.rows.push({
+      id,
+      status: "active",
+      watchedFolderId: folderId,
+      webhookSecret: "s",
+      resourceId: "r",
+      createdAt: new Date(t - 19 * 3_600_000).toISOString(), // 24h lease, 5h left => due
+      expiresAt: new Date(t + 5 * 3_600_000).toISOString(),
+    });
+  }
+
+  async function runRefresh(tx: FakeWatchTx, folder: unknown, subscribe: ReturnType<typeof vi.fn>) {
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    return refreshWatchSubscriptions({
+      tx: tx as never,
+      now: () => tx.now,
+      subscribeToWatchedFolder: subscribe as never,
+      getActiveWatchedFolder: async () => folder as never,
+    });
+  }
+
+  test("renews ONLY the configured folder, asserted by ARGUMENT not count", async () => {
+    const tx = new FakeWatchTx();
+    dueRow(tx, "folder-configured");
+    dueRow(tx, "folder-stale");
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+
+    await runRefresh(tx, { folderId: "folder-configured", folderName: null }, subscribe);
+
+    // The argument, not the count: a count-only assertion passes on the wrong folder.
+    expect(subscribe.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual([
+      "folder-configured",
+    ]);
+  });
+
+  test("`getActiveWatchedFolder` is called EXACTLY once per run", async () => {
+    const tx = new FakeWatchTx();
+    dueRow(tx, "f1");
+    dueRow(tx, "f2");
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+    const getFolder = vi.fn(async () => ({ folderId: "f1", folderName: null }));
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    await refreshWatchSubscriptions({
+      tx: tx as never,
+      now: () => tx.now,
+      subscribeToWatchedFolder: subscribe as never,
+      getActiveWatchedFolder: getFolder as never,
+    });
+    // Every other folder-filter assertion is satisfied by a per-row read, which
+    // would additionally admit MORE than one folder if config changed mid-loop.
+    expect(getFolder).toHaveBeenCalledTimes(1);
+  });
+
+  test("no_folder_configured renews nothing, with a DUE row present", async () => {
+    const tx = new FakeWatchTx();
+    dueRow(tx, "f1"); // precondition: without it the assertion holds vacuously
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+
+    const result = await runRefresh(tx, { kind: "no_folder_configured" }, subscribe);
+
+    expect(subscribe).toHaveBeenCalledTimes(0);
+    expect(result.failures).toEqual([]);
+  });
+
+  test("folder-read infra_error with due rows: renews NOTHING and records the '*' failure", async () => {
+    const tx = new FakeWatchTx();
+    dueRow(tx, "f1");
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+
+    const result = await runRefresh(tx, { kind: "infra_error", operation: "x" }, subscribe);
+
+    expect(subscribe).toHaveBeenCalledTimes(0);
+    expect(result.failures).toEqual([{ folderId: "*", operation: "folder_read" }]);
+  });
+
+  test("folder-read failure with ZERO due rows records NO failure, but still emits", async () => {
+    const tx = new FakeWatchTx(); // no due rows seeded
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+
+    const result = await runRefresh(tx, { kind: "infra_error", operation: "x" }, subscribe);
+
+    // Two regressions hide here: always recording '*' manufactures a false 500
+    // and marks a live channel renewal-dirty; returning before the folder read
+    // suppresses the forensic emit entirely.
+    expect(result.failures).toEqual([]);
+    expect(
+      logRecords.filter((r) => r.message === "refresh-watch configured-folder read failed"),
+    ).toHaveLength(1);
+  });
+
+  test("a thrown folder read behaves like infra_error and never rejects", async () => {
+    const tx = new FakeWatchTx();
+    dueRow(tx, "f1");
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+
+    const result = await refreshWatchSubscriptions({
+      tx: tx as never,
+      now: () => tx.now,
+      subscribeToWatchedFolder: subscribe as never,
+      getActiveWatchedFolder: (async () => {
+        throw new Error("settings read blew up");
+      }) as never,
+    });
+
+    expect(result.failures).toEqual([{ folderId: "*", operation: "folder_read" }]);
   });
 });

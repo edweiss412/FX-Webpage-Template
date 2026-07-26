@@ -52,7 +52,7 @@ async function insertActive(id: string, folderId: string, createdAt: Date, expir
  * leaves the process; everything below it — the transaction port, the SQL, the
  * caller's argument construction — is the real thing.
  */
-async function foldersProductionWouldRenew(): Promise<string[]> {
+async function foldersProductionWouldRenew(configuredFolderId: string): Promise<string[]> {
   const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
   const attempted: string[] = [];
   await refreshWatchSubscriptions({
@@ -61,6 +61,10 @@ async function foldersProductionWouldRenew(): Promise<string[]> {
       attempted.push(folderId);
       return { outcome: "active" as const, channelId: `renewed-${folderId}` };
     },
+    // §3.2 renews only the configured folder, so the harness must say which one
+    // it is — otherwise this would perform the real service-role settings read
+    // and the suite's behaviour would depend on ambient environment state.
+    getActiveWatchedFolder: async () => ({ folderId: configuredFolderId, folderName: null }),
   });
   return attempted.sort();
 }
@@ -119,7 +123,11 @@ describe("renewal predicate, through the production path (§3.2)", () => {
     await insertActive("rp-notyet", "renewpred-notyet", notYet.created, notYet.expires);
     await insertActive("rp-due", "renewpred-due", due.created, due.expires);
 
-    expect(await foldersProductionWouldRenew()).toEqual(["renewpred-due"]);
+    // Run once per configured folder: with a single configured folder the new
+    // filter would exclude the other row for the WRONG reason, so each is asked
+    // separately and the renewal predicate remains what decides.
+    expect(await foldersProductionWouldRenew("renewpred-due")).toEqual(["renewpred-due"]);
+    expect(await foldersProductionWouldRenew("renewpred-notyet")).toEqual([]);
   });
 
   test("the absolute floor governs short leases the proportional term would miss", async () => {
@@ -132,7 +140,7 @@ describe("renewal predicate, through the production path (§3.2)", () => {
     const expires = new Date(NOW.getTime() + 2 * HOUR);
     await insertActive("rp-floor", "renewpred-floor", created, expires);
 
-    expect(await foldersProductionWouldRenew()).toEqual(["renewpred-floor"]);
+    expect(await foldersProductionWouldRenew("renewpred-floor")).toEqual(["renewpred-floor"]);
 
     // Pin that this row is governed by the FLOOR, not the proportional term:
     // the proportional lead for a 6h grant is strictly less than the floor.
@@ -180,7 +188,7 @@ describe("renewal predicate, through the production path (§3.2)", () => {
     await insertActive("rp-super", "renewpred-super", created, expires);
     await sql`update public.drive_watch_channels set status = 'superseded' where id = 'rp-super'`;
 
-    expect(await foldersProductionWouldRenew()).toEqual([]);
+    expect(await foldersProductionWouldRenew("renewpred-super")).toEqual([]);
   });
 
   test("NEGATIVE CONTROL: the retired threshold predicate would renew a row this one leaves alone", async () => {
@@ -195,7 +203,7 @@ describe("renewal predicate, through the production path (§3.2)", () => {
 
     const oldPredicateWouldRenew = expires.getTime() < NOW.getTime() + 24 * HOUR;
     expect(oldPredicateWouldRenew).toBe(true);
-    expect(await foldersProductionWouldRenew()).toEqual([]);
+    expect(await foldersProductionWouldRenew("renewpred-fresh")).toEqual([]);
   });
 
   test("the renewal lead always exceeds one sampling period", async () => {
