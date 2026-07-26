@@ -36,6 +36,7 @@ import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpSheet } from "@/components/admin/HelpSheet";
 import { HoverHelp } from "@/components/admin/HoverHelp";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import type { MessageCode } from "@/lib/messages/catalog";
 import {
   SCAN_STREAM_CONTENT_TYPE,
@@ -501,7 +502,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                       rel="noopener noreferrer"
                       className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                     >
-                      Open the folder →
+                      Open the folder<span aria-hidden="true">&nbsp;→</span> <NewTabHint />
                     </a>
                   ) : null}
                 </div>
@@ -551,7 +552,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                       rel="noopener noreferrer"
                       className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                     >
-                      Open the folder →
+                      Open the folder<span aria-hidden="true">&nbsp;→</span> <NewTabHint />
                     </a>
                   ) : null}
                 </div>

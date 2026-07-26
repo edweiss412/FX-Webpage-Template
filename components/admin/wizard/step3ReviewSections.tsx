@@ -148,6 +148,7 @@ import {
   PublishedArchivedTabIncludedNote,
 } from "@/components/admin/review/PublishedArchivedTabOffer";
 import type { PullSheetOverrideWire } from "@/components/admin/review/sectionData";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
 import {
   AGENDA_CLIENT_CONCURRENCY,
@@ -860,7 +861,10 @@ function ElsewherePointerSentence({
 }
 
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
-function ModalSectionChrome({
+/** Exported for test only: R5 found the empty-`label` seam of its sheet-link
+ *  aria-label had no rendering coverage, and a hand-copied probe cannot prove the
+ *  real expression. */
+export function ModalSectionChrome({
   chrome,
   count,
   children,
@@ -963,15 +967,24 @@ function ModalSectionChrome({
               `before:-inset-3` overlay = a 44px hit area (20 + 2x12) without a 44px
               visual box, which measured 8-29px better on centring than the boxed
               form. `-inset-3` and not `inset-[-12px]`: tokenized, per DESIGN.md §10.
-              The aria-label is unchanged, so dropping the visible words costs
-              assistive tech nothing. */}
+              Dropping the visible words costs assistive tech nothing because the
+              label carries the whole name -- and with no visible text left, WCAG
+              2.5.3 label-in-name no longer constrains it. The label DOES now carry
+              the new-tab announcement (this link opens a new tab and the glyph that
+              says so is aria-hidden), plus the .trim() guard so a blank section
+              label yields "Open the source sheet (opens in a new tab)" rather than a
+              dangling "for". */}
           {sheetHref ? (
             <a
               data-testid={`wizard-step3-card-${chrome.dfid}-section-${chrome.sectionId}-sheetlink`}
               href={sheetHref}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label={`Open the source sheet for ${label}`}
+              aria-label={
+                label.trim()
+                  ? `Open the source sheet for ${label.trim()} (opens in a new tab)`
+                  : "Open the source sheet (opens in a new tab)"
+              }
               className="relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text-subtle transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
               <ExternalLink aria-hidden="true" className="size-4" />
@@ -3033,7 +3046,7 @@ export function WarningsBreakdown({
                             rel="noopener noreferrer"
                             className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                           >
-                            Open in Sheet <span aria-hidden="true">↗</span>
+                            Open in Sheet <span aria-hidden="true">↗</span> <NewTabHint />
                           </a>
                         ) : null;
                       })()}
@@ -3257,7 +3270,7 @@ function AgendaItemRow({
           rel="noopener noreferrer"
           className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
-          Open PDF <span aria-hidden="true">↗</span>
+          Open PDF <span aria-hidden="true">↗</span> <NewTabHint />
         </a>
       ) : (
         // Keep the index referenced so the key is stable + lint-clean.
@@ -3455,7 +3468,7 @@ export function AgendaBreakdown({
           rel="noopener noreferrer"
           className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
-          Open the source sheet <span aria-hidden="true">↗</span>
+          Open the source sheet <span aria-hidden="true">↗</span> <NewTabHint />
         </a>
       ) : null}
     </>
@@ -3641,8 +3654,8 @@ function DiagramTile({
     <a
       href={src}
       target="_blank"
-      rel="noreferrer"
-      aria-label={alt}
+      rel="noopener noreferrer"
+      aria-label={alt ? `${alt} (opens in a new tab)` : "Staged diagram (opens in a new tab)"}
       data-testid={testId}
       className="block"
     >
@@ -3753,7 +3766,8 @@ export function DiagramsBreakdown({
               rel="noopener noreferrer"
               className="inline-flex min-h-tap-min items-center gap-1 font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
-              Open diagrams folder in Drive <ExternalLink aria-hidden="true" className="size-3.5" />
+              Open diagrams folder in Drive <ExternalLink aria-hidden="true" className="size-3.5" />{" "}
+              <NewTabHint />
             </a>
           ) : null}
           {folderItems.length > 0 ? (

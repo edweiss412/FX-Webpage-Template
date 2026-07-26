@@ -140,6 +140,8 @@ const BACKLOG_GRADUATED = [
   { id: "BL-RESCAN-PREPARE-ERROR-GRANULARITY", provenance: "test/safety-hardening-batch" },
   { id: "BL-STEP3-STAGED-LINK-GUARD-HELPER-BYPASS", provenance: "test/safety-hardening-batch" },
   { id: "BL-SHAREHUB-ARM-VIEWPORT-REVEAL", provenance: "feat/sharehub-archive-copy-reveal" },
+  // 2026-07-25: shipped, not reconciled -- PR #592 closed it by implementing it.
+  { id: "BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y", provenance: "fix/newtab-announcement-family" },
   // feat/section-header-rebuild-phantom-spacers (2026-07-25). The three
   // phantom-gap items, all repaid in that branch.
   {
