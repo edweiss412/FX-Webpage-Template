@@ -27,7 +27,7 @@ Not theoretical: two dark standalone specs are **red on `main` right now** (§2.
 | Decision | Ratification |
 | --- | --- |
 | Scope is the standalone-Playwright half plus the cron half. The ~60 app-dependent `UNSEEN` specs stay allowlisted with reasons. | Owner, brainstorming Q1 |
-| One whole-config workflow; the **six** per-feature standalone workflows are retired (five at ratification; a sixth landed mid-authoring, §2). | Owner, brainstorming Q3 |
+| One whole-config workflow; **every** per-feature standalone workflow is retired. The count has only ever grown (five at ratification, a sixth mid-authoring, a seventh by PR2 branch time, §4.3) — what is ratified is *all of them*, not a number. | Owner, brainstorming Q3 |
 | The new standalone workflow carries **no** `pull_request.paths` / `paths-ignore` filter — forced by the scanner contract (§4.2), not a preference. Precedent: `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md:128`. | This spec §4.2 |
 | **Descoped after four adversarial rounds (37 accepted findings): the rule-based resolver plugin, G1's full narrowing semantics, and G3 in any form.** Each survived three rounds without converging, and successive repairs introduced successive contradictions. Filed as backlog items with their measurements (§10) rather than shipped unsound. | Owner decision, 2026-07-26 |
 | The e2e jobs are advisory at the GitHub layer — not because "only `quality` is required" (that in-repo claim is stale) but because none is in the live 12-context required set (§2.5). | §2.5, measured |
@@ -53,6 +53,8 @@ Measured 2026-07-26 against `origin/main` at `eb7ef456b`, after **two** mid-flig
 Validated by executing `scanWorkflowCoverage` over the real workflow set, not a bespoke script; `tests/ci/` passes green today (21 tests), so PR2's delta is against a true baseline.
 
 ### §2.2 The standalone config
+
+> **SUPERSEDED as to counts.** Every figure in the table below moved before PR2 branched (31 `testMatch` members, 92 allowlist rows). Retained as provenance for the *shape* of the analysis; the §4.3 amendment carries the live numbers, and the guards derive theirs at runtime.
 
 | Quantity | Value |
 | --- | --- |
@@ -214,13 +216,17 @@ Every narrowing form that round 3 and round 4 attacked lands in the "no claim" c
 
 `tests/ci/_workflowCoverageScan.ts:105` disqualifies any workflow carrying `paths:` **or** `paths-ignore:`. A coarse-filtered job would leave all 29 remaining real branches non-qualifying and still allowlisted — the guard green, the specs effectively dark. Ratified precedent: `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md:128`.
 
-Cost: one ~5 min DB-free job on every PR, replacing six jobs that each pay the same setup.
+Cost: one ~5 min DB-free job on every PR, replacing seven jobs that each pay the same setup.
 
 ### §4.3 Retirements
 
-Deleted: `attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignore-eyebrow-e2e.yml`, `hoverhelp-geometry-e2e.yml`, `modal-header-layout-e2e.yml`, `share-link-flash-e2e.yml` — **six**.
+> **AMENDMENT (re-measured at PR2 branch time, after `main` advanced ~190 commits during PR1).** The counts below were taken when this spec was written and have all moved. Re-resolving every workflow's `run:` commands through their `pnpm` aliases against the live tree now yields **seven** retirements, not six: `destructive-layout-e2e.yml` joins them (alias `test:e2e:destructive-layout` runs `pendingDiscardReal.layout` + `pendingDiscardReflow.layout`, **both** `testMatch` members, and the workflow has a single job, so it is fully subsumed). `testMatch` now holds **31** specs, not 30 — `pendingDiscardReal.layout` was added and `packlist-rescan-recovery` removed by PR1. `LOCAL_ONLY_ALLOWLIST` now holds **92** rows, not 89. The deletion set is re-derived from the scanner's actual output at implementation time rather than from any frozen list here; the numbers in this section are provenance, not contract (§2). Measurement script and full output: the PR2 commit that introduces the whole-config workflow.
+>
+> This is the same drift the cluster exists to fix, observed on itself: an eighth per-feature workflow (`share-link-flash-e2e.yml`) and a 31st spec both landed *while the PR removing them was in review*, and PR1's guard caught a fresh `pnpm dlx` invocation on merge. Ship the guard with the sweep; the sweep alone loses to the rate of new work.
 
-**Verified mechanically, not assumed:** resolving each of the six workflows' run commands (including through `pnpm` script aliases) yields 9 spec invocations — 1, 1, 1, 1, 4, 1 — and **every one is a member of `standalone.config.ts`'s `testMatch`**. So the whole-config job is a strict superset of what the six provide, and no coverage is lost by deleting them. The check is a script over the live workflow files rather than a reading of them, because "all of these are in the config" is exactly the kind of claim that is true until someone adds a spec. `phantom-gap-e2e.yml` survives (its other two legs run default-config specs) but loses its standalone leg, which PR #605 grew from one spec to three (`phantomGapHelper.layout`, `section-header-layout.layout`, `pusher-alignment.layout`) — all three subsumed by the whole-config job.
+Deleted: `attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignore-eyebrow-e2e.yml`, `destructive-layout-e2e.yml`, `hoverhelp-geometry-e2e.yml`, `modal-header-layout-e2e.yml`, `share-link-flash-e2e.yml` — **seven**.
+
+**Verified mechanically, not assumed:** resolving each of the seven workflows' run commands (including through `pnpm` script aliases) yields 11 spec invocations — 1, 1, 1, 2, 1, 4, 1 — and **every one is a member of `standalone.config.ts`'s `testMatch`**. So the whole-config job is a strict superset of what the seven provide, and no coverage is lost by deleting them. The check is a script over the live workflow files rather than a reading of them, because "all of these are in the config" is exactly the kind of claim that is true until someone adds a spec. `phantom-gap-e2e.yml` survives (its other two legs run default-config specs) but loses its standalone leg, which PR #605 grew from one spec to three (`phantomGapHelper.layout`, `section-header-layout.layout`, `pusher-alignment.layout`) — all three subsumed by the whole-config job.
 
 **A required-suite test reads one of the deleted workflows.** `tests/ci/attentionPillFocusWorkflow.test.ts` opens `attention-pill-focus-e2e.yml` at module initialization, asserts its path-filter contract, and asserts the spec's `PATH_GATED` allowlist row. Deleting that workflow reddens `unit-suite` — a live required context (§2.5) — regardless of whether the new browser job passes. PR2 therefore deletes that test in the same commit. Its four assertions were read individually rather than dismissed in aggregate:
 
@@ -233,7 +239,7 @@ Deleted: `attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignor
 
 The third is the interesting one: that test existed to police a hand-maintained path filter against a component graph that keeps growing — the precise maintenance burden §4.2 removes. Deleting it is not losing coverage; it is retiring a guard whose subject no longer exists.
 
-The other five retiring workflows were checked for the same shape; only this one has a reader.
+The other six retiring workflows were checked for the same shape; only this one has a reader.
 
 The `pnpm test:e2e:*` scripts are **kept**: three shipped plan docs cite them as verification commands, and single-spec shortcuts are the local ergonomics whose absence let these specs rot. `test:e2e:standalone` joins them.
 
@@ -243,7 +249,7 @@ The `pnpm test:e2e:*` scripts are **kept**: three shipped plan docs cite them as
 
 This check is **total**: the branch list is finite and each entry either resolves or does not. That is the entire guard. Detecting *unregistered* self-contained specs is descoped (§10.3) — it could not be given a sound definition, and a guard that detects only what it happens to recognize is worse than an honest absence.
 
-The 29 allowlist rows are deleted in the same commit as the retirements, or the shadowing assertion fires against an intermediate state.
+The allowlist rows the new job now covers are deleted in the same commit as the retirements, or the shadowing assertion fires against an intermediate state. The set is whatever the shadowing assertion demands at implementation time (§4.3 amendment); no count is pinned here.
 
 ---
 
@@ -339,7 +345,7 @@ Not touched, with reason: `tests/log/_auditableMutations.ts` (no mutation surfac
 ## §8 Acceptance criteria
 
 - **AC-1** The whole standalone config runs green in CI, unfiltered, on every PR; `resolve-label-layout` goes red → green; `packlist-rescan-recovery` is out of the config with a backlog entry.
-- **AC-2** All **six** retired workflows are gone and every spec they ran is covered by the new job; `_metaE2eWorkflowCoverage` passes with 29 fewer allowlist rows (60 remaining) and no shadowing row.
+- **AC-2** **Every** workflow whose `run:` commands resolve exclusively to `standalone.config.ts` members is gone, and every spec they ran is covered by the new job; `_metaE2eWorkflowCoverage` passes with no shadowing row. The retirement set and the allowlist delta are both **derived mechanically at implementation time** from the live tree, not read from a count in this document — every count here has drifted at least once (§4.3 amendment).
 - **AC-3** The toolchain guard is red against `main` (33 sites) and green after migration; a recorded mutation turns the `testMatch`-branch guard red.
 - **AC-4** `pg-cron-coverage` executes in `unit-suite-db` with a non-zero live-DB test count, and an `x-audits.yml` job runs it against validation.
 - **AC-5** Under `CI`, an unreachable `psql` fails the job rather than skipping.
@@ -409,7 +415,7 @@ Not the reaper — the hook's last-action file under ~/.claude/hooks/ (per-machi
 Per the `AGENTS.md` ladder — `no_verdict` is an infrastructure fault and bounded retries do not change escalation policy — round 6 was replaced by an **inlined adversarial pass**, recorded here rather than presented as an approval. It produced two findings, both applied above:
 
 1. The exact-string `--config` rule needed an explicit statement that it changes **spec extraction only**, leaving every capability check (`if:`, `continue-on-error`, path filters, exit suppression) in force. Without that, a reader could conclude the literal match bypasses qualification.
-2. "The six retiring workflows lose no coverage" was an assertion. It is now a script over the live workflow files: 9 spec invocations resolved across the six, every one a member of the standalone config.
+2. "The retiring workflows lose no coverage" was an assertion. It is now a script over the live workflow files, re-run at PR2 branch time: 11 spec invocations resolved across the seven, every one a member of the standalone config.
 
 **What this does not substitute for:** an independent model attacking the descoped design fresh. The plan for PR1 gets its own cross-model round, and if the box is quieter it will exercise much of the same surface.
 
@@ -417,8 +423,8 @@ Per the `AGENTS.md` ladder — `no_verdict` is an infrastructure fault and bound
 
 | Risk | Mitigation |
 | --- | --- |
-| Retiring six workflows drops coverage the new job does not provide | The stale-branch check and the 28-row deletion land in the same commit; the shadowing assertion fails if a retired spec is neither covered nor allowlisted. The full config is run locally before the retirement commit. |
+| Retiring the per-feature workflows drops coverage the new job does not provide | The stale-branch check and the 28-row deletion land in the same commit; the shadowing assertion fails if a retired spec is neither covered nor allowlisted. The full config is run locally before the retirement commit. |
 | `ENV_BOUND_EXCLUDES` edit reddens `unit-suite`, a live required context (§2.5) | One array entry; the suite is proven green against a bootstrapped local DB first; `unit-suite.yml` has `workflow_dispatch`, so it is verified by a real Actions run before merge. |
-| The unfiltered job slows every PR | Measured 1.9 min, DB-free and build-free; replaces six jobs that each pay the same setup. |
+| The unfiltered job slows every PR | Measured 1.9 min, DB-free and build-free; replaces seven jobs that each pay the same setup. |
 | Removing `packlist-rescan-recovery` loses coverage | It is dark today, so nothing that runs is lost; §10.2 records the restoration path with its full diagnosis. |
 | `admin-lifecycle-transitions` stays flaky | AC-6 requires five consecutive greens; if it cannot reach that, it stays dark with a recorded reason. An admitted flake is worse than a known gap. |
