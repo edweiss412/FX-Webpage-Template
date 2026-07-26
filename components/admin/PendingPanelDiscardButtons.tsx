@@ -260,7 +260,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
       {armed ? (
         <p
           data-testid={`admin-pending-ignore-consequence-${pendingIngestionId}`}
-          className="text-xs/relaxed text-subtle"
+          className="text-xs/relaxed text-text-subtle"
         >
           This stops tracking the sheet permanently.
         </p>
