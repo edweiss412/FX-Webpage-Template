@@ -2067,3 +2067,53 @@ Corollary worth keeping: **a track that will not converge is evidence about the 
 the code.** Eight NEEDS-ATTENTION verdicts beside a sibling track's APPROVE was the signal, and for
 seven rounds I read it as "this surface is hard" instead of checking whether the surface was in the
 diff.
+
+### Independent pass over the component surface — what it found, including two refuted hypotheses
+
+Run while the correctly-scoped reviewer worked the same 23 files, so the two passes are independent.
+Recorded in full, negatives included, because a pass that reports only its hits invites the reader to
+assume the rest was checked when it was not.
+
+**Separation is sound at every site, and not by luck.** Nine of the fourteen announcement sites put
+the hint on its own source line, which is the classic way to lose the space: JSX strips whitespace
+that contains a newline, so `text\n  <NewTabHint />` yields no separator and a screen reader runs the
+last word into "opens". Every one of those sites carries an explicit `{" "}`, and at the conditional
+sites the `{" "}` sits INSIDE the same ternary as the hint, so the space and the hint appear and
+disappear together. A space left outside the ternary would be a latent trailing space when the link is
+internal — harmless, but it would also mean the two are not actually coupled.
+
+**Refuted hypothesis 1 — the un-trimmed label.** Four data-derived labels test truthiness with
+`.trim()`; `DiagramTile` (`step3ReviewSections.tsx:3585`) uses bare `alt`. That looked like a
+whitespace-only `alt` producing `"  (opens in a new tab)"` — a label that announces but names no
+destination, exactly the failure the guard's phrase-only rule exists for and exactly what it cannot
+see, since `alt` is a runtime value. It is not reachable: the call site already passes
+`alt={stub.alt?.trim() || `Diagram from ${stub.sheetTab}`}`, so a blank alt never arrives. Bare
+truthiness is correct for the one case the comment claims (`""` regressing back in), and adding
+`.trim()` would change nothing. **I reasoned from the component in isolation; the call site settled
+it.** For any prop-guard question the call site is part of the evidence, not context.
+
+**Refuted hypothesis 2 — the fallback-less sibling.** `Step3SheetCard.tsx:152` interpolates `title`
+with no fallback at all. It is not in this diff, and the degraded label still reads "Open the source
+sheet for  in Google Sheets (opens in a new tab)" — a doubled space, but it still announces and still
+names a destination. Not a defect, and not a backlog row.
+
+**The one thing worth measuring: nine sites have no behavioral test.** Only five of the fourteen have
+a test touching their announcement; the other nine rest entirely on the static guard. That is a
+defensible chain — the guard proves the hint is present, unhidden, and separated, and the runtime
+agreement matrix proves the guard's attribute semantics match what the DOM actually computes — but it
+has one subtle link that deserved evidence rather than argument. For a conditional hint, the guard must
+tie the hint's condition to the *link's* condition; a hint gated on some other predicate would render
+in cases the link is not external, or worse, be absent in cases it is.
+
+Measured on real markup rather than a fixture. Gating the hint on a different field than the anchor:
+
+```
+BellPanel.tsx: link gated on `action.external`, hint re-gated on `action.href`
+  ->  components/admin/BellPanel.tsx:303 hint is not gated by the anchor's
+      effective _blank predicate                                    (1 failed | 138 passed)
+```
+
+So the nine untested sites are covered by something that demonstrably fails when the coupling breaks,
+which is a stronger guarantee than nine hand-written tests that would each assert the hint is present
+in the one state the test happens to render. Writing them would add assertions without adding
+coverage.
