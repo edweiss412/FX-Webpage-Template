@@ -153,10 +153,18 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
           data-testid={`admin-pending-ignore-${pendingIngestionId}`}
           onClick={onGuardedIgnoreClick}
           onKeyDown={(e) => {
-            // Mark auto-repeat so the click this keydown synthesises is ignored.
-            if (e.repeat) repeatKeyRef.current = true;
+            // A fresh press ALWAYS clears; only a held key sets. Setting on repeat
+            // without clearing on a fresh press can strand the flag true — hold
+            // Enter, then alt-tab away while holding, and the keyup lands in another
+            // window, leaving this button unable to confirm ever again. Keying both
+            // edges off `e.repeat` makes the stuck state unreachable.
+            repeatKeyRef.current = e.repeat;
           }}
           onKeyUp={() => {
+            repeatKeyRef.current = false;
+          }}
+          onBlur={() => {
+            // Belt and braces for the same class: focus can leave mid-hold.
             repeatKeyRef.current = false;
           }}
           disabled={isRunning}

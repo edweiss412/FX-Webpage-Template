@@ -276,6 +276,24 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  test("[16] the repeat flag cannot strand: a fresh press always clears it", async () => {
+    // Hold Enter, then lose the keyup (alt-tab while holding). Without clearing on a
+    // fresh keydown the flag stays true and the button can never confirm again.
+    const { getByTestId } = renderButtons();
+    const btn = getByTestId(`admin-pending-ignore-${ID}`);
+    fireEvent.keyDown(btn, { key: "Enter", repeat: false });
+    fireEvent.click(btn); // arms
+    fireEvent.keyDown(btn, { key: "Enter", repeat: true }); // held
+    fireEvent.click(btn); // ignored
+    expect(fetchMock).not.toHaveBeenCalled();
+    // No keyUp — it went to another window. A fresh deliberate press must still work.
+    await act(async () => {
+      fireEvent.keyDown(btn, { key: "Enter", repeat: false });
+      fireEvent.click(btn);
+    });
+    expect(fetchMock, "a lost keyup must not permanently disable confirm").toHaveBeenCalledTimes(1);
+  });
+
   test("[15] audit contracts survive: ring-offset-surface, aria-busy, consequence line", async () => {
     // Whole-diff review R1 F6: these three landed from the impeccable audit with no
     // regression assertion, so they could vanish silently.
