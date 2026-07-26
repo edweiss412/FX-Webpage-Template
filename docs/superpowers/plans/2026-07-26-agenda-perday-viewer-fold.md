@@ -173,7 +173,25 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 - [ ] **Real-browser dimensions, in this task:** `getBoundingClientRect()` on every documented `data-testid` at 320px and 390px within 0.5px, measuring the CONTENT box (padding-blind rects were the PR #586 lesson); assert `details.width === parent content width` for every row; assert the summary row in BOTH open states. **Also assert an over-long non-null `day.date` does not force the summary past the viewport, and that it TRUNCATES rather than wrapping** — spec §5.1 caps the date at `max-w-[12ch] truncate` precisely so this assertion and the never-truncate guarantee can both hold: well-formed dates fit inside the cap and never truncate, a malformed one degrades instead of breaking every row beside it. Per §2.5 fact 1 as narrowed by review R4, a non-null date IS reachable from legacy or hand-edited JSONB, so this is a live case.
 - [ ] **Accessibility proof must run in a REAL BROWSER, not jsdom (review R3 HIGH, tightened by R4 HIGH).** Two separate gaps: the standalone harness transcribes static HTML so it cannot prove the production component's semantics (the fold could be deleted and every dimension assertion would still pass), AND spec §6.1 says explicitly that jsdom cannot decide the heading-versus-disclosure shape — so a jsdom-only snapshot does not close the question either. Do BOTH:
   - a jsdom render of the REAL `AgendaScheduleBlock` asserting each day heading is reachable as a heading, each `<summary>` exposes a disclosure with its expanded state, and the marker is in the accessible name of the viewer's rows. *Catches the copied harness drifting from the component.*
-  - a **real-browser accessibility snapshot of the REAL component** — render it (not a transcription) in the Playwright standalone project and assert the accessibility tree's roles and expanded states. *Catches the semantics jsdom cannot compute, which is precisely what §6.1 defers to a browser.* If rendering the real component in that harness proves infeasible, that is a finding to escalate, NOT a reason to fall back to jsdom and call §6.1 satisfied.
+  - a **real-browser accessibility snapshot of the REAL component** — render it (not a transcription) in the Playwright standalone project and assert the accessibility tree's roles and expanded states. *Catches the semantics jsdom cannot compute, which is precisely what §6.1 defers to a browser.*
+- [ ] **The mechanism for that is settled, not an open risk — verified before implementation.** An earlier
+      version of this task said to escalate if rendering the real component in the harness proved
+      infeasible. It is feasible, and it is strictly better than what the harness does today:
+      - `tests/e2e/agendaScheduleLayout.spec.ts` currently builds its DOM from `agendaHtml()`, HTML
+        "transcribed VERBATIM from the components" (its own words at
+        `tests/e2e/agendaScheduleLayout.spec.ts:58`). That transcription is the drift R4 flagged.
+      - Replace it with `renderToStaticMarkup(<AgendaScheduleBlock … />)` at test time. `react-dom` 19.2.4
+        is present, `renderToStaticMarkup` is an established pattern in this repo
+        (`tests/messages/_metaEmphasisRenderContract.test.ts:32`, `tests/auth/signInPageRedirect.test.ts:2`),
+        and `AgendaScheduleBlock` contains **zero hooks** (`grep -cE "useState|useEffect|useRef|useMemo" `
+        → `0`), so it renders to static markup with no client runtime.
+      - The harness keeps every property that makes it standalone: it still compiles the real token CSS from
+        `app/globals.css` via the Tailwind CLI, still serves over HTTP, still boots no app and no Supabase.
+      - Native `<details>`/`<summary>` needs no hydration to toggle, so a browser exercises the real
+        disclosure behaviour against SSR'd markup. This is where the no-client-JS decision in §1.1 pays off
+        — with a client component this approach would not work.
+      Doing this makes the layout assertions measure the component instead of a copy of it, which closes the
+      "fold could be deleted and the harness still passes" hole rather than working around it.
 - [ ] Green; commit `feat(crew-page): fold non-viewer agenda days to one-line rows`.
 
 ### Task 4: Chevron affordance — assertion first, then the CSS
