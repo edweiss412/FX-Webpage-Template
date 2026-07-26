@@ -947,3 +947,51 @@ Six clauses were mutated; four failed immediately. The two that did not were the
 That marker rule was itself an R24 finding — the marker had been position-only, so an unrelated
 "RETRACTED: the moon-is-cheese claim" three lines away licensed a stale claim. It must now sit on
 the claim's own line.
+
+## R25 — and the inversion that should have happened three rounds earlier
+
+R25 raised four BLOCKING and one HIGH:
+
+- **Hints in non-render positions.** `x ?? <NewTabHint />` renders only when `x` is nullish;
+  `drop(<NewTabHint />)` is a call argument, which the callee decides, exactly like the JSX-attribute
+  case closed back at R4; `(<NewTabHint />, null)` evaluates to its last operand.
+- **Self-closing elements that name nothing.** `<br />`, `<img alt="" />` and
+  `<input type="text" />` beside the hint each computed to the phrase alone. An empty `alt` is
+  explicitly "no name", not "some name".
+- **Three statically-empty expression forms**: a spread of an empty array, an array hole (`[,]`),
+  and `void 0`.
+- **`<input type="HIDDEN">`** compared case-sensitively, while the DOM normalises `input.type`.
+  Scoped deliberately — `type` is one of the few attribute VALUES that is case-insensitive, and
+  className tokens are not.
+- **HIGH:** the refuted-claim guard split on LF/CRLF in production and LF alone in its own synthetic
+  self-test, so a CR-only / U+2028 / U+2029 file put an unrelated retraction and a stale claim on one
+  "line". Fourth line-terminator defect in this PR, and the first inside a guard written to stop
+  drift. Both sites now share the scanner's exported `LINE_TERMINATORS`.
+
+### The inversion
+
+R25's three discard-positions prompted a probe rather than three patches, and it found **six more**:
+an object-literal property, a template substitution, `void`, `typeof`, `!`, and property access.
+
+That settled it. Listing positions that DISCARD a hint is unbounded; a JSX child expression renders
+its **value**, so the set of forms that PRESERVE that value is closed and finite: the expression
+itself, parenthesised / `as` / `satisfies` / non-null wrappers, both conditional branches,
+`&&` / `||` / `??` operands with their conditions, the last operand of a comma, array elements, and
+JSX children. Everything else is not a render position and fails closed.
+
+**This is the same inversion that fixed the main shape rule at R5**, and in hindsight it should have
+been applied to hint discovery at the same time. The tell was identical — each round produced a new
+member of an unbounded set — and it took R22 through R25 plus two self-probes to recognise the shape
+in a second place. That is the cost of fixing instances when the model is what is wrong.
+
+An allowlist carries the mirror-image risk: reporting CORRECT code. Six render positions are
+therefore pinned as must-accept cases beside the eight must-report ones, and both directions are
+mutation-proven — restoring the generic fall-through reopens the object-literal fail-open, and
+dropping array elements starts reporting `{[<NewTabHint />]}`, which renders perfectly well.
+
+### A third assertion of mine was wrong
+
+A control asserted `<input type="text" />` beside a hint is acceptable. It is not: a bare void
+element contributes no accessible name. Running tally of my own assertions this reviewer has caught
+encoding belief rather than platform behaviour: `open=""` (R23), `{c && null}` (R23),
+`<input type="text" />` (R25). Every time the fix was the test, not the code.

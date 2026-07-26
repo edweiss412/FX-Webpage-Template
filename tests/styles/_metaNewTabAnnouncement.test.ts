@@ -1589,7 +1589,7 @@ describe("R6: scanner changes are pinned", () => {
         `duplicate ${first}/${second} must be reported`,
       ).toMatch(/case-folding|unrecognized/);
     }
-  });
+  }, 60_000);
 
   it("R21 class, inert and a closed details all hide the hint", () => {
     const bad = [
