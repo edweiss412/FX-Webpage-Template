@@ -466,6 +466,124 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
     u2();
   });
 
+  test("R31 premises: which attribute VALUES React omits, and the two <title> namespaces", () => {
+    // Every rule R31 changed rests on a fact about React or AccName rather than about the AST, so
+    // each one is measured here and the scanner cites this test. Four of the eight R31 findings
+    // were the guard disagreeing with runtime in the SAFE-LOOKING direction -- reporting valid
+    // markup -- which is how a guard earns the exemptions that eventually hollow it out.
+    // Each case wraps the hint in a span carrying one attribute VALUE the scanner used to read as
+    // hiding. `never` casts throughout: these are values React's types reject and runtime accepts,
+    // which is exactly the gap the guard has to model.
+    const asProps = (p: Record<string, unknown>): Record<string, never> =>
+      p as Record<string, never>;
+    const visible: Array<[string, Record<string, never>]> = [
+      // React OMITS a falsy attribute value entirely, so the announcement is fully visible.
+      ["hidden={undefined}", asProps({ hidden: undefined })],
+      ["hidden={null}", asProps({ hidden: null })],
+      ["hidden={0}", asProps({ hidden: 0 })],
+      ['hidden={""}', asProps({ hidden: "" })],
+      ["popover={false}", asProps({ popover: false })],
+      ["popover={undefined}", asProps({ popover: undefined })],
+      ["inert={undefined}", asProps({ inert: undefined })],
+      ["aria-hidden={undefined}", asProps({ "aria-hidden": undefined })],
+      ["aria-hidden={null}", asProps({ "aria-hidden": null })],
+      // NOT omitted -- React renders aria-hidden="0" -- but ARIA hides only on "true", so the
+      // element stays in the name. This is why aria-hidden keeps its own branch in the scanner.
+      ["aria-hidden={0}", asProps({ "aria-hidden": 0 })],
+    ];
+    for (const [label, props] of visible) {
+      const { container, unmount } = render(
+        <a href="x" target="_blank">
+          Go{" "}
+          <span {...props}>
+            <Hint />
+          </span>
+        </a>,
+      );
+      expect(
+        container.querySelector("a"),
+        `${label}: the attribute is omitted or does not hide, so the announcement is in the name`,
+      ).toHaveAccessibleName("Go (opens in a new tab)");
+      unmount();
+    }
+
+    // `<title>` is TWO elements, and the namespace decides. React hoists the HTML one out of the
+    // anchor; the SVG one stays put and NAMES the graphic.
+    const svgTitle = render(
+      <a href="x" target="_blank">
+        <svg>
+          <title>Go</title>
+        </svg>{" "}
+        <Hint />
+      </a>,
+    );
+    expect(
+      svgTitle.container.querySelector("a"),
+      "an SVG <title> renders in place and names the link",
+    ).toHaveAccessibleName("Go (opens in a new tab)");
+    svgTitle.unmount();
+
+    // Inside a <foreignObject> the content is HTML again, so React hoists the title away.
+    const foTitle = render(
+      <a href="x" target="_blank">
+        <svg>
+          <foreignObject>
+            <title>Go</title>
+          </foreignObject>
+        </svg>{" "}
+        <Hint />
+      </a>,
+    );
+    expect(
+      foTitle.container.querySelector("a"),
+      "a <title> inside foreignObject is hoisted out and names nothing",
+    ).toHaveAccessibleName("(opens in a new tab)");
+    foTitle.unmount();
+
+    // An expression container holding JSX renders byte-identically to the same element written as a
+    // direct child -- the premise for inspecting it instead of treating it as opaque.
+    const direct = renderToStaticMarkup(
+      <a href="x" target="_blank">
+        <span aria-hidden="true">Go</span> <Hint />
+      </a>,
+    );
+    const wrapped = renderToStaticMarkup(
+      <a href="x" target="_blank">
+        {<span aria-hidden="true">Go</span>} <Hint />
+      </a>,
+    );
+    expect(wrapped, "{<el/>} and <el/> render the same HTML").toBe(direct);
+
+    // aria-labelledby OUTRANKS aria-label -- and falls back to it when the reference dangles, so
+    // identical source has two possible names and the guard cannot decide either.
+    const target = document.createElement("span");
+    target.id = "r31-target";
+    target.textContent = "Go";
+    document.body.appendChild(target);
+    const both = render(
+      <a href="x" target="_blank" aria-label="Go (opens in a new tab)" aria-labelledby="r31-target">
+        Go
+      </a>,
+    );
+    expect(
+      both.container.querySelector("a"),
+      "a resolvable aria-labelledby wins, and the announcement in aria-label is never read",
+    ).toHaveAccessibleName("Go");
+    both.unmount();
+    target.remove();
+
+    const dangling = render(
+      <a href="x" target="_blank" aria-label="Go (opens in a new tab)" aria-labelledby="r31-absent">
+        Go
+      </a>,
+    );
+    expect(
+      dangling.container.querySelector("a"),
+      "a dangling aria-labelledby falls back to aria-label, so BOTH outcomes are reachable",
+    ).toHaveAccessibleName("Go (opens in a new tab)");
+    dangling.unmount();
+  });
+
   test("the hidden / aria-hidden VALUE rules, measured -- note the asymmetry", () => {
     // These rules date from R1 HIGH 4 and R2 HIGH 4 and were justified in prose for 25 rounds
     // without ever being measured. They are all correct, and the ASYMMETRY is the point:

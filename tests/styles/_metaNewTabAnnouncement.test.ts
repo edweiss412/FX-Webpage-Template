@@ -260,8 +260,16 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["unrecognized", "shape verdict"],
   ["unresolvable", "shape verdict"],
   ["first", "walk-up sentinel: nothing precedes this child"],
+  // R31: the two tag names the SVG-namespace rule walks for. `<title>` renders and NAMES inside
+  // an `<svg>` but is hoisted out of the anchor in HTML, so the namespace decides -- and both of
+  // these are tag names, case-SENSITIVE, with `foreignObject` genuinely camelCase in JSX.
+  ["svg", "intrinsic tag name (SVG namespace: a <title> inside one renders and names)"],
+  ["foreignObject", "intrinsic tag name (switches back to HTML, so a <title> is hoisted again)"],
   // Attribute VALUES and unrelated identifiers, never compared as names.
-  ["false", "attribute value"],
+  // `false` was here until R31 folded the four hiding attributes onto one value rule, which
+  // removed the `stringOf(e) === "false"` comparison -- and the stale-exclusion check caught it
+  // immediately, which is that check earning its place.
+  ["true", 'attribute value (R31: `aria-hidden` hides only on the literal string "true")'],
   ["presentation", "role value"],
   ["typescript", "module name"],
   ["undefined", "JS identifier name, not an attribute (R22: literal-expression evaluation)"],
@@ -723,8 +731,29 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
     );
     rejects(
       `const A=()=><a href="x" target="_blank" aria-labelledby="t">Go <NewTabHint /></a>;`,
-      /must announce in that label/,
+      /aria-labelledby outranks/,
     );
+  });
+
+  it("R31 aria-labelledby OUTRANKS an announcing aria-label, so both together is not proof", () => {
+    // Measured: an anchor carrying both computes the referenced element's text and never announces
+    // (pinned in tests/components/a11y/newTabAnnouncementBehavior.test.tsx). Before R31 the
+    // announcing aria-label satisfied the guard while the labelledby silently decided the name.
+    rejects(
+      `const A=()=><a href="x" target="_blank" aria-label="Go (opens in a new tab)" aria-labelledby="n">Go</a>;`,
+      /aria-labelledby outranks/,
+    );
+    // Order in source must not matter -- attribute order has no effect on name computation.
+    rejects(
+      `const A=()=><a href="x" target="_blank" aria-labelledby="n" aria-label="Go (opens in a new tab)">Go</a>;`,
+      /aria-labelledby outranks/,
+    );
+    // aria-label ALONE, announcing, is still accepted: this rule must not swallow the valid shape.
+    expect(
+      probe(`const A=()=><a href="x" target="_blank" aria-label="Go (opens in a new tab)">Go</a>;`)
+        .violations,
+      "an announcing aria-label with no labelledby beside it is still valid",
+    ).toEqual([]);
   });
 
   it("R2-3 rejects a substitution that can only ever be empty", () => {
@@ -1809,12 +1838,24 @@ describe("R6: scanner changes are pinned", () => {
     // R29 handled `!true`; R30 showed the operand does not have to be a literal. React renders
     // NEITHER boolean, so any always-boolean expression contributes nothing. The set is closed in
     // the grammar: `!x`, the eight comparisons, `instanceof`, `in`, `delete`.
+    // R31 HIGH 7: the previous fixture list named four of the twelve forms, and a mutation that
+    // deleted ONLY the `delete` branch left every one of them still reporting -- the set was
+    // claimed closed in a comment and pinned in part. Every form the rule enumerates now has a
+    // fixture, so deleting any single branch fails a test.
     for (const expr of [
       "{!label}",
+      "{!!label}",
       "{n > 0}",
+      "{n < 0}",
+      "{n >= 0}",
+      "{n <= 0}",
+      "{n == 0}",
+      "{n != 0}",
+      "{n === 0}",
+      "{n !== 0}",
       "{x instanceof Date}",
       '{"k" in obj}',
-      "{!!label}",
+      "{delete obj.k}",
     ]) {
       expect(
         violations(
@@ -1876,6 +1917,163 @@ describe("R6: scanner changes are pinned", () => {
       violations('const A=()=><a href="x" target="_blank"><title>Go</title> <NewTabHint /></a>;'),
       "a hoisted <title> contributes no destination",
     ).not.toEqual([]);
+  });
+
+  it("R31 expression containers holding JSX, hoisted var shadows, paren styles, SVG title", () => {
+    const IMP = 'import { NewTabHint } from "@/components/shared/NewTabHint";\n';
+    const hid = '<span aria-hidden="true">Go</span>';
+    // BLOCKING 2: `{<span aria-hidden="true">Go</span>}` renders byte-identical HTML to the same
+    // element as a direct child (measured), so an expression container holding JSX is not opaque.
+    // Each of these has NO destination once the aria-hidden element is discounted.
+    for (const expr of [
+      `{${hid}}`,
+      `{[${hid}]}`,
+      `{[, ${hid}]}`,
+      `{<>${hid}</>}`,
+      `{true ? ${hid} : "Go"}`,
+      `{false ? "Go" : ${hid}}`,
+      `{(${hid})}`,
+    ]) {
+      expect(
+        violations(`const A=()=><a href="x" target="_blank">${expr} <NewTabHint /></a>;`),
+        `must report, no destination inside the container: ${expr}`,
+      ).not.toEqual([]);
+    }
+    // ...and the same containers holding REAL content still pass, so the rule is not a blanket
+    // rejection of expression containers.
+    for (const expr of [
+      "{<span>Go</span>}",
+      '{[<span key="k">Go</span>]}',
+      "{<>Go</>}",
+      "{label}",
+    ]) {
+      expect(
+        violations(`const A=({label})=><a href="x" target="_blank">${expr} <NewTabHint /></a>;`),
+        `must accept, the container carries a destination: ${expr}`,
+      ).toEqual([]);
+    }
+    // BLOCKING 3: `var` is FUNCTION-scoped, so a declaration inside a block shadows a use site
+    // OUTSIDE that block -- unreachable for an ancestor-only walk.
+    for (const [label, body] of [
+      [
+        "var in an if-block, used after it",
+        'function A(cond){ if(cond){ var NewTabHint = () => null; } return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+      ],
+      [
+        "var in a for-initializer",
+        'function A(xs){ for (var NewTabHint of xs) {} return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+      ],
+      [
+        "block-level function declaration",
+        'function A(cond){ if(cond){ function NewTabHint(){ return null; } } return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+      ],
+      [
+        "var in a module-level block",
+        '{ var NewTabHint = () => null; }\nconst A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;',
+      ],
+    ] as [string, string][]) {
+      expect(
+        probe(IMP + body, { bare: true }).violations,
+        `must fail closed: ${label}`,
+      ).not.toEqual([]);
+    }
+    // A `var` inside a NESTED function belongs to that function and shadows nothing out here.
+    expect(
+      probe(
+        IMP +
+          'function A(){ function inner(){ var NewTabHint = () => null; return NewTabHint; } return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+        { bare: true },
+      ).violations,
+      "a var in a nested function is not a shadow at this use site",
+    ).toEqual([]);
+    // BLOCKING 4: parentheses are transparent to the VALUE, and React emits display:none.
+    for (const style of [
+      '{{display: ("none")}}',
+      '{{display: (("none"))}}',
+      "{{display: (`none`)}}",
+    ]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
+        ),
+        `must report, the destination is display:none: ${style}`,
+      ).not.toEqual([]);
+    }
+    // Stripping parens must not MANUFACTURE a match: the value here is a call, not the keyword.
+    expect(
+      violations(
+        'const A=({pick})=><a href="x" target="_blank"><span style={{display: pick("none")}}>Go</span> <NewTabHint /></a>;',
+      ),
+      'a call whose ARGUMENT is "none" is not display:none',
+    ).toEqual([]);
+    // HIGH 5: an SVG <title> stays in the tree and NAMES the graphic (measured "Go (opens in a new
+    // tab)"), so it is a real destination -- reporting it was a false positive.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank"><svg><title>Go</title></svg> <NewTabHint /></a>;',
+      ),
+      "an SVG title is a destination",
+    ).toEqual([]);
+    // ...but inside a <foreignObject> the content is HTML again and React hoists the title out of
+    // the anchor entirely (also measured), so the nearest ancestor decides.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank"><svg><foreignObject><title>Go</title></foreignObject></svg> <NewTabHint /></a>;',
+      ),
+      "a title inside foreignObject is hoisted and names nothing",
+    ).not.toEqual([]);
+    // An aria-hidden <svg> hides its own title, so the destination is gone again.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank"><svg aria-hidden="true"><title>Go</title></svg> <NewTabHint /></a>;',
+      ),
+      "an aria-hidden svg hides its title",
+    ).not.toEqual([]);
+    // HIGH 6: React OMITS an attribute whose value is falsy, so its presence hides NOTHING. Each of
+    // these renders a fully visible announcement (all measured) and must not be reported.
+    for (const attr of [
+      "hidden={undefined}",
+      "hidden={null}",
+      "hidden={false}",
+      "hidden={0}",
+      'hidden={""}',
+      "popover={false}",
+      "popover={undefined}",
+      "popover={null}",
+      "inert={false}",
+      "inert={undefined}",
+      "aria-hidden={undefined}",
+      "aria-hidden={null}",
+      "aria-hidden={0}",
+      'aria-hidden="false"',
+    ]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must accept, React omits the attribute or it does not hide: ${attr}`,
+      ).toEqual([]);
+    }
+    // ...and the hiding spellings still hide, so the fix did not open a hole.
+    for (const attr of [
+      "hidden",
+      "hidden={true}",
+      'hidden="false"',
+      "popover",
+      'popover="auto"',
+      "inert",
+      "aria-hidden",
+      'aria-hidden="true"',
+      "aria-hidden={true}",
+      "aria-hidden={flag}",
+    ]) {
+      expect(
+        violations(
+          `const A=({flag})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must report, the announcement is hidden: ${attr}`,
+      ).not.toEqual([]);
+    }
   });
 
   it("R29 loop and named-function shadows, literal booleans, and <rp>", () => {

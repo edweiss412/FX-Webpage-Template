@@ -505,7 +505,50 @@ function isShadowedAt(at: ts.Node, name: string): boolean {
     }
     return false;
   };
+  /**
+   * `var` is FUNCTION-scoped and hoists out of every block, so a declaration the ancestor walk can
+   * never reach still shadows the import at the use site (review R31 BLOCKING 3):
+   *
+   *   function A() { if (cond) { var NewTabHint = () => null; } return <a …><NewTabHint /></a>; }
+   *
+   * The declaration is not on the path from the use site to the function, so no ancestor-only walk
+   * can see it -- the model was wrong, not the list. Scans the whole function body WITHOUT entering
+   * a nested function, where a `var` belongs to that function instead. A block-level `function`
+   * declaration counts too: it is block-scoped in a module's strict mode, so counting it is
+   * stricter than the language, which is this guard's stated policy rather than an oversight.
+   */
+  const hoistedBinds = (scope: ts.Node): boolean => {
+    let found = false;
+    const walk = (n: ts.Node): void => {
+      if (found) return;
+      // CLASSIFY BEFORE DESCENDING, and check a function declaration's own NAME before treating it
+      // as a nested scope -- the first version bailed on `isFunctionLike` first, so a block-level
+      // `function NewTabHint(){}` was skipped as "somebody else's var scope" without ever having
+      // its name read. The fixture for it was already written, which is the only reason it surfaced.
+      if (ts.isFunctionDeclaration(n) && n.name !== undefined && n.name.text === name) {
+        found = true;
+        return;
+      }
+      if (ts.isFunctionLike(n)) return; // its own `var` scope
+      if (ts.isVariableDeclarationList(n) && (n.flags & ts.NodeFlags.BlockScoped) === 0) {
+        // A `var` list, including a `for (var … )` initializer, which is not a VariableStatement.
+        if (n.declarations.some((d) => bindsName(d.name))) {
+          found = true;
+          return;
+        }
+      }
+      ts.forEachChild(n, walk);
+    };
+    ts.forEachChild(scope, walk);
+    return found;
+  };
+
   for (let cur: ts.Node | undefined = at; cur !== undefined; cur = cur.parent) {
+    if (ts.isSourceFile(cur) || ts.isFunctionLike(cur)) {
+      // At every `var` scope boundary, including module scope: a `var` inside a top-level block
+      // belongs to the module, not the block.
+      if (hoistedBinds(cur)) return true;
+    }
     if (ts.isSourceFile(cur)) {
       // MODULE SCOPE counts too. A top-level `class NewTabHint {}` or `const NewTabHint = …`
       // alongside the import is a redeclaration error, and this guard's stated policy is not to
@@ -712,6 +755,53 @@ function isLiteralTruthy(n: ts.Expression): boolean {
   return false;
 }
 
+/**
+ * Does the expression inside `{...}` carry a destination? `true` yes, `false` no, `null` opaque.
+ *
+ * R31 BLOCKING 2: an expression container holding JSX is NOT opaque. `{<span aria-hidden="true">Go
+ * </span>}` renders byte-identical HTML to the same element written as a direct child (measured),
+ * so the walk that decides the direct child must decide this one. Treating the container as opaque
+ * credited a destination the accessible name never contains, which is the fail-open this rule
+ * exists to prevent -- the same "syntactic position, decided elsewhere" mistake as R4/R25/R26b,
+ * except here the position is decidable and the guard simply was not looking.
+ *
+ * Statically decidable containers are decided; `{label}` stays opaque and is assumed to carry a
+ * destination, which is the accepted limit recorded in §6.4 and unchanged here.
+ */
+function expressionDestination(e0: ts.Expression): boolean | null {
+  const e = unparen(e0);
+  // Covers null/false/undefined/whitespace strings and every always-boolean form.
+  if (rendersNothing(e)) return false;
+  if (ts.isJsxElement(e) || ts.isJsxSelfClosingElement(e) || ts.isJsxFragment(e)) {
+    return childrenCarryDestination(ts.factory.createNodeArray([e]));
+  }
+  if (ts.isArrayLiteralExpression(e)) {
+    // `{[<span aria-hidden="true">Go</span>]}` renders exactly like the bare element. A hole
+    // contributes nothing; a spread is opaque.
+    let anyOpaque = false;
+    for (const el of e.elements) {
+      if (ts.isOmittedExpression(el)) continue;
+      if (ts.isSpreadElement(el)) {
+        anyOpaque = true;
+        continue;
+      }
+      const d = expressionDestination(el);
+      if (d === true) return true;
+      if (d === null) anyOpaque = true;
+    }
+    return anyOpaque ? null : false;
+  }
+  if (ts.isConditionalExpression(e)) {
+    // Only when the test PICKS a branch, matching how `rendersNothing` treats a literal test. An
+    // undecidable test leaves the whole thing opaque rather than guessing a branch.
+    const t = unparen(e.condition);
+    if (isLiteralTruthy(t)) return expressionDestination(e.whenTrue);
+    if (isLiteralFalsy(t)) return expressionDestination(e.whenFalse);
+    return null;
+  }
+  return null; // `{label}`, a call, a member access: opaque
+}
+
 /** The walk itself, over a child list, so a fragment reuses it without being faked into an
  *  element -- the first attempt spread a JsxFragment into an object shaped like a
  *  JsxElement, which every `ts.isJsxElement` guard then rejected. */
@@ -734,16 +824,9 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
     // probing this rule after writing it, not by review.
     if (ts.isJsxExpression(child)) {
       if (!child.expression) continue;
-      const e = unparen(child.expression);
-      if (
-        e.kind === ts.SyntaxKind.NullKeyword ||
-        e.kind === ts.SyntaxKind.FalseKeyword ||
-        (ts.isIdentifier(e) && e.text === "undefined")
-      ) {
-        continue;
-      }
-      if (rendersNothing(e)) continue;
-      return true; // genuinely dynamic: assume it carries a destination
+      const decided = expressionDestination(child.expression);
+      if (decided === false) continue;
+      return true; // decided yes, or genuinely opaque: assume it carries a destination
     }
     // A fragment carries no attributes, so it cannot hide; look through it.
     if (ts.isJsxFragment(child)) {
@@ -829,10 +912,57 @@ const NOT_RENDERED_TAGS = new Set([
   "noframes",
   "param",
 ]);
-// Metadata elements (`head`, `title`, `meta`, `link`, `base`) are deliberately NOT here: none
-// is valid inside an `<a>`, so they add no coverage -- and `title` and `style` are also real
-// attribute names, so listing them as tag names made the guard's own classification ambiguous.
-// The anti-silencing assertion caught exactly that, which is the check working on its author.
+// The rest of the metadata elements are absent for a MEASURED reason, not the one this comment
+// used to give. `head`, `meta`, `link`, `base` and `basefont` were each rendered inside an anchor:
+// `link`, `meta`, `base` and `area` THROW on children, so no hint can sit inside them, while
+// `head` and `basefont` render their children normally and belong in neither set. `title` IS here
+// (React hoists it), and the earlier claim that it was excluded because it "is not valid inside an
+// `<a>`" was wrong about behaviour, not about a list -- see the R30/R31 record in the handoff.
+// `title` and `style` are also real attribute names, which is why both appear in
+// CASE_INSENSITIVE_NAMES; without that the guard's own classification checks read them as
+// silenced attributes.
+
+/** Is this element in the SVG namespace, where `<title>` is a real, rendered, NAMING element?
+ *
+ *  R31 HIGH 5: `<title>` is two different elements. React hoists the HTML one out of the anchor,
+ *  so its text never reaches the accessible name -- but the SVG one stays exactly where it is and
+ *  names the graphic: `<svg><title>Go</title></svg>` computes "Go (opens in a new tab)". The
+ *  NAMESPACE decides, so a tag-name set can never get this right on its own.
+ *
+ *  `<foreignObject>` switches back to HTML, and a `<title>` inside one is hoisted out of the
+ *  anchor again (measured), so the NEAREST of the two ancestors wins. Fail-closed default: no
+ *  provable `<svg>` ancestor means the HTML reading, which treats the element as not-rendered.
+ */
+function inSvgNamespace(el: ts.Node): boolean {
+  for (let cur: ts.Node | undefined = el.parent; cur !== undefined; cur = cur.parent) {
+    const t = ts.isJsxElement(cur)
+      ? cur.openingElement.tagName.getText()
+      : ts.isJsxSelfClosingElement(cur)
+        ? cur.tagName.getText()
+        : null;
+    if (t === null) continue;
+    if (t === "foreignObject") return false;
+    if (t === "svg") return true;
+  }
+  return false;
+}
+
+/** Does React OMIT this attribute from the DOM entirely, so its presence in the source hides
+ *  nothing? `false`, `null` and `undefined` are dropped for any attribute; a BOOLEAN DOM
+ *  attribute drops every falsy value, `0` and `""` included. All measured -- see the value table
+ *  in tests/components/a11y/newTabAnnouncementBehavior.test.tsx (review R31 HIGH 6). */
+function omittedByReact(a: ts.JsxAttribute): boolean {
+  if (!a.initializer) return false; // bare attribute: `hidden` means true
+  const init = a.initializer;
+  if (ts.isJsxExpression(init)) {
+    if (!init.expression) return true; // `hidden={}` contributes no value
+    const e = unparen(init.expression);
+    if (e.kind === ts.SyntaxKind.NullKeyword) return true;
+    if (ts.isIdentifier(e) && e.text === "undefined") return true;
+    return isLiteralFalsy(e);
+  }
+  return isLiteralFalsy(init);
+}
 
 /** Elements shown only when `open` is present and truthy. `<details>` shows its `<summary>`
  *  when closed, but a hint is never a summary, so treating the whole element as hiding is
@@ -855,6 +985,8 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
   //
   // NOT_RENDERED: content is never rendered (script-supporting and metadata elements).
   // NOT_SHOWN_UNLESS_OPEN: rendered only when `open` is present and truthy.
+  // Namespace before tag name: an SVG `<title>` renders and NAMES (review R31 HIGH 5).
+  if (tag === "title" && inSvgNamespace(el)) return false;
   if (NOT_RENDERED_TAGS.has(tag)) return true;
   // NOTE: there is deliberately no `<input type="hidden">` branch. It was added at R24 and a
   // systematic mutation sweep later showed removing it changed no test: `<input>` is a void
@@ -881,42 +1013,35 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
   for (const a of attrs.properties) {
     const n = attrName(a);
     if (!ts.isJsxAttribute(a)) continue;
-    if (n === "aria-hidden" || n === "hidden") {
-      // Presence-only classification wrongly rejected `hidden={false}` and
-      // `aria-hidden={false}` (review R1 HIGH 4). Read the VALUE: bare attribute
-      // means true; an explicit `false` literal means visible.
-      if (!a.initializer) return true;
+    // ONE value rule for all four hiding attributes, because the previous per-attribute spellings
+    // disagreed with each other and with React: `hidden={undefined}` was read as hiding and
+    // `popover={false}` was read as hiding on PRESENCE alone, while React omits the attribute
+    // entirely in both cases and the announcement is fully visible (review R31 HIGH 6). That is a
+    // FALSE POSITIVE -- reporting code that is correct -- not a safe over-approximation, and a
+    // guard that cries wolf on valid markup gets exemptions written around it.
+    //
+    // Measured, not reasoned (all pinned in tests/components/a11y/newTabAnnouncementBehavior.test.tsx):
+    // `hidden` omitted for `false`, `null`, `undefined`, `0` AND `""` -- every falsy value, since
+    // React coerces a boolean DOM attribute; `popover` omitted for `false`, `null`, `undefined`;
+    // `inert` omitted for `false`, `undefined`.
+    if (n === "hidden" || n === "aria-hidden" || n === "popover" || n === "inert") {
+      if (omittedByReact(a)) continue;
+      if (n !== "aria-hidden") return true; // present with a truthy or dynamic value: fail closed
+      // `aria-hidden` is a STRING attribute, and ARIA hides only on the literal "true".
+      // `aria-hidden="false"` is visible (R2 HIGH 4) and so is `aria-hidden={0}`, which React
+      // renders as `aria-hidden="0"` -- measured, and the reason this is not folded into the
+      // boolean rule above. A dynamic value cannot be decided, so it fails closed.
       const init = a.initializer;
-      if (ts.isJsxExpression(init) && init.expression) {
-        const e = unparen(init.expression);
-        if (e.kind === ts.SyntaxKind.FalseKeyword) continue;
-        if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
-        // A STRING "false" is truthy for the native boolean attribute: React
-        // renders hidden="" and the node leaves the a11y tree. Only the boolean
-        // literal false is visible (review R2 HIGH 4).
-        if (n === "aria-hidden" && stringOf(e) === "false") continue;
-        return true; // dynamic or string: fail closed
+      if (!init) return true; // bare `aria-hidden` renders aria-hidden="true"
+      const e = ts.isJsxExpression(init) && init.expression ? unparen(init.expression) : init;
+      if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
+      if (ts.isNumericLiteral(e)) continue;
+      const lit = stringOf(e);
+      if (lit !== null) {
+        if (lit.trim().toLowerCase() === "true") return true;
+        continue;
       }
-      const v = stringOf(init);
-      if (n === "aria-hidden" && v === "false") continue;
-      return true;
-    }
-    // `inert` removes the subtree from the accessibility tree entirely (HTML Standard,
-    // inert subtrees), so it hides exactly like `hidden`. It was in the guard's own
-    // name-affecting list while this function did not handle it, which made the casing
-    // sweep agree on both spellings of a genuinely inaccessible announcement
-    // (review R21 BLOCKING 1). Boolean semantics, same as `hidden`.
-    // `popover` makes the element not-shown until invoked (HTML Standard: popover), so a
-    // hint inside one is not in the accessible name (review R22 BLOCKING 2). Any value
-    // counts -- `auto` and `manual` both start hidden.
-    if (n === "popover") return true;
-    if (n === "inert") {
-      if (!a.initializer) return true;
-      const init = a.initializer;
-      if (ts.isJsxExpression(init) && init.expression) {
-        if (unparen(init.expression).kind === ts.SyntaxKind.FalseKeyword) continue;
-      }
-      return true;
+      return true; // dynamic: fail closed
     }
     // `class` AND `className`. React forwards a literal `class` to the DOM (dev warning
     // only), so `<span class="hidden">` really hides -- and this function used to read
@@ -944,7 +1069,13 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
       // `style={{ display: /* hidden */ "none" }}` did not match (review R30 BLOCKING 3). Strip
       // comments FIRST, using the same parse-informed helper the file-level scan uses, then the
       // quotes/brackets/backticks.
-      const v = stripCommentsSafely(a.initializer?.getText() ?? "").replace(/["'`\[\]]/g, "");
+      // PARENTHESES too: `display: ("none")` is the same value at runtime and React emits
+      // `style="display:none"` (review R31 BLOCKING 4). Every wrapper that is transparent to the
+      // VALUE has to come off, and each one of them has now cost a round -- quotes at R27,
+      // backticks at R28, comments at R30, parens here. Stripping them cannot manufacture a match:
+      // the regex needs `none` immediately after the colon, so `display: fn("none")` still folds to
+      // `display: fnnone` and does not match.
+      const v = stripCommentsSafely(a.initializer?.getText() ?? "").replace(/["'`\[\]()]/g, "");
       if (/(^|[^a-z])display\s*:\s*none/i.test(v)) return true;
       if (/(^|[^a-z])visibility\s*:\s*(hidden|collapse)/i.test(v)) return true;
     }
@@ -1872,21 +2003,35 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
                 }
               : { kind: "static" };
           const label = labelAnnounces(attrs, polarity);
-          const hasLabelAttr = attrs.properties.some(
-            (a) =>
-              ts.isJsxAttribute(a) &&
-              (jsxAttrNameLower(a) === "aria-label" || jsxAttrNameLower(a) === "aria-labelledby"),
-          );
+          const named = (which: string): boolean =>
+            attrs.properties.some((a) => ts.isJsxAttribute(a) && jsxAttrNameLower(a) === which);
+          const hasLabelledBy = named("aria-labelledby");
+          const hasLabelAttr = named("aria-label") || hasLabelledBy;
           const hint = findHint(node);
 
-          if (hasLabelAttr) {
+          if (hasLabelledBy) {
+            // `aria-labelledby` OUTRANKS `aria-label` in the accessible-name computation, so an
+            // announcing `aria-label` beside it is dead text: measured, an anchor carrying both
+            // computes the referenced element's text ("Go") and never announces (review R31
+            // BLOCKING 1). Reading them as interchangeable meant the weaker one satisfied the
+            // guard while the stronger one silently decided the name.
+            //
+            // Reported whichever attributes are present, because the reference cannot be resolved
+            // statically -- the target may live in another component, another file, or be injected
+            // at runtime. A dangling reference falls back to `aria-label` (also measured), so BOTH
+            // outcomes are reachable from identical source and neither can be proven. Fail closed;
+            // a legitimate use takes one reasoned exemption.
+            record(
+              "aria-labelledby outranks aria-label and descendant content, and its target cannot be resolved here, so the announcement cannot be proven (use aria-label alone, or add an exemption)",
+            );
+          } else if (hasLabelAttr) {
             // A naming attribute REPLACES descendant content, so the label itself
             // must announce and a hint child is inert.
             if (label === "phrase-only") {
               record("aria-label announces but carries no destination");
             } else if (label === "none") {
               record(
-                "element has aria-label/aria-labelledby, so it must announce in that label (a NewTabHint child is ignored)",
+                "element has aria-label, so it must announce in that label (a NewTabHint child is ignored)",
               );
             } else if (label === "ok" && shape.kind === "gated") {
               record("static aria-label announcement on a conditional-target anchor");
