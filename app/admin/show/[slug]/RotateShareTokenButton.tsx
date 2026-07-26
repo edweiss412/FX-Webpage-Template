@@ -25,10 +25,10 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
 import { useDevActionOverride } from "@/components/admin/dev/actionOverrideContext";
+import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
-const ARM_REVERT_MS = 4_000;
 
 type UiState = "idle" | "confirm" | "resolving";
 type Result =
