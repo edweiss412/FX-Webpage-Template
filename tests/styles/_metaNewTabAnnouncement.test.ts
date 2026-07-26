@@ -2047,6 +2047,64 @@ describe("R6: scanner changes are pinned", () => {
         `must accept: ${style}`,
       ).toEqual([]);
     }
+    // R33 (found from the reviewer's probe trail, before its verdict): React DROPS any value that
+    // provably produces a boolean or undefined, so these hide nothing and must not be reported.
+    for (const attr of [
+      "popover={void 0}",
+      "popover={a === b}",
+      "popover={!x}",
+      "popover={cond ? true : false}",
+      "popover={x instanceof Date}",
+      "inert={void 0}",
+      "hidden={void 0}",
+    ]) {
+      expect(
+        violations(
+          `const A=({a,b,x,cond})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must accept, React drops a boolean/undefined attribute value: ${attr}`,
+      ).toEqual([]);
+    }
+    // `hidden`/`inert` are BOOLEAN attributes, where the two booleans differ: `hidden={true}` renders
+    // `hidden=""` and hides. So an always-boolean expression is UNDECIDABLE there and must fail
+    // closed -- the opposite of `popover`, where React drops either boolean. Same word, two rules.
+    for (const attr of ["hidden={a === b}", "inert={!x}"]) {
+      expect(
+        violations(
+          `const A=({a,b,x})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must report, a boolean attribute hides when the boolean is true: ${attr}`,
+      ).not.toEqual([]);
+    }
+    // ...but a value that REACHES the DOM still hides, so the rule did not become a blanket accept.
+    for (const attr of ['popover={cond ? "auto" : "manual"}', 'popover={`au${"to"}`}']) {
+      expect(
+        violations(
+          `const A=({cond})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must report, this value reaches the DOM: ${attr}`,
+      ).not.toEqual([]);
+    }
+    // A namespace body and a class static block are `var` scopes in BOTH directions: R32 stopped the
+    // downward scan entering them, but a use site INSIDE one is shadowed by a `var` in a sibling
+    // block within it, and nothing scanned that scope -- a fail-open hole in the previous fix.
+    for (const [label, body] of [
+      [
+        "var in a block inside the same namespace",
+        'namespace N { if (1) { var NewTabHint = () => null; } export const A = () => <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+      ],
+      [
+        "var in a nested block inside the same static block",
+        'class C { static { { var NewTabHint = () => null; } const el = <a href="x" target="_blank">Go <NewTabHint /></a>; } }',
+      ],
+    ] as [string, string][]) {
+      expect(
+        probe('import { NewTabHint } from "@/components/shared/NewTabHint";\n' + body, {
+          bare: true,
+        }).violations,
+        `must fail closed, the var hoists to this scope: ${label}`,
+      ).not.toEqual([]);
+    }
     // HIGH 7: the three falsy values that are not plain literals. React omits the attribute.
     for (const attr of [
       "hidden={-0}",

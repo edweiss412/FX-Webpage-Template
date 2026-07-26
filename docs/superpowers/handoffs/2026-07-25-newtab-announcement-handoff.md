@@ -1396,3 +1396,34 @@ self-closing-element guard in `isNamingSvgTitle` that could never execute, since
 element has no children to contain a `<title>`. That brings this PR to five equivalent mutants, four
 of them inside fixes written to close review findings. The sweep costs about a minute per branch and
 has now out-found two consecutive review rounds on the code they had just reviewed.
+
+### Two more defects, found from R33's probe trail before its verdict
+
+R33's stderr showed it rendering `popover={void 0}`-style values and `var`-in-a-nested-scope shapes.
+Measuring those directly, before the verdict, found two defects — **both introduced by my own R32
+fixes**, one in each direction:
+
+**A fail-OPEN hole in the R32 scope fix.** R32 HIGH 6 said `hoistedBinds` wrongly crossed namespace
+and class-static-block boundaries. I stopped the downward scan from ENTERING them — correct, since a
+`var` in there cannot reach a use site outside — but did only that half. A use site INSIDE one of
+those scopes is shadowed by a `var` in a sibling block within it, and after the fix nothing scanned
+that scope at all. Measured: `namespace N { if (1) { var NewTabHint = () => null; } … }` rendered
+`<a>Go </a>` with no announcement and scanned clean. **A scope boundary is a boundary in both
+directions**, and fixing one direction of a two-directional rule is how the previous fix's own hole
+got made.
+
+**False positives on `popover`.** `popoverHides` checked the four literal spellings of "React omits
+this", so `popover={void 0}`, `popover={a === b}`, `popover={!x}` and `popover={cond ? true : false}`
+were all reported, though each provably produces a boolean or undefined and React drops it.
+
+Fixing the second surfaced a distinction worth stating, because the obvious shared helper would have
+been wrong: **`hidden` and `popover` disagree about booleans.** For a BOOLEAN attribute the two
+booleans differ — `hidden={true}` renders `hidden=""` and hides — so an always-boolean expression is
+UNDECIDABLE there and fails closed. For an ENUMERATED attribute React drops EITHER boolean, so the
+same expression is provably harmless. Two predicates: `isProvablyNullish` (shared) and
+`reactOmitsValue` (nullish plus booleans, used only by `popover`). My first fixture asserted
+`hidden={a === b}` should be accepted, and the failing test is what surfaced the distinction — the
+fixture was wrong, not the code.
+
+`isAlwaysBoolean` was extracted from `rendersNothing` rather than copied, since two rules now need
+it and a second copy is a drift source. Five mutations, all red.

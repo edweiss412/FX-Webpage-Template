@@ -549,9 +549,17 @@ function isShadowedAt(at: ts.Node, name: string): boolean {
   };
 
   for (let cur: ts.Node | undefined = at; cur !== undefined; cur = cur.parent) {
-    if (ts.isSourceFile(cur) || ts.isFunctionLike(cur)) {
-      // At every `var` scope boundary, including module scope: a `var` inside a top-level block
-      // belongs to the module, not the block.
+    if (
+      ts.isSourceFile(cur) ||
+      ts.isFunctionLike(cur) ||
+      ts.isModuleDeclaration(cur) ||
+      ts.isClassStaticBlockDeclaration(cur)
+    ) {
+      // At every `var` scope boundary: module scope, a function, a NAMESPACE body, and a class
+      // static block. R32 correctly stopped the downward scan from ENTERING the last two -- a `var`
+      // in there cannot reach a use site outside -- but only doing that half was a fail-OPEN hole:
+      // a use site INSIDE one of them is shadowed by a `var` in a sibling block within it, and
+      // nothing scanned that scope. A boundary is a boundary in both directions.
       if (hoistedBinds(cur)) return true;
     }
     if (ts.isSourceFile(cur)) {
@@ -682,23 +690,7 @@ function rendersNothing(e: ts.Expression): boolean {
   // in the grammar, so this is a decidable rule rather than another approximation:
   //   `!x`, the eight comparisons, `instanceof`, `in`, and `delete`.
   // Deliberately NOT `typeof`, which yields a STRING and therefore renders.
-  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) return true;
-  if (ts.isDeleteExpression(n)) return true;
-  if (ts.isBinaryExpression(n)) {
-    const boolOps = new Set<ts.SyntaxKind>([
-      ts.SyntaxKind.LessThanToken,
-      ts.SyntaxKind.GreaterThanToken,
-      ts.SyntaxKind.LessThanEqualsToken,
-      ts.SyntaxKind.GreaterThanEqualsToken,
-      ts.SyntaxKind.EqualsEqualsToken,
-      ts.SyntaxKind.ExclamationEqualsToken,
-      ts.SyntaxKind.EqualsEqualsEqualsToken,
-      ts.SyntaxKind.ExclamationEqualsEqualsToken,
-      ts.SyntaxKind.InstanceOfKeyword,
-      ts.SyntaxKind.InKeyword,
-    ]);
-    if (boolOps.has(n.operatorToken.kind)) return true;
-  }
+  if (isAlwaysBoolean(n)) return true;
   if (ts.isConditionalExpression(n)) {
     // When the TEST is a literal we know which branch is taken, so only that one matters.
     // Requiring BOTH branches empty accepted `{true ? null : "Dest"}`, which renders nothing.
@@ -1096,8 +1088,12 @@ function omittedByReact(a: ts.JsxAttribute): boolean {
   const init = a.initializer;
   const e = ts.isJsxExpression(init) ? (init.expression ? unparen(init.expression) : null) : init;
   if (e === null) return true; // `hidden={}` contributes no value
-  if (e.kind === ts.SyntaxKind.NullKeyword) return true;
-  if (ts.isIdentifier(e) && e.text === "undefined") return true;
+  // Nullish, however it is spelled -- `void 0` included.
+  if (isProvablyNullish(e)) return true;
+  // Deliberately NOT `isAlwaysBoolean`: for a BOOLEAN attribute the two booleans differ, since
+  // `hidden={true}` renders `hidden=""` and hides. `a === b` is therefore undecidable and fails
+  // closed. `popover` is the opposite -- React drops EITHER boolean from an enumerated attribute --
+  // which is why `popoverHides` uses the wider `reactOmitsValue`. Same word, two behaviours.
   return isLiteralFalsy(e); // `hidden=""` and `hidden={0}` are coerced and dropped
 }
 
@@ -1128,6 +1124,70 @@ function ariaHiddenHides(a: ts.JsxAttribute): boolean {
   // Folded and trimmed: deliberately STRICTER than the harness, which hides only on the exact
   // lowercase "true". See the value table in the behaviour suite.
   return lit.trim().toLowerCase() === "true";
+}
+
+/** Does this expression ALWAYS produce a boolean, whatever its operands are?
+ *
+ *  The set is closed in the grammar: `!x`, the eight comparisons, `instanceof`, `in`, and `delete`.
+ *  Deliberately NOT `typeof`, which yields a STRING. Extracted at R33 because two rules need it and
+ *  the second was about to get its own copy: React renders neither boolean as content, and it also
+ *  OMITS a boolean-valued attribute. One definition, so the two cannot drift.
+ */
+function isAlwaysBoolean(n: ts.Expression): boolean {
+  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) return true;
+  if (ts.isDeleteExpression(n)) return true;
+  if (ts.isBinaryExpression(n)) {
+    const boolOps = new Set<ts.SyntaxKind>([
+      ts.SyntaxKind.LessThanToken,
+      ts.SyntaxKind.GreaterThanToken,
+      ts.SyntaxKind.LessThanEqualsToken,
+      ts.SyntaxKind.GreaterThanEqualsToken,
+      ts.SyntaxKind.EqualsEqualsToken,
+      ts.SyntaxKind.ExclamationEqualsToken,
+      ts.SyntaxKind.EqualsEqualsEqualsToken,
+      ts.SyntaxKind.ExclamationEqualsEqualsToken,
+      ts.SyntaxKind.InstanceOfKeyword,
+      ts.SyntaxKind.InKeyword,
+    ]);
+    if (boolOps.has(n.operatorToken.kind)) return true;
+  }
+  return false;
+}
+
+/** Does React DROP this attribute value, so the attribute never reaches the DOM?
+ *
+ *  True for the values React omits on any attribute: both booleans, `null`, and `undefined` --
+ *  including expressions that provably PRODUCE one of those (`void 0`, `a === b`, `!x`, and a
+ *  conditional whose branches all do). Distinct from `rendersNothing`, which also covers empty
+ *  strings and arrays: those are dropped as CONTENT but preserved as an attribute VALUE, and
+ *  `popover=""` is exactly the case where that difference decides the verdict (review R33).
+ */
+function isProvablyNullish(e0: ts.Expression): boolean {
+  const e = unparen(e0);
+  if (e.kind === ts.SyntaxKind.NullKeyword) return true;
+  if (ts.isIdentifier(e) && e.text === "undefined") return true;
+  if (ts.isVoidExpression(e)) return true; // `void 0` is undefined, whatever the operand
+  if (ts.isConditionalExpression(e)) {
+    const cond = unparen(e.condition);
+    if (isLiteralTruthy(cond)) return isProvablyNullish(e.whenTrue);
+    if (isLiteralFalsy(cond)) return isProvablyNullish(e.whenFalse);
+    return isProvablyNullish(e.whenTrue) && isProvablyNullish(e.whenFalse);
+  }
+  return false;
+}
+
+function reactOmitsValue(e0: ts.Expression): boolean {
+  const e = unparen(e0);
+  if (isProvablyNullish(e)) return true;
+  if (e.kind === ts.SyntaxKind.TrueKeyword || e.kind === ts.SyntaxKind.FalseKeyword) return true;
+  if (isAlwaysBoolean(e)) return true;
+  if (ts.isConditionalExpression(e)) {
+    const cond = unparen(e.condition);
+    if (isLiteralTruthy(cond)) return reactOmitsValue(e.whenTrue);
+    if (isLiteralFalsy(cond)) return reactOmitsValue(e.whenFalse);
+    return reactOmitsValue(e.whenTrue) && reactOmitsValue(e.whenFalse);
+  }
+  return false;
 }
 
 /** Does an inline `style` object hide this element?
@@ -1181,14 +1241,11 @@ function popoverHides(a: ts.JsxAttribute): boolean {
   if (!init) return false; // bare `popover` is `{true}`, which React omits
   const e = ts.isJsxExpression(init) ? (init.expression ? unparen(init.expression) : null) : init;
   if (e === null) return false;
-  if (
-    e.kind === ts.SyntaxKind.TrueKeyword ||
-    e.kind === ts.SyntaxKind.FalseKeyword ||
-    e.kind === ts.SyntaxKind.NullKeyword ||
-    (ts.isIdentifier(e) && e.text === "undefined")
-  ) {
-    return false; // React omits all four
-  }
+  // Anything React DROPS hides nothing. Checking only the four literal spellings made
+  // `popover={void 0}`, `popover={a === b}`, `popover={!x}` and `popover={cond ? true : false}`
+  // false positives -- each provably produces a boolean or undefined, so React omits the attribute
+  // and the announcement is fully visible (measured while R33 was still running).
+  if (reactOmitsValue(e)) return false;
   // Any string or number REACHES the DOM, empty string included, and puts the element in a popover
   // state. A value that cannot be decided fails closed.
   return true;
