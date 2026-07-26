@@ -27,7 +27,7 @@ review rounds (spec carries the citations). Additional plan-time checks:
 ## Meta-test inventory
 
 - EXTENDS `tests/ci/_metaE2eWorkflowCoverage.test.ts` — new `LOCAL_ONLY_ALLOWLIST` row
-  (Task 4).
+  (Task 3).
 - EXTENDS `tests/cross-cutting/ci-workflow-speedup.test.ts` — capture-core path in
   `REQUIRED_PATHS` (Task 1).
 - UPDATES `tests/help/capture-script.test.ts` — guard read-targets relocate with the
@@ -50,12 +50,17 @@ review rounds (spec carries the citations). Additional plan-time checks:
 - **Detach-safety:** the overflow scan + scroll runs as ONE `page.evaluate` over the
   live DOM (no retained element handles across navigation); the identity guard
   re-queries the control bar fresh per attempt. No sampler outlives its page.
-- **Picker bridge (Node test ↔ browser execution):** `pickScrollContainer` is written
-  SELF-CONTAINED (no imports, no closure captures) so the very function unit-tested in
-  Node is passed to `page.evaluate` by Playwright's function-source serialization; the
-  evaluate wrapper gathers `{scrollHeight, clientHeight, clientWidth}` candidates,
-  invokes the passed picker, and scrolls the winner — one evaluate, no duplicated
-  picker logic.
+- **Picker bridge (Node test ↔ browser execution):** Playwright serializes only the
+  pageFunction — arguments cannot carry callables — so the picker never crosses into
+  the page. Two-evaluate protocol instead: evaluate #1 (self-contained pageFunction)
+  walks the dialog's descendants in document order, TAGS each scrollable candidate
+  with `data-gallery-scan-idx="<i>"`, and returns the
+  `{scrollHeight, clientHeight, clientWidth}` metrics array to Node; Node runs the
+  unit-tested `pickScrollContainer` on the metrics; evaluate #2 queries
+  `[data-gallery-scan-idx="<winner>"]`, sets max `scrollTop`, and strips ALL scan
+  tags (attributes never paint, and both evaluates run on the same settled page with
+  no navigation between — re-identification is by tag, not retained handle). Picker
+  logic exists exactly once, in Node, tested.
 
 ## Tasks (TDD; one commit each, conventional style)
 
@@ -84,7 +89,7 @@ local). Same commit: add `"scripts/capture-core.ts"` to
 VERIFY: `pnpm vitest run tests/help/capture-script.test.ts tests/cross-cutting/ci-workflow-speedup.test.ts`;
 typecheck. §8.3 "after" leg runs in Task 5.
 
-### Task 2 — pure units (`test:` then `infra:`, or one `infra:` commit with tests-first inside)
+### Task 2 — pure units (ONE `infra:` commit; tests authored first within it)
 
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 File: `scripts/gallery-screenshots.ts` (pure parts) + `tests/scripts/gallery-screenshots.test.ts`.
@@ -96,9 +101,12 @@ TDD each unit in spec §8.1 order:
    (group-sorted) catalog order, never the filter-input order — asserted with a
    filter given in reversed order.
 1b. `prepareRun(env, partition, now)` — the pre-launch composition (filter parse +
-   catalog guard + entry derivation): all §5 input-guard throws happen HERE, and
-   `captureGallery` calls it BEFORE `chromium.launch` by construction (the browser
-   adapter receives an already-validated plan). Unit tests drive prepareRun directly.
+   catalog guard + entry derivation + capture-env resolution): all §5 input-guard
+   throws happen HERE, and `captureGallery` calls it BEFORE `chromium.launch` by
+   construction (the browser adapter receives an already-validated plan). Env
+   contract tested here too: missing `TEST_AUTH_SECRET` → throw;
+   `SCREENSHOT_BASE_URL` set → used as baseUrl; unset → default
+   `http://localhost:3004` (spec §2). Unit tests drive prepareRun directly.
 1c. identity-guard message constructor — on label mismatch the built error names the
    scenario id and the stale-server remedy (§5); failure mode: silent fallback-to-0
    sweep mislabeling every capture.
@@ -165,8 +173,8 @@ options (baseURL, colorScheme, viewport 1280×800, locale, timezoneId, reducedMo
 `signInAs(page, DEVELOPER_FIXTURE, {baseUrl})`; then ONE PAGE PER SCENARIO — each page:
 `installDeterminism(page, theme)` + `disableAnimations(page)` registered BEFORE
 navigation (capture-core imports), goto retry, identity guard, quiescence, viewport
-shot, overflow companion (the §-checklist picker bridge: one `page.evaluate` receiving
-the unit-tested self-contained `pickScrollContainer`), page CLOSED before the next
+shot, overflow companion (the harness-readiness picker bridge: tag-scan evaluate →
+Node-side tested `pickScrollContainer` → tag-targeted scroll evaluate), page CLOSED before the next
 scenario; context CLOSED before the next theme's `signInAs` (session revocation);
 staged writes; finalize via the Task-2 orchestrator (which prints any loader warning
 through its `warn` sink). Run `pnpm screenshot:gallery` → test PASSES.
@@ -174,14 +182,17 @@ through its `warn` sink). Run `pnpm screenshot:gallery` → test PASSES.
 VERIFY: `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts tests/help/playwright-config.test.ts`;
 `pnpm typecheck`; eslint on changed files.
 
-### Task 4 — full-sweep measurement + review sample (`docs:` if any doc edits)
+### Task 4 — full-sweep measurement + review sample (`infra:` only if the timeout is amended)
 
-Run `pnpm screenshot:gallery` (server builds once). Record wall clock; tighten the
-project timeout to ~2× measured (amend config if <900 s measured; keep 1800 s
-otherwise) and note the measurement in the PR body. Verify §8.2 postconditions passed;
-spot-open several WebPs (light+dark+overflow) to confirm the modal is actually in
-frame. Re-run with `GALLERY_SCENARIO=<one id>` to exercise the filtered path against
-the fresh index.
+Run `pnpm screenshot:gallery` (server builds once). Record wall clock; verify §8.2
+postconditions passed; spot-open several WebPs (light+dark+overflow) to confirm the
+modal is actually in frame. Re-run with `GALLERY_SCENARIO=<one id>` to exercise the
+filtered path against the fresh index. Timeout amendment protocol (measurement-driven
+config constant — TDD RED/GREEN does not apply, the rerun is the verification): if
+measured < 900 s, set the project timeout to ~2× measured, RERUN the full sweep under
+the new ceiling to prove it green, and commit `infra:` with the measurement in the
+message; otherwise keep 1_800_000 and no commit. Either way the measurement goes in
+the PR body.
 
 ### Task 5 — close-out gates
 
