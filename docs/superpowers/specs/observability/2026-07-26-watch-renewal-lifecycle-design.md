@@ -188,6 +188,16 @@ runTx(tx => { const reaped = await tx.expireDeadActive();
               return { reaped, due }; })
 ```
 
+**The statement is measured, not just prescribed.** Run against the real local database on 2026-07-26 with the migration applied, over three rows — genuinely expired, inverted-lease with a FUTURE `expires_at`, and healthy in-lease — inside a rolled-back transaction:
+
+| Row | `created_at` / `expires_at` | Result | `superseded_at` |
+| --- | --- | --- | --- |
+| `p-dead` | -30h / -6h | `expired` | not set |
+| `p-inverted` | +30h / +24h | `superseded` | set |
+| `p-healthy` | -1h / +23h | untouched, still `active` | not set |
+
+`UPDATE 2` — the healthy row is not touched, which is the §3.1.2 guarantee that a renewal failure must never retire a channel that is still delivering.
+
 **What that transaction buys is atomicity and ordering — NOT a single snapshot.** `sql.begin` runs at PostgreSQL's default READ COMMITTED isolation (`lib/drive/watch.ts:356-365`), where every statement takes its own snapshot, so the renewal read can observe rows committed after the reap (spec R1 finding 9). An earlier draft claimed one snapshot; that was a stronger guarantee than the primitive provides, and the design does not need it. What it needs is that the reap is committed-or-not together with the read, and that no reaped row can appear in `due` — both of which ordering inside one transaction does deliver.
 
 Consequences, all intended:
