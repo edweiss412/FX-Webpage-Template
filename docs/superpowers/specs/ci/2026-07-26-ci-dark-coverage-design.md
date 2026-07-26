@@ -14,7 +14,7 @@ Files this spec CREATES are written unbackticked (tests/e2e/helpers/liveEntryBun
 A test that no workflow invokes is not coverage. It is a file that once passed. The repo has three independent mechanisms by which a suite goes dark, and each has produced a live defect:
 
 1. **A Playwright config nothing invokes.** `tests/e2e/standalone.config.ts` holds an explicit `testMatch` allow-list (`tests/e2e/standalone.config.ts:35`). Specs in it are unreachable via the default config, so `pnpm exec playwright test tests/e2e/<one>.spec.ts` reports `No tests found` — a failure that reads as a bad path, not a missing project.
-2. **A workflow run-list nothing added to.** `tests/e2e/admin-lifecycle-transitions.spec.ts` is matched by the `mobile-safari` project (`playwright.config.ts:62`) but named by no workflow.
+2. **A workflow run-list nothing added to.** `tests/e2e/admin-lifecycle-transitions.spec.ts` is matched by the `mobile-safari` project (`playwright.config.ts:64`) but named by no workflow.
 3. **A vitest exclusion nobody watches.** `tests/cross-cutting/pg-cron-coverage.test.ts` is listed in `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) with a comment claiming it "runs against the validation project." Nothing runs it.
 
 The cost is not theoretical. Measured 2026-07-26 (§2.3): two dark standalone specs are **red on `main` right now**, and the mechanism is exactly the rot this class predicts — a shared harness entry grew a Node-builtin import, the specs that CI runs were given stub aliases, and the dark copies were never updated because nothing observed them break.
@@ -129,27 +129,58 @@ Decisive asymmetry: `resolve-label-layout.spec.ts:68` and `compact-alert-card-la
 
 New module tests/e2e/helpers/liveEntryBundle.ts exporting two functions:
 
-- `bundleLiveEntry({ entry, outFile })` — runs the **local** esbuild binary via `pnpm exec esbuild` with the canonical flag set and the canonical alias list. No `dlx`, no network, no version literal at the call site.
+- `bundleLiveEntry({ entry, outFile })` — calls esbuild's **JavaScript API** (`import * as esbuild from "esbuild"`) with the canonical options and the server-only resolver plugin (§3.2). Not the CLI, not `execFileSync`, not `dlx`: no subprocess, no network, no version literal, and the alias policy becomes a data structure instead of a list of shell flags.
 - `buildEntryCss({ sources, outFile })` — runs `@tailwindcss/cli` (newly a pinned devDependency, §3.3) via `pnpm exec`, taking the `@source` list each harness needs.
 
 Both are plain synchronous helpers over `execFileSync`, callable from a spec's `beforeAll`. What they do: produce a browser bundle / stylesheet for a harness entry. How you use them: pass an entry path and an output path. What they depend on: `node:child_process` and the two local binaries. Nothing else in the repo imports them.
 
 ### §3.2 Canonical alias list
 
-One exported constant, `LIVE_ENTRY_ALIASES`, mapping every module a browser bundle cannot resolve to its remedy. Measured from the §2.3 run — **four entries, not the two that exist today**:
+A per-module alias list was the first design and **it was measured and rejected** (§3.2a). What replaces it is one rule: _a server-only module never belongs in a browser harness bundle._ An `onResolve` plugin matches server-only specifiers and an `onLoad` handler returns a stub.
 
-| Module | Remedy | Why |
+`SERVER_ONLY` — one exported array of patterns, the whole policy:
+
+| Pattern class | Examples |
+| --- | --- |
+| Server-only packages | `googleapis`, `postgres`, `google-auth-library` |
+| Node builtins | `node:crypto`, `node:async_hooks`, `node:fs`, `os`, `net`, `tls`, … |
+| Server Action modules | any specifier containing `_actions/` |
+| Server-only app layers | `@/lib/sync/…`, `@/lib/drive/…`, `@/lib/auth/…`, `@/lib/supabase/server` |
+
+`next/navigation` stays a real alias to `tests/e2e/_nextNavigationStub.ts`, because the harness needs working values (`usePathname()` → `"/admin"`), not a throw.
+
+**The stub is a CJS proxy, and that choice is load-bearing.** It is emitted as CommonJS so esbuild can satisfy **any** named import without the stub enumerating exports; every property access returns the same proxy, so `a.b.c` resolves, and it throws only when actually **called** or constructed. This structurally eliminates the stub-drift defect class — measured twice in this codebase:
+
+- `tests/e2e/_nodeCryptoStub.ts:7` exports only `createHash`, but `lib/email/hashForLog.ts:1` imports `{ createHash, createHmac }`.
+- `tests/e2e/_nextNavigationStub.ts` exports no `forbidden` and no `redirect`, but `lib/auth/requireAdmin.ts:23` imports both.
+
+Both are the same bug as §2.3: a hand-maintained list that the import graph outgrew. A per-module alias table would require fixing each by hand and would rot again; the proxy cannot.
+
+### §3.2a Why the alias table was rejected — measured
+
+Probed directly, both entries, local esbuild:
+
+| Approach | `_compactAlertCardLiveEntry` | `_packListRescanLiveEntry` |
 | --- | --- | --- |
-| `node:crypto` | alias → `tests/e2e/_nodeCryptoStub.ts` | Three importers: `lib/parser/useRawContentHash.ts:1`, `lib/email/hashForLog.ts:1`, `lib/sync/applyStaged.ts:1` |
-| `node:async_hooks` | alias → a **new** stub | `lib/log/requestContext.ts:2`; no stub exists today |
-| `next/navigation` | alias → `tests/e2e/_nextNavigationStub.ts` | Router hooks unavailable outside a Next tree |
-| the `postgres` driver | mark external (or alias to an empty module) | `os` and `fs` surface only through the postgres driver's own entry module (postgres 3.4.9, first two import lines), reached transitively. Stub the driver, not the builtins. |
+| 4-entry alias list (`node:crypto`, `node:async_hooks`, `next/navigation`, pg driver) | builds, 903 kb | **78 errors** |
+| Rule-based plugin + CJS proxy stub | builds, 926 kb | **builds, 1093 kb** |
 
-**The existing crypto stub is under-exported.** `tests/e2e/_nodeCryptoStub.ts:7` exports only `createHash`, but `lib/email/hashForLog.ts:1` imports `{ createHash, createHmac }`. Pointing packlist's build at the stub as-is trades an unresolved-module error for a missing-export error, so the stub gains `createHmac` with the same loud-throw shape (`tests/e2e/_nodeCryptoStub.ts:8`) — throwing is correct because no harness render path calls it, and a silent no-op would let a real hash silently become undefined.
+The alias list fails on packlist because that entry's graph reaches the entire server tree. Traced via esbuild metafile:
 
-Every one of the 8 sites already passes `--external:node:fs`, which is why `fs` surfaces only where the driver is reached; the helper keeps that flag in its canonical set.
+```
+tests/e2e/_packListRescanLiveEntry.tsx
+  -> components/admin/wizard/step3ReviewSections.tsx
+  -> components/admin/UseRawControlBoundary.tsx        (imports at :33 and :34)
+  -> app/admin/show/[slug]/_actions/useRaw.ts          ("use server")
+  -> lib/sync/runManualSyncForShow.ts -> lib/sync/runScheduledCronSync.ts
+  -> googleapis   (913 graph inputs)
+```
 
-Adding the next stub is a one-line edit to this constant, applied to all 8 sites at once. That property is the entire point of the extraction: the defect in §2.3 exists because this list was per-call-site.
+`lib/sync/lockedShowTx.ts` reaches the `postgres` driver by a parallel edge, which is where `os` and `fs` came from. Next erases the `"use server"` boundary at build time; raw esbuild follows it.
+
+Stubbing that one boundary is not enough either — after aliasing both `UseRawControlBoundary` imports, **ten** distinct `lib/sync/*` modules still pulled in `postgres`. The boundary count is what makes enumeration the wrong shape and a rule the right one.
+
+**Honest limit:** these numbers prove the bundles **build**. They do not prove the specs **pass** — a proxy that throws on call is correct only if no render path calls a server-only module, which is true today for these two entries but is exactly what the TDD task in §3.5 must demonstrate by running the specs, not by rebuilding them.
 
 **Guard conditions.** `bundleLiveEntry` throws a named error when `entry` does not exist on disk (rather than surfacing esbuild's resolution error), when `outFile`'s directory does not exist, and when the local binary is absent. An empty `sources` array passed to `buildEntryCss` is an error, not a silent empty stylesheet — an empty stylesheet renders an unstyled harness whose layout assertions would fail confusingly rather than loudly.
 
@@ -159,20 +190,23 @@ Add `"@tailwindcss/cli": "4.2.4"` to `devDependencies` as an exact pin (matching
 
 ### §3.4 Structural defense
 
-New meta-test tests/e2e/\_metaLiveEntryToolchain.test.ts, filesystem-walked over `tests/e2e/*.spec.ts` so a new spec fails by default:
+New meta-test tests/e2e/\_metaLiveEntryToolchain.test.ts, filesystem-walked over `tests/e2e/**` so a new spec fails by default. The scan covers the **helper itself**, not only the specs — otherwise the helper could regress to `dlx` while the guard stayed green:
 
-1. No spec file may contain the literal `"dlx"` in an `execFileSync`/`spawnSync` argument list. Failure message names the helper.
-2. No spec file may name `esbuild` or `@tailwindcss/cli` as a command. Both go through the helper.
-3. Every alias in `LIVE_ENTRY_ALIASES` resolves to an existing stub file.
+1. **No subprocess toolchain anywhere under `tests/e2e/**`**, helper included. Rather than blocklisting `execFileSync` and `spawnSync` — which misses `execSync`, `spawn`, `exec`, imported aliases, `node:child_process` namespace calls, string concatenation, and variable indirection — the guard asserts that **no file under `tests/e2e/**` imports `node:child_process` / `child_process` at all**, with a named exemption list that is currently empty. Import-level is the choke point every one of those spellings must pass through; call-shape matching is not.
+2. **No file names `esbuild` or `@tailwindcss/cli` as a command string.** Both reach the toolchain through the helper's API call.
+3. **The helper's options are asserted against the resolved policy, not its source text.** The test imports `SERVER_ONLY` and the built options object from the helper and asserts the plugin is present and the policy array is the one the helper actually passes to esbuild — per `feedback_structural_guards_assert_resolved_config`, a source scan of the helper would pass while the value handed to esbuild differed.
+4. **A behavioral case proves the policy is applied**: bundle a fixture entry importing a server-only module, and assert the output contains the stub's throw string and does not contain a marker string from the real module. A build that merely succeeds does not prove the plugin ran.
 
-The check is a source scan, not a config import, per `feedback_structural_guards_assert_resolved_config` — but it asserts the **absence of a shape**, which is the allowlist posture from `feedback_static_guard_allowlist_shapes_not_leak_hunting`: enumerate the permitted call shape (the helper), reject everything else, rather than hunting for known-bad spellings.
+Case 4 answers the hole in the §3.5 positive test: a bundle can also succeed via a network-backed `dlx`, so "it built" is not evidence the helper's policy was used.
 
 ### §3.5 Test plan (TDD order)
 
 1. Red: the new toolchain meta-test fails against `main` (33 violating call sites).
-2. Red: a unit test of `bundleLiveEntry` asserting it bundles `_compactAlertCardLiveEntry.tsx` **without** a `node:crypto` error — fails before the helper exists.
-3. Green: implement the helper, add the devDependency, migrate all 8 esbuild sites and all 25 CSS sites.
-4. Verify: the full standalone config runs green locally, including `resolve-label-layout` and `packlist-rescan-recovery`, which must go from red to green **without either spec being edited except to call the helper**. That is the concrete failure mode this PR catches: a harness entry's graph gaining a Node-builtin import breaks every bundling spec at once instead of silently breaking only the unwatched ones.
+2. Red: a unit test of `bundleLiveEntry` asserting it bundles **both** `_compactAlertCardLiveEntry.tsx` and `_packListRescanLiveEntry.tsx` with no resolution errors — fails before the helper exists. Both are already proven buildable under the §3.2 design (§3.2a), so a failure here is a helper defect, not a discovery.
+3. Green: implement the helper, add the `@tailwindcss/cli` devDependency and the version-parity test, migrate all 8 esbuild sites and all 25 CSS sites.
+4. Verify **by running the specs, not by rebuilding them**: the full standalone config green locally, with `resolve-label-layout` and `packlist-rescan-recovery` going red → green **without either spec being edited except to call the helper**. §2.3b is the baseline to beat: 279 passed / 2 failed becomes 281 / 0. This step is what converts §3.2a's build-success evidence into pass evidence — a proxy that throws on call is only correct if no render path calls a server-only module, and only the suite can show that.
+
+The concrete failure mode this PR catches: a harness entry's import graph reaching server-only code breaks every bundling spec at once, loudly, instead of silently breaking only the ones no workflow watches.
 
 ---
 
@@ -198,7 +232,7 @@ New package script `test:e2e:standalone` wrapping that command, matching the exi
 
 ### §4.2 Why no path filter
 
-`_workflowCoverageScan.ts:105` classifies a workflow as not-PR-blocking-capable if its `pull_request` block carries **either** `paths:` or `paths-ignore:`. A coarse-filtered workflow would therefore leave all 17 specs allowlisted as `PATH_GATED` — the guard would stay green while the specs stayed effectively dark, which is the failure mode this whole spec exists to remove.
+`_workflowCoverageScan.ts:105` classifies a workflow as not-PR-blocking-capable if its `pull_request` block carries **either** `paths:` or `paths-ignore:`. A coarse-filtered workflow would therefore leave **all 27 real standalone branches** non-qualifying and still allowlisted as `PATH_GATED` — not merely the 16 dark ones — so the guard would stay green while every one of them stayed effectively dark. That is the failure mode this whole spec exists to remove.
 
 So the workflow triggers on `pull_request` with no path filter, plus `workflow_dispatch` (per the "enable `workflow_dispatch` on any CI workflow during the milestone" discipline in `AGENTS.md`). The cost is one ~5 min DB-free job on every PR, including docs-only ones. This is accepted deliberately: weakening the scanner's contract to buy a filter would convert a real guarantee into a nominal one.
 
@@ -220,11 +254,37 @@ Three, each fails-by-default, all in the same PR as the retirements so a coverag
 
 `scanWorkflowCoverage` (`tests/ci/_workflowCoverageScan.ts:80`) is a **pure** function — its only inputs are `workflows` and `packageScripts`, with all filesystem reading done by the caller. The extension preserves that: a third `Opts` field `configSpecs`, mapping a Playwright config path to the spec paths its `testMatch` matches, supplied by the meta-test exactly as `workflows` and `packageScripts` already are. Parsing the config stays outside the scanner, which remains table-testable.
 
-Resolution rule inside `resolveSpecs` (`tests/ci/_workflowCoverageScan.ts:87`): a command naming `--config <path>` **and** explicit `*.spec.ts` arguments is covered by those arguments only — that is `test:e2e:modal-header`'s shape today. A command naming `--config <path>` with **no** spec arguments covers every entry in `configSpecs[path]`. A config path that appears in a command but has no `configSpecs` entry is a hard error, never a silent zero-match (`tests/ci/_workflowCoverageScan.ts:25` records exactly that lesson).
+**Whole-config coverage is claimed only for an unnarrowed invocation.** "Names a config and no `*.spec.ts` argument" is not sufficient: Playwright narrows a run through a bare positional regex (`playwright test resolve-label`), `-g` / `--grep`, `--grep-invert`, `--project`, `--shard`, `--test-list`, `--last-failed`, and `--only-changed`, and `--list` executes nothing while exiting 0. So the rule is an **allowlist of tokens**, not a blocklist:
 
-**G2 — no stale or missing `testMatch` branches.** Assert (a) every alternation branch in `tests/e2e/standalone.config.ts:36` resolves to an existing spec file whose basename is that branch plus the spec-file suffix, and (b) every spec that is self-contained is listed. `overrideableField.layout` fails (a) today and its branch is deleted in this PR. For (b), "self-contained" is determined structurally — the spec creates its own server via the helper module from §3 — rather than by a hand-maintained list, so a new harness spec that forgets to register fails at authoring time.
+- a command claims whole-config coverage only when every argument after `playwright test` is either `--config <path>` or a member of a small known-inert set (`--reporter`, `--retries`, `--workers`, `--output`, `--timeout`, `--forbid-only`, `--quiet`);
+- **any** unrecognized argument — positional or flagged — drops the claim to zero specs and records a rejection reason, so a future edit that adds `--shard` silently loses coverage rather than silently keeping it;
+- explicit `*.spec.ts` arguments alongside `--config` are covered by those arguments only, which is `test:e2e:modal-header`'s shape today.
 
-**G3 — `ENV_BOUND_EXCLUDES` coverage.** Every entry in `vitest.projects.ts:48` must be named in some workflow's `run:` command, or carry an inline `// not-run-anywhere: <reason>` comment on its own line. `pg-cron-coverage.test.ts` fails this today; PR3 fixes it by making the entry unnecessary. This closes the third dark-mechanism from §1, which no guard watches at all.
+Config-side narrowing is handled the same way: the `configSpecs` builder resolves the config's `testMatch` **and** its `testIgnore` and any project-level `testMatch` / `grep`, so a spec excluded inside the config is never reported as covered. A config path appearing in a command with no `configSpecs` entry is a hard error, never a silent zero-match (`tests/ci/_workflowCoverageScan.ts:25` records exactly that lesson).
+
+**Implicit-config invocations must resolve too.** `.github/workflows/dev-gate-e2e.yml:108` runs `playwright test --project=dev-build --project=prod-build --project=prod-runtime-flip` — no filename, no `--config`. A `--config`-only extension leaves every spec matched solely by a project regex invisible, which is why `attention-modal-gallery` would stay `UNSEEN` after PR4 even once its workflow runs on PRs (§6.2). So `configSpecs` is also supplied for the **default** `playwright.config.ts`, keyed per project, and a command naming `--project <name>` with no spec arguments covers exactly that project's matched specs. Without this, PR4 could delete the spec from `dev-build`'s `testMatch` (`playwright.config.ts:92`) and the meta-test would stay green with the suite dark — the exact recurrence this cluster exists to prevent.
+
+**G2 — no stale or missing `testMatch` branches.** Two halves, with very different strengths, and the spec is explicit about which is which.
+
+(a) **Stale branches — strong.** Every alternation branch in `tests/e2e/standalone.config.ts:36` must resolve to an existing spec file whose basename is that branch plus the spec-file suffix. `overrideableField.layout` fails this today; its branch is deleted in this PR. This half is total: the branch list is finite and each entry either resolves or does not.
+
+(b) **Unregistered self-contained specs — bounded.** The §3 helper bundles JS and CSS; it does **not** create the HTTP server, so "calls the helper" is neither necessary nor sufficient for self-containment, and a spec could reach it through a re-export, wrapper, or dynamic import and evade a direct source scan. Rather than pretend otherwise, (b) keys on the property that actually defines the class: a spec under `tests/e2e/**` that **imports `node:http` / `node:https`** (the server it boots) and is matched by **no** project in `playwright.config.ts` must appear in `standalone.config.ts`. That is checkable at the import level — the same choke point §3.4 case 1 uses — and it fails by default for a new harness spec.
+
+A spec that boots a server by some third means is not detected; that residue is stated in §9 rather than papered over. What (b) buys is that the idiom every current harness uses cannot go unregistered.
+
+**G3 — `ENV_BOUND_EXCLUDES` coverage.** Every entry in `vitest.projects.ts:48` must be **executed by a PR-blocking-capable workflow**, or carry an inline `// not-run-anywhere: <reason>` comment on its own line.
+
+"Named in a `run:` command" is not the test and would be a fail-open guard: a filename can appear inside an `echo`, a comment, a dead branch, a step with `if:` or `continue-on-error`, an exit-suppressed command, or a manual-only workflow — and can even be named and then excluded. G3 therefore reuses the **same capability pipeline** `scanWorkflowCoverage` already implements (`tests/ci/_workflowCoverageScan.ts:97-125`): `pull_request` trigger, no path filter, no job/step `if:`, no `continue-on-error`, no exit-code suppression, with `pnpm` script aliases resolved transitively. Only a command that survives all of those counts.
+
+Baseline dispositions, verified rather than assumed — the array has three entries and each needed checking:
+
+| Entry | Status today | Disposition in PR3 |
+| --- | --- | --- |
+| `tests/cross-cutting/pg-cron-coverage.test.ts` | runs nowhere | exclusion removed; runs in `unit-suite-db` (§5.2) |
+| `tests/cross-cutting/email-canonicalization.test.ts` | executed via the `test:audit:x5-email-canonicalization` script at `.github/workflows/x-audits.yml:231` | passes G3 through alias resolution; no change |
+| `tests/admin/test-auth-gate.test.ts` | **runs nowhere** | needs an explicit `// not-run-anywhere:` reason or wiring — PR3 decides and records which |
+
+Both of the latter appear in `.github/workflows/unit-suite.yml` only as `#` comment lines (`.github/workflows/unit-suite.yml:74` and `.github/workflows/unit-suite.yml:76`) explaining why they are excluded. A guard matching raw file text would count those as coverage and certify two suites that do not run — which is why G3 matches `run:` commands through the capability pipeline and never raw YAML.
 
 **Guard code gets its own adversarial attention.** Per `feedback_guard_code_needs_its_own_adversarial_rounds`, the plan includes a task that mutates each of G1–G3 (a narrowed regex, a truncated branch list, a removed array entry) and asserts the guard goes red. A guard that cannot be shown to fail is decoration.
 
@@ -301,9 +361,9 @@ Acceptance for this task is **five consecutive green runs** of the spec, not one
 Two rotted assertions, both traceable to commits that landed after the gate's last green run on 2026-07-02:
 
 - `tests/e2e/attention-modal-gallery.spec.ts:398` — `controls.getByText(String(GLOBAL.length), { exact: false })` raises a strict-mode violation resolving to 2 elements. The substring match means any element in the controls bar containing that digit qualifies. Repair: scope the locator to the counter element and match exactly. Per `feedback_containment_is_not_verbatim_use_set_equality`, the assertion is rewritten to compare against the counter's own text, not a containment test over the bar.
-- `tests/e2e/attention-modal-gallery.spec.ts:265` — `await expect(attentionMenu).toHaveCount(0)` after `Escape` times out. The panel's three groups were merged into two by `f4c4bf493`, changing the close behavior. Repair follows the current component, and the plan verifies the expected behavior by reading the component rather than by inferring it from the failing assertion.
+- `tests/e2e/attention-modal-gallery.spec.ts:265` — `await expect(attentionMenu).toHaveCount(0)` after `Escape` times out. **Cause unknown; do not assume the product changed.** An earlier draft of this spec attributed it to `f4c4bf493` merging the panel's three groups into two. That attribution is retracted: `components/admin/showpage/AttentionMenu.tsx:81-105` still registers a capture-phase `keydown` handler that calls `onClose()` and restores focus on Escape, and the pre-commit handler had the same semantics. The assertion is therefore probably **valid**, and the failure is a harness, timing, or scenario-state problem. The task diagnoses it before touching the assertion; weakening a correct assertion to make a rotted spec green would convert real coverage into decoration.
 
-**Build-vs-runtime gate.** The spec needs the built `ADMIN_DEV_PANEL_ENABLED=true` artifact, which is a **build-time** decision — `scripts/with-admin-dev-flag.mjs` physically holds `app/admin/dev` aside during flag-unset builds, so a runtime env flip cannot substitute (`playwright.config.ts` `prod-runtime-flip` project exists to prove exactly that). It therefore stays in the `dev-build` project (`playwright.config.ts:99`) and cannot move to the port-3000 baseline. Its home stays `dev-gate-e2e.yml`; what changes is that the workflow gains a `pull_request` trigger so the spec stops rotting between dispatches. If the full three-server dev-gate boot proves too slow for every PR, the fallback recorded in the plan is a scheduled nightly trigger plus `workflow_dispatch` — still strictly better than dispatch-only, and the decision is made on a measured runtime, not a guess.
+**Build-vs-runtime gate.** The spec needs the built `ADMIN_DEV_PANEL_ENABLED=true` artifact, which is a **build-time** decision — `scripts/with-admin-dev-flag.mjs` physically holds `app/admin/dev` aside during flag-unset builds, so a runtime env flip cannot substitute (`playwright.config.ts` `prod-runtime-flip` project exists to prove exactly that). It therefore stays in the `dev-build` project, whose `testMatch` names it at `playwright.config.ts:92`, and cannot move to the port-3000 baseline. Its home stays `dev-gate-e2e.yml`; what changes is that the workflow gains a `pull_request` trigger so the spec stops rotting between dispatches. If the full three-server dev-gate boot proves too slow for every PR, the fallback recorded in the plan is a scheduled nightly trigger plus `workflow_dispatch` — still strictly better than dispatch-only, and the decision is made on a measured runtime, not a guess.
 
 ---
 
@@ -313,7 +373,8 @@ Per `docs/agents/writing-plans.md`, declared up front.
 
 | Meta-test | Status | PR |
 | --- | --- | --- |
-| tests/e2e/\_metaLiveEntryToolchain.test.ts | **created** — no spec may hand-roll a bundler/CSS invocation | PR1 |
+| tests/e2e/\_metaLiveEntryToolchain.test.ts | **created** — no file under `tests/e2e/**` (helper included) imports a child-process module; helper policy asserted as resolved config; behavioral proof the plugin ran | PR1 |
+| Tailwind version-parity test | **created** — resolved `@tailwindcss/cli` and `tailwindcss` agree on major and minor | PR1 |
 | `tests/ci/_workflowCoverageScan.ts` | **extended** — config-aware coverage detection (G1) | PR2 |
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **extended** — stale/missing `testMatch` branches (G2); allowlist shrinks by 27 rows to 59 | PR2 |
 | New assertion over `ENV_BOUND_EXCLUDES` | **created** — every exclusion is run somewhere or reasoned (G3) | PR2 |
@@ -331,14 +392,16 @@ Registries deliberately not touched: `tests/log/_auditableMutations.ts` (no muta
 - **AC-4** `pg-cron-coverage.test.ts` executes in `unit-suite-db` with a non-zero live-DB test count, and a job in `x-audits.yml` runs it against validation.
 - **AC-5** An unreachable `psql` under `CI` fails the job rather than skipping the assertions.
 - **AC-6** `admin-lifecycle-transitions` is in a workflow and green five consecutive times.
-- **AC-7** `attention-modal-gallery` passes and its workflow has a trigger that fires without a human dispatch.
+- **AC-7** `attention-modal-gallery` passes, its workflow has a trigger that fires without a human dispatch, **and the coverage scanner sees it** — its `UNSEEN` row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:50` is deleted and the shadowing assertion passes. A green gallery that the registry still lists as dark would leave the recurrence path open (§4.4 G1, implicit-config resolution).
+- **AC-9** Every entry in `ENV_BOUND_EXCLUDES` is either executed by a PR-blocking-capable workflow or carries an inline reason — including `tests/admin/test-auth-gate.test.ts`, which today is neither.
 - **AC-8** No file under `components/`, `app/`, `DESIGN.md`, or `tailwind.config.*` is modified in any of the four PRs.
 
 ## §9 Out of scope, and honest ceilings
 
 - **Command-body text matching stays text matching.** A `cron.job` whose `net.http_get(...)` is commented out followed by an executable `select 1;` satisfies every assertion in the suite while issuing no request, and `active=true` does not help because the job runs, it just does nothing. Proving a job fires needs a per-job smoke test; only the sync path has one. `BL-PG-CRON-COVERAGE-UNRUN` stays open for that residue rather than being closed by this work.
 - **The ~60 app-dependent `UNSEEN` specs** keep their allowlist rows. Wiring them needs a booted app and a seeded database per spec, which is a separate cluster with a different cost profile.
-- **G2's "self-contained" detection** is structural (does the spec call the §3 helper) and therefore covers harness specs specifically. A future self-contained spec that boots a server some third way is not detected; that limitation is stated in the guard's own header, so a green run means "no spec using the known harness idiom is unregistered," not "the class is impossible." This bounded claim is deliberate, per the three-round prose cap in `docs/agents/spec-self-review.md`.
+- **G2(b)'s detection is bounded by construction.** It keys on a spec importing `node:http` / `node:https` while matching no default-config project. A future self-contained spec that boots a server by some third means — a library wrapper, a spawned binary, a dynamic import computed at runtime — is not detected. That limitation is stated in the guard's own header, so a green run means "no spec using the known harness idiom is unregistered," not "the class is impossible." G2(a), by contrast, is total: every branch in the config either resolves to a file or fails. Keeping the two claims distinct is deliberate, per the three-round prose cap in `docs/agents/spec-self-review.md`.
+- **G1 claims coverage only for invocations it fully understands.** Any unrecognized argument drops the coverage claim rather than assuming whole-config execution, so the guard under-claims on an exotic command instead of over-claiming. Under-claiming surfaces as a required allowlist row; over-claiming would be a silent hole.
 - **Branch protection is unchanged.** Promoting any of these jobs into the required set is an owner GitHub-settings action, not repo code.
 
 ## §10 Risks
@@ -348,5 +411,5 @@ Registries deliberately not touched: `tests/log/_auditableMutations.ts` (no muta
 | Retiring a workflow drops coverage the new job does not actually provide | G1 + G2 land in the same PR as the retirements; the shadowing assertion fails if a retired spec is neither covered nor allowlisted. Additionally the plan runs the full standalone config locally before the retirement commit and records the spec list. |
 | `ENV_BOUND_EXCLUDES` edit reddens the required `unit-suite` check | The change is one array entry, and the suite it admits is proven green against a bootstrapped local DB before the commit. `unit-suite.yml` has `workflow_dispatch`, so it is verified by a real Actions run before merge, per the local-passes-CI-fails discipline in `AGENTS.md`. |
 | The unfiltered standalone job slows every PR | Measured DB-free and build-free; ~5 min including setup, replacing five jobs that each pay the same setup today. Net job count on a PR touching `components/` goes down. |
-| `@tailwindcss/cli` pin drifts from `tailwindcss` | Both are pinned; a meta-test asserting the two majors agree is deferred unless the plan's review surfaces a real divergence path. |
+| `@tailwindcss/cli` pin drifts from `tailwindcss` | Real, and not mitigated by pinning alone: the new CLI entry is exact (`4.2.4`) but `tailwindcss` stays a range (`package.json:119`, `"^4"`), so an install can pair the fixed CLI with a different Tailwind minor. PR1 adds a meta-test asserting the resolved versions of the two packages agree on major **and** minor, failing loudly on the drift rather than rendering a harness against a mismatched engine. |
 | `admin-lifecycle-transitions` remains flaky after repair | AC-6 requires five consecutive greens. If it does not reach that, the spec is left dark with a recorded reason and the item stays open — an admitted flake is worse than a known gap. |
