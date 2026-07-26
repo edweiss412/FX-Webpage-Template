@@ -4014,6 +4014,52 @@ describe("R6: scanner changes are pinned", () => {
     }
   });
 
+  it("one selector, many consumers: each applies its OWN kind after the same selection", () => {
+    // R36's finding 4 fixed `pickedOperand` and the pin still failed, because `rendersNothing` and
+    // `expressionDestination` each carried their own copy of the &&/||/?? logic. Now all three
+    // delegate, and this asserts the RESULT of that: for one expression, every consumer must agree on
+    // which operand is selected, then diverge only where React's semantics for that attribute kind
+    // genuinely differ.
+    const run = (inner: string): boolean =>
+      violations(`const A=({a,b,x,n,flag})=><a href="x" target="_blank">${inner}</a>;`).length > 0;
+    const hid = '<span aria-hidden="true">Go</span>';
+    // `!x` is always a boolean, so `??` KEEPS it: the value renders nothing and React omits it from
+    // an enumerated attribute, while a boolean-DOM or ARIA attribute cannot tell true from false and
+    // fails closed.
+    for (const expr of ['(!x) ?? "D"', '(a === b) ?? "D"', "true && (!x)", "false || (!x)"]) {
+      expect(
+        run(`{${expr}}${hid} <NewTabHint />`),
+        `${expr}: renders nothing, no destination`,
+      ).toBe(true);
+      expect(
+        run(`Go <span popover={${expr}}><NewTabHint /></span>`),
+        `${expr}: popover omits a boolean`,
+      ).toBe(false);
+      expect(
+        run(`Go <span hidden={${expr}}><NewTabHint /></span>`),
+        `${expr}: hidden cannot decide`,
+      ).toBe(true);
+      expect(
+        run(`Go <span aria-hidden={${expr}}><NewTabHint /></span>`),
+        `${expr}: aria cannot decide`,
+      ).toBe(true);
+    }
+    // Where selection itself is undecidable, EVERY consumer must fail its own way: content stays
+    // opaque (assumed destination, per §6.4) and the attributes fail closed.
+    for (const expr of ['(!x) || "D"', '(!x) && "D"']) {
+      expect(
+        run(`{${expr}} <NewTabHint />`),
+        `${expr}: opaque content is assumed a destination`,
+      ).toBe(false);
+      for (const attr of ["popover", "hidden", "aria-hidden"]) {
+        expect(
+          run(`Go <span ${attr}={${expr}}><NewTabHint /></span>`),
+          `${expr}: ${attr} fails closed on an undecidable selection`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it("value composition is CLOSED: every helper resolves nesting", () => {
     // R34 routed every value question through `pickedOperand`; R35 then found `isProvablyNullish`
     // was the one helper the layer CONSULTS that did not itself compose. That is a property of the
