@@ -16,7 +16,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { walk, stripComments, tokensOf } from "./_classScanUtils";
+import { walk, stripComments, stripCommentsForFile, tokensOf } from "./_classScanUtils";
 
 const REPO_ROOT = join(__dirname, "..", "..");
 // Utilities whose Tailwind namespace is backed by --color-*.
@@ -73,6 +73,23 @@ describe("META no double-prefix color utility (silent dead class)", () => {
       stripComments('const a = 1; // href="//cdn/x" text-subtle'),
       "a real line comment was not removed",
     ).not.toContain("text-subtle");
+
+    /* R22: quote-awareness ALONE regressed the case the original colon rule covered.
+     * A URL in MDX prose is not quoted, so `[CDN](https://cdn/x)` truncated at
+     * `https:` and hid every class after it. Both defenses are needed, so both are
+     * pinned. */
+    expect(
+      stripComments('[CDN](https://cdn/x) <span className="text-subtle" />'),
+      "an unquoted URL was mistaken for a line comment",
+    ).toContain("text-subtle");
+    expect(
+      stripCommentsForFile('[CDN](//cdn/x) <span className="text-subtle" />', "a/page.mdx"),
+      "MDX prose is not JavaScript; a bare // there must not truncate the line",
+    ).toContain("text-subtle");
+    expect(
+      stripCommentsForFile("const a = 1; // text-subtle", "a/page.tsx"),
+      "a real line comment in TSX must still be removed",
+    ).not.toContain("text-subtle");
   });
 
   it("the scan reaches shipped MDX, not only TSX", () => {
@@ -90,7 +107,7 @@ describe("META no double-prefix color utility (silent dead class)", () => {
     const offenders: string[] = [];
     for (const root of ["components", "app"]) {
       for (const file of walk(join(REPO_ROOT, root))) {
-        const lines = stripComments(readFileSync(file, "utf8")).split("\n");
+        const lines = stripCommentsForFile(readFileSync(file, "utf8"), file).split("\n");
         lines.forEach((line, i) => {
           for (const raw of tokensOf(line)) {
             // Strip variants (hover:, md:) and any /opacity suffix.

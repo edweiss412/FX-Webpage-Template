@@ -22,7 +22,14 @@ export function walk(dir: string): string[] {
  * Fixed by refusing to open a multi-line block unless the opener STARTS its line, which
  * is what a real block comment does and what a path fragment never does. Same-line
  * `/* … *\/` pairs are still removed, and a URL's "//" is preserved. */
-/** Remove a `//` line comment, respecting quotes so a URL inside a string survives. */
+/** Remove a `//` line comment. Two independent defenses, because each alone has been
+ *  wrong in production:
+ *   - inside a quoted string a `//` is never a comment (protocol-relative `href="//cdn/x"`
+ *     was truncated at the quote, R20 F1);
+ *   - outside a string, a `//` preceded by `:` is a URL scheme, not a comment. Replacing
+ *     the original colon rule with quote-awareness alone regressed exactly this:
+ *     `[CDN](https://cdn/x)` in MDX prose is not quoted, so it truncated at `https:`
+ *     and hid everything after it (R22). */
 function stripLineComment(line: string): string {
   let quote: string | null = null;
   for (let i = 0; i < line.length; i += 1) {
@@ -36,12 +43,21 @@ function stripLineComment(line: string): string {
       quote = c;
       continue;
     }
-    if (c === "/" && line[i + 1] === "/") return line.slice(0, i);
+    if (c === "/" && line[i + 1] === "/" && line[i - 1] !== ":") return line.slice(0, i);
   }
   return line;
 }
 
-export function stripComments(src: string): string {
+/** Comment-strip for a file whose type is known. MDX prose is not JavaScript: a bare
+ *  `//` there is a URL or ordinary text far more often than a comment, and a missed
+ *  comment only risks a NOISY false positive while a wrongly-truncated line hides a real
+ *  dead class silently. So line comments are left alone in MDX; block comments, which
+ *  MDX does have via JSX, are still removed. */
+export function stripCommentsForFile(src: string, filePath: string): string {
+  return stripComments(src, { lineComments: !filePath.endsWith(".mdx") });
+}
+
+export function stripComments(src: string, opts: { lineComments?: boolean } = {}): string {
   const out: string[] = [];
   let inBlock = false;
   for (const line of src.split("\n")) {
@@ -61,7 +77,7 @@ export function stripComments(src: string): string {
      * colon and was being read as a comment, truncating the rest of the line and hiding
      * any class after it (R20 F1). Require that the "//" not sit inside a quoted string
      * opened earlier on the line. */
-    l = stripLineComment(l);
+    if (opts.lineComments !== false) l = stripLineComment(l);
     l = l.replace(/\/\*.*?\*\//g, ""); // pairs that open and close on this line
     const open = l.indexOf("/*");
     // A real opener starts its line, or starts it after a JSX `{`. Anything else — a
