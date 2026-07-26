@@ -323,7 +323,7 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
    *  census never sees the call. Whole-diff R2 BLOCKING. Aliasing is banned outright in
    *  a registry file rather than chased. */
   const SCHEDULER_ALIAS =
-    /(?:const|let|var)\s+\w+\s*=\s*(?:globalThis\.|window\.)?(?:setTimeout|setInterval|requestIdleCallback)\s*(?![(\w])|\{[^}]*\b(?:setTimeout|setInterval|requestIdleCallback)\s*:\s*\w+[^}]*\}\s*=/;
+    /(?:const|let|var)\s+\w+\s*=\s*(?:globalThis\.|window\.)?(?:setTimeout|setInterval|requestIdleCallback|AbortSignal\.timeout)\s*(?![(\w])|\{[^}]*\b(?:setTimeout|setInterval|requestIdleCallback)\s*:\s*\w+[^}]*\}\s*=|Reflect\.get\s*\([^)]*(?:setTimeout|setInterval|AbortSignal)|\[\s*["'`](?:setTimeout|setInterval|requestIdleCallback)["'`]\s*\]/;
 
   it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
     const declaring: string[] = [];
@@ -379,9 +379,11 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
       }
       const call = src.slice(m.index, i);
       const lastComma = call.lastIndexOf(",");
-      if (lastComma === -1) continue;
-      const delay = call
-        .slice(lastComma + 1, -1)
+      // `AbortSignal.timeout(X)` takes ONE argument and that argument IS the delay.
+      // Skipping comma-less calls made the scheduler §5.2 claims to cover invisible.
+      const delay = (
+        lastComma === -1 ? call.slice(call.indexOf("(") + 1, -1) : call.slice(lastComma + 1, -1)
+      )
         .trim()
         .replace(/\}\s*$/, "")
         .trim()
@@ -446,18 +448,29 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
         const src = stripComments(readFileSync(file, "utf8"));
         if (!/\bARM_REVERT_MS\b/.test(src)) continue;
         const imports = [...src.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g)];
-        const binding = imports.find((m) => /\bARM_REVERT_MS\b/.test(m[1]!));
-        if (!binding) {
+        // EVERY clause mentioning the name, not the first. Whole-diff R2 F2 / R3 F3: a
+        // decoy `import { ARM_REVERT_MS as SHARED } from "<shared>"` satisfied a
+        // find()-based check while a SECOND import renamed a foreign constant to
+        // ARM_REVERT_MS and supplied the real value.
+        const mentions = imports.filter((m) => /\bARM_REVERT_MS\b/.test(m[1]!));
+        if (mentions.length === 0) {
           problems.push(`${file}: references ARM_REVERT_MS without importing it`);
           continue;
         }
-        if (binding[2] !== "@/lib/admin/destructiveConfirm") {
-          problems.push(
-            `${file}: ARM_REVERT_MS imported from ${binding[2]}, not the shared module`,
-          );
-        }
-        if (/\bas\s+ARM_REVERT_MS\b/.test(binding[1]!)) {
-          problems.push(`${file}: a foreign binding is renamed to ARM_REVERT_MS`);
+        for (const m of mentions) {
+          const clause = m[1]!;
+          const from = m[2]!;
+          const renamed = /\b(\w+)\s+as\s+ARM_REVERT_MS\b/.exec(clause);
+          const providesLocal =
+            renamed !== null ||
+            /(^|,)\s*ARM_REVERT_MS\s*(,|$)/.test(clause.replace(/\s+as\s+\w+/g, ""));
+          if (!providesLocal) continue;
+          if (renamed && renamed[1] !== "ARM_REVERT_MS") {
+            problems.push(`${file}: \`${renamed[1]}\` is renamed to ARM_REVERT_MS from ${from}`);
+          }
+          if (from !== "@/lib/admin/destructiveConfirm") {
+            problems.push(`${file}: local ARM_REVERT_MS comes from ${from}, not the shared module`);
+          }
         }
       }
     }
@@ -473,6 +486,9 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     expect(SCHEDULER_ALIAS.test("const t = setTimeout;")).toBe(true);
     expect(SCHEDULER_ALIAS.test("const sched = globalThis.setInterval;")).toBe(true);
     expect(SCHEDULER_ALIAS.test("const { setTimeout: t } = globalThis;")).toBe(true);
+    expect(SCHEDULER_ALIAS.test("const t = AbortSignal.timeout;")).toBe(true);
+    expect(SCHEDULER_ALIAS.test('const t = globalThis["setTimeout"];')).toBe(true);
+    expect(SCHEDULER_ALIAS.test("const t = Reflect.get(globalThis, 'setTimeout');")).toBe(true);
   });
 
   it("T2 self-check: the matcher accepts allowlisted names and rejects everything else", () => {
@@ -496,5 +512,10 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     expect(probe("setTimeout(() => setArmed(false), CONFIRM_TIMEOUT)")).toBe("rejected");
     // multiline + nested callback — the shape a naive regex drops
     expect(probe("setTimeout(() => {\n  run(() => done());\n}, ARM_REVERT_MS)")).toBe("allowed");
+    // Single-argument schedulers: the ONLY argument is the delay. Whole-diff R3 F1 —
+    // the census skipped comma-less calls entirely, so `AbortSignal.timeout(3000)`
+    // produced an empty census and was invisible to a guard that claimed to cover it.
+    expect(censusOf("AbortSignal.timeout(3000)")).toEqual({ "3000": 1 });
+    expect(censusOf("AbortSignal.timeout(ARM_REVERT_MS)")).toEqual({ ARM_REVERT_MS: 1 });
   });
 });
