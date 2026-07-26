@@ -134,8 +134,29 @@ for (const { key, page: pageFile, row } of ROWS) {
         const growable = new RegExp(growableSource);
         const rowEl = document.querySelector(rowSel);
         if (!(rowEl instanceof HTMLElement)) return { error: `row not found: ${rowSel}` };
+        // PAINTS NOTHING, not `childNodes.length === 0`. Review round 1: the
+        // exact-zero test misses the two forms most likely to reappear —
+        // `<span class="flex-1"> </span>` holds one whitespace text node, and a
+        // growable wrapper around an empty child holds one element. Both are
+        // invisible spacers charging gap on both sides, which is the defect.
+        // Judged on rendered ink instead: no non-whitespace text anywhere in the
+        // subtree, and no descendant that paints a box.
+        const paintsNothing = (el: Element): boolean => {
+          if ((el.textContent ?? "").trim() !== "") return false;
+          for (const d of [el, ...Array.from(el.querySelectorAll("*"))]) {
+            const cs = getComputedStyle(d);
+            const r = d.getBoundingClientRect();
+            const hasBg =
+              cs.backgroundColor !== "transparent" && cs.backgroundColor !== "rgba(0, 0, 0, 0)";
+            const hasBorder =
+              parseFloat(cs.borderTopWidth || "0") > 0 || parseFloat(cs.borderLeftWidth || "0") > 0;
+            const isReplaced = ["IMG", "SVG", "CANVAS", "VIDEO"].includes(d.tagName);
+            if ((hasBg || hasBorder || isReplaced) && r.width > 0 && r.height > 0) return false;
+          }
+          return true;
+        };
         const offenders = Array.from(rowEl.children)
-          .filter((c) => c.childNodes.length === 0)
+          .filter((c) => paintsNothing(c))
           .filter((c) => {
             const flexGrow = parseFloat(getComputedStyle(c).flexGrow);
             return growable.test(c.className) || (Number.isFinite(flexGrow) && flexGrow > 0);
@@ -185,9 +206,13 @@ for (const { key, page: pageFile, row } of ROWS) {
 
       if (width === 1280) {
         // Wide: free space exists, so a missing `ml-auto` shows up here as slack.
+        // ABSOLUTE value. Review round 1: a regression translating the cluster
+        // 16px PAST the right edge yields gapToRight = -16, which satisfied a
+        // bare `< 0.5` — overflow to the right read as perfect flushness.
         expect(
-          measured.gapToRight,
-          `${key}: trailing cluster is flush with the content-box right edge`,
+          Math.abs(measured.gapToRight),
+          `${key}: trailing cluster is flush with the content-box right edge` +
+            ` (signed offset ${measured.gapToRight}; negative means it overhangs)`,
         ).toBeLessThan(0.5);
       } else {
         // Narrow: the contract is that nothing overflows. Flushness is not asserted,
