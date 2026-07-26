@@ -478,6 +478,14 @@ function isShadowedAt(at: ts.Node, name: string): boolean {
     ) {
       return true;
     }
+    // An ENUM or NAMESPACE binds its name at whatever scope it sits in -- TypeScript emits
+    // `let NaN; (function (NaN) { … })(NaN || (NaN = {}))`, so it is a local holding a TRUTHY object.
+    // Added to the module-level helper FIRST and only there, so a function-scoped `enum NaN { A }`
+    // still failed open (review R37 probe trail). Putting them in `declares`, which `isShadowedAt`
+    // consults at every scope INCLUDING module scope, removes the duplicate inventory instead of
+    // adding a third copy.
+    if (ts.isEnumDeclaration(n) && n.name.text === name) return true;
+    if (ts.isModuleDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name) return true;
     return false;
   };
   // A LOOP binding and a NAMED function expression also introduce the name (review R29
@@ -737,12 +745,14 @@ function isGlobalRef(n: ts.Node, name: "undefined" | "NaN"): boolean {
   return !isModuleBoundName(n.getSourceFile(), name);
 }
 
-/** Is `name` bound at MODULE level by a form `isShadowedAt` does not inventory?
+/** Is `name` bound by an IMPORT in this file?
  *
- *  `isShadowedAt` handles variables, functions, classes, parameters and loop bindings. For a GLOBAL
- *  the question is wider: any module-level binding of that name replaces it. R35 BLOCKING 6 listed
- *  four more forms, all of which type-check and all of which fail open when missed -- an ENUM or a
- *  NAMESPACE binds a truthy object, so `hidden={NaN}` really hides.
+ *  Imports are the ONE binding form `isShadowedAt` deliberately omits -- for `NewTabHint` the import
+ *  IS the trusted binding, so counting it would reject every real call site. Everything else
+ *  (variables, functions, classes, enums, namespaces, parameters, loop bindings) lives in `declares`
+ *  and is checked at EVERY scope, so this helper stays narrow rather than becoming a second inventory
+ *  to keep in step. Keeping enum/namespace here as well is what let a function-scoped one fail open
+ *  for a round (review R37).
  */
 function isModuleBoundName(sf: ts.SourceFile, name: string): boolean {
   for (const st of sf.statements) {
@@ -764,10 +774,6 @@ function isModuleBoundName(sf: ts.SourceFile, name: string): boolean {
     }
     // `import X = require("…")`
     if (ts.isImportEqualsDeclaration(st) && st.name.text === name) return true;
-    // `enum X {}` binds a truthy object; `namespace X {}` likewise.
-    if (ts.isEnumDeclaration(st) && st.name.text === name) return true;
-    if (ts.isModuleDeclaration(st) && ts.isIdentifier(st.name) && st.name.text === name)
-      return true;
   }
   return false;
 }

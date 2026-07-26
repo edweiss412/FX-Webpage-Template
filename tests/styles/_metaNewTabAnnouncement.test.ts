@@ -3592,6 +3592,22 @@ describe("R6: scanner changes are pinned", () => {
       ],
       // An IMPORT binds the name too. `isShadowedAt` deliberately ignores imports -- for the hint,
       // the import IS the trusted binding -- so the global check has to ask separately (R35).
+      // A FUNCTION-SCOPED enum or namespace binds the name too -- TypeScript emits a local `let`
+      // holding a truthy object. These lived only in the module-level helper for a round, so the
+      // function-scoped form failed open (review R37 probe trail); they now live in `declares`, which
+      // is consulted at EVERY scope.
+      [
+        "function-scoped enum NaN",
+        'function A(){ enum NaN { A } return <a href="x" target="_blank">Go <span hidden={NaN}><NewTabHint /></span></a>; }',
+      ],
+      [
+        "function-scoped namespace NaN",
+        'function A(){ namespace NaN { export const x=1; } return <a href="x" target="_blank">Go <span hidden={NaN}><NewTabHint /></span></a>; }',
+      ],
+      [
+        "function-scoped enum undefined",
+        'function A(){ enum undefined { A } return <a href="x" target="_blank">Go <span aria-hidden={undefined}><NewTabHint /></span></a>; }',
+      ],
       [
         "default import named NaN",
         'import NaN from "x";\nconst A=()=><a href="x" target="_blank">Go <span hidden={NaN}><NewTabHint /></span></a>;',
