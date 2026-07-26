@@ -46,7 +46,7 @@ Every command below was executed at plan-authoring time in the worktree. Output 
 
 | Registry | This plan |
 |---|---|
-| `tests/styles/_metaDestructiveConfirm.test.ts` | **EXTENDS** — adds T1 (single declaration) and T3 (value pin), each with a self-check. A larger T2/census/meta-test layer was built across review rounds 2-6 and then **deleted**: it kept finding new bypasses and finally produced false positives. §5.3 records the residue |
+| `tests/styles/_metaDestructiveConfirm.test.ts` | **EXTENDS** — adds T1 (single declaration, with a self-check that its matcher can fail) and T3 (value pin, a direct assertion needing none). A larger T2/census/meta-test layer was built across review rounds 2-6 and then **deleted**: it kept finding new bypasses and finally produced false positives. §5.3 records the residue |
 | `tests/auth/_metaInfraContract.test.ts` (Supabase call boundaries) | N/A — no Supabase client call added or changed |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` (lock topology) | N/A — no `pg_advisory*` anywhere in this diff |
 | `tests/messages/_metaAdminAlertCatalog.test.ts` | N/A — no `admin_alerts` row, no §12.4 code added or edited |
@@ -81,7 +81,7 @@ That substitution is what withdrew M2: with no transcription left to bind, the b
 
 ### Task 1 — Shared `ARM_REVERT_MS` + T1 landed with a matcher self-check; T3 is a direct assertion on the exported value and needs none. (An intermediate T2 census layer was built across review rounds and then deleted — see spec §5.2.)
 
-`lib/admin/destructiveConfirm.ts` created; all 11 local declarations replaced with imports. No behavioural change (every site already used `4_000`), verified by 5996 tests across 507 files staying green. T1 and T3 landed, each with a self-check. (An intermediate T2 census with an 11-call floor was built and later deleted — see §5.2.)
+`lib/admin/destructiveConfirm.ts` created; all 11 local declarations replaced with imports. No behavioural change (every site already used `4_000`), verified by 5996 tests across 507 files staying green. T1 and T3 landed — T1 with a self-check on its matcher, T3 as a direct assertion needing none. (An intermediate T2 census with an 11-call floor was built and later deleted — see §5.2.)
 
 ### Task 2 — Reorder the component — **DONE**
 
@@ -93,7 +93,7 @@ Test 2 (DOM order), test 6 (single live region survives the reorder), test 7 (no
 
 ### Task 4 — Real-browser proof — **DONE**
 
-`tests/e2e/pendingDiscardReal.layout.spec.ts`: **25 tests** across 5 rails (`rail320`, `page358`, `band440`, `wide900`, `bigtext440`) × idle/armed covering D1, D2, D3, D4, D7 — **29 total** with `pendingDiscardReflow.layout.spec.ts`'s 4 historical tests — the negative control itself, two fixed-panel positive tests, and a source guard keeping the transcribed markup historical (R13 F3: describing all four as "the negative control" understated it). Counts verified with `playwright test --list`, not by hand. All measured **panel-relative** — comparing absolute `y` across two panels measures where the panel sits, not where the button sits, which cost one debugging cycle. `tests/e2e/pendingDiscardReflow.layout.spec.ts` narrowed to the historical negative control, with its old drift-guard inverted.
+`tests/e2e/pendingDiscardReal.layout.spec.ts`: **25 tests** across 5 rails (`rail320`, `page358`, `band440`, `wide900`, `bigtext440`) × idle/armed covering D1, D2, D3, D4, D7 — **29 total** with `pendingDiscardReflow.layout.spec.ts`'s 4 historical tests — the negative control itself, two fixed-panel positive tests, and a source guard keeping the transcribed markup historical (R13 F3: describing all four as "the negative control" understated it). Counts verified with `playwright test --list`, not by hand. All measured **panel-relative** — comparing absolute `y` across two panels measures where the panel sits, not where the button sits, which cost one debugging cycle. `tests/e2e/pendingDiscardReflow.layout.spec.ts` narrowed to its historical role, with its old drift-guard inverted — the negative control plus the two fixed-panel positive tests and the source guard enumerated above.
 
 ### Task 5 — CI wiring — **DONE**
 

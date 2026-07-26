@@ -65,6 +65,10 @@ type RailName = keyof typeof RAILS;
  * D2/D4/D7 and the wide test all passed. rail320 (278px) genuinely cannot fit and
  * page358 (316px) is a 0.05px coin flip — neither belongs here. */
 const SLACK_RAILS: RailName[] = ["band440", "wide900"];
+/* The mirror of SLACK_RAILS. 278px cannot fit a 315.95px pair, so this rail MUST stack
+ * — R14 F2: the shared D1/D3 branch accepts either outcome, which is right at a knife
+ * edge and wrong here, where one-line would mean the buttons shrank or overflowed. */
+const MUST_STACK_RAILS: RailName[] = ["rail320"];
 
 let server: Server;
 let baseUrl: string;
@@ -362,12 +366,55 @@ test("exactly one Ignore label variant is painted, in every panel", async ({ pag
   }
 });
 
+test("the declared rails still match the production geometry they mirror", () => {
+  /* R14 F1: the content-box assertion binds RAILS to the harness's own hardcoded
+   * widths, so both sides move together — rail320 stays green if the dashboard track
+   * stops being 20rem, and page358 stays green if the page gutter changes. That is the
+   * binding-to-yourself shape, one level up. Production is the other end of the
+   * contract, so read it directly. A source scan is the right tool here: these are
+   * Tailwind class strings and a token, none of which the harness can measure without
+   * booting the app. */
+  const dashboard = readFileSync(join(REPO_ROOT, "components", "admin", "Dashboard.tsx"), "utf8");
+  expect(
+    dashboard.includes("min-[1240px]:grid-cols-[minmax(0,1fr)_20rem]"),
+    "rail320 mirrors the dashboard's 20rem Needs-attention track; that track changed",
+  ).toBe(true);
+
+  const adminLayout = readFileSync(join(REPO_ROOT, "app", "admin", "layout.tsx"), "utf8");
+  expect(
+    adminLayout.includes("px-page-pad-mobile"),
+    "page358 assumes the admin layout pads the mobile page with px-page-pad-mobile",
+  ).toBe(true);
+
+  const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
+  const pad = /--spacing-page-pad-mobile:\s*(\d+)px/.exec(globals)?.[1];
+  expect(pad, "page-pad-mobile token not found in globals.css").toBeDefined();
+  /* page358 = a 390px viewport minus this token per side. If the token moves, the rail
+   * is testing a page width production no longer has — exactly R8 F1's error. */
+  expect(390 - 2 * Number(pad), "page358 no longer equals 390px minus the page gutter").toBe(358);
+});
+
 test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
   const markup = await page.evaluate(() => document.body.innerHTML);
   expect(markup.includes("basis-full"), "D7: basis-full still in shipped markup").toBe(false);
   expect(markup.includes("sm:basis-auto"), "D7: sm:basis-auto still in shipped markup").toBe(false);
+});
+
+test("a card too narrow for the pair MUST stack, with Ignore above", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(baseUrl);
+  for (const state of MUST_STACK_RAILS.flatMap((r) => [r, `${r}armed`])) {
+    const p = await probe(page, state);
+    expect(p.ignore.bottom, `${state}: must stack, Ignore above Defer`).toBeLessThanOrEqual(
+      p.defer.y + TOL,
+    );
+    expect(
+      p.ignore.w + p.defer.w,
+      `${state}: a one-line fit here would mean the buttons shrank`,
+    ).toBeGreaterThan(p.contentW);
+  }
 });
 
 test("cards with real slack must NOT stack", async ({ page }) => {

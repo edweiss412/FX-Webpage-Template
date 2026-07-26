@@ -4,10 +4,13 @@
  *
  * jsdom computes no layout, so the "armed morph does not relocate the confirm
  * hit-target" invariant must be verified end-to-end. Four transcribed panels:
- *   fixed-*  = shipped classes (basis-full sm:basis-auto)  -> idle box == armed box
- *   nofix-*  = pre-fix classes (no basis)                  -> armed reflows to a new row
- * The nofix panels are the NEGATIVE CONTROL: they prove the harness reproduces
- * the reported reflow, so the fixed-panel equality is not tautological.
+ *   fixed-*  = the DESTRUCT-1-era classes (basis-full sm:basis-auto) -> idle box == armed box
+ *   nofix-*  = the pre-DESTRUCT-1 classes (no basis)                 -> armed reflows to a new row
+ * NEITHER is what ships today. This PR deleted basis-full entirely, so `fixed-*` is as
+ * historical as `nofix-*`; the file keeps both because the pair is what proves the
+ * harness can tell reflow from no-reflow at all. The nofix panels are the NEGATIVE
+ * CONTROL, at 420px — an earlier 360px control had only a 12px margin and failed on
+ * x64 Linux CI while passing on arm64 macOS.
  *
  * Harness mirrors tests/e2e/agendaBreakdown.layout.spec.ts: compile the REAL
  * token CSS from app/globals.css via the Tailwind CLI, serve over HTTP, measure
