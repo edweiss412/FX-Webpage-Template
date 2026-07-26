@@ -694,8 +694,22 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         // hardcoded floor. Review round 1: `rows.length > 0` passed if eleven of
         // twelve sections disappeared, or gained a wrapper that dropped them from
         // the structural selector, as long as one surviving row was the right width.
-        const registrySections = modal.querySelectorAll('[data-testid*="-review-section-"]').length;
-        return { error: null, rows, registrySections };
+        // Per SECTION, not a global total. A global equality is the wrong shape here:
+        // the Diagrams sub-block renders an h4 header INSIDE another section, so
+        // headers legitimately outnumber sections. What must hold is that no section
+        // contributed zero — which a total cannot express, since a surplus in one
+        // section covers a deficit in another.
+        const sections = Array.from(modal.querySelectorAll('[data-testid*="-review-section-"]'));
+        const perSection = sections.map((sec) => {
+          const id = sec.getAttribute("data-testid") ?? "?";
+          let n = 0;
+          for (const heading of Array.from(sec.querySelectorAll("h3, h4"))) {
+            const icon = heading.parentElement?.parentElement?.firstElementChild;
+            if (icon instanceof HTMLElement && icon.getAttribute("aria-hidden") === "true") n += 1;
+          }
+          return { id, headers: n };
+        });
+        return { error: null, rows, registrySections: sections.length, perSection };
       }, MODAL);
 
       expect(found.error, "modal shape").toBeNull();
@@ -708,11 +722,18 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         found.registrySections,
         `the hydrated modal rendered its registry sections [@ ${width}]`,
       ).toBeGreaterThan(1);
+      // No section contributed ZERO headers. This is what stops eleven of twelve
+      // sections from vanishing behind one correctly-sized survivor.
+      expect(
+        found.perSection.filter((s) => s.headers === 0).map((s) => s.id),
+        `every registry section contributed at least one measurable header [@ ${width}]`,
+      ).toEqual([]);
+      // And the measured set is exactly the union of what those sections hold, so a
+      // header outside any section (or counted twice) fails.
       expect(
         found.rows.length,
-        `every registry section contributed a measurable header [@ ${width}] —` +
-          ` ${found.registrySections} sections, ${found.rows.length} headers found`,
-      ).toBe(found.registrySections);
+        `the measured headers are exactly the sections' own [@ ${width}]`,
+      ).toBe(found.perSection.reduce((n, s) => n + s.headers, 0));
 
       const expected = ROW_WIDTHS[width];
       const off = found.rows.filter((r) => Math.abs(r.contentWidth - expected) > 1);
@@ -800,8 +821,14 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
 
         let pillLinesMeasured = 0;
         let pillLinesPresent = 0;
+        // PER CARD, not a global total. The descent from registry section to panel
+        // card is not the same depth for every section, so `cards * 5` is simply the
+        // wrong arithmetic — and a total lets a surplus in one card mask a card that
+        // contributed nothing.
+        const perCard: Array<{ id: string; links: number }> = [];
 
         for (const card of cards) {
+          const before = links.length;
           // The registry section this card lives in — the top of this card's walk.
           let registry: HTMLElement | null = card.parentElement;
           while (
@@ -877,6 +904,10 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
             addLink(pillLine, column);
             pillLinesMeasured += 1;
           }
+          perCard.push({
+            id: card.getAttribute("data-testid") ?? "?",
+            links: links.length - before,
+          });
         }
 
         return {
@@ -886,6 +917,7 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
           pillLinesPresent,
           pillLinesMeasured,
           registrySections: modal.querySelectorAll('[data-testid*="-review-section-"]').length,
+          perCard,
         };
       }, MODAL);
 
@@ -901,11 +933,17 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       expect(found.cards, `every registry section contributed a panel card [@ ${width}]`).toBe(
         found.registrySections,
       );
+      // Every card walked its own chain. Five is the floor per card — pane ->
+      // registry, registry -> ... -> panel card, breakdown -> ... -> header block,
+      // header block -> header line — and a deeper section legitimately reports more.
+      expect(found.perCard.length, `every panel card was walked [@ ${width}]`).toBe(found.cards);
       expect(
-        found.links.length,
-        `each of ${found.cards} cards contributed its five chain links plus any pill line` +
-          ` [@ ${width}] — got ${found.links.length}`,
-      ).toBe(found.cards * 5 + found.pillLinesMeasured);
+        found.perCard.filter((c) => c.links < 5),
+        `every card contributed at least five chain links [@ ${width}]`,
+      ).toEqual([]);
+      expect(found.links.length, `the recorded links are exactly the cards' own [@ ${width}]`).toBe(
+        found.perCard.reduce((n, c) => n + c.links, 0),
+      );
       // Every pill line that EXISTS was measured — `hasPillLine` used to be computed
       // and discarded, so a later section's pill line could lose full width without
       // any assertion seeing it (review round 1).
