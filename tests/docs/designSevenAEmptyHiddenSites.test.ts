@@ -80,7 +80,13 @@ describe("DESIGN.md §7a lists every empty:hidden site", () => {
       const base = rel.split("/").pop() ?? rel;
       const stem = base.replace(/\.tsx$/, "");
       // Ambiguous basename: require the doc to disambiguate by path.
-      if ((byBase.get(base) ?? []).length > 1) return !listText.includes(rel);
+      // Anchored, not substring: `legacy/admin/Foo.tsx` contains `admin/Foo.tsx`, so
+      // documenting only the former satisfied a lookup for the latter and left one of
+      // the two undocumented (review round 2). A match must begin at a path boundary.
+      if ((byBase.get(base) ?? []).length > 1) {
+        const anchored = new RegExp(`(^|[^\\w/.-])${rel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
+        return !anchored.test(listText);
+      }
       return !listText.includes(base) && !listText.includes(stem);
     });
 

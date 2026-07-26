@@ -653,6 +653,26 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
    * and the harness container's width IS a content width. Comparing the two
    * directly would be off by the row's horizontal padding.
    */
+  /**
+   * Sections the seeded show MUST render, as `SectionId` values from
+   * `lib/admin/step3SectionStatus.ts:6`. This is the source of truth the DOM is
+   * measured AGAINST — review round 2 found that deriving completeness from the
+   * rendered tree let a deleted section shrink both sides of every equality and
+   * stay green. A section legitimately absent for this fixture is not listed; the
+   * point is that these cannot vanish silently.
+   */
+  const EXPECTED_SECTION_IDS = [
+    "venue",
+    "contacts",
+    "schedule",
+    "hotels",
+    "transport",
+    "rooms",
+    "packlist",
+    "billing",
+    "warnings",
+  ] as const;
+
   for (const width of REAL_ROUTE_WIDTHS) {
     test(`section-header width chain @ ${width}: the real mount matches the harness fixture`, async ({
       page,
@@ -701,7 +721,10 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         // section covers a deficit in another.
         const sections = Array.from(modal.querySelectorAll('[data-testid*="-review-section-"]'));
         const perSection = sections.map((sec) => {
-          const id = sec.getAttribute("data-testid") ?? "?";
+          const raw = sec.getAttribute("data-testid") ?? "?";
+          // The trailing `-review-section-<id>` segment, so the DOM can be compared
+          // against the canonical SectionId list rather than against itself.
+          const id = raw.slice(raw.lastIndexOf("-review-section-") + "-review-section-".length);
           let n = 0;
           for (const heading of Array.from(sec.querySelectorAll("h3, h4"))) {
             const icon = heading.parentElement?.parentElement?.firstElementChild;
@@ -718,12 +741,15 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       // Non-vacuity, and EVERY section, not just one. Derived from the rendered
       // registry-section count so the expectation cannot be satisfied by a
       // shrinking tree.
+      // Against the CANONICAL id list, not against the tree. A deleted section now
+      // fails here instead of shrinking both sides of an equality (review round 2).
+      const renderedIds = found.perSection.map((s) => s.id);
       expect(
-        found.registrySections,
-        `the hydrated modal rendered its registry sections [@ ${width}]`,
-      ).toBeGreaterThan(1);
-      // No section contributed ZERO headers. This is what stops eleven of twelve
-      // sections from vanishing behind one correctly-sized survivor.
+        EXPECTED_SECTION_IDS.filter((id) => !renderedIds.includes(id)),
+        `every expected section rendered [@ ${width}] — saw ${JSON.stringify(renderedIds)}`,
+      ).toEqual([]);
+      // No section contributed ZERO headers. This is what stops the others from
+      // vanishing behind one correctly-sized survivor.
       expect(
         found.perSection.filter((s) => s.headers === 0).map((s) => s.id),
         `every registry section contributed at least one measurable header [@ ${width}]`,
@@ -790,10 +816,22 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         // EVERY panel card. Review round 1: measuring only the first meant a
         // regression in any other section was unobserved by a test whose name
         // claims the chain holds.
-        const cards = Array.from(modal.querySelectorAll('[data-testid*="-panel-card"]')).filter(
-          (c): c is HTMLElement => c instanceof HTMLElement,
-        );
+        // STRUCTURALLY, not by testid. A panel card is the element immediately
+        // following a header block inside a breakdown section, and the Diagrams
+        // sub-block renders one with `sectionId === undefined` — so it carries no
+        // testid and a testid-based selector skipped it entirely (review round 2).
+        const cards: HTMLElement[] = [];
+        for (const icon of Array.from(modal.querySelectorAll('span[aria-hidden="true"]'))) {
+          const headerLine = icon.parentElement;
+          if (headerLine === null || headerLine.firstElementChild !== icon) continue;
+          const headerBlock = headerLine.parentElement;
+          const next = headerBlock?.nextElementSibling;
+          if (next instanceof HTMLElement && !cards.includes(next)) cards.push(next);
+        }
         if (cards.length === 0) return { error: "no panel card found" };
+        const untestidedCards = cards.filter(
+          (c) => !(c.getAttribute("data-testid") ?? "").includes("-panel-card"),
+        ).length;
 
         const contentWidth = (el: HTMLElement) => {
           const cs = getComputedStyle(el);
@@ -825,7 +863,7 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         // card is not the same depth for every section, so `cards * 5` is simply the
         // wrong arithmetic — and a total lets a surplus in one card mask a card that
         // contributed nothing.
-        const perCard: Array<{ id: string; links: number }> = [];
+        const perCard: Array<{ id: string; section: string; links: number }> = [];
 
         for (const card of cards) {
           const before = links.length;
@@ -898,14 +936,26 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
           // inferring it from a total count (review round 1: `hasPillLine` was
           // computed and discarded, so a later section's pill line could lose full
           // width unmeasured).
+          // PRESENCE is counted from the pill itself, MEASUREMENT from the element
+          // actually linked. Incrementing both inside one `if` made their equality
+          // tautological — an intervening sibling counted as both present and
+          // measured while the real pill line went unmeasured (review round 2).
+          const pill = column.querySelector('[class*="rounded-pill"]');
+          if (pill !== null) pillLinesPresent += 1;
           const pillLine = headerLine.nextElementSibling;
-          if (pillLine instanceof HTMLElement) {
-            pillLinesPresent += 1;
+          if (pillLine instanceof HTMLElement && pillLine.contains(pill)) {
             addLink(pillLine, column);
             pillLinesMeasured += 1;
           }
           perCard.push({
-            id: card.getAttribute("data-testid") ?? "?",
+            id: card.getAttribute("data-testid") ?? `untestided:${card.className.slice(0, 24)}`,
+            // The section this card belongs to, so coverage can be asserted PER
+            // SECTION. `cards === registrySections` was satisfied by one section
+            // contributing two cards while another contributed none (review round 2).
+            section: (() => {
+              const raw = registry.getAttribute("data-testid") ?? "?";
+              return raw.slice(raw.lastIndexOf("-review-section-") + "-review-section-".length);
+            })(),
             links: links.length - before,
           });
         }
@@ -918,6 +968,7 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
           pillLinesMeasured,
           registrySections: modal.querySelectorAll('[data-testid*="-review-section-"]').length,
           perCard,
+          untestidedCards,
         };
       }, MODAL);
 
@@ -937,6 +988,22 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       // registry, registry -> ... -> panel card, breakdown -> ... -> header block,
       // header block -> header line — and a deeper section legitimately reports more.
       expect(found.perCard.length, `every panel card was walked [@ ${width}]`).toBe(found.cards);
+      // Per SECTION: each expected section contributed at least one card, so a
+      // section losing its card cannot be masked by another contributing two
+      // (review round 2).
+      const cardSections = found.perCard.map((c) => c.section);
+      expect(
+        EXPECTED_SECTION_IDS.filter((id) => !cardSections.includes(id)),
+        `every expected section contributed a panel card [@ ${width}] —` +
+          ` saw ${JSON.stringify([...new Set(cardSections)])}`,
+      ).toEqual([]);
+      // The Diagrams sub-block's card carries no testid, so a testid-only selector
+      // skipped it. At least one such card must be in the walk, which pins the
+      // structural selection this test now depends on.
+      expect(
+        found.untestidedCards,
+        `the walk reached the testid-less sub-block card too [@ ${width}]`,
+      ).toBeGreaterThan(0);
       expect(
         found.perCard.filter((c) => c.links < 5),
         `every card contributed at least five chain links [@ ${width}]`,

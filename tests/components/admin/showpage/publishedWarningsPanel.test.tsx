@@ -265,21 +265,39 @@ describe("the four body-empty states", () => {
       // `headingRow` is HTMLElement | null by construction (the icon may be absent),
       // and the containment assertion above does not narrow it for tsc.
       const block: HTMLElement = headingRow as HTMLElement;
-      for (const slot of [ELSEWHERE_TESTID, CLEAN_TESTID, EMPTY_TESTID]) {
-        const el = body.querySelector(`[data-testid="${slot}"]`);
+      // EVERY subtree the walker below skips, not just the three empty-copy slots.
+      // Review round 2: the notes group, the warning controls, the ignored-warnings
+      // disclosure and the help subtrees are all skipped later, so if the located
+      // header block expanded to contain one of them PLUS stray legacy guidance, the
+      // guard passed and the skip suppressed the stray text from inspection. Kept in
+      // lockstep with the skip list in the walk — anything skipped there must be
+      // outside the excluded block here.
+      const mustBeOutside: Array<{ what: string; el: Element | null }> = [
+        ...[ELSEWHERE_TESTID, CLEAN_TESTID, EMPTY_TESTID].map((slot) => ({
+          what: `${slot} slot`,
+          el: body.querySelector(`[data-testid="${slot}"]`),
+        })),
+        { what: "a listed warning row", el: body.querySelector("li[data-warning-index]") },
+        {
+          what: "the notes group",
+          el: body.querySelector('[data-testid="sheet-warnings-notes-group"]'),
+        },
+        {
+          what: "the warning controls",
+          el: body.querySelector('[data-testid^="section-warning-controls-"]'),
+        },
+        {
+          what: "the ignored-warnings disclosure",
+          el: body.querySelector('[data-testid^="section-ignored-warnings-"]'),
+        },
+        { what: "a help subtree", el: body.querySelector('[data-testid*="-help-"]') },
+      ];
+      for (const { what, el } of mustBeOutside) {
         if (el === null) continue;
         expect(
           block.contains(el),
-          `the excluded header block must not contain the body's ${slot} slot —` +
-            " an anchor that swallows a content slot makes this scan vacuous",
-        ).toBe(false);
-      }
-      // Same for the listed rows, which are the body's other content.
-      const firstRow = body.querySelector("li[data-warning-index]");
-      if (firstRow !== null) {
-        expect(
-          block.contains(firstRow),
-          "the excluded header block must not contain a listed warning row",
+          `the excluded header block must not contain ${what} — an anchor that` +
+            " swallows body content makes this scan vacuous",
         ).toBe(false);
       }
     }

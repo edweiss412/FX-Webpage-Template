@@ -74,6 +74,24 @@ function expectSectionStillRendered(container: HTMLElement, path: "modal" | "leg
   ).not.toBeNull();
 }
 
+/**
+ * No count chip ELEMENT beside the heading. Identified by position rather than by a
+ * testid, because the chip carries none: it is the heading's next element sibling
+ * inside the centred group, and `tabular-nums` is the class only it uses there.
+ */
+function expectNoCountChip(container: HTMLElement, path: "modal" | "legacy") {
+  const heading = container.querySelector("h3, h4");
+  const group = heading?.parentElement ?? null;
+  const chips = Array.from(group?.children ?? []).filter(
+    (el) => el !== heading && el.className.toString().includes("tabular-nums"),
+  );
+  expect(
+    chips.map((c) => `<${c.tagName.toLowerCase()}>${(c.textContent ?? "").trim()}`),
+    `${path}: no count chip element renders beside the heading — an empty one still` +
+      " occupies space in the centred group",
+  ).toEqual([]);
+}
+
 describe("non-finite section counts render no chip", () => {
   for (const [name, value] of NON_FINITE) {
     it(`rejects ${name} (modal path)`, () => {
@@ -83,6 +101,11 @@ describe("non-finite section counts render no chip", () => {
       // on a non-finite count would delete the heading and the body and satisfy every
       // `not.toContain` below. The heading and the child must still be there.
       expectSectionStillRendered(container, "modal");
+      // The chip ELEMENT is absent, not merely its text. Review round 2: an empty
+      // `()` or a placeholder glyph passes a text-absence check while still
+      // occupying flex space in the centred group, which is exactly the chip this
+      // contract says must not render.
+      expectNoCountChip(container, "modal");
       // The chip is the only place a bare "(…)" is emitted in this subtree.
       expect(container.textContent ?? "").not.toContain(String(value));
       expect(container.textContent ?? "").not.toMatch(/\(\s*(NaN|-?Infinity)\s*\)/);
@@ -91,6 +114,7 @@ describe("non-finite section counts render no chip", () => {
     it(`rejects ${name} (legacy path)`, () => {
       const { container } = renderLegacyPath(value);
       expectSectionStillRendered(container, "legacy");
+      expectNoCountChip(container, "legacy");
       expect(container.textContent ?? "").not.toContain(String(value));
       expect(container.textContent ?? "").not.toMatch(/\(\s*(NaN|-?Infinity)\s*\)/);
     });
