@@ -176,6 +176,15 @@ That is acceptable and deliberate: the defaults are the same demo values `playwr
 
 An earlier "validated against the real scanner" claim in this spec was **vacuous and is retracted**: the draft fed to the scanner carried an explicitly named spec, so it exercised a different command shape than the one shipping.
 
+Re-run with the **actual** command — `pnpm exec playwright test --config tests/e2e/standalone.config.ts`, no named spec:
+
+```
+covered: 0 []
+rejected: 0
+```
+
+Not "rejected for a reason" — **invisible**. The scanner has nothing to reject because it never extracts a spec path, so the job would register as covering nothing at all.
+
 This is not a re-litigation of the descope. What was descoped is the *narrowing semantics* — `--grep`, `--shard`, forwarded call-site arguments, inert-token grammar — which four rounds could not make sound. What PR2 needs is narrower than that and is an existence dependency:
 
 > A `run:` command matching **exactly** `pnpm exec playwright test --config <path>`, with **no other arguments of any kind**, covers every spec that config's `testMatch` matches. Any deviation — an extra flag, a positional argument, a different verb order — yields **no claim at all**.
