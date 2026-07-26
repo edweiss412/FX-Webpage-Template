@@ -742,7 +742,14 @@ function releaseLock() {
     // Genuinely absent is the normal case on an early exit; anything else means
     // we cannot tell whether a lock is out there, which is worth saying.
     if (err.code !== "ENOENT") {
-      console.error(`could not read ${LOCK} to release it: ${err.message}`);
+      // Not absent, just unreadable: a lock may well still be sitting there
+      // blocking later runs, and exiting 0 would hide exactly the outcome
+      // round-15's change existed to eliminate (round-16 review).
+      console.error(
+        `could not read ${LOCK} to release it (${err.message}) — a lock may remain.\n` +
+          `If later runs refuse to start, run: rm '${LOCK}'`,
+      );
+      process.exitCode = 1;
     }
     return;
   }
@@ -973,10 +980,18 @@ function runBrowser() {
   // around the document, which is exactly when this function has to be right.
   let exitedNonZero = false;
   const reportPath = join(ROOT, "tmp", "pw-report.json");
+  // `force: true` already makes absence a no-op, so anything thrown here is a
+  // real removal failure — and leaving the PREVIOUS run's report in place is the
+  // dangerous outcome: a numeric non-zero exit plus that file's stale failing
+  // rows reconcile happily and falsely reject the current mutant
+  // (round-16 review).
   try {
     rmSync(reportPath, { force: true });
-  } catch {
-    /* nothing to clear */
+  } catch (err) {
+    throw new Error(
+      `could not clear the stale browser report at ${reportPath} (${err.message}) — ` +
+        "infrastructure fault; scoring against a previous run's rows would be worse.",
+    );
   }
   try {
     execFileSync("pnpm", ["test:e2e:share-link-flash", "--reporter=json"], {
