@@ -2001,3 +2001,69 @@ kind is a latent defect, and deleting it is the fix rather than a cleanup.
 
 Both cases are now pinned by fixtures — `{...x}` (a spread could carry any member) and
 `{__proto__: null}` — and both measured rather than argued.
+
+### Most of the second review track's scope was not in this PR's diff
+
+The most expensive process defect of this close-out, and it was mine. The brief for the second review
+track named four files; **three of them this branch does not touch.** Verified per file rather than
+assumed in bulk — the distinction matters, and my first attempt at this entry got it wrong by checking
+three files and generalizing to the fourth:
+
+| File the brief named | In `git diff origin/main...HEAD`? | Owner |
+| --- | --- | --- |
+| `tests/docs/_metaDeferralLedgerGraduation.test.ts` | **YES** | this branch (`2f0b01f26`) |
+| `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` | no | sibling, merged (`d89c731e6`) |
+| `.github/workflows/crew-e2e.yml` | no | sibling, merged (`d89c731e6`) |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | no | arrived via a `main` merge |
+
+Both commits the reviewer cited as evidence (`0e55944ec`, `0520f0dd8`) are ancestors of `origin/main`.
+So three of the five findings — the `DOCS_ONLY` pattern, the signing-key regex, the workflow display
+name — plus the commit-message overclaim describe **already-merged code belonging to another PR**:
+not this PR's to fix, and in the case of the message, not amendable at all.
+
+That is the whole explanation for the shape of this close-out. The first track reached APPROVE in four
+rounds while the second returned NEEDS-ATTENTION eight times running. It was not a harder surface; it
+was largely not this surface.
+
+**The one in-scope finding does not reproduce, and that is measured rather than read off a comment.**
+The reviewer's claim was that the id regex backtracks — `### BL-something` yielding `BL`, `### ABC/def`
+yielding `ABC`. Running the extractor at `HEAD` against those witnesses and every documented case:
+
+```
+"### BL-something"                  ->  []                      <- reviewer's witness, does not backtrack
+"### ABC/def"                       ->  []                      <- reviewer's witness, does not backtrack
+"### SHAREHUB-FIDELITY \"x\""       ->  ["SHAREHUB-FIDELITY"]    <- the case that broke the FIRST attempt
+"### BL-REAL-ID — text"             ->  ["BL-REAL-ID"]
+"### [P2] SOME-ID — x"              ->  ["SOME-ID"]              <- bracketed priority prefix
+"### ~~BL-STRUCK~~ — x"             ->  ["BL-STRUCK"]            <- struck through
+"### D1 — x" / "### D9"             ->  ["D1"] / ["D9"]          <- the nine short ids a length floor ate
+"### [P2] Bulk ignore produced two" ->  []                       <- prose, with and without the prefix
+"### Bulk ignore produced two"      ->  []
+```
+
+There is no lookahead to backtrack over: the token is captured greedily across a class that INCLUDES
+lowercase and then rejected in code if lowercase appears, which removes the escape route a boundary
+character used to offer. The reviewer was describing a design that had already been abandoned for
+exactly the reason given.
+
+A caution about that measurement, since it nearly produced a fourth wrong version of this entry: my
+first probe hand-copied the pattern into a shell string and over-escaped the bracket group, so
+`### [P2] SOME-ID` came back empty and briefly looked like a real bug. Copying a regex into a probe
+re-implements the thing under test. Build the probe from the module's own source text, and if a
+surprising result appears, suspect the probe before the code.
+
+**The durable fix is a pre-dispatch scope check, not more care.** A brief's scope is a factual claim
+about the diff, verifiable in one command before a reviewer is spent on it:
+
+```
+git diff --name-only origin/main...HEAD -- <every file the brief names>
+```
+
+Any name that prints nothing does not belong in the brief. Same class as the citation-verification
+rule already required for specs and briefs, but costlier: a wrong citation wastes one finding, a wrong
+scope wastes every round the track runs.
+
+Corollary worth keeping: **a track that will not converge is evidence about the brief, not only about
+the code.** Eight NEEDS-ATTENTION verdicts beside a sibling track's APPROVE was the signal, and for
+seven rounds I read it as "this surface is hard" instead of checking whether the surface was in the
+diff.
