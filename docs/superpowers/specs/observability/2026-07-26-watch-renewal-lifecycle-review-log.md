@@ -49,3 +49,30 @@ and "found by the reviewer" as different signals.
 | `JSON.stringify(obj)` | `string` | `null` |
 
 The raw object is CORRECT and is accepted, not rejected. `JSON.stringify` is the form that silently double-encodes — the row is written, `occurrence_count` increments, and every `context->>` read returns NULL thereafter. The spec's prescription was inverted for two drafts and the review round agreed with the wrong version; §3.4.2 now carries the table above instead of an argument.
+
+## Spec round 2 (Codex, reviewed `a6d2b3277`) — VERDICT: NEEDS-ATTENTION · all 9 accepted
+
+| # | Sev | Claim | Disposition |
+| --- | --- | --- | --- |
+| 1 | HIGH | Promotion supersession races a late activation: an old-folder `pending` row committed before promotion is invisible to it, and `activatePending` later promotes it without rechecking `app_settings`. AC-6.18 still fails. | **ACCEPTED.** Promotion now also orphans old-folder `pending` rows, and `activatePending` refuses to promote a row that is no longer `pending` — the row count is currently unchecked, so activation reports success while the row stays orphaned. The canonical spec already prescribes that zero-row rollback (`:1318`); like AC-6.18, it was never implemented. |
+| 2 | MEDIUM | The two-arm reap was not propagated to D2, D3, or §5. | **ACCEPTED.** |
+| 3 | MEDIUM | `WatchChannelStatus` and the fake's local union both need `expired`; "nothing new has to be plumbed" was true of the field, false of the type. | **ACCEPTED.** |
+| 4 | MEDIUM | Six existing refresh call sites inject no folder read and would hit the real service-role path. | **ACCEPTED** — the class was repaired only in the real-DB harness, not exhausted. |
+| 5 | MEDIUM | The extended validation block lacks its own non-vacuity guard; a zero-match parse passes having asserted nothing. | **ACCEPTED.** It now asserts exactly one parsed constraint name first. The matrix row claiming the parity test "runs unchanged" contradicted the rewritten §4.4 and is corrected. |
+| 6 | MEDIUM | Reap telemetry cannot distinguish `expired` from `superseded`. | **ACCEPTED.** The two populations are reported separately; a merged list would file a future-dated invalid lease as "expired". |
+| 7 | LOW | Two false dependency claims: gaxios combines a caller signal via `AbortSignal.any` rather than being displaced; a renewal iteration makes ONE bounded Drive call. | **ACCEPTED, both.** |
+| 8 | LOW | "First 20 by table order" is unsupported — `RETURNING` has no ordering contract. | **ACCEPTED.** The caller sorts before capping. |
+| 9 | LOW | The 500-decision citation pointed at imports. | **ACCEPTED.** |
+
+## Plan round 1b (Codex, reviewed `a6d2b3277`) — VERDICT: BLOCKING · all 8 accepted
+
+| # | Sev | Claim | Disposition |
+| --- | --- | --- | --- |
+| 1 | BLOCKING | Task 5's atomicity test is not constructible: the seam is module-private and the public paths call it last. | **ACCEPTED.** Task 5 exports `markWatchOrphanedWithTx` and a `createPostgresWatchTx` factory — both existing production paths — so the contract is testable without a test-only branch. |
+| 2 | HIGH | `tests/adminAlerts/alertProducerScope.registry.ts:214` pins the producer by LINE and its meta-test demands exact equality. | **ACCEPTED** and verified: line 463 is the `tx.upsertAdminAlert({` call today, and Tasks 2 and 5 both insert above it. Guaranteed suite failure. Re-derive after the last line-shifting task. |
+| 3 | HIGH | The invalidated-assertion inventory missed both invalid-lease tests and the `seedActiveExpiring` isolation fixture. | **ACCEPTED** and verified: `tests/drive/watch.test.ts:657` seeds the rows, `:677` expects four subscribe calls — it would have exercised only reaping while still passing its own name. |
+| 4 | HIGH | Task 2's ordering test passes against two separate transactions; Task 3b's single assertion passes if everything is superseded or if the write commits outside the transaction. | **ACCEPTED, both.** Rollback and preservation assertions added. |
+| 5 | HIGH | Task 3b's UPDATE hits two SQL fakes with closed dispatchers. | **ACCEPTED** and verified. |
+| 6 | HIGH | The class sweep is internally inconsistent and misclassifies already-bounded sites. | **ACCEPTED — my methodology was wrong.** I grepped client CONSTRUCTION and inferred boundedness from it. Re-run against actual call sites: everything under `lib/` is bounded; the unbounded set is exactly ten (two fixed here, eight under `app/api/`), matching the reviewer's list. |
+| 7 | MEDIUM | Load-bearing qualifiers and cardinality requirements lack coverage. | **ACCEPTED.** |
+| 8 | HIGH | "Four TDD commits" (ratified) contradicts seven task commits and invariant 6; the file inventory still lists a module Task 4 says will not exist. | **ACCEPTED.** The ratified choice was a PR-shape decision and "four" named the four backlog items. Spec §1.1a item 9 reworded so the documents agree; stale module removed. |
