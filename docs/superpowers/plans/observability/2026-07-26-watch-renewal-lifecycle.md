@@ -21,7 +21,7 @@ Concretely, this plan does NOT restate — it references:
 | The reap predicate, its two arms and two target statuses | spec §3.1.2, §3.1.3 |
 | GC's per-status stop-and-transition table | spec §3.1.4 |
 | The admin health tier change | spec §3.1.5 |
-| The three folder-read outcomes | spec §3.2.2 |
+| The three folder-read outcomes, INCLUDING that a failed read renews nothing AND records a `'*'` failures row | spec §3.2.2 and §3.2.3 |
 | The three-part promotion/activation fix | spec §3.2.4 |
 | The Drive-call option pair and the loop bound | spec §3.3 |
 | The jsonb parameter form | spec §3.4.2 |
@@ -56,7 +56,7 @@ Settled at spec time in §4.3; each row was verified with a live grep. Summary o
 | `tests/sync/_metaInfraContract.test.ts` | **No REGISTRY row changes, but the executable fixture at `tests/sync/_metaInfraContract.test.ts:871` MUST be edited** — it supplies only `listRenewalDue`, so after reap-first it fails on the missing member and still returns the same generic `failures` shape, passing for the wrong operation. The two registry rows themselves are load-bearing and preserved, not edited (constraint 4 above). |
 | `tests/messages/_metaAdminAlertCatalog.test.ts:111-113` | **No change**, verified: the pinned regex matches `markWatchOrphanedWithTx`, which this diff does not touch. |
 | `tests/messages/_metaAdminAlertProducer.test.ts` | **No change**, verified: detector is Supabase-client-scoped; the raw pg RPC call is what it exists to require. |
-| `tests/log/_metaMutationSurfaceObservability.test.ts` | **N/A**: the only route in scope exports `GET` only. |
+| `tests/log/_metaMutationSurfaceObservability.test.ts` | **N/A, but not for the reason an earlier revision gave.** It said the only route in scope exports `GET`; that was false — Task 3b edits `app/api/admin/onboarding/finalize-cas/route.ts`, which exports `POST` (`app/api/admin/onboarding/finalize-cas/route.ts:1222`). It is N/A because that POST is ALREADY registered (`tests/log/_auditableMutations.ts:35`, code `SHOW_FINALIZED`), so this diff adds behaviour to a registered surface rather than creating an unregistered one (plan R6 finding 5). |
 | `tests/cross-cutting/codes.test.ts` (x1-catalog-parity) | **N/A**: the four codes sit inside `log.*` spans, which `stripLogEmissionCalls` strips before the producer scan. No §12.4 lockstep. |
 | `tests/cross-cutting/vitest-projects-partition.test.ts:222-242` | **N/A**: samples rather than registers; a new `tests/db/*.db.test.ts` is admitted by directory glob. |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | **N/A**: no `pg_advisory`/`hashtext` added (constraint 3). Declared positively as the rule requires. |
@@ -96,6 +96,16 @@ Also: `WatchChannelStatus` (`lib/drive/watch.ts:21`) gains `"expired"`.
 
 **Registry:** bump `tests/db/_metaLocalDbUrlGuard.test.ts` `toBe(56)` → `toBe(57)` — the new file is the 57th reader.
 
+**Apply to the validation project IN THIS TASK, not in Task 6** (plan R6 finding 2, BLOCKING). An earlier revision added the parity assertion here and deferred the apply, which left this task either red against the real validation target or green only because the harness SKIPS its live assertion when `TEST_DATABASE_URL` is unset (`tests/db/validation-schema-parity.test.ts:245-248`) — a vacuous pass, and exactly the failure mode the gate exists to prevent. Applying the migration is part of shipping it:
+
+```sh
+supabase db query --linked "<contents of the migration>"
+supabase db query --linked "select pg_get_constraintdef(oid) from pg_constraint \
+  where conname = 'drive_watch_channels_status_check'"
+```
+
+The second command's output must contain `'expired'`. Task 6 then only VERIFIES it, and no longer owns the apply.
+
 **Extend the executable validation gate** (spec §4.4). Add a parallel block to `tests/db/validation-schema-parity.test.ts` (alongside the existing CHECK layer at `tests/db/validation-schema-parity.test.ts:216-290`) that parses the new migration for its constraint name and asserts the validation database's `drive_watch_channels_status_check` **definition contains `'expired'`**. Assert the definition, not just the name: the name already exists in validation today carrying the OLD six-value list, so a name-only superset check passes whether or not the migration was applied. Add it as its own parsed block, NOT by appending to `NONBLANK_MIGRATIONS` — that array's `expect(expected.size).toBe(17)` non-vacuity guard is scoped to the `*_drive_file_id_nonblank` family.
 
 **Apply locally:** `psql "$LOCAL_TEST_DATABASE_URL" -f supabase/migrations/20260726000000_drive_watch_expired_status.sql`, then re-run the test green. Then `pnpm gen:schema-manifest` and commit the result — expected to be a no-op diff (§4.1), and a NON-empty diff is a signal to stop and read it.
@@ -105,6 +115,12 @@ Also: `WatchChannelStatus` (`lib/drive/watch.ts:21`) gains `"expired"`.
 ## Task 2: Reap expired channels, and let GC collect them
 
 **Tests: spec §6.1 and §6.2 is normative and is NOT restated here** (normative-source rule). Every failure mode, qualifier, payload field and cardinality lives there; this task adds only the execution detail below. Note the two that are easy to under-build: the 404 branch needs ALL THREE googleapis status shapes, and the health change needs the real reap → health → GC → health lifecycle rather than a synthetic literal row.
+
+**Everything this task breaks, it also fixes — otherwise it cannot commit green** (plan R6 finding 1, BLOCKING). Inserting `expireDeadActive` before `listRenewalDue` invalidates four existing DB-free assertions plus the real-DB suite, and every one of them is Task 2's to repair, not Task 3's:
+
+1. `tests/drive/watch.test.ts:735` and `tests/drive/watch.test.ts:777` assert `tx.operations` equals exactly `["listRenewalDue"]`. Both fail the moment the reap precedes it. Update both to the new expected sequence.
+2. The four-row fixture at `tests/drive/watch.test.ts:205-218` seeds already-expired rows and its test at `tests/drive/watch.test.ts:654-683` expects four renewals. Task 2 RE-DATES those fixture rows inside their leases so the reap does not consume them; Task 3 then rewrites the test's four-subscription assertion for the folder filter. Splitting it this way keeps each task green: after Task 2 the test still passes (four in-lease rows, no filter yet), after Task 3 it asserts the filter contract.
+3. The real-DB suite's clock, below.
 
 **Ordering: the clock conversion happens HERE, not in Task 3** (plan R5 finding 1, BLOCKING). The reap reads SQL `now()`, and `tests/db/watchRenewalDue.test.ts` dates every fixture against a JS constant pinned at `2026-07-25T12:00Z`, so the moment this task lands those fixtures are already expired and five of its tests fail. Deferring the conversion to Task 3 would mean Task 2 cannot commit green, violating the failing-test-first-then-green rule. So Task 2 converts that suite onto the database clock as part of its own work: read `select now()` once at suite start, inject THAT as the JS clock, and date fixtures relative to SQL `now()`.
 
@@ -192,7 +208,7 @@ Plus, same file: the raised alert satisfies `jsonb_typeof(context) = 'object'` a
 
 ## Task 6: Validation apply, registries, gates, and the residual class
 
-1. **Apply the migration to the validation project** and paste the evidence into the PR body (§4.4):
+1. **Verify** the validation apply Task 1 performed, and paste the evidence into the PR body (§4.4):
    `supabase db query --linked "<migration SQL>"` then
    `supabase db query --linked "select pg_get_constraintdef(oid) from pg_constraint where conname = 'drive_watch_channels_status_check'"` — output must contain `'expired'`.
 2. **`NEW_FORENSIC_CODES`**: add all four §2.2 codes.
@@ -201,7 +217,7 @@ Plus, same file: the raised alert satisfies `jsonb_typeof(context) = 'object'` a
 5. **Verify all THREE residual backlog entries exist** (they were filed with the spec repairs, not deferred to this task): `BL-WATCH-PROMOTION-ACTIVATION-RACE`, `BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED`, `BL-DRIVE-API-CALLS-UNBOUNDED-APP-ROUTES`. An earlier revision promised the first here and filed only the other two.
 6. **(Already done in step 5 — do not create a second entry.)** `BL-DRIVE-API-CALLS-UNBOUNDED-APP-ROUTES` exists with all eight sites; step 5 verifies it. An earlier revision told the implementer to file it again (plan R5 finding 5), so the sweep is recorded rather than silently half-done.
 7. **Update `BACKLOG.md`**: mark the four entries closed with this PR; leave `BL-WATCH-RECONCILE-BACKOFF` OPEN and add the §8.6 note that its decisive blocker is cleared and reconcile is now the single retry surface.
-8. **Add the plan row** to `docs/superpowers/plans/observability/README.md`.
+8. **Verify** the plan row exists in `docs/superpowers/plans/observability/README.md` — it was added with the plan and must NOT be added twice (plan R6 finding 4).
 9. **Gates, in this order:** `pnpm typecheck` (vitest AND playwright configs) → `pnpm exec eslint` → `pnpm format:check` → `pnpm test` (full suite; scoped runs miss registry suites) → `pnpm spec:lint` on both the spec and this plan.
 
 **Commit:** `chore(drive): close the four watch backlog entries and record the residual class`
