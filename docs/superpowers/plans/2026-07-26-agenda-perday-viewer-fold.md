@@ -131,6 +131,17 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
   - **the positional fallback indexes the FULL aggregate day list.** Fixture built so a filtered list maps to different extraction rows. *Catches indexing the viewer's subset.*
   - `{ kind: "all" }` is returned, never `{ kind: "subset"; rows: <empty> }`. *Catches the empty-subset trap in spec §2.*
   - every expected index derived from fixture dimensions, never hardcoded.
+- [ ] **Signature takes ONE normalized extraction, not the link array.** `agendaSessionsForToday`
+      (`lib/crew/agendaDayForToday.ts:47`) takes `agendaLinks[]` and aggregates across every link, because
+      it answers "what is on today" for the whole show. This matcher answers a per-link question (T2: called
+      once per link, results never shared), so mirroring that shape would be wrong. Take the already-
+      normalized `AgendaExtraction` plus the two date lists and return this link's `ViewerAgendaDays`.
+      Normalization stays at the caller, matching the boundary `AgendaScheduleBlock` already uses
+      (`components/crew/AgendaScheduleBlock.tsx:55`).
+- [ ] **Reuse the existing fixture builders** in `tests/crew/agendaDayForToday.test.ts:5-17` — `sess()` and
+      `ext()` — rather than writing new ones. `ext()` hardcodes `date: null`, which is both what production
+      does (spec §2.5 fact 1) and a useful default for these tests. For the non-null-date cases the narrowed
+      fact 1 requires, construct those days explicitly instead of changing the shared builder.
 - [ ] Implement `lib/crew/agendaViewerDays.ts (NEW)`, reusing `parseIsoFromDayLabel` (`lib/crew/agendaDayForToday.ts:36`) and mirroring the positional rule at `lib/crew/agendaDayForToday.ts:64`.
 - [ ] Green; `npx tsc --noEmit`; commit `feat(crew-page): row-index matcher for the viewer's agenda days`.
 
