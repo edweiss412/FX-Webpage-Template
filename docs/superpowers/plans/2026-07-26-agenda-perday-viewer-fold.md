@@ -154,7 +154,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
       normalized `AgendaExtraction` plus the two date lists and return this link's `ViewerAgendaDays`.
       Normalization stays at the caller, matching the boundary `AgendaScheduleBlock` already uses
       (`components/crew/AgendaScheduleBlock.tsx:55`).
-- [ ] **Reuse the existing fixture builders** in `tests/crew/agendaDayForToday.test.ts:5-17` — `sess()` and
+- [ ] **Define LOCAL fixture builders mirroring the existing shapes; they cannot be imported.** `sess()` and `ext()` in `tests/crew/agendaDayForToday.test.ts:5` and `tests/crew/agendaDayForToday.test.ts:12` are unexported `const`s (review R6, MEDIUM: an earlier version said to reuse them, which would have forced an unplanned shared-fixture module or a silent deviation). Copy the shapes, and keep `ext()`'s `date: null` because that is what the live extractor writes (spec §2.5 fact 1). Construct non-null-date days explicitly for the cases the narrowed fact 1 requires.
       `ext()` — rather than writing new ones. `ext()` hardcodes `date: null`, which is both what production
       does (spec §2.5 fact 1) and a useful default for these tests. For the non-null-date cases the narrowed
       fact 1 requires, construct those days explicitly instead of changing the shared builder.
@@ -198,7 +198,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
       - `tests/e2e/agendaScheduleLayout.spec.ts` currently builds its DOM from `agendaHtml()`, HTML
         "transcribed VERBATIM from the components" (its own words at
         `tests/e2e/agendaScheduleLayout.spec.ts:58`). That transcription is the drift R4 flagged.
-      - Replace it with `renderToStaticMarkup(<AgendaScheduleBlock … />)` at test time. `react-dom` 19.2.4
+      - Replace it with `renderToStaticMarkup(AgendaScheduleBlock({ … }))` at test time — **calling the component as a FUNCTION, not JSX** (review R6, MEDIUM). The harness file has a plain-TypeScript extension, which does not parse JSX, and the cited precedent does exactly this: `tests/auth/signInPageRedirect.test.ts:135-136` calls `await SignInPage({ … })` and passes the returned element to `renderToStaticMarkup`. `AgendaScheduleBlock` is a plain function component with no hooks, so a direct call is valid and no file rename or scanner/config change is needed. `react-dom` 19.2.4
         is present, `renderToStaticMarkup` is an established pattern in this repo
         (`tests/messages/_metaEmphasisRenderContract.test.ts:32`, `tests/auth/signInPageRedirect.test.ts:2`),
         and `AgendaScheduleBlock` contains **zero hooks** (`grep -cE "useState|useEffect|useRef|useMemo" `
@@ -242,7 +242,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
         (`grep -n rotate app/globals.css` finds only prose). A rotation is new here and needs its own
         `transition: transform var(--duration-fast)`.
       - Reduced motion still comes free via the token rewrite at `app/globals.css:419`.
-- [ ] **Suppress the NATIVE disclosure triangle, or the row shows two markers.** A `<summary>` renders a UA
+- [ ] **Suppress the NATIVE disclosure triangle, WITH ITS OWN FAILING ASSERTION FIRST** (review R6, CRITICAL: this behaviour previously rode along on T4's duration assertion, which cannot fail for it, so a duplicate glyph could ship through a task that claims per-behaviour TDD). Assert in the real browser that the `<summary>` computes `list-style: none` and that its webkit details-marker pseudo-element has no box — that fails before the classes land. Then apply the repo's established set from `components/messages/ErrorExplainer.tsx:113`: `list-none [&::-webkit-details-marker]:hidden [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none`. Keep `<summary>` semantics: the marker is removed for typography, not to change the disclosure role, which `components/messages/ErrorExplainer.tsx:106-109` states explicitly.
       triangle by default. The repo's established class set is at `components/messages/ErrorExplainer.tsx:113`:
       `list-none [&::-webkit-details-marker]:hidden [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none`.
       Apply it (and keep `<summary>` semantics — the marker is removed for typography, not to change the

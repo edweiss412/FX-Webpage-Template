@@ -171,6 +171,50 @@ Malformed show dates are exactly the "partial knowledge is no knowledge" case §
 the catch is not a new policy — it is the existing one applied to a new fault source. The Schedule section
 keeps rendering, the agenda expands whole, and nothing is silently folded.
 
+**Two corrections to that containment story, both from review R6 (CRITICAL).**
+
+*First, the scope of the promise.* R6 objected that "malformed show dates keep Schedule rendering" is false
+unless the catch also covers existing anchor work. Checked, and the conclusion is the opposite of what it
+looks like: `const anchors = resolveKeyTimes(...)` runs at
+`components/crew/sections/ScheduleSection.tsx:117` — **already above `agendaArea` and already outside the
+`WrappedSection` callback** — and it reads `showDays` just as unvalidatedly
+(`lib/crew/resolveKeyTimes.ts:75` calls `showDays.indexOf`, which throws on a non-array). Note that
+`lib/crew/resolveKeyTimes.ts:145` is *not* the fault: `.length` on a non-array is `undefined`, not a throw.
+
+So malformed `showDays` can ALREADY escape the boundary today, at line 117, before this feature exists. The
+hoist therefore adds no new exposure — the same conclusion §2 already reaches for
+`resolveViewerContext`, and for the same reason. What the promise must say honestly is narrower: **the
+catch keeps THIS feature from adding a fault path, and the agenda fails open rather than propagating.** It
+does not repair the pre-existing exposure at line 117, which is out of scope and left as-is.
+
+*Second, and this one is a real defect.* Hoisting `aggregateDays` out of the callback removes ITS throw from
+`WrappedSection`'s ledger (`components/crew/WrappedSection.tsx:86-100`), which records the fault and renders
+a tile fallback. A bare `catch` would convert a recorded day-card render fault into a silently empty day
+list — strictly worse than today, because the operator alert disappears.
+
+**So the catch must fail open for the agenda AND re-surface the fault for the day cards.** Capture the error
+rather than swallowing it, and rethrow it inside the callback so `WrappedSection` still sees it:
+
+```ts
+let viewerDays: ViewerAgendaDays = { kind: "all" };
+let derivationError: unknown = null;
+if (dateRestriction.kind !== "unknown_asterisk") {
+  try {
+    // the three existing visibleDays lines, unmodified
+    viewerDays = /* per-link matcher, §3 */;
+  } catch (err) {
+    derivationError = err;      // agenda: fail open, below
+    viewerDays = { kind: "all" };
+  }
+}
+// …inside the WrappedSection render callback:
+if (derivationError !== null) throw derivationError;   // day cards: ledger + tile fallback, unchanged
+```
+
+The agenda expands whole and the day-card path behaves exactly as it does today, including the ledger
+record and the alert. Fail-open is the right posture for the fold; it is NOT the right posture for
+swallowing an infra fault someone needs to see.
+
 **Also skip the derivation entirely on the `unknown_asterisk` path (R5, HIGH).** That branch returns a
 placeholder and renders no agenda at all (§5), so aggregating dates and running per-link matching for it is
 work whose result is discarded — and, before this fix, exposure taken for nothing. Guard the derivation with
