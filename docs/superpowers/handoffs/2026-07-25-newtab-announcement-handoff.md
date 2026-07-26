@@ -1436,7 +1436,9 @@ both fixed in `b9b8e192c` after reading its probe trail, and the equivalent cond
 deleted during the branch sweep. Independent arrival at all three is worth recording — they were
 reachable from the code, not lucky guesses.
 
-The six that were live all belong to ONE theme: **the scanner kept asking "is this a literal?" when
+The six that were live all belong to ONE theme (the table below lists five R33-numbered rows plus
+the `open` classification defect, which was found by probing the same rule the reviewer had
+started reading and so carries no finding number — R34 HIGH 7 caught the count mismatch): **the scanner kept asking "is this a literal?" when
 the question is "is this decidable?"**
 
 | # | Where | Fail-open half | False-positive half |
@@ -1446,6 +1448,7 @@ the question is "is this decidable?"**
 | 4 | style spreads | `{{...(true ? {display:"none"} : {})}}` | `{{display:"none", ...(true ? {display:"block"} : {})}}` reported |
 | 5 | `staticStringValue` | `display: flag ? "none" : "none"` | `` `${null}` ``, `null && "true"`, `null ?? "false"`, … all reported |
 | 8 | style KEY case-folded | — | `{{DISPLAY:"NONE"}}` reported |
+| — | `open` accepted only the literal `true` | — | `open={1}`, `open={!false}`, `open={[]}` reported |
 
 Four of the six are wrong in BOTH directions, which is now the signature of this class: a
 classification defect has no direction.
@@ -1568,3 +1571,42 @@ separator rule exists at all.
 This is worth repeating at the end of any long guard-hardening arc. Rule-level tests answer "is this
 rule correct"; only this answers "does the guard still do its job", and the two can diverge silently
 while every rule-level test stays green.
+
+## R34 — seven findings, and the one rule I broke by reaching for a shared helper
+
+R34 confirmed the drift it was asked to report (it reviewed `59eb341b2`; the worktree had advanced),
+and every finding was real.
+
+| # | Finding | Direction |
+| --- | --- | --- |
+| 1 | `undefined` / `NaN` classified by SPELLING, not binding | fail-open |
+| 2 | truthiness non-compositional; `void 0`, `-0n`, `-NaN`, evaluated-empty template missing | BOTH |
+| 3 | `aria-hidden` failed closed on values whose TYPE cannot be `"true"`; `popover` missed logical compositions | false positive |
+| 4 | a conditional spread with a dynamic predicate was opaque even when EVERY branch hides | fail-open |
+| 5 | per-hint state collapsed with "any bad instance" semantics | false positive |
+| 6 | four equivalent / dead branches | — |
+| 7 | `0_0n` fixture, stale `popover` comments, stale spec claims, a count mismatch in this document | — |
+
+**Finding 1 is R27 recurring on a different identifier.** That round established that the guard must
+resolve `NewTabHint` to a BINDING rather than trust its spelling; `undefined` and `NaN` were still
+being matched by name three rounds later, in eight separate rules. `function A(undefined) { …
+hidden={undefined} }` is valid code where the identifier is a parameter. The fix reuses the same
+`isShadowedAt` walk — the machinery already existed, which is what makes this a miss rather than a
+gap.
+
+**Finding 2 turned three partial answers into one.** `?:`, `&&`, `||` and `??` select an operand, so
+every value question has the same answer for the expression as for the operand chosen. Three helpers
+were each implementing that partially and disagreeing; `pickedOperand` now owns it and the others
+defer.
+
+**And the one I broke: reaching for the shared helper in the wrong place.** Fixing finding 3, I
+routed `ariaHiddenHides` through `reactOmitsValue` — which omits BOTH booleans, because that is
+ENUMERATED-attribute behaviour. An ARIA attribute stringifies them, so `aria-hidden={true}` renders
+`aria-hidden="true"` and hides. The existing fixture failed on the first run. The attribute-kind
+table added to §6.4 one round earlier is exactly the thing I did not consult before writing the
+line, and it is what caught me: a distinction is only load-bearing if you check it at the moment you
+are about to violate it.
+
+Nine mutations, all red. Four dead branches deleted; the first-wins exemption guard was KEPT with a
+different justification — it changes no verdict, but dropping it would make the choice depend on
+iteration order, and determinism is a reason where correctness is not.

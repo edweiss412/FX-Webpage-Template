@@ -272,6 +272,7 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["true", 'attribute value (R31: `aria-hidden` hides only on the literal string "true")'],
   ["collapse", "CSS keyword (a hiding `visibility` value)"],
   ["invisible", "CSS class TOKEN, not an attribute (the class-list hiding set)"],
+  ["hides", "internal verdict from styleObjectHides's apply(), not a name"],
   ["NaN", "JS global, one of the three falsy values that is not a plain literal (R32 HIGH 7)"],
   ["null", "how `${null}` STRINGIFIES inside a template -- a value, never a name (R33)"],
   ["false", "attribute value: staticStringValue renders the boolean literals as text"],
@@ -3546,6 +3547,181 @@ describe("R6: scanner changes are pinned", () => {
   // by hand during a sweep, which is exactly how this class recurred once. The property is
   // guaranteed by the behavioural closed-list sweep, which reads no source; this only makes
   // one kind of regression loud.
+  it("R34 binding over spelling, compositional truthiness, per-hint ALL", () => {
+    const IMP = 'import { NewTabHint } from "@/components/shared/NewTabHint";\n';
+    const hid = '<span aria-hidden="true">Go</span>';
+    // BLOCKING 1: `undefined` and `NaN` were read by SPELLING -- the exact mistake R27 fixed for
+    // `NewTabHint`. A local binding of either name makes the value unknown, so fail closed.
+    for (const [label, body] of [
+      [
+        "parameter named undefined",
+        'function A(undefined){ return <a href="x" target="_blank">Go <span aria-hidden={undefined}><NewTabHint /></span></a>; }',
+      ],
+      [
+        "parameter named NaN",
+        'function A(NaN){ return <a href="x" target="_blank">Go <span hidden={NaN}><NewTabHint /></span></a>; }',
+      ],
+      [
+        "local const undefined",
+        'function A(){ const undefined = true; return <a href="x" target="_blank">Go <span inert={undefined}><NewTabHint /></span></a>; }',
+      ],
+    ] as [string, string][]) {
+      expect(
+        probe(IMP + body, { bare: true }).violations,
+        `must fail closed, the name is locally bound: ${label}`,
+      ).not.toEqual([]);
+    }
+    // BLOCKING 2: falsiness composes through selection, and three falsy spellings were missing.
+    for (const expr of [
+      "{void 0 || HID}",
+      "{-0n || HID}",
+      "{-NaN || HID}",
+      '{`${""}` || HID}',
+      "{(true ? 0 : 1) || HID}",
+      "{(false && 1) || HID}",
+      "{(null ?? 0) || HID}",
+    ]) {
+      reports(
+        `const A=()=><a href="x" target="_blank">${expr.replace("HID", hid)} <NewTabHint /></a>;`,
+        /only visible content is the announcement/,
+        `a falsy left operand selects the right: ${expr}`,
+      );
+    }
+    // ...and the same forms as an attribute VALUE are omitted by React, so they must be accepted.
+    for (const attr of [
+      "hidden={-0n}",
+      "hidden={-NaN}",
+      'hidden={`${""}`}',
+      "hidden={true ? 0 : 1}",
+    ]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must accept, React omits a falsy boolean attribute: ${attr}`,
+      ).toEqual([]);
+    }
+    // ...and a provably TRUTHY `open` really opens the details.
+    for (const attr of [
+      "open={true && 1}",
+      "open={false || 1}",
+      "open={null ?? 1}",
+      "open={true ? 1 : 0}",
+    ]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <details ${attr}><NewTabHint /></details></a>;`,
+        ),
+        `must accept, the details is provably open: ${attr}`,
+      ).toEqual([]);
+    }
+    // HIGH 3: a value whose TYPE cannot be the string "true" does not hide, and React omits an
+    // enumerated attribute set to a composed boolean.
+    for (const attr of [
+      "aria-hidden={void 0}",
+      "aria-hidden={flag ? null : undefined}",
+      "aria-hidden={typeof x}",
+      "aria-hidden={/re/}",
+      "aria-hidden={-1n}",
+      "aria-hidden={[]}",
+      "aria-hidden={{}}",
+      "aria-hidden={() => 1}",
+      'popover={false && "auto"}',
+      'popover={true || "auto"}',
+      "popover={null ?? true}",
+      "popover={!a && !b}",
+    ]) {
+      expect(
+        violations(
+          `const A=({flag,x,a,b})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must accept, this cannot hide: ${attr}`,
+      ).toEqual([]);
+    }
+    // BLOCKING 4: a conditional spread with a DYNAMIC predicate is still decidable when every
+    // branch hides -- identical branches, or different-but-both-hiding ones.
+    for (const style of [
+      '{{...(flag ? {display:"none"} : {display:"none"})}}',
+      '{{...(flag ? {display:"none"} : {visibility:"hidden"})}}',
+    ]) {
+      reports(
+        `const A=({flag})=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
+        /only visible content is the announcement/,
+        `every branch of the spread hides: ${style}`,
+      );
+    }
+    // ...but one visible branch makes it opaque again.
+    expect(
+      violations(
+        'const A=({flag})=><a href="x" target="_blank"><span style={{...(flag ? {display:"none"} : {display:"block"})}}>Go</span> <NewTabHint /></a>;',
+      ),
+      "must accept, one branch leaves the destination visible",
+    ).toEqual([]);
+    // HIGH 5: per-hint state is ALL, not ANY. Measured: a visible hint beside a hidden one still
+    // computes "Go (opens in a new tab)".
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank">Go <NewTabHint /> <span aria-hidden="true"><NewTabHint /></span></a>;',
+      ),
+      "must accept, the visible instance still announces",
+    ).toEqual([]);
+    reports(
+      'const A=()=><a href="x" target="_blank">Go <span aria-hidden="true"><NewTabHint /></span> <span hidden><NewTabHint /></span></a>;',
+      /hidden from the accessible name/,
+      "every instance hidden",
+    );
+  });
+
+  it("the base case: an external anchor with no hint at all", () => {
+    // The guard's most fundamental violation, and until the coverage meta-test below was written no
+    // fixture NAMED it -- the shadow fixtures reach it but assert only that something reported.
+    reports(
+      'const A = () => <a href="x" target="_blank">Go</a>;',
+      /external link does not announce that it opens a new tab/,
+      "a bare external anchor",
+    );
+    // ...and a shadowed hint reaches the same message, because the identifier no longer refers to
+    // the real component.
+    expect(
+      probe(
+        'import { NewTabHint } from "@/components/shared/NewTabHint";\nfunction A(){ const NewTabHint = () => null; return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+        { bare: true },
+      ).violations.map((v) => v.reason),
+      "a shadowed hint is not an announcement",
+    ).toContain("external link does not announce that it opens a new tab");
+  });
+
+  it("every violation the scanner can emit is exercised by a fixture", () => {
+    // A rule with no fixture NAMING its reason is an untested rule, and the count has grown by one
+    // or two nearly every round -- R31 added the aria-labelledby override, R28 the spread-on-path
+    // message. Extracted from the scanner source so a NEW reason fails by default rather than
+    // waiting to be noticed.
+    const src = readFileSync(join(process.cwd(), "tests/styles/_newTabScan.ts"), "utf8");
+    const reasons = [...src.matchAll(/record\(\s*(["'`])([\s\S]*?)\1/g)]
+      .map((m) => m[2]!.replace(/\s+/g, " ").trim())
+      // A templated reason is only stable up to its first interpolation.
+      .map((r) => r.split("${")[0]!.trim())
+      .filter((r) => r.length > 12);
+    expect(reasons.length, "expected the scanner to emit several distinct reasons").toBeGreaterThan(
+      8,
+    );
+    const self = readFileSync(
+      join(process.cwd(), "tests/styles/_metaNewTabAnnouncement.test.ts"),
+      "utf8",
+    );
+    const unexercised = [...new Set(reasons)].filter((reason) => {
+      // A fixture may match on ANY distinctive fragment -- most assert a mid-string phrase such as
+      // /only visible content is the announcement/ -- so a prefix comparison would report every rule
+      // as uncovered. Slide a window instead and accept any window that appears.
+      const WINDOW = 22;
+      for (let i = 0; i + WINDOW <= reason.length; i += 1) {
+        if (self.includes(reason.slice(i, i + WINDOW))) return false;
+      }
+      return true;
+    });
+    expect(unexercised, "these scanner violations have no fixture naming them").toEqual([]);
+  });
+
   it("no literal spells a known attribute name in non-lowercase", () => {
     // Shape-scoped, and NOT a claim of completeness (see the retraction above).
     // For the reason R18 gave about its sibling check: the position-based

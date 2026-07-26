@@ -467,6 +467,30 @@ WITH substitutions is not. Anything outside these shapes is reported as
   truthy, none of them "literals" (R33 BLOCKING 2). Zero BigInts are parsed by VALUE, since matching
   the spelling `/^0+n$/` missed `0x0n` and was wrong in both directions at once (R33 BLOCKING 3).
 
+  **And decidability COMPOSES (R34 BLOCKING 2).** `?:`, `&&`, `||` and `??` each select one operand,
+  so every question about the value — truthy, nullish, omitted by React, can-it-render-`"true"` —
+  has the same answer for the whole expression as for the operand chosen. Three helpers were each
+  answering that partially and disagreeing, so the selection now lives in ONE place
+  (`pickedOperand`) and the others defer to it. The missing falsy spellings closed at the same time:
+  `void 0`, `-0n`, `-NaN`, and an evaluated-empty template.
+
+  **A name is not a binding (R34 BLOCKING 1).** `undefined` and `NaN` were classified by SPELLING —
+  the exact mistake R27 fixed for `NewTabHint`. `function A(undefined) { … hidden={undefined} }` is
+  valid code in which the identifier is a parameter, and every rule reasoning about "the global"
+  was then reasoning about a value that is not there. Both now resolve through the same
+  `isShadowedAt` walk the hint uses.
+
+  **Per-hint state is ALL, not ANY (R34 HIGH 5).** A hidden instance beside a VISIBLE one does not
+  remove the announcement — the visible one still renders it, and
+  `Go <NewTabHint/> <span aria-hidden><NewTabHint/></span>` computes exactly
+  `"Go (opens in a new tab)"` (measured). The anchor is unannounced only when EVERY instance is
+  hidden.
+
+- **A dynamic PREDICATE does not make a spread undecidable when every branch hides (R34 BLOCKING 4).**
+  `{{...(flag ? {display:"none"} : {visibility:"hidden"})}}` hides whichever branch runs, and so does
+  the identical-branch form. Only the BRANCHES need to be decidable, not the test — the same shape
+  as an agreeing conditional in `staticStringValue`. One visible branch makes it opaque again.
+
 - **A style object is an ordered sequence of writes, and a spread is a write (R33 BLOCKING 4).**
   Scanning properties independently was wrong in both directions: `{{...(true ? {display:"none"} :
   {})}}` hid and scanned clean, while `{{display:"none", ...(true ? {display:"block"} : {})}}` is

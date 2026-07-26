@@ -647,7 +647,7 @@ function rendersNothing(e: ts.Expression): boolean {
     n.kind === ts.SyntaxKind.NullKeyword ||
     n.kind === ts.SyntaxKind.FalseKeyword ||
     n.kind === ts.SyntaxKind.TrueKeyword ||
-    (ts.isIdentifier(n) && n.text === "undefined")
+    isGlobalRef(n, "undefined")
   ) {
     return true;
   }
@@ -720,9 +720,7 @@ function rendersNothing(e: ts.Expression): boolean {
     // `a ?? b` yields `b` only when `a` is null/undefined. Note this is NOT falsiness: `0 ?? x`
     // yields `0`, which renders.
     if (op === ts.SyntaxKind.QuestionQuestionToken) {
-      const nullish =
-        left.kind === ts.SyntaxKind.NullKeyword ||
-        (ts.isIdentifier(left) && left.text === "undefined");
+      const nullish = left.kind === ts.SyntaxKind.NullKeyword || isGlobalRef(left, "undefined");
       if (nullish) return rendersNothing(n.right);
       if (isLiteralTruthy(left) || isLiteralFalsy(left)) return rendersNothing(left);
       return false;
@@ -732,13 +730,34 @@ function rendersNothing(e: ts.Expression): boolean {
   return false;
 }
 
+/** Is this identifier the GLOBAL `undefined` / `NaN`, rather than a local of the same name?
+ *
+ *  R34 BLOCKING 1: the guard read these by SPELLING, which is the exact mistake R27 fixed for
+ *  `NewTabHint` -- `function A(NaN) { ... hidden={NaN} }` binds a parameter, and every rule that
+ *  treats the identifier as the global then reasons about a value that is not there. The scanner
+ *  already owns the machinery to answer this, so the fix is to use it rather than to trust the name.
+ */
+function isGlobalRef(n: ts.Node, name: "undefined" | "NaN"): boolean {
+  return ts.isIdentifier(n) && n.text === name && !isShadowedAt(n, name);
+}
+
 /** Definitely-falsy literals. `0` and `""` are falsy but `0` still RENDERS, which is why this
  *  is separate from `rendersNothing`. */
 function isLiteralFalsy(n: ts.Expression): boolean {
   if (n.kind === ts.SyntaxKind.FalseKeyword || n.kind === ts.SyntaxKind.NullKeyword) return true;
-  if (ts.isIdentifier(n) && n.text === "undefined") return true;
+  if (isGlobalRef(n, "undefined")) return true;
   if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text.length === 0;
   if (ts.isNumericLiteral(n)) return Number(n.text) === 0;
+  // Nullish however spelled, `void 0` included (review R34 BLOCKING 2).
+  if (isProvablyNullish(n)) return true;
+  // An evaluated-empty template is falsy: `` `${""}` `` is "".
+  if (ts.isTemplateExpression(n)) {
+    const v = staticStringValue(n);
+    return v !== null && v.length === 0;
+  }
+  // SELECTION composes: whichever operand or branch is taken decides falsiness.
+  const picked = pickedOperand(n);
+  if (picked !== null) return isLiteralFalsy(picked);
   // The three falsy values that are not plain literals (review R32 HIGH 7). React omits an
   // attribute for each of them -- measured for `hidden` and `inert` -- and the helper claimed to
   // recognise "every falsy value" while missing all three.
@@ -750,16 +769,55 @@ function isLiteralFalsy(n: ts.Expression): boolean {
   }
   // By VALUE, not by spelling: `/^0+n$/` missed `0x0n`, `0b0n` and separator forms (R33 BLOCKING 3).
   if (ts.isBigIntLiteral(n)) return bigIntLiteralIsZero(n.text);
-  if (ts.isIdentifier(n) && n.text === "NaN") return true;
+  if (isGlobalRef(n, "NaN")) return true;
   // `-0` is a prefix MINUS applied to `0`, not a numeric literal, so the check above never saw it.
   if (
     ts.isPrefixUnaryExpression(n) &&
-    (n.operator === ts.SyntaxKind.MinusToken || n.operator === ts.SyntaxKind.PlusToken) &&
-    ts.isNumericLiteral(n.operand)
+    (n.operator === ts.SyntaxKind.MinusToken || n.operator === ts.SyntaxKind.PlusToken)
   ) {
-    return Number(n.operand.text) === 0;
+    // `-0`, `-0n` and `-NaN` are all falsy; the sign does not change that (review R34 BLOCKING 2).
+    if (ts.isNumericLiteral(n.operand)) return Number(n.operand.text) === 0;
+    if (ts.isBigIntLiteral(n.operand)) return bigIntLiteralIsZero(n.operand.text);
+    if (isGlobalRef(n.operand, "NaN")) return true;
   }
   return false;
+}
+
+/** The operand a SELECTION expression evaluates to, when that is decidable; otherwise null.
+ *
+ *  `?:`, `&&`, `||` and `??` all pick one of their operands, so any question about the VALUE -- is
+ *  it truthy, is it nullish, does React omit it -- has the same answer for the whole expression as
+ *  for the operand chosen. Three separate helpers were each answering that question partially and
+ *  disagreeing (review R34 BLOCKING 2 / HIGH 3), so the selection lives here once.
+ */
+function pickedOperand(e0: ts.Expression): ts.Expression | null {
+  const e = unparen(e0);
+  if (ts.isConditionalExpression(e)) {
+    const cond = unparen(e.condition);
+    if (isLiteralTruthy(cond)) return e.whenTrue;
+    if (isLiteralFalsy(cond)) return e.whenFalse;
+    return null;
+  }
+  if (ts.isBinaryExpression(e)) {
+    const left = unparen(e.left);
+    switch (e.operatorToken.kind) {
+      case ts.SyntaxKind.AmpersandAmpersandToken:
+        if (isLiteralFalsy(left)) return left;
+        if (isLiteralTruthy(left)) return e.right;
+        return null;
+      case ts.SyntaxKind.BarBarToken:
+        if (isLiteralTruthy(left)) return left;
+        if (isLiteralFalsy(left)) return e.right;
+        return null;
+      case ts.SyntaxKind.QuestionQuestionToken:
+        if (isProvablyNullish(left)) return e.right;
+        if (isLiteralTruthy(left) || isLiteralFalsy(left)) return left;
+        return null;
+      default:
+        return null;
+    }
+  }
+  return null;
 }
 
 /**
@@ -780,8 +838,8 @@ function staticStringValue(e0: ts.Expression): string | null {
   // `${-0}` are both "0". Leaving them undecidable made every one a false positive, because an
   // undecidable aria-hidden fails closed (review R33 BLOCKING 5).
   if (e.kind === ts.SyntaxKind.NullKeyword) return "null";
-  if (ts.isIdentifier(e) && e.text === "undefined") return "undefined";
-  if (ts.isIdentifier(e) && e.text === "NaN") return "NaN";
+  if (isGlobalRef(e, "undefined")) return "undefined";
+  if (isGlobalRef(e, "NaN")) return "NaN";
   if (ts.isBigIntLiteral(e)) return e.text.replace(/n$/, "").replace(/_/g, "");
   if (
     ts.isPrefixUnaryExpression(e) &&
@@ -880,6 +938,8 @@ function isLiteralTruthy(n: ts.Expression): boolean {
     if (n.head.text.length > 0) return true;
     return n.templateSpans.some((sp) => sp.literal.text.length > 0);
   }
+  const picked = pickedOperand(n);
+  if (picked !== null) return isLiteralTruthy(picked);
   return false;
 }
 
@@ -970,9 +1030,7 @@ function expressionDestination(e0: ts.Expression): boolean | null {
     }
     if (op === ts.SyntaxKind.QuestionQuestionToken) {
       // NOT falsiness: `0 ?? x` yields `0`, which renders "0".
-      const nullish =
-        left.kind === ts.SyntaxKind.NullKeyword ||
-        (ts.isIdentifier(left) && left.text === "undefined");
+      const nullish = left.kind === ts.SyntaxKind.NullKeyword || isGlobalRef(left, "undefined");
       if (nullish) return expressionDestination(e.right);
       if (isLiteralTruthy(left) || isLiteralFalsy(left)) return expressionDestination(left);
       return null;
@@ -986,12 +1044,11 @@ function expressionDestination(e0: ts.Expression): boolean | null {
  *  JsxElement, which every `ts.isJsxElement` guard then rejected. */
 function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean {
   for (const child of children) {
-    // The announcement is not a destination. SUBSUMED as of R28: `NewTabHint` is a component, so
-    // the untrusted-component rule below already skips it, and a mutation sweep confirmed
-    // removing this line changes no test. Kept because it states the intent at the top of the
-    // walk where a reader looks for it -- but it is not the mechanism, and the comment says so
-    // rather than letting someone preserve the wrong line.
-    if (isHintElement(child)) continue;
+    // NOTE: no `isHintElement` skip here. The announcement is not a destination, but the
+    // untrusted-component rule below already skips every component including this one, and a
+    // mutation proved the explicit line changed no test. It was kept for one round with a comment
+    // admitting it was not the mechanism; R34 listed it as dead, which is the right call -- a line
+    // that states intent while doing nothing is how the wrong line gets preserved later.
     if (ts.isJsxText(child)) {
       if (child.text.trim().length > 0) return true;
       continue;
@@ -1181,16 +1238,18 @@ function ariaHiddenHides(a: ts.JsxAttribute): boolean {
   if (!init) return true; // bare `aria-hidden` renders aria-hidden="true"
   const e = ts.isJsxExpression(init) ? (init.expression ? unparen(init.expression) : null) : init;
   if (e === null) return false;
-  // React drops `null` and `undefined` from an ARIA attribute, so nothing reaches the DOM.
-  if (e.kind === ts.SyntaxKind.NullKeyword) return false;
-  if (ts.isIdentifier(e) && e.text === "undefined") return false;
   // EVALUATE the value rather than pattern-matching it. `stringOf` discarded template
   // substitutions, so `aria-hidden={`${true}`}` and ``aria-hidden={`tr${"ue"}`}`` both scanned
   // clean while React emitted `aria-hidden="true"` and the announcement left the name -- and
   // ``aria-hidden={`true${false}`}`` was reported although it emits the harmless "truefalse"
   // (review R32 BLOCKING 2, wrong in both directions from one weak read).
+  // NULLISH only -- deliberately NOT `reactOmitsValue`. That helper also omits BOOLEANS, which is
+  // enumerated-attribute semantics; an ARIA attribute STRINGIFIES them, and `aria-hidden={true}`
+  // really does render `aria-hidden="true"` and hide. Reaching for the shared helper here broke
+  // that case immediately, which is the attribute-kind table in spec §6.4 earning its place.
+  if (isProvablyNullish(e)) return false;
   const lit = staticStringValue(e);
-  if (lit === null) return true; // dynamic: fail closed
+  if (lit === null) return !cannotRenderTrue(e); // fail closed only when it COULD be "true"
   // Folded and trimmed: deliberately STRICTER than the harness, which hides only on the exact
   // lowercase "true". See the value table in the behaviour suite.
   return lit.trim().toLowerCase() === "true";
@@ -1220,22 +1279,38 @@ function isAlwaysBoolean(n: ts.Expression): boolean {
       ts.SyntaxKind.InKeyword,
     ]);
     if (boolOps.has(n.operatorToken.kind)) return true;
+    // `&&` and `||` yield ONE OF THEIR OPERANDS, so the result is always a boolean exactly when both
+    // operands are: `!a && !b` is a boolean however `a` and `b` are bound (review R34 HIGH 3).
+    if (
+      n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+      n.operatorToken.kind === ts.SyntaxKind.BarBarToken
+    ) {
+      return isAlwaysBoolean(unparen(n.left)) && isAlwaysBoolean(unparen(n.right));
+    }
   }
+  if (ts.isConditionalExpression(n)) {
+    return isAlwaysBoolean(unparen(n.whenTrue)) && isAlwaysBoolean(unparen(n.whenFalse));
+  }
+  if (n.kind === ts.SyntaxKind.TrueKeyword || n.kind === ts.SyntaxKind.FalseKeyword) return true;
   return false;
 }
 
 /** Does React DROP this attribute value, so the attribute never reaches the DOM?
  *
- *  True for the values React omits on any attribute: both booleans, `null`, and `undefined` --
- *  including expressions that provably PRODUCE one of those (`void 0`, `a === b`, `!x`, and a
- *  conditional whose branches all do). Distinct from `rendersNothing`, which also covers empty
+ *  NOT "on any attribute" -- that claim sat here for two rounds and is false (review R34 HIGH 7).
+ *  An ARIA attribute STRINGIFIES a boolean, so `aria-hidden={true}` renders `aria-hidden="true"` and
+ *  hides; only `ariaHiddenHides` may speak for that kind. This helper describes an ENUMERATED
+ *  attribute -- today just `popover` -- where React drops EITHER boolean along with the nullish
+ *  values, plus expressions that provably produce one of them (
+ *  `void 0`, `a === b`, `!x`, a selected operand, and a conditional whose branches all do).
+ *  Distinct from `rendersNothing`, which also covers empty
  *  strings and arrays: those are dropped as CONTENT but preserved as an attribute VALUE, and
  *  `popover=""` is exactly the case where that difference decides the verdict (review R33).
  */
 function isProvablyNullish(e0: ts.Expression): boolean {
   const e = unparen(e0);
   if (e.kind === ts.SyntaxKind.NullKeyword) return true;
-  if (ts.isIdentifier(e) && e.text === "undefined") return true;
+  if (isGlobalRef(e, "undefined")) return true;
   if (ts.isVoidExpression(e)) return true; // `void 0` is undefined, whatever the operand
   if (ts.isConditionalExpression(e)) {
     const cond = unparen(e.condition);
@@ -1251,11 +1326,41 @@ function reactOmitsValue(e0: ts.Expression): boolean {
   if (isProvablyNullish(e)) return true;
   if (e.kind === ts.SyntaxKind.TrueKeyword || e.kind === ts.SyntaxKind.FalseKeyword) return true;
   if (isAlwaysBoolean(e)) return true;
+  // Selection composes: `popover={false && "auto"}` yields `false`, which React omits (R34 HIGH 3).
+  const picked = pickedOperand(e);
+  if (picked !== null) return reactOmitsValue(picked);
   if (ts.isConditionalExpression(e)) {
-    const cond = unparen(e.condition);
-    if (isLiteralTruthy(cond)) return reactOmitsValue(e.whenTrue);
-    if (isLiteralFalsy(cond)) return reactOmitsValue(e.whenFalse);
+    // Undecidable test, but if BOTH branches are omitted the test cannot matter.
     return reactOmitsValue(e.whenTrue) && reactOmitsValue(e.whenFalse);
+  }
+  return false;
+}
+
+/** Can this value possibly be the string `"true"` once React renders it into an attribute?
+ *
+ *  `ariaHiddenHides` fails closed on anything it cannot evaluate, which is right for a genuinely
+ *  dynamic value and wrong for a value whose TYPE rules out the answer. A regex renders `/re/`, an
+ *  array `""` or a comma list, an object `[object Object]`, `typeof x` one of a fixed set of type
+ *  names -- none of them is `"true"`, and every one was reported (review R34 HIGH 3).
+ */
+function cannotRenderTrue(e0: ts.Expression): boolean {
+  const e = unparen(e0);
+  if (ts.isRegularExpressionLiteral(e)) return true;
+  if (ts.isArrayLiteralExpression(e) || ts.isObjectLiteralExpression(e)) return true;
+  if (ts.isFunctionExpression(e) || ts.isArrowFunction(e) || ts.isClassExpression(e)) return true;
+  if (ts.isNewExpression(e)) return true;
+  if (ts.isTypeOfExpression(e)) return true; // "string" | "number" | ... never "true"
+  if (ts.isBigIntLiteral(e) || ts.isNumericLiteral(e)) return true;
+  if (
+    ts.isPrefixUnaryExpression(e) &&
+    (e.operator === ts.SyntaxKind.MinusToken || e.operator === ts.SyntaxKind.PlusToken)
+  ) {
+    return ts.isNumericLiteral(e.operand) || ts.isBigIntLiteral(e.operand);
+  }
+  const picked = pickedOperand(e);
+  if (picked !== null) return cannotRenderTrue(picked);
+  if (ts.isConditionalExpression(e)) {
+    return cannotRenderTrue(e.whenTrue) && cannotRenderTrue(e.whenFalse);
   }
   return false;
 }
@@ -1318,13 +1423,21 @@ function styleObjectHides(init: ts.JsxAttributeValue | undefined): boolean {
   // reported. Resolve the object in source order into a final value per key; `undefined` marks a
   // key an undecidable write may have overwritten.
   const resolved = new Map<string, string | undefined>();
-  const apply = (o: ts.ObjectLiteralExpression): boolean => {
+  const apply = (o: ts.ObjectLiteralExpression): boolean | "hides" => {
     for (const prop of o.properties) {
       if (ts.isSpreadAssignment(prop)) {
         const inner = unparen(prop.expression);
         const picked = pickObjectLiteral(inner);
-        if (picked === null) return false; // undecidable spread: the whole object is unknown
-        if (!apply(picked)) return false;
+        if (picked === null) {
+          // An undecidable PREDICATE does not make the spread undecidable when every branch hides
+          // the same way: `flag ? {display:"none"} : {visibility:"hidden"}` hides whichever runs
+          // (review R34 BLOCKING 4). Only the branches need to be decidable, not the test.
+          const branches = conditionalObjectBranches(inner);
+          if (branches !== null && branches.every((b) => styleObjectLiteralHides(b)))
+            return "hides";
+          return false; // genuinely unknown: the whole object is opaque
+        }
+        if (apply(picked) === false) return false;
         continue;
       }
       if (!ts.isPropertyAssignment(prop)) {
@@ -1351,7 +1464,9 @@ function styleObjectHides(init: ts.JsxAttributeValue | undefined): boolean {
     }
     return true;
   };
-  if (!apply(obj)) return false; // anything undecidable: opaque, unchanged posture
+  const applied = apply(obj);
+  if (applied === "hides") return true; // a spread whose every branch hides
+  if (applied === false) return false; // anything undecidable: opaque, unchanged posture
   for (const [key, value] of resolved) {
     const hiding = HIDING[key];
     if (hiding === undefined || value === undefined) continue;
@@ -1359,6 +1474,22 @@ function styleObjectHides(init: ts.JsxAttributeValue | undefined): boolean {
     if (hiding.has(value.trim().toLowerCase())) return true;
   }
   return false;
+}
+
+/** The object-literal branches of a conditional, when both are literals; otherwise null. */
+function conditionalObjectBranches(e0: ts.Expression): ts.ObjectLiteralExpression[] | null {
+  const e = unparen(e0);
+  if (!ts.isConditionalExpression(e)) return null;
+  const a = pickObjectLiteral(e.whenTrue);
+  const b = pickObjectLiteral(e.whenFalse);
+  return a !== null && b !== null ? [a, b] : null;
+}
+
+/** Does this object literal, considered ALONE, hide? Used to decide a conditional spread whose
+ *  predicate is dynamic but whose branches all hide. */
+function styleObjectLiteralHides(o: ts.ObjectLiteralExpression): boolean {
+  const fake = ts.factory.createJsxExpression(undefined, o);
+  return styleObjectHides(fake);
 }
 
 /** The object literal this expression definitely evaluates to, or null. Sees through a conditional
@@ -1655,7 +1786,6 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
       if (tag === HINT) {
         out.found = true;
         out.instances.push({ hidden, conditions: conds });
-        if (hidden) out.hidden = true;
         out.conditions = conds;
         return;
       }
@@ -1779,6 +1909,12 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
   const anchorRendersChildren = /^[a-z]/.test(anchorTag) || linkIsReal;
   if (!anchorRendersChildren) return out;
   anchor.children.forEach((c) => walk(c, anchorHidden, []));
+  // ALL, not ANY. A hidden instance beside a VISIBLE one does not remove the announcement from the
+  // accessible name -- the visible one still renders it -- so reporting that pair was a false
+  // positive (review R34 HIGH 5). `Go <NewTabHint/> <span aria-hidden><NewTabHint/></span>` computes
+  // exactly "Go (opens in a new tab)", measured. The anchor is unannounced only when EVERY instance
+  // is hidden, which is also what the single-instance case has always meant.
+  out.hidden = out.instances.length > 0 && out.instances.every((h) => h.hidden);
   if (out.found) out.separated = hintHasSiblingSpace(anchor);
   return out;
 }
@@ -2380,12 +2516,12 @@ export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {
       if (owner === undefined) return;
       const ownerLine = sf.getLineAndCharacterOfPosition(owner).line + 1;
       if (e.endLine !== ownerLine && e.endLine !== ownerLine - 1) return;
-      // First exemption to claim a candidate keeps it. Keying ownership BY CANDIDATE is
-      // what actually prevents a stale exemption sliding to a later anchor; this
-      // first-wins guard only decides which of two exemptions on the same candidate is
-      // consumed. Mutation testing showed it is not independently load-bearing, and it is
-      // kept for determinism rather than for safety -- said plainly so a later reader does
-      // not mistake it for the mechanism.
+      // Keying ownership BY CANDIDATE is what prevents a stale exemption sliding to a later
+      // anchor. This first-wins guard only decides which of two exemptions on the SAME candidate
+      // is consumed, and mutation showed it changes no verdict -- but unlike the two branches
+      // deleted alongside it, dropping it would make the choice depend on iteration order, so it
+      // stays for DETERMINISM. That is a different justification from correctness, and it is the
+      // reason this one survives an equivalent-mutant finding.
       if (!ownerOf.has(owner)) ownerOf.set(owner, idx);
     });
   }
