@@ -1039,3 +1039,55 @@ spellings × ~100 attributes had grown to ~6.2s against vitest's 5s default. The
 
 A green re-run narrows the cause to something timing-dependent, which is exactly the set containing
 real defects. It is not a diagnosis. Explicit 60s timeout, three consecutive clean runs.
+
+## R27 and R28 — spelling, then binding, then binding at the use site
+
+Three rounds on one question, each answer sound and each incomplete:
+
+| Round | The guard checked | Defeated by |
+| --- | --- | --- |
+| before R27 | that the element is spelled `NewTabHint` | `const NewTabHint = () => null` |
+| R27 | that the file imports `NewTabHint` | shadowing that import inside a component |
+| R28 | that the binding holds AT THE USE SITE | (nothing found since) |
+
+R27's fix was right and insufficient: an import existing somewhere in the file says nothing about
+what the identifier at the JSX site resolves to. R28's fix walks the enclosing function and block
+scopes and parameters, including **destructured** parameters (`({ NewTabHint }) => …`), which is the
+idiomatic way a React component would shadow it. An **aliased** destructure
+(`{ NewTabHint: other }`) binds a different name and is correctly not a shadow.
+
+The lesson is the ladder, not any rung: "is this the thing I think it is" has three progressively
+stronger answers, and the first two both look like verification.
+
+### The destination rule was narrowed rather than refined a fourth time
+
+R27 measured that a control contributes its VALUE while a non-control contributes its `aria-label`,
+and encoded that as a tag-based split. R28 measured further and broke it in both directions:
+
+| Shape | Computed name |
+| --- | --- |
+| `<input type="checkbox" value="Go">` | `(opens in a new tab)` — value does NOT name |
+| `<input type="checkbox" aria-label="Go">` | `Go (opens in a new tab)` — label DOES name |
+| `<button aria-label="Go">` | `(opens in a new tab)` — label does NOT name |
+
+Real AccName varies by ROLE and by input TYPE. Rather than approximate it a fourth time, the approved
+shape was narrowed to what is unambiguous: rendered TEXT, and `alt` on an image. **The guard is now
+deliberately STRICTER than AccName on nested-element attributes.** That is a stated posture, chosen
+after measuring that no live anchor relies on a nested attribute for its label, so it reports nothing
+today and a future case takes one exemption.
+
+This is the R5 principle applied a fifth time: where a property is undecidable or intricate, narrow
+the approved shape so the question does not arise.
+
+### Two of the guard's own meta-checks caught this work's fallout
+
+Narrowing the model left `value` / `defaultValue` unread and `select` / `textarea` unmentioned. The
+reverse cross-check (added at R21 precisely because a list and its code had silently disagreed) and
+the stale-exclusion check both fired immediately. Neither was a review finding; the guard caught its
+own author, which is what those two assertions exist for.
+
+### The flake's real fix
+
+The import lookup was asked once per ANCHOR and walked every import statement of all 246 files.
+Caching it per source file took the live-census test from 3023ms to 804ms. The earlier explicit
+timeouts were correct but were treating a symptom; this removes the cost.
