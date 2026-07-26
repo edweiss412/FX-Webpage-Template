@@ -295,14 +295,14 @@ Fail-open bought nothing against a transient blip that the lease already absorbs
 
 A thrown read is caught and mapped to the same branch as `infra_error`: an unhandled throw out of `refreshWatchSubscriptions` would reach the cron route handler, and recorded-not-thrown is the established contract on this surface (`lib/drive/watch.ts:804-810` does exactly this for the same helper inside reconcile).
 
-#### 3.2.3 `RefreshResult` does not change, and the `'*'` sentinel is not reused
+#### 3.2.3 `RefreshResult`'s TYPE does not change; the `'*'` sentinel IS used
 
 **`RefreshResult` (`lib/drive/watch.ts:623-627`) keeps its exact current shape.** An earlier draft of this spec added a `folderScope` discriminant to it and called the addition "additive". That was wrong on two counts, and the correction is the reason this section exists:
 
 - It is not additive to the **tests**. `RefreshResult` is deep-equality asserted with `toEqual` in five files — `tests/drive/watch.test.ts` (twelve sites, including the `NO_REFRESH` fixture at `tests/drive/watch.test.ts:233`), `tests/sync/_metaInfraContract.test.ts:879-883`, `tests/cron/refreshWatchRoute.test.ts:20`, `tests/api/cron-sync.test.ts:9`, `tests/cron/cronRouteSummaries.test.ts:98`. A required new field breaks every one of them, for no behavioural gain.
 - It is not additive to the **public cron response**. `tests/cron/refreshWatchRoute.test.ts:69-71` asserts the route's serialised JSON body with `toEqual`, so the field would become part of that response's contract.
 
-The folder-read fault is therefore reported the way every other diagnostic on this surface is reported: as a durable forensic emit, `DRIVE_WATCH_FOLDER_READ_FAILED` (§2.2), carrying the redacted error message. That is the record `pnpm observe events --source drive.watch` reads, and nothing programmatic needs the value — the route only reads `failures` for its 500 decision (`app/api/cron/refresh-watch/route.ts:12`; lines 3-4 there are imports), and reconcile performs its own folder read.
+The folder-read fault is reported TWICE, and both are required: as a `failures` entry `{folderId: '*', operation: 'folder_read'}`, which is what makes the cron route and reconcile treat the cycle as faulted; and as a durable forensic emit, `DRIVE_WATCH_FOLDER_READ_FAILED` (§2.2), carrying the redacted error message. That second one is the record `pnpm observe events --source drive.watch` reads, and nothing programmatic needs the value — the route only reads `failures` for its 500 decision (`app/api/cron/refresh-watch/route.ts:12`; lines 3-4 there are imports), and reconcile performs its own folder read.
 
 **A failed folder read DOES record `{folderId: '*', operation: 'folder_read'}`, and this reverses an earlier revision** (spec R6 finding 1, BLOCKING). That revision recorded nothing, on the reasoning that renewal state was NOT unknown because every folder had been attempted. **That reasoning was sound only while the branch was fail-open.** Once D6 became fail-closed the opposite holds: nothing was attempted, so "renewal state for every folder is unknown this cycle" — the `'*'` sentinel's exact meaning — is now literally true.
 
@@ -678,7 +678,7 @@ Everything under `lib/` is already bounded; the entire residual is under `app/ap
 
 **8.2 "`'stopping'` is in the CHECK but not in `WatchChannelStatus`."** Pre-existing (`supabase/migrations/20260501001000_internal_and_admin.sql:296` vs `lib/drive/watch.ts:21`). Preserved verbatim because dropping a value from a CHECK is a separate, riskier change than adding one, and no code writes it. Out of scope (§7), noted so it is not read as introduced here.
 
-**8.3 "The failed folder read should be reported in the returned result."** Considered and rejected in §3.2.3, which also records that an earlier draft of this spec did exactly that and was wrong: `RefreshResult` is deep-equality asserted in five test files and serialised into the cron response, so no field is additive there. The condition is reported as a durable emit instead. Reusing the `'*'` sentinel is separately refuted with concrete harm in the same section.
+**8.3 "The failed folder read should get its own field on the returned result."** Rejected — but note the narrower claim: the fault IS reported in the returned result, as a `failures` entry using the existing `'*'` sentinel (§3.2.3). What is rejected is a NEW FIELD, because `RefreshResult` is deep-equality asserted in five test files and serialised into the cron response, so no field is additive there. The condition is reported as a durable emit instead. Reusing the `'*'` sentinel is separately refuted with concrete harm in the same section.
 
 **8.4 "The run budget makes the renewal-timing guarantee defensible now."** Only partly, and deliberately not claimed. §3.3.3 states exactly what is enforced inside the process and what is not enforced around it. `isGrantTooShort` stays a heuristic in this diff.
 
