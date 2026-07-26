@@ -117,7 +117,13 @@ unit-test file, `tests/scripts/gallery-screenshots.test.ts` (§8.1).
      mirroring the help path's context construction (`help-screenshots.ts:231-238`):
      `baseURL: baseUrl`, `colorScheme: theme`, `viewport: { width: 1280, height: 800 }`,
      `locale: "en-US"`, `timezoneId: "America/New_York"`,
-     `reducedMotion: "reduce"`. Pages per scenario.
+     `reducedMotion: "reduce"`. Pages per scenario. **Theme contexts are strictly
+     sequential, never concurrent or pre-authenticated:** context A is created,
+     signed in, fully captured, and CLOSED before context B's `signInAs` runs —
+     `signInAs` deletes the shared fixture user, which revokes any prior live session
+     (`is_session_live` checks the auth user,
+     `supabase/migrations/20260622000004_is_session_live_rpc.sql:21-24`), so a second
+     sign-in mid-sweep would invalidate the first context's session.
 
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 
@@ -244,7 +250,13 @@ throw. Missing `TEST_AUTH_SECRET` → throw (existing contract).
   run, the index lists exactly the currently-rendered scenarios whose files exist on
   disk, and the output dir contains no WEBP file the index does not reference** (the
   file universe of the reconciliation is `*.webp`; index.json itself is exempt).
-  Reconciliation order:
+  Prior-index boundary: an absent, unreadable, or JSON/schema-invalid prior index.json
+  is treated as an EMPTY prior (the filtered capture proceeds; the rebuilt index holds
+  the captured entries plus whatever reconciliation salvages from disk-consistent prior
+  state — with no readable prior, that is just the captured entries). The
+  invalid-prior case additionally prints a one-line warning naming the file. A
+  first-ever filtered invocation is therefore a targeted capture, never an ENOENT
+  failure. Reconciliation order:
   1. Build candidate entries: freshly captured scenarios (new files, new `capturedAt`)
      plus prior-index entries for non-targeted ids — with `label`/`tier`/`group`/`codes`
      REFRESHED from the current catalog (id is the join key; only `files` and
@@ -328,8 +340,10 @@ TDD per task (invariant 1). Three layers:
      the delete set, removed-id entry pruned (files in the delete set), non-targeted
      entry carried with metadata REFRESHED from the current catalog and `capturedAt`
      preserved, carried entry with a missing referenced file dropped, unreferenced
-     on-disk file in the delete set, never-captured id omitted. The reconciliation is a
-     pure function over (priorIndex, capturedEntries, renderedCatalog, filesOnDisk) →
+     on-disk file in the delete set, never-captured id omitted, and the prior-index
+     boundary states (absent prior → empty prior; malformed/schema-invalid prior →
+     empty prior + warning). The reconciliation is a pure function over
+     (priorIndex | null, capturedEntries, renderedCatalog, filesOnDisk) →
      (index, filesToDelete); expected outputs derived from constructed fixtures, not
      mirrored from the implementation.
    - scenario-identity guard message: on label mismatch the constructed error names the
@@ -352,10 +366,11 @@ TDD per task (invariant 1). Three layers:
    clear `GALLERY_SCENARIO`, so a user-filtered `GALLERY_SCENARIO=<id> pnpm
    screenshot:gallery` flows through to the same spec; the postconditions therefore
    BRANCH on the parsed filter state rather than assuming a full sweep. Always: index.json
-   exists and parses; every NON-NULL `files` value exists on disk; the on-disk WebP
-   count equals the index's non-null file references (no orphans); every entry's
-   `capturedAt` parses as ISO-8601; the index's `viewport` equals the §1.1 1280×800
-   matrix. Unfiltered additionally: entry count equals
+   exists and parses; every entry's `light` and `dark` slots are NON-NULL (they are
+   required — only the overflow slots are nullable per §7); every non-null `files`
+   value exists on disk; the on-disk WebP count equals the index's non-null file
+   references (no orphans); every entry's `capturedAt` parses as ISO-8601; the index's
+   `viewport` equals the §1.1 1280×800 matrix. Unfiltered additionally: entry count equals
    `partitionScenarios().rendered.length`. Filtered additionally: every targeted id has
    an entry whose `capturedAt` is from this run.
 3. **Help-path regression (same-host pre/post comparison):** comparing a host capture
