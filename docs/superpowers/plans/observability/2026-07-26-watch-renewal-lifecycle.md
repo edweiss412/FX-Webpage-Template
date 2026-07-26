@@ -7,6 +7,29 @@
 
 ---
 
+## Normative source rule (structural fix, after three rounds on one vector)
+
+Every review round so far has found at least one defect of the SAME shape: this plan restated something the spec defines, the spec was then repaired, and the restatement drifted. R1b caught a stale deadline-module entry in the file inventory; R2 caught merged telemetry field names, mis-pinned master-spec anchors, and a tautology already recorded as accepted; R3 caught the same class again. Patching each instance has not converged, so the rule changes rather than the wording:
+
+**The spec is the only normative source for WHAT is built. This plan is normative only for ORDER, and for facts about the existing tree that the spec does not carry.**
+
+Concretely, this plan does NOT restate — it references:
+
+| Thing | Normative home |
+| --- | --- |
+| Telemetry code names and their payload fields | spec §2.2 |
+| The reap predicate, its two arms and two target statuses | spec §3.1.2, §3.1.3 |
+| GC's per-status stop-and-transition table | spec §3.1.4 |
+| The admin health tier change | spec §3.1.5 |
+| The three folder-read outcomes | spec §3.2.2 |
+| The three-part promotion/activation fix | spec §3.2.4 |
+| The Drive-call option pair and the loop bound | spec §3.3 |
+| The jsonb parameter form | spec §3.4.2 |
+| Master-spec amendment sites and their anchors | spec §4.6 |
+| Every test's failure mode | spec §6 |
+
+Where a task below names one of these, it names it as a POINTER plus whatever execution detail is genuinely plan-only (which file, which fake, what order). If a task and the spec disagree, the spec wins and the task is wrong — that is now a one-line fix instead of a judgement call.
+
 ## Global Constraints
 
 1. **TDD per task** (AGENTS.md invariant 1). Failing test → minimal implementation → passing test → commit. Task 1's failing test is a real-DB CHECK assertion, so the migration is written second even though it is listed first.
