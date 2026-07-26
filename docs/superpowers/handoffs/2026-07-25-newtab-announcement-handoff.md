@@ -1549,3 +1549,22 @@ That is the third time in this PR a fixture has exercised a different route than
 (after the fail-closed default and the `isProvablyNullish` caller). The rule generalises: **when two
 rules can produce the same verdict, a fixture proves nothing about which one ran.** Pick markup only
 the rule under test can reach, and confirm it by deleting that rule.
+
+### End-to-end check: does the guard still catch the bugs it was built for?
+
+Thirty-odd rounds of rule surgery is a lot of opportunity to break the thing while polishing it, and
+every check above tests a RULE rather than the product. So both original defects were reintroduced
+into a real shipped component (`components/admin/NoteWarningCard.tsx`) and the live census run:
+
+| Reintroduced defect | What the guard said |
+| --- | --- |
+| deleted a real `<NewTabHint />` | `NoteWarningCard.tsx:82 external link does not announce that it opens a new tab` |
+| deleted the space before the hint | `NoteWarningCard.tsx:82 NewTabHint needs a real sibling space before it, else the accessible name reads "Label(opens in a new tab)"` |
+
+Both located the exact line and named the exact defect; the file was restored and the census is green
+again. The second is the one that already shipped undetected once in this codebase, which is why the
+separator rule exists at all.
+
+This is worth repeating at the end of any long guard-hardening arc. Rule-level tests answer "is this
+rule correct"; only this answers "does the guard still do its job", and the two can diverge silently
+while every rule-level test stays green.
