@@ -693,7 +693,7 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     const built = buildInlineHotel(raw, 1, contextYear);
     // First stash wins: only consult the later re-split if the exit had none.
     let addr = built.addressAmbiguity;
-    const rows = stripHotelNameConf([built.row], (a) => (addr ??= a));
+    const rows = stripHotelNameConf([built.row], (_i, a) => (addr ??= a));
     return toPending(rows, [built.judgedGuestBoundary], raw, [addr]);
   }
 
@@ -718,7 +718,7 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     single.row.check_in = null;
     single.row.check_out = null;
     let addr = single.addressAmbiguity;
-    const one = stripHotelNameConf([single.row], (a) => (addr ??= a));
+    const one = stripHotelNameConf([single.row], (_i, a) => (addr ??= a));
     return toPending(one, [single.judgedGuestBoundary], raw, [addr]);
   }
   // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
@@ -738,7 +738,7 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   const inheritsHotel = (i: number) => i > 0 && /^\s*[-–—]{3,}/.test(segments[i] ?? "");
   const verdicts = builds.map((b, i) => b.judgedGuestBoundary && !inheritsHotel(i));
   const addrs = builds.map((b) => b.addressAmbiguity);
-  const stripped = stripHotelNameConf(rows, (a) => (addrs[0] ??= a));
+  const stripped = stripHotelNameConf(rows, (i, a) => (addrs[i] ??= a));
   return toPending(stripped, verdicts, raw, addrs);
 }
 
@@ -781,20 +781,23 @@ function toPending(
  */
 function stripHotelNameConf(
   rows: HotelReservationRow[],
-  sink?: (a: AddressSplitAmbiguity) => void,
+  // Per-ROW sink. A single shared slot cannot attribute N rows' ambiguities:
+  // every row after the first would either be dropped or misfiled onto row 0,
+  // and "use raw" would then rewrite the wrong reservation (whole-diff R1 f1).
+  sink?: (rowIndex: number, a: AddressSplitAmbiguity) => void,
 ): HotelReservationRow[] {
-  for (const r of rows) {
+  rows.forEach((r, rowIndex) => {
     if (r.hotel_name) {
       // Strip any conf# (this is the final privacy pass for inline cells), THEN
       // split the venue name from the glued street address (#3). Only overwrite
       // hotel_address when the split actually found one — never clobber a value an
       // upstream path already set with null.
       const split = splitHotelNameAddress(stripConfTokens(r.hotel_name));
-      if (split.ambiguity && sink) sink(split.ambiguity);
+      if (split.ambiguity && sink) sink(rowIndex, split.ambiguity);
       r.hotel_name = split.name;
       if (split.address) r.hotel_address = split.address;
     }
-  }
+  });
   return rows;
 }
 
