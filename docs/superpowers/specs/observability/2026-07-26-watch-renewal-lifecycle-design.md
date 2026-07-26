@@ -333,7 +333,17 @@ and (
 
 The `not exists` arm is load-bearing, not defensive noise: when no folder is configured in `app_settings` the system legitimately runs on the env fallback (`firstBootEnvFolderId`, `lib/appSettings/getWatchedFolderId.ts:20-22`), and a bare equality would compare against NULL and silently refuse EVERY activation, including first-boot. With a folder configured, the row's folder must match it.
 
-This is the only guard that closes the race for a row created after promotion, because it is evaluated at ACTIVATION time against the then-current settings rather than at promotion time against the then-existing rows. Zero rows matched routes into (2)'s throw, so the channel is orphaned, alerted, and stopped by GC — the correct outcome for a subscription to a folder nobody watches.
+This is the only guard that closes the race for a row created after promotion, because it is evaluated at ACTIVATION time against the then-current settings rather than at promotion time against the then-existing rows.
+
+**Measured** against the local database on 2026-07-26, in a rolled-back transaction, over all three paths:
+
+| `app_settings.watched_folder_id` | Row's folder | Rows activated |
+| --- | --- | --- |
+| `F-NEW` | `F-NEW` | 1 |
+| `F-NEW` | `F-OLD` (stale) | **0** — the race closed |
+| NULL (env fallback) | `F-OLD` | 1 — not blocked |
+
+The third row is why the `not exists` arm is load-bearing rather than defensive: the local database ships with `watched_folder_id` NULL, so a bare equality guard would compare against NULL and activate **nothing** — breaking every local test and, on a first-boot deployment running from the env fallback, every real activation too. Zero rows matched routes into (2)'s throw, so the channel is orphaned, alerted, and stopped by GC — the correct outcome for a subscription to a folder nobody watches.
 
 **The §3.2 folder filter is still required, and is not redundant with this.** Promotion is one way a non-configured folder can hold an `active` row; it is not the only one. The env-var fallback (`firstBootEnvFolderId`, `lib/appSettings/getWatchedFolderId.ts:20-22`) can change under a running deployment, a promotion can fail after its Drive subscribe, and rows can be edited directly. Supersession fixes the wizard path at its root; the filter is the standing guarantee that refresh never renews a folder nobody watches. Both, not either.
 
