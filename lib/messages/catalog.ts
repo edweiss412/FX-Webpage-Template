@@ -1368,7 +1368,7 @@ export const MESSAGE_CATALOG = {
   HOTEL_GUEST_SPLIT_AMBIGUOUS: {
     code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
     dougFacing:
-      "A hotel guest list in _<sheet-name>_ may not have been split correctly; check the hotel guest list against your sheet.",
+      "A hotel line in _<sheet-name>_ may not have been read correctly; check who is on the hotel reservation against your sheet.",
     crewFacing: null,
     followUp: "Doug → spot-check hotel guests",
     helpfulContext:

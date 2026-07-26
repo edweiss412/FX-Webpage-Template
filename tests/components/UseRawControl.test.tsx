@@ -878,3 +878,29 @@ describe("UseRawControl — radiogroup accessible name is kind-qualified (spec �
     expect(group.getAttribute("aria-label")).toBe(EXPECTED_RADIOGROUP_LABEL[kind]);
   });
 });
+
+// Whole-diff review R1 finding 7: `hotel-name` fell through to the default and
+// rendered the raw line as ONE unmarked segment, so the disputed boundary was
+// invisible — while every other added test stayed green.
+describe("segmentRawReading — hotel-name boundary marking", () => {
+  it("marks the Hotel and Address runs separately", () => {
+    const segs = segmentRawReading("71 Wacker Drive 72 Main St Chicago, IL 60601", {
+      resolvable: true,
+      contentHash: "x".repeat(64),
+      parsed: {
+        kind: "hotel-name",
+        hotelName: "71 Wacker Drive",
+        hotelAddress: "72 Main St Chicago, IL 60601",
+      },
+      replacement: {
+        kind: "hotel-name",
+        hotelName: "71 Wacker Drive 72 Main St Chicago, IL 60601",
+        hotelAddress: null,
+      },
+    });
+    expect(segs.map((s) => s.field)).toContain("Hotel");
+    expect(segs.map((s) => s.field)).toContain("Address");
+    // Not the single-unmarked-run fallback.
+    expect(segs.length).toBeGreaterThan(1);
+  });
+});

@@ -52,7 +52,11 @@ describe("simultaneous hotel ambiguities", () => {
     const guestIdx = warnings
       .filter((w) => w.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS")
       .map((w) => w.blockRef?.index);
-    // No warning may anchor at or beyond the cap.
+    // `every` is vacuously true on an empty array, so an implementation that
+    // suppressed EVERY kept inline warning would pass while claiming to prove
+    // only the truncated one stayed silent (whole-diff R1 finding 8). Assert a
+    // non-zero count first, then the bound.
+    expect(guestIdx.length, "the kept reservations must still warn").toBeGreaterThan(0);
     expect(guestIdx.every((i) => typeof i === "number" && i < 4)).toBe(true);
     expect(warnings.filter((w) => w.code === "HOTEL_CARDINALITY_EXCEEDED")).toHaveLength(1);
   });

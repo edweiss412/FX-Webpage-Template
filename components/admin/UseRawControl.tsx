@@ -206,6 +206,13 @@ export function segmentRawReading(
     if (p.floor) anchors.push({ label: "Floor", value: p.floor, which: "last" });
   } else if (p.kind === "hotels") {
     anchors = p.names.map((n, i) => ({ label: `Guest ${i + 1}`, value: n, which: "first" }));
+  } else if (p.kind === "hotel-name") {
+    // The disputed boundary IS the name/address split, so both sides are marked
+    // and the operator can see where we cut. Without this the raw line renders
+    // as one unmarked run and the whole point of showing it is lost.
+    anchors = [];
+    if (p.hotelName) anchors.push({ label: "Hotel", value: p.hotelName, which: "first" });
+    if (p.hotelAddress) anchors.push({ label: "Address", value: p.hotelAddress, which: "last" });
   } else {
     return [{ text: raw, field: null }];
   }

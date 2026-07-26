@@ -424,7 +424,7 @@ export const SPEC_CODES = {
   },
   "HOTEL_GUEST_SPLIT_AMBIGUOUS": {
     "crewFacing": null,
-    "dougFacing": "A hotel guest list in _<sheet-name>_ may not have been split correctly; check the hotel guest list against your sheet.",
+    "dougFacing": "A hotel line in _<sheet-name>_ may not have been read correctly; check who is on the hotel reservation against your sheet.",
     "followUp": "Doug → spot-check hotel guests",
     "helpfulContext": "A hotel line could be read more than one way, so we made a judgment call. Check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
   },
