@@ -12,15 +12,14 @@
 // merely counted N calls and N nearby `ambiguity` tokens would pass while one
 // caller dropped its result.
 //
-// First-stash-wins (`addr ??=`) is asserted at the UNIT level, not here, because
-// a parse-level content oracle is impossible by construction: a build stash and
-// a `stripHotelNameConf` re-split stash can never coexist with different
-// content. P3(b) cuts at the FIRST street candidate, so the resulting name
-// holds no candidate and re-splits clean (probe: `splitHotelNameAddress("Hotel")`
-// → no ambiguity); P3(a) leaves the text unsplit, so the re-split sees the SAME
-// text and returns the SAME reason. Whenever both stashes exist they are
-// identical, so first-wins and last-wins are behaviorally indistinguishable at
-// the warning surface (whole-diff R3 finding 3, disposition recorded here).
+// First-stash-wins (`addr ??=`) IS observable by content, and is pinned
+// behaviorally in tests/parser/hotelAddressIntegration.test.ts at every
+// reachable merge site (spec §8.1 "pinned by CONTENT, not count"). An earlier
+// header here claimed the two stashes could never differ; whole-diff R4 f2
+// refuted it with `71 Wacker Drive 72 Main St Chicago, IL 60601` — P3(b) at
+// the build split, then P3(a) when the retained name `71 Wacker Drive`
+// re-splits via position-0 padding. Last-wins silently downgrades a resolvable
+// card to a disabled one.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

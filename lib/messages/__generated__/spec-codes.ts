@@ -1518,7 +1518,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "You'd chosen to use the sheet's raw text for _<target>_; that cell changed, so we're reading it fresh again.",
     "followUp": "Doug → re-choose if still needed",
-    "helpfulContext": "You had chosen to keep the sheet's raw text for an ambiguous cell (a room header, a hotel guest list, or the show dates) instead of our split-out reading. That cell has since been edited, so the text you pinned is no longer what the sheet says. We dropped the old choice and went back to reading the cell the normal way. If you still want the raw text for the updated cell, open the show and choose 'use the sheet's raw value' again.",
+    "helpfulContext": "You had chosen to keep the sheet's raw text for an ambiguous cell (a room header, a hotel guest list, a hotel name and address, or the show dates) instead of our split-out reading. That cell has since been edited, so the text you pinned is no longer what the sheet says. We dropped the old choice and went back to reading the cell the normal way. If you still want the raw text for the updated cell, open the show and choose 'use the sheet's raw value' again.",
   },
   "VALIDATION_RESEED_FAILED": {
     "crewFacing": null,

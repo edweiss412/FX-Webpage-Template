@@ -156,6 +156,46 @@ describe("full resolution payload at each reachable caller", () => {
     expect(w[0]!.resolution).toEqual(P3B_PAYLOAD);
   });
 
+  // Spec §8.1 "First-stash-wins is pinned by CONTENT, not count" (R9 f3; whole-diff
+  // R4 f2): `71 Wacker Drive 72 Main St…` yields P3(b) at the build split, then
+  // re-splitting the retained name `71 Wacker Drive` yields P3(a) via position-0
+  // padding — so the two stashes COEXIST WITH DIFFERENT CONTENT and last-wins is
+  // observable: it silently downgrades a resolvable card to a disabled one while
+  // every count-only oracle stays green. One test per `??=` merge site.
+  //
+  // Mutation status (probe-verified, not assumed): flipping every `??=` to `=`
+  // fails the single-group and fallback rows. The multi-group row does NOT
+  // discriminate that mutant: inside a multi-group segment the "Check In" tail
+  // keeps the build's hotel_name GLUED (learn-K does not fire there), so the
+  // build stash and the row-0 re-split stash carry the SAME P3(b) content and
+  // first-wins vs last-wins agree for every input we could construct. That row
+  // still pins the observable contract at the site: one warning, index 0,
+  // resolvable, never downgraded by the re-split.
+  describe.each([
+    ["single-group caller", "71 Wacker Drive 72 Main St Chicago, IL 60601"],
+    [
+      "multi-date fallback caller",
+      "71 Wacker Drive 72 Main St Chicago, IL 60601 check in early check in late",
+    ],
+    [
+      "multi-group caller",
+      "71 Wacker Drive 72 Main St Chicago, IL 60601 Mary Smith - 1001 John Smith - 1002 " +
+        "Check In: 3/1 Check Out: 3/2 Jane Doe - 1003 Check In: 3/3 Check Out: 3/4",
+    ],
+  ])("first-stash-wins by content — %s", (_label, cell) => {
+    it("keeps the resolvable P3(b) stash, not the re-split's P3(a)", () => {
+      const agg = newAggregator();
+      parseHotels(`| Hotel Reservations | ${cell} |`, "v2", agg);
+      const w = agg.warnings.filter((x) => x.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS");
+      expect(w).toHaveLength(1);
+      expect(w[0]!.blockRef?.index).toBe(0);
+      const res = w[0]!.resolution as { resolvable: boolean; reason?: string };
+      // Last-wins yields { resolvable: false, reason: "no-split-to-undo" } here.
+      expect(res.resolvable).toBe(true);
+      expect(w[0]!.message).toContain("in more than one place");
+    });
+  });
+
   it("two distinct resolvable cells produce distinct hashes AND distinct replacements", () => {
     // The R3 f2 corruption precondition was a SHARED hash letting one decision
     // rewrite several reservations. Two structured slots with different P3(b)

@@ -24,6 +24,7 @@ import {
   hasRecoveredToBaseline,
   isQualityRegression,
 } from "@/lib/parser/dataGaps";
+import { AMBIGUITY_CODES } from "@/lib/parser/ambiguityCodes";
 import type { ParseWarning } from "@/lib/parser/types";
 
 const warn = (code: string, severity: ParseWarning["severity"] = "warn"): ParseWarning => ({
@@ -75,12 +76,28 @@ describe("Task 2 — ambiguity + cardinality gap classes (spec §3.4)", () => {
     const s = summarizeDataGaps([
       warn("ROOM_HEADER_SPLIT_AMBIGUOUS"),
       warn("HOTEL_GUEST_SPLIT_AMBIGUOUS"),
+      warn("HOTEL_ADDRESS_SPLIT_AMBIGUOUS"),
       warn("DATE_ORDER_SUGGESTS_DMY"),
       warn("HOTEL_CARDINALITY_EXCEEDED"),
     ]);
-    expect(s.total).toBe(4);
+    expect(s.total).toBe(5);
     // recovery symmetry: an ambiguity regression blocks recovery to baseline
     expect(hasRecoveredToBaseline(summarizeDataGaps([]), s)).toBe(false);
+  });
+
+  it("no ambiguity code's GAP row is gateExempt (whole-diff R4 f4)", () => {
+    // gateExempt would keep membership/summary/copy tests green while silently
+    // dropping the code from RESYNC_QUALITY_REGRESSED participation and the
+    // first-seen/drift digests. Pinned for EVERY ambiguity code, so a new
+    // member cannot ship dark either.
+    for (const code of AMBIGUITY_CODES) {
+      const row = GAP_CLASSES.find((g) => g.code === code);
+      expect(row, `${code} must be a GAP class`).toBeTruthy();
+      expect(
+        (row as { gateExempt?: boolean }).gateExempt,
+        `${code} must NOT be gateExempt`,
+      ).toBeUndefined();
+    }
   });
 
   it("regression gate stays UNPARTITIONED for ambiguity + cardinality classes (§3.4 carve-out)", () => {

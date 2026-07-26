@@ -214,7 +214,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → re-choose if still needed",
     helpfulContext:
-      "You had chosen to keep the sheet's raw text for an ambiguous cell (a room header, a hotel guest list, or the show dates) instead of our split-out reading. That cell has since been edited, so the text you pinned is no longer what the sheet says. We dropped the old choice and went back to reading the cell the normal way. If you still want the raw text for the updated cell, open the show and choose 'use the sheet's raw value' again.",
+      "You had chosen to keep the sheet's raw text for an ambiguous cell (a room header, a hotel guest list, a hotel name and address, or the show dates) instead of our split-out reading. That cell has since been edited, so the text you pinned is no longer what the sheet says. We dropped the old choice and went back to reading the cell the normal way. If you still want the raw text for the updated cell, open the show and choose 'use the sheet's raw value' again.",
     title: "Using the sheet's raw text was reset",
     longExplanation:
       "You'd told us to keep an ambiguous cell's raw text as-is instead of our automatic split. The cell was edited since, so the pinned text no longer matches the sheet. We dropped that choice and resumed reading the cell normally. Re-open the show and choose 'use the sheet's raw value' again if you still want it for the updated cell.",
