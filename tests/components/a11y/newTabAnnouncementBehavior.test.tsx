@@ -30,10 +30,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
-import { parse, scanSource, stripCommentsSafely, type Scan } from "@/tests/styles/_newTabScan";
+import { parse, scanSource, type Scan } from "@/tests/styles/_newTabScan";
 
 import { cleanup, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -88,64 +85,7 @@ function alertItem(
   } as AttentionItem;
 }
 
-/**
- * Reproduces the aria-label expression from Step3ReviewModal.tsx /
- * PublishedReviewModal.tsx verbatim. Rendering those components whole needs deep
- * wizard/modal fixtures; what is under test is the LABEL EXPRESSION, so the probe
- * carries exactly that, and `label expression matches the shipped source` below
- * fails if the real one is edited away from this shape.
- */
-function ModalSheetLinkProbe({ title, href }: { title: string; href: string }): JSX.Element {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={
-        title.trim()
-          ? `Open the source sheet for ${title.trim()} in Google Sheets (opens in a new tab)`
-          : "Open the source sheet in Google Sheets (opens in a new tab)"
-      }
-    >
-      Open sheet
-    </a>
-  );
-}
-
 afterEach(cleanup);
-
-test("label expression matches the shipped source (probe-parity guard)", () => {
-  // Anti-drift: the probe above is only meaningful if the real components still use
-  // this exact expression. Compare the normalized source of both.
-  // Comment-stripped and bound to the aria-label ATTRIBUTE: searching raw source
-  // let the old expression survive in a JSX comment while the real condition
-  // regressed from .trim() to a truthiness check (review R4 HIGH 6).
-  const norm = (t: string): string =>
-    stripCommentsSafely(t)
-      .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
-      .replace(/\s+/g, " ");
-  for (const rel of [
-    "components/admin/wizard/Step3ReviewModal.tsx",
-    "components/admin/showpage/PublishedReviewModal.tsx",
-  ]) {
-    const src = norm(readFileSync(join(process.cwd(), rel), "utf8"));
-    // The guard must appear INSIDE an aria-label attribute, not merely somewhere
-    // in the file.
-    const labelExpr = src.match(/aria-label=\{([^}]*\}[^}]*)*?\}/g) ?? [];
-    expect(labelExpr.length, `${rel} must carry an aria-label expression`).toBeGreaterThan(0);
-    expect(
-      labelExpr.some((e) =>
-        /\.trim\(\)\s*\?\s*`Open the source sheet for \$\{[a-zA-Z]+\.trim\(\)\} in Google Sheets \(opens in a new tab\)`/.test(
-          e,
-        ),
-      ),
-      `${rel} must still guard on .trim() inside its aria-label`,
-    ).toBe(true);
-    expect(src, `${rel} must still carry the exact fallback`).toContain(
-      '"Open the source sheet in Google Sheets (opens in a new tab)"',
-    );
-  }
-});
 
 describe("Group C: the announcement is gated on action.external", () => {
   test("external action announces the new tab, anchored", () => {
@@ -287,9 +227,32 @@ describe("HealthAlertsPanel action anchors", () => {
     );
     expect(link, "the external action anchor must render").not.toBeNull();
     expect(link!).toHaveAttribute("target", "_blank");
-    expect(link!.getAttribute("aria-label") ?? link!.textContent ?? "").toContain(
-      "opens in a new tab",
+    // EXACT, not `.toContain("opens in a new tab")`. Containment passes when the
+    // label is gone entirely (name == "(opens in a new tab)") or when the
+    // separator is gone ("Open in Sheet(opens in a new tab)") -- the two failures
+    // most likely to reach a user, both of which leave the announcement present.
+    expect(link!).toHaveAccessibleName("Open in Sheet (opens in a new tab)");
+  });
+
+  test("a resolving INTERNAL action renders an anchor that does NOT announce", () => {
+    // The unresolved-action case below cannot see the dangerous direction: with no
+    // anchor at all, an unconditionally-rendered hint would still pass. This case
+    // renders a REAL same-tab action (WIZARD_SESSION_SUPERSEDED_RACE always
+    // resolves and is `external: false`), so the anchor exists and its name must
+    // stay clean.
+    const { container } = render(
+      <HealthAlertRowItem
+        row={row({ code: "WIZARD_SESSION_SUPERSEDED_RACE" })}
+        weight="degraded"
+        now={NOW}
+      />,
     );
+    const link = container.querySelector<HTMLAnchorElement>(
+      '[data-testid="health-alert-action-h1"]',
+    );
+    expect(link, "the internal action anchor must render").not.toBeNull();
+    expect(link!).not.toHaveAttribute("target", "_blank");
+    expect(link!).toHaveAccessibleName("Go to setup wizard");
   });
 
   test("no action resolves without its context field, and nothing claims a new tab", () => {
@@ -340,43 +303,20 @@ describe("the section-chrome sheet link renders its real fallback for an empty l
   });
 });
 
-describe("empty-interpolation fallbacks produce the EXACT label, not a dangling clause", () => {
-  // R3 called the first version of this block VACUOUS and was right: it asserted
-  // properties of hand-authored `expected` constants, rendered nothing, and its
-  // "anti-tautology" source read would have survived changing `title.trim() ?` to
-  // `true ?`. This version RENDERS the real component with an empty input and reads
-  // the computed accessible name off the DOM.
-  test("Step3ReviewModal with an empty title still names the destination", () => {
-    const { container } = render(
-      <ModalSheetLinkProbe title="" href="https://docs.google.com/spreadsheets/d/x/edit" />,
-    );
-    const link = container.querySelector("a")!;
-    // Exact, anchored: a dangling "for" or a double space fails here.
-    expect(link).toHaveAccessibleName(
-      "Open the source sheet in Google Sheets (opens in a new tab)",
-    );
-  });
-
-  test("a non-empty title interpolates without disturbing the suffix", () => {
-    const { container } = render(
-      <ModalSheetLinkProbe title="Asset Mgmt Summit" href="https://docs.google.com/x" />,
-    );
-    expect(container.querySelector("a")!).toHaveAccessibleName(
-      "Open the source sheet for Asset Mgmt Summit in Google Sheets (opens in a new tab)",
-    );
-  });
-
-  test("a whitespace-only title takes the fallback, not the interpolated branch", () => {
-    // The .trim() guard: without it this yields "for   (opens in a new tab)".
-    const { container } = render(
-      <ModalSheetLinkProbe title="   " href="https://docs.google.com/x" />,
-    );
-    expect(container.querySelector("a")!).toHaveAccessibleName(
-      "Open the source sheet in Google Sheets (opens in a new tab)",
-    );
-  });
-});
-
+// The empty-interpolation fallbacks used to be asserted here against a local
+// `ModalSheetLinkProbe` that re-implemented the two modals' aria-label expression.
+// A reviewer called that out and was right: re-implementing the expression tests the
+// re-implementation, and the probe's expectations turned out to be WRONG about both
+// real components. Each substitutes a fallback title BEFORE the label expression runs
+// -- Step3ReviewModal takes a filename-derived title, PublishedReviewModal takes the
+// slug -- so an empty title interpolates that substitute rather than reaching the
+// generic arm the probe asserted. None of the wiring that produces those substitutes
+// existed in the probe, so nothing could have caught it here.
+//
+// The assertions now live with the components that actually render them:
+//   tests/components/admin/wizard/Step3ReviewModal.test.tsx  ("sheet deep-link accessible name")
+//   tests/components/admin/showpage/publishedReviewModal.test.tsx
+// Both use the real render harness, so the substitution is exercised rather than assumed.
 describe("what the harness itself does and does not model (R23/R24)", () => {
   // MEASURED, and pinned so it cannot drift silently. The static guard treats several shapes
   // as hiding; this records which of them THIS harness agrees about. The disagreements are

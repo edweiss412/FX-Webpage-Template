@@ -334,6 +334,24 @@ describe("PublishedReviewModal header (spec §6.1/§6.2)", () => {
     expect(label.textContent).toBe(SLUG);
   });
 
+  it('title="" makes the sheet-link announce the SLUG, not a generic fallback', () => {
+    // `displayTitle = title || slug`, so the empty-title branch of the aria-label is
+    // NOT reachable through `title` alone -- the slug is substituted first. A
+    // hand-copied probe of the label expression asserted the generic fallback here
+    // and was wrong about the real component; this pins what actually ships.
+    renderModal({ title: "" });
+    expect(screen.getByTestId(`${TB}-sheetlink`)).toHaveAccessibleName(
+      `Open the source sheet for ${SLUG} in Google Sheets (opens in a new tab)`,
+    );
+  });
+
+  it("a non-empty title interpolates into the sheet-link name", () => {
+    renderModal();
+    expect(screen.getByTestId(`${TB}-sheetlink`)).toHaveAccessibleName(
+      `Open the source sheet for ${TITLE} in Google Sheets (opens in a new tab)`,
+    );
+  });
+
   it("title=null falls back to the slug", () => {
     renderModal({ title: null });
     const dialog = screen.getByRole("dialog");
