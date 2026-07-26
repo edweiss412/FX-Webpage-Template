@@ -127,9 +127,13 @@ Removing it changes nothing about what CI runs today — it is already dark — 
 
 ### §3.2 The toolchain helper
 
-New module tests/e2e/helpers/liveEntryToolchain.ts, exporting `bundleLiveEntry` and `buildEntryCss`. Both invoke **local** binaries (`pnpm exec esbuild`, `pnpm exec tailwindcss`) — no `dlx`, no network, no version literal at the call site. Both shell out; neither implements a resolver policy. Aliases are passed explicitly by each call site, exactly as the two working specs do today.
+New module tests/e2e/helpers/liveEntryToolchain.ts, exporting `bundleLiveEntry` and `compileEntryCss`. Both invoke **local** binaries (`pnpm exec esbuild`, `pnpm exec tailwindcss`) — no `dlx`, no network, no version literal at the call site. Both shell out; neither implements a resolver policy. Aliases are passed explicitly by each call site, exactly as the two working specs do today.
 
-`buildEntryCss` also reads `app/globals.css` itself: all 25 CSS sites pass exactly `-i` and `-o` with no other flags and all 25 read that file, so the helper absorbs the duplication and no site needs an escape hatch.
+**AMENDMENT (2026-07-26, during implementation).** This section originally specified `buildEntryCss({ sources, outFile })`, which would also CONSTRUCT the entry stylesheet from a `@source` list and read `app/globals.css` itself. That was implemented and **reverted**. The 28 call sites construct their entry CSS in materially different ways — inline template literals, `sources.map`, and one array of pre-formatted `@source` directives — and a mechanical rewrite produced **54 TypeScript errors across 12 files**, plus two regressions caught against the pre-migration commit: a regex that captured the lambda parameter from `sources.map((f) => …)` as `sources: [f]`, and seven files given a call with no import.
+
+What ships is `compileEntryCss({ entryCss, outFile })`, which runs the CLI against an **already-written** entry stylesheet and replaces only the `execFileSync` call. Each spec keeps building its own entry CSS and reading `app/globals.css`.
+
+The rationale is a trade, stated plainly: the PR's goal is removing the per-run **network fetch**, which this achieves in full. Deduplicating the `globals.css` read is cosmetic, and restructuring 28 harnesses to obtain it is not a trade this PR should make. This is recorded here, not only in a code comment, because the spec is canonical (`AGENTS.md` invariant 7) — a deviation living only in the implementation is precisely the drift that rule exists to prevent.
 
 Add `"@tailwindcss/cli": "4.2.4"` as an exact devDependency, plus a version-parity test: resolved `@tailwindcss/cli` and `tailwindcss` must agree on major and minor. Pinning alone is insufficient — `tailwindcss` is a range (`package.json:119`), so an install can pair the fixed CLI with a different minor.
 

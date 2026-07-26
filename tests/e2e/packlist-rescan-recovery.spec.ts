@@ -22,9 +22,24 @@
  *      version-pinned esbuild.
  *   2. serves live.html (#root + bundle.js) over node:http.
  *
- * Runs standalone via tests/e2e/standalone.config.ts:
- *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
- *     tests/e2e/packlist-rescan-recovery.spec.ts
+ * NOT RUNNABLE AS CHECKED IN (2026-07-26). This spec was removed from
+ * `tests/e2e/standalone.config.ts`'s `testMatch`, and no other Playwright
+ * project collects it — the command that used to run it now exits 1 with
+ * "No tests found". It is kept in the tree because the harness and assertions
+ * are still the right ones once the blocker is resolved.
+ *
+ * WHY it was removed: its live entry reaches the whole server tree —
+ * step3ReviewSections -> UseRawControlBoundary -> a `"use server"` module ->
+ * runScheduledCronSync -> googleapis (913 graph inputs), with
+ * lib/sync/lockedShowTx reaching postgres by a parallel edge. No per-module
+ * alias list fixes it (a 4-entry list leaves 78 errors; stubbing the one
+ * action boundary still leaves ten lib/sync modules pulling postgres), and an
+ * unfiltered CI job cannot carry a red spec.
+ *
+ * TO RUN IT AGAIN you must first resolve BL-HARNESS-PACKLIST-SERVER-GRAPH in
+ * BACKLOG.md — either a graph-derived resolver (BL-HARNESS-RESOLVER-POLICY) or
+ * a trimmed import graph for step3ReviewSections — and then re-add this file
+ * to the standalone config's `testMatch`.
  */
 import { test, expect } from "@playwright/test";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";

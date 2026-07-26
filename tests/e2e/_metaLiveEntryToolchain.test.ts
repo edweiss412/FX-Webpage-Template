@@ -5,25 +5,29 @@
  * harness CSS) is invoked from exactly one place:
  * `tests/e2e/helpers/liveEntryToolchain.ts`. Before that helper, 36 call sites
  * across 29 files spelled the invocations out by hand via `pnpm dlx`, which
- * meant a network fetch per run for packages that are local devDependencies,
- * and nothing keeping the invocations consistent.
+ * meant a network fetch per run for packages that are local devDependencies.
  *
  * Spec: docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §3.3.
  *
- * WHY THE DETECTOR MATCHES AN INVOCATION, NOT A WORD. An earlier draft banned
- * the bare strings `dlx` / `esbuild` / `tailwindcss` and would have failed on
- * three legitimate things: `pnpm dlx tsx` in `help-docs-setup.ts` (dlx is fine;
- * tsx is not a toolchain binary), the words `@import "tailwindcss"` inside a
- * comment in `step3-schedule-bookend-layout.spec.ts`, and this file's own
- * fixtures. Since this test runs in the serial project, that would have
- * reddened the required `unit-suite` check. So: a toolchain binary must appear
- * as a COMMAND ARGUMENT next to `dlx` or `exec`, and comments do not count.
+ * WHY THIS PARSES INSTEAD OF PATTERN-MATCHING TEXT. Two earlier versions did
+ * regex-over-source with a hand-rolled comment stripper, and both were wrong:
+ *   - banning the bare words flagged `pnpm dlx tsx` (legitimate) and the words
+ *     `@import "tailwindcss"` inside a comment;
+ *   - the hand lexer mis-parsed a regex literal whose character class contains
+ *     a slash-star, reading it as a block comment and deleting a real
+ *     invocation after it, and treated template literals as opaque so comments
+ *     inside an interpolation became false positives.
+ * Comments and regex literals are exactly what a real parser already gets
+ * right, so this walks the TypeScript AST: only STRING LITERALS in CALL
+ * ARGUMENTS (or an import specifier) count, which cannot be a comment by
+ * construction.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-const ROOT = process.cwd();
+const ROOT = join(__dirname, "..", "..");
 const E2E = join(ROOT, "tests/e2e");
 
 /**
@@ -32,85 +36,100 @@ const E2E = join(ROOT, "tests/e2e");
  */
 const EXEMPT = new Map<string, string>([
   ["helpers/liveEntryToolchain.ts", "the permitted invocation point"],
-  ["_metaLiveEntryToolchain.test.ts", "this guard; its fixtures necessarily contain the strings"],
+  ["_metaLiveEntryToolchain.test.ts", "this guard; its fixtures name the binaries"],
   [
     "_step3ReviewModalBundle.mjs",
     "needs esbuild's PLUGIN API (useServerElision / emptyNodeBuiltins) to replicate " +
       "Next's `use server` elision — a CLI invocation cannot express a resolver plugin, " +
-      "so this cannot route through the helper. See its own header for the full rationale.",
+      "so this cannot route through the helper. See its own header for the rationale.",
   ],
 ]);
 
-const TOOLCHAIN = ["esbuild", "@tailwindcss/cli", "tailwindcss"] as const;
+/** Binary names that mean "the harness toolchain", however they are spelled. */
+const TOOLCHAIN = ["esbuild", "tailwindcss", "@tailwindcss/cli"];
 
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\/@]/g, "\\$&");
+/** Runners that can carry a toolchain binary as a command or an argument. */
+const SPAWNERS = new Set([
+  "execFileSync",
+  "execSync",
+  "exec",
+  "spawnSync",
+  "spawn",
+  "execFile",
+  "fork",
+]);
+
+/** `esbuild@0.28.0` -> `esbuild`; `@tailwindcss/cli@4.2.4` -> `@tailwindcss/cli`. */
+function normalise(raw: string): string {
+  return raw.replace(/@[\d.]+$/, "");
+}
+
+function isToolchainToken(raw: string): boolean {
+  return TOOLCHAIN.includes(normalise(raw));
 }
 
 /**
- * Remove comments WITHOUT destroying string literals. A naive `//` strip eats
- * the rest of a line containing e.g. `"http://x"` or `"foo//bar"`, which would
- * hide a real invocation later on that line.
+ * Toolchain binaries invoked from this source, found by walking the AST.
+ *
+ * Covers, deliberately: the binary as the command itself
+ * (`execFileSync("esbuild", …)`), as an argument-array element after any number
+ * of flags (`["exec", "--silent", "esbuild"]`), inside a single command string
+ * (`execSync("pnpm exec esbuild …")`, `npx esbuild …`), and direct API use
+ * (`import … from "esbuild"`).
  */
-function stripComments(src: string): string {
-  let out = "";
-  let i = 0;
-  let quote: string | null = null;
-  while (i < src.length) {
-    const c = src[i] as string;
-    const next = src[i + 1];
-    if (quote) {
-      if (c === "\\") {
-        out += c + (next ?? "");
-        i += 2;
-        continue;
+export function toolchainInvocations(source: string, fileName = "probe.ts"): string[] {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const found = new Set<string>();
+
+  const noteToken = (raw: string): void => {
+    if (isToolchainToken(raw)) found.add(normalise(raw));
+  };
+  const noteCommandString = (raw: string): void => {
+    for (const word of raw.split(/\s+/)) noteToken(word);
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      noteToken(node.moduleSpecifier.text);
+    }
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const name = ts.isIdentifier(callee)
+        ? callee.text
+        : ts.isPropertyAccessExpression(callee)
+          ? callee.name.text
+          : "";
+      if (SPAWNERS.has(name) || name === "require") {
+        for (const arg of node.arguments) {
+          if (ts.isStringLiteralLike(arg)) {
+            noteToken(arg.text);
+            noteCommandString(arg.text);
+          } else if (ts.isArrayLiteralExpression(arg)) {
+            for (const el of arg.elements) {
+              if (ts.isStringLiteralLike(el)) noteToken(el.text);
+            }
+          }
+        }
       }
-      if (c === quote) quote = null;
-      out += c;
-      i += 1;
-      continue;
     }
-    if (c === '"' || c === "'" || c === "`") {
-      quote = c;
-      out += c;
-      i += 1;
-      continue;
-    }
-    if (c === "/" && next === "/") {
-      while (i < src.length && src[i] !== "\n") i += 1;
-      continue;
-    }
-    if (c === "/" && next === "*") {
-      i += 2;
-      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i += 1;
-      i += 2;
-      continue;
-    }
-    out += c;
-    i += 1;
-  }
-  return out;
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sf);
+  return [...found].sort();
 }
 
-/**
- * Toolchain binaries used as a command argument (adjacent to `dlx` or `exec`),
- * ignoring anything inside comments.
- */
-export function toolchainInvocations(source: string): string[] {
-  const code = stripComments(source);
-  return TOOLCHAIN.filter((bin) => {
-    const b = escapeRe(bin);
-    const v = "(?:@[\\d.]+)?";
-    return [
-      // ["dlx","esbuild"] / ["exec","tailwindcss"], optionally via a `--` separator
+/** Package scripts referenced from the given sources (array or string form). */
+export function referencedScripts(sources: string[], scriptNames: string[]): string[] {
+  return scriptNames.filter((name) => {
+    const n = name.replace(/[.*+?^${}()|[\]\\/@:-]/g, "\\$&");
+    const patterns = [
       new RegExp(
-        `["'\`](?:dlx|exec)["'\`]\\s*,\\s*(?:["'\`]--["'\`]\\s*,\\s*)?["'\`]${b}${v}["'\`]`,
+        `["'\`]pnpm["'\`]\\s*,\\s*\\[\\s*(?:["'\`](?:run|exec)["'\`]\\s*,\\s*)?["'\`]${n}["'\`]`,
       ),
-      // a single command string: execSync("pnpm exec esbuild ...")
-      new RegExp(`["'\`][^"'\`]*\\bpnpm\\s+(?:dlx|exec)\\s+(?:--\\s+)?${b}${v}\\b`),
-      // direct API use
-      new RegExp(`from\\s+["'\`]${b}["'\`]|require\\(\\s*["'\`]${b}["'\`]`),
-    ].some((re) => re.test(code));
+      new RegExp(`\\bpnpm\\s+(?:run\\s+)?${n}(?![\\w:.-])`),
+    ];
+    return sources.some((src) => patterns.some((re) => re.test(src)));
   });
 }
 
@@ -124,74 +143,50 @@ function walk(dir: string = E2E): string[] {
   );
 }
 
-/**
- * Package scripts referenced from the given sources.
- *
- * Must resolve BOTH shapes this repo uses: the argument-array form
- * `spawnSync("pnpm", ["db:seed"])` and the command-string form
- * `pnpm run build:x`. A textual `pnpm <name>` scan alone misses the array
- * form, which is how `help-docs-setup.ts:34` invokes its seed.
- */
-export function referencedScripts(sources: string[], scriptNames: string[]): string[] {
-  return scriptNames.filter((name) => {
-    const n = escapeRe(name);
-    const patterns = [
-      new RegExp(
-        `["'\`]pnpm["'\`]\\s*,\\s*\\[\\s*(?:["'\`](?:run|exec)["'\`]\\s*,\\s*)?["'\`]${n}["'\`]`,
-      ),
-      new RegExp(`\\bpnpm\\s+(?:run\\s+)?${n}(?![\\w:.-])`),
-    ];
-    return sources.some((src) => patterns.some((re) => re.test(src)));
-  });
-}
-
 function candidates(): string[] {
   return walk().filter((f) => !EXEMPT.has(f));
 }
 
 describe("live-entry toolchain is invoked from exactly one place", () => {
-  it("the detector fires on a real invocation and ignores look-alikes", () => {
-    // Positive: the two shapes that exist in this repo.
-    expect(toolchainInvocations('execFileSync("pnpm", ["dlx", "esbuild@0.28.0", entry])')).toEqual([
+  it("detects every invocation shape, and no look-alike", () => {
+    // Positives — the two shapes in this repo…
+    expect(toolchainInvocations('execFileSync("pnpm", ["dlx", "esbuild@0.28.0", e])')).toEqual([
       "esbuild",
     ]);
-    expect(
-      toolchainInvocations('execFileSync("pnpm", ["exec", "tailwindcss", "-i", css])'),
-    ).toEqual(["tailwindcss"]);
-    // Negative: dlx with a NON-toolchain binary is legitimate (help-docs-setup).
+    expect(toolchainInvocations('execFileSync("pnpm", ["exec", "tailwindcss", "-i", c])')).toEqual([
+      "tailwindcss",
+    ]);
+    // …and the shapes an earlier regex version missed.
+    expect(toolchainInvocations('execFileSync("esbuild", [entry])')).toEqual(["esbuild"]);
+    expect(toolchainInvocations('execSync("npx esbuild --bundle x.ts")')).toEqual(["esbuild"]);
+    expect(toolchainInvocations('spawnSync("pnpm", ["exec", "--silent", "esbuild", e])')).toEqual([
+      "esbuild",
+    ]);
+    expect(toolchainInvocations('import * as esbuild from "esbuild";')).toEqual(["esbuild"]);
+
+    // Negatives — legitimate, must stay green.
     expect(toolchainInvocations('spawnSync("pnpm", ["dlx", "tsx", "seed.ts"])')).toEqual([]);
-    // Negative: the word inside a comment is not an invocation.
     expect(
       toolchainInvocations('// app/globals.css is `@import "tailwindcss"` + design tokens'),
     ).toEqual([]);
     expect(toolchainInvocations("/* esbuild is used by the helper */")).toEqual([]);
+    // A regex literal containing a slash-star broke the previous hand lexer.
+    expect(toolchainInvocations('const r = /[/*]/; const ok = "unrelated";')).toEqual([]);
   });
 
-  it("no file but the helper invokes a toolchain binary", () => {
-    const offenders = candidates().filter(
-      (f) => toolchainInvocations(readFileSync(join(E2E, f), "utf8")).length > 0,
-    );
-    expect(offenders, "route these through tests/e2e/helpers/liveEntryToolchain.ts").toEqual([]);
-  });
-
-  it("only the helper imports esbuild directly", () => {
-    const offenders = candidates().filter((f) =>
-      /from\s+["']esbuild["']|require\(["']esbuild["']\)/.test(readFileSync(join(E2E, f), "utf8")),
-    );
-    expect(offenders, "the esbuild API belongs behind the helper").toEqual([]);
-  });
-
-  it("the script-reference detector resolves the shapes this repo actually uses", () => {
-    // Positive fixtures, both real shapes:
+  it("the script-reference detector resolves the shapes this repo uses", () => {
     expect(referencedScripts(['spawnSync("pnpm", ["db:seed"], {})'], ["db:seed", "other"])).toEqual(
       ["db:seed"],
     );
     expect(referencedScripts(['execSync("pnpm run build:x")'], ["build:x"])).toEqual(["build:x"]);
-    expect(
-      referencedScripts(["const s = `pnpm test:e2e:standalone`;"], ["test:e2e:standalone"]),
-    ).toEqual(["test:e2e:standalone"]);
-    // Negative: a script name that merely appears as a substring of another word.
     expect(referencedScripts(['const x = "prebuild:xylophone";'], ["build:xy"])).toEqual([]);
+  });
+
+  it("no file but the helper invokes a toolchain binary", () => {
+    const offenders = candidates().filter(
+      (f) => toolchainInvocations(readFileSync(join(E2E, f), "utf8"), f).length > 0,
+    );
+    expect(offenders, "route these through tests/e2e/helpers/liveEntryToolchain.ts").toEqual([]);
   });
 
   it("no package script reachable from tests/e2e invokes a toolchain binary", () => {
@@ -201,9 +196,8 @@ describe("live-entry toolchain is invoked from exactly one place", () => {
       scripts: Record<string, string>;
     };
     const sources = candidates().map((f) => readFileSync(join(E2E, f), "utf8"));
-    const referenced = referencedScripts(sources, Object.keys(scripts));
-    const offenders = referenced.filter((name) =>
-      TOOLCHAIN.some((bin) => new RegExp(`\\b${escapeRe(bin)}\\b`).test(scripts[name] ?? "")),
+    const offenders = referencedScripts(sources, Object.keys(scripts)).filter((name) =>
+      (scripts[name] ?? "").split(/\s+/).some((word) => isToolchainToken(word)),
     );
     expect(offenders, "a referenced package script invokes the toolchain").toEqual([]);
   });
