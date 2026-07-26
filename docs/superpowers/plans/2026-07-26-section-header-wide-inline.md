@@ -27,7 +27,7 @@ None of the registry meta-tests apply — no Supabase call boundary, sentinel te
 ## e2e harness readiness (project writing-plans rule)
 
 - `tests/e2e/section-header-layout.layout.spec.ts`: DB-free static harness under `tests/e2e/standalone.config.ts` (file already in its allow-list); no server, no hydration gate; markup + compiled product CSS served from a local static server.
-- `tests/e2e/admin-layout-dimensions.spec.ts`: dev server :3000 (main `playwright.config.ts` webServer, `reuseExistingServer` locally), seeded DB (`pnpm db:seed`) + settled dashboard (suite handles it); readiness gate = the `:has(title)` MODAL selector (never networkidle). No `locator.evaluate` outlives its element (all reads inside single `page.evaluate` passes).
+- `tests/e2e/admin-layout-dimensions.spec.ts`: dev server :3000 (main `playwright.config.ts` webServer, `reuseExistingServer` locally), seeded DB (`pnpm db:seed`). The suite does NOT settle the dashboard itself (unlike `admin-nav-layout-dimensions.spec.ts:214`) — a wizard-state `app_settings` row makes `/admin?show=` render no modal, so the runner MUST ensure the settled state first (locally: the `settleDashboardAdminState` SQL from `tests/e2e/helpers/dashboardState.ts:46-60` applied once via psql, or run any settle-calling suite first; CAUTION from the spec §8 measurement session: the FIRST sign-in of a fresh admin fixture bootstraps `app_settings` and clobbers a prior settle). Readiness gate for the width-chain tests: the `:has(title)` MODAL selector alone races streamed section content, so Task 1 Step 3 ALSO adds the phantom suite's stronger gates (`-review-content` visible + first `-review-section-` attached) before the evaluate. No `locator.evaluate` outlives its element (all reads inside single `page.evaluate` passes).
 - CI: `.github/workflows/phantom-gap-e2e.yml:187` (standalone) and `:197` (`-g "width chain"`, desktop-chromium). Path filters at `:31`/`:63` already name both spec files. No new e2e files ⇒ no new wiring. The new jsdom file is picked up by vitest's default include.
 
 ---
@@ -150,6 +150,12 @@ for (const viewport of [640, 1280] as const) {
             rowGap: parseFloat(outerCs.columnGap || "0"),
             groupPadRight: parseFloat(getComputedStyle(group).paddingRight || "0"),
             headingLeft: headingRect.left,
+            inkRight: Math.max(
+              headingRect.right,
+              ...Array.from(root.querySelectorAll("span"))
+                .filter((el) => /^\(\d+\)$/.test((el.textContent ?? "").trim()))
+                .map((el) => el.getBoundingClientRect().right),
+            ),
             contentLeft,
             contentRight,
             rowCentreY,
@@ -177,13 +183,19 @@ for (const viewport of [640, 1280] as const) {
       ).toBeLessThan(EDGE_TOLERANCE_PX);
       // No slot compensation at sm+ (spec decision 7).
       expect(m.groupPadRight, `${spec.cell} @ ${viewport}: sm:pr-0 on the group`).toBeCloseTo(0, 1);
-      // Pill: inline in the row band, right of the name group's content.
+      // Pill: inline in the row band, and STRICTLY right of the name+count ink —
+      // vertical-band membership alone cannot distinguish inline-right from a pill
+      // overlapping the name (plan R1 f2).
       if (spec.pill !== "none") {
         expect(m.pillCentreY, `${spec.cell} @ ${viewport}: pill measured`).not.toBeNull();
         expect(
           Math.abs((m.pillCentreY ?? 0) - m.rowCentreY),
           `${spec.cell} @ ${viewport}: pill sits in the row band`,
         ).toBeLessThanOrEqual(0.5);
+        expect(
+          (m.pillLeft ?? 0) > m.inkRight,
+          `${spec.cell} @ ${viewport}: pill begins right of the name+count ink`,
+        ).toBe(true);
       }
       // Trailing edge per cell class (spec §2.2 table).
       if (spec.link) {
@@ -379,6 +391,19 @@ In `tests/e2e/admin-layout-dimensions.spec.ts`:
 
 (c) Row P: update the two "61-case" comments (`:638`, `:645`) with the post-extension count from Step 6.
 
+(d) Row O executable at the floor (plan R1 f1): the `T-NOPHANTOM-SHOW` loop at `tests/e2e/admin-layout-dimensions.spec.ts:539` is hardcoded `[375, 1280]` — it becomes `[375, 640, 1280] as const`, and its "BOTH viewports" comment becomes "sheet at 375, popup floor at 640, full popup at 1280". This is what actually scans the `display: contents` mode for phantom items at the 552px floor.
+
+(e) Width-chain readiness (plan R1 f3): in both width-chain tests, after the existing `waitForSelector(MODAL)`, add the phantom suite's stronger gates before the evaluate:
+
+```ts
+      await expect(page.locator(`${MODAL} [data-testid$="-review-content"]`)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(
+        page.locator(`${MODAL} [data-testid*="-review-section-"]`).first(),
+      ).toBeAttached({ timeout: 30_000 });
+```
+
 - [ ] **Step 4: jsdom class tripwire (spec §4.5)**
 
 Create `tests/components/admin/wizard/modalSectionChromeClasses.test.tsx`:
@@ -516,8 +541,8 @@ Commit body records the RED and GREEN counts from Steps 5/7.
 
 - [ ] **Step 1: Apply the six edits, verbatim scope from spec §5**
 
-1. `DESIGN.md:344` pattern intro gains: "This column shape is the **below-`sm`** treatment. At `sm`+ the same tree flattens to one left-aligned row — name+count left, pill inline right, glyph last — via `sm:contents` on both wrappers; the 44px floor moves to the outer element (`sm:min-h-tap-min`), because `display: contents` removes the wrapper's box. Spec: `docs/superpowers/specs/2026-07-26-section-header-wide-inline.md`."
-2. The "column, not a row" and `pr-header-link-slot` bullets gain "(below `sm`)" qualifiers.
+1. `DESIGN.md:344` pattern intro gains one sentence: "This column shape is the **below-`sm`** treatment; at `sm`+ the same tree flattens to one left-aligned row (spec `docs/superpowers/specs/2026-07-26-section-header-wide-inline.md`)."
+2. The "column, not a row" and `pr-header-link-slot` bullets gain "(below `sm`)" qualifiers, and a NEW bullet is added to the same list (spec §5.1 requires a bullet, not intro prose — plan R1 f5): "**At `sm`+ the wrappers flatten, and the floor moves.** Both wrapper divs take `sm:contents`; `display: contents` removes their boxes, so any `min-h-*` they carried silently stops applying — the 44px floor MUST ride the outer element (`sm:min-h-tap-min`). The glyph orders last (`sm:order-1`) with `sm:ml-0.5` so its `before:-inset-3` hit overlay stays tangent to the inline pill instead of bleeding 2px into it." 
 3. `DESIGN.md:352`: widths become 320/375/430/640/1280 and the sentence gains the 2026-07-26 spec pointer.
 4. `DESIGN.md:201` token row appends: "(narrow-only as of 2026-07-26: at `sm`+ the name is left-aligned and no compensation applies)".
 5. Old spec `:35` and `:36` each gain a trailing sentence: "**Superseded at `sm`+** by `2026-07-26-section-header-wide-inline.md` (owner re-decision); stands below `sm`."
@@ -526,7 +551,7 @@ Commit body records the RED and GREEN counts from Steps 5/7.
 - [ ] **Step 2: Verify + commit**
 
 ```bash
-pnpm exec vitest run tests/docs 2>/dev/null || true   # doc-pinned suites (designSevenAEmptyHiddenSites et al) stay green
+pnpm exec vitest run tests/docs   # doc-pinned suites (designSevenAEmptyHiddenSites et al) MUST stay green — failures block the commit
 pnpm spec:lint docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md
 git add DESIGN.md BACKLOG.md docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md
 git commit --no-verify -m "docs: width-qualify the centred-header pattern; supersession + backlog notes"
@@ -542,3 +567,24 @@ git commit --no-verify -m "docs: width-qualify the centred-header pattern; super
 
 - [ ] **Step 1:** `git checkout -- lib/admin/__generated__/devPanelPresent.ts` if the dev server dirtied it (build artifact — never commit).
 - [ ] **Step 2:** `pnpm test` (full suite, ~16 min — scoped runs miss registry suites), `pnpm typecheck` (both tsconfigs), `pnpm lint`, `pnpm format:check`. All green before push; failures are fixed, not bypassed.
+
+### Task 5: Close-out — cross-model review, CI, merge (spec §6; plan R1 f4)
+
+- [ ] **Step 1: Whole-diff cross-model review.** Freeze the tree (no commits during a round). Dispatch codex-guard with a fresh-eyes brief over `git diff origin/main...HEAD` scope (REVIEWER ONLY, do-not-relitigate list = spec §1.1 + both APPROVE verdicts), iterate to APPROVE with class-sweeps per round.
+- [ ] **Step 2: Push + PR.**
+
+```bash
+git push -u origin feat/section-header-wide-inline
+gh pr create --title "feat(admin): inline section-header row at sm+" --body-file <generated body with spec/plan links, review round summary, impeccable dispositions>
+```
+
+- [ ] **Step 3: Real CI green.** `gh pr checks <PR#> --watch` (needs the PR number; cancelled/superseded runs render as failures — re-check, don't re-diagnose). If the PR shows DIRTY/behind, merge origin/main and re-push before trusting any check state. Every REQUIRED context must have REPORTED — absent is not pending.
+- [ ] **Step 4: Merge + sync.**
+
+```bash
+gh pr merge <PR#> --merge
+git pull --ff-only
+git rev-list --left-right --count main...origin/main   # MUST print "0  0"
+```
+
+Then mark the ship-state marker done and delete the cron nudge (pipeline Stage 4.4).
