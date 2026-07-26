@@ -25,6 +25,8 @@ Settled at spec time in §4.3; each row was verified with a live grep. Summary o
 | --- | --- |
 | `tests/db/_metaLocalDbUrlGuard.test.ts:396-402` | **BUMP** the exact scanned-file count `toBe(56)` → `toBe(57)`. Task 2 adds one file that reads `LOCAL_TEST_DATABASE_URL`. |
 | `tests/log/_auditableMutations.ts` `NEW_FORENSIC_CODES` | **ADD** the four §2.2 codes. Verified no size assertion exists (`grep -rn "NEW_FORENSIC_CODES.size" tests/` → no matches). |
+| `tests/drive/watchExpiration.test.ts:46-63` | **MUST edit.** A SECOND `WatchTx` fake, returned `as unknown as WatchTx` — the cast means a missing `expireDeadActive` is NOT a compile error, only a runtime failure. Its own header comment says the compiler will not catch it. |
+| `tests/drive/watchExpiration.test.ts:15-35` | **MUST extend.** One-parameter `driveMock.watch`; Task 4's option-pair assertion is unwritable until it records a second argument. |
 | `tests/sync/_metaInfraContract.test.ts` | **No row change.** Two existing rows are load-bearing and are preserved, not edited (constraint 4 above). |
 | `tests/messages/_metaAdminAlertCatalog.test.ts:111-113` | **No change**, verified: the pinned regex matches `markWatchOrphanedWithTx`, which this diff does not touch. |
 | `tests/messages/_metaAdminAlertProducer.test.ts` | **No change**, verified: detector is Supabase-client-scoped; the raw pg RPC call is what it exists to require. |
@@ -70,6 +72,8 @@ Both fail today against the verified baseline (the CHECK has no `expired`). The 
 Also: `WatchChannelStatus` (`lib/drive/watch.ts:21`) gains `"expired"`.
 
 **Registry:** bump `tests/db/_metaLocalDbUrlGuard.test.ts` `toBe(56)` → `toBe(57)` — the new file is the 57th reader.
+
+**Extend the executable validation gate** (spec §4.4). Add a parallel block to `tests/db/validation-schema-parity.test.ts` (alongside the existing CHECK layer at `tests/db/validation-schema-parity.test.ts:216-290`) that parses the new migration for its constraint name and asserts the validation database's `drive_watch_channels_status_check` **definition contains `'expired'`**. Assert the definition, not just the name: the name already exists in validation today carrying the OLD six-value list, so a name-only superset check passes whether or not the migration was applied. Add it as its own parsed block, NOT by appending to `NONBLANK_MIGRATIONS` — that array's `expect(expected.size).toBe(17)` non-vacuity guard is scoped to the `*_drive_file_id_nonblank` family.
 
 **Apply locally:** `psql "$LOCAL_TEST_DATABASE_URL" -f supabase/migrations/20260726000000_drive_watch_expired_status.sql`, then re-run the test green. Then `pnpm gen:schema-manifest` and commit the result — expected to be a no-op diff (§4.1), and a NON-empty diff is a signal to stop and read it.
 
@@ -121,20 +125,32 @@ Invert `tests/db/watchRenewalDue.test.ts:122-131` ("a lease already past expiry 
 
 **Commit:** `fix(drive): renew only the configured watched folder`
 
+## Task 3b: Supersede the prior folder's channels at promotion (AC-6.18)
+
+**Failing test first:** after `promoteSettings` swaps the watched folder, no `drive_watch_channels` row for a non-promoted folder remains `status='active'`. This fails today — `promoteSettings` (`app/api/admin/onboarding/finalize-cas/route.ts:779-805`) touches no channel row — and it is the executable form of a shipped acceptance criterion, AC-6.18 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3846`), that has never been satisfied.
+
+**Implementation** — spec §3.2.4: one `update … set status='superseded', superseded_at=now() where status='active' and watched_folder_id is distinct from <newly promoted id>`, inside the SAME transaction as the settings swap so a rolled-back promotion cannot orphan the previous folder's channel.
+
+**Registry:** none. The route is already a registered admin mutation (`tests/log/_auditableMutations.ts:35`, `POST` → `SHOW_FINALIZED`), so this adds behaviour to a registered surface rather than creating an unregistered one.
+
+**Commit:** `fix(onboarding): supersede the prior folder's watch channels on promotion`
+
 ## Task 4: Bound every Drive call and the loop around it
 
 **Failing tests first** (DB-free):
 
-- `defaultWatchFolder` passes `{ timeout: DRIVE_CALL_TIMEOUT_MS, retry: false }` as the **second** argument to `files.watch`; `defaultStopChannel` the same to `channels.stop`. Assert both fields by value on a mock drive client. `retry: false` is the half that matters — without it gaxios's internal retry multiplies the budget and the timeout bounds nothing, which no timing test would notice.
-- `withDriveCallDeadline` rejects with `DriveCallTimeoutError` carrying `operation` and `timeoutMs`; throws immediately on a non-positive `timeoutMs`; clears its timer on the success path.
-- a never-settling `watchFolder` yields `{outcome: "orphaned", reason: "watch_create_failed"}` within the budget (fake timers).
-- both timeout shapes — a `GaxiosError` with `code: "TimeoutError"`, and `DriveCallTimeoutError` — classify as `error_class: "drive_api"` (catches a future `CONFIG_PATTERNS` addition re-classifying a timeout as `config`, which escalates immediately per `lib/drive/watchEscalation.ts:102`).
-- run-budget exhaustion stops the loop, records `failures` rows for the unprocessed folders, and emits `DRIVE_WATCH_RUN_BUDGET_EXHAUSTED` (catches a budget check that logs but keeps iterating).
+- `defaultWatchFolder` passes `{ timeout: DRIVE_CALL_TIMEOUT_MS, retry: false }` as the **second** argument to `files.watch`; `defaultStopChannel` the same to `channels.stop`. Assert both fields by value. **This requires extending the drive mock first:** `tests/drive/watchExpiration.test.ts:15-35` declares `watch: async (args) => …`, a one-parameter mock that cannot observe a second argument at all. Give it an options parameter and record it. `retry: false` is the half that matters — without it gaxios's internal retry multiplies the budget and the timeout bounds nothing, which no timing test would notice.
+- `files.watch` rejecting with a `TimeoutError`-shaped `GaxiosError` yields `{outcome: "orphaned", reason: "watch_create_failed"}` and an alert whose `error_class` is `drive_api`. Drive the REAL `defaultWatchFolder` against the mock — injecting `deps.watchFolder` bypasses it and would prove only that a rejecting function rejects (spec R1 finding 8).
+- Run-budget exhaustion stops the loop, records `failures` rows for the unprocessed folders, and emits `DRIVE_WATCH_RUN_BUDGET_EXHAUSTED` (catches a budget check that logs but keeps iterating).
 - `REFRESH_RUN_BUDGET_MS === T_EXEC_BUDGET_MS`.
 
-**Implementation** — §3.3: new lib/drive/callDeadline.ts; the two `MethodOptions` pairs; per-row and per-run budgets; new constants in `lib/drive/watchErrors.ts`. Rewrite the `T_EXEC_BUDGET_MS` doc comment per §3.3.3 — it currently says nothing enforces it, which becomes half false; state what the loop enforces and what stays outside the process, and do NOT upgrade `isGrantTooShort` to a guarantee (§8.4).
+**Implementation** — spec §3.3: the two `MethodOptions` pairs, the per-run budget, and `DRIVE_CALL_TIMEOUT_MS` in `lib/drive/watchErrors.ts`.
 
-**Commit:** `fix(drive): bound files.watch, channels.stop, and the renewal loop`
+**There is NO deadline-wrapper module and NO per-row budget.** An earlier revision of this plan created a deadline-wrapper module under lib/drive/ and a `REFRESH_ROW_BUDGET_MS`; spec §3.3.1a withdrew both, because the wrapper could not cancel `subscribeToWatchedFolder` (no `AbortSignal` in its signature) and its rejection let an activation commit after the loop had recorded the row as failed. Do not reintroduce either.
+
+Rewrite the `T_EXEC_BUDGET_MS` doc comment per spec §3.3.3 — state that the loop stops STARTING rows at the budget, and that the in-flight iteration, the credential fetch, the platform, and `pg_net` remain unbounded. Do NOT upgrade `isGrantTooShort` to a guarantee.
+
+**Commit:** `fix(drive): bound files.watch and channels.stop, and cap the renewal loop`
 
 ## Task 5: Commit the alert in the transaction it appears to be in
 
@@ -153,10 +169,12 @@ Plus, same file: the raised alert satisfies `jsonb_typeof(context) = 'object'` a
    `supabase db query --linked "select pg_get_constraintdef(oid) from pg_constraint where conname = 'drive_watch_channels_status_check'"` — output must contain `'expired'`.
 2. **`NEW_FORENSIC_CODES`**: add all four §2.2 codes.
 3. **Amend the two stale comments** §5 lists: `lib/drive/watch.ts:873-875` (reconcile's "already had its attempt via refresh" — the expired-active exception no longer exists) and the `T_EXEC_BUDGET_MS` doc block if Task 4 left anything. Deletions and replacements, not notes appended beside the superseded text.
-4. **File the residual Drive-call class** as a new `BACKLOG.md` entry naming the 20 out-of-scope unbounded call sites enumerated in the pre-draft pass, so the sweep is recorded rather than silently half-done.
-5. **Update `BACKLOG.md`**: mark the four entries closed with this PR; leave `BL-WATCH-RECONCILE-BACKOFF` OPEN and add the §8.6 note that its decisive blocker is cleared and reconcile is now the single retry surface.
-6. **Add the plan row** to `docs/superpowers/plans/observability/README.md`.
-7. **Gates, in this order:** `pnpm typecheck` (vitest AND playwright configs) → `pnpm exec eslint` → `pnpm format:check` → `pnpm test` (full suite; scoped runs miss registry suites) → `pnpm spec:lint` on both the spec and this plan.
+4. **Apply the three master-spec amendments** specified in spec §4.6, each a DELETION and replacement tagged `**Amended 2026-07-26**`: the "No client-side timeout is applied" clause (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1320`), the unscoped renewal rule (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1330`), and the status set (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1299` plus the §5.5.6 GC per-status list). AC-6.18 is NOT amended — Task 3b implements it. **This engages the §12.4 three-way lockstep only if a catalog row changes; it does not, so no `pnpm gen:spec-codes` run is needed** — but re-run `pnpm spec:lint` on the master spec after editing.
+5. **File the credential-fetch residual** as a backlog entry (spec §3.3.1a, §7): the `GoogleAuth` token request is unbounded and no supported per-call knob was found.
+6. **File the residual Drive-call class** as a new `BACKLOG.md` entry naming the 20 out-of-scope unbounded call sites enumerated in the pre-draft pass, so the sweep is recorded rather than silently half-done.
+7. **Update `BACKLOG.md`**: mark the four entries closed with this PR; leave `BL-WATCH-RECONCILE-BACKOFF` OPEN and add the §8.6 note that its decisive blocker is cleared and reconcile is now the single retry surface.
+8. **Add the plan row** to `docs/superpowers/plans/observability/README.md`.
+9. **Gates, in this order:** `pnpm typecheck` (vitest AND playwright configs) → `pnpm exec eslint` → `pnpm format:check` → `pnpm test` (full suite; scoped runs miss registry suites) → `pnpm spec:lint` on both the spec and this plan.
 
 **Commit:** `chore(drive): close the four watch backlog entries and record the residual class`
 
@@ -170,6 +188,6 @@ After plan self-review, dispatch `scripts/codex-guard.mjs review` on this plan a
 
 - **Anti-tautology, per task:** every test row above names the concrete failure mode it catches. The three that would otherwise have been weak are strengthened deliberately — the reap-ordering test asserts ORDER (presence passes trivially), the folder-filter test asserts the subscribe ARGUMENT (a count passes on the wrong folder), and the GC test asserts the stop spy's call LIST (a length passes if it skips the wrong row).
 - **Values derived, not hardcoded:** the real-DB timing rows compute leases from `RENEWAL_LIFE_FRACTION` / `RENEWAL_MIN_LEAD_MS` through the implementation's own `renewalLeadMs`, as the existing suite already does (`tests/db/watchRenewalDue.test.ts:118-121`).
-- **Ordering risk:** Task 1 must land before Task 2, because the reap writes a value the local CHECK would otherwise reject. Tasks 3-5 are independent of each other.
+- **Ordering risk:** Task 1 must land before Task 2, because the reap writes a value the local CHECK would otherwise reject. Task 2 must land before Task 3, because both edit `tests/db/watchRenewalDue.test.ts` and Task 3's harness redesign subsumes the file Task 2 leaves. Tasks 3b, 4 and 5 are independent of each other and of that pair.
 - **Fix-round regression budget:** if any review round patches the reap or the folder filter, re-grep the `'*'` sentinel assertions and re-run `tests/sync/_metaInfraContract.test.ts` before the next dispatch — constraint 4 is the contract most likely to be broken by a well-meaning repair.
 - **No e2e, no layout, no transition tasks:** no Playwright surface, no fixed-dimension parent, no multi-state component. Declared positively as the rules require.
