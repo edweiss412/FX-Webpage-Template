@@ -145,7 +145,9 @@ A per-module alias list was the first design and **it was measured and rejected*
 | Server-only packages | `googleapis`, `postgres`, `google-auth-library` |
 | Node builtins | `node:crypto`, `node:async_hooks`, `node:fs`, `os`, `net`, `tls`, … |
 | Server Action modules | any specifier containing `_actions/` |
-| Server-only app layers | `@/lib/sync/…`, `@/lib/drive/…`, `@/lib/auth/…`, `@/lib/supabase/server` |
+| Server-only app layers | `@/lib/drive/…`, `@/lib/auth/…`, `@/lib/supabase/server` |
+
+**`@/lib/sync/…` is deliberately NOT in that list**, and the reason is measured (§3.2b): that directory holds server orchestration *and* client-safe helpers, so a path prefix cannot separate them. It is also unnecessary — the server tree is reached **through** `_actions/`, so stubbing the action boundary already cuts it. A rule is only admissible here if every module under it is server-only; when that is not true, the correct boundary is the one the import graph actually crosses.
 
 `next/navigation` stays a real alias to `tests/e2e/_nextNavigationStub.ts`, because the harness needs working values (`usePathname()` → `"/admin"`), not a throw.
 
@@ -180,7 +182,25 @@ tests/e2e/_packListRescanLiveEntry.tsx
 
 Stubbing that one boundary is not enough either — after aliasing both `UseRawControlBoundary` imports, **ten** distinct `lib/sync/*` modules still pulled in `postgres`. The boundary count is what makes enumeration the wrong shape and a rule the right one.
 
-**Honest limit:** these numbers prove the bundles **build**. They do not prove the specs **pass** — a proxy that throws on call is correct only if no render path calls a server-only module, which is true today for these two entries but is exactly what the TDD task in §3.5 must demonstrate by running the specs, not by rebuilding them.
+### §3.2b Rendered, not just built — and what that caught
+
+Building proves nothing about runtime. Each plugin-built bundle was therefore loaded in real headless chromium and inspected for page errors, console errors, rendered DOM, and whether any stub was **called**:
+
+| entry | rendered DOM (chars) | errors | server-only stub called |
+| --- | --- | --- | --- |
+| `_blockedRowResolverLiveEntry` | 580 | 0 | no |
+| `_bulkIgnoreEyebrowLiveEntry` | 1652 | 0 | no |
+| `_collapsePanelMorphLiveEntry` | 672 | 0 | no |
+| `_compactAlertCardLiveEntry` | 15460 | 0 | no |
+| `_hoverHelpGeometryLiveEntry` | 733 | 0 | no |
+| `_packListRescanLiveEntry` | 1176 | 0 | no |
+| `_wizardBlockerModalLiveEntry` | 194 | 0 | no |
+
+**This pass caught a real defect that every build had hidden.** With `@/lib/sync/…` in `SERVER_ONLY`, `_packListRescanLiveEntry` built successfully and then died at runtime — `(0 , import_pullSheetOverride.overrideSnapshotsEqual) is not a function`, rendering an empty root — because the rule had stubbed a pure helper the harness genuinely renders with. Removing that one over-broad rule took it from 0 to 1176 rendered characters and left every other entry unchanged.
+
+So the design claim is now measured end-to-end: all 7 entries build, all 7 render, and **no render path calls a server-only module**, which is the precondition the throw-on-call proxy depends on.
+
+**Remaining honest limit:** rendering an entry is still not the same as its spec's assertions passing. §3.5 step 4 runs the suite, and that is what closes the last gap.
 
 **Guard conditions.** `bundleLiveEntry` throws a named error when `entry` does not exist on disk (rather than surfacing esbuild's resolution error), when `outFile`'s directory does not exist, and when the local binary is absent. An empty `sources` array passed to `buildEntryCss` is an error, not a silent empty stylesheet — an empty stylesheet renders an unstyled harness whose layout assertions would fail confusingly rather than loudly.
 
@@ -196,6 +216,7 @@ New meta-test tests/e2e/\_metaLiveEntryToolchain.test.ts, filesystem-walked over
 2. **No file names `esbuild` or `@tailwindcss/cli` as a command string.** Both reach the toolchain through the helper's API call.
 3. **The helper's options are asserted against the resolved policy, not its source text.** The test imports `SERVER_ONLY` and the built options object from the helper and asserts the plugin is present and the policy array is the one the helper actually passes to esbuild — per `feedback_structural_guards_assert_resolved_config`, a source scan of the helper would pass while the value handed to esbuild differed.
 4. **A behavioral case proves the policy is applied**: bundle a fixture entry importing a server-only module, and assert the output contains the stub's throw string and does not contain a marker string from the real module. A build that merely succeeds does not prove the plugin ran.
+5. **An over-match case pins the rule set in the other direction**: a fixture importing a **client-safe** helper from a directory adjacent to a stubbed boundary must resolve to the REAL module, asserted by a marker string from it appearing in the output. Without this, a future broadening of `SERVER_ONLY` silently re-creates the §3.2b defect — and every bundle would still build, so nothing else in CI would notice.
 
 Case 4 answers the hole in the §3.5 positive test: a bundle can also succeed via a network-backed `dlx`, so "it built" is not evidence the helper's policy was used.
 
