@@ -87,6 +87,23 @@ It does not run: no workflow references `admin-lifecycle-transitions`, so it is 
 
 **Surfaced by:** round-4 adversarial review of #598, which found it while checking that branch's retirement of the testid. Recorded rather than fixed there: out of scope for that PR, and it cannot be validated without first un-darkening it.
 
+## BL-HEADER-PROBE-RESIDUAL-VACUITY — four adversarial-review findings the section-header probes do not close
+
+**Filed:** 2026-07-26 (branch `feat/section-header-rebuild-phantom-spacers`, adversarial review round 3). **Class:** test hardening. **Effort:** M, and read the rationale before spending it.
+
+Three review rounds produced 13 / 14 / 13 findings, all one vector: _this assertion can be vacuous in some configuration the test does not enter._ Rounds 1 and 2 were repaired in full. Round 3 was repaired except the four below, which are recorded rather than fixed because the vector was ruled **non-convergent** — each round names a new configuration (a theme, a viewport, `:active`, a transition delay, SVG SMIL, `clip-path`, `mask`, `filter`) and the set of ways to move a box or paint nothing is open-ended. The project's own rule for this shape is to stop enumerating and change the mechanism, which rounds 2 and 3 already did twice (the property ban-list became an allowlist; the paint heuristic became `checkVisibility` plus a pixel test).
+
+**Open, with what each would cost:**
+
+1. **The real-route width chain anchors only 375 and 1280.** 320 and 430 are assumed, so a breakpoint changing pane padding at either would leave 60 static matrix cases green against counterfactual container widths. Closing it means two more hydrated-modal mounts in `tests/e2e/admin-layout-dimensions.spec.ts` (~2 min of CI each).
+2. **`:active`, and simultaneous hover+focus, are not swept.** `active:transition-transform` on the corner link would shift it during a real press. The three swept states (idle, hover, focus) do not compose.
+3. **SVG SMIL is invisible to the sweep.** An `<animateTransform>` inside the status icon moves geometry while every CSS channel reads `none`. No such element exists in the tree today; `lucide-react` emits static paths.
+4. **Exotic paint suppression.** `clip-path: inset(50%)`, a transparent `mask`, and `filter: opacity(0)` are now checked, but the check is pattern-based — a computed `clip-path` expressed differently, or a partially transparent mask, would slip through.
+
+**Before picking any of these up, decide whether the answer is a fifth heuristic or a different instrument.** A visual-regression baseline over the header row would subsume 2, 3 and 4 at once by comparing PIXELS instead of enumerating the ways pixels can go missing — and the repo already has the pinned-Docker discipline that such a gate requires (see the byte-comparison rule in AGENTS.md). That is likely the better spend than another round of property lists.
+
+**What IS covered, so this entry is not read as "the probes are weak":** 89 standalone layout cases and 4 real-route cases, green in CI; 18 mutations run across the batch, each mapped to a distinct catcher; the transition sweep runs both themes x four widths x three states with per-channel duration AND delay; pusher absence runs at three widths with a pixel-level paint test; chain coverage is anchored on the canonical `SectionId` list rather than on the rendered DOM.
+
 ## BL-HEADER-FONT-FALLBACK-WRAP — nothing loads Inter, so a bare-Linux client gets a much wider fallback
 
 **Filed:** 2026-07-26 (branch `feat/section-header-rebuild-phantom-spacers`, surfaced by real CI). **Class:** typography robustness. **Effort:** S (load the font) or M (make the affected rows font-independent).

@@ -126,97 +126,124 @@ async function open(page: Page, file: string, width: number) {
 }
 
 for (const { key, page: pageFile, row } of ROWS) {
-  test(`pusher absence: ${key}`, async ({ page }) => {
-    await open(page, pageFile, 1280);
+  for (const width of [1280, 375, 320] as const) {
+    test(`pusher absence: ${key} @ ${width}`, async ({ page }) => {
+      await open(page, pageFile, width);
 
-    const found = await page.evaluate(
-      ({ rowSel, growableSource }) => {
-        const growable = new RegExp(growableSource);
-        const rowEl = document.querySelector(rowSel);
-        if (!(rowEl instanceof HTMLElement)) return { error: `row not found: ${rowSel}` };
-        // PAINTS NOTHING — and asked of the BROWSER, not of a property checklist.
-        //
-        // This started as `childNodes.length === 0` (round 1: missed a whitespace
-        // text node), became a background/border/replaced-element heuristic (round 2:
-        // missed `opacity-0`, `visibility:hidden`, a transparent border colour, and
-        // clipping). That is a checklist that cannot be completed — every round adds
-        // a way to paint nothing while satisfying it. Inverted to ask the browser
-        // directly: `checkVisibility` with the content-visibility and opacity checks
-        // enabled is the platform's own answer to "does this render anything", and it
-        // subsumes every case the heuristic enumerated.
-        const paintsNothing = (el: Element): boolean => {
-          if ((el.textContent ?? "").trim() !== "") return false;
-          const visible = (d: Element): boolean => {
-            const anyEl = d as Element & {
-              checkVisibility?: (o?: Record<string, boolean>) => boolean;
-            };
-            if (typeof anyEl.checkVisibility === "function") {
+      const found = await page.evaluate(
+        ({ rowSel, growableSource }) => {
+          const growable = new RegExp(growableSource);
+          const rowEl = document.querySelector(rowSel);
+          if (!(rowEl instanceof HTMLElement)) return { error: `row not found: ${rowSel}` };
+          // PAINTS NOTHING — and asked of the BROWSER, not of a property checklist.
+          //
+          // This started as `childNodes.length === 0` (round 1: missed a whitespace
+          // text node), became a background/border/replaced-element heuristic (round 2:
+          // missed `opacity-0`, `visibility:hidden`, a transparent border colour, and
+          // clipping). That is a checklist that cannot be completed — every round adds
+          // a way to paint nothing while satisfying it. Inverted to ask the browser
+          // directly: `checkVisibility` with the content-visibility and opacity checks
+          // enabled is the platform's own answer to "does this render anything", and it
+          // subsumes every case the heuristic enumerated.
+          const paintsNothing = (el: Element): boolean => {
+            // TEXT DOES NOT SHORT-CIRCUIT. Returning early on any non-whitespace text
+            // let an `opacity-0` / `visibility:hidden` / clipped text-bearing grower
+            // through (review round 3). Text now only counts when the node carrying it
+            // is itself visible, which the walk below decides.
+            const visible = (d: Element): boolean => {
+              const anyEl = d as Element & {
+                checkVisibility?: (o?: Record<string, boolean>) => boolean;
+              };
+              if (typeof anyEl.checkVisibility === "function") {
+                if (
+                  !anyEl.checkVisibility({
+                    contentVisibilityAuto: true,
+                    opacityProperty: true,
+                    visibilityProperty: true,
+                  })
+                ) {
+                  return false;
+                }
+              }
+              const cs = getComputedStyle(d);
+              const r = d.getBoundingClientRect();
+              if (r.width <= 0 || r.height <= 0) return false;
+              // A box only paints if something in it is actually opaque. A transparent
+              // border colour or a fully transparent background paints nothing even
+              // though the width is non-zero.
+              const opaque = (c: string) =>
+                c !== "transparent" && c !== "rgba(0, 0, 0, 0)" && !/,\s*0\s*\)$/.test(c);
+              const borders = (
+                [
+                  "borderTopColor",
+                  "borderRightColor",
+                  "borderBottomColor",
+                  "borderLeftColor",
+                ] as const
+              ).some(
+                (k, i) =>
+                  opaque(cs[k]) &&
+                  parseFloat(
+                    [
+                      cs.borderTopWidth,
+                      cs.borderRightWidth,
+                      cs.borderBottomWidth,
+                      cs.borderLeftWidth,
+                    ][i] || "0",
+                  ) > 0,
+              );
+              // CLIPPED, MASKED or FILTERED TO NOTHING still paints nothing, and
+              // `checkVisibility()` reports it visible (review round 3). These are the
+              // mechanisms that remove pixels without touching visibility or opacity.
               if (
-                !anyEl.checkVisibility({
-                  contentVisibilityAuto: true,
-                  opacityProperty: true,
-                  visibilityProperty: true,
-                })
+                cs.clipPath !== "none" &&
+                /inset\(\s*(?:5[0-9]|[6-9][0-9]|100)%/.test(cs.clipPath)
               ) {
                 return false;
               }
+              if (cs.maskImage !== "none" && cs.maskImage.includes("transparent")) return false;
+              if (/opacity\(\s*0\s*\)/.test(cs.filter)) return false;
+              // A replaced element only paints if it HAS content: an empty <svg>, an
+              // untouched <canvas> and a transparent image were all assumed painted.
+              const replaced =
+                (d.tagName === "IMG" && (d as HTMLImageElement).naturalWidth > 0) ||
+                (d.tagName.toLowerCase() === "svg" && d.children.length > 0) ||
+                ["CANVAS", "VIDEO"].includes(d.tagName);
+              const bgImage =
+                cs.backgroundImage !== "none" && !/transparent/.test(cs.backgroundImage);
+              // Text counts only on a node that got this far, i.e. one that is itself
+              // visible — replacing the early return that short-circuited on any text.
+              const hasText = Array.from(d.childNodes).some(
+                (n) => n.nodeType === 3 && (n.textContent ?? "").trim() !== "",
+              );
+              return opaque(cs.backgroundColor) || borders || replaced || bgImage || hasText;
+            };
+            for (const d of [el, ...Array.from(el.querySelectorAll("*"))]) {
+              if (visible(d)) return false;
             }
-            const cs = getComputedStyle(d);
-            const r = d.getBoundingClientRect();
-            if (r.width <= 0 || r.height <= 0) return false;
-            // A box only paints if something in it is actually opaque. A transparent
-            // border colour or a fully transparent background paints nothing even
-            // though the width is non-zero.
-            const opaque = (c: string) =>
-              c !== "transparent" && c !== "rgba(0, 0, 0, 0)" && !/,\s*0\s*\)$/.test(c);
-            const borders = (
-              [
-                "borderTopColor",
-                "borderRightColor",
-                "borderBottomColor",
-                "borderLeftColor",
-              ] as const
-            ).some(
-              (k, i) =>
-                opaque(cs[k]) &&
-                parseFloat(
-                  [
-                    cs.borderTopWidth,
-                    cs.borderRightWidth,
-                    cs.borderBottomWidth,
-                    cs.borderLeftWidth,
-                  ][i] || "0",
-                ) > 0,
-            );
-            const replaced = ["IMG", "SVG", "CANVAS", "VIDEO"].includes(d.tagName);
-            return (
-              opaque(cs.backgroundColor) || borders || replaced || cs.backgroundImage !== "none"
-            );
+            return true;
           };
-          for (const d of [el, ...Array.from(el.querySelectorAll("*"))]) {
-            if (visible(d)) return false;
-          }
-          return true;
-        };
-        const offenders = Array.from(rowEl.children)
-          .filter((c) => paintsNothing(c))
-          .filter((c) => {
-            const flexGrow = parseFloat(getComputedStyle(c).flexGrow);
-            return growable.test(c.className) || (Number.isFinite(flexGrow) && flexGrow > 0);
-          })
-          .map((c) => `<${c.tagName.toLowerCase()} class="${c.className}">`);
-        return { error: null, offenders };
-      },
-      { rowSel: row, growableSource: GROWABLE_SOURCE },
-    );
+          const offenders = Array.from(rowEl.children)
+            .filter((c) => paintsNothing(c))
+            .filter((c) => {
+              const flexGrow = parseFloat(getComputedStyle(c).flexGrow);
+              return growable.test(c.className) || (Number.isFinite(flexGrow) && flexGrow > 0);
+            })
+            .map((c) => `<${c.tagName.toLowerCase()} class="${c.className}">`);
+          return { error: null, offenders };
+        },
+        { rowSel: row, growableSource: GROWABLE_SOURCE },
+      );
 
-    expect(found.error, "fixture shape").toBeNull();
-    if (found.error !== null) return;
-    expect(
-      found.offenders,
-      `${key}: a childless growable child charges its parent's gap on both sides while painting nothing`,
-    ).toEqual([]);
-  });
+      expect(found.error, "fixture shape").toBeNull();
+      if (found.error !== null) return;
+      expect(
+        found.offenders,
+        `${key} @ ${width}: a childless growable child charges its parent's gap on both` +
+          " sides while painting nothing",
+      ).toEqual([]);
+    });
+  }
 
   for (const width of [1280, 320] as const) {
     test(`pusher alignment: ${key} @ ${width}`, async ({ page }) => {

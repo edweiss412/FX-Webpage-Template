@@ -82,13 +82,27 @@ function expectSectionStillRendered(container: HTMLElement, path: "modal" | "leg
 function expectNoCountChip(container: HTMLElement, path: "modal" | "legacy") {
   const heading = container.querySelector("h3, h4");
   const group = heading?.parentElement ?? null;
-  const chips = Array.from(group?.children ?? []).filter(
-    (el) => el !== heading && el.className.toString().includes("tabular-nums"),
-  );
+  // NOT keyed on `tabular-nums`. An always-mounted sibling such as
+  // `<span class="w-4">{finite ? "(4)" : ""}</span>` carries no such class and passed
+  // while still occupying space beside the heading (review round 3).
+  //
+  // Keyed on the two shapes a count chip can take instead, which is what the contract
+  // is actually about: an element that is EMPTY (a reserved gap) or one whose entire
+  // text is parenthesised (a chip). The legacy path's heading shares its parent with
+  // the section body, so a blanket "no siblings" rule is wrong there — the body is a
+  // legitimate sibling with real prose.
+  const offenders = Array.from(group?.children ?? [])
+    .filter((el) => el !== heading)
+    .filter((el) => {
+      const text = (el.textContent ?? "").trim();
+      return text === "" || /^\(.*\)$/.test(text);
+    });
   expect(
-    chips.map((c) => `<${c.tagName.toLowerCase()}>${(c.textContent ?? "").trim()}`),
-    `${path}: no count chip element renders beside the heading — an empty one still` +
-      " occupies space in the centred group",
+    offenders.map(
+      (c) => `<${c.tagName.toLowerCase()} class="${c.className}">${(c.textContent ?? "").trim()}`,
+    ),
+    `${path}: no count chip renders beside the heading — an empty or parenthesised` +
+      " sibling still occupies space in the centred group",
   ).toEqual([]);
 }
 

@@ -662,6 +662,8 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
    * point is that these cannot vanish silently.
    */
   const EXPECTED_SECTION_IDS = [
+    "event",
+    "crew",
     "venue",
     "contacts",
     "schedule",
@@ -748,6 +750,10 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         EXPECTED_SECTION_IDS.filter((id) => !renderedIds.includes(id)),
         `every expected section rendered [@ ${width}] — saw ${JSON.stringify(renderedIds)}`,
       ).toEqual([]);
+      // ...and NO DUPLICATES. Subset-only admitted a second `venue` section, which
+      // renders a whole extra header and card (review round 3).
+      const dupes = renderedIds.filter((id, i) => renderedIds.indexOf(id) !== i);
+      expect(dupes, `no section id renders twice [@ ${width}]`).toEqual([]);
       // No section contributed ZERO headers. This is what stops the others from
       // vanishing behind one correctly-sized survivor.
       expect(
@@ -834,8 +840,28 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
           // ancestor it never had.
           if (icon.closest('[data-testid*="-review-section-"]') === null) continue;
           if (headerBlock.querySelector("h3, h4") === null) continue;
-          const next = headerBlock.nextElementSibling;
-          if (next instanceof HTMLElement && !cards.includes(next)) cards.push(next);
+          // VERIFY the sibling really is the panel card rather than assuming it.
+          // Review round 3: a full-width guidance row inserted between the header and
+          // a narrowed card would be measured AS the card, and the real one never
+          // visited. The card is identified by its own contract — the rounded,
+          // bordered `bg-surface` box carrying the section body — so scan forward
+          // rather than taking the first sibling on faith.
+          let candidate: Element | null = headerBlock.nextElementSibling;
+          while (candidate !== null) {
+            if (candidate instanceof HTMLElement) {
+              const testid = candidate.getAttribute("data-testid") ?? "";
+              const cs = getComputedStyle(candidate);
+              const looksLikeCard =
+                testid.includes("-panel-card") ||
+                (parseFloat(cs.borderTopWidth || "0") > 0 &&
+                  parseFloat(cs.borderTopLeftRadius || "0") > 0);
+              if (looksLikeCard) {
+                if (!cards.includes(candidate)) cards.push(candidate);
+                break;
+              }
+            }
+            candidate = candidate.nextElementSibling;
+          }
         }
         if (cards.length === 0) return { error: "no panel card found" };
         const untestidedCards = cards.filter(

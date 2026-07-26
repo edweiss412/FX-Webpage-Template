@@ -775,11 +775,36 @@ test("transition audit: no geometry transition anywhere in the header subtree", 
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.setViewportSize({ width: 375, height: 900 });
 
   const offenders: string[] = [];
-  for (const spec of MATRIX) {
-    await page.goto(`${baseUrl}${spec.cell}-375.html`, { waitUntil: "load" });
+  // BOTH THEMES and every measured width. The sweep ran only at light@375, so a
+  // `dark:` variant or one gated at 320/430/1280 was unreachable (review round 3).
+  for (const theme of ["light", "dark"] as const) {
+    for (const viewport of [320, 375, 430, 1280] as const) {
+      await page.setViewportSize({ width: viewport, height: 900 });
+      for (const spec of MATRIX) {
+        await sweepCell(page, spec, viewport, theme, offenders);
+      }
+    }
+  }
+
+  expect(
+    offenders,
+    "spec §8 resolves all 66 state pairs to instant; a geometry transition here breaks every one",
+  ).toEqual([]);
+});
+
+/** One cell, in one theme at one width, across the three reachable states. */
+async function sweepCell(
+  page: Page,
+  spec: (typeof MATRIX)[number],
+  viewport: 320 | 375 | 430 | 1280,
+  theme: "light" | "dark",
+  offenders: string[],
+) {
+  {
+    await page.goto(`${baseUrl}${spec.cell}-${viewport}.html`, { waitUntil: "load" });
+    await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
 
     // THREE STATES, not just idle. Review round 1: reading computed style on an
     // idle tree cannot see a variant-gated transition — `hover:transition-all`
@@ -849,22 +874,37 @@ test("transition audit: no geometry transition anywhere in the header subtree", 
             const channelValue = (list: string[], i: number) =>
               list.length === 0 ? "" : (list[i % list.length] ?? "");
 
+            // DURATION **OR** DELAY. Skipping zero-duration channels let
+            // `animation: late 0s 500ms forwards` apply new geometry half a second
+            // later and still read as instant (review round 3). A delayed change is
+            // not an instant change.
             const animNames = csv(cs.animationName);
             const animDurs = csv(cs.animationDuration);
+            const animDelays = csv(cs.animationDelay);
             animNames.forEach((name, i) => {
               if (name === "none") return;
-              if (parseFloat(channelValue(animDurs, i) || "0") <= 0) return;
-              bad.push(`${label} runs keyframe animation ${name}`);
+              const dur = parseFloat(channelValue(animDurs, i) || "0");
+              const delay = parseFloat(channelValue(animDelays, i) || "0");
+              if (dur <= 0 && delay <= 0) return;
+              bad.push(`${label} runs keyframe animation ${name} (dur ${dur}s, delay ${delay}s)`);
             });
 
             if (cs.transitionProperty === "none") return;
             const props = csv(cs.transitionProperty);
             const durs = csv(cs.transitionDuration);
+            const delays = csv(cs.transitionDelay);
             props.forEach((prop, i) => {
-              if (parseFloat(channelValue(durs, i) || "0") <= 0) return;
+              const dur = parseFloat(channelValue(durs, i) || "0");
+              const delay = parseFloat(channelValue(delays, i) || "0");
+              // Duration OR delay: `transition: width 0s 500ms` snaps late, which is
+              // not instant, and a duration-only check passed it (review round 3).
+              if (dur <= 0 && delay <= 0) return;
               // ALLOWLIST: anything not explicitly permitted is a finding.
               if (allowed.includes(prop)) return;
-              bad.push(`${label} transitions ${prop} (not in §8's permitted set)`);
+              bad.push(
+                `${label} transitions ${prop} (dur ${dur}s, delay ${delay}s;` +
+                  " not in §8's permitted set)",
+              );
             });
           };
           for (const el of [header, ...Array.from(header.querySelectorAll("*"))]) {
@@ -879,15 +919,12 @@ test("transition audit: no geometry transition anywhere in the header subtree", 
 
       expect(found.error, `${spec.cell} fixture shape`).toBeNull();
       if (found.error !== null) return;
-      offenders.push(...found.bad.map((b) => `${spec.cell} [${stateName}]: ${b}`));
+      offenders.push(
+        ...found.bad.map((b) => `${spec.cell} @${viewport} ${theme} [${stateName}]: ${b}`),
+      );
     }
   }
-
-  expect(
-    offenders,
-    "spec §8 resolves all 66 state pairs to instant; a geometry transition here breaks every one",
-  ).toEqual([]);
-});
+}
 
 test("transition audit: the header snaps when its pill changes on a mounted node", async ({
   page,
