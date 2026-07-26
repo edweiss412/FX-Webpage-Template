@@ -1339,6 +1339,18 @@ describe("R6: scanner changes are pinned", () => {
     scanSource(sf, "/synthetic/probe.tsx", sc);
     return sc;
   };
+  /** Assert a fixture reports for the INTENDED reason. `not.toEqual([])` passes on ANY violation, so
+   *  a fixture aimed at the style rule could be firing because the hint is missing entirely. Sampled
+   *  eleven of these by hand and all were correct -- this keeps them that way. */
+  const reports = (code: string, reason: RegExp, label: string): void => {
+    const got = violations(code);
+    expect(got.length, `${label}: expected a violation`).toBeGreaterThan(0);
+    expect(
+      got.some((r) => reason.test(r)),
+      `${label}: reported for the wrong reason: ${JSON.stringify(got)}`,
+    ).toBe(true);
+  };
+
   const violations = (code: string): string[] => {
     const sc = probe(code);
     // An UNDISCOVERED anchor also yields `[]`, so every `expect(violations(...)).toEqual([])`
@@ -1998,10 +2010,11 @@ describe("R6: scanner changes are pinned", () => {
       `{flag ? ${hid} : null}`,
       `{flag ? ${hid} : ${hid}}`,
     ]) {
-      expect(
-        violations(`const A=({flag})=><a href="x" target="_blank">${expr} <NewTabHint /></a>;`),
-        `must report, the selected operand carries no destination: ${expr}`,
-      ).not.toEqual([]);
+      reports(
+        `const A=({flag})=><a href="x" target="_blank">${expr} <NewTabHint /></a>;`,
+        /only visible content is the announcement/,
+        `selected operand carries no destination: ${expr}`,
+      );
     }
     // ...and the mirror cases still pass, so operand selection is not a blanket rejection.
     for (const expr of [
@@ -2080,12 +2093,11 @@ describe("R6: scanner changes are pinned", () => {
       '{{display: "block", ...(true ? {display: "none"} : {})}}',
       '{{visibility: "visible", ...(true ? {visibility: "collapse"} : {})}}',
     ]) {
-      expect(
-        violations(
-          `const A=()=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
-        ),
-        `must report, the destination is hidden: ${style}`,
-      ).not.toEqual([]);
+      reports(
+        `const A=()=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
+        /only visible content is the announcement/,
+        `the destination is hidden: ${style}`,
+      );
     }
     // A style object the scanner cannot read is OPAQUE and does not hide -- unchanged posture, and
     // previously unpinned, so a mutation making a spread or shorthand hide changed no test.
@@ -2157,12 +2169,11 @@ describe("R6: scanner changes are pinned", () => {
     // `hidden=""` and hides. So an always-boolean expression is UNDECIDABLE there and must fail
     // closed -- the opposite of `popover`, where React drops either boolean. Same word, two rules.
     for (const attr of ["hidden={a === b}", "inert={!x}"]) {
-      expect(
-        violations(
-          `const A=({a,b,x})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
-        ),
-        `must report, a boolean attribute hides when the boolean is true: ${attr}`,
-      ).not.toEqual([]);
+      reports(
+        `const A=({a,b,x})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        /hidden from the accessible name/,
+        `a boolean attribute hides when the boolean is true: ${attr}`,
+      );
     }
     // ...but a value that REACHES the DOM still hides, so the rule did not become a blanket accept.
     for (const attr of ['popover={cond ? "auto" : "manual"}', 'popover={`au${"to"}`}']) {
@@ -2189,12 +2200,11 @@ describe("R6: scanner changes are pinned", () => {
       "<></>",
       "`a${x}`",
     ]) {
-      expect(
-        violations(
-          `const A=({x})=><a href="x" target="_blank">{${left} && <span aria-hidden="true">Go</span>} <NewTabHint /></a>;`,
-        ),
-        `must report, a definitely-truthy left operand selects the right: ${left}`,
-      ).not.toEqual([]);
+      reports(
+        `const A=({x})=><a href="x" target="_blank">{${left} && <span aria-hidden="true">Go</span>} <NewTabHint /></a>;`,
+        /only visible content is the announcement/,
+        `definitely-truthy left operand selects the right: ${left}`,
+      );
     }
     // R33 BLOCKING 3: a zero BigInt in ANY radix is falsy, so `||` selects the right operand, and
     // React omits a boolean attribute set to it.
@@ -2277,12 +2287,11 @@ describe("R6: scanner changes are pinned", () => {
       "open={false}",
       "",
     ]) {
-      expect(
-        violations(
-          `const A=({cond})=><a href="x" target="_blank">Go <details ${attr}><NewTabHint /></details></a>;`,
-        ),
-        `must report, the details may be closed: ${attr || "(no open attribute)"}`,
-      ).not.toEqual([]);
+      reports(
+        `const A=({cond})=><a href="x" target="_blank">Go <details ${attr}><NewTabHint /></details></a>;`,
+        /hidden from the accessible name/,
+        `the details may be closed: ${attr || "(no open attribute)"}`,
+      );
     }
     // A namespace body and a class static block are `var` scopes in BOTH directions: R32 stopped the
     // downward scan entering them, but a use site INSIDE one is shadowed by a `var` in a sibling
@@ -2541,12 +2550,11 @@ describe("R6: scanner changes are pinned", () => {
       'aria-hidden="True"',
       'aria-hidden=" true "',
     ]) {
-      expect(
-        violations(
-          `const A=({flag})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
-        ),
-        `must report, the announcement is hidden: ${attr}`,
-      ).not.toEqual([]);
+      reports(
+        `const A=({flag})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        /hidden from the accessible name/,
+        `the announcement is hidden: ${attr}`,
+      );
     }
   });
 

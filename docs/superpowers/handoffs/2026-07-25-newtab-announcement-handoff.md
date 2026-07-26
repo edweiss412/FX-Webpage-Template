@@ -1515,6 +1515,15 @@ All 127 existing fixtures survive the check — it is preventive rather than a b
 own self-test. Between them the two guards now close the mechanical half of the vacuity class:
 a fixture must be a program, and it must actually reach the rule.
 
-What they cannot catch is the semantic half — an assertion whose expected value equals what the rule
-would produce with its body deleted. That one still needs mutation, which is why the branch sweep
-stays in the loop.
+A THIRD axis followed: `not.toEqual([])` passes on ANY violation, so a fixture aimed at the style
+rule could be firing because the hint is missing entirely. Sampled eleven report-fixtures by hand and
+all eleven fired for the intended reason — destination-absence cases reported "the only visible
+content is the announcement", hiding cases reported "NewTabHint is hidden from the accessible name",
+the shadow case reported "does not announce". So nothing was wrong, but nothing was PINNED either:
+the six loops added across R32 and R33 now assert the specific reason via a `reports()` helper.
+Deleting the scanner's hidden-branch turns 13 of them red where before the count alone would have
+kept them green.
+
+What none of this catches is the last semantic axis — an assertion whose expected value equals what
+the rule would produce with its body deleted. That still needs mutation, which is why the branch
+sweep stays in the loop.
