@@ -19,7 +19,7 @@ Each item below is a decision already taken, with its ratification cited. A revi
 |---|---|---|
 | R1 | `BL-DESTRUCT-CONFIRM-COPY-HARMONIZE` and `BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS` are **already implemented**. This spec deletes their BACKLOG rows; it does **not** re-implement them. | `DEFERRED-archive.md:1224-1234`; live proof `components/admin/RecentAutoAppliedStrip.tsx:551` (`data-testid` on the persistent `role="status"` region, `auto-applied-bulk-undo-status-${group.showId}`) and eleven `ARM_REVERT_MS = 4_000` declarations with zero surviving `AUTO_REVERT_MS`. |
 | R2 | The fix is a **DOM reorder in ONE subtree**: Ignore precedes Defer, and `basis-full sm:basis-auto` is deleted so the row wraps on available width (§4.1). The owner chose this on 2026-07-26 after two earlier designs were tried and abandoned — a viewport-keyed fork (does not fix the 278px rail, where the defect actually lives) and a container-keyed fork (works, but nine review rounds could not converge on verifying it). Still ruled out: a CSS `order` flip, `flex-row-reverse`, and grid line placement, all of which desync visual from focus order (WCAG 2.4.3) — the original reason this was deferred rather than patched. A global DOM swap was *also* on that ruled-out list and is what shipped; §2.5 is the measurement that overturned it. | Owner decisions 2026-07-25/26; evidence in §2.5 and §4.1. |
-| R3 | Duplicating a destructive control is a **known, accepted cost** of R2, not an oversight. Containment is four-part and specified in §4.5: one shared render helper, a canonical-token allowlist that catches shared drift, per-copy test ids, and a real-browser proof that exactly one copy is displayed at each of the three probed container widths. | This spec §4.5. |
+| R3 | **Withdrawn.** R3 ratified the cost of duplicating a destructive control, which the fork required. The reorder has one subtree and one copy of each control, so there is nothing to contain. | Superseded by R2. |
 | R4 | The existing test ids `admin-pending-defer-${id}` / `admin-pending-ignore-${id}` are **kept unchanged**. An earlier fork design retired them, because a bare id resolving to one of two live copies is genuinely ambiguous; with one subtree there is nothing to disambiguate, so no consumer needs retargeting. | This spec §4.1. |
 | R5 | Wiring `tests/e2e/pendingDiscardReflow.layout.spec.ts` into CI is **in scope**, because it is this change's verification vehicle. It currently runs in no workflow (`tests/e2e/standalone.config.ts:36` lists it, but `package.json:52` names only four other specs). Note the config itself IS invoked by `.github/workflows/modal-header-layout-e2e.yml:106` — it is *this spec* that is dark, not the config, per the `BL-STANDALONE-CONFIG-CI-DARK` row in `BACKLOG.md`. A guard that runs in no CI is not a guard. This spec does **not** attempt the rest of `BL-STANDALONE-CONFIG-CI-DARK`'s ~15 other dark specs. | `AGENTS.md` cross-cutting rule "Local-passes-CI-fails is its own bug class"; that row's "Partially closed" note. |
 | R6 | The drift guard pins the **arm-revert duration only**. It does not pin `SUCCESS_DISMISS_MS` (`app/admin/show/[slug]/PickerResetControl.tsx:121`, `app/admin/show/[slug]/ResetPickerEpochButton.tsx:118`) — a success-toast dismissal is a different affordance with no ratified shared value. Widening the guard to all admin timers is out of scope. | This spec §5.3. |
@@ -137,7 +137,9 @@ Two edits to `components/admin/PendingPanelDiscardButtons.tsx`:
 1. **Swap the DOM order** so Ignore precedes Defer inside the existing `flex flex-wrap gap-2` row.
 2. **Delete `basis-full sm:basis-auto`** from both buttons, so the row wraps on available width instead of being forced full-width below the `sm` viewport.
 
-Nothing else. No container query, no fork, no second copy, no threshold, no new test ids.
+No container query, no fork, no second copy, no threshold, no new test ids.
+
+Shipped alongside it, from the impeccable gate and the reviews that followed: the armed label change (§4.2), the visible consequence line, `aria-busy` while running, `ring-offset-surface` per `DESIGN.md:40`, and an `event.repeat` guard so a held Enter cannot arm and confirm in one press. "Nothing else" referred to the *layout* mechanism and read as broader than intended.
 
 **Why this works.** `flex-wrap` already decides per-container whether the pair fits. What was wrong was only the *order* it wrapped into. With Ignore first, a wrap puts Ignore on the upper line and Defer below — the safe control nearest the thumb — and where there is room, nothing wraps at all.
 
@@ -223,47 +225,18 @@ Three new assertions (T1, T2, T3) added to `tests/styles/_metaDestructiveConfirm
 
 **T1 — single declaration.** Walking `components/`, `app/` and `lib/`, exactly one file declares the identifier `ARM_REVERT_MS`, and it is the shared module. The assertion is an equality against a one-element list, not "at most one" — the latter passes on zero, which is the vacuous-pass failure mode described in §5.2.1 (C-B).
 
-**T2 — a per-file identifier census.** For each non-exempt registry file, the multiset of `{delay identifier → scheduler-call count}` must equal a checked-in map measured from the tree. `PickerResetControl` expects `{ARM_REVERT_MS: 1, SUCCESS_DISMISS_MS: 1}`; moving its arm timer onto the toast constant makes that `{SUCCESS_DISMISS_MS: 2}` and fails. A global allowlist could not catch that, because both identifiers are legitimately approved *somewhere*.
+**T2 is withdrawn, and this is the third and final reconciliation of this section.**
 
-Scanned schedulers: **`setTimeout` and `setInterval` only**, two-argument form. That is deliberately narrower than earlier drafts, which grew across rounds 2-4 to cover `requestIdleCallback`, `AbortSignal.timeout`, aliasing, `Reflect.get` and bracket access — and each round found further forms, while the single-argument path added for `AbortSignal.timeout` began mis-reading `setTimeout(cb)`'s callback as a delay. The alias ban is **withdrawn** for the same reason.
+Earlier revisions specified a per-file scheduler census, an import-provenance check, a scheduler-alias ban, and three meta-tests policing all of it. Six adversarial rounds found a new bypass in that machinery every round, and the sixth found it producing **false positives** — `const copy = "ARM_REVERT_MS"` or a type-only import would fail it. A guard that blocks harmless changes gets deleted by the next person who trips it, which is worse than no guard.
 
-"Did someone move the arm timer onto a different constant, by any means?" is a semantic question a regex cannot settle. The census answers the narrow, checkable version — *do the identifier counts in the shapes these files actually use still match?* — and §5.3 states the rest as open rather than implying a completeness four rounds showed it cannot have. The comparator is key-order independent.
-
-**T2b — `ARM_REVERT_MS` must resolve to the shared module.** Every import clause mentioning the name is checked, not the first one found: a decoy `import { ARM_REVERT_MS as SHARED } from "<shared>"` followed by a foreign constant renamed to `ARM_REVERT_MS` defeated a `find()`-based check while supplying the actual value.
-
-**What T2 does NOT cover, stated plainly.** Earlier drafts of this section claimed scoped per-call exemptions and a wrapper-helper heuristic. **Neither is implemented**, and describing a guard that does not exist is the same defect this spec's §6.6 meta-tests were built to catch — committed twice here, at spec level, and caught both times by whole-diff review. The residue is enumerated in §5.3 rather than claimed closed.
-
-**T3 — value pin.** `ARM_REVERT_MS === 4_000`, with the ratification cited in the failure message so a future edit to the shared value is a loud test failure rather than a quiet change.
-
-**Matcher self-checks.** Following the existing pattern at `tests/styles/_metaDestructiveConfirm.test.ts:143-148`, T1 and T2 each ship a self-check proving the detector fires on a synthetic positive and does not fire on a synthetic negative — including, for T2, a synthetic `CONFIRM_TIMEOUT` case proving the allowlist actually rejects an unregistered identifier. Without that case the allowlist could be empty-by-accident and everything would still pass.
-### 5.2.1 Two implementation constraints that would otherwise fail silently
-
-Both were found by reading the helpers the guard will reuse, not by reasoning about them. Each produces a guard that *passes* while doing nothing, which is the worst failure mode for a structural test.
-
-**C-A — there is NO per-call exemption, and the spec no longer implies one.** Earlier drafts specified a `// not-arm-revert: <reason>` idiom and a `stripComments` hazard around reading it. Neither was ever implemented. A maintainer who wrote that comment today would find it silently ignored — the guard would still fail and the likely next move is deleting the guard rather than debugging it, which is precisely the outcome the idiom was meant to prevent. A timer that genuinely belongs in a registry file is added to the **census map** instead: a visible, reviewable edit rather than a comment. Whole-diff review R3 F4 caught this contradiction surviving the previous reconciliation pass.
-
-**C-B — T1 must walk `lib/`, which the existing registry does not.** `_metaDestructiveConfirm.test.ts:131` iterates `["components", "app"]` only. The shared constant lives in the new **lib/admin/destructiveConfirm.ts**, so a T1 that inherits that root list would scan every directory *except* the one holding the single legitimate declaration — and would then report zero declarations found, passing vacuously while proving nothing. T1 walks `["components", "app", "lib"]` and asserts the count of declaring files is exactly one **and** that the one is the expected path. Asserting only "at most one" would pass on zero.
+What ships is **T1** (exactly one declaration, in the shared module — asserted as equality against a one-element list, since "at most one" would pass on zero) and **T3** (the value is the ratified 4s), each with a self-check. Together they close the problem this work started from: eleven independently copy-pasted `4_000` literals, any one of which could drift.
 
 ### 5.3 Honest scope statement
 
-The guard **reduces** re-drift within registry membership; it does not eliminate it, and the earlier claim that it could not silently re-drift was too strong. **Six** holes remain, and the count is now checked against what the code does rather than what earlier drafts intended. The scanner matches **only** two-argument `setTimeout` / `setInterval`.
+T1 and T3 pin **where the constant lives and what it equals**. They do not, and cannot, detect a surface that points its arm timer at some other value: `const t = setTimeout; t(cb, 3_000)`, a wrapper like `delay(3_000)`, lexical shadowing, a third-argument trick, or a surface that never adopts the recipe pair at all.
 
-1. **Any other scheduler.** `requestIdleCallback`, `AbortSignal.timeout`, and single-argument forms are **not scanned at all** — an earlier draft listed `requestIdleCallback` as covered; it is not.
-2. **Scheduler aliasing.** `const t = setTimeout; t(cb, 3_000)`. Tried and withdrawn after three rounds of new bypasses.
-3. **Wrapper helpers.** `delay(3_000)`, `useTimeout(cb, X)` — no direct scheduler call to count.
-4. **Lexical shadowing.** `function arm(ARM_REVERT_MS = 3_000)`.
-5. **A census-preserving swap** between two identifiers already approved for the same file.
-6. **A surface outside the registry entirely**, invisible by the registry's own declared scope.
+That is not an oversight to be closed later. Answering it requires knowing **which call is the arm timer**, which is semantic; six rounds of adversarial review demonstrated a regex over source text cannot decide it, and the attempt actively harmed by rejecting valid code. It is review-time territory, and this section says so instead of implying a coverage the guard does not have.
 
-**Not a hole:** arithmetic on the constant. `setTimeout(cb, ARM_REVERT_MS / 2)` yields the census key `ARM_REVERT_MS/2`, which is not in the allowlist and fails — an earlier draft listed it as an open hole, which was wrong in the guard's favour and is corrected here.
-
-**Inside membership — lexical shadowing.** A registered file can import the shared constant correctly and then shadow it: `function arm(ARM_REVERT_MS = 3_000) { setTimeout(cb, ARM_REVERT_MS) }`. T1 sees the approved import, T2 sees an allowlisted identifier and an unchanged call count, T3 still sees the shared value at 4s — every guard green while the surface reverts at 3s. Closing this needs scope analysis, not regex; it is recorded here as a known hole rather than papered over.
-
-**Inside membership — wrapper schedulers.** A newly registered surface that schedules through a wrapper — `delay(3_000)`, `scheduleRevert(cb, confirmTimeout)` — has zero direct scheduler calls, so the census has nothing to compare. There is **no** wrapper heuristic — an earlier draft described a `B5` uppercase-suffix rule that was never implemented. This hole is open and is counted as such.
-
-**Outside membership:** a wholly new destructive surface that never adopts the recipe token pair is invisible to the registry, by the registry's own declared scope (`_metaDestructiveConfirm.test.ts:10-12`), and so escapes T2 entirely. Such a surface still trips T1 the moment it names its constant `ARM_REVERT_MS` — but not if it invents `CONFIRM_TIMEOUT = 3000`. That residue is review-time territory, exactly as the existing registry says. The limitation is stated in the guard's header comment rather than papered over, and the guard is strictly better than today, where even the copy-paste-the-name case is unguarded.
-
-Per R6, `SUCCESS_DISMISS_MS` keeps its own per-file value and is **not** unified — but note T2 covers it incidentally, since T2 forbids the literal rather than requiring a particular constant. That is intentional and costs nothing: a success-toast timer must also be *named*, without this spec dictating what its value should be.
 
 ---
 
@@ -271,7 +244,7 @@ Per R6, `SUCCESS_DISMISS_MS` keeps its own per-file value and is **not** unified
 
 ### 6.1 What jsdom cannot prove
 
-jsdom applies no CSS (`feedback_jsdom_no_css_tobevisible_vacuous`). `toBeVisible()` on a `hidden @min-[576px]:flex` node is vacuous there, and `getBoundingClientRect()` returns zeros for everything. Therefore **every** claim in §4.7 — one copy per container width, stacked order, width stretch, box equality — is a real-browser assertion. jsdom covers only structure, labels, classes, and handler behaviour.
+jsdom applies no CSS (`feedback_jsdom_no_css_tobevisible_vacuous`). `toBeVisible()` is vacuous there and `getBoundingClientRect()` returns zeros for everything. Therefore **every** dimensional claim in §4.5 — wrap order, one-line placement, tap height, armed box origin, `basis-full` absence — is a real-browser assertion. jsdom covers only structure, labels, classes, and handler behaviour.
 
 ### 6.2 jsdom (`tests/components/admin/pendingIngestionActions.test.tsx`)
 

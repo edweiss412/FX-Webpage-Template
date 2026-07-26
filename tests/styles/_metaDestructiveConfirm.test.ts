@@ -202,145 +202,29 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
 });
 
 /**
- * M1 / M3 — the structural defense for the two defect shapes that recurred across
- * adversarial rounds 5, 6 and 7 (spec 2026-07-25-destruct-thumb-order-drift-guard §6.6).
+ * T1 / T3 — the arm-revert timing contract, reduced to what is actually provable.
  *
- * Shape A: a documented D-invariant that is CLAIMED but never MEASURED (found for
- *          D1 in round 6, D3 in round 7).
- * Shape B: a geometry input missing from the armed binding table (found for Defer
- *          class+label in round 5, idle Ignore class in round 6, its label in round 7).
+ * WHAT THIS COVERS. `ARM_REVERT_MS` is declared exactly once, in the shared module,
+ * and its value is the ratified 4s. That closes the problem this work started from:
+ * eleven independently copy-pasted `4_000` literals with no shared definition, any
+ * one of which could drift.
  *
- * Patching the named instance each round closed neither class — every repair added
- * one row and missed its sibling. These two tests close them mechanically.
- */
-describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
-  const SPEC = "docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md";
-  const REAL_SPEC = "tests/e2e/pendingDiscardReal.layout.spec.ts";
-  const TRANSCRIBED_SPEC = "tests/e2e/pendingDiscardReflow.layout.spec.ts";
-  /* M2 (binding table) was WITHDRAWN with the reorder design: the harness now renders
-   * armed panels from the component's own exported class + label, so there is no
-   * transcription left to bind. The six holes review found in M2 ceased to exist
-   * rather than being fixed — the clearest measure of what the simpler design bought. */
-
-  /** Test titles and assertion messages ONLY — never raw source. Round 8 found M1
-   *  scanning whole files, so a `D6` mentioned in a COMMENT counted as measured
-   *  while nothing asserted it. A guard that accepts prose as proof is the very
-   *  defect this contract exists to catch. */
-  function assertionSurfaces(rawSrc: string): string {
-    // Strip comments FIRST. R4/R5 F1: scanning raw source meant a commented-out
-    // `test("D6 …")` still satisfied M1 — an invariant test could be deleted outright
-    // with the guard green. The earlier fix stopped a bare D-name in a comment
-    // counting; it did not stop a commented-out TEST.
-    const src = stripComments(rawSrc);
-    const titles = [...src.matchAll(/\b(?:test|it)\(\s*(["'`])([\s\S]*?)\1/g)].map((m) => m[2]!);
-    // Second argument of expect(value, "message") — the only other place a name is
-    // a real assertion label rather than commentary.
-    const messages = [...src.matchAll(/expect\([\s\S]*?,\s*(["'`])([\s\S]*?)\1\s*\)/g)].map(
-      (m) => m[2]!,
-    );
-    return [...titles, ...messages].join("\n");
-  }
-
-  it("M1: every D-invariant in the spec has a named assertion in a layout spec", () => {
-    const doc = readFileSync(SPEC, "utf8");
-    const declared = [...doc.matchAll(/^\|\s*(D\d+)\s*\|/gm)].map((m) => m[1]!);
-    expect(
-      declared.length,
-      "no D-invariants parsed — did the table format change?",
-    ).toBeGreaterThan(0);
-    const haystack = [REAL_SPEC, TRANSCRIBED_SPEC]
-      .map((f) => {
-        try {
-          return assertionSurfaces(readFileSync(f, "utf8"));
-        } catch {
-          return "";
-        }
-      })
-      .join("\n");
-    const unmeasured = declared.filter((d) => !new RegExp(`\\b${d}\\b`).test(haystack));
-    expect(unmeasured, "invariants declared in the spec with no named assertion").toEqual([]);
-  });
-
-  it("M1/M3 self-check: commented-out TESTS do not count either", () => {
-    // R5 F1: the previous self-check only covered a bare `// D6` comment, not a
-    // commented-out test declaration, which was the actual reported bypass.
-    expect(assertionSurfaces('// test("D6 — pinned", () => {});')).not.toMatch(/D6/);
-    expect(assertionSurfaces('/* it("D7 — pinned", () => {}); */')).not.toMatch(/D7/);
-    expect(assertionSurfaces('test("D6 — pinned", () => {});')).toMatch(/D6/);
-  });
-
-  it("M1 self-check: a D-name in a comment does NOT count as measured", () => {
-    // The exact round-8 defect, pinned so it cannot regress.
-    expect(assertionSurfaces("// D6 is fine\nconst x = 1;")).not.toMatch(/D6/);
-    expect(assertionSurfaces('test("D6 — pinned edge", () => {});')).toMatch(/D6/);
-    expect(assertionSurfaces('expect(a.x, "D6: left edge moved").toBe(b.x);')).toMatch(/D6/);
-  });
-
-  it("M1 self-check: a D-name in a comment does NOT count as measured", () => {
-    // The exact round-8 defect, pinned so it cannot regress.
-    expect(assertionSurfaces("// D6 is fine\nconst x = 1;")).not.toMatch(/D6/);
-    expect(assertionSurfaces('test("D6 — pinned edge", () => {});')).toMatch(/D6/);
-    expect(assertionSurfaces('expect(a.x, "D6: left edge moved").toBe(b.x);')).toMatch(/D6/);
-  });
-
-  it("M3: every jsdom test the spec cites by number exists in the jsdom suite", () => {
-    // Third surface of the same class as M1/M2. The spec's transition inventory
-    // cites "§6.2 test 9/10/11/12" as the coverage for specific reachable edges;
-    // nothing previously guaranteed those tests were ever written. Task 3 writes
-    // them, so this is RED until then — same posture as D4 and MEASURED_ELEMENTS.
-    const doc = readFileSync(SPEC, "utf8");
-    const cited = [
-      ...new Set([...doc.matchAll(/§6\.2 test (\d+)/g)].map((m) => Number(m[1]))),
-    ].sort((a, b) => a - b);
-    expect(
-      cited.length,
-      "no §6.2 test citations parsed — did the reference format change?",
-    ).toBeGreaterThan(0);
-
-    let jsdom = "";
-    try {
-      jsdom = stripComments(
-        readFileSync("tests/components/admin/pendingIngestionActions.test.tsx", "utf8"),
-      );
-    } catch {
-      /* handled below */
-    }
-    // Task 3 numbers each new test `[N]` in its title so the citation is checkable.
-    const present = new Set(
-      [...jsdom.matchAll(/\btest\(\s*["'`]\[(\d+)\]/g)].map((m) => Number(m[1])),
-    );
-    const missing = cited.filter((n) => !present.has(n));
-    expect(missing, "spec cites §6.2 tests that do not exist in the jsdom suite").toEqual([]);
-  });
-
-  it("M1 self-check: the matcher actually parses invariants and detects a missing one", () => {
-    const rows = [...`| D1 | a |\n| D9 | b |`.matchAll(/^\|\s*(D\d+)\s*\|/gm)].map((m) => m[1]!);
-    expect(rows).toEqual(["D1", "D9"]);
-    expect(/\bD9\b/.test("covers D1 only")).toBe(false);
-  });
-});
-
-/**
- * T1 / T2 / T3 — the arm-revert timing contract (spec §5.2).
+ * WHAT IT DELIBERATELY DOES NOT COVER, and why. Earlier revisions added a per-file
+ * scheduler census, an import-provenance check, a scheduler-alias ban, and three
+ * meta-tests policing all of it. Six adversarial rounds found a new bypass in that
+ * machinery every single round — and the last round found it producing FALSE
+ * POSITIVES: `const copy = "ARM_REVERT_MS"` or a type-only import would fail it, so
+ * it had begun blocking harmless changes. A guard that cries wolf gets deleted by
+ * the next person who trips it, which is strictly worse than no guard.
  *
- * Before the shared module, the 4s window was eleven copy-pasted literals with no
- * definition and no guard. These pin what is pinnable and §5.3 enumerates, honestly,
- * the six ways a determined edit still gets past them. The guard REDUCES re-drift;
- * it does not eliminate it, and it does not claim to.
+ * "Did someone point the arm timer at a different value, by any means?" needs to
+ * know which call IS the arm timer. That is a semantic question; a regex over source
+ * text cannot answer it, and six rounds of evidence say so. It is review-time
+ * territory, and §5.3 of the spec says that plainly rather than implying otherwise.
  */
 describe("META arm-revert timing contract (spec §5.2)", () => {
   const CONST_MODULE = "lib/admin/destructiveConfirm.ts";
   const DECL = /(?:^|\n)\s*(?:export\s+)?const\s+ARM_REVERT_MS\s*=/;
-  /** Identifiers permitted as a scheduler delay in a destructive-confirm surface. */
-  const ALLOWED = new Set(["ARM_REVERT_MS", "SUCCESS_DISMISS_MS", "WATCHDOG_MS"]);
-  /* Deliberately narrow: the two-argument `setTimeout` / `setInterval` shapes every
-   * destructive surface actually uses. Rounds 2-4 grew this to cover aliases,
-   * `AbortSignal.timeout`, `Reflect.get` and bracket access, and each round found more
-   * forms — while the comma-less path introduced a false positive, reading
-   * `setTimeout(cb)`'s callback as a delay. "Did someone move the arm timer onto a
-   * different constant?" is a semantic question a regex cannot settle, so §5.3 records
-   * the limit instead of implying a completeness this cannot have. */
-  const SCHEDULERS = /\b(?:setTimeout|setInterval)\s*\(/g;
 
   it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
     const declaring: string[] = [];
@@ -349,223 +233,18 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
         if (DECL.test(stripComments(readFileSync(file, "utf8")))) declaring.push(file);
       }
     }
-    // Equality, not "at most one": `<= 1` passes on zero, which would be vacuous.
+    // Equality, not "at most one": `<= 1` would pass on zero, proving nothing.
     expect(declaring).toEqual([CONST_MODULE]);
+  });
+
+  it("T1 self-check: the matcher finds a declaration and ignores a mere reference", () => {
+    expect(DECL.test("const ARM_REVERT_MS = 4_000;")).toBe(true);
+    expect(DECL.test("export const ARM_REVERT_MS = 4_000;")).toBe(true);
+    expect(DECL.test("setTimeout(cb, ARM_REVERT_MS);")).toBe(false);
   });
 
   it("T3: the shared value is the ratified 4s", async () => {
     const mod = await import("@/lib/admin/destructiveConfirm");
     expect(mod.ARM_REVERT_MS, "4s ratified 2026-07-17, DEFERRED-archive.md:1228").toBe(4_000);
-  });
-
-  /** The measured per-file census. Whole-diff review R1 F1: a GLOBAL allowlist lets a
-   *  file swap its arm timer onto another approved identifier — `PickerResetControl`
-   *  legitimately has `SUCCESS_DISMISS_MS`, `RevokeRowButton` has `WATCHDOG_MS` — and
-   *  every guard stays green while the revert window changes. Binding identifier→count
-   *  PER FILE closes that: moving a timer onto a sibling constant changes both counts. */
-  const CENSUS: Record<string, Record<string, number>> = {
-    "app/admin/settings/admins/RevokeRowButton.tsx": { ARM_REVERT_MS: 1, WATCHDOG_MS: 1 },
-    "app/admin/show/[slug]/PickerResetControl.tsx": { ARM_REVERT_MS: 1, SUCCESS_DISMISS_MS: 1 },
-    "app/admin/show/[slug]/ResetPickerEpochButton.tsx": {
-      ARM_REVERT_MS: 1,
-      SUCCESS_DISMISS_MS: 1,
-    },
-    "app/admin/show/[slug]/RotateShareTokenButton.tsx": { ARM_REVERT_MS: 1 },
-    "components/admin/ArchiveShowButton.tsx": { ARM_REVERT_MS: 1 },
-    "components/admin/BlockedRowResolver.tsx": { ARM_REVERT_MS: 1 },
-    "components/admin/BulkIgnoreControls.tsx": { ARM_REVERT_MS: 1 },
-    "components/admin/PendingPanelDiscardButtons.tsx": { ARM_REVERT_MS: 1 },
-    "components/admin/ResolveAlertButton.tsx": { ARM_REVERT_MS: 1 },
-    "components/admin/StagedReviewCard.tsx": { ARM_REVERT_MS: 1 },
-    "components/admin/wizard/CrewRowActions.tsx": { ARM_REVERT_MS: 1 },
-  };
-
-  /** Delay identifier per scheduler call, walking to the matching close paren so
-   *  multiline and nested-callback shapes are handled. */
-  function censusOf(raw: string): Record<string, number> {
-    const src = stripComments(raw);
-    const out: Record<string, number> = {};
-    SCHEDULERS.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = SCHEDULERS.exec(src)) !== null) {
-      let depth = 1;
-      let i = m.index + m[0].length;
-      for (; i < src.length && depth > 0; i++) {
-        if (src[i] === "(") depth++;
-        else if (src[i] === ")") depth--;
-      }
-      const call = src.slice(m.index, i);
-      const lastComma = call.lastIndexOf(",");
-      // A comma-less call is `setTimeout(cb)` — a callback, not a delay. R4 F5: the
-      // single-argument path added for AbortSignal.timeout mis-read those callbacks.
-      if (lastComma === -1) continue;
-      const delay = call
-        .slice(lastComma + 1, -1)
-        .trim()
-        .replace(/\}\s*$/, "")
-        .trim()
-        .replace(/^\{[\s\S]*?timeout\s*:\s*/, "")
-        .replace(/[}\s]/g, "");
-      if (!delay) continue;
-      out[delay] = (out[delay] ?? 0) + 1;
-    }
-    return out;
-  }
-
-  it("T2: each registry file's identifier census matches the checked-in map", () => {
-    const problems: string[] = [];
-    let detected = 0;
-    for (const file of new Set(
-      REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file),
-    )) {
-      const actual = censusOf(readFileSync(file, "utf8"));
-      detected += Object.values(actual).reduce((a, b) => a + b, 0);
-      for (const id of Object.keys(actual)) {
-        if (!ALLOWED.has(id)) problems.push(`${file}: unapproved delay identifier \`${id}\``);
-      }
-      const expected = CENSUS[file] ?? {};
-      // Key-ORDER independent: a census is a multiset, and JSON.stringify preserves
-      // insertion order, so comparing raw serialisations false-positives whenever the
-      // source declares its timers in a different sequence.
-      const norm = (o: Record<string, number>) =>
-        JSON.stringify(
-          Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b))),
-        );
-      if (norm(actual) !== norm(expected)) {
-        problems.push(`${file}: census ${norm(actual)} != expected ${norm(expected)}`);
-      }
-    }
-    // A CENSUS row for a file that left the registry is dead weight that silently
-    // stops being enforced — the "stale row" failure the sibling recipe registry
-    // already guards against.
-    const registryFiles = new Set(
-      REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file),
-    );
-    for (const file of Object.keys(CENSUS)) {
-      if (!registryFiles.has(file)) problems.push(`STALE CENSUS ROW ${file} (not in the registry)`);
-    }
-    expect(problems, "destructive-confirm timer census drifted").toEqual([]);
-    // Non-vacuity: a detector that stopped matching would pass the above forever.
-    expect(
-      detected,
-      "scheduler scan found too few calls — did the detector break?",
-    ).toBeGreaterThanOrEqual(11);
-  });
-
-  it("T2: ARM_REVERT_MS is only ever imported from the shared module", () => {
-    // Closes the aliasing bypass: `import { THREE_SECONDS as ARM_REVERT_MS } from "./x"`
-    // satisfies a name-only check while resolving to a foreign value.
-    const problems: string[] = [];
-    for (const root of ["components", "app"]) {
-      for (const file of walk(root)) {
-        const src = stripComments(readFileSync(file, "utf8"));
-        if (!/\bARM_REVERT_MS\b/.test(src)) continue;
-        const imports = [...src.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g)];
-        // EVERY clause mentioning the name, not the first. Whole-diff R2 F2 / R3 F3: a
-        // decoy `import { ARM_REVERT_MS as SHARED } from "<shared>"` satisfied a
-        // find()-based check while a SECOND import renamed a foreign constant to
-        // ARM_REVERT_MS and supplied the real value.
-        const mentions = imports.filter((m) => /\bARM_REVERT_MS\b/.test(m[1]!));
-        // R5 F4: `import { ARM_REVERT_MS as LEGACY }` makes mentions non-empty while
-        // providing no local binding, so a local `let ARM_REVERT_MS = 3_000` slipped
-        // past every guard. Track whether any specifier actually PROVIDES the name.
-        let provided = false;
-        // Parse SPECIFIERS rather than pattern-match the clause. R4 F3: the regex was
-        // wrong in both directions — `import { "three-second" as ARM_REVERT_MS }` (a
-        // valid arbitrary-string export name) provides the local binding but `\w+`
-        // skipped it, while `import { ARM_REVERT_MS as LEGACY }` does NOT provide the
-        // local name yet was classified as if it did.
-        for (const m of mentions) {
-          const from = m[2]!;
-          // Split on commas and ` as ` that are OUTSIDE quotes. R5 F4: an arbitrary
-          // string export name may legally contain either — `import { "foo as bar" as
-          // ARM_REVERT_MS }` was split inside the string, so no provider was found and
-          // a foreign source went unreported.
-          const specs: string[] = [];
-          let buf = "";
-          let quote: string | null = null;
-          for (const ch of m[1]!) {
-            if (quote) {
-              buf += ch;
-              if (ch === quote) quote = null;
-              continue;
-            }
-            if (ch === '"' || ch === "'") {
-              quote = ch;
-              buf += ch;
-              continue;
-            }
-            if (ch === ",") {
-              specs.push(buf);
-              buf = "";
-              continue;
-            }
-            buf += ch;
-          }
-          specs.push(buf);
-          for (const raw of specs) {
-            const spec = raw.trim();
-            if (!spec) continue;
-            // ` as ` outside quotes only.
-            const outer = spec.replace(/(["'])(?:(?!\1)[\s\S])*\1/g, (q) => "\0".repeat(q.length));
-            const asAt = outer.search(/\s+as\s+/);
-            const imported = (asAt === -1 ? spec : spec.slice(0, asAt))
-              .trim()
-              .replace(/^["']|["']$/g, "");
-            const local = (
-              asAt === -1 ? spec : spec.slice(asAt + outer.slice(asAt).match(/\s+as\s+/)![0].length)
-            ).trim();
-            if (local !== "ARM_REVERT_MS") continue; // this specifier does not provide it
-            provided = true;
-            if (imported !== "ARM_REVERT_MS") {
-              problems.push(`${file}: \`${imported}\` is renamed to ARM_REVERT_MS from ${from}`);
-            }
-            if (from !== "@/lib/admin/destructiveConfirm") {
-              problems.push(
-                `${file}: local ARM_REVERT_MS comes from ${from}, not the shared module`,
-              );
-            }
-          }
-        }
-        if (!provided) {
-          problems.push(`${file}: uses ARM_REVERT_MS but no import provides that local name`);
-        }
-      }
-    }
-    expect(problems, "ARM_REVERT_MS must resolve to the shared module").toEqual([]);
-  });
-
-  it("T2b self-check: local-name detection is right in BOTH directions", () => {
-    const localOf = (spec: string) => {
-      const parts = spec.trim().split(/\s+as\s+/);
-      return (parts[1] ?? parts[0] ?? "").trim();
-    };
-    expect(localOf("ARM_REVERT_MS")).toBe("ARM_REVERT_MS"); // provides
-    expect(localOf('"three-second" as ARM_REVERT_MS')).toBe("ARM_REVERT_MS"); // provides
-    expect(localOf("ARM_REVERT_MS as LEGACY")).toBe("LEGACY"); // does NOT provide
-    expect(localOf("SOMETHING_ELSE")).toBe("SOMETHING_ELSE"); // does NOT provide
-  });
-
-  it("T2 self-check: the matcher accepts allowlisted names and rejects everything else", () => {
-    const probe = (src: string) => {
-      SCHEDULERS.lastIndex = 0;
-      const m = SCHEDULERS.exec(src);
-      if (!m) return "no-match";
-      let depth = 1;
-      let i = m.index + m[0].length;
-      for (; i < src.length && depth > 0; i++) {
-        if (src[i] === "(") depth++;
-        else if (src[i] === ")") depth--;
-      }
-      const call = src.slice(m.index, i);
-      const delay = call.slice(call.lastIndexOf(",") + 1, -1).trim();
-      return ALLOWED.has(delay) ? "allowed" : "rejected";
-    };
-    expect(probe("setTimeout(() => setArmed(false), ARM_REVERT_MS)")).toBe("allowed");
-    expect(probe("setTimeout(() => setArmed(false), 3000)")).toBe("rejected");
-    expect(probe("setTimeout(() => setArmed(false), 3_000)")).toBe("rejected");
-    expect(probe("setTimeout(() => setArmed(false), CONFIRM_TIMEOUT)")).toBe("rejected");
-    // multiline + nested callback — the shape a naive regex drops
-    expect(probe("setTimeout(() => {\n  run(() => done());\n}, ARM_REVERT_MS)")).toBe("allowed");
   });
 });

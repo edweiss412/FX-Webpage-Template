@@ -143,18 +143,13 @@ describe("pending-ingestion action buttons (live host: NeedsAttentionInbox)", ()
       }),
     );
     const { getByTestId } = renderInbox([pendingItem("pi-3")]);
-    // G1 two-tap guard: first click arms, second click fires — but the confirm must
-    // land AFTER the 350ms dwell that defeats Enter key-repeat (impeccable audit P1),
-    // so the clock is pushed past it rather than tapping twice in the same tick.
-    const realNow = Date.now;
-    let clock = realNow();
-    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    // G1 two-tap guard: first click arms, second fires. Mouse clicks carry no key
+    // repeat, so no clock manipulation is needed — an earlier revision simulated a
+    // 350ms dwell, which was replaced by an `event.repeat` check (test [13]).
     fireEvent.click(getByTestId("admin-pending-ignore-pi-3"));
-    clock += 400;
     await act(async () => {
       fireEvent.click(getByTestId("admin-pending-ignore-pi-3"));
     });
-    vi.mocked(Date.now).mockRestore();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe("/api/admin/pending-ingestions/pi-3/discard");
@@ -220,9 +215,6 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     const { getByTestId } = renderButtons();
     const btn = getByTestId(`admin-pending-ignore-${ID}`);
     fireEvent.click(btn); // arm
-    await act(async () => {
-      vi.advanceTimersByTime(400); // clear the anti-key-repeat dwell
-    });
     await act(async () => {
       fireEvent.click(btn); // confirm — fires
     });

@@ -116,9 +116,21 @@ import {
  *  being representative and the panel must be replaced by a real armed render. */
 export function armedHtml(width: number): string {
   const idle = railHtml(width);
-  return idle
+  const armed = idle
     .replace(IGNORE_IDLE_CLASS, IGNORE_ARMED_CLASS)
     .replace(`>${IGNORE_IDLE_LABEL}<`, `>${IGNORE_ARMED_LABEL}<`);
+  // Whole-diff R6 F2: an UNCHECKED substitution is the dangerous kind. If either
+  // replace stops matching — the component reorganises its className, or the label
+  // moves — this returns idle markup, D1/D2/D3 keep passing on valid idle geometry,
+  // and D4 degrades to comparing idle against idle: a tautology that looks green.
+  // Exporting the strings does not guarantee the component still renders through them.
+  if (!armed.includes(IGNORE_ARMED_CLASS) || !armed.includes(IGNORE_ARMED_LABEL)) {
+    throw new Error(
+      "armed substitution did not apply — the component no longer renders through " +
+        "IGNORE_IDLE_CLASS / IGNORE_IDLE_LABEL, so the armed panels would be idle markup",
+    );
+  }
+  return armed;
 }
 
 export type HarnessJson = Record<string, string>;

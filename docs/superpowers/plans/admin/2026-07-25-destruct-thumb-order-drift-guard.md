@@ -53,7 +53,7 @@ Every command below was executed at plan-authoring time in the worktree. Output 
 | `tests/log/_metaMutationSurfaceObservability.test.ts` | N/A — no new route handler, no new `"use server"` action; the existing discard route is untouched |
 | `tests/components/tiles/_metaSentinelHidingContract.test.ts` | N/A — not a tile surface |
 
-**No new test FILES are created.** Every test lands in an existing file, so no `testMatch` entry and no Playwright project registration is required. The one new *workflow* (Task 5) names its own spec list explicitly.
+**Two new test files were created** — `tests/e2e/_pendingDiscardHarness.tsx` and `tests/e2e/pendingDiscardReal.layout.spec.ts` — contrary to this plan's original assumption. Both are wired: the spec is registered in `tests/e2e/standalone.config.ts`, named in the new workflow, and carries a `PATH_GATED` coverage row. (The original text said none would be created; the real-component harness had not been conceived yet.)
 
 ## 2. Advisory-lock holder topology
 
@@ -71,7 +71,7 @@ For `tests/e2e/pendingDiscardReflow.layout.spec.ts` (Task 4):
 
 ## 4. Tasks
 
-The design changed at round 9 from a container-keyed fork to a plain reorder (spec §4). Tasks 0-4 below are recorded as **DONE** with what actually shipped; the remainder are outstanding.
+The design changed at round 9 from a container-keyed fork to a plain reorder (spec §4). Tasks 0-6 are **DONE** with what actually shipped; Task 7 (impeccable dual-gate) is DONE and recorded in §12; Task 8 (whole-diff review, then ship) is in progress.
 
 ### Task 0 — Real-component mounting harness — **DONE**
 
@@ -113,7 +113,7 @@ Delete all three `BL-DESTRUCT-*` rows and the family section. `BL-DESTRUCT-FORK-
 
 `/impeccable critique` and `/impeccable audit` on the diff. The armed-label change is user-visible copy and is the thing most likely to draw a finding — it is a deliberate trade (width, and matching the live-region announcement) and should be defended or revised on its merits, not waved through.
 
-### Task 8 — Whole-diff cross-model review, then ship — **IN PROGRESS** (R1 BLOCKING, repaired; R2 pending)
+### Task 8 — Whole-diff cross-model review, then ship — **IN PROGRESS** (R1-R6 all BLOCKING and repaired; R6 drove the deletion of the over-built timing guard, leaving T1+T3)
 
 `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, both e2e scripts, `pnpm test:e2e -- needs-attention-page` → push → real CI green → `gh pr merge --merge` → verify `git rev-list --left-right --count main...origin/main` reports `0  0`.
 
