@@ -118,7 +118,7 @@ test.afterAll(async () => {
 });
 
 type Box = { x: number; y: number; w: number; h: number; bottom: number; right: number };
-type Probe = { found: boolean; defer: Box; ignore: Box };
+type Probe = { found: boolean; defer: Box; ignore: Box; contentW: number };
 
 async function probe(page: import("@playwright/test").Page, state: string): Promise<Probe> {
   return page.evaluate(
@@ -144,7 +144,26 @@ async function probe(page: import("@playwright/test").Page, state: string): Prom
           right: r.right - o.left,
         };
       };
-      return { found: defer !== null && ignore !== null, defer: b(defer), ignore: b(ignore) };
+      /* AVAILABLE content width = the card's content box. Not the flex row's rect: that
+       * row is a shrink-to-fit flex item, so above ~360px it stops growing and measures
+       * its CONTENT (315.95px) rather than the space it has. And not the card's
+       * bounding rect either, which includes padding and borders. clientWidth excludes
+       * the border; subtracting the resolved padding leaves the real budget. */
+      const card = ignore?.closest('[class*="p-tile-pad"]') ?? null;
+      let contentW = 0;
+      if (card) {
+        const cs = getComputedStyle(card);
+        contentW =
+          (card as HTMLElement).clientWidth -
+          parseFloat(cs.paddingLeft || "0") -
+          parseFloat(cs.paddingRight || "0");
+      }
+      return {
+        found: defer !== null && ignore !== null,
+        defer: b(defer),
+        ignore: b(ignore),
+        contentW,
+      };
     },
     { state, id: INGESTION_ID },
   );
@@ -159,6 +178,17 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
       await page.goto(baseUrl);
       const p = await probe(page, state);
       expect(p.found, `${state}: buttons not found`).toBe(true);
+      /* RAILS' numeric values were declared and never read — only its keys were, via
+       * Object.keys. That is the same defect R9 F2 found in WIDE_SLACK: geometry that
+       * documents a contract while asserting nothing, and it is worse here because the
+       * harness hardcodes its rail widths separately, so the two could silently
+       * disagree. Binding them means a gutter or card-padding change fails HERE, naming
+       * the real cause, instead of surfacing as a mystery wrap somewhere downstream —
+       * which is exactly how R8 F1's 390-vs-358 error stayed hidden. */
+      expect(p.contentW, `${state}: available content width is not the declared rail`).toBeCloseTo(
+        RAILS[rail],
+        0,
+      );
       expect(p.defer.h, "D2: Defer below tap minimum").toBeGreaterThanOrEqual(TAP_MIN - TOL);
       expect(p.ignore.h, "D2: Ignore below tap minimum").toBeGreaterThanOrEqual(TAP_MIN - TOL);
     });
