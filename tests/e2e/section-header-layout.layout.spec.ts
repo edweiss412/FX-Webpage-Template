@@ -61,6 +61,19 @@ test.beforeAll(async () => {
   };
   expect(Object.keys(cells.cells).length, "harness emitted all 15 matrix cells").toBe(15);
   expect(cells.hairline, "harness emitted the hairline fixture").toBeTruthy();
+  // The harness reported the width it rendered the hairline into and nothing read
+  // it, so the fixture could drift off 240px while a test still titled "@ 240px
+  // row" stayed green (review round 1). Pinned here; the rendered container's own
+  // width is measured inside the test.
+  expect(cells.narrowestRowPx, "the hairline fixture is still rendered at 240px").toBe(240);
+  // Same class for the matrix widths: the harness must render the widths the
+  // real-route chain assertion pins, not a private copy.
+  expect(cells.rowWidths, "harness rendered the shared ROW_WIDTHS").toEqual({
+    320: 280,
+    375: 335,
+    430: 390,
+    1280: 744,
+  });
 
   const pageOf = (markup: string) =>
     `<!doctype html><html data-theme="light"><head><meta charset="utf-8">` +
@@ -126,6 +139,9 @@ test("hairline floor @ 240px row", async ({ page }) => {
     // Structural selection, deliberately: no production `data-testid` is added
     // ahead of this test. The rule is the `h-px` span that is the next element
     // sibling of the eyebrow label carrying the group title.
+    const container = document.querySelector('[data-testid="hairline-row-container"]');
+    if (!(container instanceof HTMLElement)) return { error: "hairline container not found" };
+    const containerWidth = Math.round(container.getBoundingClientRect().width * 100) / 100;
     const label = Array.from(document.querySelectorAll("span")).find((el) =>
       (el.textContent ?? "").trim().startsWith("Wardrobe"),
     );
@@ -136,19 +152,42 @@ test("hairline floor @ 240px row", async ({ page }) => {
     const cs = getComputedStyle(rule);
     const labelCs = getComputedStyle(label);
     const lineHeight = parseFloat(labelCs.lineHeight);
+    const h = () => Math.round(label.getBoundingClientRect().height * 100) / 100;
+
+    // The floored height, and the height the label would have with NO floor at
+    // all. Comparing the two is what isolates the floor's cost from the font's:
+    // an absolute "stays on one line" check is font-dependent, and the app's
+    // stack is `"Inter", ui-sans-serif, …` with no @font-face, so it resolves to
+    // SF Pro on macOS and DejaVu Sans on a Linux CI runner. DejaVu is wide
+    // enough to wrap this label at a 240px row regardless of the floor, which
+    // took CI red on a green local run.
+    const withFloor = h();
+    const authored = rule.style.minWidth;
+    rule.style.minWidth = "0px";
+    const withoutFloor = h();
+    rule.style.minWidth = authored;
 
     return {
       error: null,
+      containerWidth,
       ruleWidth: Math.round(rule.getBoundingClientRect().width * 100) / 100,
       // A string like "16px" — parsed, never compared as text.
       minWidthPx: parseFloat(cs.minWidth),
-      labelHeight: Math.round(label.getBoundingClientRect().height * 100) / 100,
+      labelHeight: withFloor,
+      labelHeightNoFloor: withoutFloor,
       labelLineHeight: Number.isFinite(lineHeight) ? lineHeight : 0,
     };
   });
 
   expect(measured.error, "fixture shape").toBeNull();
   if (measured.error !== null) return;
+
+  // The row this test is named after, measured in the DOM rather than taken on
+  // trust from the harness's own JSON.
+  expect(
+    measured.containerWidth,
+    "the measured row really is 240px wide — the title's claim, verified",
+  ).toBeCloseTo(240, 1);
 
   // (a) The rule is DRAWN. A permanently hidden rule would satisfy the phantom-gap
   //     probes while violating the intent, so this stays asserted.
@@ -163,13 +202,20 @@ test("hairline floor @ 240px row", async ({ page }) => {
     1,
   );
 
-  // (c) The label does NOT wrap — the property that rules `min-w-6` out, since 24px
-  //     exceeds the width actually available and would push the label to two lines.
-  //     Derived from the label's own line-height, never a hardcoded height.
+  // (c) THE FLOOR COSTS THE LABEL NOTHING — the property that rules `min-w-6`
+  //     out. Stated as a COMPARISON against the same tree with the floor removed,
+  //     not as an absolute line count: whatever the ambient font does to this
+  //     label, the floor must not make it worse. `min-w-6` (24px) exceeds the
+  //     22.94px the rule actually gets here, so it would bind and add a line,
+  //     which this catches on any font. An absolute check could not: it passes on
+  //     a narrow font even when the floor binds, and fails on a wide font even
+  //     when the floor is free.
   expect(
     measured.labelHeight,
-    `group title stays on one line (h=${measured.labelHeight}, lh=${measured.labelLineHeight})`,
-  ).toBeLessThan(measured.labelLineHeight * 1.5);
+    `the ${measured.minWidthPx}px floor adds no line to the group title` +
+      ` (floored h=${measured.labelHeight}, unfloored h=${measured.labelHeightNoFloor},` +
+      ` lh=${measured.labelLineHeight})`,
+  ).toBeCloseTo(measured.labelHeightNoFloor, 1);
 });
 
 /**
@@ -641,12 +687,28 @@ test("corner link carries a 44px tap target @ 375", async ({ page }) => {
  * `min-height`, where the pill's presence stops driving the height at all and the
  * 72.8px figure becomes a coincidence. Two mechanisms, two tests.
  */
+/**
+ * Properties whose animation moves a box. Review round 1 found the first version
+ * omitted whole families: `min-width` / `max-height` / `row-gap` /
+ * `grid-template-columns` were all unbanned, and the `startsWith(banned + "-")`
+ * rule could not have caught them anyway — the prefix of `min-width` is `min`,
+ * not `width`. Listed exhaustively instead of inferred, and matched as a SUFFIX
+ * too so `-block-size` / `-inline-size` variants are covered.
+ */
 const ANIMATABLE_LAYOUT_PROPS = [
   "all",
   "height",
   "width",
+  "min-width",
+  "max-width",
+  "min-height",
+  "max-height",
   "inline-size",
   "block-size",
+  "min-inline-size",
+  "max-inline-size",
+  "min-block-size",
+  "max-block-size",
   "margin",
   "padding",
   "inset",
@@ -656,12 +718,27 @@ const ANIMATABLE_LAYOUT_PROPS = [
   "left",
   "transform",
   "translate",
+  "rotate",
   "scale",
   "opacity",
   "flex",
+  "flex-basis",
+  "flex-grow",
+  "flex-shrink",
   "gap",
+  "row-gap",
+  "column-gap",
+  "grid-template-columns",
+  "grid-template-rows",
+  "grid-template-areas",
+  "grid-auto-columns",
+  "grid-auto-rows",
   "font-size",
   "line-height",
+  "letter-spacing",
+  "word-spacing",
+  "border-width",
+  "zoom",
 ];
 
 test("transition audit: no geometry transition anywhere in the header subtree", async ({
@@ -673,49 +750,89 @@ test("transition audit: no geometry transition anywhere in the header subtree", 
   const offenders: string[] = [];
   for (const spec of MATRIX) {
     await page.goto(`${baseUrl}${spec.cell}-375.html`, { waitUntil: "load" });
-    const found = await page.evaluate(
-      ({ cell, banned }) => {
-        const root = document.querySelector(`[data-cell="${cell}"]`);
-        if (!(root instanceof HTMLElement)) return { error: `cell root not found: ${cell}` };
-        const icon = root.querySelector('span[aria-hidden="true"]');
-        const header = icon?.parentElement?.parentElement;
-        if (!(header instanceof HTMLElement)) return { error: "header block not found" };
 
-        const bad: string[] = [];
-        const check = (el: Element, pseudo: string | null) => {
-          const cs = getComputedStyle(el, pseudo);
-          const where = pseudo ? `${el.tagName.toLowerCase()}${pseudo}` : el.tagName.toLowerCase();
-          const label = `${where}[${(el.className || "").toString().slice(0, 40)}]`;
+    // THREE STATES, not just idle. Review round 1: reading computed style on an
+    // idle tree cannot see a variant-gated transition — `hover:transition-all`
+    // or `focus-visible:transition-transform` is simply not applied during the
+    // read, so every cell passed while geometry animated in the gated state.
+    // The header subtree has exactly one interactive element, the corner link, so
+    // hover and keyboard focus on it are the reachable gated states.
+    //
+    // RESIDUAL LIMIT, stated rather than hidden: a `group-*` variant keyed to a
+    // state this test cannot drive (e.g. `group-open:`) would still read as idle.
+    // No such variant exists in the header today; §8's inventory is the contract
+    // that keeps it that way.
+    const states: Array<[string, () => Promise<void>]> = [
+      ["idle", async () => {}],
+      [
+        "link hovered",
+        async () => {
+          const link = page.locator(`[data-cell="${spec.cell}"] a[href]`);
+          if ((await link.count()) > 0) await link.hover();
+        },
+      ],
+      [
+        "link focused",
+        async () => {
+          await page.keyboard.press("Tab");
+        },
+      ],
+    ];
 
-          // A KEYFRAME animation is a separate mechanism the transition sweep below
-          // cannot see: `animate-pulse` on the pill would animate its appearance with
-          // `transition-property: none`. §8 admits neither, so both are checked here.
-          if (cs.animationName !== "none" && parseFloat(cs.animationDuration || "0") > 0) {
-            bad.push(`${label} runs keyframe animation ${cs.animationName}`);
+    for (const [stateName, enter] of states) {
+      await enter();
+      const found = await page.evaluate(
+        ({ cell, banned }) => {
+          const root = document.querySelector(`[data-cell="${cell}"]`);
+          if (!(root instanceof HTMLElement)) return { error: `cell root not found: ${cell}` };
+          const icon = root.querySelector('span[aria-hidden="true"]');
+          const header = icon?.parentElement?.parentElement;
+          if (!(header instanceof HTMLElement)) return { error: "header block not found" };
+
+          const bad: string[] = [];
+          const check = (el: Element, pseudo: string | null) => {
+            const cs = getComputedStyle(el, pseudo);
+            const where = pseudo
+              ? `${el.tagName.toLowerCase()}${pseudo}`
+              : el.tagName.toLowerCase();
+            const label = `${where}[${(el.className || "").toString().slice(0, 40)}]`;
+
+            // A KEYFRAME animation is a separate mechanism the transition sweep below
+            // cannot see: `animate-pulse` on the pill would animate its appearance with
+            // `transition-property: none`. §8 admits neither, so both are checked here.
+            if (cs.animationName !== "none" && parseFloat(cs.animationDuration || "0") > 0) {
+              bad.push(`${label} runs keyframe animation ${cs.animationName}`);
+            }
+
+            if (
+              cs.transitionProperty === "none" ||
+              parseFloat(cs.transitionDuration || "0") === 0
+            ) {
+              return;
+            }
+            const props = cs.transitionProperty.split(",").map((p) => p.trim());
+            for (const p of props) {
+              const hit = banned.some(
+                (b) => p === b || p.startsWith(`${b}-`) || p.endsWith(`-${b}`),
+              );
+              if (!hit) continue;
+              bad.push(`${label} transitions ${p}`);
+            }
+          };
+          for (const el of [header, ...Array.from(header.querySelectorAll("*"))]) {
+            check(el, null);
+            check(el, "::before");
+            check(el, "::after");
           }
+          return { error: null, bad };
+        },
+        { cell: spec.cell, banned: ANIMATABLE_LAYOUT_PROPS },
+      );
 
-          if (cs.transitionProperty === "none" || parseFloat(cs.transitionDuration || "0") === 0) {
-            return;
-          }
-          const props = cs.transitionProperty.split(",").map((p) => p.trim());
-          for (const p of props) {
-            if (!banned.some((b) => p === b || p.startsWith(`${b}-`))) continue;
-            bad.push(`${label} transitions ${p}`);
-          }
-        };
-        for (const el of [header, ...Array.from(header.querySelectorAll("*"))]) {
-          check(el, null);
-          check(el, "::before");
-          check(el, "::after");
-        }
-        return { error: null, bad };
-      },
-      { cell: spec.cell, banned: ANIMATABLE_LAYOUT_PROPS },
-    );
-
-    expect(found.error, `${spec.cell} fixture shape`).toBeNull();
-    if (found.error !== null) return;
-    offenders.push(...found.bad.map((b) => `${spec.cell}: ${b}`));
+      expect(found.error, `${spec.cell} fixture shape`).toBeNull();
+      if (found.error !== null) return;
+      offenders.push(...found.bad.map((b) => `${spec.cell} [${stateName}]: ${b}`));
+    }
   }
 
   expect(
@@ -814,14 +931,24 @@ test("corner link's focus-ring offset matches the surface behind it", async ({ p
       if (!link.matches(":focus-visible")) {
         return { error: "the link is focused but does not match :focus-visible" };
       }
-      const offset = getComputedStyle(link).getPropertyValue("--tw-ring-offset-color").trim();
+      const linkCs = getComputedStyle(link);
+      const offset = linkCs.getPropertyValue("--tw-ring-offset-color").trim();
       if (offset === "") return { error: "--tw-ring-offset-color is unset on the link" };
+      // A matching COLOUR proves nothing if no ring is drawn. Review round 1:
+      // dropping `ring-2` and `ring-offset-2` while keeping `ring-offset-bg` left
+      // this green with no visible keyboard ring at all.
+      const ringOffsetWidth = parseFloat(linkCs.getPropertyValue("--tw-ring-offset-width") || "0");
+      const shadow = linkCs.boxShadow;
 
       // The nearest ancestor that actually PAINTS a background. Walking past the
       // transparent ones is the point: the header block, the pane and the section
       // wrappers all set none, so the painted colour comes from further up.
+      // Start at the link's PARENT. The offset band is painted immediately OUTSIDE
+      // the element's box, so the link's own background is not what shows through
+      // it — starting at the link let a background added to the link itself satisfy
+      // this (review round 1).
       let painted: string | null = null;
-      for (let el: HTMLElement | null = link; el !== null; el = el.parentElement) {
+      for (let el: HTMLElement | null = link.parentElement; el !== null; el = el.parentElement) {
         const bg = getComputedStyle(el).backgroundColor;
         if (bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
           painted = bg;
@@ -843,12 +970,19 @@ test("corner link's focus-ring offset matches the surface behind it", async ({ p
         error: null,
         offset: norm(offset),
         painted: painted === null ? null : norm(painted),
+        ringOffsetWidth,
+        shadow,
       };
     });
 
     expect(m.error, `${theme}: fixture shape`).toBeNull();
     if (m.error !== null) return;
     expect(m.painted, `${theme}: found the painted background behind the link`).not.toBeNull();
+    // A ring must actually be drawn, or the colour match is decoration.
+    expect(m.ringOffsetWidth, `${theme}: focus reserves a non-zero offset band`).toBeGreaterThan(0);
+    expect(m.shadow, `${theme}: focus paints a ring via box-shadow (got ${m.shadow})`).not.toBe(
+      "none",
+    );
     expect(
       m.offset,
       `${theme}: the ring offset paints ${m.offset} into a 2px gap over ${m.painted} —` +
