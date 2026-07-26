@@ -402,6 +402,12 @@ In `tests/e2e/admin-layout-dimensions.spec.ts`:
       await expect(
         page.locator(`${MODAL} [data-testid*="-review-section-"]`).first(),
       ).toBeAttached({ timeout: 30_000 });
+      // Hydration, not just streaming: the inert marker is applied by a client
+      // effect, so its presence proves React is live (same signal the phantom
+      // suite waits on — plan R2 f2).
+      await expect(page.locator("[data-inert-root][inert]").first()).toBeAttached({
+        timeout: 30_000,
+      });
 ```
 
 - [ ] **Step 4: jsdom class tripwire (spec §4.5)**
@@ -486,9 +492,13 @@ describe("ModalSectionChrome sm+ classes", () => {
 ```bash
 pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/section-header-layout.layout.spec.ts --reporter line
 pnpm exec vitest run tests/components/admin/wizard/modalSectionChromeClasses.test.tsx
+pnpm exec playwright test tests/e2e/admin-layout-dimensions.spec.ts --project desktop-chromium -g "width chain" --reporter line
 ```
 
-Expected: the NEW wide cases fail (stacked rendering at 640/1280: `headerLine` has a box, `outer` is 72.8px on pilled cells, pill below the row, class strings absent); all 320/375/430 cases still PASS (baseline was 69/69 green). Record the exact failed/passed counts. (The real-route suite's RED is exercised in Step 7 — it needs the dev server; the retargeted narrow behavior there is GREEN-preserving by construction, and 640 is a new width.)
+Expected RED (record exact counts in the commit message):
+- Standalone: every NEW wide case fails against the stacked rendering at 640/1280 (`headerLine` has a box, `outer` is 72.8px on pilled cells, pill below the row, boundary pair's 640 arm, tangency, snap-640); all 320/375/430 cases still PASS (baseline 69/69).
+- jsdom tripwire: all three tests fail (class strings absent).
+- Real-route width chain (dev server + settled dashboard per the readiness section): the 640 and 1280 iterations fail in the `isWide` branch with `headerLine has a box at a wide width` (the L/N replacement's own error path); 375 stays green — the row-K `outer` retarget is mode-independent (identical content box at narrow), which is why it alone cannot be the RED signal (plan R2 f1). The 640 T-NOPHANTOM extension is a regression net, not a RED case: the stacked layout contains no phantom item at 640 either, and it is listed as such.
 
 - [ ] **Step 6: The implementation**
 
@@ -570,6 +580,8 @@ git commit --no-verify -m "docs: width-qualify the centred-header pattern; super
 
 ### Task 5: Close-out — cross-model review, CI, merge (spec §6; plan R1 f4)
 
+**Gate re-entry rule (plan R2 f3) — binding for every step below:** any commit that lands AFTER a gate has passed re-enters that gate. Impeccable-disposition commits (Task 3 Step 3) re-run BOTH impeccable commands on the updated diff, not just the affected suites. Cross-model repair commits re-run the touched test suites + `pnpm typecheck`/`pnpm lint`/`pnpm format:check` before the next review round, and Task 4's full `pnpm test` re-runs after the FINAL repair commit. A DIRTY/behind reconciliation merge re-runs the full local gates AND gets a fresh whole-diff review round on the merged SHA before `gh pr merge`. The SHA that merges is a SHA every gate has seen.
+
 - [ ] **Step 1: Whole-diff cross-model review.** Freeze the tree (no commits during a round). Dispatch codex-guard with a fresh-eyes brief over `git diff origin/main...HEAD` scope (REVIEWER ONLY, do-not-relitigate list = spec §1.1 + both APPROVE verdicts), iterate to APPROVE with class-sweeps per round.
 - [ ] **Step 2: Push + PR.**
 
@@ -583,8 +595,11 @@ gh pr create --title "feat(admin): inline section-header row at sm+" --body-file
 
 ```bash
 gh pr merge <PR#> --merge
-git pull --ff-only
-git rev-list --left-right --count main...origin/main   # MUST print "0  0"
+# Sync the MAIN CHECKOUT, not this worktree — `git pull --ff-only` here would
+# pull the feature branch's remote and leave local main stale (plan R2 f4).
+git -C /Users/ericweiss/FX-Webpage-Template checkout main
+git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only
+git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main   # MUST print "0  0"
 ```
 
 Then mark the ship-state marker done and delete the cron nudge (pipeline Stage 4.4).
