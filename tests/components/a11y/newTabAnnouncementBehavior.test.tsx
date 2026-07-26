@@ -993,6 +993,32 @@ describe("scanner and runtime agree, per attribute kind", () => {
     // ...but a class that does NOT hide must still be accepted, and that IS checkable.
     { attr: 'className="overflow-hidden"', props: { className: "overflow-hidden" } },
     { attr: 'className="sr-only"', props: { className: "sr-only" } },
+    // COMPOSED values -- the class every finding from R33 and R34 came from. The source spelling and
+    // its evaluated runtime value are supplied together, so the matrix checks the scanner's static
+    // reasoning against what React actually receives.
+    { attr: "hidden={true && 1}", props: { hidden: true && 1 } },
+    { attr: "hidden={false || 0}", props: { hidden: false || 0 } },
+    // `null ?? 0` evaluates to 0; written as the value because tsc rejects the literal form (TS2871).
+    { attr: "hidden={null ?? 0}", props: { hidden: 0 } },
+    { attr: "hidden={true ? 0 : 1}", props: { hidden: true ? 0 : 1 } },
+    { attr: "hidden={void 0}", props: { hidden: void 0 } },
+    { attr: "hidden={-0}", props: { hidden: -0 } },
+    { attr: "hidden={0n}", props: { hidden: BigInt(0) } },
+    { attr: 'popover={false && "auto"}', props: { popover: false && "auto" } },
+    { attr: 'popover={true || "auto"}', props: { popover: true || "auto" } },
+    { attr: 'popover={null ?? "auto"}', props: { popover: "auto" } },
+    { attr: "aria-hidden={`${true}`}", props: { "aria-hidden": `${true}` } },
+    { attr: "aria-hidden={`true${false}`}", props: { "aria-hidden": `true${false}` } },
+    { attr: "aria-hidden={typeof x}", props: { "aria-hidden": typeof undefined } },
+    { attr: "aria-hidden={/re/}", props: { "aria-hidden": /re/ } },
+    { attr: "aria-hidden={[]}", props: { "aria-hidden": [] } },
+    { attr: 'aria-hidden={flag ? "false" : "false"}', props: { "aria-hidden": "false" } },
+    { attr: 'style={{display: (0, "none")}}', props: { style: { display: "none" } } },
+    { attr: 'style={{display: true ? "none" : "block"}}', props: { style: { display: "none" } } },
+    {
+      attr: 'style={{display: "none", ...(true ? {display: "block"} : {})}}',
+      props: { style: { display: "block" } },
+    },
   ];
 
   for (const c of CASES) {

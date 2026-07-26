@@ -1715,3 +1715,27 @@ identifiers; this one is "the binding check I reused was built for the opposite 
 helper is only shareable if both callers want the same answer, and `isShadowedAt`'s docstring says
 plainly that it excludes imports — the information needed to catch this was already written down at
 the call site I was reusing.
+
+### The matrix now covers composed values, and catches every R33/R34 class
+
+Nineteen more rows: `hidden={true && 1}`, `{null ?? 0}`, `{void 0}`, `{-0}`, `{0n}`,
+`popover={false && "auto"}`, ``aria-hidden={`${true}`}``, `{typeof x}`, `{/re/}`, `{[]}`, a
+comma-expression style, a literal-conditional style, and a spread override. Each row carries the
+source spelling AND its evaluated runtime value, so the scanner's static reasoning is checked against
+what React actually receives.
+
+Verified against the defects those rounds shipped, by reintroducing each:
+
+| Reintroduced defect | Matrix result |
+| --- | --- |
+| falsiness not composing through selection (R34 BLOCKING 2) | 3 failures |
+| `popover` missing logical compositions (R34 HIGH 3) | 2 failures |
+| `aria-hidden` failing closed on non-`"true"` types (R34 HIGH 3) | 3 failures |
+| `popover` treated as boolean (R32 BLOCKING 3) | 4 failures |
+| `hidden` not coercing falsy (R31 HIGH 6) | 6 failures |
+
+Five of the defects that took five review rounds to find are now caught by one table that a reviewer
+never has to read. Two notes on building it: tsc rejects a literal `null ?? 0` as always-nullish
+(TS2871), so those rows carry the evaluated value with the source spelling kept in the label; and the
+row set is only as good as its coverage, so a NEW attribute kind or value form needs a row rather
+than a fixture.
