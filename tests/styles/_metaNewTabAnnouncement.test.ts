@@ -3901,6 +3901,80 @@ describe("R6: scanner changes are pinned", () => {
     }
   });
 
+  it("R36 proto toString, nested branches, boolean ??, functions as content, dead hints", () => {
+    const many = (inner: string): string[] =>
+      violations(`const A=({a,b,x,n,flag,Wrap,f,obj})=><a href="x" target="_blank">${inner}</a>;`);
+    // Fail-open 1: `__proto__` in an object literal sets the PROTOTYPE, so an inherited toString can
+    // return "true" even with no own member. Measured: the attribute really is emitted as "true".
+    expect(
+      many('Go <span aria-hidden={{__proto__:{toString(){return "true";}}}}><NewTabHint /></span>'),
+      "__proto__ can supply a toString",
+    ).not.toEqual([]);
+    // Fail-open 2: a conditional ARM may itself be a dynamic conditional; every leaf hides.
+    for (const style of [
+      '{{...(a ? (b ? {display:"none"} : {visibility:"hidden"}) : {display:"none"})}}',
+      '{{...(a ? {display:"none"} : (b ? {visibility:"hidden"} : {display:"none"}))}}',
+    ]) {
+      expect(
+        many(`<span style=${style}>Go</span> <NewTabHint />`),
+        `every leaf of the nested conditional hides: ${style}`,
+      ).not.toEqual([]);
+    }
+    // Fail-open 3: `Infinity` must resolve as a GLOBAL, not merely be unshadowed.
+    expect(
+      probe(
+        'import { NewTabHint } from "@/components/shared/NewTabHint";\nimport Infinity from "x";\nconst A=()=><a href="x" target="_blank">Go <span aria-hidden={Infinity}><NewTabHint /></span></a>;',
+        { bare: true },
+      ).violations,
+      "an imported Infinity is not the numeric global",
+    ).not.toEqual([]);
+    // Fail-open 4: a boolean is never nullish, so `??` keeps it -- and React renders neither boolean.
+    expect(many('{(!x) ?? "Dest"} <NewTabHint />'), "a boolean ?? keeps the boolean").not.toEqual(
+      [],
+    );
+    expect(
+      many('Go <span popover={(!x) ?? "auto"}><NewTabHint /></span>'),
+      "...and React omits that boolean from an enumerated attribute",
+    ).toEqual([]);
+    // Fail-open 5: React renders NOTHING for a function or class used as a child (measured).
+    for (const child of ["{() => 1}", "{function f(){}}", "{class K {}}", "{async () => 1}"]) {
+      expect(many(`${child} <NewTabHint />`), `renders nothing as a child: ${child}`).not.toEqual(
+        [],
+      );
+    }
+    // False positive 6/7: the numeric family, and constant arithmetic in the TRUTHINESS helpers.
+    for (const attr of [
+      "aria-hidden={+n}",
+      "aria-hidden={-n}",
+      "aria-hidden={n -= 1}",
+      "aria-hidden={n++}",
+    ]) {
+      expect(many(`Go <span ${attr}><NewTabHint /></span>`), `numeric: ${attr}`).toEqual([]);
+    }
+    expect(many("Go <span hidden={0 * 5}><NewTabHint /></span>"), "0 * 5 is falsy").toEqual([]);
+    expect(
+      many("Go <details open={Infinity}><NewTabHint /></details>"),
+      "Infinity is truthy, so the details is open",
+    ).toEqual([]);
+    // False positive 9: a dead hint in a position `findHint` excludes must not poison a valid one.
+    for (const dead of [
+      "<Wrap hint={<NewTabHint/>} />",
+      "{f(<NewTabHint/>)}",
+      "{typeof <NewTabHint/>}",
+      '{(<NewTabHint/>, "x")}',
+    ]) {
+      expect(
+        many(`Go <NewTabHint />${dead}`).filter((r) => /sibling space/.test(r)),
+        `a dead hint must not poison a separated one: ${dead}`,
+      ).toEqual([]);
+    }
+    // ...and the genuine defect still reports.
+    expect(
+      many("Go<NewTabHint />").filter((r) => /sibling space/.test(r)),
+      "a genuinely unseparated hint still reports",
+    ).not.toEqual([]);
+  });
+
   it("the naming and separation questions stay DUAL, never drifting", () => {
     // Both rules consult `rendersNothing`, and they must reach OPPOSITE conclusions from it: a value
     // that renders nothing is transparent to SEPARATION (look further left) and absent as a

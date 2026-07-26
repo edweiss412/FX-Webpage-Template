@@ -658,6 +658,10 @@ function rendersNothing(e: ts.Expression): boolean {
   // element does. `[]` and `[null]` both qualify.
   // `void <anything>` evaluates to undefined (review R25 BLOCKING 3).
   if (ts.isVoidExpression(n)) return true;
+  // React renders NOTHING for a function, arrow, generator or class expression used as a child -- it
+  // warns and drops it (measured: the accessible name carries only the announcement). Treating these
+  // as opaque credited a destination that never exists (review R36).
+  if (ts.isFunctionExpression(n) || ts.isArrowFunction(n) || ts.isClassExpression(n)) return true;
   if (ts.isArrayLiteralExpression(n)) {
     return n.elements.every((el) => {
       // A HOLE (`[,]`) is undefined and renders nothing.
@@ -699,34 +703,13 @@ function rendersNothing(e: ts.Expression): boolean {
     if (isLiteralFalsy(cond)) return rendersNothing(n.whenFalse);
     return rendersNothing(n.whenTrue) && rendersNothing(n.whenFalse);
   }
-  // `a && b` evaluates to `a` when `a` is FALSY and to `b` otherwise. Decide which operand is
-  // the result before asking what it renders; give up when `a` is not a literal.
-  if (ts.isBinaryExpression(n)) {
-    const op = n.operatorToken.kind;
-    const left = unparen(n.left);
-    // `a && b` yields `a` when falsy, else `b`.
-    if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
-      if (isLiteralFalsy(left)) return rendersNothing(left);
-      if (isLiteralTruthy(left)) return rendersNothing(n.right);
-      return false;
-    }
-    // `a || b` yields `a` when TRUTHY, else `b` -- the mirror of `&&`, and it was missing.
-    // Found by probing the operator surface after R24 rather than by a review round.
-    if (op === ts.SyntaxKind.BarBarToken) {
-      if (isLiteralTruthy(left)) return rendersNothing(left);
-      if (isLiteralFalsy(left)) return rendersNothing(n.right);
-      return false;
-    }
-    // `a ?? b` yields `b` only when `a` is null/undefined. Note this is NOT falsiness: `0 ?? x`
-    // yields `0`, which renders.
-    if (op === ts.SyntaxKind.QuestionQuestionToken) {
-      const nullish = left.kind === ts.SyntaxKind.NullKeyword || isGlobalRef(left, "undefined");
-      if (nullish) return rendersNothing(n.right);
-      if (isLiteralTruthy(left) || isLiteralFalsy(left)) return rendersNothing(left);
-      return false;
-    }
-    return false;
-  }
+  // SELECTION is decided ONCE, by `pickedOperand`, and this asks what the chosen operand renders.
+  // These arms used to be hand-rolled here AND in `expressionDestination`, so R36's fix for
+  // `bool ?? x` landed in the shared selector and missed both copies -- the same
+  // "composition written in more than one place" defect that has produced six equivalent branches in
+  // this guard. One selector, three consumers.
+  const picked = pickedOperand(n);
+  if (picked !== null) return rendersNothing(picked);
   return false;
 }
 
@@ -737,6 +720,12 @@ function rendersNothing(e: ts.Expression): boolean {
  *  treats the identifier as the global then reasons about a value that is not there. The scanner
  *  already owns the machinery to answer this, so the fix is to use it rather than to trust the name.
  */
+function isGlobalIdentifier(n: ts.Node, name: string): boolean {
+  if (!ts.isIdentifier(n) || n.text !== name) return false;
+  if (isShadowedAt(n, name)) return false;
+  return !isModuleBoundName(n.getSourceFile(), name);
+}
+
 function isGlobalRef(n: ts.Node, name: "undefined" | "NaN"): boolean {
   if (!ts.isIdentifier(n) || n.text !== name) return false;
   if (isShadowedAt(n, name)) return false;
@@ -783,6 +772,60 @@ function isModuleBoundName(sf: ts.SourceFile, name: string): boolean {
   return false;
 }
 
+/** The NUMBER a constant arithmetic expression evaluates to, or null.
+ *
+ *  R36: numeric recognition had been added to `cannotRenderTrue` only, so `open={Infinity}` and
+ *  `hidden={0 * 5}` were still reported -- the truthiness helpers could not evaluate them. Limited to
+ *  constant operands and to operators whose result is a number regardless of operand type, so no
+ *  runtime value is ever assumed.
+ */
+function constantNumber(e0: ts.Expression): number | null {
+  const e = unparen(e0);
+  if (ts.isNumericLiteral(e)) return Number(e.text);
+  if (isGlobalIdentifier(e, "Infinity")) return Infinity;
+  if (isGlobalRef(e, "NaN")) return NaN;
+  if (ts.isPrefixUnaryExpression(e)) {
+    const inner = constantNumber(e.operand);
+    if (inner === null) return null;
+    if (e.operator === ts.SyntaxKind.MinusToken) return -inner;
+    if (e.operator === ts.SyntaxKind.PlusToken) return inner;
+    if (e.operator === ts.SyntaxKind.TildeToken) return ~inner;
+    return null;
+  }
+  if (ts.isBinaryExpression(e)) {
+    const l = constantNumber(e.left);
+    const r = constantNumber(e.right);
+    if (l === null || r === null) return null;
+    switch (e.operatorToken.kind) {
+      case ts.SyntaxKind.AsteriskToken:
+        return l * r;
+      case ts.SyntaxKind.SlashToken:
+        return l / r;
+      case ts.SyntaxKind.MinusToken:
+        return l - r;
+      case ts.SyntaxKind.PercentToken:
+        return l % r;
+      case ts.SyntaxKind.AsteriskAsteriskToken:
+        return l ** r;
+      case ts.SyntaxKind.AmpersandToken:
+        return l & r;
+      case ts.SyntaxKind.BarToken:
+        return l | r;
+      case ts.SyntaxKind.CaretToken:
+        return l ^ r;
+      case ts.SyntaxKind.LessThanLessThanToken:
+        return l << r;
+      case ts.SyntaxKind.GreaterThanGreaterThanToken:
+        return l >> r;
+      case ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken:
+        return l >>> r;
+      default:
+        return null;
+    }
+  }
+  return null;
+}
+
 /** Definitely-falsy literals. `0` and `""` are falsy but `0` still RENDERS, which is why this
  *  is separate from `rendersNothing`. */
 function isLiteralFalsy(n: ts.Expression): boolean {
@@ -790,6 +833,11 @@ function isLiteralFalsy(n: ts.Expression): boolean {
   if (isGlobalRef(n, "undefined")) return true;
   if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text.length === 0;
   if (ts.isNumericLiteral(n)) return Number(n.text) === 0;
+  // Constant arithmetic evaluates, so `hidden={0 * 5}` is falsy and React omits it. Numeric
+  // recognition had been added to `cannotRenderTrue` only, leaving the truthiness helpers unable to
+  // decide the same expressions (review R36).
+  const falsyNumber = constantNumber(n);
+  if (falsyNumber !== null) return falsyNumber === 0 || Number.isNaN(falsyNumber);
   // Nullish however spelled, `void 0` included (review R34 BLOCKING 2).
   if (isProvablyNullish(n)) return true;
   // An evaluated-empty template is falsy: `` `${""}` `` is "".
@@ -866,6 +914,10 @@ function pickedOperand(e0: ts.Expression): ts.Expression | null {
         return null;
       case ts.SyntaxKind.QuestionQuestionToken:
         if (isProvablyNullish(left)) return e.right;
+        // A BOOLEAN is never nullish, so `??` keeps it -- and an always-boolean expression need not
+        // be a literal to be known non-nullish (review R36). Without this, `{(!x) ?? "Dest"}` was
+        // credited as a destination although React omits the boolean it evaluates to.
+        if (isAlwaysBoolean(left)) return left;
         if (isLiteralTruthy(left) || isLiteralFalsy(left)) return left;
         return null;
       default:
@@ -955,7 +1007,11 @@ function staticStringValue(e0: ts.Expression): string | null {
       const key =
         nm !== undefined && (ts.isIdentifier(nm) || ts.isStringLiteral(nm)) ? nm.text : null;
       if (key === null) return true; // computed or spread: unknown shape
-      return key === "toString" || key === "valueOf";
+      // `__proto__` in an object literal SETS THE PROTOTYPE, so an inherited `toString` can return
+      // "true" even though the literal declares none of its own (review R36, measured: the attribute
+      // really is emitted as "true"). `Symbol.toPrimitive` arrives as a computed key, already caught
+      // above.
+      return key === "toString" || key === "valueOf" || key === "__proto__";
     });
     return overrides ? null : "[object Object]";
   }
@@ -1011,6 +1067,9 @@ function isLiteralTruthy(n: ts.Expression): boolean {
   if (ts.isArrayLiteralExpression(n) || ts.isObjectLiteralExpression(n)) return true;
   if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text.length > 0;
   if (ts.isNumericLiteral(n)) return Number(n.text) !== 0;
+  // Constant arithmetic evaluates, so `open={Infinity}` really opens the details (review R36).
+  const truthyNumber = constantNumber(n);
+  if (truthyNumber !== null) return truthyNumber !== 0 && !Number.isNaN(truthyNumber);
   // Everything below is DEFINITELY truthy whatever its operands are, and leaving it out left
   // operand selection fail-open: `{-1 && <span aria-hidden="true">Go</span>}` scanned clean while
   // the accessible name held only the announcement (review R33 BLOCKING 2). The helpers decided
@@ -1120,31 +1179,9 @@ function expressionDestination(e0: ts.Expression): boolean | null {
     // fourth equivalent branch found in this guard by sweeping rather than by review.
     return null;
   }
-  // `&&`, `||` and `??` SELECT an operand, exactly as in `rendersNothing`. Leaving them opaque
-  // meant `{true && <span aria-hidden="true">Go</span>}` credited a destination the accessible name
-  // never contains (review R32 BLOCKING 4). Mirrors that function deliberately: two rules deciding
-  // the same operand-selection question must not drift apart.
-  if (ts.isBinaryExpression(e)) {
-    const op = e.operatorToken.kind;
-    const left = unparen(e.left);
-    if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
-      if (isLiteralFalsy(left)) return expressionDestination(left);
-      if (isLiteralTruthy(left)) return expressionDestination(e.right);
-      return null;
-    }
-    if (op === ts.SyntaxKind.BarBarToken) {
-      if (isLiteralTruthy(left)) return expressionDestination(left);
-      if (isLiteralFalsy(left)) return expressionDestination(e.right);
-      return null;
-    }
-    if (op === ts.SyntaxKind.QuestionQuestionToken) {
-      // NOT falsiness: `0 ?? x` yields `0`, which renders "0".
-      const nullish = left.kind === ts.SyntaxKind.NullKeyword || isGlobalRef(left, "undefined");
-      if (nullish) return expressionDestination(e.right);
-      if (isLiteralTruthy(left) || isLiteralFalsy(left)) return expressionDestination(left);
-      return null;
-    }
-  }
+  // SELECTION via the same shared helper, for the same reason.
+  const picked = pickedOperand(e);
+  if (picked !== null) return expressionDestination(picked);
   return null; // `{label}`, a call, a member access: opaque
 }
 
@@ -1493,15 +1530,24 @@ function cannotRenderTrue(e0: ts.Expression): boolean {
   // globals, bitwise/arithmetic operators -- none can be "true" (review R35 HIGH 8).
   if (ts.isBigIntLiteral(e) || ts.isNumericLiteral(e)) return true;
   if (isGlobalRef(e, "NaN")) return true;
-  if (ts.isIdentifier(e) && e.text === "Infinity" && !isShadowedAt(e, "Infinity")) return true;
+  if (isGlobalIdentifier(e, "Infinity")) return true;
   if (ts.isPrefixUnaryExpression(e)) {
     const op = e.operator;
-    // `~x` is always an int32; `-x` / `+x` coerce to number.
-    if (op === ts.SyntaxKind.TildeToken) return true;
-    if (op === ts.SyntaxKind.MinusToken || op === ts.SyntaxKind.PlusToken) {
-      return cannotRenderTrue(e.operand) || isNumericish(e.operand);
+    // `~x`, `-x`, `+x`, `++x` and `--x` all COERCE to a number whatever the operand is, so none can
+    // stringify to "true". The earlier version required the operand to be numeric too, which
+    // reported valid `+n` and `-n` (review R36).
+    if (
+      op === ts.SyntaxKind.TildeToken ||
+      op === ts.SyntaxKind.MinusToken ||
+      op === ts.SyntaxKind.PlusToken ||
+      op === ts.SyntaxKind.PlusPlusToken ||
+      op === ts.SyntaxKind.MinusMinusToken
+    ) {
+      return true;
     }
   }
+  // `n++` / `n--` evaluate to a number as well.
+  if (ts.isPostfixUnaryExpression(e)) return true;
   if (ts.isBinaryExpression(e)) {
     // Every arithmetic and bitwise operator coerces to a number -- EXCEPT `+`, which concatenates:
     // `"tr" + "ue"` is exactly "true", so it must not join this family.
@@ -1519,6 +1565,22 @@ function cannotRenderTrue(e0: ts.Expression): boolean {
       ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
     ]);
     if (numericOps.has(e.operatorToken.kind)) return true;
+    // The numeric COMPOUND ASSIGNMENTS evaluate to the assigned number. `+=` is excluded for the
+    // same reason as `+`: it can concatenate strings.
+    const numericAssign = new Set<ts.SyntaxKind>([
+      ts.SyntaxKind.MinusEqualsToken,
+      ts.SyntaxKind.AsteriskEqualsToken,
+      ts.SyntaxKind.SlashEqualsToken,
+      ts.SyntaxKind.PercentEqualsToken,
+      ts.SyntaxKind.AsteriskAsteriskEqualsToken,
+      ts.SyntaxKind.AmpersandEqualsToken,
+      ts.SyntaxKind.BarEqualsToken,
+      ts.SyntaxKind.CaretEqualsToken,
+      ts.SyntaxKind.LessThanLessThanEqualsToken,
+      ts.SyntaxKind.GreaterThanGreaterThanEqualsToken,
+      ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken,
+    ]);
+    if (numericAssign.has(e.operatorToken.kind)) return true;
   }
   const picked = pickedOperand(e);
   if (picked !== null) return cannotRenderTrue(picked);
@@ -1526,14 +1588,6 @@ function cannotRenderTrue(e0: ts.Expression): boolean {
     return cannotRenderTrue(e.whenTrue) && cannotRenderTrue(e.whenFalse);
   }
   return false;
-}
-
-/** Is this expression definitely a NUMBER (so its string form is numeric text)? */
-function isNumericish(e0: ts.Expression): boolean {
-  const e = unparen(e0);
-  if (ts.isNumericLiteral(e) || ts.isBigIntLiteral(e)) return true;
-  if (isGlobalRef(e, "NaN")) return true;
-  return ts.isIdentifier(e) && e.text === "Infinity" && !isShadowedAt(e, "Infinity");
 }
 
 /** Does a `class` / `className` value hide this element?
@@ -1667,9 +1721,17 @@ function styleObjectHides(init: ts.JsxAttributeValue | undefined): boolean {
 function conditionalObjectBranches(e0: ts.Expression): ts.ObjectLiteralExpression[] | null {
   const e = unparen(e0);
   if (!ts.isConditionalExpression(e)) return null;
-  const a = pickObjectLiteral(e.whenTrue);
-  const b = pickObjectLiteral(e.whenFalse);
-  return a !== null && b !== null ? [a, b] : null;
+  // RECURSIVE: an arm may itself be another dynamic conditional. `a ? (b ? h1 : h2) : h3` is always
+  // hiding when every leaf hides, and the flat two-arm version returned null for it -- a fail-open
+  // (review R36). Flatten to leaves instead of giving up at depth one.
+  const leaves = (arm: ts.Expression): ts.ObjectLiteralExpression[] | null => {
+    const direct = pickObjectLiteral(arm);
+    if (direct !== null) return [direct];
+    return conditionalObjectBranches(arm);
+  };
+  const a = leaves(e.whenTrue);
+  const b = leaves(e.whenFalse);
+  return a !== null && b !== null ? [...a, ...b] : null;
 }
 
 /** The object literal this expression definitely evaluates to, or null. Sees through a conditional
@@ -1834,7 +1896,7 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
  * or an explicit `{" "}` expression, including when it is the last child of the
  * preceding line.
  */
-function hintHasSiblingSpace(root: ts.Node): boolean {
+function hintHasSiblingSpace(root: ts.Node, accepted: readonly ts.Node[]): boolean {
   let ok = true;
 
   /** Is `node` separated from what precedes it, among `children`? */
@@ -1911,8 +1973,9 @@ function hintHasSiblingSpace(root: ts.Node): boolean {
     ok = false;
   };
 
+  const acceptedSet = new Set<ts.Node>(accepted);
   const walk = (n: ts.Node): void => {
-    if (isHint(n)) check(n);
+    if (isHint(n) && acceptedSet.has(n)) check(n);
     ts.forEachChild(n, walk);
   };
   walk(root);
@@ -1933,7 +1996,7 @@ function findParentNode(root: ts.Node, kids: ts.NodeArray<ts.JsxChild>): ts.Node
 /** One entry per NewTabHint instance found under the anchor, so an unconditional
  *  hint next to a gated one cannot hide behind the gated one's conditions
  *  (review R1 BLOCKING 2: the previous shape kept a single overwritten value). */
-type HintInstance = { hidden: boolean; conditions: string[] };
+type HintInstance = { hidden: boolean; conditions: string[]; node: ts.Node };
 type HintFind = {
   found: boolean;
   instances: HintInstance[];
@@ -1975,7 +2038,7 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
       const tag = ts.isJsxElement(n) ? n.openingElement.tagName.getText() : n.tagName.getText();
       if (tag === HINT) {
         out.found = true;
-        out.instances.push({ hidden, conditions: conds });
+        out.instances.push({ hidden, conditions: conds, node: n });
         out.conditions = conds;
         return;
       }
@@ -2105,7 +2168,16 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
   // exactly "Go (opens in a new tab)", measured. The anchor is unannounced only when EVERY instance
   // is hidden, which is also what the single-instance case has always meant.
   out.hidden = out.instances.length > 0 && out.instances.every((h) => h.hidden);
-  if (out.found) out.separated = hintHasSiblingSpace(anchor);
+  // Only the hints `findHint` ACCEPTED. The separator walk used to visit every syntactic
+  // `NewTabHint`, including ones this function deliberately excludes -- a hint handed to a component
+  // prop, a call argument, a template substitution -- so a dead hint in one of those positions
+  // poisoned a perfectly separated real one (review R36). Passing the accepted nodes aligns the two
+  // walks BY CONSTRUCTION rather than by keeping two allowlists in step.
+  if (out.found)
+    out.separated = hintHasSiblingSpace(
+      anchor,
+      out.instances.map((h) => h.node),
+    );
   return out;
 }
 

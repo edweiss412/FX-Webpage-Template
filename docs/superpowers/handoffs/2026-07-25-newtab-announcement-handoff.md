@@ -1891,3 +1891,36 @@ round's findings have also included defects introduced by the previous round's f
 this round's first draft of that fix broke the explicit-space case).
 
 Stated as information for the merge decision, not as an argument to skip the gate.
+
+## R36 — nine findings, and the duplicated selector that hid one fix from two callers
+
+R36 reviewed `751a73431` and reported the drift. One finding (array stringification reused for
+separation) was already fixed from its probe trail. The other eight were live:
+
+| # | Finding | Direction |
+| --- | --- | --- |
+| 1 | `__proto__` in an object literal sets the PROTOTYPE, so an inherited `toString` can return `"true"` | fail-open |
+| 2 | branch expansion stopped when a conditional ARM was itself a dynamic conditional | fail-open |
+| 3 | `Infinity` checked shadowing but not module-level bindings | fail-open |
+| 4 | `??` did not know an always-boolean left operand is non-nullish | BOTH |
+| 5 | React renders NOTHING for a function/arrow/class child; the guard credited a destination | fail-open |
+| 6 | numeric family missed `+x`, `-x`, `++`/`--`, and the eleven numeric compound assignments | false positive |
+| 7 | constant arithmetic was decidable in `cannotRenderTrue` but not in the truthiness helpers | false positive |
+| 9 | the separator walk visited every syntactic hint, so a DEAD hint poisoned a valid one | false positive |
+
+**Finding 4's fix failed the first time, and the reason is the round's real lesson.** I added
+"a boolean is never nullish" to `pickedOperand` — the shared selector — and the pin still failed,
+because `rendersNothing` and `expressionDestination` each carried their OWN hand-rolled `&&`/`||`/`??`
+arms. The fix landed in one place and two callers never saw it.
+
+That is the same defect as the six equivalent branches earlier in this PR, stated from the other side:
+**composition written in more than one place does not just create dead code, it silently withholds
+fixes from the copies.** All three now delegate to one selector, and the R36 pin passes.
+
+**Finding 9 was fixed by construction rather than by keeping two lists in step.** `findHint` already
+has a render-position allowlist; the separator walk had its own traversal that visited every syntactic
+`NewTabHint`, including ones the allowlist deliberately excludes. It now receives the accepted nodes
+from `findHint`, so the two walks cannot disagree.
+
+Eight mutations red. Two orphaned helpers deleted (`isNumericish`, and earlier `styleObjectLiteralHides`),
+both surfaced by a new eslint warning rather than by review.
