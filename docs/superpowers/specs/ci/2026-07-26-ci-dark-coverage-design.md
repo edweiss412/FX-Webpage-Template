@@ -77,7 +77,26 @@ pnpm exec playwright test --config tests/e2e/standalone.config.ts <the 16 dark s
 → 51 passed, 2 failed, 1 did not run (1.6m)
 ```
 
-Both failures are one root cause. `resolve-label-layout.spec.ts` and `packlist-rescan-recovery.spec.ts` fail at their `beforeAll` esbuild step with `Could not resolve "node:crypto"` (and, for packlist, additionally `os`, `fs`, `node:async_hooks`). The import chain reaching it is `lib/parser/useRawContentHash.ts:1` (`import { createHash } from "node:crypto"`), pulled in via `lib/parser/warnings.ts`.
+Both failures are the same class — a browser bundle reaching a Node-only module — but by **different import chains**, which matters because it means the remedy is a shared list, not a single alias:
+
+| spec | unresolved | importer |
+| --- | --- | --- |
+| `resolve-label-layout` | `node:crypto` | `lib/parser/warnings.ts` → `lib/parser/useRawContentHash.ts:1` |
+| `packlist-rescan-recovery` | `node:crypto` | `lib/email/hashForLog.ts:1` |
+| `packlist-rescan-recovery` | `node:async_hooks` | `lib/log/requestContext.ts:2` |
+| `packlist-rescan-recovery` | `os`, `fs` | the `postgres` driver, reached transitively |
+
+### §2.3a Bare-environment run
+
+The same config run with all nine server env vars unset: **221 passed, 4 failed, 57 did not run** (the 57 are tests inside the 4 failing files; all 27 spec files reported at least one result). The four are the two esbuild failures above, which are env-independent, plus `step3-review-modal.interactions` and `step3-review-modal.layout`, which die at module load with `HASH_FOR_LOG_PEPPER env var must be set to a 32+ character value`.
+
+So **23 of 27 specs need no server env at all**, and the env dependency is 2 specs, not the 4 that the workflow being retired supplies it to. This is the measurement §4.1's env handling is designed against.
+
+### §2.3b Full-config baseline with the env supplied
+
+The same config with the nine variables set to the values `.github/workflows/modal-header-layout-e2e.yml:74` already uses: **279 passed, 2 failed, 1 did not run, 2.2 min**. The only failures are the two esbuild specs from §2.3.
+
+This is the load-bearing number for the whole cluster: once PR1 lands, the entire standalone config is expected green, which is what makes PR2's unfiltered job safe to run on every PR. Any other red at PR2 time is a regression introduced between now and then, not pre-existing rot.
 
 ### §2.4 Live-entry toolchain census
 
@@ -117,12 +136,18 @@ Both are plain synchronous helpers over `execFileSync`, callable from a spec's `
 
 ### §3.2 Canonical alias list
 
-One exported constant, `LIVE_ENTRY_ALIASES`, mapping every module a browser bundle cannot resolve to its stub:
+One exported constant, `LIVE_ENTRY_ALIASES`, mapping every module a browser bundle cannot resolve to its remedy. Measured from the §2.3 run — **four entries, not the two that exist today**:
 
-| Module | Stub | Why |
+| Module | Remedy | Why |
 | --- | --- | --- |
-| `node:crypto` | `tests/e2e/_nodeCryptoStub.ts` | Reached via `lib/parser/warnings.ts` → `lib/parser/useRawContentHash.ts:1` |
-| `next/navigation` | `tests/e2e/_nextNavigationStub.ts` | Router hooks unavailable outside a Next tree |
+| `node:crypto` | alias → `tests/e2e/_nodeCryptoStub.ts` | Three importers: `lib/parser/useRawContentHash.ts:1`, `lib/email/hashForLog.ts:1`, `lib/sync/applyStaged.ts:1` |
+| `node:async_hooks` | alias → a **new** stub | `lib/log/requestContext.ts:2`; no stub exists today |
+| `next/navigation` | alias → `tests/e2e/_nextNavigationStub.ts` | Router hooks unavailable outside a Next tree |
+| the `postgres` driver | mark external (or alias to an empty module) | `os` and `fs` surface only through the postgres driver's own entry module (postgres 3.4.9, first two import lines), reached transitively. Stub the driver, not the builtins. |
+
+**The existing crypto stub is under-exported.** `tests/e2e/_nodeCryptoStub.ts:7` exports only `createHash`, but `lib/email/hashForLog.ts:1` imports `{ createHash, createHmac }`. Pointing packlist's build at the stub as-is trades an unresolved-module error for a missing-export error, so the stub gains `createHmac` with the same loud-throw shape (`tests/e2e/_nodeCryptoStub.ts:8`) — throwing is correct because no harness render path calls it, and a silent no-op would let a real hash silently become undefined.
+
+Every one of the 8 sites already passes `--external:node:fs`, which is why `fs` surfaces only where the driver is reached; the helper keeps that flag in its canonical set.
 
 Adding the next stub is a one-line edit to this constant, applied to all 8 sites at once. That property is the entire point of the extraction: the defect in §2.3 exists because this list was per-call-site.
 
@@ -163,9 +188,13 @@ actions/checkout@v4 → ./.github/actions/setup → Playwright chromium cache
 → pnpm exec playwright test --reporter=list --config tests/e2e/standalone.config.ts
 ```
 
-No `webServer`, no Supabase bootstrap, no `pnpm build` — the standalone specs boot their own `node:http` server in `beforeAll` (`tests/e2e/standalone.config.ts:4`). Measured 1.6 min for 16 specs locally; the full config is 27 specs, so budget `timeout-minutes: 20` with an expected ~5 min including setup.
+No `webServer`, no Supabase bootstrap, no `pnpm build` — the standalone specs boot their own `node:http` server in `beforeAll` (`tests/e2e/standalone.config.ts:4`). Measured 2.2 min for the full config locally (§2.3b), so budget `timeout-minutes: 20` with an expected ~5 min including setup and browser install.
 
 New package script `test:e2e:standalone` wrapping that command, matching the existing `test:e2e:*` convention (`package.json`, e.g. `test:e2e:modal-header`).
+
+**The run command must not be piped.** `tests/ci/_workflowCoverageScan.ts:30` classifies a command ending in `| tee`, `| cat`, or `| grep` as exit-code suppression and refuses to count it. Several `x-audits.yml` jobs deliberately pipe through `tee` with `set -o pipefail`, but the scanner cannot see `pipefail`, so copying that idiom here would mark the job non-blocking and silently re-darken all 27 specs while the guard stayed green. Playwright runs as a bare command; diagnostics come from the `if: failure()` upload-artifact sibling step, which the scanner correctly ignores (`tests/ci/_workflowCoverageScan.ts:16`).
+
+**Env comes from the config, not the workflow.** Two specs need server env at module load (§2.3a). Rather than copy `.github/workflows/modal-header-layout-e2e.yml:74`'s nine-variable block into the new workflow, `tests/e2e/standalone.config.ts` sets the deterministic demo fallbacks itself (`process.env.X ??= …`), so the config is self-sufficient for every consumer — this workflow, a local run, any future job. The `process.env.X ?? <demo>` shape is already the established idiom for the port-3004 webServer in `playwright.config.ts`. This is the same one-place-not-per-call-site principle as §3.1, applied to env instead of flags, and it removes the failure mode the retired workflow's own comment documents: without `HASH_FOR_LOG_PEPPER` the harness dies and the spec reports a layout failure that is really an env failure.
 
 ### §4.2 Why no path filter
 
@@ -173,19 +202,25 @@ New package script `test:e2e:standalone` wrapping that command, matching the exi
 
 So the workflow triggers on `pull_request` with no path filter, plus `workflow_dispatch` (per the "enable `workflow_dispatch` on any CI workflow during the milestone" discipline in `AGENTS.md`). The cost is one ~5 min DB-free job on every PR, including docs-only ones. This is accepted deliberately: weakening the scanner's contract to buy a filter would convert a real guarantee into a nominal one.
 
+**This is not a new decision — it is an existing project contract.** `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md:128` already ratified an unfiltered e2e workflow for the same reason, after the filter surface grew across four review rounds: "the spec's true dependency graph is effectively the whole app plus the harness, so any enumerated filter re-opens the dark-path hole it was meant to close. Unfiltered is the structural end of the vector." The cost there is bounded by the same concurrency-cancel shape, which this workflow also adopts.
+
 ### §4.3 Retirements
 
 Deleted: `.github/workflows/attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignore-eyebrow-e2e.yml`, `hoverhelp-geometry-e2e.yml`, `modal-header-layout-e2e.yml`. Every spec each one ran is in `standalone.config.ts:36` and therefore runs in the new job, unfiltered — strictly more often than before, since each retired workflow was path-gated.
 
 `.github/workflows/phantom-gap-e2e.yml` is **not** deleted: its other two legs (`.github/workflows/phantom-gap-e2e.yml:160` and `.github/workflows/phantom-gap-e2e.yml:162`) run default-config specs under `desktop-chromium` / `mobile-safari` and have no equivalent here. Its standalone leg (`.github/workflows/phantom-gap-e2e.yml:158`) is removed as redundant.
 
-Their `pnpm test:e2e:*` package scripts are deleted with them, except where another consumer exists. A step in the plan greps for each script name across `.github/`, `docs/`, and `scripts/` before deletion and records the hits.
+**The `pnpm test:e2e:*` package scripts are kept**, not deleted with their workflows. The grep was run rather than described: `test:e2e:hoverhelp-geometry` is cited as a verification command by `docs/superpowers/plans/2026-07-24-hoverhelp-visual-viewport.md:209` and `docs/superpowers/plans/2026-07-24-hoverhelp-visual-viewport.md:223`, and `test:e2e:modal-header` by `docs/superpowers/plans/2026-07-18-modal-header-reconciliation/CLOSE-OUT.md:57`. Deleting them would break those historical records for no gain, and single-spec shortcuts are exactly the local ergonomics whose absence let these specs rot in the first place. `test:e2e:standalone` joins them rather than replacing them.
 
 ### §4.4 Guard extensions
 
 Three, each fails-by-default, all in the same PR as the retirements so a coverage regression cannot land silently:
 
-**G1 — config-aware coverage.** `_workflowCoverageScan.ts` currently detects a spec as covered only by matching its filename in a `run:` command (`tests/ci/_workflowCoverageScan.ts:88`). A whole-config invocation names no filenames. Extend the scanner: when a `run:` command contains `--config <path>` and no `*.spec.ts` argument, parse that config's `testMatch` and treat every matching spec as covered by that workflow. The parse reads the alternation branches out of the regex literal; a config whose `testMatch` cannot be parsed is a hard error, never a silent zero-match (`tests/ci/_workflowCoverageScan.ts:25` already records that lesson).
+**G1 — config-aware coverage.** `_workflowCoverageScan.ts` currently detects a spec as covered only by matching its filename in a `run:` command (`tests/ci/_workflowCoverageScan.ts:88`). A whole-config invocation names no filenames, so without this extension every standalone spec would still read as dark.
+
+`scanWorkflowCoverage` (`tests/ci/_workflowCoverageScan.ts:80`) is a **pure** function — its only inputs are `workflows` and `packageScripts`, with all filesystem reading done by the caller. The extension preserves that: a third `Opts` field `configSpecs`, mapping a Playwright config path to the spec paths its `testMatch` matches, supplied by the meta-test exactly as `workflows` and `packageScripts` already are. Parsing the config stays outside the scanner, which remains table-testable.
+
+Resolution rule inside `resolveSpecs` (`tests/ci/_workflowCoverageScan.ts:87`): a command naming `--config <path>` **and** explicit `*.spec.ts` arguments is covered by those arguments only — that is `test:e2e:modal-header`'s shape today. A command naming `--config <path>` with **no** spec arguments covers every entry in `configSpecs[path]`. A config path that appears in a command but has no `configSpecs` entry is a hard error, never a silent zero-match (`tests/ci/_workflowCoverageScan.ts:25` records exactly that lesson).
 
 **G2 — no stale or missing `testMatch` branches.** Assert (a) every alternation branch in `tests/e2e/standalone.config.ts:36` resolves to an existing spec file whose basename is that branch plus the spec-file suffix, and (b) every spec that is self-contained is listed. `overrideableField.layout` fails (a) today and its branch is deleted in this PR. For (b), "self-contained" is determined structurally — the spec creates its own server via the helper module from §3 — rather than by a hand-maintained list, so a new harness spec that forgets to register fails at authoring time.
 
@@ -223,6 +258,15 @@ The two checks are complementary and both are kept: the local run proves **this 
 ### §5.3 The vacuity risk, and the tripwire
 
 `tests/cross-cutting/pg-cron-coverage.test.ts:107` degrades `liveDbTest` to `test.skip` whenever `psql` is unreachable, and `tests/cross-cutting/pg-cron-coverage.test.ts:130` only `console.warn`s. Wiring the suite without addressing that buys a job that can report green having asserted nothing — the precise failure `BL-PG-CRON-COVERAGE-UNRUN` warns about, reintroduced by the fix for it.
+
+**Measured, not inferred.** Run in the worktree against `--project serial` with local Supabase up:
+
+| `TEST_DATABASE_URL` | Result |
+| --- | --- |
+| loopback port 54322 (reachable) | 8 passed, 0 skipped — all 6 live-DB tests executed, confirmed by name under the verbose reporter |
+| loopback port 59999 (closed) | **exit 0**, "2 passed \| 6 skipped" |
+
+The first row proves §5.2 works: removing the exclusion makes the suite run and pass against the bootstrapped DB. The second proves the vacuity risk is real — the file reports success having asserted nothing about any live database.
 
 So: when `process.env.CI` is set, an unreachable `psql` is a thrown error in `beforeAll`, not a warning, and not a skip. Locally the skip behavior is unchanged, so a developer without a running stack is not blocked. Additionally the suite asserts that the number of executed live-DB tests is non-zero, so a future refactor that skips them individually is caught rather than absorbed.
 
