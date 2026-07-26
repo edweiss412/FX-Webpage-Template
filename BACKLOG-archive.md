@@ -57,6 +57,50 @@ Not covered, deliberately: the wizard's own pre-publish surfaces, `BellPanel`, a
 
 ---
 
+## BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET — probe the archived dashboard bucket
+
+**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, adversarial review R3 finding 1). **Class:** layout hardening (coverage). **Effort:** S (seed + one case).
+
+`T-NOPHANTOM-DASH` measured `/admin` in its ACTIVE bucket only. `/admin?bucket=archived` renders a structurally different tree — `ArchivedShowRow` (`components/admin/ArchivedShowRow.tsx`) instead of `ShowsTable` rows — so a zero-extent child introduced there triggered the `phantom-gap-e2e` workflow via `components/**` while both dashboard cases stayed green.
+
+Not simply added as a third case at filing time: `pnpm db:seed` (what the workflow runs) seeds **no archived shows** — the archived fixture lives in the separate `supabase/seedWalkerFixtures.ts` extension seed — so a probe there would have measured an empty bucket, anchored on nothing, and been exactly the vacuous green the anchors exist to prevent.
+
+**Graduated:** 2026-07-25 on `feat/section-header-rebuild-phantom-spacers` — spec `docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md`, task T6.
+
+**Shipped as:** a `T-NOPHANTOM-DASH [archived]` case at both widths (390 / 1280) in `tests/e2e/admin-layout-dimensions.spec.ts`, anchored on an `archived-show-row-<slug>` container rather than a count, so an empty bucket fails loudly instead of passing vacuously. The seed gap was closed in the workflow rather than in `seed.ts`: `.github/workflows/phantom-gap-e2e.yml` gained a step that runs the walker-fixture seed alongside `db:seed`, which is the narrower change — `seed.ts` is the shared base corpus and archived shows are fixture-specific.
+
+## BL-PHANTOM-GAP-BLANK-EYEBROW-TRAVELROW — `empty:hidden` the TravelRow eyebrow
+
+**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, found by `T-NOPHANTOM-CREW`). **Class:** layout hardening. **Effort:** XS (one class), plus the invariant-8 impeccable dual gate.
+
+`TravelRow` rendered its eyebrow `<p>` unconditionally inside a `flex flex-col gap-0.5` stack (`components/crew/sections/TravelSection.tsx`). A ground leg whose stage was promoted to the primary line passes `label=""` — deliberate, and the comment there calls the blank eyebrow "acceptable per its presentational contract". It was not free: an empty `<p>` is still a flex item, so the stack charged 2px above a line that painted nothing. Two legs on the seeded show, at both widths; ledgered in `KNOWN_CREW_PHANTOM_ITEMS` (`tests/e2e/crew-layout-dimensions.spec.ts`).
+
+A class sweep for the same shape (an empty STRING becoming an element's entire rendered content) found no second instance — every other `? "" :` in `components/` is a className fragment or a pluralization suffix inside larger text.
+
+**Graduated:** 2026-07-25 on `feat/section-header-rebuild-phantom-spacers` — spec `docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md`, task T5.
+
+**Shipped as:** `empty:hidden` on that `<p>` (the DESIGN.md §7a idiom), with both `KNOWN_CREW_PHANTOM_ITEMS` rows deleted — the ledger is now empty, and its stale-row assertion is what proves the repair rather than a separate test. The `{" "}` caveat the entry flagged is now enforced rather than remembered: `tests/docs/designSevenAEmptyHiddenSites.test.ts` fails if a component carries `empty:hidden` without being named in §7a's "Current sites" list, so the idiom cannot spread undocumented.
+
+## BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW — decide crowded-row behavior for childless `flex-1` spacers
+
+**Filed:** 2026-07-25 (branch `test/phantom-gap-probe-real-pages`, found by `T-NOPHANTOM-SHOW`). **Class:** layout hardening (UI judgment). **Effort:** S per site, plus the invariant-8 impeccable dual gate.
+
+A childless `<span className="flex-1" />` used as a right-pusher is a flex ITEM. In a row with enough real content to consume the line, `flex-1` resolves to ZERO width and the row still charges its `gap` on BOTH sides of an invisible spacer — the same class as the `BulkIgnoreControls` hairline (`BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW`, repaid on #580 by hiding the rule below 480px).
+
+Proven instance, ledgered in `KNOWN_SHOW_MODAL_PHANTOM_ITEMS`: `ModalSectionChrome`'s header row in `components/admin/wizard/step3ReviewSections.tsx`, charging 10px on each side at 375px on the seeded show's Rooms and Warnings breakdowns. Four further sites carried the same shape (the `step3ReviewSections` hairline, `BellPanel`'s action row, `AdminNav`, `OnboardingTopBar`), none measured by any probe mount at filing time.
+
+**Graduated:** 2026-07-25 on `feat/section-header-rebuild-phantom-spacers` — spec `docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md`, tasks T1-T4.
+
+**Resolved with three DIFFERENT decisions, not one.** The entry proposed "one visual decision, applied consistently across all five". Measurement refuted that framing: the five sites are three distinct cases, and DESIGN.md §7a now records the distinction.
+
+- **Four pusher sites** (`BellPanel` x2 branches, `AdminNav`, `OnboardingTopBar`) — spacer DELETED, `ml-auto` on the trailing cluster. A pusher has no visual job, so the element should not exist; `ml-auto` is the same layout with no item. `tests/e2e/pusher-alignment.layout.spec.ts` carries two oracles per site, because absence alone cannot see a repair that forgets `ml-auto` and alignment alone cannot see a spacer that came back.
+- **The hairline** — a `min-w-4` floor, NOT a width-hide. It paints, so it is not a phantom; it only needed a minimum. Measured: 22.94px at the narrowest real row (240px), collapsing only at viewports ≤215px that no device reaches. `min-w-6` was rejected on measurement — it binds and wraps the label.
+- **The header row** — rebuilt rather than patched, since the spacer was a symptom of a header that also wrapped a one-word title onto three lines at 375px. Icon left, centred name + count, sheet link right (now an external-link icon, not the "In sheet" text link), badge centred below. `--spacing-header-link-slot` keeps the centred group optically centred when no link renders.
+
+**Descoped, filed as `BL-CHILDLESS-GROWABLE-STATIC-GUARD`:** a static guard against the shape recurring. Three adversarial rounds could not converge a rule that agreed with a prototype (27 registry rows from the written rule vs 17 from the prototype), which is the 3-round cap in `docs/agents/spec-self-review.md`. The two e2e oracles cover the four repaired sites; the guard would cover unwritten ones.
+
+---
+
 ## BL-HOVERHELP-PORTAL — portal the HoverHelp popover so it survives clipping ancestors
 
 **Filed:** 2026-07-20 (show-alert-compact spec, adversarial R2 F7/F8/F10) · **Class:** UI robustness · **Effort:** M (portal + positioning, or an anchor-positioning polyfill, plus containment assertions)

@@ -256,7 +256,20 @@ const SHOW_PAGE_SLOT = "w-7 shrink-0";
 const HELP_LINK =
   "inline-flex min-h-tap-min items-center rounded-sm text-[13px] text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 
-function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
+/**
+ * The action row, exported so a real-component harness can mount it.
+ *
+ * WHY EXPORTED: the layout probe in tests/e2e/pusher-alignment.layout.spec.ts must
+ * assert this row contains no childless growable child (its `flex-1` pusher). It
+ * could not reach it while this was private: server-rendering <BellPanel> yields
+ * only the initial loading state, so neither `isAutoResolving` branch is emitted.
+ *
+ * The `resolving` state lives HERE, with the markup that reads it — the manual
+ * branch uses it for the button's disabled/aria-busy and its pending copy — so a
+ * props-only presentational split would have lost behaviour. `ActionCell` below is
+ * a thin wrapper kept so the call site is unchanged.
+ */
+export function BellActionRow({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
   const [resolving, setResolving] = useState(false);
   const isWatch = entry.code === WATCH_CODE;
 
@@ -320,11 +333,17 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
       ) : null}
       {/* Learn-more moved to the message block (WI-2) — it renders inline after
           the message text there, not in this action cell. */}
-      <span className="flex-1" />
+      {/* `ml-auto` on the trailing content, NOT a childless `flex-1` pusher: a
+          spacer is a flex ITEM, so a crowded row spends `gap-x-2` on BOTH sides of
+          something invisible. `ml-auto` holds the same right edge and costs nothing.
+          Both mutually exclusive branches carry it — a repair that fixed one would
+          leave the other at the start edge. `ml-auto` and not `justify-between`:
+          under `justify-between` a lone child sits at the START edge
+          (components/admin/CompactAlertCard.tsx:138). */}
       {entry.isHealth ? null : entry.isAutoResolving ? (
         <p
           data-testid={`bell-auto-note-${entry.alertId}`}
-          className="wrap-break-word text-sm text-text-subtle"
+          className="ml-auto wrap-break-word text-sm text-text-subtle"
         >
           {entry.autoResolveNote}
         </p>
@@ -335,7 +354,7 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
           onClick={() => void onResolve()}
           disabled={resolving}
           aria-busy={resolving}
-          className={GHOST_RESOLVE}
+          className={`ml-auto ${GHOST_RESOLVE}`}
         >
           {resolving
             ? resolveActionLabels(entry.code).pending
@@ -344,6 +363,13 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
       )}
     </div>
   );
+}
+
+/** Thin wrapper: the call site keeps using `ActionCell` while the row itself is
+ *  reachable from a harness. Behaviour parity is pinned by
+ *  tests/components/admin/bellActionRow.export.test.tsx. */
+function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
+  return <BellActionRow entry={entry} onRefetch={onRefetch} />;
 }
 
 // Message-text renderer (WI-3 + WI-4). ROLE_FLAGS_NOTICE with ≥2 structured

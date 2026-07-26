@@ -36,6 +36,8 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-changes-feed-layout.spec.ts": UNSEEN,
   "tests/e2e/admin-dev.spec.ts": UNSEEN,
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
+  "tests/e2e/pusher-alignment.layout.spec.ts": PATH_GATED,
+  "tests/e2e/section-header-layout.layout.spec.ts": PATH_GATED,
   "tests/e2e/admin-layout.spec.ts": UNSEEN,
   "tests/e2e/admin-lifecycle-transitions.spec.ts": UNSEEN,
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
