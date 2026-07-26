@@ -1681,6 +1681,36 @@ describe("R6: scanner changes are pinned", () => {
     // drives (a hidden hint, a naming override, a stripped separator), which a generic
     // same-verdict sweep cannot. The sweep proves coverage; the fixtures prove meaning.
     const spellings = (n: string): string[] => [n.toUpperCase(), n[0]!.toUpperCase() + n.slice(1)];
+    // R38-era addition: `popover`, `inert`, `open`, `class` and `alt` had NO casing fixture, and
+    // three of them are attributes whose rules were rewritten during this close-out (popover became
+    // enumerated, open gained truthiness evaluation, inert joined the boolean group). All five behave
+    // identically today -- measured before adding these -- so this is a regression guard, not a fix:
+    // a case-sensitive read introduced into any of those rules would otherwise pass.
+    fixtures.push(
+      [
+        "popover",
+        (n) =>
+          `const A=()=><a href="x" target="_blank">Go <span ${n}="auto"><NewTabHint /></span></a>;`,
+      ],
+      [
+        "inert",
+        (n) => `const A=()=><a href="x" target="_blank">Go <span ${n}><NewTabHint /></span></a>;`,
+      ],
+      [
+        "open",
+        (n) =>
+          `const A=()=><a href="x" target="_blank">Go <details ${n}><NewTabHint /></details></a>;`,
+      ],
+      [
+        "class",
+        (n) =>
+          `const A=()=><a href="x" target="_blank">Go <span ${n}="hidden"><NewTabHint /></span></a>;`,
+      ],
+      [
+        "alt",
+        (n) => `const A=()=><a href="x" target="_blank"><img ${n}="Go" /> <NewTabHint /></a>;`,
+      ],
+    );
     for (const [name, build] of fixtures) {
       const base = violations(build(name)).join(" | ");
       for (const alt of spellings(name)) {
