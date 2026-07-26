@@ -37,3 +37,15 @@ and "found by the reviewer" as different signals.
 | §4.4's vacuity argument was asserted rather than measured. | Deciding whether the extended gate needed a definition check or a name check. | Queried the validation project directly: the constraint name exists there with the old six values and no `expired`, so a name-only check passes today. The query and its output are now in the spec. |
 
 | The two-armed reap retired BOTH arms to `expired`, whose GC treatment skips `channels.stop`. For an inverted lease with a FUTURE `expires_at` that abandons a possibly-live Drive channel with nothing left to stop it. | Verifying my own citation of `tests/db/watchRenewalDue.test.ts:141-155` instead of trusting the review report's line range — the fixture turned out to be `expires_at` 24h out, not merely inverted. | Arms split: `expires_at <= now()` → `expired` (dead, no stop); `expires_at <= created_at` → `superseded` (liveness unknown, GC stops it). Port returns `{id, status}` so the emit and the tests can tell the populations apart. |
+
+## Refuted review finding — recorded so it is not re-derived
+
+**Spec R1 finding 10 (LOW) is REFUTED by measurement.** It claimed the `JSON.stringify` + `::jsonb` prescription was correct, and that postgres.js would reject a raw object loudly as `[object Object]` rather than double-encode it. Probed against the real local database and the real `public.upsert_admin_alert` RPC:
+
+| Parameter form | `jsonb_typeof(context)` | `context->>'watched_folder_id'` |
+| --- | --- | --- |
+| raw object | `object` | `"probe-folder"` |
+| `sql.json(obj)` | `object` | `"probe-folder"` |
+| `JSON.stringify(obj)` | `string` | `null` |
+
+The raw object is CORRECT and is accepted, not rejected. `JSON.stringify` is the form that silently double-encodes — the row is written, `occurrence_count` increments, and every `context->>` read returns NULL thereafter. The spec's prescription was inverted for two drafts and the review round agreed with the wrong version; §3.4.2 now carries the table above instead of an argument.

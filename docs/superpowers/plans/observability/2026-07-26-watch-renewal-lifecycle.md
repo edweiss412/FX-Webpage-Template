@@ -157,9 +157,9 @@ Rewrite the `T_EXEC_BUDGET_MS` doc comment per spec §3.3.3 — state that the l
 
 **Failing test first** (real DB, tests/db/watchLifecycle.db.test.ts): `markWatchOrphanedWithTx` inside a transaction that then throws leaves **no** `admin_alerts` row and an unchanged channel status. This fails today — the alert commits over its own connection — and nothing weaker can observe it.
 
-Plus, same file: the raised alert satisfies `jsonb_typeof(context) = 'object'` and `context->>'watched_folder_id'` equals the folder id (a double-encoded jsonb STRING passes a naive "a row exists" assertion and silently breaks `lib/drive/watchEscalation.ts:101` and `lib/drive/watchEscalation.ts:155`); and `occurrence_count` increments on a second raise, proving the RPC's real `on conflict … do update` body ran over the pg connection.
+Plus, same file: the raised alert satisfies `jsonb_typeof(context) = 'object'` and `context->>'watched_folder_id'` equals the folder id (both halves load-bearing: the broken stringified form still writes a row and still increments `occurrence_count`, so only `jsonb_typeof` plus a key read can see it — spec §3.4.2, measured); and `occurrence_count` increments on a second raise, proving the RPC's real `on conflict … do update` body ran over the pg connection.
 
-**Implementation** — §3.4: `PostgresWatchTx.upsertAdminAlert` issues `select public.upsert_admin_alert($1::uuid, $2::text, $3::jsonb)` with `JSON.stringify(input.context)`, carrying the inline `// not-subject-to-meta: <reason>` marker in the verified form. Remove the now-unused `defaultUpsertAdminAlert` import at `lib/drive/watch.ts:3` — leaving it raises a fresh ESLint `no-unused-vars`, and a new warning means a wiring edit half-landed.
+**Implementation** — §3.4: `PostgresWatchTx.upsertAdminAlert` issues `select public.upsert_admin_alert($1::uuid, $2::text, $3::jsonb)` passing `input.context` as the RAW OBJECT — `JSON.stringify` stores a jsonb STRING and silently breaks every `context->>` read, measured in spec §3.4.2 — carrying the inline `// not-subject-to-meta: <reason>` marker in the verified form. Remove the now-unused `defaultUpsertAdminAlert` import at `lib/drive/watch.ts:3` — leaving it raises a fresh ESLint `no-unused-vars`, and a new warning means a wiring edit half-landed.
 
 **Commit:** `fix(drive): raise the watch alert inside the channel transaction`
 

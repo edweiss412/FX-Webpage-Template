@@ -337,17 +337,29 @@ A per-call timeout surfaces as a gaxios `GaxiosError` with `code === "TimeoutErr
 await this.rows(`select public.upsert_admin_alert($1::uuid, $2::text, $3::jsonb)`, [
   null,
   input.code,
-  JSON.stringify(input.context),
+  input.context, // the OBJECT, not JSON.stringify. See 3.4.2; measured, not reasoned
 ]);
 ```
 
 `public.upsert_admin_alert(p_show_id uuid, p_code text, p_context jsonb) returns uuid` is `language sql` / `security definer` / `set search_path = public, pg_temp` (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql:18-27`). No signature change, no new migration, and its whole `on conflict … do update` body — including the `failedKeys` normalisation and the `lastCountedAt` occurrence-count damping — runs identically. `show_id` is `null` on this path unconditionally, exactly as the current call passes it (`lib/drive/watch.ts:204`).
 
-#### 3.4.2 The jsonb parameter is stringified deliberately
+#### 3.4.2 The jsonb parameter is the raw object — measured, not reasoned
 
-`JSON.stringify(input.context)` with an explicit `jsonb` cast in the SQL, NOT the raw object.
+Pass `input.context` **as the object**. Do NOT `JSON.stringify` it.
 
-**The failure mode is loud, not silent** (spec R1 finding 10, which corrected this section's reasoning while leaving its prescription intact). An earlier draft claimed postgres.js would silently double-encode a raw object into a jsonb STRING. It does not: an untyped object falls through to string coercion as `[object Object]` (postgres.js 3.4.9, its inferred-type path in src/types.js), and the jsonb cast then fails outright, aborting the transaction. So the raw-object form is caught the first time it runs rather than corrupting rows quietly — which is a better failure than the one this section used to describe, and does not change what to write. Two readers would break silently: `readUnresolvedWatchAlert`'s `alert.context?.error_class` and `error_message` (`lib/drive/watchEscalation.ts:101, 155`) and the RPC's own `p_context ? 'failedKeys'` test. §6 pins `jsonb_typeof(context) = 'object'` and a key read against the real DB, which is the only assertion shape that can observe this.
+Two earlier drafts of this section got this backwards, and so did spec review R1 finding 10, which asserted that stringify was correct and that a raw object would fail loudly. Both claims were wrong, and the disagreement is settled by measurement rather than by argument. Probed against the real local database and the real `public.upsert_admin_alert` RPC on 2026-07-26, each form inserted and then read back with `jsonb_typeof(context)` and `context->>'watched_folder_id'`:
+
+| Parameter form | `jsonb_typeof` | `context->>'watched_folder_id'` | Verdict |
+| --- | --- | --- | --- |
+| `input.context` (raw object) | `object` | `"probe-folder"` | **correct** |
+| `sql.json(input.context)` | `object` | `"probe-folder"` | correct (equivalent; needs `json` exposed on the `PostgresConnection` type) |
+| `JSON.stringify(input.context)` | `string` | `null` | **broken, and silent** |
+
+So the double-encoding hazard is real — it is exactly what `JSON.stringify` produces here — but the remedy is the opposite of what both drafts prescribed. The stringified form does not throw: the RPC accepts it, the row is written, `occurrence_count` increments normally, and every `context->>'…'` read returns NULL forever after. That would have silently blinded `readUnresolvedWatchAlert`'s `alert.context?.error_class` and `error_message` (`lib/drive/watchEscalation.ts:101` and `lib/drive/watchEscalation.ts:155`), so escalation emails would have reported `drive_api` and `(no detail captured)` for every watch failure, with nothing anywhere indicating a fault.
+
+`this.rows()` forwards to `sql.unsafe(query, params)` whose parameter type is already `unknown[]` (`lib/drive/watch.ts:106-108`), so passing the object needs no type change.
+
+**§6 pins this with `jsonb_typeof(context) = 'object'` AND a key read.** Both halves are load-bearing: a test that only checks a row exists, or only that the statement did not throw, passes against the broken form — which is how this survived two drafts and one review round.
 
 #### 3.4.3 What changes for callers — and what does not
 
