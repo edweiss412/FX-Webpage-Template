@@ -1091,3 +1091,53 @@ own author, which is what those two assertions exist for.
 The import lookup was asked once per ANCHOR and walked every import statement of all 246 files.
 Caching it per source file took the live-census test from 3023ms to 804ms. The earlier explicit
 timeouts were correct but were treating a symptom; this removes the cost.
+
+## R29 — and the counting error worth more than the code findings
+
+Three code findings, each a member of a class this PR had already visited:
+
+- **Shadowing forms the scope walk missed:** a loop binding (`for (const NewTabHint of hints)`), a
+  named function expression (`const A = function NewTabHint() { … }`), and a catch clause. R28 taught
+  that a binding must be resolved at the use site; R29 showed the resolution itself was incomplete.
+- **`rendersNothing` missed prefix booleans and literal-test conditionals.** `{!true}` is `false`;
+  `{true ? null : "Dest"}` renders nothing because a LITERAL test picks the branch, and requiring
+  both branches empty was too weak.
+- **`<rp>` was absent from the non-rendered set**, which is `display: none` per the HTML Standard's
+  hidden-elements rules. The set is now taken FROM that list rather than hand-assembled — the thing
+  R23 claimed to have done. Claiming to use an external authority and then curating by hand is a
+  distinct failure from getting a list wrong, and it produced two rounds of findings.
+
+### The documentation finding was a reasoning error
+
+The spec said the family occupies 17 files. It was **16** before the CrewPageLink deletion and is
+**15** now — while the anchor count was correct throughout.
+
+§1.3 had already recorded the composition change: `AttentionMenu` left the family, and
+`AttentionBanner` gained a second anchor. That holds the ANCHOR total at 23 and reduces the FILE
+total from 17 to 16. I re-derived the anchor total, saw it unchanged, and wrote "still 23 anchors" —
+which then read as "nothing moved". §1.3 even carried a warning not to treat unchanged totals as
+evidence nothing changed, and the warning did not save me, because I had only re-derived the number
+that happened not to move.
+
+**A per-file count and a per-anchor count over the same set are independent measurements.** When
+composition changes, every derived figure needs re-deriving, not just the one that looks load-bearing.
+§1.4 now shows all three columns — as-written, actual-before-deletion, current — so the error is
+legible rather than silently corrected.
+
+### Three mutation sweeps, six gaps, none of them review findings
+
+Across `hidesFromAccName`, `rendersNothing`, the destination walk, the hint-walk allowlist and
+candidate admission — roughly 36 decision clauses:
+
+| Gap | Disposition |
+| --- | --- |
+| `<input type="hidden">` branch | DEAD (void element, can never be an ancestor; the narrowed model already rejects it) — deleted |
+| `aria-hidden="false"` exemption | unpinned at the SCANNER level; the behavioural suite pins what the HARNESS computes, a different assertion |
+| objectLiteral branch of `rendersNothing` | never exercised — every case had the object as `&&`'s LEFT operand |
+| comma expression's RIGHT operand | only the left-operand case was pinned, so the clause was unverified |
+| component NESTED inside the anchor | untrusted, but no test covered it |
+| explicit hint exclusion at the top of the walk | subsumed by the untrusted-component rule; kept, comment corrected so nobody preserves the wrong line |
+
+Twenty-nine review rounds found none of these, and that is not a criticism of the reviewer: a review
+examines what it is pointed at, and a sweep examines what the code actually branches on. They are
+different instruments. The sweep costs one scripted loop per surface and should have run at R10.
