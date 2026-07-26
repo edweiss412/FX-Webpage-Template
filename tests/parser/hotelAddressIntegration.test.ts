@@ -97,35 +97,49 @@ describe("address ambiguity through parseHotels", () => {
   });
 });
 
-// Whole-diff review R3 finding 2: multi-group inline cells gave every group the
-// SAME rawSnippet (the whole parent cell), so both warnings shared a content
-// hash and ONE use-raw decision rewrote every reservation's hotel_name to the
-// entire booking line — other hotels, guests and dates included. Crew-readable
-// data corruption on the new write-back path.
-describe("multi-group inline cells attribute raw per group", () => {
+// Whole-diff review R3 finding 2, closed structurally with spec §3.1 row 7:
+// in a multi-group inline cell every row's hotel_name is assigned by
+// INHERITANCE from group 0's baseName, so the only reservation whose name the
+// splitter actually judged is reservation 0. A later-row address warning is
+// incoherent by construction — its parsed payload describes baseName (text
+// from segment 0) while its raw fragment is a guest-only segment that never
+// contained that text, so its "undo" replacement corrupts the row (the R3 f2
+// probe: one decision rewrote every reservation to the whole booking line).
+// Multi-group cells therefore carry AT MOST ONE address warning, anchored at
+// index 0, with segment 0 as its raw fragment.
+describe("multi-group inline cells anchor the address warning at row 0", () => {
+  const SEGMENT_0 = "Hyatt Place Chicago 71 Chicago, IL 60601 John Smith - 1001";
   const TWO_AMBIGUOUS =
-    "Hyatt Place Chicago 71 Chicago, IL 60601 John Smith - 1001 Check In: 3/1 Check Out: 3/2 " +
+    `${SEGMENT_0} Check In: 3/1 Check Out: 3/2 ` +
     "Marriott Place Chicago 72 Chicago, IL 60602 Jane Doe - 1002 Check In: 3/3 Check Out: 3/4";
 
-  it("gives each warning its OWN fragment, not the parent cell", () => {
+  it("emits exactly ONE warning, at index 0, with segment 0 as its fragment", () => {
     const agg = newAggregator();
-    parseHotels(`| Hotel Reservations | ${TWO_AMBIGUOUS} |`, "v2", agg);
+    const hotels = parseHotels(`| Hotel Reservations | ${TWO_AMBIGUOUS} |`, "v2", agg);
+    expect(hotels.length).toBeGreaterThan(1);
     const w = agg.warnings.filter((x) => x.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS");
-    expect(w.length).toBeGreaterThan(1);
-    const snippets = w.map((x) => x.rawSnippet);
-    // Distinct fragments, and none is the whole cell.
-    expect(new Set(snippets).size).toBe(snippets.length);
-    for (const s of snippets) expect(s!.length).toBeLessThan(TWO_AMBIGUOUS.length);
+    expect(w, "row 7: later rows inherit, only row 0's split was judged").toHaveLength(1);
+    expect(w[0]!.blockRef?.index).toBe(0);
+    // The fragment is group 0's segment — never the parent cell, and never a
+    // later guest-only fragment (whose text an undo would write into the row).
+    expect(w[0]!.rawSnippet).not.toContain("Marriott");
+    expect(w[0]!.rawSnippet).not.toContain("Jane Doe");
+    expect(w[0]!.rawSnippet!.length).toBeLessThan(TWO_AMBIGUOUS.length);
   });
 
-  it("gives each warning a DISTINCT content hash", () => {
+  it("never lets a later guest-only fragment become an undo replacement", () => {
+    // Group 0 ambiguous, group 1 a bare inherited guest (the consultants shape).
+    const cell =
+      `${SEGMENT_0} Check In: 3/1 Check Out: 3/2 ` +
+      "----- Eric Weiss - 2035937 Check In: 3/3 Check Out: 3/4";
     const agg = newAggregator();
-    parseHotels(`| Hotel Reservations | ${TWO_AMBIGUOUS} |`, "v2", agg);
-    const hashes = agg.warnings
-      .filter((x) => x.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS")
-      .map((x) => (x.resolution as { contentHash?: string }).contentHash)
-      .filter(Boolean);
-    // Shared hashes are what let one decision rewrite every reservation.
-    if (hashes.length > 1) expect(new Set(hashes).size).toBe(hashes.length);
+    parseHotels(`| Hotel Reservations | ${cell} |`, "v2", agg);
+    const w = agg.warnings.filter((x) => x.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS");
+    expect(w).toHaveLength(1);
+    expect(w[0]!.blockRef?.index).toBe(0);
+    const res = w[0]!.resolution as { replacement?: { hotelName?: string } };
+    if (res.replacement?.hotelName) {
+      expect(res.replacement.hotelName).not.toContain("Eric Weiss");
+    }
   });
 });

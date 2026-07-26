@@ -730,39 +730,35 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   // before the first "Check In" (consultants). Strip those guest/confirmation
   // spans so the shared hotel name is the actual hotel/address, then apply it to
   // every group (later groups carry only a divider + guest, not the hotel).
-  const carriesOwnHotel = (b: InlineBuild): boolean => {
-    let residual = stripConfTokens(b.row.hotel_name ?? "").replace(/[-–—]{2,}/g, " ");
-    for (const n of b.row.names) {
-      if (n) residual = residual.split(n).join(" ");
-    }
-    return /\p{L}/u.test(residual);
-  };
-  const verdicts = builds.map((b, i) => b.judgedGuestBoundary && (i === 0 || carriesOwnHotel(b)));
+  //
+  // Spec §3.1 row 7 is unconditional: a later group (index > 0) NEVER emits.
+  // Its hotel is assigned by inheritance from `baseName` below, so no
+  // hotel/first-guest boundary is judged for it. Three successive attempts to
+  // carve out "unless the fragment carries its own hotel text" — group index,
+  // leading-divider run, residual-word check — were each output-derived proxies
+  // and each wrong in both directions (whole-diff R3 finding 1), re-proving the
+  // spec's own claim that no output-derived rule can work. The carve-out is
+  // refuted as relitigation of ratified row 7; a later fragment that DOES carry
+  // its own hotel is a pre-existing inheritance clobber, filed as
+  // BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL rather than papered over here.
+  const verdicts = builds.map((b, i) => i === 0 && b.judgedGuestBoundary);
 
   const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
   for (const r of rows) r.hotel_name = baseName;
-  // Groups after the first carry only a divider + guest and INHERIT the hotel
-  // name, so no hotel/first-guest boundary is judged for them (spec §3.1 row 7).
-  // Computed BEFORE `baseName` overwrites every row's hotel_name below —
-  // afterwards every group looks like it has one and the question is unanswerable.
-  // A later group inherits the hotel only when its fragment carries NO hotel
-  // text of its own. Leading-divider detection was a PROXY and was wrong in both
-  // directions (probe-verified): "----- Marriott Downtown … Jane Doe - 1002" has
-  // its own hotel yet was silenced, and a guest-only group with no divider
-  // emitted a second warning for a hotel it inherited.
-  //
-  // The real question is whether the fragment holds anything beyond its own
-  // guests, so ask that directly: strip the divider, the conf tokens and the
-  // group's own parsed names from the hotel text it produced, and see whether
-  // any word survives.
-  // A group that inherits `baseName` had its hotel fields overwritten, so any
-  // ambiguity its own build recorded describes text this row no longer holds.
-  // Emitting it would offer a replacement drawn from the discarded fragment
-  // (whole-diff R1 finding 2).
-  const addrs = builds.map((b, i) =>
-    i > 0 && !carriesOwnHotel(b) ? undefined : b.addressAmbiguity,
-  );
-  const stripped = stripHotelNameConf(rows, (i, a) => (addrs[i] ??= a));
+  // Address ambiguity follows the same row-7 anchor: only reservation 0's
+  // hotel_name is the splitter's own output — every later row holds inherited
+  // text. A later-row address warning is incoherent by construction: its parsed
+  // payload would describe baseName (text from segment 0) while its raw
+  // fragment is a guest-only segment that never contained that text, so its
+  // "undo" replacement writes guest names into hotel_name (the R3 finding 2
+  // corruption). Keep row 0's build stash; drop later builds' stashes (their
+  // fragments were discarded by inheritance — whole-diff R1 finding 2) and
+  // ignore later rows' re-split stashes (identical to row 0's by construction,
+  // since every row now holds the same baseName).
+  const addrs = builds.map((b, i) => (i === 0 ? b.addressAmbiguity : undefined));
+  const stripped = stripHotelNameConf(rows, (i, a) => {
+    if (i === 0) addrs[0] ??= a;
+  });
   return toPending(stripped, verdicts, segments, addrs);
 }
 

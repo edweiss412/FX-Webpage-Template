@@ -103,32 +103,37 @@ describe("inline hotel guest ambiguity", () => {
     });
   });
 
-  // Whole-diff review R1 finding 4. Keying the inheritance rule on group INDEX
-  // silenced any later group that HAS its own hotel text. Probe-verified: both
-  // reservations below mis-parse ("Main St John Smith" as a guest name, and the
-  // second inheriting the wrong hotel) and only ONE warning fired.
+  // Spec §3.1 row 7 is unconditional: a later group (index > 0) NEVER emits —
+  // its hotel is assigned by inheritance, so no hotel/first-guest boundary is
+  // judged for it. Whole-diff R1 finding 4 asked for a carve-out ("warn when a
+  // later group carries its own hotel text") and three successive predicates
+  // tried to supply one — group index guard, leading-divider run, residual-word
+  // check. All three were proxies over parser OUTPUT and each was wrong in both
+  // directions (whole-diff R3 finding 1), which is the spec's own §3.1 claim
+  // ("no output-derived rule can work") re-proven. The carve-out is refuted as
+  // relitigation of ratified row 7; the underlying own-hotel clobber is a
+  // pre-existing parse defect filed as BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL.
   describe("later groups", () => {
-    it("WARN when the group carries its own hotel text", () => {
+    it("stays SILENT for a later group even when it carries its own hotel text", () => {
       const { warnings } = guestWarnings(
         inline(
           "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1 Check Out: 3/2 " +
             "Marriott Downtown 200 Oak Ave Jane Doe - 1002 Check In: 3/3 Check Out: 3/4",
         ),
       );
-      expect(warnings, "each group judged its own hotel/guest boundary").toHaveLength(2);
+      expect(warnings, "row 7: later groups never emit").toHaveLength(1);
+      expect(warnings[0]!.blockRef).toMatchObject({ index: 0 });
     });
 
-    // R2 finding 2: the first fix keyed on a leading DIVIDER, which is a proxy
-    // and was wrong in BOTH directions. These two pin the real question — does
-    // the fragment hold anything beyond its own guests?
-    it("WARN when a divider-prefixed group still carries its own hotel", () => {
+    it("stays SILENT for a divider-prefixed later group with its own hotel", () => {
       const { warnings } = guestWarnings(
         inline(
           "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1 Check Out: 3/2 " +
             "----- Marriott Downtown 200 Oak Ave Jane Doe - 1002 Check In: 3/3 Check Out: 3/4",
         ),
       );
-      expect(warnings, "the divider does not make it an inheriting group").toHaveLength(2);
+      expect(warnings, "row 7 has no divider condition").toHaveLength(1);
+      expect(warnings[0]!.blockRef).toMatchObject({ index: 0 });
     });
 
     it("stay SILENT for a guest-only group with NO divider", () => {
