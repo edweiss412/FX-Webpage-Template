@@ -251,7 +251,16 @@ New package script `test:e2e:standalone` wrapping that command, matching the exi
 
 **The run command must not be piped.** `tests/ci/_workflowCoverageScan.ts:30` classifies a command ending in `| tee`, `| cat`, or `| grep` as exit-code suppression and refuses to count it. Several `x-audits.yml` jobs deliberately pipe through `tee` with `set -o pipefail`, but the scanner cannot see `pipefail`, so copying that idiom here would mark the job non-blocking and silently re-darken all 27 specs while the guard stayed green. Playwright runs as a bare command; diagnostics come from the `if: failure()` upload-artifact sibling step, which the scanner correctly ignores (`tests/ci/_workflowCoverageScan.ts:16`).
 
-**Env comes from the config, not the workflow.** Two specs need server env at module load (§2.3a). Rather than copy `.github/workflows/modal-header-layout-e2e.yml:74`'s nine-variable block into the new workflow, `tests/e2e/standalone.config.ts` sets the deterministic demo fallbacks itself (`process.env.X ??= …`), so the config is self-sufficient for every consumer — this workflow, a local run, any future job. The `process.env.X ?? <demo>` shape is already the established idiom for the port-3004 webServer in `playwright.config.ts`. This is the same one-place-not-per-call-site principle as §3.1, applied to env instead of flags, and it removes the failure mode the retired workflow's own comment documents: without `HASH_FOR_LOG_PEPPER` the harness dies and the spec reports a layout failure that is really an env failure.
+**Env comes from the config, not the workflow.** Two specs need server env at module load (§2.3a).
+
+There are already **two partial mechanisms**, and neither covers both environments:
+
+- `tests/e2e/helpers/loadTestEnv.ts` is a side-effect import that loads `.env.local` into the Playwright runner process. Its docstring names this exact failure — "`lib/email/hashForLog.ts` needs `HASH_FOR_LOG_PEPPER`, reached transitively through `buildScenarioModalData → step3ReviewSections → requireAdmin`". It fixes a **developer machine** and does nothing in CI, where no `.env.local` exists. Only two specs import it (`tests/e2e/dev-capture.spec.ts`, `tests/e2e/attention-modal-gallery.spec.ts`) — neither of them the two that fail.
+- `.github/workflows/modal-header-layout-e2e.yml:74` supplies the nine variables as job env. That fixes **CI** for the four specs that workflow runs, and does nothing locally.
+
+So the same defect has been patched twice, in different places, each covering half the problem — and the two specs that actually need it are covered by the CI half only, which is why retiring that workflow breaks them.
+
+`tests/e2e/standalone.config.ts` therefore sets the deterministic demo fallbacks itself with `process.env.X ??= …`. `??=` is load-bearing: a real `.env.local` value already loaded still wins, so this composes with `loadTestEnv` rather than overriding it. The config becomes self-sufficient for every consumer — this workflow, a local run, any future job — which is the same one-place-not-per-call-site principle as §3.1 applied to env. The `process.env.X ?? <demo>` shape is already the established idiom for the port-3004 webServer in `playwright.config.ts`.
 
 ### §4.2 Why no path filter
 
