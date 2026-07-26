@@ -123,7 +123,7 @@ const stubRouter = {
 
 const NOOP_OK = async () => ({ ok: true as const });
 
-/** Share token present so the strip renders its copy-link — the loaded
+/** Share token present so the strip renders its share hub — the loaded
  *  subheader's width and wrap behavior depend on it, and assertion E measures
  *  that band's height. A null token would quietly shrink the comparison. */
 const PARITY_SHARE_TOKEN = "parity-share-token";

@@ -126,6 +126,16 @@ const CARET_SIZE_PX = 10;
  *  `--radius-md`, the same value `CARET_EDGE_INSET` encodes for the triangle. */
 const CARET_CORNER_INSET_PX = 12;
 
+/** One-shot highlight window on the crew-URL block after the share-token
+ *  changes. Paired with the `[data-share-link-flash]` keyframes in
+ *  app/globals.css, which the spec makes normative; keep this value and the CSS
+ *  duration in sync (a drift pin in shareHubFlashTransitions asserts both).
+ *
+ *  A separate constant from `WARNING_HIGHLIGHT_MS` despite the shared value:
+ *  that one is pinned to Step3ReviewModal by the source-marker audit and stays
+ *  there. */
+export const SHARE_LINK_FLASH_MS = 1600;
+
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
 export type ShareHubProps = {
@@ -429,6 +439,46 @@ export function ShareHub({
   // all, but a future edit that reintroduces one must not surface a live crew URL
   // for a read-only show.
   const linkActive = published && !archived && url != null;
+
+  // ── Crew-URL change cue (spec 2026-07-24 §3.2, §6.1) ──────────────────────
+  //
+  // Render-phase derived state, the "adjust state when a prop changes" pattern
+  // ShareTokenContext already uses for this same shape of problem. MUST sit
+  // after `linkActive`: the clear predicate reads it.
+  //
+  // The rule is three branches over (visible-after, token-transition):
+  //   1. not visible after  → clear
+  //   2. both-non-null      → bump
+  //   3. otherwise          → leave alone (the cue survives unrelated renders)
+  const [prevToken, setPrevToken] = useState(token);
+  const [flash, setFlash] = useState<number | null>(null);
+
+  if (prevToken !== token) {
+    setPrevToken(token);
+    // The GUARD half is load-bearing in the null-to-token direction, where
+    // `linkActive` becomes TRUE and nothing else would suppress a false cue
+    // (a read fault recovering, an unarchive, a republish restoring
+    // eligibility). The clearing half is redundant with the predicate below —
+    // a null token forces `linkActive` false — and is kept only as a local
+    // invariant.
+    setFlash((n) => (prevToken !== null && token !== null ? (n ?? 0) + 1 : null));
+  }
+  // Written over the target's VISIBILITY, not over any one cause. `linkActive`
+  // folds in `published` and `archived` as well as the token, and a pure
+  // unpublish deliberately does NOT rotate or bump the epoch
+  // (20260701000000_published_toggle_unpublish_show.sql:2), so the block can
+  // unmount with `token` untouched. Keying this on token-nullity left a cue
+  // alive across that unmount, and a republish inside the window remounted an
+  // UNCHANGED url wearing the attribute. One predicate covers the whole class:
+  // closed panel, null token, unpublish, archive.
+  if ((!open || !linkActive) && flash !== null) setFlash(null);
+
+  useEffect(() => {
+    if (flash === null) return;
+    const t = setTimeout(() => setFlash(null), SHARE_LINK_FLASH_MS);
+    return () => clearTimeout(t);
+  }, [flash]);
+
   // Gated on `open`: the strip re-renders on every loader pass (relative-time
   // props churn), and batching the roster into mailto hrefs is real work that
   // nothing can observe while the popover is closed.
@@ -595,8 +645,8 @@ export function ShareHub({
           Archived drops the crew-link half of the popover, but it must NOT drop
           down to a bare kebab: Unarchive would then be reachable only by
           guessing that a three-dot glyph is its home, in the one state where
-          the operator most needs a way back — and the hub does not even appear
-          on an archived show today, so there is no learned position either
+          the operator most needs a way back — and before this change the hub did
+          not appear on an archived show at all, so there is no learned position
           (impeccable critique P1). A labelled trigger keeps it recognition,
           not recall. */}
       <button
@@ -721,9 +771,23 @@ export function ShareHub({
 
                   {linkActive ? (
                     <>
-                      <div className="flex items-start gap-1.5">
+                      <div
+                        data-testid="admin-current-share-link-row"
+                        className="flex items-start gap-1.5"
+                      >
+                        {/* `key={token}` remounts this block on a token change,
+                            which is what restarts both keyframes. Keyed on the
+                            TOKEN and not on `flash`: the key must change when
+                            the URL does, and must NOT change when the timer
+                            clears the attribute — that would remount mid-read
+                            and destroy a text selection someone made in order
+                            to copy the URL by hand. By the time the token
+                            changes, any selected text is a URL that no longer
+                            exists. */}
                         <code
+                          key={token}
                           data-testid="admin-current-share-link-url"
+                          {...(flash !== null ? { "data-share-link-flash": "" } : {})}
                           className="min-w-0 flex-1 break-all rounded-sm bg-surface-sunken px-2 py-1 text-xs text-text-strong"
                         >
                           {url}

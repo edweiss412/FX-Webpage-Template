@@ -10,8 +10,9 @@
  *
  * The failure mode this file exists to catch (§F3): the shared DEFAULT (accent)
  * arm gets restyled to produce the neutral outline treatment, silently
- * restyling the share panel that is mounted INSIDE this very modal
- * (ShareLinkBody reaches the button through the Overview `shareSlot`). That
+ * restyling the crew-link row mounted INSIDE this very modal — reached today
+ * through the share hub's popover. (It was `ShareLinkBody` via the Overview
+ * `shareSlot` when this was written; both are deleted.) That
  * regression is invisible to any test that only looks at the new arm — hence
  * T-COPY-ACCENT-UNCHANGED, which is DECLARED NOT RED: it is an invariance guard,
  * green before and after by design. This task's red comes from T-COPY-OUTLINE,

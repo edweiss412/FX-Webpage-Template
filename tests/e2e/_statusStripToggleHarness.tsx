@@ -27,7 +27,7 @@
  * PublishedToggle calls useRouter(), so every render is wrapped in
  * AppRouterContext.Provider with a stub router (else renderToStaticMarkup throws
  * "invariant expected app router to be mounted"), plus ShareTokenProvider (token
- * null → the strip's copy-link is irrelevant to this geometry).
+ * null → the strip's share hub is irrelevant to this geometry).
  */
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";

@@ -3,9 +3,10 @@
 /**
  * app/admin/show/[slug]/ShareLinkCopyButton.tsx (M11.5 §B Task F2.5)
  *
- * Isolated 'use client' Copy button for <CurrentShareLinkPanel>. The parent
- * panel is a Server Component; this button is the smallest possible client
- * island so the share-link surface keeps server-rendering chrome.
+ * Isolated 'use client' Copy button for the crew-link row in the ShareHub
+ * popover. It stays the smallest possible client island so the surrounding
+ * share surface keeps its server-rendered chrome. (It was written for
+ * CurrentShareLinkPanel, which the share-hub consolidation removed.)
  *
  * Watchpoints (kickoff brief):
  *   - The token is sensitive. Do NOT log it; do NOT hang it on a global.
@@ -14,7 +15,7 @@
  *     browser, lab environment). On failure, the visible URL is still
  *     selectable for manual copy — no destructive consequence.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /**
  * Style axis (modal-header-reconciliation §6.4). Replaces the former boolean
@@ -22,9 +23,17 @@ import { useEffect, useRef, useState } from "react";
  * spellings for one axis is the defect being fixed — so the boolean is
  * REPLACED, not kept as a deprecated alias.
  *
- *   - "accent"  — the default fill. `CurrentShareLinkPanel` via ShareLinkBody.
- *   - "compact" — icon-only, for the per-show `ShareChip` pill.
- *   - "outline" — neutral bordered, for the published modal's control strip.
+ *   - "accent"  — the default fill. The ONLY variant with a live call site
+ *                 today: the ShareHub popover's crew-link row.
+ *   - "compact" — icon-only. Its call site (a per-show header pill) was deleted
+ *                 with the orphaned chip; retained with test-only coverage.
+ *   - "outline" — neutral bordered. Its call site (the status strip's copy-link)
+ *                 was retired when the share hub absorbed it; likewise retained
+ *                 with test-only coverage.
+ *
+ * Keeping the two call-site-less variants is deliberate, not drift: removing
+ * either is a decision about this component's API, out of scope for the
+ * milestones that removed their consumers.
  *
  * Behavior (clipboard write, 2s reset, sr-only announce) is identical across
  * all three; only presentation and accessible-name strategy differ.
@@ -50,9 +59,50 @@ export function ShareLinkCopyButton({
 
   useEffect(() => () => clearReset(), []);
 
+  // A rotate inside the 2s confirmation window invalidates what was copied: the
+  // clipboard holds the OLD url, which is already dead for the whole crew. Left
+  // alone, the button keeps asserting "Copied" while the block two pixels away
+  // cues that the link just changed — the confirmation and the cue contradicting
+  // each other. Reset on any url change.
+  //
+  // Render-phase, matching how the hub derives its own cue state: an effect
+  // would paint one frame of the stale label first.
+  //
+  // The pending reset timer is deliberately NOT cleared here — touching a ref
+  // during render is forbidden, and it would be redundant anyway: the timer only
+  // sets `copied` false, which this already did, and `onClick` clears it before
+  // arming a new one, so a later copy cannot inherit it.
+  const [seenUrl, setSeenUrl] = useState(url);
+  if (seenUrl !== url) {
+    setSeenUrl(url);
+    if (copied) setCopied(false);
+  }
+
+  // Read by the async handler to tell "still the url I wrote" from "rotated
+  // under me". Written in a LAYOUT effect, which React flushes synchronously
+  // after commit and before paint — a passive `useEffect` runs after paint, and
+  // round-2 review showed a promise resolving in that window compares against
+  // the stale ref, wins, and re-announces "Copied" beside the new url. The
+  // render-phase reset above cannot undo it, because `seenUrl` already holds the
+  // new url by then.
+  //
+  // Not writable during render: the compiler forbids touching a ref there.
+  const urlRef = useRef(url);
+  useLayoutEffect(() => {
+    urlRef.current = url;
+  }, [url]);
+
   const onClick = async () => {
+    // Capture the url this request is FOR. `writeText` is async, so a rotate can
+    // land between the call and its resolution: without this the old promise
+    // resolves, sets `copied`, and announces success next to a url the clipboard
+    // does not contain — the dead one, already unusable for the whole crew.
+    // The render-phase reset above only handles copies that had already
+    // completed, so it cannot see this one.
+    const requested = url;
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(requested);
+      if (requested !== urlRef.current) return;
       setCopied(true);
       clearReset();
       resetRef.current = setTimeout(() => setCopied(false), 2_000);

@@ -852,6 +852,47 @@ body {
   }
 }
 
+/* ShareHub crew-link block: one-shot highlight after the share-token changes
+   (spec 2026-07-24-share-link-chrome-backlog-design section 3.4, which makes
+   this block NORMATIVE — a test compares the shipped rules against it rather
+   than against a description of it). Outline plus a brief wash over
+   SHARE_LINK_FLASH_MS (1600ms; keep in sync with ShareHub.tsx, which a drift
+   pin enforces).
+
+   Reduced motion: NO cue. Deliberately unlike the step3 fallback above, which
+   leaves a steady tint: that is right for a persistent jump-target the user
+   must still locate, and wrong for a one-shot "this just changed" signal, which
+   has no correct steady state. The rotate banner already announces the change
+   via role=status on the local path. */
+@keyframes share-link-flash-bg {
+  0%,
+  45% {
+    background-color: var(--color-accent-tint);
+  }
+  100% {
+    background-color: var(--color-surface-sunken);
+  }
+}
+@keyframes share-link-flash-ring {
+  0%,
+  45% {
+    box-shadow: 0 0 0 2px var(--color-accent-edge);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+[data-share-link-flash] {
+  animation:
+    share-link-flash-bg 1600ms ease-out,
+    share-link-flash-ring 1600ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-share-link-flash] {
+    animation: none;
+  }
+}
+
 /*
  * /help long-form prose typography.
  *
