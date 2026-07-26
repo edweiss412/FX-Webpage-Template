@@ -29,6 +29,8 @@
  *     `min-w-0` + `wrap-break-word` so a long unbreakable title wraps instead
  *     of overflowing at 320px.
  */
+import { ChevronRight } from "lucide-react";
+
 import type { ViewerAgendaDays } from "@/lib/crew/agendaViewerDays";
 import type { JSX } from "react";
 
@@ -72,6 +74,17 @@ export function AgendaScheduleBlock({
   // extraction that actually has days. Everything else → embed-only.
   if (!data || data.confidence !== "high" || data.days.length === 0) return null;
 
+  // An EMPTY subset is treated as "all": "fold iff my index is absent" would otherwise fold
+  // every row including the viewer's own, which is the worst outcome this feature can produce.
+  // The type cannot forbid the empty set, so the consumer must.
+  const rows = _viewerDays.kind === "subset" && _viewerDays.rows.size > 0 ? _viewerDays.rows : null;
+  const isOpen = (di: number): boolean => rows === null || rows.has(di);
+  // THE MARKER RULE (spec §5): the marker renders only when it DISTINGUISHES, i.e. some day is
+  // the viewer's AND some day is not. `rows === null` means nothing is distinguished; a full
+  // set means every day is theirs, which tells the viewer nothing either.
+  const marks = rows !== null && rows.size < data.days.length ? rows : null;
+  const markerOn = (di: number): boolean => marks !== null && marks.has(di);
+
   return (
     <div data-testid="agenda-schedule" className="flex min-w-0 flex-col gap-4">
       {label ? (
@@ -83,16 +96,48 @@ export function AgendaScheduleBlock({
         </p>
       ) : null}
       {data.days.map((day, di) => (
-        <div key={`${day.dayLabel}-${di}`} className="flex min-w-0 flex-col gap-2">
-          <h3 className="flex items-baseline gap-1.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
-            <span>{day.dayLabel}</span>
+        <details
+          key={`${day.dayLabel}-${di}`}
+          data-testid={`agenda-day-${di}`}
+          open={isOpen(di)}
+          // `w-full` supplies the width and `min-w-0` allows shrinking below the content
+          // minimum: min-w-0 alone does NOT make a flex item fill the cross axis, and this
+          // project's Tailwind v4 does not default .flex to align-items: stretch.
+          // `list-none` plus the marker-hiding variants remove the UA disclosure triangle so
+          // it does not render beside the chevron. The <summary> role is unchanged.
+          className="w-full min-w-0 list-none [&::-webkit-details-marker]:hidden [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none"
+        >
+          <summary
+            data-testid={`agenda-day-summary-${di}`}
+            className="flex min-h-tap-min min-w-0 cursor-pointer list-none items-baseline gap-1.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          >
+            <span className="min-w-0 wrap-break-word">{day.dayLabel}</span>
             {day.date ? (
-              <span className="font-normal normal-case tabular-nums text-text-subtle">
+              <span className="max-w-[12ch] shrink-0 truncate font-normal normal-case tabular-nums text-text-subtle">
                 {day.date}
               </span>
             ) : null}
-          </h3>
-          <ul className="flex flex-col gap-2">
+            <span
+              data-testid={`agenda-day-count-${di}`}
+              className="shrink-0 font-normal normal-case tabular-nums text-text-subtle"
+            >
+              {day.sessions.length === 1 ? "1 session" : `${day.sessions.length} sessions`}
+            </span>
+            {markerOn(di) ? (
+              <span
+                data-testid={`agenda-day-marker-${di}`}
+                className="shrink-0 font-semibold normal-case text-text-strong"
+              >
+                Your day
+              </span>
+            ) : null}
+            <ChevronRight
+              aria-hidden="true"
+              data-agenda-day-chevron=""
+              className="ml-auto size-3.5 shrink-0"
+            />
+          </summary>
+          <ul className="flex flex-col gap-2 pt-2">
             {day.sessions.map((session, si) => (
               <li
                 key={`${di}-${si}-${session.time}`}
@@ -145,7 +190,7 @@ export function AgendaScheduleBlock({
               </li>
             ))}
           </ul>
-        </div>
+        </details>
       ))}
     </div>
   );
