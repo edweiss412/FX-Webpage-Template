@@ -512,8 +512,8 @@ WITH substitutions is not. Anything outside these shapes is reported as
   does not (R32 BLOCKING 2, wrong in both directions from one weak read).
 
   The scanner compares case-insensitively after trimming, so it treats `"TRUE"` as hiding and reports
-  the anchor. **That is deliberately stricter than the harness**, in the same family as `noscript` and
-  `inert`: browsers may fold an enumerated ARIA value where `dom-accessibility-api` does not, and the
+  the anchor. **That is deliberately stricter than the harness** — one of the four divergences listed
+  under "THE FOUR STRICTER-THAN-HARNESS DIVERGENCES" below: browsers may fold an enumerated ARIA value where `dom-accessibility-api` does not, and the
   costly error is a silently unannounced link, not a reported valid one. Do not "fix" the scanner to
   match a `toHaveAccessibleName` result here — the divergence is the point, and both sides of it are
   pinned in `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`.
@@ -552,18 +552,25 @@ WITH substitutions is not. Anything outside these shapes is reported as
   | `link`, `meta`, `base`, `area` | React THROWS on children — "is a self-closing tag and must neither have `children`" — so none can ever carry a text label |
   | `head`, `basefont` | render in this harness and contribute their text; obsolete or structurally absurd inside an `<a>`, with no live usage, so they are left out rather than added on a guess |
 
-  **`visibility: collapse` is a stricter-than-harness case too.** Per CSS, `collapse` on a non-table
-  element is treated as `hidden`, so a real browser drops the subtree from the accessibility tree.
-  `dom-accessibility-api` special-cases the inline `visibility:hidden` string and does not recognise
-  `collapse`, so BOTH installed versions still compute the text (measured, and pinned beside the
-  `hidden` case that they DO model). The scanner follows the browser and reports it. Do not "fix"
-  this to match a `toHaveAccessibleName` result.
+  <a id="stricter-than-harness"></a>
 
-  **`noscript` is a stricter-than-harness case, like `inert`.** It is `display: none` only when
-  scripting is enabled, so a real browser running this app does not render it — but the harness
-  applies no CSS and computes `"Go (opens in a new tab)"` for a `<noscript>` label. The guard treats
-  it as non-rendering, which is right for the runtime and cannot be confirmed by the harness. Do not
-  "fix" the guard to match a `toHaveAccessibleName` result here.
+  **THE FOUR STRICTER-THAN-HARNESS DIVERGENCES.** These are the only places the scanner deliberately
+  disagrees with `dom-accessibility-api`, and each one follows the BROWSER because the harness cannot
+  see what a browser sees. This is the single list; earlier sections that mention "stricter than the
+  harness" mean exactly these four and must not re-enumerate a partial set — three separate partial
+  lists is how the count drifted from two to four unnoticed.
+
+  | Case | What a browser does | What the harness computes |
+  | --- | --- | --- |
+  | `inert` | removes the subtree from the a11y tree | still reads the text |
+  | `noscript` | `display: none` when scripting is enabled | still reads the text |
+  | `visibility: collapse` | on a non-table element, treated as `hidden` | still reads the text (it special-cases only the `hidden` string) |
+  | `aria-hidden="TRUE"` | may fold an enumerated ARIA value | hides only on the exact lowercase `"true"` |
+
+  All four are measured and pinned in `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`,
+  each next to the neighbouring case the harness DOES model, so the disagreement reads as a measured
+  pair rather than an untested rule. **A `toHaveAccessibleName` result showing the harness disagrees
+  is not a finding for any of them** — do not "fix" the guard to match one.
 
   **The stale claim that used to close this paragraph — "metadata elements are deliberately excluded:
   none is valid inside an `<a>`" — is struck.** It survived one round past the finding that refuted
