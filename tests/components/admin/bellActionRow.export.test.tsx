@@ -17,7 +17,7 @@
  * (components/admin/BellPanel.tsx:332-342), so a props-only presentational child would
  * lose behaviour. These assertions pin that.
  */
-import { render, within } from "@testing-library/react";
+import { act, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { BellActionRow } from "@/components/admin/BellPanel";
 import type { BellEntry } from "@/lib/admin/bellFeed";
@@ -48,7 +48,23 @@ describe("BellActionRow is exported and owns its resolve state", () => {
     expect(row?.querySelector('[data-testid="bell-resolve-alert-1"]')).toBeNull();
   });
 
-  it("renders the manual branch with a resolve button that owns its pending state", () => {
+  it("renders the manual branch with a resolve button that owns its pending state", async () => {
+    // CLICK IT. Review round 1 was right that asserting only the idle state proves
+    // nothing about ownership: a props-only child that permanently renders the idle
+    // label with `disabled=false` and `aria-busy=false` passed every assertion here
+    // while double-submit protection and pending feedback were gone.
+    //
+    // The fetch is held OPEN so the pending state is observable. Resolving it
+    // immediately would let the component return to idle before the assertion runs,
+    // which is the same vacuity in a different disguise.
+    let release: (() => void) | undefined;
+    const held = new Promise<Response>((resolve) => {
+      release = () =>
+        resolve({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response);
+    });
+    const fetchSpy = vi.fn(() => held);
+    vi.stubGlobal("fetch", fetchSpy);
+
     const { container } = render(
       <BellActionRow entry={entryFor({ isAutoResolving: false })} onRefetch={vi.fn()} />,
     );
@@ -56,10 +72,31 @@ describe("BellActionRow is exported and owns its resolve state", () => {
     expect(row, "the action row renders").not.toBeNull();
     const button = row?.querySelector('[data-testid="bell-resolve-alert-1"]');
     expect(button, "manual branch renders a resolve button").not.toBeNull();
-    // The button starts idle: `resolving` state lives inside the exported component,
-    // so it is not disabled/busy before a click.
+
+    // Idle first, so the transition below is a real change and not the start value.
     expect(button?.getAttribute("aria-busy")).not.toBe("true");
-    expect((button as HTMLButtonElement | null)?.disabled).toBe(false);
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    const idleLabel = (button?.textContent ?? "").trim();
+
+    await act(async () => {
+      (button as HTMLButtonElement).click();
+    });
+
+    // PENDING, while the request is still open. This is the assertion that fails on
+    // a props-only extraction: the state has to live inside this component.
+    expect(fetchSpy, "clicking resolve issues the request").toHaveBeenCalled();
+    expect((button as HTMLButtonElement).disabled, "disabled while pending").toBe(true);
+    expect(button?.getAttribute("aria-busy"), "aria-busy while pending").toBe("true");
+    expect(
+      (button?.textContent ?? "").trim(),
+      `pending copy differs from the idle label ("${idleLabel}")`,
+    ).not.toBe(idleLabel);
+
+    await act(async () => {
+      release?.();
+      await held;
+    });
+    vi.unstubAllGlobals();
   });
 
   it("the row is the element T3 measures — it contains no childless growable child", () => {

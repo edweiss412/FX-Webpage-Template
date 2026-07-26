@@ -255,6 +255,29 @@ describe("the four body-empty states", () => {
       // would satisfy the containment check above while excluding every text node
       // on the surface, turning the whole scan green and vacuous.
       expect(headingRow, "the header block is a subtree of the body, not the body").not.toBe(body);
+      // ...and is not a PROPER DESCENDANT that happens to span the body either.
+      // Review round 1: with `body > wrapper > {headerLine, stray guidance}`, the
+      // icon's grandparent is `wrapper` — it contains the heading and is not the
+      // body, so both guards above pass while the exclusion swallows the stray
+      // guidance. The block must therefore contain the header and NOTHING that
+      // belongs to the body's own content slots.
+      for (const slot of [ELSEWHERE_TESTID, CLEAN_TESTID, EMPTY_TESTID]) {
+        const el = body.querySelector(`[data-testid="${slot}"]`);
+        if (el === null) continue;
+        expect(
+          headingRow.contains(el),
+          `the excluded header block must not contain the body's ${slot} slot —` +
+            " an anchor that swallows a content slot makes this scan vacuous",
+        ).toBe(false);
+      }
+      // Same for the listed rows, which are the body's other content.
+      const firstRow = body.querySelector("li[data-warning-index]");
+      if (firstRow !== null) {
+        expect(
+          headingRow.contains(firstRow),
+          "the excluded header block must not contain a listed warning row",
+        ).toBe(false);
+      }
     }
 
     // TEXT NODES, not leaf elements (round 3): a direct text node inside an

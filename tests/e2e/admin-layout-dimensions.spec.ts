@@ -689,18 +689,30 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
               ) / 100,
           });
         }
-        return { error: null, rows };
+        // The registry sections actually rendered, so the row count can be
+        // compared against a number derived from the SAME tree rather than a
+        // hardcoded floor. Review round 1: `rows.length > 0` passed if eleven of
+        // twelve sections disappeared, or gained a wrapper that dropped them from
+        // the structural selector, as long as one surviving row was the right width.
+        const registrySections = modal.querySelectorAll('[data-testid*="-review-section-"]').length;
+        return { error: null, rows, registrySections };
       }, MODAL);
 
       expect(found.error, "modal shape").toBeNull();
       if (found.error !== null) return;
 
-      // Non-vacuity: a tree that rendered no breakdown header would otherwise pass
-      // an assertion over an empty list.
+      // Non-vacuity, and EVERY section, not just one. Derived from the rendered
+      // registry-section count so the expectation cannot be satisfied by a
+      // shrinking tree.
+      expect(
+        found.registrySections,
+        `the hydrated modal rendered its registry sections [@ ${width}]`,
+      ).toBeGreaterThan(1);
       expect(
         found.rows.length,
-        `the hydrated modal rendered at least one section header [@ ${width}]`,
-      ).toBeGreaterThan(0);
+        `every registry section contributed a measurable header [@ ${width}] —` +
+          ` ${found.registrySections} sections, ${found.rows.length} headers found`,
+      ).toBe(found.registrySections);
 
       const expected = ROW_WIDTHS[width];
       const off = found.rows.filter((r) => Math.abs(r.contentWidth - expected) > 1);
@@ -754,18 +766,13 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
 
         const pane = modal.querySelector('[data-testid$="-review-content"]');
         if (!(pane instanceof HTMLElement)) return { error: "content pane not found" };
-        const card = modal.querySelector('[data-testid*="-panel-card"]');
-        if (!(card instanceof HTMLElement)) return { error: "no panel card found" };
-
-        // The registry section this card lives in — the top of the walk.
-        let registry: HTMLElement | null = card.parentElement;
-        while (
-          registry &&
-          !(registry.getAttribute("data-testid") ?? "").includes("-review-section-")
-        ) {
-          registry = registry.parentElement;
-        }
-        if (!registry) return { error: "registry section ancestor not found" };
+        // EVERY panel card. Review round 1: measuring only the first meant a
+        // regression in any other section was unobserved by a test whose name
+        // claims the chain holds.
+        const cards = Array.from(modal.querySelectorAll('[data-testid*="-panel-card"]')).filter(
+          (c): c is HTMLElement => c instanceof HTMLElement,
+        );
+        if (cards.length === 0) return { error: "no panel card found" };
 
         const contentWidth = (el: HTMLElement) => {
           const cs = getComputedStyle(el);
@@ -791,59 +798,120 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
           });
         };
 
-        // Link 1 — pane -> registry section (ASSERTED ONLY; the pane's padding is
-        // exactly the trap this comparison exists to avoid).
-        addLink(registry, pane);
+        let pillLinesMeasured = 0;
+        let pillLinesPresent = 0;
 
-        // Links 2..n — every node on the path from the registry section down to the
-        // panel card, which is where the unlabelled breakdown section and outer
-        // column live.
-        const path: HTMLElement[] = [];
-        for (let el: HTMLElement | null = card; el && el !== registry; el = el.parentElement) {
-          path.unshift(el);
-        }
-        let parent: HTMLElement = registry;
-        for (const node of path) {
-          addLink(node, parent);
-          parent = node;
+        for (const card of cards) {
+          // The registry section this card lives in — the top of this card's walk.
+          let registry: HTMLElement | null = card.parentElement;
+          while (
+            registry &&
+            !(registry.getAttribute("data-testid") ?? "").includes("-review-section-")
+          ) {
+            registry = registry.parentElement;
+          }
+          if (!registry) return { error: `registry ancestor not found for ${card.dataset.testid}` };
+          const breakdown = card.parentElement;
+          if (!(breakdown instanceof HTMLElement)) {
+            return { error: `panel card has no parent: ${card.dataset.testid}` };
+          }
+
+          // Link 1 — pane -> registry section (ASSERTED ONLY; the pane's padding is
+          // exactly the trap this comparison exists to avoid).
+          addLink(registry, pane);
+
+          // Links 2..n — every node on the path from the registry section down to the
+          // panel card, which is where the unlabelled breakdown section and outer
+          // column live.
+          const path: HTMLElement[] = [];
+          for (let el: HTMLElement | null = card; el && el !== registry; el = el.parentElement) {
+            path.unshift(el);
+          }
+          let cursor: HTMLElement = registry;
+          for (const node of path) {
+            addLink(node, cursor);
+            cursor = node;
+          }
+
+          // The header block is a SIBLING of the panel card, not an ancestor of it —
+          // the first run of this walk found only 4 links because the descent above
+          // never passes through it. Its own link to the breakdown section is added
+          // explicitly. Located from the icon chip rather than by class, so a class
+          // rename does not silently drop these links from the chain.
+          const icon = breakdown.querySelector('span[aria-hidden="true"]');
+          const headerLine = icon?.parentElement ?? null;
+          const column = headerLine?.parentElement ?? null;
+          if (!(headerLine instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+            return { error: `header line / outer column not found for ${card.dataset.testid}` };
+          }
+          // EVERY node from the breakdown section down to the header block, not just
+          // the block's immediate parent. Review round 1: a shrink-wrapping wrapper
+          // inserted between them narrows the header while every recorded immediate
+          // pair stays equal, so the walk has to traverse the path rather than jump it.
+          const headerPath: HTMLElement[] = [];
+          for (
+            let el: HTMLElement | null = column;
+            el !== null && el !== breakdown;
+            el = el.parentElement
+          ) {
+            headerPath.unshift(el);
+          }
+          if (headerPath.length === 0) {
+            return { error: `header block is not inside its breakdown: ${card.dataset.testid}` };
+          }
+          let hcursor: HTMLElement = breakdown;
+          for (const node of headerPath) {
+            addLink(node, hcursor);
+            hcursor = node;
+          }
+          addLink(headerLine, column);
+
+          // The pill line is asserted when one EXISTS, and its presence is reported so
+          // the caller can require the link was actually traversed rather than
+          // inferring it from a total count (review round 1: `hasPillLine` was
+          // computed and discarded, so a later section's pill line could lose full
+          // width unmeasured).
+          const pillLine = headerLine.nextElementSibling;
+          if (pillLine instanceof HTMLElement) {
+            pillLinesPresent += 1;
+            addLink(pillLine, column);
+            pillLinesMeasured += 1;
+          }
         }
 
-        // The header block is a SIBLING of the panel card, not an ancestor of it —
-        // the first run of this walk found only 4 links because the descent above
-        // never passes through it. Its own link to the breakdown section is added
-        // explicitly. Located from the icon chip rather than by class, so a class
-        // rename does not silently drop these links from the chain.
-        const icon = card.parentElement?.querySelector('span[aria-hidden="true"]');
-        const headerLine = icon?.parentElement ?? null;
-        const column = headerLine?.parentElement ?? null;
-        if (!(headerLine instanceof HTMLElement) || !(column instanceof HTMLElement)) {
-          return { error: "header line / outer column not found" };
-        }
-        const columnParent = column.parentElement;
-        if (!(columnParent instanceof HTMLElement)) {
-          return { error: "outer column has no parent" };
-        }
-        addLink(column, columnParent);
-        addLink(headerLine, column);
-        const pillLine = headerLine.nextElementSibling;
-        const hasPillLine = pillLine instanceof HTMLElement;
-        if (hasPillLine) addLink(pillLine, column);
-
-        return { error: null, links, hasPillLine, cardTestId: card.getAttribute("data-testid") };
+        return {
+          error: null,
+          links,
+          cards: cards.length,
+          pillLinesPresent,
+          pillLinesMeasured,
+          registrySections: modal.querySelectorAll('[data-testid*="-review-section-"]').length,
+        };
       }, MODAL);
 
       expect(found.error, "modal shape").toBeNull();
       if (found.error !== null) return;
 
-      // Non-vacuity, and it is the FLOOR that made the first run informative: five
-      // named links must be present — pane -> registry, registry -> breakdown,
+      // Non-vacuity, tied to the tree rather than to a hardcoded floor. Each card
+      // contributes five named links — pane -> registry, registry -> breakdown,
       // breakdown -> panel card, breakdown -> header block, header block -> header
-      // line — plus the pill line where a section has one. A walk that collapsed to
-      // a single link would otherwise pass trivially.
+      // line — so the total must scale with the number of cards. A walk that
+      // collapsed to one card, or to one link, fails here.
+      expect(found.cards, `the modal rendered its panel cards [@ ${width}]`).toBeGreaterThan(1);
+      expect(found.cards, `every registry section contributed a panel card [@ ${width}]`).toBe(
+        found.registrySections,
+      );
       expect(
         found.links.length,
-        `the chain walk found every link [@ ${width}] — got ${JSON.stringify(found.links.map((l) => l.link))}`,
-      ).toBeGreaterThanOrEqual(5);
+        `each of ${found.cards} cards contributed its five chain links plus any pill line` +
+          ` [@ ${width}] — got ${found.links.length}`,
+      ).toBe(found.cards * 5 + found.pillLinesMeasured);
+      // Every pill line that EXISTS was measured — `hasPillLine` used to be computed
+      // and discarded, so a later section's pill line could lose full width without
+      // any assertion seeing it (review round 1).
+      expect(found.pillLinesMeasured, `every pill line present was measured [@ ${width}]`).toBe(
+        found.pillLinesPresent,
+      );
 
       const broken = found.links.filter((l) => Math.abs(l.child - l.parentContent) > 0.5);
       expect(

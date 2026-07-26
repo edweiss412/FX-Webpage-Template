@@ -1106,16 +1106,30 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
 
     type TravelRowMetric = { i: number; displacement: number; eyebrowHeight: number };
 
-    async function partitionTravelRows(
-      page: import("@playwright/test").Page,
-    ): Promise<{ blank: TravelRowMetric[]; labelled: TravelRowMetric[] }> {
+    async function partitionTravelRows(page: import("@playwright/test").Page): Promise<{
+      blank: TravelRowMetric[];
+      labelled: TravelRowMetric[];
+      total: number;
+      dropped: string[];
+    }> {
       return page.evaluate(() => {
         const blank: { i: number; displacement: number; eyebrowHeight: number }[] = [];
         const labelled: { i: number; displacement: number; eyebrowHeight: number }[] = [];
-        Array.from(document.querySelectorAll('[data-testid="travelrow"]')).forEach((row, i) => {
+        // Rows the structural selectors could not classify. Review round 1: these
+        // were silently skipped, so a row that lost `travelrow-primary` or gained an
+        // intervening wrapper simply left the sample — its broken displacement
+        // unmeasured — while the remaining rows satisfied every population anchor.
+        const dropped: string[] = [];
+        const all = Array.from(document.querySelectorAll('[data-testid="travelrow"]'));
+        all.forEach((row, i) => {
           const stack = row.querySelector("div.flex.min-w-0.flex-col");
           const primary = row.querySelector('[data-testid="travelrow-primary"]');
-          if (!(stack instanceof HTMLElement) || !(primary instanceof HTMLElement)) return;
+          if (!(stack instanceof HTMLElement) || !(primary instanceof HTMLElement)) {
+            dropped.push(
+              `row ${i}: ${stack === null ? "no .tcol stack" : ""}${primary === null ? " no travelrow-primary" : ""}`.trim(),
+            );
+            return;
+          }
           const eyebrow = stack.firstElementChild;
           // Displacement is measured against the stack's CONTENT-box top, so stack
           // padding cannot masquerade as eyebrow cost.
@@ -1134,7 +1148,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
           if ((eyebrow?.textContent ?? "").trim() === "") blank.push(metric);
           else labelled.push(metric);
         });
-        return { blank, labelled };
+        return { blank, labelled, total: all.length, dropped };
       });
     }
 
@@ -1143,7 +1157,17 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       await page.setViewportSize({ width: 390, height: 1000 });
       await gotoSection(page, "travel");
 
-      const { blank, labelled } = await partitionTravelRows(page);
+      const { blank, labelled, total, dropped } = await partitionTravelRows(page);
+
+      // EVERY row is classified. A row the selectors cannot reach is a row whose
+      // displacement is never checked, so a drop must fail rather than shrink the
+      // sample (review round 1).
+      expect(dropped, `every travel row was classifiable — dropped: ${dropped.join("; ")}`).toEqual(
+        [],
+      );
+      expect(blank.length + labelled.length, "classified count equals the rendered row count").toBe(
+        total,
+      );
 
       // Non-vacuity: both populations must exist, or the measurement proves nothing.
       expect(blank.length, "seeded show renders blank-eyebrow travel legs").toBeGreaterThan(0);
@@ -1167,7 +1191,17 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       await page.setViewportSize({ width: 390, height: 1000 });
       await gotoSection(page, "travel");
 
-      const { blank, labelled } = await partitionTravelRows(page);
+      const { blank, labelled, total, dropped } = await partitionTravelRows(page);
+
+      // EVERY row is classified. A row the selectors cannot reach is a row whose
+      // displacement is never checked, so a drop must fail rather than shrink the
+      // sample (review round 1).
+      expect(dropped, `every travel row was classifiable — dropped: ${dropped.join("; ")}`).toEqual(
+        [],
+      );
+      expect(blank.length + labelled.length, "classified count equals the rendered row count").toBe(
+        total,
+      );
       expect(labelled.length, "seeded show renders labelled travel legs").toBeGreaterThan(0);
       expect(blank.length, "and blank ones, so the two cases measure different things").toBe(2);
 

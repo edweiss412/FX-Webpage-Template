@@ -28,10 +28,23 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * Comments and string literals stripped before the search. Review round 1: a
+ * `// see empty:hidden` comment made this test demand a DESIGN.md entry for a file
+ * that does not apply the idiom, and the reverse — documentation could be correct
+ * while a stray mention failed the run.
+ */
+function stripNonCode(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments, incl. JSDoc
+    .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ") // line comments, not `https://`
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, " "); // JSX comments
+}
+
 /** Files applying the §7a idiom, as basenames (the doc names components, not paths). */
 function componentsUsingEmptyHidden(): string[] {
   return walk(COMPONENTS)
-    .filter((f) => readFileSync(f, "utf8").includes("empty:hidden"))
+    .filter((f) => stripNonCode(readFileSync(f, "utf8")).includes("empty:hidden"))
     .map((f) => f.slice(COMPONENTS.length + 1))
     .sort();
 }
@@ -44,15 +57,30 @@ describe("DESIGN.md §7a lists every empty:hidden site", () => {
     const marker = "Current sites:";
     const idx = design.indexOf(marker);
     expect(idx, "DESIGN.md §7a carries a 'Current sites:' list").toBeGreaterThan(-1);
-    const listText = design.slice(idx, idx + 1200);
+    // Bounded by the next heading, not by a 1200-character window. Review round 1:
+    // an arbitrary window can reach an unrelated later mention of a filename and
+    // satisfy the check while the list itself is stale.
+    const rest = design.slice(idx);
+    const nextHeading = rest.search(/\n#{1,6} /);
+    const listText = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
 
     const used = componentsUsingEmptyHidden();
     expect(used.length, "at least one component applies the idiom").toBeGreaterThan(0);
 
+    // Matched on the PATH-QUALIFIED name where the doc gives one, so two components
+    // sharing a basename cannot cover for each other (review round 1). A bare
+    // basename in the doc still counts — the doc names components, not paths — but a
+    // second file with the same basename must then be named distinctly.
+    const byBase = new Map<string, string[]>();
+    for (const rel of used) {
+      const base = rel.split("/").pop() ?? rel;
+      byBase.set(base, [...(byBase.get(base) ?? []), rel]);
+    }
     const missing = used.filter((rel) => {
       const base = rel.split("/").pop() ?? rel;
-      // A component counts as listed if the doc names its file or its component name.
       const stem = base.replace(/\.tsx$/, "");
+      // Ambiguous basename: require the doc to disambiguate by path.
+      if ((byBase.get(base) ?? []).length > 1) return !listText.includes(rel);
       return !listText.includes(base) && !listText.includes(stem);
     });
 

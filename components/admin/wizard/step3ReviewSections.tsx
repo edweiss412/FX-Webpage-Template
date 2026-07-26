@@ -904,7 +904,8 @@ function ModalSectionChrome({
       {/* Section header, rebuilt (spec 2026-07-25 §3.1). The old row put the name,
           count, a childless `flex-1` pusher, the status pill and a text "In sheet"
           link all on ONE line. On a flagged section at phone width the row ran out
-          of space and the NAME was what yielded — 3 lines at 375px, measured.
+          of space and the NAME was what yielded — 2 lines at 375px and 5 lines at
+          320px, measured (spec §1's table).
 
           Now: a column whose first line is [icon | centred name+count | corner
           link], and whose second line carries the status pill when there is one.
