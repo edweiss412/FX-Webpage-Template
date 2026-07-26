@@ -964,6 +964,35 @@ describe("scanner and runtime agree, per attribute kind", () => {
     },
     { attr: "inert={false}", props: { inert: false } },
     { attr: "inert={undefined}", props: { inert: undefined } },
+    // INLINE STYLE is modelled by the harness, so these are real agreement checks.
+    { attr: 'style={{display: "none"}}', props: { style: { display: "none" } } },
+    { attr: 'style={{display: "NONE"}}', props: { style: { display: "NONE" } } },
+    { attr: 'style={{visibility: "hidden"}}', props: { style: { visibility: "hidden" } } },
+    { attr: 'style={{display: "block"}}', props: { style: { display: "block" } } },
+    {
+      attr: 'style={{backfaceVisibility: "hidden"}}',
+      props: { style: { backfaceVisibility: "hidden" } },
+    },
+    { attr: 'style={{DISPLAY: "NONE"}}', props: { style: { DISPLAY: "NONE" } } },
+    {
+      attr: 'style={{visibility: "collapse"}}',
+      props: { style: { visibility: "collapse" } },
+      divergence: "the harness does not model `visibility: collapse` (§6.4)",
+    },
+    // A hiding CLASS is the fifth divergence: jsdom loads no CSS, so the harness cannot see it.
+    {
+      attr: 'className="hidden"',
+      props: { className: "hidden" },
+      divergence: "jsdom applies no CSS, so class-based hiding is invisible to the harness (§6.4)",
+    },
+    {
+      attr: 'className="invisible"',
+      props: { className: "invisible" },
+      divergence: "jsdom applies no CSS, so class-based hiding is invisible to the harness (§6.4)",
+    },
+    // ...but a class that does NOT hide must still be accepted, and that IS checkable.
+    { attr: 'className="overflow-hidden"', props: { className: "overflow-hidden" } },
+    { attr: 'className="sr-only"', props: { className: "sr-only" } },
   ];
 
   for (const c of CASES) {

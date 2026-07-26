@@ -2341,9 +2341,23 @@ function hasSpreadOnHintPath(anchor: ts.JsxElement | ts.JsxSelfClosingElement): 
           return !["presentation", "none", "group", "generic"].includes(v.trim());
         }
         if (nm !== "classname" && nm !== "style") return false;
-        // Undecidable values (templates, conditionals) cannot be proven
-        // non-hiding.
-        return attr.initializer ? !isDecidableLiteral(attr.initializer) : false;
+        if (!attr.initializer) return false;
+        // A STYLE OBJECT is now fully decidable by `styleObjectHides`, which resolves the object in
+        // source order and evaluates each value. `stringOf` returns null for ANY object literal, so
+        // the old check called every inline style unprovable -- `style={{display:"block"}}` around a
+        // hint is ordinary, correct markup and was reported. Found by the agreement matrix, which
+        // renders the markup and sees the announcement plainly present (R35 close-out).
+        if (nm === "style") {
+          const init = attr.initializer;
+          const obj = ts.isJsxExpression(init) && init.expression ? unparen(init.expression) : null;
+          // An OBJECT LITERAL the hiding rule can read is decided by it. Everything else keeps the
+          // previous treatment: a string-literal `style="color:red"` stays decidable (React rejects
+          // that form at runtime, but the guard has always accepted it and narrowing that is a
+          // separate decision), and a dynamic style object stays opaque.
+          if (obj !== null && ts.isObjectLiteralExpression(obj)) return styleObjectHides(init);
+        }
+        // Undecidable class values (templates, conditionals) cannot be proven non-hiding.
+        return !isDecidableLiteral(attr.initializer);
       });
       if (opaque) next = true;
     }

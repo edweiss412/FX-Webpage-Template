@@ -1669,3 +1669,30 @@ The general lesson is worth more than the matrix: **when a class of finding recu
 was validated against my own model of the runtime, the fix is a test that derives its expectation
 from the runtime.** Four rounds of case-by-case correction, one matrix that would have caught most of
 them on the first run.
+
+### The matrix earned its place within minutes: a FIFTH divergence and a false-positive class
+
+Extending the matrix to `style` and `className` produced two findings before R35 reported.
+
+**A fifth stricter-than-harness divergence, previously undocumented.** jsdom loads no CSS, so a
+hiding CLASS (`hidden`, `invisible`, `md:hidden`) wrapping the hint still computes the full name —
+the harness cannot confirm or refute `classNameHides` at all. INLINE style is different and IS
+modelled (`display:none` and `visibility:hidden` both hide), which is why the matrix can cover style
+but not class. §6.4 said four divergences; it now says five, and names the class row as the one that
+is unverifiable by construction.
+
+**And a false-positive class the matrix found immediately.** Three cases failed on the first run:
+`style={{display:"block"}}`, `style={{backfaceVisibility:"hidden"}}` and `style={{DISPLAY:"NONE"}}`
+wrapping a hint were all REPORTED, while the rendered announcement is plainly present. The cause was
+in the hint-path rule, not the hiding rule: it asked `isDecidableLiteral`, and `stringOf` returns
+null for ANY object literal, so every inline style on the path was "unprovable". Now that
+`styleObjectHides` resolves an object in source order and evaluates each value, the hint-path rule
+defers to it, and an object it can fully read is decided rather than feared.
+
+Narrowed carefully: a string-literal `style="color:red"` keeps its previous treatment. React rejects
+that form at runtime, but the guard has always accepted it and changing that is a separate decision —
+the first attempt swept it up and broke an R23 fixture immediately.
+
+Both findings came from the matrix on the day it was written, against rules that had already survived
+five review rounds. That is the argument for deriving expectations from the runtime rather than from
+a fixture author's model of it.

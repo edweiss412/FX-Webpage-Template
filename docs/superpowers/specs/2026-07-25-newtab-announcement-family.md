@@ -578,7 +578,7 @@ WITH substitutions is not. Anything outside these shapes is reported as
 
   <a id="stricter-than-harness"></a>
 
-  **THE FOUR STRICTER-THAN-HARNESS DIVERGENCES.** These are the only places the scanner deliberately
+  **THE FIVE STRICTER-THAN-HARNESS DIVERGENCES.** These are the only places the scanner deliberately
   disagrees with `dom-accessibility-api`, and each one follows the BROWSER because the harness cannot
   see what a browser sees. This is the single list; earlier sections that mention "stricter than the
   harness" mean exactly these four and must not re-enumerate a partial set — three separate partial
@@ -590,8 +590,15 @@ WITH substitutions is not. Anything outside these shapes is reported as
   | `noscript` | `display: none` when scripting is enabled | still reads the text |
   | `visibility: collapse` | on a non-table element, treated as `hidden` | still reads the text (it special-cases only the `hidden` string) |
   | `aria-hidden="TRUE"` | may fold an enumerated ARIA value | hides only on the exact lowercase `"true"` |
+  | a hiding CLASS (`hidden`, `invisible`, `md:hidden`) | the stylesheet hides the subtree | jsdom loads no CSS, so it still reads the text |
 
-  All four are measured and pinned in `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`,
+  **The class row is the one that cannot be checked at all**, and it was missing from this list until
+  R35 was in flight. jsdom applies no CSS, so `className="hidden"` wrapping the hint still computes
+  the full name (measured) — the harness has no way to confirm or refute the rule. INLINE style is
+  different and IS modelled (`display:none` and `visibility:hidden` both hide in the harness), which
+  is why the agreement matrix can cover style but not class.
+
+  All five are measured and pinned in `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`,
   each next to the neighbouring case the harness DOES model, so the disagreement reads as a measured
   pair rather than an untested rule. **A `toHaveAccessibleName` result showing the harness disagrees
   is not a finding for any of them** — do not "fix" the guard to match one.
