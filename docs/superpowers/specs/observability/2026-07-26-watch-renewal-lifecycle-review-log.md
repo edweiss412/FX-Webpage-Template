@@ -100,3 +100,25 @@ Consequence for implementation: **do not attribute these to the diff, and do not
 | 5 | MEDIUM | The `superseded`-404 transition is unproved and the 404 detection unspecified. | **ACCEPTED.** The check reads `response.status`, `status` and numeric `code`, and any unrecognised shape counts as non-404 — defaulting ambiguity to retry, because mis-reading a live failure as 404 abandons the channel permanently. |
 | 6 | MEDIUM | The repaired sweep command cannot run: in this repo's `rg`, `-E` is `--encoding`. | **ACCEPTED**, and reproduced: `rg: error parsing flag -E: unknown encoding`. Replaced with the `grep -rnE` form actually executed. |
 | 7 | LOW | The skipped-folder sort contract has no assertion. | **ACCEPTED.** |
+
+## Round trajectory (recorded for the round-count retrospectives)
+
+| Round | BLOCKING | HIGH | MED | LOW | Total | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| spec R1 | 1 | 4 | 3 | 2 | 10 | BLOCKING |
+| spec R2 | 0 | 1 | 5 | 3 | 9 | NEEDS-ATTENTION |
+| spec R3 | 0 | 2 | 5 | 1 | 8 | NEEDS-ATTENTION |
+| spec R4 | 0 | 2 | 4 | 1 | 7 | NEEDS-ATTENTION |
+| spec R5 | 1 | 2 | 3 | 2 | 8 | BLOCKING |
+| spec R6 | 1 | 2 | 2 | 2 | 7 | BLOCKING |
+| spec R7 | 1 | 2 | 1 | 0 | 4 | BLOCKING |
+| plan R1b | 1 | 6 | 1 | 0 | 8 | BLOCKING |
+| plan R2 | 1 | 4 | 1 | 1 | 7 | BLOCKING |
+| plan R3 | 0 | 2 | 1 | 0 | 3 | NEEDS-ATTENTION |
+| plan R4 | 0 | 4 | 2 | 0 | 6 | NEEDS-ATTENTION |
+| plan R5 | 2 | 2 | 2 | 1 | 7 | BLOCKING |
+| plan R6 | 2 | 1 | 1 | 1 | 5 | BLOCKING |
+
+**Reading it honestly.** Mid-run I described this as "not converging". The counts say otherwise: the spec fell 10 → 4 and its LOW/MEDIUM tail collapsed. What confused the picture is that verdicts got WORSE (NEEDS-ATTENTION → BLOCKING) from R5 on, while volume fell — because every R5-R7 BLOCKING was introduced by one of my own repairs (fail-open → fail-closed, then the task-ordering consequences), not found in the original design. That is ordinary repair churn on a change with many interacting surfaces, and it shrank each round as the repairs settled.
+
+**The lesson worth keeping:** verdict severity alone is a poor convergence signal when the reviewer is BLOCKING on freshly-introduced defects. Count findings by round AND check whether the severe ones are pre-existing or self-inflicted before concluding a review loop has stalled. Two rules already in the repo would have caught most of the churn earlier if applied on the first repair rather than the third: fix-round regression budget (re-grep the class after patching) and class-sweep-before-patching.
