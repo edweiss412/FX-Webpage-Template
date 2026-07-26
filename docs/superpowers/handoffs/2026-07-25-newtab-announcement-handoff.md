@@ -1635,3 +1635,37 @@ what IS producing the verdict.
 That is six equivalent branches in this PR. The pattern across all six: a rule that composes
 (conditionals, selection, nullishness) gets its composition written in more than one place, and the
 second copy is invisible because the first already returns the right answer.
+
+### The attribute-kind agreement matrix — closing the class instead of the cases
+
+Every round from R31 to R34 produced at least one finding of the same shape: a value classified by
+the wrong attribute KIND, or by spelling rather than by what React does with it. Each was fixed one
+case at a time, and each fix was verified against a fixture that encoded MY BELIEF about the runtime.
+That is the weak link — the beliefs were wrong four rounds running.
+
+`tests/components/a11y/newTabAnnouncementBehavior.test.tsx` now carries a matrix of 30
+(attribute, value) pairs across the four kinds. For each pair it renders the markup, scans the
+equivalent source, and asserts the two AGREE: the scanner reports exactly when the announcement is
+absent from the rendered accessible name. **Nothing in it encodes a belief** — the expectation comes
+from jest-dom's matcher, which computes the real name with the same library the rest of the suite
+measures against. The scanner's verdict only chooses which direction to assert.
+
+The four documented stricter-than-harness divergences are the only exemptions, each listed with its
+reason, because for those the harness is the thing that is wrong.
+
+Verified against history rather than assumed useful — reintroducing two defects earlier rounds
+actually shipped:
+
+| Reintroduced defect | Matrix result |
+| --- | --- |
+| `popover` treated as a boolean attribute (R32 BLOCKING 3) | 4 failures |
+| `hidden` not coercing falsy values (R31 HIGH 6) | 6 failures |
+
+A third (the `aria-hidden` nullish early return) does NOT fail, and that is correct: without it
+`staticStringValue` yields `"null"`, which is not `"true"`, so the verdict is unchanged. It is a
+genuinely equivalent branch rather than a gap in the matrix.
+
+The general lesson is worth more than the matrix: **when a class of finding recurs because each fix
+was validated against my own model of the runtime, the fix is a test that derives its expectation
+from the runtime.** Four rounds of case-by-case correction, one matrix that would have caught most of
+them on the first run.

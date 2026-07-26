@@ -33,7 +33,7 @@ import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { stripCommentsSafely } from "@/tests/styles/_newTabScan";
+import { parse, scanSource, stripCommentsSafely, type Scan } from "@/tests/styles/_newTabScan";
 
 import { cleanup, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -893,4 +893,124 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
       unmount();
     }
   });
+});
+
+/**
+ * THE ATTRIBUTE-KIND AGREEMENT MATRIX.
+ *
+ * Every round from R31 to R34 produced at least one finding of the same shape: a value classified
+ * by the wrong attribute KIND, or by spelling rather than by what React does with it. Each was fixed
+ * one case at a time, and each fix was verified against a hand-written fixture that encoded my
+ * belief about the runtime.
+ *
+ * This closes the class instead. For each (attribute, value) pair it renders the markup, computes
+ * the real accessible name, scans the equivalent source, and asserts the two AGREE: the scanner
+ * reports exactly when the announcement is absent from the name. Nothing here encodes a belief --
+ * the expectation comes from the render.
+ *
+ * The four documented stricter-than-harness divergences (§6.4) are the only exemptions, listed
+ * explicitly with the reason, because for those the harness is the thing that is wrong.
+ */
+describe("scanner and runtime agree, per attribute kind", () => {
+  const PHRASE_TEXT = "(opens in a new tab)";
+  const HintSpan = (): JSX.Element => <span className="sr-only">{PHRASE_TEXT}</span>;
+
+  type Case = {
+    readonly attr: string; // source spelling, e.g. `hidden={0}`
+    readonly props: Record<string, unknown>; // the same value at runtime
+    readonly divergence?: string; // a documented stricter-than-harness case
+  };
+
+  const CASES: readonly Case[] = [
+    // boolean DOM attributes: React coerces, so every falsy value is dropped
+    { attr: "hidden", props: { hidden: true } },
+    { attr: "hidden={true}", props: { hidden: true } },
+    { attr: "hidden={false}", props: { hidden: false } },
+    { attr: "hidden={0}", props: { hidden: 0 } },
+    { attr: 'hidden={""}', props: { hidden: "" } },
+    { attr: "hidden={null}", props: { hidden: null } },
+    { attr: "hidden={undefined}", props: { hidden: undefined } },
+    { attr: 'hidden="false"', props: { hidden: "false" } },
+    { attr: "hidden={-0}", props: { hidden: -0 } },
+    { attr: "hidden={NaN}", props: { hidden: NaN } },
+    // enumerated: React drops BOTH booleans, keeps every string and number
+    { attr: "popover", props: { popover: true } },
+    { attr: "popover={true}", props: { popover: true } },
+    { attr: "popover={false}", props: { popover: false } },
+    { attr: 'popover=""', props: { popover: "" } },
+    { attr: "popover={0}", props: { popover: 0 } },
+    { attr: 'popover="auto"', props: { popover: "auto" } },
+    { attr: 'popover="bogus"', props: { popover: "bogus" } },
+    { attr: "popover={null}", props: { popover: null } },
+    // ARIA string: stringified, and only the exact "true" hides
+    { attr: "aria-hidden", props: { "aria-hidden": true } },
+    { attr: 'aria-hidden="true"', props: { "aria-hidden": "true" } },
+    { attr: 'aria-hidden="false"', props: { "aria-hidden": "false" } },
+    { attr: "aria-hidden={true}", props: { "aria-hidden": true } },
+    { attr: "aria-hidden={false}", props: { "aria-hidden": false } },
+    { attr: "aria-hidden={0}", props: { "aria-hidden": 0 } },
+    { attr: "aria-hidden={null}", props: { "aria-hidden": null } },
+    { attr: "aria-hidden={undefined}", props: { "aria-hidden": undefined } },
+    {
+      attr: 'aria-hidden="TRUE"',
+      props: { "aria-hidden": "TRUE" },
+      divergence: "the case-fold is deliberately stricter than the harness (§6.4)",
+    },
+    // inert: the harness does not model it at all
+    {
+      attr: "inert",
+      props: { inert: true },
+      divergence: "the harness does not model `inert` (§6.4)",
+    },
+    { attr: "inert={false}", props: { inert: false } },
+    { attr: "inert={undefined}", props: { inert: undefined } },
+  ];
+
+  for (const c of CASES) {
+    test(`${c.attr}`, () => {
+      const { container, unmount } = render(
+        <a href="x" target="_blank">
+          Go{" "}
+          <span {...(c.props as Record<string, never>)}>
+            <HintSpan />
+          </span>
+        </a>,
+      );
+      const el = container.querySelector("a")!;
+
+      const sc: Scan = { anchors: 0, violations: [] };
+      const src =
+        'import { NewTabHint } from "@/components/shared/NewTabHint";\n' +
+        `const A = () => <a href="x" target="_blank">Go <span ${c.attr}><NewTabHint /></span></a>;`;
+      scanSource(parse("/matrix.tsx", src), "/matrix.tsx", sc);
+      const reported = sc.violations.length > 0;
+      expect(sc.anchors, "the matrix fixture must discover its anchor").toBe(1);
+
+      // The expectation comes from the RENDER, via jest-dom's matcher -- which computes the real
+      // accessible name with the same library the rest of this suite measures against. The scanner's
+      // verdict only chooses the DIRECTION; if the two disagree, this fails. Deriving `announced`
+      // from textContent plus a hand-written hidden check would re-encode the very assumptions the
+      // matrix exists to test.
+      const carriesPhrase = new RegExp(PHRASE_TEXT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      if (c.divergence !== undefined) {
+        // The harness cannot see what the browser does here, so the scanner is deliberately the
+        // stricter of the two and the runtime check does not apply.
+        expect(reported, `${c.attr}: ${c.divergence}`).toBe(true);
+        unmount();
+        return;
+      }
+      if (reported) {
+        expect(
+          el,
+          `${c.attr}: scanner reports, so the name must LACK the announcement`,
+        ).not.toHaveAccessibleName(carriesPhrase);
+      } else {
+        expect(
+          el,
+          `${c.attr}: scanner accepts, so the name must CARRY the announcement`,
+        ).toHaveAccessibleName(carriesPhrase);
+      }
+      unmount();
+    });
+  }
 });
