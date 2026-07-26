@@ -590,6 +590,33 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
       unmount();
     }
 
+    // `visibility: collapse` is a FOURTH stricter-than-harness case, alongside `noscript`, `inert`
+    // and the aria-hidden case-fold. Per CSS, `collapse` on a non-table element is treated as
+    // `hidden`, so a real browser removes the subtree from the accessibility tree. Measured here,
+    // dom-accessibility-api special-cases the inline `visibility:hidden` string and does NOT
+    // recognise `collapse`, so the harness still sees the text. The scanner follows the browser.
+    const collapse = render(
+      <a href="x" target="_blank">
+        <span style={{ visibility: "collapse" }}>Go</span> <Hint />
+      </a>,
+    );
+    expect(
+      collapse.container.querySelector("a"),
+      "harness does NOT model visibility:collapse -- the scanner is deliberately stricter",
+    ).toHaveAccessibleName("Go (opens in a new tab)");
+    collapse.unmount();
+
+    const hiddenVis = render(
+      <a href="x" target="_blank">
+        <span style={{ visibility: "hidden" }}>Go</span> <Hint />
+      </a>,
+    );
+    expect(
+      hiddenVis.container.querySelector("a"),
+      "the harness DOES model visibility:hidden, which is why the two disagree",
+    ).toHaveAccessibleName("(opens in a new tab)");
+    hiddenVis.unmount();
+
     // The aria-hidden VALUE table. Both installed AccName versions agree, and only the EXACT,
     // untrimmed, lowercase "true" hides. The scanner folds case and trims, so it is deliberately
     // STRICTER than this harness on "TRUE" / " true " -- browsers may fold an enumerated ARIA value

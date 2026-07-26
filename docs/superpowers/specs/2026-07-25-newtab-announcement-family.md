@@ -552,6 +552,13 @@ WITH substitutions is not. Anything outside these shapes is reported as
   | `link`, `meta`, `base`, `area` | React THROWS on children — "is a self-closing tag and must neither have `children`" — so none can ever carry a text label |
   | `head`, `basefont` | render in this harness and contribute their text; obsolete or structurally absurd inside an `<a>`, with no live usage, so they are left out rather than added on a guess |
 
+  **`visibility: collapse` is a stricter-than-harness case too.** Per CSS, `collapse` on a non-table
+  element is treated as `hidden`, so a real browser drops the subtree from the accessibility tree.
+  `dom-accessibility-api` special-cases the inline `visibility:hidden` string and does not recognise
+  `collapse`, so BOTH installed versions still compute the text (measured, and pinned beside the
+  `hidden` case that they DO model). The scanner follows the browser and reports it. Do not "fix"
+  this to match a `toHaveAccessibleName` result.
+
   **`noscript` is a stricter-than-harness case, like `inert`.** It is `display: none` only when
   scripting is enabled, so a real browser running this app does not render it — but the harness
   applies no CSS and computes `"Go (opens in a new tab)"` for a `<noscript>` label. The guard treats
