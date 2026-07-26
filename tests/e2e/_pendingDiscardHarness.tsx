@@ -65,7 +65,12 @@ function wrap(node: React.ReactElement): React.ReactElement {
 
 /**
  * The real inbox inside a fixed-width rail. `width` mirrors a live geometry:
- *   320 — the dashboard Needs-attention rail (`min-[1240px]:w-80`)
+ *   320 — the dashboard Needs-attention rail. VERIFIED post-gutter: it is the `20rem`
+ *         track of `grid-cols-[minmax(0,1fr)_20rem]` on `dashboard-split`
+ *         (`components/admin/Dashboard.tsx:632`), and that grid sits INSIDE the padded
+ *         layout container — so 320 is the column's own width, gutter already
+ *         subtracted. This is why 320 needs no adjustment while the figure below does:
+ *         one is a column inside the page, the other IS the page.
  *   358 — the mobile Needs-attention page at a 390px viewport MINUS the admin layout's
  *         16px `px-page-pad-mobile` per side (`app/admin/layout.tsx:191`). An earlier
  *         revision used 390 and so tested a card 32px wider than production, which hid
