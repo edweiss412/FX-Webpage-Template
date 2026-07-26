@@ -1276,8 +1276,11 @@ describe("Step3ReviewModal — section panels (spec §6.4/§5.2/§15)", () => {
       expect(link.getAttribute("target")).toBe("_blank");
       expect(link.getAttribute("rel")).toContain("noopener");
       // Accessible name names the section, so it never collides with the header link.
+      // Phrasing follows main's icon-only redesign of this corner link
+      // (feat/section-header-rebuild-phantom-spacers): no visible words remain, so
+      // WCAG 2.5.3 label-in-name no longer requires it to mirror an "In sheet" label.
       expect(link.getAttribute("aria-label")).toBe(
-        `In sheet, view ${s.label} in Google Sheets (opens in a new tab)`,
+        `Open the source sheet for ${s.label} (opens in a new tab)`,
       );
     }
   });
