@@ -25,6 +25,7 @@ import {
   type ParseAggregator,
   emitEmptySection,
   emitHotelGuestSplitAmbiguity,
+  emitInlineHotelGuestAmbiguity,
   emitHotelCardinalityExceeded,
 } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
@@ -75,11 +76,11 @@ export function parseHotels(
 
   // Try the inline "Hotel Reservations" row (v2 older layout, RIA forum, DCI RPAS)
   const fromInline = parseInlineHotelRow(markdown, contextYear);
-  if (fromInline.length > 0) return commitHotels(pendingWithoutAmbiguities(fromInline), agg);
+  if (fromInline.length > 0) return commitHotels(fromInline, agg);
 
   // Try v1 "Hotel Stays" row (2024-05 east coast family office)
   const fromStays = parseHotelStaysRow(markdown, contextYear);
-  if (fromStays.length > 0) return commitHotels(pendingWithoutAmbiguities(fromStays), agg);
+  if (fromStays.length > 0) return commitHotels(fromStays, agg);
 
   // D1: a recognized HOTEL / "Hotel Reservations" / "Hotel Stays" header that
   // parsed zero reservations (sub-parsers content-gate to []) is a silent
@@ -103,12 +104,9 @@ export function parseHotels(
  *  - a provisional row that `buildInlineReservations` later discards takes its
  *    stash with it, so no rule is needed to suppress it.
  */
-type HotelAmbiguity = {
-  kind: "guests";
-  reasons: string[];
-  rawCell: string;
-  parsedNames: string[];
-};
+type HotelAmbiguity =
+  | { kind: "guests"; reasons: string[]; rawCell: string; parsedNames: string[] }
+  | { kind: "inline-guests"; rawCell: string; parsedNames: string[] };
 
 type PendingHotel = { row: HotelReservationRow; ambiguities: HotelAmbiguity[] };
 
@@ -126,6 +124,15 @@ function commitHotels(pending: PendingHotel[], agg?: ParseAggregator): HotelRese
   const kept = pending.slice(0, MAX_HOTELS);
   kept.forEach((p, index) => {
     for (const amb of p.ambiguities) {
+      if (amb.kind === "inline-guests") {
+        emitInlineHotelGuestAmbiguity(agg, {
+          name: p.row.hotel_name,
+          rawCell: amb.rawCell,
+          index,
+          parsedNames: amb.parsedNames,
+        });
+        continue;
+      }
       emitHotelGuestSplitAmbiguity(agg, {
         name: p.row.hotel_name,
         reasons: amb.reasons,
@@ -147,11 +154,6 @@ function commitHotels(pending: PendingHotel[], agg?: ParseAggregator): HotelRese
     emitHotelCardinalityExceeded(agg, { found: pending.length, cap: MAX_HOTELS });
   }
   return kept.map((p) => p.row);
-}
-
-/** Producers with no ambiguities yet (inline stashing lands in a later slice). */
-function pendingWithoutAmbiguities(rows: HotelReservationRow[]): PendingHotel[] {
-  return rows.map((row) => ({ row, ambiguities: [] }));
 }
 
 // ── v4/v2 Structured HOTEL table ─────────────────────────────────────────────
@@ -613,7 +615,7 @@ function parseHotelTable(markdown: string): PendingHotel[] {
  * - 2025-05: `| Hotel Reservations | The Drake Hotel ... Check In: 5/11 Check Out: 5/15 Eric Carroll Eric Weiss Connor Hester |`
  * - 2025-06: `| Hotel Reservations | Park Hyatt Chicago&#10;"800 N Michigan Ave...&#10;Check In: 6/23 Check Out: 6/26 Doug --- 104461566 Eric---104461567 |`
  */
-function parseInlineHotelRow(markdown: string, contextYear: string | null): HotelReservationRow[] {
+function parseInlineHotelRow(markdown: string, contextYear: string | null): PendingHotel[] {
   // RAW_HEADER_REGEX_ALLOWLIST: inline capture matcher; col0 token identity is registry-checked via SECTION_HEADER_TOKENS (see tests/parser/_metaKnownSectionsWalker.test.ts).
   const ROW_RE = /^\|\s*Hotel\s*Reservations?\s*\|([^|]+)/im;
   const m = ROW_RE.exec(markdown);
@@ -625,7 +627,7 @@ function parseInlineHotelRow(markdown: string, contextYear: string | null): Hote
   return buildInlineReservations(raw, contextYear);
 }
 
-function parseHotelStaysRow(markdown: string, contextYear: string | null): HotelReservationRow[] {
+function parseHotelStaysRow(markdown: string, contextYear: string | null): PendingHotel[] {
   // v1 format: | Hotel Stays | <content> |
   // RAW_HEADER_REGEX_ALLOWLIST: inline capture matcher; col0 token identity is registry-checked via SECTION_HEADER_TOKENS (see tests/parser/_metaKnownSectionsWalker.test.ts).
   const ROW_RE = /^\|\s*Hotel\s*Stays?\s*\|([^|]+)/im;
@@ -645,12 +647,16 @@ function parseHotelStaysRow(markdown: string, contextYear: string | null): Hotel
  * guest group keeps its own check-out; otherwise return one reservation. Groups
  * after the first don't repeat the hotel name, so they inherit group 1's.
  */
-function buildInlineReservations(raw: string, contextYear: string | null): HotelReservationRow[] {
+function buildInlineReservations(raw: string, contextYear: string | null): PendingHotel[] {
   const checkInCount = (raw.match(/check\s+in/gi) ?? []).length;
-  if (checkInCount < 2) return stripHotelNameConf([buildInlineHotel(raw, 1, contextYear)]);
+  if (checkInCount < 2) {
+    const built = buildInlineHotel(raw, 1, contextYear);
+    return toPending(stripHotelNameConf([built.row]), [built.judgedGuestBoundary], raw);
+  }
 
   const segments = splitInlineReservationGroups(raw);
-  const rows = segments.map((seg, i) => buildInlineHotel(seg, i + 1, contextYear));
+  const builds = segments.map((seg, i) => buildInlineHotel(seg, i + 1, contextYear));
+  const rows = builds.map((b) => b.row);
   // The split cuts at "Check Out: <date>", which only attributes guests correctly
   // when they PRECEDE their checkout (the consultants shape). If a group came out
   // with no guests, the cell lists guests AFTER each checkout (the redefining
@@ -662,10 +668,13 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
     // guests would carry the first group's dates — wrong data. Preserve all names
     // but NULL the dates rather than mis-map them (ambiguous → no date is safer
     // than a wrong date).
+    // The provisional per-group builds are DISCARDED here, and their verdicts go
+    // with them — only the surviving rebuilt reservation is evaluated (spec §3.1
+    // row 8). That is what the stash-then-commit shape buys.
     const single = buildInlineHotel(raw, 1, contextYear);
-    single.check_in = null;
-    single.check_out = null;
-    return stripHotelNameConf([single]);
+    single.row.check_in = null;
+    single.row.check_out = null;
+    return toPending(stripHotelNameConf([single.row]), [single.judgedGuestBoundary], raw);
   }
   // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
   // before the first "Check In" (consultants). Strip those guest/confirmation
@@ -673,7 +682,29 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
   // every group (later groups carry only a divider + guest, not the hotel).
   const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
   for (const r of rows) r.hotel_name = baseName;
-  return stripHotelNameConf(rows);
+  // Groups after the first carry only a divider + guest and INHERIT the hotel
+  // name, so no hotel/first-guest boundary is judged for them (spec §3.1 row 7).
+  const verdicts = builds.map((b, i) => i === 0 && b.judgedGuestBoundary);
+  return toPending(stripHotelNameConf(rows), verdicts, raw);
+}
+
+/**
+ * Pair each surviving row with a stashed guest ambiguity when its exit judged
+ * the hotel/first-guest boundary. `rawCell` is the whole inline cell: no
+ * substring of it is provably guest-scoped, which is why the warning is never
+ * resolvable (spec R8).
+ */
+function toPending(
+  rows: HotelReservationRow[],
+  verdicts: boolean[],
+  rawCell: string,
+): PendingHotel[] {
+  return rows.map((row, i) => ({
+    row,
+    ambiguities: verdicts[i]
+      ? [{ kind: "inline-guests" as const, rawCell, parsedNames: row.names }]
+      : [],
+  }));
 }
 
 /**
@@ -724,11 +755,16 @@ function splitInlineReservationGroups(raw: string): string[] {
   return segments.length > 0 ? segments : [raw];
 }
 
-function buildInlineHotel(
-  raw: string,
-  ordinal: number,
-  contextYear: string | null,
-): HotelReservationRow {
+/**
+ * `judgedGuestBoundary` records which EXIT produced this reservation, which is
+ * the only ground truth for "did the parser judge where the hotel ends and the
+ * first guest begins?". Five successive attempts to infer it from the OUTPUT
+ * were each falsified by a reachable input (spec §3.1), because on an unlabeled
+ * line the first guest's boundary is exactly the fact nothing else evidences.
+ */
+type InlineBuild = { row: HotelReservationRow; judgedGuestBoundary: boolean };
+
+function buildInlineHotel(raw: string, ordinal: number, contextYear: string | null): InlineBuild {
   // Normalize HTML entities and line-break escapes
   const text = raw.replace(/&#10;/g, " ").replace(/\r/g, " ").replace(/\s+/g, " ").trim();
 
@@ -818,14 +854,17 @@ function buildInlineHotel(
         if (names.length >= 2 && hotelPart.length > 0) {
           const split = splitHotelNameAddress(hotelPart);
           return {
-            ordinal,
-            hotel_name: split.name,
-            hotel_address: split.address,
-            names,
-            confirmation_no: null,
-            check_in: null,
-            check_out: null,
-            notes: null,
+            judgedGuestBoundary: true, // learn-K peeled the first guest off the hotel
+            row: {
+              ordinal,
+              hotel_name: split.name,
+              hotel_address: split.address,
+              names,
+              confirmation_no: null,
+              check_in: null,
+              check_out: null,
+              notes: null,
+            },
           };
         }
       }
@@ -850,26 +889,32 @@ function buildInlineHotel(
       const split = splitHotelNameAddress(noSepDash);
       if (split.name !== null || split.address !== null) {
         return {
-          ordinal,
-          hotel_name: split.name,
-          hotel_address: split.address,
-          names: [],
-          confirmation_no: null,
-          check_in: null,
-          check_out: null,
-          notes: null,
+          judgedGuestBoundary: false, // no guests present, so no boundary judged
+          row: {
+            ordinal,
+            hotel_name: split.name,
+            hotel_address: split.address,
+            names: [],
+            confirmation_no: null,
+            check_in: null,
+            check_out: null,
+            notes: null,
+          },
         };
       }
     }
   }
 
   const names: string[] = [];
+  // Exits 3/4/5 examined a guest region; exit 6 did not (spec §3.1).
+  let examinedGuestRegion = false;
 
   // Pattern 1: "Doug Larson - 7414" style (name dash confirmation)
   const dashNumRe = /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s*[-–—]{1,3}\s*[#]?\d+/g;
   let nm: RegExpExecArray | null;
   while ((nm = dashNumRe.exec(text)) !== null) {
     names.push(nm[1]!.trim());
+    examinedGuestRegion = true; // exit 3
   }
 
   // Pattern 2: "Doug --- 104461566" (RIA forum, multiple dashes)
@@ -878,6 +923,7 @@ function buildInlineHotel(
     let nm2: RegExpExecArray | null;
     while ((nm2 = multiDashRe.exec(text)) !== null) {
       names.push(nm2[1]!.trim());
+      examinedGuestRegion = true; // exit 4
     }
   }
 
@@ -887,6 +933,7 @@ function buildInlineHotel(
   if (names.length === 0) {
     const postCheckout = text.replace(/.*?check\s+out\s*[:\s]+\S+/i, "").trim();
     if (postCheckout) {
+      examinedGuestRegion = true; // exit 5 — even if the scan yields no names
       // Split by whitespace runs; grab consecutive title-cased word pairs
       const tokens = postCheckout.split(/\s+/);
       let i = 0;
@@ -938,21 +985,24 @@ function buildInlineHotel(
   }
 
   return {
-    ordinal,
-    // hotel_name's conf# is stripped LATER, in buildInlineReservations — after
-    // sanitizeHotelName, which needs the "Name—conf#" pattern to locate + remove
-    // glued guest spans (stripping the conf# here would defeat it).
-    hotel_name: presence(hotelNameRaw),
-    hotel_address: null,
-    // strip any conf# suffix from each name too — `names` is show-wide readable.
-    names: names.map(stripConfTokens).filter((n) => n.length > 0),
-    // confirmation_no is intentionally NOT persisted — see parseGuestCell / the
-    // DEFERRED.md privacy note: hotel_reservations is show-wide crew-readable, so a
-    // row-level conf# would be readable by any crew member on the show.
-    confirmation_no: null,
-    check_in,
-    check_out,
-    notes: null,
+    judgedGuestBoundary: examinedGuestRegion,
+    row: {
+      ordinal,
+      // hotel_name's conf# is stripped LATER, in buildInlineReservations — after
+      // sanitizeHotelName, which needs the "Name—conf#" pattern to locate + remove
+      // glued guest spans (stripping the conf# here would defeat it).
+      hotel_name: presence(hotelNameRaw),
+      hotel_address: null,
+      // strip any conf# suffix from each name too — `names` is show-wide readable.
+      names: names.map(stripConfTokens).filter((n) => n.length > 0),
+      // confirmation_no is intentionally NOT persisted — see parseGuestCell / the
+      // DEFERRED.md privacy note: hotel_reservations is show-wide crew-readable, so a
+      // row-level conf# would be readable by any crew member on the show.
+      confirmation_no: null,
+      check_in,
+      check_out,
+      notes: null,
+    },
   };
 }
 

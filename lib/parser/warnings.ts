@@ -413,3 +413,41 @@ export function emitHotelAddressSplitAmbiguity(
     resolution,
   });
 }
+
+/**
+ * §3.1 P1 (2026-07-25-hotel-ambiguity-coverage) — an INLINE hotel line judged
+ * where the hotel name ends and the first guest begins. Reuses
+ * `HOTEL_GUEST_SPLIT_AMBIGUOUS`: same code, same field, `blockRef.index`
+ * discriminates instances.
+ *
+ * Its `message` is NOT the structured emitter's. That one says the cell "may
+ * glue multiple guests together", which is false here — the inline ambiguity is
+ * hotel-versus-guest and the line may hold exactly one guest.
+ *
+ * NEVER resolvable (ratified R8). The raw cell interleaves hotel, address,
+ * dates and guests, and no substring is provably guest-scoped: a checkout strip
+ * is positional, not semantic, so it can capture note text. Offering it would
+ * publish non-guest text into a crew-readable `names` array and could hide a
+ * crew member's own lodging from their page.
+ */
+export function emitInlineHotelGuestAmbiguity(
+  agg: ParseAggregator | undefined,
+  params: { name: string | null; rawCell: string; index: number; parsedNames: string[] },
+): void {
+  if (!agg) return;
+  const rawOneLine = collapse(params.rawCell);
+  const blockRef: { kind: string; name?: string; field: string; index: number } = {
+    kind: "hotels",
+    field: "guests",
+    index: params.index,
+  };
+  if (params.name) blockRef.name = params.name;
+  agg.warnings.push({
+    severity: "warn",
+    code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    message: `Hotel line "${rawOneLine}" runs the hotel and the booking details together in one cell, so we had to work out where each part starts; double-check this reservation.`,
+    blockRef,
+    rawSnippet: params.rawCell,
+    resolution: { resolvable: false, reason: "raw-not-guest-scoped" },
+  });
+}

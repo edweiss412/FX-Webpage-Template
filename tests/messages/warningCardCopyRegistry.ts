@@ -123,12 +123,16 @@ export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
 
 export const EXPECTED_CORPUS_WARN_CODES: ReadonlySet<string> = new Set([
   "AGENDA_BLOCK_UNRESOLVED",
+  // 2026-07-25 hotel-ambiguity-coverage: the inline hotel path now reports the
+  // hotel/first-guest boundary it has always judged silently. 9 cards across the
+  // corpus, pinned per fixture in tests/parser/hotelAmbiguityCorpusGolden.test.ts.
+  "HOTEL_GUEST_SPLIT_AMBIGUOUS",
   "ROOM_HEADER_SPLIT_AMBIGUOUS",
   "SECTION_HEADER_NO_FIELDS",
   "STAGE_WORD_AUTOCORRECTED",
   "UNKNOWN_FIELD",
   "UNKNOWN_SECTION_HEADER",
-]); // measured 2026-07-20 (Task 1 Step 3)
+]); // measured 2026-07-20 (Task 1 Step 3); extended 2026-07-25
 export const EXPECTED_CORPUS_FIXTURES: ReadonlySet<string> = new Set([
   "2024-05-east-coast-family-office.md",
   "2025-03-dci-rpas-central.md",
