@@ -260,11 +260,11 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["unrecognized", "shape verdict"],
   ["unresolvable", "shape verdict"],
   ["first", "walk-up sentinel: nothing precedes this child"],
-  // R31: the two tag names the SVG-namespace rule walks for. `<title>` renders and NAMES inside
-  // an `<svg>` but is hoisted out of the anchor in HTML, so the namespace decides -- and both of
-  // these are tag names, case-SENSITIVE, with `foreignObject` genuinely camelCase in JSX.
-  ["svg", "intrinsic tag name (SVG namespace: a <title> inside one renders and names)"],
-  ["foreignObject", "intrinsic tag name (switches back to HTML, so a <title> is hoisted again)"],
+  // R31: the one tag name the SVG-title rule tests for. A `<title>` NAMES only as the direct child
+  // of an `<svg>`; anything deeper names its nearest graphics container, not the anchor. The rule
+  // narrowed from an ancestor walk to a direct-parent test, which is why `foreignObject` no longer
+  // appears in the scanner -- the stale-exclusion check caught that within seconds of the edit.
+  ["svg", "intrinsic tag name (an <svg> is named by its OWN direct-child <title>)"],
   // Attribute VALUES and unrelated identifiers, never compared as names.
   // `false` was here until R31 folded the four hiding attributes onto one value rule, which
   // removed the `stringOf(e) === "false"` comparison -- and the stale-exclusion check caught it
@@ -2014,8 +2014,22 @@ describe("R6: scanner changes are pinned", () => {
       ),
       "an SVG title is a destination",
     ).toEqual([]);
-    // ...but inside a <foreignObject> the content is HTML again and React hoists the title out of
-    // the anchor entirely (also measured), so the nearest ancestor decides.
+    // ...but ONLY as a DIRECT child of the <svg>. Per SVG-AAM an <svg> takes its name from its own
+    // direct-child <title>; a deeper one names its nearest graphics container, not the anchor. An
+    // "svg anywhere above me" test was a fail-OPEN hole here (all four measured).
+    for (const [label, markup] of [
+      ["g", "<svg><g><title>Go</title></g></svg>"],
+      ["div", "<svg><div><title>Go</title></div></svg>"],
+      ["p", "<svg><p><title>Go</title></p></svg>"],
+      ["nested svg wrapper", "<svg><g><svg /></g><g><title>Go</title></g></svg>"],
+    ] as [string, string][]) {
+      expect(
+        violations(`const A=()=><a href="x" target="_blank">${markup} <NewTabHint /></a>;`),
+        `must report, a <title> under <${label}> names nothing`,
+      ).not.toEqual([]);
+    }
+    // ...and inside a <foreignObject> the content is HTML again and React hoists the title out of
+    // the anchor entirely (also measured), so it names nothing either.
     expect(
       violations(
         'const A=()=><a href="x" target="_blank"><svg><foreignObject><title>Go</title></foreignObject></svg> <NewTabHint /></a>;',

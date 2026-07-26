@@ -1272,3 +1272,33 @@ comparison; the attribute-classification check flagged the new tag names `svg` a
 and later the `"boolean"` / `"string"` flag values. Both fired within seconds of the edit that
 invalidated them. Meta-checks that police the guard's own bookkeeping keep paying for themselves —
 they are the only mechanism here that has never needed a review round to find its own defect.
+
+### A fail-open hole in the R31 fix itself, found by following the reviewer's probes
+
+While R32 was still running, its stderr showed it rendering `<svg><div><title>` and `<svg><p><title>`
+and reporting namespaces. That was enough of a signal to go measure the shape myself rather than wait
+for the finding — and the R31 fix had a fail-OPEN hole in it:
+
+| Shape | Accessible name | R31 fix said |
+| --- | --- | --- |
+| `<svg><title>Go</title></svg>` | `Go (opens in a new tab)` | destination — correct |
+| `<svg><g><title>Go</title></g></svg>` | `(opens in a new tab)` | destination — WRONG, no violation reported |
+| `<svg><div><title>Go</title></div></svg>` | `(opens in a new tab)` | destination — WRONG |
+
+`inSvgNamespace` asked "is there an `<svg>` anywhere above me", stopping at `<foreignObject>`. Per
+SVG-AAM an `<svg>` is named by its OWN direct-child `<title>`; a deeper one names its nearest graphics
+container, which is not the anchor's name. The rule is now a direct-parent test, and both the
+ancestor-walk shape and a dropped tag check fail tests.
+
+**The measurement also found a genuine divergence between render paths.** For `<svg><div><title>`, a
+CLIENT React render keeps the title in the SVG namespace (`createElementNS` inherits from the parent)
+while SSR markup reparsed by the HTML parser breaks out to XHTML. The two disagree on namespace and
+AGREE on the verdict. That is why the rule tests the direct parent instead of tracking namespace: a
+namespace-modelling rule would have to stay correct under two different rule sets, for no gain.
+
+Two process notes. First, `foreignObject` left the scanner when the walk became a parent test, and the
+stale-exclusion meta-check flagged it within seconds — the third time this round that a meta-check
+caught the bookkeeping consequence of an edit before any test did. Second, this is the R31 pattern
+recurring once more: the previous fix reached the right verdict on the case it was written for
+(`<svg><title>`) while being wrong about the mechanism (namespace, not parentage), and the wrong
+mechanism is what opened the hole one level down.

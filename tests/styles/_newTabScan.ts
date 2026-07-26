@@ -922,29 +922,33 @@ const NOT_RENDERED_TAGS = new Set([
 // CASE_INSENSITIVE_NAMES; without that the guard's own classification checks read them as
 // silenced attributes.
 
-/** Is this element in the SVG namespace, where `<title>` is a real, rendered, NAMING element?
+/** Does this `<title>` actually NAME something, i.e. is it the DIRECT child of an `<svg>`?
  *
- *  R31 HIGH 5: `<title>` is two different elements. React hoists the HTML one out of the anchor,
- *  so its text never reaches the accessible name -- but the SVG one stays exactly where it is and
- *  names the graphic: `<svg><title>Go</title></svg>` computes "Go (opens in a new tab)". The
- *  NAMESPACE decides, so a tag-name set can never get this right on its own.
+ *  R31 HIGH 5: `<title>` is two different elements. React hoists the HTML one out of the anchor, so
+ *  its text never reaches the accessible name -- but an SVG one stays where it is and names the
+ *  graphic: `<svg><title>Go</title></svg>` computes "Go (opens in a new tab)".
  *
- *  `<foreignObject>` switches back to HTML, and a `<title>` inside one is hoisted out of the
- *  anchor again (measured), so the NEAREST of the two ancestors wins. Fail-closed default: no
- *  provable `<svg>` ancestor means the HTML reading, which treats the element as not-rendered.
+ *  The first version of this asked "is there an `<svg>` ANYWHERE above me", stopping at
+ *  `<foreignObject>`. That is a fail-OPEN hole, found by measuring the shapes the R32 reviewer began
+ *  probing rather than by waiting for the finding. Per SVG-AAM an `<svg>` takes its name from its
+ *  OWN direct-child `<title>`; a deeper one names its nearest graphics container instead, which is
+ *  not the anchor's name. Measured, and the verdict is identical on both render paths:
+ *
+ *    <svg><title>Go</title></svg>              -> "Go (opens in a new tab)"   NAMES
+ *    <svg><g><title>Go</title></g></svg>       -> "(opens in a new tab)"      names nothing
+ *    <svg><div><title>Go</title></div></svg>   -> "(opens in a new tab)"      names nothing
+ *    <svg><foreignObject><title>…              -> "(opens in a new tab)"      names nothing
+ *
+ *  The `<div>` / `<p>` cases are the interesting ones: a client React render keeps the title in the
+ *  SVG namespace while SSR markup reparsed by the HTML parser breaks out to XHTML (both measured, and
+ *  they DISAGREE on namespace). The verdict is the same either way, so this rule deliberately does
+ *  NOT model foreign-content breakout -- a direct-child test is correct under both and cannot drift
+ *  apart from them. Fail-closed default: anything else is the HTML reading, i.e. not rendered.
  */
-function inSvgNamespace(el: ts.Node): boolean {
-  for (let cur: ts.Node | undefined = el.parent; cur !== undefined; cur = cur.parent) {
-    const t = ts.isJsxElement(cur)
-      ? cur.openingElement.tagName.getText()
-      : ts.isJsxSelfClosingElement(cur)
-        ? cur.tagName.getText()
-        : null;
-    if (t === null) continue;
-    if (t === "foreignObject") return false;
-    if (t === "svg") return true;
-  }
-  return false;
+function isNamingSvgTitle(el: ts.Node): boolean {
+  const parent = el.parent;
+  if (parent === undefined || !ts.isJsxElement(parent)) return false;
+  return parent.openingElement.tagName.getText() === "svg";
 }
 
 /** Does React OMIT this attribute from the DOM entirely, so its presence in the source hides
@@ -1017,7 +1021,7 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
   // NOT_RENDERED: content is never rendered (script-supporting and metadata elements).
   // NOT_SHOWN_UNLESS_OPEN: rendered only when `open` is present and truthy.
   // Namespace before tag name: an SVG `<title>` renders and NAMES (review R31 HIGH 5).
-  if (tag === "title" && inSvgNamespace(el)) return false;
+  if (tag === "title" && isNamingSvgTitle(el)) return false;
   if (NOT_RENDERED_TAGS.has(tag)) return true;
   // NOTE: there is deliberately no `<input type="hidden">` branch. It was added at R24 and a
   // systematic mutation sweep later showed removing it changed no test: `<input>` is a void

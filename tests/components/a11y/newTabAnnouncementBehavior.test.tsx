@@ -549,6 +549,25 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
     ).toHaveAccessibleName("Go (opens in a new tab)");
     svgTitle.unmount();
 
+    // ...and ONLY as the svg's DIRECT child. Per SVG-AAM an <svg> is named by its own direct-child
+    // <title>; a deeper one names its nearest graphics container instead, which is not the anchor's
+    // name. Treating any <svg> ancestor as enough was a fail-OPEN hole in the first R31 fix.
+    const deepTitle = render(
+      <a href="x" target="_blank">
+        <svg>
+          <g>
+            <title>Go</title>
+          </g>
+        </svg>{" "}
+        <Hint />
+      </a>,
+    );
+    expect(
+      deepTitle.container.querySelector("a"),
+      "an SVG <title> under a <g> names the group, not the link",
+    ).toHaveAccessibleName("(opens in a new tab)");
+    deepTitle.unmount();
+
     // Inside a <foreignObject> the content is HTML again, so React hoists the title away.
     const foTitle = render(
       <a href="x" target="_blank">

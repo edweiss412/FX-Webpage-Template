@@ -512,9 +512,27 @@ WITH substitutions is not. Anything outside these shapes is reported as
   **`<title>` is TWO elements, and the tag name alone cannot tell them apart (R31 HIGH 5).** In the
   SVG namespace it is neither hoisted nor hidden: it renders in place and NAMES the graphic, so
   `<a target="_blank"><svg><title>Go</title></svg> <NewTabHint /></a>` computes
-  `"Go (opens in a new tab)"` and is CORRECT — the guard reported it. A `<title>` inside a
-  `<foreignObject>` is HTML again and is hoisted away, so the nearest of the two ancestors decides.
-  Both measured. A tag-name set is the wrong shape for any rule whose answer depends on namespace.
+  `"Go (opens in a new tab)"` and is CORRECT — the guard reported it.
+
+  **It names only as the svg's DIRECT CHILD, and the first fix for this got that wrong.** An "is
+  there an `<svg>` anywhere above me" ancestor walk is a fail-OPEN hole: per SVG-AAM an `<svg>` takes
+  its name from its OWN direct-child `<title>`, and a deeper one names its nearest graphics container
+  instead — which is not the anchor's name. Measured:
+
+  | Shape | Accessible name |
+  | --- | --- |
+  | `<svg><title>Go</title></svg>` | `Go (opens in a new tab)` — NAMES |
+  | `<svg><g><title>Go</title></g></svg>` | `(opens in a new tab)` — names nothing |
+  | `<svg><div><title>Go</title></div></svg>` | `(opens in a new tab)` — names nothing |
+  | `<svg><foreignObject><title>Go</title></foreignObject></svg>` | `(opens in a new tab)` — names nothing |
+
+  The `<div>` / `<p>` rows carry a subtlety worth recording: a CLIENT React render keeps the title in
+  the SVG namespace (`createElementNS` inherits from the parent) while SSR markup reparsed by the HTML
+  parser breaks out to XHTML — the two render paths genuinely DISAGREE on namespace, and both were
+  measured. They agree on the verdict, so the rule is a direct-parent test and deliberately does not
+  model foreign-content breakout; a namespace-tracking rule would have to stay correct under two
+  different sets of rules for no gain. A tag-name set is the wrong shape here, and so is an ancestor
+  walk.
 
   **MEASURED, not assumed — and the guard is deliberately stricter than the test harness.** Rendering
   each shape and computing the name with `dom-accessibility-api` 0.6.3 gives:
