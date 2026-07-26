@@ -52,7 +52,8 @@ Primary components (four numbered below). Full diff inventory: those four, plus
 `package.json` (the script line), `.gitignore` (the output dir), the three
 extraction-coupled updates named in item 1 (help capture guard file, screenshots-drift
 path filter, required-path list), the `LOCAL_ONLY_ALLOWLIST` row named in item 3, and
-the new unit-test files of §8.1.
+the modified `scripts/help-screenshots.ts` (imports the extracted helpers), and one new
+unit-test file, `tests/scripts/gallery-screenshots.test.ts` (§8.1).
 
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 
@@ -152,8 +153,9 @@ the new unit-test files of §8.1.
      server-side in `partitionScenarios()`, and `requireDeveloper()` admits the
      fixture's `developer:true` JWT claim without an `admin_emails` row). A running,
      migrated local Supabase IS still a prerequisite: `signInAs` first deletes the
-     fixture user DIRECTLY via the service-role Supabase admin client, then re-creates
-     it through the test-auth route
+     fixture user DIRECTLY via the service-role Supabase admin client
+     (`admin.auth.admin.deleteUser`, `tests/e2e/helpers/signInAs.ts:98-105`), then
+     re-creates it through the test-auth route
      (`tests/e2e/helpers/signInAs.ts:48-66`), and the page gate calls the
      `is_session_live` / `is_developer` RPCs (`lib/auth/requireDeveloper.ts:172-200`).
      `pnpm preflight` already fail-louds on an unreachable local DB. Because the sweep
@@ -239,7 +241,8 @@ throw. Missing `TEST_AUTH_SECRET` → throw (existing contract).
 - Filtered sweep: capture only the targeted scenarios, then run the **end-of-run
   reconciliation** that makes the invariant enforced rather than assumed — **after any
   run, the index lists exactly the currently-rendered scenarios whose files exist on
-  disk, and the output dir contains no file the index does not reference.**
+  disk, and the output dir contains no WEBP file the index does not reference** (the
+  file universe of the reconciliation is `*.webp`; index.json itself is exempt).
   Reconciliation order:
   1. Build candidate entries: freshly captured scenarios (new files, new `capturedAt`)
      plus prior-index entries for non-targeted ids — with `label`/`tier`/`group`/`codes`
@@ -249,7 +252,7 @@ throw. Missing `TEST_AUTH_SECRET` → throw (existing contract).
   2. Drop any candidate whose id is not in the current rendered set (renamed/removed
      scenario), and any carried-forward candidate with a missing referenced file
      (e.g. a previously crashed run) — a dropped entry's surviving files are deleted.
-  3. Delete every file in the output dir not referenced by a surviving entry (covers
+  3. Delete every WebP in the output dir not referenced by a surviving entry (covers
      stale `-overflow.webp` companions when a re-captured scenario no longer overflows,
      and unindexed leftovers of any origin). Index slots for absent overflow shots are
      null.
@@ -306,9 +309,11 @@ TDD per task (invariant 1). Three layers:
    - filter parsing: comma splitting, trimming, dedup, unknown-id → throw naming valid
      ids, excluded-id → throw naming the exclusion reason, empty → full set.
    - filename/index.json derivation: given `partitionScenarios()` output, every
-     rendered scenario yields exactly one entry with `<id>-<theme>.webp` names and
-     null-able overflow slots; `excluded` array passthrough. (Pure function over the
-     real catalog — no browser, no DB; the scenario catalog itself is fixture data.)
+     rendered scenario yields exactly one entry with `<id>-<theme>.webp` names,
+     null-able overflow slots, and `capturedAt` equal to the injected run timestamp
+     (the derivation takes `now` as a parameter — fresh entries MUST carry it);
+     `excluded` array passthrough. (Pure function over the real catalog — no browser,
+     no DB; the scenario catalog itself is fixture data.)
    - anti-tautology posture: expected filenames in tests are derived from the catalog's
      actual ids (e.g. assert entry count equals `partitionScenarios().rendered.length`
      and spot-check a known id like `T2_MULTI_HOLD`'s), never a hardcoded full list that
@@ -342,14 +347,16 @@ TDD per task (invariant 1). Three layers:
    (`vitest.config.ts:22` additionally drops env-bound `.test` files in the
    unit-suite CI lane). It runs only via `pnpm screenshot:gallery`, locally, on
    demand. **No CI workflow references it** (§1.1); the `LOCAL_ONLY_ALLOWLIST` row
-   (§3 item 3) records that exemption structurally. The capture spec ALWAYS runs the
-   full unfiltered sweep — `GALLERY_SCENARIO` is a manual knob for iterating locally,
-   never set by the package script, so the partial-index semantics of §6 do not apply
-   to this test. After `captureGallery()` returns, the test asserts postconditions so a
-   silently-degenerate sweep cannot pass: index.json exists and parses; every `files`
-   value in it exists on disk; the on-disk WebP count equals the index's non-null file
-   references (no orphans); entry count equals `partitionScenarios().rendered.length`;
-   and the index's `viewport` equals the §1.1 1280×800 matrix.
+   (§3 item 3) records that exemption structurally. The package script does not set or
+   clear `GALLERY_SCENARIO`, so a user-filtered `GALLERY_SCENARIO=<id> pnpm
+   screenshot:gallery` flows through to the same spec; the postconditions therefore
+   BRANCH on the parsed filter state rather than assuming a full sweep. Always: index.json
+   exists and parses; every NON-NULL `files` value exists on disk; the on-disk WebP
+   count equals the index's non-null file references (no orphans); every entry's
+   `capturedAt` parses as ISO-8601; the index's `viewport` equals the §1.1 1280×800
+   matrix. Unfiltered additionally: entry count equals
+   `partitionScenarios().rendered.length`. Filtered additionally: every targeted id has
+   an entry whose `capturedAt` is from this run.
 3. **Help-path regression (same-host pre/post comparison):** comparing a host capture
    against the COMMITTED baselines cannot prove the extraction changed nothing — the
    baselines are pinned-image linux/amd64 bytes and a dev-host capture legitimately
@@ -388,6 +395,6 @@ TDD per task (invariant 1). Three layers:
 | 6 commit style | Bare `infra:` for the tooling/config/script commits (the established M0 convention per AGENTS.md rule 6); `docs:` for spec/plan documents. |
 | 7 spec canonical | This spec; no master-spec conflict (dev tooling, outside §12.4 etc.). |
 | 8 impeccable | N/A (§9). |
-| 9 Supabase call-boundary | No NEW Supabase call sites: the script's only Supabase touch is the existing `signInAs` helper (admin-client delete + route create), unchanged by this feature. |
+| 9 Supabase call-boundary | No NEW Supabase call sites: the script's only Supabase touch is the existing `signInAs` helper (admin-client delete at `tests/e2e/helpers/signInAs.ts:98-105`, route create at `tests/e2e/helpers/signInAs.ts:48-66`), unchanged by this feature. |
 | 10 mutation telemetry | N/A (§9). |
 | 11 worktree | Work happens in `FX-worktrees/gallery-screenshot-capture`. |
