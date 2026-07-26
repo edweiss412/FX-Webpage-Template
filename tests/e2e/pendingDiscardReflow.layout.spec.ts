@@ -26,7 +26,10 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 const TOL = 0.5;
 const BODY_PAD = 16; // admin px-4 gutter
 
-// Shipped classes (Task 1). Kept in sync with the component via the drift-guard test below.
+// HISTORICAL classes. `basis-full sm:basis-auto` is what the component used BEFORE the
+// reorder; it is deliberately no longer shipped, and the guard at the bottom of this file
+// asserts its absence from the component. These constants exist so the negative-control
+// panels can render the old shape.
 const STACK = "basis-full sm:basis-auto";
 const cls = (...parts: string[]) => parts.filter(Boolean).join(" ");
 const IGNORE_ARMED = (stack: string) =>

@@ -9,9 +9,10 @@
  * independently copy-pasted literals with no shared definition and no guard, so a
  * single surface could drift without anything failing.
  *
- * Pinned by tests/styles/_metaDestructiveConfirm.test.ts (T1 single declaration,
- * T2 per-file identifier census, T3 value pin). That guard reduces re-drift; it does
- * not eliminate it — six holes are enumerated honestly in §5.3 of
+ * Pinned by tests/styles/_metaDestructiveConfirm.test.ts: T1 asserts exactly one
+ * declaration and that it is this file; T3 asserts the value is 4s. That is the whole
+ * guard. It does NOT detect a surface pointing its arm timer at some other value —
+ * that needs to know which call is the arm timer, which is semantic. See §5.3 of
  * docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md.
  */
 export const ARM_REVERT_MS = 4_000;

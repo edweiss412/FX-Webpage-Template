@@ -388,10 +388,14 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
   });
 });
 
-// DESTRUCT-1 (spec 2026-07-17-destruct1-armed-reflow §3): the two discard
-// buttons stack full-width < sm so the armed morph does not relocate the
-// confirm hit-target. Guard the shipped classes at the source; the real-browser
-// geometric proof lives in tests/e2e/pendingDiscardReflow.layout.spec.ts.
+// DESTRUCT-1's guarantee — the armed morph must not relocate the confirm hit-target —
+// SURVIVES the reorder, but is now bought structurally rather than with `basis-full`:
+// Ignore is the first flex item, so a longer armed label extends rightward and pushes
+// Defer, never itself. The real-browser proof is D4 in
+// tests/e2e/pendingDiscardReal.layout.spec.ts.
+// D7. `basis-full sm:basis-auto` forced both buttons full-width below `sm`, which made
+// the pair ALWAYS stack there. The reorder deletes it so the row wraps on available
+// width instead — stacking only where the pair genuinely does not fit.
 describe("D7: the responsive-stack basis is GONE (reorder design)", () => {
   const ID = "pi-d7";
   function renderButtons() {

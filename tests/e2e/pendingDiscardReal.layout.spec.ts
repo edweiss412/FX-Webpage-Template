@@ -3,13 +3,10 @@
  * Real-TREE layout proof for the pending-discard fork
  * (spec 2026-07-25-destruct-thumb-order-drift-guard §6.3.a).
  *
- * The sibling `pendingDiscardReflow.layout.spec.ts` transcribes classes into
- * local constants. Adversarial rounds 2 and 3 both landed on the same defect in
- * that approach: a transcription can satisfy every assertion while the SHIPPED
- * component differs. The concrete case is `w-full` on the `@container` root —
- * load-bearing, because `container-type: inline-size` collapses a shrink-to-fit
- * flex item to 0px — which a transcribed panel supplies from the harness rather
- * than from the component.
+ * The sibling `pendingDiscardReflow.layout.spec.ts` transcribes classes into local
+ * constants, and a transcription can satisfy every assertion while the SHIPPED
+ * component differs — adversarial rounds 2 and 3 both landed on that. Every positive
+ * claim therefore lives here, measured against markup the real component rendered.
  *
  * So every POSITIVE claim about the shipped component lives here, measured
  * against markup rendered by the real component tree

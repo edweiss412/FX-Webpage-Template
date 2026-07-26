@@ -38,10 +38,11 @@ const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try
 // destructive surface (DESTRUCT-2): ARM_REVERT_MS.
 
 /* The two Ignore skins and their labels, exported so tests/e2e/_pendingDiscardHarness.tsx
- * can render an ARMED panel from the component's own strings. renderToStaticMarkup
- * cannot click, and the armed state differs only by this class + label — sourcing both
- * from here means the harness never transcribes them, so no binding meta-test is needed
- * to keep a transcription honest. */
+ * can render an ARMED panel from the component's own strings rather than transcribing
+ * them. `renderToStaticMarkup` cannot click, so the harness substitutes these into the
+ * Ignore button. NOTE the armed state is NOT only this class + label: it also fills the
+ * live region and mounts the consequence paragraph below the row. The harness therefore
+ * proves the armed ROW's geometry, which those two cannot affect — not the whole tree. */
 export const IGNORE_IDLE_CLASS =
   "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 export const IGNORE_ARMED_CLASS =

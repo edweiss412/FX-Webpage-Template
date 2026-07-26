@@ -4,14 +4,11 @@
  * Real-component mounting harness for the pending-discard fork
  * (spec 2026-07-25-destruct-thumb-order-drift-guard §6.3).
  *
- * WHY THIS EXISTS. The sibling `pendingDiscardReflow.layout.spec.ts` transcribes
- * the component's classes into local string constants. Adversarial review rounds
- * 2 and 3 both landed on the same defect in that approach: a transcription can
- * satisfy every assertion while the SHIPPED component differs. The concrete case
- * is `w-full` on the `@container` root — load-bearing, because
- * `container-type: inline-size` collapses a shrink-to-fit flex item to 0px — yet
- * a transcribed panel supplies `w-full` from the harness, independently of the
- * component. Production could drop it and the whole suite would stay green.
+ * WHY THIS EXISTS. The sibling `pendingDiscardReflow.layout.spec.ts` transcribes the
+ * component's classes into local constants, and a transcription can satisfy every
+ * assertion while the SHIPPED component differs — adversarial review rounds 2 and 3
+ * both landed on that. Rendering the real tree removes the gap: what is measured is
+ * what ships.
  *
  * This harness renders the REAL `NeedsAttentionInbox` (which renders the REAL
  * `PendingPanelDiscardButtons` inside its real card padding, real action row, and
@@ -116,19 +113,34 @@ import {
  *  being representative and the panel must be replaced by a real armed render. */
 export function armedHtml(width: number): string {
   const idle = railHtml(width);
-  const armed = idle
+
+  // Target the IGNORE BUTTON specifically rather than relying on position. R7 F3:
+  // `IGNORE_IDLE_CLASS` appears twice — Ignore and Defer share the idle skin — and
+  // `String.replace` hits the FIRST occurrence. That is Ignore only because Ignore
+  // happens to render first; if an identically styled control ever precedes it, the
+  // class swap would arm the WRONG element while the label swap still found Ignore,
+  // and a whole-document `includes()` check would not notice.
+  const openTag = idle.indexOf(`data-testid="admin-pending-ignore-${INGESTION_ID}"`);
+  if (openTag === -1) throw new Error("armed substitution: ignore button not found in markup");
+  const tagStart = idle.lastIndexOf("<button", openTag);
+  const tagEnd = idle.indexOf("</button>", openTag) + "</button>".length;
+  const ignoreEl = idle.slice(tagStart, tagEnd);
+
+  const armedEl = ignoreEl
     .replace(IGNORE_IDLE_CLASS, IGNORE_ARMED_CLASS)
     .replace(`>${IGNORE_IDLE_LABEL}<`, `>${IGNORE_ARMED_LABEL}<`);
-  // Whole-diff R6 F2: an UNCHECKED substitution is the dangerous kind. If either
-  // replace stops matching — the component reorganises its className, or the label
-  // moves — this returns idle markup, D1/D2/D3 keep passing on valid idle geometry,
-  // and D4 degrades to comparing idle against idle: a tautology that looks green.
-  // Exporting the strings does not guarantee the component still renders through them.
-  if (!armed.includes(IGNORE_ARMED_CLASS) || !armed.includes(IGNORE_ARMED_LABEL)) {
+  if (!armedEl.includes(IGNORE_ARMED_CLASS) || !armedEl.includes(IGNORE_ARMED_LABEL)) {
     throw new Error(
-      "armed substitution did not apply — the component no longer renders through " +
-        "IGNORE_IDLE_CLASS / IGNORE_IDLE_LABEL, so the armed panels would be idle markup",
+      "armed substitution did not apply inside the Ignore button — the component no " +
+        "longer renders through IGNORE_IDLE_CLASS / IGNORE_IDLE_LABEL, so the armed " +
+        "panels would be idle markup and D4 would degrade to comparing idle with idle",
     );
+  }
+  const armed = idle.slice(0, tagStart) + armedEl + idle.slice(tagEnd);
+  // Defer must be untouched: it shares the idle skin, so a positional slip would
+  // silently restyle it instead.
+  if (!armed.includes(`>${"Defer until modified"}<`)) {
+    throw new Error("armed substitution disturbed the Defer button");
   }
   return armed;
 }

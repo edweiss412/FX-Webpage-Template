@@ -46,7 +46,7 @@ Every command below was executed at plan-authoring time in the worktree. Output 
 
 | Registry | This plan |
 |---|---|
-| `tests/styles/_metaDestructiveConfirm.test.ts` | **EXTENDS** — adds T1 (single declaration), T2 (no literal timer delays), T3 (value pin), plus matcher self-checks |
+| `tests/styles/_metaDestructiveConfirm.test.ts` | **EXTENDS** — adds T1 (single declaration) and T3 (value pin), each with a self-check. A larger T2/census/meta-test layer was built across review rounds 2-6 and then **deleted**: it kept finding new bypasses and finally produced false positives. §5.3 records the residue |
 | `tests/auth/_metaInfraContract.test.ts` (Supabase call boundaries) | N/A — no Supabase client call added or changed |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` (lock topology) | N/A — no `pg_advisory*` anywhere in this diff |
 | `tests/messages/_metaAdminAlertCatalog.test.ts` | N/A — no `admin_alerts` row, no §12.4 code added or edited |
@@ -81,7 +81,7 @@ That substitution is what withdrew M2: with no transcription left to bind, the b
 
 ### Task 1 — Shared `ARM_REVERT_MS` + T1/T2/T3 — **DONE**
 
-`lib/admin/destructiveConfirm.ts` created; all 11 local declarations replaced with imports. No behavioural change (every site already used `4_000`), verified by 5996 tests across 507 files staying green. T1/T2/T3 and a T2 self-check landed with a non-vacuity floor of 11 detected scheduler calls.
+`lib/admin/destructiveConfirm.ts` created; all 11 local declarations replaced with imports. No behavioural change (every site already used `4_000`), verified by 5996 tests across 507 files staying green. T1 and T3 landed, each with a self-check. (An intermediate T2 census with an 11-call floor was built and later deleted — see §5.2.)
 
 ### Task 2 — Reorder the component — **DONE**
 

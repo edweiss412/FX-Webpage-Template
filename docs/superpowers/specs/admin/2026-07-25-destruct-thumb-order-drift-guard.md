@@ -221,7 +221,7 @@ All 11 declarations listed in §2.2 are replaced by an import. No behavioural ch
 
 ### 5.2 Guard assertions
 
-Three new assertions (T1, T2, T3) added to `tests/styles/_metaDestructiveConfirm.test.ts`, which already walks `components/` and `app/` (`tests/styles/_metaDestructiveConfirm.test.ts:131-141`) and already fails by default on unregistered destructive-confirm surfaces (`tests/styles/_metaDestructiveConfirm.test.ts:150-166`). Reusing it means a **new** destructive surface that adopts the recipe is forced into the registry, and therefore into these assertions, with no second discovery mechanism to maintain.
+Two assertions — **T1 and T3** — added to `tests/styles/_metaDestructiveConfirm.test.ts`, which already walks `components/` and `app/` (`tests/styles/_metaDestructiveConfirm.test.ts:131-141`) and already fails by default on unregistered destructive-confirm surfaces (`tests/styles/_metaDestructiveConfirm.test.ts:150-166`). Reusing it means a **new** destructive surface that adopts the recipe is forced into the registry, and therefore into these assertions, with no second discovery mechanism to maintain.
 
 **T1 — single declaration.** Walking `components/`, `app/` and `lib/`, exactly one file declares the identifier `ARM_REVERT_MS`, and it is the shared module. The assertion is an equality against a one-element list, not "at most one" — the latter passes on zero, which is the vacuous-pass failure mode described in §5.2.1 (C-B).
 
@@ -302,13 +302,12 @@ It is still enough to retire the binding table: with class and label sourced fro
 
 So this file proves the **harness reproduces the old defect shape**; it does not measure current markup at the rail. The current-markup, same-geometry assertions all live in `pendingDiscardReal.layout.spec.ts` against the real component tree, which is where D1's non-tautology actually comes from.
 
-### 6.6 Meta-tests (reduced)
+### 6.6 Meta-tests — withdrawn
 
-**M1 stays** — every `D`-invariant in §4.5 must have a named assertion in a layout spec, read from test titles and `expect` messages only, never raw source or comments.
+M1 (every `D`-invariant has a named assertion), M2 (measured elements are bound) and M3 (every cited jsdom test exists) were built to police the timing/binding machinery that §5.2 has since deleted. With that machinery gone they policed claims that no longer exist, and each had holes of its own that cost review rounds. All three are removed.
 
-**M3 stays** — every `§6.2 test N` the spec cites must exist in the jsdom suite.
+What remains is ordinary discipline: §4.5's invariants are asserted in `tests/e2e/pendingDiscardReal.layout.spec.ts`, and if one is deleted the assertion goes with it. That is weaker than a fails-by-default registry, and it is stated here rather than implied.
 
-**M2 is withdrawn.** It existed to bind a transcribed armed panel to the component. With armed panels rendered from the real component there is nothing to bind, so the binding table, its parser, and the six holes review found in it all cease to exist rather than being fixed. This is the clearest single measure of what the simpler design bought.
 
 ### 6.4 CI wiring (R5)
 
@@ -373,4 +372,4 @@ All three original rows are gone. The family section and its preceding `---` rul
 | The reorder fails to preserve DESTRUCT-1's zero-reflow guarantee | low | `basis-full` is deliberately **removed**, so its absence is required rather than a regression. The guarantee now holds structurally — Ignore is the first flex item, so arming extends rightward and pushes Defer. D4 proves it, with the pre-DESTRUCT-1 panel as negative control |
 | Test-id rename misses a consumer | low | Consumers enumerated in §2.4 by grep; the bare ids cease to exist, so a missed consumer fails loudly rather than matching two nodes |
 | The new workflow is itself dark | low | `workflow_dispatch:` enabled; close-out fires it with `gh workflow run` and confirms a green run before merge (§6.4) |
-| T2's literal ban is bypassed by a named-but-wrong constant | medium | Closed by the T2 allowlist (§5.2): the delay identifier must be a registered name, so `CONFIRM_TIMEOUT` fails until someone adds a row and states why. Residual scope limit stated honestly in §5.3 |
+| A surface points its arm timer at some other value | medium, **not mitigated** | T1/T3 pin where the constant lives and what it equals, nothing more. Detecting this needs to know which call IS the arm timer — semantic, and §5.3 explains why six rounds showed a regex cannot decide it |
