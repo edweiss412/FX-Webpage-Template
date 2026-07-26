@@ -23,6 +23,15 @@ down this document are historical and were accurate when written.
 
 ## §12 — UI close-out (impeccable v3 dual-gate)
 
+**Still valid at merge time, verified rather than assumed (2026-07-26).** The gates below ran many
+review rounds ago, so the question is whether any UI surface changed since. It did not: the last
+commit touching `components/`, `app/`, `DESIGN.md` or `tailwind.config.ts` is `903286b37` (accepting
+upstream's deletion of an orphaned component -- no UI authored), and every commit after it touches
+only `docs/` and `tests/`. Invariant 8 covers UI surfaces, and the guard/spec/handoff work since is
+neither, so no re-run is owed. Check it the same way if more rounds land:
+`git log -1 --format=%h -- components/ app/ DESIGN.md` then diff that commit to HEAD.
+
+
 **Invariant 8 applies by path:** the diff touches `components/**` and `app/admin/show/[slug]/CrewPageLink.tsx`. Both gates were **run** via independent subagents (per the standing owner request that this gate always uses subagents), each performing the canonical setup: `context.mjs` context load (PRODUCT.md + DESIGN.md) then the `product.md` register reference.
 
 Both returned **NEEDS-WORK**. Findings and dispositions:
