@@ -178,7 +178,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 ### Task 7: Gates — impeccable dual-run, then cross-model review
 
 - [ ] **Pre-code mechanical checklist FIRST** (the gate verifies, it does not discover): em-dash ban in user-visible copy, apostrophes as literals, 44px tap targets (`min-h-tap-min`), canonical type/token classes.
-- [ ] `/impeccable critique` AND `/impeccable audit` on the diff, with the canonical v3 setup gates. P0/P1 fixed or deferred via `DEFERRED.md`; findings and dispositions into the handoff §12.
+- [ ] `/impeccable critique` AND `/impeccable audit` on the diff, with the canonical v3 setup gates. P0/P1 fixed or deferred via `DEFERRED.md`; findings and dispositions into §12 of THIS PR's handoff doc (invariant 8's location — not a section of this plan or of the spec, both of which stop at §9/§7).
 - [ ] Cross-model adversarial review → Codex, fresh-eyes, REVIEWER ONLY, iterate to APPROVE with no round budget.
 - [ ] **Verify the brief's scope against the diff before dispatching:** `git diff --name-only origin/main...HEAD -- <every file the brief names>`; any name printing nothing does not belong. Run it with `while IFS= read -r`, never `for f in $FILES` — zsh does not word-split unquoted params.
 - [ ] **Tell the reviewer the sandbox is read-only** — PR3's spec R1 produced no verdict after burning its budget on `browserType.launch: EPERM`.
