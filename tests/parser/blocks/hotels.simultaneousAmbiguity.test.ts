@@ -17,7 +17,7 @@ const inline = (cell: string) => `| Hotel Reservations | ${cell} |`;
 
 describe("simultaneous hotel ambiguities", () => {
   it("emits BOTH codes when one reservation judges guests AND a multi-candidate address", () => {
-    const { warnings } = codesFor(
+    const { hotels, warnings } = codesFor(
       inline(
         "Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601 Eric Weiss - 110525 John Smith - 103316",
       ),
@@ -25,6 +25,30 @@ describe("simultaneous hotel ambiguities", () => {
     const codes = warnings.map((w) => w.code).filter((c) => c.startsWith("HOTEL_"));
     expect(codes).toContain("HOTEL_GUEST_SPLIT_AMBIGUOUS");
     expect(codes).toContain("HOTEL_ADDRESS_SPLIT_AMBIGUOUS");
+    // Full payload through the learn-K caller (whole-diff R3 finding 3: code
+    // presence alone lets a wrong-source payload ship). `parsed` must describe
+    // the reservation the crew actually sees; `replacement` is the conf-token-
+    // stripped cell — the guest names survive by ratified design (R8), the
+    // confirmation numbers must not (the P0 class).
+    const addr = warnings.find((w) => w.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS")!;
+    expect(addr.resolution).toEqual({
+      resolvable: true,
+      contentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      parsed: {
+        kind: "hotel-name",
+        hotelName: "Hotel",
+        hotelAddress: "71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601",
+      },
+      replacement: {
+        kind: "hotel-name",
+        hotelName: "Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601 Eric Weiss John Smith",
+        hotelAddress: null,
+      },
+    });
+    const parsed = (addr.resolution as { parsed: { hotelName: string; hotelAddress: string } })
+      .parsed;
+    expect(parsed.hotelName).toBe(hotels[0]!.hotel_name);
+    expect(parsed.hotelAddress).toBe(hotels[0]!.hotel_address);
   });
 
   it("emits BOTH codes when one reservation judges guests AND an unsplit address", () => {
@@ -34,6 +58,9 @@ describe("simultaneous hotel ambiguities", () => {
     const codes = warnings.map((w) => w.code).filter((c) => c.startsWith("HOTEL_"));
     expect(codes).toContain("HOTEL_GUEST_SPLIT_AMBIGUOUS");
     expect(codes).toContain("HOTEL_ADDRESS_SPLIT_AMBIGUOUS");
+    // P3(a): nothing was split, so there is no state change to undo.
+    const addr = warnings.find((w) => w.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS")!;
+    expect(addr.resolution).toEqual({ resolvable: false, reason: "no-split-to-undo" });
   });
 
   // Rank gating lived only inside parseHotelTable before commitHotels. An
