@@ -318,7 +318,12 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
   const DECL = /(?:^|\n)\s*(?:export\s+)?const\s+ARM_REVERT_MS\s*=/;
   /** Identifiers permitted as a scheduler delay in a destructive-confirm surface. */
   const ALLOWED = new Set(["ARM_REVERT_MS", "SUCCESS_DISMISS_MS", "WATCHDOG_MS"]);
-  const SCHEDULERS = /\b(?:setTimeout|setInterval|requestIdleCallback)\s*\(/g;
+  const SCHEDULERS = /\b(?:setTimeout|setInterval|requestIdleCallback|AbortSignal\.timeout)\s*\(/g;
+  /** `const t = setTimeout; t(cb, 3000)` renames the scheduler out of the scan, so the
+   *  census never sees the call. Whole-diff R2 BLOCKING. Aliasing is banned outright in
+   *  a registry file rather than chased. */
+  const SCHEDULER_ALIAS =
+    /(?:const|let|var)\s+\w+\s*=\s*(?:globalThis\.|window\.)?(?:setTimeout|setInterval|requestIdleCallback)\s*(?![(\w])/;
 
   it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
     const declaring: string[] = [];
@@ -394,7 +399,11 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     for (const file of new Set(
       REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file),
     )) {
-      const actual = censusOf(readFileSync(file, "utf8"));
+      const rawSrc = readFileSync(file, "utf8");
+      if (SCHEDULER_ALIAS.test(stripComments(rawSrc))) {
+        problems.push(`${file}: aliases a scheduler, which hides the call from the census`);
+      }
+      const actual = censusOf(rawSrc);
       detected += Object.values(actual).reduce((a, b) => a + b, 0);
       for (const id of Object.keys(actual)) {
         if (!ALLOWED.has(id)) problems.push(`${file}: unapproved delay identifier \`${id}\``);
@@ -444,6 +453,16 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
       }
     }
     expect(problems, "ARM_REVERT_MS must resolve to the shared module").toEqual([]);
+  });
+
+  it("T2 alias self-check: a REFERENCE is caught, an invocation is not", () => {
+    // `const t = setTimeout(cb, X)` is the ordinary timer-handle idiom and must NOT
+    // trip; `const t = setTimeout` renames the scheduler out of the census and must.
+    // Getting this backwards flagged two real files on the first attempt.
+    expect(SCHEDULER_ALIAS.test("const t = setTimeout(() => x(), MS);")).toBe(false);
+    expect(SCHEDULER_ALIAS.test("autoRevertRef.current = setTimeout(() => {")).toBe(false);
+    expect(SCHEDULER_ALIAS.test("const t = setTimeout;")).toBe(true);
+    expect(SCHEDULER_ALIAS.test("const sched = globalThis.setInterval;")).toBe(true);
   });
 
   it("T2 self-check: the matcher accepts allowlisted names and rejects everything else", () => {

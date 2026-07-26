@@ -310,6 +310,20 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     fireEvent.click(ignore); // arm
     const consequence = getByTestId(`admin-pending-ignore-consequence-${ID}`);
     expect(consequence.textContent).toContain("permanently");
+
+    // Whole-diff R2 MEDIUM: asserting aria-busy is ABSENT when idle passes even if
+    // both props are deleted. The RUNNING state is the one that carries the contract.
+    fetchMock.mockImplementation(() => new Promise(() => {})); // never resolves
+    await act(async () => {
+      fireEvent.click(getByTestId(`admin-pending-ignore-${ID}`)); // confirm -> running
+    });
+    for (const testid of [`admin-pending-ignore-${ID}`, `admin-pending-defer-${ID}`]) {
+      expect(getByTestId(testid).getAttribute("aria-busy"), `${testid} must report busy`).toBe(
+        "true",
+      );
+    }
+    const region = document.querySelector('[role="status"]') as HTMLElement;
+    expect(region.textContent, "the live region must announce progress").toBe("Working…");
   });
 
   test("clicking the Defer sibling while permanent-ignore is armed disarms it (whole-diff R2)", async () => {
