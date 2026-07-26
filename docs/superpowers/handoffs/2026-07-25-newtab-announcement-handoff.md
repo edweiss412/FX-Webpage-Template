@@ -1527,3 +1527,25 @@ kept them green.
 What none of this catches is the last semantic axis — an assertion whose expected value equals what
 the rule would produce with its body deleted. That still needs mutation, which is why the branch
 sweep stays in the loop.
+
+### The last raw-text rule had the same defect the style rule did
+
+Swept `className` while R34 ran, since it was the only raw-text matcher left after the style rule
+moved to the AST. `\b(hidden|invisible)\b` is not a token test — **a hyphen is a word boundary** — so
+`overflow-hidden` matched. That utility clips overflow and hides nothing, and it is one of the most
+common classes in a Tailwind codebase, so every announcement inside one was reported while fully
+visible. `not-hidden`, `overflow-x-hidden` and `peer-invisible` matched for the same reason.
+
+A class list is TOKENS: split on whitespace, strip the Tailwind variant prefix (everything before the
+last `:`), compare exactly. `md:hidden` and `group-hover:invisible` still report, because conditional
+hiding fails closed; `overflow-hidden` no longer does.
+
+**And a third fixture that tested the wrong route.** My first pin for the dynamic fallback used
+`className={hide ? "hidden" : ""}` on the HINT path — where the "non-literal className cannot be
+proven non-hiding" rule reports independently, so the fixture passed whether the fallback existed or
+not. Moving it to the DESTINATION side, which no other rule covers, makes the mutation red.
+
+That is the third time in this PR a fixture has exercised a different route than the one it names
+(after the fail-closed default and the `isProvablyNullish` caller). The rule generalises: **when two
+rules can produce the same verdict, a fixture proves nothing about which one ran.** Pick markup only
+the rule under test can reach, and confirm it by deleting that rule.

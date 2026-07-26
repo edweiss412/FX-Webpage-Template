@@ -271,6 +271,7 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   // immediately, which is that check earning its place.
   ["true", 'attribute value (R31: `aria-hidden` hides only on the literal string "true")'],
   ["collapse", "CSS keyword (a hiding `visibility` value)"],
+  ["invisible", "CSS class TOKEN, not an attribute (the class-list hiding set)"],
   ["NaN", "JS global, one of the three falsy values that is not a plain literal (R32 HIGH 7)"],
   ["null", "how `${null}` STRINGIFIES inside a template -- a value, never a name (R33)"],
   ["false", "attribute value: staticStringValue renders the boolean literals as text"],
@@ -2139,6 +2140,55 @@ describe("R6: scanner changes are pinned", () => {
         `must accept: ${style}`,
       ).toEqual([]);
     }
+    // A CSS class list is TOKENS. `\b(hidden|invisible)\b` treated a hyphen as a boundary, so
+    // `overflow-hidden` -- one of the most common utilities in this codebase -- reported a fully
+    // visible announcement. None of these hide.
+    for (const cls of [
+      "overflow-hidden",
+      "not-hidden",
+      "peer-invisible",
+      "flex overflow-hidden rounded",
+      "overflow-x-hidden",
+    ]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <span className="${cls}"><NewTabHint /></span></a>;`,
+        ),
+        `must accept, no hiding TOKEN: ${cls}`,
+      ).toEqual([]);
+    }
+    // ...and the ones that really do hide, including Tailwind VARIANT prefixes (conditional hiding
+    // still fails closed) and a dynamic value.
+    for (const cls of [
+      '"hidden"',
+      '"invisible"',
+      '"flex hidden rounded"',
+      '"md:hidden"',
+      '"group-hover:invisible"',
+      '{hide ? "hidden" : ""}',
+    ]) {
+      const attr = cls.startsWith("{") ? `className=${cls}` : `className=${cls}`;
+      reports(
+        `const A=({hide})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        /hidden from the accessible name|cannot be proven non-hiding/,
+        `class list hides: ${cls}`,
+      );
+    }
+    // A DYNAMIC class list on the DESTINATION side. The hint-path rule reports a non-literal
+    // className independently, so a fixture on that side cannot tell whether `classNameHides`'s
+    // dynamic fallback did anything -- this one can, because no other rule covers it.
+    reports(
+      'const A=({hide})=><a href="x" target="_blank"><span className={hide ? "hidden" : ""}>Go</span> <NewTabHint /></a>;',
+      /only visible content is the announcement/,
+      "a dynamic class list on the destination fails closed",
+    );
+    // ...and the hyphenated false positive must stay accepted on that side too.
+    expect(
+      violations(
+        'const A=({flag})=><a href="x" target="_blank"><span className={flag ? "overflow-hidden" : ""}>Go</span> <NewTabHint /></a>;',
+      ),
+      "must accept: overflow-hidden is not a hiding token even when dynamic",
+    ).toEqual([]);
     // R33 (found from the reviewer's probe trail, before its verdict): React DROPS any value that
     // provably produces a boolean or undefined, so these hide nothing and must not be reported.
     for (const attr of [

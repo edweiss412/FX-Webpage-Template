@@ -1260,6 +1260,39 @@ function reactOmitsValue(e0: ts.Expression): boolean {
   return false;
 }
 
+/** Does a `class` / `className` value hide this element?
+ *
+ *  A CSS class list is TOKENS, and `\b(hidden|invisible)\b` is not a token test: a hyphen is a
+ *  word boundary, so `overflow-hidden` matched. That class clips overflow and hides nothing, and it
+ *  is one of the most common utilities in this codebase, so the rule reported a whole family of
+ *  perfectly visible markup. `not-hidden` and `peer-invisible` matched for the same reason.
+ *
+ *  A Tailwind VARIANT prefix still hides, conditionally, so `md:hidden` and `group-hover:invisible`
+ *  are kept: the token after the last `:` is what names the utility. Conditional hiding fails
+ *  closed, as before.
+ *
+ *  A decidable value is tokenised exactly. A dynamic one keeps the raw-text fallback that R2 HIGH 4
+ *  added -- `className={hide ? "hidden" : ""}` must still fail closed -- but with delimiters that a
+ *  hyphen is not, so the same false positives cannot come back through that path.
+ */
+function classNameHides(init: ts.JsxAttributeValue | undefined): boolean {
+  if (!init) return false;
+  const HIDING = new Set(["hidden", "invisible"]);
+  const utility = (token: string): string => {
+    const afterVariant = token.slice(token.lastIndexOf(":") + 1);
+    return afterVariant.replace(/^[!-]+/, ""); // `!hidden` and `-hidden` name the same utility
+  };
+  const decided = staticStringValue(
+    ts.isJsxExpression(init) ? (init.expression ?? (init as unknown as ts.Expression)) : init,
+  );
+  if (decided !== null) {
+    return decided.split(/\s+/).some((t) => HIDING.has(utility(t)));
+  }
+  // Dynamic: fail closed on a delimited mention, where a hyphen is NOT a delimiter.
+  const raw = init.getText();
+  return /(^|[\s"'`{(:,[])(hidden|invisible)($|[\s"'`})\],])/.test(raw);
+}
+
 /** Does an inline `style` object hide this element?
  *
  *  Reads the object literal through the AST (R32 BLOCKING 5). A property hides when its KEY is
@@ -1458,12 +1491,7 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
     // only `className`, so that spelling was a fail-open in the SHIPPED rule, not merely
     // an untested one (review R21 BLOCKING 1).
     if (n === "classname" || n === "class") {
-      // Read the raw text, not just a resolved literal: a dynamic
-      // `className={hide ? "hidden" : ""}` previously resolved to null and was
-      // treated as visible (review R2 HIGH 4). Any mention of a hiding class in
-      // the expression fails closed.
-      const v = a.initializer ? (stringOf(a.initializer) ?? a.initializer.getText()) : "";
-      if (/\b(hidden|invisible)\b/.test(v)) return true;
+      if (classNameHides(a.initializer)) return true;
     }
     if (n === "style") {
       // MODEL CHANGE at R32. This was a raw-TEXT match, and five consecutive rounds each removed
