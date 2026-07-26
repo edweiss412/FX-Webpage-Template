@@ -61,7 +61,7 @@ Verified rather than assumed, because a missing environment pragma costs a round
 
 ## Execution order (green at every commit)
 
-**T1 → T2 → T3 → T4 → T5 → T6 → T7**
+**T1 → T2 → T3 → T4 → T5 → T6**
 
 **RESTRUCTURED after review R3 (CRITICAL).** The previous order violated invariant 1, TDD-per-task, which
 is non-negotiable: it had T4 implement the chevron CSS with no failing test, then T5 and T6 add tests for
@@ -79,9 +79,8 @@ folded into the tasks whose behaviour they assert, so the assertion is written f
 | T2 | the matcher is CALLED once per link with the hoisted day set (spied), above `agendaArea` | the hoist of the three existing `visibleDays` lines + the per-link matcher call |
 | T3 | fold/marker render tests, INCLUDING the §5.1 real-browser dimension assertions | the `<details>` markup |
 | T4 | the chevron's `transition-duration` asserted in a real browser (fails: no CSS yet) | the `app/globals.css` rule |
-| T5 | a refresh-driven marked-ness flip is asserted instant; before T5 nothing renders the post-refresh state at all, so the assertion errors on a missing marker | the markup that keeps the marker correct across a server re-render |
-| T6 | a meta-test assertion that THIS spec's registry row reads `PATH_GATED`, which fails today because it reads `UNSEEN` | the script + workflow `paths:` + the row value |
-| T7 | **not a TDD task** — it is a review gate and is labelled as such rather than pretending to a red state | impeccable dual-run + cross-model review |
+| T5 | a meta-test assertion that THIS spec's registry row reads `PATH_GATED`, which fails today because it reads `UNSEEN` | the script + workflow `paths:` + the row value |
+| T6 | **not a TDD task** — it is a review gate and is labelled as such rather than pretending to a red state | impeccable dual-run + cross-model review |
 
 **On T6's red state, corrected after review R4 (CRITICAL).** An earlier version said the red state was
 "the standalone command collects zero tests for this spec". That is not a failing ASSERTION — the existing
@@ -89,7 +88,7 @@ alias collects four other specs and exits 0, so nothing is red. The real red sta
 expectation on the registry row's value: assert it reads `PATH_GATED`, which fails while it reads `UNSEEN`,
 and passes once the wiring and the row land together. That is a genuine red → green pair.
 
-**On T7, also corrected (CRITICAL).** It has no red test because it is not a code task — it runs the
+**On the gates task, also corrected (CRITICAL).** It has no red test because it is not a code task — it runs the
 impeccable dual-gate and the cross-model review. Calling it a TDD task was the defect; invariant 1 governs
 tasks that change behaviour, and a review gate changes none. It is now labelled a gate, so nobody looks for
 the failing test it cannot have.
@@ -202,6 +201,18 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
         — with a client component this approach would not work.
       Doing this makes the layout assertions measure the component instead of a copy of it, which closes the
       "fold could be deleted and the harness still passes" hole rather than working around it.
+- [ ] **Transition + refresh assertions belong HERE, not in a later task (review R5, CRITICAL).** An earlier
+      partition gave them their own task, which was tests-after-implementation: T3 already renders `open` and
+      the marker declaratively from `viewerDays`, so a re-render moves them the moment T3 lands and the
+      separate task had no production change left to make. Folding them in keeps every assertion paired with
+      the markup that makes it pass, which is what invariant 1 actually requires. Assert:
+  - all 6 unordered state pairs from spec §5.2 are instant; none animates.
+  - **the three measured refresh behaviours** (spec §5.2): a user toggle survives a same-props refresh; a
+      changed assignment moves `open` between rows; a user toggle plus a now-agreeing server value does not
+      conflict. *These are React reconciliation facts, already measured, so the test pins them against a
+      future React upgrade rather than discovering them.*
+  - compound cases: sibling toggled while the viewer's day stays open; viewer's day collapsed then a sibling
+      expanded; every day collapsed including the marked one (must not reach an empty state).
 - [ ] Green; commit `feat(crew-page): fold non-viewer agenda days to one-line rows`.
 
 ### Task 4: Chevron affordance — assertion first, then the CSS
@@ -230,14 +241,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
       duplicate glyph beside the chevron, which no dimension assertion would flag.*
 - [ ] Green; commit `style(crew-page): chevron rotation on the agenda day disclosure`.
 
-### Task 5: Transition audit — compound states, including the reachable ones
-
-- [ ] **Test first, with a state nothing currently renders.** Spec §5.2: 4 states (open-ness × marked-ness), 6 unordered pairs, all reachable. The red assertion is the post-refresh one: re-render with a changed restriction and assert the marker moved to the newly-assigned day and left the old one. Before T5 there is no marker-after-refresh behaviour to observe, so the assertion fails on a missing marker rather than passing vacuously.
-- [ ] **Pairs 3–6 ARE reachable — corrected after review R3 (MEDIUM).** The spec called them unreachable because marked-ness is decided server-side. But `ShowRealtimeBridge` triggers `router.refresh()`, which re-renders server-sourced section bodies while the client stays mounted (`components/crew/CrewSections.tsx:13`), so a sync that changes the viewer's assignment from May 5 to May 6 moves May 5 expanded+marked → collapsed+unmarked and May 6 the reverse. Assert these are deliberately instant rather than claiming they cannot happen. Spec §5.2 must be updated in the same commit.
-- [ ] Compound cases: sibling toggled while the viewer's day stays open; viewer's day collapsed then a sibling expanded; every day collapsed including the marked one (must not reach an empty state); **and a refresh that reassigns days mid-session.**
-- [ ] Green; commit `test(crew-page): transition audit for the agenda disclosure`.
-
-### Task 6: Make the layout spec actually run in CI
+### Task 5: Make the layout spec actually run in CI
 
 - [ ] **Red state first, and it must be an ASSERTION.** Add a meta-test expectation that this spec's registry row reads `PATH_GATED`; it fails today because the row reads `UNSEEN`. Corrected after review R4 (CRITICAL): an earlier version called "the command collects zero tests for this spec" the red state, but the existing alias collects four other specs and exits 0, so nothing was red — observing an absence is not a failing test.
 - [ ] Add `tests/e2e/agendaScheduleLayout.spec.ts` to a standalone-config script in `package.json`. **Decide the naming explicitly** — `test:e2e:modal-header` running an agenda spec is a misnomer; rename it or add a sibling alias.
@@ -248,7 +252,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 - [ ] **State the guarantee honestly in the handoff:** runs when the filter matches, not on every PR. Do not write "verified in a real browser" unqualified.
 - [ ] Commit `ci(crew-page): run the agenda layout spec in the standalone-config job`.
 
-### Task 7: Gates — impeccable dual-run, then cross-model review
+### Task 6: Gates — impeccable dual-run, then cross-model review
 
 **This is not a TDD task** and has no red state, deliberately — invariant 1 governs tasks that change behaviour, and a review gate changes none. Review R4 (CRITICAL) was right that claiming a red state here was the defect.
 

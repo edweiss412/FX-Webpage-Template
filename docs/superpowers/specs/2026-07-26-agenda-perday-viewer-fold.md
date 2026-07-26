@@ -533,6 +533,32 @@ freshness invariant at `components/crew/CrewSections.tsx:13-19` states exactly t
 changes the viewer's assignment from May 5 to May 6 flips May 5 expanded+marked → collapsed+unmarked and
 May 6 the other way, on a page nobody reloaded.
 
+**Does a user's toggle survive a refresh that rewrites `open`? MEASURED — review R5 (HIGH) flagged this as
+needing execution, so it was executed rather than argued.** The worry was real: the documents require a
+user-toggled state to persist across `router.refresh()` while new server data simultaneously changes which
+rows carry `open`, with no client JS available to mediate. Three cases, rendered and re-rendered:
+
+```
+user opens a row the server said was closed, then a refresh with UNCHANGED props
+  -> row stays open   (React diffs against its last rendered value, not the DOM, so it does not touch it)
+
+refresh where the assignment MOVED (open prop changes on two rows)
+  -> the old row closes, the new row opens   (server authority wins where it actually changed)
+
+user opens a row AND the refresh now also says open
+  -> stays open, no conflict
+```
+
+**So both requirements hold at once, and neither needs a mechanism we write.** Persistence is guaranteed
+for every row whose server-side open-ness did not change, because React leaves untouched attributes alone.
+Server authority is guaranteed exactly where open-ness did change. The reconciliation IS the mechanism, and
+the no-client-JS ratification survives.
+
+Scope of that measurement, stated honestly: it exercises React's reconciliation under jsdom, which runs the
+same reconciler as a browser. It does NOT exercise the native disclosure widget's own click behaviour —
+that is a browser concern, covered by the real-browser assertions, and unaffected by the reconciliation
+question here.
+
 Two consequences worth stating rather than discovering:
 
 - **A `<details>` the viewer opened stays open across the refresh.** Open-ness is a DOM property of the

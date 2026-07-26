@@ -118,7 +118,14 @@ describe("agenda-fold spec/plan pair — decided questions stay decided", () => 
   it("every plan task declares a red state or is labelled a non-TDD gate", () => {
     // Invariant 1 is non-negotiable; R4 CRITICAL found three tasks without one.
     const bodies = planRaw.split(/^### Task \d+/m).slice(1);
-    expect(bodies.length).toBeGreaterThanOrEqual(7);
+    // Derive the expected count from the execution-order line rather than hardcoding it.
+    // An earlier version pinned 7; folding a task into another correctly turned it red, which
+    // is right in spirit but for the wrong reason — the rule should care that every task has a
+    // red state, not how many tasks there are.
+    const order = planRaw.match(/\*\*(T\d(?:\s*→\s*T\d)+)\*\*/);
+    expect(order, "the execution-order line must be present").not.toBeNull();
+    const declared = (order?.[1]?.match(/T\d/g) ?? []).length;
+    expect(bodies.length, "task headings must match the execution order").toBe(declared);
     bodies.forEach((body, i) => {
       const hasRed = /Test first|Red state first|not a TDD task/.test(body);
       expect(hasRed, `Task ${i + 1} declares neither a red state nor gate status`).toBe(true);
