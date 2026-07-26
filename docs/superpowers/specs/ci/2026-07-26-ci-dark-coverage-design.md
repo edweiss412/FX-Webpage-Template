@@ -40,14 +40,14 @@ Ratified with the owner during brainstorming 2026-07-26. A reviewer may verify t
 
 ## §2 Measured inventory
 
-Every number in this document is defined here once and referenced elsewhere. Measured 2026-07-26 against `origin/main` at `cb09c3fa6`.
+Every number in this document is defined here once and referenced elsewhere. Measured 2026-07-26 against `origin/main` at `b09cfa6c6`. **Re-derived after a mid-flight rebase**: `origin/main` advanced 70 commits during spec authoring, including PR #598, which added `tests/e2e/share-link-flash.spec.ts` **and its own dedicated path-gated workflow** — a sixth instance of the exact rot surface §4.3 retires, created while this spec was being written. Every number below is post-merge.
 
 ### §2.1 e2e spec coverage
 
 | Quantity | Value | Source |
 | --- | --- | --- |
-| `tests/e2e/*.spec.ts` files | 87 | `ls tests/e2e/*.spec.ts \| wc -l` |
-| Rows in `LOCAL_ONLY_ALLOWLIST` | 86 | `tests/ci/_metaE2eWorkflowCoverage.test.ts:36` |
+| `tests/e2e/*.spec.ts` files | 88 | `ls tests/e2e/*.spec.ts \| wc -l` |
+| Rows in `LOCAL_ONLY_ALLOWLIST` | 87 | `tests/ci/_metaE2eWorkflowCoverage.test.ts:36` |
 | — of which `UNSEEN` | 64 | same |
 | — of which `PATH_GATED` | 20 | same |
 | — of which `PATH_GATED_BY_EXCLUSION` | 2 | same |
@@ -57,16 +57,16 @@ Every number in this document is defined here once and referenced elsewhere. Mea
 
 | Quantity | Value |
 | --- | --- |
-| Alternation branches in `testMatch` (`tests/e2e/standalone.config.ts:36`) | 28 |
-| — resolving to an existing spec file | 27 |
+| Alternation branches in `testMatch` (`tests/e2e/standalone.config.ts:36`) | 29 |
+| — resolving to an existing spec file | 28 |
 | — **stale** (`overrideableField.layout`, no such file) | 1 |
-| Branches named by some workflow's run command | 11 |
+| Branches named by some workflow's run command | 12 |
 | Branches named by no workflow (**dark**) | 17 |
 | — of which correspond to a real file | 16 |
-| Real branches carrying a `LOCAL_ONLY_ALLOWLIST` row today | 27 (all of them) |
+| Real branches carrying a `LOCAL_ONLY_ALLOWLIST` row today | 28 (all of them) |
 | Allowlist rows remaining after PR2 | 59 |
 
-Note the two different counts, which are easy to conflate: **16** specs go from dark to covered, but **27** allowlist rows are deleted. The extra 11 are the branches already covered — every one of them by a *path-filtered* workflow, which the scanner classifies as not-PR-blocking-capable and which therefore still carries a `PATH_GATED` row today. An unfiltered whole-config job covers them properly, so their rows must go too or the shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:153`) fails.
+Note the two different counts, which are easy to conflate: **16** specs go from dark to covered, but **28** allowlist rows are deleted. The extra 12 are the branches already covered — every one of them by a *path-filtered* workflow, which the scanner classifies as not-PR-blocking-capable and which therefore still carries a `PATH_GATED` row today. An unfiltered whole-config job covers them properly, so their rows must go too or the shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:153`) fails.
 
 The 11 covered branches: `skeletonBandParity`, `stackedBandLayout`, `statusStripToggleLayout`, `step3-review-modal.layout` (`.github/workflows/modal-header-layout-e2e.yml:106` via `pnpm test:e2e:modal-header`), `attention-anchor-placement` (`.github/workflows/attention-anchor-e2e.yml:56`), `attention-pill-focus` (`.github/workflows/attention-pill-focus-e2e.yml:74`), `bulk-ignore-eyebrow.layout` (`.github/workflows/bulk-ignore-eyebrow-e2e.yml:52`), `hoverhelp-geometry` (`.github/workflows/hoverhelp-geometry-e2e.yml:57`), `phantomGapHelper.layout` (`.github/workflows/phantom-gap-e2e.yml:158`), plus `step3-review-modal.interactions` and `published-review-modal.layout`, which run under the **default** config's `desktop-chromium` project (`.github/workflows/step3-live-bundle.yml:70`, `.github/workflows/published-modal-e2e.yml:149`) rather than the standalone config.
 
@@ -96,7 +96,7 @@ So **23 of 27 specs need no server env at all**, and the env dependency is 2 spe
 
 ### §2.3b Full-config baseline with the env supplied
 
-The same config with the nine variables set to the values `.github/workflows/modal-header-layout-e2e.yml:74` already uses: **279 passed, 2 failed, 1 did not run, 2.2 min**. The only failures are the two esbuild specs from §2.3.
+The same config with the nine variables set to the values `.github/workflows/modal-header-layout-e2e.yml:74` already uses: **286 passed, 2 failed, 1 did not run, 1.9 min**. The only failures are the two esbuild specs from §2.3.
 
 This is the load-bearing number for the whole cluster: once PR1 lands, the entire standalone config is expected green, which is what makes PR2's unfiltered job safe to run on every PR. Any other red at PR2 time is a regression introduced between now and then, not pre-existing rot.
 
@@ -155,7 +155,7 @@ New module tests/e2e/helpers/liveEntryBundle.ts exporting two functions:
 - `bundleLiveEntry({ entry, outFile })` — calls esbuild's **JavaScript API** (`import * as esbuild from "esbuild"`) with the canonical options and the server-only resolver plugin (§3.2). Not the CLI, not `execFileSync`, not `dlx`: no subprocess, no network, no version literal, and the alias policy becomes a data structure instead of a list of shell flags.
 - `buildEntryCss({ sources, outFile })` — runs the CLI (newly a pinned devDependency, §3.3) as `pnpm exec tailwindcss`, taking the `@source` list each harness needs and **reading `app/globals.css` itself**. Verified: all 25 CSS call sites pass exactly `-i` and `-o` with no other flags, and all 25 read `app/globals.css` and append it to the generated entry CSS — so the helper absorbs that duplication entirely and no call site needs an escape hatch.
 
-Both are plain synchronous helpers over `execFileSync`, callable from a spec's `beforeAll`. What they do: produce a browser bundle / stylesheet for a harness entry. How you use them: pass an entry path and an output path. What they depend on: `node:child_process` and the two local binaries. Nothing else in the repo imports them.
+The two differ deliberately and the spec must not blur them: `bundleLiveEntry` uses the **in-process esbuild API** and spawns nothing; `buildEntryCss` **does** shell out, because the Tailwind CLI has no equivalent in-process entry point. So the module depends on `esbuild` and, for the CSS half only, `node:child_process` plus the local `tailwindcss` binary. Both are synchronous and callable from a spec's `beforeAll`; they take an entry/source list and an output path; nothing else in the repo imports them.
 
 ### §3.2 Canonical alias list
 
@@ -267,7 +267,7 @@ Case 4 answers the hole in the §3.5 positive test: a bundle can also succeed vi
 1. Red: the new toolchain meta-test fails against `main` (33 violating call sites).
 2. Red: a unit test of `bundleLiveEntry` asserting it bundles **both** `_compactAlertCardLiveEntry.tsx` and `_packListRescanLiveEntry.tsx` with no resolution errors — fails before the helper exists. Both are already proven buildable under the §3.2 design (§3.2a), so a failure here is a helper defect, not a discovery.
 3. Green: implement the helper, add the `@tailwindcss/cli` devDependency and the version-parity test, migrate all 8 esbuild sites and all 25 CSS sites.
-4. Verify **by running the specs, not by rebuilding them**: the full standalone config green locally, with `resolve-label-layout` and `packlist-rescan-recovery` going red → green **without either spec being edited except to call the helper**. §2.3b is the baseline to beat: 279 passed / 2 failed becomes 281 / 0. This step is what converts §3.2a's build-success evidence into pass evidence — a proxy that throws on call is only correct if no render path calls a server-only module, and only the suite can show that.
+4. Verify **by running the specs, not by rebuilding them**: the full standalone config green locally, with `resolve-label-layout` and `packlist-rescan-recovery` going red → green **without either spec being edited except to call the helper**. §2.3b is the baseline to beat: 286 passed / 2 failed becomes 288 / 0. This step is what converts §3.2a's build-success evidence into pass evidence — a proxy that throws on call is only correct if no render path calls a server-only module, and only the suite can show that.
 
 The concrete failure mode this PR catches: a harness entry's import graph reaching server-only code breaks every bundling spec at once, loudly, instead of silently breaking only the ones no workflow watches.
 
@@ -314,7 +314,7 @@ So the workflow triggers on `pull_request` with no path filter, plus `workflow_d
 
 ### §4.3 Retirements
 
-Deleted: `.github/workflows/attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignore-eyebrow-e2e.yml`, `hoverhelp-geometry-e2e.yml`, `modal-header-layout-e2e.yml`. Every spec each one ran is in `standalone.config.ts:36` and therefore runs in the new job, unfiltered — strictly more often than before, since each retired workflow was path-gated.
+Deleted: `.github/workflows/attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignore-eyebrow-e2e.yml`, `hoverhelp-geometry-e2e.yml`, `modal-header-layout-e2e.yml`, and `share-link-flash-e2e.yml` — **six**, not the five an earlier draft named. The sixth landed on `main` mid-authoring (§2), which is itself the argument for the whole-config job: the per-feature pattern reproduces faster than it can be retired one at a time. Every spec each one ran is in `standalone.config.ts:36` and therefore runs in the new job, unfiltered — strictly more often than before, since each retired workflow was path-gated.
 
 `.github/workflows/phantom-gap-e2e.yml` is **not** deleted: its other two legs (`.github/workflows/phantom-gap-e2e.yml:160` and `.github/workflows/phantom-gap-e2e.yml:162`) run default-config specs under `desktop-chromium` / `mobile-safari` and have no equivalent here. Its standalone leg (`.github/workflows/phantom-gap-e2e.yml:158`) is removed as redundant.
 
@@ -333,7 +333,8 @@ Three, each fails-by-default. G1 and G2 land in the same PR as the retirements s
 - **arguments are normalized before evaluation**, because the real commands use the `=` form: `--reporter=list`, `--project=dev-build`. The tokenizer splits `--flag=value` into `(flag, value)`, treats `--flag value` identically for flags known to take a value, and permits repetition (`--project=a --project=b`). Leaving this unpinned would under-claim the entire standalone job — its command is `--reporter=list` — and fail AC-2, while a `--project=…` form unrecognized would leave the gallery invisible and fail AC-7;
 - a command claims whole-config coverage only when every argument after `playwright test` is either `--config <path>` or a member of a small known-inert set (`--reporter`, `--retries`, `--workers`, `--output`, `--timeout`, `--forbid-only`, `--quiet`) — each verified to affect reporting or scheduling only, never test selection;
 - **any** unrecognized argument — positional or flagged — drops the claim to zero specs and records a rejection reason, so a future edit that adds `--shard` silently loses coverage rather than silently keeping it;
-- explicit `*.spec.ts` arguments alongside `--config` are covered by those arguments only, which is `test:e2e:modal-header`'s shape today.
+- explicit `*.spec.ts` arguments alongside `--config` are covered by those arguments only, which is `test:e2e:modal-header`'s shape today;
+- **arguments forwarded at the call site compose with the script body.** `resolveSpecs` recurses into a `pnpm <script>` alias but discards the caller's tail, so `pnpm test:e2e:standalone -- --shard=1/2` would resolve the body as an unnarrowed whole-config run while Playwright executed half of it — a silent over-claim in the one direction the design promises never to go. The resolver therefore concatenates the caller's remaining arguments onto the resolved body before evaluating the allowlist, so a forwarded `--shard`, `--project`, `--grep`, `--test-list`, `--only-changed`, `--last-failed`, or positional regex drops the claim exactly as an inline one does.
 
 Config-side narrowing is handled the same way: the `configSpecs` builder resolves the config's `testMatch` **and** its `testIgnore` and any project-level `testMatch` / `grep`, so a spec excluded inside the config is never reported as covered. A config path appearing in a command with no `configSpecs` entry is a hard error, never a silent zero-match (`tests/ci/_workflowCoverageScan.ts:25` records exactly that lesson).
 
@@ -375,7 +376,7 @@ All three entries also appear in `.github/workflows/unit-suite.yml` only as `#` 
 
 ### §4.5 Allowlist shrink
 
-`LOCAL_ONLY_ALLOWLIST` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:36`) loses **27** rows — every real branch of the standalone config, not just the 16 that were dark (§2.2). The test's existing shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:153`) already fails on an allowlist row whose spec became covered, so leaving a row behind is caught rather than tolerated. Post-PR2 count: 59 rows for 87 specs.
+`LOCAL_ONLY_ALLOWLIST` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:36`) loses **28** rows — every real branch of the standalone config, not just the 16 that were dark (§2.2). The test's existing shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:153`) already fails on an allowlist row whose spec became covered, so leaving a row behind is caught rather than tolerated. Post-PR2 count: 59 rows for 88 specs.
 
 ---
 
@@ -432,9 +433,11 @@ So the rule is **not** "accept the placeholder under `local`" — that would pas
 
 The plan enumerates every assertion in the suite that reads command text and records which posture it takes; an assertion that cannot be made host-agnostic is scoped to `validation`, with the reason inline.
 
+**One posture, stated once (an earlier draft contradicted itself across three sentences).** Command-text assertions compare against the connected database's own configuration, identically under every target; the target flag selects only the refuse-to-run guardrails, never a weaker assertion.
+
 **A target label is not a fact about the database.** `PG_CRON_COVERAGE_TARGET=local` only says which flag was passed; it does not establish that the connected database is the freshly bootstrapped one, and `validation` does not establish a `vercel.app` host (a custom domain is legitimate). Keying assertions off the label therefore proves less than it appears to, and would fail a legitimate configuration while passing an unrelated one — the same class as `BL-VALIDATION-TARGET-BINDING`, which is open for exactly this reason on the sibling job.
 
-So the suite asserts what the database itself reports: the route path must match the canonical registry, and the **host must equal the host the connected database's own `app.fxav_vercel_url` GUC holds** (`current_setting('app.fxav_vercel_url', true)`), read in the same session. That compares the command against its actual source of truth rather than against an assumption about the environment, and it holds identically on a developer stack, in CI, and against validation. Only if the GUC is unset does the suite fall back to a route-only assertion, and it records that it did.
+So the suite asserts what the database itself reports: the route path must match the canonical registry, and the **host must equal the host the connected database's own `app.fxav_vercel_url` GUC holds** (`current_setting('app.fxav_vercel_url', true)`), read in the same session. That compares the command against its actual source of truth rather than against an assumption about the environment, and it holds identically on a developer stack, in CI, and against validation. **An unset GUC is a hard failure, not a fallback.** Both scheduling migrations refuse to apply unless `app.fxav_vercel_url` is set (`scripts/ci/supabase-local-bootstrap.sh:17-25` exists precisely to satisfy that guard), so cron rows cannot exist without it. If rows exist and the GUC is unset, the migration-time source of truth is unrecoverable and a route-only fallback would let any embedded host pass — including a stale one from a previous deployment, which is the exact drift this check exists to catch. The suite fails and says so; recording a skip while reporting green is the vacuity pattern §5.3 removes.
 
 ### §5.5 Flag lifecycle
 
@@ -458,6 +461,8 @@ It cannot simply be added: the 2026-07-24 flake audit recorded in `BL-E2E-LIFECY
 
 Acceptance for this task is **five consecutive green runs** of the spec, not one. A flake admitted to a workflow is worse than a dark spec, because it trains the pipeline to treat red as noise.
 
+**Its allowlist row must be deleted in the same PR.** `lifecycle-layout-e2e.yml` carries no path filter, so adding this spec to it makes the spec genuinely covered and the shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:153`) fails while its `UNSEEN` row survives. This is the second of PR4's two allowlist transitions; the gallery's is handled in §6.2, and an earlier draft specified only that one.
+
 ### §6.2 `attention-modal-gallery`
 
 Two rotted assertions, both traceable to commits that landed after the gate's last green run on 2026-07-02:
@@ -479,10 +484,10 @@ Per `docs/agents/writing-plans.md`, declared up front.
 
 | Meta-test | Status | PR |
 | --- | --- | --- |
-| tests/e2e/\_metaLiveEntryToolchain.test.ts | **created** — no file under `tests/e2e/**` (helper included) imports a child-process module; helper policy asserted as resolved config; behavioral proof the plugin ran | PR1 |
+| tests/e2e/\_metaLiveEntryToolchain.test.ts | **created** — no file but the helper names a toolchain binary (the blanket child-process ban is WITHDRAWN, §3.4); helper policy asserted as resolved config; behavioral proof the plugin ran; over-match case pins a client-safe module to the real implementation | PR1 |
 | Tailwind version-parity test | **created** — resolved `@tailwindcss/cli` and `tailwindcss` agree on major and minor | PR1 |
 | `tests/ci/_workflowCoverageScan.ts` | **extended** — config-aware coverage detection (G1) | PR2 |
-| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **extended** — stale/missing `testMatch` branches (G2); allowlist shrinks by 27 rows to 59 | PR2 |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **extended** — stale/missing `testMatch` branches (G2); allowlist shrinks by 28 rows to 59 | PR2 |
 | New assertion over `ENV_BOUND_EXCLUDES` | **created** — every exclusion is run somewhere or reasoned (G3); ships in PR3 because all three entries fail it today | PR3 |
 | `tests/cross-cutting/pg-cron-coverage.test.ts` | **extended** — CI-hard psql requirement, non-zero live-test count, target-aware URL assertions | PR3 |
 
@@ -493,7 +498,7 @@ Registries deliberately not touched: `tests/log/_auditableMutations.ts` (no muta
 ## §8 Acceptance criteria
 
 - **AC-1** The full standalone config runs green in CI, unfiltered, on every PR, and the two specs red at §2.3 are green — repaired by the helper, not by per-spec patches.
-- **AC-2** The five retired workflows are gone and every spec they ran is covered by the new job; `_metaE2eWorkflowCoverage` passes with 27 fewer allowlist rows (59 remaining) and no shadowing row.
+- **AC-2** The five retired workflows are gone and every spec they ran is covered by the new job; `_metaE2eWorkflowCoverage` passes with 28 fewer allowlist rows (59 remaining) and no shadowing row.
 - **AC-3** Each of G1, G2, G3 has a recorded mutation that turns it red.
 - **AC-4** `pg-cron-coverage.test.ts` executes in `unit-suite-db` with a non-zero live-DB test count, and a job in `x-audits.yml` runs it against validation.
 - **AC-5** An unreachable `psql` under `CI` fails the job rather than skipping the assertions.
