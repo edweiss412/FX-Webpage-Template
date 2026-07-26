@@ -26,7 +26,11 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-const REPO_ROOT = process.cwd();
+// Derived from this file's location, NOT process.cwd(): every spec already
+// uses `join(__dirname, "..", "..")` for exactly this reason, and cwd is only
+// the repo root by convention of how the runners happen to be invoked.
+// tests/e2e/helpers/ -> repo root is three levels up.
+const REPO_ROOT = join(__dirname, "..", "..", "..");
 
 export interface BundleOptions {
   /** Absolute path to the harness entry (.tsx). */

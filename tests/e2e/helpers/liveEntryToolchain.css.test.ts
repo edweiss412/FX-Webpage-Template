@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 
 import { compileEntryCss } from "./liveEntryToolchain";
 
-const ROOT = process.cwd();
+const ROOT = join(__dirname, "..", "..", "..");
 
 function entryFixture(): { work: string; entryCss: string } {
   const work = mkdtempSync(join(tmpdir(), "css-helper-"));
@@ -51,7 +51,7 @@ describe("compileEntryCss", () => {
     expect(css).toMatch(/--color-/);
     expect(css).not.toContain("@source ");
     expect(css.length).toBeGreaterThan(50_000);
-  });
+  }, 60_000);
 
   it("names a missing entry stylesheet", () => {
     const { work } = entryFixture();

@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { bundleLiveEntry } from "./liveEntryToolchain";
 
-const ROOT = process.cwd();
+const ROOT = join(__dirname, "..", "..", "..");
 
 describe("bundleLiveEntry", () => {
   it("bundles a live entry with explicit aliases, using the local binary", () => {
@@ -35,7 +35,7 @@ describe("bundleLiveEntry", () => {
     // A real bundle of this component tree is ~900kb. Asserting a floor rather
     // than mere existence is what makes an empty/stub output fail.
     expect(statSync(outFile).size).toBeGreaterThan(100_000);
-  });
+  }, 60_000);
 
   it("names a missing entry instead of surfacing a raw resolution error", () => {
     expect(() =>
