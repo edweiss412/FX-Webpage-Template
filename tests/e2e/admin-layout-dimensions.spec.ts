@@ -825,7 +825,16 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
           const headerLine = icon.parentElement;
           if (headerLine === null || headerLine.firstElementChild !== icon) continue;
           const headerBlock = headerLine.parentElement;
-          const next = headerBlock?.nextElementSibling;
+          if (!(headerBlock instanceof HTMLElement)) continue;
+          // TWO constraints the first version lacked, both learned from CI: the icon
+          // must live inside a registry section, and its header block must actually
+          // contain a section heading. Without them the walk matched
+          // `strip-publish-toggle` — a StatusStrip icon that is its parent's first
+          // child but belongs to no section — and then failed looking for a registry
+          // ancestor it never had.
+          if (icon.closest('[data-testid*="-review-section-"]') === null) continue;
+          if (headerBlock.querySelector("h3, h4") === null) continue;
+          const next = headerBlock.nextElementSibling;
           if (next instanceof HTMLElement && !cards.includes(next)) cards.push(next);
         }
         if (cards.length === 0) return { error: "no panel card found" };
@@ -981,9 +990,11 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       // line — so the total must scale with the number of cards. A walk that
       // collapsed to one card, or to one link, fails here.
       expect(found.cards, `the modal rendered its panel cards [@ ${width}]`).toBeGreaterThan(1);
-      expect(found.cards, `every registry section contributed a panel card [@ ${width}]`).toBe(
-        found.registrySections,
-      );
+      // NOT `cards === registrySections`. 12 cards over 11 sections is correct — the
+      // Diagrams sub-block renders a card inside another section — and that equality
+      // was the same wrong shape twice over: it fails on a correct tree, and when it
+      // does hold it does not mean one card per section. The per-section coverage
+      // assertion below is what actually carries that claim.
       // Every card walked its own chain. Five is the floor per card — pane ->
       // registry, registry -> ... -> panel card, breakdown -> ... -> header block,
       // header block -> header line — and a deeper section legitimately reports more.
