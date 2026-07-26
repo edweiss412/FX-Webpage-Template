@@ -366,6 +366,16 @@ TDD per task (invariant 1). Three layers:
    - scenario-identity guard message: on label mismatch the constructed error names the
      scenario id and the stale-server remedy (§5). Failure mode caught: a silent
      fallback-to-index-0 sweep mislabeling every capture.
+   - finalize protocol order (§4): the run orchestrator performs all filesystem effects
+     through an injected fs adapter (mkdir/write/rename/delete/list); the unit test
+     drives a full simulated run against a RECORDING fake and asserts the operation
+     ORDER pins every §4 protocol clause: (1) the first effects discard leftover
+     `.staging/` content, (2) every capture write targets a `.staging/` path — zero
+     canonical-path writes before finalize begins, and no full-sweep pre-clear exists
+     at all, (3) finalize's renames and deletions all precede (4) the index write,
+     which is the LAST effect. A second test aborts the simulated run mid-capture and
+     asserts NO canonical path was mutated. Failure mode caught: any reordering or
+     shortcut that reintroduces the mixed-generation crash window round 5 flagged.
    - capture-core extraction: `tests/help/capture-script.test.ts` guards are UPDATED in
      the extraction commit to scan the file that now holds each asserted body (§3
      item 1) — same assertions, relocated read targets. The moved bodies get no
