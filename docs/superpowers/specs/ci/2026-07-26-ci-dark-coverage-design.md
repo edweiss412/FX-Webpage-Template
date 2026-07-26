@@ -191,11 +191,20 @@ Each removal of a path rule exposed a new module-load failure in a chain the rul
 
 A strict stub that throws on **any** property read was built and measured as the answer. It works for 4 of 5 probed entries with byte-identical DOM and zero errors, and it fails on the fifth: esbuild reads module properties at bundle time to resolve named exports, so `_packListRescanLiveEntry` no longer builds. That is the third stub mechanism measured, after §3.2a's alias table and §3.2c's packages-only rule set.
 
+**The residual has two named instances, and they differ in severity — measured, not assumed:**
+
+| instance | reachable from a harness today | failure mode |
+| --- | --- | --- |
+| `lib/drive/driveFolderUrl.ts` — a pure string function (`folderId` in, a Drive URL out, no server dependency) sitting under the stubbed `@/lib/drive/` | **yes**, via `lib/adminAlerts/alertActions.ts` on the alert-card render path | **loud** — a call throws |
+| `SHOW_NOT_FOUND` (`{ok:false, code:"show_not_found"}`) at `app/admin/show/[slug]/_actions/shared.ts:35` | **no** — nothing under `components/` or `lib/` imports `_actions/shared` or `_actions/index` | **silent** if it ever becomes reachable |
+
+So the silent class is **latent, not live**: the constant exists and would compare wrong, but no harness can reach it today. The live overmatch fails loudly. That is the honest severity statement, and it tells the guard exactly what to watch — `_actions/` because a future import turns the latent case live, `@/lib/drive/` because it is live now.
+
 So the residual is **stated, not closed**: a module overmatched by a path rule and consumed for a *value* rather than a call is a silent wrong-behaviour risk. Three things bound it, and none of them is "we checked that it renders":
 
 1. Only four path rules exist (§3.2), each covering a directory whose modules are overwhelmingly server-only.
-2. §3.4 case 5 is strengthened to exercise **the overmatched directories themselves** — for each path rule, a known client-safe module under it must resolve to the REAL implementation, asserted by a marker string from that module appearing in the bundle. An earlier draft tested only an unrelated adjacent module, which proved nothing about the rules actually in force.
-3. A harness needing a value from a stubbed path adds one narrow exception rather than widening a rule, and case 5 fails loudly if a rule swallows something client-safe.
+2. §3.4 case 5 is strengthened to exercise **the overmatched directories themselves**, with named fixtures rather than an abstract requirement: a bundle must contain the real `drive.google.com/drive/folders/` literal from `lib/drive/driveFolderUrl.ts` (not the stub), and must resolve a client-safe export under `_actions/` to the real module. An earlier draft tested only an unrelated adjacent module, which proved nothing about the rules actually in force.
+3. A harness needing a value from a stubbed path adds one narrow exception rather than widening a rule, and case 5 fails loudly if a rule swallows something client-safe. **That escape hatch has its first real user**: `@/lib/drive/driveFolderUrl` is excluded from the rule, landed together with the guard so case 5 passes on day one instead of documenting a known-red state.
 
 What this does not give is a proof that no future harness consumes a stubbed value silently. That is recorded in §9 as a live limitation of the design, not as a solved problem.
 
@@ -337,6 +346,8 @@ Deleted: `.github/workflows/attention-anchor-e2e.yml`, `attention-pill-focus-e2e
 Three, each fails-by-default. G1 and G2 land in the same PR as the retirements so a coverage regression cannot land silently; G3 ships in PR3 (§4.4 G3) because every one of its baseline entries fails it today:
 
 **G1 — config-aware coverage.** `_workflowCoverageScan.ts` currently detects a spec as covered only by matching its filename in a `run:` command (`tests/ci/_workflowCoverageScan.ts:88`). A whole-config invocation names no filenames, so without this extension every standalone spec would still read as dark.
+
+**The mechanism is proven executable, not assumed.** Importing the configs and reading `projects[].testMatch` as resolved `RegExp` values yields 10 projects for the default config, with `dev-build` resolving to exactly `admin-dev.spec.ts` and `attention-modal-gallery.spec.ts` — the case AC-8 needs — and the standalone config resolving to 28 specs, matching §2.2 independently. Two constraints this surfaced: **regex-parsing the config source does not work** (the per-project literals span lines and a naive matcher silently returns zero projects — the `_rowWrapperScan` failure class the scanner's own header cites), and the importer must resolve relative specifiers from inside the tests tree, which `tests/ci/` satisfies.
 
 `scanWorkflowCoverage` (`tests/ci/_workflowCoverageScan.ts:80`) is a **pure** function — its only inputs are `workflows` and `packageScripts`, with all filesystem reading done by the caller. The extension preserves that: a third `Opts` field `configSpecs`, mapping a Playwright config path to the spec paths its `testMatch` matches, supplied by the meta-test exactly as `workflows` and `packageScripts` already are. Parsing the config stays outside the scanner, which remains table-testable.
 
