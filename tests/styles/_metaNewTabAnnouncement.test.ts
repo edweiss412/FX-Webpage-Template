@@ -235,8 +235,6 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["input", 'intrinsic tag name (R24: type="hidden" is not rendered)'],
   ["img", "intrinsic tag name (R26b: one of the elements `alt` applies to)"],
   ["area", "intrinsic tag name (R26b: one of the elements `alt` applies to)"],
-  ["select", "intrinsic tag name (R27: a form control, so `value` names it)"],
-  ["textarea", "intrinsic tag name (R27: a form control, so `value` names it)"],
   ["Link", "component tag name"],
   ["NewTabHint", "component tag name"],
   // Internal classification verdicts returned by the shape rules.
@@ -1767,13 +1765,120 @@ describe("R6: scanner changes are pinned", () => {
     ]) {
       expect(violations(src), `must report: ${src}`).not.toEqual([]);
     }
+    // MOVED to must-report at R28, and the reason matters: the ACCNAME FACTS these measured are
+    // unchanged -- an `<input value="Go">` really does contribute "Go", and `<span
+    // aria-label="Go" />` really does too. What changed is that the guard stopped trying to
+    // model per-role AccName behaviour after getting it wrong in both directions three rounds
+    // running (`<input type="checkbox" value>` does NOT name; `<input type="checkbox"
+    // aria-label>` DOES; `<button aria-label>` does not). It is now deliberately STRICTER than
+    // AccName on nested-element attributes, which is a stated posture rather than a mistake.
     for (const src of [
-      'const A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><input type="text" value="Go" /> <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><span aria-label="Go" /> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><input type="checkbox" value="Go" /> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><button aria-label="Go" /> <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must report (stricter than AccName, by choice): ${src}`).not.toEqual(
+        [],
+      );
+    }
+    // Unambiguous destinations still pass: rendered TEXT, and `alt` on an image.
+    for (const src of [
+      'const A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><img alt="Go" /> <NewTabHint /></a>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
+  });
+
+  it("R28 the binding must hold AT THE USE SITE, not merely exist in the file", () => {
+    const IMP = 'import { NewTabHint } from "@/components/shared/NewTabHint";\n';
+    // An import in the file proves nothing if an enclosing scope shadows it, and both of these
+    // type-check cleanly. Every idiomatic shadowing form a React component would use:
+    for (const [label, body] of [
+      [
+        "function-scope const",
+        'function A(){ const NewTabHint = () => null; return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+      ],
+      [
+        "arrow-body const",
+        'const A = () => { const NewTabHint = () => null; return <a href="x" target="_blank">Go <NewTabHint /></a>; };',
+      ],
+      [
+        "destructured parameter",
+        'const A = ({ NewTabHint }) => <a href="x" target="_blank">Go <NewTabHint /></a>;',
+      ],
+      [
+        "destructured const",
+        'const A = (p) => { const { NewTabHint } = p; return <a href="x" target="_blank">Go <NewTabHint /></a>; };',
+      ],
+    ] as [string, string][]) {
+      expect(
+        probe(IMP + body, { bare: true }).violations,
+        `must fail closed: ${label}`,
+      ).not.toEqual([]);
+    }
+    // An ALIASED destructure binds a different name, so it is not a shadow.
+    expect(
+      probe(
+        IMP +
+          'const A = ({ NewTabHint: other }) => <a href="x" target="_blank">Go <NewTabHint /></a>;',
+        { bare: true },
+      ).violations,
+      "an aliased destructure binds `other`, not the hint",
+    ).toEqual([]);
+    // An unrelated local declaration is not a shadow.
+    expect(
+      probe(
+        IMP + 'const A = ({ label }) => <a href="x" target="_blank">{label} <NewTabHint /></a>;',
+        {
+          bare: true,
+        },
+      ).violations,
+      "an unrelated destructure is not a shadow",
+    ).toEqual([]);
+  });
+
+  it("R28 whitespace spread, template-literal styles, and a bounded visibility match", () => {
+    const hid = '<span aria-hidden="true">Go</span>';
+    for (const src of [
+      // TRIMMED, matching the ordinary-string rule: `length === 0` let a whitespace-only spread
+      // through while `{" "}` was correctly rejected -- one fact decided two ways.
+      `const A=()=><a href="x" target="_blank">${hid}{[..." "]} <NewTabHint /></a>;`,
+      // A template literal is not a quote, so `display: \`none\`` slipped past a quote-only strip.
+      'const A=()=><a href="x" target="_blank"><span style={{ display: `none` }}>Go</span> <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must report: ${src}`).not.toEqual([]);
+    }
+    // And the mirror error: `visibility` matched INSIDE `backfaceVisibility`, manufacturing a
+    // violation on a property that hides nothing.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank"><span style={{ backfaceVisibility: "hidden" }}>Go</span> <NewTabHint /></a>;',
+      ),
+      "backfaceVisibility must not be read as visibility",
+    ).toEqual([]);
+  });
+
+  it("R28 a real next/link needs the duplicate fold too", () => {
+    // next/link forwards BOTH spellings to an intrinsic anchor and React keeps the LAST, so the
+    // announcement is silently dropped. The fold applies to a verified Link binding but NOT to
+    // an arbitrary component, whose props really are case-sensitive JS keys.
+    expect(
+      probe(
+        'import Link from "next/link";\nconst A=()=><Link href="x" target="_blank" aria-label="Go (opens in a new tab)" ARIA-LABEL="Go">Go</Link>;',
+        { bare: true },
+      )
+        .violations.map((v) => v.reason)
+        .join(" "),
+      "a real Link with folded duplicates must be reported",
+    ).toMatch(/case-folding/);
+    expect(
+      violations(
+        'const A=()=><UI.Link href="x" target="_blank" Mode="a" mode="b">Go</UI.Link>;',
+      ).join(" "),
+      "an arbitrary component's props must NOT be folded",
+    ).not.toMatch(/case-folding/);
   });
 
   it("R27 the import-binding check, at its edges", () => {
@@ -1871,11 +1976,9 @@ describe("R6: scanner changes are pinned", () => {
       'const A=({t})=><a href="x" target="_blank"><img alt={t} /> <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><img alt="Go" /> <NewTabHint /></a>;',
       // MEASURED: an input's value DOES contribute, so omitting `value` was a false positive.
-      'const A=()=><a href="x" target="_blank"><input type="text" value="Go" /> <NewTabHint /></a>;',
-      'const A=()=><a href="x" target="_blank"><span aria-label="Go" /> <NewTabHint /></a>;',
-      // SYMMETRY: attributes were inspected only on self-closing elements, so equivalent markup
-      // got opposite verdicts (review R26b HIGH 3).
-      'const A=()=><a href="x" target="_blank"><span aria-label="Go"></span> <NewTabHint /></a>;',
+      // R26b's SYMMETRY point is now moot in the accept direction: since R28 neither the paired
+      // nor the self-closing form counts, so they agree by being equally rejected. The symmetry
+      // itself is pinned in the R28 block above, where both are must-report.
       // A spread inside an array IS a render position; the walker visited it without unwrapping.
       'const A=()=><a href="x" target="_blank">Go {[...[<NewTabHint />]]}</a>;',
       // A KNOWN link tag is trusted, because rendering its children is the contract that makes
@@ -2571,6 +2674,12 @@ describe("R6: scanner changes are pinned", () => {
       ["download", "not read today; listed so a hand-typed `Download` still trips the rule"],
       ["ping", "not read today; same forward protection"],
       ["referrerpolicy", "not read today; same forward protection"],
+      // No longer read as of R28's model change (nested-element attributes stopped being
+      // destination proof), but kept so a hand-typed `Value` still trips the lowercase rule.
+      // The reverse cross-check flagged these the moment they went unread -- the check working
+      // as designed on its own author.
+      ["value", "not read since R28; kept for forward protection"],
+      ["defaultvalue", "not read since R28; kept for forward protection"],
     ]);
     const unread = [...CASE_INSENSITIVE_NAMES].filter(
       (n) => !shaped.some((lit) => lit.toLowerCase() === n) && !FORWARD_PROTECTION_ONLY.has(n),

@@ -423,7 +423,77 @@ function labelAnnounces(
  *
  * Fail-closed by construction: an unresolvable or absent import means NOT trusted.
  */
+const importCache = new WeakMap<ts.SourceFile, Map<string, boolean>>();
+
 function isImportedFrom(sf: ts.SourceFile, name: string, froms: readonly string[]): boolean {
+  // Cached per SOURCE FILE, because the answer varies per file and this is asked once per
+  // ANCHOR. Uncached it walked every import statement of all 246 files repeatedly and pushed
+  // the live-census test from 3.0s to 5.9-7.2s under load, over vitest's 5s default. Raising
+  // the timeout hid that; caching removes it.
+  const key = `${name}\u0000${froms.join("\u0000")}`;
+  let perFile = importCache.get(sf);
+  if (perFile === undefined) {
+    perFile = new Map();
+    importCache.set(sf, perFile);
+  }
+  const hit = perFile.get(key);
+  if (hit !== undefined) return hit;
+  const result = computeIsImportedFrom(sf, name, froms);
+  perFile.set(key, result);
+  return result;
+}
+
+/**
+ * Is `name` SHADOWED by a declaration in some scope enclosing `at`?
+ *
+ * R28 BLOCKING 1: proving an import exists in the file is not proving the JSX use site refers to
+ * it. `const NewTabHint = () => null` inside a component shadows the import, and both fixtures
+ * type-check cleanly. Walking the enclosing scopes is what makes the binding claim true at the
+ * point it is used.
+ *
+ * Fail-closed: any declaration of that name in an enclosing scope counts as a shadow, even one
+ * that would be a redeclaration error, because a guard should not adjudicate validity.
+ */
+function isShadowedAt(at: ts.Node, name: string): boolean {
+  // A name can be introduced by an identifier OR by a destructuring pattern, in a declaration
+  // or a parameter. Handling only identifiers missed `({ NewTabHint }) => ...`, which is the
+  // most idiomatic way a React component would shadow it.
+  const bindsName = (bn: ts.BindingName): boolean => {
+    if (ts.isIdentifier(bn)) return bn.text === name;
+    for (const el of bn.elements) {
+      if (ts.isOmittedExpression(el)) continue;
+      // An aliased destructure (`{ NewTabHint: other }`) binds `other`, not the name.
+      if (bindsName(el.name)) return true;
+    }
+    return false;
+  };
+  const declares = (n: ts.Node): boolean => {
+    if (ts.isVariableStatement(n)) {
+      return n.declarationList.declarations.some((d) => bindsName(d.name));
+    }
+    if (
+      (ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)) &&
+      n.name !== undefined &&
+      n.name.text === name
+    ) {
+      return true;
+    }
+    return false;
+  };
+  for (let cur: ts.Node | undefined = at; cur !== undefined; cur = cur.parent) {
+    if (ts.isSourceFile(cur)) break; // module scope: the import itself lives here
+    const body = (cur as { body?: ts.Node }).body;
+    const stmts = body !== undefined && ts.isBlock(body) ? body.statements : undefined;
+    if (stmts !== undefined && stmts.some(declares)) return true;
+    if (ts.isBlock(cur) && cur.statements.some(declares)) return true;
+    // A function/arrow PARAMETER of that name shadows too.
+    const params = (cur as { parameters?: ts.NodeArray<ts.ParameterDeclaration> }).parameters;
+    if (params?.some((pm) => bindsName(pm.name)) === true) return true;
+  }
+  return false;
+}
+
+function computeIsImportedFrom(sf: ts.SourceFile, name: string, froms: readonly string[]): boolean {
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st) || !st.importClause) continue;
     const spec = st.moduleSpecifier;
@@ -509,7 +579,10 @@ function rendersNothing(e: ts.Expression): boolean {
         // Spreading a STRING yields one element per character, so an empty string yields none
         // (review R27 BLOCKING 3). Any other operand is opaque.
         if (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) {
-          return inner.text.length === 0;
+          // TRIM, matching the ordinary-string rule. `length === 0` let `{[..." "]}` through
+          // while `{" "}` was correctly rejected -- the same fact decided two ways in one
+          // function (review R28 BLOCKING 4).
+          return inner.text.trim().length === 0;
         }
         return false;
       }
@@ -630,32 +703,33 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
       // BLOCKING 2). `aria-labelledby` is deliberately absent: it points at another element, a
       // dangling reference names nothing, and the target cannot be resolved statically, so
       // treating it as proof was a fail-open.
-      // MEASURED, not reasoned (review R27 BLOCKING 2). Computing the anchor's name from its
-      // contents treats an embedded CONTROL differently from ordinary content: the control
-      // contributes its VALUE, and its own `aria-label` does NOT reach the anchor. So:
+      // MODEL CHANGE at R28. The previous rule split on TAG -- input/select/textarea contribute
+      // their value, everything else its aria-label -- and R28 showed that wrong in BOTH
+      // directions on measured cases:
       //
-      //   <input type="text" value="Go">    -> "Go (opens in a new tab)"   value names a control
-      //   <input type="text" aria-label="Go"> -> "(opens in a new tab)"    label does NOT
-      //   <span aria-label="Go" />          -> "Go (opens in a new tab)"   label names a non-control
-      //   <data value="Go"></data>          -> "(opens in a new tab)"      not a control
-      //   <meter value="0.5"></meter>       -> "(opens in a new tab)"      not a control
+      //   <input type="checkbox" value="Go">      -> "(opens in a new tab)"   value does NOT name
+      //   <input type="checkbox" aria-label="Go"> -> "Go (opens in a new tab)" label DOES name
+      //   <button aria-label="Go">                -> "(opens in a new tab)"   label does NOT name
       //
-      // Treating `value` as proof on every intrinsic accepted `<data>` and `<meter>`, and
-      // treating `aria-label` as proof on a control accepted an input whose label never reaches
-      // the anchor. Both were fail-opens.
-      const CONTROL_TAGS = new Set(["input", "select", "textarea"]);
-      const isControl = CONTROL_TAGS.has(tag);
+      // Real AccName behaviour varies by ROLE and by input TYPE, and this is the third
+      // successive round spent refining an attribute-based approximation of it. So the approved
+      // shape is narrowed instead, per the principle that fixed the main rule at R5: only
+      // things whose contribution is unambiguous count as a destination -- rendered TEXT, and
+      // `alt` on an image. No attribute on any other nested element is proof.
+      //
+      // Cost, measured before choosing: no live anchor relies on a nested element's attribute
+      // for its label (all 23 use literal text), so this reports nothing today. A future case
+      // takes one reasoned exemption, and that is cheaper than a rule that has been wrong three
+      // rounds running.
       const ALT_ELEMENTS = new Set(["img", "area"]);
-      for (const a of attrs.properties) {
-        if (!ts.isJsxAttribute(a)) continue;
-        const name = jsxAttrNameLower(a);
-        const applies = isControl
-          ? name === "value" || name === "defaultvalue"
-          : name === "aria-label" || (name === "alt" && ALT_ELEMENTS.has(tag));
-        if (!applies || !a.initializer) continue;
-        const val = stringOf(a.initializer);
-        // A dynamic value is opaque and therefore assumed to name something.
-        if (val === null || val.trim().length > 0) return true;
+      if (ALT_ELEMENTS.has(tag)) {
+        for (const a of attrs.properties) {
+          if (!ts.isJsxAttribute(a) || jsxAttrNameLower(a) !== "alt" || !a.initializer) continue;
+          const val = stringOf(a.initializer);
+          // A dynamic alt is opaque and therefore assumed to name something; an EMPTY alt is
+          // explicitly "no name".
+          if (val === null || val.trim().length > 0) return true;
+        }
       }
       // Then the children of an intrinsic element, which really do render.
       if (ts.isJsxElement(child) && childrenCarryDestination(child.children)) return true;
@@ -782,8 +856,13 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
       // alike, and the earlier regex required a bare key and lowercase value, so both scanned
       // clean (review R27 BLOCKING 4). CSS property names and these keyword values are
       // case-insensitive; class TOKENS are not, which is why this fold is scoped to `style`.
-      const v = (a.initializer?.getText() ?? "").replace(/["'\[\]]/g, "");
-      if (/display\s*:\s*none|visibility\s*:\s*(hidden|collapse)/i.test(v)) return true;
+      // Strip quotes, brackets AND BACKTICKS: `display: \`none\`` slipped through because a
+      // template literal is not a quote (review R28 BLOCKING 5). And bound `visibility` at a
+      // word start, or it matches INSIDE `backfaceVisibility`, which manufactured a violation
+      // on `{{ backfaceVisibility: "hidden" }}` -- wrong in both directions at once.
+      const v = (a.initializer?.getText() ?? "").replace(/["'`\[\]]/g, "");
+      if (/(^|[^a-z])display\s*:\s*none/i.test(v)) return true;
+      if (/(^|[^a-z])visibility\s*:\s*(hidden|collapse)/i.test(v)) return true;
     }
   }
   return false;
@@ -914,9 +993,11 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
   // ships is the sole source; a spelled-but-unbound hint means the anchor does not announce.
   const sourceFile = anchor.getSourceFile();
   const hintIsReal =
-    isImportedFrom(sourceFile, HINT, ["components/shared/NewTabHint"]) ||
-    // The component's own file defines it rather than importing it.
-    sourceFile.fileName.endsWith("components/shared/NewTabHint.tsx");
+    (isImportedFrom(sourceFile, HINT, ["components/shared/NewTabHint"]) ||
+      // The component's own file defines it rather than importing it.
+      sourceFile.fileName.endsWith("components/shared/NewTabHint.tsx")) &&
+    // ...and no enclosing scope shadows that binding at the anchor (review R28 BLOCKING 1).
+    !isShadowedAt(anchor, HINT);
   if (!hintIsReal) return out;
   const walk = (n: ts.Node, hidden: boolean, conds: string[]): void => {
     // Never descend into JSX ATTRIBUTES: a hint passed as a prop
@@ -1050,7 +1131,8 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
   // import from next/link, or the same spelling-vs-binding hole applies here too.
   const linkIsReal =
     (LINK_TAGS.has(anchorTag) || LINK_TAGS.has(anchorTagLast)) &&
-    isImportedFrom(sourceFile, anchorTagLast, ["next/link"]);
+    isImportedFrom(sourceFile, anchorTagLast, ["next/link"]) &&
+    !isShadowedAt(anchor, anchorTagLast);
   const anchorRendersChildren = /^[a-z]/.test(anchorTag) || linkIsReal;
   if (!anchorRendersChildren) return out;
   anchor.children.forEach((c) => walk(c, anchorHidden, []));
@@ -1326,7 +1408,18 @@ function classifyShape(el: ts.JsxElement | ts.JsxSelfClosingElement): Shape {
   // pattern wrongly excluded camelCase intrinsics like `<clipPath>` and `<foreignObject>`
   // (review R13 question 3, probed before that round reported).
   const isIntrinsic = /^[a-z]/.test(tagName) && !tagName.includes(".");
-  if (isIntrinsic) {
+  // A REAL `next/link` also needs the fold: it forwards both spellings to an intrinsic anchor,
+  // and React keeps the LAST -- so `<Link aria-label="Go (opens in a new tab)" ARIA-LABEL="Go">`
+  // ships an anchor named "Go" and the announcement is silently dropped (review R28 BLOCKING 2).
+  // Scoped to a verified `Link` binding: an arbitrary component's props really are
+  // case-sensitive JS keys, which is why the fold must not apply to those.
+  const tagLast = tagName.split(".").pop() ?? tagName;
+  const isRealLink =
+    LINK_TAGS.has(tagName) &&
+    tagName !== "a" &&
+    isImportedFrom(el.getSourceFile(), tagLast, ["next/link"]) &&
+    !isShadowedAt(el, tagLast);
+  if (isIntrinsic || isRealLink) {
     const folded = new Set<string>();
     for (const a of attrs.properties) {
       if (!ts.isJsxAttribute(a)) continue;
