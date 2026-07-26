@@ -82,7 +82,7 @@ Ratified by the user on 2026-07-26 during brainstorming, from a rendered side-by
 | D8 | Drive-call bound | The per-call `{timeout, retry: false}` pair ONLY. The outer race an earlier draft proposed is withdrawn: it could not cancel what it abandoned, and its rejection let an activation commit after the caller recorded the row as failed (§3.3.1a). |
 | D9 | Loop bound | A per-run budget only, reusing the existing `T_EXEC_BUDGET_MS`, and stated as `budget + one worst-case iteration` because a pre-iteration check cannot bound the iteration it admits (§3.3.2). |
 | D10 | Atomic alert transport | `PostgresWatchTx.upsertAdminAlert` calls `public.upsert_admin_alert` over its own `sql` connection. The RPC is `security definer` and `language sql` (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql:18-27`), so it is reachable from the pg connection with no signature change (§3.4). |
-| D11 | `lib/adminAlerts/upsertAdminAlert.ts` | Unchanged. It keeps its other 24 importing modules; only the watch port stops routing through it, and its import is removed from `lib/drive/watch.ts:3` (§3.4.3). |
+| D11 | `lib/adminAlerts/upsertAdminAlert.ts` | Unchanged. It keeps its other 23 importing modules; only the watch port stops routing through it, and its import is removed from `lib/drive/watch.ts:3` (§3.4.3). |
 
 ### 2.1 Named constants
 
@@ -214,7 +214,7 @@ Putting a second statement inside that transaction creates an attribution proble
 - **The emitted `operation` becomes the real one.** The reap is wrapped in `callWatchTx("drive_watch_channels.expire_dead_active", …)`, and the catch reads the operation off the typed error rather than hardcoding it: `err instanceof DriveWatchInfraError ? err.operation : "drive_watch_channels.list_renewal_due"`. The fallback keeps the existing hardcoded assertion at `tests/drive/watch.test.ts:1447` green for a genuine read failure, because that test injects a failing read and therefore still gets `drive_watch_channels.list_renewal_due`.
 - The log MESSAGE changes from `"refresh-watch list_expiring failed"` to a neutral `"refresh-watch renewal read failed"`, verified unasserted (`grep -rn "refresh-watch list_expiring failed" tests/` → no matches), so forensics are not told the wrong statement failed.
 
-**Cap:** `reapedIds` and `skippedFolderIds` (§3.2) are each capped at **20** entries, with the true total always carried in the sibling `*Count` field. A run that reaps more than 20 rows logs 20 of them plus the true count. **No ordering is claimed:** `UPDATE … RETURNING` has no ordering contract and which rows come back can change with the execution plan, so the caller sorts the ids before capping to make the emitted set deterministic. The ids are forensic aids; the count is the signal. Unbounded id lists in a log field are the failure this cap prevents.
+**Cap:** `expiredIds`, `supersededIds` and `skippedFolderIds` (§3.2) are each SORTED and then capped at **20** entries, with the true total always carried in the sibling `*Count` field. A run that reaps more than 20 rows logs 20 of them plus the true count. **No ordering is claimed:** `UPDATE … RETURNING` has no ordering contract and which rows come back can change with the execution plan, so the caller sorts the ids before capping to make the emitted set deterministic. The ids are forensic aids; the count is the signal. Unbounded id lists in a log field are the failure this cap prevents.
 
 #### 3.1.4 GC collects `expired` but does not call Drive
 
@@ -229,6 +229,36 @@ where status in ('superseded', 'orphaned', 'expired')
 The skip reads the status, not `expires_at` — D4. An `expires_at`-based skip would also have to decide what a NULL means and would silently start skipping `orphaned` rows that were never activated, which today reach `defaultStopChannel` and exit early on the `!channel.resourceId` guard (`lib/drive/watch.ts:419`). Reading the status keeps those two populations distinct.
 
 The row still reaches `markStopped` and is therefore still deleted by `deleteOldStopped` after 7 days (`lib/drive/watch.ts:287-295`), and is still counted in the returned `stopped` array. Only the Drive call is skipped.
+
+**A FAILED stop must no longer consume the cleanup obligation** (spec R3 finding 2). GC currently catches every `channels.stop` error, logs `DRIVE_WATCH_STOP_FAILED`, and marks the row `stopped` regardless — its own comment says "control flow UNCHANGED" (`lib/drive/watch.ts:711-726`). That already contradicts the canonical contract, which says a `superseded` row whose stop fails with anything other than a 404 is left `superseded` and retried next pass (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1327`).
+
+§3.3.1's 15-second timeout turns that from a rare path into a routine one, and §3.1.2 routes possibly-live channels to `superseded` **specifically so they get stopped**. Leaving the current behaviour would mean a timed-out stop silently retires the row and deletes it seven days later while Drive still delivers to a channel nobody will ever stop again — the exact leak the two-status split exists to prevent, reintroduced one layer down.
+
+So GC's post-stop transition becomes status-aware, matching the canonical contract exactly:
+
+| Candidate status | Stop call | Outcome |
+| --- | --- | --- |
+| `expired` | skipped (§3.1.4) | → `stopped` |
+| `superseded` | succeeded, or failed with 404 | → `stopped` |
+| `superseded` | failed with anything else, timeout included | **left `superseded`**, retried next pass |
+| `orphaned` | any outcome | → `stopped` (canonical: "Either way", `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1329`) |
+
+A permanently failing stop therefore retries indefinitely. That is the canonical contract's deliberate choice, it is observable through the existing `DRIVE_WATCH_STOP_FAILED` warn, and it is strictly better than silently abandoning a live channel. The returned `stopped` array only counts rows that actually reached `stopped`.
+
+#### 3.1.5 The admin health panel must keep saying "expired"
+
+`lib/admin/driveConnectionHealth.ts` reads `drive_watch_channels.status` for the folder at ANY status and classifies in tiers:
+
+- **tier 2, `watch_inactive`** - any non-`active` status (`lib/admin/driveConnectionHealth.ts:162-165`)
+- **tier 3, `watch_expired`** - `active` but `expires_at <= now` (`lib/admin/driveConnectionHealth.ts:166-169`)
+
+Today an expired-but-active row lands in tier 3 and the panel says the watch EXPIRED. After §3.1 that row's status becomes `expired`, so it matches tier 2 first and the panel would say the watch is INACTIVE, losing the distinction for exactly the condition tier 3 was written to name. Worse, tier 3 becomes unreachable: after the reap no row stays `active` past its expiry long enough to be observed.
+
+**So tier 2 excludes the new value and tier 3 admits it:** a status of `expired`, or `active` with `expires_at <= now`, yields `watch_expired`; every other non-`active` status still yields `watch_inactive`. This preserves the panel's existing meaning across the change rather than silently degrading it, and keeps tier 3 live.
+
+No new message code and no §12.4 change: `watch_expired` already exists and this only routes a status to it. The file is under `lib/admin/`, not `app/` or `components/`, so AGENTS.md invariant 8 is still not engaged.
+
+This consumer was **missed by the original status-consumer sweep**, which concluded "no other consumer" (plan review R2 finding 7). That sweep grepped for status string LITERALS; this file compares against one value and branches on everything else generically, so it matched nothing.
 
 ### 3.2 Renew only the configured folder
 
@@ -288,6 +318,22 @@ Two changes close it, and both are needed:
 2. **`activatePending` refuses to promote a row that is no longer `pending`.** It already filters `where id = $1 and status = 'pending'` (`lib/drive/watch.ts:174-185`), so after (1) it matches zero rows — but nothing checks the row count, so activation currently reports success while the row stays orphaned. The port returns the affected count and `activateWithTx` throws when it is zero, which routes into the existing `activate_failed_after_watch_created` path (`lib/drive/watch.ts:591-620`): the channel is marked orphaned, `WATCH_CHANNEL_ORPHANED` is raised, and GC stops the Drive-side channel. **The canonical spec already prescribes this**: "If the second UPDATE matches 0 rows … the transaction rolls back and the pending row stays" (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1318`). It was simply never implemented, which is the same shape as AC-6.18 itself.
 
 Without (2), (1) is silent: the row is orphaned in the table while the caller believes it activated, and the Drive-side channel is left running with nothing recording it.
+
+**(1) and (2) together are still not enough** (spec R3 finding 1). They close the window where the pending row already EXISTS when promotion runs. They do not close the wider one: refresh reads the old configured folder, promotion commits, and only THEN does the stale subscriber insert its pending row. Promotion cannot orphan a row that does not exist yet, and a guard that only asks "is this row still `pending`?" says yes. The same holds for a pending insert that is uncommitted and therefore invisible to promotion.
+
+3. **`activatePending` revalidates the folder against `app_settings` in the same statement.** Its `where` clause gains:
+
+```sql
+and (
+  not exists (select 1 from public.app_settings
+               where id = 'default' and watched_folder_id is not null)
+  or watched_folder_id = (select watched_folder_id from public.app_settings where id = 'default')
+)
+```
+
+The `not exists` arm is load-bearing, not defensive noise: when no folder is configured in `app_settings` the system legitimately runs on the env fallback (`firstBootEnvFolderId`, `lib/appSettings/getWatchedFolderId.ts:20-22`), and a bare equality would compare against NULL and silently refuse EVERY activation, including first-boot. With a folder configured, the row's folder must match it.
+
+This is the only guard that closes the race for a row created after promotion, because it is evaluated at ACTIVATION time against the then-current settings rather than at promotion time against the then-existing rows. Zero rows matched routes into (2)'s throw, so the channel is orphaned, alerted, and stopped by GC — the correct outcome for a subscription to a folder nobody watches.
 
 **The §3.2 folder filter is still required, and is not redundant with this.** Promotion is one way a non-configured folder can hold an `active` row; it is not the only one. The env-var fallback (`firstBootEnvFolderId`, `lib/appSettings/getWatchedFolderId.ts:20-22`) can change under a running deployment, a promotion can fail after its Drive subscribe, and rows can be edited directly. Supersession fixes the wizard path at its root; the filter is the standing guarantee that refresh never renews a folder nobody watches. Both, not either.
 
@@ -386,7 +432,7 @@ So the double-encoding hazard is real — it is exactly what `JSON.stringify` pr
 
 The throw path is **unchanged in shape**. Today a failed RPC throws from the helper (`lib/adminAlerts/upsertAdminAlert.ts:55-57`) and `callWatchTx` wraps it as `DriveWatchInfraError("admin_alerts.upsert_watch_orphaned", …)` (`lib/drive/watch.ts:462-467`); the `await runTx(…)` inside `subscribeToWatchedFolder`'s catch is not itself guarded (`lib/drive/watch.ts:503-511`), so `subscribeToWatchedFolder` already rejects rather than returning `orphaned` in that case. After the change a pg error takes the same route to the same wrapper. What is new is only that `markOrphaned` rolls back with it instead of persisting — which is the defect being fixed.
 
-`lib/adminAlerts/upsertAdminAlert.ts` is untouched and keeps all 24 of its other importing modules (`grep -rl adminAlerts/upsertAdminAlert lib/ app/`, excluding itself). Its import at `lib/drive/watch.ts:3` becomes unused and is removed in the same commit; leaving it would raise a fresh ESLint `no-unused-vars` warning, and a new warning is signal that a wiring edit half-landed.
+`lib/adminAlerts/upsertAdminAlert.ts` is untouched and keeps all 23 of its other importing modules (`grep -rl adminAlerts/upsertAdminAlert lib/ app/` returns 24 including `lib/drive/watch.ts`, which this diff removes). Its import at `lib/drive/watch.ts:3` becomes unused and is removed in the same commit; leaving it would raise a fresh ESLint `no-unused-vars` warning, and a new warning is signal that a wiring edit half-landed.
 
 The `WatchTx` port signature does not change, so the DB-free fake and every existing injected-`tx` test keep working — only the Postgres implementation moves.
 
@@ -410,6 +456,7 @@ The `WatchTx` port signature does not change, so the DB-free fake and every exis
 | `dev.*` shadow schema | **N/A, verified:** `drive_watch_channels` is deliberately NOT cloned (`supabase/migrations/20260502000000_dev_schema_clone.sql:25`). |
 | Schema manifest | `pnpm gen:schema-manifest` is run and the result committed. Expected diff: **none** — the manifest stores a column-name array per table (`supabase/__generated__/schema-manifest.json`, `drive_watch_channels` → 10 column names) and records no CHECK constraints. §4.2 states why this makes the validation apply un-guarded and what compensates. |
 | Frontend | N/A. No UI surface; AGENTS.md invariant 8 (impeccable dual-gate) does not apply — nothing under `app/` except `app/api/**`, nothing under `components/`, no token or `DESIGN.md` change. |
+| Admin health classification | `lib/admin/driveConnectionHealth.ts` - **MUST change** (§3.1.5): tier 2 excludes `expired`, tier 3 admits it, so the panel keeps reporting an expired watch as expired rather than merely inactive, and tier 3 does not become dead code. Covered by `tests/admin/driveConnectionHealth.test.ts`. |
 | Telemetry read surface | `lib/observe/query/watch.ts` — **no change needed, verified:** it projects `status` as a bare `string` (`lib/observe/query/watch.ts:9-10`) into `WatchRow.status: string` (`lib/observe/query/types.ts:168`). No enum, no filter, no sanitizer (its header comment classifies `status` as CHECK-constrained class B). `expired` renders as itself. |
 
 ### 4.2 CHECK / enum migration matrix
@@ -434,6 +481,7 @@ Every registry this diff touches, each verified against the live tree.
 | `tests/log/_metaMutationSurfaceObservability.test.ts` | **N/A, verified:** the only route in scope is `app/api/cron/refresh-watch/route.ts`, whose sole export is `GET` (`app/api/cron/refresh-watch/route.ts:6`). The meta-test discovers mutating handlers (`POST`/`PUT`/`PATCH`/`DELETE`) and `"use server"` actions; this diff adds neither. No `AUDITABLE_MUTATIONS` row, no `ADMIN_SURFACE_EXEMPTIONS` row, no `KNOWN_UNINSTRUMENTED` row. |
 | `tests/cross-cutting/codes.test.ts` (x1-catalog-parity) | **N/A, verified:** §1.1a item 11. The four codes sit inside `log.*` spans, which `stripLogEmissionCalls` removes before the producer scan (`tests/cross-cutting/codes.test.ts:41-45`). No §12.4 prose edit, no `pnpm gen:spec-codes`, no `lib/messages/catalog.ts` row. The AGENTS.md three-lockstep rule is not engaged. |
 | `tests/log/_metaAdminOutcomeContract.test.ts:345` (`NULLCODE_BATCH2_STAMPS`, "33 rows") | **N/A, verified:** a closed historical batch registry. New codes do not join it, so the count is unchanged. |
+| `tests/sync/_metaInfraContract.test.ts:868-883` fixture | **MUST be extended.** It supplies only `listRenewalDue`. Once `expireDeadActive` runs first, the fixture fails on the MISSING member before reaching the injected read fault, and because both paths return the same generic `failures` shape the test still passes while proving the wrong operation (spec R3 finding 4). Add the member. |
 | `tests/sync/_metaInfraContract.test.ts` | **No registry row is added or removed, but two of its existing rows are load-bearing here and are re-verified rather than assumed.** It already registers all three watch entrypoints (`tests/sync/_metaInfraContract.test.ts:41-56`): `subscribeToWatchedFolder` and `gcWatchChannels` ("faults become `DriveWatchInfraError`") and `refreshWatchSubscriptions` ("faults become a typed `failures` entry (never rejects)"). The reap adds a statement inside the transaction that contract covers, so §3.1.3a is written to preserve it; the executable half lives at `tests/sync/_metaInfraContract.test.ts:869-883`. Separately, the §3.4.1 call site needs no row: it is a raw pg query on the enclosing transaction, not a Supabase client boundary, and it carries the inline `// not-subject-to-meta: <reason>` marker, whose exact recognised form is `/^\s*\/\/\s*not-subject-to-meta:\s+\S/m` (`tests/notify/_metaInfraContract.test.ts:63`). |
 | `tests/messages/_metaAdminAlertCatalog.test.ts:111-113` | **N/A, verified:** it pins `WATCH_CHANNEL_ORPHANED`'s producer as `path: "lib/drive/watch.ts"` matching `/upsertAdminAlert\(\{[\s\S]*code:\s*WATCH_CHANNEL_ORPHANED/`. §3.4 changes only the BODY of `PostgresWatchTx.upsertAdminAlert`; the matched call site is `markWatchOrphanedWithTx`'s `tx.upsertAdminAlert({ code: WATCH_CHANNEL_ORPHANED, … })` (`lib/drive/watch.ts:462-467`), which is untouched and still matches. |
 | `tests/messages/_metaAdminAlertProducer.test.ts` | **N/A, verified:** its detector is Supabase-client-scoped — `/\.from\(\s*["']admin_alerts["']\s*\)[\s\S]{0,400}?\.(?:insert|upsert)\s*\(/` (`tests/messages/_metaAdminAlertProducer.test.ts:42-43`). §3.4.1 writes through the canonical `upsert_admin_alert` RPC, which is what that guard exists to require, and does so over a pg connection that matches no part of the pattern. The precedent is already in this file: `resolveStaleWebhookTokenInvalid` issues a raw `update public.admin_alerts` (`lib/drive/watch.ts:322-335`) and passes today. |
@@ -478,6 +526,7 @@ The canonical spec is `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`.
 | --- | --- | --- |
 | "**No client-side timeout is applied** (amended 2026-07-25) … Adding a real timeout is tracked as `BL-WATCH-DRIVE-CALL-TIMEOUT`." | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1303` (inside the Create bullet, step 2) | Replaced by the per-call `{timeout: DRIVE_CALL_TIMEOUT_MS, retry: false}` pair (§3.3.1), with the residual credential-fetch stall named (§3.3.1a). The `BL-WATCH-DRIVE-CALL-TIMEOUT` reference is removed because the entry is closed by this diff. |
 | Renew "for any `active` row that has burned …" — no folder scoping. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1320` | Scoped to the configured folder (§3.2), with the three read outcomes stated. |
+| The canonical DDL CHECK, which lists only the original statuses. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1287-1289` | `expired` added, so the spec's own DDL matches the migration. Missed by the first amendment inventory (plan review R2 finding 5). |
 | The channel status set, which lists `pending`/`active`/`superseded`/`stopped`/`orphaned`. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1294-1299`, plus the §5.5.6 GC per-status list at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1327-1329` | `expired` added, with its meaning (aged out, distinct from `orphaned` = we failed to create it) and its GC treatment (collected, but no `channels.stop` — §3.1.4). |
 
 **AC-6.18 is NOT amended.** It already states the behaviour this diff implements (§3.2.4); it was simply never satisfied. Its status changes from unimplemented to implemented, which is not a spec change.
@@ -519,7 +568,13 @@ TDD per AGENTS.md invariant 1: every test below is written failing first. Each r
 | An inverted lease whose `expires_at` is in the FUTURE is reaped to **`superseded`**, not `expired`, and GC therefore DOES call `channels.stop` on it | The leak described in §3.1.2. Assert the resulting STATUS, not merely that the row left `active` — a status-blind assertion passes while a possibly-live Drive channel is abandoned with nothing left to stop it. Fixture mirrors `tests/db/watchRenewalDue.test.ts:141-155`. |
 | A genuinely expired row is reaped to **`expired`**, and GC does NOT call `channels.stop` on it | The other half of the same discrimination. Together these two fail any single-status implementation in one direction or the other. |
 | The reap uses the DATABASE clock: a row expired only under a skewed JS clock is NOT reaped | §3.1.2. Set the injected JS clock hours ahead of real time and assert an unexpired row survives. Catches a reimplementation that reintroduces a `nowIso` parameter. |
+| `DRIVE_WATCH_EXPIRED_REAPED` carries `expiredIds`/`supersededIds` as SEPARATE sorted arrays with independent `expiredCount`/`supersededCount`, each id list capped at 20 | Field-level, not just code-level: every payload in §2.2 can be malformed while a code-emission assertion stays green (spec R3 finding 6). |
+| `DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER` carries `skippedFolderIds` (capped), `skippedCount`, `configuredFolderId`, and the right `reason` on each of the two branches | Same. The `reason` discriminates a stale folder from no configured folder, which are different operator actions. |
+| `DRIVE_WATCH_RUN_BUDGET_EXHAUSTED` carries `processedCount`, `remainingCount`, `elapsedMs`, `budgetMs` | Same. |
+| `DRIVE_WATCH_FOLDER_READ_FAILED` carries `dueCount` and an `errorMessage` that has been through `redactWatchError` | Same, and the redaction is a secrets contract rather than a formatting preference. |
 | Each of the four forensic codes is emitted on its intended branch, observed through a sink spy | Spec R1 finding 8: allowlist membership in `NEW_FORENSIC_CODES` is static and proves only that a string is permitted, never that the branch emits it. |
+| A renewal read that fails AFTER a successful reap leaves the reaped rows STILL `active` (real DB) | §3.1.3's atomicity claim. The ordering assertion below passes against two separate transactions in the right order; only a rollback observation distinguishes one transaction from two. |
+| Promotion that rolls back leaves the prior folder's rows still `active` (real DB) | The same proof for §3.2.4, whose same-transaction claim otherwise has no test at all. |
 | The reap runs BEFORE the renewal read | `tx.operations` equals `["expireDeadActive", "listRenewalDue", …]`. Catches a reap ordered after the read, which would leave the stale row in `due` for one more tick — the entire fix silently reduced to a no-op. Order, not mere presence. |
 | An expired row **whose folder IS the configured one** produces zero subscribe attempts from refresh | The executable form of §3.1.3. Asserts the spy's call COUNT is 0. The configured-folder qualifier is load-bearing (spec R1 finding 8): without it the §3.2 folder filter alone yields zero calls, and the test passes whether or not the reap works. |
 | Folder filter passes the configured folder and drops the rest | Asserts the subscribe spy's ARGUMENT is the configured folder id, and that a stale-folder row yields no call. Catches a filter that counts right and selects wrong. |
@@ -539,16 +594,29 @@ Both resolve their connection through `assertLocalDbUrl(process.env.LOCAL_TEST_D
 
 | Test | Failure mode it catches |
 |---|---|
-| The CHECK accepts `'expired'` and still rejects an unknown value | Catches a migration that was written but never applied locally, and one that widened the constraint to anything. |
+| The CHECK accepts every one of the SEVEN values (the six pre-existing plus `expired`), asserted as a SET, and still rejects an unknown value | Catches a migration written but never applied locally, one that widened the constraint to anything, and — the reason the set matters — one that silently DROPS an existing value such as `stopping` while adding `expired`. A single-representative test passes that, and so does validation parity, which checks the name and the presence of `expired` (spec R3 finding 7). |
 | Through the real `refreshWatchSubscriptions`: an expired-active row ends as `status='expired'`, is absent from `listRenewalDue`, present in `listGcCandidates` | The §5 inversion. Runs the production `PostgresWatchTx` SQL, so it catches SQL that a fake would let pass. |
 | A row still INSIDE its lease, **and demonstrably renewal-due**, whose renewal fails is NOT reaped | §3.1.2 — the regression "retire on failure" would have shipped. The renewal-due qualifier is load-bearing (spec R1 finding 8): a row that is not due never reaches the renewal seam, so the test would pass without ever exercising the failure it names. Derive its lease from `renewalLeadMs` so it is due by construction, not by a hardcoded date. |
 | `markWatchOrphanedWithTx` inside a transaction that then throws leaves **no** `admin_alerts` row and an unchanged channel status | The direct proof of §3.4. Fails today: the alert commits over its own connection. Nothing weaker can observe this. |
 | The raised alert's `context` satisfies `jsonb_typeof(context) = 'object'` and `context->>'watched_folder_id'` equals the folder id | §3.4.2 double-encoding. A jsonb STRING passes a naive "a row exists" assertion and breaks every consumer. |
 | The alert's `occurrence_count` increments on a second raise | Proves the RPC's real `on conflict … do update` body ran over the pg connection, not just that an insert happened. |
 
+### 6.2a Admin health classification
+
+| Test | Failure mode it catches |
+| --- | --- |
+| A row with status `expired` yields `watch_expired`, NOT `watch_inactive` | §3.1.5. Without it the reap silently downgrades the admin panel's diagnosis for the exact condition tier 3 names, and tier 3 becomes unreachable. |
+| A row with status `orphaned` still yields `watch_inactive` | The other side of the same branch. A fix that routes ALL non-active statuses to `watch_expired` would pass the row above and break every other status. |
+
 ### 6.3 Class sweep
 
-Before implementing §3.3, `rg -n 'getDriveClient\(\)' lib/ app/` enumerates every Drive call site, and the plan records for each whether it is already bounded (the `files.get`/`files.list` total-time guards and the `stallGuard` idle timer described at `lib/drive/stallGuard.ts:1-23`) or newly bounded here. Per AGENTS.md class-sweep discipline this happens at round 1, not after a reviewer names the second instance.
+Before implementing §3.3, the sweep enumerates every Drive/Sheets API CALL, not every client construction:
+
+```sh
+rg -nE '\.(files|channels|revisions|spreadsheets)\.[a-zA-Z]+\(' lib/ app/
+```
+
+`rg -n 'getDriveClient()'`, which an earlier revision prescribed, finds construction sites and misses calls entirely, including a client built inline with `google.drive(...)` (`lib/drive/agendaDrive.ts:94`) and the several distinct calls inside a single route file. It is what produced the misclassification recorded in the plan (spec R3 finding 5). Each hit is then judged by its SECOND argument, and the plan records whether it is already bounded (the `files.get`/`files.list` total-time guards and the `stallGuard` idle timer described at `lib/drive/stallGuard.ts:1-23`) or newly bounded here. Per AGENTS.md class-sweep discipline this happens at round 1, not after a reviewer names the second instance.
 
 ---
 
