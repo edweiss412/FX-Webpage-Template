@@ -103,6 +103,33 @@ describe("inline hotel guest ambiguity", () => {
     });
   });
 
+  // Whole-diff review R1 finding 4. Keying the inheritance rule on group INDEX
+  // silenced any later group that HAS its own hotel text. Probe-verified: both
+  // reservations below mis-parse ("Main St John Smith" as a guest name, and the
+  // second inheriting the wrong hotel) and only ONE warning fired.
+  describe("later groups", () => {
+    it("WARN when the group carries its own hotel text", () => {
+      const { warnings } = guestWarnings(
+        inline(
+          "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1 Check Out: 3/2 " +
+            "Marriott Downtown 200 Oak Ave Jane Doe - 1002 Check In: 3/3 Check Out: 3/4",
+        ),
+      );
+      expect(warnings, "each group judged its own hotel/guest boundary").toHaveLength(2);
+    });
+
+    it("stay SILENT when the group is a divider + guest that inherits the hotel", () => {
+      // The consultants shape: group 2 is "----- Eric Weiss—2035937 Check In…".
+      const { warnings } = guestWarnings(
+        inline(
+          "Four Seasons Chicago 120 E Delaware Pl Doug Larson—2035940 Check In: 10/7 Check Out: 10/10 " +
+            "------------------------- Eric Weiss—2035937 Check In: 10/7 Check Out: 10/9",
+        ),
+      );
+      expect(warnings, "the later group judged nothing — it inherited the hotel").toHaveLength(1);
+    });
+  });
+
   it("carries the full warning envelope", () => {
     const cell = "Hyatt Regency Eric Weiss - 110525";
     const { warnings } = guestWarnings(inline(cell));

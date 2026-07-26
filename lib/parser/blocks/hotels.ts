@@ -729,7 +729,14 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   for (const r of rows) r.hotel_name = baseName;
   // Groups after the first carry only a divider + guest and INHERIT the hotel
   // name, so no hotel/first-guest boundary is judged for them (spec §3.1 row 7).
-  const verdicts = builds.map((b, i) => i === 0 && b.judgedGuestBoundary);
+  // A later group inherits the hotel only when it carries NO hotel text of its
+  // own, which the corpus marks with a leading divider run ("----- Eric Weiss—…",
+  // the consultants shape this function's comment above describes). Keying on
+  // group INDEX instead silences a later group that has its own hotel and its
+  // own guests, which is the very coverage hole this feature exists to close:
+  // probe-verified, two complete groups both mis-parse and only one warned.
+  const inheritsHotel = (i: number) => i > 0 && /^\s*[-–—]{3,}/.test(segments[i] ?? "");
+  const verdicts = builds.map((b, i) => b.judgedGuestBoundary && !inheritsHotel(i));
   const addrs = builds.map((b) => b.addressAmbiguity);
   const stripped = stripHotelNameConf(rows, (a) => (addrs[0] ??= a));
   return toPending(stripped, verdicts, raw, addrs);
