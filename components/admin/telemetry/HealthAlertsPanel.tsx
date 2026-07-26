@@ -31,6 +31,7 @@ import { formatRelative } from "@/lib/time/relative";
 import { nowDate } from "@/lib/time/now";
 import { HealthAlertResolveButton } from "@/components/admin/telemetry/HealthAlertResolveButton";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -58,7 +59,8 @@ function loadMoreHref(
 
 const PANEL_CLASS = "flex flex-col gap-section-gap";
 
-function HealthAlertRowItem({
+/** Exported for test only: see ActionCell in BellPanel.tsx for the rationale. */
+export function HealthAlertRowItem({
   row,
   weight,
   now,
@@ -151,6 +153,12 @@ function HealthAlertRowItem({
       >
         {action.label}
         {action.external ? <span aria-hidden="true"> ↗</span> : null}
+        {action.external ? (
+          <>
+            {" "}
+            <NewTabHint />
+          </>
+        ) : null}
       </a>
     ) : null,
   ].filter(Boolean);

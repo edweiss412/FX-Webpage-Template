@@ -31,6 +31,7 @@ import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { formatRelative } from "@/lib/time/relative";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import { rerunSetupServerAction } from "@/lib/onboarding/serverActions";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 
@@ -245,7 +246,7 @@ export function DriveConnectionPanel({
               >
                 <FolderOpen aria-hidden="true" className="size-4 shrink-0" />
                 Open folder
-                <ExternalLink aria-hidden="true" className="size-4 shrink-0" />
+                <ExternalLink aria-hidden="true" className="size-4 shrink-0" /> <NewTabHint />
               </a>
             )}
             {/* Task 12 — self-service Retry for a lapsed watch subscription

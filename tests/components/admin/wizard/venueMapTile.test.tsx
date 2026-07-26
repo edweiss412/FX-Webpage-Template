@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render, fireEvent } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -10,6 +12,27 @@ afterEach(() => {
 });
 
 describe("VenueMapTile", () => {
+  test("accessible name contains the visible 'Directions' text AND announces the new tab", () => {
+    // WCAG 2.5.3 label-in-name: the tile visibly reads "Directions" (in a span
+    // that is NOT aria-hidden), but its aria-label never contained that word --
+    // a Level A failure that predates 2026-07-25 and that this suite never
+    // caught, because it asserted href/target/visual presence and never the
+    // accessible NAME.
+    //
+    // Anchored equality, not `toContain`: a label of just
+    // "Directions (opens in a new tab)" would satisfy a contains-check and the
+    // structural guard while silently dropping the Google Maps destination.
+    const { container } = render(<VenueMapTile query="" mapHref="https://m.co" />);
+    const tile = container.querySelector('[data-testid="venue-map-tile"]')!;
+    expect(tile).toHaveAccessibleName(
+      "Directions to the venue in Google Maps (opens in a new tab)",
+    );
+    // The visible text the name must contain, asserted from its own element.
+    expect(container.querySelector('[data-testid="venue-directions"]')!.textContent).toContain(
+      "Directions",
+    );
+  });
+
   test("VCR-3/VCR-4: empty query + valid mapHref → stripe + Directions anchor + glyph, NO <img>, NO `map` label", () => {
     const { container } = render(<VenueMapTile query="" mapHref="https://m.co" />);
     const tile = container.querySelector('[data-testid="venue-map-tile"]') as HTMLAnchorElement;

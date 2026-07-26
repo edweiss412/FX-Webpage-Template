@@ -32,6 +32,7 @@
  * `offsetParent`, which jsdom leaves null — the trap test stubs it and
  * restores in afterEach. The REAL-browser wrap re-check is Task 11's Tab audit.
  */
+import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { useState } from "react";
@@ -225,6 +226,40 @@ function expectedFlagged(d: StagedSectionData): number {
 
 // ── Modal a11y contract (retired: "labelled modal dialog") ──────────────────
 
+describe("Step3ReviewModal — sheet deep-link accessible name", () => {
+  // The real component, not a hand-copied probe of its label expression -- and the
+  // difference is not cosmetic. The probe asserted that an EMPTY show title reaches
+  // the generic fallback. It does not: `buildStagedSectionData` substitutes a
+  // filename-derived title first, so the label interpolates that instead. Both
+  // modals turned out to do this (PublishedReviewModal substitutes `title || slug`),
+  // which is precisely what the probe could not see, since it re-implemented only
+  // the label expression and none of the wiring that feeds it.
+  test("an empty show title interpolates the DERIVED title, not the generic fallback", () => {
+    const { q } = renderModal({ d: sectionDataWithShow({ title: "" }) });
+    expect(q.getByTestId(tid("sheetlink"))).toHaveAccessibleName(
+      "Open the source sheet for asset-mgmt-summit.sheet in Google Sheets (opens in a new tab)",
+    );
+  });
+
+  test("a whitespace-only show title DOES reach the generic fallback", () => {
+    // The asymmetry is load-bearing and worth stating: `""` is replaced upstream by
+    // the derived title, while `"   "` survives to the label and is rejected there by
+    // `.trim()`. So whitespace is the only input that actually exercises the fallback
+    // arm -- without `.trim()` in the guard this would read "for    (opens in a new tab)".
+    const { q } = renderModal({ d: sectionDataWithShow({ title: "   " }) });
+    expect(q.getByTestId(tid("sheetlink"))).toHaveAccessibleName(
+      "Open the source sheet in Google Sheets (opens in a new tab)",
+    );
+  });
+
+  test("a real show title interpolates without disturbing the suffix", () => {
+    const { q } = renderModal();
+    expect(q.getByTestId(tid("sheetlink"))).toHaveAccessibleName(
+      `Open the source sheet for ${TITLE} in Google Sheets (opens in a new tab)`,
+    );
+  });
+});
+
 describe("Step3ReviewModal — a11y-safe title (spec §9.1/§15)", () => {
   test("dialog accessible name is the plain title (linked): aria-labelledby → h2 whose text is ONLY the title", () => {
     const { q } = renderModal();
@@ -268,7 +303,9 @@ describe("Step3ReviewModal — a11y-safe title (spec §9.1/§15)", () => {
     expect(link.getAttribute("href")).toBe(buildSheetDeepLink(DFID));
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(link.getAttribute("aria-label")).toBe(`Open the source sheet for ${TITLE}`);
+    expect(link.getAttribute("aria-label")).toBe(
+      `Open the source sheet for ${TITLE} in Google Sheets (opens in a new tab)`,
+    );
     expect(link.className).toMatch(/\bsize-tap-min\b/);
   });
 });
@@ -1239,7 +1276,12 @@ describe("Step3ReviewModal — section panels (spec §6.4/§5.2/§15)", () => {
       expect(link.getAttribute("target")).toBe("_blank");
       expect(link.getAttribute("rel")).toContain("noopener");
       // Accessible name names the section, so it never collides with the header link.
-      expect(link.getAttribute("aria-label")).toBe(`Open the source sheet for ${s.label}`);
+      // Phrasing follows main's icon-only redesign of this corner link
+      // (feat/section-header-rebuild-phantom-spacers): no visible words remain, so
+      // WCAG 2.5.3 label-in-name no longer requires it to mirror an "In sheet" label.
+      expect(link.getAttribute("aria-label")).toBe(
+        `Open the source sheet for ${s.label} (opens in a new tab)`,
+      );
     }
   });
 
