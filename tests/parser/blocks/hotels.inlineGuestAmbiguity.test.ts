@@ -90,9 +90,19 @@ describe("inline hotel guest ambiguity", () => {
   // the feature's motivating harm. Guest evidence at the final return IS an
   // examined guest region, whatever the patterns lifted.
   describe("guest evidence with pattern-defeating names still warns", () => {
+    // One case per evidence ARM (whole-diff R6 f3): the first two share a
+    // dash-prefixed six-digit conf that satisfies BOTH the bare-6+ shortcut and
+    // the dash loop, so deleting either arm alone stayed green. The last three
+    // each satisfy exactly one arm — dash + 4-5 digits (dash loop only), bare
+    // 6+ digits (shortcut's first alternate only), no-dash # + 4 digits
+    // (shortcut's second alternate only) — and use an initialed all-caps name
+    // so every pattern still lifts nothing.
     it.each([
       ["non-ASCII name", "Hyatt Regency José Núñez - 110525 Check In: 5/1 Check Out: 5/2"],
       ["all-caps name", "Hyatt Regency JANE SMITH - 110525 Check In: 5/1 Check Out: 5/2"],
+      ["dash + 4-5 digit conf only", "Hyatt Regency J. SMITH - 12345 Check In: 5/1 Check Out: 5/2"],
+      ["bare 6+ digit conf only", "Hyatt Regency J. SMITH 123456 Check In: 5/1 Check Out: 5/2"],
+      ["no-dash #-conf only", "Hyatt Regency J. SMITH #1234 Check In: 5/1 Check Out: 5/2"],
     ])("warns on %s", (_label, cell) => {
       const { warnings } = guestWarnings(inline(cell));
       expect(warnings, "guest evidence present — silence is a guest-loss").toHaveLength(1);

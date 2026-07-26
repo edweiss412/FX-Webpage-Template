@@ -112,6 +112,7 @@ type HotelAmbiguity =
   | {
       kind: "address";
       reason: AddressSplitAmbiguity["reason"];
+      splitInput: string;
       rawCell: string;
       parsedName: string | null;
       parsedAddress: string | null;
@@ -136,6 +137,7 @@ function commitHotels(pending: PendingHotel[], agg?: ParseAggregator): HotelRese
       if (amb.kind === "address") {
         emitHotelAddressSplitAmbiguity(agg, {
           reason: amb.reason,
+          splitInput: amb.splitInput,
           rawCell: amb.rawCell,
           index,
           name: p.row.hotel_name,
@@ -192,7 +194,9 @@ type SlotData = {
   // so a dropped RESERVATION #5+ slot never warns for a hotel that isn't shown.
   guestAmbiguities: Array<{ reasons: string[]; rawCell: string }>;
   // Same stash-then-commit discipline as guestAmbiguities: first split wins.
-  addressAmbiguity?: { reason: AddressSplitAmbiguity["reason"]; rawCell: string } | undefined;
+  addressAmbiguity?:
+    | { reason: AddressSplitAmbiguity["reason"]; splitInput: string; rawCell: string }
+    | undefined;
 };
 
 /**
@@ -354,6 +358,11 @@ export function parseGuestCell(cell: string): {
  */
 export type AddressSplitAmbiguity = {
   reason: "address-shape-unsplit" | "multiple-street-candidates";
+  // The exact cleaned text the splitter judged. The "undo the split"
+  // replacement is built from THIS, never from the enclosing booking fragment
+  // — a fragment-built replacement persists dates and guest names into
+  // crew-readable hotel_name (whole-diff R6 f1).
+  splitInput: string;
 };
 
 export function splitHotelNameAddress(combined: string | null): {
@@ -382,7 +391,11 @@ export function splitHotelNameAddress(combined: string | null): {
       new RegExp(STREET_ADDRESS_RE.source, STREET_ADDRESS_RE.flags).test(padded) ||
       new RegExp(STREET_ADDRESS_ZIP_RE.source, STREET_ADDRESS_ZIP_RE.flags).test(padded);
     return looksAddressed
-      ? { name: presence(cleaned), address: null, ambiguity: { reason: "address-shape-unsplit" } }
+      ? {
+          name: presence(cleaned),
+          address: null,
+          ambiguity: { reason: "address-shape-unsplit", splitInput: cleaned },
+        }
       : { name: presence(cleaned), address: null };
   }
   const splitAt = m.index;
@@ -395,7 +408,9 @@ export function splitHotelNameAddress(combined: string | null): {
   const counter = new RegExp(STREET_ADDRESS_RE.source, STREET_ADDRESS_RE.flags + "g");
   const candidates = [...padded.matchAll(counter)].length;
   const base = { name: presence(name), address: presence(address) };
-  return candidates > 1 ? { ...base, ambiguity: { reason: "multiple-street-candidates" } } : base;
+  return candidates > 1
+    ? { ...base, ambiguity: { reason: "multiple-street-candidates", splitInput: cleaned } }
+    : base;
 }
 
 /**
@@ -530,7 +545,11 @@ function parseHotelTable(markdown: string): PendingHotel[] {
         // FIRST cell's raw while a later repeated Hotel Name row overwrote the
         // value, so "use raw" would restore stale text (whole-diff R1 f3 / R2 f1).
         leftSlot.addressAmbiguity = split.ambiguity
-          ? { reason: split.ambiguity.reason, rawCell: col1 }
+          ? {
+              reason: split.ambiguity.reason,
+              splitInput: split.ambiguity.splitInput,
+              rawCell: col1,
+            }
           : undefined;
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
@@ -538,7 +557,11 @@ function parseHotelTable(markdown: string): PendingHotel[] {
         rightSlot.hotel_name = split.name;
         rightSlot.hotel_address = split.address;
         rightSlot.addressAmbiguity = split.ambiguity
-          ? { reason: split.ambiguity.reason, rawCell: col3 }
+          ? {
+              reason: split.ambiguity.reason,
+              splitInput: split.ambiguity.splitInput,
+              rawCell: col3,
+            }
           : undefined;
       }
       rowState = "idle";
@@ -634,6 +657,7 @@ function parseHotelTable(markdown: string): PendingHotel[] {
               {
                 kind: "address" as const,
                 reason: slot.addressAmbiguity.reason,
+                splitInput: slot.addressAmbiguity.splitInput,
                 rawCell: slot.addressAmbiguity.rawCell,
                 parsedName: slot.hotel_name ?? null,
                 parsedAddress: slot.hotel_address ?? null,
@@ -788,6 +812,7 @@ function toPending(
       ambiguities.push({
         kind: "address",
         reason: addr.reason,
+        splitInput: addr.splitInput,
         rawCell,
         parsedName: row.hotel_name,
         parsedAddress: row.hotel_address,

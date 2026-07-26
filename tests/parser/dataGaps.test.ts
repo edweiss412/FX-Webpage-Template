@@ -85,6 +85,24 @@ describe("Task 2 — ambiguity + cardinality gap classes (spec §3.4)", () => {
     expect(hasRecoveredToBaseline(summarizeDataGaps([]), s)).toBe(false);
   });
 
+  it("clause-shaped labels pluralize as sentences, not with a bare 's' (R6 f2)", () => {
+    // The naive `${label}s` renders "2 hotel line may be read wrongs" on
+    // staged-review chips and badge breakdowns. Clause-shaped rows carry an
+    // explicit plural; noun rows keep the default.
+    const two = (code: string) =>
+      summarizeDataGaps([warn(code), warn(code)] as Parameters<typeof summarizeDataGaps>[0]);
+    const labelFor = (code: string) =>
+      dataGapClassDetails(two(code)).find((d) => d.key === code)!.label;
+    expect(labelFor("HOTEL_GUEST_SPLIT_AMBIGUOUS")).toBe("hotel lines may be read wrong");
+    expect(labelFor("HOTEL_ADDRESS_SPLIT_AMBIGUOUS")).toBe(
+      "hotel names and addresses may be split wrong",
+    );
+    expect(labelFor("DATE_ORDER_SUGGESTS_DMY")).toBe("dates may be day-first");
+    expect(labelFor("HOTEL_CARDINALITY_EXCEEDED")).toBe("too many hotels");
+    // The noun default is untouched.
+    expect(labelFor("FIELD_UNREADABLE")).toBe("unreadable fields");
+  });
+
   it("no ambiguity code's GAP row is gateExempt (whole-diff R4 f4)", () => {
     // gateExempt would keep membership/summary/copy tests green while silently
     // dropping the code from RESYNC_QUALITY_REGRESSED participation and the

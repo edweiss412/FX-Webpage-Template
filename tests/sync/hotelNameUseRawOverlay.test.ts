@@ -34,6 +34,7 @@ function applyAt(index: number, rowCount: number) {
   emitHotelAddressSplitAmbiguity(agg, {
     reason: "multiple-street-candidates",
     rawCell: RAW_WITH_CONF,
+    splitInput: RAW_WITH_CONF,
     index,
     name: "Hotel",
     parsedName: "Hotel",

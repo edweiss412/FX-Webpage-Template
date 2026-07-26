@@ -362,6 +362,9 @@ export function emitHotelAddressSplitAmbiguity(
   agg: ParseAggregator | undefined,
   params: {
     reason: "address-shape-unsplit" | "multiple-street-candidates";
+    // The exact cleaned text the splitter judged — the undo replacement's only
+    // legitimate source (whole-diff R6 f1).
+    splitInput: string;
     rawCell: string;
     index: number;
     name: string | null;
@@ -388,12 +391,13 @@ export function emitHotelAddressSplitAmbiguity(
   if (params.reason === "address-shape-unsplit") {
     resolution = { resolvable: false, reason: "no-split-to-undo" };
   } else {
-    // The replacement is built from the SAME cleaned text the splitter read
-    // (quotes/zero-width out), then conf-stripped — a raw-cell replacement
-    // would persist quote characters into crew-readable hotel_name (R5 f2).
-    // The contentHash below stays on the PRE-strip cell: the invalidation key
+    // The replacement is built from the SPLITTER'S INPUT — the same cleaned
+    // text it judged (quotes/zero-width already out) — then conf-stripped. A
+    // fragment/raw-cell replacement persists booking metadata (dates, guest
+    // names) or quote characters into crew-readable hotel_name (R6 f1, R5 f2).
+    // The contentHash below stays on the PRE-strip CELL: the invalidation key
     // must change whenever the sheet text changes, conf-only edits included.
-    const strippedRaw = stripConfirmationTokens(normalizeHotelCellText(params.rawCell));
+    const strippedRaw = stripConfirmationTokens(normalizeHotelCellText(params.splitInput));
     resolution =
       strippedRaw === ""
         ? { resolvable: false, reason: "empty-raw" }

@@ -40,8 +40,11 @@ describe("simultaneous hotel ambiguities", () => {
         hotelAddress: "71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601",
       },
       replacement: {
+        // The splitter's INPUT (learn-K's hotelPart) — never the whole booking
+        // fragment, whose guests/dates an undo would persist into hotel_name
+        // (whole-diff R6 f1).
         kind: "hotel-name",
-        hotelName: "Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601 Eric Weiss John Smith",
+        hotelName: "Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601",
         hotelAddress: null,
       },
     });

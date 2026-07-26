@@ -146,6 +146,22 @@ describe("full resolution payload at each reachable caller", () => {
     expect(res.parsed.hotelName).toBe("Hotel");
   });
 
+  it("undo restores the SPLITTER'S INPUT, never the booking fragment (R6 f1)", () => {
+    // Dates and a post-checkout guest live in the fragment but were never part
+    // of the text the splitter judged. A replacement built from the fragment
+    // persists "Check In: 5/1 Check Out: 5/2 Eric Weiss" into crew-readable
+    // hotel_name the moment the operator clicks undo.
+    const cell = `${P3B} Check In: 5/1 Check Out: 5/2 Eric Weiss`;
+    const agg = newAggregator();
+    parseHotels(`| Hotel Reservations | ${cell} |`, "v2", agg);
+    const w = agg.warnings.filter((x) => x.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS");
+    expect(w).toHaveLength(1);
+    const res = w[0]!.resolution as { replacement: { hotelName: string } };
+    expect(res.replacement.hotelName).toBe(P3B);
+    // The invalidation key still tracks the sheet-visible fragment.
+    expect(w[0]!.rawSnippet).toBe(cell);
+  });
+
   it("inline no-guest caller: full payload, judging no guest boundary", () => {
     const agg = newAggregator();
     const hotels = parseHotels(`| Hotel Reservations | ${P3B} |`, "v2", agg);

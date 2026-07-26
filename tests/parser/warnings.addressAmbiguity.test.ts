@@ -19,6 +19,7 @@ describe("emitHotelAddressSplitAmbiguity", () => {
       emitHotelAddressSplitAmbiguity(undefined, {
         reason: "address-shape-unsplit",
         rawCell: "Hyatt Place Chicago 71 Chicago, IL 60601",
+        splitInput: "Hyatt Place Chicago 71 Chicago, IL 60601",
         index: 0,
         name: "Hyatt Place Chicago 71 Chicago, IL 60601",
         parsedName: "Hyatt Place Chicago 71 Chicago, IL 60601",
@@ -32,6 +33,7 @@ describe("emitHotelAddressSplitAmbiguity", () => {
     emitHotelAddressSplitAmbiguity(agg, {
       reason: "address-shape-unsplit",
       rawCell: "Hyatt Place Chicago 71 Chicago, IL 60601",
+      splitInput: "Hyatt Place Chicago 71 Chicago, IL 60601",
       index: 0,
       name: "Hyatt Place Chicago 71 Chicago, IL 60601",
       parsedName: "Hyatt Place Chicago 71 Chicago, IL 60601",
@@ -73,6 +75,7 @@ describe("emitHotelAddressSplitAmbiguity", () => {
     emitHotelAddressSplitAmbiguity(agg, {
       reason: "multiple-street-candidates",
       rawCell: RAW,
+      splitInput: RAW,
       index: 2,
       name: "Hotel",
       parsedName: "Hotel",
@@ -129,6 +132,7 @@ describe("emitHotelAddressSplitAmbiguity", () => {
     emitHotelAddressSplitAmbiguity(agg, {
       reason: "multiple-street-candidates",
       rawCell: RAW,
+      splitInput: RAW,
       index: 0,
       name: "Hotel",
       parsedName: "Hotel",
@@ -159,6 +163,7 @@ describe("emitHotelAddressSplitAmbiguity", () => {
     emitHotelAddressSplitAmbiguity(agg, {
       reason: "multiple-street-candidates",
       rawCell: "“Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601”",
+      splitInput: "“Hotel 71 Wacker Drive 71 E Wacker Dr Chicago, IL 60601”",
       index: 0,
       name: "Hotel",
       parsedName: "Hotel",
@@ -182,8 +187,8 @@ describe("emitHotelAddressSplitAmbiguity", () => {
       parsedName: "Hotel A",
       parsedAddress: null,
     };
-    emitHotelAddressSplitAmbiguity(a, { ...base, rawCell: "Hotel  A" });
-    emitHotelAddressSplitAmbiguity(b, { ...base, rawCell: "Hotel A" });
+    emitHotelAddressSplitAmbiguity(a, { ...base, rawCell: "Hotel  A", splitInput: "Hotel  A" });
+    emitHotelAddressSplitAmbiguity(b, { ...base, rawCell: "Hotel A", splitInput: "Hotel A" });
     expect(a.warnings[0]!.resolution).toEqual(b.warnings[0]!.resolution);
   });
 
@@ -192,6 +197,7 @@ describe("emitHotelAddressSplitAmbiguity", () => {
     emitHotelAddressSplitAmbiguity(agg, {
       reason: "address-shape-unsplit",
       rawCell: "1515 Broadway New York, NY 10036",
+      splitInput: "1515 Broadway New York, NY 10036",
       index: 0,
       name: null,
       parsedName: null,
