@@ -464,9 +464,27 @@ WITH substitutions is not. Anything outside these shapes is reported as
   **The tag-based half was replaced rather than extended, per the trigger stated below.** After R22
   added `<template>`, probing found five more of the same shape — `<dialog>`, `<script>`, `<style>`,
   `<noscript>`, `<datalist>`. Enumerating them one finding at a time is the losing pattern this guard
-  has already hit four times, so the rule now names the HTML Standard's own categories: content that
-  is **never rendered** (script-supporting and metadata elements) and elements **not shown unless
-  `open`** (`<details>`, `<dialog>`). Metadata elements are deliberately excluded from the first set:
+  has already hit four times, so the rule is stated from the HTML Standard's hidden-elements
+  categories: content that is **never rendered** and elements **not shown unless `open`**
+  (`<details>`, `<dialog>`).
+
+  **Stated exactly, because "from the standard's categories" was claimed twice before while the set
+  was in fact hand-curated** — the error that produced the `<rp>` finding (R29) and the wrong reason
+  for excluding `<title>` (R30). The set is `template`, `script`, `style`, `noscript`, `datalist`,
+  `rp`, `noembed`, `noframes`, `param`, `title`. The standard's list also contains `base`,
+  `basefont`, `head`, `link`, `meta` and `area`, which are deliberately absent, and each absence is
+  measured rather than argued:
+
+  | Excluded | Measured reason |
+  | --- | --- |
+  | `link`, `meta`, `base`, `area` | React THROWS on children — "is a self-closing tag and must neither have `children`" — so none can ever carry a text label |
+  | `head`, `basefont` | render in this harness and contribute their text; obsolete or structurally absurd inside an `<a>`, with no live usage, so they are left out rather than added on a guess |
+
+  **`noscript` is a stricter-than-harness case, like `inert`.** It is `display: none` only when
+  scripting is enabled, so a real browser running this app does not render it — but the harness
+  applies no CSS and computes `"Go (opens in a new tab)"` for a `<noscript>` label. The guard treats
+  it as non-rendering, which is right for the runtime and cannot be confirmed by the harness. Do not
+  "fix" the guard to match a `toHaveAccessibleName` result here. Metadata elements are deliberately excluded from the first set:
   none is valid inside an `<a>`, and `title` and `style` are also real attribute names, so listing
   them as tag names made the guard's own classification ambiguous — which its anti-silencing
   assertion caught.

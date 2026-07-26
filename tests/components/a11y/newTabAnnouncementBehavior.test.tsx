@@ -36,6 +36,7 @@ import { join } from "node:path";
 import { stripCommentsSafely } from "@/tests/styles/_newTabScan";
 
 import { cleanup, render } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { JSX } from "react";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -551,6 +552,34 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
       expect(container.querySelector("a"), label).toHaveAccessibleName(expected);
       unmount();
     }
+  });
+
+  test("void metadata elements THROW on children, so they can never carry a label", () => {
+    // Measured, and it retires a guess. The non-rendered tag set excludes `link`, `meta`, `base`
+    // and `area` — earlier justified as "cannot meaningfully occur inside an anchor", which is the
+    // same hand-waving that got `<title>` wrong. The real reason is stronger: React refuses to
+    // render them with children at all, so none can ever hold a text label.
+    for (const tag of ["link", "meta", "base", "area"]) {
+      const El = tag as unknown as React.ElementType;
+      expect(
+        () =>
+          renderToStaticMarkup(
+            <a href="x" target="_blank">
+              <El>Go</El> <Hint />
+            </a>,
+          ),
+        `${tag} must refuse children`,
+      ).toThrow(/self-closing/);
+    }
+    // And `<title>` really is hoisted OUT of the anchor, which is why it IS in the set.
+    const hoisted = renderToStaticMarkup(
+      <a href="x" target="_blank">
+        <title>Go</title> <Hint />
+      </a>,
+    );
+    expect(hoisted.startsWith("<title>Go</title><a"), "title is hoisted out of the anchor").toBe(
+      true,
+    );
   });
 
   test("does NOT model inert or a closed <details>, so only the static guard catches those", () => {
