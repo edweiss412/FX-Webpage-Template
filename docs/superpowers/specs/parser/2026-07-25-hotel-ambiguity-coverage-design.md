@@ -302,7 +302,7 @@ Every user-visible and accessibility-observable string the new resolvable kind i
 | Parsed-field value when `hotelName` is null | same | `(no hotel name read)` |
 | Parsed-field row when `hotelAddress` is null | same | **omitted entirely** — never rendered as an empty line, mirroring the rooms branch |
 | Raw-option formatted value | `components/admin/UseRawControl.tsx:239` | the **conf-stripped** cleaned cell (never the raw stash — see the P0 note in §6) |
-| Radiogroup accessible label | `RADIOGROUP_LABEL`, `components/admin/UseRawControl.tsx:10` | `Hotel name and address` |
+| Radiogroup accessible label | `RADIOGROUP_LABEL`, `components/admin/UseRawControl.tsx:10` | `Which reading crew pages use for the hotel name and address` |
 | Raw-choice label | `rawLabel`, `components/admin/UseRawControl.tsx:452-457` | `The whole line as the hotel name` |
 
 #### Copy discipline (structural defense — R6)

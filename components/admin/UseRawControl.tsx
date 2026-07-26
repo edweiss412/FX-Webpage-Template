@@ -14,7 +14,7 @@ const RADIOGROUP_LABEL: Record<
   rooms: "Which reading crew pages use for the room split",
   hotels: "Which reading crew pages use for the hotel guest split",
   dates: "Which reading crew pages use for the show dates",
-  "hotel-name": "Hotel name and address",
+  "hotel-name": "Which reading crew pages use for the hotel name and address",
 };
 
 /**
