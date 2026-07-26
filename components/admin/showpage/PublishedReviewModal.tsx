@@ -17,7 +17,8 @@
  * composition `PublishedReviewPage` builds today (Overview first, Changes
  * last, per-section warning controls, raw-unrecognized bottom slot). NO
  * footer: the publish control is the strip's inline toggle; archive lives in
- * the Overview archive row (spec §6.1).
+ * the share hub's popover since the lifecycle move (it was the Overview archive
+ * row when spec §6.1 was written).
  *
  * RSC boundary: server-only pieces arrive pre-rendered as ReactNode SLOTS
  * (`alertSlot`); every server action arrives as a DIRECT ref

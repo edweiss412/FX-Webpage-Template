@@ -20,7 +20,7 @@
  * are stubbed so the client tree renders (useShowModalNav → useRouter;
  * useSearchParams resolves null outside Next and the nav helper only builds
  * closures — nothing fires in a static render). The share token is a FIXTURE
- * VALUE (not null) so the strip's copy-link renders: T-COPY-FLUSH
+ * VALUE (not null) so the strip's share hub renders: T-HUB-FLUSH
  * (modal-header-reconciliation §8) measures its right edge against the band's
  * content box, and a null token would make that assertion silently vacuous.
  * `resolveOrigin` reads only NEXT_PUBLIC_SITE_ORIGIN — no window, no browser
@@ -85,8 +85,9 @@ export const MODAL_DFID = "drive-pubmodal-1";
 export const MODAL_SLUG = "published-modal-layout-show";
 const SHOW_ID = "11111111-2222-4333-8444-555555555555";
 
-/** Share token for the fixture — present so the strip renders its copy-link
- *  (T-COPY-FLUSH measures that button). Inert: nothing navigates here. */
+/** Share token for the fixture — present so the strip renders its share hub.
+ *  (This named T-COPY-FLUSH, a row retired with the standalone copy-link.)
+ *  Inert: nothing navigates here. */
 const HARNESS_SHARE_TOKEN = "harness-share-token";
 
 /** The modal header's h2 title (the dialog's accessible name). */

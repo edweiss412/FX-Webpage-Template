@@ -3,10 +3,12 @@
 /**
  * app/admin/show/[slug]/ShareTokenContext.tsx
  *
- * Client token cache shared by every crew-URL surface on the admin per-show page
- * (header chip, "Open crew page" link, share-link card). It lets this admin's own
- * rotate update all of them INSTANTLY (so the rotate-success banner no longer needs
- * to duplicate the URL), while a MONOTONIC EPOCH gate keeps the cache sound under
+ * Client token cache for the crew-URL surface on the admin per-show page: the
+ * ShareHub popover's crew-link row. (It once fanned out to a header chip, an
+ * "Open crew page" link and a share-link card; the card was removed when the hub
+ * absorbed it and the other two were deleted as orphans.) It lets this admin's own
+ * rotate update the URL INSTANTLY (so the rotate-success banner no longer needs
+ * to duplicate it), while a MONOTONIC EPOCH gate keeps the cache sound under
  * any ordering of server refreshes / rotations.
  *
  * `epoch` = shows.picker_epoch, bumped by every token rotation (rotate / archive /
@@ -69,9 +71,9 @@ export function ShareTokenProvider({
     });
   }
 
-  // Stable value ref so the three consumers only re-render when the token itself
-  // changes (applyRotated is already stable). Without this, every provider render
-  // hands them a fresh object and re-renders all three.
+  // Stable value ref so consumers only re-render when the token itself changes
+  // (applyRotated is already stable). Without this, every provider render hands
+  // them a fresh object and re-renders them all.
   const value = useMemo<Ctx>(
     () => ({ token: state.token, applyRotated }),
     [state.token, applyRotated],

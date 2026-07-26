@@ -271,14 +271,24 @@ Don't animate `width`, `height`, `padding`, `margin`, `top`, `left`, etc. — th
 
 ### 5.5 Interaction constants
 
-Behavioral gesture/scroll thresholds are NOT visual tokens — they never produce a painted px, so §10's hardcoding ban doesn't apply to them. They live as named JS module constants (single source of truth) in `components/admin/wizard/Step3ReviewModal.tsx`:
+Named JS module constants (single source of truth), each in its OWN owning module — named per entry below, not all in one file.
+
+They fall into two kinds, and the distinction matters for §10's hardcoding ban:
+
+**Behavioral thresholds** — gesture and scroll values that never produce a painted px, so the ban genuinely does not apply. All in `components/admin/wizard/Step3ReviewModal.tsx`:
 
 - `SCROLL_SPY_OFFSET_PX = 90` — the review modal's scroll-spy anchor line: a section becomes "active" once its top passes this many px below the content pane's top.
 - `DRAG_DISMISS_THRESHOLD_PX = 110` — sheet-mode drag distance past which release dismisses the modal.
 - `DRAG_SLOP_PX = 6` — max pointer travel still treated as a tap (click) rather than a drag.
 - `NAV_SCROLL_SETTLE_TIMEOUT_MS = 700` — review-modal nav click / warning jump: fallback release of the scroll-spy suppression when a programmatic glide never settles.
 - `NAV_SCROLL_SETTLE_EPSILON_PX = 2` — settle tolerance (px) that releases the nav-click scroll-spy suppression.
-- `WARNING_HIGHLIGHT_MS = 1600` — one-shot warning-row highlight duration after a callout jump-link (paired with the `step3-warning-flash` keyframe in `app/globals.css`).
+
+**Animation durations** — these DO paint. They are exempt from the `--duration-*` token scale only because they exceed its longest step (`--duration-slow`, 360ms), which is why each carries an explicit `prefers-reduced-motion` override rather than inheriting the global collapse (§5.3). Both are paired with a keyframe in `app/globals.css` and pinned against it by a drift test:
+
+- `WARNING_HIGHLIGHT_MS = 1600` (`components/admin/wizard/Step3ReviewModal.tsx`) — one-shot warning-row highlight after a callout jump-link; keyframe `step3-warning-flash`. Reduced motion: a steady tint, correct for a persistent jump-target the user must still locate.
+- `SHARE_LINK_FLASH_MS = 1600` (`components/admin/showpage/ShareHub.tsx`) — one-shot highlight on the crew-URL block when the share-token changes; keyframes `share-link-flash-bg` and `share-link-flash-ring`. Reduced motion: NO cue at all, deliberately unlike the row above — a one-shot "this just changed" signal has no correct steady state, and a permanent tint would assert something no longer true.
+
+**The share-link cue** draws a 2px `accent-edge` ring around the crew-URL block plus a brief `accent-tint` wash that holds to 45% then settles back to `surface-sunken`. Measured contrast at the cue's peak and at rest, both themes: `text-strong` on `accent-tint` 16.88:1 light / 14.66:1 dark (AA 4.5:1); ring against `accent-tint` 7.41:1 / 8.03:1, against `surface` 8.42:1 / 8.84:1, against `surface-sunken` 7.59:1 / 9.65:1 (non-text 3:1). Pinned in `tests/styles/status-token-contrast.test.ts` — and note the ring is NOT decorative in dark, where it is the change signal itself, so it carries its own floor rather than deferring to the accent track's.
 
 ---
 

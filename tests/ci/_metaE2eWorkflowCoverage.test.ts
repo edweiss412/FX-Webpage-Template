@@ -94,6 +94,15 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/published-show-attention.spec.ts": UNSEEN,
   "tests/e2e/report-modal.spec.ts": UNSEEN,
   "tests/e2e/resolve-label-layout.spec.ts": UNSEEN,
+  // Its own dedicated workflow (share-link-flash-e2e.yml), path-gated like the
+  // rest of the standalone family — but with a DELIBERATELY BROAD filter
+  // (components/**, lib/**, app/admin/**), because the harness hydrates the real
+  // StatusStrip -> ShareHub tree and its bundle pulls 155 production inputs. A
+  // per-file filter for a graph that size was drafted five times and was short
+  // every time. Not the BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella: this one is
+  // wired, it is only path-gated rather than unconditional.
+  "tests/e2e/share-link-flash.spec.ts":
+    "dedicated path-gated PR workflow share-link-flash-e2e.yml (broad component/lib/admin filter); not PR-blocking-capable per the scanner contract",
   "tests/e2e/right-now-transitions.spec.ts": UNSEEN,
   "tests/e2e/right-now.spec.ts": UNSEEN,
   "tests/e2e/role-spoof.spec.ts": UNSEEN,
