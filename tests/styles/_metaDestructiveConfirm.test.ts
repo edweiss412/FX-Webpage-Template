@@ -336,51 +336,114 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     expect(mod.ARM_REVERT_MS, "4s ratified 2026-07-17, DEFERRED-archive.md:1228").toBe(4_000);
   });
 
-  it("T2: every scheduler delay in a registry file is an allowlisted identifier", () => {
-    const files = [
-      ...new Set(REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file)),
-    ];
+  /** The measured per-file census. Whole-diff review R1 F1: a GLOBAL allowlist lets a
+   *  file swap its arm timer onto another approved identifier — `PickerResetControl`
+   *  legitimately has `SUCCESS_DISMISS_MS`, `RevokeRowButton` has `WATCHDOG_MS` — and
+   *  every guard stays green while the revert window changes. Binding identifier→count
+   *  PER FILE closes that: moving a timer onto a sibling constant changes both counts. */
+  const CENSUS: Record<string, Record<string, number>> = {
+    "app/admin/settings/admins/RevokeRowButton.tsx": { ARM_REVERT_MS: 1, WATCHDOG_MS: 1 },
+    "app/admin/show/[slug]/PickerResetControl.tsx": { ARM_REVERT_MS: 1, SUCCESS_DISMISS_MS: 1 },
+    "app/admin/show/[slug]/ResetPickerEpochButton.tsx": {
+      ARM_REVERT_MS: 1,
+      SUCCESS_DISMISS_MS: 1,
+    },
+    "app/admin/show/[slug]/RotateShareTokenButton.tsx": { ARM_REVERT_MS: 1 },
+    "components/admin/ArchiveShowButton.tsx": { ARM_REVERT_MS: 1 },
+    "components/admin/BlockedRowResolver.tsx": { ARM_REVERT_MS: 1 },
+    "components/admin/BulkIgnoreControls.tsx": { ARM_REVERT_MS: 1 },
+    "components/admin/PendingPanelDiscardButtons.tsx": { ARM_REVERT_MS: 1 },
+    "components/admin/ResolveAlertButton.tsx": { ARM_REVERT_MS: 1 },
+    "components/admin/StagedReviewCard.tsx": { ARM_REVERT_MS: 1 },
+    "components/admin/wizard/CrewRowActions.tsx": { ARM_REVERT_MS: 1 },
+  };
+
+  /** Delay identifier per scheduler call, walking to the matching close paren so
+   *  multiline and nested-callback shapes are handled. */
+  function censusOf(raw: string): Record<string, number> {
+    const src = stripComments(raw);
+    const out: Record<string, number> = {};
+    SCHEDULERS.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = SCHEDULERS.exec(src)) !== null) {
+      let depth = 1;
+      let i = m.index + m[0].length;
+      for (; i < src.length && depth > 0; i++) {
+        if (src[i] === "(") depth++;
+        else if (src[i] === ")") depth--;
+      }
+      const call = src.slice(m.index, i);
+      const lastComma = call.lastIndexOf(",");
+      if (lastComma === -1) continue;
+      const delay = call
+        .slice(lastComma + 1, -1)
+        .trim()
+        .replace(/\}\s*$/, "")
+        .trim()
+        .replace(/^\{[\s\S]*?timeout\s*:\s*/, "")
+        .replace(/[}\s]/g, "");
+      if (!delay) continue;
+      out[delay] = (out[delay] ?? 0) + 1;
+    }
+    return out;
+  }
+
+  it("T2: each registry file's identifier census matches the checked-in map", () => {
     const problems: string[] = [];
     let detected = 0;
-    for (const file of files) {
-      const raw = readFileSync(file, "utf8");
-      const src = stripComments(raw);
-      SCHEDULERS.lastIndex = 0;
-      let m: RegExpExecArray | null;
-      while ((m = SCHEDULERS.exec(src)) !== null) {
-        // Walk to the matching close paren so multiline and nested-callback calls
-        // are handled — a regex for the whole call was the round-1 fragility.
-        let depth = 1;
-        let i = m.index + m[0].length;
-        for (; i < src.length && depth > 0; i++) {
-          if (src[i] === "(") depth++;
-          else if (src[i] === ")") depth--;
-        }
-        const call = src.slice(m.index, i);
-        const lastComma = call.lastIndexOf(",");
-        if (lastComma === -1) continue; // no delay argument
-        const delay = call
-          .slice(lastComma + 1, -1)
-          .trim()
-          .replace(/\}\s*$/, "")
-          .trim();
-        const bare = delay.replace(/^\{[\s\S]*?timeout\s*:\s*/, "").replace(/[}\s]/g, "");
-        if (!bare) continue;
-        detected++;
-        if (!ALLOWED.has(bare)) {
-          const line = src.slice(0, m.index).split("\n").length;
-          problems.push(`${file}:${line} delay \`${bare}\` is not an allowlisted identifier`);
-        }
+    for (const file of new Set(
+      REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file),
+    )) {
+      const actual = censusOf(readFileSync(file, "utf8"));
+      detected += Object.values(actual).reduce((a, b) => a + b, 0);
+      for (const id of Object.keys(actual)) {
+        if (!ALLOWED.has(id)) problems.push(`${file}: unapproved delay identifier \`${id}\``);
+      }
+      const expected = CENSUS[file] ?? {};
+      // Key-ORDER independent: a census is a multiset, and JSON.stringify preserves
+      // insertion order, so comparing raw serialisations false-positives whenever the
+      // source declares its timers in a different sequence.
+      const norm = (o: Record<string, number>) =>
+        JSON.stringify(
+          Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b))),
+        );
+      if (norm(actual) !== norm(expected)) {
+        problems.push(`${file}: census ${norm(actual)} != expected ${norm(expected)}`);
       }
     }
-    expect(problems, "unapproved scheduler delays in destructive-confirm surfaces").toEqual([]);
-    // Non-vacuity (spec B4). A detector that silently stops matching would pass the
-    // assertion above forever. Eleven surfaces carry an arm timer, so anything below
-    // that means the scan broke, not that the code got cleaner.
+    expect(problems, "destructive-confirm timer census drifted").toEqual([]);
+    // Non-vacuity: a detector that stopped matching would pass the above forever.
     expect(
       detected,
       "scheduler scan found too few calls — did the detector break?",
     ).toBeGreaterThanOrEqual(11);
+  });
+
+  it("T2: ARM_REVERT_MS is only ever imported from the shared module", () => {
+    // Closes the aliasing bypass: `import { THREE_SECONDS as ARM_REVERT_MS } from "./x"`
+    // satisfies a name-only check while resolving to a foreign value.
+    const problems: string[] = [];
+    for (const root of ["components", "app"]) {
+      for (const file of walk(root)) {
+        const src = stripComments(readFileSync(file, "utf8"));
+        if (!/\bARM_REVERT_MS\b/.test(src)) continue;
+        const imports = [...src.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g)];
+        const binding = imports.find((m) => /\bARM_REVERT_MS\b/.test(m[1]!));
+        if (!binding) {
+          problems.push(`${file}: references ARM_REVERT_MS without importing it`);
+          continue;
+        }
+        if (binding[2] !== "@/lib/admin/destructiveConfirm") {
+          problems.push(
+            `${file}: ARM_REVERT_MS imported from ${binding[2]}, not the shared module`,
+          );
+        }
+        if (/\bas\s+ARM_REVERT_MS\b/.test(binding[1]!)) {
+          problems.push(`${file}: a foreign binding is renamed to ARM_REVERT_MS`);
+        }
+      }
+    }
+    expect(problems, "ARM_REVERT_MS must resolve to the shared module").toEqual([]);
   });
 
   it("T2 self-check: the matcher accepts allowlisted names and rejects everything else", () => {

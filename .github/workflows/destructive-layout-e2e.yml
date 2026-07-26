@@ -31,6 +31,11 @@ on:
     paths:
       - "components/admin/PendingPanelDiscardButtons.tsx"
       - "components/admin/NeedsAttentionInbox.tsx"
+      # The harness renders the REAL Retry sibling, whose width determines how much
+      # the discard island gets. A change there can break D1/D3 without touching the
+      # discard component, so both it and the button it renders gate this job.
+      - "components/admin/PendingPanelRetryButton.tsx"
+      - "components/shared/AccentButton.tsx"
       - "tests/e2e/_pendingDiscardHarness.tsx"
       - "tests/e2e/pendingDiscardReal.layout.spec.ts"
       - "tests/e2e/pendingDiscardReflow.layout.spec.ts"

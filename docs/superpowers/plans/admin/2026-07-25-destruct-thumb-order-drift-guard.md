@@ -95,7 +95,7 @@ Test 2 (DOM order), test 6 (single live region survives the reorder), test 7 (no
 
 `tests/e2e/pendingDiscardReal.layout.spec.ts`: 16 assertions across 3 rails × idle/armed covering D1, D2, D3, D4, D7. All measured **panel-relative** — comparing absolute `y` across two panels measures where the panel sits, not where the button sits, which cost one debugging cycle. `tests/e2e/pendingDiscardReflow.layout.spec.ts` narrowed to the historical negative control, with its old drift-guard inverted.
 
-### Task 5 — CI wiring — **OUTSTANDING**
+### Task 5 — CI wiring — **DONE**
 
 `package.json` script `test:e2e:destructive-layout` running **both** layout specs under `tests/e2e/standalone.config.ts`. New workflow **.github/workflows/destructive-layout-e2e.yml** modelled on `modal-header-layout-e2e.yml` (same setup action, Playwright cache, failure-artifact upload, `workflow_dispatch:`), no `env:` block — the harness imports no server chain.
 
@@ -105,14 +105,47 @@ Test 2 (DOM order), test 6 (single live region survives the reorder), test 7 (no
 
 Complete only when `gh workflow run` reports a green run on the branch — local green is not sufficient for a CI-bound surface.
 
-### Task 6 — Backlog + stale anchors — **OUTSTANDING**
+### Task 6 — Backlog + stale anchors — **DONE**
 
 Delete all three `BL-DESTRUCT-*` rows and the family section. `BL-DESTRUCT-FORK-FOCUS-TRANSFER` is **withdrawn, not filed** — there is no fork to cross. Correct the three stale line anchors (`tests/help/_uiLabelExceptions.ts:137`, `tests/help/_uiLabelExceptions.ts:142`, `tests/e2e/needs-attention-page.spec.ts:53`) once line numbers are final.
 
-### Task 7 — Invariant-8 impeccable dual-gate — **OUTSTANDING**
+### Task 7 — Invariant-8 impeccable dual-gate — **DONE**, see §12
 
 `/impeccable critique` and `/impeccable audit` on the diff. The armed-label change is user-visible copy and is the thing most likely to draw a finding — it is a deliberate trade (width, and matching the live-region announcement) and should be defended or revised on its merits, not waved through.
 
-### Task 8 — Whole-diff cross-model review, then ship — **OUTSTANDING**
+### Task 8 — Whole-diff cross-model review, then ship — **IN PROGRESS** (R1 BLOCKING, repaired; R2 pending)
 
 `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, both e2e scripts, `pnpm test:e2e -- needs-attention-page` → push → real CI green → `gh pr merge --merge` → verify `git rev-list --left-right --count main...origin/main` reports `0  0`.
+
+
+---
+
+## 12. Invariant-8 close-out — impeccable findings and dispositions
+
+Both halves ran as isolated sub-agents, which the skill mandates; an inline run would have been degraded and is not accepted here.
+
+**Critique: 27/40.** AI-slop verdict NO. Deterministic detector: **0 findings**, with a synthetic control proving the entrypoint actually fires (a clean scan from an unproven detector is not evidence).
+
+**Audit: 16/20.** Anti-patterns PASS. A11y 2 · Perf 4 · Responsive 4 · Theming 2 · Anti-patterns 4.
+
+### Fixed in this diff
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| Armed label was verbatim the live region's text, so the pair conveyed strictly less than before and the consequence was stated nowhere | P1 | **Fixed.** Split into label = verb (`"Confirm ignore"`, matching the family idiom) and live region = consequence, plus a visible line under the row for sighted users. `"Confirm ignore forever"` was measured (176.8px) and rejected for clearing the 348px page by only 8.46px |
+| Enter key-repeat defeated the two-tap guard — Chrome activates on keydown, which auto-repeats, while Space (keyup) was immune | P1 | **Fixed.** First attempt used a 350ms dwell; the whole-diff review showed that only throttles, since repeats continue past any window. Now keys on `event.repeat`, requiring a real release-and-repress. Test [13] sends 12 repeats and asserts none confirm |
+| Bare `ring-offset-2` violates `DESIGN.md:40` (17.90:1 white halo in dark mode) | P1 | **Fixed.** `ring-offset-surface`. This diff had re-authored those exact strings into exported constants, so it was ours to fix |
+| No `aria-busy` while running; live region silent mid-action | P1 | **Fixed.** `aria-busy` on both buttons, live region announces progress |
+| `ring-offset-surface`, `aria-busy` and the consequence line had no regression assertion | LOW | **Fixed.** Test [15] pins all three |
+
+### Deferred, with entries in `DEFERRED.md`
+
+| Finding | Severity | Why not here |
+|---|---|---|
+| `DESTRUCT-FOCUSRING-1` — light focus ring 1.60:1 vs WCAG 1.4.11's 3:1 | P1 | Token-level; changing it ships an app-wide visual change under a diff about button order. Tracked by the pre-existing `BL-FOCUS-RING-CONTRAST`, which this run contributed measured ratios to |
+| `DESTRUCT-DURATION-TOKENS-1` — `duration-*` emits no CSS across 89 files, so reduced-motion never applies to any Tailwind transition | P1 | One-line rename, but its blast radius is every transition and the thing needing re-verification is an a11y contract with no current test |
+| `DESTRUCT-ARM-ANNOUNCE-1` — silent arm/disarm for screen readers | P2 | Both fixes mean revisiting `ARM_REVERT_MS` across all 11 surfaces sharing it |
+
+### Considered and kept, against the critique's recommendation
+
+The critique rated **destructive-left at wide widths** a P1 and recommended reverting to Defer-first with a rail-only fork. Kept, because: the owner chose the reorder on measured evidence after nine rounds; the rail-only fork is precisely the container-query design whose verification cost caused those rounds; and the critique's own analysis notes that at 348px left is the *harder* thumb reach for a right-handed grip, which argues for the current order on the surface where it matters most. Recorded here rather than silently overridden — an impeccable critique is not authoritative against a ratified owner decision, but it should not vanish either.

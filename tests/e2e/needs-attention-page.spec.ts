@@ -50,7 +50,7 @@ function syncStagedId(n: number): string {
 }
 
 // Deterministic pending_ingestions id → the Discard button testid is
-// admin-pending-ignore-<id> (components/admin/PendingPanelDiscardButtons.tsx:132).
+// admin-pending-ignore-<id> (components/admin/PendingPanelDiscardButtons.tsx:153).
 const INGESTION_ID = "66666666-6666-4666-8666-666666666666";
 const INGESTION_DRIVE_FILE_ID = `${FIXTURE_PREFIX}ingestion-1`;
 

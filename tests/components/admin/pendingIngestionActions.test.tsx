@@ -239,29 +239,59 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  test("[13] a confirm inside the dwell window is REJECTED (Enter key-repeat)", async () => {
-    vi.useFakeTimers();
+  test("[13] a HELD Enter cannot confirm, however long it is held", async () => {
     const { getByTestId } = renderButtons();
     const btn = getByTestId(`admin-pending-ignore-${ID}`);
-    fireEvent.click(btn); // arm
+
+    // Real auto-repeat: the FIRST keydown is repeat:false, every subsequent one is
+    // repeat:true, and each synthesises a click. Whole-diff review R1 F3 showed a
+    // time threshold only throttles this — the repeat after the window looks exactly
+    // like a deliberate press — so the guard keys on `event.repeat` instead.
+    fireEvent.keyDown(btn, { key: "Enter", repeat: false });
+    fireEvent.click(btn); // arms
+    for (let i = 0; i < 12; i++) {
+      fireEvent.keyDown(btn, { key: "Enter", repeat: true });
+      fireEvent.click(btn); // every one of these must be ignored
+    }
+    expect(fetchMock, "a held Enter must never confirm").not.toHaveBeenCalled();
+
+    // Release and press again — a real decision — and it fires.
+    fireEvent.keyUp(btn, { key: "Enter" });
     await act(async () => {
-      vi.advanceTimersByTime(50); // key-repeat interval, well inside the dwell
+      fireEvent.keyDown(btn, { key: "Enter", repeat: false });
+      fireEvent.click(btn);
     });
-    await act(async () => {
-      fireEvent.click(btn); // would confirm without the guard
-    });
-    // Chrome activates a button on Enter KEYDOWN, which auto-repeats; holding Enter
-    // otherwise arms and confirms ~30ms apart and the two-tap guard buys nothing.
-    expect(fetchMock).not.toHaveBeenCalled();
-    // Still armed, so a deliberate second tap after the dwell works.
-    await act(async () => {
-      vi.advanceTimersByTime(400);
-    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("[14] a fast deliberate double-click still confirms (no throttle)", async () => {
+    // The rejected time-threshold design also broke this: a legitimate fast
+    // double-click needed a third activation. Mouse clicks carry no key repeat.
+    const { getByTestId } = renderButtons();
+    const btn = getByTestId(`admin-pending-ignore-${ID}`);
+    fireEvent.click(btn);
     await act(async () => {
       fireEvent.click(btn);
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    vi.useRealTimers();
+  });
+
+  test("[15] audit contracts survive: ring-offset-surface, aria-busy, consequence line", async () => {
+    // Whole-diff review R1 F6: these three landed from the impeccable audit with no
+    // regression assertion, so they could vanish silently.
+    const { getByTestId, queryByTestId } = renderButtons();
+    const ignore = getByTestId(`admin-pending-ignore-${ID}`);
+    const defer = getByTestId(`admin-pending-defer-${ID}`);
+    for (const el of [ignore, defer]) {
+      expect(el.className.split(/\s+/), "DESIGN.md:40 forbids a bare ring-offset-2").toContain(
+        "focus-visible:ring-offset-surface",
+      );
+      expect(el.getAttribute("aria-busy")).toBeNull(); // idle
+    }
+    expect(queryByTestId(`admin-pending-ignore-consequence-${ID}`)).toBeNull();
+    fireEvent.click(ignore); // arm
+    const consequence = getByTestId(`admin-pending-ignore-consequence-${ID}`);
+    expect(consequence.textContent).toContain("permanently");
   });
 
   test("clicking the Defer sibling while permanent-ignore is armed disarms it (whole-diff R2)", async () => {

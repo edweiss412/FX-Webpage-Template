@@ -70,12 +70,16 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   const [armed, setArmed] = useState(false);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /* Chrome activates a <button> on Enter KEYDOWN, which auto-repeats, so holding
-   * Enter fires arm then confirm ~30ms later and the two-tap guard buys nothing.
-   * Space is immune (it fires on keyup), so without this the guard protects one
-   * activation key and not the other. A short dwell is invisible to a deliberate
-   * user and fatal to a repeat. Impeccable audit P1. */
-  const armedAtRef = useRef(0);
-  const ARM_DWELL_MS = 350;
+   * Enter fires arm then confirm and the two-tap guard buys nothing. Space is
+   * immune (it fires on keyup), so the guard otherwise protects one activation
+   * key and not the other.
+   *
+   * A time threshold does NOT fix this — whole-diff review R1 F3: auto-repeat
+   * keeps firing past any dwell, and the first repeat after the window is
+   * indistinguishable from a deliberate second press. The browser already tells
+   * us: a held key sets `event.repeat`. Reject those and require a real
+   * release-and-repress, which is the actual contract we want. */
+  const repeatKeyRef = useRef(false);
   function clearArmTimer() {
     if (armTimerRef.current !== null) {
       clearTimeout(armTimerRef.current);
@@ -85,7 +89,6 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   useEffect(() => clearArmTimer, []);
   function onGuardedIgnoreClick() {
     if (!armed) {
-      armedAtRef.current = Date.now();
       setArmed(true);
       clearArmTimer();
       armTimerRef.current = setTimeout(() => {
@@ -94,8 +97,9 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
       }, ARM_REVERT_MS);
       return;
     }
-    // Reject a confirm that arrives inside the dwell window — a key-repeat, not a decision.
-    if (Date.now() - armedAtRef.current < ARM_DWELL_MS) return;
+    // A synthetic activation from a HELD key is not a decision. `onKeyDown` below
+    // sets this for `event.repeat`; it clears on keyup, so the next press counts.
+    if (repeatKeyRef.current) return;
     clearArmTimer();
     setArmed(false);
     void handleClick("permanent_ignore");
@@ -148,6 +152,13 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
           type="button"
           data-testid={`admin-pending-ignore-${pendingIngestionId}`}
           onClick={onGuardedIgnoreClick}
+          onKeyDown={(e) => {
+            // Mark auto-repeat so the click this keydown synthesises is ignored.
+            if (e.repeat) repeatKeyRef.current = true;
+          }}
+          onKeyUp={() => {
+            repeatKeyRef.current = false;
+          }}
           disabled={isRunning}
           aria-busy={isRunning || undefined}
           className={armed ? IGNORE_ARMED_CLASS : IGNORE_IDLE_CLASS}

@@ -36,3 +36,27 @@ From the same audit. A needs-you row's accessible name is now `"needs review —
 **Accepted, not fixed.** The spec makes rows deliberately jump-only and moves destination naming onto the card's chip (§2.2/§2.3), so adding a destination phrase back into the row name is an amendment to that ratified division, not a defect against it. It also reads awkwardly against the existing sr-only tone prefix (`"needs review — Go to Sheet unavailable"`).
 
 **Un-defer trigger:** owner review of the row's accessible name, or the first screen-reader pass on the merged panel.
+
+### DESTRUCT-FOCUSRING-1 — [P1] the light-mode focus ring measures 1.60:1
+
+From the impeccable audit of `fix/destruct-thumb-order-drift-guard` (2026-07-25). `--color-focus-ring` composites over white to ≈`#FFC075`, **1.60:1** against adjacent colors, where WCAG 1.4.11 non-text contrast expects 3:1. Dark mode passes at 4.40:1.
+
+**Accepted, not fixed.** This is a token, not a surface: every `focus-visible:ring-focus-ring` control in the app inherits it, so changing it inside a two-button branch would ship an app-wide visual change under a diff about button order. `DESIGN.md`'s contrast table has no focus-ring row, which is why it was never pinned. Tracked by the pre-existing `BL-FOCUS-RING-CONTRAST`, which already owns the token decision and the ~90 bare `ring-offset-2` sweep; this run contributed the measured ratios.
+
+**Un-defer trigger:** the next DESIGN.md token pass, or any a11y sweep that touches focus appearance.
+
+### DESTRUCT-DURATION-TOKENS-1 — [P1] `duration-fast` / `duration-normal` emit no CSS
+
+From the same audit. Tailwind v4's `duration-*` utility resolves `--transition-duration-*`; this repo defines `--duration-fast` / `--duration-normal`. Verified by compiling the token CSS: **no rule is emitted**. All **276 + 42 usages across 89 files** silently fall back to Tailwind's 150ms default, **and the `@media (prefers-reduced-motion: reduce)` block that zeroes those variables therefore never applies to any Tailwind transition.**
+
+**Accepted, not fixed.** The rename is one line, but its blast radius is every transition in the app, and the thing that actually needs re-verifying afterwards is the reduced-motion path — an a11y contract with no current test. That belongs in a motion/token pass with its own verification, not inside this diff. Locally the impact here is nil: `transition-opacity` only animates opacity, which does not change idle↔armed.
+
+**Un-defer trigger:** the next motion or token pass. Treat as an accessibility fix, not a cosmetic one.
+
+### DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window opens and closes silently
+
+From the same audit. At 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. Separately, 4s is tight against ~3s of polite speech for the arm message.
+
+**Accepted, not fixed.** Both fixes mean revisiting `ARM_REVERT_MS` for assistive-tech users specifically, which is a decision across all 11 surfaces sharing the constant, not one component. Tracked as `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`.
+
+**Un-defer trigger:** an a11y pass on the destructive-confirm family, or any change to `ARM_REVERT_MS`.

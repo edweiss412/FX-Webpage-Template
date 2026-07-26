@@ -104,9 +104,16 @@ import {
   IGNORE_IDLE_LABEL,
 } from "@/components/admin/PendingPanelDiscardButtons";
 
-/** Same tree, with the Ignore button in its armed state. Produced by substituting
- *  the component's OWN exported armed class + label into the rendered markup, so
- *  both panels originate from the component. */
+/** Same tree, with the Ignore button in its armed state, produced by substituting the
+ *  component's OWN exported armed class + label into the rendered markup.
+ *
+ *  SCOPE, corrected after whole-diff review R1 F4: the premise "armed differs only by
+ *  class and label" is NO LONGER true — the real armed render also fills the status
+ *  region and mounts a consequence paragraph. This panel therefore proves the armed
+ *  ROW's token geometry (widths, wrap, box origin), which is what D1/D3/D4 measure and
+ *  what the paragraph below the row cannot affect. It does NOT prove the complete armed
+ *  tree. If armed-only structure ever lands INSIDE the row, this substitution stops
+ *  being representative and the panel must be replaced by a real armed render. */
 export function armedHtml(width: number): string {
   const idle = railHtml(width);
   return idle
