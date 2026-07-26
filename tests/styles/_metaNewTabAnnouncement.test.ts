@@ -4054,6 +4054,11 @@ describe("R6: scanner changes are pinned", () => {
       'aria-hidden={["true"]}',
       "aria-hidden={[true]}",
       'aria-hidden={{__proto__:{toString(){return "true";}}}}',
+      // A SPREAD could carry any member, including a toString override.
+      "aria-hidden={{...x}}",
+      // `__proto__: null` yields a NULL-PROTOTYPE object, whose string conversion THROWS rather than
+      // giving "[object Object]" -- undecidable, so it must fail closed.
+      "aria-hidden={{__proto__:null}}",
       "aria-hidden={[...x]}",
     ]) {
       expect(A(`Go <span ${attr}><NewTabHint /></span>`), `can be "true": ${attr}`).not.toEqual([]);

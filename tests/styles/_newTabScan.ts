@@ -1048,7 +1048,11 @@ function staticStringValue(e0: ts.Expression): string | null {
       if (key === "__proto__") {
         if (!ts.isPropertyAssignment(prop)) return false;
         const v = unparen(prop.initializer);
-        if (isProvablyNullish(v)) return false;
+        // NOTE: `__proto__: null` is NOT exempt. It creates a NULL-PROTOTYPE object, which has no
+        // inherited `toString`, so string conversion THROWS ("Cannot convert object to primitive
+        // value") rather than yielding "[object Object]". My first version exempted it as harmless;
+        // a mutation removing that exemption changed no test, which is what prompted checking the
+        // semantics -- the mutation was SAFER than the code. Undecidable, so it falls through.
         return !(
           ts.isStringLiteral(v) ||
           ts.isNumericLiteral(v) ||

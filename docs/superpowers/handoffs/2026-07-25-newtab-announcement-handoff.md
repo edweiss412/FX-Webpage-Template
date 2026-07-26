@@ -1974,3 +1974,30 @@ Two habits that made this recoverable rather than expensive: the previous fixes 
 and every edit is applied to a file under version control with a clean tree between rounds. The habit
 that caused it: bounding a replacement by a marker that is not unique to the function being edited.
 Bound the slice to the FUNCTION, and assert the replaced span is the size you expect.
+
+### Sixth sweep: a mutation that was SAFER than my code
+
+Sweeping the R37 fixes, five of seven branches were load-bearing and two survived. One of those two is
+the most interesting mutation of the whole close-out.
+
+I had written `if (isProvablyNullish(v)) return false;` in the `__proto__` check, reasoning that
+`{__proto__: null}` is a harmless prototype assignment. Removing that line changed no test — so by the
+usual rule it was an equivalent branch to delete. Checking the semantics before deleting showed the
+line was not merely unobserved, it was WRONG:
+
+```
+String({__proto__: null})   ->  TypeError: Cannot convert object to primitive value
+React render of it          ->  throws
+```
+
+A null-prototype object has no inherited `toString`, so string conversion throws rather than yielding
+`"[object Object]"`. The exemption claimed a value was decidably harmless when it actually crashes.
+**The mutation removing my line produced the safer scanner.**
+
+That is worth stating as its own rule: when a mutation survives, the question is not only "is this
+line load-bearing" but "is this line CORRECT". An equivalent branch can be equivalent because it is
+right and unobserved, or because it is wrong in a direction nothing currently exercises. The second
+kind is a latent defect, and deleting it is the fix rather than a cleanup.
+
+Both cases are now pinned by fixtures — `{...x}` (a spread could carry any member) and
+`{__proto__: null}` — and both measured rather than argued.
