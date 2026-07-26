@@ -118,41 +118,49 @@ meaningless "Your day" marker to an admin who has no assigned days. Hence: optio
 exactly the "no day is the viewer's" case, and the existing behaviour falls out of the rule rather than
 needing a special branch. The admin caller is NOT edited by this change. Do not duplicate it — the existing comment calls `visibleShowDays` "the SINGLE SOURCE for the SHOW-DAY ∩ restriction set" and warns about drift, so a second derivation is exactly the drift it guards against.
 
-**CONSTRAINT DISCOVERED 2026-07-25, load-bearing: the hoist must not move THROWING work.**
-`WrappedSection` exists specifically to contain per-block render throws, and its own docstring
-states the rule (`components/crew/WrappedSection.tsx:22-27`): "The throwable block is passed as a
-`render: () => ReactNode` FUNCTION" so that "throwing work (the transform that can throw) lives
-inside `render`." `aggregateDays(data.show.dates)` is inside that callback for that reason. Hoisting
-it above `agendaArea` would move it OUTSIDE the containment boundary, so a malformed-date throw
-would take down the whole section instead of degrading one block — silently reversing the guarantee
-this component was built to provide.
+**CONSTRAINT WITHDRAWN — review R4 (CRITICAL) exposed it as resting on a false premise, and the truth is
+simpler.** Three revisions of this section forbade hoisting `aggregateDays` above `WrappedSection` on the
+grounds that it performs "throwing work" a malformed date could trigger, so only the restriction
+derivation could move. R4 pointed out that the R3 completeness domain then REQUIRED the aggregate above
+`agendaArea`, making the spec self-contradictory. Checking which side was wrong:
 
-Therefore hoist the **restriction** derivation only, never the aggregate.
+```
+grep -c "throw" lib/crew/agendaDisplay.ts   ->  0
+imports:  shouldHideGenericOptional, stripAgendaUrls  (+ types only)
+```
 
-**Correction to an earlier draft of this line (verified 2026-07-26).** It said `dateRestriction` at
-`ScheduleSection.tsx:101` "cannot throw". That is false: `resolveViewerContext` DOES throw
-`MalformedProjectionError`, and the comment directly above it at
-`components/crew/sections/ScheduleSection.tsx:99-100` says the throw is placed outside
-`WrappedSection` **on purpose**, "so the route-level infra arm catches it, not the per-block
-fallback". The conclusion is unchanged and the reason is not: hoisting the restriction derivation is
-safe not because nothing throws, but because that throw is ALREADY outside the boundary by design, so
-the hoist adds no new exposure. Getting this reason right matters for the plan — a task author who
-believes "nothing here throws" will happily hoist something that does.
+**`aggregateDays` cannot throw.** It is `push`/`sort`/`map` over a `Map`, in a file with zero `throw`
+statements and no import that introduces one. So the constraint was never real, and the contradiction
+dissolves by deleting the constraint rather than by weakening the domain.
 
-`visibleShowDays` itself contains no `throw` (`lib/crew/agendaDisplay.ts:144-150`, verified) and reads
-`dates.showDays ?? []`, so it is genuinely safe to evaluate above the boundary.
+**Better still, the live code already computes exactly what this feature needs.** The existing
+`WrappedSection` callback at `components/crew/sections/ScheduleSection.tsx:193-207` derives:
 
-**CORRECTED (review R2, HIGH).** An earlier revision said the viewer's agenda day comes from
-`dateRestriction` plus `todayIsoInShowTimezone`. That is wrong and dangerous: this feature marks the days
-the viewer is ASSIGNED, which is a property of `dateRestriction` alone and does not depend on what day it
-is now. A viewer assigned only May 6 who opens the page on May 4 must still see May 6 expanded and
-marked. `todayIsoInShowTimezone` belongs to the separate "what is happening right now" surface and is NOT
-an input here — the contract is `visibleShowDays(dates, dateRestriction)`, which takes no clock. The
-viewer's day set also does NOT need `aggregateDays`. `visibleShowDays(data.show.dates,
-dateRestriction)` is the hoistable piece. Any plan task that moves `aggregateDays` or `allDays`
-above `agendaArea` is wrong on this point and must be rejected in plan self-review.
+```ts
+const allDays = aggregateDays(data.show.dates);
+const allowedShowDays = new Set(visibleShowDays(data.show.dates, dateRestriction));
+const visibleDays: AggregateDay[] =
+  dateRestriction.kind === "explicit"
+    ? allDays.filter((d) => allowedShowDays.has(d.date) || dateRestriction.days.includes(d.date))
+    : allDays;
+```
 
-**The hoist is verified feasible, not assumed.** (Note: per §2.5 fact 3 the COMPLETENESS domain is the aggregate day set, not `visibleShowDays`' output — but the hoisted derivation itself is still the `visibleShowDays` call the existing in-callback code makes, so the feasibility argument below is about that call.) `visibleShowDays` needs exactly two inputs (`lib/crew/agendaDisplay.ts:144-147`): `dates` and `dateRestriction`. `dateRestriction` is destructured from `resolveViewerContext` at `components/crew/sections/ScheduleSection.tsx:101`, which sits **above** `agendaArea` in the same function body, and `data.show.dates` is available throughout. The gap was 40 lines at `0c2b9ad00` and 46 at `d62d620e8`; the durable fact is the ORDER, not the distance. So the three lines move up as-is with no reordering of any other statement and no new prop. If a later refactor moves `resolveViewerContext` below the agenda area, this section is void. Verify the order first: `git show origin/main:components/crew/sections/ScheduleSection.tsx | grep -n "resolveViewerContext(viewer\|const agendaArea"` and confirm the former's line number is the smaller one.
+and its own comment at `components/crew/sections/ScheduleSection.tsx:194-195` states the intent —
+"Intersect the restriction against the FULL aggregate (travel / set / showDays / travelOut — not just
+showDays)". That is `R`. The viewer's day set is not something this feature must invent; it already exists
+one scope below the agenda area, computed correctly including travel days.
+
+**So the change is: hoist those three existing lines above `agendaArea`, unmodified, and read
+`R = new Set(visibleDays.map((d) => d.date))`.** No new domain expression, no `restrictionAllows` helper,
+no second derivation to drift from the first. The drift-guard comment at
+`components/crew/sections/ScheduleSection.tsx:200` keeps its meaning because the code it guards is the
+same code, just evaluated earlier in the same function body.
+
+What genuinely can throw stays where it is: `resolveViewerContext` at
+`components/crew/sections/ScheduleSection.tsx:101` throws `MalformedProjectionError` and already runs
+ABOVE the boundary by design (`components/crew/sections/ScheduleSection.tsx:99-100`: "INTENTIONALLY outside
+Wr…" so the route-level arm catches it). The hoist adds no new exposure because the hoisted lines add no
+throw.
 
 ## 2.5 SPIKE — measured facts that invalidated two earlier contract revisions
 
@@ -171,12 +179,18 @@ days.push({ dayLabel: label ?? "", date: null, sessions: [session] });
 `normalizeAgendaExtraction` only validates and passes the field through
 (`lib/agenda/normalizeAgendaExtraction.ts:39` and `lib/agenda/normalizeAgendaExtraction.ts:47`), so nothing ever fills it.
 
-**Consequences, both load-bearing.** The `{day.date ? … : …}` branch at
-`components/crew/AgendaScheduleBlock.tsx:74` always takes the null arm in production, so the "no date
-span" case in §5 is the ONLY reachable one rather than an edge case. And a matcher that returns ISO dates
-gives the component nothing it can compare against — **the matcher must return row indices into
-`extraction.days`.** An earlier revision returned `ReadonlySet<string>` of ISO dates; that could not have
-worked.
+**Scope of that claim, narrowed after review R4 (HIGH).** It is true of the CURRENT EXTRACTOR's output,
+not as a render-boundary invariant. `normalizeAgendaExtraction` validates opaque JSONB and preserves any
+string it finds (`lib/agenda/normalizeAgendaExtraction.ts:39` accepts `null` or `string`, `lib/agenda/normalizeAgendaExtraction.ts:47` passes it
+through), so a row written by an older extractor, a forward-compatible writer, or a hand edit CAN carry a
+non-null date. **The non-null branch is therefore live and must keep working** — an implementer must not
+treat `components/crew/AgendaScheduleBlock.tsx:74`'s truthy arm as dead code.
+
+**What still follows regardless.** Every day the CURRENT extractor produces has `date: null`, so the
+component cannot rely on dates to identify rows, and a matcher returning ISO dates would match nothing on
+freshly-extracted data — **the matcher must return row indices into `extraction.days`.** An earlier
+revision returned `ReadonlySet<string>` of ISO dates; on current production data that could not have
+worked at all.
 
 **2. Day identity comes only from `dayLabel`, and in the live corpus it parses.**
 `parseIsoFromDayLabel` (`lib/crew/agendaDayForToday.ts:36`) needs a full date-bearing label. The
@@ -223,15 +237,24 @@ passes while that day folds. The domain must be the viewer's restriction days in
    reachable inputs would break:
 
    - `R` = the viewer's restriction dates intersected with the **aggregate** day set:
-     `new Set(aggregateDays(data.show.dates).map((d) => d.date).filter(restrictionAllows))`.
+     `new Set(visibleDays.map((d) => d.date))`, reading the EXISTING hoisted `visibleDays` (§2) rather than
+     recomputing anything.
 
-     **No null filter, and the `Set` is not for dedup** — corrected while re-checking this repair.
-     `AggregateDay.date` is typed `string`, not `string | null` (`lib/crew/agendaDisplay.ts:96`), because
-     `aggregateDays`' own `push` helper drops falsy dates before they enter the map
-     (`lib/crew/agendaDisplay.ts:116`). It also already dedupes by date via that `Map`
-     (`lib/crew/agendaDisplay.ts:113-121`). An earlier version of this line carried a `d !== null` guard —
-     dead code under the strict tsconfig — and justified the `Set` as absorbing a repeated date, which
-     `aggregateDays` has already done. The `Set` is here only for O(1) membership lookup.
+     **No null filter and no dedup needed.** `AggregateDay.date` is typed `string`, not `string | null`
+     (`lib/crew/agendaDisplay.ts:96`), because `aggregateDays`' `push` helper drops falsy dates before they
+     enter its map (`lib/crew/agendaDisplay.ts:116`), and that `Map` already dedupes by date
+     (`lib/crew/agendaDisplay.ts:113-121`). The `Set` here is purely for O(1) membership lookup.
+
+     **This also settles the positional-fallback domain, which review R4 (HIGH) found contradictory.** Two
+     different lists were in play: the existing fallback in `agendaSessionsForToday` gates on `showDays`
+     and carries a null-element guard (`lib/crew/agendaDayForToday.ts:64`), while an earlier revision of
+     this spec told the new matcher to index the full `AggregateDay[]`, which has no nulls to guard. Both
+     the completeness domain and the positional index basis are now the SAME list — the hoisted
+     `visibleDays`' parent `allDays` (the full aggregate, chronologically sorted, non-null by
+     construction). The new matcher therefore does NOT need a null-element guard, because the list it
+     indexes cannot contain one; the guard remains necessary only in the pre-existing `showDays`-based
+     function, which this work does not change. Stating which list each rule uses is the whole point —
+     conflating them shifts every index.
      **NOT `visibleShowDays`** — see §2.5 fact 3. An earlier revision used the show-day intersection
      specifically to neutralise an out-of-show assignment, and that was backwards: stage-derived
      restrictions are BUILT from `aggregateDays` (`lib/crew/stageSchedule.ts:56`, returned at `lib/crew/stageSchedule.ts:66`) and
@@ -351,10 +374,27 @@ The fold introduces `<details>`/`<summary>` inside the block's `min-w-0` column.
 | --- | --- | --- | --- |
 | `div[data-testid=agenda-schedule]` (`flex min-w-0 flex-col gap-4`) | each `<details>` | child width === parent content width | **`w-full`, plus `min-w-0`.** CORRECTED in review R2 (MEDIUM): the earlier row named `min-w-0` alone as the guarantee, which is wrong — `min-w-0` only permits shrinking below the content-based minimum, it does not make a flex item fill the cross axis. Under this project's non-stretch default (Tailwind v4 does not default `.flex` to `align-items: stretch`) a `<details>` would shrink to its summary's contents, leaving a short tap row instead of a full-width one — the exact failure this section exists to prevent. `w-full` supplies the width; `min-w-0` still needed so a long unbroken label cannot widen the column. |
 | `<details>` | `<summary>` | summary width === details content width | `flex min-w-0 items-baseline` on the summary |
-| `<summary>` | label / date / count / chevron | label may shrink; date, count, chevron never truncate | `min-w-0` + `wrap-break-word` on the label; `shrink-0 tabular-nums` on date and count, matching `components/crew/AgendaScheduleBlock.tsx:75` and `components/crew/AgendaScheduleBlock.tsx:87` |
+| `<summary>` | label / date / count / chevron | label may shrink; count and chevron never truncate; **the date never truncates for any well-formed value but degrades rather than breaking the row for a malformed one** | `min-w-0` + `wrap-break-word` on the label; `shrink-0 tabular-nums` on count, matching `components/crew/AgendaScheduleBlock.tsx:87`. The date gets `shrink-0 max-w-[12ch] truncate` — see the note below. |
 | `<summary>` | "Your day" marker | never wraps and never truncates; it is the one cue the feature exists to deliver | `shrink-0` on the marker, so at 320px the LABEL absorbs the shortfall (it already carries `min-w-0 wrap-break-word`) rather than the marker |
 | `<summary>` | tap target | rendered height ≥ 44px | `min-h-tap-min` |
 | `<details>` | `ul` of sessions | body width === details content width, unchanged from today | existing `flex flex-col gap-2` |
+
+**Why the date is capped — review R4 (HIGH) found the previous row self-contradictory.** It promised the
+date is `shrink-0` AND never truncates AND the summary stays inside 320px, while §5.0 requires an
+over-long date to be survivable. Those cannot all hold: an unbounded `shrink-0` child forces its parent
+wider, full stop. And the over-long case IS reachable — per §2.5 fact 1 as narrowed, `day.date` is any
+string the JSONB carried, so a hand-edited or legacy row can hold one.
+
+The resolution is a cap, not a promise. `max-w-[12ch] truncate` on the date means:
+
+- Every well-formed value fits and never truncates. The rendered forms are short (`2026-05-04` is 10
+  characters, and the display strings the component already emits are shorter still), so `12ch` clears
+  them with room and the "never truncates" guarantee holds for all real data.
+- A malformed value truncates with an ellipsis instead of pushing the row past the viewport. Degrading one
+  field beats breaking the layout of every row beside it.
+
+So the boundary assertion is testable as written: a 200-character date must leave the summary within the
+viewport, and it does — by truncating. The assertion and the invariant now agree.
 
 **The `w-full` guarantee gets its own assertion, not just a class check.** Assert
 `details.getBoundingClientRect().width === parentContentWidth` within 0.5px for EVERY row, at both
@@ -427,20 +467,25 @@ Two consequences worth stating rather than discovering:
 this checkout, not assumed:
 
 ```
-grep -c "transition-duration-fast" app/globals.css   ->  0
-grep -rn "duration-fast" components/ | grep -cE 'className|class='  ->  118
-(179 lines mention the token at all; 118 is the count of CLASS-attribute uses, which is the
- claim being made. Review R3 reported 124 from a broader pattern — the narrower number is the
- one that matches the sentence.)
+grep -c "transition-duration-fast" app/globals.css   ->  0     <- the load-bearing fact
 app/globals.css:223   --duration-fast: 120ms;
 app/globals.css:419   --duration-fast: 0ms;      (inside @media (prefers-reduced-motion: reduce))
 ```
 
+**The count of existing class-based uses has been REMOVED from this spec, deliberately.** Three revisions
+carried a number (118, then 124 from a reviewer's broader pattern, then 124/148/185 from R4's) and every
+round disputed it, because the value depends entirely on grep flavour and scope: `className`-filtered
+versus every mention, `components/` versus `components/ app/`, line-count versus `git grep`'s per-file
+sums. It was decoration — nothing in this spec's reasoning depends on how MANY sites already do the wrong
+thing. What matters is the mechanism, which both the author and two independent review rounds verified the
+same way: `--transition-duration-fast` is undefined, so the utility emits no duration. That single
+`grep -c` above is reproducible and sufficient. A number that costs a finding per round and carries no
+argument should not be in the document.
+
 Tailwind v4 resolves `duration-<name>` from `--transition-duration-<name>`, which this project never
 defines — it defines `--duration-*`. So `className="transition-transform duration-fast"` produces a
 `transition-property` with **no duration from that class**, and it is invisible to the reduced-motion
-block at `app/globals.css:417`, which only rewrites `--duration-*`. The 118 existing class-based sites
-are pre-existing and out of scope here; this spec must not add a 119th.
+block at `app/globals.css:417`, which only rewrites `--duration-*`. The existing class-based sites are pre-existing and out of scope here; what matters is that this spec adds no new one.
 
 Two acceptable mechanisms, and the implementation MUST pick one explicitly:
 
