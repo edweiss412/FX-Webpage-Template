@@ -64,8 +64,30 @@ Four files change / are added:
      with the same body as `help-screenshots.ts:149` (selector visible → `networkidle` →
      `fonts.ready` + double-rAF → stable-ms timeout), parameterized instead of
      `ManifestEntry`-typed.
-   `help-screenshots.ts` imports these and deletes its local copies. Manifest-specific
-   logic (fixture ranges, frozen clocks, `themesFor`) stays in `help-screenshots.ts`.
+   `help-screenshots.ts` imports these and deletes its local copies. The `CaptureTheme`
+   type and `DEFAULT_EXPECT_STABLE_MS` (`help-screenshots.ts:13`) move with the helpers;
+   `help-screenshots.ts` re-imports them. Manifest-specific logic (fixture ranges,
+   frozen clocks, `themesFor`, the `waitFor ?? captureSelector ?? "body"` selector
+   precedence at `help-screenshots.ts:150`) stays in `help-screenshots.ts`.
+
+   **The move is NOT test-invisible.** `tests/help/capture-script.test.ts` source-scans
+   `scripts/help-screenshots.ts` directly: the pinned sharp WebP settings
+   (`capture-script.test.ts:14-20`), the `disableAnimations` body + its
+   registered-before-goto ordering (`capture-script.test.ts:28-45`), and the
+   `waitForQuiescence` recipe guard. The extraction task updates each guard to scan the
+   file that now holds the asserted body (the new capture-core module for moved bodies;
+   `help-screenshots.ts` keeps the call-site ordering assertions — `disableAnimations`
+   is still invoked before `page.goto` in `captureEntryTheme`). Same assertions,
+   relocated targets, in the same commit as the move.
+
+   **CI coupling:** the committed help baselines become dependent on the new module, so
+   the same commit adds the capture-core path to the screenshots-drift workflow's
+   PR path filter (`.github/workflows/screenshots-drift.yml:30-35`) and to the
+   structural required-path list at
+   `tests/cross-cutting/ci-workflow-speedup.test.ts:82-105` — otherwise a later
+   capture-core-only change would skip the
+   per-PR drift gate. This is maintenance of the EXISTING help gate, not a new gallery
+   CI surface (§1.1 unaffected).
 
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 
@@ -83,13 +105,25 @@ Four files change / are added:
      (`scripts/capture-launch-args.ts:22`) exactly like `captureAll()`
      (`help-screenshots.ts:215`, `help-screenshots.ts:225`) — Playwright-config launchOptions do not reach
      a script-launched browser.
-   - One `BrowserContext` per theme (`colorScheme: theme`), pages per scenario.
+   - One `BrowserContext` per theme. **Playwright-config `use` options do not reach a
+     script-created context either** (default context viewport is 1280×720, not the
+     project's 1280×800), so `browser.newContext()` passes every option explicitly,
+     mirroring the help path's context construction (`help-screenshots.ts:231-238`):
+     `baseURL: baseUrl`, `colorScheme: theme`, `viewport: { width: 1280, height: 800 }`,
+     `locale: "en-US"`, `timezoneId: "America/New_York"`,
+     `reducedMotion: "reduce"`. Pages per scenario.
 
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 
 3. **`tests/e2e/screenshots-gallery-capture.spec.ts` (new)** — one test calling
    `captureGallery()` (pattern: `tests/e2e/screenshots-help-capture.spec.ts`, which is a
-   single `test()` invoking `captureAll()`).
+   single `test()` invoking `captureAll()`), followed by postcondition assertions (§8.2).
+   Because it is deliberately not CI-covered, the same commit adds a reasoned row to
+   `LOCAL_ONLY_ALLOWLIST` in `tests/ci/_metaE2eWorkflowCoverage.test.ts` — the
+   filesystem-walked coverage guard (its dark-spec assertion at
+   `tests/ci/_metaE2eWorkflowCoverage.test.ts:155-157`) otherwise fails
+   on any un-wired `tests/e2e/*.spec.ts`. The row's reason cites this spec's §1.1
+   no-CI ratification.
 
 4. **`playwright.screenshots.config.ts`** — new project:
 
@@ -97,29 +131,46 @@ Four files change / are added:
    {
      name: "screenshots-gallery",
      testMatch: /screenshots-gallery-capture\.spec\.ts/,
-     timeout: 300_000,
+     timeout: 1_800_000,
      use: { ...same Desktop Chrome block as "screenshots-help-capture": baseURL http://localhost:3004,
             colorScheme light, reducedMotion reduce, CAPTURE_LAUNCH_ARGS, locale en-US,
             timezoneId America/New_York, viewport 1280×800 }
    }
    ```
 
-   - **No `dependencies`.** The help setup project seeds show fixtures; the gallery needs
-     no DB rows (scenario data is fixture-built server-side in `partitionScenarios()`,
-     and the developer fixture authenticates via JWT claim alone).
+   - **No `dependencies` on the help setup project.** The help setup seeds show
+     fixtures; the gallery needs no such seed (scenario data is fixture-built
+     server-side in `partitionScenarios()`, and `requireDeveloper()` admits the
+     fixture's `developer:true` JWT claim without an `admin_emails` row). A running,
+     migrated local Supabase IS still a prerequisite: `signInAs` deletes and re-creates
+     the fixture user in Supabase Auth via the test-auth route
+     (`tests/e2e/helpers/signInAs.ts:48-66`), and the page gate calls the
+     `is_session_live` / `is_developer` RPCs (`lib/auth/requireDeveloper.ts:172-200`).
+     `pnpm preflight` already fail-louds on an unreachable local DB. Because the sweep
+     churns the shared `fxav-developer@example.com` auth user, do not run it
+     concurrently with another suite signing in as the same fixture.
    - The existing webServer entry is reused untouched: port 3004, prod build via
      `pnpm build` (= `scripts/with-admin-dev-flag.mjs next build`, `package.json:8`) with
      `ADMIN_DEV_PANEL_ENABLED: "true"` (`playwright.screenshots.config.ts:104`), so the
      build-gated gallery route (`scripts/with-admin-dev-flag.mjs:63`) is present.
      `reuseExistingServer: !CI` means repeat sweeps skip the build.
-   - Timeout 300 s: the sweep serially captures every rendered scenario × 2 themes in one
-     test; sized like the help-capture bump (180 s for a smaller manifest) with headroom.
+   - Timeout 1800 s (`timeout: 1_800_000`): the catalog is large — the gallery
+     acceptance harness describes its walk as a 72-scenario sweep
+     (`tests/e2e/attention-modal-gallery.spec.ts:156`) — and this test serially
+     captures every rendered scenario × 2 themes plus quiescence waits, per-capture
+     500 ms stabilization, and sharp encoding. 1800 s is a provisional ceiling, not a
+     measurement; the implementation plan includes a timed full-sweep task that records
+     the actual wall clock in the PR and tightens the ceiling to ~2× measured.
 
 ## 4. Capture sequence (per scenario × theme)
 
 1. `installDeterminism(page, theme)` + `disableAnimations(page)` (init scripts, pre-nav).
 2. `signInAs(page, DEVELOPER_FIXTURE, { baseUrl })` — once per context, before first goto.
-3. `page.goto("<base>/admin/dev/attention-gallery?scenario=<id>")`, `domcontentloaded`.
+3. Navigate to `<base>/admin/dev/attention-gallery?scenario=<id>` with the bounded
+   3-attempt retry the acceptance harness already uses
+   (`gotoScenario`, `tests/e2e/attention-modal-gallery.spec.ts:154-171`): the route's
+   SSR can transiently blip under a long sweep; a reload absorbs the transient while
+   the final attempt still throws.
 4. **Scenario-identity guard (§5).**
 5. Quiescence wait: dialog `[data-testid="published-show-review-modal"]` visible →
    `networkidle` → `fonts.ready` + double-rAF → 500 ms stable wait
@@ -130,10 +181,16 @@ Four files change / are added:
    (`max-h-[85vh]`/`sm:max-h-[80vh]`, `components/admin/review/ReviewModalShell.tsx:623`)
    and its content pane scrolls internally
    (`overflow-y-auto`, `components/admin/review/ShowReviewSurface.tsx:1030`; the ≥lg
-   section rail at `ShowReviewSurface.tsx:867` also scrolls). Inside the dialog, find the scrollable
-   descendant with the largest `clientHeight` where `scrollHeight > clientHeight + 1`
-   (largest-wins deliberately selects the content pane over the narrow rail). If one
-   exists: set its `scrollTop` to max, double-rAF, re-shoot →
+   section rail at `ShowReviewSurface.tsx:867` also scrolls). Inside the dialog, find every
+   scrollable descendant (`scrollHeight > clientHeight + 1`) and pick the one with the
+   greatest `clientWidth * clientHeight` AREA. Height alone cannot discriminate: the
+   rail and the content pane are siblings of the same stretched flex row and tie on
+   `clientHeight`; the rail is a fixed `w-60` (240 px) while the content pane is
+   `flex-1`, so area selects the content pane deterministically. Ties on area (none
+   expected) break toward the LAST in document order (the content pane follows the
+   rail). The selection is a pure function over
+   `{scrollHeight, clientHeight, clientWidth}[]` so it is unit-testable (§8.1). If a
+   scroller is selected: set its `scrollTop` to max, double-rAF, re-shoot →
    `<id>-<theme>-overflow.webp`. If none: no companion file.
 8. `encodeWebp` both PNGs, write to output dir (§6).
 9. Append the scenario's index.json entry (§7).
@@ -169,10 +226,20 @@ throw. Missing `TEST_AUTH_SECRET` → throw (existing contract).
   `public/help/screenshots/`).
 - Full sweep (no `GALLERY_SCENARIO`): delete the directory's contents first, then
   recreate — no orphaned files from renamed/removed scenarios.
-- Filtered sweep: overwrite only the targeted scenarios' files; index.json is
-  rewritten whole (entries for non-targeted scenarios keep their previous `files` data
-  read from the prior index.json when present; absent prior index → index lists only
-  captured scenarios). `generatedAt` always reflects the current run.
+- Filtered sweep: capture only the targeted scenarios; index.json is rewritten whole
+  under one invariant — **the index lists exactly the currently-rendered scenarios that
+  have files on disk after the run**. Concretely:
+  - Targeted scenarios: files overwritten; if the new run produces no overflow shot
+    where the previous one did, the stale `-overflow.webp` files are DELETED and the
+    index slots become null (no orphaned companions).
+  - Prior-index entries whose id is no longer in the current rendered set (renamed or
+    removed scenario): entry pruned AND its files deleted.
+  - Non-targeted scenarios present in the prior index with files still on disk: entry
+    carried forward unchanged.
+  - Currently-rendered scenarios never captured (no files on disk, e.g. newly added and
+    not targeted): OMITTED from the index — a filtered run yields a partial index by
+    design; the full sweep restores completeness. No placeholder entries.
+  - `generatedAt` always reflects the current run.
 - Filter parsing: split on `,`, trim, drop empties; result deduplicated. Order follows
   the rendered (group-sorted) order, not the filter's.
 
@@ -189,7 +256,7 @@ throw. Missing `TEST_AUTH_SECRET` → throw (existing contract).
       "label": "<human label>",
       "tier": "<tier>",
       "group": "<ScenarioGroupId>",
-      "codes": ["<MessageCode>", "..."],
+      "codes": ["<string>", "..."],
       "files": {
         "light": "t2-multi-hold-light.webp",
         "dark": "t2-multi-hold-dark.webp",
@@ -204,9 +271,13 @@ throw. Missing `TEST_AUTH_SECRET` → throw (existing contract).
 
 `id`, `label`, `tier`, `group`, `codes` come straight from
 `GallerySwitcherScenario` (`lib/dev/galleryModalTypes.ts:34`); fields populated
-per the `rendered.push` shape (`buildSwitcherScenarios.ts:169`). `excluded` mirrors `partitionScenarios().excluded` so a reviewer sees what
-is deliberately absent. Filenames are `<id>-<theme>[-overflow].webp`; scenario ids are
-already filesystem-safe slugs (kebab-case, enforced by their use in `?scenario=` URLs).
+per the `rendered.push` shape (`buildSwitcherScenarios.ts:169`). `codes` is `string[]`,
+not a catalog-code type — the catalog deliberately contains an uncataloged sentinel
+(`GALLERY_UNCATALOGED_CODE`, `lib/dev/attentionScenarios/tier2.ts:431`). `excluded`
+mirrors `partitionScenarios().excluded` so a reviewer sees what is deliberately absent.
+Filenames are `<id>-<theme>[-overflow].webp`; scenario ids are filesystem-safe because
+scenario validation enforces the id charset
+(`lib/dev/attentionScenarios/validate.ts:313-318`).
 
 ## 8. Testing
 
@@ -224,9 +295,22 @@ TDD per task (invariant 1). Three layers:
      and spot-check a known id like `T2_MULTI_HOLD`'s), never a hardcoded full list that
      would silently pass when the derivation and the test share a bug — the assertion
      source is the catalog module, the subject is the derivation function.
-   - capture-core extraction: `scripts/help-screenshots.ts` type-checks and its existing
-     unit-level guards still pass; no new unit tests for the moved bodies (they are
-     exercised by both capture suites).
+   - scroll-container selection: the pure `{scrollHeight, clientHeight, clientWidth}[]`
+     picker (§4 step 7). Failure modes caught: height-tie between rail and content pane
+     must select the wider pane (the round-1 review defect); no scrollable candidate →
+     null; single candidate → itself; area tie → last in document order.
+   - index merge lifecycle (§6): all four filtered-run cases — stale overflow slot
+     nulled + file scheduled for deletion, removed-id entry pruned, non-targeted entry
+     carried forward, never-captured id omitted. The merge is a pure function over
+     (priorIndex, capturedEntries, renderedIds, filesOnDisk); expected outputs derived
+     from constructed fixtures, not mirrored from the implementation.
+   - scenario-identity guard message: on label mismatch the constructed error names the
+     scenario id and the stale-server remedy (§5). Failure mode caught: a silent
+     fallback-to-index-0 sweep mislabeling every capture.
+   - capture-core extraction: `tests/help/capture-script.test.ts` guards are UPDATED in
+     the extraction commit to scan the file that now holds each asserted body (§3
+     item 1) — same assertions, relocated read targets. The moved bodies get no
+     additional unit tests; both capture suites exercise them.
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 
 2. **Env-bound capture spec** — `tests/e2e/screenshots-gallery-capture.spec.ts` is a
@@ -235,13 +319,23 @@ TDD per task (invariant 1). Three layers:
    `vitest.projects.ts:34`), so a `*.spec.ts` file is invisible to it
    (`vitest.config.ts:22` additionally drops env-bound `.test` files in the
    unit-suite CI lane). It runs only via `pnpm screenshot:gallery`, locally, on
-   demand. **No CI workflow references it** (§1.1).
-3. **Help-path regression:** after the capture-core extraction, run
-   `pnpm screenshot:help` locally and `git status public/help/screenshots/` — the
-   committed WebPs must be byte-identical (per the AGENTS.md reviewer-caveat pattern,
-   restore via `git restore public/help/screenshots/` after verification if the host
-   architecture dirties them; the extraction claim is proven by the run completing and
-   the diff being architecture-noise-only or empty).
+   demand. **No CI workflow references it** (§1.1); the `LOCAL_ONLY_ALLOWLIST` row
+   (§3 item 3) records that exemption structurally. After `captureGallery()` returns,
+   the same test asserts postconditions so a silently-degenerate sweep cannot pass:
+   index.json exists and parses; every `files` value in it exists on disk; the on-disk
+   WebP count equals the index's non-null file references (no orphans); entry count
+   equals `partitionScenarios().rendered.length` (full-sweep run); and the index's
+   `viewport` equals the §1.1 1280×800 matrix.
+3. **Help-path regression (same-host pre/post comparison):** comparing a host capture
+   against the COMMITTED baselines cannot prove the extraction changed nothing — the
+   baselines are pinned-image linux/amd64 bytes and a dev-host capture legitimately
+   diverges from them (AGENTS.md byte-comparison discipline), so "architecture noise"
+   would mask a real regression. Instead: (a) BEFORE the extraction commit, run
+   `pnpm screenshot:help` on this host and copy `public/help/screenshots/` aside to a
+   scratch dir; (b) apply the extraction; (c) run the capture again on the same host and
+   byte-compare against the aside copy — same host, same architecture, so any byte
+   difference IS extraction-induced and fails the check; (d) `git restore
+   public/help/screenshots/` so the committed amd64 baselines are untouched in the PR.
 
 ## 9. Non-goals
 
@@ -250,9 +344,13 @@ TDD per task (invariant 1). Three layers:
 - No capture of excluded scenarios (they do not render in the modal by definition).
 - No impeccable gate: no file under `app/` or `components/` is touched, no token block,
   no `DESIGN.md` change (invariant-8 surface definition).
-- No mutation surface: the script performs only GETs against a dev-gated route; the
-  gallery's own `GalleryWriteGuard` containment (`page.tsx` header notes) is untouched.
-  Invariant-10 registries are not in scope.
+- No new mutation surface in repo code: the script adds no route handler and no server
+  action, so invariant-10 registries gain no row. Precision matters here: the sweep is
+  NOT free of writes — `signInAs` churns the fixture user in Supabase Auth through the
+  existing test-auth route (`tests/e2e/helpers/signInAs.ts:48-66`) — but those are
+  pre-existing harness surfaces, unchanged by this feature. The gallery page's own
+  `GalleryWriteGuard` containment (`page.tsx` header notes) is untouched, and the
+  script performs no app-table mutation of its own.
 
 ## 10. Invariant compliance
 
