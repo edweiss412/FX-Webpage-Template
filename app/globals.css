@@ -160,10 +160,6 @@
 
   /* ── Spacing ── */
   --spacing-tap-min: 44px;
-  /* Width reserved by the pending-discard Ignore button so its idle and armed states
-     are identical in size. Sized above the wider label ("Permanently ignore", 153.2px)
-     with headroom for cross-platform font metrics. See spec
-     2026-07-25-destruct-thumb-order-drift-guard §4.5 D4. */
   /* Fixed box for the two-tap Archive confirm (spec §3.3): the resting
      "Archive show" button and the armed two-line "Confirm archive — …" label
      share this min-height so tap-1 morphs the label with NO layout shift. Sized
