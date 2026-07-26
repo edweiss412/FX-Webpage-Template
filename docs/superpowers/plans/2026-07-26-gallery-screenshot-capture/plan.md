@@ -50,6 +50,12 @@ review rounds (spec carries the citations). Additional plan-time checks:
 - **Detach-safety:** the overflow scan + scroll runs as ONE `page.evaluate` over the
   live DOM (no retained element handles across navigation); the identity guard
   re-queries the control bar fresh per attempt. No sampler outlives its page.
+- **Picker bridge (Node test ↔ browser execution):** `pickScrollContainer` is written
+  SELF-CONTAINED (no imports, no closure captures) so the very function unit-tested in
+  Node is passed to `page.evaluate` by Playwright's function-source serialization; the
+  evaluate wrapper gathers `{scrollHeight, clientHeight, clientWidth}` candidates,
+  invokes the passed picker, and scrolls the winner — one evaluate, no duplicated
+  picker logic.
 
 ## Tasks (TDD; one commit each, conventional style)
 
@@ -76,7 +82,7 @@ local). Same commit: add `"scripts/capture-core.ts"` to
 `.github/workflows/screenshots-drift.yml` paths and to `REQUIRED_PATHS` in
 `tests/cross-cutting/ci-workflow-speedup.test.ts`.
 VERIFY: `pnpm vitest run tests/help/capture-script.test.ts tests/cross-cutting/ci-workflow-speedup.test.ts`;
-typecheck. §8.3 "after" leg runs in Task 6.
+typecheck. §8.3 "after" leg runs in Task 5.
 
 ### Task 2 — pure units (`test:` then `infra:`, or one `infra:` commit with tests-first inside)
 
@@ -85,11 +91,24 @@ File: `scripts/gallery-screenshots.ts` (pure parts) + `tests/scripts/gallery-scr
 TDD each unit in spec §8.1 order:
 
 1. `parseScenarioFilter(raw, partition)` — comma/trim/dedup/empty→full; unknown id →
-   throw listing valid ids; excluded id → throw naming its exclusion reason.
+   throw listing valid ids; excluded id → throw naming its exclusion reason; empty
+   RENDERED set (catalog regression) → throw. Filtered result preserves the rendered
+   (group-sorted) catalog order, never the filter-input order — asserted with a
+   filter given in reversed order.
+1b. `prepareRun(env, partition, now)` — the pre-launch composition (filter parse +
+   catalog guard + entry derivation): all §5 input-guard throws happen HERE, and
+   `captureGallery` calls it BEFORE `chromium.launch` by construction (the browser
+   adapter receives an already-validated plan). Unit tests drive prepareRun directly.
+1c. identity-guard message constructor — on label mismatch the built error names the
+   scenario id and the stale-server remedy (§5); failure mode: silent fallback-to-0
+   sweep mislabeling every capture.
 2. `deriveIndexEntries(partition, now)` — one entry per rendered scenario;
    `<id>-<theme>.webp` names; nullable overflow slots; `capturedAt === now`; excluded
    passthrough. Anti-tautology: assert count === `partitionScenarios().rendered.length`
    and spot-check `T2_MULTI_HOLD.id`; never a mirrored hardcoded list.
+2b. `buildIndex(entries, excluded, now)` — the §7 ROOT shape: `generatedAt === now`,
+   `viewport === {width: 1280, height: 800}`, `themes === ["light", "dark"]`,
+   scenarios + excluded arrays. Failure mode: a root field silently dropped.
 3. `pickScrollContainer(candidates)` — pure over
    `{scrollHeight, clientHeight, clientWidth}[]`: overflow predicate
    (`scrollHeight > clientHeight + 1`), greatest area wins, tie → LAST in document
@@ -105,34 +124,25 @@ TDD each unit in spec §8.1 order:
 6. Finalize orchestrator over injected fs adapter
    (`read/mkdir/write/rename/delete/list`) with a recording fake: order test (staging
    discard first → staging-only writes → renames+deletes → index LAST) and aborted-run
-   test (zero canonical mutation). No full-sweep pre-clear exists.
+   test (zero canonical mutation). No full-sweep pre-clear exists. The orchestrator
+   also takes an injected `warn` sink; when `loadPriorIndex` returns a warning the
+   recording fake asserts exactly one line is emitted (§6 caller-prints obligation).
 
-### Task 3 — captureGallery() browser flow (`infra:`)
+### Task 3 — capture spec + harness wiring + browser flow (one TDD task, `infra:`)
 
-<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
-Wire the impure sweep in `scripts/gallery-screenshots.ts`: capture env guard
-(TEST_AUTH_SECRET throw, SCREENSHOT_BASE_URL default `http://localhost:3004`);
-`chromium.launch({args: CAPTURE_LAUNCH_ARGS})`; per theme SEQUENTIALLY — full context
-options (§3 item 2: baseURL, colorScheme, viewport 1280×800, locale, timezoneId,
-reducedMotion), `signInAs(page, DEVELOPER_FIXTURE, {baseUrl})`, capture every
-selected scenario (goto retry → identity guard → quiescence → viewport shot →
-overflow companion via `pickScrollContainer` + max scroll + double-rAF), CLOSE context
-before next theme's signInAs (§3 session-revocation constraint); stage writes;
-finalize via the Task-2 orchestrator. Unit-level proof for this task is the Task-2
-suite; the browser path is exercised by Task 4's capture spec (env-bound by design).
-Typecheck + eslint gate the commit.
+The browser sweep is env-bound, so its failing test IS the capture spec (invariant 1:
+test before implementation, inside one task/commit).
 
-### Task 4 — harness wiring + capture spec (`infra:`)
-
-RED: `tests/ci/_metaE2eWorkflowCoverage.test.ts` fails after adding
-<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
-`tests/e2e/screenshots-gallery-capture.spec.ts` without its allowlist row.
-GREEN, one commit:
+RED (all wiring lands first; the test RUNS and FAILS):
 
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - `tests/e2e/screenshots-gallery-capture.spec.ts` — FIRST import
   `./helpers/loadTestEnv`; one `test()` calling `captureGallery()` then the §8.2
-  postconditions (always-block + unfiltered/filtered branch).
+  postconditions: always-block (index parses; `light`/`dark` non-null; every non-null
+  file exists; WebP count === non-null references; `capturedAt` ISO on every entry;
+  root `viewport` === 1280×800, root `themes` === `["light","dark"]`, root
+  `generatedAt` ISO) + unfiltered branch (count === rendered.length) / filtered branch
+  (targeted ids present with this-run `capturedAt`).
 - `screenshots-gallery` project in `playwright.screenshots.config.ts`
   (testMatch, `timeout: 1_800_000`, Desktop Chrome use-block mirroring
   screenshots-help-capture, no dependencies).
@@ -140,12 +150,31 @@ GREEN, one commit:
   inline, `--project=screenshots-gallery`).
 - `.gitignore`: `/screenshots/` (Edit tool, not `echo >>`; verify with
   `git check-ignore -v screenshots/attention-gallery/index.json`).
-- `LOCAL_ONLY_ALLOWLIST` row with a reason citing spec §1.1.
+- `LOCAL_ONLY_ALLOWLIST` row with a reason citing spec §1.1 (without it,
+  `tests/ci/_metaE2eWorkflowCoverage.test.ts` fails — run it red first to prove the
+  guard bites, then add the row).
+- `captureGallery()` exists but is the minimal stub (`prepareRun` then throw
+  "not implemented"). Run `pnpm screenshot:gallery` → the test FAILS. Record the
+  failure output.
+
+GREEN (same task, same commit): implement the sweep in
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+`scripts/gallery-screenshots.ts` — `prepareRun` BEFORE `chromium.launch({args:
+CAPTURE_LAUNCH_ARGS})`; per theme SEQUENTIALLY: fresh context with the full §3 item 2
+options (baseURL, colorScheme, viewport 1280×800, locale, timezoneId, reducedMotion),
+`signInAs(page, DEVELOPER_FIXTURE, {baseUrl})`; then ONE PAGE PER SCENARIO — each page:
+`installDeterminism(page, theme)` + `disableAnimations(page)` registered BEFORE
+navigation (capture-core imports), goto retry, identity guard, quiescence, viewport
+shot, overflow companion (the §-checklist picker bridge: one `page.evaluate` receiving
+the unit-tested self-contained `pickScrollContainer`), page CLOSED before the next
+scenario; context CLOSED before the next theme's `signInAs` (session revocation);
+staged writes; finalize via the Task-2 orchestrator (which prints any loader warning
+through its `warn` sink). Run `pnpm screenshot:gallery` → test PASSES.
 
 VERIFY: `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts tests/help/playwright-config.test.ts`;
-playwright-tsconfig typecheck.
+`pnpm typecheck`; eslint on changed files.
 
-### Task 5 — full-sweep measurement + review sample (`docs:` if any doc edits)
+### Task 4 — full-sweep measurement + review sample (`docs:` if any doc edits)
 
 Run `pnpm screenshot:gallery` (server builds once). Record wall clock; tighten the
 project timeout to ~2× measured (amend config if <900 s measured; keep 1800 s
@@ -154,11 +183,12 @@ spot-open several WebPs (light+dark+overflow) to confirm the modal is actually i
 frame. Re-run with `GALLERY_SCENARIO=<one id>` to exercise the filtered path against
 the fresh index.
 
-### Task 6 — close-out gates
+### Task 5 — close-out gates
 
 - §8.3 "after" leg: `pnpm screenshot:help`, byte-compare against Task 0's aside copy
   (same host/arch), then `git restore public/help/screenshots/`.
-- Full local suite `pnpm test`; typecheck (vitest AND playwright tsconfigs); eslint;
+- Full local suite `pnpm test`; `pnpm typecheck` (single root tsconfig covers all TS
+  incl. Playwright specs, `package.json:29`); eslint;
   `pnpm format:check`.
 - Whole-diff Codex cross-model review (fresh-eyes brief, split-scope if large) to
   APPROVE.
