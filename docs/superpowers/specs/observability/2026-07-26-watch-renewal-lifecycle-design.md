@@ -238,7 +238,7 @@ Reconcile performs its own `getActiveWatchedFolder` call (`lib/drive/watch.ts:80
 
 #### 3.2.4 Supersede the prior folder's channels at promotion — the master spec already requires this
 
-Spec R1 finding 4 established that this design contradicted the canonical spec, and the sharpest instance is not a wording drift: **AC-6.18 already mandates that after a folder change the prior folder's rows are `status = 'superseded'`** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3846`), and §5.5.5's Revoke clause states it as behaviour — "mark all `active` rows for the prior folder `superseded` (DB-only)" (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1331`).
+Spec R1 finding 4 established that this design contradicted the canonical spec, and the sharpest instance is not a wording drift: **AC-6.18 already mandates that after a folder change the prior folder's rows are `status = 'superseded'`** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3846`), and §5.5.5's Revoke clause states it as behaviour — "mark all `active` rows for the prior folder `superseded` (DB-only)" (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1321`).
 
 `promoteSettings` does not do it (`app/api/admin/onboarding/finalize-cas/route.ts:779-805`). This is not a gap in the design, it is an unimplemented shipped acceptance criterion — and `BL-WATCH-ALERT-FOLDER-SCOPE` names the exact site in its own text ("folder promotion supersedes nothing"). Leaving old-folder rows `active` until natural expiry, as an earlier draft of §3.2 proposed, would have shipped a design that violates AC-6.18 while claiming to close the entry that cites it.
 
@@ -425,9 +425,9 @@ The canonical spec is `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`.
 
 | Canonical statement | Location | Amendment |
 | --- | --- | --- |
-| "**No client-side timeout is applied** (amended 2026-07-25) … Adding a real timeout is tracked as `BL-WATCH-DRIVE-CALL-TIMEOUT`." | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1320` | Replaced by the per-call `{timeout: DRIVE_CALL_TIMEOUT_MS, retry: false}` pair (§3.3.1), with the residual credential-fetch stall named (§3.3.1a). The `BL-WATCH-DRIVE-CALL-TIMEOUT` reference is removed because the entry is closed by this diff. |
-| Renew "for any `active` row that has burned …" — no folder scoping. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1330` | Scoped to the configured folder (§3.2), with the three read outcomes stated. |
-| The channel status set, which lists `pending`/`active`/`superseded`/`stopping`/`stopped`/`orphaned`. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1299` and the §5.5.6 GC per-status list | `expired` added, with its meaning (aged out, distinct from `orphaned` = we failed to create it) and its GC treatment (collected, but no `channels.stop` — §3.1.4). |
+| "**No client-side timeout is applied** (amended 2026-07-25) … Adding a real timeout is tracked as `BL-WATCH-DRIVE-CALL-TIMEOUT`." | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1303` (inside the Create bullet, step 2) | Replaced by the per-call `{timeout: DRIVE_CALL_TIMEOUT_MS, retry: false}` pair (§3.3.1), with the residual credential-fetch stall named (§3.3.1a). The `BL-WATCH-DRIVE-CALL-TIMEOUT` reference is removed because the entry is closed by this diff. |
+| Renew "for any `active` row that has burned …" — no folder scoping. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1320` | Scoped to the configured folder (§3.2), with the three read outcomes stated. |
+| The channel status set, which lists `pending`/`active`/`superseded`/`stopped`/`orphaned`. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1294-1299`, plus the §5.5.6 GC per-status list at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1327-1329` | `expired` added, with its meaning (aged out, distinct from `orphaned` = we failed to create it) and its GC treatment (collected, but no `channels.stop` — §3.1.4). |
 
 **AC-6.18 is NOT amended.** It already states the behaviour this diff implements (§3.2.4); it was simply never satisfied. Its status changes from unimplemented to implemented, which is not a spec change.
 
