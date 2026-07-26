@@ -18,7 +18,13 @@ import { maybeEscalateWatchOrphaned as defaultMaybeEscalate } from "@/lib/drive/
 
 export const WATCH_CHANNEL_ORPHANED = "WATCH_CHANNEL_ORPHANED" as const;
 
-export type WatchChannelStatus = "pending" | "active" | "superseded" | "orphaned" | "stopped";
+export type WatchChannelStatus =
+  | "pending"
+  | "active"
+  | "superseded"
+  | "orphaned"
+  | "expired"
+  | "stopped";
 
 export class DriveWatchInfraError extends Error {
   readonly kind = "drive_watch_infra_error";

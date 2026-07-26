@@ -289,4 +289,66 @@ describe("validation-schema-parity", () => {
         missing.map((c) => `  - ${c}`).join("\n"),
     ).toEqual([]);
   });
+
+  // ── Status-CHECK parity (validation-observable) ─────────────────────────
+  // Sibling of the block above, added for the `expired` status migration
+  // (spec docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md §4.4).
+  // It is a SEPARATE parse rather than an addition to NONBLANK_MIGRATIONS,
+  // whose `toBe(17)` non-vacuity guard is scoped to that constraint family.
+  //
+  // It asserts the constraint DEFINITION, not just its name: the name
+  // `drive_watch_channels_status_check` already existed in validation carrying
+  // the OLD six-value list, so a name-only superset check passes whether or not
+  // the migration was ever applied.
+  it("status-CHECK parity — validation's drive_watch_channels status CHECK admits `expired`", () => {
+    const STATUS_MIGRATION = "20260726000000_drive_watch_expired_status.sql";
+    const migrationSql = readFileSync(join(MIGRATIONS_DIR, STATUS_MIGRATION), "utf8");
+
+    const re = /alter\s+table\s+public\.\w+\s+add\s+constraint\s+(\w+)\s+check/gi;
+    const parsed = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(migrationSql)) !== null) parsed.add(m[1]!);
+
+    // Non-vacuity guard: a drifted or empty parse would make the definition
+    // check below unreachable and the test trivially green.
+    expect(parsed.size, "migration parse must yield exactly 1 public CHECK name").toBe(1);
+    expect(parsed.has("drive_watch_channels_status_check")).toBe(true);
+
+    const raw = process.env.TEST_DATABASE_URL;
+    if (raw === undefined) return; // skip locally, like the layer above
+    if (raw.trim() === "") {
+      throw new Error(
+        "TEST_DATABASE_URL is set but empty — likely a GitHub Actions secret " +
+          "registered with an empty value.",
+      );
+    }
+    if (!canConnect(raw)) {
+      throw new Error(
+        "Cannot connect to the validation DB for status-CHECK parity. In CI set " +
+          "TEST_DATABASE_URL to the validation session-pooler URL.",
+      );
+    }
+    const def = execFileSync(
+      "psql",
+      [
+        raw,
+        "-qAtc",
+        "select pg_get_constraintdef(oid) from pg_constraint where conname = " +
+          "'drive_watch_channels_status_check' and connamespace = 'public'::regnamespace",
+      ],
+      {
+        encoding: "utf8",
+        timeout: PSQL_PROCESS_TIMEOUT_MS,
+        env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
+      },
+    ).trim();
+
+    expect(
+      def,
+      "The validation project's drive_watch_channels status CHECK does not admit " +
+        "`expired` — apply supabase/migrations/" +
+        STATUS_MIGRATION +
+        ' to validation via `psql "$TEST_DATABASE_URL" -f <migration>`.',
+    ).toMatch(/'expired'/);
+  });
 });
