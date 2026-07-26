@@ -91,7 +91,7 @@ The bare-env run adds two more — `step3-review-modal.interactions` and `step3-
 
 ### §2.4 Toolchain census
 
-8 spec files shell `pnpm dlx esbuild@0.28.0`; 25 shell `pnpm dlx @tailwindcss/cli@4.2.4`; 33 call sites across 26 files. Of the 8 esbuild sites, **2 carry stub aliases** (`compact-alert-card-layout`, `hoverhelp-geometry` — both already CI-wired, which is why they were repaired) and 6 do not.
+8 spec files shell `pnpm dlx esbuild@0.28.0`; **28** shell `pnpm dlx @tailwindcss/cli@4.2.4`; **36** call sites across **29** files. (Re-measured at plan time: the +190-commit merge added three more CSS call sites — `section-header-layout.layout`, `pusher-alignment.layout`, `share-link-flash`. An earlier draft said 25/33/26, which is precisely the drift §2's opening paragraph predicts.) Of the 8 esbuild sites, **2 carry stub aliases** (`compact-alert-card-layout`, `hoverhelp-geometry` — both already CI-wired, which is why they were repaired) and 6 do not.
 
 `esbuild@0.28.0` is already a devDependency at the identical pin (`package.json:107`), so those 8 fetch a package sitting in `node_modules`. `@tailwindcss/cli` is **not declared** (only `@tailwindcss/postcss` is installed), so those 25 are a genuine network fetch. Its binary is named `tailwindcss`, and the `tailwindcss` package declares no `bin` in v4, so the name resolves unambiguously once the CLI is a devDependency.
 
@@ -145,9 +145,9 @@ The guard asserts the **absence of a shape** with an explicitly empty exemption 
 
 ### §3.4 Test plan (TDD order)
 
-1. Red: the toolchain guard fails against `main` — 33 violating call sites.
+1. Red: the toolchain guard fails against `main` — **36** violating call sites across 29 files.
 2. Red: a unit test asserting `bundleLiveEntry` bundles `_compactAlertCardLiveEntry.tsx` with no resolution errors.
-3. Green: implement the helper, add the devDependency and the version-parity test, migrate all 33 sites, add the two aliases to `resolve-label-layout`, remove `packlist-rescan-recovery` from the config.
+3. Green: implement the helper, add the devDependency and the version-parity test, migrate all 36 sites, add the two aliases to `resolve-label-layout`, remove `packlist-rescan-recovery` from the config.
 4. Verify **by running the specs**. The §2.3 baseline is 286 passed / 2 failed / 1 did not run, but that total does not carry over: `packlist-rescan-recovery` leaves the config (it contributes 1 test, which currently fails at `beforeAll`, plus the 1 that did not run), and `resolve-label-layout` goes red → green. So the target is stated as an invariant rather than an arithmetic prediction:
    - **zero failures and zero did-not-run**;
    - `resolve-label-layout` present and passing;
