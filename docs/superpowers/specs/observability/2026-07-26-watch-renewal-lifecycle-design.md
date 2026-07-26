@@ -404,7 +404,16 @@ An earlier draft of this section asserted that no gate could catch a forgotten v
 
 `tests/db/validation-schema-parity.test.ts:216-290` already carries a CHECK-constraint parity layer, added for precisely this blind spot — its own comment says Layers 1-2 "are COLUMNS-only … so a CHECK-only migration … that never reached validation would slip past them silently. This layer closes that blind spot." It derives the expected constraint-name set FROM the migration text and asserts the validation database contains all of them, so a skipped surgical apply is red CI rather than a stale note in a merged PR.
 
-**This diff extends that layer** with a parallel block for the status CHECK: parse the new migration supabase/migrations/20260726000000_drive_watch_expired_status.sql for `alter table public.<t> add constraint <name> check`, and assert the validation database has `drive_watch_channels_status_check` **with `'expired'` in its definition**. The definition check matters and the name check alone does not: the constraint name already exists in validation today, carrying the OLD six-value list, so a name-only superset assertion passes whether or not the migration was applied. That is the same vacuity the existing layer guards against with its `toBe(17)` count.
+**This diff extends that layer** with a parallel block for the status CHECK: parse the new migration supabase/migrations/20260726000000_drive_watch_expired_status.sql for `alter table public.<t> add constraint <name> check`, and assert the validation database has `drive_watch_channels_status_check` **with `'expired'` in its definition**. The definition check matters and the name check alone does not, and this is **measured, not assumed**. Queried against the validation project on 2026-07-26:
+
+```
+select pg_get_constraintdef(oid) from pg_constraint
+ where conname = 'drive_watch_channels_status_check';
+-- CHECK ((status = ANY (ARRAY['pending'::text, 'active'::text, 'superseded'::text,
+--                             'stopping'::text, 'stopped'::text, 'orphaned'::text])))
+```
+
+The name is already present, carrying the OLD six-value list and no `expired`, so a name-only superset assertion passes today — before the migration exists, let alone is applied. That is the same vacuity the existing layer guards against with its `toBe(17)` count.
 
 It is added as its own parsed block rather than by appending the migration to `NONBLANK_MIGRATIONS`, whose `expect(expected.size).toBe(17)` non-vacuity guard is scoped to the `*_drive_file_id_nonblank` family and would have to move for an unrelated reason.
 
