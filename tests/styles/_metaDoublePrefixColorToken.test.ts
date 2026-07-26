@@ -42,6 +42,27 @@ describe("META no double-prefix color utility (silent dead class)", () => {
     expect(colors.has("subtle"), "a bare --color-subtle would make text-subtle valid").toBe(false);
   });
 
+  it("the scanner can still see code after a path that looks like a comment opener", () => {
+    /* R19: the shared stripComments let ANY "/*" open a block span. A JSDoc line reading
+     * "Wraps every route under /admin/*" therefore opened one that ran to the next "*\/"
+     * far below, deleting all six live className sites in app/admin/layout.tsx — so this
+     * guard reported nothing for that file while Tailwind emitted no rule for a dead
+     * class in it. Pinned with the real shape, and with a JSX comment, which is the case
+     * the first fix then got wrong in the other direction. */
+    const sample = [
+      "/**",
+      " * Wraps every route under /admin/* (currently /admin/dev; future: more).",
+      " */",
+      'const a = <div className="text-text-strong" />;',
+      "{/* a JSX comment mentioning text-subtle must NOT be scanned */}",
+      'const b = <div className="bg-surface" />;',
+    ].join("\n");
+    const out = stripComments(sample);
+    expect(out, "live code after the path was swallowed").toContain("text-text-strong");
+    expect(out, "live code after a JSX comment was swallowed").toContain("bg-surface");
+    expect(out, "a JSX comment body was scanned as code").not.toContain("text-subtle");
+  });
+
   it("no source file uses a color utility the theme cannot emit", () => {
     const offenders: string[] = [];
     for (const root of ["components", "app"]) {
