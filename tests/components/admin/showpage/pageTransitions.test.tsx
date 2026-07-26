@@ -56,7 +56,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { LayoutDashboard, History } from "lucide-react";
 
-// One unified next/navigation mock for the whole file: StatusStrip's copy-link +
+// One unified next/navigation mock for the whole file: StatusStrip's share hub +
 // the surface harness use useRouter/usePathname/useSearchParams; the modal footer's
 // RescanSheetButton uses useRouter().refresh().
 vi.mock("next/navigation", () => ({

@@ -4,28 +4,34 @@
  * components/admin/showpage/StatusStrip.tsx (consolidated-admin-show-page spec §4/§6/§11)
  *
  * The slim, pinned status strip that stays under the admin nav while the rail sections
- * scroll. DISPLAY + 3 actions max — the publish toggle, Re-sync and the copy-link.
+ * scroll. DISPLAY + 3 actions max — the publish toggle, Re-sync and the share hub.
  *
- * The budget was 2 (toggle + copy-link, "everything else lives in Overview") until
+ * The budget was 2 (toggle + the share affordance, "everything else lives in Overview") until
  * modal-header-reconciliation §4.3, a RATIFIED amendment: Re-sync moves here, and
  * duplicating the control across the strip and Overview was explicitly rejected —
- * there is exactly ONE Re-sync. Share panel, archive/unarchive and alert detail
- * still live in the Overview rail section (mock README delta 5 — Unarchive is NOT
- * a strip control).
+ * there is exactly ONE Re-sync. Alert detail still lives in the Overview rail
+ * section. The share panel and archive/unarchive have since MOVED into the hub's
+ * popover (share-hub T4 + the lifecycle move), superseding mock README delta 5's
+ * "Unarchive is NOT a strip control".
  *
  * All data arrives as plain props (the page shell wires it); this component fetches nothing
  * and defines no server actions. The publish toggle carries its own bound action through
- * (`setPublished`); the copy-link consumes `ShareTokenProvider` so a rotate updates the
- * copied URL instantly (spec §4 "within ShareTokenProvider context").
+ * (`setPublished`); the share hub consumes `ShareTokenProvider` so a rotate updates the
+ * crew URL instantly (spec §4 "within ShareTokenProvider context"). The strip's own
+ * standalone copy-link was retired when the hub absorbed it.
  *
  * Mode boundaries (spec §6; title removed by modal-header-reconciliation §6.5):
  *   - Not archived            → PublishedToggle · [divider] · live badge (if live)
  *                               · sync age (if synced) · edited age (if content-edited)
- *                               · Re-sync · copy-link (published + token only). The alert
+ *                               · Re-sync · the hub (the GROUP is unconditional; its
+ *                               crew-link half needs published + token). The alert
  *                               badge MOVED to the modal header (§6.6).
- *   - Archived (read-only)    → archived badge · sync age · edited age. No toggle,
- *                               no copy-link, no live badge, no Re-sync — zero mutating
- *                               affordances.
+ *   - Archived (read-only)    → archived badge · sync age · edited age · the hub,
+ *                               relabelled "Show actions". No toggle, no live badge, no
+ *                               Re-sync. Read-only for SHARING — the crew link, Copy,
+ *                               Email, rotate and reset are all gone — but NOT free of
+ *                               mutating affordances: Unarchive lives in that popover
+ *                               and is the only way back.
  *
  * Sync age vs edited age (2026-07-17 sync-cell): the badge shows the last-CHECKED time
  * (last successful Drive reach) for `ok`; the muted "Edited {rel}" shows the last-EDITED
@@ -36,7 +42,7 @@
  *   - `lastSyncedAt` null     → OMIT the sync-age element entirely. `formatRelative` returns
  *                               "never" for null; rendering that would violate the omit
  *                               contract, so the null is guarded BEFORE the call.
- *   - no active share token   → copy-link hidden. "Active" = published: an unpublished show
+ *   - no active share token   → the hub's crew-link row hides. "Active" = published: an unpublished show
  *                               keeps its token but the crew link is paused, so copying it
  *                               would hand out a dead link.
  *
@@ -94,9 +100,11 @@ export type StatusStripProps = {
    *  copy URL and the bound publish toggle — NOT a display label (the strip renders no
    *  title; the modal's `<h2>` owns it). */
   slug: string;
-  /** Read-only lifecycle state: hides every mutating strip affordance. */
+  /** Read-only lifecycle state: hides every mutating strip affordance EXCEPT the
+   *  hub, which stays mounted because Unarchive lives in its popover and is the
+   *  only way back. Read-only for publishing and syncing, not affordance-free. */
   archived: boolean;
-  /** Current publish state (drives the wrapped toggle + the copy-link "active" gate). */
+  /** Current publish state (drives the wrapped toggle + the share hub's "active" gate). */
   published: boolean;
   /** Finalize ownership — disables the toggle in both publish states (passthrough). */
   finalizeOwned: boolean;
@@ -189,18 +197,21 @@ export function StatusStrip({
     <div
       // share-hub T4: the #share-access deep-link target (built by
       // lib/adminAlerts/alertActions.ts:51) lives on this UNCONDITIONAL root so it
-      // survives every lifecycle — including archived, where the hub is absent.
-      // A conditional host would silently dead-link the alert action.
+      // survives every lifecycle. Archived still renders the hub, but with no
+      // share half at all, so an anchor scoped to the share affordance would
+      // land on nothing there. A conditional host would dead-link the action.
       id="share-access"
       data-testid="show-status-strip"
       // Full band width is what makes right-flush reachable (§8): `ml-auto` on
-      // the copy button only reaches the band's content edge if this row spans
-      // it. VERIFIED by measurement — swapping `w-full` for `w-fit` fails
-      // T-COPY-FLUSH by ~470px at 1280 (published-review-modal.layout.spec.ts).
+      // the trailing control only reaches the band's content edge if this row
+      // spans it. VERIFIED by measurement — swapping `w-full` for `w-fit` failed
+      // the flush assertion by ~470px at 1280. That assertion is now T-HUB-FLUSH
+      // (published-review-modal.layout.spec.ts); it superseded T-COPY-FLUSH when
+      // the hub absorbed the standalone copy-link.
       //
       // Honest note: `w-full` is DEFENSIVE, not load-bearing today. The band is
       // a block-level, non-flex container, so this block-level flex row already
-      // fills it; T-COPY-FLUSH passes with `w-full` removed. It is kept because
+      // fills it; the flush assertion passes with `w-full` removed. It is kept because
       // the guarantee would evaporate the moment the band became a flex
       // container — the strip would then shrink-wrap as a flex item (this
       // repo's Tailwind v4 does not default `.flex` to align-items: stretch)
@@ -350,14 +361,20 @@ export function StatusStrip({
           test still passed. The trigger carries its own
           `data-testid="admin-resync-button"`; query that.
 
-          DOM order is normative, not merely visual: Copy is right-flushed by
-          `ml-auto`, so Copy-then-Re-sync would still LOOK right while producing
-          the tab order toggle → Copy → Re-sync → confirm controls, breaking
-          §10's confirm-proximity contract.
+          DOM order is normative, not merely visual: the right-flushed control is
+          now the HUB group (`ml-auto`), so hub-then-Re-sync would still LOOK
+          right while producing the tab order toggle → hub → Re-sync → confirm
+          controls, breaking §10's confirm-proximity contract. (This read
+          "Copy" until the hub absorbed the standalone copy-link.)
 
-          Archived shows get NO trigger — Re-sync mutates via /api/admin/sync,
-          which an archived show must not reach. Overview keeps the "paused
-          while archived" notice so the reason is still stated (§6.7).
+          Archived shows get NO Re-sync trigger — it mutates via /api/admin/sync,
+          which an archived show must not reach. Overview still states the reason
+          (§6.7): `OverviewSection` renders `admin-show-resync-archived`, "Re-sync
+          is paused while this show is archived."
+
+          (A round-5 edit here claimed that notice had been retired with the
+          share cluster. It had not — the share PANEL went, the resync notice
+          stayed.)
 
           Counted form: the MULTI-LINE `{!archived ? (` head is what §9's lexical
           scanner sees. Both `{archived ? null : …}` AND the one-line
@@ -388,9 +405,10 @@ export function StatusStrip({
       {/* share-hub T4. The hub replaces the standalone copy-link: URL, Copy,
           Email-crew, rotate and reset all live in its popover — and, since the
           lifecycle move, Archive/Unarchive too. That is why the group is now
-          UNCONDITIONAL: an archived show has no share half (the hub renders
-          kebab-only, read-only), but Unarchive lives in that popover, so gating
-          the group on `!archived` would strand the only way back.
+          UNCONDITIONAL: an archived show loses the SHARE half, but still renders
+          both triggers — the primary relabelled "Show actions" — because
+          Unarchive lives in that popover, so gating the group on `!archived`
+          would strand the only way back.
           `ml-auto` right-flushes the group against the band's content edge —
           which resolves only because the strip row is `w-full` (see above). */}
       <div

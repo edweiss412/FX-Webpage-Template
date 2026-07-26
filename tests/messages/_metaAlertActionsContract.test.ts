@@ -161,9 +161,9 @@ describe("alert-action internal link targets exist", () => {
   test("the #share-access anchor exists on the show page (spec §4 #1-#3)", () => {
     // share-hub T4: the share/access region became the status band's ShareHub
     // popover, so the deep-link anchor moved onto the StatusStrip ROOT — an
-    // unconditional element that renders in all three lifecycles, including
-    // archived (where the hub itself is absent). Hosting it on the hub's own
-    // trigger group would dead-link the alert action for archived shows.
+    // unconditional element that renders in all three lifecycles. Archived
+    // renders the hub with no share half at all, so an anchor scoped to the
+    // share affordance would land on nothing there.
     expect(read("components/admin/showpage/StatusStrip.tsx")).toMatch(/id="share-access"/);
     // EXACTLY one emitter, counted across the whole component tree — checking
     // presence here plus absence in one named file would still pass if the id

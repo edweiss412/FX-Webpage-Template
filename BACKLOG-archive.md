@@ -454,6 +454,30 @@ The **canonical master spec** requires an MI-9 LEAD-bit set-membership change (c
 
 ---
 
+## Crew-page share-link chrome (2026-07-14, share-link-instant-rotate-dedup) — ALL THREE RESOLVED 2026-07-25
+
+Closed by `share-link-chrome-backlog` (spec `docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md`, plan `docs/superpowers/plans/2026-07-24-share-link-chrome-backlog.md`).
+
+### BL-CREWPAGE-ROTATE-URL-FLASH — RESOLVED (built)
+
+A one-shot cue now marks the crew-URL block when the share-token changes: a 2px `accent-edge` ring plus a brief `accent-tint` wash, 1600ms, no cue at all under reduced motion.
+
+Two premises in the original entry had gone stale and were corrected before building. It named three surfaces to highlight; `ShareLinkBody` had been deleted by the share-hub consolidation and the other two were orphans, so exactly ONE live crew-URL surface existed — the ShareHub popover's row, which conveniently sits five rows above the rotate control that triggers it.
+
+### BL-CREWPAGE-SHARE-CHIP-TOKEN-DISCIPLINE — RESOLVED BY DELETION
+
+`ShareChip.tsx` and `CrewPageLink.tsx` were mounted by no production module and imported only by their own tests. Minting a `--spacing-*` token to describe dead code is worse than deleting it, so both components and both test files are gone.
+
+**Recorded so it is not re-derived:** the item deferred itself on the grounds that "the same magic appears elsewhere". That was false against the live tree — `max-w-[16rem]` occurred exactly ONCE, in the file now deleted. There was no app-wide pattern to batch with.
+
+### BL-CREWPAGE-ROTATE-FOCUS-MGMT — CLOSED, SUPERSEDED (zero code)
+
+The requested fix — restoring keyboard focus after a rotate resolves — is a RATIFIED ACCEPTED RESIDUAL, not an open defect. `docs/superpowers/specs/admin/2026-07-16-destructive-confirm-pass.md:34` scopes C5 to cancel and auto-revert paths only; `:82` enumerates the submit-outcome matrix and names Rotate explicitly, accepting focus loss where the control is replaced by a status element, announced through the existing `role="status"`.
+
+The cancel/auto-revert half the item also wanted was already shipped: C3 focuses the cancel button on confirm-open (`app/admin/show/[slug]/RotateShareTokenButton.tsx:115`), C5 restores the trigger (`:106`, `:126`).
+
+**Recorded so it is not refiled:** this item asks for behavior a ratified spec deliberately declined. Reopening it means revisiting that spec, not implementing this entry.
+
 ## Picker-flow app bugs (3) — RESOLVED on branch `fix/picker-flow-app-bugs` (2026-07-25)
 
 **All three shipped together**, each with the paired e2e stub un-skipped as its red phase, and the suite wired into `crew-e2e.yml` so the cases actually run in CI (they were dark for two independent reasons: the job named exactly one spec file, and `PICKER_COOKIE_SIGNING_KEY` was set in no workflow at all, so the suite would have crashed at setup rather than failing cleanly). That workflow's trigger was also inverted from `paths` to `paths-ignore` after six review rounds each found another missing entry in the allow-list, so the job now runs unless a change touches only prose no script reads (not `docs/`, which prebuild's manifest reads). It is still path-gated, not PR-blocking-capable: an interim claim that the specs became "PR-covered" was an artifact of the coverage scanner matching only `paths:`, which this branch fixed. Spec: `docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md`; plan: `docs/superpowers/plans/2026-07-24-picker-flow-app-bugs.md`.
