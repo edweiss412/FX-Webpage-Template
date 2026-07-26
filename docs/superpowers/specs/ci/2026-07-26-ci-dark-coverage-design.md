@@ -191,6 +191,19 @@ This is not a re-litigation of the descope. What was descoped is the *narrowing 
 
 The workflow's command is written to that literal shape (so the default reporter is used rather than `--reporter=list`), and `configSpecs` is supplied by the meta-test, which imports the config and reads resolved `testMatch` values — proven executable: 10 projects resolve for the default config and 30 specs for the standalone one. Recognizing one exact string cannot be attacked on grammar, because there is no grammar; anything that is not that string is not recognized.
 
+**Prototyped, with negatives** — the positive case alone would repeat the vacuity above:
+
+| command | claim |
+| --- | --- |
+| `pnpm exec playwright test --config tests/e2e/standalone.config.ts` (the shipping shape) | **30 specs** — exactly the real-branch count |
+| `… --config … --shard=1/2` | none |
+| `… --config … -g foo` | none |
+| `… --reporter=list --config …` | none |
+| `… --config … resolve-label` (positional) | none |
+| `… --config … --list` | none |
+
+Every narrowing form that round 3 and round 4 attacked lands in the "no claim" column here — not because the rule reasons about them, but because it reasons about nothing except one literal string. That is the whole design.
+
 ### §4.2 Why no path filter
 
 `tests/ci/_workflowCoverageScan.ts:105` disqualifies any workflow carrying `paths:` **or** `paths-ignore:`. A coarse-filtered job would leave all 29 remaining real branches non-qualifying and still allowlisted — the guard green, the specs effectively dark. Ratified precedent: `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md:128`.
