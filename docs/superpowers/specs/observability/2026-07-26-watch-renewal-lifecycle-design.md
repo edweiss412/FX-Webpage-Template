@@ -139,7 +139,20 @@ This is the load-bearing correctness point of §3.1. BACKLOG.md's `BL-WATCH-EXPI
 
 **The predicate has two arms, not one, and it reads the DATABASE's clock.**
 
-The first arm is expiry: `expires_at <= now()`. The second is the invalid-lease class: `expires_at <= created_at`. Both are required, and the second is not optional tidiness — `listRenewalDue` deliberately selects invalid leases through its own explicit disjunct (`lib/drive/watch.ts:239-247`, whose comment warns against deleting it), and `tests/db/watchRenewalDue.test.ts:141-153` pins the case of an inverted lease whose `expires_at` is in the FUTURE. An expiry-only reap would leave exactly that row `active` and renewal-due, so refresh would retry it forever — the very condition §3.1 exists to end, surviving inside the fix (spec R1 finding 2). Reaping it is also what routes it to recovery: `hasLiveActiveChannel` tests `expires_at > now` (`lib/drive/watch.ts:314`), so a future-dated inverted lease reads as LIVE to reconcile and would otherwise be recovered by nobody.
+The first arm is expiry: `expires_at <= now()`. The second is the invalid-lease class: `expires_at <= created_at`. Both are required, and the second is not optional tidiness — `listRenewalDue` deliberately selects invalid leases through its own explicit disjunct (`lib/drive/watch.ts:239-247`, whose comment warns against deleting it), and `tests/db/watchRenewalDue.test.ts:141-155` pins the case of an inverted lease whose `expires_at` is in the FUTURE. An expiry-only reap would leave exactly that row `active` and renewal-due, so refresh would retry it forever — the very condition §3.1 exists to end, surviving inside the fix (spec R1 finding 2). Reaping it is also what routes it to recovery: `hasLiveActiveChannel` tests `expires_at > now` (`lib/drive/watch.ts:314`), so a future-dated inverted lease reads as LIVE to reconcile and would otherwise be recovered by nobody.
+
+**The two arms retire to DIFFERENT statuses, and conflating them would leak a live Drive channel.**
+
+The arms differ in what they let us conclude about Drive's side:
+
+| Arm | What we know | Retired to | GC calls `channels.stop`? |
+| --- | --- | --- | --- |
+| `expires_at <= now()` | Google stopped delivering at `expires_at`, whatever our table says. The channel is dead. | `expired` | **No** — §3.1.4, there is nothing to stop. |
+| `expires_at <= created_at` (may be FUTURE-dated) | Only that our stored timestamps are nonsense. Drive granted *something*, and the channel may well be live. | `superseded` | **Yes** — the existing GC path for `superseded` stops it at Drive. |
+
+An earlier revision of this predicate retired both arms to `expired`. That would have taken a row whose `expires_at` is 24 hours in the FUTURE — the exact fixture at `tests/db/watchRenewalDue.test.ts:141-155`, `created_at` 30h out and `expires_at` 24h out — and routed it to a status whose GC treatment deliberately skips `channels.stop`, **leaking a possibly-live channel at Drive with no record that would ever stop it**. `superseded` is the correct destination: it means "we no longer treat this channel as authoritative", which is exactly true of a corrupt-timestamp row, and its GC path already stops the channel.
+
+`superseded_at` is set only on that arm, matching what `activatePending` does when it supersedes (`lib/drive/watch.ts:163-173`).
 
 **`now()` is evaluated in SQL, not passed in from JavaScript.** A JS timestamp would make the "provably dead" claim rest on the app and database clocks agreeing: a fast app clock retires a channel Google is still delivering on — and because the webhook handler matches `status = 'active'` only (`app/api/drive/webhook/route.ts:79-102`) while GC deliberately skips `channels.stop` for `expired` (§3.1.4), those deliveries would be dropped with no cleanup to explain it. Using the database's own clock removes the premise rather than documenting the risk. The renewal read keeps its injected clock, which is an existing tested contract; only the reap is DB-timed.
 
@@ -150,17 +163,21 @@ The first arm is expiry: `expires_at <= now()`. The second is the invalid-lease 
 New `WatchTx` member (`lib/drive/watch.ts:46-70`):
 
 ```ts
-expireDeadActive(): Promise<string[]>; // returns reaped ids; takes NO clock (see 3.1.2)
+// returns the reaped rows AND what each became. The caller's emit distinguishes
+// the two populations, and a test that cannot see the status cannot catch the
+// leak described in 3.1.2. Takes NO clock; the predicate reads the DB's now().
+expireDeadActive(): Promise<Array<{ id: string; status: "expired" | "superseded" }>>;
 ```
 
 `PostgresWatchTx` implementation:
 
 ```sql
 update public.drive_watch_channels
-   set status = 'expired'
+   set status       = case when expires_at <= now() then 'expired' else 'superseded' end,
+       superseded_at = case when expires_at <= now() then superseded_at else now() end
  where status = 'active'
    and (expires_at <= now() or expires_at <= created_at)
- returning id
+ returning id, status
 ```
 
 In `refreshWatchSubscriptions`, the reap and the renewal read move into ONE `runTx` callback, reap first:
@@ -465,7 +482,8 @@ TDD per AGENTS.md invariant 1: every test below is written failing first. Each r
 |---|---|
 | A failing REAP still returns `{refreshed: [], orphaned: [], failures: [{folderId: '*', operation: 'list_expiring'}]}` and does NOT reject | §3.1.3a plus the registered never-rejects contract. Catches the reap escaping as a rejection into the cron route, and catches someone "improving" the failure label and breaking five existing assertions. |
 | A failing reap emits `operation: "drive_watch_channels.expire_dead_active"`; a failing renewal read still emits `operation: "drive_watch_channels.list_renewal_due"` | Both directions, because a hardcoded operation misattributes the reap and a naively dynamic one breaks `tests/drive/watch.test.ts:1447`. |
-| An inverted lease (`expires_at <= created_at`) whose `expires_at` is in the FUTURE is reaped, and does NOT appear in `due` | Spec R1 finding 2, the class an expiry-only predicate misses. Mirrors the row `tests/db/watchRenewalDue.test.ts:141-153` already pins as renewal-due, and fails against a single-arm predicate. |
+| An inverted lease whose `expires_at` is in the FUTURE is reaped to **`superseded`**, not `expired`, and GC therefore DOES call `channels.stop` on it | The leak described in §3.1.2. Assert the resulting STATUS, not merely that the row left `active` — a status-blind assertion passes while a possibly-live Drive channel is abandoned with nothing left to stop it. Fixture mirrors `tests/db/watchRenewalDue.test.ts:141-155`. |
+| A genuinely expired row is reaped to **`expired`**, and GC does NOT call `channels.stop` on it | The other half of the same discrimination. Together these two fail any single-status implementation in one direction or the other. |
 | The reap uses the DATABASE clock: a row expired only under a skewed JS clock is NOT reaped | §3.1.2. Set the injected JS clock hours ahead of real time and assert an unexpired row survives. Catches a reimplementation that reintroduces a `nowIso` parameter. |
 | Each of the four forensic codes is emitted on its intended branch, observed through a sink spy | Spec R1 finding 8: allowlist membership in `NEW_FORENSIC_CODES` is static and proves only that a string is permitted, never that the branch emits it. |
 | The reap runs BEFORE the renewal read | `tx.operations` equals `["expireDeadActive", "listRenewalDue", …]`. Catches a reap ordered after the read, which would leave the stale row in `due` for one more tick — the entire fix silently reduced to a no-op. Order, not mere presence. |
