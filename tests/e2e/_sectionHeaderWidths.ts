@@ -9,7 +9,7 @@
  *     `section-header-layout.layout.spec.ts` is conditioned on it.
  *   - `admin-layout-dimensions.spec.ts` asserts the REAL `ShowReviewSurface` mount
  *     produces exactly these widths at the same viewports. Without that, the whole
- *     61-case matrix could be measuring a width the product never renders — the
+ *     88-case matrix could be measuring a width the product never renders — the
  *     numbers were derived by measurement once, and nothing pinned them afterwards.
  *
  * Plain `.ts` on purpose: the real-route spec runs under the main Playwright
@@ -21,6 +21,8 @@
  *   320 -> 280   the sheet presentation's pane, minus 20px tile padding per side
  *   375 -> 335   same, at the reference phone width
  *   430 -> 390   same, at the largest phone width supported
+ *   640 -> 552   the sm-band popup pane floor, MEASURED on the real route
+ *                (spec 2026-07-26-section-header-wide-inline §1.1a)
  *  1280 -> 744   the two-pane popup's content pane, MEASURED on the real route
  *
  * The 1280 figure was 561 until the real-route assertion first ran and reported
@@ -29,8 +31,8 @@
  * whole reason the chain assertion exists. The phone widths are unchanged: 375
  * passed at 335 on the same run, confirming the viewport-minus-40 derivation.
  */
-export const ROW_WIDTHS = { 320: 280, 375: 335, 430: 390, 1280: 744 } as const;
+export const ROW_WIDTHS = { 320: 280, 375: 335, 430: 390, 640: 552, 1280: 744 } as const;
 
 /** Viewport widths the real-route width-chain assertion covers — the subset of
  *  `ROW_WIDTHS` the hydrated modal suite already loads. */
-export const REAL_ROUTE_WIDTHS = [375, 1280] as const;
+export const REAL_ROUTE_WIDTHS = [375, 640, 1280] as const;

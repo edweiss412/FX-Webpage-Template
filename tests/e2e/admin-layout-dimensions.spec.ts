@@ -533,10 +533,12 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
     await signInAs(page, ADMIN_FIXTURE);
   });
 
-  // BOTH viewports: 375 is the sheet presentation, 1280 the two-pane popup, and
-  // the rail/chip trees genuinely differ between them (the `lg:hidden` chip rail
-  // alone is why the harness suite runs both).
-  for (const width of [375, 1280] as const) {
+  // THREE viewports: 375 is the sheet presentation, 640 the popup at its pane
+  // floor (where the header wrappers flatten to `display: contents` — the mode
+  // the 2026-07-26 wide-inline spec adds), 1280 the full two-pane popup. The
+  // rail/chip trees genuinely differ between them (the `lg:hidden` chip rail
+  // alone is why the harness suite runs both extremes).
+  for (const width of [375, 640, 1280] as const) {
     test(`T-NOPHANTOM-SHOW @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
       page,
     }) => {
@@ -635,14 +637,14 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
     });
   }
   /**
-   * The WIDTH CHAIN — what makes the 61-case static matrix mean anything.
+   * The WIDTH CHAIN — what makes the 88-case static matrix mean anything.
    *
    * `section-header-layout.layout.spec.ts` measures all 15 header cells inside
    * containers of a fixed width per viewport, and every geometry contract it holds
    * (name on one line, 44px header line, the centring offset) is conditioned on
    * that width. Those numbers came from measuring this route once. Nothing pinned
    * them afterwards, so a layout change to the modal's panes would leave the matrix
-   * measuring a width the product no longer renders — 61 green cases proving a
+   * measuring a width the product no longer renders — 88 green cases proving a
    * counterfactual.
    *
    * This closes the loop from the other end: the REAL mount, at the same viewports,
@@ -683,6 +685,19 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(MODAL, { timeout: 30_000 });
+      // Streamed content + hydration, not just the title (2026-07-26 plan R2 f2):
+      // the title streams before section content, and the inert marker is applied
+      // by a client effect, so these three gates together prove the tree this
+      // evaluate measures is the settled, hydrated one.
+      await expect(page.locator(`${MODAL} [data-testid$="-review-content"]`)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(
+        page.locator(`${MODAL} [data-testid*="-review-section-"]`).first(),
+      ).toBeAttached({ timeout: 30_000 });
+      await expect(page.locator("[data-inert-root][inert]").first()).toBeAttached({
+        timeout: 30_000,
+      });
 
       const found = await page.evaluate((modalSel) => {
         const modal = document.querySelector(modalSel);
@@ -691,6 +706,10 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         // A header ROW is the flex row whose first child is the decorative icon
         // chip and which contains the section heading. Selected structurally
         // because no production `data-testid` is added for this measurement.
+        // MEASURED on the row's PARENT (`outer`): at sm+ the line-1 wrapper is
+        // deliberately boxless (`display: contents`), and at narrow the two
+        // content boxes are identical (both `w-full`, no horizontal padding) —
+        // 2026-07-26 spec §4.2 row K.
         const rows: Array<{ heading: string; contentWidth: number }> = [];
         for (const heading of Array.from(modal.querySelectorAll("h3, h4"))) {
           const group = heading.parentElement;
@@ -700,8 +719,10 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
           if (!(icon instanceof HTMLElement) || icon.getAttribute("aria-hidden") !== "true") {
             continue;
           }
-          const cs = getComputedStyle(row);
-          const r = row.getBoundingClientRect();
+          const outerEl = row.parentElement;
+          if (!(outerEl instanceof HTMLElement)) continue;
+          const cs = getComputedStyle(outerEl);
+          const r = outerEl.getBoundingClientRect();
           rows.push({
             heading: (heading.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 40),
             contentWidth:
@@ -812,8 +833,19 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(MODAL, { timeout: 30_000 });
+      // Streamed content + hydration gates — same trio as the width-chain test
+      // above (2026-07-26 plan R2 f2).
+      await expect(page.locator(`${MODAL} [data-testid$="-review-content"]`)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(
+        page.locator(`${MODAL} [data-testid*="-review-section-"]`).first(),
+      ).toBeAttached({ timeout: 30_000 });
+      await expect(page.locator("[data-inert-root][inert]").first()).toBeAttached({
+        timeout: 30_000,
+      });
 
-      const found = await page.evaluate((modalSel) => {
+      const found = await page.evaluate(({ modalSel, isWide }) => {
         const modal = document.querySelector(modalSel);
         if (!(modal instanceof HTMLElement)) return { error: "modal not found" };
 
@@ -894,6 +926,10 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
 
         let pillLinesMeasured = 0;
         let pillLinesPresent = 0;
+        // sm+ only: counts the per-card boxless verification that REPLACES the
+        // headerLine→column link, so the substitution cannot silently not-run
+        // (2026-07-26 spec §4.2 rows L/N).
+        let boxlessHeaders = 0;
         // PER CARD, not a global total. The descent from registry section to panel
         // card is not the same depth for every section, so `cards * 5` is simply the
         // wrong arithmetic — and a total lets a surplus in one card mask a card that
@@ -964,7 +1000,19 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
             addLink(node, hcursor);
             hcursor = node;
           }
-          addLink(headerLine, column);
+          // Narrow: the line-1 wrapper carries the box. Wide: it is deliberately
+          // boxless (`display: contents`) — the link is DROPPED and replaced by a
+          // counted assertion (2026-07-26 spec §4.2 rows L/N; `column` here IS
+          // that spec's `outer`, so an outer→column link would compare a node
+          // with itself).
+          if (!isWide) {
+            addLink(headerLine, column);
+          } else {
+            if (headerLine.getBoundingClientRect().width !== 0) {
+              return { error: `headerLine has a box at a wide width: ${card.dataset.testid}` };
+            }
+            boxlessHeaders += 1;
+          }
 
           // The pill line is asserted when one EXISTS, and its presence is reported so
           // the caller can require the link was actually traversed rather than
@@ -978,9 +1026,24 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
           const pill = column.querySelector('[class*="rounded-pill"]');
           if (pill !== null) pillLinesPresent += 1;
           const pillLine = headerLine.nextElementSibling;
-          if (pillLine instanceof HTMLElement && pillLine.contains(pill)) {
-            addLink(pillLine, column);
-            pillLinesMeasured += 1;
+          if (!isWide) {
+            if (pillLine instanceof HTMLElement && pillLine.contains(pill)) {
+              addLink(pillLine, column);
+              pillLinesMeasured += 1;
+            }
+          } else if (pill instanceof HTMLElement) {
+            // Row M: the boxless wrapper still `.contains(pill)`, so linking it
+            // would compare 0 against the column width. The wide replacement:
+            // the pill participates in the single row — its centre sits in the
+            // heading's band.
+            const headingEl = column.querySelector("h3, h4");
+            if (headingEl instanceof HTMLElement) {
+              const hb = headingEl.getBoundingClientRect();
+              const pb = pill.getBoundingClientRect();
+              if (Math.abs((pb.top + pb.bottom) / 2 - (hb.top + hb.bottom) / 2) <= 0.5) {
+                pillLinesMeasured += 1;
+              }
+            }
           }
           perCard.push({
             id: card.getAttribute("data-testid") ?? `untestided:${card.className.slice(0, 24)}`,
@@ -1001,11 +1064,12 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
           cards: cards.length,
           pillLinesPresent,
           pillLinesMeasured,
+          boxlessHeaders,
           registrySections: modal.querySelectorAll('[data-testid*="-review-section-"]').length,
           perCard,
           untestidedCards,
         };
-      }, MODAL);
+      }, { modalSel: MODAL, isWide: width >= 640 });
 
       expect(found.error, "modal shape").toBeNull();
       if (found.error !== null) return;
@@ -1041,10 +1105,20 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         found.untestidedCards,
         `the walk reached the testid-less sub-block card too [@ ${width}]`,
       ).toBeGreaterThan(0);
+      // Wide drops the headerLine→column link (the wrapper is boxless), so the
+      // floor is 4 there — PLUS the counted boxless replacement below, so the
+      // accounting still balances (2026-07-26 spec §4.2 row N).
+      const LINK_FLOOR = width >= 640 ? 4 : 5;
       expect(
-        found.perCard.filter((c) => c.links < 5),
-        `every card contributed at least five chain links [@ ${width}]`,
+        found.perCard.filter((c) => c.links < LINK_FLOOR),
+        `every card contributed at least ${LINK_FLOOR} chain links [@ ${width}]`,
       ).toEqual([]);
+      if (width >= 640) {
+        expect(
+          found.boxlessHeaders,
+          `every card's header line verified boxless [@ ${width}]`,
+        ).toBe(found.cards);
+      }
       expect(found.links.length, `the recorded links are exactly the cards' own [@ ${width}]`).toBe(
         found.perCard.reduce((n, c) => n + c.links, 0),
       );

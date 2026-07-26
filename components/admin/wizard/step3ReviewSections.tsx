@@ -905,22 +905,28 @@ export function ModalSectionChrome({
       : null;
   return (
     <>
-      {/* Section header, rebuilt (spec 2026-07-25 §3.1). The old row put the name,
-          count, a childless `flex-1` pusher, the status pill and a text "In sheet"
-          link all on ONE line. On a flagged section at phone width the row ran out
-          of space and the NAME was what yielded — 2 lines at 375px and 5 lines at
-          320px, measured (spec §1's table).
+      {/* Section header, two modes from ONE tree (specs 2026-07-25 §3.1 and
+          2026-07-26 wide-inline §2).
 
-          Now: a column whose first line is [icon | centred name+count | corner
-          link], and whose second line carries the status pill when there is one.
-          The pusher is gone; `justify-center` on the middle group replaces it.
+          Below `sm`: a column whose first line is [icon | centred name+count |
+          corner link], and whose second line carries the status pill when there
+          is one — the shape that stopped the name being crushed at phone widths
+          (2 lines at 375px and 5 lines at 320px before the rebuild, measured).
+
+          At `sm`+: both wrapper divs flatten (`sm:contents`) and this column IS
+          the row — [icon | name+count left | pill | corner link], one 44px line.
+          THE CARRY TRAP: `display: contents` removes the line-1 wrapper's box,
+          so its `min-h-tap-min` stops applying at `sm`+ — the floor MUST ride
+          this element (`sm:min-h-tap-min`) or the 44px row silently collapses.
 
           `w-full` / `items-stretch` are load-bearing, not decorative: both this
           column and its parent section are `flex-col`, and Tailwind v4 does NOT
           default `.flex` to `align-items: stretch`, so without them the lines would
           shrink-wrap and every centring measurement would be against the wrong box. */}
-      <div className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5`}>
-        <div className="flex w-full min-h-tap-min items-center gap-2.5">
+      <div
+        className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5 sm:min-h-tap-min sm:flex-row sm:items-center sm:gap-2.5`}
+      >
+        <div className="flex w-full min-h-tap-min items-center gap-2.5 sm:contents">
           <span
             aria-hidden="true"
             className={`grid ${sub ? "size-6" : "size-7"} shrink-0 place-items-center rounded-sm ${
@@ -933,15 +939,20 @@ export function ModalSectionChrome({
           >
             <Icon className={sub ? "size-3.5" : "size-4"} />
           </span>
-          {/* Centred name + count. `pr-header-link-slot` when there is no corner link
-              (the Diagrams sub-block, "Report an issue", and the defensive empty-dfid
-              state) so the name lands on the SAME axis as a section that has one —
-              measured +4px either way, versus +19px without the compensation. The
-              token is 30px: the link's own 20px box plus the row's 10px `gap-2.5`.
-              A raw `pr-[30px]` would violate DESIGN.md §10's ban on px magic. */}
+          {/* Name + count: centred below `sm`, left-aligned at `sm`+
+              (`sm:justify-start`; `flex-1` then absorbs all slack, which is what
+              pushes the pill + glyph to the right edge with no pusher element).
+              `pr-header-link-slot` when there is no corner link (the Diagrams
+              sub-block, "Report an issue", and the defensive empty-dfid state) so
+              the name lands on the SAME axis as a section that has one — measured
+              +4px either way, versus +19px without the compensation. The token is
+              30px: the link's own 20px box plus the row's 10px `gap-2.5`. A raw
+              `pr-[30px]` would violate DESIGN.md §10's ban on px magic. The
+              compensation is BELOW-`sm` only (`sm:pr-0`): a left-aligned name has
+              no centring axis to hold. */}
           <div
-            className={`flex min-w-0 flex-1 items-center justify-center gap-1.5${
-              sheetHref === null ? " pr-header-link-slot" : ""
+            className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 sm:justify-start${
+              sheetHref === null ? " pr-header-link-slot sm:pr-0" : ""
             }`}
           >
             <Heading
@@ -985,24 +996,27 @@ export function ModalSectionChrome({
                   ? `Open the source sheet for ${label.trim()} (opens in a new tab)`
                   : "Open the source sheet (opens in a new tab)"
               }
-              className="relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text-subtle transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              className="relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text-subtle transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg sm:order-1 sm:ml-0.5"
             >
               <ExternalLink aria-hidden="true" className="size-4" />
             </a>
           ) : null}
         </div>
-        {/* The pill takes its own centred line. NO wrapper is emitted when there is
-            no pill — an always-rendered empty wrapper would charge this column's
-            `gap-1.5` and recreate the very class this batch removes. */}
+        {/* Below `sm` the pill takes its own centred line; at `sm`+ this wrapper
+            flattens (`sm:contents`) and the pill joins the row before the glyph
+            (the glyph carries `sm:order-1`; flattened source order handles the
+            rest — 2026-07-26 spec §2.1). NO wrapper is emitted when there is no
+            pill — an always-rendered empty wrapper would charge this column's
+            `gap-1.5` and recreate the very class the 2026-07-25 batch removed. */}
         {flagged ? (
-          <div className="flex w-full justify-center">
+          <div className="flex w-full justify-center sm:contents">
             <span className="shrink-0 rounded-pill border border-border-strong bg-warning-bg px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-warning-text">
               Needs a look
             </span>
           </div>
         ) : judgment ? (
           // §7.3: a calm judgment pill (info tone), distinct from the amber flag.
-          <div className="flex w-full justify-center">
+          <div className="flex w-full justify-center sm:contents">
             <span className="shrink-0 rounded-pill border border-border bg-info-bg px-2 py-0.5 text-xs font-medium whitespace-nowrap text-text-subtle">
               Parsed with judgment
             </span>
