@@ -1868,3 +1868,26 @@ So the order is load-bearing, and all three states are pinned:
 Mutation confirms each: removing transparency fails 1 test, removing the trailing-space check fails 5,
 and SWAPPING the two fails 4. The same value gets opposite answers from the naming question and the
 separation question, which is why one helper cannot serve both.
+
+### Convergence note for whoever reads this at merge time
+
+Rounds R31 through R36 have each returned real findings, and every one has been in the GUARD — the
+scanner, its helpers, or its fixtures. The shipped behaviour has not moved since R4: the live census
+has read **22 anchors / 0 violations** through all of it, and the end-to-end check (deleting a real
+`<NewTabHint />`, deleting a real separator space) still produces precise located violations.
+
+That split is worth stating plainly rather than leaving implied:
+
+- **What ships** is 21 remediated anchors plus a guard that catches both original defects on real code.
+- **What has consumed the last six rounds** is the guard's own precision on markup no live file
+  contains — nested conditional spreads, `String(["true"])`, enum-shadowed `NaN`, MDX's
+  `{"Open "}` compilation.
+
+Both halves are worth having; the second is why an AST guard is a durable investment rather than a
+one-off fix. But a reader deciding whether to keep iterating should know that the recent rounds are
+buying precision on hypothetical inputs, not fixing anything a user would hit today, and that each
+round's findings have also included defects introduced by the previous round's fix (R34 introduced the
+`cannotRenderTrue` fail-open, R35's separator fix introduced the render-nothing false positive, and
+this round's first draft of that fix broke the explicit-space case).
+
+Stated as information for the merge decision, not as an argument to skip the gate.

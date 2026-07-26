@@ -1862,9 +1862,11 @@ function hintHasSiblingSpace(root: ts.Node): boolean {
         // then nothing then the hint. Asking what the value STRINGIFIES to got this wrong --
         // `{null}` stringifies to "null" while rendering nothing at all (review R36 probe trail).
         if (rendersNothing(prev.expression)) continue;
-        // A decidable string that does NOT end with a space is rendered text, so it is adjacency.
-        if (lit !== null) return false;
-        return false; // opaque: cannot prove a separator
+        // Anything left is NOT a separator: a decidable string that does not end with a space is
+        // rendered text (adjacency), and an opaque value cannot be proven to separate. Both answers
+        // are the same, so they share one return -- the first draft wrote them as two branches with
+        // identical bodies, which is dead code however well-commented.
+        return false;
       }
       return false; // adjacent content
     }
