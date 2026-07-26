@@ -737,7 +737,11 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   // probe-verified, two complete groups both mis-parse and only one warned.
   const inheritsHotel = (i: number) => i > 0 && /^\s*[-–—]{3,}/.test(segments[i] ?? "");
   const verdicts = builds.map((b, i) => b.judgedGuestBoundary && !inheritsHotel(i));
-  const addrs = builds.map((b) => b.addressAmbiguity);
+  // A group that inherits `baseName` had its hotel fields overwritten, so any
+  // ambiguity its own build recorded describes text this row no longer holds.
+  // Emitting it would offer a replacement drawn from the discarded fragment
+  // (whole-diff R1 finding 2).
+  const addrs = builds.map((b, i) => (inheritsHotel(i) ? undefined : b.addressAmbiguity));
   const stripped = stripHotelNameConf(rows, (i, a) => (addrs[i] ??= a));
   return toPending(stripped, verdicts, raw, addrs);
 }
