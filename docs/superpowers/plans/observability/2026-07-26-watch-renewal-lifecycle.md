@@ -53,7 +53,7 @@ Settled at spec time in §4.3; each row was verified with a live grep. Summary o
 | `tests/adminAlerts/alertProducerScope.registry.ts:214` | **MUST update — line-pinned, and a guaranteed suite failure if missed.** It pins the producer as `site: "lib/drive/watch.ts:463"`, and line 463 is currently the `tx.upsertAdminAlert({` call. Tasks 2 and 5 both insert code above it, so the anchor moves. `tests/adminAlerts/_metaAlertProducerScope.test.ts:148-157` requires exact discovered/registered equality and rejects a stale anchor as loudly as an unregistered one. Re-derive the line AFTER the last task that shifts it, not per-task. |
 | `tests/drive/watchExpiration.test.ts:46-63` | **MUST edit.** A SECOND `WatchTx` fake, returned `as unknown as WatchTx` — the cast means a missing `expireDeadActive` is NOT a compile error, only a runtime failure. Its own header comment says the compiler will not catch it. |
 | `tests/drive/watchExpiration.test.ts:15-35` | **MUST extend.** One-parameter `driveMock.watch`; Task 4's option-pair assertion is unwritable until it records a second argument. |
-| `tests/sync/_metaInfraContract.test.ts` | **No row change.** Two existing rows are load-bearing and are preserved, not edited (constraint 4 above). |
+| `tests/sync/_metaInfraContract.test.ts` | **No REGISTRY row changes, but the executable fixture at `tests/sync/_metaInfraContract.test.ts:871` MUST be edited** — it supplies only `listRenewalDue`, so after reap-first it fails on the missing member and still returns the same generic `failures` shape, passing for the wrong operation. The two registry rows themselves are load-bearing and preserved, not edited (constraint 4 above). |
 | `tests/messages/_metaAdminAlertCatalog.test.ts:111-113` | **No change**, verified: the pinned regex matches `markWatchOrphanedWithTx`, which this diff does not touch. |
 | `tests/messages/_metaAdminAlertProducer.test.ts` | **No change**, verified: detector is Supabase-client-scoped; the raw pg RPC call is what it exists to require. |
 | `tests/log/_metaMutationSurfaceObservability.test.ts` | **N/A**: the only route in scope exports `GET` only. |
@@ -86,12 +86,9 @@ Every command below was actually run in this worktree; the output is the finding
 
 ## Task 1: Add `expired` to the status CHECK
 
-**Failing test first** — new tests/db/watchLifecycle.db.test.ts, resolving its URL through `assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres")` (mirroring `tests/db/watchRenewalDue.test.ts:25-27`):
+**Failing test first** — new tests/db/watchLifecycle.db.test.ts, resolving its URL through `assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL ?? …)` (mirroring `tests/db/watchRenewalDue.test.ts:25-27`).
 
-- inserting a row with `status = 'expired'` succeeds;
-- inserting `status = 'not-a-status'` is rejected.
-
-Both fail today against the verified baseline (the CHECK has no `expired`). The second assertion is what stops the fix from being "widen the constraint to anything".
+**The assertions are spec §6.2's CHECK rows verbatim — do not restate them here** (normative-source rule). In particular the acceptance test asserts all SEVEN values as a SET, not `expired` alone: a migration that drops `stopping` while adding `expired` passes a single-value test and passes validation parity too.
 
 **Implementation** — supabase/migrations/20260726000000_drive_watch_expired_status.sql, per §3.1.1: `drop constraint if exists` + `add constraint` with the existing six values copied verbatim from `supabase/migrations/20260501001000_internal_and_admin.sql:295-297` plus `'expired'`. Apply-twice idempotent. `'stopping'` is preserved deliberately (§8.2). No `notify pgrst` (§4.4 — a CHECK alters nothing in PostgREST's cache).
 
@@ -107,32 +104,7 @@ Also: `WatchChannelStatus` (`lib/drive/watch.ts:21`) gains `"expired"`.
 
 ## Task 2: Reap expired channels, and let GC collect them
 
-**Failing tests first.**
-
-DB-free (`tests/drive/watch.test.ts`, extending `FakeWatchTx`):
-
-- `tx.operations` starts `["expireDeadActive", "listRenewalDue", …]` — **order**, not presence. A reap ordered after the read leaves the stale row in `due` and reduces the whole fix to a no-op.
-- **Same-transaction proof, not just ordering** (plan review R1b finding 4): the ordering assertion alone passes against two SEPARATE successful transactions in the right order. Add a real-DB case where the renewal READ fails and assert the reap rolled back with it — the row is still `active` afterwards. That is the only assertion that distinguishes one transaction from two.
-- an expired row **whose folder IS the configured one** yields zero `subscribe` calls.
-- a reap of MORE than 20 rows emits 20 sorted ids plus the true count in `expiredCount`/`supersededCount` — the cap has no coverage otherwise, and the sorted-before-capped rule exists because `RETURNING` has no ordering contract.
-- `DRIVE_WATCH_EXPIRED_REAPED` is observed through a sink spy on the success branch, reporting the two populations separately — allowlist membership in `NEW_FORENSIC_CODES` is static and proves only that the string is permitted, never that the branch emits it.
-- a failing reap returns `{refreshed: [], orphaned: [], failures: [{folderId: "*", operation: "list_expiring"}]}` and does **not** reject (constraint 4).
-- a failing reap emits `operation: "drive_watch_channels.expire_dead_active"`; a failing renewal read still emits `operation: "drive_watch_channels.list_renewal_due"` (both directions — §3.1.3a).
-- GC: an `expired` candidate does NOT reach `stopChannel` but IS marked stopped; an `orphaned` candidate with a `resourceId` DOES reach it. Assert the spy's call list by channel id, not its length.
-
-Real DB (tests/db/watchLifecycle.db.test.ts):
-
-- **DB-clock regression — REAL DB, not the fake** (spec R5 finding 4): set the injected JS clock hours ahead of the database's and assert an unexpired row is NOT reaped. In the DB-free suite this is tautological — `FakeWatchTx`'s clock is a mutable in-memory `Date` (`tests/drive/watch.test.ts:40-44`), so it can only prove the fake ignores the injected clock, never that production SQL still reads `now()`.
-
-- through the real `refreshWatchSubscriptions`: a genuinely expired row ends `status='expired'`, is absent from `listRenewalDue`, present in `listGcCandidates`, and GC does NOT call `channels.stop` on it.
-- an inverted lease whose `expires_at` is 24h in the FUTURE (mirroring `tests/db/watchRenewalDue.test.ts:141-155`) ends `status='superseded'` — NOT `expired` — and GC DOES call `channels.stop` on it. Assert the status, not merely that the row left `active`: a status-blind assertion passes while a possibly-live Drive channel is abandoned with nothing left to stop it.
-- a row still INSIDE its lease, **and demonstrably renewal-due** (derive its lease through `renewalLeadMs` so it is due by construction, not by a hardcoded date), whose renewal fails is NOT reaped (§3.1.2 — the regression "retire on failure" would have shipped).
-
-**Three groups of existing assertions are invalidated, not one** (plan review R1b finding 3). The previous revision listed only the first:
-
-1. `tests/db/watchRenewalDue.test.ts:122-131` — "a lease already past expiry is still due". Inverted: the row is reaped to `expired` and is NOT renewed. Its comment names the backlog entry; replace the comment too rather than leaving it beside the new assertion.
-2. `tests/db/watchRenewalDue.test.ts:133-140` and `tests/db/watchRenewalDue.test.ts:141-155` — the zero-length/inverted and future-inverted lease tests, both of which currently expect RENEWAL. Under the two-arm reap both leave `due`; the first is reaped to `expired`, the future-dated one to `superseded`. Both become reap assertions that pin the resulting STATUS.
-3. `seedActiveExpiring` (`tests/drive/watch.test.ts:205-219`) seeds already-expired rows and feeds the multi-row isolation test at `tests/drive/watch.test.ts:657`, whose call site is `tests/drive/watch.test.ts:671` and which expects FOUR subscription attempts at `tests/drive/watch.test.ts:677`. **Re-dating the rows is necessary but not sufficient** (plan review R2 finding 2): once §3.2 filters to the configured folder, at most ONE of four folders can be renewed, so a four-attempt expectation is unreachable by any injection. The test's premise — that the renewal loop iterates several folders independently — is what this diff removes. Rewrite it as the folder-filter contract it now describes: four active in-lease rows on four folders, one configured, exactly one subscribe call, and assert its ARGUMENT is the configured folder. That is strictly stronger than the count it replaces.
+**Tests: spec §6.1 and §6.2 is normative and is NOT restated here** (normative-source rule). Every failure mode, qualifier, payload field and cardinality lives there; this task adds only the execution detail below. Note the two that are easy to under-build: the 404 branch needs ALL THREE googleapis status shapes, and the health change needs the real reap → health → GC → health lifecycle rather than a synthetic literal row.
 
 **Implementation** — §3.1.3 and §3.1.4:
 
@@ -149,19 +121,13 @@ Real DB (tests/db/watchLifecycle.db.test.ts):
 
 ## Task 3: Renew only the configured folder
 
-**Failing tests first** (DB-free):
+**Tests: spec §6.1 is normative and is NOT restated here** (normative-source rule). Every failure mode, qualifier, payload field and cardinality lives there; this task adds only the execution detail below. The skipped-folder emit needs sortedness, capping, count, configured folder and BOTH reasons — not one id.
 
-- two due rows on two folders, one configured → exactly one `subscribe` call, and assert its **argument** is the configured folder id (a count-only assertion passes on the wrong folder).
-- `no_folder_configured` → zero `subscribe` calls.
-- folder read returns `infra_error` → ALL rows renewed, `DRIVE_WATCH_FOLDER_READ_FAILED` emitted, and the returned object `toEqual`s the pre-change shape with an **empty** `failures` array. Three independent failure modes in one test: fail-open renewal, the durable record, and no `'*'` row (which would suppress reconcile's auto-resolve on a healthy cycle). The `toEqual` is what pins §3.2.3's promise that the result type did not change.
-- folder read **throws** → identical to `infra_error` (catches recorded-not-thrown being lost).
-- a skipped stale folder emits `DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER` with the skipped id.
+**Existing-tree work this task must do** (plan-normative: these are facts about the current suite, not restatements of the spec):
 
-**Harness redesign** (`tests/db/watchRenewalDue.test.ts`, §5): `foldersProductionWouldRenew()` takes the configured folder id and injects `getActiveWatchedFolder: async () => ({ folderId, folderName: null })`. The two-row window test at `tests/db/watchRenewalDue.test.ts:89-102` runs twice — once per configured folder — so the renewal predicate is still what excludes `notYet`, rather than the new filter excluding it for the wrong reason. The remaining single-folder tests pass their own folder id. All 8 tests keep their assertions.
-
-**Every existing refresh call site needs an injected folder read — SEVEN, not six.** Without it each performs the real service-role settings read and DB-free unit behaviour starts depending on ambient environment: `tests/drive/watch.test.ts:487`, `tests/drive/watch.test.ts:549`, `tests/drive/watch.test.ts:671`, `tests/drive/watch.test.ts:723`, `tests/drive/watch.test.ts:757`, `tests/drive/watch.test.ts:1360`, `tests/drive/watch.test.ts:1391`.
-
-`tests/drive/watch.test.ts:671` is the multi-row isolation test, and it needs more than an injection (plan review R2 finding 2). Task 2 re-dates its four fixture rows inside their leases, after which all four are due — but a single configured folder admits at most ONE, so its four-attempt assertion at `tests/drive/watch.test.ts:677` is unreachable by any injection. Its premise, that the renewal loop iterates several folders independently, is what this diff removes. Rewrite it as the folder-filter contract: four in-lease rows on four folders, one configured, exactly one subscribe call, asserting its ARGUMENT is the configured folder. Strictly stronger than the count it replaces.
+- **Nine call sites need an injected folder read**, not seven: the seven due-row calls at `tests/drive/watch.test.ts:487`, `tests/drive/watch.test.ts:549`, `tests/drive/watch.test.ts:671`, `tests/drive/watch.test.ts:723`, `tests/drive/watch.test.ts:757`, `tests/drive/watch.test.ts:1360`, `tests/drive/watch.test.ts:1391`, PLUS the zero-due-row calls at `tests/drive/watch.test.ts:580` and `tests/drive/watch.test.ts:611`, which still reach the helper because §3.2 reads the folder BEFORE the loop. Without injection each performs the real service-role read and DB-free behaviour depends on ambient environment.
+- **`tests/drive/watch.test.ts:654-683` must be rewritten, not just injected into.** Task 2 re-dates its expired fixtures, after which all four folders are due — but one configured folder admits at most one, so its four-subscription assertion at `tests/drive/watch.test.ts:677` is unreachable by ANY injection. Rewrite as the folder-filter contract: four in-lease rows on four folders, one configured, exactly one subscribe call, asserting its ARGUMENT.
+- **`tests/db/watchRenewalDue.test.ts` harness redesign:** `foldersProductionWouldRenew()` takes the configured folder id and injects `getActiveWatchedFolder`. The two-row window test runs twice, once per configured folder, so the renewal predicate — not the new filter — is still what excludes the not-yet row. Per spec §5 the suite ALSO moves onto the database clock.
 
 **Implementation** — §3.2: `RefreshDeps` gains `getActiveWatchedFolder?: typeof defaultGetActiveWatchedFolder` (already imported at `lib/drive/watch.ts:15`); one read before the loop; the three §3.2.2 outcomes; `skippedFolderIds` capped at 20. `RefreshResult` is **unchanged**.
 
@@ -169,15 +135,15 @@ Real DB (tests/db/watchLifecycle.db.test.ts):
 
 ## Task 3b: Supersede the prior folder's channels at promotion (AC-6.18, partially)
 
-**Failing tests first** — three, because the obvious single assertion is satisfied by at least two wrong implementations (plan review R1b finding 4):
+**Failing tests first.** Spec §6 is normative for the full list; the reason there are several is that the obvious single assertion is satisfied by at least two wrong implementations (plan review R1b finding 4):
 
 1. after `promoteSettings` swaps the watched folder, no row for a NON-promoted folder remains `status='active'`;
 2. **preservation:** the newly promoted folder's own active row is still `active` — assertion (1) alone passes if every channel is superseded indiscriminately;
-3. **same-transaction:** when the promotion transaction rolls back, the old folder's row is still `active` — assertion (1) alone passes if the supersession commits outside the promotion transaction, which is exactly the atomicity this task claims.
+3. **same-transaction, observing BOTH writes:** when the promotion transaction rolls back, the old folder's row is still `active` AND its pending row is still `pending`. Observing only the active row lets the pending-orphaning commit separately while every assertion passes (plan R4).
 
 Plus the late-activation pair from spec §3.2.4 (the two mechanisms that DO ship; the third was descoped): a pending old-folder row is orphaned by promotion, and `activatePending` then refuses to promote it (zero rows matched → the existing `activate_failed_after_watch_created` path, not a silent success). This fails today — `promoteSettings` (`app/api/admin/onboarding/finalize-cas/route.ts:779-805`) touches no channel row — and it is the executable form of a shipped acceptance criterion, AC-6.18 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3846`), that has never been satisfied.
 
-**Implementation** — spec §3.2.4, THREE parts, all required (the first two alone leave the race open):
+**Implementation** — spec §3.2.4. TWO parts ship; a third was designed and descoped (see below):
 
 1. promotion supersedes old-folder `active` rows and orphans old-folder `pending` rows, both inside the SAME transaction as the settings swap;
 2. `activatePending` returns its affected-row count and `activateWithTx` throws on zero, routing into the existing `activate_failed_after_watch_created` path — today the count is discarded (`lib/drive/watch.ts:174-185`) and activation reports success unconditionally (`lib/drive/watch.ts:445-453`).
@@ -196,12 +162,7 @@ Plus the late-activation pair from spec §3.2.4 (the two mechanisms that DO ship
 
 ## Task 4: Bound every Drive call and the loop around it
 
-**Failing tests first** (DB-free):
-
-- `defaultWatchFolder` passes `{ timeout: DRIVE_CALL_TIMEOUT_MS, retry: false }` as the **second** argument to `files.watch`; `defaultStopChannel` the same to `channels.stop`. Assert both fields by value. **This requires extending the drive mock first:** `tests/drive/watchExpiration.test.ts:15-35` declares `watch: async (args) => …`, a one-parameter mock that cannot observe a second argument at all. Give it an options parameter and record it. `retry: false` is the half that matters — without it gaxios's internal retry multiplies the budget and the timeout bounds nothing, which no timing test would notice.
-- `files.watch` rejecting with a `TimeoutError`-shaped `GaxiosError` yields `{outcome: "orphaned", reason: "watch_create_failed"}` and an alert whose `error_class` is `drive_api`. Drive the REAL `defaultWatchFolder` against the mock — injecting `deps.watchFolder` bypasses it and would prove only that a rejecting function rejects (spec R1 finding 8).
-- Run-budget exhaustion stops the loop, records `failures` rows for the unprocessed folders, and emits `DRIVE_WATCH_RUN_BUDGET_EXHAUSTED` (catches a budget check that logs but keeps iterating).
-- `REFRESH_RUN_BUDGET_MS === T_EXEC_BUDGET_MS`.
+**Tests: spec §6.1 is normative and is NOT restated here** (normative-source rule). Every failure mode, qualifier, payload field and cardinality lives there; this task adds only the execution detail below. The run-budget emit's payload fields are asserted, not just its code.
 
 **Implementation** — spec §3.3: the two `MethodOptions` pairs, the per-run budget, and `DRIVE_CALL_TIMEOUT_MS` in `lib/drive/watchErrors.ts`.
 
@@ -215,7 +176,9 @@ Rewrite the `T_EXEC_BUDGET_MS` doc comment per spec §3.3.3 — state that the l
 
 **Constructibility first — the seam is currently private.** `markWatchOrphanedWithTx`, `withDefaultTx` and `PostgresWatchTx` are all module-private (`lib/drive/watch.ts:456`, `lib/drive/watch.ts:356`, `lib/drive/watch.ts:140`), and the public subscribe paths call the helper as their FINAL transactional act, so there is no way to inject a post-alert failure from outside. The test the previous revision of this plan described could not be written (plan review R1b finding 1).
 
-So this task begins by exporting exactly two things, and no more: `markWatchOrphanedWithTx`, and a `createPostgresWatchTx(sql)` factory. Both are already the real production code paths; exporting them makes the atomicity CONTRACT testable rather than adding a test-only branch to it. Nothing else in the module's surface changes. **Verified safe:** the export-binding guard at `tests/drive/no-unpinned-export.test.ts:5` scans `lib/sync`, `app/api/cron`, `app/api/drive` and `app/api/admin` — not `lib/drive` — and no other test pins this module's export surface.
+**TDD order, explicitly** (plan R4): the failing test is written FIRST and fails to compile because the symbols do not exist — a failing test, not a missing prerequisite. The exports are then added as the minimal step that lets it run, at which point it fails again on the ACTUAL defect (the alert survives the rollback). Only then is the transport changed. Two red stages, no implementation-before-test.
+
+The exports are exactly two, and no more: `markWatchOrphanedWithTx`, and a `createPostgresWatchTx(sql)` factory. Both are already the real production code paths; exporting them makes the atomicity CONTRACT testable rather than adding a test-only branch to it. Nothing else in the module's surface changes. **Verified safe:** the export-binding guard at `tests/drive/no-unpinned-export.test.ts:5` scans `lib/sync`, `app/api/cron`, `app/api/drive` and `app/api/admin` — not `lib/drive` — and no other test pins this module's export surface.
 
 **Failing test first** (real DB, tests/db/watchLifecycle.db.test.ts): open a real transaction, build the port with `createPostgresWatchTx`, call `markWatchOrphanedWithTx`, then throw — and assert `admin_alerts` has **no** row and the channel status is unchanged. Fails today: the alert commits over its own connection and survives the rollback.
 
@@ -233,7 +196,7 @@ Plus, same file: the raised alert satisfies `jsonb_typeof(context) = 'object'` a
 2. **`NEW_FORENSIC_CODES`**: add all four §2.2 codes.
 3. **Amend the two stale comments** §5 lists: `lib/drive/watch.ts:873-875` (reconcile's "already had its attempt via refresh" — the expired-active exception no longer exists) and the `T_EXEC_BUDGET_MS` doc block if Task 4 left anything. Deletions and replacements, not notes appended beside the superseded text.
 4. **Apply the three master-spec amendments** specified in spec §4.6, each a DELETION and replacement tagged `**Amended 2026-07-26**`: the "No client-side timeout is applied" clause (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1303`, inside the Create bullet), the unscoped renewal rule (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1320`), the status set (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1294-1299` plus the GC per-status list at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1327-1329`), and **the canonical DDL CHECK at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1287-1289`, which still lists only the original statuses** and was missed by the first amendment inventory. AC-6.18 is NOT amended — Task 3b implements it. **This engages the §12.4 three-way lockstep only if a catalog row changes; it does not, so no `pnpm gen:spec-codes` run is needed** — but re-run `pnpm spec:lint` on the master spec after editing.
-5. **File the credential-fetch residual** as a backlog entry (spec §3.3.1a, §7): the `GoogleAuth` token request is unbounded and no supported per-call knob was found.
+5. **Verify all THREE residual backlog entries exist** (they were filed with the spec repairs, not deferred to this task): `BL-WATCH-PROMOTION-ACTIVATION-RACE`, `BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED`, `BL-DRIVE-API-CALLS-UNBOUNDED-APP-ROUTES`. An earlier revision promised the first here and filed only the other two.
 6. **File the residual Drive-call class** as a new `BACKLOG.md` entry naming the EIGHT out-of-scope unbounded call sites enumerated in the pre-draft pass (all under `app/api/`; everything in `lib/` is already bounded), so the sweep is recorded rather than silently half-done.
 7. **Update `BACKLOG.md`**: mark the four entries closed with this PR; leave `BL-WATCH-RECONCILE-BACKOFF` OPEN and add the §8.6 note that its decisive blocker is cleared and reconcile is now the single retry surface.
 8. **Add the plan row** to `docs/superpowers/plans/observability/README.md`.
