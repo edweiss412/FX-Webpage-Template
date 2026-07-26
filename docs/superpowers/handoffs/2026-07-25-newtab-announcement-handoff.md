@@ -2168,3 +2168,17 @@ render a real hook's output, read the DOM in a layout effect, or subscribe to a 
 copies the logic under test. `ModalSheetLinkProbe` was the only instance, which is the distinction to
 carry forward: a probe standing in for the *caller* is a harness; a probe standing in for the *code
 under test* is a defect.
+
+**The replacement assertions were mutated too, not just the originals.** Fixing a test is itself a
+change that can be vacuous, so each new real-component assertion was checked against a mutation of the
+guard it exists to protect:
+
+```
+Step3ReviewModal    .trim() removed from the label guard   ->  1 failed | 126 passed
+PublishedReviewModal  `title || slug` weakened to `??`     ->  2 failed | 64  passed
+```
+
+The second number is the more interesting one: weakening `||` to `??` means an empty-string title stops
+falling back to the slug, and that broke both the new sheet-link name assertion and the pre-existing
+dialog-label test — which is the shape of a genuinely load-bearing fixture, two independent assertions
+noticing one behavioural change. Both components restored byte-clean afterwards.
