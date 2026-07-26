@@ -779,7 +779,7 @@ line, so the plan can rely on it without re-deriving:
 | Claim | Verified |
 | --- | --- |
 | `resolveViewerContext` sits ABOVE `agendaArea` — the hoist's whole premise | `components/crew/sections/ScheduleSection.tsx:101` vs `components/crew/sections/ScheduleSection.tsx:147`, same function body |
-| The four positional-fallback conditions, incl. the null-element guard | `lib/crew/agendaDayForToday.ts:64-71`, exactly as written |
+| The four positional-fallback conditions of the EXISTING function, incl. its null-element guard (the NEW matcher needs no such guard -- its domain is non-null `AggregateDay[]`; see §3) | `lib/crew/agendaDayForToday.ts:64-71`, exactly as written |
 | `parseIsoFromDayLabel` is separately exported and reusable | `lib/crew/agendaDayForToday.ts:36` |
 | `visibleShowDays` takes only `dates` + `dateRestriction` and cannot throw | `lib/crew/agendaDisplay.ts:144-150`, no `throw` in body |
 | Day rows are `div > h3 + ul` today | `components/crew/AgendaScheduleBlock.tsx:70-79` |

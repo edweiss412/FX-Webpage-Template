@@ -124,7 +124,12 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
   - every restriction day located → `rows` holds exactly those indices. *Catches a matcher that returns all rows and lets the caller filter.*
   - **completeness compares distinct DATES, not located rows.** Fold iff `L.size === R.size`, `L` ⊆ `R` as date sets. *Catches the R3 scenario: restriction May 5 + May 6, two May 5 headings, `"Day 3"` for May 6 — counting rows gives `2 == 2` and folds May 6.*
   - **PARTIAL location fails open.** Fixture: one label parses, another reads `"Day 3"`, and a third parses so `!someDateParsed` is false and the positional fallback cannot fire. Assert `{ kind: "all" }`. *Catches folding a day the viewer works while the page looks normal.*
-  - **a travel-day assignment does NOT fail open forever.** Fixture: viewer assigned a travel-in date plus a show day, extraction covers both. `R` comes from the hoisted `visibleDays` (spec §2), which is the aggregate intersected with the restriction, so the travel day is IN `R`, completeness holds, and folding proceeds. *Catches an `R` narrowed to `visibleShowDays`' show-day-only output, which would drop the travel day and fail open for every stage-restricted viewer.*
+  - **a travel-day assignment folds the travel row too, and the assertion must be on THAT.** Fixture:
+    viewer assigned a travel-in date plus a show day, extraction covers both. Assert the returned `rows`
+    contains BOTH indices. *Catches an `R` narrowed to `visibleShowDays`' show-day-only output. Review R5
+    (HIGH) corrected the symptom this test aims at: the narrowed `R` does NOT fail open, it makes
+    completeness pass on the show day alone and returns a subset that FOLDS the assigned travel row. A test
+    asserting `{ kind: "all" }` here would pass while preserving the exact bug it exists to catch.*
   - **a date appearing TWICE still folds.** Two blocks, same date, both the viewer's → both indices in `rows`. *Catches count-based completeness.*
   - **sheet/PDF date disagreement fails open** (spec §3, found by spiking the rule). Fixture: the viewer is
     assigned May 5 and June 25; the extraction HAS a June 25 block; the aggregate does NOT contain June 25.
@@ -135,7 +140,14 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
     extraction must NOT trigger fail-open — folding proceeds normally. *Catches an over-broad guard that
     fails open for every viewer whose assignment mentions a date the PDF never covers, which would disable
     the feature for them permanently.*
-  - all four positional-fallback conditions negated independently, including the null-element guard. *Catches a fallback firing when it must not.*
+  - all four positional-fallback conditions negated independently. *Catches a fallback firing when it must not.*
+  - **NO null-element guard test, and that is deliberate (review R5, CRITICAL).** The pre-existing
+    `agendaSessionsForToday` gates on `showDays` and needs that guard (`lib/crew/agendaDayForToday.ts:64`);
+    the NEW matcher indexes the aggregate list, whose `date` is typed `string` and non-null by construction
+    (spec §3). An earlier version of this task required testing the guard anyway, which an implementer could
+    only satisfy by constructing an impossible typed input or by reverting to the rejected `showDays`
+    domain. If a future change moves the matcher onto a nullable list, the guard and its test come back
+    together.
   - **the positional fallback indexes the FULL aggregate day list.** Fixture built so a filtered list maps to different extraction rows. *Catches indexing the viewer's subset.*
   - `{ kind: "all" }` is returned, never `{ kind: "subset"; rows: <empty> }`. *Catches the empty-subset trap in spec §2.*
   - every expected index derived from fixture dimensions, never hardcoded.
@@ -155,6 +167,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 
 ### Task 2: Hoist the restriction derivation and thread the matcher result
 
+- [ ] **T2 owns BOTH halves of the prop seam, because a computed-but-unused value is dead code (review R5, CRITICAL).** Two earlier partitions split this wrong: one had T2 pass `viewerDays` before the prop existed (does not compile), the next had T2 compute a result with no consumer until T3 (commits dead calls). So T2 adds the optional `viewerDays` prop with its `{ kind: "all" }` default AND passes the computed value; T3 owns what the component DOES with it. T2's component diff is one prop declaration plus the default, and the fold markup is entirely T3's.
 - [ ] **Test first — what T2's red test can and cannot assert (review R3 HIGH; sharpened by R4 CRITICAL).** `AgendaScheduleBlock` has no `viewerDays` prop until T3, so a test asserting the prop arrives would not compile — excess-property checking rejects it. T2's red test therefore asserts the **hoist's own observable**: that `ScheduleSection` computes the viewer row set once, above `agendaArea`, and passes it to the matcher — verified by spying on `visibleAgendaDaysForViewer` and asserting it is called with the aggregate-day domain before the agenda area renders. That test fails today (nothing calls it) and passes when the hoist lands, with no dependency on T3's prop.
 - [ ] **Hoist the three EXISTING `visibleDays` lines** (`components/crew/sections/ScheduleSection.tsx:193-207`: `allDays`, `allowedShowDays`, `visibleDays`) above `agendaArea` (`components/crew/sections/ScheduleSection.tsx:147`), unmodified. Spec §2 as corrected in review R4: the earlier instruction to move the restriction derivation but NOT `aggregateDays` rested on a false premise — `grep -c throw lib/crew/agendaDisplay.ts` is `0`, so `aggregateDays` cannot throw and hoisting it adds no exposure. The viewer's day set already exists in that callback, computed correctly including travel days; this task moves it earlier, it does not invent it.
 - [ ] `R = new Set(visibleDays.map((d) => d.date))`. No new domain expression — reusing the existing derivation is what keeps the drift-guard comment at `components/crew/sections/ScheduleSection.tsx:200` meaningful.
@@ -243,7 +256,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 
 ### Task 5: Make the layout spec actually run in CI
 
-- [ ] **Red state first, and it must be an ASSERTION.** Add a meta-test expectation that this spec's registry row reads `PATH_GATED`; it fails today because the row reads `UNSEEN`. Corrected after review R4 (CRITICAL): an earlier version called "the command collects zero tests for this spec" the red state, but the existing alias collects four other specs and exits 0, so nothing was red — observing an absence is not a failing test.
+- [ ] **Red state first, and it must prove the WORKFLOW RUNS THE SPEC, not merely that a string changed.** Two earlier versions were both inadequate. "The standalone command collects zero tests" is not an assertion at all (R4 CRITICAL): the existing alias collects four other specs and exits 0. "Assert the registry row reads `PATH_GATED`" goes green from editing the string alone (R5 HIGH), because the meta-test validates membership only and never the reason (`tests/ci/_metaE2eWorkflowCoverage.test.ts:155-165`). The assertion that WORKS comes from the scanner's own contract: `scanWorkflowCoverage` returns `rejected: Array<{ file; spec; reason }>` (`tests/ci/_workflowCoverageScan.ts:80-85`) and the meta-test currently destructures only `covered` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:153`). Assert that `rejected` contains this spec with reason `"pull_request.paths/paths-ignore filter"` (`tests/ci/_workflowCoverageScan.ts:119`). Unfakeable by the string edit: a spec named in NO workflow appears in neither `covered` nor `rejected`, so it fails today and can only pass once a workflow actually names it in a run command.
 - [ ] Add `tests/e2e/agendaScheduleLayout.spec.ts` to a standalone-config script in `package.json`. **Decide the naming explicitly** — `test:e2e:modal-header` running an agenda spec is a misnomer; rename it or add a sibling alias.
 - [ ] Add the spec plus `components/crew/AgendaScheduleBlock.tsx` and `components/crew/sections/ScheduleSection.tsx` to `.github/workflows/modal-header-layout-e2e.yml`'s `paths:` filter.
 - [ ] **CHANGE the registry row's value from `UNSEEN` to `PATH_GATED`** at `tests/ci/_metaE2eWorkflowCoverage.test.ts:49`. **Do NOT delete it** — that workflow is path-gated (`.github/workflows/modal-header-layout-e2e.yml:45`) and the scanner rejects path-filtered workflows from `covered` (`tests/ci/_workflowCoverageScan.ts:105`), so a deleted row trips the DARK assertion. Precedent: `tests/ci/_metaE2eWorkflowCoverage.test.ts:39-40`.
