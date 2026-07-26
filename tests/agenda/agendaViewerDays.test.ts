@@ -134,6 +134,27 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
     }
   });
 
+  test("a low-confidence or empty extraction folds nothing", () => {
+    // The component renders nothing for these, so there is nothing to fold. Catches a
+    // matcher that returns a subset for a link that never renders rows.
+    const low = { ...ext(["Tuesday, May 5, 2026"]), confidence: "low" as const };
+    expect(visibleAgendaDaysForViewer(low, viewerDates(["2026-05-05"]), ["2026-05-05"])).toEqual({
+      kind: "all",
+    });
+    expect(
+      visibleAgendaDaysForViewer(ext([]), viewerDates(["2026-05-05"]), ["2026-05-05"]),
+    ).toEqual({ kind: "all" });
+  });
+
+  test("unparseable jsonb folds nothing rather than throwing", () => {
+    // Raw jsonb arrives unvalidated; normalization returning null must fail open.
+    for (const bad of [null, undefined, 42, "nope", {}, { days: "not-an-array" }]) {
+      expect(visibleAgendaDaysForViewer(bad, viewerDates(["2026-05-05"]), ["2026-05-05"])).toEqual({
+        kind: "all",
+      });
+    }
+  });
+
   test("expected indices derive from the fixture, not from literals", () => {
     // A 2-day fixture must be unable to satisfy a 4-day assertion.
     const labels = ["Tuesday, May 5, 2026", "Wednesday, May 6, 2026"];

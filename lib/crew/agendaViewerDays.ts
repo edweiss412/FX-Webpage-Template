@@ -11,15 +11,21 @@
  * COMPLETELY. Partial knowledge is treated as no knowledge, because a partially-correct fold
  * silently hides a day the viewer works while looking entirely normal on screen.
  */
+import { normalizeAgendaExtraction } from "@/lib/agenda/normalizeAgendaExtraction";
 import { parseIsoFromDayLabel } from "@/lib/crew/agendaDayForToday";
-import type { AgendaExtraction } from "@/lib/agenda/types";
 
 export type ViewerAgendaDays = { kind: "all" } | { kind: "subset"; rows: ReadonlySet<number> };
 
 const ALL: ViewerAgendaDays = { kind: "all" };
 
 export function visibleAgendaDaysForViewer(
-  extraction: AgendaExtraction,
+  /**
+   * RAW jsonb, normalized here. Mirrors `agendaSessionsForToday`, which also takes the raw
+   * `extracted` value and normalizes internally (`lib/crew/agendaDayForToday.ts:55`). Taking
+   * the raw value keeps the boundary in one place: the caller does not have a normalized
+   * extraction to hand, because `AgendaScheduleBlock` normalizes its own prop.
+   */
+  extracted: unknown,
   /**
    * The viewer's days: the dates of the caller's already-computed `visibleDays`, i.e. the
    * restriction intersected with the show's AGGREGATE dates (spec §2).
@@ -38,6 +44,11 @@ export function visibleAgendaDaysForViewer(
    */
   restrictionDates: readonly string[],
 ): ViewerAgendaDays {
+  const extraction = normalizeAgendaExtraction(extracted);
+  // Not high-confidence or no days: the component renders nothing for this link
+  // (`components/crew/AgendaScheduleBlock.tsx:58`), so there is nothing to fold.
+  if (!extraction || extraction.confidence !== "high" || extraction.days.length === 0) return ALL;
+
   const restriction = new Set(restrictionDates);
   const R = new Set(viewerDates);
 

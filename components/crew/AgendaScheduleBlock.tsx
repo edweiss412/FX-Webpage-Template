@@ -29,6 +29,7 @@
  *     `min-w-0` + `wrap-break-word` so a long unbreakable title wraps instead
  *     of overflowing at 320px.
  */
+import type { ViewerAgendaDays } from "@/lib/crew/agendaViewerDays";
 import type { JSX } from "react";
 
 import { normalizeAgendaExtraction } from "@/lib/agenda/normalizeAgendaExtraction";
@@ -38,6 +39,19 @@ type AgendaScheduleBlockProps = {
   extraction: unknown;
   /** Per-document badge ("RFI"/"PCF"); null for a single bare-AGENDA link. */
   label?: string | null;
+  /**
+   * Which of this extraction's day rows are the viewer's own, or `{ kind: "all" }` when that
+   * cannot be established completely (spec §2). OPTIONAL with an `{ kind: "all" }` default so
+   * the admin Step 3 review preview (`components/admin/wizard/step3ReviewSections.tsx:3230`),
+   * which has no viewer, keeps rendering the whole schedule unchanged.
+   *
+   * Three unrelated causes converge on `{ kind: "all" }` — no viewer, an unrestricted viewer,
+   * and an incomplete match — and all three render identically, so no consumer branches on
+   * which one it was.
+   *
+   * T2 declares the prop and threads the value; T3 is what makes the component USE it.
+   */
+  viewerDays?: ViewerAgendaDays;
 };
 
 /** Turn the stored drift string ("start→12:25 PM (source: 12:25 AM)") into a
@@ -51,6 +65,7 @@ function driftNote(drift: string): string {
 export function AgendaScheduleBlock({
   extraction,
   label = null,
+  viewerDays: _viewerDays = { kind: "all" },
 }: AgendaScheduleBlockProps): JSX.Element | null {
   const data = normalizeAgendaExtraction(extraction);
   // §4.7 gate: render the structured schedule ONLY for a high-confidence
