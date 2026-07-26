@@ -134,24 +134,67 @@ for (const { key, page: pageFile, row } of ROWS) {
         const growable = new RegExp(growableSource);
         const rowEl = document.querySelector(rowSel);
         if (!(rowEl instanceof HTMLElement)) return { error: `row not found: ${rowSel}` };
-        // PAINTS NOTHING, not `childNodes.length === 0`. Review round 1: the
-        // exact-zero test misses the two forms most likely to reappear —
-        // `<span class="flex-1"> </span>` holds one whitespace text node, and a
-        // growable wrapper around an empty child holds one element. Both are
-        // invisible spacers charging gap on both sides, which is the defect.
-        // Judged on rendered ink instead: no non-whitespace text anywhere in the
-        // subtree, and no descendant that paints a box.
+        // PAINTS NOTHING — and asked of the BROWSER, not of a property checklist.
+        //
+        // This started as `childNodes.length === 0` (round 1: missed a whitespace
+        // text node), became a background/border/replaced-element heuristic (round 2:
+        // missed `opacity-0`, `visibility:hidden`, a transparent border colour, and
+        // clipping). That is a checklist that cannot be completed — every round adds
+        // a way to paint nothing while satisfying it. Inverted to ask the browser
+        // directly: `checkVisibility` with the content-visibility and opacity checks
+        // enabled is the platform's own answer to "does this render anything", and it
+        // subsumes every case the heuristic enumerated.
         const paintsNothing = (el: Element): boolean => {
           if ((el.textContent ?? "").trim() !== "") return false;
-          for (const d of [el, ...Array.from(el.querySelectorAll("*"))]) {
+          const visible = (d: Element): boolean => {
+            const anyEl = d as Element & {
+              checkVisibility?: (o?: Record<string, boolean>) => boolean;
+            };
+            if (typeof anyEl.checkVisibility === "function") {
+              if (
+                !anyEl.checkVisibility({
+                  contentVisibilityAuto: true,
+                  opacityProperty: true,
+                  visibilityProperty: true,
+                })
+              ) {
+                return false;
+              }
+            }
             const cs = getComputedStyle(d);
             const r = d.getBoundingClientRect();
-            const hasBg =
-              cs.backgroundColor !== "transparent" && cs.backgroundColor !== "rgba(0, 0, 0, 0)";
-            const hasBorder =
-              parseFloat(cs.borderTopWidth || "0") > 0 || parseFloat(cs.borderLeftWidth || "0") > 0;
-            const isReplaced = ["IMG", "SVG", "CANVAS", "VIDEO"].includes(d.tagName);
-            if ((hasBg || hasBorder || isReplaced) && r.width > 0 && r.height > 0) return false;
+            if (r.width <= 0 || r.height <= 0) return false;
+            // A box only paints if something in it is actually opaque. A transparent
+            // border colour or a fully transparent background paints nothing even
+            // though the width is non-zero.
+            const opaque = (c: string) =>
+              c !== "transparent" && c !== "rgba(0, 0, 0, 0)" && !/,\s*0\s*\)$/.test(c);
+            const borders = (
+              [
+                "borderTopColor",
+                "borderRightColor",
+                "borderBottomColor",
+                "borderLeftColor",
+              ] as const
+            ).some(
+              (k, i) =>
+                opaque(cs[k]) &&
+                parseFloat(
+                  [
+                    cs.borderTopWidth,
+                    cs.borderRightWidth,
+                    cs.borderBottomWidth,
+                    cs.borderLeftWidth,
+                  ][i] || "0",
+                ) > 0,
+            );
+            const replaced = ["IMG", "SVG", "CANVAS", "VIDEO"].includes(d.tagName);
+            return (
+              opaque(cs.backgroundColor) || borders || replaced || cs.backgroundImage !== "none"
+            );
+          };
+          for (const d of [el, ...Array.from(el.querySelectorAll("*"))]) {
+            if (visible(d)) return false;
           }
           return true;
         };

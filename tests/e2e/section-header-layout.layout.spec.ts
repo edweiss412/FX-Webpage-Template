@@ -128,7 +128,10 @@ async function openHairline(page: Page) {
   // Reduced motion so entrance animation cannot perturb geometry. T2's transition
   // cases deliberately run with NORMAL motion, in their own group.
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.setViewportSize({ width: 900, height: 700 });
+  // 320px, the viewport that PRODUCES the 240px row this test measures. It ran at
+  // 900px, so a `max-[430px]:` variant on the rule or the label was never applied
+  // and the test could not have seen it (review round 2).
+  await page.setViewportSize({ width: 320, height: 700 });
   await page.goto(`${baseUrl}hairline.html`, { waitUntil: "load" });
 }
 
@@ -349,7 +352,7 @@ for (const spec of MATRIX) {
   for (const viewport of [320, 375, 430, 1280] as const) {
     test(`section-header ${spec.cell} @ ${viewport}`, async ({ page }) => {
       await page.emulateMedia({ reducedMotion: "reduce" });
-      await page.setViewportSize({ width: Math.max(viewport, 900), height: 900 });
+      await page.setViewportSize({ width: viewport, height: 900 });
       await page.goto(`${baseUrl}${spec.cell}-${viewport}.html`, { waitUntil: "load" });
 
       const m = await page.evaluate(
@@ -473,7 +476,7 @@ const CENTRING_TOLERANCE_PX = 1;
 for (const viewport of [320, 375, 430, 1280] as const) {
   test(`header centring @ ${viewport}`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.setViewportSize({ width: Math.max(viewport, 900), height: 900 });
+    await page.setViewportSize({ width: viewport, height: 900 });
 
     const measured: Array<{
       cell: string;
@@ -617,7 +620,7 @@ const TAP_MIN_PX = 44;
 
 test("corner link carries a 44px tap target @ 375", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.setViewportSize({ width: 900, height: 900 });
+  await page.setViewportSize({ width: 375, height: 900 });
   await page.goto(`${baseUrl}G1-clean-375.html`, { waitUntil: "load" });
 
   const m = await page.evaluate(() => {
@@ -652,9 +655,13 @@ test("corner link carries a 44px tap target @ 375", async ({ page }) => {
         probe(box.right - 1, box.bottom - 1),
       ],
       centre: probe((box.left + box.right) / 2, (box.top + box.bottom) / 2),
-      // Just outside the expanded box: proves the target is bounded, so a full-row
-      // overlay swallowing neighbouring clicks reads as a failure, not a pass.
-      outside: probe(box.left - 3, (box.top + box.bottom) / 2),
+      // Just outside the expanded box on ALL FOUR sides. Only the left was probed,
+      // so an overlay extending the anchor rightward — into the neighbouring
+      // content — swallowed clicks invisibly (review round 2).
+      outsideLeft: probe(box.left - 3, (box.top + box.bottom) / 2),
+      outsideRight: probe(box.right + 3, (box.top + box.bottom) / 2),
+      outsideTop: probe((box.left + box.right) / 2, box.top - 3),
+      outsideBottom: probe((box.left + box.right) / 2, box.bottom + 3),
     };
   });
 
@@ -674,7 +681,10 @@ test("corner link carries a 44px tap target @ 375", async ({ page }) => {
     true,
   ]);
   expect(m.centre, "the target's centre hits the link").toBe(true);
-  expect(m.outside, "the target does not extend past its own expanded box").toBe(false);
+  expect(
+    [m.outsideLeft, m.outsideRight, m.outsideTop, m.outsideBottom],
+    "the target does not extend past its own expanded box on any side" + " (left/right/top/bottom)",
+  ).toEqual([false, false, false, false]);
 });
 
 /**
@@ -700,72 +710,72 @@ test("corner link carries a 44px tap target @ 375", async ({ page }) => {
  * on separately-loaded pages, which cannot distinguish "two states of one header"
  * from "two headers" — this toggles the pill on a live node and gets both.
  *
- * WHAT PART 2 DOES NOT PROVE, established by mutation rather than assumed: it is
- * NOT the guard against an attached transition. Adding `transition-all` to the
+ * WHAT PART 2 DOES NOT PROVE — two limits, both stated rather than implied.
+ *
+ * FIRST, it does not drive REACT. This harness serves static server-rendered
+ * markup, so the toggle below is a direct `style.display` mutation, not a prop
+ * change reconciled under the same key. A `motion.div layout` wrapper or an
+ * effect-driven animation on a real `router.refresh()` would animate the header
+ * and pass here. What bounds that gap is Part 1, which reads the computed style of
+ * every node in the subtree and would see the transition such a wrapper attaches;
+ * what remains genuinely uncovered is an animation driven entirely in JS. Closing
+ * it needs a hydrated React harness, which is filed rather than built here
+ * (BL-HEADER-REACT-RECONCILE-HARNESS).
+ *
+ * SECOND, it is NOT the guard against an attached transition. Adding `transition-all` to the
  * header leaves this test green, because the height is `auto` and CSS does not
  * transition auto heights. Part 1 caught that mutation; this one caught a fixed
  * `min-height`, where the pill's presence stops driving the height at all and the
  * 72.8px figure becomes a coincidence. Two mechanisms, two tests.
  */
 /**
- * Properties whose animation moves a box. Review round 1 found the first version
- * omitted whole families: `min-width` / `max-height` / `row-gap` /
- * `grid-template-columns` were all unbanned, and the `startsWith(banned + "-")`
- * rule could not have caught them anyway — the prefix of `min-width` is `min`,
- * not `width`. Listed exhaustively instead of inferred, and matched as a SUFFIX
- * too so `-block-size` / `-inline-size` variants are covered.
+ * Properties §8 PERMITS a transition on. Everything else is a finding.
+ *
+ * This was a ban-list of geometry properties for two rounds and it never
+ * converged: round 1 added six missing families, round 2 named `aspect-ratio`,
+ * `offset-distance` and `display` on top of those. That is the shape of a rule
+ * that cannot be completed by enumeration — the property set is open, and CSS
+ * keeps growing it. Inverted here, which closes the class instead of chasing it:
+ * §8's inventory permits colour transitions and nothing else, so the test asserts
+ * exactly that. A new CSS property arriving in five years is a finding by default
+ * rather than a silent hole.
  */
-const ANIMATABLE_LAYOUT_PROPS = [
-  "all",
-  "height",
-  "width",
-  "min-width",
-  "max-width",
-  "min-height",
-  "max-height",
-  "inline-size",
-  "block-size",
-  "min-inline-size",
-  "max-inline-size",
-  "min-block-size",
-  "max-block-size",
-  "margin",
-  "padding",
-  "inset",
-  "top",
-  "right",
-  "bottom",
-  "left",
-  "transform",
-  "translate",
-  "rotate",
-  "scale",
-  "opacity",
-  "flex",
-  "flex-basis",
-  "flex-grow",
-  "flex-shrink",
-  "gap",
-  "row-gap",
-  "column-gap",
-  "grid-template-columns",
-  "grid-template-rows",
-  "grid-template-areas",
-  "grid-auto-columns",
-  "grid-auto-rows",
-  "font-size",
-  "line-height",
-  "letter-spacing",
-  "word-spacing",
-  "border-width",
-  "zoom",
+const TRANSITIONABLE_ALLOWED = [
+  "color",
+  "background-color",
+  "border-color",
+  "border-top-color",
+  "border-right-color",
+  "border-bottom-color",
+  "border-left-color",
+  "border-block-start-color",
+  "border-block-end-color",
+  "border-inline-start-color",
+  "border-inline-end-color",
+  "outline-color",
+  "text-decoration-color",
+  "text-emphasis-color",
+  "caret-color",
+  "column-rule-color",
+  "fill",
+  "stroke",
+  "accent-color",
+  "box-shadow", // the focus ring; paints outside the box, moves nothing
+  // Tailwind's `transition-colors` includes these three gradient COLOUR STOPS in
+  // its property list. They are colour values, not geometry, and they appear on
+  // the corner link purely because it uses that utility. Named individually rather
+  // than admitted by a `--tw-*` wildcard: a custom property CAN drive geometry when
+  // it feeds a width calc, so the wildcard would reopen the hole this inversion closes.
+  "--tw-gradient-from",
+  "--tw-gradient-via",
+  "--tw-gradient-to",
 ];
 
 test("transition audit: no geometry transition anywhere in the header subtree", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.setViewportSize({ width: 900, height: 900 });
+  await page.setViewportSize({ width: 375, height: 900 });
 
   const offenders: string[] = [];
   for (const spec of MATRIX) {
@@ -794,6 +804,11 @@ test("transition audit: no geometry transition anywhere in the header subtree", 
       [
         "link focused",
         async () => {
+          // MOVE THE POINTER AWAY FIRST. This state ran straight after `hover()`
+          // without doing so, which measured hover+focus and left a
+          // `[&:focus-visible:not(:hover)]:…` variant unreachable by all three
+          // samples (review round 2). 0,0 is outside every fixture container.
+          await page.mouse.move(0, 0);
           await page.keyboard.press("Tab");
         },
       ],
@@ -802,7 +817,7 @@ test("transition audit: no geometry transition anywhere in the header subtree", 
     for (const [stateName, enter] of states) {
       await enter();
       const found = await page.evaluate(
-        ({ cell, banned }) => {
+        ({ cell, allowed }) => {
           const root = document.querySelector(`[data-cell="${cell}"]`);
           if (!(root instanceof HTMLElement)) return { error: `cell root not found: ${cell}` };
           const icon = root.querySelector('span[aria-hidden="true"]');
@@ -820,24 +835,37 @@ test("transition audit: no geometry transition anywhere in the header subtree", 
             // A KEYFRAME animation is a separate mechanism the transition sweep below
             // cannot see: `animate-pulse` on the pill would animate its appearance with
             // `transition-property: none`. §8 admits neither, so both are checked here.
-            if (cs.animationName !== "none" && parseFloat(cs.animationDuration || "0") > 0) {
-              bad.push(`${label} runs keyframe animation ${cs.animationName}`);
-            }
+            //
+            // PER CHANNEL, not head-sampled. `transition-property: color, height` with
+            // `transition-duration: 0s, 200ms` passed a head-sampled check while the
+            // second channel animated a box (review round 2). CSS cycles the shorter
+            // list, so channel i reads duration[i % duration.length] — the same rule
+            // the browser applies.
+            const csv = (v: string) =>
+              v
+                .split(",")
+                .map((x) => x.trim())
+                .filter((x) => x !== "");
+            const channelValue = (list: string[], i: number) =>
+              list.length === 0 ? "" : (list[i % list.length] ?? "");
 
-            if (
-              cs.transitionProperty === "none" ||
-              parseFloat(cs.transitionDuration || "0") === 0
-            ) {
-              return;
-            }
-            const props = cs.transitionProperty.split(",").map((p) => p.trim());
-            for (const p of props) {
-              const hit = banned.some(
-                (b) => p === b || p.startsWith(`${b}-`) || p.endsWith(`-${b}`),
-              );
-              if (!hit) continue;
-              bad.push(`${label} transitions ${p}`);
-            }
+            const animNames = csv(cs.animationName);
+            const animDurs = csv(cs.animationDuration);
+            animNames.forEach((name, i) => {
+              if (name === "none") return;
+              if (parseFloat(channelValue(animDurs, i) || "0") <= 0) return;
+              bad.push(`${label} runs keyframe animation ${name}`);
+            });
+
+            if (cs.transitionProperty === "none") return;
+            const props = csv(cs.transitionProperty);
+            const durs = csv(cs.transitionDuration);
+            props.forEach((prop, i) => {
+              if (parseFloat(channelValue(durs, i) || "0") <= 0) return;
+              // ALLOWLIST: anything not explicitly permitted is a finding.
+              if (allowed.includes(prop)) return;
+              bad.push(`${label} transitions ${prop} (not in §8's permitted set)`);
+            });
           };
           for (const el of [header, ...Array.from(header.querySelectorAll("*"))]) {
             check(el, null);
@@ -846,7 +874,7 @@ test("transition audit: no geometry transition anywhere in the header subtree", 
           }
           return { error: null, bad };
         },
-        { cell: spec.cell, banned: ANIMATABLE_LAYOUT_PROPS },
+        { cell: spec.cell, allowed: TRANSITIONABLE_ALLOWED },
       );
 
       expect(found.error, `${spec.cell} fixture shape`).toBeNull();
@@ -865,7 +893,7 @@ test("transition audit: the header snaps when its pill changes on a mounted node
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.setViewportSize({ width: 900, height: 900 });
+  await page.setViewportSize({ width: 375, height: 900 });
   await page.goto(`${baseUrl}G1-flagged-375.html`, { waitUntil: "load" });
 
   const m = await page.evaluate(() => {
@@ -927,7 +955,7 @@ test("transition audit: the header snaps when its pill changes on a mounted node
  */
 test("corner link's focus-ring offset matches the surface behind it", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.setViewportSize({ width: 900, height: 900 });
+  await page.setViewportSize({ width: 375, height: 900 });
 
   for (const theme of ["light", "dark"] as const) {
     await page.goto(`${baseUrl}G1-clean-375.html`, { waitUntil: "load" });
