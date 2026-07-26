@@ -64,7 +64,7 @@ Ratified by the user on 2026-07-26 during brainstorming, from a rendered side-by
 8. **`drive_watch_channels`' pre-existing PostgREST grants are out of scope.** `supabase/migrations/20260501002000_rls_policies.sql:163` grants `insert, update, delete` to `anon, authenticated`. That exposure predates this diff and is tracked as `BL-ADMIN-POSTGREST-DML-LOCKDOWN`. This diff neither creates nor widens it and adds no new table. **Do not expand scope to remediate it** (ratified as item 8 of the deferred design, `docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md:57`).
 9. **One branch, four TDD commits, one PR.** Ratified over two-PR and four-PR splits because §3.1 and §3.2 interact at a single ordering point (the reap must run before the renewal read) and shipping them apart means designing that interaction twice.
 10. **Inverting `tests/db/watchRenewalDue.test.ts:122-131` is intended, not collateral.** That test pins D-A deliberately and names the backlog entry in its own comment. §5 is the full inventory of shipped tested contracts this diff changes, with the replacement assertion for each.
-11. **The three new codes are forensic-only and are NOT §12.4 catalog rows.** They live inside `log.*` spans, which `stripLogEmissionCalls` removes before the producer scan (`tests/cross-cutting/codes.test.ts:41-45`), exactly like the four watch codes already shipped — none of `DRIVE_WATCH_ACTIVATED`, `DRIVE_WATCH_RENEWAL_FAILED`, `DRIVE_WATCH_STOP_FAILED`, `DRIVE_WATCH_STALE_PENDING_SWEPT` appears in `lib/messages/catalog.ts`. **Do not require a §12.4 lockstep for them**; §4.3 is the registry fan-out that DOES apply.
+11. **The four new codes are forensic-only and are NOT §12.4 catalog rows.** They live inside `log.*` spans, which `stripLogEmissionCalls` removes before the producer scan (`tests/cross-cutting/codes.test.ts:41-45`), exactly like the four watch codes already shipped — none of `DRIVE_WATCH_ACTIVATED`, `DRIVE_WATCH_RENEWAL_FAILED`, `DRIVE_WATCH_STOP_FAILED`, `DRIVE_WATCH_STALE_PENDING_SWEPT` appears in `lib/messages/catalog.ts`. **Do not require a §12.4 lockstep for them**; §4.3 is the registry fan-out that DOES apply.
 
 ---
 
@@ -77,8 +77,8 @@ Ratified by the user on 2026-07-26 during brainstorming, from a rendered side-by
 | D3 | Where the reap runs | `refreshWatchSubscriptions`, not `gcWatchChannels`. Refresh owns the query the stale row pollutes, and the reap must be ordered against that query within one snapshot. |
 | D4 | GC treatment of `expired` | Collected like `superseded`/`orphaned`, but with `channels.stop` SKIPPED — Google has already dropped an expired channel. The skip reads `status`, not an `expires_at` comparison (§3.1.4). |
 | D5 | Folder filter source | `getActiveWatchedFolder()`, read ONCE per run, already imported at `lib/drive/watch.ts:15`. Injectable through `RefreshDeps` for tests. |
-| D6 | Folder-read failure posture | `infra_error` or a thrown read → renew EVERYTHING (today's behaviour, fail-open) and report it in a new `folderScope` field. `no_folder_configured` → renew NOTHING (§3.2.2). |
-| D7 | How the folder-read fault is reported | A new `RefreshResult.folderScope` discriminant, NOT a `failures` row with the `'*'` sentinel — `'*'` already means "renewal state for every folder is unknown", which reconcile reads to suppress auto-resolve (`lib/drive/watch.ts:846-852`), and a fail-open run in which every folder WAS renewed must not suppress it (§3.2.3). |
+| D6 | Folder-read failure posture | `infra_error` or a thrown read → renew EVERYTHING (today's behaviour, fail-open). `no_folder_configured` → renew NOTHING (§3.2.2). |
+| D7 | How the folder-read fault is reported | A durable forensic emit only. `RefreshResult` is UNCHANGED, and no `failures` row is recorded — in particular not the `'*'` sentinel, which reconcile reads as "renewal state for every folder is unknown" to suppress auto-resolve (`lib/drive/watch.ts:846-852`); a fail-open run in which every folder WAS renewed must not suppress it (§3.2.3). |
 | D8 | Drive-call bound | Both a `MethodOptions` `timeout` + `signal` on the call AND an outer race deadline, because `MethodOptions.timeout` reaches only the API request and not the credential fetch that precedes it (§3.3.1). |
 | D9 | Loop bound | A per-row budget and a per-run budget, the latter reusing the existing `T_EXEC_BUDGET_MS`. Its doc comment, which currently says nothing enforces it, is corrected to state exactly what now does and what still does not (§3.3.3). |
 | D10 | Atomic alert transport | `PostgresWatchTx.upsertAdminAlert` calls `public.upsert_admin_alert` over its own `sql` connection. The RPC is `security definer` and `language sql` (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql:18-27`), so it is reachable from the pg connection with no signature change (§3.4). |
@@ -96,13 +96,14 @@ Unchanged and explicitly NOT touched: `WATCH_TTL_MS` (86_400_000), `RENEWAL_LIFE
 
 ### 2.2 New forensic codes
 
-Three, all emitted inside `log.*` spans and therefore NOT §12.4 rows (§1.1a item 11). Each is emitted at most once per run.
+Four, all emitted inside `log.*` spans and therefore NOT §12.4 rows (§1.1a item 11). Each is emitted at most once per run.
 
 | Code | Level | Emitted when | Fields |
 |---|---|---|---|
 | `DRIVE_WATCH_EXPIRED_REAPED` | `info` | the reap returned ≥ 1 row | `reapedIds` (capped, §3.1.3), `reapedCount` |
 | `DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER` | `info` | ≥ 1 due row was skipped by the folder filter | `skippedFolderIds` (capped), `skippedCount`, `configuredFolderId`, `reason` (`"not_configured_folder"` \| `"no_folder_configured"`) |
 | `DRIVE_WATCH_RUN_BUDGET_EXHAUSTED` | `warn` | the run budget stopped the loop with rows unprocessed | `processedCount`, `remainingCount`, `elapsedMs`, `budgetMs` |
+| `DRIVE_WATCH_FOLDER_READ_FAILED` | `warn` | the configured-folder read returned `infra_error` or threw, so the run fell back to renewing every folder | `errorMessage` (through `redactWatchError`), `dueCount` |
 
 A Drive-call timeout emits NO new code: it surfaces through the existing `DRIVE_WATCH_RENEWAL_FAILED` warn (`lib/drive/watch.ts:675-680`) and the existing `drive watch subscribe failed` error (`lib/drive/watch.ts:512-518`), with `error_class = "drive_api"` (§3.3.4).
 
@@ -197,29 +198,28 @@ The helper is already imported (`lib/drive/watch.ts:15`) and already used by `re
 
 #### 3.2.2 The three outcomes
 
-| Read result | Renewed | `folderScope` | Emit |
-|---|---|---|---|
-| `{folderId}` | rows where `watchedFolderId === folderId` | `"configured"` | `DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER` if any row was filtered out |
-| `{kind:'no_folder_configured'}` | none | `"none_configured"` | same code, `reason: "no_folder_configured"`, if `due` was non-empty |
-| `{kind:'infra_error'}` **or** a thrown read | ALL rows (today's behaviour) | `"unfiltered_folder_read_failed"` | no skip emit — nothing was skipped |
+| Read result | Renewed | Emit |
+|---|---|---|
+| `{folderId}` | rows where `watchedFolderId === folderId` | `DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER` if any row was filtered out |
+| `{kind:'no_folder_configured'}` | none | same code, `reason: "no_folder_configured"`, if `due` was non-empty |
+| `{kind:'infra_error'}` **or** a thrown read | ALL rows (today's behaviour) | `DRIVE_WATCH_FOLDER_READ_FAILED` (warn) |
 
 `no_folder_configured` renewing nothing is the deliberate reading of "nothing is configured, so nothing should be watched". The existing channel is then reaped by §3.1 within its remaining lease and GC'd — the same natural-expiry path an abandoned folder takes. Reconcile's `no_folder_configured` branch already treats this state as vacuous-healthy and resolves the alert (`lib/drive/watch.ts:815-832`), so the two surfaces agree.
 
 A thrown read is caught and mapped to the same fail-open branch as `infra_error`: an unhandled throw out of `refreshWatchSubscriptions` would reach the cron route handler, and recorded-not-thrown is the established contract on this surface (`lib/drive/watch.ts:804-810` does exactly this for the same helper inside reconcile).
 
-#### 3.2.3 Why a new field and not a `failures` row
+#### 3.2.3 `RefreshResult` does not change, and the `'*'` sentinel is not reused
 
-`RefreshResult` (`lib/drive/watch.ts:623-627`) gains:
+**`RefreshResult` (`lib/drive/watch.ts:623-627`) keeps its exact current shape.** An earlier draft of this spec added a `folderScope` discriminant to it and called the addition "additive". That was wrong on two counts, and the correction is the reason this section exists:
 
-```ts
-folderScope: "configured" | "none_configured" | "unfiltered_folder_read_failed";
-```
+- It is not additive to the **tests**. `RefreshResult` is deep-equality asserted with `toEqual` in five files — `tests/drive/watch.test.ts` (twelve sites, including the `NO_REFRESH` fixture at `tests/drive/watch.test.ts:233`), `tests/sync/_metaInfraContract.test.ts:879-883`, `tests/cron/refreshWatchRoute.test.ts:20`, `tests/api/cron-sync.test.ts:9`, `tests/cron/cronRouteSummaries.test.ts:98`. A required new field breaks every one of them, for no behavioural gain.
+- It is not additive to the **public cron response**. `tests/cron/refreshWatchRoute.test.ts:69-71` asserts the route's serialised JSON body with `toEqual`, so the field would become part of that response's contract.
 
-The alternative — pushing `{folderId: '*', operation: 'folder_read'}` — is wrong, and the reason is worth stating because it is not obvious. Reconcile reads `'*'` as "renewal state for EVERY folder is unknown this cycle" and uses it to refuse auto-resolving `WATCH_CHANNEL_ORPHANED` (`lib/drive/watch.ts:846-852`). But in the fail-open branch renewal state is NOT unknown: every folder was attempted and its result recorded. Emitting `'*'` there would suppress a legitimate auto-resolve on a cycle in which the channel demonstrably renewed, leaving Doug an alert for a healthy watch. The `'*'` sentinel keeps its one meaning and the new condition gets its own field.
+The fail-open condition is therefore reported the way every other diagnostic on this surface is reported: as a durable forensic emit, `DRIVE_WATCH_FOLDER_READ_FAILED` (§2.2), carrying the redacted error message. That is the record `pnpm observe events --source drive.watch` reads, and nothing programmatic needs the value — the route only reads `failures` for its 500 decision (`app/api/cron/refresh-watch/route.ts:3-4`), and reconcile performs its own folder read.
 
-Reconcile does not read `folderScope`; it performs its own `getActiveWatchedFolder` call (`lib/drive/watch.ts:806`). Two independent reads in one tick can in principle disagree — if the first fails and the second succeeds, refresh renewed everything while reconcile scoped to one folder. **This is accepted, not overlooked:** both branches are fail-open, both record their own fault, and the disagreement window is one tick. Coupling them would mean threading refresh's read into reconcile, which re-creates the durable-transport problem that R4 of the deferred design removed (`docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md:70`).
+**No `failures` row is recorded for a failed folder read**, and in particular not `{folderId: '*', operation: 'folder_read'}`. Reconcile reads `'*'` as "renewal state for EVERY folder is unknown this cycle" and uses it to refuse auto-resolving `WATCH_CHANNEL_ORPHANED` (`lib/drive/watch.ts:846-852`). In the fail-open branch renewal state is NOT unknown: every folder was attempted and every result recorded. Emitting `'*'` would suppress a legitimate auto-resolve on a cycle in which the channel demonstrably renewed, leaving Doug an alert for a healthy watch. Recording no row is also what keeps the cron route at 200 for a cycle that did renew everything, which is the honest status.
 
-`folderScope` is additive to a returned object. Consumers: `app/api/cron/refresh-watch/route.ts:10-11` passes the value to reconcile and serialises it into the cron response. §4.3 covers the response-shape assertion that has to move.
+Reconcile performs its own `getActiveWatchedFolder` call (`lib/drive/watch.ts:806`). Two independent reads in one tick can in principle disagree — if the first fails and the second succeeds, refresh renewed everything while reconcile scoped to one folder. **This is accepted, not overlooked:** both branches are fail-open, both record their own diagnostic, and the disagreement window is one tick. Coupling them would mean threading refresh's read into reconcile, which re-creates the durable-transport problem that R4 of the deferred design removed (`docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md:70`).
 
 ### 3.3 Bound every Drive call and the loop around it
 
@@ -350,13 +350,13 @@ Every registry this diff touches, each verified against the live tree.
 | Registry | Required action |
 |---|---|
 | `tests/db/_metaLocalDbUrlGuard.test.ts:396-402` | **Bump the scanned-file count from 56.** It asserts an exact count of files that read `LOCAL_TEST_DATABASE_URL`. §6's new real-DB suite adds one, so the expected value becomes 57. Missing this fails the meta-test. |
-| `tests/log/_auditableMutations.ts` `NEW_FORENSIC_CODES` | Add the three §2.2 codes. Verified safe: the set is consumed as an allowlist (`tests/log/_metaAdminOutcomeContract.test.ts:71` checks none leaked into catalog producers) and **no test asserts its size** (`grep -rn "NEW_FORENSIC_CODES.size" tests/` → no matches). |
+| `tests/log/_auditableMutations.ts` `NEW_FORENSIC_CODES` | Add the four §2.2 codes. Verified safe: the set is consumed as an allowlist (`tests/log/_metaAdminOutcomeContract.test.ts:71` checks none leaked into catalog producers) and **no test asserts its size** (`grep -rn "NEW_FORENSIC_CODES.size" tests/` → no matches). |
 | `tests/log/_metaMutationSurfaceObservability.test.ts` | **N/A, verified:** the only route in scope is `app/api/cron/refresh-watch/route.ts`, whose sole export is `GET` (`app/api/cron/refresh-watch/route.ts:6`). The meta-test discovers mutating handlers (`POST`/`PUT`/`PATCH`/`DELETE`) and `"use server"` actions; this diff adds neither. No `AUDITABLE_MUTATIONS` row, no `ADMIN_SURFACE_EXEMPTIONS` row, no `KNOWN_UNINSTRUMENTED` row. |
-| `tests/cross-cutting/codes.test.ts` (x1-catalog-parity) | **N/A, verified:** §1.1a item 11. The three codes sit inside `log.*` spans, which `stripLogEmissionCalls` removes before the producer scan (`tests/cross-cutting/codes.test.ts:41-45`). No §12.4 prose edit, no `pnpm gen:spec-codes`, no `lib/messages/catalog.ts` row. The AGENTS.md three-lockstep rule is not engaged. |
+| `tests/cross-cutting/codes.test.ts` (x1-catalog-parity) | **N/A, verified:** §1.1a item 11. The four codes sit inside `log.*` spans, which `stripLogEmissionCalls` removes before the producer scan (`tests/cross-cutting/codes.test.ts:41-45`). No §12.4 prose edit, no `pnpm gen:spec-codes`, no `lib/messages/catalog.ts` row. The AGENTS.md three-lockstep rule is not engaged. |
 | `tests/log/_metaAdminOutcomeContract.test.ts:345` (`NULLCODE_BATCH2_STAMPS`, "33 rows") | **N/A, verified:** a closed historical batch registry. New codes do not join it, so the count is unchanged. |
 | `tests/auth/_metaInfraContract.test.ts` / `tests/sync/_metaInfraContract.test.ts` | **N/A** for the new call site: §3.4.1 is a raw pg query on the enclosing transaction, not a Supabase client boundary. Carries the inline `// not-subject-to-meta:` comment invariant 9 prescribes. |
 | `tests/db/validation-schema-parity.test.ts` | Runs unchanged and, per §4.1, is expected to see no manifest diff. It therefore does NOT protect the validation apply — §4.4. |
-| `tests/cron/refreshWatchRoute.test.ts` | Audited for an exact-shape assertion on the `RefreshResult` serialised into the cron response; `folderScope` is additive and any deep-equality assertion needs the new field. |
+| `RefreshResult` deep-equality assertions (`tests/drive/watch.test.ts`, `tests/sync/_metaInfraContract.test.ts`, `tests/cron/refreshWatchRoute.test.ts`, `tests/api/cron-sync.test.ts`, `tests/cron/cronRouteSummaries.test.ts`) | **N/A, by design:** §3.2.3 keeps `RefreshResult` and the cron response body byte-identical, so none of the five files changes. This row exists because an earlier draft added a field here and wrongly called it additive. |
 | `lib/audit/watermark-symbols.generated.ts` | **N/A, verified:** it lists `drive_watch_channels.superseded_at` (`lib/audit/watermark-symbols.generated.ts:17`) — a column symbol. No column is added or removed. |
 
 ### 4.4 The validation-project apply is un-guarded, and this is how it is closed
@@ -409,8 +409,8 @@ TDD per AGENTS.md invariant 1: every test below is written failing first. Each r
 | The reap runs BEFORE the renewal read | `tx.operations` equals `["expireDeadActive", "listRenewalDue", …]`. Catches a reap ordered after the read, which would leave the stale row in `due` for one more tick — the entire fix silently reduced to a no-op. Order, not mere presence. |
 | An expired-and-due row produces **zero** subscribe attempts from refresh | The executable form of §3.1.3. Asserts the spy's call COUNT is 0, not that some other row was renewed. |
 | Folder filter passes the configured folder and drops the rest | Asserts the subscribe spy's ARGUMENT is the configured folder id, and that a stale-folder row yields no call. Catches a filter that counts right and selects wrong. |
-| `no_folder_configured` → zero subscribes, `folderScope === "none_configured"` | Catches a fail-open default leaking into the not-configured branch. |
-| Folder read returns `infra_error` → ALL rows renewed, `folderScope === "unfiltered_folder_read_failed"`, and `failures` contains **no** `'*'` row | D7. Catches a regression to the `'*'` sentinel, which would suppress reconcile's auto-resolve on a healthy cycle. |
+| `no_folder_configured` → zero subscribe calls | Catches a fail-open default leaking into the not-configured branch. |
+| Folder read returns `infra_error` → ALL rows renewed, `DRIVE_WATCH_FOLDER_READ_FAILED` emitted, and the returned object `toEqual`s the pre-change shape with an EMPTY `failures` array | D7, and three assertions in one because they fail independently: fail-open renewal, the durable record, and no `'*'` row (which would suppress reconcile's auto-resolve on a healthy cycle). The `toEqual` against the old shape is what pins §3.2.3's promise that the result type did not change. |
 | Folder read THROWS → same as `infra_error` | Catches recorded-not-thrown being lost, i.e. a throw escaping `refreshWatchSubscriptions` into the route handler. |
 | `defaultWatchFolder` passes `{ timeout: DRIVE_CALL_TIMEOUT_MS, retry: false }` as the SECOND argument to `files.watch`, and `defaultStopChannel` the same to `channels.stop` | Asserts both fields by value on a mock drive client. `retry: false` is the half that matters: without it gaxios's internal retry multiplies the budget and the timeout bounds nothing, which no timing test would notice. |
 | `withDriveCallDeadline` rejects with `DriveCallTimeoutError` at the budget, carrying `operation` and `timeoutMs` | Catches a wrapper that resolves-with-undefined or throws an untyped error, either of which would make a stall look like a Drive-side failure with no attribution. |
@@ -458,7 +458,7 @@ Before implementing §3.3, `rg -n 'getDriveClient\(\)' lib/ app/` enumerates eve
 
 **8.2 "`'stopping'` is in the CHECK but not in `WatchChannelStatus`."** Pre-existing (`supabase/migrations/20260501001000_internal_and_admin.sql:296` vs `lib/drive/watch.ts:21`). Preserved verbatim because dropping a value from a CHECK is a separate, riskier change than adding one, and no code writes it. Out of scope (§7), noted so it is not read as introduced here.
 
-**8.3 "`folderScope` duplicates `failures`."** Refuted in §3.2.3 with the concrete harm: the `'*'` sentinel suppresses reconcile's auto-resolve, and a fail-open run that renewed everything must not suppress it.
+**8.3 "The failed folder read should be reported in the returned result."** Considered and rejected in §3.2.3, which also records that an earlier draft of this spec did exactly that and was wrong: `RefreshResult` is deep-equality asserted in five test files and serialised into the cron response, so no field is additive there. The condition is reported as a durable emit instead. Reusing the `'*'` sentinel is separately refuted with concrete harm in the same section.
 
 **8.4 "The run budget makes the renewal-timing guarantee defensible now."** Only partly, and deliberately not claimed. §3.3.3 states exactly what is enforced inside the process and what is not enforced around it. `isGrantTooShort` stays a heuristic in this diff.
 
