@@ -165,7 +165,11 @@ describe("full resolution payload at each reachable caller", () => {
     expect(warnings).toHaveLength(2);
     const res = warnings.map(
       (x) =>
-        x.resolution as { resolvable: boolean; contentHash: string; replacement: { hotelName: string } },
+        x.resolution as {
+          resolvable: boolean;
+          contentHash: string;
+          replacement: { hotelName: string };
+        },
     );
     expect(res.every((r) => r.resolvable)).toBe(true);
     expect(new Set(res.map((r) => r.contentHash)).size).toBe(2);
