@@ -6,10 +6,17 @@ PR2 of the 6-PR `BL-NULLCODE-STAMP-BATCH-2 residuals` sequence (PR1 = #587). Clo
 
 ## What shipped
 
-Every external link in `components/` and `app/` now tells screen-reader users it opens a new tab. The `↗` glyphs and external-link icons that told sighted users are all `aria-hidden`, so 21 of 23 anchors announced nothing.
+Every external link in `components/` and `app/` now tells screen-reader users it opens a new tab. The `↗` glyphs and external-link icons that told sighted users are all `aria-hidden`, so all but two of the family announced nothing.
 
-- `components/shared/NewTabHint.tsx` — one visually-hidden `(opens in a new tab)` span, so the copy exists once across 15 call sites.
-- 11 Group A anchors: sibling space + the hint. 6 Group B anchors: phrase appended to an existing `aria-label`. 4 Group C anchors: hint gated on `action.external` (they are same-app links when false).
+**Current figures, re-derived from the guard (review R30 item 5 caught this summary stale):** the
+family is **22 anchors across 15 files, 0 violations**, and 13 `.mdx` files contribute 0 anchors. The
+sweep began at 23 anchors in 16 files and fixed 21 of them; one — this spec's sole `app/` member —
+was then deleted upstream as an orphan mid-review, taking its announcement with it. Spec §1.4 carries
+the full before/after table and why the file count was independently wrong. Figures quoted further
+down this document are historical and were accurate when written.
+
+- `components/shared/NewTabHint.tsx` — one visually-hidden `(opens in a new tab)` span, so the copy exists once across the call sites.
+- 11 Group A anchors: sibling space + the hint. Group B anchors: phrase appended to an existing `aria-label` (6 at the time, 5 after the upstream deletion). 4 Group C anchors: hint gated on `action.external` (they are same-app links when false).
 - 3 WCAG 2.5.3 (Level A) label-in-name failures fixed: `step3ReviewSections.tsx` and the crew-facing `SourceLink.tsx` read "In sheet" while their labels never contained it; `VenueMapTile.tsx` reads "Directions" while its label never contained that.
 - 2 bare `→` glyphs wrapped `aria-hidden` in `Step2Verify.tsx`; `rel` normalized on 3 anchors.
 - `tests/styles/_metaNewTabAnnouncement.test.ts` + `tests/styles/_newTabScan.ts` — per-anchor TSX AST guard, 53 tests.

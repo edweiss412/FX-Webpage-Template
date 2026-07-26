@@ -490,15 +490,31 @@ function isShadowedAt(at: ts.Node, name: string): boolean {
       }
       return false;
     }
-    // `const f = function NewTabHint() {}` binds the name inside its own body.
+    // `const f = function NewTabHint() {}` binds the name inside its own body, and so does a
+    // named CLASS expression (review R30 BLOCKING 2).
     if (ts.isFunctionExpression(n) && n.name !== undefined) return n.name.text === name;
+    if (ts.isClassExpression(n) && n.name !== undefined) return n.name.text === name;
+    // A namespace/module block and a switch's case block are lexical scopes too.
+    if (ts.isModuleBlock(n)) return n.statements.some(declares);
+    if (ts.isCaseBlock(n)) {
+      return n.clauses.some((c) => c.statements.some(declares));
+    }
+    if (ts.isCaseClause(n) || ts.isDefaultClause(n)) return n.statements.some(declares);
     if (ts.isCatchClause(n)) {
       return n.variableDeclaration !== undefined && bindsName(n.variableDeclaration.name);
     }
     return false;
   };
   for (let cur: ts.Node | undefined = at; cur !== undefined; cur = cur.parent) {
-    if (ts.isSourceFile(cur)) break; // module scope: the import itself lives here
+    if (ts.isSourceFile(cur)) {
+      // MODULE SCOPE counts too. A top-level `class NewTabHint {}` or `const NewTabHint = …`
+      // alongside the import is a redeclaration error, and this guard's stated policy is not to
+      // adjudicate validity -- the identifier at the use site no longer clearly refers to the
+      // import, so it fails closed. `declares` never matches an ImportDeclaration, so the import
+      // itself cannot trip this.
+      if (cur.statements.some(declares)) return true;
+      break;
+    }
     const body = (cur as { body?: ts.Node }).body;
     const stmts = body !== undefined && ts.isBlock(body) ? body.statements : undefined;
     if (stmts !== undefined && stmts.some(declares)) return true;
@@ -612,10 +628,28 @@ function rendersNothing(e: ts.Expression): boolean {
   // React 19.2.4. Treating it as contributing no name is still right -- the component cannot
   // render at all -- but the earlier claim about the mechanism was false.
   if (ts.isObjectLiteralExpression(n)) return true;
-  // `!true` is `false`, which renders nothing; `!0` is `true`, likewise (review R29 BLOCKING 2).
-  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
-    const inner = unparen(n.operand);
-    if (isLiteralTruthy(inner) || isLiteralFalsy(inner)) return true; // a boolean either way
+  // ANY expression that always PRODUCES a boolean renders nothing -- React renders neither
+  // `true` nor `false`. R29 handled only literal operands (`!true`), which left `{!label}` and
+  // `{n > 0}` fail-open (review R30 BLOCKING 1). The set of always-boolean operators is closed
+  // in the grammar, so this is a decidable rule rather than another approximation:
+  //   `!x`, the eight comparisons, `instanceof`, `in`, and `delete`.
+  // Deliberately NOT `typeof`, which yields a STRING and therefore renders.
+  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) return true;
+  if (ts.isDeleteExpression(n)) return true;
+  if (ts.isBinaryExpression(n)) {
+    const boolOps = new Set<ts.SyntaxKind>([
+      ts.SyntaxKind.LessThanToken,
+      ts.SyntaxKind.GreaterThanToken,
+      ts.SyntaxKind.LessThanEqualsToken,
+      ts.SyntaxKind.GreaterThanEqualsToken,
+      ts.SyntaxKind.EqualsEqualsToken,
+      ts.SyntaxKind.ExclamationEqualsToken,
+      ts.SyntaxKind.EqualsEqualsEqualsToken,
+      ts.SyntaxKind.ExclamationEqualsEqualsToken,
+      ts.SyntaxKind.InstanceOfKeyword,
+      ts.SyntaxKind.InKeyword,
+    ]);
+    if (boolOps.has(n.operatorToken.kind)) return true;
   }
   if (ts.isConditionalExpression(n)) {
     // When the TEST is a literal we know which branch is taken, so only that one matters.
@@ -785,6 +819,12 @@ const NOT_RENDERED_TAGS = new Set([
   "noscript",
   "datalist",
   "rp",
+  // React 19 HOISTS a nested `<title>` out of the anchor, so its text never contributes to the
+  // anchor's name (review R30 BLOCKING 4). The earlier reason for excluding it -- "not valid
+  // inside an `<a>`" -- was factually wrong about React's behaviour, which is a different error
+  // from getting a list wrong. `title` is also an attribute name; it lives in
+  // CASE_INSENSITIVE_NAMES for that reason, which keeps the classification checks satisfied.
+  "title",
   "noembed",
   "noframes",
   "param",
@@ -900,7 +940,11 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
       // template literal is not a quote (review R28 BLOCKING 5). And bound `visibility` at a
       // word start, or it matches INSIDE `backfaceVisibility`, which manufactured a violation
       // on `{{ backfaceVisibility: "hidden" }}` -- wrong in both directions at once.
-      const v = (a.initializer?.getText() ?? "").replace(/["'`\[\]]/g, "");
+      // Comments inside the object literal defeated a raw-text match:
+      // `style={{ display: /* hidden */ "none" }}` did not match (review R30 BLOCKING 3). Strip
+      // comments FIRST, using the same parse-informed helper the file-level scan uses, then the
+      // quotes/brackets/backticks.
+      const v = stripCommentsSafely(a.initializer?.getText() ?? "").replace(/["'`\[\]]/g, "");
       if (/(^|[^a-z])display\s*:\s*none/i.test(v)) return true;
       if (/(^|[^a-z])visibility\s*:\s*(hidden|collapse)/i.test(v)) return true;
     }

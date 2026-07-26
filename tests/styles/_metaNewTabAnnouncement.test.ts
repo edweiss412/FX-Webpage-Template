@@ -38,6 +38,10 @@ const CASE_INSENSITIVE_NAMES = new Set([
   "classname",
   "class",
   "style",
+  // R30: `title` is BOTH an attribute name and a tag name React 19 hoists out of an anchor. It
+  // belongs here rather than in NOT_AN_ATTRIBUTE_NAME, because it IS a real attribute and the
+  // anti-silencing check correctly refuses to let a real attribute be declared otherwise.
+  "title",
   // Link-relevant attributes only. `type`, `title`, `alt`, `id` and `name` were
   // here briefly and removed on purpose: this scanner never compares them, so
   // they added no protection, while an exact literal "Title" or "Name" in a
@@ -1797,6 +1801,81 @@ describe("R6: scanner changes are pinned", () => {
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
+  });
+
+  it("R30 any boolean-producing expression, more scopes, comments in styles, hoisted title", () => {
+    const IMP = 'import { NewTabHint } from "@/components/shared/NewTabHint";\n';
+    const hid = '<span aria-hidden="true">Go</span>';
+    // R29 handled `!true`; R30 showed the operand does not have to be a literal. React renders
+    // NEITHER boolean, so any always-boolean expression contributes nothing. The set is closed in
+    // the grammar: `!x`, the eight comparisons, `instanceof`, `in`, `delete`.
+    for (const expr of [
+      "{!label}",
+      "{n > 0}",
+      "{x instanceof Date}",
+      '{"k" in obj}',
+      "{!!label}",
+    ]) {
+      expect(
+        violations(
+          `const A=({label,n,x,obj})=><a href="x" target="_blank">${hid} ${expr} <NewTabHint /></a>;`,
+        ),
+        `must report, always a boolean: ${expr}`,
+      ).not.toEqual([]);
+    }
+    // `typeof` yields a STRING and therefore RENDERS -- the boundary of that rule.
+    expect(
+      violations(
+        `const A=({x})=><a href="x" target="_blank">${hid} {typeof x} <NewTabHint /></a>;`,
+      ),
+      "typeof renders a string, so it IS a destination",
+    ).toEqual([]);
+    // More shadowing scopes: inside a named class EXPRESSION (where the name does bind), a
+    // namespace block, a switch case block, and module scope.
+    for (const [label, body] of [
+      [
+        "named class expression body",
+        'const C = class NewTabHint { render(){ return <a href="x" target="_blank">Go <NewTabHint /></a>; } };',
+      ],
+      [
+        "namespace block",
+        'namespace N { const NewTabHint = () => null; export const A = () => <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+      ],
+      [
+        "switch case block",
+        'function A(k){ switch(k){ case 1: { const NewTabHint = () => null; return <a href="x" target="_blank">Go <NewTabHint /></a>; } default: return null; } }',
+      ],
+      [
+        "module-scope class declaration",
+        'class NewTabHint {}\nconst A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;',
+      ],
+    ] as [string, string][]) {
+      expect(
+        probe(IMP + body, { bare: true }).violations,
+        `must fail closed: ${label}`,
+      ).not.toEqual([]);
+    }
+    // A named class expression does NOT bind its name outside its own body, so this is not a shadow.
+    expect(
+      probe(
+        IMP +
+          'const C = class NewTabHint {};\nconst A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;',
+        { bare: true },
+      ).violations,
+      "a class expression's name does not leak into the enclosing scope",
+    ).toEqual([]);
+    // A COMMENT inside the style object defeated a raw-text match.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank"><span style={{ display: /* hidden */ "none" }}>Go</span> <NewTabHint /></a>;',
+      ),
+      "a comment inside the style object must not hide display:none from the matcher",
+    ).not.toEqual([]);
+    // React 19 HOISTS a nested <title> out of the anchor, so its text never reaches the name.
+    expect(
+      violations('const A=()=><a href="x" target="_blank"><title>Go</title> <NewTabHint /></a>;'),
+      "a hoisted <title> contributes no destination",
+    ).not.toEqual([]);
   });
 
   it("R29 loop and named-function shadows, literal booleans, and <rp>", () => {
