@@ -742,7 +742,14 @@ function isLiteralFalsy(n: ts.Expression): boolean {
   // The three falsy values that are not plain literals (review R32 HIGH 7). React omits an
   // attribute for each of them -- measured for `hidden` and `inert` -- and the helper claimed to
   // recognise "every falsy value" while missing all three.
-  if (ts.isBigIntLiteral(n)) return /^0+n$/.test(n.text);
+  // `!<decidable>` is decidable too: `!false` is provably true, `!1` provably false. Without this a
+  // provably-open `<details open={!false}>` was reported. Exact JS semantics, so it is equally
+  // correct wherever these two helpers pick a conditional branch or a logical operand.
+  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
+    return isLiteralTruthy(n.operand);
+  }
+  // By VALUE, not by spelling: `/^0+n$/` missed `0x0n`, `0b0n` and separator forms (R33 BLOCKING 3).
+  if (ts.isBigIntLiteral(n)) return bigIntLiteralIsZero(n.text);
   if (ts.isIdentifier(n) && n.text === "NaN") return true;
   // `-0` is a prefix MINUS applied to `0`, not a numeric literal, so the check above never saw it.
   if (
@@ -769,6 +776,22 @@ function staticStringValue(e0: ts.Expression): string | null {
   const e = unparen(e0);
   if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
   if (ts.isNumericLiteral(e)) return String(Number(e.text));
+  // How each of these STRINGIFIES inside a template, all measured: `${null}` is "null", `${0n}` and
+  // `${-0}` are both "0". Leaving them undecidable made every one a false positive, because an
+  // undecidable aria-hidden fails closed (review R33 BLOCKING 5).
+  if (e.kind === ts.SyntaxKind.NullKeyword) return "null";
+  if (ts.isIdentifier(e) && e.text === "undefined") return "undefined";
+  if (ts.isIdentifier(e) && e.text === "NaN") return "NaN";
+  if (ts.isBigIntLiteral(e)) return e.text.replace(/n$/, "").replace(/_/g, "");
+  if (
+    ts.isPrefixUnaryExpression(e) &&
+    (e.operator === ts.SyntaxKind.MinusToken || e.operator === ts.SyntaxKind.PlusToken) &&
+    ts.isNumericLiteral(e.operand)
+  ) {
+    const n =
+      e.operator === ts.SyntaxKind.MinusToken ? -Number(e.operand.text) : Number(e.operand.text);
+    return String(n === 0 ? 0 : n); // `-0` stringifies to "0"
+  }
   if (e.kind === ts.SyntaxKind.TrueKeyword) return "true";
   if (e.kind === ts.SyntaxKind.FalseKeyword) return "false";
   if (ts.isTemplateExpression(e)) {
@@ -784,7 +807,11 @@ function staticStringValue(e0: ts.Expression): string | null {
     const cond = unparen(e.condition);
     if (isLiteralTruthy(cond)) return staticStringValue(e.whenTrue);
     if (isLiteralFalsy(cond)) return staticStringValue(e.whenFalse);
-    return null;
+    // An undecidable TEST does not make the VALUE undecidable when both branches agree:
+    // `display: flag ? "none" : "none"` is "none" either way (review R33 BLOCKING 5, fail-open).
+    const a = staticStringValue(e.whenTrue);
+    const b = staticStringValue(e.whenFalse);
+    return a !== null && a === b ? a : null;
   }
   if (ts.isBinaryExpression(e)) {
     // NOTE: no comma branch. `unparen` already resolves a comma expression to its right operand
@@ -808,6 +835,12 @@ function staticStringValue(e0: ts.Expression): string | null {
       if (isLiteralFalsy(left)) return staticStringValue(e.right);
       return null;
     }
+    // `??` was missing entirely. NOT falsiness: `0 ?? x` is `0`.
+    if (e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+      if (isProvablyNullish(left)) return staticStringValue(e.right);
+      if (isLiteralTruthy(left) || isLiteralFalsy(left)) return staticStringValue(left);
+      return null;
+    }
   }
   return null;
 }
@@ -816,10 +849,47 @@ function staticStringValue(e0: ts.Expression): string | null {
  *  omitting them made `[] && "Dest"` manufacture a violation (review R24 BLOCKING 3). */
 function isLiteralTruthy(n: ts.Expression): boolean {
   if (n.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
+    return isLiteralFalsy(n.operand);
+  }
   if (ts.isArrayLiteralExpression(n) || ts.isObjectLiteralExpression(n)) return true;
   if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text.length > 0;
   if (ts.isNumericLiteral(n)) return Number(n.text) !== 0;
+  // Everything below is DEFINITELY truthy whatever its operands are, and leaving it out left
+  // operand selection fail-open: `{-1 && <span aria-hidden="true">Go</span>}` scanned clean while
+  // the accessible name held only the announcement (review R33 BLOCKING 2). The helpers decided
+  // "literal", but selection only needs "decidable".
+  if (ts.isPrefixUnaryExpression(n)) {
+    // A signed numeric literal: `-1` is truthy, `-0` is not (handled by isLiteralFalsy).
+    if (n.operator === ts.SyntaxKind.MinusToken || n.operator === ts.SyntaxKind.PlusToken) {
+      if (ts.isNumericLiteral(n.operand)) return Number(n.operand.text) !== 0;
+      if (ts.isBigIntLiteral(n.operand)) return !bigIntLiteralIsZero(n.operand.text);
+    }
+  }
+  if (ts.isBigIntLiteral(n)) return !bigIntLiteralIsZero(n.text);
+  if (ts.isRegularExpressionLiteral(n)) return true; // a RegExp object
+  if (ts.isTypeOfExpression(n)) return true; // always a non-empty string
+  if (ts.isFunctionExpression(n) || ts.isArrowFunction(n) || ts.isClassExpression(n)) return true;
+  if (ts.isNewExpression(n)) return true; // constructors yield objects
+  if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) return true;
+  if (ts.isTemplateExpression(n)) {
+    // A template with a decidable value is truthy iff that value is non-empty; an undecidable one
+    // is still truthy if any literal chunk is non-empty.
+    const v = staticStringValue(n);
+    if (v !== null) return v.length > 0;
+    if (n.head.text.length > 0) return true;
+    return n.templateSpans.some((sp) => sp.literal.text.length > 0);
+  }
   return false;
+}
+
+/** Is this BigInt literal's VALUE zero? Handles every radix and numeric separators. */
+function bigIntLiteralIsZero(text: string): boolean {
+  try {
+    return BigInt(text.replace(/n$/, "").replace(/_/g, "")) === BigInt(0);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1209,20 +1279,66 @@ function styleObjectHides(init: ts.JsxAttributeValue | undefined): boolean {
     display: new Set(["none"]),
     visibility: new Set(["hidden", "collapse"]),
   };
-  for (const prop of obj.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue; // shorthand / spread / method: opaque
-    const name = prop.name;
-    let key: string | null = null;
-    if (ts.isIdentifier(name)) key = name.text;
-    else if (ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) key = name.text;
-    else if (ts.isComputedPropertyName(name)) key = staticStringValue(name.expression);
-    if (key === null) continue;
-    const hiding = HIDING[key.trim().toLowerCase()];
-    if (hiding === undefined) continue;
-    const value = staticStringValue(prop.initializer);
-    if (value !== null && hiding.has(value.trim().toLowerCase())) return true;
+  // LAST WRITE WINS, and a spread is a write. Scanning properties independently was wrong in both
+  // directions (review R33 BLOCKING 4): `{{...(true ? {display:"none"} : {})}}` hid and scanned
+  // clean, while `{{display:"none", ...(true ? {display:"block"} : {})}}` is visible and was
+  // reported. Resolve the object in source order into a final value per key; `undefined` marks a
+  // key an undecidable write may have overwritten.
+  const resolved = new Map<string, string | undefined>();
+  const apply = (o: ts.ObjectLiteralExpression): boolean => {
+    for (const prop of o.properties) {
+      if (ts.isSpreadAssignment(prop)) {
+        const inner = unparen(prop.expression);
+        const picked = pickObjectLiteral(inner);
+        if (picked === null) return false; // undecidable spread: the whole object is unknown
+        if (!apply(picked)) return false;
+        continue;
+      }
+      if (!ts.isPropertyAssignment(prop)) {
+        // Shorthand or a method: its VALUE is opaque, so mark the key unknown rather than skipping
+        // it, which would let an earlier hiding write survive a later unknown one.
+        const n = prop.name;
+        const k = ts.isIdentifier(n) || ts.isStringLiteral(n) ? n.text : null;
+        if (k === null) return false;
+        resolved.set(k.trim(), undefined);
+        continue;
+      }
+      const name = prop.name;
+      let key: string | null = null;
+      if (ts.isIdentifier(name)) key = name.text;
+      else if (ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name))
+        key = name.text;
+      else if (ts.isComputedPropertyName(name)) key = staticStringValue(name.expression);
+      if (key === null) return false; // an undecidable KEY could be any property
+      // TRIM but do NOT fold case. A React style key is a JavaScript property name, not a CSS
+      // property name: `{DISPLAY:"NONE"}` makes React emit `-d-i-s-p-l-a-y:NONE`, which styles
+      // nothing, so folding it reported valid markup (review R33 HIGH 8). Surrounding whitespace
+      // IS tolerated by the CSS parser -- `{" display ":"none"}` really hides (measured).
+      resolved.set(key.trim(), staticStringValue(prop.initializer) ?? undefined);
+    }
+    return true;
+  };
+  if (!apply(obj)) return false; // anything undecidable: opaque, unchanged posture
+  for (const [key, value] of resolved) {
+    const hiding = HIDING[key];
+    if (hiding === undefined || value === undefined) continue;
+    // CSS KEYWORDS are case-insensitive, unlike the key: `display:"NONE"` really hides (measured).
+    if (hiding.has(value.trim().toLowerCase())) return true;
   }
   return false;
+}
+
+/** The object literal this expression definitely evaluates to, or null. Sees through a conditional
+ *  whose branches are decidable, so `...(true ? {display:"none"} : {})` resolves. */
+function pickObjectLiteral(e0: ts.Expression): ts.ObjectLiteralExpression | null {
+  const e = unparen(e0);
+  if (ts.isObjectLiteralExpression(e)) return e;
+  if (ts.isConditionalExpression(e)) {
+    const cond = unparen(e.condition);
+    if (isLiteralTruthy(cond)) return pickObjectLiteral(e.whenTrue);
+    if (isLiteralFalsy(cond)) return pickObjectLiteral(e.whenFalse);
+  }
+  return null;
 }
 
 /** Does `popover` hide this element?
@@ -1289,13 +1405,17 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
     if (!openAttr || !ts.isJsxAttribute(openAttr)) return true;
     if (!openAttr.initializer) return false; // bare `open` is true
     const init = openAttr.initializer;
-    // React coerces a boolean DOM prop, so `open=""` is FALSY and the attribute is omitted --
-    // the earlier version accepted it as proof of openness (review R23 BLOCKING 2).
-    if (ts.isStringLiteral(init)) return init.text.length === 0;
-    if (ts.isJsxExpression(init) && init.expression) {
-      if (unparen(init.expression).kind === ts.SyntaxKind.TrueKeyword) return false;
-    }
-    return true; // dynamic or falsy: may be closed
+    // `open` is a BOOLEAN DOM attribute, so React coerces: any TRUTHY value renders `open=""` and
+    // the details really is open. Accepting only the literal `true` made `open={1}`, `open={!false}`
+    // and `open={[]}` false positives -- each is provably truthy, so the announcement inside is
+    // visible and the anchor was reported anyway. Found by probing this rule when R33 started
+    // reading it, the same value-classification shape as `popover` and `aria-hidden` before it.
+    //
+    // `open=""` stays FALSY and therefore closed (review R23 BLOCKING 2); `isLiteralTruthy` handles
+    // the string cases directly, so the separate string branch is gone rather than duplicated.
+    const e = ts.isJsxExpression(init) ? (init.expression ? unparen(init.expression) : null) : init;
+    if (e !== null && isLiteralTruthy(e)) return false; // provably open
+    return true; // falsy, or dynamic and possibly closed: fail closed
   }
   for (const a of attrs.properties) {
     const n = attrName(a);

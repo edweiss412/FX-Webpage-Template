@@ -1427,3 +1427,42 @@ fixture was wrong, not the code.
 
 `isAlwaysBoolean` was extracted from `rendersNothing` rather than copied, since two rules now need
 it and a second copy is a drift source. Five mutations, all red.
+
+## R33 — nine findings, three already fixed, and the value-classification theme
+
+R33 reviewed `29bf198e3`; the worktree had advanced during the review, so three of its nine were
+already closed: the namespace/static-block scope hole (#1) and the `popover` false positives (#7),
+both fixed in `b9b8e192c` after reading its probe trail, and the equivalent conditional arm (#9),
+deleted during the branch sweep. Independent arrival at all three is worth recording — they were
+reachable from the code, not lucky guesses.
+
+The six that were live all belong to ONE theme: **the scanner kept asking "is this a literal?" when
+the question is "is this decidable?"**
+
+| # | Where | Fail-open half | False-positive half |
+| --- | --- | --- | --- |
+| 2 | operand selection | `{-1 && <hidden/>}`, and the same for BigInts, regexes, `typeof`, functions, `new`, JSX | — |
+| 3 | zero BigInt by SPELLING (`/^0+n$/`) | `0x0n \|\| <hidden/>` | `hidden={0x0n}` reported |
+| 4 | style spreads | `{{...(true ? {display:"none"} : {})}}` | `{{display:"none", ...(true ? {display:"block"} : {})}}` reported |
+| 5 | `staticStringValue` | `display: flag ? "none" : "none"` | `` `${null}` ``, `null && "true"`, `null ?? "false"`, … all reported |
+| 8 | style KEY case-folded | — | `{{DISPLAY:"NONE"}}` reported |
+
+Four of the six are wrong in BOTH directions, which is now the signature of this class: a
+classification defect has no direction.
+
+**Finding 8 is the one measurement settled against me.** React style keys are JavaScript property
+names, not CSS ones: `{{DISPLAY:"NONE"}}` makes React emit `-d-i-s-p-l-a-y:NONE`, which styles
+nothing. So folding the key's case reported valid markup — and an R32 fixture of mine asserted that
+false positive was CORRECT behaviour. The value fold stays, because CSS keywords really are
+case-insensitive (`display:"NONE"` hides, measured), and so does trimming, because the CSS parser
+tolerates a padded key (`{" display ":"none"}` hides, also measured). Three neighbouring rules, three
+different answers, each now measured rather than assumed.
+
+**Finding 4 needed a model change, not a patch.** Properties were scanned independently, but a style
+object is an ordered sequence of writes and a spread is a write. It now resolves in source order with
+last-write-wins, seeing through a conditional whose branches are decidable. An undecidable spread
+makes the whole object opaque rather than being skipped — skipping it would let an earlier hiding
+write survive a later unknown one, and the fixture that distinguishes those two behaviours
+(`{{display:"none", ...rest}}`) was the last surviving mutation of the round.
+
+Ten mutations, all red. 252 tests green.

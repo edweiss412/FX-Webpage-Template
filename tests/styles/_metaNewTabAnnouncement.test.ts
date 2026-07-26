@@ -272,6 +272,7 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["true", 'attribute value (R31: `aria-hidden` hides only on the literal string "true")'],
   ["collapse", "CSS keyword (a hiding `visibility` value)"],
   ["NaN", "JS global, one of the three falsy values that is not a plain literal (R32 HIGH 7)"],
+  ["null", "how `${null}` STRINGIFIES inside a template -- a value, never a name (R33)"],
   ["false", "attribute value: staticStringValue renders the boolean literals as text"],
   ["presentation", "role value"],
   ["typescript", "module name"],
@@ -2010,7 +2011,13 @@ describe("R6: scanner changes are pinned", () => {
       '{{visibility: `hid${"den"}`}}',
       '{{display: "no" + "ne"}}',
       '{{["dis" + "play"]: "none"}}',
-      '{{"DISPLAY": "NONE"}}',
+      '{{display: "NONE"}}',
+      // CSS tolerates whitespace around the property name, and React passes the key through.
+      '{{" display ": "none"}}',
+      // R33 BLOCKING 4: last write wins, and a spread is a write.
+      '{{...(true ? {display: "none"} : {})}}',
+      '{{display: "block", ...(true ? {display: "none"} : {})}}',
+      '{{visibility: "visible", ...(true ? {visibility: "collapse"} : {})}}',
     ]) {
       expect(
         violations(
@@ -2024,17 +2031,29 @@ describe("R6: scanner changes are pinned", () => {
     for (const style of [
       "{{...hideStyles}}",
       '{{...hideStyles, display: "block"}}',
+      // The case that distinguishes "skip the unreadable spread" from "the whole object is
+      // unknown": an undecidable spread AFTER a hiding write could overwrite it, so the object is
+      // opaque and the destination is assumed visible. Skipping the spread instead would report it.
+      '{{display: "none", ...rest}}',
+      '{{visibility: "hidden", ...rest}}',
       "{{display}}",
     ]) {
       expect(
         violations(
-          `const A=({hideStyles,display})=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
+          `const A=({hideStyles,display,rest})=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
         ),
         `must accept, an unreadable style object is opaque: ${style}`,
       ).toEqual([]);
     }
-    // ...and the near-misses the old text matcher had to special-case stay accepted.
+    // ...and the near-misses stay accepted, including two the previous version got WRONG.
     for (const style of [
+      // A React style key is a JavaScript property name, NOT a CSS one: React emits
+      // `-d-i-s-p-l-a-y:NONE` for this, which styles nothing (measured). Folding the key's case
+      // reported valid markup -- and an earlier fixture here asserted the false positive was
+      // correct, so the fixture was wrong too (review R33 HIGH 8).
+      '{{"DISPLAY": "NONE"}}',
+      // A later write wins, so this is visible.
+      '{{display: "none", ...(true ? {display: "block"} : {})}}',
       '{{backfaceVisibility: "hidden"}}',
       '{{display: "block"}}',
       '{{display: pick("none")}}',
@@ -2083,6 +2102,115 @@ describe("R6: scanner changes are pinned", () => {
           `const A=({cond})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
         ),
         `must report, this value reaches the DOM: ${attr}`,
+      ).not.toEqual([]);
+    }
+    // R33 BLOCKING 2: operand selection needs DECIDABLE, not merely "literal". Each left operand
+    // below is definitely truthy, so `&&` yields the right operand, which carries no destination.
+    for (const left of [
+      "-1",
+      "1n",
+      "0x1n",
+      "/re/",
+      "typeof x",
+      "(() => 1)",
+      "function f(){}",
+      "class K{}",
+      "new Date()",
+      "<span>x</span>",
+      "<></>",
+      "`a${x}`",
+    ]) {
+      expect(
+        violations(
+          `const A=({x})=><a href="x" target="_blank">{${left} && <span aria-hidden="true">Go</span>} <NewTabHint /></a>;`,
+        ),
+        `must report, a definitely-truthy left operand selects the right: ${left}`,
+      ).not.toEqual([]);
+    }
+    // R33 BLOCKING 3: a zero BigInt in ANY radix is falsy, so `||` selects the right operand, and
+    // React omits a boolean attribute set to it.
+    for (const zero of ["0n", "0x0n", "0b0n", "0o0n", "0_0n"]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">{${zero} || <span aria-hidden="true">Go</span>} <NewTabHint /></a>;`,
+        ),
+        `must report, a zero BigInt is falsy: ${zero}`,
+      ).not.toEqual([]);
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <span hidden={${zero}}><NewTabHint /></span></a>;`,
+        ),
+        `must accept, React omits a boolean attribute set to a zero BigInt: ${zero}`,
+      ).toEqual([]);
+    }
+    // R33 BLOCKING 5: values that stringify to something harmless must not be reported. Each of
+    // these emits an attribute that is not "true" (or no attribute at all), all measured.
+    for (const attr of [
+      "aria-hidden={`${null}`}",
+      "aria-hidden={`${undefined}`}",
+      "aria-hidden={`${NaN}`}",
+      "aria-hidden={`${0n}`}",
+      "aria-hidden={`${-0}`}",
+      'aria-hidden={null && "true"}',
+      'aria-hidden={NaN && "true"}',
+      'aria-hidden={flag ? "false" : "false"}',
+      'aria-hidden={null ?? "false"}',
+    ]) {
+      expect(
+        violations(
+          `const A=({flag})=><a href="x" target="_blank">Go <span ${attr}><NewTabHint /></span></a>;`,
+        ),
+        `must accept, this value is not "true": ${attr}`,
+      ).toEqual([]);
+    }
+    // ...and the fail-open twin: an undecidable TEST does not make the VALUE undecidable when both
+    // branches agree.
+    expect(
+      violations(
+        'const A=({flag})=><a href="x" target="_blank"><span style={{display: flag ? "none" : "none"}}>Go</span> <NewTabHint /></a>;',
+      ),
+      "must report: both branches hide, so the test cannot matter",
+    ).not.toEqual([]);
+    expect(
+      violations(
+        'const A=({flag})=><a href="x" target="_blank">Go <span aria-hidden={flag ? "true" : "true"}><NewTabHint /></span></a>;',
+      ),
+      'must report: both branches are "true"',
+    ).not.toEqual([]);
+
+    // `open` is a BOOLEAN DOM attribute: any TRUTHY value renders `open=""` and the details really is
+    // open, so the announcement inside is visible. Accepting only the literal `true` reported each of
+    // these -- the same value-classification shape as `popover`, checked when R33 started reading the
+    // rule rather than after it reported.
+    for (const attr of [
+      "open",
+      "open={true}",
+      'open="open"',
+      "open={1}",
+      "open={!false}",
+      "open={[]}",
+    ]) {
+      expect(
+        violations(
+          `const A=()=><a href="x" target="_blank">Go <details ${attr}><NewTabHint /></details></a>;`,
+        ),
+        `must accept, the details is provably open: ${attr}`,
+      ).toEqual([]);
+    }
+    // ...and anything falsy or undecidable still fails closed, since a closed details hides the hint.
+    for (const attr of [
+      "open={0}",
+      'open=""',
+      "open={void 0}",
+      "open={cond}",
+      "open={false}",
+      "",
+    ]) {
+      expect(
+        violations(
+          `const A=({cond})=><a href="x" target="_blank">Go <details ${attr}><NewTabHint /></details></a>;`,
+        ),
+        `must report, the details may be closed: ${attr || "(no open attribute)"}`,
       ).not.toEqual([]);
     }
     // A namespace body and a class static block are `var` scopes in BOTH directions: R32 stopped the
