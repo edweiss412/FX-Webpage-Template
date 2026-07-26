@@ -20,7 +20,7 @@
  *    codebase (see §3.1 and the regression pin in newTabHint.test.tsx).
  *
  * Group A/B anchors whose render fixtures already live in a dedicated suite are
- * asserted there rather than duplicated here (SourceLink, CrewPageLink,
+ * asserted there rather than duplicated here (SourceLink,
  * PublishedReviewModal, Step3ReviewModal, step3ReviewSections, VenueMapTile).
  *
  * This file owns AttentionBanner's footer action, BellPanel's action cell, and

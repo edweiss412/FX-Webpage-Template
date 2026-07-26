@@ -22,7 +22,7 @@ Two sites already announce, via an `aria-label` naming both destination and beha
 | Announcement hints on the four alert-action anchors are gated on `action.external` | §4 Group C — `external: false` builders return same-app hrefs (`lib/adminAlerts/alertActions.ts:61`, `lib/adminAlerts/alertActions.ts:90`, `lib/adminAlerts/alertActions.ts:127`) |
 | The tap-target half of the backlog item is already shipped and out of scope | `components/admin/PerShowActionableWarnings.tsx:281` carries `min-h-tap-min` |
 | No real-browser Playwright task; jsdom is sufficient | §5.1 and §5.2 — no fixed-dimension parent gains a sized child (the two arrow wrappers are unstyled inline spans around existing glyphs) and no visual state changes |
-| Scope covers `components/` AND `app/` | §1.2 — `app/admin/show/[slug]/CrewPageLink.tsx:25` is a same-family defect |
+| Scope covers `components/` AND `app/` | §1.2 — **CrewPageLink.tsx:25** (deleted upstream, §1.4) is a same-family defect |
 | Three WCAG 2.5.3 failures inside the family are fixed; a repo-wide 2.5.3 audit is not | §2.2, §9 |
 | Only empty-`alt` is unreachable by construction; empty `title`, `displayTitle`, and `label` ARE reachable and each gets a boundary test | §5 and §7 — `alt` is defaulted upstream at `components/admin/wizard/step3ReviewSections.tsx:3663`; `label` reaches the anchor through the exported `Step3SectionChromeContext` (`components/admin/wizard/step3ReviewSections.tsx:551`) |
 
@@ -41,9 +41,33 @@ Two reasons the narrow count undercounts:
    ```tsx
    {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
    ```
-2. **`app/` is in the family** (1 anchor). `app/admin/show/[slug]/CrewPageLink.tsx:25` is shipped, and its `aria-label` at `app/admin/show/[slug]/CrewPageLink.tsx:27` carries no announcement. A guard scoped to `components/` could never catch an app-level regression.
+2. **`app/` is in the family** (1 anchor). **CrewPageLink.tsx:25** (deleted upstream, §1.4) is shipped, and its `aria-label` at **CrewPageLink.tsx:27** (deleted upstream, §1.4) carries no announcement. A guard scoped to `components/` could never catch an app-level regression.
 
 **23 anchors total = 2 that already announce + 21 to fix.** Both numbers appear throughout this spec and they are not in conflict: 23 is the family size, 21 is the fix count. After implementation the split reads 15 `NewTabHint` render sites plus 8 `aria-label` sites (the 6 Group B labels plus the 2 pre-existing ones), which also sums to 23. An independent mechanical scan reconciled to the same figures. Other external-navigation vectors, checked and absent: no `window.open(...)`, no form `target` attributes, no `<Link target=...>` in either tree. `app/` holds 13 `.mdx` files; none currently contains `_blank`, but §6 covers them so a future one cannot slip in.
+
+### 1.4 SUPERSEDED: the family is 22 anchors, not 23 — CrewPageLink was deleted upstream
+
+Every count and citation in §1.2 and §1.3 below is **historically accurate and now one anchor
+stale.** During review, upstream landed `refactor(admin): delete the orphaned share chip and crew-page
+link`, which removed **CrewPageLink.tsx** (deleted upstream, §1.4) and its test. That component was this
+spec's sole `app/` member and one of the six Group B label sites.
+
+Current, re-derived from the guard after merging 70 upstream commits (28 changed `.tsx`/`.mdx` files):
+
+| | Before | Now |
+| --- | --- | --- |
+| family anchors | 23 | **22** |
+| Group B label sites | 6 | **5** |
+| files carrying the phrase | 8 | **7** |
+| live violations | 0 | **0** |
+
+The `app/`-is-in-the-family argument in §1.2 is unchanged as a *rationale* — a guard scoped to
+`components/` still could not catch an app-level regression, and the guard still scans both trees —
+but it no longer has a live example. Zero violations across all 28 changed upstream files, which is
+the third time this guard has been exercised by real churn rather than by its own fixtures.
+
+Sections below are left as written rather than rewritten in place, so the numbers a reviewer may have
+quoted still resolve. Read this section first where they disagree.
 
 ### 1.3 Composition changed under a rebase; the totals did not
 
@@ -136,7 +160,7 @@ This shape shipped undetected here once, as `View details<span className="sr-onl
 
 **Two Group A anchors also need their decorative arrow hidden.** `components/admin/wizard/Step2Verify.tsx:504` and `components/admin/wizard/Step2Verify.tsx:554` render `Open the folder →` where the `→` is a **plain text node, not `aria-hidden`** — unlike the five sibling sites that wrap their glyph (`components/admin/PerShowActionableWarnings.tsx:283`, `components/admin/NoteWarningCard.tsx:88`, and three in `components/admin/wizard/step3ReviewSections.tsx`). So a screen reader announces the arrow today, and without a change the expected name would be `Open the folder → (opens in a new tab)`, baking a decorative glyph into the very name this diff curates. Wrap both arrows in `aria-hidden="true"`: no visible change, one attribute, on lines already being edited, and it makes the family internally consistent. Expected names become `Open the folder (opens in a new tab)`.
 
-Checked the boundary rather than assuming: `app/admin/show/[slug]/CrewPageLink.tsx:30` has the same arrow but carries an `aria-label`, so its content is ignored; the other bare-arrow sites (`components/admin/HoverHelp.tsx:609`, `components/admin/HelpAffordance.tsx:113`, both "Learn more →") are internal links and outside this family.
+Checked the boundary rather than assuming: **CrewPageLink.tsx:30** (deleted upstream, §1.4) has the same arrow but carries an `aria-label`, so its content is ignored; the other bare-arrow sites (`components/admin/HoverHelp.tsx:609`, `components/admin/HelpAffordance.tsx:113`, both "Learn more →") are internal links and outside this family.
 
 ### Group B — has `aria-label`; extend the label string (6 anchors)
 
@@ -147,7 +171,7 @@ Checked the boundary rather than assuming: `app/admin/show/[slug]/CrewPageLink.t
 | `components/admin/wizard/step3ReviewSections.tsx:934` | §2.2 rewrite (label-in-name plus announcement) |
 | `components/admin/wizard/step3ReviewSections.tsx:3577` | `` `${alt} (opens in a new tab)` `` |
 | `components/crew/primitives/SourceLink.tsx:71` | §2.2 rewrite (label-in-name plus announcement) |
-| `app/admin/show/[slug]/CrewPageLink.tsx:27` | `Open crew page (opens in a new tab)`; also normalize `rel` at `app/admin/show/[slug]/CrewPageLink.tsx:26` |
+| **CrewPageLink.tsx:27** (deleted upstream, §1.4) | `Open crew page (opens in a new tab)`; also normalize `rel` at **CrewPageLink.tsx:26** (deleted upstream, §1.4) |
 
 Plus the §2.2 label-in-name-only fix at `components/admin/wizard/VenueMapTile.tsx:138`, which already announces.
 
@@ -639,7 +663,7 @@ The superseded requirement, kept for provenance:
 - **Visible-text isolation:** clone the anchor, strip `.sr-only` descendants, assert trimmed `textContent` still equals the intended visible label — catches a "fix" that changed visible copy.
 - **Empty-interpolation tests for all THREE reachable seams** (§5): `title` at `components/admin/wizard/Step3ReviewModal.tsx:408`; `displayTitle` via `{ title: "", slug: "" }` at `components/admin/showpage/PublishedReviewModal.tsx:708`; and `label` via a `Step3SectionChromeContext` provider with `label: ""` at `components/admin/wizard/step3ReviewSections.tsx:934`. Each asserts the name keeps its destination clause, contains no double space, **and ends no clause on a dangling connective.** The first two assertions alone are insufficient: `Open the source sheet for (opens in a new tab)` and `In sheet, open the source sheet for (opens in a new tab)` both contain the destination and have no consecutive spaces, yet are exactly the malformed output §5 forbids. Assert the full expected string per seam (anchored equality, as with the 22-case table), not a pair of weaker properties. For `alt` — the one genuinely unreachable case — assert the UPSTREAM default at `components/admin/wizard/step3ReviewSections.tsx:3663` instead; an anchor-level fallback test there would be tautological.
 - **NewTabHint unit test:** renders a `sr-only` span whose text is exactly the canonical string.
-- **Existing assertions that must be updated** (found by sweeping the test tree for current Group B label literals; each is an exact-label expectation this diff changes): `tests/components/CrewPageLink.test.tsx:36`, `tests/components/crew/sourceLink.test.tsx:51`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:348`, `tests/components/admin/wizard/Step3ReviewModal.test.tsx:271`, `tests/components/admin/wizard/Step3ReviewModal.test.tsx:1242`, `tests/components/admin/wizard/step3ReviewSections.test.tsx:913`, `tests/components/admin/wizard/step3ReviewSections.test.tsx:923`. The last file's test names also describe the anchor label as mirroring the image `alt`, which stops being exact once the suffix is added; rename accordingly.
+- **Existing assertions that must be updated** (found by sweeping the test tree for current Group B label literals; each is an exact-label expectation this diff changes): **CrewPageLink.test.tsx:36** (deleted upstream, §1.4), `tests/components/crew/sourceLink.test.tsx:51`, `tests/components/admin/showpage/publishedReviewModal.test.tsx:348`, `tests/components/admin/wizard/Step3ReviewModal.test.tsx:271`, `tests/components/admin/wizard/Step3ReviewModal.test.tsx:1242`, `tests/components/admin/wizard/step3ReviewSections.test.tsx:913`, `tests/components/admin/wizard/step3ReviewSections.test.tsx:923`. The last file's test names also describe the anchor label as mirroring the image `alt`, which stops being exact once the suffix is added; rename accordingly.
 
 - **One committed byte-for-byte baseline also breaks, and a `.ts`/`.tsx` grep does not find it.** `tests/components/admin/review/__fixtures__/step3-header-baseline.html` contains the old `Open the source sheet for Asset Mgmt Summit` label, and `tests/components/admin/review/reviewModalShell.test.tsx:362` asserts `normalizeIds(header.innerHTML)` equals that fixture exactly. The `Step3ReviewModal` label change WILL fail it. **Regenerate the fixture in the same task as the label edit** and confirm the anti-vacuity guard at `tests/components/admin/review/reviewModalShell.test.tsx:361` (`expected.length > 500`) still holds afterward. Sweep for affected expectations across `.html`, `.snap`, `.json`, and `.md` as well as `.ts`/`.tsx`; this fixture was the only non-source hit.
 
@@ -665,7 +689,7 @@ jsdom computes no CSS, so `display:none`-gated text is NOT excluded from its acc
 ## 9. Out of scope (deliberate)
 
 - **Tap targets** — already shipped (`components/admin/PerShowActionableWarnings.tsx:281`).
-- **`rel` normalization** beyond the two anchors already being edited (`components/crew/sections/VenueSection.tsx:250`, `app/admin/show/[slug]/CrewPageLink.tsx:26`).
+- **`rel` normalization** beyond the two anchors already being edited (`components/crew/sections/VenueSection.tsx:250`, **CrewPageLink.tsx:26** (deleted upstream, §1.4)).
 - **A repo-wide WCAG 2.5.3 audit.** §2.2 fixes the three failures found inside this family. If more surface while implementing, file a backlog item rather than growing this diff.
 - **Non-anchor external navigation** — none exists (§1.2, checked).
 - **Changing any visible copy.** Labels and hidden text only.

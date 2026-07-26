@@ -928,8 +928,9 @@ describe("every external link in the live tree announces its new tab", () => {
       [
         // The single definition.
         "components/shared/NewTabHint.tsx",
-        // Group B label sites (§4).
-        "app/admin/show/[slug]/CrewPageLink.tsx",
+        // Group B label sites (§4). CrewPageLink was one until upstream deleted it as orphaned
+        // (`refactor(admin): delete the orphaned share chip and crew-page link`), which arrived in
+        // a mid-review merge. Its announcement went with it; nothing to preserve.
         "components/admin/showpage/PublishedReviewModal.tsx",
         "components/admin/wizard/Step3ReviewModal.tsx",
         "components/admin/wizard/step3ReviewSections.tsx",
