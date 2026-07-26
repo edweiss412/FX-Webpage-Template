@@ -11,6 +11,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseHotels } from "@/lib/parser/blocks/hotels";
 import { newAggregator } from "@/lib/parser/warnings";
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
 
 const FAMILIES = ["fixtures/shows/raw", "fixtures/shows/exporter-xlsx"] as const;
 
@@ -51,7 +52,12 @@ function countsFor(path: string) {
 
 const fixtures = FAMILIES.flatMap((dir) =>
   readdirSync(join(process.cwd(), dir))
-    .filter((f) => f.endsWith(".md") && f !== "README.md")
+    // Serial tests write synthetic fixtures into the corpus under this prefix
+    // and a parallel-set reader that does not filter them parses one
+    // mid-overlap, making the golden non-deterministic. Pinned by
+    // tests/cross-cutting/corpus-temp-prefix.test.ts, whose scanner slices to
+    // the next semicolon, so this comment deliberately contains none.
+    .filter((f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith(CORPUS_TEMP_PREFIX))
     .map((f) => [f.replace(/\.md$/, ""), join(process.cwd(), dir, f)] as const),
 );
 
