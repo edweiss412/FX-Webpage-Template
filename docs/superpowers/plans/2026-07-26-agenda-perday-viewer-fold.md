@@ -89,9 +89,35 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 - [ ] **Test first** — `tests/agenda/agendaViewerDays.test.ts (NEW)`. Each case names the failure mode it catches:
   - label parsing resolves the viewer's days → returns exactly those indices. *Catches: a matcher that returns all days and lets the caller filter.*
   - **positional fallback indexes the FULL show day list, never the viewer's subset.** Fixture: a 4-day show where the viewer's restriction is days 2–3, so a filtered-list index would land on day 4. *Catches §3 constraint 1 — the assertion must FAIL if the implementation passes `visibleDays` instead of `allDays`.*
+  - **PARTIAL resolution fails open (spec §3 constraint 3, review R2 HIGH).** Fixture: the viewer works
+    two days; one heading parses to ISO, the other reads `"Day 3"` and does not, and a THIRD heading
+    parses so `!someDateParsed` is false and the positional fallback cannot fire. Assert the matcher
+    returns `{ kind: "all" }`. *Catches the worst outcome this feature can produce — a day the viewer
+    actually works, folded, while the page looks perfectly normal. A suite testing only total match
+    failure passes straight through this.*
+  - the completeness comparison itself: `|located| == |restrictionDaysWithinShow|` decides fold vs
+    fail-open. Assert both sides of the boundary with one day missing and with none missing. *Catches an
+    implementation that folds on "some days matched".*
   - all four fallback conditions, each negated independently (4 cases): `matched !== null`; some label parsed; a `showDays` element is null; `ext.days.length !== showDays.length`. *Catches: a fallback that fires when it must not — the null-element case is the one the spec calls easy to miss.*
-  - no day resolves → returns the fail-open sentinel (empty set meaning "expand everything"), NOT an empty selection meaning "fold everything". *Catches the inversion that would hide the viewer's own day.*
+  - no day resolves → returns the fail-open variant, NOT an empty day set. **The return type must make this impossible to confuse** (see the contract below). *Catches the inversion that would hide the viewer's own day — the worst outcome this feature can produce.*
   - derive every expected index from the fixture's own dimensions; never hardcode. *A 2-day fixture must be unable to satisfy a 4-day assertion.*
+- [ ] **Return-type contract, decided here rather than at implementation time.** An earlier draft of this
+      task said the fail-open case "returns the empty set meaning expand everything". That is the exact
+      ambiguity this feature must not contain: an empty `Set` reads equally well as "no day is the
+      viewer's, so fold everything", which silently hides the viewer's own day. Make the two cases
+      distinct in the TYPE so the dangerous reading cannot compile:
+
+      ```ts
+      export type ViewerAgendaDays =
+        | { kind: "all" } // fail open: no day resolved, or no restriction applies
+        | { kind: "subset"; days: ReadonlySet<string> }; // these ISO dates are the viewer's
+      ```
+
+      `{ kind: "subset"; days: <empty> }` must be unreachable — if the matcher resolves nothing it
+      returns `{ kind: "all" }`. Assert that unreachability directly: a test that constructs the
+      no-match input and asserts `kind === "all"`, plus a type-level guarantee that consumers handle
+      both arms (no default branch that treats an unknown kind as "subset").
+
 - [ ] Implement in `lib/crew/agendaViewerDays.ts (NEW)`, reusing `parseIsoFromDayLabel` (`lib/crew/agendaDayForToday.ts:36`) and mirroring the positional rule at `lib/crew/agendaDayForToday.ts:64`. Do NOT copy `visibleShowDays` logic — import it.
 - [ ] Green; `npx tsc --noEmit`; commit `feat(crew-page): day-set matcher for the viewer's agenda days`.
 
@@ -111,8 +137,18 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
   - non-viewer days render a `<summary>` row carrying label + date + session count; the viewer's day renders expanded.
   - a folded day with zero sessions still renders its row with `0 sessions`. *Catches a silently empty fold.*
   - `day.date === null` → label only, no empty date span (the `components/crew/AgendaScheduleBlock.tsx:74` guard already exists; assert it survives).
-  - fail-open: no day resolves → every day expanded, no marker, no `<details>` at all.
+  - fail-open: the matcher returns `{ kind: "all" }` → every day expanded, no marker, no `<details>` at all. *Assert on the discriminant, not on an empty collection.*
   - **the marker lives on the `<summary>`, so it survives collapse.** Toggle the marked day shut, assert the marker is still in the accessible tree. *Catches putting it in the disclosure body, which deletes the only cue telling the viewer which day is theirs.*
+- [ ] **Add ONE optional prop, `viewerDays?: ViewerAgendaDays`, defaulting to `{ kind: "all" }`.** Spec §2
+      corrected: this DOES add a prop (the component's props are `{ extraction, label }` today at
+      `components/crew/AgendaScheduleBlock.tsx:51`), and there is a SECOND production caller — the admin
+      Step 3 review preview at `components/admin/wizard/step3ReviewSections.tsx:3230`, which has no viewer
+      context. Required would break that build; optional-without-a-default would let the admin preview fold
+      rows or show a "Your day" marker to an admin with no assigned days. The `{ kind: "all" }` default
+      preserves today's whole-schedule render and, by THE MARKER RULE, also yields no marker — the existing
+      behaviour falls out of the rule instead of needing a branch. **Do NOT edit the admin caller.**
+- [ ] Add a test asserting the admin caller's shape: render with NO `viewerDays` and assert every day
+      expanded, no `<details>`, no marker. *Catches a default that silently folds the admin preview.*
 - [ ] Implement with native `<details>`/`<summary>`. No `useState` — the component is a Server Component and §1.1 ratifies no client JS.
 - [ ] `<summary>` carries `min-h-tap-min` and a visible focus ring.
 - [ ] Green; commit `feat(crew-page): fold non-viewer agenda days to one-line rows`.
@@ -126,6 +162,11 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 ### Task 5: Layout-dimensions task (real browser; mandatory per writing-plans)
 
 - [ ] Extend `tests/e2e/agendaScheduleLayout.spec.ts` with `getBoundingClientRect()` assertions on every `data-testid` the spec's §5.1 Dimensional Invariants names, at **320px and 390px**, within 0.5px. jsdom computes no layout and this project's Tailwind v4 does not default `.flex` to `align-items: stretch` — jsdom is NOT sufficient.
+- [ ] **Assert `details.width === parent content width` within 0.5px for EVERY row, at both viewports.**
+      Spec §5.1 corrected in review R2: `min-w-0` alone does NOT make a flex item fill the cross axis — it
+      only permits shrinking — so the guarantee is `w-full` PLUS `min-w-0`. A class-presence check would
+      pass on a `<details>` that shrank anyway under an ancestor's alignment; the class and the measured
+      result are separate claims.
 - [ ] **Measure the content box, not just the border box** — `getBoundingClientRect()` alone is blind to padding (the PR #586 lesson the spec cites).
 - [ ] **Assert the summary row in BOTH open states.** A `<summary>` measured only while open misses where the width pressure is: every folded row shows label + date + count + marker on one line.
 - [ ] **e2e harness-readiness checklist** (mandatory): (a) **server boot mechanism — NONE.** This spec is standalone: it compiles token CSS via the Tailwind CLI and writes a static harness page, no app and no Supabase. (b) **readiness gate** — the harness is static HTML, so `page.goto(fileUrl)` + `waitForSelector` on the harness root; there is no hydration to await and `networkidle` is not used. (c) **detach-safety** — any `locator.evaluate` sampler must capture its values in one pass; auto-wait hangs on a node unmounted between calls.
@@ -144,7 +185,19 @@ Spec §5.2's inventory, verbatim: 4 states (open-ness × marked-ness), all 4·3/
 
 - [ ] Add `tests/e2e/agendaScheduleLayout.spec.ts` to a standalone-config script in `package.json` (either extend `test:e2e:modal-header`'s path list or add a sibling alias). **Decide the naming explicitly** — `test:e2e:modal-header` running an agenda spec is a misnomer; either rename it in this change or add the alias. Do not leave a misleading name.
 - [ ] Add the spec, `components/crew/AgendaScheduleBlock.tsx`, and `components/crew/sections/ScheduleSection.tsx` to `.github/workflows/modal-header-layout-e2e.yml`'s `paths:` filter.
-- [ ] **DELETE** the `LOCAL_ONLY_ALLOWLIST` row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:49`. The shadowing assertion at `tests/ci/_metaE2eWorkflowCoverage.test.ts:163` fails while it remains, so this is forced.
+- [ ] **CHANGE the allowlist row's value from `UNSEEN` to `PATH_GATED`** at
+      `tests/ci/_metaE2eWorkflowCoverage.test.ts:49`. **Do NOT delete it.** Corrected in review R2 (HIGH):
+      `.github/workflows/modal-header-layout-e2e.yml` is path-gated (`on: pull_request:` + `paths:` at
+      `.github/workflows/modal-header-layout-e2e.yml:45`), and the scanner categorically rejects
+      path-filtered workflows from `covered` (`tests/ci/_workflowCoverageScan.ts:105` computes
+      `hasPathsFilter`; `tests/ci/_workflowCoverageScan.ts:119` records the rejection). Running the spec
+      there does NOT make it covered, so deleting the row would make the meta-test report it **dark**.
+      Two precedents wired exactly this way sit at `tests/ci/_metaE2eWorkflowCoverage.test.ts:39-40`
+      (`pusher-alignment.layout` and `section-header-layout.layout`, both standalone specs run by this
+      same job).
+- [ ] **State the guarantee honestly in the handoff:** the spec runs whenever a PR touches the agenda
+      component, the Schedule section, the spec itself, or `app/globals.css` — not on every PR. Better than
+      dark, weaker than PR-blocking. Do not write "verified in a real browser" without that qualifier.
 - [ ] **RUN the chosen command and record a NON-ZERO collected test count in the commit message.** A step that matched nothing passes vacuously — that is exactly the failure §6.2's correction exists to prevent, and the reason the earlier `crew-e2e.yml:141` target was wrong (`agendaScheduleLayout` is matched only by `tests/e2e/standalone.config.ts:36`, never by the default config under any project).
 - [ ] Verify on the real Actions run, not just locally: `gh workflow run` the workflow and confirm it collected and passed the new tests. Local-green is necessary and NOT sufficient for CI-bound surfaces.
 - [ ] Commit `ci(crew-page): run the agenda layout spec in the standalone-config job`.

@@ -61,7 +61,25 @@ const visibleDays = dateRestriction.kind === "explicit"
   : allDays;
 ```
 
-So this is **not** a prop-threading change: the derivation must be **hoisted** above `agendaArea`. Do not duplicate it — the existing comment calls `visibleShowDays` "the SINGLE SOURCE for the SHOW-DAY ∩ restriction set" and warns about drift, so a second derivation is exactly the drift it guards against.
+So the derivation must be **hoisted** above `agendaArea`.
+
+**CORRECTED in review R2 (MEDIUM): this DOES add a prop, and there is a second production caller.** An
+earlier revision said "not a prop-threading change", which is true of the *derivation* but false of the
+result — the viewer's day set has to reach `AgendaScheduleBlock`, whose props today are exactly
+`{ extraction, label }` (`components/crew/AgendaScheduleBlock.tsx:51-54`). It gets one new OPTIONAL prop:
+
+```ts
+viewerDays?: ViewerAgendaDays; // default: { kind: "all" }
+```
+
+**The second caller is the admin Step 3 review preview** at
+`components/admin/wizard/step3ReviewSections.tsx:3230`, which renders the same component with no viewer
+context and must keep its current whole-schedule render. Making the prop REQUIRED would break that build;
+making it optional without a specified default would let the admin preview fold rows or show a
+meaningless "Your day" marker to an admin who has no assigned days. Hence: optional, defaulting to
+`{ kind: "all" }`, which by THE MARKER RULE (§5) also means no marker — an admin previewing a show is
+exactly the "no day is the viewer's" case, and the existing behaviour falls out of the rule rather than
+needing a special branch. The admin caller is NOT edited by this change. Do not duplicate it — the existing comment calls `visibleShowDays` "the SINGLE SOURCE for the SHOW-DAY ∩ restriction set" and warns about drift, so a second derivation is exactly the drift it guards against.
 
 **CONSTRAINT DISCOVERED 2026-07-25, load-bearing: the hoist must not move THROWING work.**
 `WrappedSection` exists specifically to contain per-block render throws, and its own docstring
@@ -87,8 +105,13 @@ believes "nothing here throws" will happily hoist something that does.
 `visibleShowDays` itself contains no `throw` (`lib/crew/agendaDisplay.ts:144-150`, verified) and reads
 `dates.showDays ?? []`, so it is genuinely safe to evaluate above the boundary.
 
-The agenda day the viewer needs comes from `dateRestriction` plus
-`todayIsoInShowTimezone`; it does NOT need `aggregateDays`. `visibleShowDays(data.show.dates,
+**CORRECTED (review R2, HIGH).** An earlier revision said the viewer's agenda day comes from
+`dateRestriction` plus `todayIsoInShowTimezone`. That is wrong and dangerous: this feature marks the days
+the viewer is ASSIGNED, which is a property of `dateRestriction` alone and does not depend on what day it
+is now. A viewer assigned only May 6 who opens the page on May 4 must still see May 6 expanded and
+marked. `todayIsoInShowTimezone` belongs to the separate "what is happening right now" surface and is NOT
+an input here — the contract is `visibleShowDays(dates, dateRestriction)`, which takes no clock. The
+viewer's day set also does NOT need `aggregateDays`. `visibleShowDays(data.show.dates,
 dateRestriction)` is the hoistable piece. Any plan task that moves `aggregateDays` or `allDays`
 above `agendaArea` is wrong on this point and must be rejected in plan self-review.
 
@@ -105,6 +128,24 @@ above `agendaArea` is wrong on this point and must be rejected in plan self-revi
 
 1. The positional fallback must index against the **full show day list**, never the viewer's subset — indexing a filtered list shifts every index and silently mismatches days.
 2. **Fail open per link.** `hasAgenda` allows multiple PDFs; one may parse while another does not. When neither path resolves a day for this viewer, that link's block renders every day expanded (today's behaviour).
+3. **Fail open on PARTIAL resolution too — corrected in review R2 (HIGH), and this is the finding most worth
+   understanding.** An earlier revision defined fail-open only for the all-or-nothing case: zero resolved
+   days. That leaves the dangerous middle unguarded. Concrete reachable scenario: the viewer works May 5
+   and May 6; May 5's heading parses to an ISO date, May 6's heading reads `"Day 3"` and does not parse,
+   and some OTHER heading in the extraction parsed — which disables the positional fallback, because its
+   second condition is `!someDateParsed` (`lib/crew/agendaDayForToday.ts:64`). May 5 expands and is
+   marked; **May 6, a day the viewer actually works, folds.** That is exactly the outcome §1.1 calls the
+   worst this feature can produce, and a test that only covers total failure passes straight through it.
+
+   **The rule: fold nothing unless EVERY day in the viewer's restriction was located in this extraction.**
+   Let `R` = the viewer's restriction days that fall within the show's days, and `L` = the subset of `R`
+   the matcher located in this extraction's day list. Fold only when `L` is complete — `|L| == |R|`.
+   Otherwise return the fail-open variant and expand everything. Partial knowledge is treated as no
+   knowledge, because a partially-correct fold silently hides a day the viewer needs while looking
+   perfectly normal on screen.
+
+   This makes the matcher's contract all-or-nothing per link, which is also what makes it testable: the
+   completeness comparison is a single assertion, whereas "which days did we probably get right" is not.
 
 ## 4. The rendered change
 
@@ -162,10 +203,20 @@ introduces. Before it, N days rendered N expanded blocks; after it, N-1 of them 
 Adding a "show more" cap on top would re-hide the thing the viewer is scanning for and reintroduce
 the problem in a second form.
 
-What bounds it in practice: days derive from `data.show.dates`, one row per aggregated date
-(travel-in, show days, travel-out), so the count is the show's own length — 2 to 10 for every show in
-the fixture corpus. A malformed sheet cannot inflate it without inflating the day cards below it too,
-which is existing behaviour and not made worse here.
+**CORRECTED in review R2 (MEDIUM) — the previous claim was factually wrong.** It said days derive from
+`data.show.dates`, so the count is the show's own length (2 to 10 in the fixture corpus) and a malformed
+sheet could not inflate the list without inflating the day cards too. `AgendaScheduleBlock` actually maps
+`normalizeAgendaExtraction(extraction).days` (`components/crew/AgendaScheduleBlock.tsx:70`) — the
+EXTRACTION's days, which come from a parsed PDF and are unrelated to `show.dates`. Normalization applies
+no cap to days or sessions. So a high-confidence extraction with 40 alternating day labels renders 40
+rows while the show still shows four day cards below, and the two counts genuinely can diverge.
+
+What that changes: nothing about the fold decision, which is per-day and works at any count. What it
+changes is the honesty of this section — the row count is bounded by whatever the PDF parsed, not by the
+show's length. The fold makes a long list *better* (N-1 one-line rows instead of N expanded blocks), so
+this is not a reason to add a cap; it IS a reason not to claim a bound the data does not have. If a
+40-row agenda ever appears in practice, capping is a new decision with its own mockup per the paragraph
+below, not something to slip into implementation.
 
 Boundary behaviour that IS specified, because it is reachable:
 
@@ -185,12 +236,18 @@ The fold introduces `<details>`/`<summary>` inside the block's `min-w-0` column.
 
 | Parent | Child | Invariant | Guaranteeing class |
 | --- | --- | --- | --- |
-| `div[data-testid=agenda-schedule]` (`flex min-w-0 flex-col gap-4`) | each `<details>` | child width === parent content width | `<details>` is block-level; add `min-w-0` so a long unbroken label cannot widen the column |
+| `div[data-testid=agenda-schedule]` (`flex min-w-0 flex-col gap-4`) | each `<details>` | child width === parent content width | **`w-full`, plus `min-w-0`.** CORRECTED in review R2 (MEDIUM): the earlier row named `min-w-0` alone as the guarantee, which is wrong — `min-w-0` only permits shrinking below the content-based minimum, it does not make a flex item fill the cross axis. Under this project's non-stretch default (Tailwind v4 does not default `.flex` to `align-items: stretch`) a `<details>` would shrink to its summary's contents, leaving a short tap row instead of a full-width one — the exact failure this section exists to prevent. `w-full` supplies the width; `min-w-0` still needed so a long unbroken label cannot widen the column. |
 | `<details>` | `<summary>` | summary width === details content width | `flex min-w-0 items-baseline` on the summary |
 | `<summary>` | label / date / count / chevron | label may shrink; date, count, chevron never truncate | `min-w-0` + `wrap-break-word` on the label; `shrink-0 tabular-nums` on date and count, matching `components/crew/AgendaScheduleBlock.tsx:75` and `components/crew/AgendaScheduleBlock.tsx:87` |
 | `<summary>` | "Your day" marker | never wraps and never truncates; it is the one cue the feature exists to deliver | `shrink-0` on the marker, so at 320px the LABEL absorbs the shortfall (it already carries `min-w-0 wrap-break-word`) rather than the marker |
 | `<summary>` | tap target | rendered height ≥ 44px | `min-h-tap-min` |
 | `<details>` | `ul` of sessions | body width === details content width, unchanged from today | existing `flex flex-col gap-2` |
+
+**The `w-full` guarantee gets its own assertion, not just a class check.** Assert
+`details.getBoundingClientRect().width === parentContentWidth` within 0.5px for EVERY row, at both
+viewports. A class-presence check would pass on a `<details>` that shrank anyway because some ancestor
+overrode the alignment, and the whole point of this table is that the class and the measured result are
+separate claims.
 
 Real-browser assertion (Playwright, NOT jsdom — jsdom computes no layout) at 320px and 390px,
 measuring the **content** box via `getComputedStyle` padding subtraction, because
@@ -306,100 +363,66 @@ anything: an allowlisted spec runs locally but is not asserted to report on ever
 
 Verify with the real-browser harness (`tests/e2e/agendaScheduleLayout.spec.ts`) using the accessibility snapshot, then pin whichever shape ships. Do NOT decide this from jsdom: it computes no layout and its accname support is not the arbiter here.
 
-## 6.2 The real-browser harness this spec depends on is currently DARK
+## 6.2 The real-browser harness this spec depends on is CI-dark, and the fix is narrower than two earlier revisions claimed
 
-Verified 2026-07-25: `tests/e2e/agendaScheduleLayout.spec.ts` is listed in
-`tests/ci/_metaE2eWorkflowCoverage.test.ts:49` as `UNSEEN` — "not named in any workflow run
-command", under the `BL-E2E-LIFECYCLE-SPECS-CI-DARK` umbrella. **No PR workflow runs it.** So every
-real-browser assertion §5.1, §6.1 and §7 rely on would pass locally, be cited as proof in the
-handoff, and never execute in CI. A dark spec rots: the next upstream change to `ScheduleSection`
-silently invalidates it and nothing reports.
+`tests/e2e/agendaScheduleLayout.spec.ts` is listed at
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:49` as `UNSEEN` — "not named in any workflow run command".
+**No workflow runs it.** So every real-browser assertion §5.1, §6.1 and §7 rely on would pass locally, be
+cited as proof in the handoff, and never execute in CI. A dark spec rots: the next upstream change to
+`ScheduleSection` silently invalidates it and nothing reports.
 
-This is a scope decision that belongs in the plan, not a detail:
+**Two earlier revisions of this section were wrong, in different ways. Both are recorded because each
+mistake is instructive and a third revision should not repeat either.**
 
-1. **Wire it.** Add a workflow (or a run command in an existing one) that names the spec, and delete
-   its `LOCAL_ONLY_ALLOWLIST` row — the meta-test's shadowing assertion FAILS if a row remains for a
-   spec that has become covered, so the deletion is forced, not optional. This is the only option
-   under which "verified in a real browser" is a true statement about CI.
-2. **Or state the limit.** Keep the assertions, run them locally, and say plainly in the spec and
-   the handoff that they are local-only and not PR-gated. Do not write "verified in a real browser"
-   without that qualifier.
+Revision 1 named `crew-e2e.yml:141` as the target and called it a one-line append. Wrong:
+`agendaScheduleLayout` is matched **only** by `tests/e2e/standalone.config.ts:36`, never by the default
+`playwright.config.ts` under any project, and `crew-e2e.yml` runs `--project=…` under the DEFAULT config.
+The append would have collected **zero tests and passed green**. The root `BACKLOG.md` documents this trap
+at line 670: the failure "looks like a bad path, not a missing project". This spec is an instance of
+`BL-STANDALONE-CONFIG-CI-DARK` (root `BACKLOG.md`, line 666), not of the lifecycle umbrella.
 
-**Concrete shape for option 1, verified against a working example.** `admin-layout-e2e.yml:113`
-names its specs explicitly in the run command:
+Revision 2 corrected the target to the standalone-config job
+(`.github/workflows/modal-header-layout-e2e.yml`, which runs `pnpm test:e2e:modal-header` →
+`playwright test --config=tests/e2e/standalone.config.ts …` per `package.json:52`) and said to DELETE the
+allowlist row. The target is right; **deleting the row is wrong.** That workflow is path-gated —
+`on: pull_request:` with a `paths:` filter at `.github/workflows/modal-header-layout-e2e.yml:45-47` — and
+the scanner categorically rejects path-filtered workflows from `covered`
+(`tests/ci/_workflowCoverageScan.ts:105` computes `hasPathsFilter`, `tests/ci/_workflowCoverageScan.ts:119` pushes the rejection reason
+"pull_request.paths/paths-ignore filter"). So running the spec there does NOT make it `covered`. Deleting
+its allowlist row would make the meta-test report the spec as **dark**, failing the dark assertion rather
+than the shadowing one.
 
-```
-run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts
-```
-
-Appending `tests/e2e/agendaScheduleLayout.spec.ts` to an existing crew-surface e2e workflow's run
-command is the smallest change that satisfies the scanner, since it reads run commands and a
-`--project`-only invocation is invisible to it. Four constraints from the scanner's own header
-(`tests/ci/_workflowCoverageScan.ts:15-23`):
-
-1. the run command must NOT suppress the exit code (`|| true`, `; exit 0`, a trailing
-   status-swallowing pipe all disqualify it);
-2. neither the job head nor the run step may carry `if:` or `continue-on-error` — note that a
-   diagnostic SIBLING step with `if: failure()` (the trace upload every real e2e workflow here has)
-   does NOT disqualify, so do not remove those;
-3. the workflow must not be path-gated if the goal is "runs on every PR" — `PATH_GATED` is a separate
-   non-covered category, not a pass;
-4. commands resolve transitively through `package.json` scripts, so adding the spec to an existing
-   `test:e2e:*` alias works as well as naming it inline. Then DELETE the spec's
-`LOCAL_ONLY_ALLOWLIST` row; the shadowing assertion fails while a row remains for a covered spec, so
-the deletion is forced rather than optional.
-
-**CORRECTED during the plan's pre-draft verification pass — the earlier target was wrong.** An
-earlier revision of this section named `crew-e2e.yml:141` as the wiring target and called it a one-line
-append. That would have produced a step that reports `No tests found` and passes vacuously. Measured:
+**The correct change, and it already has two precedents in the tree.** Run the spec in the path-gated
+standalone job AND change its allowlist row's value from `UNSEEN` to `PATH_GATED`:
 
 ```
-grep -n agendaScheduleLayout playwright.config.ts          ->  (no match)
-grep -n agendaScheduleLayout tests/e2e/standalone.config.ts ->  36: testMatch: /(… |agendaScheduleLayout| …)\.spec\.ts/
+tests/ci/_metaE2eWorkflowCoverage.test.ts:38  "tests/e2e/admin-layout-dimensions.spec.ts":   PATH_GATED,
+tests/ci/_metaE2eWorkflowCoverage.test.ts:39  "tests/e2e/pusher-alignment.layout.spec.ts":   PATH_GATED,
+tests/ci/_metaE2eWorkflowCoverage.test.ts:40  "tests/e2e/section-header-layout.layout.spec.ts": PATH_GATED,
 ```
 
-`agendaScheduleLayout.spec.ts` is matched **only** by `tests/e2e/standalone.config.ts`, never by the
-default `playwright.config.ts` under any project — `crew-e2e.yml:141` runs
-`--project=mobile-safari --project=desktop-chromium` under the DEFAULT config, so the appended path
-would match zero tests. The root `BACKLOG.md` at line 670 documents exactly this trap: *"`pnpm exec playwright test
-tests/e2e/<one>.spec.ts` reports `No tests found` (the failure looks like a bad path, not a missing
-project)"*. This spec is a named instance of `BL-STANDALONE-CONFIG-CI-DARK` (root `BACKLOG.md`, line 666), not of
-the `BL-E2E-LIFECYCLE-SPECS-CI-DARK` umbrella the paragraph above cites.
+The last two are standalone specs run by this very job, wired exactly this way by the sibling batch. The
+`PATH_GATED` reason string already says what the honest guarantee is: "runs when its filter matches, not
+PR-blocking-capable per the scanner contract".
 
-It also does not WANT that job. Its own header (`tests/e2e/agendaScheduleLayout.spec.ts:11-22`) says
-"HARNESS (standalone, no app boot)": it compiles the real token CSS from `app/globals.css` via the
-Tailwind CLI and writes a static harness HTML file. `crew-e2e.yml` boots a seeded Supabase plus the app on
-:3000, none of which this spec uses.
+**So what this work buys, stated without inflation:** the spec runs automatically whenever a PR touches
+the agenda component, the Schedule section, the spec itself, or `app/globals.css` — which is when it can
+actually regress. It does NOT run on every PR, and a change that breaks it from an unrelated file will
+not be caught. That is strictly better than dark and strictly worse than PR-blocking, and the handoff must
+say so in those terms rather than writing "verified in a real browser" unqualified.
 
-**The correct target is the standalone-config job**, and the precedent is exact —
-`.github/workflows/modal-header-layout-e2e.yml`, whose header comment at `.github/workflows/modal-header-layout-e2e.yml:27-34` records this same
-lesson ("the specs below live in tests/e2e/standalone.config.ts, which NO workflow invoked … they were
-runnable ONLY by a developer who already knew to pass `--config`"). It runs:
+**Explicitly NOT in scope:** making the standalone job unconditional. That would run every standalone spec
+on every PR, a cost decision affecting ~19 specs across `BL-STANDALONE-CONFIG-CI-DARK`, not something this
+feature should decide unilaterally. The backlog item stays open and this spec's row moves from one
+non-covered category to a better-justified one.
 
-```
-- name: Run modal-header standalone layout specs (no webServer)
-  run: pnpm test:e2e:modal-header
-```
-
-and `package.json:52` expands that to:
-
-```
-playwright test --config=tests/e2e/standalone.config.ts tests/e2e/skeletonBandParity.spec.ts …
-```
-
-That job needs no server and no Supabase and stays ~15s (`modal-header-layout-e2e.yml:36-37`).
-
-**So option 1 becomes:** append `tests/e2e/agendaScheduleLayout.spec.ts` to the
-`test:e2e:modal-header` script's path list (or add a sibling `test:e2e:*` alias invoked by the same
-job), add the spec plus `components/crew/AgendaScheduleBlock.tsx` and
-`components/crew/sections/ScheduleSection.tsx` to that workflow's `paths:` filter, and delete the
-`LOCAL_ONLY_ALLOWLIST` row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:49`. The plan MUST include a
-step that RUNS the chosen command and records that it collected a non-zero test count — a passing step
-that matched nothing is the exact failure this correction exists to prevent.
-
-Note the script name would then be a misnomer (`test:e2e:modal-header` running an agenda spec). The
-plan should either rename it in the same change or add the sibling alias; decide explicitly rather than
-leaving a misleading name.
+Four constraints from the scanner's own header (`tests/ci/_workflowCoverageScan.ts:6-12`) still bind
+whatever job is used: the run command must not suppress the exit code; neither the job head nor the run
+step may carry `if:` / `continue-on-error` (a sibling diagnostic step with `if: failure()` does NOT
+disqualify — every real e2e workflow here has one, e.g.
+`.github/workflows/crew-e2e.yml:143`); a path filter makes it `PATH_GATED` rather than covered, which is
+the whole point above; and commands resolve transitively through `package.json` scripts, so extending a
+`test:e2e:*` alias works as well as naming the spec inline.
 
 ## 7. Tests
 
@@ -479,7 +502,8 @@ line, so the plan can rely on it without re-deriving:
 | Day rows are `div > h3 + ul` today | `components/crew/AgendaScheduleBlock.tsx:70-79` |
 | The `confidence !== "high"` / empty-days gate | `components/crew/AgendaScheduleBlock.tsx:58` |
 | `day.date === null` already guarded in the heading | `components/crew/AgendaScheduleBlock.tsx:74` |
-| `agendaScheduleLayout.spec.ts` is CI-dark, and `crew-e2e.yml:141` is the wiring target | see §6.2 |
+| `agendaScheduleLayout.spec.ts` is CI-dark | confirmed — `tests/ci/_metaE2eWorkflowCoverage.test.ts:49`, value `UNSEEN` |
+| the wiring target | **NOT `crew-e2e.yml:141`** (that was revision 1's error — the spec is matched only by `tests/e2e/standalone.config.ts:36`, so the append would collect zero tests). Target is the path-gated standalone job, with the allowlist row's value moving `UNSEEN` → `PATH_GATED`, not deleted. See §6.2. |
 
 **One correction was needed** and is recorded inline in §2: the earlier claim that `dateRestriction`
 "cannot throw" was false. It throws `MalformedProjectionError`, deliberately outside `WrappedSection`
