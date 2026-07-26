@@ -57,7 +57,7 @@ Verified rather than assumed, because a missing environment pragma costs a round
 - **Project partition: SERIAL, by default.** Neither `tests/agenda` nor `tests/components/crew` appears in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:64`), and the file's own comment at `vitest.projects.ts:18` says new directories default to SERIAL, which is the safe side. Nothing to add.
 - **`tests/components/crew/agendaScheduleBlockFold.test.tsx (NEW)` MUST carry `// @vitest-environment jsdom` as its FIRST line.** The default environment is `node` (`vitest.config.ts:68`), so a render test without the pragma fails on `document` being undefined. The sibling `tests/components/crew/sourceLink.test.tsx:1` carries exactly that pragma — copy the shape.
 - **`tests/agenda/agendaViewerDays.test.ts (NEW)` needs NO pragma** — it tests a pure function and `node` is correct for it.
-- No new e2e spec file is created, so no `playwright.config.ts` `testMatch` change is needed. Task 7 wires the EXISTING `agendaScheduleLayout.spec.ts`, which `tests/e2e/standalone.config.ts:36` already matches.
+- No new e2e spec file is created, so no `playwright.config.ts` `testMatch` change is needed. The CI task (T5) wires the EXISTING `agendaScheduleLayout.spec.ts`, which `tests/e2e/standalone.config.ts:36` already matches.
 
 ## Execution order (green at every commit)
 
@@ -65,7 +65,7 @@ Verified rather than assumed, because a missing environment pragma costs a round
 
 **RESTRUCTURED after review R3 (CRITICAL).** The previous order violated invariant 1, TDD-per-task, which
 is non-negotiable: it had T4 implement the chevron CSS with no failing test, then T5 and T6 add tests for
-behaviour T3 and T4 had already made green, and T7 change CI with no preceding red test. Tests-after-the-fact
+behaviour T3 and T4 had already made green, and the CI task change CI with no preceding red test. Tests-after-the-fact
 in a separate task cannot produce the required red → green → commit sequence — by the time the test lands
 it is already green, so it proves nothing about the implementation that preceded it.
 
@@ -79,22 +79,18 @@ folded into the tasks whose behaviour they assert, so the assertion is written f
 | T2 | the matcher is CALLED once per link with the hoisted day set (spied), above `agendaArea` | the hoist of the three existing `visibleDays` lines + the per-link matcher call |
 | T3 | fold/marker render tests, INCLUDING the §5.1 real-browser dimension assertions | the `<details>` markup |
 | T4 | the chevron's `transition-duration` asserted in a real browser (fails: no CSS yet) | the `app/globals.css` rule |
-| T5 | a meta-test assertion that THIS spec's registry row reads `PATH_GATED`, which fails today because it reads `UNSEEN` | the script + workflow `paths:` + the row value |
+| T5 | a meta-test assertion that the scanner's `rejected` list contains THIS spec with reason `pull_request.paths/paths-ignore filter` — it appears in neither `covered` nor `rejected` today, so it fails until a workflow names it in a run command | the script + workflow `paths:` + the row value |
 | T6 | **not a TDD task** — it is a review gate and is labelled as such rather than pretending to a red state | impeccable dual-run + cross-model review |
 
-**On T6's red state, corrected after review R4 (CRITICAL).** An earlier version said the red state was
-"the standalone command collects zero tests for this spec". That is not a failing ASSERTION — the existing
-alias collects four other specs and exits 0, so nothing is red. The real red state is a meta-test
-expectation on the registry row's value: assert it reads `PATH_GATED`, which fails while it reads `UNSEEN`,
-and passes once the wiring and the row land together. That is a genuine red → green pair.
+**On the CI task's red state, corrected twice (R4 CRITICAL, then R5 HIGH).** The first version said the red state was "the standalone command collects zero tests for this spec", which is not an assertion — the existing alias collects four other specs and exits 0. The second said "assert the registry row reads `PATH_GATED`", which goes green from editing that string alone, because the meta-test validates membership and never the reason. The current one uses the scanner's own `rejected` list; see T5 for why the string edit cannot move it.
 
 **On the gates task, also corrected (CRITICAL).** It has no red test because it is not a code task — it runs the
 impeccable dual-gate and the cross-model review. Calling it a TDD task was the defect; invariant 1 governs
 tasks that change behaviour, and a review gate changes none. It is now labelled a gate, so nobody looks for
 the failing test it cannot have.
 
-T2's red test is the one that needs care: see T2 for why it cannot assert through
-`AgendaScheduleBlock`'s props until T3, and what it asserts instead.
+T2's red test is the one that needs care: it asserts the seam it builds (the prop arrives with the
+computed value), not the rendering T3 adds. See T2.
 
 Baseline note: run the FULL suite before every push, not a scoped subset — PR2 of this sequence had a stale assertion in a file no scoped run covered, caught only by `npx vitest run` with no path filter.
 
@@ -168,7 +164,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 ### Task 2: Hoist the restriction derivation and thread the matcher result
 
 - [ ] **T2 owns BOTH halves of the prop seam, because a computed-but-unused value is dead code (review R5, CRITICAL).** Two earlier partitions split this wrong: one had T2 pass `viewerDays` before the prop existed (does not compile), the next had T2 compute a result with no consumer until T3 (commits dead calls). So T2 adds the optional `viewerDays` prop with its `{ kind: "all" }` default AND passes the computed value; T3 owns what the component DOES with it. T2's component diff is one prop declaration plus the default, and the fold markup is entirely T3's.
-- [ ] **Test first — what T2's red test can and cannot assert (review R3 HIGH; sharpened by R4 CRITICAL).** `AgendaScheduleBlock` has no `viewerDays` prop until T3, so a test asserting the prop arrives would not compile — excess-property checking rejects it. T2's red test therefore asserts the **hoist's own observable**: that `ScheduleSection` computes the viewer row set once, above `agendaArea`, and passes it to the matcher — verified by spying on `visibleAgendaDaysForViewer` and asserting it is called with the aggregate-day domain before the agenda area renders. That test fails today (nothing calls it) and passes when the hoist lands, with no dependency on T3's prop.
+- [ ] **Test first.** T2's red test asserts that `AgendaScheduleBlock` RECEIVES `viewerDays` carrying the computed value, once per link. That is assertable because T2 adds the prop itself (bullet above), so there is no dependency on T3 and no computed-but-unconsumed value. Review R6 (CRITICAL) caught the previous wording still claiming the prop could not exist until T3, which contradicted the bullet above it.
 - [ ] **Hoist the three EXISTING `visibleDays` lines** (`components/crew/sections/ScheduleSection.tsx:193-207`: `allDays`, `allowedShowDays`, `visibleDays`) above `agendaArea` (`components/crew/sections/ScheduleSection.tsx:147`), unmodified. Spec §2 as corrected in review R4: the earlier instruction to move the restriction derivation but NOT `aggregateDays` rested on a false premise — `grep -c throw lib/crew/agendaDisplay.ts` is `0`, so `aggregateDays` cannot throw and hoisting it adds no exposure. The viewer's day set already exists in that callback, computed correctly including travel days; this task moves it earlier, it does not invent it.
 - [ ] `R = new Set(visibleDays.map((d) => d.date))`. No new domain expression — reusing the existing derivation is what keeps the drift-guard comment at `components/crew/sections/ScheduleSection.tsx:200` meaningful.
 - [ ] **Per-link, not per-section (review R3, HIGH).** `hasAgenda` allows multiple PDFs and each is matched independently: call the matcher **once per link**, inside that link's block, and never reuse one link's result for another. T2's test asserts the CALL SHAPE only — two links produce two matcher calls with that link's own extraction. *Catches computing one result and sharing it.* The rendering consequence (A folds, B expands) is asserted in **T3**, where the fold markup exists; asserting it here would require T3's implementation and is what made an earlier version of T2 unable to go green.

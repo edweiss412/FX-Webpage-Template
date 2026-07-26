@@ -711,7 +711,7 @@ the whole point above; and commands resolve transitively through `package.json` 
 
 - Real-browser layout assertion per §5.1 at 320px and 390px, asserting every row in the table.
 - **Fail-open case** — an extraction whose labels do not parse and whose length ≠ `showDays` renders every day expanded. Highest-value test: a silent fold of the viewer's own day is the worst outcome this feature can produce.
-- Null-element guard: a `dates` row containing a null date must not reach the positional fallback (§3, condition 3).
+- **NO null-element-guard test for the new matcher** (review R6, CRITICAL: this inventory row previously demanded one). The EXISTING `agendaSessionsForToday` keeps its guard because it gates on `showDays`; the new matcher's domain is the aggregate list, whose `date` is typed `string` and non-null by construction, so such a test could only be written by constructing an impossible typed input. §3 is the authority.
 - Positional-fallback indexing asserted against the full day list, with a fixture whose viewer subset would shift indices if the filtered list were used — the assertion must FAIL if the implementation indexes `visibleDays`.
 - **BOTH suppression cases of THE MARKER RULE (§5), not just one.** (a) a one-day extraction renders no
   "Your day" marker; (b) an extraction where EVERY day is the viewer's also renders no marker anywhere.

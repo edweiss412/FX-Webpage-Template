@@ -65,12 +65,29 @@ describe("agenda-fold spec/plan pair — decided questions stay decided", () => 
     expect(specRaw).toMatch(/kind:\s*"subset";\s*rows/);
   });
 
-  it("aggregateDays is NOT forbidden above the boundary (the constraint was withdrawn)", () => {
-    // R4 CRITICAL: the ban rested on aggregateDays throwing, and it cannot throw.
-    // A future edit reinstating the ban would recreate the self-contradiction.
+  it("the hoist is CONTAINED, because aggregateDays CAN throw at runtime", () => {
+    // This rule previously asserted the opposite, and review R6 caught it enforcing a
+    // premise two rounds had already rejected -- a structural defense pinning a stale
+    // decision is worse than none, because it actively resists the correction.
+    //
+    // The history in one line: R3 forbade the hoist (right conclusion, wrong reason:
+    // "aggregateDays contains a throw" -- it does not). R4 checked `grep -c throw`, got 0,
+    // and withdrew the ban. R5 found the actual fault: getShowForViewer.ts CASTS the JSONB
+    // without validating, so showDays can be non-iterable or hold non-strings, and
+    // aggregateDays throws on those without containing any `throw` statement.
+    //
+    // So the settled decision is: hoist IS allowed, and MUST be wrapped in containment
+    // that fails open. Both halves get pinned, because dropping either resurrects a
+    // superseded round.
+    expect(specRaw, "spec must record that the cast is not a validation").toMatch(
+      /decodeJsonbColumn|CAST, not a validation/i,
+    );
+    expect(specRaw, "spec must require containment around the hoisted derivation").toMatch(
+      /try\s*\/\s*catch|`try`\/`catch`/i,
+    );
     for (const [name, text] of Object.entries(prose)) {
-      expect(text, `${name} must not reinstate the withdrawn aggregate ban`).not.toMatch(
-        /(do NOT move|never) [`']?aggregateDays/i,
+      expect(text, `${name} must not claim aggregateDays cannot throw`).not.toMatch(
+        /aggregateDays\s+(cannot|can not|never)\s+throw/i,
       );
     }
   });
@@ -89,7 +106,7 @@ describe("agenda-fold spec/plan pair — decided questions stay decided", () => 
     // dependent. It was removed rather than corrected again; the mechanism claim stays.
     for (const [name, text] of Object.entries(prose)) {
       expect(text, `${name} must not reintroduce a bare site count`).not.toMatch(
-        /\b\d{2,}\b[^.\n]{0,20}?(existing (class-based )?sites|class-based sites)/,
+        /(\b\d+\b[^.\n]{0,24}?(existing (class-based )?sites|class-based sites)|(existing (class-based )?sites|class-based sites)[^.\n]{0,24}?\b\d+\b)/,
       );
       expect(text, `${name} must not claim a "119th" site`).not.toMatch(/119th/);
     }
@@ -102,6 +119,45 @@ describe("agenda-fold spec/plan pair — decided questions stay decided", () => 
     for (const [name, text] of Object.entries(prose)) {
       expect(text, `${name} must not claim no new prop`).not.toMatch(/no new prop/i);
     }
+  });
+
+  it("no copy demands a null-element-guard test for the NEW matcher", () => {
+    // R5 CRITICAL then R6 CRITICAL: fixed in one place, survived in another, twice. The
+    // EXISTING function keeps its guard (it gates on showDays); the new matcher's domain is
+    // non-null by construction, so demanding the test is unsatisfiable.
+    // Case-insensitive deliberately: the surviving copy R6 found read "Null-element guard"
+    // and a case-sensitive sweep of "null-element guard" missed it.
+    for (const [name, text] of Object.entries(prose)) {
+      const demands = text
+        .split("\n")
+        .filter((l) => /null-element guard/i.test(l))
+        .filter((l) => !/does NOT need|no such guard|NO null-element|EXISTING|comes back/i.test(l))
+        .filter((l) => !/agendaSessionsForToday|lib\/crew\/agendaDayForToday/.test(l));
+      expect(demands, `${name} still demands a null-guard test for the new matcher`).toEqual([]);
+    }
+  });
+
+  it("the CI red state is the scanner's rejected list, not the allowlist string", () => {
+    // R5 HIGH then R6 HIGH: the string-value red state is fakeable, because the meta-test
+    // validates membership and never the reason. Two copies survived the first repair.
+    expect(planRaw, "plan must name the scanner's rejected list as the red state").toMatch(
+      /rejected/,
+    );
+    const fakeable = planRaw
+      .split("\n")
+      .filter((l) => /red state/i.test(l))
+      .filter((l) => /reads `?PATH_GATED`?/.test(l))
+      .filter((l) => !/fakeable|goes green|not merely|previous|earlier|corrected/i.test(l));
+    expect(fakeable, "plan still prescribes the fakeable PATH_GATED red state").toEqual([]);
+  });
+
+  it("no task reference points past the last task", () => {
+    // R6 HIGH: folding a task left "Task 7"/"T7" references behind. Derive the ceiling
+    // rather than hardcoding it, so this survives another re-partition.
+    const count = (planRaw.match(/^### Task \d+/gm) ?? []).length;
+    const refs = [...planRaw.matchAll(/\b(?:Task |T)(\d)\b/g)].map((m) => Number(m[1]));
+    const past = [...new Set(refs.filter((n) => n > count))];
+    expect(past, `plan references tasks past T${count}`).toEqual([]);
   });
 
   it("every section the spec references exists as a heading", () => {
