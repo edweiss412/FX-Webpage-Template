@@ -183,6 +183,17 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
   const ID = "pi-g1";
   const ARMED_LABEL = "Confirm ignore";
 
+  /* Ignore keeps every label variant mounted so its width cannot change on arm
+   * (see IgnoreLabelStack). `textContent` therefore concatenates all three; the
+   * label a user actually sees is the one variant left out of the a11y tree's
+   * hidden set. jsdom applies no CSS, so `invisible` means nothing here and
+   * `aria-hidden` is the discriminator that survives both engines. */
+  function shownLabel(btn: HTMLElement): string {
+    const shown = Array.from(btn.querySelectorAll("[data-ignore-label]:not([aria-hidden])"));
+    expect(shown, "exactly one Ignore label variant is shown").toHaveLength(1);
+    return shown[0]?.textContent ?? "";
+  }
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -200,7 +211,7 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     const deferClass = deferBefore.className;
     fireEvent.click(btn);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(btn.textContent).toBe(ARMED_LABEL);
+    expect(shownLabel(btn)).toBe(ARMED_LABEL);
     expectDestructiveRecipe(btn);
     // Sibling one-tap defer button is untouched by arming (§7).
     expect(getByTestId(`admin-pending-defer-${ID}`).textContent).toBe(deferLabel);
@@ -326,12 +337,12 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     const { getByTestId } = renderButtons();
     const ignoreBtn = getByTestId(`admin-pending-ignore-${ID}`);
     fireEvent.click(ignoreBtn); // arm permanent-ignore
-    expect(ignoreBtn.textContent).toBe(ARMED_LABEL);
+    expect(shownLabel(ignoreBtn)).toBe(ARMED_LABEL);
     await act(async () => {
       fireEvent.click(getByTestId(`admin-pending-defer-${ID}`)); // sibling one-tap mutation
     });
     // The armed state must not survive into/past another mutation.
-    expect(getByTestId(`admin-pending-ignore-${ID}`).textContent).not.toBe(ARMED_LABEL);
+    expect(shownLabel(getByTestId(`admin-pending-ignore-${ID}`))).not.toBe(ARMED_LABEL);
     expect(vi.getTimerCount()).toBe(0);
     // Only the defer POST fired — the armed guard did not.
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -346,11 +357,11 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     const btn = getByTestId(`admin-pending-ignore-${ID}`);
     const idleClass = btn.className;
     fireEvent.click(btn);
-    expect(btn.textContent).toBe(ARMED_LABEL);
+    expect(shownLabel(btn)).toBe(ARMED_LABEL);
     act(() => {
       vi.advanceTimersByTime(4_000);
     });
-    expect(btn.textContent).toBe("Permanently ignore");
+    expect(shownLabel(btn)).toBe("Permanently ignore");
     expect(btn.className).toBe(idleClass);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -390,7 +401,7 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
 
 // DESTRUCT-1's guarantee — the armed morph must not relocate the confirm hit-target —
 // SURVIVES the reorder, but is now bought structurally rather than with `basis-full`:
-// Ignore is the first flex item, so the Ignore button reserves a constant width, so arming
+// Ignore is the first flex item and reserves its widest label variant, so arming
 // cannot change the island's width at all. The real-browser proof is D4 in
 // tests/e2e/pendingDiscardReal.layout.spec.ts.
 // D7. `basis-full sm:basis-auto` forced both buttons full-width below `sm`, which made

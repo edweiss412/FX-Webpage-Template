@@ -103,9 +103,22 @@ export function railHtml(width: number): string {
 import {
   IGNORE_ARMED_CLASS,
   IGNORE_ARMED_LABEL,
+  IgnoreLabelStack,
   DISCARD_RESTING_CLASS,
-  IGNORE_IDLE_LABEL,
 } from "@/components/admin/PendingPanelDiscardButtons";
+
+/* The label stack rendered by the component itself, in each state. Substituting one for
+ * the other is exact — both sides come from the component, so the harness transcribes
+ * nothing and cannot drift. R10: the stack is what reserves the width, so swapping it is
+ * the whole difference the geometry tests care about. */
+const IDLE_STACK = renderToStaticMarkup(<IgnoreLabelStack variant="idle" />);
+const ARMED_STACK = renderToStaticMarkup(<IgnoreLabelStack variant="armed" />);
+if (IDLE_STACK === ARMED_STACK || !ARMED_STACK.includes(IGNORE_ARMED_LABEL)) {
+  throw new Error(
+    "IgnoreLabelStack no longer distinguishes idle from armed, so substituting one for " +
+      "the other would be a no-op and every armed panel would silently be idle markup",
+  );
+}
 
 /** Same tree, with the Ignore button in its armed state, produced by substituting the
  *  component's OWN exported armed class + label into the rendered markup.
@@ -132,13 +145,20 @@ export function armedHtml(width: number): string {
   const tagEnd = idle.indexOf("</button>", openTag) + "</button>".length;
   const ignoreEl = idle.slice(tagStart, tagEnd);
 
+  if (!ignoreEl.includes(IDLE_STACK)) {
+    throw new Error(
+      "armed substitution: the Ignore button does not contain the idle label stack, so " +
+        "the component no longer renders through IgnoreLabelStack and the armed panels " +
+        "would be idle markup",
+    );
+  }
   const armedEl = ignoreEl
     .replace(DISCARD_RESTING_CLASS, IGNORE_ARMED_CLASS)
-    .replace(`>${IGNORE_IDLE_LABEL}<`, `>${IGNORE_ARMED_LABEL}<`);
-  if (!armedEl.includes(IGNORE_ARMED_CLASS) || !armedEl.includes(IGNORE_ARMED_LABEL)) {
+    .replace(IDLE_STACK, ARMED_STACK);
+  if (!armedEl.includes(IGNORE_ARMED_CLASS) || !armedEl.includes(ARMED_STACK)) {
     throw new Error(
       "armed substitution did not apply inside the Ignore button — the component no " +
-        "longer renders through DISCARD_RESTING_CLASS / IGNORE_IDLE_LABEL, so the armed " +
+        "longer renders through DISCARD_RESTING_CLASS / IgnoreLabelStack, so the armed " +
         "panels would be idle markup and D4 would degrade to comparing idle with idle",
     );
   }
@@ -149,6 +169,27 @@ export function armedHtml(width: number): string {
     throw new Error("armed substitution disturbed the Defer button");
   }
   return armed;
+}
+
+/** The class the big-text rails wrap themselves in. Scoped so a big-text panel cannot
+ *  leak its font-size into the default-metric panels sharing the document. */
+const BIG_TEXT_CLASS = "harness-big-text";
+
+/** Wrap a rail so its Ignore labels render at `px` WITHOUT changing any rem-based
+ *  length — the shape of Firefox text-only zoom and of a minimum-font-size setting.
+ *
+ *  Whole-diff R10 F1: the `min-w-ignore: 10rem` floor this replaced held the
+ *  armed==idle width invariant only while every label stayed under it. Enlarge the text
+ *  past the floor and the longer idle label escapes while the shorter armed label does
+ *  not, so arming shrinks the island again and the R9 wrap transition returns. At 28px
+ *  both labels clear the old 160px floor, so this rail FAILS against the floor and
+ *  passes against the structural stack — which is what makes it a regression test and
+ *  not a restatement. */
+export function bigTextHtml(html: string, px: number): string {
+  return (
+    `<style>.${BIG_TEXT_CLASS} [data-ignore-label]{font-size:${px}px;line-height:1.1}</style>` +
+    `<div class="${BIG_TEXT_CLASS}">${html}</div>`
+  );
 }
 
 export type HarnessJson = Record<string, string>;
@@ -169,6 +210,10 @@ if (process.argv[1] && process.argv[1].endsWith("_pendingDiscardHarness.tsx")) {
     band440armed: armedHtml(440),
     wide900: railHtml(900),
     wide900armed: armedHtml(900),
+    // Same 440px regression rail, with the labels enlarged independently of layout
+    // lengths. See bigTextHtml: this is the condition a min-width floor cannot survive.
+    bigtext440: bigTextHtml(railHtml(440), 28),
+    bigtext440armed: bigTextHtml(armedHtml(440), 28),
   };
   writeFileSync(out, JSON.stringify(states, null, 2));
 }

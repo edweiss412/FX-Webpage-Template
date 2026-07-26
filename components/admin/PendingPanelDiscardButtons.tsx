@@ -43,21 +43,12 @@ const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try
  * Ignore button. NOTE the armed state is NOT only this class + label: it also fills the
  * live region and mounts the consequence paragraph below the row. The harness therefore
  * proves the armed ROW's geometry, which those two cannot affect — not the whole tree. */
-/* Ignore reserves a constant width across idle and armed. Whole-diff R9 F1 measured
- * the alternative: because "Confirm ignore" (125.64px) is SHORTER than "Permanently
- * ignore" (153.2px), arming shrank the island — and at parent widths around 440-460px
- * that let the island un-wrap from below "Retry now" to beside it, moving the confirm
- * target by dx +107.2px, dy -52px BETWEEN THE TWO TAPS. That is exactly the DESTRUCT-1
- * defect, and D4 was documented as structurally preventing it. A fixed width makes the
- * island's width invariant, so no wrap transition can occur on arm at ANY parent width
- * — which is what "structural" has to mean. */
 /* Worn by BOTH buttons at rest — Defer renders with it too, which is why it is not
- * called IGNORE_*. Measured consequence of the reserved width: both buttons are 160px,
- * so the island is 328px wide in every state and both stacked buttons match. */
+ * called IGNORE_*. */
 export const DISCARD_RESTING_CLASS =
-  "inline-flex min-w-ignore min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 export const IGNORE_ARMED_CLASS =
-  "inline-flex min-w-ignore min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 export const IGNORE_IDLE_LABEL = "Permanently ignore";
 /* Shortened from "Confirm stop tracking this sheet permanently" (328.51px), which is
  * what let the armed row stop wrapping at the 348px Needs-attention page.
@@ -71,6 +62,55 @@ export const IGNORE_IDLE_LABEL = "Permanently ignore";
  * row clears the 348px page by 8.46px, the same thin cross-platform margin rejected
  * elsewhere in this spec. */
 export const IGNORE_ARMED_LABEL = "Confirm ignore";
+export const IGNORE_RUNNING_LABEL = "Ignoring…";
+
+export type IgnoreLabelVariant = "idle" | "armed" | "running";
+
+/* Ignore must be exactly as wide armed as it is idle. Whole-diff R9 F1 measured what
+ * happens otherwise: "Confirm ignore" (125.64px) is SHORTER than "Permanently ignore"
+ * (153.2px), so arming shrank the island — and at parent widths around 440-460px that
+ * let the island un-wrap from below "Retry now" to beside it, moving the confirm target
+ * by dx +107.2px, dy -52px BETWEEN THE TWO TAPS. That is the DESTRUCT-1 defect itself,
+ * and D4 is documented as structurally preventing it.
+ *
+ * The reservation is STRUCTURAL, not numeric. Every label variant is always in the DOM,
+ * stacked in a single grid cell; the inactive ones carry `invisible`
+ * (`visibility: hidden`), which suppresses painting and removes them from the
+ * accessibility tree while their boxes still lay out. The track is therefore the width
+ * of the widest variant AS ACTUALLY RENDERED — each span carries its own weight, so
+ * armed is measured at `font-semibold` even while idle is showing.
+ *
+ * This replaces a `min-w-ignore: 10rem` floor (whole-diff R10 F1). A floor holds the
+ * invariant only while every label stays under it: Firefox text-only zoom and a
+ * minimum-font-size setting enlarge text without touching layout, so the longer idle
+ * label escapes the floor, the shorter armed label does not, and the R9 wrap transition
+ * returns. The floor also reserved 10rem of fixed width that a scaled root font turned
+ * into 320px inside a 246px card. A floor that stops being binding is not an invariant;
+ * this stack cannot stop being binding, because it IS the rendered labels. */
+export function IgnoreLabelStack({ variant }: { variant: IgnoreLabelVariant }) {
+  const variants = [
+    { key: "idle", label: IGNORE_IDLE_LABEL, weight: "font-medium" },
+    { key: "armed", label: IGNORE_ARMED_LABEL, weight: "font-semibold" },
+    { key: "running", label: IGNORE_RUNNING_LABEL, weight: "font-medium" },
+  ] as const;
+  return (
+    <span className="grid">
+      {variants.map(({ key, label, weight }) => {
+        const shown = key === variant;
+        return (
+          <span
+            key={key}
+            data-ignore-label={key}
+            aria-hidden={shown ? undefined : true}
+            className={`col-start-1 row-start-1 ${weight}${shown ? "" : " invisible"}`}
+          >
+            {label}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   const router = useRouter();
@@ -157,10 +197,10 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
       <div className="flex flex-wrap gap-2">
         {/* Ignore is FIRST so a wrap puts the irreversible action on the upper line
             and the safe one below it, nearest the thumb. Being the first flex item
-            also fixes Ignore's own box origin regardless of how the armed label
-            changes width — the DESTRUCT-1 guarantee, now structural rather than bought
-            with `basis-full`. (With the current copy the armed row is NARROWER than
-            idle, since "Confirm ignore" is shorter than "Permanently ignore".) */}
+            also fixes Ignore's own box origin within the row — but only within the
+            row: the row's own position needs IgnoreLabelStack above, which makes the
+            island's width invariant so arming cannot re-wrap it. Together they are the
+            DESTRUCT-1 guarantee, structural rather than bought with `basis-full`. */}
         <button
           type="button"
           data-testid={`admin-pending-ignore-${pendingIngestionId}`}
@@ -184,11 +224,15 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
           aria-busy={isRunning || undefined}
           className={armed ? IGNORE_ARMED_CLASS : DISCARD_RESTING_CLASS}
         >
-          {armed
-            ? IGNORE_ARMED_LABEL
-            : state.kind === "running" && state.pendingKind === "permanent_ignore"
-              ? "Ignoring…"
-              : IGNORE_IDLE_LABEL}
+          <IgnoreLabelStack
+            variant={
+              armed
+                ? "armed"
+                : state.kind === "running" && state.pendingKind === "permanent_ignore"
+                  ? "running"
+                  : "idle"
+            }
+          />
         </button>
         <button
           type="button"

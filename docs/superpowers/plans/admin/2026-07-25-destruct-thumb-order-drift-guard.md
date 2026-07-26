@@ -93,7 +93,7 @@ Test 2 (DOM order), test 6 (single live region survives the reorder), test 7 (no
 
 ### Task 4 — Real-browser proof — **DONE**
 
-`tests/e2e/pendingDiscardReal.layout.spec.ts`: 16 assertions across 3 rails × idle/armed covering D1, D2, D3, D4, D7. All measured **panel-relative** — comparing absolute `y` across two panels measures where the panel sits, not where the button sits, which cost one debugging cycle. `tests/e2e/pendingDiscardReflow.layout.spec.ts` narrowed to the historical negative control, with its old drift-guard inverted.
+`tests/e2e/pendingDiscardReal.layout.spec.ts`: 24 assertions across 5 rails (`rail320`, `page358`, `band440`, `wide900`, `bigtext440`) × idle/armed covering D1, D2, D3, D4, D7 — 28 with `pendingDiscardReflow.layout.spec.ts`'s historical negative control. All measured **panel-relative** — comparing absolute `y` across two panels measures where the panel sits, not where the button sits, which cost one debugging cycle. `tests/e2e/pendingDiscardReflow.layout.spec.ts` narrowed to the historical negative control, with its old drift-guard inverted.
 
 ### Task 5 — CI wiring — **DONE**
 

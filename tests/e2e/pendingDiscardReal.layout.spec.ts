@@ -42,8 +42,12 @@ const INGESTION_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
  *  16px `px-page-pad-mobile` per side — R8 F1 caught the earlier 390 as 32px too wide. */
 const RAILS = { rail320: 278, page358: 316, band440: 398, wide900: 858 } as const;
 type RailName = keyof typeof RAILS;
-/** Idle pair needs 315.94px, armed pair 324.72px — so only rail320 must wrap. */
-/** Idle pair needs 315.94px; armed needs 288.38px, because "Confirm ignore" is SHORTER
+/** The pair needs 315.95px in BOTH states — Ignore reserves its widest label variant
+ *  (IgnoreLabelStack), so idle and armed are dimensionally identical and a knife-edge
+ *  width lands the same way in both. Only rail320 definitely wraps.
+ *
+ *  Historical note, kept because it is why D4 needs a width mechanism at all: the armed
+ *  label "Confirm ignore" is SHORTER
  *  than idle "Permanently ignore" — so arming makes the row NARROWER, not wider.
  *  At the real mobile page the idle pair clears its 316px by 0.06px, which is a coin
  *  flip on font metrics, so no rail predicts one-line-vs-stacked any more. The tests
@@ -189,9 +193,10 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
     await page.goto(baseUrl);
     const idle = await probe(page, rail);
     const armed = await probe(page, `${rail}armed`);
-    // Structural: Ignore is the first flex item, so a longer armed label extends
-    // The Ignore button reserves a constant width, so the island's width is invariant
-    // and no wrap transition can occur on arm. DESTRUCT-1's guarantee without basis-full.
+    // Structural, two mechanisms: Ignore is the first flex item, fixing its origin
+    // within the row; and it reserves its widest label variant, so the island's width
+    // is invariant and no wrap transition can occur on arm. DESTRUCT-1's guarantee
+    // without basis-full.
     expect(
       Math.abs(armed.ignore.x - idle.ignore.x),
       `D4 ${rail}: Ignore left edge moved`,
@@ -203,6 +208,39 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
   });
 }
 
+test("D4 under enlarged text: arming still cannot change Ignore's width", async ({ page }) => {
+  /* The executable form of whole-diff R10 F1. Ignore's width must be invariant across
+   * arming because of what it RENDERS, not because a numeric floor happens to exceed
+   * both labels. Firefox text-only zoom and a minimum-font-size setting enlarge text
+   * without touching rem lengths; at 28px both labels clear the retired 10rem floor, so
+   * a floor-based reservation goes non-binding and the longer idle label makes idle
+   * WIDER than armed — the exact asymmetry R9 F1 showed carries the confirm target
+   * across a wrap boundary. Asserted at the 440px rail where that actually happened. */
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(baseUrl);
+  const idle = await probe(page, "bigtext440");
+  const armed = await probe(page, "bigtext440armed");
+  expect(
+    idle.ignore.w,
+    "the enlarged label must actually exceed the retired 160px floor, or this rail proves nothing",
+  ).toBeGreaterThan(160);
+  expect(
+    Math.abs(armed.ignore.w - idle.ignore.w),
+    "big text: arming changed Ignore's width",
+  ).toBeLessThanOrEqual(TOL);
+  expect(
+    Math.abs(armed.ignore.x - idle.ignore.x),
+    "big text: Ignore left edge moved on arm",
+  ).toBeLessThanOrEqual(TOL);
+  expect(
+    Math.abs(armed.ignore.y - idle.ignore.y),
+    "big text: Ignore top edge moved on arm",
+  ).toBeLessThanOrEqual(TOL);
+  expect(armed.ignore.y, "big text: Defer must not become the upper control").toBeLessThanOrEqual(
+    armed.defer.y + TOL,
+  );
+});
+
 test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
@@ -213,7 +251,7 @@ test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page
 
 test(`${WIDE_SLACK}: a card with real slack must NOT stack`, async ({ page }) => {
   // The safety assertions accept stacking whichever way a width lands, which is right
-  // at knife-edge widths and wrong here: at 858px of content the pair uses 322.74px,
+  // at knife-edge widths and wrong here: at 858px of content the pair uses 315.95px,
   // so stacking would mean something regressed (both buttons full-width, a stray
   // basis, a wrap forced by a container change). R9 F2.
   await page.setViewportSize({ width: 1280, height: 900 });
