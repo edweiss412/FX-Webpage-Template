@@ -38,6 +38,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import { bundleLiveEntry } from "./helpers/liveEntryToolchain";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const TOL = 0.5;
@@ -60,24 +61,10 @@ test.beforeAll(async () => {
 <body class="bg-bg"><div id="root"></div><script src="bundle.js"></script></body></html>`,
   );
 
-  execFileSync(
-    "pnpm",
-    [
-      "dlx",
-      "esbuild@0.28.0",
-      join(REPO_ROOT, "tests", "e2e", "_compactAlertCardLiveEntry.tsx"),
-      "--bundle",
-      "--format=iife",
-      "--jsx=automatic",
-      "--loader:.tsx=tsx",
-      '--define:process.env.NODE_ENV="production"',
-      "--external:node:fs",
-      `--tsconfig=${join(REPO_ROOT, "tsconfig.json")}`,
-      '--banner:js=window.process=window.process||{env:{NODE_ENV:"production"}};',
-      `--outfile=${join(workDir, "bundle.js")}`,
-    ],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
-  );
+  bundleLiveEntry({
+    entry: join(REPO_ROOT, "tests", "e2e", "_compactAlertCardLiveEntry.tsx"),
+    outFile: join(workDir, "bundle.js"),
+  });
 
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");

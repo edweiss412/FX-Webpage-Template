@@ -48,6 +48,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import { bundleLiveEntry } from "./helpers/liveEntryToolchain";
 
 // CommonJS package — Playwright's CJS loader provides __dirname (mirrors
 // step3-review-modal.interactions.spec.ts; do NOT use import.meta.url here).
@@ -75,24 +76,10 @@ test.beforeAll(async () => {
 
   // 2. Bundle the live entry (version-pinned dlx, matches the modal harness's
   //    pinned esbuild + tsconfig path-alias resolution for "@/...").
-  execFileSync(
-    "pnpm",
-    [
-      "dlx",
-      "esbuild@0.28.0",
-      join(REPO_ROOT, "tests", "e2e", "_blockedRowResolverLiveEntry.tsx"),
-      "--bundle",
-      "--format=iife",
-      "--jsx=automatic",
-      "--loader:.tsx=tsx",
-      '--define:process.env.NODE_ENV="production"',
-      "--external:node:fs",
-      `--tsconfig=${join(REPO_ROOT, "tsconfig.json")}`,
-      '--banner:js=window.process=window.process||{env:{NODE_ENV:"production"}};',
-      `--outfile=${join(workDir, "bundle.js")}`,
-    ],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
-  );
+  bundleLiveEntry({
+    entry: join(REPO_ROOT, "tests", "e2e", "_blockedRowResolverLiveEntry.tsx"),
+    outFile: join(workDir, "bundle.js"),
+  });
 
   // 3. Compile the real token CSS. An explicit @source on BlockedRowResolver.tsx
   //    guarantees its exact class strings are present in the compiled output
