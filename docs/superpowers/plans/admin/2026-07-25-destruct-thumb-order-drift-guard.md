@@ -93,7 +93,7 @@ Test 2 (DOM order), test 6 (single live region survives the reorder), test 7 (no
 
 ### Task 4 — Real-browser proof — **DONE**
 
-`tests/e2e/pendingDiscardReal.layout.spec.ts`: 24 assertions across 5 rails (`rail320`, `page358`, `band440`, `wide900`, `bigtext440`) × idle/armed covering D1, D2, D3, D4, D7 — 28 with `pendingDiscardReflow.layout.spec.ts`'s historical negative control. All measured **panel-relative** — comparing absolute `y` across two panels measures where the panel sits, not where the button sits, which cost one debugging cycle. `tests/e2e/pendingDiscardReflow.layout.spec.ts` narrowed to the historical negative control, with its old drift-guard inverted.
+`tests/e2e/pendingDiscardReal.layout.spec.ts`: **25 tests** across 5 rails (`rail320`, `page358`, `band440`, `wide900`, `bigtext440`) × idle/armed covering D1, D2, D3, D4, D7 — **29 total** with `pendingDiscardReflow.layout.spec.ts`'s 4 historical negative-control tests. Counts verified with `playwright test --list`, not by hand. All measured **panel-relative** — comparing absolute `y` across two panels measures where the panel sits, not where the button sits, which cost one debugging cycle. `tests/e2e/pendingDiscardReflow.layout.spec.ts` narrowed to the historical negative control, with its old drift-guard inverted.
 
 ### Task 5 — CI wiring — **DONE**
 
@@ -144,7 +144,7 @@ Both halves ran as isolated sub-agents, which the skill mandates; an inline run 
 |---|---|---|
 | `DESTRUCT-FOCUSRING-1` — light focus ring 1.60:1 vs WCAG 1.4.11's 3:1 | P1 | Token-level; changing it ships an app-wide visual change under a diff about button order. Tracked by the pre-existing `BL-FOCUS-RING-CONTRAST`, which this run contributed measured ratios to |
 | `DESTRUCT-DURATION-TOKENS-1` — `duration-*` emits no CSS across 89 files, so reduced-motion never applies to any Tailwind transition | P1 | One-line rename, but its blast radius is every transition and the thing needing re-verification is an a11y contract with no current test |
-| `DESTRUCT-ARM-ANNOUNCE-1` — silent arm/disarm for screen readers | P2 | Both fixes mean revisiting `ARM_REVERT_MS` across all 11 surfaces sharing it |
+| `DESTRUCT-ARM-ANNOUNCE-1` — silent **auto-disarm** for screen readers | P2 | Scoped precisely (R12 F3): on this surface the `role="status"` region announces the ARM, so only the 4s auto-revert passes unannounced. The deferral stays open for the surfaces that announce neither |
 
 ### Considered and kept, against the critique's recommendation
 

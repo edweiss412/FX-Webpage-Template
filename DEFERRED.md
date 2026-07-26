@@ -132,7 +132,7 @@ From the same audit. Tailwind v4's `duration-*` utility resolves `--transition-d
 
 **Un-defer trigger:** the next motion or token pass. Treat as an accessibility fix, not a cosmetic one.
 
-### DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window opens and closes silently
+### DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window closes silently
 
 From the same audit. At 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. Separately, 4s is tight against ~3s of polite speech for the arm message.
 

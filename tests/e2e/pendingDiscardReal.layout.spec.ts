@@ -32,9 +32,11 @@ const TOL = 0.5;
 const TAP_MIN = 44;
 const INGESTION_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
-/** Live geometries. 320 = dashboard rail (`min-[1240px]:w-80`); 390 = the mobile
- *  Needs-attention page; 900 = a full-width card. Single source for the widths so
- *  a threshold change cannot leave a panel testing the old boundary. */
+/** Live geometries. 320 = dashboard rail (`min-[1240px]:w-80`); 358 = the mobile
+ *  Needs-attention page (a 390px viewport minus 16px of page padding per side — R8 F1
+ *  caught an earlier 390 here as 32px too wide); 440 = the R9 F1 regression band;
+ *  900 = a full-width card. Single source for the widths so a threshold change cannot
+ *  leave a panel testing the old boundary. */
 /** Rails mirroring live geometry. Content width is the rail minus the card's 42px
  *  (1px borders + 20px p-tile-pad, both sides): 278 / 316 / 398 / 858px. */
 /** Rail → button content width (rail minus the card's 42px: 1px borders + 20px
@@ -213,10 +215,11 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
       Math.abs(armed.ignore.w - idle.ignore.w),
       `D4 ${rail}: Ignore width changed on arm`,
     ).toBeLessThanOrEqual(TOL);
-    expect(
-      Math.abs(armed.defer.w - idle.defer.w),
-      `D4 ${rail}: Defer width changed on arm`,
-    ).toBeLessThanOrEqual(TOL);
+    /* Deliberately NOT asserting Defer's width here. R12 F2: armedHtml only rewrites
+     * markup INSIDE the Ignore button, so Defer's markup is byte-identical between the
+     * two panels and any Defer-dimension comparison passes by construction. Asserting it
+     * would look like coverage while being incapable of failing. Ignore's width above IS
+     * meaningful — its class and label stack genuinely differ between the panels. */
   });
 }
 
@@ -272,16 +275,26 @@ test("exactly one Ignore label variant is painted, in every panel", async ({ pag
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
   const result = await page.evaluate((id) => {
-    const rows: { panel: string; painted: string[]; text: string[] }[] = [];
+    const rows: { panel: string; painted: string[]; text: string[]; innerText: string }[] = [];
     for (const sec of Array.from(document.querySelectorAll("[data-state]"))) {
       const btn = sec.querySelector(`[data-testid="admin-pending-ignore-${id}"]`);
       if (!btn) continue;
       const spans = Array.from(btn.querySelectorAll("[data-ignore-label]"));
-      const painted = spans.filter((s) => getComputedStyle(s).visibility !== "hidden");
+      /* R12 F1: `visibility !== "hidden"` alone is not paintability — a span hidden with
+       * `display:none` passes it, leaving the button with no visible text and an empty
+       * accessible name while the oracle stays green. Require a real painted box too,
+       * and cross-check against innerText, which (unlike textContent) honours BOTH
+       * visibility and display, so it independently catches "nothing shown" and "two
+       * variants shown at once". */
+      const painted = spans.filter((s) => {
+        const r = s.getBoundingClientRect();
+        return getComputedStyle(s).visibility !== "hidden" && r.width > 0 && r.height > 0;
+      });
       rows.push({
         panel: sec.getAttribute("data-state") ?? "?",
         painted: painted.map((s) => s.getAttribute("data-ignore-label") ?? "?"),
         text: painted.map((s) => (s.textContent ?? "").trim()),
+        innerText: ((btn as HTMLElement).innerText ?? "").trim(),
       });
     }
     return rows;
@@ -291,9 +304,9 @@ test("exactly one Ignore label variant is painted, in every panel", async ({ pag
     expect(row.painted, `${row.panel}: exactly one variant must be painted`).toHaveLength(1);
     const expected = row.panel.endsWith("armed") ? "armed" : "idle";
     expect(row.painted[0], `${row.panel}: wrong variant painted`).toBe(expected);
-    expect(row.text[0], `${row.panel}: painted variant has the wrong words`).toBe(
-      expected === "armed" ? "Confirm ignore" : "Permanently ignore",
-    );
+    const word = expected === "armed" ? "Confirm ignore" : "Permanently ignore";
+    expect(row.text[0], `${row.panel}: painted variant has the wrong words`).toBe(word);
+    expect(row.innerText, `${row.panel}: the button must READ as exactly one label`).toBe(word);
   }
 });
 

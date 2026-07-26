@@ -13,9 +13,12 @@ name: Destructive-confirm layout e2e (standalone harnesses)
 #                                  contains, proving the harness reproduces the
 #                                  original defect so D1 is not tautological.
 #
-# Both are FULLY self-contained: beforeAll tsx-renders the real component tree out
-# of process, compiles token CSS from app/globals.css via the Tailwind CLI, and
-# serves it over its OWN node:http server. No app boot, no Supabase, no seed.
+# Both are FULLY self-contained: each beforeAll compiles token CSS from
+# app/globals.css via the Tailwind CLI and serves it over its OWN node:http server.
+# No app boot, no Supabase, no seed. They differ in what they render:
+# pendingDiscardReal tsx-renders the REAL component tree out of process, while
+# pendingDiscardReflow emits transcribed historical markup on purpose — it is the
+# negative control and must keep rendering markup the product no longer has.
 #
 # NO env: block, deliberately. Unlike modal-header-layout-e2e.yml, this harness
 # imports no server chain — it renders a client component tree with a stub router —
