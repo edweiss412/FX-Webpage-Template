@@ -291,7 +291,20 @@ describe("scanner self-test: synthetic fixtures prove discovery and each branch"
   const probe = (code: string, opts?: { bare?: boolean }): Scan => {
     const sc: Scan = { anchors: 0, violations: [] };
     const src = opts?.bare === true ? code : HINT_IMPORT + code;
-    scanSource(parse("/synthetic/probe.tsx", src), "/synthetic/probe.tsx", sc);
+    const sf = parse("/synthetic/probe.tsx", src);
+    // A fixture that does not PARSE proves nothing, and one shipped: `0_0n` is a syntax error
+    // (a numeric separator may not follow a leading zero), so its assertions passed vacuously.
+    // Checked here rather than per-fixture, because the failure is invisible by construction --
+    // the scan simply sees a malformed tree and returns whatever it returns.
+    const parseErrors = (sf as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] })
+      .parseDiagnostics;
+    if (parseErrors !== undefined && parseErrors.length > 0) {
+      const first = parseErrors[0]!;
+      throw new Error(
+        `fixture does not parse (${ts.flattenDiagnosticMessageText(first.messageText, " ")}): ${src}`,
+      );
+    }
+    scanSource(sf, "/synthetic/probe.tsx", sc);
     return sc;
   };
   const ok = (code: string): void => {
@@ -1310,7 +1323,20 @@ describe("R6: scanner changes are pinned", () => {
   const probe = (code: string, opts?: { bare?: boolean }): Scan => {
     const sc: Scan = { anchors: 0, violations: [] };
     const src = opts?.bare === true ? code : HINT_IMPORT + code;
-    scanSource(parse("/synthetic/probe.tsx", src), "/synthetic/probe.tsx", sc);
+    const sf = parse("/synthetic/probe.tsx", src);
+    // A fixture that does not PARSE proves nothing, and one shipped: `0_0n` is a syntax error
+    // (a numeric separator may not follow a leading zero), so its assertions passed vacuously.
+    // Checked here rather than per-fixture, because the failure is invisible by construction --
+    // the scan simply sees a malformed tree and returns whatever it returns.
+    const parseErrors = (sf as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] })
+      .parseDiagnostics;
+    if (parseErrors !== undefined && parseErrors.length > 0) {
+      const first = parseErrors[0]!;
+      throw new Error(
+        `fixture does not parse (${ts.flattenDiagnosticMessageText(first.messageText, " ")}): ${src}`,
+      );
+    }
+    scanSource(sf, "/synthetic/probe.tsx", sc);
     return sc;
   };
   const violations = (code: string): string[] => probe(code).violations.map((v) => v.reason);
@@ -1923,6 +1949,19 @@ describe("R6: scanner changes are pinned", () => {
     ).not.toEqual([]);
   });
 
+  it("the fixture-parse guard actually fires (self-test)", () => {
+    // `0_0n` really shipped as a fixture and passed vacuously. A guard nobody has watched fail is
+    // decoration, so this asserts the exact spelling that fooled the suite is now rejected, plus a
+    // plainly broken one -- and that a VALID fixture still scans.
+    expect(() => probe('const A = () => <a href="x" target="_blank">{0_0n}</a>;')).toThrow(
+      /fixture does not parse/,
+    );
+    expect(() => probe("const A = () => <a href=;")).toThrow(/fixture does not parse/);
+    expect(() =>
+      probe('const A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;'),
+    ).not.toThrow();
+  });
+
   it("R32 selected operands, evaluated values, popover as an enumerated attribute", () => {
     const hid = '<span aria-hidden="true">Go</span>';
     // BLOCKING 4: `&&`, `||`, `??`, a comma and a literal-array SPREAD all SELECT an operand. Leaving
@@ -2141,7 +2180,9 @@ describe("R6: scanner changes are pinned", () => {
     }
     // R33 BLOCKING 3: a zero BigInt in ANY radix is falsy, so `||` selects the right operand, and
     // React omits a boolean attribute set to it.
-    for (const zero of ["0n", "0x0n", "0b0n", "0o0n", "0_0n"]) {
+    // `0_0n` is NOT valid: a numeric separator may not follow a leading zero, so that spelling was a
+    // parse error and its fixture passed vacuously. `0x0_0n` exercises the separator path for real.
+    for (const zero of ["0n", "0x0n", "0b0n", "0o0n", "0x0_0n"]) {
       expect(
         violations(
           `const A=()=><a href="x" target="_blank">{${zero} || <span aria-hidden="true">Go</span>} <NewTabHint /></a>;`,

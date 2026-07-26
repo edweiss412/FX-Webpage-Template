@@ -1487,3 +1487,23 @@ Same procedure, run while R34 was in flight. Four survivors, three of them real 
 Running the sweep after each fix round is now the highest-yield step in this PR's loop: two rounds in
 a row it found defects in the code the reviewer had just reviewed, and this time it found a coverage
 defect the reviewer would not have — a fixture pointed at a caller that could not exercise the rule.
+
+### A fixture that did not parse, and the guard that now catches the class
+
+R34's probe trail showed it testing numeric separators, which surfaced a defect in MY OWN R33
+fixture: `0_0n` is a **syntax error** — a numeric separator may not follow a leading zero — so the
+two assertions built on it passed vacuously. The scan simply saw a malformed tree and returned
+whatever it returned. `0x0_0n` is the valid spelling and exercises the separator path for real.
+
+This is invisible by construction: nothing about a green suite distinguishes "the rule handled this
+input" from "this input was never a program". So the probe helper now **fails any fixture whose
+source has parse diagnostics**, checked once in the helper rather than per-fixture. All 127 existing
+fixtures pass it, and the class cannot recur.
+
+The guard has its own self-test asserting it rejects the exact spelling that fooled the suite, plus a
+plainly broken one, and still accepts a valid fixture — a guard nobody has watched fail is
+decoration. Disabling it turns that self-test red.
+
+Three fixture-level defects have now been found in this PR, each invisible to a passing suite: an
+assertion that matched the fail-closed default, one aimed at a caller that could not reach the rule,
+and one that was not valid syntax. All three were found by attacking the TESTS rather than the code.
