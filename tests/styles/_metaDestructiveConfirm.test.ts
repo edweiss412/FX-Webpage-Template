@@ -323,7 +323,7 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
    *  census never sees the call. Whole-diff R2 BLOCKING. Aliasing is banned outright in
    *  a registry file rather than chased. */
   const SCHEDULER_ALIAS =
-    /(?:const|let|var)\s+\w+\s*=\s*(?:globalThis\.|window\.)?(?:setTimeout|setInterval|requestIdleCallback)\s*(?![(\w])/;
+    /(?:const|let|var)\s+\w+\s*=\s*(?:globalThis\.|window\.)?(?:setTimeout|setInterval|requestIdleCallback)\s*(?![(\w])|\{[^}]*\b(?:setTimeout|setInterval|requestIdleCallback)\s*:\s*\w+[^}]*\}\s*=/;
 
   it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
     const declaring: string[] = [];
@@ -420,6 +420,15 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
         problems.push(`${file}: census ${norm(actual)} != expected ${norm(expected)}`);
       }
     }
+    // A CENSUS row for a file that left the registry is dead weight that silently
+    // stops being enforced — the "stale row" failure the sibling recipe registry
+    // already guards against.
+    const registryFiles = new Set(
+      REGISTRY.filter((r) => r.kind !== "exempt-non-confirm").map((r) => r.file),
+    );
+    for (const file of Object.keys(CENSUS)) {
+      if (!registryFiles.has(file)) problems.push(`STALE CENSUS ROW ${file} (not in the registry)`);
+    }
     expect(problems, "destructive-confirm timer census drifted").toEqual([]);
     // Non-vacuity: a detector that stopped matching would pass the above forever.
     expect(
@@ -463,6 +472,7 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     expect(SCHEDULER_ALIAS.test("autoRevertRef.current = setTimeout(() => {")).toBe(false);
     expect(SCHEDULER_ALIAS.test("const t = setTimeout;")).toBe(true);
     expect(SCHEDULER_ALIAS.test("const sched = globalThis.setInterval;")).toBe(true);
+    expect(SCHEDULER_ALIAS.test("const { setTimeout: t } = globalThis;")).toBe(true);
   });
 
   it("T2 self-check: the matcher accepts allowlisted names and rejects everything else", () => {
