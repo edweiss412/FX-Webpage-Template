@@ -143,8 +143,18 @@ test("fixed panel: armed ignore box == idle ignore box at 360px (no reflow)", as
   expect(armed.ignoreTop).toBeGreaterThanOrEqual(armed.deferBottom - TOL);
 });
 
-test("NEGATIVE CONTROL: pre-fix classes DO reflow at 360px", async ({ page }) => {
-  await page.setViewportSize({ width: 360, height: 900 });
+test("NEGATIVE CONTROL: pre-fix classes DO reflow (idle one line, armed wraps)", async ({
+  page,
+}) => {
+  // 420px, not 360px. This control's job is to reproduce the ORIGINAL DESTRUCT-1
+  // contrast: idle shares a row, armed drops to a new one. At 360px (328px content)
+  // the idle pair needs 315.94px — a 12px margin, which is a font-metric coin flip.
+  // It held on arm64 macOS for as long as this spec was dark and failed on the very
+  // first x64 Linux CI run: `idle.ignoreTop` 244 vs an expected < 235.5, i.e. idle had
+  // already wrapped, so the control was no longer contrasting anything.
+  // 420px gives the idle row ~72px of slack while the armed row (491.25px) still
+  // cannot fit, so the contrast is real on both platforms rather than marginal on one.
+  await page.setViewportSize({ width: 420, height: 900 });
   await page.goto(baseUrl);
   const idle = await measure(page, "nofix-idle");
   const armed = await measure(page, "nofix-armed");
