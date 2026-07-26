@@ -87,6 +87,20 @@ It does not run: no workflow references `admin-lifecycle-transitions`, so it is 
 
 **Surfaced by:** round-4 adversarial review of #598, which found it while checking that branch's retirement of the testid. Recorded rather than fixed there: out of scope for that PR, and it cannot be validated without first un-darkening it.
 
+## BL-HEADER-FONT-FALLBACK-WRAP — nothing loads Inter, so a bare-Linux client gets a much wider fallback
+
+**Filed:** 2026-07-26 (branch `feat/section-header-rebuild-phantom-spacers`, surfaced by real CI). **Class:** typography robustness. **Effort:** S (load the font) or M (make the affected rows font-independent).
+
+`app/globals.css` sets `--font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`, and **nothing loads Inter** — there is no `@font-face` rule and no `next/font` import anywhere. Every named entry after it is a system face, so a client with none of them (Chrome on a bare Linux install, which is what a GitHub Actions runner is) falls through to generic `sans-serif` and gets DejaVu Sans. DejaVu is substantially wider than SF Pro.
+
+Measured consequence: the event-detail group title "Wardrobe & key moments" fills the 240px narrowest real row unaided under DejaVu, so it wraps to two lines (33.59px vs 16.8px) where SF Pro leaves 22.94px of room for the decorative rule beside it. The `min-w-4` floor that is free on every targeted device is not free there.
+
+**This is narrow, not theoretical.** Every device the product actually targets resolves an earlier entry in the stack — iOS/macOS `-apple-system`, Android `ui-sans-serif`, Windows `Segoe UI` — so no crew member or admin sees the DejaVu rendering. It is reachable only on a desktop Linux browser lacking all six named faces.
+
+**Work, either of:** (a) self-host the intended face and add an `@font-face` (or a `next/font` import), which makes every measurement in this repo font-deterministic and retires a whole class of local-vs-CI divergence; or (b) leave the stack alone and make the affected rows font-independent — `whitespace-nowrap` plus truncation on the closed-set group titles, so a wide fallback shortens the label instead of adding a line.
+
+**Do not "fix" this by widening the tolerance in `tests/e2e/section-header-layout.layout.spec.ts`.** That test pins its own font to the Arial / Liberation Sans metric-compatible pair for exactly one measurement, deliberately and with the reason in a comment, so the floor assertion reads the same on macOS, Windows and the Ubuntu runner. Relaxing it instead would hide this entry's finding.
+
 ## BL-CHILDLESS-GROWABLE-STATIC-GUARD — static guard against childless growable flex items
 
 **Filed:** 2026-07-25 (branch `feat/section-header-rebuild-phantom-spacers`, DESCOPED from that branch's spec §6 after three adversarial rounds). **Class:** layout hardening (structural defense). **Effort:** M — the cost is the rule, not the walker.

@@ -149,6 +149,26 @@ test("hairline floor @ 240px row", async ({ page }) => {
     const rule = label.nextElementSibling;
     if (!(rule instanceof HTMLElement)) return { error: "rule sibling not found" };
 
+    // PIN THE FONT for this one measurement. The app's stack is
+    // `"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica
+    // Neue", sans-serif` and NOTHING loads Inter — no `@font-face`, no next/font —
+    // so it resolves to SF Pro on macOS and falls all the way through to DejaVu
+    // Sans on a bare Linux CI runner. DejaVu is wide enough that this label fills
+    // the 240px row unaided, which made the floor look like the cause of a wrap it
+    // had nothing to do with: CI measured 33.59px floored against 16.8px unfloored.
+    //
+    // Arial / Liberation Sans are metric-compatible and one of the two is present
+    // on macOS, Windows and the Ubuntu runner, so this reads the same on all three.
+    // Applied to the CONTAINER so the label and the rule share it, and only in this
+    // test — the 15-cell matrix measures the ambient stack deliberately, and its
+    // header heights are pinned against it.
+    //
+    // What this does NOT claim: that the floor is free under EVERY possible fallback.
+    // Under DejaVu it is not, and that is recorded as a real (narrow) exposure in
+    // BL-HEADER-FONT-FALLBACK-WRAP rather than asserted away here.
+    container.style.fontFamily = 'Arial, "Liberation Sans", Helvetica, sans-serif';
+    void container.offsetWidth; // force reflow before measuring
+
     const cs = getComputedStyle(rule);
     const labelCs = getComputedStyle(label);
     const lineHeight = parseFloat(labelCs.lineHeight);

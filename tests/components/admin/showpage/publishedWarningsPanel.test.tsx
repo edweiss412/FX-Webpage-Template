@@ -261,11 +261,15 @@ describe("the four body-empty states", () => {
       // body, so both guards above pass while the exclusion swallows the stray
       // guidance. The block must therefore contain the header and NOTHING that
       // belongs to the body's own content slots.
+      // Narrowed once, so the two loops below need no repeated non-null assertion.
+      // `headingRow` is HTMLElement | null by construction (the icon may be absent),
+      // and the containment assertion above does not narrow it for tsc.
+      const block: HTMLElement = headingRow as HTMLElement;
       for (const slot of [ELSEWHERE_TESTID, CLEAN_TESTID, EMPTY_TESTID]) {
         const el = body.querySelector(`[data-testid="${slot}"]`);
         if (el === null) continue;
         expect(
-          headingRow.contains(el),
+          block.contains(el),
           `the excluded header block must not contain the body's ${slot} slot —` +
             " an anchor that swallows a content slot makes this scan vacuous",
         ).toBe(false);
@@ -274,7 +278,7 @@ describe("the four body-empty states", () => {
       const firstRow = body.querySelector("li[data-warning-index]");
       if (firstRow !== null) {
         expect(
-          headingRow.contains(firstRow),
+          block.contains(firstRow),
           "the excluded header block must not contain a listed warning row",
         ).toBe(false);
       }
