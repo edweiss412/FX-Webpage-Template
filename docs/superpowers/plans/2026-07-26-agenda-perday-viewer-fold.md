@@ -198,7 +198,26 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 
 - [ ] **Test first, and it must fail for the right reason.** Assert in a real browser that the chevron's computed `transition-duration` is non-zero (and `0s` under `prefers-reduced-motion`). Before the CSS lands this fails because there is no transition at all — that is the red state T4 owns.
 - [ ] **The duration MUST come from `var(--duration-fast)` in hand-written CSS.** A Tailwind `duration-fast` class emits NOTHING here: `grep -c "transition-duration-fast" app/globals.css` → `0`, while Tailwind v4 resolves `duration-<name>` from `--transition-duration-<name>`. (Spec §5.2 records why the count of existing class-based uses was removed from both documents: it was grep-flavour dependent, drew a finding in three consecutive rounds, and carried none of the argument.) So the class also misses the reduced-motion block at `app/globals.css:417`, which only rewrites `--duration-*`.
-- [ ] Follow the existing accordion at `app/globals.css:709-710`; reduced motion then comes free via the token rewrite at `app/globals.css:419`.
+- [ ] **Precedents, located before implementation so this is copied rather than invented.** Three exist,
+      and the one this task's earlier wording pointed at was the wrong shape:
+      - `app/globals.css:709-710` is NOT a `<details>` accordion — it height-morphs
+        `[data-testid="admin-alert-panel"]` inside an `@supports (interpolate-size: allow-keywords)` block.
+        It IS a valid precedent for the load-bearing point (hand-written CSS consuming
+        `var(--duration-fast)`, which inherits reduced motion for free), and that is the only reason to
+        look at it.
+      - **The real disclosure precedent is `app/globals.css:684`** —
+        `[data-testid="admin-alert-banner"] details[open] summary .caret::after` — a CSS-driven caret keyed
+        off native `details[open]`, with a label swap at `app/globals.css:692-695`. Note it swaps an `after` pseudo-element's
+        CONTENT rather than rotating, so there is no existing `rotate` in this stylesheet
+        (`grep -n rotate app/globals.css` finds only prose). A rotation is new here and needs its own
+        `transition: transform var(--duration-fast)`.
+      - Reduced motion still comes free via the token rewrite at `app/globals.css:419`.
+- [ ] **Suppress the NATIVE disclosure triangle, or the row shows two markers.** A `<summary>` renders a UA
+      triangle by default. The repo's established class set is at `components/messages/ErrorExplainer.tsx:113`:
+      `list-none [&::-webkit-details-marker]:hidden [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none`.
+      Apply it (and keep `<summary>` semantics — the marker is removed for typography, not to change the
+      accessibility role, which `ErrorExplainer.tsx:106-109` states explicitly). *Catches shipping a
+      duplicate glyph beside the chevron, which no dimension assertion would flag.*
 - [ ] Green; commit `style(crew-page): chevron rotation on the agenda day disclosure`.
 
 ### Task 5: Transition audit — compound states, including the reachable ones
