@@ -1507,3 +1507,14 @@ decoration. Disabling it turns that self-test red.
 Three fixture-level defects have now been found in this PR, each invisible to a passing suite: an
 assertion that matched the fail-closed default, one aimed at a caller that could not reach the rule,
 and one that was not valid syntax. All three were found by attacking the TESTS rather than the code.
+
+**A second vacuity guard followed from the same reasoning.** `violations()` returns `[]` both when
+the rule ACCEPTS the markup and when the scan never discovered an anchor at all, so every
+`expect(violations(...)).toEqual([])` fixture had a second way to pass that carries no information.
+All 127 existing fixtures survive the check — it is preventive rather than a bug fix — and it has its
+own self-test. Between them the two guards now close the mechanical half of the vacuity class:
+a fixture must be a program, and it must actually reach the rule.
+
+What they cannot catch is the semantic half — an assertion whose expected value equals what the rule
+would produce with its body deleted. That one still needs mutation, which is why the branch sweep
+stays in the loop.

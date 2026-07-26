@@ -1339,7 +1339,17 @@ describe("R6: scanner changes are pinned", () => {
     scanSource(sf, "/synthetic/probe.tsx", sc);
     return sc;
   };
-  const violations = (code: string): string[] => probe(code).violations.map((v) => v.reason);
+  const violations = (code: string): string[] => {
+    const sc = probe(code);
+    // An UNDISCOVERED anchor also yields `[]`, so every `expect(violations(...)).toEqual([])`
+    // fixture would pass whether the rule accepted the markup or the scan never saw the anchor at
+    // all. Same shape as the unparseable fixture: the pass carries no information. Asserted here so
+    // no accept-fixture can be vacuous.
+    if (sc.anchors === 0) {
+      throw new Error(`fixture discovered NO anchor, so an empty result proves nothing: ${code}`);
+    }
+    return sc.violations.map((v) => v.reason);
+  };
 
   // (1) Compound negation. `!(e && ready)` and `!e && ready` differ at
   // e=false,ready=false: the first is TRUE (tab opens), the second FALSE (no
@@ -1959,6 +1969,14 @@ describe("R6: scanner changes are pinned", () => {
     expect(() => probe("const A = () => <a href=;")).toThrow(/fixture does not parse/);
     expect(() =>
       probe('const A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;'),
+    ).not.toThrow();
+    // The second vacuity guard: an accept-fixture whose anchor was never DISCOVERED also yields an
+    // empty result. A plain internal link is not a candidate, so it discovers nothing.
+    expect(() => violations('const A = () => <a href="/local">Go</a>;')).toThrow(
+      /discovered NO anchor/,
+    );
+    expect(() =>
+      violations('const A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;'),
     ).not.toThrow();
   });
 
