@@ -233,6 +233,8 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["datalist", "intrinsic tag name (content never rendered)"],
   ["dialog", "intrinsic tag name (not shown unless open)"],
   ["input", 'intrinsic tag name (R24: type="hidden" is not rendered)'],
+  ["img", "intrinsic tag name (R26b: one of the elements `alt` applies to)"],
+  ["area", "intrinsic tag name (R26b: one of the elements `alt` applies to)"],
   ["Link", "component tag name"],
   ["NewTabHint", "component tag name"],
   // Internal classification verdicts returned by the shape rules.
@@ -1775,12 +1777,20 @@ describe("R6: scanner changes are pinned", () => {
     }
     for (const src of [
       // A component is opaque and a dynamic `alt` may name something, so both still pass.
-      'const A=()=><a href="x" target="_blank"><Label /> <NewTabHint /></a>;',
+
       'const A=({t})=><a href="x" target="_blank"><img alt={t} /> <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><img alt="Go" /> <NewTabHint /></a>;',
       // MEASURED: an input's value DOES contribute, so omitting `value` was a false positive.
       'const A=()=><a href="x" target="_blank"><input type="text" value="Go" /> <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><span aria-label="Go" /> <NewTabHint /></a>;',
+      // SYMMETRY: attributes were inspected only on self-closing elements, so equivalent markup
+      // got opposite verdicts (review R26b HIGH 3).
+      'const A=()=><a href="x" target="_blank"><span aria-label="Go"></span> <NewTabHint /></a>;',
+      // A spread inside an array IS a render position; the walker visited it without unwrapping.
+      'const A=()=><a href="x" target="_blank">Go {[...[<NewTabHint />]]}</a>;',
+      // A KNOWN link tag is trusted, because rendering its children is the contract that makes
+      // it a link component. Without this split the posture would report every `<Link>` anchor.
+      'const A=()=><Link href="x" target="_blank">Go <NewTabHint /></Link>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
@@ -1816,6 +1826,22 @@ describe("R6: scanner changes are pinned", () => {
       // MEASURED: a `title` attribute is only a name FALLBACK, so it contributes nothing when
       // the anchor has content. Treating it as a destination was a fail-open.
       'const A=()=><a href="x" target="_blank"><span title="Go" /> <NewTabHint /></a>;',
+      // POSTURE CHANGED at R26b, deliberately. A component's children are a PROP it may
+      // discard -- `<Drop>Go</Drop>` renders nothing when `Drop` returns null -- so trusting a
+      // component to supply a destination is a fail-open, and these two cases were previously
+      // pinned as must-ACCEPT. Failing closed is chosen because no live anchor takes its label
+      // from a component (all 23 use literal text; components appear only as aria-hidden
+      // icons), so the strictness costs nothing today and a legitimate future case takes one
+      // reasoned exemption.
+      'const A=()=><a href="x" target="_blank"><Label /> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><Drop>Go</Drop> <NewTabHint /></a>;',
+      // The ANCHOR itself being an arbitrary component is the same fact one level up: it may
+      // discard the children it was handed.
+      'const A=()=><External target="_blank">Go <NewTabHint /></External>;',
+      // `alt` only names the elements it applies to.
+      'const A=()=><a href="x" target="_blank"><br alt="Go" /> <NewTabHint /></a>;',
+      // A dangling `aria-labelledby` names nothing, and the target is unresolvable statically.
+      'const A=()=><a href="x" target="_blank"><img aria-labelledby="missing" /> <NewTabHint /></a>;',
       // Attribute VALUES for `type` are case-insensitive in the DOM.
       'const A=()=><a href="x" target="_blank"><input type="HIDDEN" value="Go" /> <NewTabHint /></a>;',
       // Falsiness and renders-nothing are ORTHOGONAL: an object is truthy but renders nothing,
@@ -1954,7 +1980,7 @@ describe("R6: scanner changes are pinned", () => {
       // fix rather than by review. It required literal TEXT, so a component child and an
       // image were both read as "no destination". A component renders text this scanner
       // cannot see, and an `<img alt>` contributes its alt to the computed name.
-      'const A=()=><a href="x" target="_blank"><Label /> <NewTabHint /></a>;',
+
       'const A=()=><a href="x" target="_blank"><img alt="Go" /> <NewTabHint /></a>;',
       // Nested and fragment-wrapped labels must also survive.
       'const A=()=><a href="x" target="_blank"><span><b>Go</b></span> <NewTabHint /></a>;',
@@ -2683,5 +2709,59 @@ describe("R6: scanner changes are pinned", () => {
     ]) {
       expect(admitsCandidate(code), `must admit: ${code}`).toBe(true);
     }
+  });
+});
+
+describe("the sr-only premise this whole feature rests on", () => {
+  // NewTabHint renders `<span className="sr-only">`. If `sr-only` ever became display:none or
+  // visibility:hidden, EVERY announcement in the app would go silent -- 15 hint sites -- and no
+  // existing test would notice, because jsdom applies no CSS and the accname harness therefore
+  // includes the text regardless of how the class is implemented. So the premise is checked
+  // against the INSTALLED Tailwind rather than assumed.
+  //
+  // Verified 2026-07-26 against tailwindcss v4: position absolute, width/height 1px, padding 0,
+  // margin -1px, overflow hidden, clip-path inset(50%), white-space nowrap, border-width 0 --
+  // the clip technique, which keeps the element in the accessibility tree.
+  it("sr-only is clip-based, never display:none or visibility:hidden", () => {
+    const root = join(process.cwd(), "node_modules/tailwindcss");
+    const candidates = [
+      "utilities.css",
+      "index.css",
+      ...readdirSync(join(root, "dist")).map((f) => join("dist", f)),
+    ];
+    let body: string | null = null;
+    for (const rel of candidates) {
+      let text: string;
+      try {
+        text = readFileSync(join(root, rel), "utf8");
+      } catch {
+        continue;
+      }
+      // Match either the CSS form (`.sr-only { ... }`) or the compiled tuple form.
+      const css = /\.sr-only\s*\{([^}]*)\}/.exec(text);
+      if (css) {
+        body = css[1]!;
+        break;
+      }
+      // `[\s\S]` rather than the dotAll `/s` flag: this tsconfig targets below es2018 and `/s`
+      // is a TS1501 error. Third time I have written `/s` here after tsc rejected it before --
+      // running vitest without tsc is what hides it, since vitest strips types.
+      const tuple = /sr-only"\s*,\s*(\[\[[\s\S]*?\]\])/.exec(text);
+      if (tuple) {
+        body = tuple[1]!;
+        break;
+      }
+    }
+    // FAIL CLOSED: if the utility cannot be located, that is a signal to re-verify by hand, not
+    // a reason to pass. Tailwind's internal layout may change across majors.
+    expect(
+      body,
+      "could not locate the sr-only utility in the installed tailwindcss -- re-verify by hand that it is clip-based, then update this test's candidate paths",
+    ).not.toBeNull();
+    const flat = (body ?? "").replace(/\s+/g, "");
+    expect(flat, "sr-only must not use display:none").not.toMatch(/display.{0,4}none/i);
+    expect(flat, "sr-only must not use visibility:hidden").not.toMatch(/visibility.{0,4}hidden/i);
+    // And it must still actually hide visually, or the copy would be visible on screen.
+    expect(flat, "sr-only must still clip").toMatch(/clip-path|clip/i);
   });
 });

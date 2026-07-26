@@ -484,7 +484,10 @@ function rendersNothing(e: ts.Expression): boolean {
       return rendersNothing(el);
     });
   }
-  // A plain object literal is not valid React content; it renders nothing here.
+  // A plain object literal is not valid React content. CORRECTED at R26b: React does not
+  // render nothing, it THROWS ("Objects are not valid as a React child"), verified against
+  // React 19.2.4. Treating it as contributing no name is still right -- the component cannot
+  // render at all -- but the earlier claim about the mechanism was false.
   if (ts.isObjectLiteralExpression(n)) return true;
   if (ts.isConditionalExpression(n)) {
     return rendersNothing(n.whenTrue) && rendersNothing(n.whenFalse);
@@ -576,41 +579,41 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
       continue;
     }
     if (ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)) {
-      // RECURSE into an element with children rather than counting it wholesale. A wrapper
-      // whose only content is the hint contributes no destination -- `<span> <NewTabHint />
-      // </span>` computed to the phrase alone and was accepted (review R24 BLOCKING 2).
-      if (ts.isJsxElement(child)) {
-        if (hidesFromAccName(child)) continue;
-        if (childrenCarryDestination(child.children)) return true;
-        continue;
-      }
-      // A visible ELEMENT is opaque too, and this is where the first version of this rule
-      // was wrong: it required literal TEXT, so `<Label /> <NewTabHint />` and
-      // `<img alt="Go" /> <NewTabHint />` were both reported. A component renders text this
-      // scanner cannot see, and an `<img alt>` contributes its alt to the name. So any
-      // non-hidden element counts, and only a provably HIDDEN subtree does not.
       if (hidesFromAccName(child)) continue;
-      // A SELF-CLOSING element contributes a name only through an attribute. `<br />`,
-      // `<img alt="" />` and `<input type="text" />` contribute nothing yet all counted as
-      // destinations (review R25 BLOCKING 2). A component is still opaque: it renders content
-      // this scanner cannot see.
-      const tag = child.tagName.getText();
-      if (!/^[a-z]/.test(tag) || tag.includes(".")) return true; // component
-      // MEASURED against dom-accessibility-api rather than reasoned. Two corrections came out
-      // of it: `value` DOES contribute (`<input type="text" value="Go" />` computes
-      // "Go (opens in a new tab)"), and `title` does NOT -- it is only a fallback when no other
-      // name source exists, and the anchor's own content is one, so `<span title="Go" />`
-      // computes to the phrase alone. Including `title` was a fail-open; omitting `value` was a
-      // false positive. `defaultValue` is React's spelling of the same attribute.
-      const names = ["alt", "aria-label", "aria-labelledby", "value", "defaultvalue"];
-      for (const a of child.attributes.properties) {
+      const tag = ts.isJsxElement(child)
+        ? child.openingElement.tagName.getText()
+        : child.tagName.getText();
+      // A COMPONENT is undecidable in both directions: it may render a label, or discard the
+      // children it was given. R26b BLOCKING 1 showed trusting it is a fail-open --
+      // `<Drop>Go</Drop>` renders nothing when `Drop` returns null. Failing CLOSED is chosen
+      // because no live anchor takes its label from a component (all 23 use literal text, with
+      // components only as aria-hidden icons), so the strictness costs nothing today and a
+      // legitimate future case takes one reasoned exemption.
+      if (!/^[a-z]/.test(tag) || tag.includes(".")) continue;
+      // NAMING ATTRIBUTES, checked for paired AND self-closing elements alike. Inspecting them
+      // only on self-closing gave equivalent markup opposite verdicts: `<span aria-label="Go" />`
+      // passed while `<span aria-label="Go"></span>` was reported (review R26b HIGH 3).
+      const attrs = ts.isJsxElement(child) ? child.openingElement.attributes : child.attributes;
+      // `alt` only names the elements it APPLIES to -- `<br alt="Go" />` names nothing (R26b
+      // BLOCKING 2). `aria-labelledby` is deliberately absent: it points at another element, a
+      // dangling reference names nothing, and the target cannot be resolved statically, so
+      // treating it as proof was a fail-open.
+      const ALT_ELEMENTS = new Set(["img", "area", "input"]);
+      for (const a of attrs.properties) {
         if (!ts.isJsxAttribute(a)) continue;
-        if (!names.includes(jsxAttrNameLower(a))) continue;
-        if (!a.initializer) continue;
+        const name = jsxAttrNameLower(a);
+        const applies =
+          name === "aria-label" ||
+          name === "value" ||
+          name === "defaultvalue" ||
+          (name === "alt" && ALT_ELEMENTS.has(tag));
+        if (!applies || !a.initializer) continue;
         const val = stringOf(a.initializer);
         // A dynamic value is opaque and therefore assumed to name something.
         if (val === null || val.trim().length > 0) return true;
       }
+      // Then the children of an intrinsic element, which really do render.
+      if (ts.isJsxElement(child) && childrenCarryDestination(child.children)) return true;
       continue;
     }
   }
@@ -939,6 +942,12 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
       return;
     }
     if (ts.isJsxElement(n)) {
+      // A COMPONENT's children are a PROP it may discard, exactly like a call argument or a JSX
+      // attribute. `<External target="_blank">Go <NewTabHint /></External>` renders an
+      // unannounced anchor when `External` drops its children (review R26b BLOCKING 1), so a
+      // hint inside a component is not proof one renders. Intrinsic children DO render.
+      const tag = n.openingElement.tagName.getText();
+      if (!/^[a-z]/.test(tag) || tag.includes(".")) return;
       n.children.forEach((c) => walk(c, nextHidden, nextConds));
       return;
     }
@@ -951,9 +960,14 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
       walk(n.expression, nextHidden, nextConds);
       return;
     }
-    // An array renders each element, so every element is a render position.
+    // An array renders each element, so every element is a render position -- including the
+    // INNER expression of a spread, which the walker previously visited without unwrapping, so
+    // `{[...[<NewTabHint />]]}` was wrongly reported as not announcing (review R26b HIGH 4).
     if (ts.isArrayLiteralExpression(n)) {
-      n.elements.forEach((el) => walk(el, nextHidden, nextConds));
+      n.elements.forEach((el) => {
+        if (ts.isSpreadElement(el)) walk(el.expression, nextHidden, nextConds);
+        else walk(el, nextHidden, nextConds);
+      });
       return;
     }
     // Anything else -- a call, an object literal, a template substitution, a unary operator,
@@ -964,6 +978,18 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
   // Seed with the ANCHOR's own hidden state: traversal starting at children
   // missed `<a hidden>...<NewTabHint /></a>` (review R1 HIGH 4).
   const anchorHidden = hidesFromAccName(anchor);
+  // If the ANCHOR ITSELF is an arbitrary component, its children are a prop it may discard --
+  // `<External target="_blank">Go <NewTabHint /></External>` renders an unannounced anchor when
+  // `External` drops them (review R26b BLOCKING 1). A KNOWN link tag is different: rendering its
+  // children is the contract that makes it a link component, so `Link` is trusted. An unknown
+  // component admitted by the explicit-target or href+spread rule is not, and reports "does not
+  // announce" until the hint moves to an intrinsic anchor or a reasoned exemption is added. No
+  // live anchor is a component tag, so this costs nothing today.
+  const anchorTag = anchor.openingElement.tagName.getText();
+  const anchorTagLast = anchorTag.split(".").pop() ?? anchorTag;
+  const anchorRendersChildren =
+    /^[a-z]/.test(anchorTag) || LINK_TAGS.has(anchorTag) || LINK_TAGS.has(anchorTagLast);
+  if (!anchorRendersChildren) return out;
   anchor.children.forEach((c) => walk(c, anchorHidden, []));
   if (out.found) out.separated = hintHasSiblingSpace(anchor);
   return out;
