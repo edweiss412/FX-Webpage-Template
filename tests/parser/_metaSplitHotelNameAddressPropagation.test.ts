@@ -30,8 +30,21 @@ function unpropagatedCallers(source: string): string[] {
     if (!m) return;
     const binding = m[1]!;
     const window = lines.slice(i, i + 14).join("\n");
-    if (!new RegExp(`\\b${binding}\\.ambiguity\\b`).test(window)) {
-      bad.push(`line ${i + 1}: \`${binding}\` never reads ${binding}.ambiguity`);
+    // The read must FEED something: a guard, a stash, or an assignment. A bare
+    // `void split.ambiguity` or a lone expression statement satisfies "is
+    // mentioned" while propagating nothing (whole-diff R1 finding 5).
+    const amb = `\\b${binding}\\.ambiguity\\b`;
+    const feeds = [
+      new RegExp(`if\\s*\\(${amb}`), // guarded stash
+      new RegExp(`${amb}\\s*\\?`), // ternary / optional chain into a value
+      new RegExp(`[:=]\\s*${amb}`), // assigned or bound into an object
+      new RegExp(`\\(\\s*${amb}`), // passed as an argument
+    ];
+    if (!feeds.some((re) => re.test(window))) {
+      bad.push(
+        `line ${i + 1}: \`${binding}.ambiguity\` is never propagated ` +
+          `(no guard, assignment, or argument use within ${14} lines)`,
+      );
     }
   });
   return bad;
@@ -47,24 +60,31 @@ describe("splitHotelNameAddress propagation (source guard)", () => {
   it("still finds every call site (fails-by-default if the call shape changes)", () => {
     const src = readFileSync(SRC, "utf8");
     const calls = [...src.matchAll(/splitHotelNameAddress\s*\(/g)].length;
-    // 5 call sites + 1 definition. A new caller raises this and must be
-    // deliberately accounted for here.
-    expect(calls).toBeGreaterThanOrEqual(6);
+    // EXACT, not a floor: a floor cannot fail when a caller is added or removed,
+    // so it never forces the propagation question to be re-answered (whole-diff
+    // R1 finding 5). 5 call sites + 1 definition.
+    expect(calls).toBe(6);
   });
 
   // Proves the scanner's binding check actually discriminates — without this the
   // guard could be vacuous and nobody would know.
-  it("REJECTS a synthetic caller that drops its own result", () => {
-    const dropped = [
+  it.each([
+    [
+      "a caller that ignores its result entirely",
+      ["const b = splitHotelNameAddress(y);", "row.hotel_name = b.name;"].join("\n"),
+    ],
+    [
+      "a caller that mentions .ambiguity without propagating it",
+      ["const b = splitHotelNameAddress(y);", "void b.ambiguity;"].join("\n"),
+    ],
+  ])("REJECTS %s", (_label, sample) => {
+    const src = [
       "const a = splitHotelNameAddress(x);",
-      "row.hotel_name = a.name;",
       "if (a.ambiguity) stash(a.ambiguity);",
-      "const b = splitHotelNameAddress(y);",
-      "row.hotel_name = b.name;",
-      "row.hotel_address = b.address;",
+      sample,
     ].join("\n");
-    const bad = unpropagatedCallers(dropped);
-    expect(bad).toHaveLength(1);
-    expect(bad[0]).toContain("`b`");
+    const bad = unpropagatedCallers(src);
+    expect(bad, "the compliant caller must pass and the offender must fail").toHaveLength(1);
+    expect(bad[0]).toContain("`b.ambiguity`");
   });
 });
