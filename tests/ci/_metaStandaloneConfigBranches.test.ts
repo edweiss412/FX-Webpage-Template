@@ -25,22 +25,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { testMatchBranches } from "./_standaloneConfigScan";
+
 const ROOT = process.cwd();
 const CONFIG = "tests/e2e/standalone.config.ts";
-
-/**
- * The alternation branches of `testMatch`, read from the config SOURCE.
- *
- * Deliberately source-parsed rather than imported: importing yields a compiled
- * `RegExp` whose branch structure is gone, so a stale branch would be
- * indistinguishable from a live one. The source is the artifact a human edits
- * and therefore the artifact that carries the defect.
- */
-export function testMatchBranches(source: string): string[] {
-  const m = source.match(/testMatch:\s*\n?\s*\/\(([^)]*)\)\\?\.spec\\?\.ts\//);
-  if (!m) throw new Error("testMatchBranches: could not locate the testMatch alternation");
-  return m[1]!.split("|").map((b) => b.replace(/\\/g, ""));
-}
 
 describe("standalone config testMatch has no stale branches", () => {
   it("parses the alternation, and fails loudly if the config's shape changes", () => {

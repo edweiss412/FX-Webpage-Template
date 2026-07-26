@@ -18,6 +18,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scanWorkflowCoverage } from "./_workflowCoverageScan";
+import { testMatchBranches } from "./_standaloneConfigScan";
 
 const ROOT = process.cwd();
 
@@ -151,7 +152,18 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
     .filter((f) => f.endsWith(".spec.ts"))
     .map((f) => `tests/e2e/${f}`);
 
-  const { covered } = scanWorkflowCoverage({ workflows, packageScripts });
+  // Whole-config membership, resolved from the LIVE config rather than listed
+  // here: a hand-maintained copy would drift the moment a spec is registered,
+  // and drift in a coverage guard reads as coverage.
+  const standaloneMembers = testMatchBranches(
+    readFileSync(join(ROOT, "tests/e2e/standalone.config.ts"), "utf8"),
+  ).map((b) => `tests/e2e/${b}.spec.ts`);
+
+  const { covered } = scanWorkflowCoverage({
+    workflows,
+    packageScripts,
+    configSpecs: { "tests/e2e/standalone.config.ts": standaloneMembers },
+  });
 
   it("every e2e spec is PR-covered or reason-allowlisted", () => {
     const dark = specs.filter((s) => !covered.has(s) && !(s in LOCAL_ONLY_ALLOWLIST));
@@ -253,5 +265,96 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
   it("rejects exit-code suppression", () => {
     const r = S(base("  pull_request:", "", `playwright test ${spec} || true`));
     expect(r.rejected[0]!.reason).toBe("exit-code suppression");
+  });
+});
+
+/**
+ * The whole-config rule (spec §4.1).
+ *
+ * A command that runs a Playwright config WITHOUT naming a spec used to be
+ * invisible to the scanner: it extracts spec paths, that command has none, so
+ * it claimed nothing at all — not "rejected for a reason", but no claim to
+ * reject. The whole-config workflow that PR2 ships is exactly that shape.
+ *
+ * The rule is deliberately the narrowest thing that closes the gap: ONE exact
+ * literal command form covers every spec in that config's `testMatch`, and any
+ * deviation of any kind yields no claim. Four adversarial rounds could not make
+ * a general narrowing grammar (`--grep`, `--shard`, positionals, forwarded
+ * call-site arguments) sound, so there is no grammar here to attack — there is
+ * a string comparison. What was descoped is filed as BL-CI-* backlog items.
+ *
+ * Recognition and QUALIFICATION stay separate: everything below still passes
+ * through the same `if:` / `continue-on-error` / path-filter / exit-suppression
+ * gates, and the tests pin that a recognized command in a disqualified job
+ * still yields nothing.
+ */
+describe("the whole-config rule (spec §4.1)", () => {
+  const CFG = "tests/e2e/standalone.config.ts";
+  const members = ["tests/e2e/alpha.spec.ts", "tests/e2e/beta.spec.ts"];
+  const wf = (run: string, trigger = "  pull_request:", extra = "") =>
+    `name: x\non:\n${trigger}\njobs:\n  j:\n    runs-on: ubuntu-latest\n${extra}    steps:\n      - run: ${run}\n`;
+  const S = (run: string, trigger?: string, extra?: string) =>
+    scanWorkflowCoverage({
+      workflows: { "w.yml": wf(run, trigger, extra) },
+      packageScripts: {},
+      configSpecs: { [CFG]: members },
+    });
+
+  it("the exact shipping literal covers every member of that config", () => {
+    const r = S(`pnpm exec playwright test --config ${CFG}`);
+    expect([...r.covered].sort()).toEqual([...members].sort());
+  });
+
+  it("claims NOTHING for any deviation from the literal", () => {
+    // Each of these is a narrowing form that a general grammar would have had
+    // to reason about correctly. This rule reasons about none of them: they
+    // are simply not the string.
+    for (const run of [
+      `pnpm exec playwright test --config ${CFG} --shard=1/2`,
+      `pnpm exec playwright test --config ${CFG} -g foo`,
+      `pnpm exec playwright test --config ${CFG} --grep-invert bar`,
+      `pnpm exec playwright test --reporter=list --config ${CFG}`,
+      `pnpm exec playwright test --config ${CFG} --list`,
+      `pnpm exec playwright test --config=${CFG}`,
+      `pnpm exec playwright test --config ${CFG} --project=chromium`,
+    ]) {
+      const r = S(run);
+      expect([...r.covered], `must claim nothing: ${run}`).toEqual([]);
+    }
+  });
+
+  it("a positional spec still covers THAT spec, and not the whole config", () => {
+    // The two mechanisms are independent: naming a spec explicitly has always
+    // covered it, and must keep doing so. What the deviation must not do is
+    // claim the config's OTHER members.
+    const r = S(`pnpm exec playwright test --config ${CFG} tests/e2e/alpha.spec.ts`);
+    expect([...r.covered]).toEqual(["tests/e2e/alpha.spec.ts"]);
+  });
+
+  it("recognizes the literal through a pnpm alias, so package.json cannot evade it", () => {
+    const r = scanWorkflowCoverage({
+      workflows: { "w.yml": wf("pnpm test:e2e:standalone") },
+      packageScripts: { "test:e2e:standalone": `pnpm exec playwright test --config ${CFG}` },
+      configSpecs: { [CFG]: members },
+    });
+    expect([...r.covered].sort()).toEqual([...members].sort());
+  });
+
+  it("claims nothing for a config it was given no member list for", () => {
+    const r = S("pnpm exec playwright test --config tests/e2e/other.config.ts");
+    expect([...r.covered]).toEqual([]);
+  });
+
+  it("still applies every qualification gate to a recognized command", () => {
+    const cmd = `pnpm exec playwright test --config ${CFG}`;
+    expect([...S(cmd, "  workflow_dispatch:").covered]).toEqual([]);
+    expect([...S(cmd, '  pull_request:\n    paths:\n      - "lib/**"').covered]).toEqual([]);
+    expect([...S(cmd, "  pull_request:", "    continue-on-error: true\n").covered]).toEqual([]);
+    expect([...S(`${cmd} || true`).covered]).toEqual([]);
+    // …and the rejection is REPORTED, not silently dropped, so a disqualified
+    // whole-config job cannot look like an absent one.
+    const r = S(cmd, "  workflow_dispatch:");
+    expect(r.rejected.map((x) => x.spec).sort()).toEqual([...members].sort());
+    expect(new Set(r.rejected.map((x) => x.reason))).toEqual(new Set(["no pull_request trigger"]));
   });
 });

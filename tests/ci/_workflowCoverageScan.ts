@@ -29,11 +29,36 @@
 const SPEC_RE = /tests\/e2e\/[\w.-]+\.spec\.ts/g;
 const SUPPRESS_RE = /(\|\|\s*true)|(;\s*exit\s+0)|(\|\s*(tee|cat|grep)[^|]*$)/;
 
+/**
+ * The ONE command form that covers a whole config rather than a named spec.
+ *
+ * A whole-config command names no spec, so spec-path extraction finds nothing
+ * and the job would claim nothing at all — not "rejected", but invisible. That
+ * gap is closed by recognizing a single exact literal and nothing else.
+ *
+ * Deliberately not a grammar. Four adversarial rounds failed to make general
+ * narrowing semantics (`--grep`, `--shard`, positional filters, arguments
+ * forwarded from a call site) sound, and each repair introduced the next
+ * contradiction; those ambitions are filed as backlog items instead. Anything
+ * that is not this exact string yields no whole-config claim, which cannot be
+ * attacked on grammar because there is none.
+ *
+ * Spec: docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §4.1.
+ */
+const WHOLE_CONFIG_RE = /^pnpm exec playwright test --config (\S+)$/;
+
 type Opts = {
   /** workflow file basename -> raw YAML text */
   workflows: Record<string, string>;
   /** package.json "scripts" map, for alias resolution */
   packageScripts: Record<string, string>;
+  /**
+   * config path -> the spec paths its `testMatch` resolves to. Supplied by the
+   * caller (the meta-test resolves it from the live config) so this module
+   * stays pure and hardcodes no membership. A config absent from this map
+   * yields no whole-config claim.
+   */
+  configSpecs?: Record<string, string[]>;
 };
 
 /** The `on:` block (from the `on:` line to the next top-level key). */
@@ -77,7 +102,7 @@ function jobs(yaml: string): Array<{ head: string; steps: string[] }> {
   });
 }
 
-export function scanWorkflowCoverage({ workflows, packageScripts }: Opts): {
+export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = {} }: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
 } {
@@ -91,7 +116,14 @@ export function scanWorkflowCoverage({ workflows, packageScripts }: Opts): {
       .map((mm) => mm[1]!)
       .filter((name) => name in packageScripts)
       .flatMap((name) => resolveSpecs(packageScripts[name]!));
-    return [...direct, ...aliases];
+    // Whole-config recognition. Applied to `cmd` only: `resolveSpecs` already
+    // recurses into each alias body, so a command moved into package.json
+    // arrives here AS `cmd` on the recursive call and is recognized there.
+    // An explicit alias-body pass was written first and PROVEN DEAD by
+    // mutation — deleting it left the alias test green.
+    const wholeConfig = cmd.trim().match(WHOLE_CONFIG_RE);
+    const fromConfig = wholeConfig ? (configSpecs[wholeConfig[1]!] ?? []) : [];
+    return [...direct, ...aliases, ...fromConfig];
   };
 
   for (const [file, yaml] of Object.entries(workflows)) {
