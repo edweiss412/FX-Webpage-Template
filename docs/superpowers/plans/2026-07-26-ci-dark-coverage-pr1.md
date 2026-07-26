@@ -235,6 +235,10 @@ git commit -m "infra: pin @tailwindcss/cli 4.2.4 locally and gate version parity
 - Produces: `buildEntryCss(opts: CssOptions): void` where
   `CssOptions = { sources: string[]; outFile: string; workDir: string }`. `sources` are absolute paths fed to `@source`; the helper appends `app/globals.css` itself and writes the intermediate entry CSS into `workDir`.
 
+**Superseded during execution — read this before following the snippet below.** The test as drafted here asserts on the CLI's emitted stylesheet, and that assertion is **vacuous**: measured, building this entry with and without its `@source` lines yields byte-identical output (161016 bytes both ways, zero classes unique to either), because `app/globals.css:1` is `@import "tailwindcss"` with automatic content detection. Deleting the helper's `@source` mapping left the drafted assertion green.
+
+The shipped test therefore asserts the helper's own output — the intermediate entry stylesheet it writes — which two mutations (drop the mapping; reorder sources after globals) both turn red. See commit `4684b5d89`.
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
@@ -327,7 +331,121 @@ git commit -m "feat(e2e): build harness CSS with the local tailwindcss binary"
 
 ---
 
-### Task 4: Migrate the 8 esbuild call sites
+### Task 4: The toolchain guard — RED against the unmigrated tree
+
+**Files:**
+- Create: tests/e2e/\_metaLiveEntryToolchain.test.ts
+
+**Why this task is here and not at the end.** Spec §3.4 orders the guard FIRST: it must be red against the unmigrated tree (36 violating call sites) and go green *because* the migrations land. An earlier draft of this plan put it last, where it could only ever be written already-green — which is not TDD, and which the plan then papered over with a mutation probe. The migrations in Tasks 5 and 6 are this task's implementation step.
+
+**What it must NOT flag** — verified against the live tree, each of these is legitimate and must stay green:
+
+| site | why it is not a violation |
+| --- | --- |
+| `tests/e2e/help-docs-setup.ts:42` | `pnpm dlx tsx` — `dlx` is fine; `tsx` is not a toolchain binary |
+| `tests/e2e/step3-schedule-bookend-layout.spec.ts:103` | the words `@import "tailwindcss"` inside a **comment** |
+| the guard's own file | its detector fixture necessarily contains the forbidden strings |
+| tests/e2e/helpers/liveEntryToolchain.ts | the one permitted invocation point |
+
+So the detector matches an **invocation**, not a word: `esbuild` or `tailwindcss`/`@tailwindcss/cli` appearing as a command argument next to `dlx` or `exec`. A bare `dlx` is not enough, and a match inside a `//` or `/* */` comment does not count.
+
+- [ ] **Step 1: Write the guard**
+
+```ts
+// tests/e2e/_metaLiveEntryToolchain.test.ts
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const ROOT = process.cwd();
+const E2E = join(ROOT, "tests/e2e");
+/** Permitted invocation point + this guard itself (its fixture holds the strings). */
+const EXEMPT = new Set(["helpers/liveEntryToolchain.ts", "_metaLiveEntryToolchain.test.ts"]);
+const TOOLCHAIN = ["esbuild", "tailwindcss", "@tailwindcss/cli"];
+
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+/** A toolchain binary used as a COMMAND argument (next to dlx/exec), comments ignored. */
+export function toolchainInvocations(src: string): string[] {
+  const code = stripComments(src);
+  return TOOLCHAIN.filter((bin) => {
+    const b = bin.replace(/[/@]/g, "\\$&");
+    return new RegExp(`["'\`](?:dlx|exec)["'\`]\\s*,\\s*["'\`]${b}(@[\\d.]+)?["'\`]`).test(code);
+  });
+}
+
+function walk(dir = E2E): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
+    d.isDirectory()
+      ? walk(join(dir, d.name))
+      : /\.tsx?$/.test(d.name)
+        ? [relative(E2E, join(dir, d.name))]
+        : [],
+  );
+}
+
+describe("live-entry toolchain is invoked from exactly one place", () => {
+  it("the detector fires on a real invocation and ignores look-alikes", () => {
+    expect(toolchainInvocations('execFileSync("pnpm", ["dlx", "esbuild@0.28.0"])')).toEqual(["esbuild"]);
+    expect(toolchainInvocations('execFileSync("pnpm", ["exec", "tailwindcss", "-i"])')).toEqual(["tailwindcss"]);
+    // legitimate: dlx with a non-toolchain binary
+    expect(toolchainInvocations('spawnSync("pnpm", ["dlx", "tsx", "seed.ts"])')).toEqual([]);
+    // legitimate: the word inside a comment
+    expect(toolchainInvocations('// app/globals.css is `@import "tailwindcss"` + tokens')).toEqual([]);
+  });
+
+  it("no file but the helper invokes a toolchain binary", () => {
+    const offenders = walk()
+      .filter((f) => !EXEMPT.has(f))
+      .filter((f) => toolchainInvocations(readFileSync(join(E2E, f), "utf8")).length > 0);
+    expect(offenders, "route these through tests/e2e/helpers/liveEntryToolchain.ts").toEqual([]);
+  });
+
+  it("only the helper imports esbuild directly", () => {
+    const offenders = walk()
+      .filter((f) => !EXEMPT.has(f))
+      .filter((f) => /from\s+["']esbuild["']|require\(["']esbuild["']\)/.test(readFileSync(join(E2E, f), "utf8")));
+    expect(offenders).toEqual([]);
+  });
+
+  it("no package script reachable from tests/e2e invokes a toolchain binary", () => {
+    // Spec §3.3 clause 3: moving the invocation into a package script would
+    // otherwise satisfy a filesystem-only scan.
+    const scripts = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    }).scripts;
+    const referenced = Object.keys(scripts).filter((name) =>
+      walk().some((f) => readFileSync(join(E2E, f), "utf8").includes(`pnpm ${name}`)),
+    );
+    const offenders = referenced.filter((name) =>
+      TOOLCHAIN.some((bin) => new RegExp(`\\b${bin.replace(/[/@]/g, "\\$&")}\\b`).test(scripts[name] ?? "")),
+    );
+    expect(offenders).toEqual([]);
+  });
+});
+```
+
+- [ ] **Step 2: Run it — it MUST be red**
+
+Run: `pnpm exec vitest run tests/e2e/_metaLiveEntryToolchain.test.ts --project serial`
+Expected: FAIL. The offender list names the unmigrated call sites (29 files at plan time). Record the count in the commit body; it is the red state Tasks 5 and 6 clear.
+
+Also confirm the detector cases pass — if clause 1 fails, the detector is wrong, not the tree.
+
+- [ ] **Step 3: Commit the red guard**
+
+```bash
+git add tests/e2e/_metaLiveEntryToolchain.test.ts
+git commit -m "test(e2e): forbid any file but the helper from invoking the toolchain (red)"
+```
+
+Committing a red test is deliberate here and is confined to this branch: it is the failing half of the TDD cycle whose implementation is Tasks 5 and 6. The PR does not merge red — Task 9 gates that.
+
+---
+
+### Task 5: Migrate the 8 esbuild call sites
 
 **Files (verified line of the `"dlx"` literal at plan time):**
 - `tests/e2e/blocked-row-resolver-transitions.spec.ts:81`
@@ -390,12 +508,23 @@ git commit -m "refactor(e2e): route the 8 esbuild call sites through the helper"
 
 ---
 
-### Task 5: Migrate the 28 Tailwind call sites
+### Task 6: Migrate the 28 Tailwind call sites
 
 **Files:** every spec matching `grep -l '@tailwindcss/cli@4.2.4' tests/e2e/*.spec.ts` — 28 at plan time. **Re-run that grep**; the list grows as specs land.
 
 **Interfaces:**
 - Consumes: `buildEntryCss` from Task 3.
+
+**Inspect every site before editing it — they are not uniform.** Two known shapes:
+
+| shape | sites | migration |
+| --- | --- | --- |
+| `sources` holds **bare absolute paths** | most | pass the array straight to `buildEntryCss` |
+| `sources` holds **complete `@source "…";` directives** | `tests/e2e/pusher-alignment.layout.spec.ts:87` (`sources.push(\`@source "${file}";\`)`) | push the **bare path** instead; the helper adds the directive. Passing them through unchanged emits nested `@source "@source "…";";` and breaks a currently-green spec. |
+
+Check each site with `grep -n 'sources' <file>` before replacing. `section-header-layout.layout.spec.ts` builds its list the same way — confirm both.
+
+**Timeouts:** `pusher-alignment.layout.spec.ts:98` and `section-header-layout.layout.spec.ts:103` deliberately allow **180s**, where most sites use 120s. The helper now uses 180s uniformly — the maximum any site uses — so migration cannot shorten anyone's budget. Do not reintroduce a per-site timeout.
 
 - [ ] **Step 1: Replace each block**
 
@@ -440,7 +569,7 @@ git commit -m "refactor(e2e): route the 28 CSS call sites through the helper"
 
 ---
 
-### Task 6: Fix `resolve-label-layout`
+### Task 7: Fix `resolve-label-layout`
 
 **Files:**
 - Modify: `tests/e2e/resolve-label-layout.spec.ts`
@@ -476,7 +605,7 @@ git commit -m "fix(e2e): give resolve-label-layout the stub aliases its sibling 
 
 ---
 
-### Task 7: Remove `packlist-rescan-recovery` from the config
+### Task 8: Remove `packlist-rescan-recovery` from the config
 
 **Files:**
 - Modify: `tests/e2e/standalone.config.ts` (the `testMatch` alternation)
@@ -508,92 +637,6 @@ Expected: **zero failures, zero did-not-run.** This is PR1's acceptance invarian
 ```bash
 git add tests/e2e/standalone.config.ts
 git commit -m "test(e2e): drop packlist-rescan-recovery from the config (BL-HARNESS-PACKLIST-SERVER-GRAPH)"
-```
-
----
-
-### Task 8: The toolchain guard
-
-**Files:**
-- Create: tests/e2e/_metaLiveEntryToolchain.test.ts
-
-**Interfaces:**
-- Consumes: nothing at runtime; walks the filesystem.
-
-- [ ] **Step 1: Write the failing test**
-
-The guard has a **detector unit** (so it can be shown to fail) and a **live walk** (so it binds reality).
-
-```ts
-// tests/e2e/_metaLiveEntryToolchain.test.ts
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-
-const E2E = join(process.cwd(), "tests/e2e");
-const HELPER = "helpers/liveEntryToolchain.ts";
-const BINARIES = ["dlx", "esbuild", "@tailwindcss/cli", "tailwindcss"];
-
-/** Files under tests/e2e/** (recursive), repo-relative to tests/e2e. */
-function walk(dir = E2E, prefix = ""): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
-    d.isDirectory()
-      ? walk(join(dir, d.name), `${prefix}${d.name}/`)
-      : d.name.endsWith(".ts") || d.name.endsWith(".tsx")
-        ? [`${prefix}${d.name}`]
-        : [],
-  );
-}
-
-/** A quoted command-argument occurrence of a toolchain binary. */
-export function namesToolchainBinary(source: string): string[] {
-  return BINARIES.filter((b) => new RegExp(`["'\`]${b.replace("/", "\\/")}(@[\\d.]+)?["'\`]`).test(source));
-}
-
-describe("live-entry toolchain is invoked from exactly one place", () => {
-  it("the detector actually fires (it can fail)", () => {
-    expect(namesToolchainBinary('execFileSync("pnpm", ["dlx", "esbuild@0.28.0"])')).toEqual(
-      expect.arrayContaining(["dlx", "esbuild"]),
-    );
-    expect(namesToolchainBinary('const x = "unrelated";')).toEqual([]);
-  });
-
-  it("no file but the helper names a toolchain binary", () => {
-    const offenders = walk()
-      .filter((f) => f !== HELPER)
-      .filter((f) => namesToolchainBinary(readFileSync(join(E2E, f), "utf8")).length > 0);
-    expect(offenders, "route these through tests/e2e/helpers/liveEntryToolchain.ts").toEqual([]);
-  });
-
-  it("only the helper imports esbuild directly", () => {
-    const offenders = walk()
-      .filter((f) => f !== HELPER)
-      .filter((f) => /from\s+["']esbuild["']|require\(["']esbuild["']\)/.test(readFileSync(join(E2E, f), "utf8")));
-    expect(offenders).toEqual([]);
-  });
-});
-```
-
-- [ ] **Step 2: Run it against the current tree**
-
-Run: `pnpm exec vitest run tests/e2e/_metaLiveEntryToolchain.test.ts --project serial`
-Expected: PASS — Tasks 4 and 5 already migrated every site. If it fails, the offender list names exactly which file was missed; fix it and re-run.
-
-To prove the guard is not decoration, verify it fails on a violation (do **not** commit this):
-
-```bash
-printf '\nconst probe = ["dlx", "esbuild@0.28.0"];\n' >> tests/e2e/sample.spec.ts
-pnpm exec vitest run tests/e2e/_metaLiveEntryToolchain.test.ts --project serial   # must FAIL, naming sample.spec.ts
-git restore tests/e2e/sample.spec.ts   # safe here: the file is committed and unmodified otherwise
-```
-
-Record both outcomes in the commit body.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/e2e/_metaLiveEntryToolchain.test.ts
-git commit -m "test(e2e): forbid any file but the helper from naming a toolchain binary"
 ```
 
 ---
@@ -633,7 +676,7 @@ Check `$?` after vitest explicitly — it can exit 1 on an uncaught error while 
 
 ## Self-Review
 
-**1. Spec coverage.** §3.1 red specs → Tasks 6, 7. §3.2 helper + devDependency + parity → Tasks 1, 2, 3. §3.3 guard (all three clauses) → Task 8. §3.4 TDD order → Tasks 1-9. No §3 requirement is unassigned.
+**1. Spec coverage.** §3.1 red specs → Tasks 7, 8. §3.2 helper + devDependency + parity → Tasks 1, 2, 3. §3.3 guard → Task 4, and it implements **all three** clauses: no file but the helper invokes a toolchain binary, only the helper imports `esbuild`, and no package script reachable from `tests/e2e/**` invokes one. An earlier draft implemented two and claimed three. §3.4 TDD order → the guard is now Task 4, red against the unmigrated tree, exactly as §3.4 specifies.
 
 **2. Placeholder scan.** No TBD/TODO. Every code step carries real code. Task 5 names a grep rather than 28 literal paths **deliberately** — the list grows with `main`, and a frozen list would be stale before execution; the grep is exact and its plan-time result (28) is recorded.
 

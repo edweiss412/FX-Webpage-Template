@@ -120,6 +120,10 @@ export function buildEntryCss({ sources, outFile, workDir }: CssOptions): void {
   execFileSync("pnpm", ["exec", "tailwindcss", "-i", entryCss, "-o", outFile], {
     cwd: REPO_ROOT,
     stdio: "pipe",
-    timeout: 120_000,
+    // 180s, not the 120s most call sites used: two of them
+    // (pusher-alignment.layout, section-header-layout.layout) deliberately
+    // allow 180s, and nothing measured justifies shortening them. Taking the
+    // MAXIMUM across call sites means migration cannot regress any of them.
+    timeout: 180_000,
   });
 }
