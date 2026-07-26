@@ -51,7 +51,10 @@ const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try
  * defect, and D4 was documented as structurally preventing it. A fixed width makes the
  * island's width invariant, so no wrap transition can occur on arm at ANY parent width
  * — which is what "structural" has to mean. */
-export const IGNORE_IDLE_CLASS =
+/* Worn by BOTH buttons at rest — Defer renders with it too, which is why it is not
+ * called IGNORE_*. Measured consequence of the reserved width: both buttons are 160px,
+ * so the island is 328px wide in every state and both stacked buttons match. */
+export const DISCARD_RESTING_CLASS =
   "inline-flex min-w-ignore min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 export const IGNORE_ARMED_CLASS =
   "inline-flex min-w-ignore min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
@@ -179,7 +182,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
           }}
           disabled={isRunning}
           aria-busy={isRunning || undefined}
-          className={armed ? IGNORE_ARMED_CLASS : IGNORE_IDLE_CLASS}
+          className={armed ? IGNORE_ARMED_CLASS : DISCARD_RESTING_CLASS}
         >
           {armed
             ? IGNORE_ARMED_LABEL
@@ -193,7 +196,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
           onClick={() => handleClick("defer_until_modified")}
           disabled={isRunning}
           aria-busy={isRunning || undefined}
-          className={IGNORE_IDLE_CLASS}
+          className={DISCARD_RESTING_CLASS}
         >
           {state.kind === "running" && state.pendingKind === "defer_until_modified"
             ? "Deferring…"

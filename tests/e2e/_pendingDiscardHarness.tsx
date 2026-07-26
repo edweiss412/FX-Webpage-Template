@@ -103,7 +103,7 @@ export function railHtml(width: number): string {
 import {
   IGNORE_ARMED_CLASS,
   IGNORE_ARMED_LABEL,
-  IGNORE_IDLE_CLASS,
+  DISCARD_RESTING_CLASS,
   IGNORE_IDLE_LABEL,
 } from "@/components/admin/PendingPanelDiscardButtons";
 
@@ -121,7 +121,7 @@ export function armedHtml(width: number): string {
   const idle = railHtml(width);
 
   // Target the IGNORE BUTTON specifically rather than relying on position. R7 F3:
-  // `IGNORE_IDLE_CLASS` appears twice — Ignore and Defer share the idle skin — and
+  // `DISCARD_RESTING_CLASS` appears twice — Ignore and Defer share the idle skin — and
   // `String.replace` hits the FIRST occurrence. That is Ignore only because Ignore
   // happens to render first; if an identically styled control ever precedes it, the
   // class swap would arm the WRONG element while the label swap still found Ignore,
@@ -133,12 +133,12 @@ export function armedHtml(width: number): string {
   const ignoreEl = idle.slice(tagStart, tagEnd);
 
   const armedEl = ignoreEl
-    .replace(IGNORE_IDLE_CLASS, IGNORE_ARMED_CLASS)
+    .replace(DISCARD_RESTING_CLASS, IGNORE_ARMED_CLASS)
     .replace(`>${IGNORE_IDLE_LABEL}<`, `>${IGNORE_ARMED_LABEL}<`);
   if (!armedEl.includes(IGNORE_ARMED_CLASS) || !armedEl.includes(IGNORE_ARMED_LABEL)) {
     throw new Error(
       "armed substitution did not apply inside the Ignore button — the component no " +
-        "longer renders through IGNORE_IDLE_CLASS / IGNORE_IDLE_LABEL, so the armed " +
+        "longer renders through DISCARD_RESTING_CLASS / IGNORE_IDLE_LABEL, so the armed " +
         "panels would be idle markup and D4 would degrade to comparing idle with idle",
     );
   }
