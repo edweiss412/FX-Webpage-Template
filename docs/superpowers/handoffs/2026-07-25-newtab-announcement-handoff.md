@@ -2182,3 +2182,42 @@ The second number is the more interesting one: weakening `||` to `??` means an e
 falling back to the slug, and that broke both the new sheet-link name assertion and the pre-existing
 dialog-label test — which is the shape of a genuinely load-bearing fixture, two independent assertions
 noticing one behavioural change. Both components restored byte-clean afterwards.
+
+### Round 2: one finding refuted by measurement, one filed
+
+**Refuted — "12 production links have no exact accessible-name coverage."** The finding named two
+concrete regressions and asserted that for both, "the static presence guard and current component tests
+would remain green." That is the load-bearing claim, and it is false. Both were run against
+`Step2Verify.tsx:505`, one of the twelve sites named:
+
+```
+separator deleted   ("Open the folder<span aria-hidden>…</span><NewTabHint />")
+  ->  static guard: 1 failed | 138 passed
+
+visible text deleted ("<span aria-hidden>…</span> <NewTabHint />")
+  ->  static guard: 1 failed | 138 passed
+      Step2Verify.tsx:499 the only visible content is the announcement, so the
+      accessible name reads …
+```
+
+The guard is not a *presence* guard — it also proves a real sibling space separates the hint from the
+link text, and that the anchor has visible content other than the announcement. Those are exactly the
+two scenarios the finding described, each reported with its own located message. Adding twelve runtime
+accessible-name assertions would add assertions without adding coverage for them.
+
+Which is not to say runtime coverage is pointless — the split is principled. The five sites that DO have
+it are the ones whose names are **data-derived** (a title, a slug, an `alt`, a section label), because
+static analysis cannot evaluate a runtime interpolation, and that is precisely where this branch's worst
+defect lived: a probe that re-implemented an interpolation and got it wrong. The twelve sites named here
+have static JSX text, which the guard reads directly. Static where the content is static, runtime where
+the content is computed.
+
+**Filed — double announcement on user-supplied text** (`BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA`, LOW).
+Real: a show titled `Summit (opens in a new tab)` announces the phrase twice, and the same holds for a
+diagram `alt`. Reachable, since titles and alt text are admin-entered sheet cells, but pathological, and
+the degraded name is verbose rather than wrong — it still announces and still names the destination.
+Recorded rather than patched because the fix wants **one shared helper** that appends the suffix only
+when absent, not three inline conditionals: the visually-hidden copy already lives in exactly one place,
+and the label path deserves the same rather than a second copy of the rule. That means a helper, tests,
+and a sweep of all six Group B anchors — more than a close-out patch, and the wrong thing to rush a day
+after a merge conflict rewrote one of the three sites.
