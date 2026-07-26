@@ -127,6 +127,15 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
   - **PARTIAL location fails open.** Fixture: one label parses, another reads `"Day 3"`, and a third parses so `!someDateParsed` is false and the positional fallback cannot fire. Assert `{ kind: "all" }`. *Catches folding a day the viewer works while the page looks normal.*
   - **a travel-day assignment does NOT fail open forever.** Fixture: viewer assigned a travel-in date plus a show day, extraction covers both. `R` comes from the hoisted `visibleDays` (spec §2), which is the aggregate intersected with the restriction, so the travel day is IN `R`, completeness holds, and folding proceeds. *Catches an `R` narrowed to `visibleShowDays`' show-day-only output, which would drop the travel day and fail open for every stage-restricted viewer.*
   - **a date appearing TWICE still folds.** Two blocks, same date, both the viewer's → both indices in `rows`. *Catches count-based completeness.*
+  - **sheet/PDF date disagreement fails open** (spec §3, found by spiking the rule). Fixture: the viewer is
+    assigned May 5 and June 25; the extraction HAS a June 25 block; the aggregate does NOT contain June 25.
+    Assert `{ kind: "all" }`. *Catches the completeness check passing on May 5 alone and folding the June 25
+    row the viewer actually works — the outcome §1.1 calls the worst this feature can produce, from an input
+    five review rounds did not name.*
+  - **the discrimination that guard depends on**: a restriction date absent from BOTH the aggregate and the
+    extraction must NOT trigger fail-open — folding proceeds normally. *Catches an over-broad guard that
+    fails open for every viewer whose assignment mentions a date the PDF never covers, which would disable
+    the feature for them permanently.*
   - all four positional-fallback conditions negated independently, including the null-element guard. *Catches a fallback firing when it must not.*
   - **the positional fallback indexes the FULL aggregate day list.** Fixture built so a filtered list maps to different extraction rows. *Catches indexing the viewer's subset.*
   - `{ kind: "all" }` is returned, never `{ kind: "subset"; rows: <empty> }`. *Catches the empty-subset trap in spec §2.*

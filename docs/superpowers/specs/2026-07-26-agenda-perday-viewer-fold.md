@@ -276,6 +276,29 @@ passes while that day folds. The domain must be the viewer's restriction days in
    knowledge, because a partially-correct fold silently hides a day the viewer needs while looking
    perfectly normal on screen.
 
+   **A fourth condition, found by spiking the rule rather than by review.** Five review rounds did not name
+   this input, and a throwaway implementation of the rule folded a day the viewer works on it:
+
+   > The viewer is assigned May 5 and June 25. The agenda PDF has a June 25 block. But `show.dates` does
+   > NOT list June 25, so the aggregate does not contain it. `R` therefore excludes June 25, `L` matches
+   > `R` on May 5 alone, completeness passes — **and the June 25 row folds even though the viewer works
+   > it.**
+
+   The sheet and the PDF disagree about which dates the show has. That is partial knowledge, and this
+   section's own posture says partial knowledge is no knowledge. So: **if any extraction day parses to a
+   date that is in the viewer's restriction but NOT in the aggregate, fail open.**
+
+   Note what that guard does NOT do. A restriction date absent from the aggregate AND absent from the
+   extraction stays harmless — nothing folds on it, and there is no disagreement to detect, so folding
+   proceeds normally. The guard fires only when the extraction actually carries a block for a restriction
+   date the show data lacks. Spiked both ways to confirm the discrimination holds:
+
+```
+extraction has a June 25 block, aggregate does not, viewer works it  ->  fail open  (was: folded it)
+restriction has June 25, extraction does not mention it              ->  folds normally, unchanged
+R3 scenario / duplicates / travel day / nothing-parses               ->  all unchanged
+```
+
    Both edge cases above get their own test in the plan; neither is hypothetical — a duplicated day block
    is ordinary PDF output, and an out-of-show restriction day appears whenever a crew member's assignment
    spans a travel day the extraction does not cover.
