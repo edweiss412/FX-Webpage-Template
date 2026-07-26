@@ -370,6 +370,21 @@ new decision with its own mockup — do not add a silent cap during implementati
 
 The fold introduces `<details>`/`<summary>` inside the block's `min-w-0` column. Tailwind v4 does NOT default `.flex` to `align-items: stretch`, so every parent→child width relationship is pinned explicitly.
 
+**Test-id inventory — the fold introduces four, and they must be named here or the assertions have
+nothing to select.** The component today carries only `agenda-schedule`, `agenda-schedule-label`,
+`agenda-session`, `agenda-track` and `agenda-drift` (verified by grep), none of which identifies a day
+row. The plan's layout task asserts "every documented `data-testid`", so this is that list:
+
+| New test id | On | Why the assertions need it |
+| --- | --- | --- |
+| `agenda-day-<i>` | each `<details>`, `i` = index in `extraction.days` | the per-row width assertion (`details.width === parent content width`) needs to select rows individually; the index mirrors the existing `key={`${day.dayLabel}-${di}`}` at `components/crew/AgendaScheduleBlock.tsx:71` and the repo's indexed-testid convention |
+| `agenda-day-summary-<i>` | each `<summary>` | the 44px tap-target and both-open-states assertions measure the summary, not the details |
+| `agenda-day-marker-<i>` | the "Your day" marker | THE MARKER RULE's suppression cases assert absence, which needs a selector that can be absent rather than a text search that could match prose elsewhere |
+| `agenda-day-count-<i>` | the session count on a folded row | the zero-sessions case asserts `0 sessions` renders; scoping it prevents matching a count elsewhere in the page |
+
+Indexed, not keyed by date, because per §2.5 fact 1 the date is `null` for every day the current extractor
+produces — a date-keyed test id would collapse to the same value on every row.
+
 | Parent | Child | Invariant | Guaranteeing class |
 | --- | --- | --- | --- |
 | `div[data-testid=agenda-schedule]` (`flex min-w-0 flex-col gap-4`) | each `<details>` | child width === parent content width | **`w-full`, plus `min-w-0`.** CORRECTED in review R2 (MEDIUM): the earlier row named `min-w-0` alone as the guarantee, which is wrong — `min-w-0` only permits shrinking below the content-based minimum, it does not make a flex item fill the cross axis. Under this project's non-stretch default (Tailwind v4 does not default `.flex` to `align-items: stretch`) a `<details>` would shrink to its summary's contents, leaving a short tap row instead of a full-width one — the exact failure this section exists to prevent. `w-full` supplies the width; `min-w-0` still needed so a long unbroken label cannot widen the column. |
