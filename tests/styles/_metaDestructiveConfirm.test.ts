@@ -226,7 +226,12 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
    *  scanning whole files, so a `D6` mentioned in a COMMENT counted as measured
    *  while nothing asserted it. A guard that accepts prose as proof is the very
    *  defect this contract exists to catch. */
-  function assertionSurfaces(src: string): string {
+  function assertionSurfaces(rawSrc: string): string {
+    // Strip comments FIRST. R4/R5 F1: scanning raw source meant a commented-out
+    // `test("D6 …")` still satisfied M1 — an invariant test could be deleted outright
+    // with the guard green. The earlier fix stopped a bare D-name in a comment
+    // counting; it did not stop a commented-out TEST.
+    const src = stripComments(rawSrc);
     const titles = [...src.matchAll(/\b(?:test|it)\(\s*(["'`])([\s\S]*?)\1/g)].map((m) => m[2]!);
     // Second argument of expect(value, "message") — the only other place a name is
     // a real assertion label rather than commentary.
@@ -254,6 +259,14 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
       .join("\n");
     const unmeasured = declared.filter((d) => !new RegExp(`\\b${d}\\b`).test(haystack));
     expect(unmeasured, "invariants declared in the spec with no named assertion").toEqual([]);
+  });
+
+  it("M1/M3 self-check: commented-out TESTS do not count either", () => {
+    // R5 F1: the previous self-check only covered a bare `// D6` comment, not a
+    // commented-out test declaration, which was the actual reported bypass.
+    expect(assertionSurfaces('// test("D6 — pinned", () => {});')).not.toMatch(/D6/);
+    expect(assertionSurfaces('/* it("D7 — pinned", () => {}); */')).not.toMatch(/D7/);
+    expect(assertionSurfaces('test("D6 — pinned", () => {});')).toMatch(/D6/);
   });
 
   it("M1 self-check: a D-name in a comment does NOT count as measured", () => {
@@ -286,7 +299,9 @@ describe("META destructive-confirm dimensional contract (spec §6.6)", () => {
 
     let jsdom = "";
     try {
-      jsdom = readFileSync("tests/components/admin/pendingIngestionActions.test.tsx", "utf8");
+      jsdom = stripComments(
+        readFileSync("tests/components/admin/pendingIngestionActions.test.tsx", "utf8"),
+      );
     } catch {
       /* handled below */
     }
@@ -451,10 +466,10 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
         // find()-based check while a SECOND import renamed a foreign constant to
         // ARM_REVERT_MS and supplied the real value.
         const mentions = imports.filter((m) => /\bARM_REVERT_MS\b/.test(m[1]!));
-        if (mentions.length === 0) {
-          problems.push(`${file}: references ARM_REVERT_MS without importing it`);
-          continue;
-        }
+        // R5 F4: `import { ARM_REVERT_MS as LEGACY }` makes mentions non-empty while
+        // providing no local binding, so a local `let ARM_REVERT_MS = 3_000` slipped
+        // past every guard. Track whether any specifier actually PROVIDES the name.
+        let provided = false;
         // Parse SPECIFIERS rather than pattern-match the clause. R4 F3: the regex was
         // wrong in both directions — `import { "three-second" as ARM_REVERT_MS }` (a
         // valid arbitrary-string export name) provides the local binding but `\w+`
@@ -462,13 +477,46 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
         // local name yet was classified as if it did.
         for (const m of mentions) {
           const from = m[2]!;
-          for (const raw of m[1]!.split(",")) {
+          // Split on commas and ` as ` that are OUTSIDE quotes. R5 F4: an arbitrary
+          // string export name may legally contain either — `import { "foo as bar" as
+          // ARM_REVERT_MS }` was split inside the string, so no provider was found and
+          // a foreign source went unreported.
+          const specs: string[] = [];
+          let buf = "";
+          let quote: string | null = null;
+          for (const ch of m[1]!) {
+            if (quote) {
+              buf += ch;
+              if (ch === quote) quote = null;
+              continue;
+            }
+            if (ch === '"' || ch === "'") {
+              quote = ch;
+              buf += ch;
+              continue;
+            }
+            if (ch === ",") {
+              specs.push(buf);
+              buf = "";
+              continue;
+            }
+            buf += ch;
+          }
+          specs.push(buf);
+          for (const raw of specs) {
             const spec = raw.trim();
             if (!spec) continue;
-            const asSplit = spec.split(/\s+as\s+/);
-            const imported = (asSplit[0] ?? "").trim().replace(/^["']|["']$/g, "");
-            const local = (asSplit[1] ?? asSplit[0] ?? "").trim();
+            // ` as ` outside quotes only.
+            const outer = spec.replace(/(["'])(?:(?!\1)[\s\S])*\1/g, (q) => "\0".repeat(q.length));
+            const asAt = outer.search(/\s+as\s+/);
+            const imported = (asAt === -1 ? spec : spec.slice(0, asAt))
+              .trim()
+              .replace(/^["']|["']$/g, "");
+            const local = (
+              asAt === -1 ? spec : spec.slice(asAt + outer.slice(asAt).match(/\s+as\s+/)![0].length)
+            ).trim();
             if (local !== "ARM_REVERT_MS") continue; // this specifier does not provide it
+            provided = true;
             if (imported !== "ARM_REVERT_MS") {
               problems.push(`${file}: \`${imported}\` is renamed to ARM_REVERT_MS from ${from}`);
             }
@@ -478,6 +526,9 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
               );
             }
           }
+        }
+        if (!provided) {
+          problems.push(`${file}: uses ARM_REVERT_MS but no import provides that local name`);
         }
       }
     }

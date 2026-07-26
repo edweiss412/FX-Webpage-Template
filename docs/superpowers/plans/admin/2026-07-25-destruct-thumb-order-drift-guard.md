@@ -85,7 +85,7 @@ That substitution is what withdrew M2: with no transcription left to bind, the b
 
 ### Task 2 — Reorder the component — **DONE**
 
-Ignore moved before Defer; `basis-full sm:basis-auto` deleted; armed label shortened to `"Tap again to confirm"` (328.51px → 161.98px), which is also exactly what the live region already announces. The component exports its two Ignore skins and labels for the harness.
+Ignore moved before Defer; `basis-full sm:basis-auto` deleted; armed label shortened to `"Confirm ignore"` (328.51px → 125.64px). A first attempt used `"Tap again to confirm"`, which the impeccable critique caught as verbatim identical to the live region — the pair then said the instruction twice and the consequence nowhere. The consequence now lives in the live region and in a visible line under the row. The component exports its two Ignore skins and labels for the harness.
 
 ### Task 3 — jsdom coverage — **DONE**
 
