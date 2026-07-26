@@ -235,6 +235,8 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["input", 'intrinsic tag name (R24: type="hidden" is not rendered)'],
   ["img", "intrinsic tag name (R26b: one of the elements `alt` applies to)"],
   ["area", "intrinsic tag name (R26b: one of the elements `alt` applies to)"],
+  ["select", "intrinsic tag name (R27: a form control, so `value` names it)"],
+  ["textarea", "intrinsic tag name (R27: a form control, so `value` names it)"],
   ["Link", "component tag name"],
   ["NewTabHint", "component tag name"],
   // Internal classification verdicts returned by the shape rules.
@@ -263,9 +265,15 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
 // Without these the guard is unfalsifiable: the live tree exercises only
 // literal targets and true-polarity spreads.
 describe("scanner self-test: synthetic fixtures prove discovery and each branch", () => {
-  const probe = (code: string): Scan => {
+  // Every synthetic fixture is scanned WITH the real import, because R27 made the hint's
+  // binding load-bearing: a file that merely spells `NewTabHint` gets no credit. Prepending it
+  // here rather than in each fixture keeps the fixtures readable AND makes them faithful to a
+  // real file. A fixture that needs the import absent says so by passing `bare: true`.
+  const HINT_IMPORT = 'import { NewTabHint } from "@/components/shared/NewTabHint";\n';
+  const probe = (code: string, opts?: { bare?: boolean }): Scan => {
     const sc: Scan = { anchors: 0, violations: [] };
-    scanSource(parse("/synthetic/probe.tsx", code), "/synthetic/probe.tsx", sc);
+    const src = opts?.bare === true ? code : HINT_IMPORT + code;
+    scanSource(parse("/synthetic/probe.tsx", src), "/synthetic/probe.tsx", sc);
     return sc;
   };
   const ok = (code: string): void => {
@@ -1251,9 +1259,15 @@ describe("MDX is compiled and scanned, not lexed", () => {
 // so the suite stayed green while `normPredicate` was fail-open across eleven
 // operator families. Each change now has a pin that fails if it regresses.
 describe("R6: scanner changes are pinned", () => {
-  const probe = (code: string): Scan => {
+  // Every synthetic fixture is scanned WITH the real import, because R27 made the hint's
+  // binding load-bearing: a file that merely spells `NewTabHint` gets no credit. Prepending it
+  // here rather than in each fixture keeps the fixtures readable AND makes them faithful to a
+  // real file. A fixture that needs the import absent says so by passing `bare: true`.
+  const HINT_IMPORT = 'import { NewTabHint } from "@/components/shared/NewTabHint";\n';
+  const probe = (code: string, opts?: { bare?: boolean }): Scan => {
     const sc: Scan = { anchors: 0, violations: [] };
-    scanSource(parse("/synthetic/probe.tsx", code), "/synthetic/probe.tsx", sc);
+    const src = opts?.bare === true ? code : HINT_IMPORT + code;
+    scanSource(parse("/synthetic/probe.tsx", src), "/synthetic/probe.tsx", sc);
     return sc;
   };
   const violations = (code: string): string[] => probe(code).violations.map((v) => v.reason);
@@ -1728,6 +1742,40 @@ describe("R6: scanner changes are pinned", () => {
     }
   });
 
+  it("R27 spelling is not binding, and a naming attribute must apply", () => {
+    // A file that defines its OWN `NewTabHint` gets no credit for it. `bare: true` keeps the
+    // real import out so the local shadow is the only binding.
+    expect(
+      probe(
+        'const NewTabHint = () => null;\nconst A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;',
+        { bare: true },
+      ).violations,
+      "a locally shadowed NewTabHint must not count as an announcement",
+    ).not.toEqual([]);
+    // MEASURED: an embedded CONTROL contributes its VALUE and not its own label, while a
+    // non-control contributes its label. So `value` proves nothing off a control, and
+    // `aria-label` proves nothing ON one.
+    for (const src of [
+      'const A=()=><a href="x" target="_blank"><data value="Go"></data> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><meter value="0.5"></meter> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><input type="text" aria-label="Go" /> <NewTabHint /></a>;',
+      // Spreading a STRING yields one element per character, so an empty string yields none.
+      'const A=()=><a href="x" target="_blank"><span aria-hidden="true">Go</span>{[...""]} <NewTabHint /></a>;',
+      // React emits `style="display:none"` for a quoted key and for an uppercase value alike.
+      'const A=()=><a href="x" target="_blank"><span style={{ "display": "none" }}>Go</span> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span style={{ display: "NONE" }}>Go</span> <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must report: ${src}`).not.toEqual([]);
+    }
+    for (const src of [
+      'const A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><input type="text" value="Go" /> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank"><span aria-label="Go" /> <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must accept: ${src}`).toEqual([]);
+    }
+  });
+
   it("R26 hint discovery is an ALLOWLIST of render positions", () => {
     const a = (e: string): string => `const A=()=><a href="x" target="_blank">Go ${e}</a>;`;
     // Positions that DISCARD the element. Listing these was unbounded -- R25 supplied three and
@@ -1797,7 +1845,9 @@ describe("R6: scanner changes are pinned", () => {
       'const A=()=><a href="x" target="_blank">Go {[...[<NewTabHint />]]}</a>;',
       // A KNOWN link tag is trusted, because rendering its children is the contract that makes
       // it a link component. Without this split the posture would report every `<Link>` anchor.
-      'const A=()=><Link href="x" target="_blank">Go <NewTabHint /></Link>;',
+      // The Link import is part of the fixture now: R27 made the BINDING load-bearing, so a
+      // file that merely spells `Link` is not trusted to render its children.
+      'import Link from "next/link";\nconst A=()=><Link href="x" target="_blank">Go <NewTabHint /></Link>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
@@ -2651,12 +2701,17 @@ describe("R6: scanner changes are pinned", () => {
 
   // R12 MEDIUM 4: three false positives in the duplicate-fold rule.
   it("R12 the duplicate rule does not fire on legitimate shapes", () => {
-    // Props on a CUSTOM component are ordinary JS keys and case-sensitive.
+    // Props on a CUSTOM component are ordinary JS keys and case-sensitive, so the DUPLICATE
+    // rule must not fire. Scoped to that rule rather than asserting no violations at all:
+    // since R27 a member-expression component is an untrusted callee and legitimately draws a
+    // does-not-announce report, so `toEqual([])` here would fail for an unrelated reason and
+    // stop testing the duplicate rule. Assert the absence of the duplicate reason instead.
     expect(
       violations(
         `const A=()=><UI.Link href="x" target="_blank" Mode="one" mode="two">Go <NewTabHint /></UI.Link>;`,
-      ),
-    ).toEqual([]);
+      ).join(" | "),
+      "the duplicate-fold rule must not fire on case-sensitive component props",
+    ).not.toMatch(/case-folding|duplicate/i);
     // Unicode is not ASCII-folded, so these are distinct attributes.
     expect(
       violations(

@@ -413,6 +413,32 @@ function labelAnnounces(
   return "none";
 }
 
+/**
+ * Is `name` bound in THIS file by an import from one of `froms`?
+ *
+ * R27 BLOCKING 1: the guard trusted the SPELLING `NewTabHint`, so a local
+ * `const NewTabHint = () => null` shadowed the real component and an anchor with no
+ * announcement scanned clean. The same held for `Link`. Spelling is not binding, and a guard
+ * that checks a name instead of what the name refers to can be defeated by one line.
+ *
+ * Fail-closed by construction: an unresolvable or absent import means NOT trusted.
+ */
+function isImportedFrom(sf: ts.SourceFile, name: string, froms: readonly string[]): boolean {
+  for (const st of sf.statements) {
+    if (!ts.isImportDeclaration(st) || !st.importClause) continue;
+    const spec = st.moduleSpecifier;
+    if (!ts.isStringLiteral(spec)) continue;
+    if (!froms.some((f) => spec.text === f || spec.text.endsWith(f))) continue;
+    const clause = st.importClause;
+    if (clause.name?.text === name) return true; // default import
+    const b = clause.namedBindings;
+    if (b && ts.isNamedImports(b)) {
+      for (const el of b.elements) if (el.name.text === name) return true;
+    }
+  }
+  return false;
+}
+
 /** Is `n` the NewTabHint element? One definition, shared by the separator walk and the
  *  destination-content rule, so the two cannot disagree about what the hint is. */
 function isHintElement(n: ts.Node): boolean {
@@ -479,7 +505,13 @@ function rendersNothing(e: ts.Expression): boolean {
       // A spread renders nothing iff what it spreads does; anything else is opaque.
       if (ts.isSpreadElement(el)) {
         const inner = unparen(el.expression);
-        return ts.isArrayLiteralExpression(inner) ? rendersNothing(inner) : false;
+        if (ts.isArrayLiteralExpression(inner)) return rendersNothing(inner);
+        // Spreading a STRING yields one element per character, so an empty string yields none
+        // (review R27 BLOCKING 3). Any other operand is opaque.
+        if (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) {
+          return inner.text.length === 0;
+        }
+        return false;
       }
       return rendersNothing(el);
     });
@@ -598,15 +630,28 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
       // BLOCKING 2). `aria-labelledby` is deliberately absent: it points at another element, a
       // dangling reference names nothing, and the target cannot be resolved statically, so
       // treating it as proof was a fail-open.
-      const ALT_ELEMENTS = new Set(["img", "area", "input"]);
+      // MEASURED, not reasoned (review R27 BLOCKING 2). Computing the anchor's name from its
+      // contents treats an embedded CONTROL differently from ordinary content: the control
+      // contributes its VALUE, and its own `aria-label` does NOT reach the anchor. So:
+      //
+      //   <input type="text" value="Go">    -> "Go (opens in a new tab)"   value names a control
+      //   <input type="text" aria-label="Go"> -> "(opens in a new tab)"    label does NOT
+      //   <span aria-label="Go" />          -> "Go (opens in a new tab)"   label names a non-control
+      //   <data value="Go"></data>          -> "(opens in a new tab)"      not a control
+      //   <meter value="0.5"></meter>       -> "(opens in a new tab)"      not a control
+      //
+      // Treating `value` as proof on every intrinsic accepted `<data>` and `<meter>`, and
+      // treating `aria-label` as proof on a control accepted an input whose label never reaches
+      // the anchor. Both were fail-opens.
+      const CONTROL_TAGS = new Set(["input", "select", "textarea"]);
+      const isControl = CONTROL_TAGS.has(tag);
+      const ALT_ELEMENTS = new Set(["img", "area"]);
       for (const a of attrs.properties) {
         if (!ts.isJsxAttribute(a)) continue;
         const name = jsxAttrNameLower(a);
-        const applies =
-          name === "aria-label" ||
-          name === "value" ||
-          name === "defaultvalue" ||
-          (name === "alt" && ALT_ELEMENTS.has(tag));
+        const applies = isControl
+          ? name === "value" || name === "defaultvalue"
+          : name === "aria-label" || (name === "alt" && ALT_ELEMENTS.has(tag));
         if (!applies || !a.initializer) continue;
         const val = stringOf(a.initializer);
         // A dynamic value is opaque and therefore assumed to name something.
@@ -732,8 +777,13 @@ function hidesFromAccName(el: ts.JsxElement | ts.JsxSelfClosingElement): boolean
       if (/\b(hidden|invisible)\b/.test(v)) return true;
     }
     if (n === "style") {
-      const v = a.initializer?.getText() ?? "";
-      if (/display\s*:\s*['"]?none|visibility\s*:\s*['"]?hidden/.test(v)) return true;
+      // Tolerate a QUOTED or COMPUTED property key and fold the VALUE's case: React emits
+      // `style="display:none"` for `{{ "display": "none" }}` and for `{{ display: "NONE" }}`
+      // alike, and the earlier regex required a bare key and lowercase value, so both scanned
+      // clean (review R27 BLOCKING 4). CSS property names and these keyword values are
+      // case-insensitive; class TOKENS are not, which is why this fold is scoped to `style`.
+      const v = (a.initializer?.getText() ?? "").replace(/["'\[\]]/g, "");
+      if (/display\s*:\s*none|visibility\s*:\s*(hidden|collapse)/i.test(v)) return true;
     }
   }
   return false;
@@ -859,6 +909,15 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
     separated: false,
   };
   if (!ts.isJsxElement(anchor)) return out;
+  // The hint must be the REAL component, not merely a name that matches. A file that defines
+  // its own `NewTabHint` gets no credit for it (review R27 BLOCKING 1). The file this scanner
+  // ships is the sole source; a spelled-but-unbound hint means the anchor does not announce.
+  const sourceFile = anchor.getSourceFile();
+  const hintIsReal =
+    isImportedFrom(sourceFile, HINT, ["components/shared/NewTabHint"]) ||
+    // The component's own file defines it rather than importing it.
+    sourceFile.fileName.endsWith("components/shared/NewTabHint.tsx");
+  if (!hintIsReal) return out;
   const walk = (n: ts.Node, hidden: boolean, conds: string[]): void => {
     // Never descend into JSX ATTRIBUTES: a hint passed as a prop
     // (`<Wrapper hint={<NewTabHint/>}/>`) may be dropped by the callee, so a
@@ -987,8 +1046,12 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
   // live anchor is a component tag, so this costs nothing today.
   const anchorTag = anchor.openingElement.tagName.getText();
   const anchorTagLast = anchorTag.split(".").pop() ?? anchorTag;
-  const anchorRendersChildren =
-    /^[a-z]/.test(anchorTag) || LINK_TAGS.has(anchorTag) || LINK_TAGS.has(anchorTagLast);
+  // A KNOWN link component is trusted only when it is the REAL one: `Link` must be bound by an
+  // import from next/link, or the same spelling-vs-binding hole applies here too.
+  const linkIsReal =
+    (LINK_TAGS.has(anchorTag) || LINK_TAGS.has(anchorTagLast)) &&
+    isImportedFrom(sourceFile, anchorTagLast, ["next/link"]);
+  const anchorRendersChildren = /^[a-z]/.test(anchorTag) || linkIsReal;
   if (!anchorRendersChildren) return out;
   anchor.children.forEach((c) => walk(c, anchorHidden, []));
   if (out.found) out.separated = hintHasSiblingSpace(anchor);
