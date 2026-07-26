@@ -54,12 +54,20 @@ spec's sole `app/` member and one of the six Group B label sites.
 
 Current, re-derived from the guard after merging 70 upstream commits (28 changed `.tsx`/`.mdx` files):
 
-| | Before | Now |
-| --- | --- | --- |
-| family anchors | 23 | **22** |
-| Group B label sites | 6 | **5** |
-| files carrying the phrase | 8 | **7** |
-| live violations | 0 | **0** |
+| | As written in §1.2 | Actual before the deletion | Now |
+| --- | --- | --- | --- |
+| family anchors | 23 | 23 | **22** |
+| files containing `_blank` | 17 | **16** | **15** |
+| Group B label sites | 6 | 6 | **5** |
+| files carrying the phrase | 8 | 8 | **7** |
+| live violations | 0 | 0 | **0** |
+
+**The file count was wrong before the deletion too**, and the anchor count was not. §1.3 recorded
+that `AttentionMenu` left the family while `AttentionBanner` gained a second anchor — that keeps the
+anchor total at 23 but reduces the FILE total from 17 to 16, and only the anchor total got
+re-derived. A per-file figure and a per-anchor figure move independently, and §1.3's "still 23
+anchors" was read as "nothing changed" (review R29 item 4). Current figures are re-derived from the
+guard, not adjusted arithmetically.
 
 The `app/`-is-in-the-family argument in §1.2 is unchanged as a *rationale* — a guard scoped to
 `components/` still could not catch an app-level regression, and the guard still scans both trees —

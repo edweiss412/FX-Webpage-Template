@@ -480,12 +480,30 @@ function isShadowedAt(at: ts.Node, name: string): boolean {
     }
     return false;
   };
+  // A LOOP binding and a NAMED function expression also introduce the name (review R29
+  // BLOCKING 1): `for (const NewTabHint of hints)` type-checks and shadowed the import.
+  const loopOrNamedFnBinds = (n: ts.Node): boolean => {
+    if (ts.isForOfStatement(n) || ts.isForInStatement(n) || ts.isForStatement(n)) {
+      const init = n.initializer;
+      if (init !== undefined && ts.isVariableDeclarationList(init)) {
+        return init.declarations.some((d) => bindsName(d.name));
+      }
+      return false;
+    }
+    // `const f = function NewTabHint() {}` binds the name inside its own body.
+    if (ts.isFunctionExpression(n) && n.name !== undefined) return n.name.text === name;
+    if (ts.isCatchClause(n)) {
+      return n.variableDeclaration !== undefined && bindsName(n.variableDeclaration.name);
+    }
+    return false;
+  };
   for (let cur: ts.Node | undefined = at; cur !== undefined; cur = cur.parent) {
     if (ts.isSourceFile(cur)) break; // module scope: the import itself lives here
     const body = (cur as { body?: ts.Node }).body;
     const stmts = body !== undefined && ts.isBlock(body) ? body.statements : undefined;
     if (stmts !== undefined && stmts.some(declares)) return true;
     if (ts.isBlock(cur) && cur.statements.some(declares)) return true;
+    if (loopOrNamedFnBinds(cur)) return true;
     // A function/arrow PARAMETER of that name shadows too.
     const params = (cur as { parameters?: ts.NodeArray<ts.ParameterDeclaration> }).parameters;
     if (params?.some((pm) => bindsName(pm.name)) === true) return true;
@@ -594,7 +612,17 @@ function rendersNothing(e: ts.Expression): boolean {
   // React 19.2.4. Treating it as contributing no name is still right -- the component cannot
   // render at all -- but the earlier claim about the mechanism was false.
   if (ts.isObjectLiteralExpression(n)) return true;
+  // `!true` is `false`, which renders nothing; `!0` is `true`, likewise (review R29 BLOCKING 2).
+  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
+    const inner = unparen(n.operand);
+    if (isLiteralTruthy(inner) || isLiteralFalsy(inner)) return true; // a boolean either way
+  }
   if (ts.isConditionalExpression(n)) {
+    // When the TEST is a literal we know which branch is taken, so only that one matters.
+    // Requiring BOTH branches empty accepted `{true ? null : "Dest"}`, which renders nothing.
+    const cond = unparen(n.condition);
+    if (isLiteralTruthy(cond)) return rendersNothing(n.whenTrue);
+    if (isLiteralFalsy(cond)) return rendersNothing(n.whenFalse);
     return rendersNothing(n.whenTrue) && rendersNothing(n.whenFalse);
   }
   // `a && b` evaluates to `a` when `a` is FALSY and to `b` otherwise. Decide which operand is
@@ -747,7 +775,20 @@ function childrenCarryDestination(children: ts.NodeArray<ts.JsxChild>): boolean 
 /** Elements whose content the HTML Standard never renders: script-supporting elements and
  *  metadata content. Text inside them contributes nothing to an accessible name, and a hint
  *  inside them is not announced. */
-const NOT_RENDERED_TAGS = new Set(["template", "script", "style", "noscript", "datalist"]);
+// Taken from the HTML Standard's own hidden-elements rendering rules rather than assembled by
+// hand -- `<rp>` was missing, and it is `display: none` there (review R29 BLOCKING 3). Only the
+// members that can plausibly appear inside an `<a>` are listed; see the metadata note below.
+const NOT_RENDERED_TAGS = new Set([
+  "template",
+  "script",
+  "style",
+  "noscript",
+  "datalist",
+  "rp",
+  "noembed",
+  "noframes",
+  "param",
+]);
 // Metadata elements (`head`, `title`, `meta`, `link`, `base`) are deliberately NOT here: none
 // is valid inside an `<a>`, so they add no coverage -- and `title` and `style` are also real
 // attribute names, so listing them as tag names made the guard's own classification ambiguous.

@@ -234,6 +234,11 @@ const NOT_AN_ATTRIBUTE_NAME = new Map<string, string>([
   ["dialog", "intrinsic tag name (not shown unless open)"],
   ["img", "intrinsic tag name (R26b: one of the elements `alt` applies to)"],
   ["area", "intrinsic tag name (R26b: one of the elements `alt` applies to)"],
+  // R29: added from the HTML Standard's hidden-elements list, all intrinsic TAG names.
+  ["rp", "intrinsic tag name (display:none per the HTML hidden-elements rules)"],
+  ["noembed", "intrinsic tag name (display:none per the HTML hidden-elements rules)"],
+  ["noframes", "intrinsic tag name (display:none per the HTML hidden-elements rules)"],
+  ["param", "intrinsic tag name (display:none per the HTML hidden-elements rules)"],
   ["Link", "component tag name"],
   ["NewTabHint", "component tag name"],
   // Internal classification verdicts returned by the shape rules.
@@ -1786,6 +1791,52 @@ describe("R6: scanner changes are pinned", () => {
     for (const src of [
       'const A=()=><a href="x" target="_blank">Go <NewTabHint /></a>;',
       'const A=()=><a href="x" target="_blank"><img alt="Go" /> <NewTabHint /></a>;',
+    ]) {
+      expect(violations(src), `must accept: ${src}`).toEqual([]);
+    }
+  });
+
+  it("R29 loop and named-function shadows, literal booleans, and <rp>", () => {
+    const IMP = 'import { NewTabHint } from "@/components/shared/NewTabHint";\n';
+    // Two more shadowing forms the scope walk missed. Both type-check cleanly.
+    for (const [label, body] of [
+      [
+        "for-of binding",
+        'function A({hints}){ for (const NewTabHint of hints) { return <a href="x" target="_blank">Go <NewTabHint /></a>; } return null; }',
+      ],
+      [
+        "named function expression",
+        'const A = function NewTabHint(){ return <a href="x" target="_blank">Go <NewTabHint /></a>; };',
+      ],
+    ] as [string, string][]) {
+      expect(
+        probe(IMP + body, { bare: true }).violations,
+        `must fail closed: ${label}`,
+      ).not.toEqual([]);
+    }
+    const hid = '<span aria-hidden="true">Go</span>';
+    for (const src of [
+      // `!true` is `false`, which renders nothing.
+      `const A=()=><a href="x" target="_blank">${hid} {!true} <NewTabHint /></a>;`,
+      // A LITERAL test picks the branch, so requiring both branches empty was too weak.
+      `const A=()=><a href="x" target="_blank">${hid} {true ? null : "Dest"} <NewTabHint /></a>;`,
+      // `<rp>` is display:none per the HTML Standard's hidden-elements rules, both as a label
+      // and as a hint wrapper.
+      'const A=()=><a href="x" target="_blank"><rp>Go</rp> <NewTabHint /></a>;',
+      'const A=()=><a href="x" target="_blank">Go <rp><NewTabHint /></rp></a>;',
+      // SWEEP-FOUND, not review-found: a component NESTED inside the anchor is as untrusted as
+      // the anchor being one. No test covered this until a mutation sweep showed the clause was
+      // not load-bearing.
+      'const A=()=><a href="x" target="_blank">Go <Wrapper><NewTabHint /></Wrapper></a>;',
+    ]) {
+      expect(violations(src), `must report: ${src}`).not.toEqual([]);
+    }
+    for (const src of [
+      // The literal test picking the OTHER branch yields a real destination.
+      `const A=()=><a href="x" target="_blank">${hid} {true ? "Dest" : null} <NewTabHint /></a>;`,
+      // SWEEP-FOUND: a comma expression evaluates to its RIGHT operand, so a hint there DOES
+      // render. Only the left-operand case was pinned, which left this clause unverified.
+      'const A=()=><a href="x" target="_blank">Go {(null, <NewTabHint />)}</a>;',
     ]) {
       expect(violations(src), `must accept: ${src}`).toEqual([]);
     }
