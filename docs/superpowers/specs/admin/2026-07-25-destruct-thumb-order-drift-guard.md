@@ -292,7 +292,7 @@ What changes is how little it now has to prove. Panels:
 Assertions:
 
 - **D1** — at `rail320`, `ignore.bottom ≤ defer.top + 0.5`, idle **and** armed.
-- **D2** — both buttons ≥44px at every rail.
+- **D2** — both buttons ≥44px at every LIVE rail (`rail320`, `page358`, `band440`, `wide900`). Not at `bigtext440`: that rail exists solely to hold the width invariant under enlarged text and carries only its own D4 check (R17 F5).
 - **D3** — at `band440` and `wide900`, `ignore.y === defer.y` and `ignore.x < defer.x`. Not at `page358`: 315.95px against 316px is a font-metric coin flip, so that rail asserts the safety property whichever way it lands.
 - **D4** — `ignore.x`, `ignore.y` **and `ignore.w`** are identical between the idle and armed panels at every rail. Width is asserted alongside the origin because width is the mechanism that keeps the origin fixed — R11 F2 caught the loop asserting only the origin. `defer.w` is deliberately NOT asserted: `armedHtml` rewrites markup only inside the Ignore button, so Defer is byte-identical between panels and the comparison could not fail (R12 F2). This is the DESTRUCT-1 guarantee, now structural (§4.1).
 - **D7** — the rendered markup contains no `basis-full` and no `sm:basis-auto`.
@@ -310,7 +310,6 @@ It is still enough to retire the binding table: with class and label sourced fro
 | `fixed panel: armed ignore box == idle ignore box` | 360px | pre-existing DESTRUCT-1 assertion on the old `basis-full` markup |
 | `NEGATIVE CONTROL: pre-fix classes DO reflow` | **420px** | the control. It renders **Defer-first** transcribed markup — the product's *previous* order, not its current one — and proves that shape wraps idle-on-one-line to armed-on-two. 420px, not 278px: at 278px the idle pair is already wrapped, so nothing contrasts |
 | `fixed panel: >= sm the row does NOT wrap` | 720px | pre-existing |
-| `negative control is HISTORICAL` | n/a | source guard asserting the component no longer contains `basis-full` |
 
 So this file proves the **harness reproduces the old defect shape**; it does not measure current markup at the rail. The current-markup, same-geometry assertions all live in `pendingDiscardReal.layout.spec.ts` against the real component tree, which is where D1's non-tautology actually comes from.
 

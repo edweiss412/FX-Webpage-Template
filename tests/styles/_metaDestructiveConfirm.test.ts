@@ -224,7 +224,14 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
  */
 describe("META arm-revert timing contract (spec §5.2)", () => {
   const CONST_MODULE = "lib/admin/destructiveConfirm.ts";
-  const DECL = /^(?:export\s+)?const\s+ARM_REVERT_MS\s*=/;
+  /* R17 F1: a single-line `const` pattern was fail-open — `let`/`var`, a declaration
+   * split across lines, and a destructured binding all define ARM_REVERT_MS while
+   * matching nothing, so "exactly one declaration" could be false and still pass.
+   * Comment LINES are dropped first (whole-file comment stripping misparses TSX — see
+   * R15 F1), then the surviving code is joined so a multi-line declaration is still one
+   * subject. */
+  const DECL =
+    /(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(?:ARM_REVERT_MS\s*[=:]|\{[^}]*\bARM_REVERT_MS\b[^}]*\}\s*=)/;
   /* R16 F2: this used stripComments() on whole-file source. Regex comment stripping
    * misparses TS/TSX — a "/*" inside a STRING opens a span that a later "*\/" string
    * closes, deleting the live code between them from inspection, so a real duplicate
@@ -232,11 +239,15 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
    * comment opens and 1 close before its own className. Judge each line instead; a
    * declaration is a single line here, so nothing is lost by not spanning. */
   const declaresArmRevert = (source: string) =>
-    source.split("\n").some((line) => {
-      const t = line.trim();
-      if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) return false;
-      return DECL.test(t);
-    });
+    DECL.test(
+      source
+        .split("\n")
+        .filter((line) => {
+          const t = line.trim();
+          return !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
+        })
+        .join("\n"),
+    );
 
   it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
     const declaring: string[] = [];

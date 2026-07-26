@@ -6,16 +6,16 @@ name: Destructive-confirm layout e2e (standalone harnesses)
 #                                  NeedsAttentionInbox (hence the real
 #                                  PendingPanelDiscardButtons inside real card
 #                                  padding, the real action row and the real
-#                                  Retry sibling) and measures D1/D2/D3/D4/D7 at
-#                                  every rail the harness emits (four live plus one
-#                                  enlarged-text), idle and armed.
+#                                  Retry sibling). D1/D2/D3/D4 run across the live
+#                                  rails, idle and armed; D7 reads the rendered markup
+#                                  once. The enlarged-text rail carries only its own
+#                                  D4 width check, which is the whole reason it exists.
 #   pendingDiscardReflow.layout    the HISTORICAL suite. Its headline job
 #                                  is the negative control: it renders pre-reorder
 #                                  markup the product no longer contains, proving the
 #                                  harness reproduces the original defect so D1 is not
 #                                  tautological. It also retains two fixed-panel
-#                                  positive tests and a source guard asserting the
-#                                  transcribed markup stays historical.
+#                                  positive tests.
 #
 # Both are FULLY self-contained: each beforeAll compiles token CSS from
 # app/globals.css via the Tailwind CLI and serves it over its OWN node:http server.

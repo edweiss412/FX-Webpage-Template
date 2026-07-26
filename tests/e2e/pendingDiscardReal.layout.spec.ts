@@ -403,7 +403,14 @@ test("TRIPWIRE: the production geometry the rails mirror is still declared", () 
       if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("{/*")) {
         return false; // R16 F1: JSX `{/* … */}` is a comment too.
       }
-      return l.includes(token) && l.includes(context);
+      /* R17 F2: a whole-line test still accepted `<div className="x" /> {/* token *\/}` —
+       * the token sitting in an INLINE comment on a line that also carries className.
+       * Strip comment spans within the line before looking. Per-line stripping is safe
+       * in a way whole-file stripping is not: a span cannot run away across lines and
+       * delete real code, which is what broke the R15 attempt. `://` is preserved so a
+       * URL is not mistaken for a line comment. */
+      const code = l.replace(/\{?\/\*.*?\*\/\}?/g, "").replace(/(^|[^:])\/\/.*$/, "$1");
+      return code.includes(token) && code.includes(context);
     });
 
   const dashboard = src("components/admin/Dashboard.tsx");
@@ -453,20 +460,24 @@ test("the spec and plan name exactly the rails this suite runs", () => {
    * can only ever name drift someone already noticed. Extracting every rail-shaped token
    * and comparing sets makes the guard closed: a name the code does not have fails
    * whether or not anyone thought to list it. */
-  /* R16 F4: the earlier shape recognised five prefixes and exactly three digits, so a
-   * stale `rail1024` passed unnoticed and a legitimate four-digit rail could not be
-   * documented without failing. Match any lowercase-word + 2-4 digit token instead, then
-   * keep only those that look like rails — a token the code emits, or one built from a
-   * prefix the code uses. That catches retired names without flagging every number in
-   * the prose. */
-  const PREFIXES = [...new Set(expected.map((r) => /^[a-z]+/.exec(r)?.[0] ?? ""))].filter(Boolean);
-  const RAIL_SHAPED = new RegExp(`\\b(?:${PREFIXES.join("|")})\\d{2,4}\\b`, "g");
+  /* Deriving the prefixes from the emitted set left a hole: a retired rail whose PREFIX
+   * is also gone — `tablet1024` — matched nothing and so never entered the comparison
+   * (R17 F3). Invert it. Take EVERY lowercase-word + 2-4 digit token, then subtract only
+   * the shapes that provably are not rails. Anything left must be an emitted rail, so a
+   * stale name fails whatever it is called. This is the allowlist form: unknown tokens
+   * fail closed instead of being silently skipped.
+   *
+   * The one non-rail shape these documents use is a measured coordinate (`x136`, `y2335`
+   * — pixel positions and line references). Enumerated from the live documents, not
+   * guessed. */
+  const WORD_NUM = /\b[a-z][a-z]*\d{2,4}\b/g;
+  const isCoordinate = (t: string) => /^[xy]\d+$/.test(t);
   for (const doc of [
     "docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md",
     "docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md",
   ]) {
     const text = readFileSync(join(REPO_ROOT, doc), "utf8");
-    const named = [...new Set(text.match(RAIL_SHAPED) ?? [])].sort();
+    const named = [...new Set(text.match(WORD_NUM) ?? [])].filter((t) => !isCoordinate(t)).sort();
     expect(named, `${doc.split("/").pop()} names a different rail set than the suite runs`).toEqual(
       expected,
     );
