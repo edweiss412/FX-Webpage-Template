@@ -904,3 +904,71 @@ describe("segmentRawReading — hotel-name boundary marking", () => {
     expect(segs.length).toBeGreaterThan(1);
   });
 });
+
+// R2 finding 4: the `hotel-name` UI contract had only a segmentRawReading test,
+// so a wrong radiogroup label, raw-choice label, parsed-field label, or
+// disabled-reason string would all have shipped green. The spec fixes each of
+// these byte-for-byte (C-rows), so they are asserted against literals here, not
+// against an import of the value under test.
+describe("hotel-name — normative copy oracles", () => {
+  const noop = () => {};
+  const resolution = {
+    resolvable: true as const,
+    contentHash: "y".repeat(64),
+    parsed: {
+      kind: "hotel-name" as const,
+      hotelName: "Hotel 71",
+      hotelAddress: "71 E Wacker Dr Chicago, IL 60601",
+    },
+    replacement: {
+      kind: "hotel-name" as const,
+      hotelName: "Hotel 71 71 E Wacker Dr Chicago, IL 60601",
+      hotelAddress: null,
+    },
+  };
+  const renderWith = (res: unknown) =>
+    render(
+      <UseRawControl
+        warning={{ code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS", resolution: res as never }}
+        decision={undefined}
+        onToggle={noop}
+      />,
+    );
+
+  it("labels the parsed fields Hotel and Address", () => {
+    const q = renderWith(resolution);
+    expect(q.getByText("Hotel")).toBeTruthy();
+    expect(q.getByText("Address")).toBeTruthy();
+  });
+
+  it("omits the Address row entirely when the address is null", () => {
+    const q = renderWith({ ...resolution, parsed: { ...resolution.parsed, hotelAddress: null } });
+    // Never rendered as an empty line — the rooms branch sets that precedent.
+    expect(q.queryByText("Address")).toBeNull();
+  });
+
+  it("names the raw choice as the whole line", () => {
+    const q = renderWith(resolution);
+    expect(q.getByText("The whole line as the hotel name")).toBeTruthy();
+  });
+
+  it("gives the radiogroup its sentence-form accessible name", () => {
+    const q = renderWith(resolution);
+    // Sentence form, matching its three siblings — a bare noun phrase reads
+    // wrong when a screen reader announces the set in sequence.
+    expect(q.container.querySelector('[role="radiogroup"]')!.getAttribute("aria-label")).toBe(
+      "Which reading crew pages use for the hotel name and address",
+    );
+  });
+
+  it.each([
+    ["no-split-to-undo", "We did not split this line, so there's nothing to swap back."],
+    [
+      "raw-not-guest-scoped",
+      "This hotel line runs the hotel and the booking details together, so there's nothing safe to swap in.",
+    ],
+  ])("renders the %s disabled reason verbatim", (reason, copy) => {
+    const q = renderWith({ resolvable: false, reason });
+    expect(q.getByText(copy)).toBeTruthy();
+  });
+});
