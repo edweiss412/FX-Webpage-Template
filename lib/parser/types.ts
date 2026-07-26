@@ -15,7 +15,7 @@ export type DateOrderFields = {
 };
 
 // The precomputed "use the sheet's raw value" resolution attached to each of the
-// three recoverable structural-transform warnings (spec §6). `parsed` is the
+// four recoverable structural-transform warnings (spec §6). `parsed` is the
 // current transform value; `replacement` is what applying the raw value yields;
 // `contentHash` pins the decision to the canonical (whitespace-collapsed) raw
 // cell so a later edit auto-invalidates the decision. `{resolvable:false}` marks

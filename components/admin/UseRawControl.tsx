@@ -18,7 +18,7 @@ const RADIOGROUP_LABEL: Record<
 };
 
 /**
- * `<UseRawControl>` — the shared presentational control for the three recoverable
+ * `<UseRawControl>` — the shared presentational control for the four recoverable
  * structural-transform warnings (spec 2026-07-10-structural-transform-use-raw §8).
  *
  * It shows the transform's parsed reading next to what the sheet's RAW text would
