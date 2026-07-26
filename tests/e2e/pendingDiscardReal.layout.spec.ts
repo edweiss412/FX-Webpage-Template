@@ -394,6 +394,37 @@ test("the declared rails still match the production geometry they mirror", () =>
   expect(390 - 2 * Number(pad), "page358 no longer equals 390px minus the page gutter").toBe(358);
 });
 
+test("the spec and plan name exactly the rails this suite runs", () => {
+  /* Four consecutive rounds (R11-R14) each found the artifacts naming geometry the code
+   * no longer has — page390, 348px, retired rail lists, hand-maintained counts. Fixing
+   * instances has not converged, because prose describing an executable property drifts
+   * every time the property moves. So make the drift itself fail: the rail names are the
+   * fact that keeps rotting, and they are mechanically checkable.
+   *
+   * Deliberately scoped to rail NAMES, not counts or measurements. Names are a closed
+   * set the code owns; a count guard would need the runner, and pinning measurements in
+   * prose is what caused the churn in the first place. */
+  const railNames = Object.keys(RAILS).concat("bigtext440");
+  for (const doc of [
+    join(REPO_ROOT, "docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md"),
+    join(REPO_ROOT, "docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md"),
+  ]) {
+    const text = readFileSync(doc, "utf8");
+    for (const rail of railNames) {
+      expect(text.includes(rail), `${doc.split("/").pop()} never mentions rail ${rail}`).toBe(true);
+    }
+    /* Rail names that were renamed away. If one reappears in prose, the document is
+     * describing a harness that no longer exists — which is exactly what R12 F3 and
+     * R14 F4 caught by hand. */
+    for (const retired of ["page390", "rail390", "page348"]) {
+      expect(
+        text.includes(retired),
+        `${doc.split("/").pop()} still names retired rail ${retired}`,
+      ).toBe(false);
+    }
+  }
+});
+
 test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
