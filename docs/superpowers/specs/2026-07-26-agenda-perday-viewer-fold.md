@@ -104,7 +104,7 @@ than three unhandled cases:**
 | `dateRestriction.kind === "none"` — an unrestricted viewer | every day is theirs, which by THE MARKER RULE (§5) marks nothing |
 | the matcher could not locate every restriction day (§3 constraint 3) | partial knowledge is treated as no knowledge |
 
-All three render identically: every day expanded, no `<details>`, no marker. So no consumer needs a
+All three render identically: every day rendered as `<details open>` (UNIFORM markup — §4; NOT plain rows, and not the absence of `<details>`), no marker. So no consumer needs a
 special branch for any of them, and THE MARKER RULE is not consulted separately — "all" already means
 "nothing distinguishes", which is the rule's own suppression condition. A reviewer looking for the
 admin-preview case or the no-restriction case will not find dedicated code, and that absence is correct.
@@ -223,7 +223,15 @@ passes while that day folds. The domain must be the viewer's restriction days in
    reachable inputs would break:
 
    - `R` = the viewer's restriction dates intersected with the **aggregate** day set:
-     `new Set(aggregateDays(data.show.dates).map((d) => d.date).filter((d) => d !== null && restrictionAllows(d)))`.
+     `new Set(aggregateDays(data.show.dates).map((d) => d.date).filter(restrictionAllows))`.
+
+     **No null filter, and the `Set` is not for dedup** — corrected while re-checking this repair.
+     `AggregateDay.date` is typed `string`, not `string | null` (`lib/crew/agendaDisplay.ts:96`), because
+     `aggregateDays`' own `push` helper drops falsy dates before they enter the map
+     (`lib/crew/agendaDisplay.ts:116`). It also already dedupes by date via that `Map`
+     (`lib/crew/agendaDisplay.ts:113-121`). An earlier version of this line carried a `d !== null` guard —
+     dead code under the strict tsconfig — and justified the `Set` as absorbing a repeated date, which
+     `aggregateDays` has already done. The `Set` is here only for O(1) membership lookup.
      **NOT `visibleShowDays`** — see §2.5 fact 3. An earlier revision used the show-day intersection
      specifically to neutralise an out-of-show assignment, and that was backwards: stage-derived
      restrictions are BUILT from `aggregateDays` (`lib/crew/stageSchedule.ts:56`, returned at `lib/crew/stageSchedule.ts:66`) and
@@ -231,9 +239,7 @@ passes while that day folds. The domain must be the viewer's restriction days in
      viewer is actually assigned. Completeness would then pass while that day folds.
 
      The aggregate set is the correct domain because it is the same set the day cards below are built
-     from, so "the viewer's days" means the same thing in both places. A `Set` still absorbs a malformed
-     `dates` that repeats a date, and the `d !== null` filter is required because an aggregate day can
-     carry a null date.
+     from, so "the viewer's days" means the same thing in both places.
    - `L` = the set of **dates** in `R` that the matcher located in at least one extraction day. `L` is a
      set of DATES even though the matcher's OUTPUT is row indices (§2.5 fact 1) — the two representations
      do different jobs and conflating them is what an earlier revision got wrong. "At least one" matters:
