@@ -1288,10 +1288,12 @@ function isAlwaysBoolean(n: ts.Expression): boolean {
       return isAlwaysBoolean(unparen(n.left)) && isAlwaysBoolean(unparen(n.right));
     }
   }
-  if (ts.isConditionalExpression(n)) {
-    return isAlwaysBoolean(unparen(n.whenTrue)) && isAlwaysBoolean(unparen(n.whenFalse));
-  }
   if (n.kind === ts.SyntaxKind.TrueKeyword || n.kind === ts.SyntaxKind.FalseKeyword) return true;
+  // NOTE: no conditional arm. Both callers already decide a conditional compositionally --
+  // `rendersNothing` requires both branches to render nothing, `reactOmitsValue` requires both to be
+  // omitted -- so an arm here changed no verdict under four different fixtures aimed at it. Deleted
+  // rather than kept: the sixth equivalent branch in this guard, and the third whose fixture kept
+  // passing through a neighbouring rule instead.
   return false;
 }
 

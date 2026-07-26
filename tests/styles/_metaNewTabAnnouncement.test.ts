@@ -3580,9 +3580,13 @@ describe("R6: scanner changes are pinned", () => {
       "{(true ? 0 : 1) || HID}",
       "{(false && 1) || HID}",
       "{(null ?? 0) || HID}",
+      // A conditional whose BRANCHES are both boolean renders nothing whatever the test does. This
+      // pins `isAlwaysBoolean`'s conditional arm: the popover path cannot, because `reactOmitsValue`
+      // has a conditional arm of its own and reaches the same verdict without it.
+      "{flag ? a === b : !x}",
     ]) {
       reports(
-        `const A=()=><a href="x" target="_blank">${expr.replace("HID", hid)} <NewTabHint /></a>;`,
+        `const A=({flag,a,b,x})=><a href="x" target="_blank">${expr.replace("HID", hid)} <NewTabHint /></a>;`,
         /only visible content is the announcement/,
         `a falsy left operand selects the right: ${expr}`,
       );
@@ -3630,6 +3634,8 @@ describe("R6: scanner changes are pinned", () => {
       'popover={true || "auto"}',
       "popover={null ?? true}",
       "popover={!a && !b}",
+      // A conditional whose BRANCHES are both boolean is a boolean whatever the test does.
+      "popover={flag ? a === b : !x}",
     ]) {
       expect(
         violations(

@@ -1610,3 +1610,28 @@ are about to violate it.
 Nine mutations, all red. Four dead branches deleted; the first-wins exemption guard was KEPT with a
 different justification — it changes no verdict, but dropping it would make the choice depend on
 iteration order, and determinism is a reason where correctness is not.
+
+### Third sweep, and the equivalent branch that took four fixtures to convict
+
+Swept the R34 fixes before dispatching R35. Six of seven branches were load-bearing; one survived,
+and convicting it took four attempts, each of which is worth recording because they failed for
+DIFFERENT reasons:
+
+1. `popover={flag ? a === b : !x}` — passed anyway, because `reactOmitsValue` has its own conditional
+   arm and reached the same verdict.
+2. moved to a child expression — passed anyway, because the fixture also contained an
+   `aria-hidden` span, so the destination was already absent for an unrelated reason.
+3. removed that span — passed anyway, because `rendersNothing` ALSO decides conditionals
+   compositionally.
+4. tested the three shapes side by side and confirmed all three report identically with the arm
+   deleted.
+
+So the arm was genuinely equivalent and is now deleted. **Three of the four failures were the same
+mistake in different clothes: a fixture whose verdict is produced by a neighbouring rule.** The
+diagnostic that finally worked was not another fixture but printing the actual verdicts of the
+candidate shapes side by side — when a fixture will not go red, stop writing fixtures and go find out
+what IS producing the verdict.
+
+That is six equivalent branches in this PR. The pattern across all six: a rule that composes
+(conditionals, selection, nullishness) gets its composition written in more than one place, and the
+second copy is invisible because the first already returns the right answer.
