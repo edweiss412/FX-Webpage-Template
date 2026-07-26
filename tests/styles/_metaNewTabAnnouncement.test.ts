@@ -4319,6 +4319,58 @@ describe("R6: scanner changes are pinned", () => {
     ).toContain("external link does not announce that it opens a new tab");
   });
 
+  it("every violation is PRODUCIBLE from live markup, not merely named", () => {
+    // The static coverage check below asserts each reason string is NAMED somewhere in this file --
+    // which a COMMENT would satisfy. This one requires the scanner to actually EMIT each reason from
+    // real markup, so a rule that has become unreachable cannot hide behind a mention of its message.
+    const firstReason = (src: string): string => {
+      const sc: Scan = { anchors: 0, violations: [] };
+      scanSource(
+        parse("/synthetic/producible.tsx", HINT_IMPORT + src),
+        "/synthetic/producible.tsx",
+        sc,
+      );
+      return sc.violations[0]?.reason ?? "(accepted)";
+    };
+    const anchor = (inner: string): string =>
+      firstReason(`const A=({x})=><a href="x" target="_blank">${inner}</a>;`);
+    const labelled = (attrs: string): string =>
+      firstReason(`const A=()=><a href="x" target="_blank" ${attrs}>Go</a>;`);
+    const cases: Array<[string, string, RegExp]> = [
+      ["no hint at all", anchor("Go"), /does not announce that it opens a new tab/],
+      [
+        "hidden hint",
+        anchor('Go <span aria-hidden="true"><NewTabHint /></span>'),
+        /hidden from the accessible name/,
+      ],
+      ["unseparated hint", anchor("Go<NewTabHint />"), /needs a real sibling space/],
+      [
+        "no destination",
+        anchor('<span aria-hidden="true">Go</span> <NewTabHint />'),
+        /only visible content is the announcement/,
+      ],
+      [
+        "unprovable path",
+        anchor("Go <span className={x}><NewTabHint /></span>"),
+        /cannot be proven non-hiding/,
+      ],
+      [
+        "label carries no destination",
+        labelled('aria-label="(opens in a new tab)"'),
+        /aria-label announces but carries no destination/,
+      ],
+      ["label does not announce", labelled('aria-label="Go"'), /must announce in that label/],
+      ["labelledby present", labelled('aria-labelledby="t"'), /aria-labelledby outranks/],
+    ];
+    for (const [label, got, want] of cases) {
+      expect(got, `${label} must be producible with its own reason`).toMatch(want);
+    }
+    // Every reason above must be DISTINCT: a rule that collapsed into another would still "produce a
+    // violation" while losing its own message.
+    const messages = cases.map(([, got]) => got);
+    expect(new Set(messages).size, "each shape reports a distinct reason").toBe(messages.length);
+  });
+
   it("every violation the scanner can emit is exercised by a fixture", () => {
     // A rule with no fixture NAMING its reason is an untested rule, and the count has grown by one
     // or two nearly every round -- R31 added the aria-labelledby override, R28 the spread-on-path
