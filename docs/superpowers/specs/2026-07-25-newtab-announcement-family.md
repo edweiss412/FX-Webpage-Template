@@ -446,6 +446,41 @@ WITH substitutions is not. Anything outside these shapes is reported as
   `<span popover>` spelling means. So the rule was fail-open on the five preserved values and a false
   positive on the omitted ones, from one wrong category.
 
+- **Value classification is per ATTRIBUTE KIND, because React is (R33).** The single most repeated
+  defect in this guard's history is asking "is this a literal?" when the question is "is this
+  decidable?", and the second is assuming one answer covers every attribute. It does not:
+
+  | Kind | Example | `{true}` | `{a === b}` | `""` |
+  | --- | --- | --- | --- | --- |
+  | boolean DOM | `hidden`, `inert`, `open` | renders, HIDES | undecidable → fail closed | falsy → omitted |
+  | enumerated | `popover` | omitted → visible | provably omitted → visible | preserved → hides |
+  | ARIA string | `aria-hidden` | `"true"` → hides | undecidable → fail closed | not `"true"` → visible |
+
+  So `hidden` and `popover` genuinely disagree about booleans, and a shared helper would be wrong for
+  one of them. The predicates are `isProvablyNullish` (shared), `reactOmitsValue` (nullish **plus**
+  booleans, `popover` only), `isLiteralTruthy` / `isLiteralFalsy` (JS truthiness, used for operand
+  and branch selection), and `staticStringValue` (the string a value evaluates to). Each is measured
+  in the behaviour suite rather than argued here.
+
+  **Decidable is wider than literal.** Operand selection was fail-open for signed numbers, BigInts in
+  any radix, regexes, `typeof`, function / arrow / class expressions, `new`, and JSX — all definitely
+  truthy, none of them "literals" (R33 BLOCKING 2). Zero BigInts are parsed by VALUE, since matching
+  the spelling `/^0+n$/` missed `0x0n` and was wrong in both directions at once (R33 BLOCKING 3).
+
+- **A style object is an ordered sequence of writes, and a spread is a write (R33 BLOCKING 4).**
+  Scanning properties independently was wrong in both directions: `{{...(true ? {display:"none"} :
+  {})}}` hid and scanned clean, while `{{display:"none", ...(true ? {display:"block"} : {})}}` is
+  visible and was reported. The object resolves in source order with last-write-wins, seeing through
+  a conditional whose branches are decidable. An undecidable spread makes the WHOLE object opaque
+  rather than being skipped — skipping would let an earlier hiding write survive a later unknown one.
+
+- **A style KEY is a JavaScript property name; a style VALUE is CSS (R33 HIGH 8).** Three
+  neighbouring rules with three different answers, each measured:
+  `{{DISPLAY:"NONE"}}` makes React emit `-d-i-s-p-l-a-y:NONE` and styles nothing, so keys are
+  compared EXACTLY; `{{display:"NONE"}}` really hides, so values ARE folded; `{{" display ":"none"}}`
+  really hides, so keys are trimmed. Folding the key reported valid markup, and a fixture written one
+  round earlier asserted that false positive was correct.
+
 - **Inline `style` is read through the AST, not as text (R32 BLOCKING 5).** Five consecutive rounds
   each deleted one more value-transparent wrapper from a raw-text matcher — quotes (R27), backticks
   (R28), comments (R30), parentheses (R31) — and R32 supplied two that no amount of deletion can
