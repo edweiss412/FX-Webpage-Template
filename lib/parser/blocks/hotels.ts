@@ -26,6 +26,7 @@ import {
   emitEmptySection,
   emitHotelGuestSplitAmbiguity,
   emitInlineHotelGuestAmbiguity,
+  emitHotelAddressSplitAmbiguity,
   emitHotelCardinalityExceeded,
 } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
@@ -106,7 +107,14 @@ export function parseHotels(
  */
 type HotelAmbiguity =
   | { kind: "guests"; reasons: string[]; rawCell: string; parsedNames: string[] }
-  | { kind: "inline-guests"; rawCell: string; parsedNames: string[] };
+  | { kind: "inline-guests"; rawCell: string; parsedNames: string[] }
+  | {
+      kind: "address";
+      reason: AddressSplitAmbiguity["reason"];
+      rawCell: string;
+      parsedName: string | null;
+      parsedAddress: string | null;
+    };
 
 type PendingHotel = { row: HotelReservationRow; ambiguities: HotelAmbiguity[] };
 
@@ -124,6 +132,17 @@ function commitHotels(pending: PendingHotel[], agg?: ParseAggregator): HotelRese
   const kept = pending.slice(0, MAX_HOTELS);
   kept.forEach((p, index) => {
     for (const amb of p.ambiguities) {
+      if (amb.kind === "address") {
+        emitHotelAddressSplitAmbiguity(agg, {
+          reason: amb.reason,
+          rawCell: amb.rawCell,
+          index,
+          name: p.row.hotel_name,
+          parsedName: amb.parsedName,
+          parsedAddress: amb.parsedAddress,
+        });
+        continue;
+      }
       if (amb.kind === "inline-guests") {
         emitInlineHotelGuestAmbiguity(agg, {
           name: p.row.hotel_name,
@@ -171,6 +190,8 @@ type SlotData = {
   // parsing and emitted only for slots that survive the cardinality cap (kept hotels),
   // so a dropped RESERVATION #5+ slot never warns for a hotel that isn't shown.
   guestAmbiguities: Array<{ reasons: string[]; rawCell: string }>;
+  // Same stash-then-commit discipline as guestAmbiguities: first split wins.
+  addressAmbiguity?: { reason: AddressSplitAmbiguity["reason"]; rawCell: string };
 };
 
 /**
@@ -507,11 +528,15 @@ function parseHotelTable(markdown: string): PendingHotel[] {
         const split = splitHotelNameAddress(stripConfTokens(col1));
         leftSlot.hotel_name = split.name;
         leftSlot.hotel_address = split.address;
+        if (split.ambiguity)
+          leftSlot.addressAmbiguity ??= { reason: split.ambiguity.reason, rawCell: col1 };
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
         const split = splitHotelNameAddress(stripConfTokens(col3));
         rightSlot.hotel_name = split.name;
         rightSlot.hotel_address = split.address;
+        if (split.ambiguity)
+          rightSlot.addressAmbiguity ??= { reason: split.ambiguity.reason, rawCell: col3 };
       }
       rowState = "idle";
       continue;
@@ -592,12 +617,27 @@ function parseHotelTable(markdown: string): PendingHotel[] {
         check_out: slot.check_out ?? null,
         notes: null,
       },
-      ambiguities: slot.guestAmbiguities.map((amb) => ({
-        kind: "guests" as const,
-        reasons: amb.reasons,
-        rawCell: amb.rawCell,
-        parsedNames: slot.names,
-      })),
+      ambiguities: [
+        ...slot.guestAmbiguities.map(
+          (amb): HotelAmbiguity => ({
+            kind: "guests",
+            reasons: amb.reasons,
+            rawCell: amb.rawCell,
+            parsedNames: slot.names,
+          }),
+        ),
+        ...(slot.addressAmbiguity
+          ? [
+              {
+                kind: "address" as const,
+                reason: slot.addressAmbiguity.reason,
+                rawCell: slot.addressAmbiguity.rawCell,
+                parsedName: slot.hotel_name ?? null,
+                parsedAddress: slot.hotel_address ?? null,
+              },
+            ]
+          : []),
+      ],
     });
   }
 
@@ -651,7 +691,10 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   const checkInCount = (raw.match(/check\s+in/gi) ?? []).length;
   if (checkInCount < 2) {
     const built = buildInlineHotel(raw, 1, contextYear);
-    return toPending(stripHotelNameConf([built.row]), [built.judgedGuestBoundary], raw);
+    // First stash wins: only consult the later re-split if the exit had none.
+    let addr = built.addressAmbiguity;
+    const rows = stripHotelNameConf([built.row], (a) => (addr ??= a));
+    return toPending(rows, [built.judgedGuestBoundary], raw, [addr]);
   }
 
   const segments = splitInlineReservationGroups(raw);
@@ -674,7 +717,9 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     const single = buildInlineHotel(raw, 1, contextYear);
     single.row.check_in = null;
     single.row.check_out = null;
-    return toPending(stripHotelNameConf([single.row]), [single.judgedGuestBoundary], raw);
+    let addr = single.addressAmbiguity;
+    const one = stripHotelNameConf([single.row], (a) => (addr ??= a));
+    return toPending(one, [single.judgedGuestBoundary], raw, [addr]);
   }
   // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
   // before the first "Check In" (consultants). Strip those guest/confirmation
@@ -685,7 +730,9 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   // Groups after the first carry only a divider + guest and INHERIT the hotel
   // name, so no hotel/first-guest boundary is judged for them (spec §3.1 row 7).
   const verdicts = builds.map((b, i) => i === 0 && b.judgedGuestBoundary);
-  return toPending(stripHotelNameConf(rows), verdicts, raw);
+  const addrs = builds.map((b) => b.addressAmbiguity);
+  const stripped = stripHotelNameConf(rows, (a) => (addrs[0] ??= a));
+  return toPending(stripped, verdicts, raw, addrs);
 }
 
 /**
@@ -698,13 +745,25 @@ function toPending(
   rows: HotelReservationRow[],
   verdicts: boolean[],
   rawCell: string,
+  addressAmbiguities: Array<AddressSplitAmbiguity | undefined> = [],
 ): PendingHotel[] {
-  return rows.map((row, i) => ({
-    row,
-    ambiguities: verdicts[i]
-      ? [{ kind: "inline-guests" as const, rawCell, parsedNames: row.names }]
-      : [],
-  }));
+  return rows.map((row, i) => {
+    const ambiguities: HotelAmbiguity[] = [];
+    if (verdicts[i]) {
+      ambiguities.push({ kind: "inline-guests", rawCell, parsedNames: row.names });
+    }
+    const addr = addressAmbiguities[i];
+    if (addr) {
+      ambiguities.push({
+        kind: "address",
+        reason: addr.reason,
+        rawCell,
+        parsedName: row.hotel_name,
+        parsedAddress: row.hotel_address,
+      });
+    }
+    return { row, ambiguities };
+  });
 }
 
 /**
@@ -713,7 +772,10 @@ function toPending(
  * whole string (guest conf#s included) into hotel_name, which is rendered + show-wide
  * readable. Runs AFTER sanitizeHotelName (which needs the conf# to locate guests).
  */
-function stripHotelNameConf(rows: HotelReservationRow[]): HotelReservationRow[] {
+function stripHotelNameConf(
+  rows: HotelReservationRow[],
+  sink?: (a: AddressSplitAmbiguity) => void,
+): HotelReservationRow[] {
   for (const r of rows) {
     if (r.hotel_name) {
       // Strip any conf# (this is the final privacy pass for inline cells), THEN
@@ -721,6 +783,7 @@ function stripHotelNameConf(rows: HotelReservationRow[]): HotelReservationRow[] 
       // hotel_address when the split actually found one — never clobber a value an
       // upstream path already set with null.
       const split = splitHotelNameAddress(stripConfTokens(r.hotel_name));
+      if (split.ambiguity && sink) sink(split.ambiguity);
       r.hotel_name = split.name;
       if (split.address) r.hotel_address = split.address;
     }
@@ -762,7 +825,12 @@ function splitInlineReservationGroups(raw: string): string[] {
  * were each falsified by a reachable input (spec §3.1), because on an unlabeled
  * line the first guest's boundary is exactly the fact nothing else evidences.
  */
-type InlineBuild = { row: HotelReservationRow; judgedGuestBoundary: boolean };
+type InlineBuild = {
+  row: HotelReservationRow;
+  judgedGuestBoundary: boolean;
+  /** FIRST stash wins: the earliest split is the most specific one. */
+  addressAmbiguity?: AddressSplitAmbiguity;
+};
 
 function buildInlineHotel(raw: string, ordinal: number, contextYear: string | null): InlineBuild {
   // Normalize HTML entities and line-break escapes
@@ -855,6 +923,7 @@ function buildInlineHotel(raw: string, ordinal: number, contextYear: string | nu
           const split = splitHotelNameAddress(hotelPart);
           return {
             judgedGuestBoundary: true, // learn-K peeled the first guest off the hotel
+            ...(split.ambiguity ? { addressAmbiguity: split.ambiguity } : {}),
             row: {
               ordinal,
               hotel_name: split.name,
@@ -890,6 +959,7 @@ function buildInlineHotel(raw: string, ordinal: number, contextYear: string | nu
       if (split.name !== null || split.address !== null) {
         return {
           judgedGuestBoundary: false, // no guests present, so no boundary judged
+          ...(split.ambiguity ? { addressAmbiguity: split.ambiguity } : {}),
           row: {
             ordinal,
             hotel_name: split.name,
