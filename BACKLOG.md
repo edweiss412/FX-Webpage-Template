@@ -700,23 +700,7 @@ The Flow-8 audit item 8.4 (`docs/audits/e2e-real-world-variation-preparedness-20
 
 ---
 
-## Parser ambiguity-warning coverage (2026-07-07, ambiguity-warnings-v1)
-
-Transform sites the transform-sites walker (`tests/parser/_metaTransformSitesWalker.test.ts`, spec `2026-07-07-ambiguity-warnings-v1-design.md` §6) declares as `exempt: "deferred:BL-..."` — value-producing judgment sites that do NOT yet emit an `AMBIGUITY_CODES` warning. Each is a concrete deferral (the walker fails if the ref is missing here), not a silent gap.
-
-### BL-PARSER-HOTEL-INLINE-AMBIGUITY — emit an ambiguity warning for inline (unstructured) hotel-guest paths
-
-**Status:** OPEN (2026-07-07, ambiguity-warnings-v1) · **Severity:** low · **Class:** PARSER AMBIGUITY COVERAGE
-
-`hotels.ts` emits `HOTEL_GUEST_SPLIT_AMBIGUOUS` only from the **structured** `parseGuestCell` path (spec §4.2). The **inline** guest-extraction paths (guest names glued into an unstructured hotel/reservation line, not the pipe-structured guest cell) make the same class of split judgment but do not yet surface a warning. Deferred: the inline paths are lower-frequency in the live corpus and share no collector with `parseGuestCell`, so wiring them is a separate emit unit + fixture effort. Declared as `{ site: "inline guest paths", exempt: "deferred:BL-PARSER-HOTEL-INLINE-AMBIGUITY" }` in `hotels.ts` `TRANSFORM_SITES`. Trigger to promote: a live show where an inline guest line is mis-split with no operator signal.
-
-### BL-PARSER-ADDRESS-SPLIT-AMBIGUITY — emit an ambiguity warning for `splitHotelNameAddress` name/address splits
-
-**Status:** OPEN (2026-07-07, ambiguity-warnings-v1) · **Severity:** low · **Class:** PARSER AMBIGUITY COVERAGE
-
-`splitHotelNameAddress` (`hotels.ts:329`) splits a combined `<hotel name> <street address>` string into a name and an address by a suffix-only heuristic — a genuine judgment call that produces a value but emits no ambiguity warning when the boundary is uncertain. Deferred: the current heuristic is strictly suffix-anchored and low-risk; adding an ambiguity signal needs a defined uncertainty threshold + its own emit unit test to avoid warn-spam on the common unambiguous case. Declared as `{ site: "splitHotelNameAddress", exempt: "deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY" }` in `hotels.ts` `TRANSFORM_SITES`. Trigger to promote: a live show where a name/address split lands wrong with no operator signal.
-
----
+## Crew-page share-link chrome (2026-07-14, share-link-instant-rotate-dedup)
 
 ## Share hub follow-ups (2026-07-25, share-link-chrome-backlog)
 
@@ -926,3 +910,9 @@ Scenario: the archive RPC's show invalidation publishes before the server action
 **Why it was not fixed in the attention-index change (2026-07-24).** `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` defense 5c reads the intent baseline from **`origin/main`** and asserts every historical `(code, intent)` pair still resolves identically (`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:118-124`). Both codes are `resolve` in that baseline (19 rows). Updating the in-tree baseline and the approved-confirm list does not satisfy the gate, because it compares against main's copy. Intent is append-only by design, and the test states the rationale: "rows already in admin_alerts still render it" — a persisted alert row resolves its label at render time, so flipping an intent retroactively relabels every open row of that code.
 
 **What fixing it requires.** A ratified amendment to the append-only contract, deciding that a retroactive relabel is acceptable when the original intent was simply wrong, plus the mechanism to express that (an exception list the history gate honours, or a versioned baseline). That is a contract change with its own blast radius, not a copy edit. Analysis recorded in `docs/superpowers/specs/2026-07-24-attention-index-consolidation.md` §2.6.
+
+## BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL — a later inline reservation group carrying its own hotel is silently clobbered by inheritance
+
+**Status:** OPEN · **Severity:** MEDIUM (silent wrong hotel on a crew page) · **Class:** parser inline multi-group — surfaced by hotel-ambiguity-coverage whole-diff R1 finding 4 (2026-07-25); disposition ratified 2026-07-26.
+
+`buildInlineReservations` assigns group 0's `baseName` to every row of a multi-group inline cell (`lib/parser/blocks/hotels.ts`, "later groups carry only a divider + guest, not the hotel"). Probe-verified: `Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1 Check Out: 3/2 Marriott Downtown 200 Oak Ave Jane Doe - 1002 Check In: 3/3 Check Out: 3/4` parses reservation 1's hotel as the INHERITED `Hyatt Regency…` — `Marriott Downtown 200 Oak Ave` vanishes. Pre-existing on main; the ambiguity-warning feature deliberately does NOT warn on later groups (spec §3.1 row 7 is unconditional), and three successive output-derived carve-outs (group index guard, leading-divider run, residual-word check) were each probe-verified wrong in both directions before the class was closed per `docs/agents/writing-plans.md:19`. The cell is not dark: reservation 0 of the same cell fires `HOTEL_GUEST_SPLIT_AMBIGUOUS`, pointing the operator at the line. **Fix (when prioritized):** the signal must come from the raw FRAGMENT (`splitInlineReservationGroups` output) BEFORE `buildInlineHotel` parses it — never from parsed output, which is the class that failed three reviews. A fragment-level hotel detector is itself a judgment, so it likely lands as a new ambiguity code with its own spec round, not a patch.

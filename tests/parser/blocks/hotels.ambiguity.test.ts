@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { parseHotels, parseGuestCell } from "@/lib/parser/blocks/hotels";
 import { newAggregator } from "@/lib/parser/warnings";
 import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import { applyUseRawDecisions } from "@/lib/sync/useRawOverlay";
+import { buildParseResult } from "../../components/admin/wizard/_step3ReviewFixture";
 
 // Silence the log-only telemetry warn() so the cardinality test doesn't spam.
 vi.mock("@/lib/log", () => ({
@@ -216,5 +218,104 @@ describe("parseHotels — structured table overflow (>4 reservations)", () => {
     const agg = newAggregator();
     parseHotels(fiveResTable, "v4", agg);
     expect(agg.warnings.filter((x) => x.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS")).toHaveLength(0);
+  });
+});
+
+// ── T2 characterization guards for the commitHotels refactor ─────────────────
+//
+// These pin behavior that the single-commit-point refactor must PRESERVE, so
+// they are written before it and must stay green through it (a refactor has no
+// red step of its own; its safety net is what it must not break).
+//
+// Both properties were found under-discriminated by spec review R8/R9: the
+// single-ambiguity cardinality test caught only "cardinality first", and the
+// index test used a single-row array where "no other row" was vacuous.
+describe("parseHotels — commitHotels invariants (T2)", () => {
+  // Slots 1 and 2 both carry a glued guest cell; slot 5 forces the cap.
+  const twoAmbiguousOverCap = [
+    "| HOTEL | RESERVATION \\#1 |  | RESERVATION \\#2 |",
+    "| :---: | :---: | :---: | :---: |",
+    "|  | Hotel Name / Address |  | Hotel Name / Address |",
+    "|  | Hotel One |  | Hotel Two |",
+    "|  | Names on Reservation |  | Names on Reservation |",
+    "|  | John Smith Jane Doe |  | Mary Jones Paul Reed |",
+    "|  | RESERVATION \\#3 |  | RESERVATION \\#4 |",
+    "|  | Hotel Name / Address |  | Hotel Name / Address |",
+    "|  | Hotel Three |  | Hotel Four |",
+    "|  | Names on Reservation |  | Names on Reservation |",
+    "|  | Carol Diaz |  | Dave Evans |",
+    "|  | RESERVATION \\#5 |  |  |",
+    "|  | Hotel Name / Address |  |  |",
+    "|  | Hotel Five |  |  |",
+    "|  | Names on Reservation |  |  |",
+    "|  | Alice Brown |  |  |",
+  ].join("\n");
+
+  it("emits ALL surviving ambiguities before the cardinality warning", () => {
+    const agg = newAggregator();
+    parseHotels(twoAmbiguousOverCap, "v4", agg);
+    const seq = agg.warnings
+      .filter(
+        (w) => w.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS" || w.code === "HOTEL_CARDINALITY_EXCEEDED",
+      )
+      .map((w) => `${w.code}@${w.blockRef?.index ?? "-"}`);
+    // Asserted by POSITION with the INDEX attached (whole-diff R5 f4): two
+    // same-code entries compared by code alone cannot detect reversed
+    // index-0/index-1 emission, which changes the persisted warning order.
+    expect(seq).toEqual([
+      "HOTEL_GUEST_SPLIT_AMBIGUOUS@0",
+      "HOTEL_GUEST_SPLIT_AMBIGUOUS@1",
+      "HOTEL_CARDINALITY_EXCEEDED@-",
+    ]);
+  });
+
+  it("anchors blockRef.index to the FINAL array position, not the ordinal", () => {
+    // Slot 1 is dash-only and is discarded, so the surviving reservations are
+    // Hotel Two (index 0) and Hotel Three (index 1). Only Hotel Three is
+    // ambiguous, so its warning must carry index 1 — an ordinal-based
+    // implementation would emit 2, and a pre-filter-position one would emit 2.
+    const skippedFirst = [
+      "| HOTEL | RESERVATION \\#1 |  | RESERVATION \\#2 |",
+      "| :---: | :---: | :---: | :---: |",
+      "|  | Hotel Name / Address |  | Hotel Name / Address |",
+      "|  | - |  | Hotel Two |",
+      "|  | Names on Reservation |  | Names on Reservation |",
+      "|  | - |  | Bob Carter |",
+      "|  | RESERVATION \\#3 |  |  |",
+      "|  | Hotel Name / Address |  |  |",
+      "|  | Hotel Three |  |  |",
+      "|  | Names on Reservation |  |  |",
+      "|  | Doug Larson - \\#1001 Eric Weiss Jane Doe Bob Roe |  |  |",
+    ].join("\n");
+    const agg = newAggregator();
+    const hotels = parseHotels(skippedFirst, "v4", agg);
+    expect(hotels.map((h) => h.hotel_name)).toEqual(["Hotel Two", "Hotel Three"]);
+    const w = agg.warnings.filter((x) => x.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS");
+    expect(w).toHaveLength(1);
+    const warning = w[0]!;
+    expect(w[0]!.blockRef?.index).toBe(1);
+    expect(w[0]!.blockRef).toMatchObject({ kind: "hotels", name: "Hotel Three" });
+
+    // Asserting the emitted index alone is not enough (plan review R2 finding 8):
+    // an overlay branch that always rewrites reservation 0 passes it. Drive the
+    // decision through applyUseRawDecisions and prove reservation 1 alone moved.
+    const res = warning.resolution;
+    expect(res?.resolvable).toBe(true);
+    const applied = applyUseRawDecisions(
+      buildParseResult({ hotelReservations: hotels, warnings: agg.warnings }),
+      [
+        {
+          code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+          contentHash: (res as Extract<typeof res, { resolvable: true }>).contentHash,
+          target: { kind: "hotels", index: 1 },
+          preference: "raw",
+          applied: false,
+          decidedAt: "2026-07-25T00:00:00.000Z",
+          decidedBy: "test",
+        },
+      ],
+    );
+    expect(applied.result.hotelReservations[0]).toEqual(hotels[0]);
+    expect(applied.result.hotelReservations[1]!.names).not.toEqual(hotels[1]!.names);
   });
 });

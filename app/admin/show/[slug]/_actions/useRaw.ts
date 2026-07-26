@@ -4,7 +4,7 @@
  * 2026-07-10-structural-transform-use-raw §9b).
  *
  * Admin-gated. Writes a content-pinned use-raw DECISION (never a typed value) for
- * one of the three recoverable structural-transform warnings, then delegates the
+ * one of the four recoverable structural-transform warnings, then delegates the
  * apply to the existing per-show re-sync entry. Sequence (spec §9b, invariant 2 —
  * two SEQUENTIAL lock acquisitions, NEVER nested):
  *   (1) pre-lock: load the `shows` row by `showId` → `drive_file_id` (the lock key

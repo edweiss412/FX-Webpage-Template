@@ -25,10 +25,18 @@ import {
   type ParseAggregator,
   emitEmptySection,
   emitHotelGuestSplitAmbiguity,
+  emitInlineHotelGuestAmbiguity,
+  emitHotelAddressSplitAmbiguity,
   emitHotelCardinalityExceeded,
 } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
-import { stripConfTokens, looksLikeStreetStart, STREET_ADDRESS_RE } from "./hotelConfTokens";
+import {
+  stripConfTokens,
+  normalizeHotelCellText,
+  looksLikeStreetStart,
+  STREET_ADDRESS_RE,
+  STREET_ADDRESS_ZIP_RE,
+} from "./hotelConfTokens";
 import { buildCol0HeaderRe, matchesSectionHeader } from "./_sectionHeaderMatch";
 import { log } from "@/lib/log";
 
@@ -61,8 +69,8 @@ export function parseHotels(
   agg?: ParseAggregator,
 ): HotelReservationRow[] {
   // Try the structured HOTEL table first (v4 + v2 newer layouts)
-  const fromTable = parseHotelTable(markdown, agg);
-  if (fromTable.length > 0) return cap(fromTable, agg);
+  const fromTable = parseHotelTable(markdown);
+  if (fromTable.length > 0) return commitHotels(fromTable, agg);
 
   // Inline rows carry yearless "Check In: M/D"; infer the show's year from its
   // dates so we don't hard-code an era (the cell alone lacks the year).
@@ -70,11 +78,11 @@ export function parseHotels(
 
   // Try the inline "Hotel Reservations" row (v2 older layout, RIA forum, DCI RPAS)
   const fromInline = parseInlineHotelRow(markdown, contextYear);
-  if (fromInline.length > 0) return cap(fromInline, agg);
+  if (fromInline.length > 0) return commitHotels(fromInline, agg);
 
   // Try v1 "Hotel Stays" row (2024-05 east coast family office)
   const fromStays = parseHotelStaysRow(markdown, contextYear);
-  if (fromStays.length > 0) return cap(fromStays, agg);
+  if (fromStays.length > 0) return commitHotels(fromStays, agg);
 
   // D1: a recognized HOTEL / "Hotel Reservations" / "Hotel Stays" header that
   // parsed zero reservations (sub-parsers content-gate to []) is a silent
@@ -89,15 +97,85 @@ export function parseHotels(
   return [];
 }
 
-function cap(hotels: HotelReservationRow[], agg?: ParseAggregator): HotelReservationRow[] {
-  if (hotels.length > MAX_HOTELS) {
+/**
+ * An ambiguity STASHED against the reservation that produced it, rather than
+ * emitted at the site. Two consequences the emit-at-site shape cannot give:
+ *
+ *  - a reservation truncated by the cardinality cap never warns about a hotel
+ *    the operator will not see (ratified R4);
+ *  - a provisional row that `buildInlineReservations` later discards takes its
+ *    stash with it, so no rule is needed to suppress it.
+ */
+type HotelAmbiguity =
+  | { kind: "guests"; reasons: string[]; rawCell: string; parsedNames: string[] }
+  | { kind: "inline-guests"; rawCell: string; parsedNames: string[] }
+  | {
+      kind: "address";
+      reason: AddressSplitAmbiguity["reason"];
+      splitInput: string;
+      rawCell: string;
+      parsedName: string | null;
+      parsedAddress: string | null;
+    };
+
+type PendingHotel = { row: HotelReservationRow; ambiguities: HotelAmbiguity[] };
+
+/**
+ * The SINGLE commit point for every hotel warning (spec §5.2). Replaces `cap()`
+ * and absorbs the per-slot emit loop that `parseHotelTable` used to inline, so
+ * the rank gate lives in exactly one place instead of being re-derived per
+ * producer.
+ *
+ * Emission ORDER is load-bearing and observable: all surviving-reservation
+ * ambiguities first, THEN the cardinality warning. That is the order the
+ * pre-refactor code produced, and warning order is persisted.
+ */
+function commitHotels(pending: PendingHotel[], agg?: ParseAggregator): HotelReservationRow[] {
+  const kept = pending.slice(0, MAX_HOTELS);
+  kept.forEach((p, index) => {
+    for (const amb of p.ambiguities) {
+      if (amb.kind === "address") {
+        emitHotelAddressSplitAmbiguity(agg, {
+          reason: amb.reason,
+          splitInput: amb.splitInput,
+          rawCell: amb.rawCell,
+          index,
+          name: p.row.hotel_name,
+          parsedName: amb.parsedName,
+          parsedAddress: amb.parsedAddress,
+        });
+        continue;
+      }
+      if (amb.kind === "inline-guests") {
+        emitInlineHotelGuestAmbiguity(agg, {
+          name: p.row.hotel_name,
+          rawCell: amb.rawCell,
+          index,
+          parsedNames: amb.parsedNames,
+        });
+        continue;
+      }
+      emitHotelGuestSplitAmbiguity(agg, {
+        name: p.row.hotel_name,
+        reasons: amb.reasons,
+        rawCell: amb.rawCell,
+        // The reservation's position in the FINAL hotels array — the overlay's
+        // anchor (spec §5.3). Not its ordinal, and not its pre-filter slot.
+        index,
+        parsedNames: amb.parsedNames,
+        confirmationNo: null, // parsed-but-not-persisted (mirrors the pushed row)
+      });
+    }
+  });
+  if (pending.length > MAX_HOTELS) {
     // Log-only telemetry stays (HOTELS_PARSE_WARNING forensic stream); the aggregator
     // emit (§4.2b) promotes the same event to an operator-visible ParseWarning.
-    warn(`HOTEL_CARDINALITY_EXCEEDED: found ${hotels.length} hotels; truncating to ${MAX_HOTELS}.`);
-    emitHotelCardinalityExceeded(agg, { found: hotels.length, cap: MAX_HOTELS });
-    return hotels.slice(0, MAX_HOTELS);
+    warn(
+      `HOTEL_CARDINALITY_EXCEEDED: found ${pending.length} hotels; truncating to ${MAX_HOTELS}.`,
+    );
+    emitHotelCardinalityExceeded(agg, { found: pending.length, cap: MAX_HOTELS });
   }
-  return hotels;
+  return kept.map((p) => p.row);
 }
 
 // ── v4/v2 Structured HOTEL table ─────────────────────────────────────────────
@@ -115,6 +193,10 @@ type SlotData = {
   // parsing and emitted only for slots that survive the cardinality cap (kept hotels),
   // so a dropped RESERVATION #5+ slot never warns for a hotel that isn't shown.
   guestAmbiguities: Array<{ reasons: string[]; rawCell: string }>;
+  // Same stash-then-commit discipline as guestAmbiguities: first split wins.
+  addressAmbiguity?:
+    | { reason: AddressSplitAmbiguity["reason"]; splitInput: string; rawCell: string }
+    | undefined;
 };
 
 /**
@@ -258,16 +340,39 @@ export function parseGuestCell(cell: string): {
  * followed by a state+ZIP, so this can't false-split a hotel name or a guest conf#.
  */
 
+/**
+ * §3.1 P3 (2026-07-25-hotel-ambiguity-coverage) — the name/address boundary is a
+ * judgment, and this reports it WITHOUT changing it. Two disjoint arms:
+ *
+ *   P3(a) "address-shape-unsplit"      — the splitter produced NO address, yet a
+ *                                        padded read finds an address shape.
+ *   P3(b) "multiple-street-candidates" — more than one street phrase could have
+ *                                        started the address, so the split point
+ *                                        was a choice among candidates.
+ *
+ * Both arms detect against `" " + cleaned` because both regexes require leading
+ * whitespace, so a candidate at index 0 is otherwise invisible — the same reason
+ * `looksLikeStreetStart` pads. The SPLIT keeps exec'ing the unpadded string, so a
+ * position-0 street start still never becomes the boundary (ratified R1: this adds
+ * a warning, never a behavior change).
+ */
+export type AddressSplitAmbiguity = {
+  reason: "address-shape-unsplit" | "multiple-street-candidates";
+  // The exact cleaned text the splitter judged. The "undo the split"
+  // replacement is built from THIS, never from the enclosing booking fragment
+  // — a fragment-built replacement persists dates and guest names into
+  // crew-readable hotel_name (whole-diff R6 f1).
+  splitInput: string;
+};
+
 export function splitHotelNameAddress(combined: string | null): {
   name: string | null;
   address: string | null;
+  ambiguity?: AddressSplitAmbiguity;
 } {
   if (!combined) return { name: null, address: null };
-  const cleaned = combined
-    .replace(/[​-‍﻿]/g, "") // zero-width: ZWSP / ZWNJ / ZWJ / BOM
-    .replace(/["“”]/g, " ") // straight + smart double-quotes → space
-    .replace(/\s+/g, " ")
-    .trim();
+  // Shared with the emitter's replacement path — see normalizeHotelCellText.
+  const cleaned = normalizeHotelCellText(combined);
   if (!cleaned) return { name: null, address: null };
   // The address begins at the first street number that starts a SUFFIXED street
   // phrase (see STREET_ADDRESS_RE). Suffix-only by design: a suffixless tail (a
@@ -275,14 +380,37 @@ export function splitHotelNameAddress(combined: string | null): {
   // Chicago, IL 60601"), so it stays glued — a SAFE fallback, never a corrupted
   // name. The regex only LOCATES the boundary; the address runs to the cell end.
   const m = STREET_ADDRESS_RE.exec(cleaned);
-  if (!m) return { name: presence(cleaned), address: null };
+  // Detection only — never the split point (R1). Padded so a candidate at index 0
+  // is visible; a fresh clone each call because adding `g` to the shared
+  // STREET_ADDRESS_RE singleton would give it a persistent lastIndex and make
+  // consecutive splitter calls alternate between matching and missing.
+  const padded = " " + cleaned;
+  if (!m) {
+    // P3(a): we produced no address, but the cell looks like it holds one.
+    const looksAddressed =
+      new RegExp(STREET_ADDRESS_RE.source, STREET_ADDRESS_RE.flags).test(padded) ||
+      new RegExp(STREET_ADDRESS_ZIP_RE.source, STREET_ADDRESS_ZIP_RE.flags).test(padded);
+    return looksAddressed
+      ? {
+          name: presence(cleaned),
+          address: null,
+          ambiguity: { reason: "address-shape-unsplit", splitInput: cleaned },
+        }
+      : { name: presence(cleaned), address: null };
+  }
   const splitAt = m.index;
   const name = cleaned
     .slice(0, splitAt)
     .replace(/[,\-–—\s]+$/, "")
     .trim();
   const address = cleaned.slice(splitAt).trim();
-  return { name: presence(name), address: presence(address) };
+  // P3(b): the boundary was a choice among several street phrases.
+  const counter = new RegExp(STREET_ADDRESS_RE.source, STREET_ADDRESS_RE.flags + "g");
+  const candidates = [...padded.matchAll(counter)].length;
+  const base = { name: presence(name), address: presence(address) };
+  return candidates > 1
+    ? { ...base, ambiguity: { reason: "multiple-street-candidates", splitInput: cleaned } }
+    : base;
 }
 
 /**
@@ -299,7 +427,7 @@ export function splitHotelNameAddress(combined: string | null): {
  *   |       | RESERVATION #3 |   | RESERVATION #4 |  (optional)
  *   ... repeat for res 3+4
  */
-function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservationRow[] {
+function parseHotelTable(markdown: string): PendingHotel[] {
   const HOTEL_HEADER_RE = buildCol0HeaderRe(["HOTEL"]);
   const headerMatch = HOTEL_HEADER_RE.exec(markdown);
   if (!headerMatch) return [];
@@ -413,11 +541,28 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
         const split = splitHotelNameAddress(stripConfTokens(col1));
         leftSlot.hotel_name = split.name;
         leftSlot.hotel_address = split.address;
+        // Track the cell that produced the slot's FINAL value. `??=` kept the
+        // FIRST cell's raw while a later repeated Hotel Name row overwrote the
+        // value, so "use raw" would restore stale text (whole-diff R1 f3 / R2 f1).
+        leftSlot.addressAmbiguity = split.ambiguity
+          ? {
+              reason: split.ambiguity.reason,
+              splitInput: split.ambiguity.splitInput,
+              rawCell: col1,
+            }
+          : undefined;
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
         const split = splitHotelNameAddress(stripConfTokens(col3));
         rightSlot.hotel_name = split.name;
         rightSlot.hotel_address = split.address;
+        rightSlot.addressAmbiguity = split.ambiguity
+          ? {
+              reason: split.ambiguity.reason,
+              splitInput: split.ambiguity.splitInput,
+              rawCell: col3,
+            }
+          : undefined;
       }
       rowState = "idle";
       continue;
@@ -479,38 +624,47 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
   // cap() sees the TRUE hotel count — a structured RESERVATION #5+ overflow used to be
   // silently dropped by a 1..MAX_HOTELS loop here, before cap() could emit
   // HOTEL_CARDINALITY_EXCEEDED (Codex R5).
-  const result: HotelReservationRow[] = [];
+  // Stash, never emit: `commitHotels` is the single commit point, so the rank
+  // gate that used to be re-derived here (`result.length < MAX_HOTELS`) lives in
+  // exactly one place (spec §5.2).
+  const result: PendingHotel[] = [];
   for (const i of [...slots.keys()].sort((a, b) => a - b)) {
     const slot = slots.get(i)!;
     // Only include slots that have at minimum a hotel_name (skip dash-only placeholders)
     if (!slot.hotel_name) continue;
-    // §4.2 single commit point: a stashed guest-split ambiguity emits ONLY when the hotel
-    // survives the cap. cap() keeps the first MAX_HOTELS name-resolved slots, so a row
-    // whose rank (result.length before push) is < MAX_HOTELS is kept; later ones are
-    // truncated and stay silent.
-    if (result.length < MAX_HOTELS) {
-      for (const amb of slot.guestAmbiguities) {
-        emitHotelGuestSplitAmbiguity(agg, {
-          name: slot.hotel_name,
-          reasons: amb.reasons,
-          rawCell: amb.rawCell,
-          // The reservation about to be pushed occupies `result.length` in the
-          // final hotels array — the overlay's `blockRef.index` anchor (spec §7).
-          index: result.length,
-          parsedNames: slot.names,
-          confirmationNo: null, // parsed-but-not-persisted (mirrors the pushed row)
-        });
-      }
-    }
     result.push({
-      ordinal: i,
-      hotel_name: slot.hotel_name ?? null,
-      hotel_address: slot.hotel_address ?? null,
-      names: slot.names,
-      confirmation_no: null, // parsed-but-not-persisted — see parseGuestCell
-      check_in: slot.check_in ?? null,
-      check_out: slot.check_out ?? null,
-      notes: null,
+      row: {
+        ordinal: i,
+        hotel_name: slot.hotel_name ?? null,
+        hotel_address: slot.hotel_address ?? null,
+        names: slot.names,
+        confirmation_no: null, // parsed-but-not-persisted — see parseGuestCell
+        check_in: slot.check_in ?? null,
+        check_out: slot.check_out ?? null,
+        notes: null,
+      },
+      ambiguities: [
+        ...slot.guestAmbiguities.map(
+          (amb): HotelAmbiguity => ({
+            kind: "guests",
+            reasons: amb.reasons,
+            rawCell: amb.rawCell,
+            parsedNames: slot.names,
+          }),
+        ),
+        ...(slot.addressAmbiguity
+          ? [
+              {
+                kind: "address" as const,
+                reason: slot.addressAmbiguity.reason,
+                splitInput: slot.addressAmbiguity.splitInput,
+                rawCell: slot.addressAmbiguity.rawCell,
+                parsedName: slot.hotel_name ?? null,
+                parsedAddress: slot.hotel_address ?? null,
+              },
+            ]
+          : []),
+      ],
     });
   }
 
@@ -528,7 +682,7 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
  * - 2025-05: `| Hotel Reservations | The Drake Hotel ... Check In: 5/11 Check Out: 5/15 Eric Carroll Eric Weiss Connor Hester |`
  * - 2025-06: `| Hotel Reservations | Park Hyatt Chicago&#10;"800 N Michigan Ave...&#10;Check In: 6/23 Check Out: 6/26 Doug --- 104461566 Eric---104461567 |`
  */
-function parseInlineHotelRow(markdown: string, contextYear: string | null): HotelReservationRow[] {
+function parseInlineHotelRow(markdown: string, contextYear: string | null): PendingHotel[] {
   // RAW_HEADER_REGEX_ALLOWLIST: inline capture matcher; col0 token identity is registry-checked via SECTION_HEADER_TOKENS (see tests/parser/_metaKnownSectionsWalker.test.ts).
   const ROW_RE = /^\|\s*Hotel\s*Reservations?\s*\|([^|]+)/im;
   const m = ROW_RE.exec(markdown);
@@ -540,7 +694,7 @@ function parseInlineHotelRow(markdown: string, contextYear: string | null): Hote
   return buildInlineReservations(raw, contextYear);
 }
 
-function parseHotelStaysRow(markdown: string, contextYear: string | null): HotelReservationRow[] {
+function parseHotelStaysRow(markdown: string, contextYear: string | null): PendingHotel[] {
   // v1 format: | Hotel Stays | <content> |
   // RAW_HEADER_REGEX_ALLOWLIST: inline capture matcher; col0 token identity is registry-checked via SECTION_HEADER_TOKENS (see tests/parser/_metaKnownSectionsWalker.test.ts).
   const ROW_RE = /^\|\s*Hotel\s*Stays?\s*\|([^|]+)/im;
@@ -560,12 +714,19 @@ function parseHotelStaysRow(markdown: string, contextYear: string | null): Hotel
  * guest group keeps its own check-out; otherwise return one reservation. Groups
  * after the first don't repeat the hotel name, so they inherit group 1's.
  */
-function buildInlineReservations(raw: string, contextYear: string | null): HotelReservationRow[] {
+function buildInlineReservations(raw: string, contextYear: string | null): PendingHotel[] {
   const checkInCount = (raw.match(/check\s+in/gi) ?? []).length;
-  if (checkInCount < 2) return stripHotelNameConf([buildInlineHotel(raw, 1, contextYear)]);
+  if (checkInCount < 2) {
+    const built = buildInlineHotel(raw, 1, contextYear);
+    // First stash wins: only consult the later re-split if the exit had none.
+    let addr = built.addressAmbiguity;
+    const rows = stripHotelNameConf([built.row], (_i, a) => (addr ??= a));
+    return toPending(rows, [built.judgedGuestBoundary], [raw], [addr]);
+  }
 
   const segments = splitInlineReservationGroups(raw);
-  const rows = segments.map((seg, i) => buildInlineHotel(seg, i + 1, contextYear));
+  const builds = segments.map((seg, i) => buildInlineHotel(seg, i + 1, contextYear));
+  const rows = builds.map((b) => b.row);
   // The split cuts at "Check Out: <date>", which only attributes guests correctly
   // when they PRECEDE their checkout (the consultants shape). If a group came out
   // with no guests, the cell lists guests AFTER each checkout (the redefining
@@ -577,18 +738,88 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
     // guests would carry the first group's dates — wrong data. Preserve all names
     // but NULL the dates rather than mis-map them (ambiguous → no date is safer
     // than a wrong date).
+    // The provisional per-group builds are DISCARDED here, and their verdicts go
+    // with them — only the surviving rebuilt reservation is evaluated (spec §3.1
+    // row 8). That is what the stash-then-commit shape buys.
     const single = buildInlineHotel(raw, 1, contextYear);
-    single.check_in = null;
-    single.check_out = null;
-    return stripHotelNameConf([single]);
+    single.row.check_in = null;
+    single.row.check_out = null;
+    let addr = single.addressAmbiguity;
+    const one = stripHotelNameConf([single.row], (_i, a) => (addr ??= a));
+    return toPending(one, [single.judgedGuestBoundary], [raw], [addr]);
   }
   // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
   // before the first "Check In" (consultants). Strip those guest/confirmation
   // spans so the shared hotel name is the actual hotel/address, then apply it to
   // every group (later groups carry only a divider + guest, not the hotel).
+  //
+  // Spec §3.1 row 7 is unconditional: a later group (index > 0) NEVER emits.
+  // Its hotel is assigned by inheritance from `baseName` below, so no
+  // hotel/first-guest boundary is judged for it. Three successive attempts to
+  // carve out "unless the fragment carries its own hotel text" — group index,
+  // leading-divider run, residual-word check — were each output-derived proxies
+  // and each wrong in both directions (whole-diff R3 finding 1), re-proving the
+  // spec's own claim that no output-derived rule can work. The carve-out is
+  // refuted as relitigation of ratified row 7; a later fragment that DOES carry
+  // its own hotel is a pre-existing inheritance clobber, filed as
+  // BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL rather than papered over here.
+  const verdicts = builds.map((b, i) => i === 0 && b.judgedGuestBoundary);
+
   const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
   for (const r of rows) r.hotel_name = baseName;
-  return stripHotelNameConf(rows);
+  // Address ambiguity follows the same row-7 anchor: only reservation 0's
+  // hotel_name is the splitter's own output — every later row holds inherited
+  // text. A later-row address warning is incoherent by construction: its parsed
+  // payload would describe baseName (text from segment 0) while its raw
+  // fragment is a guest-only segment that never contained that text, so its
+  // "undo" replacement writes guest names into hotel_name (the R3 finding 2
+  // corruption). Keep row 0's build stash; drop later builds' stashes (their
+  // fragments were discarded by inheritance — whole-diff R1 finding 2) and
+  // ignore later rows' re-split stashes (identical to row 0's by construction,
+  // since every row now holds the same baseName).
+  const addrs = builds.map((b, i) => (i === 0 ? b.addressAmbiguity : undefined));
+  const stripped = stripHotelNameConf(rows, (i, a) => {
+    if (i === 0) addrs[0] ??= a;
+  });
+  return toPending(stripped, verdicts, segments, addrs);
+}
+
+/**
+ * Pair each surviving row with a stashed guest ambiguity when its exit judged
+ * the hotel/first-guest boundary. `rawCell` is the whole inline cell: no
+ * substring of it is provably guest-scoped, which is why the warning is never
+ * resolvable (spec R8).
+ */
+function toPending(
+  rows: HotelReservationRow[],
+  verdicts: boolean[],
+  // Per-ROW raw fragment. Passing the parent cell gave every group the SAME
+  // rawSnippet and therefore the same content hash, so ONE use-raw decision
+  // rewrote every reservation's hotel_name to the whole booking line — the
+  // other hotels, guests and date clauses included. That is crew-readable data
+  // corruption on the new write-back path (whole-diff R3 finding 2).
+  rawCells: string[],
+  addressAmbiguities: Array<AddressSplitAmbiguity | undefined> = [],
+): PendingHotel[] {
+  return rows.map((row, i) => {
+    const ambiguities: HotelAmbiguity[] = [];
+    const rawCell = rawCells[i] ?? rawCells[0] ?? "";
+    if (verdicts[i]) {
+      ambiguities.push({ kind: "inline-guests", rawCell, parsedNames: row.names });
+    }
+    const addr = addressAmbiguities[i];
+    if (addr) {
+      ambiguities.push({
+        kind: "address",
+        reason: addr.reason,
+        splitInput: addr.splitInput,
+        rawCell,
+        parsedName: row.hotel_name,
+        parsedAddress: row.hotel_address,
+      });
+    }
+    return { row, ambiguities };
+  });
 }
 
 /**
@@ -597,18 +828,25 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
  * whole string (guest conf#s included) into hotel_name, which is rendered + show-wide
  * readable. Runs AFTER sanitizeHotelName (which needs the conf# to locate guests).
  */
-function stripHotelNameConf(rows: HotelReservationRow[]): HotelReservationRow[] {
-  for (const r of rows) {
+function stripHotelNameConf(
+  rows: HotelReservationRow[],
+  // Per-ROW sink. A single shared slot cannot attribute N rows' ambiguities:
+  // every row after the first would either be dropped or misfiled onto row 0,
+  // and "use raw" would then rewrite the wrong reservation (whole-diff R1 f1).
+  sink?: (rowIndex: number, a: AddressSplitAmbiguity) => void,
+): HotelReservationRow[] {
+  rows.forEach((r, rowIndex) => {
     if (r.hotel_name) {
       // Strip any conf# (this is the final privacy pass for inline cells), THEN
       // split the venue name from the glued street address (#3). Only overwrite
       // hotel_address when the split actually found one — never clobber a value an
       // upstream path already set with null.
       const split = splitHotelNameAddress(stripConfTokens(r.hotel_name));
+      if (split.ambiguity && sink) sink(rowIndex, split.ambiguity);
       r.hotel_name = split.name;
       if (split.address) r.hotel_address = split.address;
     }
-  }
+  });
   return rows;
 }
 
@@ -639,11 +877,21 @@ function splitInlineReservationGroups(raw: string): string[] {
   return segments.length > 0 ? segments : [raw];
 }
 
-function buildInlineHotel(
-  raw: string,
-  ordinal: number,
-  contextYear: string | null,
-): HotelReservationRow {
+/**
+ * `judgedGuestBoundary` records which EXIT produced this reservation, which is
+ * the only ground truth for "did the parser judge where the hotel ends and the
+ * first guest begins?". Five successive attempts to infer it from the OUTPUT
+ * were each falsified by a reachable input (spec §3.1), because on an unlabeled
+ * line the first guest's boundary is exactly the fact nothing else evidences.
+ */
+type InlineBuild = {
+  row: HotelReservationRow;
+  judgedGuestBoundary: boolean;
+  /** FIRST stash wins: the earliest split is the most specific one. */
+  addressAmbiguity?: AddressSplitAmbiguity;
+};
+
+function buildInlineHotel(raw: string, ordinal: number, contextYear: string | null): InlineBuild {
   // Normalize HTML entities and line-break escapes
   const text = raw.replace(/&#10;/g, " ").replace(/\r/g, " ").replace(/\s+/g, " ").trim();
 
@@ -651,6 +899,22 @@ function buildInlineHotel(
   // Handle both "Check In: M/D" (no year) and "Check In: M/D/YY"
   const checkInMatch = /check\s+in[:\s]+(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i.exec(text);
   const checkOutMatch = /check\s+out[:\s]+(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i.exec(text);
+
+  // Guest EVIDENCE in this cell: a dash-run + 4+-digit conf# that is NOT a
+  // street number, a bare 6+-digit conf, or a #-conf — the same signals the
+  // no-Check-In branch's `hasGuest` gate reads. Used by the final-return
+  // classification (spec §3.1 rows 5/6): evidence present means a guest region
+  // was examined even when every pattern lifted nothing.
+  const hasGuestEvidence = (): boolean => {
+    if (/\b\d{6,}\b|#\s*\d{4,}/.test(text)) return true;
+    const re = /[-–—]{1,3}\s*#?\s*(\d{4,})\b/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const numStart = m.index + m[0].length - m[1]!.length;
+      if (!looksLikeStreetStart(" " + text.slice(numStart))) return true;
+    }
+    return false;
+  };
 
   // v1 "Hotel Stays" / no-Check-In dash-delimited shape (east-coast):
   // "<hotel name+address> <Guest>[ <Initial>] <dash-run> #?<conf> ...". With no
@@ -733,14 +997,18 @@ function buildInlineHotel(
         if (names.length >= 2 && hotelPart.length > 0) {
           const split = splitHotelNameAddress(hotelPart);
           return {
-            ordinal,
-            hotel_name: split.name,
-            hotel_address: split.address,
-            names,
-            confirmation_no: null,
-            check_in: null,
-            check_out: null,
-            notes: null,
+            judgedGuestBoundary: true, // learn-K peeled the first guest off the hotel
+            ...(split.ambiguity ? { addressAmbiguity: split.ambiguity } : {}),
+            row: {
+              ordinal,
+              hotel_name: split.name,
+              hotel_address: split.address,
+              names,
+              confirmation_no: null,
+              check_in: null,
+              check_out: null,
+              notes: null,
+            },
           };
         }
       }
@@ -765,26 +1033,33 @@ function buildInlineHotel(
       const split = splitHotelNameAddress(noSepDash);
       if (split.name !== null || split.address !== null) {
         return {
-          ordinal,
-          hotel_name: split.name,
-          hotel_address: split.address,
-          names: [],
-          confirmation_no: null,
-          check_in: null,
-          check_out: null,
-          notes: null,
+          judgedGuestBoundary: false, // no guests present, so no boundary judged
+          ...(split.ambiguity ? { addressAmbiguity: split.ambiguity } : {}),
+          row: {
+            ordinal,
+            hotel_name: split.name,
+            hotel_address: split.address,
+            names: [],
+            confirmation_no: null,
+            check_in: null,
+            check_out: null,
+            notes: null,
+          },
         };
       }
     }
   }
 
   const names: string[] = [];
+  // Exits 3/4/5 examined a guest region; exit 6 did not (spec §3.1).
+  let examinedGuestRegion = false;
 
   // Pattern 1: "Doug Larson - 7414" style (name dash confirmation)
   const dashNumRe = /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s*[-–—]{1,3}\s*[#]?\d+/g;
   let nm: RegExpExecArray | null;
   while ((nm = dashNumRe.exec(text)) !== null) {
     names.push(nm[1]!.trim());
+    examinedGuestRegion = true; // exit 3
   }
 
   // Pattern 2: "Doug --- 104461566" (RIA forum, multiple dashes)
@@ -793,6 +1068,7 @@ function buildInlineHotel(
     let nm2: RegExpExecArray | null;
     while ((nm2 = multiDashRe.exec(text)) !== null) {
       names.push(nm2[1]!.trim());
+      examinedGuestRegion = true; // exit 4
     }
   }
 
@@ -802,6 +1078,7 @@ function buildInlineHotel(
   if (names.length === 0) {
     const postCheckout = text.replace(/.*?check\s+out\s*[:\s]+\S+/i, "").trim();
     if (postCheckout) {
+      examinedGuestRegion = true; // exit 5 — even if the scan yields no names
       // Split by whitespace runs; grab consecutive title-cased word pairs
       const tokens = postCheckout.split(/\s+/);
       let i = 0;
@@ -817,6 +1094,15 @@ function buildInlineHotel(
       }
     }
   }
+
+  // A final return reached WITH guest evidence (a dash-conf delimiter or a
+  // bare conf#) examined the guest region even when every pattern lifted
+  // nothing — non-ASCII ("José Núñez"), all-caps, or initialed names defeat
+  // the ASCII title-case matchers, and the guest silently vanishing with no
+  // operator signal is the feature's motivating harm (whole-diff R5 f1; spec
+  // §3.1 row 5's rationale: a scan that yields nothing is a guest-loss, not a
+  // non-judgment). Row 6 — no warning — requires NO guest evidence at all.
+  if (!examinedGuestRegion && hasGuestEvidence()) examinedGuestRegion = true;
 
   // Extract hotel name: strip any "Check In" suffix first
   const hotelNameRaw = text
@@ -853,21 +1139,24 @@ function buildInlineHotel(
   }
 
   return {
-    ordinal,
-    // hotel_name's conf# is stripped LATER, in buildInlineReservations — after
-    // sanitizeHotelName, which needs the "Name—conf#" pattern to locate + remove
-    // glued guest spans (stripping the conf# here would defeat it).
-    hotel_name: presence(hotelNameRaw),
-    hotel_address: null,
-    // strip any conf# suffix from each name too — `names` is show-wide readable.
-    names: names.map(stripConfTokens).filter((n) => n.length > 0),
-    // confirmation_no is intentionally NOT persisted — see parseGuestCell / the
-    // DEFERRED.md privacy note: hotel_reservations is show-wide crew-readable, so a
-    // row-level conf# would be readable by any crew member on the show.
-    confirmation_no: null,
-    check_in,
-    check_out,
-    notes: null,
+    judgedGuestBoundary: examinedGuestRegion,
+    row: {
+      ordinal,
+      // hotel_name's conf# is stripped LATER, in buildInlineReservations — after
+      // sanitizeHotelName, which needs the "Name—conf#" pattern to locate + remove
+      // glued guest spans (stripping the conf# here would defeat it).
+      hotel_name: presence(hotelNameRaw),
+      hotel_address: null,
+      // strip any conf# suffix from each name too — `names` is show-wide readable.
+      names: names.map(stripConfTokens).filter((n) => n.length > 0),
+      // confirmation_no is intentionally NOT persisted — see parseGuestCell / the
+      // DEFERRED.md privacy note: hotel_reservations is show-wide crew-readable, so a
+      // row-level conf# would be readable by any crew member on the show.
+      confirmation_no: null,
+      check_in,
+      check_out,
+      notes: null,
+    },
   };
 }
 
@@ -895,6 +1184,6 @@ export const TRANSFORM_SITES: ReadonlyArray<
 > = [
   { site: "parseGuestCell structured glue/split", code: "HOTEL_GUEST_SPLIT_AMBIGUOUS" },
   { site: "cardinality cap (MAX_HOTELS truncation)", code: "HOTEL_CARDINALITY_EXCEEDED" },
-  { site: "inline guest paths", exempt: "deferred:BL-PARSER-HOTEL-INLINE-AMBIGUITY" },
-  { site: "splitHotelNameAddress", exempt: "deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY" },
+  { site: "inline guest paths", code: "HOTEL_GUEST_SPLIT_AMBIGUOUS" },
+  { site: "splitHotelNameAddress name/address boundary", code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS" },
 ];

@@ -32,7 +32,7 @@ export function looksLikeStreetStart(s: string): boolean {
   return b !== null && b.index === 0;
 }
 
-export { STREET_ADDRESS_RE };
+export { STREET_ADDRESS_RE, STREET_ADDRESS_ZIP_RE };
 
 /**
  * Remove any confirmation number from a string, alphabet-agnostic. Covers all
@@ -109,6 +109,23 @@ export function stripConfTokens(name: string): string {
 export function stripConfirmationTokens(rawCell: string): string {
   const flat = decodeEntities(clean(rawCell)).replace(/\s+/g, " ").trim();
   return stripConfTokens(flat);
+}
+
+/**
+ * The character-level cleaning `splitHotelNameAddress` applies before it reads
+ * a cell — zero-width characters out, straight/smart double-quotes to spaces,
+ * whitespace collapsed. Shared so the "undo the split" replacement is built
+ * from the SAME cleaned text the parser's own reading came from; a replacement
+ * built from the raw cell persists quote characters into crew-readable
+ * hotel_name that the normal parse never shows (whole-diff R5 f2). One
+ * definition — the splitter and the emitter must never drift.
+ */
+export function normalizeHotelCellText(s: string): string {
+  return s
+    .replace(/[​-‍﻿]/g, "") // zero-width: ZWSP / ZWNJ / ZWJ / BOM
+    .replace(/["“”]/g, " ") // straight + smart double-quotes → space
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing

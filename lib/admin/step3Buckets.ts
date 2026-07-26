@@ -130,6 +130,7 @@ export const FIELD_LABELS = {
   dims: "dimensions",
   name: "room name",
   guests: "guest list",
+  address: "hotel name and address",
   order: "date order",
 } as const;
 

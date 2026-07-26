@@ -10,7 +10,7 @@
 
 import type { ParseWarning, RoomKind, UseRawResolution } from "./types";
 import { collapse, contentHashForRawSnippet, contentHashForDateTokens } from "./useRawContentHash";
-import { stripConfirmationTokens } from "./blocks/hotelConfTokens";
+import { normalizeHotelCellText, stripConfirmationTokens } from "./blocks/hotelConfTokens";
 
 export type RawUnrecognized = { block: string; key: string; value: string };
 
@@ -335,4 +335,128 @@ export function emitUnknownField(
     rawSnippet: `${key} | ${value}`,
   });
   agg.rawUnrecognized.push({ block: opts.block, key, value });
+}
+
+/**
+ * §3.1 P3 (2026-07-25-hotel-ambiguity-coverage) — the hotel name/address
+ * boundary was a judgment. Two arms, one code:
+ *
+ *   "address-shape-unsplit"      — nothing was split, so there is nothing to
+ *                                  undo: `resolvable:false`.
+ *   "multiple-street-candidates" — a split happened at one of several
+ *                                  candidates, so undoing it is a real state
+ *                                  change: `resolvable:true`.
+ *
+ * `parsed` reports the reservation's ACTUAL current reading (passed in by the
+ * caller), never a reconstruction — the overlay reads only `replacement`, so a
+ * fabricated `parsed` would show the operator a reading that never existed.
+ *
+ * The replacement is ALWAYS confirmation-stripped. `hotel_name` is show-wide
+ * crew-readable and `stripHotelNameConf` already scrubs conf tokens from it,
+ * while this warning's stash deliberately holds the PRE-strip cell — so an
+ * unstripped replacement would re-persist a confirmation number the parser had
+ * correctly removed (ratified R2).
+ */
+export const HOTEL_ADDRESS_SPLIT_AMBIGUOUS = "HOTEL_ADDRESS_SPLIT_AMBIGUOUS";
+export function emitHotelAddressSplitAmbiguity(
+  agg: ParseAggregator | undefined,
+  params: {
+    reason: "address-shape-unsplit" | "multiple-street-candidates";
+    // The exact cleaned text the splitter judged — the undo replacement's only
+    // legitimate source (whole-diff R6 f1).
+    splitInput: string;
+    rawCell: string;
+    index: number;
+    name: string | null;
+    parsedName: string | null;
+    parsedAddress: string | null;
+  },
+): void {
+  if (!agg) return;
+  const rawOneLine = collapse(params.rawCell);
+  const blockRef: { kind: string; name?: string; field: string; index: number } = {
+    kind: "hotels",
+    field: "address",
+    index: params.index,
+  };
+  // exactOptionalPropertyTypes: omit the KEY when unresolved, never `undefined`.
+  if (params.name) blockRef.name = params.name;
+
+  const message =
+    params.reason === "address-shape-unsplit"
+      ? `Hotel line "${rawOneLine}" may hold a street address we did not separate out; double-check the hotel name and address.`
+      : `Hotel line "${rawOneLine}" could be split into a name and a street address in more than one place; double-check the hotel name and address.`;
+
+  let resolution: UseRawResolution;
+  if (params.reason === "address-shape-unsplit") {
+    resolution = { resolvable: false, reason: "no-split-to-undo" };
+  } else {
+    // The replacement is built from the SPLITTER'S INPUT — the same cleaned
+    // text it judged (quotes/zero-width already out) — then conf-stripped. A
+    // fragment/raw-cell replacement persists booking metadata (dates, guest
+    // names) or quote characters into crew-readable hotel_name (R6 f1, R5 f2).
+    // The contentHash below stays on the PRE-strip CELL: the invalidation key
+    // must change whenever the sheet text changes, conf-only edits included.
+    const strippedRaw = stripConfirmationTokens(normalizeHotelCellText(params.splitInput));
+    resolution =
+      strippedRaw === ""
+        ? { resolvable: false, reason: "empty-raw" }
+        : {
+            resolvable: true,
+            contentHash: contentHashForRawSnippet(params.rawCell),
+            parsed: {
+              kind: "hotel-name",
+              hotelName: params.parsedName,
+              hotelAddress: params.parsedAddress,
+            },
+            replacement: { kind: "hotel-name", hotelName: strippedRaw, hotelAddress: null },
+          };
+  }
+
+  agg.warnings.push({
+    severity: "warn",
+    code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+    message,
+    blockRef,
+    rawSnippet: params.rawCell,
+    resolution,
+  });
+}
+
+/**
+ * §3.1 P1 (2026-07-25-hotel-ambiguity-coverage) — an INLINE hotel line judged
+ * where the hotel name ends and the first guest begins. Reuses
+ * `HOTEL_GUEST_SPLIT_AMBIGUOUS`: same code, same field, `blockRef.index`
+ * discriminates instances.
+ *
+ * Its `message` is NOT the structured emitter's. That one says the cell "may
+ * glue multiple guests together", which is false here — the inline ambiguity is
+ * hotel-versus-guest and the line may hold exactly one guest.
+ *
+ * NEVER resolvable (ratified R8). The raw cell interleaves hotel, address,
+ * dates and guests, and no substring is provably guest-scoped: a checkout strip
+ * is positional, not semantic, so it can capture note text. Offering it would
+ * publish non-guest text into a crew-readable `names` array and could hide a
+ * crew member's own lodging from their page.
+ */
+export function emitInlineHotelGuestAmbiguity(
+  agg: ParseAggregator | undefined,
+  params: { name: string | null; rawCell: string; index: number; parsedNames: string[] },
+): void {
+  if (!agg) return;
+  const rawOneLine = collapse(params.rawCell);
+  const blockRef: { kind: string; name?: string; field: string; index: number } = {
+    kind: "hotels",
+    field: "guests",
+    index: params.index,
+  };
+  if (params.name) blockRef.name = params.name;
+  agg.warnings.push({
+    severity: "warn",
+    code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    message: `Hotel line "${rawOneLine}" runs the hotel and the booking details together in one cell, so we had to work out where each part starts; double-check this reservation.`,
+    blockRef,
+    rawSnippet: params.rawCell,
+    resolution: { resolvable: false, reason: "raw-not-guest-scoped" },
+  });
 }
