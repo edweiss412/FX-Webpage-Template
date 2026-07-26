@@ -93,7 +93,8 @@ DB-free (`tests/drive/watch.test.ts`, extending `FakeWatchTx`):
 
 Real DB (tests/db/watchLifecycle.db.test.ts):
 
-- through the real `refreshWatchSubscriptions`: an expired-active row ends `status='expired'`, is absent from `listRenewalDue`, present in `listGcCandidates`.
+- through the real `refreshWatchSubscriptions`: a genuinely expired row ends `status='expired'`, is absent from `listRenewalDue`, present in `listGcCandidates`, and GC does NOT call `channels.stop` on it.
+- an inverted lease whose `expires_at` is 24h in the FUTURE (mirroring `tests/db/watchRenewalDue.test.ts:141-155`) ends `status='superseded'` — NOT `expired` — and GC DOES call `channels.stop` on it. Assert the status, not merely that the row left `active`: a status-blind assertion passes while a possibly-live Drive channel is abandoned with nothing left to stop it.
 - a row still INSIDE its lease whose renewal fails is NOT reaped (§3.1.2 — the regression "retire on failure" would have shipped).
 - reaping frees the per-folder active slot: a re-subscribe for the same folder succeeds afterwards (catches a `drive_watch_channels_one_active_per_folder_idx` violation, which only appears in the reap-then-resubscribe sequence).
 
@@ -101,8 +102,8 @@ Invert `tests/db/watchRenewalDue.test.ts:122-131` ("a lease already past expiry 
 
 **Implementation** — §3.1.3 and §3.1.4:
 
-- `WatchTx` gains `expireDeadActive(nowIso: string): Promise<string[]>`; `PostgresWatchTx` implements it with the §3.1.3 `update … returning id`.
-- `FakeWatchTx` mirrors it EXACTLY (`status === "active" && expiresAt <= nowIso`). While here, tighten `FakeWatchTx.markOrphaned` to production's `status === "pending"` filter — today it orphans any row, which is the exact filter D-A is about, and a permissive fake can mask that class. This is a test-fidelity fix, not a behaviour change.
+- `WatchTx` gains `expireDeadActive(): Promise<Array<{id: string; status: "expired" | "superseded"}>>` — no clock parameter, and it returns what each row BECAME. `PostgresWatchTx` implements it with the §3.1.3 `update … case … returning id, status`.
+- `FakeWatchTx` mirrors it EXACTLY, including the two-status split: `expiresAt <= now` → `expired`; `expiresAt <= createdAt` → `superseded`. A fake that collapses them hides the leak §3.1.2 describes. While here, tighten `FakeWatchTx.markOrphaned` to production's `status === "pending"` filter — today it orphans any row, which is the exact filter D-A is about, and a permissive fake can mask that class. This is a test-fidelity fix, not a behaviour change.
 - `refreshWatchSubscriptions`: reap and `listRenewalDue` in ONE `runTx` callback, reap first, reap wrapped in `callWatchTx("drive_watch_channels.expire_dead_active", …)`; catch reads `operation` off the typed error with the old string as fallback; message neutralised to `"refresh-watch renewal read failed"`.
 - `listGcCandidates` adds `'expired'`; `gcWatchChannels` skips `stopChannel` when `channel.status === "expired"`.
 - `DRIVE_WATCH_EXPIRED_REAPED` emitted post-commit when ≥1 row was reaped, `reapedIds` capped at 20 with `reapedCount` carrying the true total (§3.1.3).
