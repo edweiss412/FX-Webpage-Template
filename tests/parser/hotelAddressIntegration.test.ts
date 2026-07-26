@@ -55,11 +55,51 @@ describe("address ambiguity through parseHotels", () => {
     expect(warnings[0]!.blockRef?.index).toBe(1);
   });
 
-  it("emits one warning PER ambiguous reservation, each at its own index", () => {
+  it("emits one warning PER ambiguous reservation, in index order (unsorted)", () => {
     const { hotels, warnings } = addrWarnings(table([UNSPLIT, UNSPLIT]));
     expect(hotels).toHaveLength(2);
     expect(warnings).toHaveLength(2);
-    expect(warnings.map((w) => w.blockRef?.index).sort()).toEqual([0, 1]);
+    // NOT sorted before comparing (whole-diff R7 f1): a reversed 1,0 emission
+    // changes persisted warning order and a sorted assertion cannot see it.
+    expect(warnings.map((w) => w.blockRef?.index)).toEqual([0, 1]);
+  });
+
+  it("emits surviving ADDRESS warnings before cardinality, in index order (R7 f1)", () => {
+    // Five slots; #1 and #2 ambiguous; #5 truncated by the cap. The guest-only
+    // ordering oracle cannot see an implementation emitting CARDINALITY before
+    // address warnings, or address@1 before address@0.
+    const fiveSlots = [
+      "| HOTEL | RESERVATION \\#1 |  | RESERVATION \\#2 |",
+      "| :---: | :---: | :---: | :---: |",
+      "|  | Hotel Name / Address |  | Hotel Name / Address |",
+      `|  | ${UNSPLIT} |  | ${UNSPLIT} |`,
+      "|  | Names on Reservation |  | Names on Reservation |",
+      "|  | Alice Brown |  | Bob Carter |",
+      "|  | RESERVATION \\#3 |  | RESERVATION \\#4 |",
+      "|  | Hotel Name / Address |  | Hotel Name / Address |",
+      "|  | Hotel Three |  | Hotel Four |",
+      "|  | Names on Reservation |  | Names on Reservation |",
+      "|  | Carol Diaz |  | Dave Evans |",
+      "|  | RESERVATION \\#5 |  |  |",
+      "|  | Hotel Name / Address |  |  |",
+      "|  | Hotel Five |  |  |",
+      "|  | Names on Reservation |  |  |",
+      "|  | Erin Fox |  |  |",
+    ].join("\n");
+    const agg = newAggregator();
+    const hotels = parseHotels(fiveSlots, "v4", agg);
+    expect(hotels).toHaveLength(4);
+    const seq = agg.warnings
+      .filter(
+        (w) =>
+          w.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS" || w.code === "HOTEL_CARDINALITY_EXCEEDED",
+      )
+      .map((w) => `${w.code}@${w.blockRef?.index ?? "-"}`);
+    expect(seq).toEqual([
+      "HOTEL_ADDRESS_SPLIT_AMBIGUOUS@0",
+      "HOTEL_ADDRESS_SPLIT_AMBIGUOUS@1",
+      "HOTEL_CARDINALITY_EXCEEDED@-",
+    ]);
   });
 
   it("stays silent for a clean corpus-shaped cell", () => {

@@ -2,11 +2,21 @@
 //
 // Source-scanning guard for S6. `splitHotelNameAddress` is PURE: it returns an
 // ambiguity but emits nothing, so every caller must propagate its own result
-// into a stash. One of the nine caller×arm cells is NOT behaviorally
-// observable — the inline no-guest caller cannot be reached with a confirmation
-// token (every shape `stripConfTokens` removes also makes `hasGuest` true), and
-// `stripHotelNameConf` re-splits and produces the same warning, masking it. So
-// that cell is guarded structurally instead.
+// into a stash.
+//
+// SCOPE OF THE GUARANTEE (whole-diff R7 f2). A regex scanner cannot prove
+// SEMANTIC propagation — an empty `if`, a no-op ternary, or a pass to a no-op
+// function all satisfy any textual "feeds" shape. What this file pins is the
+// call-site INVENTORY (exact count, every call a scanned binding) and the
+// BINDING DISCIPLINE (each binding's `.ambiguity` is read in a feeding
+// position). Semantic propagation is proven BEHAVIORALLY, per reachable
+// caller×arm, in hotelAddressIntegration.test.ts (full payloads) and the
+// first-stash-wins content oracles — probe-verified: a P3(a)-filtering ternary
+// at the inline no-guest caller (R7 f2's own example) fails 3 behavioral tests,
+// because that caller's P3(b) arm IS observable. The single genuinely masked
+// cell is the no-guest caller's P3(a) arm — dropping it is OUTPUT-IDENTICAL by
+// construction: `stripHotelNameConf` re-splits the unsplit text and re-stashes
+// the same reason and the same splitInput, so no oracle can or needs to see it.
 //
 // This is a per-call BINDING check, not a file-level token count: a scanner that
 // merely counted N calls and N nearby `ambiguity` tokens would pass while one
