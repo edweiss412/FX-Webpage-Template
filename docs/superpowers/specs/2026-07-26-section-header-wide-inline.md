@@ -116,15 +116,26 @@ Shared at both widths: the icon chip tones, heading element/level (h3/h4), count
 
 Below `sm`: the #605 invariants hold unchanged (their spec §3.1, already verified by the shipped suites).
 
-### 2.5 Transition inventory
+### 2.5 Transition inventory (exhaustive)
 
-States: {below-`sm` stacked, `sm`+ inline} × {clean, flagged, judgment} — the second axis is data-static per render (link presence and pill presence follow data, not user interaction; the existing instant-deliberate comment at `components/admin/wizard/step3ReviewSections.tsx:964` stays).
+State axes, extending the 2026-07-25 spec's §8 inventory (`docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md:411` — status 3 × count 2 × link 2 = 12 states, 66 pairs) with the new layout-mode axis:
 
-| transition | treatment |
-| ---------- | --------- |
-| stacked ↔ inline (viewport resize across 640px) | **instant — no animation.** A media-query layout fork; animating would require FLIP machinery for zero product value. |
-| clean ↔ flagged ↔ judgment (data changes between renders) | **instant — deliberate**, unchanged from #605 (pill/link presence is server data, not a client state transition). |
-| compound (resize while a pill is present) | same instant fork; the pill moves between its two slots with no exit/enter animation. No `AnimatePresence` exists in this header. |
+- status: clean / flagged / judgment (3)
+- count: shown / absent (2)
+- link: present / absent (2)
+- layout mode: below-`sm` stacked / `sm`+ inline (2)
+
+= **24 states, 276 pairs.** Per the same uniform-treatment convention that spec ratified (declare the rule once rather than repeat one row 276 times — its §8 wording), every pair resolves to ONE treatment:
+
+| pair class | count | treatment |
+| ---------- | ----- | --------- |
+| same-mode pairs (any status/count/link change within one mode) | 2 × 66 = 132 | **instant — deliberate.** Server data changes reconciled in place; unchanged from #605. |
+| cross-mode pairs, same data state (viewport resize across 640px) | 12 | **instant — no animation.** A media-query fork; no FLIP machinery, no `AnimatePresence` (none exists in this header). |
+| cross-mode pairs, data AND mode differ | 132 | **instant** — composition of the two instant classes; unreachable as a single user-visible event (a resize and a data refresh are separate frames), asserted via the two classes above. |
+
+132 + 12 + 132 = 276. Compound case (resize while a pill is present): the pill moves between its two slots with no exit/enter animation — covered by the cross-mode class. The corner link's `transition-colors duration-fast` is colour-only and stays permitted (the audit's allow-list at `tests/e2e/section-header-layout.layout.spec.ts:743` is unchanged).
+
+The executable audit (`tests/e2e/section-header-layout.layout.spec.ts:774-795`) enforces the geometry side of this table; its updates are enumerated in §4.2 row I.
 
 ## 3. What does not change
 
@@ -138,12 +149,27 @@ States: {below-`sm` stacked, `sm`+ inline} × {clean, flagged, judgment} — the
 
 All geometry in a real browser (Playwright); jsdom asserts only class strings and DOM shape. Anti-tautology: every geometry assertion is conditioned on the cell's asserted identity first (the #605 pattern in `tests/e2e/section-header-layout.layout.spec.ts`), and expected values derive from the shared width fixture, never hardcoded panes.
 
-1. **Width fixture:** `tests/e2e/_sectionHeaderWidths.ts` gains `640 → 552` in `ROW_WIDTHS`; `REAL_ROUTE_WIDTHS` gains `640` so `admin-layout-dimensions.spec.ts:678` pins the measured boundary width against the real route (the two-sided chain that caught the 561-vs-744 estimate error).
-2. **Reconciliation of the existing wide-mode assertions (R1 finding 1 — enumerated, not discovered during implementation).** Four existing regions currently assert the STACKED layout at 1280 and/or measure boxes that flatten at `sm`+; a correct implementation leaves them red unless they are retargeted in the SAME task that adds the new assertions:
-   - `tests/e2e/section-header-layout.layout.spec.ts:386-443` (cell-shape measurement): the suite already measures BOTH `headerLineHeight` (44px in every state) and `outerHeight` (44px clean / 72.8px pilled). Narrow (320/375/430) expectations are UNCHANGED — including `headerLine` 44px and pilled `outer` 72.8px; do NOT retarget them (R2 finding 1: a verbatim every-width retarget to `outer` would fail correct narrow pilled cells, whose `outer` is legitimately 72.8px). At `sm`+ (640/1280): `headerLine` has no box (`display: contents` — assert `getBoundingClientRect().width === 0` as the positive statement of the flatten), and `outerHeight` is 44px REGARDLESS of pill state. WIDTH measurements (the "row content box") retarget to `outer` at every width, where narrow equality with `headerLine` is exact (both `w-full`, no horizontal padding).
-   - `tests/e2e/section-header-layout.layout.spec.ts:476-604` (centring suite, loops 320/375/430/1280): centring is a **below-`sm` contract** now. The 1280 iteration's centring expectations are REPLACED by the left-alignment assertions below; 320/375/430 keep theirs verbatim.
-   - `tests/e2e/admin-layout-dimensions.spec.ts:691-712` (width chain row selection): same retarget — measure `outer`'s content box; selection still finds the row via the icon's parent, then measures its parent.
-   - `tests/e2e/admin-layout-dimensions.spec.ts:967-983` and `tests/e2e/admin-layout-dimensions.spec.ts:1058-1063` (§5 width-link chain): in that suite's own nomenclature `column = headerLine.parentElement` (`tests/e2e/admin-layout-dimensions.spec.ts:941-945`) — their `column` IS this spec's `outer` (R2 finding 2: an "`outer→column`" replacement link would compare a node with itself). Retarget: at `sm`+ the `headerLine→column` link is DROPPED and replaced by the boxless assertion (`headerLine` width 0); `column`'s own participation in the chain via the header-path walk already guarantees the row width and is unchanged. The `pillLine→column` link is likewise narrow-only; at `sm`+ it is replaced by asserting the pill span itself sits in `column`'s row band (pill vertical centre within ±0.5 of the heading's). The pillLinesMeasured/pillLinesPresent equality keeps its shape, with the `sm`+ variant counting the pill span directly.
+1. **Width fixture:** `tests/e2e/_sectionHeaderWidths.ts` gains `640 → 552` in `ROW_WIDTHS`; `REAL_ROUTE_WIDTHS` gains `640` so `tests/e2e/admin-layout-dimensions.spec.ts:678` pins the measured boundary width against the real route (the two-sided chain that caught the 561-vs-744 estimate error).
+2. **Complete reconciliation of the two existing suites (R1 f1, R2 f1/f2, R3 f1/f3 — closed structurally).** Three consecutive rounds found individually-named stale assertions, so this row is now the COMPLETE inventory, built by reading both files end-to-end this session. Every header-geometry assertion in both suites, with its disposition ("narrow" = 320/375/430; "wide" = 640/1280):
+
+   | # | assertion (file:line at HEAD) | narrow | wide |
+   | - | ----------------------------- | ------ | ---- |
+   | A | `tests/e2e/section-header-layout.layout.spec.ts:71-76` harness `rowWidths` exact `.toEqual` literal | gains `640: 552` (one literal, both modes) | same |
+   | B | `tests/e2e/section-header-layout.layout.spec.ts:245` "at the four measured widths" comment + the `tests/e2e/section-header-layout.layout.spec.ts:352` matrix loop + the `tests/e2e/section-header-layout.layout.spec.ts:801` `sweepCell` viewport type | loop/type/prose become the five widths | same |
+   | C | `tests/e2e/section-header-layout.layout.spec.ts:433-435` name occupies ONE text line | unchanged | applies as-is |
+   | D | `tests/e2e/section-header-layout.layout.spec.ts:436-439` `headerLineHeight` = 44px | unchanged | REPLACED: `headerLine` is boxless (`display: contents`; assert rect width AND height 0 as the positive flatten statement) |
+   | E | `tests/e2e/section-header-layout.layout.spec.ts:440-443` `outerHeight` = 44 clean / 72.8 pilled | unchanged | 44px REGARDLESS of pill |
+   | F | `tests/e2e/section-header-layout.layout.spec.ts:476-606` centring suite (loops the measured widths; measures `row = icon.parentElement`) | unchanged at 320/375/430 | the 640/1280 iterations do NOT join this suite; wide alignment is asserted by the NEW left-alignment/trailing-edge cases (§4.3), measured against `outer` since `row` is boxless. Its route-1 reserve assertion maps to the new `sm:pr-0` check (§4.3) |
+   | G | `tests/e2e/section-header-layout.layout.spec.ts:621-688` tap-target hit test @375 | unchanged | complemented by the NEW 640 tangency probe (§4.3) |
+   | H | `tests/e2e/section-header-layout.layout.spec.ts:929-971` mounted-node pill snap @375 (44 ↔ 72.8) | unchanged | NEW sibling case at 640: header height 44 with AND without the pill on the same mounted node, both reads instant |
+   | I | `tests/e2e/section-header-layout.layout.spec.ts:774-795` transition audit: width loop, the `tests/e2e/section-header-layout.layout.spec.ts:793` "66 state pairs" literal, the `tests/e2e/section-header-layout.layout.spec.ts:692-694` doc comment | loop gains 640; the literal and comment become **276** per §2.5; allow-list unchanged | same |
+   | J | `tests/e2e/section-header-layout.layout.spec.ts:993-1077` focus-ring offset @375 | unchanged | not re-run wide (same painted ancestry both modes; recorded as a deliberate non-extension) |
+   | K | `tests/e2e/admin-layout-dimensions.spec.ts:691-712` width-chain row measurement (measures the icon's parent) | unchanged | measures `outer` (`headerLine.parentElement`) — content boxes identical at narrow (both `w-full`, no horizontal padding), so ONE retarget serves both modes |
+   | L | `tests/e2e/admin-layout-dimensions.spec.ts:967` `addLink(headerLine, column)` (their `column` IS this spec's `outer`, `tests/e2e/admin-layout-dimensions.spec.ts:941-945`) | unchanged | link DROPPED; replaced by a per-card boxless assertion on `headerLine`, counted so the replacement cannot silently not-run (boxless count === cards at wide) |
+   | M | `tests/e2e/admin-layout-dimensions.spec.ts:980-983` `addLink(pillLine, column)` + the `tests/e2e/admin-layout-dimensions.spec.ts:1054-1056` measured/present equality | unchanged | `pillLine` is boxless but still `.contains(pill)`, so the link must be EXCLUDED at wide, replaced by the pill row-band check (pill vertical centre within ±0.5 of the heading's); the measured/present equality keeps its shape with the wide counter counting row-band checks |
+   | N | `tests/e2e/admin-layout-dimensions.spec.ts:1013-1047` per-card ≥5-link floor (R3 finding 1: dropping link L leaves wide cards at 4) | floor stays 5 | floor becomes 4 PLUS the row-L boxless-count equality, so the total accounting (`tests/e2e/admin-layout-dimensions.spec.ts:1048-1050`) still balances |
+
+   No other assertion in either file touches header geometry (the hairline test `tests/e2e/section-header-layout.layout.spec.ts:138-242` runs at 320 only; the phantom-gap and §9 dashboard suites do not select header internals). The implementation task extends this table if it finds a row this inventory missed — and that discovery is itself a spec defect to report, not silently absorb.
 3. **15-cell matrix extension** (`section-header-layout.layout.spec.ts` + `_sectionHeaderCellHarness.tsx`; suite currently 69 cases, all green at HEAD): existing 320/375/430 cases keep their stacked expectations verbatim (decision 4 regression guard). New per-cell assertions at 640 and 1280:
    - row (`outer`) height 44px (±0.5) for clean AND pilled cells (the 72.8px expectation moves to narrow-only);
    - name occupies exactly 1 text line (`Range.getClientRects()` on the name's text node, #605 method);
