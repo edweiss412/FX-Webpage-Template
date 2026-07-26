@@ -26,6 +26,14 @@ import { defineConfig, devices } from "@playwright/test";
  * (show-alert-compact Task 10 — §9.3 footer containment, ellipsis engagement,
  * tap targets, and popover hit testing on the REAL CompactAlertCard tree).
  *
+ * REMOVED 2026-07-26: `packlist-rescan-recovery`. Its live entry reaches the
+ * whole server tree — step3ReviewSections -> UseRawControlBoundary -> a
+ * `"use server"` module -> runScheduledCronSync -> googleapis (913 graph
+ * inputs), with lib/sync/lockedShowTx reaching postgres by a parallel edge.
+ * No per-module alias list fixes it (a 4-entry list leaves 78 errors), and an
+ * unfiltered CI job cannot carry a red spec. It was already dark, so nothing
+ * that runs was lost. Tracked as BL-HARNESS-PACKLIST-SERVER-GRAPH.
+ *
  * NOTE: `testMatch` below is an explicit allow-list, so a new standalone spec is
  * NOT discovered until its name is added here. A spec file that merely exists
  * runs nowhere and silently proves nothing.
@@ -33,7 +41,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch:
-    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|published-review-modal\.layout|skeletonBandParity|stackedBandLayout|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|packlist-rescan-recovery|pendingDiscardReflow\.layout|wizard-blocker-modal\.layout|compact-alert-card-layout|resolve-label-layout|attention-anchor-placement|attention-pill-focus|hoverhelp-geometry|bulk-ignore-eyebrow\.layout|phantomGapHelper\.layout|share-link-flash|section-header-layout\.layout|pusher-alignment\.layout|pendingDiscardReal\.layout)\.spec\.ts/,
+    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|overrideableField\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|published-review-modal\.layout|skeletonBandParity|stackedBandLayout|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|pendingDiscardReflow\.layout|wizard-blocker-modal\.layout|compact-alert-card-layout|resolve-label-layout|attention-anchor-placement|attention-pill-focus|hoverhelp-geometry|bulk-ignore-eyebrow\.layout|phantomGapHelper\.layout|share-link-flash|section-header-layout\.layout|pusher-alignment\.layout|pendingDiscardReal\.layout)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,

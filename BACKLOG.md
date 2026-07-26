@@ -164,6 +164,119 @@ Per `docs/agents/spec-self-review.md`'s 3-round cap, the guard was descoped rath
 
 **Work, if revived:** start from the PROTOTYPE, not the prose — write the walker first, run it over `components/` + `app/`, and let the actual output define the rule (the reverse of the order that failed). Expect the deliverable to be an ALLOWLIST of accepted shapes rather than a leak hunt, per the same lesson `feedback_static_guard_allowlist_shapes_not_leak_hunting` records from PR #592. A guard that flags a painted hairline is worse than no guard, because the exemption comment it forces teaches the next author that the shape is fine.
 
+## Descoped from the CI-dark coverage cluster (2026-07-26) — read before re-attempting any of these
+
+Four items below were **designed, built, and measured**, then descoped after four cross-model
+review rounds (37 accepted findings, none disputed) on branch `feat/ci-dark-coverage`. The owner
+chose to ship the provably-sound subset rather than keep iterating.
+
+**Do not re-derive this analysis.** Each entry records what was tried and the measurement that
+killed it. The reason each is open is that the obvious approach was implemented and shown not to
+work, not that nobody thought about it. Full write-up with metafile traces and per-entry bundle
+sizes: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §10.
+
+### BL-HARNESS-RESOLVER-POLICY — a sound server-only resolver for browser harnesses
+
+**Status:** OPEN · **Severity:** medium · **Class:** TEST-HARNESS SOUNDNESS
+
+A rule-based esbuild plugin (`onResolve` matching server-only specifiers, `onLoad` returning a CJS
+proxy stub) **was built and it works**: all 7 live harness entries build, all 7 render in a real
+browser, and no stub is called. It was descoped because its safety _guarantee_ is unsound, not
+because it fails.
+
+Measured, in order:
+
+1. **A proxy is consumable without being invoked.** `flags.code === "show_not_found"` compares a
+   proxy and quietly yields `false`; a truthiness test is always `true`; a destructured constant
+   stays a proxy. Nothing throws, the harness renders, and assertions run against altered
+   behaviour. No render check or call-counter can observe this.
+2. **A strict throw-on-any-property-read stub** gives byte-identical DOM and zero errors on 4 of 5
+   probed entries and **breaks the fifth's build** — esbuild reads module properties at bundle time
+   to resolve named exports.
+3. **Path rules overmatch**, with two named live instances: `lib/drive/driveFolderUrl.ts` is a pure
+   string function reachable from the alert-card harness via `lib/adminAlerts/alertActions.ts`
+   (fails LOUDLY, a call throws), and `SHOW_NOT_FOUND` at
+   `app/admin/show/[slug]/_actions/shared.ts:35` is the silent shape — real, but currently
+   unreachable from any harness, so latent.
+4. **A packages-and-builtins-only rule set** (zero overmatch surface) fails four times in sequence:
+   `node:fs/promises` unresolved, then a stub under-export, then `HASH_FOR_LOG_PEPPER` thrown at
+   module load, then `__dirname is not defined`.
+5. **A sentinel-based guard** detects only preselected sentinels, so it cannot support the claim it
+   exists to support.
+
+**Fix direction if resumed:** a graph-derived rule — stub a module iff it transitively imports a
+server-only package — rather than a path heuristic. **Trigger:** a second harness entry reaching
+the server tree.
+
+### BL-HARNESS-PACKLIST-SERVER-GRAPH — return `packlist-rescan-recovery` to the standalone config
+
+**Status:** OPEN · **Severity:** low (the spec was already dark; nothing that ran was lost)
+
+Removed from `tests/e2e/standalone.config.ts` because the whole-config CI job cannot carry a red
+spec, and no per-module alias list fixes it. Its entry reaches the entire server tree — traced by
+esbuild metafile:
+
+```
+_packListRescanLiveEntry.tsx -> step3ReviewSections.tsx -> UseRawControlBoundary.tsx
+  -> app/admin/show/[slug]/_actions/useRaw.ts ("use server")
+  -> lib/sync/runManualSyncForShow.ts -> runScheduledCronSync.ts -> googleapis (913 graph inputs)
+```
+
+`lib/sync/lockedShowTx.ts` reaches the `postgres` driver by a parallel edge. Stubbing that one
+boundary is **not** enough: ten distinct `lib/sync/*` modules still pull `postgres`. A 4-entry
+alias list leaves 78 errors. **Fix direction:** `BL-HARNESS-RESOLVER-POLICY`, or trim
+`step3ReviewSections.tsx`'s import graph so a client component stops importing Server Action
+modules at module scope.
+
+### BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC — detect a self-contained spec nobody registered
+
+**Status:** OPEN · **Severity:** medium · **Class:** GUARD COMPLETENESS
+
+`standalone.config.ts`'s `testMatch` is an explicit allow-list, so a new harness spec that nobody
+adds runs nowhere. The shipped guard proves every _listed_ branch resolves to a file (total, and it
+caught the stale `overrideableField.layout`), but cannot see a spec that was never listed.
+
+Two detector definitions were tried and both fail: "calls the toolchain helper" is neither
+necessary nor sufficient, and "imports `node:http`/`node:https`" misses harnesses that boot no
+server — `tests/e2e/phantomGapHelper.layout.spec.ts` drives `page.setContent`, and `data:`
+navigation and route-fulfillment harnesses evade it identically. **Trigger:** a new standalone spec
+discovered dark, which is the event this would have prevented.
+
+### BL-CI-VITEST-EXCLUSION-COVERAGE — prove an `ENV_BOUND_EXCLUDES` entry runs somewhere
+
+**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS
+
+`ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) removes files from the serial project when
+`VITEST_EXCLUDE_ENV_BOUND=1`, which only `unit-suite.yml` sets. Nothing watches whether an excluded
+file runs anywhere else — the mechanism that kept `pg-cron-coverage.test.ts` dark in CI for months
+while passing locally.
+
+Three formulations failed:
+
+1. **Matching a filename in a `run:` block** counts `echo <file>`, shell comments, and dead
+   branches as coverage.
+2. **Applying capability checks to a resolved alias body** cannot distinguish a runner argument
+   from arbitrary shell: `false && vitest run <f>`, `true || vitest run <f>`, `if false; then …`.
+3. **Resolved-config inclusion** is decidable, but must be resolved under the _same env CI sets_
+   (measured: env unset → 8 tests pass; `VITEST_EXCLUDE_ENV_BOUND=1` → `No test files found, exit
+1`), and pairing it with a `--project` run check reintroduces the shell problem for the run half.
+
+Current state of the other two entries, both invisible to any check built so far:
+`tests/admin/test-auth-gate.test.ts` runs **nowhere**, and
+`tests/cross-cutting/email-canonicalization.test.ts` runs only in an `x-audits.yml` job carrying a
+job-level `if:` and a trailing `| tee` — each an explicit rejection condition in
+`tests/ci/_workflowCoverageScan.ts`. **Trigger:** a third entry joining the array, or a
+dark-exclusion incident.
+
+### BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix
+
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:11` states branch protection "deliberately requires ONLY
+the `quality` context". Measured live 2026-07-26: `main` requires **twelve** contexts (`quality`,
+`unit-suite`, `x1`–`x6`, `validation-schema-parity`, `affordance-matrix-parity`,
+`postgrest-dml-lockdown`, `traceability-audit`), and `scripts/generate-traceability.ts` resolves a
+third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
+check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
+
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
 **Status:** OPEN, raised by adversarial review of PR #517 (finding 2).

@@ -26,11 +26,11 @@
  *     tests/e2e/wizard-blocker-modal.layout.spec.ts
  */
 import { test, expect, type Page } from "@playwright/test";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import { bundleLiveEntry, compileEntryCss } from "./helpers/liveEntryToolchain";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
@@ -54,24 +54,10 @@ test.beforeAll(async () => {
 <body class="bg-bg"><div id="root"></div><script src="bundle.js"></script></body></html>`,
   );
 
-  execFileSync(
-    "pnpm",
-    [
-      "dlx",
-      "esbuild@0.28.0",
-      join(REPO_ROOT, "tests", "e2e", "_wizardBlockerModalLiveEntry.tsx"),
-      "--bundle",
-      "--format=iife",
-      "--jsx=automatic",
-      "--loader:.tsx=tsx",
-      '--define:process.env.NODE_ENV="production"',
-      "--external:node:fs",
-      `--tsconfig=${join(REPO_ROOT, "tsconfig.json")}`,
-      '--banner:js=window.process=window.process||{env:{NODE_ENV:"production"}};',
-      `--outfile=${join(workDir, "bundle.js")}`,
-    ],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
-  );
+  bundleLiveEntry({
+    entry: join(REPO_ROOT, "tests", "e2e", "_wizardBlockerModalLiveEntry.tsx"),
+    outFile: join(workDir, "bundle.js"),
+  });
 
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
@@ -79,11 +65,7 @@ test.beforeAll(async () => {
     entryCss,
     `@source "${join(REPO_ROOT, "components", "admin", "FinalizeButton.tsx")}";\n@source "${join(REPO_ROOT, "components", "admin", "wizard", "WizardFooter.tsx")}";\n${globals}`,
   );
-  execFileSync(
-    "pnpm",
-    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
-  );
+  compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
 
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";

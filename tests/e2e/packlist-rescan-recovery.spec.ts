@@ -22,16 +22,31 @@
  *      version-pinned esbuild.
  *   2. serves live.html (#root + bundle.js) over node:http.
  *
- * Runs standalone via tests/e2e/standalone.config.ts:
- *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
- *     tests/e2e/packlist-rescan-recovery.spec.ts
+ * NOT RUNNABLE AS CHECKED IN (2026-07-26). This spec was removed from
+ * `tests/e2e/standalone.config.ts`'s `testMatch`, and no other Playwright
+ * project collects it — the command that used to run it now exits 1 with
+ * "No tests found". It is kept in the tree because the harness and assertions
+ * are still the right ones once the blocker is resolved.
+ *
+ * WHY it was removed: its live entry reaches the whole server tree —
+ * step3ReviewSections -> UseRawControlBoundary -> a `"use server"` module ->
+ * runScheduledCronSync -> googleapis (913 graph inputs), with
+ * lib/sync/lockedShowTx reaching postgres by a parallel edge. No per-module
+ * alias list fixes it (a 4-entry list leaves 78 errors; stubbing the one
+ * action boundary still leaves ten lib/sync modules pulling postgres), and an
+ * unfiltered CI job cannot carry a red spec.
+ *
+ * TO RUN IT AGAIN you must first resolve BL-HARNESS-PACKLIST-SERVER-GRAPH in
+ * BACKLOG.md — either a graph-derived resolver (BL-HARNESS-RESOLVER-POLICY) or
+ * a trimmed import graph for step3ReviewSections — and then re-add this file
+ * to the standalone config's `testMatch`.
  */
 import { test, expect } from "@playwright/test";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import { bundleLiveEntry } from "./helpers/liveEntryToolchain";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const RECOVERY = '[data-testid="pack-list-rescan-needed-drive-1"]';
@@ -51,24 +66,10 @@ test.beforeAll(async () => {
 <body><div id="root"></div><script src="bundle.js"></script></body></html>`,
   );
 
-  execFileSync(
-    "pnpm",
-    [
-      "dlx",
-      "esbuild@0.28.0",
-      join(REPO_ROOT, "tests", "e2e", "_packListRescanLiveEntry.tsx"),
-      "--bundle",
-      "--format=iife",
-      "--jsx=automatic",
-      "--loader:.tsx=tsx",
-      '--define:process.env.NODE_ENV="production"',
-      "--external:node:fs",
-      `--tsconfig=${join(REPO_ROOT, "tsconfig.json")}`,
-      '--banner:js=window.process=window.process||{env:{NODE_ENV:"production"}};',
-      `--outfile=${join(workDir, "bundle.js")}`,
-    ],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
-  );
+  bundleLiveEntry({
+    entry: join(REPO_ROOT, "tests", "e2e", "_packListRescanLiveEntry.tsx"),
+    outFile: join(workDir, "bundle.js"),
+  });
 
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";
