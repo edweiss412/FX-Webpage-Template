@@ -63,6 +63,15 @@ test.beforeAll(async () => {
   bundleLiveEntry({
     entry: join(REPO_ROOT, "tests", "e2e", "_compactAlertCardLiveEntry.tsx"),
     outFile: join(workDir, "bundle.js"),
+    // Same entry as compact-alert-card-layout, so it needs the same stubs.
+    // Their absence here is the whole reason this spec was red: the graph
+    // reaches node:crypto via lib/parser/warnings -> useRawContentHash, and
+    // next/navigation via the card's resolve button. Nothing noticed because
+    // no workflow ran this spec.
+    aliases: {
+      "node:crypto": join(REPO_ROOT, "tests", "e2e", "_nodeCryptoStub.ts"),
+      "next/navigation": join(REPO_ROOT, "tests", "e2e", "_nextNavigationStub.ts"),
+    },
   });
 
   const entryCss = join(workDir, "entry.css");
