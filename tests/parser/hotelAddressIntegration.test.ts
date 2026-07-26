@@ -96,3 +96,36 @@ describe("address ambiguity through parseHotels", () => {
     expect(warnings).toHaveLength(0);
   });
 });
+
+// Whole-diff review R3 finding 2: multi-group inline cells gave every group the
+// SAME rawSnippet (the whole parent cell), so both warnings shared a content
+// hash and ONE use-raw decision rewrote every reservation's hotel_name to the
+// entire booking line — other hotels, guests and dates included. Crew-readable
+// data corruption on the new write-back path.
+describe("multi-group inline cells attribute raw per group", () => {
+  const TWO_AMBIGUOUS =
+    "Hyatt Place Chicago 71 Chicago, IL 60601 John Smith - 1001 Check In: 3/1 Check Out: 3/2 " +
+    "Marriott Place Chicago 72 Chicago, IL 60602 Jane Doe - 1002 Check In: 3/3 Check Out: 3/4";
+
+  it("gives each warning its OWN fragment, not the parent cell", () => {
+    const agg = newAggregator();
+    parseHotels(`| Hotel Reservations | ${TWO_AMBIGUOUS} |`, "v2", agg);
+    const w = agg.warnings.filter((x) => x.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS");
+    expect(w.length).toBeGreaterThan(1);
+    const snippets = w.map((x) => x.rawSnippet);
+    // Distinct fragments, and none is the whole cell.
+    expect(new Set(snippets).size).toBe(snippets.length);
+    for (const s of snippets) expect(s!.length).toBeLessThan(TWO_AMBIGUOUS.length);
+  });
+
+  it("gives each warning a DISTINCT content hash", () => {
+    const agg = newAggregator();
+    parseHotels(`| Hotel Reservations | ${TWO_AMBIGUOUS} |`, "v2", agg);
+    const hashes = agg.warnings
+      .filter((x) => x.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS")
+      .map((x) => (x.resolution as { contentHash?: string }).contentHash)
+      .filter(Boolean);
+    // Shared hashes are what let one decision rewrite every reservation.
+    if (hashes.length > 1) expect(new Set(hashes).size).toBe(hashes.length);
+  });
+});

@@ -699,7 +699,7 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     // First stash wins: only consult the later re-split if the exit had none.
     let addr = built.addressAmbiguity;
     const rows = stripHotelNameConf([built.row], (_i, a) => (addr ??= a));
-    return toPending(rows, [built.judgedGuestBoundary], raw, [addr]);
+    return toPending(rows, [built.judgedGuestBoundary], [raw], [addr]);
   }
 
   const segments = splitInlineReservationGroups(raw);
@@ -724,7 +724,7 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     single.row.check_out = null;
     let addr = single.addressAmbiguity;
     const one = stripHotelNameConf([single.row], (_i, a) => (addr ??= a));
-    return toPending(one, [single.judgedGuestBoundary], raw, [addr]);
+    return toPending(one, [single.judgedGuestBoundary], [raw], [addr]);
   }
   // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
   // before the first "Check In" (consultants). Strip those guest/confirmation
@@ -763,7 +763,7 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     i > 0 && !carriesOwnHotel(b) ? undefined : b.addressAmbiguity,
   );
   const stripped = stripHotelNameConf(rows, (i, a) => (addrs[i] ??= a));
-  return toPending(stripped, verdicts, raw, addrs);
+  return toPending(stripped, verdicts, segments, addrs);
 }
 
 /**
@@ -775,11 +775,17 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
 function toPending(
   rows: HotelReservationRow[],
   verdicts: boolean[],
-  rawCell: string,
+  // Per-ROW raw fragment. Passing the parent cell gave every group the SAME
+  // rawSnippet and therefore the same content hash, so ONE use-raw decision
+  // rewrote every reservation's hotel_name to the whole booking line — the
+  // other hotels, guests and date clauses included. That is crew-readable data
+  // corruption on the new write-back path (whole-diff R3 finding 2).
+  rawCells: string[],
   addressAmbiguities: Array<AddressSplitAmbiguity | undefined> = [],
 ): PendingHotel[] {
   return rows.map((row, i) => {
     const ambiguities: HotelAmbiguity[] = [];
+    const rawCell = rawCells[i] ?? rawCells[0] ?? "";
     if (verdicts[i]) {
       ambiguities.push({ kind: "inline-guests", rawCell, parsedNames: row.names });
     }
