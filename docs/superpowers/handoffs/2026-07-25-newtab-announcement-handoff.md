@@ -1816,3 +1816,30 @@ EVERY alternative hides. That handles nesting and later writes together, and the
 is itself pinned by a five-spread fixture.
 
 Eight mutations red.
+
+### The agreement matrix, extended to attribute-KIND divergence — and what it cannot check
+
+Ten rows where the SAME value expression must get OPPOSITE verdicts depending on the attribute, all
+measured before being pinned:
+
+| Value | `hidden` / `inert` / `popover` | `aria-hidden` |
+| --- | --- | --- |
+| `[]` | truthy object, attribute kept, HIDES | `String([])` is `""`, not `"true"` — visible |
+| `{}` | HIDES | `"[object Object]"` — visible |
+| `~0`, `Infinity` | HIDES | `"-1"` / `"Infinity"` — visible |
+| `["true"]` | HIDES | `"true"` — HIDES |
+
+That divergence is the confusion behind a finding in four consecutive rounds, so it now has runtime-
+derived coverage rather than four separate hand-written fixtures.
+
+**The leakage check is ASYMMETRIC, and only one direction is covered.** Routing the boolean
+attributes through the ARIA rule fails 7 rows; routing ARIA through the boolean omission helper fails
+NONE. The second passes because for every aria value in this set the two helpers happen to agree — an
+array or nonzero number is truthy, so the boolean helper does not call it omitted either, and both
+paths reach the same stringification. Separating them needs a value that is falsy AND stringifies to
+`"true"`, which no JS value is.
+
+So the matrix pins the direction that has actually gone wrong and cannot pin the other. Recorded
+because the first version of that commit message claimed both directions were verified — a false
+premise in the permanent record is the same defect class as a wrong reason in the code, and this
+document is what later rounds cite as evidence.
