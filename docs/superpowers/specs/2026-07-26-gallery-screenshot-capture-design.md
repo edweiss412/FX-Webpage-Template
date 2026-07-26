@@ -53,6 +53,7 @@ Primary components (four numbered below). Full diff inventory: those four, plus
 extraction-coupled updates named in item 1 (help capture guard file, screenshots-drift
 path filter, required-path list), the `LOCAL_ONLY_ALLOWLIST` row named in item 3, and
 the modified `scripts/help-screenshots.ts` (imports the extracted helpers), and one new
+<!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 unit-test file, `tests/scripts/gallery-screenshots.test.ts` (§8.1).
 
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
