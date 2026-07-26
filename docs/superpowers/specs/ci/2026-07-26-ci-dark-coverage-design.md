@@ -146,7 +146,13 @@ The guard asserts the **absence of a shape** with an explicitly empty exemption 
 1. Red: the toolchain guard fails against `main` — 33 violating call sites.
 2. Red: a unit test asserting `bundleLiveEntry` bundles `_compactAlertCardLiveEntry.tsx` with no resolution errors.
 3. Green: implement the helper, add the devDependency and the version-parity test, migrate all 33 sites, add the two aliases to `resolve-label-layout`, remove `packlist-rescan-recovery` from the config.
-4. Verify **by running the specs**: the whole config goes from §2.3's 286 passed / 2 failed to green, with `resolve-label-layout` red → green.
+4. Verify **by running the specs**. The §2.3 baseline is 286 passed / 2 failed / 1 did not run, but that total does not carry over: `packlist-rescan-recovery` leaves the config (it contributes 1 test, which currently fails at `beforeAll`, plus the 1 that did not run), and `resolve-label-layout` goes red → green. So the target is stated as an invariant rather than an arithmetic prediction:
+   - **zero failures and zero did-not-run**;
+   - `resolve-label-layout` present and passing;
+   - `packlist-rescan-recovery` absent from the run;
+   - total passed **≥ 286**, which holds because the only spec removed contributed a failing test, not a passing one.
+
+   Pinning a single expected count here would be a number to update rather than a property to check, and the whole cluster exists because stale expectations go unnoticed.
 
 ---
 
