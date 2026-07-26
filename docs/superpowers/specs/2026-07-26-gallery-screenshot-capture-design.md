@@ -367,7 +367,8 @@ TDD per task (invariant 1). Three layers:
      scenario id and the stale-server remedy (§5). Failure mode caught: a silent
      fallback-to-index-0 sweep mislabeling every capture.
    - finalize protocol order (§4): the run orchestrator performs all filesystem effects
-     through an injected fs adapter (mkdir/write/rename/delete/list); the unit test
+     through an injected fs adapter (read/mkdir/write/rename/delete/list — `read`
+     serves `loadPriorIndex`, §6); the unit test
      drives a full simulated run against a RECORDING fake and asserts the operation
      ORDER pins every §4 protocol clause: (1) the first effects discard leftover
      `.staging/` content, (2) every capture write targets a `.staging/` path — zero
