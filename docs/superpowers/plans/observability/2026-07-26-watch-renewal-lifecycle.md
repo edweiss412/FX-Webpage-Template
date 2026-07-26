@@ -114,7 +114,6 @@ DB-free (`tests/drive/watch.test.ts`, extending `FakeWatchTx`):
 - `tx.operations` starts `["expireDeadActive", "listRenewalDue", …]` — **order**, not presence. A reap ordered after the read leaves the stale row in `due` and reduces the whole fix to a no-op.
 - **Same-transaction proof, not just ordering** (plan review R1b finding 4): the ordering assertion alone passes against two SEPARATE successful transactions in the right order. Add a real-DB case where the renewal READ fails and assert the reap rolled back with it — the row is still `active` afterwards. That is the only assertion that distinguishes one transaction from two.
 - an expired row **whose folder IS the configured one** yields zero `subscribe` calls.
-- **DB-clock regression:** set the injected JS clock hours ahead of real time and assert an unexpired row is NOT reaped. "No clock parameter" is a type shape, not proof that the predicate stayed bound to the database's `now()` (spec §6, plan review R2 finding 6). The qualifier is load-bearing: without it the §3.2 folder filter alone produces zero calls and the test passes whether or not the reap works.
 - a reap of MORE than 20 rows emits 20 sorted ids plus the true count in `expiredCount`/`supersededCount` — the cap has no coverage otherwise, and the sorted-before-capped rule exists because `RETURNING` has no ordering contract.
 - `DRIVE_WATCH_EXPIRED_REAPED` is observed through a sink spy on the success branch, reporting the two populations separately — allowlist membership in `NEW_FORENSIC_CODES` is static and proves only that the string is permitted, never that the branch emits it.
 - a failing reap returns `{refreshed: [], orphaned: [], failures: [{folderId: "*", operation: "list_expiring"}]}` and does **not** reject (constraint 4).
@@ -122,6 +121,8 @@ DB-free (`tests/drive/watch.test.ts`, extending `FakeWatchTx`):
 - GC: an `expired` candidate does NOT reach `stopChannel` but IS marked stopped; an `orphaned` candidate with a `resourceId` DOES reach it. Assert the spy's call list by channel id, not its length.
 
 Real DB (tests/db/watchLifecycle.db.test.ts):
+
+- **DB-clock regression — REAL DB, not the fake** (spec R5 finding 4): set the injected JS clock hours ahead of the database's and assert an unexpired row is NOT reaped. In the DB-free suite this is tautological — `FakeWatchTx`'s clock is a mutable in-memory `Date` (`tests/drive/watch.test.ts:40-44`), so it can only prove the fake ignores the injected clock, never that production SQL still reads `now()`.
 
 - through the real `refreshWatchSubscriptions`: a genuinely expired row ends `status='expired'`, is absent from `listRenewalDue`, present in `listGcCandidates`, and GC does NOT call `channels.stop` on it.
 - an inverted lease whose `expires_at` is 24h in the FUTURE (mirroring `tests/db/watchRenewalDue.test.ts:141-155`) ends `status='superseded'` — NOT `expired` — and GC DOES call `channels.stop` on it. Assert the status, not merely that the row left `active`: a status-blind assertion passes while a possibly-live Drive channel is abandoned with nothing left to stop it.
