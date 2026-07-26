@@ -70,6 +70,7 @@ const SLACK_RAILS: RailName[] = ["band440", "wide900"];
  * edge and wrong here, where one-line would mean the buttons shrank or overflowed. */
 const MUST_STACK_RAILS: RailName[] = ["rail320"];
 
+let emittedRails: string[] = [];
 let server: Server;
 let baseUrl: string;
 let workDir: string;
@@ -87,6 +88,11 @@ test.beforeAll(async () => {
     { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
   );
   const states = JSON.parse(readFileSync(jsonPath, "utf8")) as Record<string, string>;
+  /* R16 F4: the rail set the docs are checked against must be closed over the SUITE, not
+   * a hand-kept list. Deriving it from the harness's emitted panels means a new special
+   * rail cannot run undocumented — adding one to the harness is what makes the doc guard
+   * demand it. `armed` panels are the same rail in another state. */
+  emittedRails = [...new Set(Object.keys(states).map((k) => k.replace(/armed$/, "")))].sort();
 
   const body = Object.entries(states)
     .map(([name, html]) => `<section data-state="${name}">${html}</section>`)
@@ -366,14 +372,23 @@ test("exactly one Ignore label variant is painted, in every panel", async ({ pag
   }
 });
 
-test("the declared rails still match the production geometry they mirror", () => {
-  /* R14 F1: the content-box assertion binds RAILS to the harness's own hardcoded
-   * widths, so both sides move together — rail320 stays green if the dashboard track
-   * stops being 20rem, and page358 stays green if the page gutter changes. That is the
-   * binding-to-yourself shape, one level up. Production is the other end of the
-   * contract, so read it directly. A source scan is the right tool here: these are
-   * Tailwind class strings and a token, none of which the harness can measure without
-   * booting the app. */
+test("TRIPWIRE: the production geometry the rails mirror is still declared", () => {
+  /* R14 F1: the content-box assertion binds RAILS to the harness's own hardcoded widths,
+   * so both sides move together — rail320 stays green if the dashboard track stops being
+   * 20rem, page358 stays green if the page gutter changes. Production is the other end of
+   * that contract, and the harness cannot measure it without booting the app, so read the
+   * source.
+   *
+   * SCOPE, stated honestly (R16 F1): this is a TRIPWIRE, not a proof. It establishes that
+   * each token is still declared on a live line of the file that owns it — enough that
+   * editing the dashboard track, the panel width, or the page gutter forces someone to
+   * look at these rails. It does NOT prove the token applies to the specific element the
+   * rail mirrors: the same token on an unrelated element in the same file satisfies it.
+   * Binding to the element would mean rendering the real Dashboard page, which this
+   * standalone harness deliberately does not do. Two things make the weaker form worth
+   * keeping: the failure it guards is silent (R8 F1's 390-vs-358 error survived several
+   * rounds undetected), and the workflow gates on these same files, so an edit reaches
+   * this test either way. */
   /* R15 F1: a bare `includes()` on raw source would also match a commented-out or
    * superseded occurrence. The first attempt at this stripped comments with a regex and
    * was WORSE — a `/*` inside a string in app/admin/layout.tsx opened a span the
@@ -385,7 +400,10 @@ test("the declared rails still match the production geometry they mirror", () =>
   const onLiveLine = (lines: string[], token: string, context: string) =>
     lines.some((l) => {
       const t = l.trim();
-      return l.includes(token) && l.includes(context) && !t.startsWith("//") && !t.startsWith("*");
+      if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("{/*")) {
+        return false; // R16 F1: JSX `{/* … */}` is a comment too.
+      }
+      return l.includes(token) && l.includes(context);
     });
 
   const dashboard = src("components/admin/Dashboard.tsx");
@@ -428,13 +446,21 @@ test("the spec and plan name exactly the rails this suite runs", () => {
    * set the code owns; a count guard would need the runner, and pinning measurements in
    * prose is what caused the churn in the first place — so the plan no longer states
    * counts at all rather than restating them each round (R15 F3). */
-  const expected = [...Object.keys(RAILS), "bigtext440"].sort();
+  const expected = emittedRails;
+  expect(expected.length, "no harness panels were emitted").toBeGreaterThan(0);
   /* SET EQUALITY, not containment (R15 F2). Requiring each real name to appear, plus a
    * hand-listed few to be absent, lets any OTHER stale name survive — and a retired list
    * can only ever name drift someone already noticed. Extracting every rail-shaped token
    * and comparing sets makes the guard closed: a name the code does not have fails
    * whether or not anyone thought to list it. */
-  const RAIL_SHAPED = /\b(?:rail|page|band|wide|bigtext)\d{3}\b/g;
+  /* R16 F4: the earlier shape recognised five prefixes and exactly three digits, so a
+   * stale `rail1024` passed unnoticed and a legitimate four-digit rail could not be
+   * documented without failing. Match any lowercase-word + 2-4 digit token instead, then
+   * keep only those that look like rails — a token the code emits, or one built from a
+   * prefix the code uses. That catches retired names without flagging every number in
+   * the prose. */
+  const PREFIXES = [...new Set(expected.map((r) => /^[a-z]+/.exec(r)?.[0] ?? ""))].filter(Boolean);
+  const RAIL_SHAPED = new RegExp(`\\b(?:${PREFIXES.join("|")})\\d{2,4}\\b`, "g");
   for (const doc of [
     "docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md",
     "docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md",

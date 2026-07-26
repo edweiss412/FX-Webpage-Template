@@ -224,13 +224,25 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
  */
 describe("META arm-revert timing contract (spec §5.2)", () => {
   const CONST_MODULE = "lib/admin/destructiveConfirm.ts";
-  const DECL = /(?:^|\n)\s*(?:export\s+)?const\s+ARM_REVERT_MS\s*=/;
+  const DECL = /^(?:export\s+)?const\s+ARM_REVERT_MS\s*=/;
+  /* R16 F2: this used stripComments() on whole-file source. Regex comment stripping
+   * misparses TS/TSX — a "/*" inside a STRING opens a span that a later "*\/" string
+   * closes, deleting the live code between them from inspection, so a real duplicate
+   * declaration could go unseen. Measured on this repo: app/admin/layout.tsx has 3
+   * comment opens and 1 close before its own className. Judge each line instead; a
+   * declaration is a single line here, so nothing is lost by not spanning. */
+  const declaresArmRevert = (source: string) =>
+    source.split("\n").some((line) => {
+      const t = line.trim();
+      if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) return false;
+      return DECL.test(t);
+    });
 
   it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
     const declaring: string[] = [];
     for (const root of ["components", "app", "lib"]) {
       for (const file of walk(root)) {
-        if (DECL.test(stripComments(readFileSync(file, "utf8")))) declaring.push(file);
+        if (declaresArmRevert(readFileSync(file, "utf8"))) declaring.push(file);
       }
     }
     // Equality, not "at most one": `<= 1` would pass on zero, proving nothing.

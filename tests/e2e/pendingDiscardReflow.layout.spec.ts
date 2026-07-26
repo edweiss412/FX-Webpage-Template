@@ -12,6 +12,14 @@
  * CONTROL, at 420px — an earlier 360px control had only a 12px margin and failed on
  * x64 Linux CI while passing on arm64 macOS.
  *
+ * There is NO source scan here asserting the component lacks `basis-full`. One existed
+ * and was deleted rather than repaired (R16 F2). It could not be made honest cheaply —
+ * regex comment-stripping misparses TSX, and judging line-by-line then failed because
+ * the component's own comments legitimately discuss `basis-full` to explain its removal.
+ * More to the point it was never the evidence: D7 in pendingDiscardReal.layout.spec.ts
+ * asserts `basis-full` is absent from the RENDERED MARKUP of the real component tree,
+ * which cannot be fooled by a comment and is what the claim actually means.
+ *
  * Harness mirrors tests/e2e/agendaBreakdown.layout.spec.ts: compile the REAL
  * token CSS from app/globals.css via the Tailwind CLI, serve over HTTP, measure
  * getBoundingClientRect() at 360px (hazard viewport) and 720px (>= sm).
@@ -176,22 +184,4 @@ test("fixed panel: >= sm the row does NOT wrap (buttons side by side)", async ({
   const armed = await measure(page, "fixed-armed");
   // basis-auto restored: armed ignore shares Defer's row (top above Defer's bottom).
   expect(armed.ignoreTop).toBeLessThan(armed.deferBottom - TOL);
-});
-
-test("negative control is HISTORICAL: it renders markup the product no longer has", () => {
-  // This spec's HEADLINE job is the negative control — proving the harness
-  // reproduces the pre-reorder defect, so the real-tree spec's D1 assertion is not
-  // tautological. Its panels therefore transcribe markup the component NO LONGER
-  // contains, and the old drift-guard (which asserted basis-full was PRESENT in the
-  // source) is inverted: D7 in pendingDiscardReal.layout.spec.ts now asserts it is
-  // absent from the shipped markup.
-  const src = readFileSync(
-    join(REPO_ROOT, "components/admin/PendingPanelDiscardButtons.tsx"),
-    "utf8",
-  );
-  // Guard the guard: if the component ever regains basis-full, this control stops
-  // being historical and the whole split is wrong.
-  const rendered = src.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
-  expect(rendered).not.toContain("basis-full");
-  expect(rendered).not.toContain("sm:basis-auto");
 });

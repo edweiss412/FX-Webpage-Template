@@ -7,8 +7,9 @@ name: Destructive-confirm layout e2e (standalone harnesses)
 #                                  PendingPanelDiscardButtons inside real card
 #                                  padding, the real action row and the real
 #                                  Retry sibling) and measures D1/D2/D3/D4/D7 at
-#                                  five rails (four live plus one enlarged-text), idle and armed.
-#   pendingDiscardReflow.layout    the HISTORICAL suite (4 tests). Its headline job
+#                                  every rail the harness emits (four live plus one
+#                                  enlarged-text), idle and armed.
+#   pendingDiscardReflow.layout    the HISTORICAL suite. Its headline job
 #                                  is the negative control: it renders pre-reorder
 #                                  markup the product no longer contains, proving the
 #                                  harness reproduces the original defect so D1 is not
@@ -51,6 +52,11 @@ on:
       - "tests/e2e/pendingDiscardReal.layout.spec.ts"
       - "tests/e2e/pendingDiscardReflow.layout.spec.ts"
       - "tests/e2e/standalone.config.ts"
+      # The rail-set drift guard READS these two documents, so doc-only drift must be
+      # able to schedule this job — otherwise the guard exists but never runs on the
+      # change it exists to catch (R16 F3).
+      - "docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md"
+      - "docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md"
       - "app/globals.css"
       - "package.json"
       - "pnpm-lock.yaml"
