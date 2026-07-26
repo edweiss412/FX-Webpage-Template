@@ -27,8 +27,51 @@ detector output in exactly the way the two-agent split is designed to prevent.
 
 **Consequence for anyone reading this as an attestation:** the mechanical half is fully
 reproducible and stands on its own (commands and numbers below). The design half should be treated
-as the implementer's own review, not an independent one. If a later session has working sub-agents,
-re-running `/impeccable critique` on this diff is cheap and would upgrade the attestation.
+as the implementer's own review, not an independent one.
+
+### The sub-agents DID report — after the merge (2026-07-26)
+
+They were not dead, only slow: three of the four returned full design assessments hours later,
+after PR #605 had merged. Recorded here because the paragraph above invited exactly this
+correction, and because a degraded-gate note that never gets closed is how a known gap becomes a
+forgotten one. **The isolation contract still failed** — the reports arrived too late to inform
+either the implementation or the merge decision, so they did not function as a gate. What they
+are is a post-hoc independent review, and they earn their keep: six live findings the
+single-context run missed.
+
+Scores, for the record: 30/40 and 29/40 on Nielsen (the single-context run gave 32/40 —
+optimistic by 2-3 points, which is itself evidence for why the isolation matters). Both agents
+independently rated *Recognition over recall* at **2**, the lowest score either gave, and both for
+the same reason: the corner glyph names nothing to a sighted user.
+
+**Two of their findings were already fixed before merge**, so those reads were stale — both agents
+worked from pre-merge HEADs. The §7a empty-selector self-contradiction and the wrong spec citation in
+DESIGN.md §7a were repaired in the round-1 repair commit; verified absent from merged `main`.
+
+**Six findings verified live against `839eed829` and filed as
+`BL-HEADER-LINK-AFFORDANCE-CLASS`:**
+
+| # | Finding | Verified how |
+| - | ------- | ------------ |
+| 1 | The corner link is `text-text-subtle`, a token DESIGN.md declares "never used for action targets" (`DESIGN.md:27`) and "never an action target" (`DESIGN.md:58`). Pre-existing — `PublishedReviewModal.tsx:721` does the same — but the rebuild removed the words that made it read as a link, so the violation now carries the whole affordance. | Both DESIGN.md rows read; both call sites read. |
+| 2 | No new-tab cue. `Step3SheetCard.tsx:152` says "(opens in a new tab)"; the rebuilt link's `aria-label` does not. The visible words used to carry it, so this is the link that needs it most. | Both aria-labels read. |
+| 3 | The comment introducing the icon claims "the show card's own header already uses an icon-only sheet link". It does not: `Step3SheetCard.tsx` renders a TEXT title link with a trailing glyph. The icon-only precedent is `PublishedReviewModal.tsx:721`. The stated justification cites the wrong sibling. | Read the card's JSX. |
+| 4 | Three sheet links, three spellings of one 44px hit area: `size-tap-min` (PublishedReviewModal), `size-5` + `before:-inset-3` (new), inline-after-text (Step3SheetCard) — plus three different `aria-label` phrasings. | All three read. |
+| 5 | The hit overlay bleeds onto the name. `before:-inset-3` is 12px against a `gap-2.5` (10px), and the anchor is `relative` while the name group is not positioned, so the overlay paints over the gap plus ~2px of the name. The last sliver of a full-width name opens the sheet. **The tap-target test cannot see this** — it verifies that points inside the expanded box hit the link, which is the intended behaviour, and probes outside at `box.left - 3`. | Arithmetic against the authored classes. |
+| 6 | `min-h-tap-min` is unconditional on the header line (`components/admin/wizard/step3ReviewSections.tsx:919`), so the Diagrams sub-block — which never renders a link, so the tap floor buys nothing — takes the same 44px as a peer, working against the deliberate `size-6` / `text-sm` subordination. | Read the class string. |
+
+**Declined, and why.** Both agents raised the centred title (one as P1, one explicitly declining to
+raise it as ratified). It is owner-ratified — chosen from a measured four-way comparison — and
+relitigating it is out of bounds. One observation inside that finding is worth keeping, though, and
+is recorded rather than argued: **all four compared options were centred variants, so no
+left-aligned baseline was ever measured.** If the scan-axis cost is ever revisited, that is the
+missing datum, not a new opinion.
+
+**The process lesson, which is the durable part.** Four sub-agents were dispatched, none answered
+within ~25 minutes, and the run treated "no reply" as "unavailable" and fell back. Three of them
+were still working. A dispatch that has not answered is not a dispatch that failed, and the
+distinction is worth a longer wait than 25 minutes on a gate whose entire purpose is independence:
+the fallback cost 2-3 points of optimism in the scores and six findings.
 
 ### Assessment B — deterministic (reproducible)
 
