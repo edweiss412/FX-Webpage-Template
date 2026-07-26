@@ -430,6 +430,94 @@ describe("what the harness itself does and does not model (R23/R24)", () => {
     }
   });
 
+  test("the hidden / aria-hidden VALUE rules, measured -- note the asymmetry", () => {
+    // These rules date from R1 HIGH 4 and R2 HIGH 4 and were justified in prose for 25 rounds
+    // without ever being measured. They are all correct, and the ASYMMETRY is the point:
+    // `aria-hidden="false"` is VISIBLE, but `hidden="false"` HIDES, because a non-empty string
+    // is truthy for a native boolean attribute and React renders `hidden=""`. Anyone
+    // "simplifying" these two to one rule reintroduces a real defect, so the measurement is
+    // pinned rather than left as a comment.
+    const cases: [string, () => React.ReactElement, string][] = [
+      [
+        'aria-hidden="true" hides',
+        () => (
+          <a href="x" target="_blank">
+            Go{" "}
+            <span aria-hidden="true">
+              <Hint />
+            </span>
+          </a>
+        ),
+        "Go",
+      ],
+      [
+        'aria-hidden="false" is VISIBLE',
+        () => (
+          <a href="x" target="_blank">
+            Go{" "}
+            <span aria-hidden="false">
+              <Hint />
+            </span>
+          </a>
+        ),
+        "Go (opens in a new tab)",
+      ],
+      [
+        "bare hidden hides",
+        () => (
+          <a href="x" target="_blank">
+            Go{" "}
+            <span hidden>
+              <Hint />
+            </span>
+          </a>
+        ),
+        "Go",
+      ],
+      [
+        "hidden={false} is VISIBLE",
+        () => (
+          <a href="x" target="_blank">
+            Go{" "}
+            <span hidden={false}>
+              <Hint />
+            </span>
+          </a>
+        ),
+        "Go (opens in a new tab)",
+      ],
+      [
+        'hidden={"false"} HIDES -- the asymmetry',
+        () => (
+          <a href="x" target="_blank">
+            Go{" "}
+            <span hidden={"false" as unknown as boolean}>
+              <Hint />
+            </span>
+          </a>
+        ),
+        "Go",
+      ],
+      [
+        "inline display:none hides",
+        () => (
+          <a href="x" target="_blank">
+            Go{" "}
+            <span style={{ display: "none" }}>
+              <Hint />
+            </span>
+          </a>
+        ),
+        "Go",
+      ],
+    ];
+    for (const [label, jsx, expected] of cases) {
+      const { container, unmount } = render(jsx());
+      expect(container.querySelector("a"), label).toHaveAccessibleName(expected);
+      unmount();
+    }
+  });
+
   test("does NOT model inert or a closed <details>, so only the static guard catches those", () => {
     // The HTML Standard says inert subtrees are not exposed to accessibility APIs and closed
     // details content is not shown; real browsers honour both. This harness does not, so a
