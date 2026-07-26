@@ -8,7 +8,9 @@ export function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((e) => {
     const p = join(dir, e);
     if (statSync(p).isDirectory()) return walk(p);
-    return /\.(tsx|ts)$/.test(e) ? [p] : [];
+    // R20: .mdx was excluded, so 13 shipped help pages were never scanned — a dead
+    // class in app/help/**/page.mdx reached production with every scanner green.
+    return /\.(tsx|ts|mdx)$/.test(e) ? [p] : [];
   });
 }
 
@@ -20,6 +22,25 @@ export function walk(dir: string): string[] {
  * Fixed by refusing to open a multi-line block unless the opener STARTS its line, which
  * is what a real block comment does and what a path fragment never does. Same-line
  * `/* … *\/` pairs are still removed, and a URL's "//" is preserved. */
+/** Remove a `//` line comment, respecting quotes so a URL inside a string survives. */
+function stripLineComment(line: string): string {
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (quote) {
+      if (c === "\\") i += 1;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      quote = c;
+      continue;
+    }
+    if (c === "/" && line[i + 1] === "/") return line.slice(0, i);
+  }
+  return line;
+}
+
 export function stripComments(src: string): string {
   const out: string[] = [];
   let inBlock = false;
@@ -34,7 +55,13 @@ export function stripComments(src: string): string {
       l = l.slice(end + 2);
       inBlock = false;
     }
-    l = l.replace(/(^|[^:])\/\/.*$/, "$1"); // line comments first, so they cannot open a block
+    /* Line comments first, so they cannot open a block. A "//" only starts a comment
+     * when it is not part of a URL: `https://x` was already handled by requiring the
+     * preceding char not be ":", but a PROTOCOL-RELATIVE url — href="//cdn/x" — has no
+     * colon and was being read as a comment, truncating the rest of the line and hiding
+     * any class after it (R20 F1). Require that the "//" not sit inside a quoted string
+     * opened earlier on the line. */
+    l = stripLineComment(l);
     l = l.replace(/\/\*.*?\*\//g, ""); // pairs that open and close on this line
     const open = l.indexOf("/*");
     // A real opener starts its line, or starts it after a JSX `{`. Anything else — a

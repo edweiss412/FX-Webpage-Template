@@ -61,6 +61,29 @@ describe("META no double-prefix color utility (silent dead class)", () => {
     expect(out, "live code after the path was swallowed").toContain("text-text-strong");
     expect(out, "live code after a JSX comment was swallowed").toContain("bg-surface");
     expect(out, "a JSX comment body was scanned as code").not.toContain("text-subtle");
+
+    /* R20 F1: a PROTOCOL-RELATIVE url has no colon before its "//", so the earlier
+     * "not preceded by :" rule read it as a line comment and truncated the rest of the
+     * line — hiding exactly the dead class this guard exists to find. */
+    expect(
+      stripComments('<a href="//cdn/x" className="text-subtle" />'),
+      "a protocol-relative URL was mistaken for a line comment",
+    ).toContain("text-subtle");
+    expect(
+      stripComments('const a = 1; // href="//cdn/x" text-subtle'),
+      "a real line comment was not removed",
+    ).not.toContain("text-subtle");
+  });
+
+  it("the scan reaches shipped MDX, not only TSX", () => {
+    /* R20 F2: walk() matched only .ts/.tsx, so 13 shipped help pages under app/help
+     * were never scanned and a dead class in one of them would reach production with
+     * this guard green. */
+    const scanned = walk(join(REPO_ROOT, "app"));
+    expect(
+      scanned.filter((f) => f.endsWith(".mdx")).length,
+      "no .mdx files scanned — help pages are invisible to this guard",
+    ).toBeGreaterThan(0);
   });
 
   it("no source file uses a color utility the theme cannot emit", () => {
