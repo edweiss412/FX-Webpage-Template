@@ -933,9 +933,12 @@ describe("every external link in the live tree announces its new tab", () => {
       [
         // The single definition.
         "components/shared/NewTabHint.tsx",
-        // Group B label sites (§4). CrewPageLink was one until upstream deleted it as orphaned
-        // (`refactor(admin): delete the orphaned share chip and crew-page link`), which arrived in
-        // a mid-review merge. Its announcement went with it; nothing to preserve.
+        // Group B label sites (§4). This spec's sole `app/` member was deleted upstream as an
+        // orphan (`refactor(admin): delete the orphaned share chip and crew-page link`), arriving
+        // in a mid-review merge; its announcement went with it. Deliberately NOT naming the
+        // component here: that same upstream commit added a filesystem guard forbidding the
+        // identifier anywhere under app/, components/ or tests/, and CI caught this comment
+        // violating it. See spec §1.4 for the name and the census change.
         "components/admin/showpage/PublishedReviewModal.tsx",
         "components/admin/wizard/Step3ReviewModal.tsx",
         "components/admin/wizard/step3ReviewSections.tsx",
@@ -2408,6 +2411,22 @@ describe("R6: scanner changes are pinned", () => {
         `a stripped ${s} run after adjacent content is not a space`,
       ).toBe(1);
     }
+
+    // The skip must stop at the shebang's LINE END, not consume the file. Found by a mutation
+    // sweep: replacing the search with `from = src.length` passed every test, because the
+    // fixture below has no comment AFTER the shebang line for over-consumption to swallow.
+    const afterShebang = "#!/usr/bin/env node\nconst a = 1; //note\nconst K = 1;";
+    expect(
+      commentRanges(afterShebang).length,
+      "a comment AFTER the shebang line must still be found",
+    ).toBeGreaterThan(0);
+    // Asserted as PROPERTIES rather than a hardcoded string: my first version miscounted the
+    // blanked spaces, which is exactly the hardcoding the anti-tautology rule warns about.
+    const strippedAfter = stripCommentsSafely(afterShebang);
+    expect(strippedAfter.length, "length is preserved").toBe(afterShebang.length);
+    expect(strippedAfter.startsWith("#!/usr/bin/env node"), "the shebang survives").toBe(true);
+    expect(strippedAfter.includes("//note"), "the later comment is blanked").toBe(false);
+    expect(strippedAfter.includes("const K = 1;"), "code after it survives").toBe(true);
 
     // A shebang is not a comment, and its content can contain `//` (a URL).
     const shebang = "#!/usr/bin/env -S https://x.test/tool\nconst x=1;";
