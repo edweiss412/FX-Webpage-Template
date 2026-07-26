@@ -118,6 +118,29 @@ describe("inline hotel guest ambiguity", () => {
       expect(warnings, "each group judged its own hotel/guest boundary").toHaveLength(2);
     });
 
+    // R2 finding 2: the first fix keyed on a leading DIVIDER, which is a proxy
+    // and was wrong in BOTH directions. These two pin the real question — does
+    // the fragment hold anything beyond its own guests?
+    it("WARN when a divider-prefixed group still carries its own hotel", () => {
+      const { warnings } = guestWarnings(
+        inline(
+          "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1 Check Out: 3/2 " +
+            "----- Marriott Downtown 200 Oak Ave Jane Doe - 1002 Check In: 3/3 Check Out: 3/4",
+        ),
+      );
+      expect(warnings, "the divider does not make it an inheriting group").toHaveLength(2);
+    });
+
+    it("stay SILENT for a guest-only group with NO divider", () => {
+      const { warnings } = guestWarnings(
+        inline(
+          "Four Seasons Chicago 120 E Delaware Pl Doug Larson-2035940 Check In: 10/7 Check Out: 10/10 " +
+            "Eric Weiss-2035937 Check In: 10/7 Check Out: 10/9",
+        ),
+      );
+      expect(warnings, "no hotel text of its own, so it inherited").toHaveLength(1);
+    });
+
     it("stay SILENT when the group is a divider + guest that inherits the hotel", () => {
       // The consultants shape: group 2 is "----- Eric Weiss—2035937 Check In…".
       const { warnings } = guestWarnings(

@@ -191,7 +191,7 @@ type SlotData = {
   // so a dropped RESERVATION #5+ slot never warns for a hotel that isn't shown.
   guestAmbiguities: Array<{ reasons: string[]; rawCell: string }>;
   // Same stash-then-commit discipline as guestAmbiguities: first split wins.
-  addressAmbiguity?: { reason: AddressSplitAmbiguity["reason"]; rawCell: string };
+  addressAmbiguity?: { reason: AddressSplitAmbiguity["reason"]; rawCell: string } | undefined;
 };
 
 /**
@@ -528,15 +528,20 @@ function parseHotelTable(markdown: string): PendingHotel[] {
         const split = splitHotelNameAddress(stripConfTokens(col1));
         leftSlot.hotel_name = split.name;
         leftSlot.hotel_address = split.address;
-        if (split.ambiguity)
-          leftSlot.addressAmbiguity ??= { reason: split.ambiguity.reason, rawCell: col1 };
+        // Track the cell that produced the slot's FINAL value. `??=` kept the
+        // FIRST cell's raw while a later repeated Hotel Name row overwrote the
+        // value, so "use raw" would restore stale text (whole-diff R1 f3 / R2 f1).
+        leftSlot.addressAmbiguity = split.ambiguity
+          ? { reason: split.ambiguity.reason, rawCell: col1 }
+          : undefined;
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
         const split = splitHotelNameAddress(stripConfTokens(col3));
         rightSlot.hotel_name = split.name;
         rightSlot.hotel_address = split.address;
-        if (split.ambiguity)
-          rightSlot.addressAmbiguity ??= { reason: split.ambiguity.reason, rawCell: col3 };
+        rightSlot.addressAmbiguity = split.ambiguity
+          ? { reason: split.ambiguity.reason, rawCell: col3 }
+          : undefined;
       }
       rowState = "idle";
       continue;
@@ -725,23 +730,38 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   // before the first "Check In" (consultants). Strip those guest/confirmation
   // spans so the shared hotel name is the actual hotel/address, then apply it to
   // every group (later groups carry only a divider + guest, not the hotel).
+  const carriesOwnHotel = (b: InlineBuild): boolean => {
+    let residual = stripConfTokens(b.row.hotel_name ?? "").replace(/[-–—]{2,}/g, " ");
+    for (const n of b.row.names) {
+      if (n) residual = residual.split(n).join(" ");
+    }
+    return /\p{L}/u.test(residual);
+  };
+  const verdicts = builds.map((b, i) => b.judgedGuestBoundary && (i === 0 || carriesOwnHotel(b)));
+
   const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
   for (const r of rows) r.hotel_name = baseName;
   // Groups after the first carry only a divider + guest and INHERIT the hotel
   // name, so no hotel/first-guest boundary is judged for them (spec §3.1 row 7).
-  // A later group inherits the hotel only when it carries NO hotel text of its
-  // own, which the corpus marks with a leading divider run ("----- Eric Weiss—…",
-  // the consultants shape this function's comment above describes). Keying on
-  // group INDEX instead silences a later group that has its own hotel and its
-  // own guests, which is the very coverage hole this feature exists to close:
-  // probe-verified, two complete groups both mis-parse and only one warned.
-  const inheritsHotel = (i: number) => i > 0 && /^\s*[-–—]{3,}/.test(segments[i] ?? "");
-  const verdicts = builds.map((b, i) => b.judgedGuestBoundary && !inheritsHotel(i));
+  // Computed BEFORE `baseName` overwrites every row's hotel_name below —
+  // afterwards every group looks like it has one and the question is unanswerable.
+  // A later group inherits the hotel only when its fragment carries NO hotel
+  // text of its own. Leading-divider detection was a PROXY and was wrong in both
+  // directions (probe-verified): "----- Marriott Downtown … Jane Doe - 1002" has
+  // its own hotel yet was silenced, and a guest-only group with no divider
+  // emitted a second warning for a hotel it inherited.
+  //
+  // The real question is whether the fragment holds anything beyond its own
+  // guests, so ask that directly: strip the divider, the conf tokens and the
+  // group's own parsed names from the hotel text it produced, and see whether
+  // any word survives.
   // A group that inherits `baseName` had its hotel fields overwritten, so any
   // ambiguity its own build recorded describes text this row no longer holds.
   // Emitting it would offer a replacement drawn from the discarded fragment
   // (whole-diff R1 finding 2).
-  const addrs = builds.map((b, i) => (inheritsHotel(i) ? undefined : b.addressAmbiguity));
+  const addrs = builds.map((b, i) =>
+    i > 0 && !carriesOwnHotel(b) ? undefined : b.addressAmbiguity,
+  );
   const stripped = stripHotelNameConf(rows, (i, a) => (addrs[i] ??= a));
   return toPending(stripped, verdicts, raw, addrs);
 }
