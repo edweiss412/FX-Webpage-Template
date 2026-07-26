@@ -124,15 +124,34 @@ Precedent for the summary itself is `app/me/page.tsx:239-243`, which is already 
 
 ## 5. Guard conditions
 
+**THE MARKER RULE (single source of truth; later rows and sections reference it, never restate it).**
+The "Your day" marker renders on a day only when it *distinguishes* — that is, when at least one day is
+the viewer's **and** at least one day is not. If every day is the viewer's, or no day is, or there is
+only one day at all, no marker renders anywhere.
+
+Found during self-review: the first draft applied this reasoning to the lone-day case ("a marker
+distinguishing one thing from nothing is noise") but marked every row in the all-days-are-yours case,
+where the identical argument applies — four rows each saying "Your day" tell the viewer nothing they
+could act on, and the feature exists to help them find their day AMONG others. Stating it once as a
+rule also collapses three table rows that were being reasoned about independently, and makes the
+`kind === "none"` row fall out of the same rule rather than being a separate special case: no
+restriction and every-day-restricted look identical on screen, which is correct, because they are the
+same situation for the viewer.
+
+Folding is independent of marking and is NOT governed by this rule: a day folds iff it is not the
+viewer's. So when no day is the viewer's, fail-open expands everything (§3); when every day is, nothing
+folds because nothing is non-matching.
+
 | Input state | Render |
 | --- | --- |
 | `confidence !== "high"` or `days.length === 0` | nothing — existing gate at `AgendaScheduleBlock.tsx:58`, unchanged |
-| `dateRestriction.kind === "none"` | all days expanded, no marker, no folding |
+| `dateRestriction.kind === "none"` | all days expanded, no folding, and no marker per THE MARKER RULE (no day is the viewer's) |
 | `kind === "unknown_asterisk"` | unreachable — early return at `ScheduleSection.tsx:172` returns JSX that omits `{agendaArea}` entirely (the variable is built at `components/crew/sections/ScheduleSection.tsx:147` but never rendered on that branch) |
 | `kind === "explicit"`, one day resolves | that day expanded + marked; others fold |
-| `kind === "explicit"`, several resolve | all matching days expanded + marked; only non-matching fold |
+| `kind === "explicit"`, several resolve but not all | matching days expanded + marked; only non-matching fold |
+| `kind === "explicit"`, ALL days resolve | all expanded, nothing folds, and no marker per THE MARKER RULE |
 | `kind === "explicit"`, none resolve | ALL days expanded, no marker (fail open) |
-| viewer's day is the only day in the extraction | nothing to fold, so suppress the marker too — a lone "Your day" chip is noise (cf. the DQ singleton-eyebrow precedent) |
+| viewer's day is the only day in the extraction | nothing to fold, and no marker per THE MARKER RULE (cf. the DQ singleton-eyebrow precedent) |
 | a folded day has zero sessions | still render its row with the count (`0 sessions`), so the fold is not silently empty |
 | `day.date === null` | summary shows the label only; no empty date span. `AgendaScheduleBlock.tsx:74` already guards this for the expanded heading |
 
@@ -153,7 +172,7 @@ Boundary behaviour that IS specified, because it is reachable:
 | Case | Render |
 | --- | --- |
 | one day total | expanded, and **no** "Your day" marker (a marker distinguishing one thing from nothing is noise) |
-| every day is the viewer's | all expanded, all marked — no folded rows at all |
+| every day is the viewer's | all expanded, no folded rows, and NO marker per THE MARKER RULE in §5 |
 | no day is the viewer's | all expanded, no marker (fail open, §3) |
 | more days than fit the viewport | the section scrolls; no row is dropped and no count is elided |
 
@@ -219,11 +238,40 @@ Two pairs are reachable and both are instant; four are unreachable because marke
 render. If a future change makes the marker client-toggleable, pairs 3 to 6 become reachable and this
 table is void — re-derive it rather than amending it.
 
+**Mechanism note — `duration-fast` as a Tailwind class emits NOTHING in this repo.** Measured against
+this checkout, not assumed:
+
+```
+grep -c "transition-duration-fast" app/globals.css   ->  0
+grep -rn "duration-fast" components/ | grep -c className  ->  118
+app/globals.css:223   --duration-fast: 120ms;
+app/globals.css:419   --duration-fast: 0ms;      (inside @media (prefers-reduced-motion: reduce))
+```
+
+Tailwind v4 resolves `duration-<name>` from `--transition-duration-<name>`, which this project never
+defines — it defines `--duration-*`. So `className="transition-transform duration-fast"` produces a
+`transition-property` with **no duration from that class**, and it is invisible to the reduced-motion
+block at `app/globals.css:417`, which only rewrites `--duration-*`. The 118 existing class-based sites
+are pre-existing and out of scope here; this spec must not add a 119th.
+
+Two acceptable mechanisms, and the implementation MUST pick one explicitly:
+
+1. **Preferred — hand-written CSS in `app/globals.css` consuming `var(--duration-fast)`**, the way the
+   existing accordion does at `app/globals.css:709-710`. Reduced motion then comes for free via the
+   token rewrite, with no per-component opt-in, exactly as the comment at `app/globals.css:413-415`
+   describes.
+2. A Tailwind numeric duration (`duration-150`) PAIRED WITH an explicit `motion-reduce:duration-0`.
+   Acceptable but worse: it re-states the reduced-motion policy locally instead of inheriting it.
+
+The plan's transition-audit task must assert the chosen mechanism actually emits a
+`transition-duration` in a real browser — a class that compiles to nothing looks identical to a
+deliberately-instant transition in jsdom, and both look correct in review.
+
 Non-pair transitions:
 
 | Transition | Animation |
 | --- | --- |
-| chevron rotation on toggle | CSS `transform` on the `aria-hidden` chevron, with a `prefers-reduced-motion: reduce` branch that drops to instant |
+| chevron rotation on toggle | CSS `transform` on the `aria-hidden` chevron. **The duration MUST come from `var(--duration-fast)` in hand-written CSS, NOT from a Tailwind `duration-fast` class** — see the mechanism note below. Reduced motion is then free. |
 | compound: sibling toggled while the viewer's day stays open | independent `<details>` elements, no shared state — each animates its own chevron only |
 | compound: viewer's day collapsed by the viewer, then a sibling expanded | both independent; no reflow coupling, since each `<details>` is its own block in a `gap-4` column |
 | compound: every day collapsed, including the marked one | allowed; the section still shows N summary rows and the marker, so it never reaches an empty state |
@@ -236,7 +284,7 @@ No em dashes in any user-visible string (`DESIGN.md:350`); apostrophes are `&apo
 
 ### Why "Your day" is resolved, not an open question
 
-Possessive second person is the established crew-surface voice, not a new choice. Verified instances against `origin/main` @ `0c2b9ad00`: `components/crew/RightNowHero.tsx:274` ("Your days are done"), `RightNowHero.tsx:301` ("Your days aren’t confirmed yet"), and `components/crew/sections/ScheduleSection.tsx:179`. The mockup used "Your day" and it matches.
+Possessive second person is the established crew-surface voice, not a new choice. Verified instances against `origin/main` @ `36638e063` (re-checked during self-review, all three still exact): `components/crew/RightNowHero.tsx:274` ("Your days are done"), `RightNowHero.tsx:301` ("Your days aren’t confirmed yet"), and `components/crew/sections/ScheduleSection.tsx:179`. The mockup used "Your day" and it matches.
 
 Checked for an adjacency collision and there is none. `ScheduleSection.tsx:179` renders "Your days haven’t been confirmed yet" in the same file, but on the `unknown_asterisk` branch, which returns at `components/crew/sections/ScheduleSection.tsx:172` with JSX that omits the agenda area. The singular marker and the plural empty-state can never appear together, so "Your day" carries no "Your day / Your days" ambiguity on screen.
 
@@ -334,7 +382,14 @@ does not GitHub-block a merge — the ship pipeline's all-green gate is the enfo
 - **Fail-open case** — an extraction whose labels do not parse and whose length ≠ `showDays` renders every day expanded. Highest-value test: a silent fold of the viewer's own day is the worst outcome this feature can produce.
 - Null-element guard: a `dates` row containing a null date must not reach the positional fallback (§3, condition 3).
 - Positional-fallback indexing asserted against the full day list, with a fixture whose viewer subset would shift indices if the filtered list were used — the assertion must FAIL if the implementation indexes `visibleDays`.
-- Singleton suppression: a one-day extraction renders no "Your day" marker.
+- **BOTH suppression cases of THE MARKER RULE (§5), not just one.** (a) a one-day extraction renders no
+  "Your day" marker; (b) an extraction where EVERY day is the viewer's also renders no marker anywhere.
+  Case (b) is the one the first draft got wrong — it specified all rows marked — so a test that covers
+  only (a) would have passed against the defective spec. Catches: an implementation that marks per-day
+  without ever asking whether the marker distinguishes anything.
+- **The marker DOES render in the mixed case**, asserted alongside the two suppression cases. Without
+  this, "no marker" passes trivially for an implementation that never renders the marker at all — the
+  fail-closed direction of the same rule.
 - `<summary>` carries `min-h-tap-min` and a visible focus ring, asserted in the real browser.
 - Derive every expected day/count from fixture dimensions, never hardcode — a 2-day fixture must not be able to satisfy a 4-day assertion.
 
