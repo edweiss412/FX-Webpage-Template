@@ -7,18 +7,21 @@ name: Destructive-confirm layout e2e (standalone harnesses)
 #                                  PendingPanelDiscardButtons inside real card
 #                                  padding, the real action row and the real
 #                                  Retry sibling) and measures D1/D2/D3/D4/D7 at
-#                                  three live rails, idle and armed.
-#   pendingDiscardReflow.layout    the historical NEGATIVE control: it renders
-#                                  pre-reorder markup the product no longer
-#                                  contains, proving the harness reproduces the
-#                                  original defect so D1 is not tautological.
+#                                  five rails (four live plus one enlarged-text), idle and armed.
+#   pendingDiscardReflow.layout    the HISTORICAL suite (4 tests). Its headline job
+#                                  is the negative control: it renders pre-reorder
+#                                  markup the product no longer contains, proving the
+#                                  harness reproduces the original defect so D1 is not
+#                                  tautological. It also retains two fixed-panel
+#                                  positive tests and a source guard asserting the
+#                                  transcribed markup stays historical.
 #
 # Both are FULLY self-contained: each beforeAll compiles token CSS from
 # app/globals.css via the Tailwind CLI and serves it over its OWN node:http server.
 # No app boot, no Supabase, no seed. They differ in what they render:
 # pendingDiscardReal tsx-renders the REAL component tree out of process, while
-# pendingDiscardReflow emits transcribed historical markup on purpose — it is the
-# negative control and must keep rendering markup the product no longer has.
+# pendingDiscardReflow emits transcribed historical markup on purpose and must keep
+# rendering markup the product no longer has.
 #
 # NO env: block, deliberately. Unlike modal-header-layout-e2e.yml, this harness
 # imports no server chain — it renders a client component tree with a stub router —

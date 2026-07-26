@@ -176,7 +176,7 @@ test("fixed panel: >= sm the row does NOT wrap (buttons side by side)", async ({
 });
 
 test("negative control is HISTORICAL: it renders markup the product no longer has", () => {
-  // This spec's only remaining job is the negative control — proving the harness
+  // This spec's HEADLINE job is the negative control — proving the harness
   // reproduces the pre-reorder defect, so the real-tree spec's D1 assertion is not
   // tautological. Its panels therefore transcribe markup the component NO LONGER
   // contains, and the old drift-guard (which asserted basis-full was PRESENT in the

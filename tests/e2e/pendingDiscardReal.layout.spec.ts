@@ -58,7 +58,13 @@ type RailName = keyof typeof RAILS;
 /** R9 F2: this was declared and never used, so nothing required the wide card to stay
  *  on one line — `w-full` on both buttons would have passed D1/D3/D7. It is asserted
  *  explicitly below instead. */
-const WIDE_SLACK: RailName = "wide900";
+/* Rails with REAL slack, where stacking would mean something regressed rather than the
+ * pair honestly not fitting. The pair needs 315.95px, so band440 (398px) clears it by
+ * 82px and wide900 (858px) by 542px. R13 F1: only wide900 was required to stay on one
+ * line, so a `shrink-0 w-[200px]`-shaped regression could stack the 398px rail while
+ * D2/D4/D7 and the wide test all passed. rail320 (278px) genuinely cannot fit and
+ * page358 (316px) is a 0.05px coin flip — neither belongs here. */
+const SLACK_RAILS: RailName[] = ["band440", "wide900"];
 
 let server: Server;
 let baseUrl: string;
@@ -179,7 +185,7 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
       const p = await probe(page, state);
       expect(p.found, `${state}: buttons not found`).toBe(true);
       /* RAILS' numeric values were declared and never read — only its keys were, via
-       * Object.keys. That is the same defect R9 F2 found in WIDE_SLACK: geometry that
+       * Object.keys. That is the same defect R9 F2 found in the wide-slack rail: geometry that
        * documents a contract while asserting nothing, and it is worse here because the
        * harness hardcodes its rail widths separately, so the two could silently
        * disagree. Binding them means a gutter or card-padding change fails HERE, naming
@@ -338,6 +344,22 @@ test("exactly one Ignore label variant is painted, in every panel", async ({ pag
     expect(row.text[0], `${row.panel}: painted variant has the wrong words`).toBe(word);
     expect(row.innerText, `${row.panel}: the button must READ as exactly one label`).toBe(word);
   }
+
+  /* R13 F2: innerText is what a SIGHTED user reads; it is not the accessible name.
+   * An `aria-label` on the button would rename it for screen readers while every
+   * assertion above stayed green — the hidden variants make that failure mode
+   * specific to this design, since the name is computed from a subtree that
+   * deliberately contains three labels. Asserted through Playwright, which computes
+   * the real accname rather than approximating it from the DOM. */
+  for (const row of result) {
+    const word = row.panel.endsWith("armed") ? "Confirm ignore" : "Permanently ignore";
+    await expect(
+      page.locator(
+        `[data-state="${row.panel}"] [data-testid="admin-pending-ignore-${INGESTION_ID}"]`,
+      ),
+      `${row.panel}: accessible name must be exactly the shown label`,
+    ).toHaveAccessibleName(word);
+  }
 });
 
 test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page }) => {
@@ -348,14 +370,14 @@ test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page
   expect(markup.includes("sm:basis-auto"), "D7: sm:basis-auto still in shipped markup").toBe(false);
 });
 
-test(`${WIDE_SLACK}: a card with real slack must NOT stack`, async ({ page }) => {
+test("cards with real slack must NOT stack", async ({ page }) => {
   // The safety assertions accept stacking whichever way a width lands, which is right
   // at knife-edge widths and wrong here: at 858px of content the pair uses 315.95px,
   // so stacking would mean something regressed (both buttons full-width, a stray
   // basis, a wrap forced by a container change). R9 F2.
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
-  for (const state of [WIDE_SLACK, `${WIDE_SLACK}armed`]) {
+  for (const state of SLACK_RAILS.flatMap((r) => [r, `${r}armed`])) {
     const p = await probe(page, state);
     expect(Math.abs(p.ignore.y - p.defer.y), `${state} must share one line`).toBeLessThanOrEqual(
       TOL,

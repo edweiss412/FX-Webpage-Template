@@ -273,7 +273,7 @@ New tests:
 | 6 | exactly one `role="status"` region, and it still announces on arm after the reorder | a duplicated or relocated live region, which would double-announce or go silent |
 | 7 | neither button carries `basis-full` or `sm:basis-auto`, idle **or** armed | the class returning and forcing full-width stacking at every width, silently undoing the "don't stack when there's room" property |
 
-The armed label is asserted from the component's exported `IGNORE_ARMED_LABEL`, not a literal, so this suite cannot drift from the harness or the component.
+The jsdom suite asserts the armed label as an **independent literal**, deliberately (R13 F3 corrected an earlier claim that it imports `IGNORE_ARMED_LABEL`). Importing the constant would make the assertion tautological — it would compare the component's label to itself and pass through any copy change. A literal makes a copy edit fail loudly, which is the tripwire we want. The *harness* is the place that must not transcribe, and it imports from the component; the oracle is the place that must not share a source with the thing it checks.
 
 ### 6.3 Real browser (`tests/e2e/pendingDiscardReal.layout.spec.ts`)
 
@@ -294,7 +294,7 @@ Assertions:
 - **D1** — at `rail320`, `ignore.bottom ≤ defer.top + 0.5`, idle **and** armed.
 - **D2** — both buttons ≥44px at every rail.
 - **D3** — at `band440` and `wide900`, `ignore.y === defer.y` and `ignore.x < defer.x`. Not at `page358`: 315.95px against 316px is a font-metric coin flip, so that rail asserts the safety property whichever way it lands.
-- **D4** — `ignore.x`, `ignore.y` **and `ignore.w`** (plus `defer.w`) are identical between the idle and armed panels at every rail. Width is asserted alongside the origin because width is the mechanism that keeps the origin fixed — R11 F2 caught the loop asserting only the origin. This is the DESTRUCT-1 guarantee, now structural (§4.1).
+- **D4** — `ignore.x`, `ignore.y` **and `ignore.w`** are identical between the idle and armed panels at every rail. Width is asserted alongside the origin because width is the mechanism that keeps the origin fixed — R11 F2 caught the loop asserting only the origin. `defer.w` is deliberately NOT asserted: `armedHtml` rewrites markup only inside the Ignore button, so Defer is byte-identical between panels and the comparison could not fail (R12 F2). This is the DESTRUCT-1 guarantee, now structural (§4.1).
 - **D7** — the rendered markup contains no `basis-full` and no `sm:basis-auto`.
 
 **Armed panels are SUBSTITUTED, not re-rendered — stated precisely.** `renderToStaticMarkup` cannot click, and the component exposes no armed-initial prop. The harness therefore takes the idle markup and substitutes the component's **own exported** `IGNORE_ARMED_CLASS` plus the markup of `IgnoreLabelStack` rendered at `variant="armed"`, so neither can drift from the component. It swaps the rendered label STACK, not a label string — the stack is what reserves the width, so it is the whole difference the geometry tests measure.
