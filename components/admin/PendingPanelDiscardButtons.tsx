@@ -146,9 +146,10 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
       <div className="flex flex-wrap gap-2">
         {/* Ignore is FIRST so a wrap puts the irreversible action on the upper line
             and the safe one below it, nearest the thumb. Being the first flex item
-            also means arming extends rightward and pushes Defer, never moving
-            Ignore's own box — the DESTRUCT-1 guarantee, now structural rather than
-            bought with `basis-full`. */}
+            also fixes Ignore's own box origin regardless of how the armed label
+            changes width — the DESTRUCT-1 guarantee, now structural rather than bought
+            with `basis-full`. (With the current copy the armed row is NARROWER than
+            idle, since "Confirm ignore" is shorter than "Permanently ignore".) */}
         <button
           type="button"
           data-testid={`admin-pending-ignore-${pendingIngestionId}`}

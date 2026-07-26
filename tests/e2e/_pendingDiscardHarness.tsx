@@ -1,7 +1,7 @@
 /**
  * tests/e2e/_pendingDiscardHarness.tsx
  *
- * Real-component mounting harness for the pending-discard fork
+ * Real-component mounting harness for the pending-discard button pair
  * (spec 2026-07-25-destruct-thumb-order-drift-guard §6.3).
  *
  * WHY THIS EXISTS. The sibling `pendingDiscardReflow.layout.spec.ts` transcribes the
@@ -17,9 +17,7 @@
  *
  * SCOPE, stated honestly: `renderToStaticMarkup` emits markup, not behaviour. This
  * harness proves CLASSES and LAYOUT of the shipped tree. It cannot prove client
- * effects (`useEffect`, `ResizeObserver`, timers) — those stay in the jsdom suite,
- * and the descoped focus transfer (`BL-DESTRUCT-FORK-FOCUS-TRANSFER`) remains
- * unproven by design.
+ * effects (`useEffect`, timers) — those stay in the jsdom suite.
  *
  * `PendingPanelDiscardButtons` calls `useRouter()`, so every render is wrapped in
  * AppRouterContext.Provider with a stub router; without it
@@ -68,7 +66,10 @@ function wrap(node: React.ReactElement): React.ReactElement {
 /**
  * The real inbox inside a fixed-width rail. `width` mirrors a live geometry:
  *   320 — the dashboard Needs-attention rail (`min-[1240px]:w-80`)
- *   390 — the mobile Needs-attention page
+ *   358 — the mobile Needs-attention page at a 390px viewport MINUS the admin layout's
+ *         16px `px-page-pad-mobile` per side (`app/admin/layout.tsx:191`). An earlier
+ *         revision used 390 and so tested a card 32px wider than production, which hid
+ *         that the idle pair has ~0.06px of real headroom there (R8 F1).
  *   900 — a full-width card on a mid-size viewport
  * The rail div carries ONLY a width; every other box, padding and class below it
  * comes from the real component tree.
@@ -153,8 +154,8 @@ if (process.argv[1] && process.argv[1].endsWith("_pendingDiscardHarness.tsx")) {
   const states: HarnessJson = {
     rail320: railHtml(320),
     rail320armed: armedHtml(320),
-    page390: railHtml(390),
-    page390armed: armedHtml(390),
+    page358: railHtml(358),
+    page358armed: armedHtml(358),
     wide900: railHtml(900),
     wide900armed: armedHtml(900),
   };

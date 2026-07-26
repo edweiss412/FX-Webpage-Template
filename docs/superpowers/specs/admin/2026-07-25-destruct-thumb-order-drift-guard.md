@@ -159,7 +159,9 @@ Safe in every case, and it stacks only where the pair genuinely does not fit.
 
 `"Confirm stop tracking this sheet permanently"` (328.51px) becomes **`"Confirm ignore"`** (125.64px), and the live region takes the consequence: `"Tap again to stop tracking this sheet permanently."`
 
-That single change takes the armed row from 491.25px to 324.72px, which fits the 348px Needs-attention page — removing the last case where the pair stacked only because of label length.
+That takes the armed row from 491.25px to **288.38px** — and note the direction: `"Confirm ignore"` (125.64px) is **shorter than the idle label** `"Permanently ignore"` (153.2px), so **arming now makes the row narrower, not wider**. Every earlier revision of this spec described a longer armed label pushing Defer rightward; that was true of the old 328.51px string and is false of this one. R8 F2 caught the stale mechanism.
+
+The practical effect is better than intended: at the real mobile page the *idle* pair is the tight case (315.94px against 316px available), while the armed pair has ~27.6px of slack.
 
 **A first attempt at this got it wrong, and the impeccable critique caught it.** The label was briefly `"Tap again to confirm"` — which is *verbatim* what the live region already announced. The pair then conveyed strictly **less** than before: the instruction was stated twice and the consequence nowhere. It also broke the family idiom (`ArchiveShowButton` "Confirm archive", `ResolveAlertButton` "Confirm dismiss").
 
@@ -197,7 +199,7 @@ Recorded because earlier drafts specified all of it, and six review rounds were 
 | D1 | when the row wraps, `ignore.bottom ≤ defer.top` | Ignore is the first flex item | §6.3 at 278px, idle and armed |
 | D2 | both buttons ≥44px tall | `min-h-tap-min` (`app/globals.css:162`) | §6.3 at every width |
 | D3 | where the pair fits, both sit on one line with Ignore left | `flex-wrap` with no basis | §6.3 at 348px and 858px |
-| D4 | Ignore's box origin is identical idle vs armed | first flex item; a longer armed label extends rightward and pushes Defer, never Ignore | §6.3 comparing idle and armed panels |
+| D4 | Ignore's box origin is identical idle vs armed | Ignore is the **first** flex item, so its origin is fixed regardless of which direction the armed label changes width. With the current copy the row gets *narrower* when armed | §6.3 comparing idle and armed panels |
 | D7 | shipped markup contains no `basis-full` and no `sm:basis-auto` | deleted in §4.1 | §6.3, read off rendered markup |
 
 ### 4.6 Transition inventory
@@ -221,7 +223,7 @@ All 11 declarations listed in §2.2 are replaced by an import. No behavioural ch
 
 ### 5.2 Guard assertions
 
-Two assertions — **T1 and T3** — added to `tests/styles/_metaDestructiveConfirm.test.ts`, which already walks `components/` and `app/` (`tests/styles/_metaDestructiveConfirm.test.ts:131-141`) and already fails by default on unregistered destructive-confirm surfaces (`tests/styles/_metaDestructiveConfirm.test.ts:150-166`). Reusing it means a **new** destructive surface that adopts the recipe is forced into the registry, and therefore into these assertions, with no second discovery mechanism to maintain.
+Two assertions — **T1 and T3** — added to `tests/styles/_metaDestructiveConfirm.test.ts`, which already walks `components/` and `app/` (`tests/styles/_metaDestructiveConfirm.test.ts:131-141`) and already fails by default on unregistered destructive-confirm surfaces (`tests/styles/_metaDestructiveConfirm.test.ts:150-166`). Note what this does **not** buy: registry membership does not feed T1 or T3. Those two inspect only where `ARM_REVERT_MS` is declared and what it equals — they never read registry rows or look at a surface's timer. A newly registered surface can schedule its revert from some other value with both green, exactly as §5.3 says. They live in this file for cohesion, not because the registry extends their reach. R8 F3 caught the earlier wording implying otherwise.
 
 **T1 — single declaration.** Walking `components/`, `app/` and `lib/`, exactly one file declares the identifier `ARM_REVERT_MS`, and it is the shared module. The assertion is an equality against a one-element list, not "at most one" — the latter passes on zero, which is the vacuous-pass failure mode described in §5.2.1 (C-B).
 
