@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 type DiscardKind = "defer_until_modified" | "permanent_ignore";
 type Props = { pendingIngestionId: string };
@@ -35,7 +36,81 @@ const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try
 
 // Armed-state auto-revert window (spec §4: 4s) — harmonized naming across every
 // destructive surface (DESTRUCT-2): ARM_REVERT_MS.
-const ARM_REVERT_MS = 4_000;
+
+/* The two Ignore skins and their labels, exported so tests/e2e/_pendingDiscardHarness.tsx
+ * can render an ARMED panel from the component's own strings rather than transcribing
+ * them. `renderToStaticMarkup` cannot click, so the harness substitutes these into the
+ * Ignore button. NOTE the armed state is NOT only this class + label: it also fills the
+ * live region and mounts the consequence paragraph below the row. The harness therefore
+ * proves the armed ROW's geometry, which those two cannot affect — not the whole tree. */
+/* Worn by BOTH buttons at rest — Defer renders with it too, which is why it is not
+ * called IGNORE_*. */
+export const DISCARD_RESTING_CLASS =
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+export const IGNORE_ARMED_CLASS =
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+export const IGNORE_IDLE_LABEL = "Permanently ignore";
+/* Shortened from "Confirm stop tracking this sheet permanently" (328.51px), which is
+ * what let the armed row stop wrapping at the Needs-attention page (316px of content).
+ *
+ * "Confirm ignore" (125.64px) not "Tap again to confirm": impeccable critique P1 found
+ * the latter was VERBATIM the live region's text, so the pair conveyed strictly less
+ * than before and the consequence was stated nowhere. This matches the family idiom
+ * (ArchiveShowButton "Confirm archive", ResolveAlertButton "Confirm dismiss") and the
+ * consequence moves into the live region below, which is where a screen-reader user
+ * gets it. "Confirm ignore forever" was measured too (176.8px) and rejected: its armed
+ * row would not fit the 316px page at all, and it would become the reserved width in every state rather than only the armed one
+ * elsewhere in this spec. */
+export const IGNORE_ARMED_LABEL = "Confirm ignore";
+export const IGNORE_RUNNING_LABEL = "Ignoring…";
+
+export type IgnoreLabelVariant = "idle" | "armed" | "running";
+
+/* Ignore must be exactly as wide armed as it is idle. Whole-diff R9 F1 measured what
+ * happens otherwise: "Confirm ignore" (125.64px) is SHORTER than "Permanently ignore"
+ * (153.2px), so arming shrank the island — and at parent widths around 440-460px that
+ * let the island un-wrap from below "Retry now" to beside it, moving the confirm target
+ * by dx +107.2px, dy -52px BETWEEN THE TWO TAPS. That is the DESTRUCT-1 defect itself,
+ * and D4 is documented as structurally preventing it.
+ *
+ * The reservation is STRUCTURAL, not numeric. Every label variant is always in the DOM,
+ * stacked in a single grid cell; the inactive ones carry `invisible`
+ * (`visibility: hidden`), which suppresses painting and removes them from the
+ * accessibility tree while their boxes still lay out. The track is therefore the width
+ * of the widest variant AS ACTUALLY RENDERED — each span carries its own weight, so
+ * armed is measured at `font-semibold` even while idle is showing.
+ *
+ * This replaces a `min-w-ignore: 10rem` floor (whole-diff R10 F1). A floor holds the
+ * invariant only while every label stays under it: Firefox text-only zoom and a
+ * minimum-font-size setting enlarge text without touching layout, so the longer idle
+ * label escapes the floor, the shorter armed label does not, and the R9 wrap transition
+ * returns. The floor also reserved 10rem of fixed width that a scaled root font turned
+ * into 320px inside a 246px card. A floor that stops being binding is not an invariant;
+ * this stack cannot stop being binding, because it IS the rendered labels. */
+export function IgnoreLabelStack({ variant }: { variant: IgnoreLabelVariant }) {
+  const variants = [
+    { key: "idle", label: IGNORE_IDLE_LABEL, weight: "font-medium" },
+    { key: "armed", label: IGNORE_ARMED_LABEL, weight: "font-semibold" },
+    { key: "running", label: IGNORE_RUNNING_LABEL, weight: "font-medium" },
+  ] as const;
+  return (
+    <span className="grid">
+      {variants.map(({ key, label, weight }) => {
+        const shown = key === variant;
+        return (
+          <span
+            key={key}
+            data-ignore-label={key}
+            aria-hidden={shown ? undefined : true}
+            className={`col-start-1 row-start-1 ${weight}${shown ? "" : " invisible"}`}
+          >
+            {label}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   const router = useRouter();
@@ -46,6 +121,17 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   // the second. The sibling "Defer until modified" stays one-tap (§7).
   const [armed, setArmed] = useState(false);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* Chrome activates a <button> on Enter KEYDOWN, which auto-repeats, so holding
+   * Enter fires arm then confirm and the two-tap guard buys nothing. Space is
+   * immune (it fires on keyup), so the guard otherwise protects one activation
+   * key and not the other.
+   *
+   * A time threshold does NOT fix this — whole-diff review R1 F3: auto-repeat
+   * keeps firing past any dwell, and the first repeat after the window is
+   * indistinguishable from a deliberate second press. The browser already tells
+   * us: a held key sets `event.repeat`. Reject those and require a real
+   * release-and-repress, which is the actual contract we want. */
+  const repeatKeyRef = useRef(false);
   function clearArmTimer() {
     if (armTimerRef.current !== null) {
       clearTimeout(armTimerRef.current);
@@ -63,6 +149,9 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
       }, ARM_REVERT_MS);
       return;
     }
+    // A synthetic activation from a HELD key is not a decision. `onKeyDown` below
+    // sets this for `event.repeat`; it clears on keyup, so the next press counts.
+    if (repeatKeyRef.current) return;
     clearArmTimer();
     setArmed(false);
     void handleClick("permanent_ignore");
@@ -106,41 +195,76 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
+        {/* Ignore is FIRST so a wrap puts the irreversible action on the upper line
+            and the safe one below it, nearest the thumb. Being the first flex item
+            also fixes Ignore's own box origin within the row — but only within the
+            row: the row's own position needs IgnoreLabelStack above, which makes the
+            island's width invariant so arming cannot re-wrap it. Together they are the
+            DESTRUCT-1 guarantee, structural rather than bought with `basis-full`. */}
+        <button
+          type="button"
+          data-testid={`admin-pending-ignore-${pendingIngestionId}`}
+          onClick={onGuardedIgnoreClick}
+          onKeyDown={(e) => {
+            // A fresh press ALWAYS clears; only a held key sets. Setting on repeat
+            // without clearing on a fresh press can strand the flag true — hold
+            // Enter, then alt-tab away while holding, and the keyup lands in another
+            // window, leaving this button unable to confirm ever again. Keying both
+            // edges off `e.repeat` makes the stuck state unreachable.
+            repeatKeyRef.current = e.repeat;
+          }}
+          onKeyUp={() => {
+            repeatKeyRef.current = false;
+          }}
+          onBlur={() => {
+            // Belt and braces for the same class: focus can leave mid-hold.
+            repeatKeyRef.current = false;
+          }}
+          disabled={isRunning}
+          aria-busy={isRunning || undefined}
+          className={armed ? IGNORE_ARMED_CLASS : DISCARD_RESTING_CLASS}
+        >
+          <IgnoreLabelStack
+            variant={
+              armed
+                ? "armed"
+                : state.kind === "running" && state.pendingKind === "permanent_ignore"
+                  ? "running"
+                  : "idle"
+            }
+          />
+        </button>
         <button
           type="button"
           data-testid={`admin-pending-defer-${pendingIngestionId}`}
           onClick={() => handleClick("defer_until_modified")}
           disabled={isRunning}
-          className="inline-flex basis-full sm:basis-auto min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          aria-busy={isRunning || undefined}
+          className={DISCARD_RESTING_CLASS}
         >
           {state.kind === "running" && state.pendingKind === "defer_until_modified"
             ? "Deferring…"
             : "Defer until modified"}
         </button>
-        <button
-          type="button"
-          data-testid={`admin-pending-ignore-${pendingIngestionId}`}
-          onClick={onGuardedIgnoreClick}
-          disabled={isRunning}
-          className={
-            armed
-              ? "inline-flex basis-full sm:basis-auto min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-              : "inline-flex basis-full sm:basis-auto min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          }
-        >
-          {armed
-            ? "Confirm stop tracking this sheet permanently"
-            : state.kind === "running" && state.pendingKind === "permanent_ignore"
-              ? "Ignoring…"
-              : "Permanently ignore"}
-        </button>
         {/* Persistent sr-only live region: announces the silent label morph to
             screen readers (impeccable P2). Always mounted — conditional
             mounting drops the announcement (project a11y rule). */}
         <span role="status" className="sr-only">
-          {armed ? "Tap again to confirm." : ""}
+          {armed
+            ? "Tap again to stop tracking this sheet permanently."
+            : state.kind === "running"
+              ? "Working…"
+              : ""}
         </span>
       </div>
+      {armed ? (
+        <p
+          data-testid={`admin-pending-ignore-consequence-${pendingIngestionId}`}
+          className="text-xs/relaxed text-text-subtle"
+        >
+          This stops tracking the sheet permanently.
+        </p>
+      ) : null}
       {state.kind === "error" ? (
         <div
           role="alert"

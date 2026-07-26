@@ -36,6 +36,7 @@ import { useEffect, useRef, useState } from "react";
 import { messageFor, isMessageCode } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 export type BlockedRowResolverProps = {
   driveFileId: string;
@@ -47,7 +48,6 @@ export type BlockedRowResolverProps = {
   onResolved: () => void;
 };
 
-const ARM_REVERT_MS = 4_000;
 const REBUILDABLE_CODES = new Set(["STAGED_REVIEW_ITEMS_CORRUPT", "STAGED_PARSE_RESULT_CORRUPT"]);
 // not-subject:M5-D8 — defensive generic fallback for a network throw / catalog miss where there
 // is no route status code to look up; every coded branch routes through messageFor(code) first

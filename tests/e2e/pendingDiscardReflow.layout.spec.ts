@@ -4,10 +4,21 @@
  *
  * jsdom computes no layout, so the "armed morph does not relocate the confirm
  * hit-target" invariant must be verified end-to-end. Four transcribed panels:
- *   fixed-*  = shipped classes (basis-full sm:basis-auto)  -> idle box == armed box
- *   nofix-*  = pre-fix classes (no basis)                  -> armed reflows to a new row
- * The nofix panels are the NEGATIVE CONTROL: they prove the harness reproduces
- * the reported reflow, so the fixed-panel equality is not tautological.
+ *   fixed-*  = the DESTRUCT-1-era classes (basis-full sm:basis-auto) -> idle box == armed box
+ *   nofix-*  = the pre-DESTRUCT-1 classes (no basis)                 -> armed reflows to a new row
+ * NEITHER is what ships today. This PR deleted basis-full entirely, so `fixed-*` is as
+ * historical as `nofix-*`; the file keeps both because the pair is what proves the
+ * harness can tell reflow from no-reflow at all. The nofix panels are the NEGATIVE
+ * CONTROL, at 420px — an earlier 360px control had only a 12px margin and failed on
+ * x64 Linux CI while passing on arm64 macOS.
+ *
+ * There is NO source scan here asserting the component lacks `basis-full`. One existed
+ * and was deleted rather than repaired (R16 F2). It could not be made honest cheaply —
+ * regex comment-stripping misparses TSX, and judging line-by-line then failed because
+ * the component's own comments legitimately discuss `basis-full` to explain its removal.
+ * More to the point it was never the evidence: D7 in pendingDiscardReal.layout.spec.ts
+ * asserts `basis-full` is absent from the RENDERED MARKUP of the real component tree,
+ * which cannot be fooled by a comment and is what the claim actually means.
  *
  * Harness mirrors tests/e2e/agendaBreakdown.layout.spec.ts: compile the REAL
  * token CSS from app/globals.css via the Tailwind CLI, serve over HTTP, measure
@@ -26,7 +37,11 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 const TOL = 0.5;
 const BODY_PAD = 16; // admin px-4 gutter
 
-// Shipped classes (Task 1). Kept in sync with the component via the drift-guard test below.
+// HISTORICAL classes. `basis-full sm:basis-auto` is what the component used BEFORE the
+// reorder and is deliberately no longer shipped. Its absence is asserted by D7 in
+// pendingDiscardReal.layout.spec.ts, against the RENDERED markup of the real tree — not
+// here; this file once carried a source scan and it was deleted (see the header). These
+// constants exist so the negative-control panels can render the old shape.
 const STACK = "basis-full sm:basis-auto";
 const cls = (...parts: string[]) => parts.filter(Boolean).join(" ");
 const IGNORE_ARMED = (stack: string) =>
@@ -143,8 +158,18 @@ test("fixed panel: armed ignore box == idle ignore box at 360px (no reflow)", as
   expect(armed.ignoreTop).toBeGreaterThanOrEqual(armed.deferBottom - TOL);
 });
 
-test("NEGATIVE CONTROL: pre-fix classes DO reflow at 360px", async ({ page }) => {
-  await page.setViewportSize({ width: 360, height: 900 });
+test("NEGATIVE CONTROL: pre-fix classes DO reflow (idle one line, armed wraps)", async ({
+  page,
+}) => {
+  // 420px, not 360px. This control's job is to reproduce the ORIGINAL DESTRUCT-1
+  // contrast: idle shares a row, armed drops to a new one. At 360px (328px content)
+  // the idle pair needs 315.94px — a 12px margin, which is a font-metric coin flip.
+  // It held on arm64 macOS for as long as this spec was dark and failed on the very
+  // first x64 Linux CI run: `idle.ignoreTop` 244 vs an expected < 235.5, i.e. idle had
+  // already wrapped, so the control was no longer contrasting anything.
+  // 420px gives the idle row ~72px of slack while the armed row (491.25px) still
+  // cannot fit, so the contrast is real on both platforms rather than marginal on one.
+  await page.setViewportSize({ width: 420, height: 900 });
   await page.goto(baseUrl);
   const idle = await measure(page, "nofix-idle");
   const armed = await measure(page, "nofix-armed");
@@ -160,14 +185,4 @@ test("fixed panel: >= sm the row does NOT wrap (buttons side by side)", async ({
   const armed = await measure(page, "fixed-armed");
   // basis-auto restored: armed ignore shares Defer's row (top above Defer's bottom).
   expect(armed.ignoreTop).toBeLessThan(armed.deferBottom - TOL);
-});
-
-test("drift-guard: shipped component still carries the stack fragment", () => {
-  const src = readFileSync(
-    join(REPO_ROOT, "components/admin/PendingPanelDiscardButtons.tsx"),
-    "utf8",
-  );
-  // both discard buttons must keep the responsive stack the harness assumes
-  expect(src).toContain("basis-full");
-  expect(src).toContain("sm:basis-auto");
 });

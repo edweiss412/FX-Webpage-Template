@@ -1,0 +1,153 @@
+# Plan — Destructive-confirm family close-out
+
+**Spec:** `docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md` (canonical; §-references below point into it)
+**Branch:** `fix/destruct-thumb-order-drift-guard`
+**Worktree:** `/Users/ericweiss/FX-worktrees/destruct-thumb-order` (off `origin/main` @ `dd4fecf43`)
+**Implementer:** Opus / Claude Code — UI surface, so routing rule "UI work is always Opus" applies.
+
+---
+
+## 0. Pre-draft verification (run, not described)
+
+Every command below was executed at plan-authoring time in the worktree. Output and disposition recorded; nothing here is a grep to be run later.
+
+| # | Command | Output | Disposition |
+|---|---|---|---|
+| V1 | `rg -n "ARM_REVERT_MS\|AUTO_REVERT_MS" --glob '*.ts*'` | 11 files declare `const ARM_REVERT_MS = 4_000`; **zero** `AUTO_REVERT_MS` | Confirms spec §2.2's count of 11 and confirms DESTRUCT-2's timing harmonization already shipped |
+| V2 | per-file `rg -o "setTimeout\([^,]*,\s*[0-9_]+\s*\)"` over all 18 registry files | **no matches** | T2 (literal ban) lands clean; every existing timer already passes a named constant |
+| V3 | per-file `rg -o "set[A-Za-z]*Armed\("` over the 11 declaring files | matches **4 of 11** (`PendingPanelDiscardButtons`, `StagedReviewCard`, `ArchiveShowButton`, `BlockedRowResolver`) | Kills the arm-state detector; T2 is literal-based instead (spec §5.2 "Rejected detector") |
+| V4 | `rg -n "admin-pending-ignore\|admin-pending-defer" tests app components` | `pendingIngestionActions.test.tsx` (~10), `needs-attention-page.spec.ts` (2 + 1 stale comment) | The complete test-id consumer set. `_uiLabelExceptions.ts`, `page-dashboard.test.tsx`, `_metaEmphasisRenderContract.test.ts` reference the component but **not** the ids |
+| V5 | `rg -n "Permanently ignore\|Defer until modified" tests app components` | all non-component hits are help-page MDX prose or `expect(src).toContain(...)` source scans | Doubling the rendered labels breaks nothing. No DOM label counts exist |
+| V6 | `sed -n '15,17p' tests/styles/_classScanUtils.ts` | `stripComments` deletes `//` comments | Constraint C-A: T2's exemption lookup must read RAW source (spec §5.2.1) |
+| V7 | `sed -n '131p' tests/styles/_metaDestructiveConfirm.test.ts` | walks `["components", "app"]` | Constraint C-B: T1 must add `"lib"` or it scans every directory except the one holding the constant |
+| V8 | `rg -n "pendingDiscardReflow" .github/workflows/*.yml package.json` | **no matches**; only `tests/e2e/standalone.config.ts:36` | The layout spec runs in no CI job. Task 5 wires it |
+| V9 | `pnpm vitest run` on the 4 affected test files at merge-base | **4 files, 28 tests, all pass** | Clean baseline; any later red is mine |
+| V10 | `head -1 tests/components/admin/pendingIngestionActions.test.tsx` | `// @vitest-environment jsdom` | Pragma already present; new tests inherit it |
+
+| V11 | snippets from Tasks 1-2 extracted to a scratch test file, then `pnpm typecheck` | **exit 0, zero `error TS`** | Every pasted snippet compiles under the strict tsconfig (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`). Scratch file deleted after |
+| V12 | `pnpm vitest run` on that scratch file | **T1 failed with `expected [ …(11) ] to deeply equal [ 'lib/admin/destructiveConfirm.ts' ]`; T2 and the T2 self-check passed** | Task 1's expected failure is demonstrated, not predicted. The self-check passing proves the matcher fires on `3000`/`3_000`, does not fire on `ARM_REVERT_MS`, and that the exemption comment is invisible in stripped source — constraint C-A, proven executably rather than argued |
+
+| V13 | Chromium probe: today's shipped markup in a 280px container at a 1280px viewport | Defer `y744`, Ignore `y796` (idle); Defer `y840`, Ignore `y892` (armed) | **The defect is already live on desktop.** Drove the re-key from viewport to container width (spec §2.5) |
+| V14 | `rg -n "@container\|container-type" app components` | no matches | This is the repo's first container-query usage; the plan must not assume prior art |
+| V15 | Chromium probe: `@container` + `@min-[576px]:` fork at 280 / 512 / 560 / 576 / 720px, idle and armed | exactly one copy shown at every width; hidden copy `0x0` with `offsetParent === null`; safe placement in every case | The container-keyed fork works. Tailwind v4 compiles `@min-[Npx]:` to `@container (width >= Npx)` with no plugin |
+| V17 | Chromium probe: `@container` on a shrink-to-fit flex item, real card nesting | wrapper `0px`, buttons `26px`, card +18.89px taller | The containment-context trap. Forces `w-full` on the root (spec §4.1) |
+| V18 | Chromium probe: today's markup in the REAL nesting (card padding + action row + Retry sibling) | 320px rail: Ignore below Defer idle AND armed; 900px card: side by side, correct order | Confirms §2.5's premise against real DOM, not a bare container |
+| V20 | `pnpm exec playwright test --config=tests/e2e/standalone.config.ts tests/e2e/pendingDiscardReal.layout.spec.ts` against today's component | **7 failed, 4 passed** — `w-full`/`@container` absent (3), no fork so two copies display (3), and `rail320` Ignore.bottom `290.19` vs Defer.y `194.69` (Ignore BELOW Defer). Passing: tap targets, `wide900` | The real-tree spec is red for exactly the right reasons. Closes R3 finding 2 by demonstration: the `w-full` assertion reads rendered markup and fails when absent |
+| V22 | `pnpm vitest run tests/styles/_metaDestructiveConfirm.test.ts` on first run of the new M1 guard | reported **`['D2', 'D4']`** declared-but-unmeasured | The structural defense found two unmeasured invariants that seven adversarial rounds never named. D2 named immediately; D4 is owned by Task 4 and stays red until it lands |
+| V21 | `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` after adding the new spec | **1 failed** — new spec listed as dark | The coverage registry is fail-by-default and caught it; Task 5 must wire both specs |
+| V19 | Chromium probe: `w-full @container` vs `@container` on the action row, at 320px and 900px | both avoid the collapse; `w-full` keeps full-width stacked buttons (278px) but pushes `Retry` off the line and adds ~52px card height at 900px | The accepted trade-off, flagged for the invariant-8 gate |
+| V16 | Chromium probe: armed row at the threshold | 512px leaves **20.75px** slack, 511px cleanly switches to stacked, 576px leaves **84.75px** | Threshold set to 576px, not 512px, for cross-platform font headroom (spec §4.2) |
+
+**Real-browser probe (spec §4.7).** The proposed markup was rendered in Chromium with the compiled token CSS before this plan was written. Measurements are in spec §4.6 and are the basis for Task 4's assertions — the geometry is measured, not predicted.
+
+---
+
+## 1. Meta-test inventory (mandatory declaration)
+
+| Registry | This plan |
+|---|---|
+| `tests/styles/_metaDestructiveConfirm.test.ts` | **EXTENDS** — adds T1 (single declaration, with a self-check that its matcher can fail) and T3 (value pin, a direct assertion needing none). A larger T2/census/meta-test layer was built across review rounds 2-6 and then **deleted**: it kept finding new bypasses and finally produced false positives. §5.3 records the residue |
+| `tests/auth/_metaInfraContract.test.ts` (Supabase call boundaries) | N/A — no Supabase client call added or changed |
+| `tests/auth/advisoryLockRpcDeadlock.test.ts` (lock topology) | N/A — no `pg_advisory*` anywhere in this diff |
+| `tests/messages/_metaAdminAlertCatalog.test.ts` | N/A — no `admin_alerts` row, no §12.4 code added or edited |
+| `tests/log/_metaMutationSurfaceObservability.test.ts` | N/A — no new route handler, no new `"use server"` action; the existing discard route is untouched |
+| `tests/components/tiles/_metaSentinelHidingContract.test.ts` | N/A — not a tile surface |
+
+**Two new test files were created** — `tests/e2e/_pendingDiscardHarness.tsx` and `tests/e2e/pendingDiscardReal.layout.spec.ts` — contrary to this plan's original assumption. Both are wired: the spec is registered in `tests/e2e/standalone.config.ts`, named in the new workflow, and carries a `PATH_GATED` coverage row. (The original text said none would be created; the real-component harness had not been conceived yet.)
+
+## 2. Advisory-lock holder topology
+
+N/A. `rg -n "pg_advisory" ` over this diff's surfaces returns nothing; no code path here mutates `shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, or `pending_ingestions`. The component POSTs to an existing route whose locking is unchanged.
+
+## 3. e2e harness-readiness checklist
+
+For `tests/e2e/pendingDiscardReflow.layout.spec.ts` (Task 4):
+
+- **(a) Server boot.** None. The spec self-hosts: `beforeAll` compiles token CSS from `app/globals.css` via the Tailwind CLI into a temp dir and serves it from its own `node:http` server on an ephemeral port (`tests/e2e/pendingDiscardReflow.layout.spec.ts:82-108`). No app boot, no Supabase, no seed, no `webServer` block, and no dependency on the 3000-3004 dev-server ports.
+- **(b) Readiness gate.** The harness serves **static HTML** — there is no React, no hydration, no client island. The gate is `page.goto(baseUrl)` returning, after which layout is final. `networkidle` is not used and not needed. This is deliberately unlike the app-booting e2e specs.
+- **(c) Detach safety.** N/A by construction. Every measurement is a single one-shot `page.evaluate()` that reads `getBoundingClientRect()` synchronously inside the page and returns plain numbers (`tests/e2e/pendingDiscardReflow.layout.spec.ts:115-130`). No `locator.evaluate`, no sampler, no handle outlives its call, so nothing can auto-wait on an unmounted node.
+
+---
+
+## 4. Tasks
+
+The design changed at round 9 from a container-keyed fork to a plain reorder (spec §4). Tasks 0-6 are **DONE** with what actually shipped; Task 7 (impeccable dual-gate) is DONE and recorded in §12; Task 8 (whole-diff review, then ship) is in progress.
+
+### Task 0 — Real-component mounting harness — **DONE**
+
+`tests/e2e/_pendingDiscardHarness.tsx` renders the real `NeedsAttentionInbox` (hence the real component inside real card padding, real action row, real `Retry now` sibling) out of process under `tsx`. It now emits an **armed** panel per rail by substituting the component's own exported `IGNORE_ARMED_CLASS` and the markup of `IgnoreLabelStack` rendered at `variant="armed"`, so both panels originate from the component and nothing is transcribed.
+
+That substitution is what withdrew M2: with no transcription left to bind, the binding table and the six holes review found in it ceased to exist rather than being fixed.
+
+### Task 1 — Shared `ARM_REVERT_MS` + T1 landed with a matcher self-check; T3 is a direct assertion on the exported value and needs none. (An intermediate T2 census layer was built across review rounds and then deleted — see spec §5.2.)
+
+`lib/admin/destructiveConfirm.ts` created; all 11 local declarations replaced with imports. No behavioural change (every site already used `4_000`), verified by 5996 tests across 507 files staying green. T1 and T3 landed — T1 with a self-check on its matcher, T3 as a direct assertion needing none. (An intermediate T2 census with an 11-call floor was built and later deleted — see §5.2.)
+
+### Task 2 — Reorder the component — **DONE**
+
+Ignore moved before Defer; `basis-full sm:basis-auto` deleted; armed label shortened to `"Confirm ignore"` (328.51px → 125.64px). A first attempt used `"Tap again to confirm"`, which the impeccable critique caught as verbatim identical to the live region — the pair then said the instruction twice and the consequence nowhere. The consequence now lives in the live region and in a visible line under the row. The component exports its two Ignore skins and labels for the harness.
+
+### Task 3 — jsdom coverage — **DONE**
+
+Test 2 (DOM order), test 6 (single live region survives the reorder), test 7 (no `basis-full`/`sm:basis-auto`, idle or armed). The persistent-status test moved off `nextElementSibling` — the reorder puts Defer between Ignore and the region — and keeps every behavioural assertion it had. The DESTRUCT-1 class test inverted.
+
+### Task 4 — Real-browser proof — **DONE**
+
+`tests/e2e/pendingDiscardReal.layout.spec.ts` covers D1, D2, D3 and D4 across the live rails `rail320`, `page358`, `band440` and `wide900`, idle and armed, with D7 read once off the rendered markup. The fifth rail, `bigtext440`, carries only its own D4 width check — enlarged text is the condition a numeric floor cannot survive, and that is all it is there to prove. Alongside it runs `pendingDiscardReflow.layout.spec.ts`'s historical set: the negative control and two fixed-panel positive tests.
+
+Deliberately no test COUNT here. Three consecutive review rounds (R13, R14, R15) found this line's hand-maintained number stale, each time because the suite legitimately grew. A count in prose has no reader value that `playwright test --list` does not give more accurately, and every restatement just resets the clock. The rail NAMES are pinned executably instead, by the drift guard in that spec. All measured **panel-relative** — comparing absolute `y` across two panels measures where the panel sits, not where the button sits, which cost one debugging cycle. `tests/e2e/pendingDiscardReflow.layout.spec.ts` narrowed to its historical role, with its old drift-guard inverted: it asserted `basis-full` was PRESENT in the component; D7 now asserts it is absent from the rendered tree. The replacement source scan that briefly lived in this file was deleted in R16 F2 as non-evidence.
+
+### Task 5 — CI wiring — **DONE**
+
+`package.json` script `test:e2e:destructive-layout` running **both** layout specs under `tests/e2e/standalone.config.ts`. New workflow **.github/workflows/destructive-layout-e2e.yml** modelled on `modal-header-layout-e2e.yml` (same setup action, Playwright cache, failure-artifact upload, `workflow_dispatch:`), no `env:` block — the harness imports no server chain.
+
+`paths:` must include `components/admin/PendingPanelDiscardButtons.tsx`, `components/admin/NeedsAttentionInbox.tsx`, `tests/e2e/_pendingDiscardHarness.tsx`, both layout specs, `tests/e2e/standalone.config.ts`, `app/globals.css`, `package.json`, `pnpm-lock.yaml`, and the workflow file.
+
+**Mandatory companion:** flip both specs' rows in `tests/ci/_metaE2eWorkflowCoverage.test.ts` from `UNSEEN` to `PATH_GATED`. That meta-test is already red on the new spec, so this task cannot be skipped silently.
+
+Complete only when `gh workflow run` reports a green run on the branch — local green is not sufficient for a CI-bound surface.
+
+### Task 6 — Backlog + stale anchors — **DONE**
+
+Delete all three `BL-DESTRUCT-*` rows and the family section. `BL-DESTRUCT-FORK-FOCUS-TRANSFER` is **withdrawn, not filed** — there is no fork to cross. Correct the three stale line anchors (`tests/help/_uiLabelExceptions.ts:137`, `tests/help/_uiLabelExceptions.ts:142`, `tests/e2e/needs-attention-page.spec.ts:53`) once line numbers are final.
+
+### Task 7 — Invariant-8 impeccable dual-gate — **DONE**, see §12
+
+`/impeccable critique` and `/impeccable audit` on the diff. The armed-label change is user-visible copy and is the thing most likely to draw a finding — it is a deliberate trade (width, and matching the live-region announcement) and should be defended or revised on its merits, not waved through.
+
+### Task 8 — Whole-diff cross-model review, then ship — **IN PROGRESS** (R1-R6 all BLOCKING and repaired; R6 drove the deletion of the over-built timing guard, leaving T1+T3)
+
+`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, both e2e scripts, `pnpm test:e2e -- needs-attention-page` → push → real CI green → `gh pr merge --merge` → verify `git rev-list --left-right --count main...origin/main` reports `0  0`.
+
+
+---
+
+## 12. Invariant-8 close-out — impeccable findings and dispositions
+
+Both halves ran as isolated sub-agents, which the skill mandates; an inline run would have been degraded and is not accepted here.
+
+**Critique: 27/40.** AI-slop verdict NO. Deterministic detector: **0 findings**, with a synthetic control proving the entrypoint actually fires (a clean scan from an unproven detector is not evidence).
+
+**Audit: 16/20.** Anti-patterns PASS. A11y 2 · Perf 4 · Responsive 4 · Theming 2 · Anti-patterns 4.
+
+### Fixed in this diff
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| Armed label was verbatim the live region's text, so the pair conveyed strictly less than before and the consequence was stated nowhere | P1 | **Fixed.** Split into label = verb (`"Confirm ignore"`, matching the family idiom) and live region = consequence, plus a visible line under the row for sighted users. `"Confirm ignore forever"` was measured (176.8px) and rejected — it would become the reserved width in every state, putting the pair at 339.5px against the real 316px mobile page |
+| Enter key-repeat defeated the two-tap guard — Chrome activates on keydown, which auto-repeats, while Space (keyup) was immune | P1 | **Fixed.** First attempt used a 350ms dwell; the whole-diff review showed that only throttles, since repeats continue past any window. Now keys on `event.repeat`, requiring a real release-and-repress. Test [13] sends 12 repeats and asserts none confirm |
+| Bare `ring-offset-2` violates `DESIGN.md:40` (17.90:1 white halo in dark mode) | P1 | **Fixed.** `ring-offset-surface`. This diff had re-authored those exact strings into exported constants, so it was ours to fix |
+| No `aria-busy` while running; live region silent mid-action | P1 | **Fixed.** `aria-busy` on both buttons, live region announces progress |
+| `ring-offset-surface`, `aria-busy` and the consequence line had no regression assertion | LOW | **Fixed.** Test [15] pins all three |
+
+### Deferred, with entries in `DEFERRED.md`
+
+| Finding | Severity | Why not here |
+|---|---|---|
+| `DESTRUCT-FOCUSRING-1` — light focus ring 1.60:1 vs WCAG 1.4.11's 3:1 | P1 | Token-level; changing it ships an app-wide visual change under a diff about button order. Tracked by the pre-existing `BL-FOCUS-RING-CONTRAST`, which this run contributed measured ratios to |
+| `DESTRUCT-DURATION-TOKENS-1` — `duration-*` emits no CSS across 89 files, so reduced-motion never applies to any Tailwind transition | P1 | One-line rename, but its blast radius is every transition and the thing needing re-verification is an a11y contract with no current test |
+| `DESTRUCT-ARM-ANNOUNCE-1` — silent **auto-disarm** for screen readers | P2 | Scoped precisely (R12 F3): on this surface the `role="status"` region announces the ARM, so only the 4s auto-revert passes unannounced. The deferral stays open for the surfaces that announce neither |
+
+### Considered and kept, against the critique's recommendation
+
+The critique rated **destructive-left at wide widths** a P1 and recommended reverting to Defer-first with a rail-only fork. Kept, because: the owner chose the reorder on measured evidence after nine rounds; the rail-only fork is precisely the container-query design whose verification cost caused those rounds; and the critique's own analysis notes that at the mobile page width left is the *harder* thumb reach for a right-handed grip, which argues for the current order on the surface where it matters most. Recorded here rather than silently overridden — an impeccable critique is not authoritative against a ratified owner decision, but it should not vanish either.
