@@ -22,3 +22,16 @@ The reviewer read the FIRST commit; findings 5 and 6 were already repaired by
 | 10 | LOW | The jsonb prescription is right but its stated failure mode is wrong: postgres.js coerces an untyped object to `[object Object]` and the cast fails loudly, rather than silently double-encoding. | **ACCEPTED.** Repair the reasoning, keep the prescription. |
 
 **Not relitigated, and not raised:** every §1.1a ratified item survived the round untouched.
+
+## Between rounds — defects found by self-review, not by a reviewer
+
+Recorded because the round-count retrospectives treat "found by the implementer"
+and "found by the reviewer" as different signals.
+
+| Defect | How it surfaced | Repair |
+| --- | --- | --- |
+| The per-call timeout omitted `retry: false`, so gaxios's internal retry would have multiplied the budget and the timeout would have bounded nothing. | The mandated class sweep over every `getDriveClient()` call site turned up `lib/drive/fetch.ts`, which had already solved and documented this. | `fix(drive)` idiom copied verbatim from `lib/drive/fetch.ts:359`; the gaxios-behaviour claims re-derived from that file rather than from memory. |
+| `folderScope` was described as "additive to a returned object". It is not: `RefreshResult` is deep-equality asserted in five test files and the cron route's body is asserted with `toEqual`. | Reading the `'*'` sentinel's consumers while checking a different claim. | Field dropped entirely; the condition is reported as a durable emit. |
+| `tests/sync/_metaInfraContract.test.ts` was marked N/A when it in fact registers all three watch entrypoints, one of them an executable "never rejects" contract that the reap lands inside. | Following a grep of the `'*'` sentinel into the registry. | Row corrected; §3.1.3a written to preserve the contract. |
+| Three of the four master-spec anchors in §4.6 were wrong (the timeout clause is at `:1303`, not `:1320`; `:1330` was a blank line). | Self-audit of citations taken from the review report rather than from my own grep. | Anchors re-derived by grep and corrected; the status list also does not contain `stopping`, which only exists in the DDL CHECK. |
+| §4.4's vacuity argument was asserted rather than measured. | Deciding whether the extended gate needed a definition check or a name check. | Queried the validation project directly: the constraint name exists there with the old six values and no `expired`, so a name-only check passes today. The query and its output are now in the spec. |
