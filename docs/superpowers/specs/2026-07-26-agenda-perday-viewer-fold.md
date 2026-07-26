@@ -133,6 +133,49 @@ imports:  shouldHideGenericOptional, stripAgendaUrls  (+ types only)
 statements and no import that introduces one. So the constraint was never real, and the contradiction
 dissolves by deleting the constraint rather than by weakening the domain.
 
+**The withdrawal was itself too broad — review R5 (HIGH) found the throw I did not look for.** The R4
+check was `grep -c throw` → 0, which proves only that no `throw` STATEMENT exists. It does not prove the
+function cannot throw, and `aggregateDays` can:
+
+```
+lib/data/getShowForViewer.ts:399   const datesDecoded = decodeJsonbColumn<ShowRow["dates"]>(showRowDb.dates);
+```
+
+That is a CAST, not a validation — nothing checks the shape. So `dates.showDays` is typed `string[]` but at
+runtime holds whatever the JSONB held, and two lines in `aggregateDays` are then reachable faults:
+`for (const d of dates.showDays ?? [])` throws `TypeError` on a non-null non-iterable, and
+`.sort(([a], [b]) => a.localeCompare(b))` throws if a truthy non-string date became a `Map` key (a numeric
+`20260505` passes the `if (!date) return` filter).
+
+**So the original constraint was right, for a reason nobody had stated.** The claim it needed was never
+that `aggregateDays` contains a throw, because it does not. The claim it needed was that `aggregateDays`
+can throw on malformed JSONB no layer validates. Three revisions defended the constraint with the weaker
+argument, R4 then demolished that weaker argument and concluded the constraint was fake, and both steps
+went wrong the same way: reasoning about the code's TEXT instead of its runtime domain.
+
+**The resolution keeps the hoist and adds containment, which this feature's posture already implies.**
+Wrap the hoisted derivation in a `try`/`catch` that yields `{ kind: "all" }`:
+
+```ts
+let viewerDays: ViewerAgendaDays = { kind: "all" };
+try {
+  const allDays = aggregateDays(data.show.dates);
+  // … existing allowedShowDays / visibleDays lines, unmodified …
+  viewerDays = /* per-link matcher, §3 */;
+} catch {
+  viewerDays = { kind: "all" }; // malformed show dates = no knowledge = fail open
+}
+```
+
+Malformed show dates are exactly the "partial knowledge is no knowledge" case §3 already fails open on, so
+the catch is not a new policy — it is the existing one applied to a new fault source. The Schedule section
+keeps rendering, the agenda expands whole, and nothing is silently folded.
+
+**Also skip the derivation entirely on the `unknown_asterisk` path (R5, HIGH).** That branch returns a
+placeholder and renders no agenda at all (§5), so aggregating dates and running per-link matching for it is
+work whose result is discarded — and, before this fix, exposure taken for nothing. Guard the derivation with
+the same condition the early return uses.
+
 **Better still, the live code already computes exactly what this feature needs.** The existing
 `WrappedSection` callback at `components/crew/sections/ScheduleSection.tsx:193-207` derives:
 

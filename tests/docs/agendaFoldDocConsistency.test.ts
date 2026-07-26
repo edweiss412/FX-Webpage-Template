@@ -24,44 +24,40 @@ const SPEC = join(process.cwd(), "docs/superpowers/specs/2026-07-26-agenda-perda
 const PLAN = join(process.cwd(), "docs/superpowers/plans/2026-07-26-agenda-perday-viewer-fold.md");
 
 /**
- * Both documents deliberately QUOTE the wording each round superseded, so a reader can
- * see what changed and why. A naive scan therefore fires on the correction narrative
- * itself — which it did on the first run of this file, on two of its own rules. A gate
- * that flags its own bookkeeping is a false-positive generator, and false positives are
- * worse than no gate because they teach people to bypass it.
+ * Distinguishing a LIVE instruction from a QUOTED superseded one is the whole difficulty.
+ * Both documents deliberately reproduce the wording each round replaced, so a naive scan
+ * fires on their own bookkeeping.
  *
- * So: scan only LIVE prose, by dropping any LINE that carries a correction marker. That is
- * sufficient — both original false positives quoted the old wording on a line that also said
- * "an earlier draft" / "was wrong", so the line filter catches them.
+ * Two mechanisms were tried and both were wrong, in opposite directions:
  *
- * An earlier version of this helper ALSO stripped double-quoted spans, and mutation testing
- * showed that silently disabled the first rule entirely: `kind: "subset"; days` contains a
- * quoted token, so stripping quotes rewrote it to `kind: ""; days` and the pattern could never
- * match. The rule that most needed quotes was the one the stripping broke. Kept as a comment
- * because "add a filter to reduce false positives, silently lose a true positive" is the whole
- * failure mode this file exists to guard against.
+ *  1. Blank every double-quoted span. This silently disabled the union-arm rule entirely,
+ *     because `kind: "subset"; days` CONTAINS a quoted token, so blanking rewrote it to
+ *     `kind: ""; days` and the pattern could never match. Caught by mutation testing.
+ *  2. Drop any LINE carrying a correction marker ("an earlier", "corrected", …). Review R5
+ *     showed this blinds the gate on the exact lines it protects: spec:66, plan:7 and
+ *     plan:160 each carry a live decision AND a correction marker, so reintroducing the
+ *     forbidden wording on those lines passed.
+ *
+ * What actually works is (1) applied PER RULE. Superseded wording in these documents is
+ * always quoted, so blanking quoted spans is the right discriminator for PROSE rules; the
+ * rules whose pattern needs quotes read the raw text instead. No line is ever discarded.
  */
-const CORRECTION_MARKER =
-  /earlier (draft|revision|version)|an earlier|was wrong|superseded|corrected|CORRECTED|withdrawn|WITHDRAWN|NOT the absence|removed rather than|no longer/;
-
-function livePros(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => !CORRECTION_MARKER.test(line))
-    .join("\n");
+function unquoted(text: string): string {
+  return text.replace(/"[^"\n]*"/g, '""');
 }
 
-const spec = livePros(readFileSync(SPEC, "utf8"));
-const plan = livePros(readFileSync(PLAN, "utf8"));
 const specRaw = readFileSync(SPEC, "utf8");
 const planRaw = readFileSync(PLAN, "utf8");
-const both = { spec, plan };
+/** Prose view: quoted (i.e. superseded, reproduced) wording blanked. */
+const prose = { spec: unquoted(specRaw), plan: unquoted(planRaw) };
+/** Raw view: for rules whose forbidden pattern itself contains quotes. */
+const raw = { spec: specRaw, plan: planRaw };
 
 describe("agenda-fold spec/plan pair — decided questions stay decided", () => {
   it("the matcher contract is row INDICES, with no surviving date-set arm", () => {
     // R4 CRITICAL lineage: an ISO-date arm cannot identify a row, because the current
     // extractor always writes date: null (spec §2.5 fact 1).
-    for (const [name, text] of Object.entries(both)) {
+    for (const [name, text] of Object.entries(raw)) {
       expect(text, `${name} must not carry the superseded date-set arm`).not.toMatch(
         /kind:\s*"subset";\s*days/,
       );
@@ -72,7 +68,7 @@ describe("agenda-fold spec/plan pair — decided questions stay decided", () => 
   it("aggregateDays is NOT forbidden above the boundary (the constraint was withdrawn)", () => {
     // R4 CRITICAL: the ban rested on aggregateDays throwing, and it cannot throw.
     // A future edit reinstating the ban would recreate the self-contradiction.
-    for (const [name, text] of Object.entries(both)) {
+    for (const [name, text] of Object.entries(prose)) {
       expect(text, `${name} must not reinstate the withdrawn aggregate ban`).not.toMatch(
         /(do NOT move|never) [`']?aggregateDays/i,
       );
@@ -81,7 +77,7 @@ describe("agenda-fold spec/plan pair — decided questions stay decided", () => 
 
   it("uniform <details> markup: no copy claims the fold renders without <details>", () => {
     // R3 HIGH, and it survived into a THIRD copy before being swept.
-    for (const [name, text] of Object.entries(both)) {
+    for (const [name, text] of Object.entries(prose)) {
       expect(text, `${name} must not claim plain rows for the fail-open case`).not.toMatch(
         /no\s+`<details>`\s+at all/i,
       );
@@ -91,9 +87,9 @@ describe("agenda-fold spec/plan pair — decided questions stay decided", () => 
   it("no un-sourced count of existing duration-fast class sites", () => {
     // Three consecutive rounds disputed this number because it is grep-flavour
     // dependent. It was removed rather than corrected again; the mechanism claim stays.
-    for (const [name, text] of Object.entries(both)) {
+    for (const [name, text] of Object.entries(prose)) {
       expect(text, `${name} must not reintroduce a bare site count`).not.toMatch(
-        /\b1(18|24|42|79|85)\b\s*(existing|class-based|sites)/,
+        /\b\d{2,}\b[^.\n]{0,20}?(existing (class-based )?sites|class-based sites)/,
       );
       expect(text, `${name} must not claim a "119th" site`).not.toMatch(/119th/);
     }
@@ -103,7 +99,7 @@ describe("agenda-fold spec/plan pair — decided questions stay decided", () => 
 
   it("the prop is acknowledged as new in both documents", () => {
     // R3 LOW: both summaries still said "no new prop" after the contract added one.
-    for (const [name, text] of Object.entries(both)) {
+    for (const [name, text] of Object.entries(prose)) {
       expect(text, `${name} must not claim no new prop`).not.toMatch(/no new prop/i);
     }
   });
