@@ -2117,3 +2117,54 @@ So the nine untested sites are covered by something that demonstrably fails when
 which is a stronger guarantee than nine hand-written tests that would each assert the hint is present
 in the one state the test happens to render. Writing them would add assertions without adding
 coverage.
+
+### The correctly-scoped review found three real test defects, and one was substantive
+
+The review that replaced the mis-scoped track returned three MEDIUM findings, all in
+`tests/components/a11y/newTabAnnouncementBehavior.test.tsx`, all in the *tests* rather than shipped
+behaviour. Worth recording because the third was not a weak assertion — it was a **wrong** one.
+
+| Finding | Fix | Evidence it was load-bearing |
+| --- | --- | --- |
+| `.toContain("opens in a new tab")` on the HealthAlertsPanel label | exact `toHaveAccessibleName` | deleting the `{" "}` separator: `1 failed \| 89 passed`; the containment form stayed green |
+| the negative case rendered an action that never resolves, so there was no anchor at all | added a REAL internal action (`WIZARD_SESSION_SUPERSEDED_RACE`, always resolves, `external: false`) | making the hint unconditional: `1 failed \| 89 passed` |
+| the empty-title tests claimed to render the real components but rendered a hand-copied probe | assertions moved to the real components' own harnesses; probe deleted | the probe's expectations were **wrong** (below) |
+
+**Why containment was the wrong tool in the positive direction.** It survives exactly the two failures
+most likely to reach a user, because both leave the announcement present in the name: deleting the
+label yields `"(opens in a new tab)"`, and deleting the separator yields `"Open in Sheet(opens in a new
+tab)"`. Both contain the substring. Note the asymmetry — the file's remaining `not.toContain(...)` uses
+are correct and were left alone: for a NEGATIVE assertion, "absent anywhere in the name" is strictly
+stronger than exact inequality. The defect is containment in the positive direction only.
+
+**The third finding was substantive.** `ModalSheetLinkProbe` re-implemented the two modals' aria-label
+expression, and a source-comparison guard kept the copy honest. Both expectations turned out to be
+wrong about the real components, because **each substitutes a fallback title BEFORE the label
+expression runs** — none of which existed in the probe:
+
+```
+Step3ReviewModal,     title: ""     ->  "...for asset-mgmt-summit.sheet in Google Sheets (opens...)"
+PublishedReviewModal, title: ""     ->  "...for published-fixture-show in Google Sheets (opens...)"
+either component,     title: "   "  ->  "Open the source sheet in Google Sheets (opens in a new tab)"
+```
+
+The probe asserted the generic fallback for the empty case in both. So the tests were green on a claim
+the shipped components do not satisfy. The asymmetry is now pinned explicitly: `""` is replaced
+upstream by a derived title (filename for the wizard, slug for the published modal), while `"   "`
+survives to the label and is rejected there by `.trim()` — **whitespace is the only input that actually
+reaches the fallback arm.** A probe that re-implements the expression cannot discover that, because the
+substitution is in the wiring, not the expression.
+
+Both the probe and its parity guard were deleted rather than repaired. They were one workaround for not
+rendering the real components; exact accessible-name assertions on the real render answer the same
+question strictly better, so keeping either would leave a weaker duplicate of a question now answered
+in one place — the same rule that governed every earlier fix on this branch.
+
+**Class sweep, both shapes, before dispatching the next round.** Positive-direction containment of the
+announcement: no other instance. Probes that re-implement code under test: five other local `Probe`
+components exist (`ShareTokenContext`, `step3Checkbox`, `shareLinkCopyButtonRotate`,
+`shareHubFlashState`, `warningsPanelStatusMount`), and **all five are consumers or observers** — they
+render a real hook's output, read the DOM in a layout effect, or subscribe to a real context. None
+copies the logic under test. `ModalSheetLinkProbe` was the only instance, which is the distinction to
+carry forward: a probe standing in for the *caller* is a harness; a probe standing in for the *code
+under test* is a defect.
