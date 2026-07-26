@@ -1353,3 +1353,37 @@ equivalent-mutant this PR, and the second inside a fix written to close a review
 
 The Vercel check on `11d54ab5a` failed with `upgradeToPro=build-rate-limit` — an account build-rate
 limit, not a code failure, and Vercel is not one of the twelve required contexts.
+
+### Branch sweep over the R32 fixes, run before R33 reported
+
+Every branch of the five new or rewritten functions was mutated individually while R33 was still
+running. Six survived, and each one was a real gap the review rounds had not reached:
+
+| Survivor | What it meant |
+| --- | --- |
+| `staticStringValue` true-keyword arm | the `` `${true}` `` fixture passed via the FAIL-CLOSED default, not by evaluating — it could not tell the two apart |
+| template dynamic-substitution guard | no fixture had a dynamic substitution at all |
+| `styleObjectHides` non-assignment arm | no fixture had a spread or shorthand in a style object |
+| `isNamingSvgTitle` non-element parent | a genuine FALSE POSITIVE — see below |
+| `hoistedBinds` var-only check | nothing proved `let` / `const` in a sibling block are NOT shadows |
+| conditional both-branches-true arm | verdict-identical to falling through: the caller reads `null` as "assume a destination" |
+
+**The first is the sharpest.** A fixture asserting `` aria-hidden={`${true}`} `` reports proves
+nothing about evaluation, because an undecidable value also reports. The fixture that pins it is
+`` `${true}x` `` — accepted only if the boolean was really rendered into the string. A test whose
+expected outcome matches the fail-closed default cannot detect the loss of the code it was written
+for; this is the same "right answer for the wrong reason" that has now appeared five times in this PR,
+in a test rather than in the implementation.
+
+**`isNamingSvgTitle` had the false-positive twin of the hole it fixed.** The ancestor walk was too
+wide; the literal parent test was too narrow. `<svg>{<title>Go</title>}</svg>`, a fragment, and
+`{[<title/>]}` all render the title as the svg's own child and all NAME (measured), and all three were
+reported. The rule now walks up to the first JSX ELEMENT — transparent wrappers are skipped, and
+stopping at the first element is what keeps `<svg><g><title/></g></svg>` correctly out. Both the
+too-wide and too-narrow shapes now fail tests.
+
+Two branches were DELETED rather than pinned: the conditional both-branches-true arm above, and a
+self-closing-element guard in `isNamingSvgTitle` that could never execute, since a self-closing
+element has no children to contain a `<title>`. That brings this PR to five equivalent mutants, four
+of them inside fixes written to close review findings. The sweep costs about a minute per branch and
+has now out-found two consecutive review rounds on the code they had just reviewed.

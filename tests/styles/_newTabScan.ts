@@ -884,7 +884,9 @@ function expressionDestination(e0: ts.Expression): boolean | null {
     const a = expressionDestination(e.whenTrue);
     const b = expressionDestination(e.whenFalse);
     if (a === false && b === false) return false;
-    if (a === true && b === true) return true;
+    // No `both true -> true` arm. The caller treats `null` as "assume a destination", so it would be
+    // verdict-identical to falling through -- a mutation deleting it changed no test, which is the
+    // fourth equivalent branch found in this guard by sweeping rather than by review.
     return null;
   }
   // `&&`, `||` and `??` SELECT an operand, exactly as in `rendersNothing`. Leaving them opaque
@@ -1061,9 +1063,19 @@ const NOT_RENDERED_TAGS = new Set([
  *  apart from them. Fail-closed default: anything else is the HTML reading, i.e. not rendered.
  */
 function isNamingSvgTitle(el: ts.Node): boolean {
-  const parent = el.parent;
-  if (parent === undefined || !ts.isJsxElement(parent)) return false;
-  return parent.openingElement.tagName.getText() === "svg";
+  // "Direct child" is a RUNTIME relationship, and JSX has several wrappers that do not create one.
+  // `<svg>{<title>Go</title>}</svg>`, a fragment, and `{[<title/>]}` all render the title as the
+  // svg's own child and all NAME (measured) -- a literal parent-node test reported each of them,
+  // which is the false-positive twin of the ancestor walk it replaced. Walk up until the first JSX
+  // ELEMENT: everything between is transparent, and stopping at the first element is what keeps
+  // `<svg><g><title/></g></svg>` correctly out.
+  //
+  // No self-closing-element guard: one cannot hold children, so it can never be an ancestor of a
+  // `<title>`. A version with that check had an unreachable branch, which a mutation proved.
+  for (let cur: ts.Node | undefined = el.parent; cur !== undefined; cur = cur.parent) {
+    if (ts.isJsxElement(cur)) return cur.openingElement.tagName.getText() === "svg";
+  }
+  return false; // no JSX element ancestor in this file: fail closed
 }
 
 /** Does React OMIT this attribute from the DOM entirely, so its presence in the source hides

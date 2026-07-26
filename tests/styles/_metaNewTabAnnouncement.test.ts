@@ -1971,6 +1971,22 @@ describe("R6: scanner changes are pinned", () => {
         `must report, this evaluates to "true": ${attr}`,
       ).not.toEqual([]);
     }
+    // These two pin EVALUATION itself rather than the fail-closed default. A template containing
+    // `${true}` reports either way -- by evaluating to "true", or by being undecidable -- so it
+    // cannot tell the two apart. `${true}x` can: it is only accepted if the boolean was really
+    // rendered into the string. A DYNAMIC substitution must still fail closed.
+    expect(
+      violations(
+        'const A=()=><a href="x" target="_blank">Go <span aria-hidden={`${true}x`}><NewTabHint /></span></a>;',
+      ),
+      'must accept: `${true}x` evaluates to "truex", which does not hide',
+    ).toEqual([]);
+    expect(
+      violations(
+        'const A=({flag})=><a href="x" target="_blank">Go <span aria-hidden={`${flag}`}><NewTabHint /></span></a>;',
+      ),
+      "must report: a dynamic substitution leaves the value undecidable, so fail closed",
+    ).not.toEqual([]);
     // ...and a template that evaluates to something else does NOT hide (the false-positive half).
     for (const attr of [
       "aria-hidden={`true${false}`}",
@@ -2002,6 +2018,20 @@ describe("R6: scanner changes are pinned", () => {
         ),
         `must report, the destination is hidden: ${style}`,
       ).not.toEqual([]);
+    }
+    // A style object the scanner cannot read is OPAQUE and does not hide -- unchanged posture, and
+    // previously unpinned, so a mutation making a spread or shorthand hide changed no test.
+    for (const style of [
+      "{{...hideStyles}}",
+      '{{...hideStyles, display: "block"}}',
+      "{{display}}",
+    ]) {
+      expect(
+        violations(
+          `const A=({hideStyles,display})=><a href="x" target="_blank"><span style=${style}>Go</span> <NewTabHint /></a>;`,
+        ),
+        `must accept, an unreadable style object is opaque: ${style}`,
+      ).toEqual([]);
     }
     // ...and the near-misses the old text matcher had to special-case stay accepted.
     for (const style of [
@@ -2115,6 +2145,17 @@ describe("R6: scanner changes are pinned", () => {
         "var inside a class static block",
         'class C { static { var NewTabHint = () => null; } }\nconst A = () => <a href="x" target="_blank">Go <NewTabHint /></a>;',
       ],
+      // `let` and `const` are BLOCK-scoped, so a sibling block cannot shadow the use site. Only
+      // `var` hoists to the function scope -- without this pair the hoist scan could treat every
+      // block-scoped declaration as a shadow and nothing would fail.
+      [
+        "const in a sibling block",
+        'function A(cond){ if(cond){ const NewTabHint = () => null; } return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+      ],
+      [
+        "let in a sibling block",
+        'function A(cond){ if(cond){ let NewTabHint = () => null; } return <a href="x" target="_blank">Go <NewTabHint /></a>; }',
+      ],
     ] as [string, string][]) {
       expect(
         probe(IMP + body, { bare: true }).violations,
@@ -2162,6 +2203,19 @@ describe("R6: scanner changes are pinned", () => {
         violations(`const A=()=><a href="x" target="_blank">${markup} <NewTabHint /></a>;`),
         `must report, a <title> under <${label}> names nothing`,
       ).not.toEqual([]);
+    }
+    // "Direct child" is a RUNTIME relationship: an expression container, a fragment and an array all
+    // render the title as the svg's own child, and all NAME (measured). A literal parent-node test
+    // reported each -- the false-positive twin of the ancestor walk it replaced.
+    for (const [label, markup] of [
+      ["expression container", "<svg>{<title>Go</title>}</svg>"],
+      ["fragment", "<svg><><title>Go</title></></svg>"],
+      ["array", '<svg>{[<title key="t">Go</title>]}</svg>'],
+    ] as [string, string][]) {
+      expect(
+        violations(`const A=()=><a href="x" target="_blank">${markup} <NewTabHint /></a>;`),
+        `must accept, the title still renders as the svg's own child: ${label}`,
+      ).toEqual([]);
     }
     // ...and inside a <foreignObject> the content is HTML again and React hoists the title out of
     // the anchor entirely (also measured), so it names nothing either.
