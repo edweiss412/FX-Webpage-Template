@@ -486,6 +486,33 @@ WITH substitutions is not. Anything outside these shapes is reported as
   `"Go (opens in a new tab)"` (measured). The anchor is unannounced only when EVERY instance is
   hidden.
 
+  **And the same rule governs every OTHER question about the announcement (R37).** "ALL, not ANY" was
+  applied to the hidden flag alone, which left three consumers reading the raw instance list: the
+  unconditionality check, the `_blank`-gating check, and separation. A HIDDEN instance is not an
+  announcement, so it may not answer questions about one — and the fail-open that proved it is worth
+  keeping in view:
+
+  ```tsx
+  <a target="_blank">Go {flag && <NewTabHint />} <span aria-hidden="true"><NewTabHint /></span></a>
+  ```
+
+  With `flag` false this announces nothing, yet the unconditionality check passed because the HIDDEN
+  instance carried no condition and vouched for the conditional visible one. The three consumers now
+  share one filtered list of name-contributing instances. Precedence is deliberate: a hint that is
+  hidden reports THAT, not that it is unseparated — absence from the name is the more fundamental fact
+  and the vaguer message would bury it.
+
+- **"Cannot be PROVEN non-hiding" is a claim about UNDECIDABILITY, not about hiding (R37).** The
+  hint-path rule and the hiding rule answer different questions, and collapsing them downgraded the
+  message for `className="hidden"` from the precise reason to the vaguer one. A class that definitely
+  hides is DECIDED; only a value the scanner cannot evaluate is unproven. `classNameDecidable` answers
+  the first question, `classNameHides` the second.
+
+- **A null-prototype object is UNDECIDABLE, not `"[object Object]"` (R38-era sweep).** `{__proto__:
+  null}` has no inherited `toString`, so `String()` on it THROWS (`Cannot convert object to primitive
+  value`, measured — React's render throws too). An earlier version exempted it as a harmless
+  prototype assignment; that exemption claimed a crashing value was decidably safe.
+
 - **A dynamic PREDICATE does not make a spread undecidable when every branch hides (R34 BLOCKING 4).**
   `{{...(flag ? {display:"none"} : {visibility:"hidden"})}}` hides whichever branch runs, and so does
   the identical-branch form. Only the BRANCHES need to be decidable, not the test — the same shape
