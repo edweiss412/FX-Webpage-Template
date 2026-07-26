@@ -1019,6 +1019,24 @@ describe("scanner and runtime agree, per attribute kind", () => {
       attr: 'style={{display: "none", ...(true ? {display: "block"} : {})}}',
       props: { style: { display: "block" } },
     },
+    // TRUTHY OBJECTS across kinds. The same value expression gets OPPOSITE verdicts depending on the
+    // attribute: `[]` is a truthy object, so a BOOLEAN attribute keeps it and hides, while
+    // `String([])` is "" which is not "true", so ARIA does not hide. That divergence is the exact
+    // confusion that produced a finding in four consecutive rounds, so both sides are pinned here.
+    { attr: "hidden={[]}", props: { hidden: [] } },
+    { attr: "hidden={{}}", props: { hidden: {} } },
+    { attr: "hidden={~0}", props: { hidden: ~0 } },
+    { attr: "hidden={Infinity}", props: { hidden: Infinity } },
+    {
+      attr: "inert={[]}",
+      props: { inert: [] },
+      divergence: "the harness does not model `inert` (§6.4), whatever its value",
+    },
+    { attr: "popover={[]}", props: { popover: [] } },
+    { attr: "popover={~0}", props: { popover: ~0 } },
+    { attr: "aria-hidden={[]}", props: { "aria-hidden": [] } },
+    { attr: "aria-hidden={~0}", props: { "aria-hidden": ~0 } },
+    { attr: 'aria-hidden={["true"]}', props: { "aria-hidden": ["true"] } },
   ];
 
   for (const c of CASES) {
