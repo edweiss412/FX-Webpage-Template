@@ -223,38 +223,45 @@ Reconcile does not read `folderScope`; it performs its own `getActiveWatchedFold
 
 ### 3.3 Bound every Drive call and the loop around it
 
-#### 3.3.1 Two layers, because one is not enough
+#### 3.3.1 The per-call bound is the repo's existing idiom, verbatim
+
+This project already solved this exact problem on the onboarding hot path and documented gaxios-7's behaviour while doing it. The watch fix reuses that idiom rather than inventing one; the reasoning below is taken from `lib/drive/fetch.ts:81-99` and the call it describes at `lib/drive/fetch.ts:359`, not from general knowledge of gaxios.
+
+```ts
+getDriveClient().files.watch({ fileId, requestBody: {…} }, { timeout: DRIVE_CALL_TIMEOUT_MS, retry: false })
+```
+
+Both options are load-bearing:
+
+- **`timeout`** is a gaxios-7 per-call budget that fires via `AbortSignal.timeout` and throws a `GaxiosError` with `code === "TimeoutError"` (a string, not the gaxios-6/axios `ECONNABORTED`/`ETIMEDOUT` shape) — `lib/drive/fetch.ts:90-92`. Because gaxios derives its own abort signal from it, **it aborts the socket by itself**; no separate `signal` is passed, and none should be, since supplying one risks displacing the signal gaxios derives. `MethodOptions extends GaxiosOptions` (googleapis-common 8.0.1 via `googleapis@^171.4.0` in `package.json`), so both fields are typed.
+- **`retry: false`** is not decoration. gaxios has its own internal retry layer, and without this the per-call budget is **multiplied by that layer's attempts** — so a `timeout` alone would not actually bound the call. `lib/drive/fetch.ts:342-344` states this for `files.get`, where `withDriveRetry` is the single retry layer. The watch path has **no** retry wrapper and deliberately gains none: one attempt per cron tick, with the next tick as the retry, which is the existing fail-open posture (§1.1a item 7). Adding `withDriveRetry` here would change how a 429 behaves and is out of scope.
+
+`defaultStopChannel` takes the same two options with the same values — the same shape in the same kind of sequential loop, fixed in the same commit rather than left as the next round's finding.
+
+`DRIVE_CALL_TIMEOUT_MS` at 15s sits inside the existing family: `DRIVE_FILES_GET_TIMEOUT_MS` = 8_000 (`lib/drive/fetch.ts:109`) and `DRIVE_EXPORT_TIMEOUT_MS` = 45_000 (`lib/drive/fetch.ts:79`).
+
+#### 3.3.1a The outer deadline, and the one gap that justifies it
+
+`timeout` bounds the HTTP request. It does **not** bound the credential fetch that precedes it: `getDriveClient()` hands `google.drive` a `GoogleAuth` instance (`lib/drive/client.ts:35-39, 41-46`) which performs its own token request on its own transport before the API call is issued, where no `MethodOptions` applies. A hung token endpoint is exactly the stall D-C describes, and it is invisible to the per-call option.
+
+That gap — plus the two DB round-trips either side of the Drive call — is the whole justification for an outer budget, and it is bounded at the row level (§3.3.2) rather than by wrapping each Drive call twice.
 
 New module, lib/drive/callDeadline.ts, exporting:
 
 ```ts
 export class DriveCallTimeoutError extends Error { readonly operation: string; readonly timeoutMs: number; }
-export function withDriveCallDeadline<T>(
-  operation: string, timeoutMs: number,
-  fn: (signal: AbortSignal) => Promise<T>,
-): Promise<T>;
+export function withDriveCallDeadline<T>(operation: string, timeoutMs: number, fn: () => Promise<T>): Promise<T>;
 ```
 
-`timeoutMs` must be `> 0`; a non-positive value throws immediately as a programming error rather than aborting every call on arm, so a mis-wired constant fails loudly instead of silently disabling every Drive call (pinned in §6.1). It creates an `AbortController`, arms an **unref'd** timer (so it never holds the event loop open on its own — the same discipline as `createStallGuard`, `lib/drive/stallGuard.ts:41-42`), races `fn(signal)` against a rejection with `DriveCallTimeoutError`, and clears the timer in a `finally`.
+`timeoutMs` must be `> 0`; a non-positive value throws immediately as a programming error rather than aborting on arm, so a mis-wired constant fails loudly instead of silently turning every call into an instant abort (pinned in §6.1). It arms an **unref'd** timer (so it never holds the event loop open on its own — same discipline as `lib/drive/fetch.ts:282-283` and `lib/drive/stallGuard.ts:41-42`), races `fn()` against a `DriveCallTimeoutError` rejection, and clears the timer in a `finally`.
 
-`defaultWatchFolder` then passes BOTH the signal and the option:
+It takes no `AbortSignal` parameter, because there is nothing left for it to abort: the Drive call cancels itself via `timeout`, and a stalled `GoogleAuth` token fetch exposes no cancellation seam to pass one to. The wrapper therefore bounds how long the LOOP waits, and does not claim to cancel the work it stopped waiting for. Stating that limit is the point; a signal parameter would imply a cancellation this design cannot deliver.
 
-```ts
-withDriveCallDeadline("files.watch", DRIVE_CALL_TIMEOUT_MS, (signal) =>
-  getDriveClient().files.watch({ fileId, requestBody: {…} }, { timeout: DRIVE_CALL_TIMEOUT_MS, signal }),
-)
-```
-
-Both layers are required and neither is redundant:
-
-- **`MethodOptions` alone is insufficient.** `MethodOptions extends GaxiosOptions` (googleapis-common 8.0.1, reached via `googleapis@^171.4.0` in `package.json`), so `timeout` and `signal` are typed and reach the API request. They do NOT reach the credential fetch that precedes it: `getDriveClient()` hands `google.drive` a `GoogleAuth` instance (`lib/drive/client.ts:35-39, 41-46`) which performs its own token request, on its own transport, before the API call is issued. A hung token endpoint is exactly the stall D-C describes and `MethodOptions.timeout` cannot see it.
-- **The race alone is insufficient.** Rejecting the promise leaves the underlying socket open and the request in flight. The `signal` is what actually aborts it, and `timeout` is what gaxios itself enforces.
-
-`defaultStopChannel` gets the same treatment with `operation: "channels.stop"` — the same shape in the same kind of sequential loop, fixed in the same commit rather than left as the next round's finding.
+**Why a third helper.** Neither existing mechanism fits: `createStallGuard` (`lib/drive/stallGuard.ts:32-58`) is an IDLE timer for a chunked stream, reset on every chunk, so it never bounds total time; the export guard at `lib/drive/fetch.ts:269-312` is a total-time budget but is inlined into `fetchXlsxExportBytes` and surfaces its expiry as a transient `DriveFetchError(504)` for `withDriveRetry`, which is the wrong shape for a path with no retry layer.
 
 #### 3.3.2 Per-row budget
 
-Each iteration of the renewal loop wraps its whole `subscribe(row.watchedFolderId)` call in `withDriveCallDeadline("refresh.row", REFRESH_ROW_BUDGET_MS, …)`. This bounds the DB round-trips either side of the Drive call, which `DRIVE_CALL_TIMEOUT_MS` does not cover. A row-budget expiry is recorded as `failures.push({folderId, operation: "subscribe"})` on the existing catch path (`lib/drive/watch.ts:684-695`) — no new branch.
+Each iteration of the renewal loop wraps its whole `subscribe(row.watchedFolderId)` call in `withDriveCallDeadline("refresh.row", REFRESH_ROW_BUDGET_MS, …)`. This is where the §3.3.1a gap is closed: it bounds the credential fetch and the two DB round-trips, none of which the per-call `timeout` reaches. A row-budget expiry is recorded as `failures.push({folderId, operation: "subscribe"})` on the existing catch path (`lib/drive/watch.ts:684-695`) — no new branch.
 
 #### 3.3.3 Per-run budget, and the comment it makes true
 
@@ -269,7 +276,7 @@ Before each iteration the loop checks elapsed time against `REFRESH_RUN_BUDGET_M
 
 #### 3.3.4 Classification
 
-A `DriveCallTimeoutError` reaches `classifyWatchError` (`lib/drive/watchErrors.ts:103-108`), which returns `"drive_api"`: it is not a `DriveWatchInfraError` and its message matches no `CONFIG_PATTERNS` entry. That is the correct class — a Drive call that did not answer is a Drive-API fault, not a config or DB fault — and it is reached by the existing default rather than by a new pattern. §6 pins it with an assertion, because "correct by default" is exactly the kind of claim that silently stops being true when someone adds a pattern.
+Two distinct error shapes can now arrive: a gaxios `GaxiosError` with `code === "TimeoutError"` from the per-call `timeout` (`lib/drive/fetch.ts:90-92`), and a `DriveCallTimeoutError` from the row budget. Both reach `classifyWatchError` (`lib/drive/watchErrors.ts:103-108`) and both return `"drive_api"`: neither is a `DriveWatchInfraError`, and neither message matches a `CONFIG_PATTERNS` entry. That is the correct class — a Drive call that did not answer is a Drive-API fault, not a config or DB fault — and it is reached by the existing default rather than by a new pattern. §6 pins it with an assertion, because "correct by default" is exactly the kind of claim that silently stops being true when someone adds a pattern.
 
 ### 3.4 Commit the alert in the transaction it appears to be in
 
@@ -405,10 +412,11 @@ TDD per AGENTS.md invariant 1: every test below is written failing first. Each r
 | `no_folder_configured` → zero subscribes, `folderScope === "none_configured"` | Catches a fail-open default leaking into the not-configured branch. |
 | Folder read returns `infra_error` → ALL rows renewed, `folderScope === "unfiltered_folder_read_failed"`, and `failures` contains **no** `'*'` row | D7. Catches a regression to the `'*'` sentinel, which would suppress reconcile's auto-resolve on a healthy cycle. |
 | Folder read THROWS → same as `infra_error` | Catches recorded-not-thrown being lost, i.e. a throw escaping `refreshWatchSubscriptions` into the route handler. |
-| `withDriveCallDeadline` rejects at the budget and aborts the signal | Asserts both the rejection AND that the signal the callback received is aborted. A race that leaves the socket open passes the first half only. |
-| `withDriveCallDeadline` clears its timer on the success path | Catches a leaked timer; verified by asserting the returned value and that no unref'd handle remains armed. |
+| `defaultWatchFolder` passes `{ timeout: DRIVE_CALL_TIMEOUT_MS, retry: false }` as the SECOND argument to `files.watch`, and `defaultStopChannel` the same to `channels.stop` | Asserts both fields by value on a mock drive client. `retry: false` is the half that matters: without it gaxios's internal retry multiplies the budget and the timeout bounds nothing, which no timing test would notice. |
+| `withDriveCallDeadline` rejects with `DriveCallTimeoutError` at the budget, carrying `operation` and `timeoutMs` | Catches a wrapper that resolves-with-undefined or throws an untyped error, either of which would make a stall look like a Drive-side failure with no attribution. |
+| `withDriveCallDeadline` clears its timer on the success path | Catches a leaked timer holding the event loop open after a fast call. |
 | A never-settling `watchFolder` yields `{outcome: "orphaned", reason: "watch_create_failed"}` within the budget | Fake timers. Catches the timeout not being wired into the subscribe path at all. |
-| A timeout classifies as `error_class: "drive_api"` | §3.3.4. Catches a future `CONFIG_PATTERNS` addition silently re-classifying timeouts as `config`, which escalates immediately (`lib/drive/watchEscalation.ts:102`). |
+| Both timeout shapes (a `GaxiosError` with `code: "TimeoutError"`, and `DriveCallTimeoutError`) classify as `error_class: "drive_api"` | §3.3.4. Catches a future `CONFIG_PATTERNS` addition silently re-classifying a timeout as `config`, which escalates immediately (`lib/drive/watchEscalation.ts:102`). |
 | Run-budget exhaustion stops the loop and records the remainder | Asserts processed count, `failures` rows for unprocessed folders, and the warn emit. Catches a budget check that logs but keeps iterating. |
 | GC skips `channels.stop` for `expired`, calls it for `orphaned` with a `resourceId`, and marks BOTH stopped | Asserts the stop spy's call list by channel id. A count-only assertion would pass if it skipped the wrong one. |
 | `REFRESH_RUN_BUDGET_MS === T_EXEC_BUDGET_MS` | Catches the alias drifting into a second literal. |
