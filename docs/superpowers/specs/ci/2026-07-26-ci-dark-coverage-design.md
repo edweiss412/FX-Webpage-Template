@@ -353,7 +353,17 @@ So: when `process.env.CI` is set, an unreachable `psql` is a thrown error in `be
 
 ### §5.4 Target-aware assertions
 
-Under `local`, the bootstrap supplies a deliberately fake URL, `https://fxav-screenshots-ci.invalid` (`scripts/ci/supabase-local-bootstrap.sh:38`), and the cron command bodies are built from it at migration time. Any assertion on the URL text in `cron.job.command` must therefore accept the placeholder under `local` and require a real Vercel host under `validation`. The plan enumerates every assertion in the suite that reads command text and states which of the two postures it takes; an assertion that cannot be made target-aware is scoped to `validation` only, with the reason recorded inline.
+The cron command bodies embed whatever host the `app.fxav_vercel_url` GUC held at migration time, so the host is **environment-supplied and varies by target**. Measured, three distinct shapes exist:
+
+| Target | Host in `cron.job.command` |
+| --- | --- |
+| a developer's local stack | `http://host.docker.internal:3000` (measured on this machine) |
+| CI's bootstrapped local stack | `https://fxav-screenshots-ci.invalid` (`scripts/ci/supabase-local-bootstrap.sh:38`) |
+| validation / prod | the real Vercel host |
+
+So the rule is **not** "accept the placeholder under `local`" — that would pass in CI and fail on every developer machine. The rule is: assertions on command text key on the **route path**, which is host-agnostic and is what the suite already does today (`${jobname} command should reference the canonical route`, checked against `canonical.route`). Any assertion on the **host** is `validation`-only.
+
+The plan enumerates every assertion in the suite that reads command text and records which posture it takes; an assertion that cannot be made host-agnostic is scoped to `validation`, with the reason inline.
 
 ### §5.5 Flag lifecycle
 
