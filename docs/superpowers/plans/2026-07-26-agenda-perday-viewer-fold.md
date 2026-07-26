@@ -111,11 +111,9 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
   - all four fallback conditions, each negated independently (4 cases): `matched !== null`; some label parsed; a `showDays` element is null; `ext.days.length !== showDays.length`. *Catches: a fallback that fires when it must not — the null-element case is the one the spec calls easy to miss.*
   - no day resolves → returns the fail-open variant, NOT an empty day set. **The return type must make this impossible to confuse** (see the contract below). *Catches the inversion that would hide the viewer's own day — the worst outcome this feature can produce.*
   - derive every expected index from the fixture's own dimensions; never hardcode. *A 2-day fixture must be unable to satisfy a 4-day assertion.*
-- [ ] **Return-type contract, decided here rather than at implementation time.** An earlier draft of this
-      task said the fail-open case "returns the empty set meaning expand everything". That is the exact
-      ambiguity this feature must not contain: an empty `Set` reads equally well as "no day is the
-      viewer's, so fold everything", which silently hides the viewer's own day. Make the two cases
-      distinct in the TYPE so the dangerous reading cannot compile:
+- [ ] **Return type is `ViewerAgendaDays`, defined in spec §2 — implement it, do not redefine it.** The
+      spec owns the contract; this task exists to satisfy it. Reproduced here only so the task is readable
+      standalone:
 
       ```ts
       export type ViewerAgendaDays =
@@ -127,6 +125,10 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
       returns `{ kind: "all" }`. Assert that unreachability directly: a test that constructs the
       no-match input and asserts `kind === "all"`, plus a type-level guarantee that consumers handle
       both arms (no default branch that treats an unknown kind as "subset").
+- [ ] **Do NOT write a branch for the admin-preview or no-restriction cases.** Spec §2 records that three
+      upstream causes converge on `{ kind: "all" }` — no viewer, an unrestricted viewer, and an incomplete
+      match — and that all three render identically. A dedicated branch for any of them is a sign the
+      convergence was missed; its absence is correct.
 
 - [ ] Implement in `lib/crew/agendaViewerDays.ts (NEW)`, reusing `parseIsoFromDayLabel` (`lib/crew/agendaDayForToday.ts:36`) and mirroring the positional rule at `lib/crew/agendaDayForToday.ts:64`. Do NOT copy `visibleShowDays` logic — import it.
 - [ ] Green; `npx tsc --noEmit`; commit `feat(crew-page): day-set matcher for the viewer's agenda days`.

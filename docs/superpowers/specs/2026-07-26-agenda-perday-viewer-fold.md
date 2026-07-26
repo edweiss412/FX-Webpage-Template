@@ -69,8 +69,33 @@ result — the viewer's day set has to reach `AgendaScheduleBlock`, whose props 
 `{ extraction, label }` (`components/crew/AgendaScheduleBlock.tsx:51-54`). It gets one new OPTIONAL prop:
 
 ```ts
+export type ViewerAgendaDays =
+  | { kind: "all" } // render every day expanded, and no marker
+  | { kind: "subset"; days: ReadonlySet<string> }; // these ISO dates are the viewer's
+
 viewerDays?: ViewerAgendaDays; // default: { kind: "all" }
 ```
+
+**The two arms are a discriminated union on purpose, and `{ kind: "subset"; days: <empty> }` must be
+unreachable.** An earlier plan draft described the fail-open case as "returns the empty set". That is the
+one ambiguity this feature cannot contain: an empty `Set` reads equally well as *no day is the viewer's, so
+fold everything*, which silently hides the viewer's own day. The discriminant makes the dangerous reading
+fail to compile rather than fail in production. If the matcher resolves nothing, it returns
+`{ kind: "all" }`.
+
+**THREE distinct upstream causes converge on `{ kind: "all" }`, and that convergence is deliberate rather
+than three unhandled cases:**
+
+| Cause | Why "all" is right |
+| --- | --- |
+| the admin Step 3 preview passes no `viewerDays` | there is no viewer, so no day is anyone's day |
+| `dateRestriction.kind === "none"` — an unrestricted viewer | every day is theirs, which by THE MARKER RULE (§5) marks nothing |
+| the matcher could not locate every restriction day (§3 constraint 3) | partial knowledge is treated as no knowledge |
+
+All three render identically: every day expanded, no `<details>`, no marker. So no consumer needs a
+special branch for any of them, and THE MARKER RULE is not consulted separately — "all" already means
+"nothing distinguishes", which is the rule's own suppression condition. A reviewer looking for the
+admin-preview case or the no-restriction case will not find dedicated code, and that absence is correct.
 
 **The second caller is the admin Step 3 review preview** at
 `components/admin/wizard/step3ReviewSections.tsx:3230`, which renders the same component with no viewer
