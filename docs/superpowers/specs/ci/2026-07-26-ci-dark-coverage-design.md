@@ -60,9 +60,15 @@ Validated by executing `scanWorkflowCoverage` over the real workflow set, not a 
 | Branches named by some workflow | 12 |
 | Real branches named by no workflow (**dark**) | 16 |
 | Real branches carrying an allowlist row today | 28 (all) |
-| Allowlist rows remaining after PR2 | 59 |
+| Real branches remaining after PR1 removes `packlist-rescan-recovery` | **27** |
+| Allowlist rows deleted by PR2 | **27** |
+| Allowlist rows remaining after PR2 | **60** |
 
-**16** specs go dark → covered, but **28** rows are deleted: the other 12 are already covered by *path-filtered* workflows, which the scanner rejects, so they still carry rows. An unfiltered job covers them properly and their rows must go too, or the shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:153`) fails.
+Three counts that are easy to conflate, so state them separately:
+
+- **15** specs go dark → covered (16 dark branches, less `packlist-rescan-recovery`, which PR1 removes from the config rather than fixing).
+- **27** allowlist rows are deleted — the 15 plus the 12 already covered by *path-filtered* workflows, which the scanner rejects and which therefore still carry rows today. An unfiltered job covers those properly, so their rows must go too or the shadowing assertion (`tests/ci/_metaE2eWorkflowCoverage.test.ts:153`) fails.
+- **`packlist-rescan-recovery` keeps its row**, correctly: after PR1 it is in no config and no workflow, so it is genuinely dark and its row states that (`BL-HARNESS-PACKLIST-SERVER-GRAPH`).
 
 ### §2.3 Baselines
 
@@ -160,7 +166,7 @@ No `webServer`, no Supabase, no `pnpm build` — the specs boot their own `node:
 
 ### §4.2 Why no path filter
 
-`tests/ci/_workflowCoverageScan.ts:105` disqualifies any workflow carrying `paths:` **or** `paths-ignore:`. A coarse-filtered job would leave all 28 real branches non-qualifying and still allowlisted — the guard green, the specs effectively dark. Ratified precedent: `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md:128`.
+`tests/ci/_workflowCoverageScan.ts:105` disqualifies any workflow carrying `paths:` **or** `paths-ignore:`. A coarse-filtered job would leave all 27 remaining real branches non-qualifying and still allowlisted — the guard green, the specs effectively dark. Ratified precedent: `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md:128`.
 
 Cost: one ~5 min DB-free job on every PR, replacing six jobs that each pay the same setup.
 
@@ -176,7 +182,7 @@ The `pnpm test:e2e:*` scripts are **kept**: three shipped plan docs cite them as
 
 This check is **total**: the branch list is finite and each entry either resolves or does not. That is the entire guard. Detecting *unregistered* self-contained specs is descoped (§10.3) — it could not be given a sound definition, and a guard that detects only what it happens to recognize is worse than an honest absence.
 
-The 28 allowlist rows are deleted in the same commit as the retirements, or the shadowing assertion fires against an intermediate state.
+The 27 allowlist rows are deleted in the same commit as the retirements, or the shadowing assertion fires against an intermediate state.
 
 ---
 
@@ -249,7 +255,7 @@ Two rotted assertions:
 | --- | --- | --- |
 | tests/e2e/\_metaLiveEntryToolchain.test.ts | **created** — no file names a toolchain binary; only the helper imports `esbuild`; no referenced package script names one | PR1 |
 | Tailwind version-parity test | **created** — resolved CLI and `tailwindcss` agree on major and minor | PR1 |
-| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **extended** — every `testMatch` branch resolves; allowlist shrinks by 28 rows to 59 | PR2 |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **extended** — every `testMatch` branch resolves; allowlist shrinks by 27 rows to 60 | PR2 |
 | `tests/cross-cutting/pg-cron-coverage.test.ts` | **extended** — CI-hard `psql` requirement, non-zero live-test count | PR3 |
 
 Not touched, with reason: `tests/log/_auditableMutations.ts` (no mutation surface), `tests/auth/_metaInfraContract.test.ts` (no Supabase call boundary), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no lock path).
@@ -259,7 +265,7 @@ Not touched, with reason: `tests/log/_auditableMutations.ts` (no mutation surfac
 ## §8 Acceptance criteria
 
 - **AC-1** The whole standalone config runs green in CI, unfiltered, on every PR; `resolve-label-layout` goes red → green; `packlist-rescan-recovery` is out of the config with a backlog entry.
-- **AC-2** All **six** retired workflows are gone and every spec they ran is covered by the new job; `_metaE2eWorkflowCoverage` passes with 28 fewer allowlist rows (59 remaining) and no shadowing row.
+- **AC-2** All **six** retired workflows are gone and every spec they ran is covered by the new job; `_metaE2eWorkflowCoverage` passes with 27 fewer allowlist rows (60 remaining) and no shadowing row.
 - **AC-3** The toolchain guard is red against `main` (33 sites) and green after migration; a recorded mutation turns the `testMatch`-branch guard red.
 - **AC-4** `pg-cron-coverage` executes in `unit-suite-db` with a non-zero live-DB test count, and an `x-audits.yml` job runs it against validation.
 - **AC-5** Under `CI`, an unreachable `psql` fails the job rather than skipping.
