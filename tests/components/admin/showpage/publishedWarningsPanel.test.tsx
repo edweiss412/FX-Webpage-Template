@@ -231,7 +231,76 @@ describe("the four body-empty states", () => {
     // passed with incorrect copy visible.
     const body = panelBody();
     const heading = body.querySelector("h3, h4");
-    const headingRow = heading?.parentElement ?? null;
+    // The chrome HEADER BLOCK, not the heading's parent. Those were the same
+    // element until the §3.1 header rebuild (spec 2026-07-25) split the header
+    // into two lines: the heading's parent is now the centred name+count GROUP,
+    // and the status pill sits on a sibling line one level up. Anchoring on the
+    // heading's parent therefore stopped excluding the pill, and "Needs a look"
+    // started reading as stray panel copy in three states.
+    //
+    // Anchored on the icon chip — the header row's first child in every state —
+    // then up one to the block that holds both lines. The containment assertion
+    // below is what keeps this honest: if the structure moves again, this fails
+    // loudly instead of silently excluding the wrong subtree and making the
+    // whole stray-copy scan vacuous.
+    const iconChip = body.querySelector('span[aria-hidden="true"]');
+    const headingRow = iconChip?.parentElement?.parentElement ?? null;
+    if (heading !== null) {
+      expect(
+        headingRow !== null && headingRow.contains(heading),
+        "the chrome header block was located and contains the section heading —" +
+          " otherwise this scan excludes the wrong subtree and proves nothing",
+      ).toBe(true);
+      // ...and is not the body ITSELF. An anchor that walked up one level too far
+      // would satisfy the containment check above while excluding every text node
+      // on the surface, turning the whole scan green and vacuous.
+      expect(headingRow, "the header block is a subtree of the body, not the body").not.toBe(body);
+      // ...and is not a PROPER DESCENDANT that happens to span the body either.
+      // Review round 1: with `body > wrapper > {headerLine, stray guidance}`, the
+      // icon's grandparent is `wrapper` — it contains the heading and is not the
+      // body, so both guards above pass while the exclusion swallows the stray
+      // guidance. The block must therefore contain the header and NOTHING that
+      // belongs to the body's own content slots.
+      // Narrowed once, so the two loops below need no repeated non-null assertion.
+      // `headingRow` is HTMLElement | null by construction (the icon may be absent),
+      // and the containment assertion above does not narrow it for tsc.
+      const block: HTMLElement = headingRow as HTMLElement;
+      // EVERY subtree the walker below skips, not just the three empty-copy slots.
+      // Review round 2: the notes group, the warning controls, the ignored-warnings
+      // disclosure and the help subtrees are all skipped later, so if the located
+      // header block expanded to contain one of them PLUS stray legacy guidance, the
+      // guard passed and the skip suppressed the stray text from inspection. Kept in
+      // lockstep with the skip list in the walk — anything skipped there must be
+      // outside the excluded block here.
+      const mustBeOutside: Array<{ what: string; el: Element | null }> = [
+        ...[ELSEWHERE_TESTID, CLEAN_TESTID, EMPTY_TESTID].map((slot) => ({
+          what: `${slot} slot`,
+          el: body.querySelector(`[data-testid="${slot}"]`),
+        })),
+        { what: "a listed warning row", el: body.querySelector("li[data-warning-index]") },
+        {
+          what: "the notes group",
+          el: body.querySelector('[data-testid="sheet-warnings-notes-group"]'),
+        },
+        {
+          what: "the warning controls",
+          el: body.querySelector('[data-testid^="section-warning-controls-"]'),
+        },
+        {
+          what: "the ignored-warnings disclosure",
+          el: body.querySelector('[data-testid^="section-ignored-warnings-"]'),
+        },
+        { what: "a help subtree", el: body.querySelector('[data-testid*="-help-"]') },
+      ];
+      for (const { what, el } of mustBeOutside) {
+        if (el === null) continue;
+        expect(
+          block.contains(el),
+          `the excluded header block must not contain ${what} — an anchor that` +
+            " swallows body content makes this scan vacuous",
+        ).toBe(false);
+      }
+    }
 
     // TEXT NODES, not leaf elements (round 3): a direct text node inside an
     // element that also has element children belongs to no leaf, so
@@ -244,9 +313,9 @@ describe("the four body-empty states", () => {
       if (text.length === 0) continue;
       const parent = n.parentElement;
       if (parent === null) continue;
-      // The heading ROW (icon, title, count, pill, "In sheet" link) is chrome,
-      // not body copy, and has its own tests. Located from the heading element
-      // rather than by a testid, because the row carries none.
+      // The chrome header BLOCK (icon, title, count, sheet link on line one; the
+      // status pill on line two) is chrome, not body copy, and has its own tests.
+      // Located structurally rather than by a testid, because it carries none.
       if (headingRow !== null && headingRow.contains(parent)) continue;
       // Each listed row renders its own guidance inside its `<li>`; that is the
       // row's content, not stray panel copy, and including it would make the

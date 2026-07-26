@@ -141,9 +141,11 @@ export function AdminNav({
             })}
         </div>
 
-        <div className="flex-1" />
-
-        <div className="flex items-center gap-2">
+        {/* `ml-auto` on the action cluster, NOT a childless `flex-1` pusher: a
+            spacer is a flex ITEM, so a crowded row spends `gap-3` on both sides of
+            something invisible. Not `justify-between` — a lone child would sit at
+            the START edge (components/admin/CompactAlertCard.tsx:138). */}
+        <div className="ml-auto flex items-center gap-2">
           {/* This `relative` sub-cluster is the positioning context for
               NotifBell's desktop anchored dropdown (BellPanel's `sm:absolute
               sm:right-0 sm:top-[calc(100%+10px)]`). The bell is the RIGHTMOST

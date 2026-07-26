@@ -64,9 +64,9 @@ export function OnboardingTopBar({
         </span>
       </div>
 
-      <div className="flex-1" />
-
-      <div className="flex items-center gap-3">
+      {/* `ml-auto` on the action cluster, NOT a childless `flex-1` pusher — see
+          AdminNav for the reasoning; same row rhythm, same fix. */}
+      <div className="ml-auto flex items-center gap-3">
         {/* No <NotifBell> during first-run onboarding (owner decision 2026-07-06):
             when the full nav tabs are suppressed the notification bell is too —
             the setup wizard owns the screen and its alerts surface once the admin
