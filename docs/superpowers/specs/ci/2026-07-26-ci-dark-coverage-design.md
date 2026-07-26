@@ -432,6 +432,13 @@ This is the same shape as the `#603` finding recorded in `feedback_guard_machine
 
 `ENV_BOUND_EXCLUDES` is **not** an unconditional project exclude. It is applied to the serial project's `exclude` only when `VITEST_EXCLUDE_ENV_BOUND=1`, which is set in exactly two places, both in `.github/workflows/unit-suite.yml` (`.github/workflows/unit-suite.yml:122` and `.github/workflows/unit-suite.yml:152` — the DB and no-DB legs). The array's own comment explains why a project-level exclude is required at all: vitest **ignores the CLI `--exclude` flag** when a project already defines `exclude`, a bug that silently broke the first run of the project split.
 
+Measured both postures directly, same command, only the env differing:
+
+| `VITEST_EXCLUDE_ENV_BOUND` | Result |
+| --- | --- |
+| unset (developer machine) | 1 file collected, **8 tests pass** |
+| `1` (what `unit-suite.yml` sets) | **`No test files found, exiting with code 1`** |
+
 Two consequences the earlier draft glossed:
 
 - **Locally the suite already runs** as part of the serial project; it is dark in CI only. The §1 framing "nothing runs it" is true of CI and false of a developer machine — which is precisely why it rotted unnoticed: it passes for anyone who runs the suite locally.
