@@ -995,3 +995,47 @@ A control asserted `<input type="text" />` beside a hint is acceptable. It is no
 element contributes no accessible name. Running tally of my own assertions this reviewer has caught
 encoding belief rather than platform behaviour: `open=""` (R23), `{c && null}` (R23),
 `<input type="text" />` (R25). Every time the fix was the test, not the code.
+
+## R26 — an infra fault, and what measuring found while it re-ran
+
+R26's first dispatch returned `no_verdict`: three attempts, all killed, two on `stall` and one on
+`attempt_timeout`. Per the project's own note that is an INFRA fault and never "the reviewer found
+nothing". Root cause was codex-guard's default `STALL_SECS` of 420 — seven minutes without output on
+a review this large is not unusual. Re-dispatched with `--stall-secs 900`.
+
+### Measuring beat reasoning twice more, and confirmed it once
+
+The standing lesson from R23 is to measure claims about accessible names rather than reason about
+them. Applied to the void-element branch of the destination rule, it corrected the rule in BOTH
+directions:
+
+| Shape | Computed name | The rule had it as |
+| --- | --- | --- |
+| `<span title="Go" />` | `(opens in a new tab)` | a destination — **fail-open** |
+| `<input type="text" value="Go" />` | `Go (opens in a new tab)` | no-name — **false positive on real markup** |
+
+`title` is only a name FALLBACK, and an anchor with content already has a name source, so it
+contributes nothing there. `value` genuinely does. Both mutation-proven in opposite directions.
+
+Applied to the `hidden` / `aria-hidden` VALUE rules — which had carried prose justifications from
+R1 and R2 for twenty-five rounds without ever being measured — it **confirmed** all six. That is
+worth recording precisely because the previous three checks corrected me: the R1/R2 reasoning was
+sound.
+
+Those six are now pinned anyway, for the asymmetry: `aria-hidden="false"` is VISIBLE while
+`hidden="false"` HIDES, because a non-empty string is truthy for a native boolean attribute and React
+renders `hidden=""`. The two lines look collapsible and are not.
+
+**Running tally for the measure-vs-reason question:** four corrections (`open=""`, `{c && null}`,
+`title`, `value`), one confirmation (the six value rules), and one documented capability gap (the
+harness models neither `inert` nor a closed `<details>`, so the guard is deliberately stricter there).
+
+### A flake I had twice dismissed as noise
+
+Two full-suite runs reported `1 failed | 232 passed`; I re-ran, saw green, and blamed a race with my
+own prettier write. It was the behavioural casing sweep timing out: 7 values × 6 placements × 3
+spellings × ~100 attributes had grown to ~6.2s against vitest's 5s default. The failure text said
+`Test timed out in 5000ms` the first time — three lines below the count I was grepping.
+
+A green re-run narrows the cause to something timing-dependent, which is exactly the set containing
+real defects. It is not a diagnosis. Explicit 60s timeout, three consecutive clean runs.
