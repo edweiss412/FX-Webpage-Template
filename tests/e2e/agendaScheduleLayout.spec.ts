@@ -68,30 +68,33 @@ function agendaHtml(): string {
       <span aria-hidden="true" class="size-4"></span>View agenda<span class="text-text-subtle">· PCF</span>
     </button>
   </div>
-  <div data-testid="agenda-schedule" class="flex min-w-0 flex-col gap-4">
-    <div class="flex min-w-0 flex-col gap-2">
-      <h3 class="flex items-baseline gap-1.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle"><span>Tuesday</span><span class="font-normal normal-case tabular-nums text-text-subtle">2026-05-14</span></h3>
-      <ul class="flex flex-col gap-2">
-        <li data-testid="agenda-session" data-session-kind="normal" class="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3">
-          <span class="shrink-0 text-sm tabular-nums text-text-subtle">9:00 AM – 9:40 AM</span>
-          <div class="flex min-w-0 flex-col gap-1">
-            <p class="min-w-0 text-sm text-text-strong wrap-break-word">Welcome<span class="text-text-subtle"> · Mabel 1</span></p>
-          </div>
-        </li>
-        <li data-testid="agenda-session" data-session-kind="long" class="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3">
-          <span class="shrink-0 text-sm tabular-nums text-text-subtle">10:00 AM – 11:00 AM</span>
-          <div class="flex min-w-0 flex-col gap-1">
-            <p class="min-w-0 text-sm text-text-strong wrap-break-word">${LONG_TITLE}</p>
-            <span class="inline-flex w-fit items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-xs font-medium text-text-subtle">Adjusted from 12:25 AM</span>
-            <ul class="mt-0.5 flex flex-col gap-0.5 border-l border-border pl-3">
-              <li class="min-w-0 text-sm text-text wrap-break-word"><span class="font-medium text-text-strong">Breakout I</span> · Adapting · Room A</li>
-            </ul>
-          </div>
-        </li>
-      </ul>
-    </div>
-  </div>
+  ${agendaScheduleHtml()}
 </div>`;
+}
+
+/**
+ * The REAL component's markup, rendered OUT OF PROCESS.
+ *
+ * Not inline: Playwright compiles the files it loads with its own JSX factory, so importing the
+ * component here yields Playwright JSX objects and `renderToStaticMarkup` rejects them with
+ * "Objects are not valid as a React child". Measured — that is exactly what the inline version
+ * produced. So this shells out to `_renderAgendaScheduleHtml.ts`, the same way the CSS step
+ * already shells out to the Tailwind CLI, and gets HTML from React's own transform.
+ *
+ * The previous version of this harness hand-transcribed the day markup, and by the time the fold
+ * shipped that copy still described the PRE-FOLD structure — plain divs with an h3, no <details>
+ * at all — while every dimension assertion passed against it. That drift is why the copy is gone.
+ */
+function agendaScheduleHtml(): string {
+  return execFileSync(
+    "pnpm",
+    ["exec", "tsx", join(REPO_ROOT, "tests/e2e/_renderAgendaScheduleHtml.ts")],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      timeout: 120_000,
+    },
+  );
 }
 
 function harnessHtml(cssHref: string): string {
@@ -184,11 +187,31 @@ for (const vw of VIEWPORTS) {
       col.left - TOL,
     );
 
-    // Every session row stays within the column (no horizontal overflow).
-    const sessions = page.getByTestId("agenda-session");
-    const n = await sessions.count();
-    expect(n).toBe(2);
-    for (let i = 0; i < n; i++) {
+    // Every VISIBLE session row stays within the column (no horizontal overflow).
+    //
+    // Scoped to visible ones because the fold hides non-viewer days inside a closed
+    // <details>, and a hidden element legitimately reports an all-zero rect — which this
+    // assertion previously read as "left edge at 0, outside the column". The failure was the
+    // test's assumption that every session is painted, not a layout defect.
+    //
+    // The count assertion below is load-bearing and must stay: a bare `filter(visible)` would
+    // also pass if NOTHING were visible, which is precisely the silent-fold failure this file
+    // exists to catch. The fixture renders one open day with one session, so exactly 1 is
+    // expected, and the folded days' sessions must be absent from the measured set.
+    const allSessions = page.getByTestId("agenda-session");
+    const total = await allSessions.count();
+    expect(total, `the fixture's sessions all exist in the DOM @ ${vw}`).toBe(3);
+    const visible: number[] = [];
+    for (let i = 0; i < total; i += 1) {
+      if (await allSessions.nth(i).isVisible()) visible.push(i);
+    }
+    expect(
+      visible.length,
+      `exactly the open day's sessions are painted @ ${vw} (folded days contribute none)`,
+    ).toBe(2);
+    const sessions = allSessions;
+    const n = visible.length;
+    for (const i of visible) {
       const s = await rectOf(sessions.nth(i));
       expect(s.width, `session ${i} width <= column @ ${vw}`).toBeLessThanOrEqual(col.width + TOL);
       expect(s.right, `session ${i} right within column @ ${vw}`).toBeLessThanOrEqual(
@@ -201,8 +224,15 @@ for (const vw of VIEWPORTS) {
 
     // The 90-char unbreakable title WRAPS rather than overflowing: its row is
     // taller than a normal single-line session, and it never exceeds the column.
-    const normal = await rectOf(page.locator('[data-session-kind="normal"]'));
-    const long = await rectOf(page.locator('[data-session-kind="long"]'));
+    // Selected by ORDER within the open day, not by a `data-session-kind` attribute: that
+    // attribute existed only in the hand-transcribed markup this harness used to serve. The
+    // real component never emitted it, which is one more way the copy had drifted from the
+    // thing it claimed to describe.
+    const openDaySessions = page.locator(
+      '[data-testid="agenda-day-0"] [data-testid="agenda-session"]',
+    );
+    const normal = await rectOf(openDaySessions.nth(0));
+    const long = await rectOf(openDaySessions.nth(1));
     expect(long.width, `long-title session width <= column @ ${vw}`).toBeLessThanOrEqual(
       col.width + TOL,
     );
@@ -220,5 +250,88 @@ for (const vw of VIEWPORTS) {
       overflow.scrollW,
       `no horizontal document overflow @ ${vw} (scrollW ${overflow.scrollW} vs clientW ${overflow.clientW})`,
     ).toBeLessThanOrEqual(overflow.clientW + TOL);
+  });
+}
+
+// ── The fold's own invariants (spec §5.1). These measure the REAL component, which is why
+// the transcription had to go: every assertion below would have passed against a copy that
+// no longer resembled the component.
+for (const vw of VIEWPORTS) {
+  test(`fold: rows fill the column and stay inside it @ ${vw}px (§5.1)`, async ({ page }) => {
+    await page.setViewportSize({ width: vw, height: 900 });
+    await page.goto(baseUrl);
+    await page.waitForSelector('[data-testid="agenda-schedule"]');
+
+    const parent = await page.locator('[data-testid="agenda-schedule"]').evaluate((el) => {
+      const cs = getComputedStyle(el);
+      // CONTENT box: getBoundingClientRect alone is blind to padding.
+      return (
+        el.getBoundingClientRect().width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+      );
+    });
+
+    const rows = page.locator("details[data-testid^='agenda-day-']");
+    const n = await rows.count();
+    expect(n, "every extraction day renders a row").toBe(3);
+
+    for (let i = 0; i < n; i += 1) {
+      const w = await rows.nth(i).evaluate((el) => el.getBoundingClientRect().width);
+      // `w-full` supplies this; `min-w-0` alone would let the flex item shrink to its summary.
+      expect(w, `row ${i} fills the column content width @ ${vw}`).toBeGreaterThanOrEqual(
+        parent - TOL,
+      );
+      expect(w, `row ${i} does not exceed the column @ ${vw}`).toBeLessThanOrEqual(parent + TOL);
+    }
+  });
+
+  test(`fold: summary is a 44px tap target in BOTH states @ ${vw}px`, async ({ page }) => {
+    await page.setViewportSize({ width: vw, height: 900 });
+    await page.goto(baseUrl);
+    await page.waitForSelector('[data-testid="agenda-schedule"]');
+
+    // Row 0 is open (the viewer's), rows 1-2 are folded — so both states are measured. A
+    // summary measured only while open misses where the width pressure actually is.
+    for (const i of [0, 1]) {
+      const h = await page
+        .locator(`[data-testid="agenda-day-summary-${i}"]`)
+        .evaluate((el) => el.getBoundingClientRect().height);
+      expect(h, `summary ${i} clears the 44px floor @ ${vw}`).toBeGreaterThanOrEqual(44 - TOL);
+    }
+  });
+
+  test(`fold: the marker is VISIBLE, not merely present @ ${vw}px`, async ({ page }) => {
+    await page.setViewportSize({ width: vw, height: 900 });
+    await page.goto(baseUrl);
+    await page.waitForSelector('[data-testid="agenda-schedule"]');
+
+    // This is the assertion the jsdom suite cannot make: there, `hidden` on the marker leaves
+    // every test green because no CSS is computed. A zero-width box fails here.
+    const box = await page.locator('[data-testid="agenda-day-marker-0"]').evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { w: r.width, h: r.height, display: getComputedStyle(el).display };
+    });
+    expect(box.display, `marker is not display:none @ ${vw}`).not.toBe("none");
+    expect(box.w, `marker has a non-zero width @ ${vw}`).toBeGreaterThan(0);
+    expect(box.h, `marker has a non-zero height @ ${vw}`).toBeGreaterThan(0);
+
+    // And it is the one thing that must not be squeezed out: the LABEL absorbs the shortfall.
+    const marked = await page
+      .locator('[data-testid="agenda-day-summary-0"]')
+      .evaluate((el) => el.getBoundingClientRect().width);
+    expect(box.w, `marker fits inside its summary @ ${vw}`).toBeLessThan(marked);
+  });
+
+  test(`fold: the native disclosure triangle is suppressed @ ${vw}px`, async ({ page }) => {
+    await page.setViewportSize({ width: vw, height: 900 });
+    await page.goto(baseUrl);
+    await page.waitForSelector('[data-testid="agenda-schedule"]');
+
+    // Its own assertion, not a rider on another behaviour: without the marker-hiding classes
+    // the row ships two glyphs (the UA triangle plus the chevron) and no dimension assertion
+    // would notice.
+    const listStyle = await page
+      .locator('[data-testid="agenda-day-summary-1"]')
+      .evaluate((el) => getComputedStyle(el).listStyleType);
+    expect(listStyle, `summary suppresses the UA marker @ ${vw}`).toBe("none");
   });
 }
