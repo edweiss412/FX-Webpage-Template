@@ -189,6 +189,8 @@ This is not a re-litigation of the descope. What was descoped is the *narrowing 
 
 > A `run:` command matching **exactly** `pnpm exec playwright test --config <path>`, with **no other arguments of any kind**, covers every spec that config's `testMatch` matches. Any deviation — an extra flag, a positional argument, a different verb order — yields **no claim at all**.
 
+The rule changes **only spec extraction**. Every capability check still applies unchanged on top of it: a job or step carrying `if:` or `continue-on-error`, a workflow with a `pull_request.paths` filter, or an exit-suppressed command still yields no coverage even when the command matches the literal exactly (`tests/ci/_workflowCoverageScan.ts:108-123`). Recognition and qualification are separate gates, and this touches the first only.
+
 The workflow's command is written to that literal shape (so the default reporter is used rather than `--reporter=list`), and `configSpecs` is supplied by the meta-test, which imports the config and reads resolved `testMatch` values — proven executable: 10 projects resolve for the default config and 30 specs for the standalone one. Recognizing one exact string cannot be attacked on grammar, because there is no grammar; anything that is not that string is not recognized.
 
 **Prototyped, with negatives** — the positive case alone would repeat the vacuity above:
@@ -212,7 +214,9 @@ Cost: one ~5 min DB-free job on every PR, replacing six jobs that each pay the s
 
 ### §4.3 Retirements
 
-Deleted: `attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignore-eyebrow-e2e.yml`, `hoverhelp-geometry-e2e.yml`, `modal-header-layout-e2e.yml`, `share-link-flash-e2e.yml` — **six**. `phantom-gap-e2e.yml` survives (its other two legs run default-config specs) but loses its standalone leg, which PR #605 grew from one spec to three (`phantomGapHelper.layout`, `section-header-layout.layout`, `pusher-alignment.layout`) — all three subsumed by the whole-config job.
+Deleted: `attention-anchor-e2e.yml`, `attention-pill-focus-e2e.yml`, `bulk-ignore-eyebrow-e2e.yml`, `hoverhelp-geometry-e2e.yml`, `modal-header-layout-e2e.yml`, `share-link-flash-e2e.yml` — **six**.
+
+**Verified mechanically, not assumed:** resolving each of the six workflows' run commands (including through `pnpm` script aliases) yields 9 spec invocations — 1, 1, 1, 1, 4, 1 — and **every one is a member of `standalone.config.ts`'s `testMatch`**. So the whole-config job is a strict superset of what the six provide, and no coverage is lost by deleting them. The check is a script over the live workflow files rather than a reading of them, because "all of these are in the config" is exactly the kind of claim that is true until someone adds a spec. `phantom-gap-e2e.yml` survives (its other two legs run default-config specs) but loses its standalone leg, which PR #605 grew from one spec to three (`phantomGapHelper.layout`, `section-header-layout.layout`, `pusher-alignment.layout`) — all three subsumed by the whole-config job.
 
 **A required-suite test reads one of the deleted workflows.** `tests/ci/attentionPillFocusWorkflow.test.ts` opens `attention-pill-focus-e2e.yml` at module initialization, asserts its path-filter contract, and asserts the spec's `PATH_GATED` allowlist row. Deleting that workflow reddens `unit-suite` — a live required context (§2.5) — regardless of whether the new browser job passes. PR2 therefore deletes that test in the same commit. Its four assertions were read individually rather than dismissed in aggregate:
 
@@ -383,6 +387,27 @@ Today `tests/admin/test-auth-gate.test.ts` runs nowhere and `tests/cross-cutting
 Also filed: the stale "only `quality` is required" comment at `tests/ci/_metaE2eWorkflowCoverage.test.ts:12` (§2.5), a one-line docs fix PR2 records.
 
 ---
+
+## §10a Review record, and an honest gap in it
+
+Five completed cross-model rounds: **46 accepted findings, none disputed** (11 / 10 / 7 / 9 / 9). Round 5 returned BLOCKING and its two blockers were self-inflicted by the descope — the whole-config command being invisible to the scanner, and a guard forbidding its own helper. Both are repaired and the first is measured.
+
+**Round 6 never produced a verdict, and this spec ships without one.** Three consecutive dispatches died as infrastructure faults, not reviews:
+
+| attempt | outcome |
+| --- | --- |
+| r6 | read the whole document, then died. Its last message recorded that the worktree had moved underneath it mid-review (my own commits) and that it was falling back to `git show` |
+| r6b | died ~1 minute in, tree frozen |
+| r6c | died, third consecutive |
+
+Not the reaper — `~/.claude/hooks/.reap-codex-last` logged "gated: 5 live codex tree(s) active; no orphans" with an empty kill log. The box was at **load 11.1 with 10 concurrent Claude sessions** and 4 Codex processes, which is the likelier cause and is also the condition under which `feedback_contended_box_invalidates_perf_measurements` says results stop being trustworthy.
+
+Per the `AGENTS.md` ladder — `no_verdict` is an infrastructure fault and bounded retries do not change escalation policy — round 6 was replaced by an **inlined adversarial pass**, recorded here rather than presented as an approval. It produced two findings, both applied above:
+
+1. The exact-string `--config` rule needed an explicit statement that it changes **spec extraction only**, leaving every capability check (`if:`, `continue-on-error`, path filters, exit suppression) in force. Without that, a reader could conclude the literal match bypasses qualification.
+2. "The six retiring workflows lose no coverage" was an assertion. It is now a script over the live workflow files: 9 spec invocations resolved across the six, every one a member of the standalone config.
+
+**What this does not substitute for:** an independent model attacking the descoped design fresh. The plan for PR1 gets its own cross-model round, and if the box is quieter it will exercise much of the same surface.
 
 ## §11 Risks
 
