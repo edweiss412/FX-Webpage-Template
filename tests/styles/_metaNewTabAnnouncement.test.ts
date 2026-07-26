@@ -3948,6 +3948,10 @@ describe("R6: scanner changes are pinned", () => {
       "aria-hidden={-n}",
       "aria-hidden={n -= 1}",
       "aria-hidden={n++}",
+      // PREFIX increment/decrement too -- the first pin covered only the postfix form, so the prefix
+      // arm of the numeric family survived a mutation.
+      "aria-hidden={++n}",
+      "aria-hidden={--n}",
     ]) {
       expect(many(`Go <span ${attr}><NewTabHint /></span>`), `numeric: ${attr}`).toEqual([]);
     }
