@@ -47,9 +47,10 @@ review rounds (spec carries the citations). Additional plan-time checks:
   `[data-testid="published-show-review-modal"]` visible, control-bar label equality
   (§5 identity guard), THEN quiescence (networkidle + fonts.ready + double-rAF +
   500 ms). Never networkidle alone.
-- **Detach-safety:** the overflow scan + scroll runs as ONE `page.evaluate` over the
-  live DOM (no retained element handles across navigation); the identity guard
-  re-queries the control bar fresh per attempt. No sampler outlives its page.
+- **Detach-safety:** no element handle is retained across evaluates or navigations —
+  the overflow protocol re-identifies its target by scan tag (next bullet), and the
+  identity guard re-queries the control bar fresh per attempt. No sampler outlives
+  its page.
 - **Picker bridge (Node test ↔ browser execution):** Playwright serializes only the
   pageFunction — arguments cannot carry callables — so the picker never crosses into
   the page. Two-evaluate protocol instead: evaluate #1 (self-contained pageFunction)
