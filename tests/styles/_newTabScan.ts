@@ -919,15 +919,41 @@ function findHint(anchor: ts.JsxElement | ts.JsxSelfClosingElement): HintFind {
     // hint was found and counted (review R24 BLOCKING 1). Not descending makes the anchor
     // report "does not announce", which is the fail-closed answer -- the author moves the hint
     // out of the callback or adds a reasoned exemption.
-    if (
-      ts.isArrowFunction(n) ||
-      ts.isFunctionExpression(n) ||
-      ts.isFunctionDeclaration(n) ||
-      ts.isMethodDeclaration(n)
-    ) {
+    // ALLOWLIST OF RENDER POSITIONS -- the same inversion that fixed the main shape rule at R5.
+    // Listing positions that DISCARD a hint is unbounded: R25 supplied `??`, call arguments and
+    // comma, and probing afterwards found six more (an object-literal property, a template
+    // substitution, `void`, `typeof`, `!`, and property access). Enumerating what RENDERS is
+    // closed, because a JSX child expression renders its VALUE and only these forms preserve it.
+    if (ts.isJsxExpression(n)) {
+      if (n.expression) walk(n.expression, nextHidden, nextConds);
       return;
     }
-    ts.forEachChild(n, (c) => walk(c, nextHidden, nextConds));
+    if (ts.isJsxFragment(n)) {
+      n.children.forEach((c) => walk(c, nextHidden, nextConds));
+      return;
+    }
+    if (ts.isJsxElement(n)) {
+      n.children.forEach((c) => walk(c, nextHidden, nextConds));
+      return;
+    }
+    if (
+      ts.isAsExpression(n) ||
+      ts.isSatisfiesExpression(n) ||
+      ts.isNonNullExpression(n) ||
+      ts.isTypeAssertionExpression(n)
+    ) {
+      walk(n.expression, nextHidden, nextConds);
+      return;
+    }
+    // An array renders each element, so every element is a render position.
+    if (ts.isArrayLiteralExpression(n)) {
+      n.elements.forEach((el) => walk(el, nextHidden, nextConds));
+      return;
+    }
+    // Anything else -- a call, an object literal, a template substitution, a unary operator,
+    // property access, a function body -- is NOT a render position. Stopping here means the
+    // hint is not found, and the anchor reports "does not announce", which is fail-closed.
+    return;
   };
   // Seed with the ANCHOR's own hidden state: traversal starting at children
   // missed `<a hidden>...<NewTabHint /></a>` (review R1 HIGH 4).

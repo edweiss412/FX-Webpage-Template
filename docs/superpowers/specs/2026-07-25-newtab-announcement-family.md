@@ -464,6 +464,17 @@ WITH substitutions is not. Anything outside these shapes is reported as
   cannot catch an `inert` or closed-`<details>` regression — only the guard can.** Do not "verify"
   either rule against the harness and conclude the guard is wrong.
 
+  **Hint discovery is an ALLOWLIST of render positions, for the same reason the main shape rule is.**
+  Listing the positions that DISCARD a hint is unbounded — review R25 supplied `??`, a call argument
+  and a comma expression, and probing immediately afterwards found six more (an object-literal
+  property, a template substitution, `void`, `typeof`, `!`, and property access). A JSX child
+  expression renders its VALUE, so the set of forms that PRESERVE that value is closed: the
+  expression itself, parenthesised / `as` / `satisfies` / non-null wrappers, both conditional
+  branches, `&&` / `||` / `??` operands with their conditions, the last operand of a comma, array
+  elements, and JSX children. Anything else is not a render position and fails closed. The risk an
+  allowlist carries is the mirror image — reporting correct code — so six render positions are
+  pinned as must-accept cases alongside the eight must-report ones.
+
   **The literal-operator surface is now CLOSED, which is what acting on this section's own trigger
   looked like.** Rather than wait for another round, the operators were enumerated directly: `&&`,
   `||`, `??`, the conditional, and the comma (via `unparen`). `||` and `??` were both missing and

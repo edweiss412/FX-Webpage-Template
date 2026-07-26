@@ -1724,6 +1724,37 @@ describe("R6: scanner changes are pinned", () => {
     }
   });
 
+  it("R26 hint discovery is an ALLOWLIST of render positions", () => {
+    const a = (e: string): string => `const A=()=><a href="x" target="_blank">Go ${e}</a>;`;
+    // Positions that DISCARD the element. Listing these was unbounded -- R25 supplied three and
+    // probing found six more -- so the walk now enumerates what RENDERS instead, and everything
+    // absent from that list fails closed.
+    for (const src of [
+      a("{({ h: <NewTabHint /> })}"), // object-literal property
+      a("{`${(<NewTabHint />)}`}"), // template substitution stringifies it
+      a("{void <NewTabHint />}"),
+      a("{typeof <NewTabHint />}"),
+      a("{!<NewTabHint />}"),
+      a("{(<NewTabHint />).props}"), // property access
+      a("{drop(<NewTabHint />)}"), // call argument: the callee decides
+      a("{(<NewTabHint />, null)}"), // comma yields the LAST operand
+    ]) {
+      expect(violations(src), `must report: ${src}`).not.toEqual([]);
+    }
+    // Positions that DO render. If the allowlist ever loses one of these the guard starts
+    // reporting correct code, which is the failure mode an allowlist risks.
+    for (const src of [
+      a("<NewTabHint />"),
+      a("{(<NewTabHint />)}"),
+      a("{[<NewTabHint />]}"), // arrays render every element
+      a("{<><NewTabHint /></>}"),
+      a("<span><NewTabHint /></span>"),
+      a("{(<NewTabHint /> as JSX.Element)}"),
+    ]) {
+      expect(violations(src), `must accept: ${src}`).toEqual([]);
+    }
+  });
+
   it("R25 non-render positions: nullish, call argument, comma, and empty name attributes", () => {
     for (const src of [
       // `a ?? b` renders `b` only when `a` is nullish.
