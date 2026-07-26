@@ -166,7 +166,7 @@ Real DB (tests/db/watchLifecycle.db.test.ts):
 
 **Commit:** `fix(drive): renew only the configured watched folder`
 
-## Task 3b: Supersede the prior folder's channels at promotion (AC-6.18)
+## Task 3b: Supersede the prior folder's channels at promotion (AC-6.18, partially)
 
 **Failing tests first** — three, because the obvious single assertion is satisfied by at least two wrong implementations (plan review R1b finding 4):
 
@@ -174,7 +174,7 @@ Real DB (tests/db/watchLifecycle.db.test.ts):
 2. **preservation:** the newly promoted folder's own active row is still `active` — assertion (1) alone passes if every channel is superseded indiscriminately;
 3. **same-transaction:** when the promotion transaction rolls back, the old folder's row is still `active` — assertion (1) alone passes if the supersession commits outside the promotion transaction, which is exactly the atomicity this task claims.
 
-Plus the late-activation pair from spec §3.2.4: a pending old-folder row is orphaned by promotion, and `activatePending` then refuses to promote it (zero rows matched → the existing `activate_failed_after_watch_created` path, not a silent success). This fails today — `promoteSettings` (`app/api/admin/onboarding/finalize-cas/route.ts:779-805`) touches no channel row — and it is the executable form of a shipped acceptance criterion, AC-6.18 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3846`), that has never been satisfied.
+Plus the late-activation pair from spec §3.2.4 (the two mechanisms that DO ship; the third was descoped): a pending old-folder row is orphaned by promotion, and `activatePending` then refuses to promote it (zero rows matched → the existing `activate_failed_after_watch_created` path, not a silent success). This fails today — `promoteSettings` (`app/api/admin/onboarding/finalize-cas/route.ts:779-805`) touches no channel row — and it is the executable form of a shipped acceptance criterion, AC-6.18 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3846`), that has never been satisfied.
 
 **Implementation** — spec §3.2.4, THREE parts, all required (the first two alone leave the race open):
 
