@@ -309,7 +309,7 @@ Verify with the real-browser harness (`tests/e2e/agendaScheduleLayout.spec.ts`) 
 ## 6.2 The real-browser harness this spec depends on is currently DARK
 
 Verified 2026-07-25: `tests/e2e/agendaScheduleLayout.spec.ts` is listed in
-`tests/ci/_metaE2eWorkflowCoverage.test.ts:47` as `UNSEEN` — "not named in any workflow run
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:49` as `UNSEEN` — "not named in any workflow run
 command", under the `BL-E2E-LIFECYCLE-SPECS-CI-DARK` umbrella. **No PR workflow runs it.** So every
 real-browser assertion §5.1, §6.1 and §7 rely on would pass locally, be cited as proof in the
 handoff, and never execute in CI. A dark spec rots: the next upstream change to `ScheduleSection`
@@ -349,32 +349,57 @@ command is the smallest change that satisfies the scanner, since it reads run co
 `LOCAL_ONLY_ALLOWLIST` row; the shadowing assertion fails while a row remains for a covered spec, so
 the deletion is forced rather than optional.
 
-**The target workflow is identified and verified (2026-07-26): `crew-e2e.yml:141`.** Option 1 is a
-one-line append, not a new workflow. That job's run command already names its specs inline:
+**CORRECTED during the plan's pre-draft verification pass — the earlier target was wrong.** An
+earlier revision of this section named `crew-e2e.yml:141` as the wiring target and called it a one-line
+append. That would have produced a step that reports `No tests found` and passes vacuously. Measured:
 
 ```
-run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts
+grep -n agendaScheduleLayout playwright.config.ts          ->  (no match)
+grep -n agendaScheduleLayout tests/e2e/standalone.config.ts ->  36: testMatch: /(… |agendaScheduleLayout| …)\.spec\.ts/
 ```
 
-It satisfies all four scanner constraints as it stands: the exit code is not suppressed, the run step
-carries no `if:` / `continue-on-error` (the only `if:` in the file is the `if: failure()` trace upload
-at `.github/workflows/crew-e2e.yml:143`, which the scanner's header explicitly exempts), and the workflow has NO `paths:` key so it
-is not path-gated. It is also already a REQUIRED context on `main`, so a failure there blocks the
-merge rather than merely reporting. Appending `tests/e2e/agendaScheduleLayout.spec.ts` to `.github/workflows/crew-e2e.yml:141` and
-deleting the spec's `LOCAL_ONLY_ALLOWLIST` row is the whole change.
+`agendaScheduleLayout.spec.ts` is matched **only** by `tests/e2e/standalone.config.ts`, never by the
+default `playwright.config.ts` under any project — `crew-e2e.yml:141` runs
+`--project=mobile-safari --project=desktop-chromium` under the DEFAULT config, so the appended path
+would match zero tests. The root `BACKLOG.md` at line 670 documents exactly this trap: *"`pnpm exec playwright test
+tests/e2e/<one>.spec.ts` reports `No tests found` (the failure looks like a bad path, not a missing
+project)"*. This spec is a named instance of `BL-STANDALONE-CONFIG-CI-DARK` (root `BACKLOG.md`, line 666), not of
+the `BL-E2E-LIFECYCLE-SPECS-CI-DARK` umbrella the paragraph above cites.
 
-Two things to carry into the plan rather than discover during it: the spec runs under BOTH projects
-listed there (`mobile-safari` and `desktop-chromium`), which is more coverage than the 320px/390px
-assertions strictly need but is the file's existing convention; and adding a spec to this job extends
-the critical path of a required context, so the assertions should be tight rather than exploratory.
+It also does not WANT that job. Its own header (`tests/e2e/agendaScheduleLayout.spec.ts:11-22`) says
+"HARNESS (standalone, no app boot)": it compiles the real token CSS from `app/globals.css` via the
+Tailwind CLI and writes a static harness HTML file. `crew-e2e.yml` boots a seeded Supabase plus the app on
+:3000, none of which this spec uses.
 
-Recommendation: option 1. The plan-wide layout-dimensions rule exists because jsdom computes no
-layout, and a layout assertion nothing runs provides exactly as much protection as no assertion.
-The cost is one workflow edit; the cost of option 2 is a guarantee that reads stronger than it is.
+**The correct target is the standalone-config job**, and the precedent is exact —
+`.github/workflows/modal-header-layout-e2e.yml`, whose header comment at `.github/workflows/modal-header-layout-e2e.yml:27-34` records this same
+lesson ("the specs below live in tests/e2e/standalone.config.ts, which NO workflow invoked … they were
+runnable ONLY by a developer who already knew to pass `--config`"). It runs:
 
-Note the honesty caveat carried from the meta-test's own header: "covered" means the spec RUNS AND
-REPORTS on every PR. Branch protection requires only the `quality` context, so even a wired spec
-does not GitHub-block a merge — the ship pipeline's all-green gate is the enforcement.
+```
+- name: Run modal-header standalone layout specs (no webServer)
+  run: pnpm test:e2e:modal-header
+```
+
+and `package.json:52` expands that to:
+
+```
+playwright test --config=tests/e2e/standalone.config.ts tests/e2e/skeletonBandParity.spec.ts …
+```
+
+That job needs no server and no Supabase and stays ~15s (`modal-header-layout-e2e.yml:36-37`).
+
+**So option 1 becomes:** append `tests/e2e/agendaScheduleLayout.spec.ts` to the
+`test:e2e:modal-header` script's path list (or add a sibling `test:e2e:*` alias invoked by the same
+job), add the spec plus `components/crew/AgendaScheduleBlock.tsx` and
+`components/crew/sections/ScheduleSection.tsx` to that workflow's `paths:` filter, and delete the
+`LOCAL_ONLY_ALLOWLIST` row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:49`. The plan MUST include a
+step that RUNS the chosen command and records that it collected a non-zero test count — a passing step
+that matched nothing is the exact failure this correction exists to prevent.
+
+Note the script name would then be a misnomer (`test:e2e:modal-header` running an agenda spec). The
+plan should either rename it in the same change or add the sibling alias; decide explicitly rather than
+leaving a misleading name.
 
 ## 7. Tests
 
