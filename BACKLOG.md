@@ -451,7 +451,9 @@ Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-h
 
 **Why this half is blocked.** Five adversarial rounds (~55 findings, every checkable claim verified against the live tree) established that backoff cannot be built correctly on the current watch subsystem. The full design work, including round-by-round disposition tables of what was tried and why each attempt failed, is retained at `docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md` (status DEFERRED). Start there rather than re-deriving.
 
-The decisive blocker is `BL-WATCH-EXPIRED-ACTIVE-ROW`: refresh, not reconcile, is the dominant retry path, and it is ungated. A ladder attached to reconcile therefore cannot deliver backoff at all. Fix all four entries below first — including `BL-WATCH-DRIVE-CALL-TIMEOUT`, which is a prerequisite for any timing claim a backoff ladder would make. (This read "the three" while enumerating four; whole-diff R10.)
+**Unblocked 2026-07-26 (still OPEN, and its prescriptions still need re-deriving).** All four prerequisite entries below were fixed by the watch-renewal-lifecycle PR, and the decisive one is cleared: refresh no longer retries an expired folder at all (the reap removes it from the renewal query) and no longer touches a non-configured one, so **reconcile's `!live` branch is now the single retry surface** — precisely where a ladder attaches. Note `BL-WATCH-DRIVE-CALL-TIMEOUT` was NARROWED rather than closed: the credential fetch is still unbounded, so any timing claim a ladder makes is still parameterised by something unenforced. The constants and cadence in the retained design were falsified across five rounds and must be re-derived, not resumed.
+
+The original blocker analysis, for context: refresh, not reconcile, was the dominant retry path, and it was ungated. A ladder attached to reconcile therefore cannot deliver backoff at all. Fix all four entries below first — including `BL-WATCH-DRIVE-CALL-TIMEOUT`, which is a prerequisite for any timing claim a backoff ladder would make. (This read "the three" while enumerating four; whole-diff R10.)
 
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
@@ -473,35 +475,47 @@ So every assertion in it is dead in CI, including the `active=true` gate that ex
 
 ## BL-WATCH-DRIVE-CALL-TIMEOUT — `files.watch` has no timeout, so one stalled call can hold the renewal loop
 
-**Status:** OPEN · **Severity:** low-medium · **Surfaced:** 2026-07-25, whole-diff review round 6
+**Status:** NARROWED 2026-07-26 by the watch-renewal-lifecycle PR — NOT closed. `files.watch` and `channels.stop` now carry `{ timeout: 15s, retry: false }` and the renewal loop has a run budget, but the `GoogleAuth` credential fetch preceding each request is still unbounded, so a stalled credential call can hold the loop exactly as this entry describes. The remaining half is `BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED`. See `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.3.
 
 `getDriveClient()` sets no global timeout and `files.watch` is called with no per-call options, so a stalled Drive request blocks the sequential renewal loop in `refreshWatchSubscriptions` for as long as the platform allows. The master spec claimed "time-boxed (default 15s)" for years; nothing implemented it, and that wording is now corrected rather than left as a false promise.
 
 This is why `2026-07-25-watch-lease-slack-design.md` claims **no** renewal-timing guarantee: every such claim would be parameterised by an execution budget nothing enforces. Adding a real per-call timeout (and a per-row deadline in the loop) is the prerequisite for making any timing guarantee defensible — including the deferred backoff work.
 
-## BL-WATCH-EXPIRED-ACTIVE-ROW — a failed renewal leaves the old channel active forever, retried on every tick
+## BL-WATCH-PROMOTION-ACTIVATION-RACE — a folder switch racing a subscriber can leave one stale active channel
 
-**Status:** OPEN · **Severity:** medium (unbounded futile Drive calls; blocks `BL-WATCH-RECONCILE-BACKOFF`) · **Surfaced:** 2026-07-25, adversarial round 5
+**Status:** OPEN · **Severity:** low (bounded to one lease; no data loss) · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec rounds 2-5
 
-When a renewal fails, `markWatchOrphanedWithTx` marks only the **newly inserted pending** channel orphaned. The old channel keeps `status='active'` past its `expires_at`, and the renewal query (`listRenewalDue`, which selects `status='active'` rows whose remaining life is inside the renewal lead) keeps returning it **forever**; GC only collects `superseded`/`orphaned`, so nothing ever cleans it up. Line numbers are deliberately omitted: this entry outlives any particular revision, and the method was renamed from `listExpiringActive` by the lease-slack PR.
+`promoteSettings` supersedes the prior folder's `active` channels and orphans its `pending` ones inside the settings-swap transaction, and `activatePending` refuses a zero-row activation. That closes every window where the pending row exists when promotion runs. It does NOT close the window where a subscriber reads the old configured folder, promotion commits, and the subscriber then inserts and activates its pending row — nor the one where the subscriber commits its activation while promotion is still uncommitted, since under READ COMMITTED it reads the previous committed folder.
 
-Result: refresh re-attempts that folder on every cron tick indefinitely — currently 24 futile `files.watch` calls/day per stuck folder, and 96/day at any 15-minute cadence. **Repro:** force a renewal failure, then observe `drive_watch_channels` retaining an `active` row with `expires_at` in the past while `DRIVE_WATCH_RENEWAL_FAILED` repeats hourly. **Fix direction:** on renewal failure, transition the old row out of `active` (orphaned or a new `expired` state) so it leaves the renewal query and enters GC — being careful that the partial unique index `drive_watch_channels_one_active_per_folder_idx` and the supersession-in-activation path still hold.
+Three review rounds tried to close this with an `app_settings` predicate inside `activatePending`; each attempt failed for a different reason, the last being that an ordinary subquery cannot see an uncommitted promotion. **A correct fix requires serialization** between the promotion transaction and concurrent subscribers — an advisory lock on the settings row, or `select … for update` — which collides with the ratified "no advisory locks on any watch surface" constraint (that constraint exists because a second holder on this hashkey is the M5-R20 nested-holder class). So this is a lock-topology change and needs its own design.
 
-## BL-WATCH-ALERT-RAISE-NOT-ATOMIC — the alert raise is not in the transaction it appears to be in
+**Bounded, not open-ended:** refresh renews only the configured folder and renews nothing when the folder read fails, so a stale row is never renewed under any branch. It dies at its own `expires_at` within `WATCH_TTL_MS`, is reaped to `expired`, and is GC'd. Worst case is up to 24h of webhook deliveries for a folder nobody watches — the same class that was PERMANENT before that work landed.
 
-**Status:** OPEN · **Severity:** low-medium (a window where channel state and alert state disagree; blocks alert-derived health inference) · **Surfaced:** 2026-07-25, adversarial round 4
+**Amends AC-6.18**, which is otherwise absolute. Design context: `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.2.4.
 
-`PostgresWatchTx.upsertAdminAlert` looks like a transaction-port method but calls the standalone service-role helper (`lib/drive/watch.ts:189-194`), which constructs its own Supabase client and issues an RPC over a **different connection** (`lib/adminAlerts/upsertAdminAlert.ts:47-52`) — outside the surrounding `sql.begin` (`lib/drive/watch.ts:315-318`). The alert can commit while the channel mutation rolls back, or vice versa.
+## BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED — the GoogleAuth token request has no timeout
 
-Nothing shipped depends on that atomicity today, which is why this is not urgent — but any design that infers "is the watch healthy" from alert state versus channel state has a window, which is what round 4 discovered. **Fix direction:** route the alert upsert through the same `sql` transaction (the RPC can be called via the pg connection), or document the non-atomicity at the call site so future designs do not assume it.
+**Status:** OPEN · **Severity:** low · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec round 1
 
-## BL-WATCH-ALERT-FOLDER-SCOPE — the global watch alert cannot describe which folder failed
+`files.watch` and `channels.stop` now carry a per-call `{timeout, retry: false}`, which gaxios enforces by aborting the request. That bounds the API call and NOT the credential fetch that precedes it: `getDriveClient()` hands `google.drive` a `GoogleAuth` instance which performs its own token request, on its own transport, before the API request is issued, where no `MethodOptions` applies. A hung token endpoint therefore still stalls the caller.
 
-**Status:** OPEN · **Severity:** low · **Surfaced:** 2026-07-25, adversarial rounds 3-4
+An outer race was designed and withdrawn — it could not cancel the fetch either, and its rejection let an activation commit after the caller had recorded the row as failed. No supported per-call knob was found for the token path. Any fix likely means configuring the auth client's transport, which affects every Drive caller and so wants its own review.
 
-`WATCH_CHANNEL_ORPHANED` is global — one unresolved row for the whole system (`show_id IS NULL`, `admin_alerts_one_unresolved_idx`, `supabase/migrations/20260501001000_internal_and_admin.sql:279-280`) — and carries no folder identity. Meanwhile `refreshWatchSubscriptions` renews **every** active channel without consulting `app_settings` (`lib/drive/watch.ts:196-210`), and folder promotion supersedes nothing (`app/api/admin/onboarding/finalize-cas/route.ts:779-804`). So after a folder switch, an old folder's renewal failure raises an alert that describes the _current_ folder, and escalation reports the current folder's name for a failure that happened elsewhere.
+**Scope note:** this is the residual named in `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.3.1a, filed rather than left implicit because the withdrawn design's error was claiming to have closed it.
 
-**Fix direction:** either scope the alert per folder (context key plus dedup change) or have refresh skip channels whose folder is not the configured one, letting old-folder channels expire naturally.
+## BL-DRIVE-API-CALLS-UNBOUNDED-APP-ROUTES — eight Drive calls under app/api/ carry no timeout
+
+**Status:** OPEN · **Severity:** low-medium · **Surfaced:** 2026-07-26, watch-renewal-lifecycle plan review
+
+A sweep of every Drive/Sheets API call — `grep -rnE '\.(files|channels|revisions|spreadsheets)\.[a-zA-Z]+\(' lib/ app/ --include='*.ts'`, judged by each call's SECOND argument — found everything under `lib/` already bounded by `{timeout, retry: false}` or a stall guard. Eight calls under `app/api/` are not:
+
+- `app/api/admin/onboarding/scan/route.ts:109`
+- `app/api/asset/agenda/[show]/[id]/route.ts:320`, `:481`, `:524`
+- `app/api/asset/reel/[show]/route.ts:397`, `:527`, `:568`, `:661`
+
+Each can stall its request indefinitely, the same class `BL-WATCH-DRIVE-CALL-TIMEOUT` closed for the watch surface. Out of scope there because they are route-level asset paths with their own budgets and no backlog entry claimed them.
+
+**Method note for whoever picks this up:** sweep by API CALL, not by `getDriveClient()`. A construction-site grep misclassifies at least four already-bounded `lib/` sites, and `rg -E` is `--encoding` in this repo, so use `grep -rnE`.
 
 ## BL-SERVER-ACTION-ORIGIN-GATE — same-origin gate for the crew guest Server Action
 

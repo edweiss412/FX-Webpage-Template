@@ -1,4 +1,5 @@
 import type { drive_v3 } from "googleapis";
+import { driveErrorStatus as driveErrorStatusShape } from "@/lib/drive/errorStatus";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import {
   synthesizeMarkdownFromXlsx,
@@ -190,11 +191,11 @@ export function driveErrorStatus(error: unknown): number | null {
     return 504;
   }
   // gaxios / googleapis error shapes: response.status, status, or numeric code.
-  const candidate =
-    (error as { response?: { status?: unknown } })?.response?.status ??
-    (error as { status?: unknown })?.status ??
-    (error as { code?: unknown })?.code;
-  if (typeof candidate === "number") return candidate;
+  // DELEGATED to the leaf module so there is one implementation, not two — the
+  // watch path imports the leaf directly to avoid pulling `xlsx` in through
+  // this file (whole-diff R2 finding 5).
+  const shape = driveErrorStatusShape(error);
+  if (shape !== null) return shape;
 
   // undici double-wrap: gaxios 7 uses native fetch, which throws a bare
   // `TypeError: fetch failed` whose OWN `.code` is undefined — the real socket

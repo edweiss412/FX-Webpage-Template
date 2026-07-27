@@ -575,4 +575,29 @@ describe("fetchDriveConnectionHealth", () => {
     };
     expect(await fetchDriveConnectionHealth()).toEqual({ kind: "infra_error" });
   });
+
+  it("an `expired` row reports watch_expired, NOT watch_inactive", async () => {
+    sbMock.watchRow = {
+      status: "expired",
+      expires_at: new Date(NOW_MS - 3_600_000).toISOString(),
+      activated_at: new Date(NOW_MS - 90_000_000).toISOString(),
+    };
+    sbMock.counts = { active: 2, stale_severe: 0, stale_moderate: 0 };
+    const r = await fetchDriveConnectionHealth();
+    expect(r).toMatchObject({ health: "warn", reason: "watch_expired" });
+  });
+
+  it("an `orphaned` row still reports watch_inactive", async () => {
+    // The other side of the same branch: a fix that routed ALL non-active
+    // statuses to watch_expired would pass the row above and break every
+    // other status.
+    sbMock.watchRow = {
+      status: "orphaned",
+      expires_at: null,
+      activated_at: new Date(NOW_MS - 3_600_000).toISOString(),
+    };
+    sbMock.counts = { active: 2, stale_severe: 0, stale_moderate: 0 };
+    const r = await fetchDriveConnectionHealth();
+    expect(r).toMatchObject({ health: "warn", reason: "watch_inactive" });
+  });
 });
