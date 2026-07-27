@@ -21,6 +21,11 @@
  *      with no neighbouring box;
  *   4. the anchor vertically centred in the floor.
  * The rect-intersection e2e assertions pin these per site.
+ * ZOOM BOUND (audit P3, accepted): the overlay reaches are rem-scaled while
+ * --spacing-tap-min is px, so at ~200% text-only zoom the overlay outgrows the
+ * floor and containment holds only near the default root size. px-pinning the
+ * insets would break DESIGN.md §10's tokenized-scale discipline; recorded
+ * rather than traded.
  *
  * Colour: `text-text` at rest — `text-text-subtle` is banned for action
  * targets (DESIGN.md §1.1/§1.2) — lifting to `text-text-strong` plus the house
@@ -53,13 +58,20 @@ type SheetIconLinkProps = {
   className?: string;
 };
 
-const RING_OFFSET = {
-  bg: "focus-visible:ring-offset-bg",
-  surface: "focus-visible:ring-offset-surface",
+/** Backdrop-matched skin: the container-matched focus-ring offset PLUS the
+ *  press/hover wash, one REAL neutral step away from that backdrop (audit P2:
+ *  surface-sunken over bg-bg measures 1.03:1 in dark — invisible — so the bg
+ *  site steps UP to surface instead; no `dark:` variant exists in this repo,
+ *  so the wash is one token per backdrop, both themes). Full literals per
+ *  branch — the Tailwind JIT must see complete class names. */
+const BACKDROP_SKIN = {
+  bg: "focus-visible:ring-offset-bg hover:bg-surface active:bg-surface",
+  surface:
+    "focus-visible:ring-offset-surface hover:bg-surface-sunken active:bg-surface-sunken",
 } satisfies Record<SheetIconLinkProps["ringOffset"], string>;
 
 const BASE_CLASSES =
-  "relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text transition-colors duration-fast before:absolute before:-inset-y-3 before:-left-2.5 before:-right-3.5 before:content-[''] hover:text-text-strong active:text-text-strong hover:bg-surface-sunken active:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+  "relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text transition-colors duration-fast before:absolute before:-inset-y-3 before:-left-2.5 before:-right-3.5 before:content-[''] hover:text-text-strong active:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
 
 export function SheetIconLink({
   href,
@@ -79,7 +91,7 @@ export function SheetIconLink({
       target="_blank"
       rel="noopener noreferrer"
       aria-label={ariaLabel}
-      className={`${BASE_CLASSES} ${RING_OFFSET[ringOffset]} ${className ?? ""}`.trim()}
+      className={`${BASE_CLASSES} ${BACKDROP_SKIN[ringOffset]} ${className ?? ""}`.trim()}
     >
       <ExternalLink aria-hidden="true" className="size-4" />
     </a>

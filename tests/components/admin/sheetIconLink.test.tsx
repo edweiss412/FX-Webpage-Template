@@ -43,8 +43,6 @@ const BASE_TOKENS = [
   "before:content-['']",
   "hover:text-text-strong",
   "active:text-text-strong",
-  "hover:bg-surface-sunken",
-  "active:bg-surface-sunken",
   "focus-visible:outline-none",
   "focus-visible:ring-2",
   "focus-visible:ring-focus-ring",
@@ -113,28 +111,43 @@ describe("SheetIconLink hardening + passthrough", () => {
   });
 });
 
+/** Backdrop-matched variant literals (audit P2: bg-surface-sunken over bg-bg
+ *  measures 1.03:1 dark — invisible; each backdrop's wash is a token one REAL
+ *  step away from itself, alongside its container-matched ring offset. The
+ *  repo defines no `dark:` variant, so per-theme splits are impossible —
+ *  bg-surface is the bg-site wash that steps up in dark, where the defect
+ *  was measured). */
+const BG_VARIANT_TOKENS = [
+  "focus-visible:ring-offset-bg",
+  "hover:bg-surface",
+  "active:bg-surface",
+];
+const SURFACE_VARIANT_TOKENS = [
+  "focus-visible:ring-offset-surface",
+  "hover:bg-surface-sunken",
+  "active:bg-surface-sunken",
+];
+
 describe("SheetIconLink class token set (spec §7.6 set-equality)", () => {
-  it("ringOffset=bg renders EXACTLY base + the bg offset literal", () => {
+  it("ringOffset=bg renders EXACTLY base + the bg variant literals", () => {
     const link = renderLink({ ringOffset: "bg" });
-    expect(tokensOf(link)).toEqual(new Set([...BASE_TOKENS, "focus-visible:ring-offset-bg"]));
+    expect(tokensOf(link)).toEqual(new Set([...BASE_TOKENS, ...BG_VARIANT_TOKENS]));
   });
 
-  it("ringOffset=surface renders EXACTLY base + the surface offset literal", () => {
+  it("ringOffset=surface renders EXACTLY base + the surface variant literals", () => {
     const link = renderLink({ ringOffset: "surface" });
-    expect(tokensOf(link)).toEqual(
-      new Set([...BASE_TOKENS, "focus-visible:ring-offset-surface"]),
-    );
+    expect(tokensOf(link)).toEqual(new Set([...BASE_TOKENS, ...SURFACE_VARIANT_TOKENS]));
   });
 
   it("positional className tokens append, nothing else changes", () => {
     const link = renderLink({ className: "sm:order-1 sm:ml-0.5" });
     expect(tokensOf(link)).toEqual(
-      new Set([...BASE_TOKENS, "focus-visible:ring-offset-bg", "sm:order-1", "sm:ml-0.5"]),
+      new Set([...BASE_TOKENS, ...BG_VARIANT_TOKENS, "sm:order-1", "sm:ml-0.5"]),
     );
   });
 
   it("a runtime null className is inert — no 'null' token, base set intact", () => {
     const link = renderLink({ className: null as unknown as string });
-    expect(tokensOf(link)).toEqual(new Set([...BASE_TOKENS, "focus-visible:ring-offset-bg"]));
+    expect(tokensOf(link)).toEqual(new Set([...BASE_TOKENS, ...BG_VARIANT_TOKENS]));
   });
 });

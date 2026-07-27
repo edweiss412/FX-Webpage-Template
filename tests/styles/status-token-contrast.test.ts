@@ -316,3 +316,19 @@ describe("stacked-band state pill contrast (spec 2026-07-24 §3 R0)", () => {
     });
   }
 });
+
+// SheetIconLink press/hover washes (sheet-icon-link spec §3, impeccable audit
+// P3): the glyph renders `text-text-strong` ON its wash — `bg-surface-sunken`
+// at the surface-backed modal titles, `bg-surface` at the bg-backed section
+// header. Neither pair existed in DESIGN.md §1.2 before this change; pinned
+// here so a token shift can never silently sink the pressed glyph below AA.
+describe("SheetIconLink wash contrast (sheet-icon-link spec §3)", () => {
+  for (const mode of MODES) {
+    for (const wash of ["--color-surface-sunken-runtime", "--color-surface-runtime"] as const) {
+      it(`${mode.name}: text-strong clears >=4.5:1 AA on ${wash}`, () => {
+        const strong = tokenIn(mode.src, "--color-text-strong-runtime");
+        expect(contrast(strong, tokenIn(mode.src, wash))).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      });
+    }
+  }
+});

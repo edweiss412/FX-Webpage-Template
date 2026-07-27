@@ -928,17 +928,20 @@ export function ModalSectionChrome({
           `items-center` on a row; the parent section stays a column and `w-full`
           keeps carrying the row's width.) */}
       <div
-        className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:gap-2.5${sub ? "" : " sm:min-h-tap-min"}`}
+        className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:gap-2.5${sub && sheetHref === null ? "" : " sm:min-h-tap-min"}`}
       >
         {/* The 44px floors are TOP-LEVEL only: they exist to contain the corner
             link's overlay vertically (SheetIconLink consuming-context rule 1),
             and a sub-block (Diagrams) never carries a link — an unconditional
             floor gave it a peer-section footprint that defeated the size-6 /
             text-sm subordination (sheet-icon-link spec §1.8, amending
-            wide-inline §2.4 to top-level rows). If a sub-block ever GAINS a
-            link, its floor must return with it. */}
+            wide-inline §2.4 to top-level rows). Keyed on LINK PRESENCE, not on
+            `sub` alone (audit P2): a future sub-block that gains a sheetHref
+            gets its floor back automatically — the floor is SheetIconLink's
+            consuming-context requirement 1, and must never detach from the
+            link it contains. */}
         <div
-          className={`flex w-full items-center gap-2.5 sm:contents${sub ? "" : " min-h-tap-min"}`}
+          className={`flex w-full items-center gap-2.5 sm:contents${sub && sheetHref === null ? "" : " min-h-tap-min"}`}
         >
           <span
             aria-hidden="true"

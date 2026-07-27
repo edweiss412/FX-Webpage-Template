@@ -18,8 +18,10 @@
  * fail. Comments count too (deliberate — a label-quoting comment re-seeds the
  * drift the next time someone copies it; reword instead, see spec §4.3).
  *
- * Filesystem-walked, never a named file list, so a new components/ file cannot
- * dodge the walk.
+ * Filesystem-walked, never a named file list, so a new file cannot dodge the
+ * walk. Walks components/ AND app/ (excluding app/api — no UI there), because
+ * an inline anchor in a page/layout would otherwise slip the set-equality
+ * (audit P3).
  */
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -46,7 +48,11 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
   it("per-file occurrence counts equal the pinned set exactly", () => {
     const root = join(__dirname, "..", "..", "..");
     const found: Record<string, number> = {};
-    for (const file of walk(join(root, "components"))) {
+    const files = [
+      ...walk(join(root, "components")),
+      ...walk(join(root, "app")).filter((f) => !f.includes("/app/api/")),
+    ];
+    for (const file of files) {
       const rel = file.slice(root.length + 1);
       const count = readFileSync(file, "utf8").split(PHRASE).length - 1;
       if (count > 0) found[rel] = count;

@@ -56,6 +56,8 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-text-strong` on `--color-bg`             | 18.4:1 | 16.9:1 | AAA body                                                 |
 | `--color-text-subtle` on `--color-bg`             | 6.5:1  | 6.8:1  | AA body (≥4.5:1)                                         |
 | `--color-text-subtle` on `--color-surface`        | 6.8:1  | 6.4:1  | AA body (≥4.5:1) — subtle eyebrow/meta on the card fill (KeyTimesStrip labels, DayCard meta); never an action target. In light the surface `#FFFFFF` is whiter than bg (contrast rises); in dark the surface `#16171C` is one step lighter than bg (contrast dips just below the bg figure). (D6) |
+| `--color-text-strong` on `--color-surface-sunken` | 17.3:1 | 17.6:1 | AAA body — SheetIconLink pressed/hovered glyph on its `bg-surface-sunken` wash (modal-title sites); pinned by tests/styles/status-token-contrast.test.ts |
+| `--color-text-strong` on `--color-surface`         | 18.4:1 | 15.9:1 | AAA body — SheetIconLink pressed/hovered glyph on its `bg-surface` wash (section-header/bg site; the sunken wash measures ~1.03:1 against dark bg, so the bg site steps UP to surface); same pin |
 | `--color-accent` on `--color-bg` (text-on-bg use) | 2.23:1 | 8.16:1 | decorative-only in light — use `--color-accent-on-bg` for any load-bearing text/glyph |
 | `--color-accent-on-bg` on `--color-bg`            | 5.34:1 | 9.39:1 | AA body / AAA body                                       |
 | `--color-accent-text` on `--color-accent`         | 8.23:1 | 8.23:1 | AA body both modes (same pair)                           |
