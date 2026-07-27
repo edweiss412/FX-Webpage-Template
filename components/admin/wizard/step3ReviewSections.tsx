@@ -928,9 +928,18 @@ export function ModalSectionChrome({
           `items-center` on a row; the parent section stays a column and `w-full`
           keeps carrying the row's width.) */}
       <div
-        className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5 sm:min-h-tap-min sm:flex-row sm:items-center sm:gap-2.5`}
+        className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:gap-2.5${sub ? "" : " sm:min-h-tap-min"}`}
       >
-        <div className="flex w-full min-h-tap-min items-center gap-2.5 sm:contents">
+        {/* The 44px floors are TOP-LEVEL only: they exist to contain the corner
+            link's overlay vertically (SheetIconLink consuming-context rule 1),
+            and a sub-block (Diagrams) never carries a link — an unconditional
+            floor gave it a peer-section footprint that defeated the size-6 /
+            text-sm subordination (sheet-icon-link spec §1.8, amending
+            wide-inline §2.4 to top-level rows). If a sub-block ever GAINS a
+            link, its floor must return with it. */}
+        <div
+          className={`flex w-full items-center gap-2.5 sm:contents${sub ? "" : " min-h-tap-min"}`}
+        >
           <span
             aria-hidden="true"
             className={`grid ${sub ? "size-6" : "size-7"} shrink-0 place-items-center rounded-sm ${

@@ -465,9 +465,15 @@ for (const spec of MATRIX) {
       expect(m.lines, `${spec.cell} @ ${viewport}: the section name occupies ONE text line`).toBe(
         1,
       );
+      // Sub-blocks (level 4 — the Diagrams row) carry NO tap floor: they never
+      // render a link, so 44px bought nothing and defeated the deliberate
+      // size-6/text-sm subordination. Natural height, bounded below by the 24px
+      // icon chip so a collapsed row cannot pass (sheet-icon-link spec §1.8/§7.9,
+      // amending wide-inline §2.4's "44px regardless of pill" to TOP-LEVEL rows).
+      const isSub = spec.level === 4;
       if (WIDE_VIEWPORTS.has(viewport)) {
         // sm+: the line-1 wrapper flattens (display: contents) — boxless is the
-        // positive statement of the mode; the 44px row belongs to `outer`,
+        // positive statement of the mode; the row height belongs to `outer`,
         // REGARDLESS of pill (2026-07-26 spec §4.2 rows D/E).
         expect(m.headerLineWidth, `${spec.cell} @ ${viewport}: headerLine is boxless at sm+`).toBe(
           0,
@@ -475,10 +481,30 @@ for (const spec of MATRIX) {
         expect(m.headerLineHeight, `${spec.cell} @ ${viewport}: headerLine is boxless at sm+`).toBe(
           0,
         );
-        expect(m.outerHeight, `${spec.cell} @ ${viewport}: one 44px row, pill inline`).toBeCloseTo(
-          HEADER_LINE_PX,
-          0,
-        );
+        if (isSub) {
+          expect(
+            m.outerHeight,
+            `${spec.cell} @ ${viewport}: sub-block row is floorless (< 44px)`,
+          ).toBeLessThan(HEADER_LINE_PX);
+          expect(
+            m.outerHeight,
+            `${spec.cell} @ ${viewport}: sub-block row still holds its 24px chip`,
+          ).toBeGreaterThanOrEqual(24);
+        } else {
+          expect(
+            m.outerHeight,
+            `${spec.cell} @ ${viewport}: one 44px row, pill inline`,
+          ).toBeCloseTo(HEADER_LINE_PX, 0);
+        }
+      } else if (isSub) {
+        expect(
+          m.headerLineHeight,
+          `${spec.cell} @ ${viewport}: sub-block LINE is floorless (< 44px)`,
+        ).toBeLessThan(HEADER_LINE_PX);
+        expect(
+          m.headerLineHeight,
+          `${spec.cell} @ ${viewport}: sub-block LINE still holds its 24px chip`,
+        ).toBeGreaterThanOrEqual(24);
       } else {
         expect(
           m.headerLineHeight,
