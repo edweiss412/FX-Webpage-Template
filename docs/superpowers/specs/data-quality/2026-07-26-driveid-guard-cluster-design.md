@@ -27,7 +27,9 @@ Also EDITED (all tracked, cited normally elsewhere):
 | `tests/db/driveFileIdNonblank.db.test.ts` | EDIT — probe registry, 16 new probes, completeness meta-test, CI fail-not-skip |
 | `tests/db/driveIdCoverage.test.ts` | EDIT — DB-free collision negative control for `censusTupleKey` (AC-7) + `resolvePgCronMode` five-case test + source-structural resolver-binding test (§3.1) |
 | `tests/db/validation-schema-parity.test.ts` | EDIT — identity assert; new drive-id audit layer vs validation |
-| `tests/cross-cutting/pg-cron-coverage.test.ts` | EDIT — identity assert when `PG_CRON_COVERAGE_TARGET=validation` |
+| `tests/cross-cutting/pg-cron-coverage.test.ts` | EDIT — identity assert when `PG_CRON_COVERAGE_TARGET=validation`; resolver-routed mode + header comment rewrite |
+| `tests/cross-cutting/pgCronCiVacuity.test.ts` | EDIT — dead-endpoint injection moves to loopback `LOCAL_TEST_DATABASE_URL` (§3.1, R5-1) |
+| `tests/db/_localDbUrlScan.ts` | EDIT (if needed) — extend scan scope to the cross-cutting `LOCAL_TEST_DATABASE_URL` reader (§3.1) |
 | `BACKLOG.md` / `BACKLOG-archive.md` | EDIT — graduate the four entries (archive move, not in-place terminal status) |
 | parent spec §10/§11 | EDIT — status notes pointing here (see §9) |
 
@@ -194,26 +196,40 @@ DSN from the decision entirely:
 - `target === "validation"` → `{ mode: "validation", dbUrl: testDatabaseUrl }` (throwing the
   existing refusals if the DSN or ref env is missing/empty). Every query on this path is
   per-connection identity-guarded, so DSN games are answered by the guard, not by parsing.
-- `target` unset, empty, or `"local"` → `{ mode: "local", dbUrl: LOCAL_LOOPBACK_URL }` — the
-  HARDCODED loopback constant. `TEST_DATABASE_URL` is IGNORED in local mode, so an ambient
-  remote DSN (the `.env.local` dev-box case, or a workflow that dropped the target line but kept
-  the secret) can never be reached unguarded. This also retires the pre-existing exposure where
-  a dev-box run with ambient `TEST_DATABASE_URL` ran pg-cron live assertions against validation
-  while claiming local coverage.
+- `target` unset, empty, or `"local"` → `{ mode: "local", dbUrl:
+  assertLocalDbUrl(localTestDatabaseUrl ?? LOCAL_LOOPBACK_URL) }`. Local mode joins the
+  established local-DB class (R5 finding 1): the override var is `LOCAL_TEST_DATABASE_URL` —
+  loopback-enforced by `assertLocalDbUrl` (`tests/db/_localDbUrl.ts`), governed by the
+  `_metaLocalDbUrlGuard` structural regime, absent from `.env.local`, and already the var every
+  `*.db.test.ts` uses for exactly this purpose. `TEST_DATABASE_URL` is IGNORED in local mode, so
+  an ambient remote DSN (the `.env.local` dev-box case, or a workflow that dropped the target
+  line but kept the secret) can never be reached unguarded — retiring the pre-existing exposure
+  where a dev-box run with ambient `TEST_DATABASE_URL` ran pg-cron live assertions against
+  validation while claiming local coverage. The loopback-only override keeps the executable
+  anti-vacuity controls workable: `tests/cross-cutting/pgCronCiVacuity.test.ts:99` and
+  `tests/cross-cutting/pgCronCiVacuity.test.ts:107` currently inject their dead endpoint via
+  `TEST_DATABASE_URL`; they switch to `LOCAL_TEST_DATABASE_URL` with a dead LOOPBACK endpoint
+  (loopback host, port 1), which `assertLocalDbUrl` admits and nothing answers — both controls
+  keep proving fail/skip, now against the variable local mode actually reads.
 - any OTHER target string (misspelling) → THROW. Unknown mode names never downgrade.
 
 DB-free unit tests cover all five cases; the negative controls are the misspelled-target throw
-and the local-mode result ignoring a supplied remote `testDatabaseUrl`. (Verified: the only
-other pg-cron x-audits job, `x6-pg-cron-pivot` at `.github/workflows/x-audits.yml:244-274`, sets
-neither `PG_CRON_COVERAGE_TARGET` nor `TEST_DATABASE_URL`, so local-mode semantics are unchanged
-for it.)
+and the local-mode result ignoring a supplied remote `testDatabaseUrl` while honoring a loopback
+`localTestDatabaseUrl`. (Verified: the only other pg-cron x-audits job, `x6-pg-cron-pivot` at
+`.github/workflows/x-audits.yml:244-274`, runs four static audit files — not this suite — and
+sets neither env var; the live local consumer is `unit-suite-db`, whose stack listens on the
+loopback default.)
 
 **The resolver is bound to its consumer structurally** (R4 finding 2 — an unused helper passes
 its own unit tests while the fail-open path survives). A source-structural test (same file as the
 resolver's unit tests) asserts `tests/cross-cutting/pg-cron-coverage.test.ts` reads
-`process.env.PG_CRON_COVERAGE_TARGET` and `process.env.TEST_DATABASE_URL` ONLY as arguments to
-`resolvePgCronMode`, and derives `coverageTarget`/`databaseUrl` only from its return value — so
-the module cannot compile a second, unresolved path to either env var without going red. So the binding contract, stated precisely: **every statement whose result any
+`process.env.PG_CRON_COVERAGE_TARGET`, `process.env.TEST_DATABASE_URL`, AND
+`process.env.LOCAL_TEST_DATABASE_URL` ONLY as arguments to `resolvePgCronMode`, and derives
+`coverageTarget`/`databaseUrl` only from its return value — so the module cannot compile a
+second, unresolved path to any of the three env vars without going red. The
+`_metaLocalDbUrlGuard` scan additionally covers the new `LOCAL_TEST_DATABASE_URL` read (its scan
+scope extends to this cross-cutting file if it does not already reach it — a registry/scan-root
+edit in `tests/db/_localDbUrlScan.ts`, listed in §0). So the binding contract, stated precisely: **every statement whose result any
 assertion consumes travels through the guard on its own connection; reachability probes either
 carry the guard with tri-state classification (pg-cron) or are guard-exempt with the
 first-guarded-query backstop (parity `canConnect`).** AC-1 uses this contract.
@@ -475,9 +491,11 @@ Single named definitions later sections reference; no other section restates the
   control); no error thrown by the shared psql runner AND no constructed message in either suite
   contains the DSN (sentinel-password unit test covers both the runner path and the pg-cron
   CI-unreachable message builder); `resolvePgCronMode` decides mode from the TARGET alone —
-  local mode uses the hardcoded loopback URL and ignores `TEST_DATABASE_URL`, misspelled targets
-  throw (five-case DB-free test) — and the source-structural binding test proves pg-cron reads
-  both env vars only through the resolver.
+  local mode reads only the loopback-enforced `LOCAL_TEST_DATABASE_URL` override or the loopback
+  constant, ignores `TEST_DATABASE_URL`, misspelled targets throw (five-case DB-free test) — the
+  source-structural binding test proves pg-cron reads all three env vars only through the
+  resolver, and both pgCronCiVacuity controls still prove fail/skip via the loopback dead
+  endpoint.
 - **AC-2** The validation audit layer runs `auditDriveIdCoverage` over a pinned-tx census of the
   validation DB and reports `[]`; manifest-derived public membership + the `EXPECTED_DEV_CENSUS`
   set-equality both assert; layer skips when `TEST_DATABASE_URL` unset.
@@ -524,6 +542,11 @@ Single named definitions later sections reference; no other section restates the
   §11 table rows likewise. §10 items 3/6 stand.
 - The `BL-PG-CRON-COVERAGE-UNRUN` entry ("this job inherits `BL-VALIDATION-TARGET-BINDING`"):
   update to record the ceiling is closed by §3.1.
+- The pg-cron suite header's mode description
+  (`tests/cross-cutting/pg-cron-coverage.test.ts:27-29` — "runs against whatever
+  TEST_DATABASE_URL points at") and the two vacuity-control comments describing
+  `TEST_DATABASE_URL` injection (`tests/cross-cutting/pgCronCiVacuity.test.ts:95-107` spans
+  both) are rewritten with the resolver-era semantics (R5 finding 2).
 - Two source comments this design makes false are rewritten in the same PR (R3 finding 4):
   `lib/driveIdCoverage/introspect.ts:7-10` ("a regression in THIS query is not self-detecting …
   the control on it is review of these ~15 lines") — rewritten to name the §3.3 dual-source
