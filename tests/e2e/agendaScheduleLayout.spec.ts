@@ -307,6 +307,31 @@ for (const vw of VIEWPORTS) {
       .locator('[data-testid="agenda-day-summary-0"]')
       .evaluate((el) => el.getBoundingClientRect().width);
     expect(box.w, `marker fits inside its summary @ ${vw}`).toBeLessThan(marked);
+
+    // COLLAPSED + MARKED is the higher-pressure state and was previously unmeasured (review R7,
+    // LOW). Spec §587 requires the marker in BOTH states, and this is the harder one: the count
+    // reappears when the row closes, so the summary carries day label + marker + count + chevron
+    // on one line at 320px. Measuring only the open row let the tighter layout go unchecked.
+    await page.locator('[data-testid="agenda-day-summary-0"]').click();
+    await expect(page.locator('[data-testid="agenda-day-0"]')).not.toHaveAttribute("open", "");
+
+    const collapsed = await page.locator('[data-testid="agenda-day-marker-0"]').evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { w: r.width, h: r.height, right: r.right, display: getComputedStyle(el).display };
+    });
+    expect(collapsed.display, `marker survives collapse @ ${vw}`).not.toBe("none");
+    expect(collapsed.w, `marker keeps a box when collapsed @ ${vw}`).toBeGreaterThan(0);
+    expect(collapsed.h, `marker keeps height when collapsed @ ${vw}`).toBeGreaterThan(0);
+
+    // The count is only present in this state, so containment must be re-checked with it there.
+    const sumBox = await page
+      .locator('[data-testid="agenda-day-summary-0"]')
+      .evaluate((el) => el.getBoundingClientRect());
+    expect(
+      collapsed.right,
+      `collapsed marker stays inside its summary @ ${vw} (marker ${collapsed.right} vs summary ${sumBox.right})`,
+    ).toBeLessThanOrEqual(sumBox.right + 0.5);
+    await expect(page.locator('[data-testid="agenda-day-count-0"]')).toBeVisible();
   });
 
   test(`fold: the native disclosure triangle is suppressed @ ${vw}px`, async ({ page }) => {
