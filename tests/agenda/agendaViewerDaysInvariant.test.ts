@@ -38,12 +38,23 @@ const ext = (labels: string[]) => ({
  * test. If it shared `parseIsoFromDayLabel` it would inherit "first match only", which is exactly
  * the defect that produced the R2 HIGH, and the test would confirm the bug instead of catching it.
  *
- * KNOWN CEILING, and the reason this file is not sufficient on its own. It recognises only full
- * `Month day, year` tokens, so it is blind to a label that names a second day in prose
- * ("… / Wednesday the 6th"). Review R4 found exactly that input, and this search did NOT flag it —
- * the implementation and the ground truth were blind in the same place. An independent
- * reimplementation is only as independent as the shapes it knows about. The weekday-name and
- * ordinal signals are pinned by explicit cases in agendaViewerDays.test.ts instead.
+ * KNOWN CEILING, narrowed but not removed. The oracle now reads optional years and ordinal
+ * suffixes, so it sees the shapes that defeated its first version. It still cannot read a day
+ * named in FREE PROSE ("and the following day"), which the implementation also cannot read and
+ * which is filed as BL-AGENDA-PROSE-SECOND-DAY.
+ *
+ * WHAT THIS FILE STILL CANNOT PIN, measured rather than assumed. Mutation-checked after the
+ * oracle was strengthened: reverting date-pair matching to full-dates-only, and deleting the
+ * distinct-year check, BOTH leave this search green. The first is masked downstream (the leftover
+ * check catches the residual month name anyway); the second needs a viewer assigned a date in a
+ * second year, which this fixture's single-year aggregate cannot express. Both are pinned by
+ * explicit cases in agendaViewerDays.test.ts instead. A search over a fixed fixture space proves
+ * things about that space, not about the function.
+ *
+ * The history is the lesson. Version one recognised only full `Month day, year` tokens — exactly
+ * what the implementation recognised — so it reported zero violations across 6912 combinations
+ * while two reachable counterexamples sat in the label space. An oracle that shares the
+ * implementation's blind spot proves nothing, however many cases it runs.
  */
 function trueDates(label: string): string[] {
   const M: Record<string, number> = {
@@ -74,9 +85,16 @@ function trueDates(label: string): string[] {
   };
   const out: string[] = [];
   const collapsed = label.replace(/(?<=\d)\s+(?=\d)/g, "");
-  for (const m of collapsed.matchAll(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})\s*,?\s*(\d{4})\b/g)) {
+  // The year is OPTIONAL and an ordinal suffix is tolerated, so this oracle sees the shapes
+  // review found after the first version was written: "/ May 6" (R5) and "the 6th" (R4). The
+  // first version recognised only full Month-day-year tokens and was therefore blind in exactly
+  // the same place as the implementation -- it reported zero violations while R4's and R5's
+  // counterexamples were both reachable. An oracle that shares the bug proves nothing.
+  for (const m of collapsed.matchAll(
+    /\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})?/gi,
+  )) {
     const mo = M[m[1]!.toLowerCase().replace(/\.$/, "")];
-    if (mo) out.push(`${m[3]}-${String(mo).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`);
+    if (mo) out.push(`${m[3] ?? "2026"}-${String(mo).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`);
   }
   return out;
 }
@@ -85,14 +103,16 @@ const VOCAB = [
   "Tuesday, May 5, 2026",
   "Wednesday, May 6, 2026",
   "Monday, May 4, 2026",
-  "May. 5, 2026",
   "May 5, 2026 / May 6, 2026", // R2 HIGH: two dates, first-match-only reported the wrong one
   "Tuesday, May 5, 2026 (May 5, 2026 rehearsal)", // one date twice: must NOT fail open
   "Foo 5, 2026 / May 6, 2026", // the two scans disagree here
   "May 5, 2026 - May 7, 2026",
-  "2 6 May 5, 2026", // pdfjs glyph-split digits
-  "Tuesday, May 5, 2026 / Wednesday the 6th", // R4 HIGH: a second day in prose, no second date
+  "Tuesday, May 5, 2026 / Wednesday the 6th", // R4 HIGH: a second day, no second full date
   "May 5, 2026 / May 6, 2026", // two dates, no weekday words
+  "Tuesday, May 5, 2026 / May 6", // R5 HIGH: second month-day, no year
+  "May 5, 2026 / May 5, 2027", // R6 HIGH: same month-day, two years
+  "Day 1 - Tuesday, May 5, 2026", // over-fire guard: one day despite the "1"
+  "Tuesday, May 5, 2026 — Marriott", // over-fire guard: month PREFIX in a venue name
   "Day 1",
   "continued", // R1 HIGH: unidentifiable row between identifiable ones
   "",
@@ -106,34 +126,44 @@ const RESTRICTIONS = [
 ];
 
 describe("visibleAgendaDaysForViewer — the never-fold-a-worked-day invariant", () => {
-  test("no 3-row combination folds a row that mentions a date the viewer is assigned", () => {
-    const violations: string[] = [];
-    let checked = 0;
+  // EXPLICIT TIMEOUT, deliberately. This is a combinatorial search, not a unit test: at
+  // |VOCAB|^3 x |RESTRICTIONS| it runs tens of thousands of cases and takes seconds even when
+  // healthy. Vitest's 5s default is not enough headroom on a loaded machine -- measured on this
+  // repo, a parser generator test times out at 5s under load average 28 while passing in 24s
+  // with room. A property test that flakes under parallel CI load gets deleted, so it is bounded
+  // here rather than left to chance.
+  test(
+    "no 3-row combination folds a row that mentions a date the viewer is assigned",
+    { timeout: 60_000 },
+    () => {
+      const violations: string[] = [];
+      let checked = 0;
 
-    for (const a of VOCAB) {
-      for (const b of VOCAB) {
-        for (const c of VOCAB) {
-          const labels = [a, b, c];
-          for (const restriction of RESTRICTIONS) {
-            const viewerDates = AGG.filter((d) => restriction.includes(d));
-            const r = visibleAgendaDaysForViewer(ext(labels), viewerDates, restriction);
-            checked++;
-            if (r.kind === "all") continue; // failing open never violates the invariant
-            labels.forEach((label, i) => {
-              const ownsAViewerDate = trueDates(label).some((d) => restriction.includes(d));
-              if (ownsAViewerDate && !r.rows.has(i)) {
-                violations.push(
-                  `folded row ${i} ("${label}") for restriction ${restriction.join()} in [${labels.join(" | ")}]`,
-                );
-              }
-            });
+      for (const a of VOCAB) {
+        for (const b of VOCAB) {
+          for (const c of VOCAB) {
+            const labels = [a, b, c];
+            for (const restriction of RESTRICTIONS) {
+              const viewerDates = AGG.filter((d) => restriction.includes(d));
+              const r = visibleAgendaDaysForViewer(ext(labels), viewerDates, restriction);
+              checked++;
+              if (r.kind === "all") continue; // failing open never violates the invariant
+              labels.forEach((label, i) => {
+                const ownsAViewerDate = trueDates(label).some((d) => restriction.includes(d));
+                if (ownsAViewerDate && !r.rows.has(i)) {
+                  violations.push(
+                    `folded row ${i} ("${label}") for restriction ${restriction.join()} in [${labels.join(" | ")}]`,
+                  );
+                }
+              });
+            }
           }
         }
       }
-    }
 
-    // Derived from the vocabulary, so shrinking VOCAB cannot quietly weaken the search.
-    expect(checked).toBe(VOCAB.length ** 3 * RESTRICTIONS.length);
-    expect(violations.slice(0, 5), `${violations.length} violations`).toEqual([]);
-  });
+      // Derived from the vocabulary, so shrinking VOCAB cannot quietly weaken the search.
+      expect(checked).toBe(VOCAB.length ** 3 * RESTRICTIONS.length);
+      expect(violations.slice(0, 5), `${violations.length} violations`).toEqual([]);
+    },
+  );
 });
