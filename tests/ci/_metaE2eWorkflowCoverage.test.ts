@@ -152,6 +152,26 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
     expect(shadowing, "allowlisted specs that ARE covered - remove the row").toEqual([]);
   });
 
+  it("the agenda layout specs are COVERED on every PR, with no allowlist row", () => {
+    // This assertion got STRONGER at merge. It used to demand the spec appear in `rejected`
+    // with reason "pull_request.paths/paths-ignore filter", because the only thing running it
+    // was a path-gated workflow -- honest, but weaker than PR-blocking. origin/main then
+    // retired seven per-feature workflows for one unfiltered standalone-e2e.yml, so both
+    // specs are now covered outright and their allowlist rows had to GO: the shadowing check
+    // fails on an allowlisted spec that is covered.
+    //
+    // Asserted per spec rather than left to the generic dark/shadowing tests so a failure
+    // names which one regressed, and so re-adding a row is caught by an explicit expectation.
+    for (const spec of [
+      "tests/e2e/agendaScheduleLayout.spec.ts",
+      "tests/e2e/agendaBreakdown.layout.spec.ts",
+    ]) {
+      expect(specs, `${spec} must exist on disk`).toContain(spec);
+      expect(covered.has(spec), `${spec} must be covered by an unfiltered workflow`).toBe(true);
+      expect(spec in LOCAL_ONLY_ALLOWLIST, `${spec} must carry NO allowlist row`).toBe(false);
+    }
+  });
+
   it("the lifecycle layout spec is covered by lifecycle-layout-e2e.yml (not allowlisted)", () => {
     expect(covered.has("tests/e2e/admin-lifecycle-layout.spec.ts")).toBe(true);
   });

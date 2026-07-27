@@ -583,6 +583,188 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 `app/api/admin/onboarding/scan/route.ts:353` (verified 2026-07-24) emits `{ type: "result", body: { ok: false, code: null } }` to the client on catch (adjacent to the now-forensic-coded `ONBOARDING_SCAN_FAILED` log). The `code:null` is a distinct client-facing surface — arguably warrants a real §12.4 code so the client can catalog-look-up, but that is an expensive 3-way §12.4 change out of scope for the forensic batch. **Fix (when prioritized):** assign a cataloged code + regen `gen:spec-codes` + add the `catalog.ts` row.
 
+### BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY — the admin layout harness hand-writes the wrapper it measures inside
+
+**Status:** OPEN — filed from PR #610 whole-diff review R2 (MEDIUM) · **Severity:** low · **Class:** TEST FIDELITY
+
+`tests/e2e/agendaBreakdown.layout.spec.ts` now renders the real `AgendaScheduleBlock` (PR #610 replaced
+that transcription), but still hand-writes the surrounding `article` / `section` / `ul` / `li.min-w-0`
+chrome. That `min-w-0` is load-bearing for the long-token overflow assertion, so the harness can stay
+green while the ACTUAL admin wrapper overflows. Production Step 3 renders `AgendaBreakdown`
+(`components/admin/wizard/step3ReviewSections.tsx:3300`), which has a modal-chrome branch the harness
+does not reproduce.
+
+**Why PR #610 did not close it — cost premise CORRECTED by review R3.** The first version of this
+entry said `AgendaBreakdown` had "~30 hooks" and needed a new seeded harness. Both were wrong, and the
+error is worth naming: the hook count came from `grep -c` over the whole 4000-line
+`step3ReviewSections.tsx` and was attributed to the component. Measured properly,
+`AgendaBreakdown` is **225 lines with 4 hook call sites in its own body** — `useContext` x1,
+`useEffect` x2, `useLayoutEffect` x1. Method, so the number is checkable rather than asserted:
+brace-match the function body from `export function AgendaBreakdown(` and count `use[A-Z]\w*(`.
+Review R4 reported nine (adding three `useState` and two `useRef`); those do not appear anywhere
+between this function and the next export, `PublishedAgendaList`. Child components it renders have
+their own hooks — the relevant number for harness cost is the ones this component owns.
+
+The machinery also already exists. `tests/e2e/_step3ReviewModalLiveEntry.tsx` browser-renders the REAL
+modal via an esbuild IIFE bundle served over `node:http`, and already stubs `fetch` (`:36-62`,
+pass-through for anything it does not intercept). The one thing standing between that harness and real
+coverage is a single line: `tests/e2e/_step3ReviewModalHarness.tsx:158` hands the modal
+`agendaBaseline: []`.
+
+**Still deferred, on the corrected grounds:** closing it needs a non-empty `AdminAgendaItem[]` fixture
+(`lib/agenda/agendaAdminPreview.ts:34`), an extract-route intercept, and its own bundle entry + spec —
+because `buildSectionData` is shared, so changing the default fixture in place would perturb every
+existing step3-review-modal spec. Additive work, not a new harness. Sized in hours, not the days the
+original entry implied.
+
+**Start here:** add an optional `agendaBaseline` override to `buildSectionData`
+(`tests/e2e/_step3ReviewModalHarness.tsx:128`) defaulting to `[]`, so existing callers are untouched.
+
+**Partially mitigated already:** since `standalone-e2e.yml` runs the whole standalone config unfiltered
+on every PR, a change to `step3ReviewSections.tsx` now triggers this spec. It did not when the finding
+was written, which assumed the retired path filter.
+
+**Fix (when prioritized):** drive the real Step 3 surface in a seeded e2e run and assert the wrapper's
+containment there, then delete the transcribed chrome. Overlaps `BL-STEP3-IMPECCABLE-LIVE-RENDER`.
+
+### BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — `spec:lint` hard-fails on docs citing the deleted e2e workflow
+
+**Status:** OPEN — fallout from c7c5625c2, found while shipping PR #610 · **Severity:** very low · **Class:** DOC HYGIENE
+
+`origin/main` deleted `.github/workflows/modal-header-layout-e2e.yml` when it retired seven per-feature
+e2e workflows. Backticked references to that path are citations to `spec:lint`, so every doc still
+naming it now hard-fails `CITATION_FILE_MISSING`. Note the linter keys on the `.yml` extension, not on
+the directory separator — shortening to a bare filename does NOT clear it; the backticks have to go.
+
+PR #610 swept its own three docs (5 + 3 hard findings → 0 each) by rendering the name as prose. Seven
+others were left alone deliberately, to avoid pulling unrelated specs into an in-review diff:
+
+- `docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md`
+- `docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md`
+- `docs/superpowers/plans/2026-07-18-modal-header-reconciliation/CLOSE-OUT.md`
+- `docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md`
+- `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md`
+- `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md`
+- `docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md`
+
+**Not urgent:** `spec:lint` is not wired into any workflow (verified — no `.github/workflows/**` match),
+so nothing is merge-blocked. It fails only for whoever runs it by hand on one of those files.
+
+**Fix (when prioritized):** one mechanical pass stripping the backticks; the last entry is the
+retiring spec itself, where the old name is legitimate history.
+
+### BL-AGENDA-PROSE-SECOND-DAY — a day label can name a second day in free prose
+
+**Status:** OPEN — known limit, accepted in PR #610 review R6 · **Severity:** very low · **Class:** FEATURE REACH
+
+`isAmbiguousLabel` (`lib/crew/agendaViewerDays.ts`) fires on SPECIFIC day-shaped signals — a second
+date, a second weekday, a `Day N` count, a plural span, a spoken ordinal — judged by both count and
+position. It does not require the rest of the label to be recognised, so free prose passes. Verified
+still true at PR #610 close-out, after the rule was rewritten three times:
+
+    "Tuesday, May 5, 2026 and the following day"   folds as a plain May 5 row
+    "Tuesday, May 5, 2026 plus the next day"       folds
+    "Tuesday, May 5, 2026 (two-day block)"         folds
+
+A viewer assigned May 6 loses that row if a separate May 6 row exists.
+
+**Why not closed.** A true whitelist — accepting only a remainder the code can parse — would reject
+every heading carrying a venue, track, or session name, which is most real headings. Review R6
+measured the over-fire side of that trade directly: month PREFIXES matched Marriott, Marketing,
+Junior, Novel, Decision, Augusta and Octagon, which would have disabled folding for whole
+extractions. The rule is deliberately positioned as the strictest thing that does not break ordinary
+labels.
+
+**Closed already, mechanically** — eleven distinct forms across rounds R2-R10, listed so nobody
+re-reports one as new: a second full date; a second weekday name; an ordinal ("the 6th"); a
+month-day without a year ("/ May 6"); the same month-day in two years, in ANY pairing of shapes;
+slash, ISO and day-first dates; two ordinal-position phrases ("Day 1 / Day 2"); a plural day span
+("Days 1-2"); the `Sat` abbreviation; and every one of those in LEADING position as well as
+trailing. What remains is prose that names a day without any of those tokens.
+
+**Fix (when prioritized):** only worth it if real corpus labels ever carry this prose. Check the
+6-PDF corpus first; today every label there is a clean single date.
+
+### BL-AGENDA-FOLD-NO-SEEDED-E2E — the fold is never exercised through the real crew page
+
+**Status:** OPEN — disclosed during PR #610 · **Severity:** low · **Class:** TEST COVERAGE
+
+Coverage for the per-viewer day fold is: matcher unit tests, component tests in jsdom, two
+self-hosted browser specs, and a jsdom **mock** of the `ScheduleSection` seam. Nothing renders the
+fold through the real crew page. Confirmed by grep: only `agendaScheduleLayout.spec.ts` and
+`agendaBreakdown.layout.spec.ts` reference `agenda-day-*`/`agenda-schedule`, and both boot their own
+`node:http` server rather than the app.
+
+**What that leaves unproven.** The seam test asserts `AgendaScheduleBlock` receives the right
+`viewerDays` per link by mocking the component. It cannot show that a real date-restricted crew
+member, loading a real share link, sees their day expanded — the composition of
+`effectiveViewerDateRestriction` → `aggregateDays` → `visibleShowDays` → the matcher → the rendered
+fold is only ever verified in pieces.
+
+**Why not closed in #610.** It needs a seeded show whose `agenda_links` carry an `extracted`
+extraction with parseable day labels, plus a date-restricted crew member and a share link.
+`supabase/seed.ts:228` writes `parsed.show.agenda_links` straight from the fixture, so this is
+fixture and seed work, not a harness gap — a meaningful blast radius to take on at review round 9 of
+one PR.
+
+**Fix (when prioritized):** extend an existing crew e2e fixture with agenda links, then assert the
+viewer's row is `open` and marked while another day is folded. Related:
+`BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` wants the same thing on the admin side, and
+`BL-AGENDA-A11Y-WEBKIT-COVERAGE` would ride along.
+
+### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
+
+**Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** low · **Class:** FEATURE REACH
+
+`visibleAgendaDaysForViewer` requires ONE link to locate EVERY date the viewer is assigned before it
+will fold anything (`located.size === R.size`, with `R` the show-wide viewer date set). When a show
+publishes several agenda PDFs partitioned by date — link A covering May 5+7, link B covering May 6+8,
+viewer assigned May 5+6 — each link locates one of two and both fail open. Folding is therefore
+systematically disabled for that shape even though each link's own rows are completely identifiable.
+
+**Deliberately not changed in #610.** Completeness is show-wide precisely because loosening it is what
+produced six separate fold-the-viewer's-day defects across five review rounds. Narrowing it to "this
+link's own rows are identifiable AND it located at least one viewer date" is probably the right rule,
+but it re-opens that class and belongs in a change that can carry its own adversarial pass. The
+current behaviour is SAFE — it fails open — so the cost is a missing improvement, not a wrong page.
+
+**Fix (when prioritized):** per-link completeness, with the invariant search in
+`tests/agenda/agendaViewerDaysInvariant.test.ts` extended to multi-link fixtures first, so the
+loosening is measured against the property before it ships.
+
+### BL-AGENDA-A11Y-WEBKIT-COVERAGE — the fold's accessibility proof runs Chromium only
+
+**Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** very low · **Class:** TEST COVERAGE
+
+`tests/e2e/standalone.config.ts` defines a single `standalone-chromium` project, so the fold's
+accessibility assertions never run against WebKit even though Safari is an explicit crew target. That
+matters here more than usual: the `<summary>` carries an `<h3>` beside sibling spans and an SVG, which
+is outside HTML's strict content model, so "the browser still exposes both semantics" is an empirical
+claim per engine.
+
+**Measured once, by hand, during #610:** a temporary `probe-webkit` project (`devices["Desktop Safari"]`)
+ran the a11y test green in 5.0s, then the config was reverted. So WebKit does expose it today — but a
+hand-run measurement is not coverage, and by this repo's own dark-spec lesson it will rot.
+
+**Not shipped in #610** because adding a WebKit project to that config runs all 439 standalone specs a
+second time and would surface unrelated engine differences mid-review.
+
+**Fix (when prioritized):** either a WebKit project scoped to the a11y-bearing specs, or a
+`--project` matrix leg in `standalone-e2e.yml`.
+
+### BL-AGENDA-POSITIONAL-DAYSET-FALLBACK — the day-set matcher has no positional fallback
+
+**Status:** OPEN — deliberate omission, ratified in-spec · **Severity:** very low · **Class:** FEATURE COMPLETENESS
+
+`lib/crew/agendaViewerDays.ts` fails open when labels do not parse, rather than mirroring
+`agendaSessionsForToday`'s four-condition positional fallback. Deliberate: the trigger (`!someDateParsed`)
+does not occur in the 6-PDF corpus, and folding on positional index means folding in the state of least
+knowledge. Full reasoning ratified at
+`docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md` §3 under "RATIFIED AMENDMENT".
+
+**Revisit if** the corpus gains documents with purely positional day labels ("Day 1" / "Day 2") AND a
+viewer reports seeing the whole show expanded when they expected their day marked.
+
 ### BL-PICKER-TAMPER-ADMIN-ALERT — selectIdentity tamper breadcrumb could also raise an `admin_alerts` upsert
 
 **Status:** OPEN — queued as PR5 of the 2026-07-24 residual sweep · **Severity:** low · **Class:** ALERTING GAP
@@ -598,7 +780,26 @@ New `admin_alert` code → the ~9-surface lockstep fan-out applies (catalog row,
 
 ### BL-AGENDA-PERDAY-VIEWER-FILTER — Schedule agenda area is whole-show / not day-filtered for restricted crew
 
-**Status:** OPEN — product posture decided 2026-07-24; queued as PR3 of the residual sweep · **Severity:** low · **Class:** VISIBILITY SCOPE
+**Status:** ✅ SHIPPED in PR #610 (2026-07-26) · **Severity:** low · **Class:** VISIBILITY SCOPE
+
+> **Retained for the decision record; the prescriptions below are HISTORY, not open work.** Two
+> statements in this entry are now contradicted by shipped code and are corrected here rather than
+> edited away, because the reasoning is what makes the entry worth keeping:
+>
+> 1. **"No reusable day-set matcher exists"** — one does now: `lib/crew/agendaViewerDays.ts`
+>    (`visibleAgendaDaysForViewer`). It returns ROW INDICES, not dates, because the current
+>    extractor always writes `date: null` (`lib/agenda/extractAgendaSchedule.ts` is its sole
+>    constructor; stored rows from older writers may carry strings — see the spec's §2.5
+>    narrowed scope), so dates cannot identify a row.
+> 2. **"reusing … the same positional-fallback rule"** — the shipped matcher deliberately does NOT
+>    implement the positional fallback. Ratified at
+>    `docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md` §3 ("RATIFIED AMENDMENT"),
+>    tracked as `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK`. Short version: its trigger never fires on the
+>    measured corpus, and folding on positional index means folding in the state of least knowledge —
+>    the shape behind all four viewer-day-folding bugs review found.
+>
+> Everything else — the middle posture, the "Your day" marker, native `<details>` keeping the block a
+> Server Component, and mandatory fail-open — shipped as written.
 
 The Schedule section's Agenda area (`components/crew/sections/ScheduleSection.tsx:143-163`) renders `AgendaEmbed` + per-link `AgendaScheduleBlock` from `link.extracted` as a **whole-show** artifact: `AgendaScheduleBlock` receives no date/stage restriction and shows the full-show agenda to **every** viewer (the only branch that suppresses it is the `unknown_asterisk` early-return, `:168-179`). So date-restricted AND (post-#248) stage-restricted crew see the full-show agenda above their filtered day cards. This is pre-existing behavior, not introduced by #248 (spec §3.5).
 
