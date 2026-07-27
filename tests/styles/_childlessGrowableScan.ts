@@ -242,10 +242,7 @@ function harvestClassName(expr: ts.Expression | undefined, out: Harvest): void {
     // clsx object form: keys are class strings; truthiness deliberately
     // ignored (§7 row 5 — union model).
     for (const p of expr.properties) {
-      if (
-        ts.isPropertyAssignment(p) &&
-        (ts.isStringLiteral(p.name) || ts.isIdentifier(p.name))
-      ) {
+      if (ts.isPropertyAssignment(p) && (ts.isStringLiteral(p.name) || ts.isIdentifier(p.name))) {
         out.tokens.push(...String(p.name.text).split(/\s+/).filter(Boolean));
       }
     }
@@ -395,7 +392,13 @@ export function scanSource(
   const paintTokens = opts?.paintTokens ?? PAINT_TOKENS;
   const isMdx = fileName.endsWith(".mdx");
   const scanText = isMdx ? String(compileSync(source, { jsx: true })) : source;
-  const sf = ts.createSourceFile(fileName, scanText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const sf = ts.createSourceFile(
+    fileName,
+    scanText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
   const violations: Violation[] = [];
   const exemptionRanges = isMdx ? [] : collectExemptions(scanText, sf);
   const meta = {

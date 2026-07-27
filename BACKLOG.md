@@ -166,7 +166,6 @@ Measured consequence: the event-detail group title "Wardrobe & key moments" fill
 
 **Do not "fix" this by widening the tolerance in `tests/e2e/section-header-layout.layout.spec.ts`.** That test pins its own font to the Arial / Liberation Sans metric-compatible pair for exactly one measurement, deliberately and with the reason in a comment, so the floor assertion reads the same on macOS, Windows and the Ubuntu runner. Relaxing it instead would hide this entry's finding.
 
-
 ## Descoped from the CI-dark coverage cluster (2026-07-26) — read before re-attempting any of these
 
 Four items below were **designed, built, and measured**, then descoped after four cross-model

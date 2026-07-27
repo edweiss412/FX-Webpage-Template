@@ -127,12 +127,9 @@ describe("token predicates (spec §3.1, §4.2)", () => {
     expect(NOT_EXTENT).toHaveLength(10);
   });
 
-  it.each([...GROWABLE, ...GROWABLE_FAIL_CLOSED, ...VARIANT_GROWABLE])(
-    "growable: %s",
-    (token) => {
-      expect(growableFromToken(token)).toBe(true);
-    },
-  );
+  it.each([...GROWABLE, ...GROWABLE_FAIL_CLOSED, ...VARIANT_GROWABLE])("growable: %s", (token) => {
+    expect(growableFromToken(token)).toBe(true);
+  });
 
   it.each([...NOT_GROWABLE])("not growable: %s", (token) => {
     expect(growableFromToken(token)).toBe(false);
@@ -159,9 +156,20 @@ describe("token predicates (spec §3.1, §4.2)", () => {
   });
 
   it("paint-set membership is exact (spec §4.2a): the four members, nothing else", () => {
-    expect([...PAINT_TOKENS].sort()).toEqual(["bg-accent", "bg-border", "bg-border-strong", "border"]);
+    expect([...PAINT_TOKENS].sort()).toEqual([
+      "bg-accent",
+      "bg-border",
+      "bg-border-strong",
+      "border",
+    ]);
     for (const member of PAINT_TOKENS) expect(PAINT_TOKENS.has(member)).toBe(true);
-    for (const nonMember of ["bg-cover", "border-accent-edge", "ring-2", "shadow-sm", "bg-surface"]) {
+    for (const nonMember of [
+      "bg-cover",
+      "border-accent-edge",
+      "ring-2",
+      "shadow-sm",
+      "bg-surface",
+    ]) {
       expect(PAINT_TOKENS.has(nonMember)).toBe(false);
     }
   });
@@ -225,13 +233,21 @@ describe("scanSource: childless / childed forms (spec §3.2)", () => {
     expectViolation(`<span className="flex-1"> </span>`, "unpainted-childless-dom", "span");
   });
   it("comment-only expression child fails", () => {
-    expectViolation(`<span className="flex-1">{/* note */}</span>`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span className="flex-1">{/* note */}</span>`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
   it("{null} child fails", () => {
     expectViolation(`<span className="flex-1">{null}</span>`, "unpainted-childless-dom", "span");
   });
   it("{undefined} child fails", () => {
-    expectViolation(`<span className="flex-1">{undefined}</span>`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span className="flex-1">{undefined}</span>`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
   it("element child accepted", () => {
     expectAccepted(`<div className="flex-1"><b>x</b></div>`);
@@ -261,10 +277,18 @@ describe("scanSource: className harvesting (spec §3)", () => {
     expectViolation("<span className={`flex-1 ${dynamic}`} />", "unpainted-childless-dom", "span");
   });
   it("cn('flex-1', dynamic) fails closed", () => {
-    expectViolation(`<span className={cn("flex-1", dynamic)} />`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span className={cn("flex-1", dynamic)} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
   it("nested calls are harvested", () => {
-    expectViolation(`<span className={cn(cn("flex-1"), dynamic)} />`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span className={cn(cn("flex-1"), dynamic)} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
   it("join-array RECEIVER is harvested (the census-v1 miss)", () => {
     expectViolation(
@@ -274,7 +298,11 @@ describe("scanSource: className harvesting (spec §3)", () => {
     );
   });
   it("clsx object keys are harvested", () => {
-    expectViolation(`<span className={cn({ "flex-1": cond })} />`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span className={cn({ "flex-1": cond })} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
   it("&& operand harvested", () => {
     expectViolation(`<span className={cond && "flex-1"} />`, "unpainted-childless-dom", "span");
@@ -295,7 +323,11 @@ describe("scanSource: className harvesting (spec §3)", () => {
     expectViolation(`<span className={("flex-1")} />`, "unpainted-childless-dom", "span");
   });
   it("conditional branches harvested", () => {
-    expectViolation(`<span className={cond ? "flex-1" : "w-4"} />`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span className={cond ? "flex-1" : "w-4"} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
 });
 
@@ -339,19 +371,31 @@ describe("scanSource: paint + extent (spec §4.2, §6.4)", () => {
   it.each(["bg-cover", "border-accent-edge", "ring-2", "shadow-sm"])(
     "non-member %s does not paint (violation)",
     (token) => {
-      expectViolation(`<span className="flex-1 h-px ${token}" />`, "unpainted-childless-dom", "span");
+      expectViolation(
+        `<span className="flex-1 h-px ${token}" />`,
+        "unpainted-childless-dom",
+        "span",
+      );
     },
   );
   it.each(["border border-0", "border border-none", "border border-transparent"])(
     "border-family negator cancels: %s",
     (pair) => {
-      expectViolation(`<span className="flex-1 h-px ${pair}" />`, "unpainted-childless-dom", "span");
+      expectViolation(
+        `<span className="flex-1 h-px ${pair}" />`,
+        "unpainted-childless-dom",
+        "span",
+      );
     },
   );
   it.each(["bg-border bg-transparent", "bg-border bg-none"])(
     "bg-family negator cancels: %s",
     (pair) => {
-      expectViolation(`<span className="flex-1 h-px ${pair}" />`, "unpainted-childless-dom", "span");
+      expectViolation(
+        `<span className="flex-1 h-px ${pair}" />`,
+        "unpainted-childless-dom",
+        "span",
+      );
     },
   );
   it("cross-family isolation: border bg-transparent stays painted", () => {
@@ -364,7 +408,11 @@ describe("scanSource: paint + extent (spec §4.2, §6.4)", () => {
     expectAccepted(`<span className="flex-1 h-px !bg-border" />`);
   });
   it("important-marked negator cancels: border !border-0", () => {
-    expectViolation(`<span className="flex-1 h-px border !border-0" />`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span className="flex-1 h-px border !border-0" />`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
   it.each(["opacity-0", "invisible", "hover:opacity-0"])(
     "global neutralizer cancels all paint: %s",
@@ -383,7 +431,11 @@ describe("scanSource: paint + extent (spec §4.2, §6.4)", () => {
     expectViolation(`<span className="flex-1 bg-border" />`, "unpainted-childless-dom", "span");
   });
   it.each(["h-0", "h-auto", "h-[0px]"])("non-extent %s does not rescue", (t) => {
-    expectViolation(`<span className="flex-1 bg-border ${t}" />`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span className="flex-1 bg-border ${t}" />`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
   it("zero-pixel accepted-limits (§7 row 9): opacity-[0] and scale-y-0 stay accepted", () => {
     expectAccepted(`<span className="flex-1 h-px bg-border opacity-[0]" />`);
@@ -402,7 +454,9 @@ describe("scanSource: union-synthesis accepted-limits + negator-in-union reject 
     expectAccepted(`<span className={["flex-1 h-px", cond ? "bg-border" : ""].join(" ")} />`);
   });
   it("cross-branch paint/extent synthesis accepted", () => {
-    expectAccepted(`<span className={["flex-1", a ? "bg-border" : "", b ? "h-px" : ""].join(" ")} />`);
+    expectAccepted(
+      `<span className={["flex-1", a ? "bg-border" : "", b ? "h-px" : ""].join(" ")} />`,
+    );
   });
   it("falsy clsx key still contributes (truthiness ignored)", () => {
     expectAccepted(`<span className={cn("flex-1 bg-border", { "h-px": false })} />`);
@@ -462,7 +516,11 @@ describe("scanSource: style resolution (spec §3.1)", () => {
     expectViolation(`<span style={{ ...growStyle }} />`, "opaque-style-grow", "span");
   });
   it("conditional branch growable", () => {
-    expectViolation(`<span style={cond ? { flexGrow: 1 } : undefined} />`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span style={cond ? { flexGrow: 1 } : undefined} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
   it("&& operand growable", () => {
     expectViolation(`<span style={cond && { flexGrow: 1 }} />`, "unpainted-childless-dom", "span");
@@ -480,7 +538,11 @@ describe("scanSource: style resolution (spec §3.1)", () => {
     expectViolation(`<span style={{ flexGrow: 1 } as any} />`, "unpainted-childless-dom", "span");
   });
   it("satisfies-wrapper transparent", () => {
-    expectViolation(`<span style={{ flexGrow: 1 } satisfies object} />`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span style={{ flexGrow: 1 } satisfies object} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
   it("non-null wrapper DISCRIMINATING probe: unwrap reaches the opaque object", () => {
     expectViolation(`<span style={({ flexGrow: grow })!} />`, "opaque-style-grow", "span");
@@ -537,7 +599,11 @@ describe("scanSource: components + reason precedence (spec §3, §4.3)", () => {
 
 describe("scanSource: spread (spec §6.4)", () => {
   it("static growable + spread + no paint still fails (spread does not launder)", () => {
-    expectViolation(`<span className="flex-1" {...spacerProps} />`, "unpainted-childless-dom", "span");
+    expectViolation(
+      `<span className="flex-1" {...spacerProps} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
   });
   it("spread-ONLY growability: no candidate (§7 row 1 accepted-limit)", () => {
     expectAccepted(`<span {...spacerProps} />`);
@@ -581,7 +647,9 @@ describe("scanSource: exemption comments (spec §4.4)", () => {
     expect(violations.filter((v) => v.tag === "span")).toHaveLength(1);
   });
   it("jsdoc decoration is stripped before reading the reason", () => {
-    const src = wrap(`{/**\n * childless-growable-ok: probe reason\n */}\n<span className="flex-1" />`);
+    const src = wrap(
+      `{/**\n * childless-growable-ok: probe reason\n */}\n<span className="flex-1" />`,
+    );
     const { violations } = scanSource(src, "probe.tsx");
     expect(violations.filter((v) => v.tag === "span")).toHaveLength(0);
   });
@@ -607,9 +675,7 @@ describe("scanSource: exemption comments (spec §4.4)", () => {
     expect(exemptions.filter((e) => !e.used)).toHaveLength(0);
   });
   it("marker text inside a string literal is not an exemption", () => {
-    const src = wrap(
-      `<b title={"childless-growable-ok: not a comment"} className="flex-1" />`,
-    );
+    const src = wrap(`<b title={"childless-growable-ok: not a comment"} className="flex-1" />`);
     const { violations } = scanSource(src, "probe.tsx");
     expect(violations.filter((v) => v.tag === "b")).toHaveLength(1);
   });
