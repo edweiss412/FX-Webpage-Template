@@ -70,7 +70,6 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
 /** Migration-window scaffold (file-granular is CORRECT here: a migration commit clears
  *  a whole file at once — spec §5.3a). Task 47 deletes the emptied constant. */
 export const PENDING_MIGRATIONS: string[] = [
-  "tests/admin/no-inline-email-normalization.test.ts",
   "tests/admin/serverNoClientValueCall.test.ts",
   "tests/messages/_metaAdminAlertProducer.test.ts",
   "tests/admin/dev-requires-developer.test.ts",
@@ -127,6 +126,9 @@ export function offendersOf(
   for (const { rel, src } of entries) {
     if (rel === SHARED_MODULE || rel === SHARED_SELF_TEST || rel === SELF) continue;
     if (pending.has(rel)) continue; // migration window: whole file deferred
+    // Fast path: hits on RAW source are a superset of hits on stripped source
+    // (stripping only removes text). Zero raw hits -> skip the TS parse entirely.
+    if (detectCommentIdioms(src).length === 0) continue;
     const stripped = stripCommentsForFile(src, rel);
     const residual = detectCommentIdioms(stripped).filter(
       (h) => !standing.some((r) => r.file === rel && r.family === h.family && r.marker === h.marker),
@@ -146,7 +148,7 @@ function walk(dir: string): string[] {
 }
 
 describe("single-source comment stripping (spec §4)", () => {
-  it("no walked test file implements its own comment handling outside the shared module", () => {
+  it("no walked test file implements its own comment handling outside the shared module", { timeout: 60_000 }, () => {
     const entries: ScanEntry[] = walk(TESTS_DIR).map((abs) => ({
       rel: relative(ROOT, abs),
       src: readFileSync(abs, "utf8"),

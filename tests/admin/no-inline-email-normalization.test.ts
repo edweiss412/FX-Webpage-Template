@@ -23,6 +23,8 @@
  * if a real exemption is needed in M5+, add the parsing logic then.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
+
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -38,17 +40,13 @@ const ROOT = process.cwd();
  * any such strings today, but the test would tolerate them by checking
  * specific identifier-style usage rather than substring match.
  */
-function stripComments(src: string): string {
+function stripAuditedSource(src: string, filePath: string): string {
+  // canonicalize-exempt: lines carry a reviewed waiver — drop them before scanning.
   const withoutExemptLines = src
     .split(/\r?\n/)
     .filter((line) => !line.includes("canonicalize-exempt:"))
     .join("\n");
-  // Block comments first (greedy nested-block-safe via non-greedy match).
-  let out = withoutExemptLines.replace(/\/\*[\s\S]*?\*\//g, "");
-  // Line comments: //  to end of line. NOTE: this is naive about //
-  // appearing inside strings — but the route file has no such strings.
-  out = out.replace(/\/\/[^\n]*/g, "");
-  return out;
+  return stripCommentsForFile(withoutExemptLines, filePath);
 }
 
 const FORBIDDEN_PATTERNS: Array<{ regex: RegExp; label: string }> = [
@@ -102,7 +100,7 @@ describe("Round 4 Finding 1 — static-text guard against inline email normaliza
   for (const rel of AUDITED_PATHS) {
     test(`${rel} contains NO inline trim/lowercase patterns (per AGENTS.md §1.3)`, () => {
       const src = readFileSync(join(ROOT, rel), "utf8");
-      const stripped = stripComments(src);
+      const stripped = stripAuditedSource(src, rel);
       for (const { regex, label } of FORBIDDEN_PATTERNS) {
         const matches = stripped.match(regex) ?? [];
         expect(
@@ -120,18 +118,18 @@ describe("Round 4 Finding 1 — static-text guard against inline email normaliza
   // forbidden patterns through silently in the audited files).
   test("control: regex correctly detects .trim() and .toLowerCase() in a probe string", () => {
     const probe = `const x = raw.trim().toLowerCase();`;
-    const stripped = stripComments(probe);
+    const stripped = stripAuditedSource(probe, "probe.ts");
     expect(stripped.match(/\.toLowerCase\s*\(/g)?.length ?? 0).toBe(1);
     expect(stripped.match(/\.trim\s*\(/g)?.length ?? 0).toBe(1);
   });
 
-  test("control: stripComments correctly removes line and block comments", () => {
+  test("control: stripAuditedSource correctly removes line and block comments", () => {
     const probe = `
       // .toLowerCase() in a line comment should be ignored
       /* .trim() in a block comment should be ignored */
       const x = "real code with no patterns";
     `;
-    const stripped = stripComments(probe);
+    const stripped = stripAuditedSource(probe, "probe.ts");
     expect(stripped.match(/\.toLowerCase\s*\(/g)?.length ?? 0).toBe(0);
     expect(stripped.match(/\.trim\s*\(/g)?.length ?? 0).toBe(0);
   });
