@@ -399,7 +399,7 @@ describe(
           "+ tests/db/tileAlertResolution.db.test.ts " +
           "+ tests/db/watchRenewalDue.test.ts (watch lease slack; deletes rows, local-only) " +
           "+ tests/db/driveIdCoverage.db.test.ts (the Drive-ID coverage guard, 2026-07-25)",
-      ).toBe(56);
+      ).toBe(57);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {

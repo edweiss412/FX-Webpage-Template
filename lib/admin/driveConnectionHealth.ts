@@ -159,12 +159,26 @@ export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealt
     if (!watchRow) {
       return warn("not_configured", folderName, folderId, syncingCount, syncingCount, lastReadAt);
     }
-    // tier 2: watch_inactive — any non-active status.
-    if (watchRow.status !== "active") {
+    // tier 2: watch_inactive — any non-active status EXCEPT `expired`, which
+    // tier 3 owns. Before the §3.1 reap, an aged-out channel lingered as
+    // `active` past its expiry and landed in tier 3; now it carries the
+    // `expired` status, so without this exclusion it would match tier 2 first
+    // and the panel would report "inactive" for exactly the condition tier 3
+    // exists to name — and tier 3 would become unreachable (spec §3.1.5).
+    //
+    // Ceiling worth knowing: once GC transitions the row to `stopped` it falls
+    // back to tier 2, which is CORRECT — the folder then genuinely has no
+    // watch, and reconcile re-subscribes on its own tick.
+    if (watchRow.status !== "active" && watchRow.status !== "expired") {
       return warn("watch_inactive", folderName, folderId, syncingCount, syncingCount, lastReadAt);
     }
-    // tier 3: watch_expired — active but expires_at <= now.
-    if (watchRow.expires_at !== null && Date.parse(watchRow.expires_at) <= nowMs) {
+    // tier 3: watch_expired — the `expired` status, or still `active` with
+    // expires_at <= now (the pre-reap shape, kept so a row the reap has not yet
+    // reached is still reported accurately).
+    if (
+      watchRow.status === "expired" ||
+      (watchRow.expires_at !== null && Date.parse(watchRow.expires_at) <= nowMs)
+    ) {
       return warn("watch_expired", folderName, folderId, syncingCount, syncingCount, lastReadAt);
     }
 

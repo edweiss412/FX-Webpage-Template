@@ -1,14 +1,19 @@
 import { randomUUID } from "node:crypto";
 import postgres from "postgres";
-import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveClient } from "@/lib/drive/client";
+import { driveErrorStatus } from "@/lib/drive/errorStatus";
 import {
   classifyWatchError,
   isGrantTooShort,
   redactWatchError,
+  DRIVE_CALL_TIMEOUT_MS,
+  GC_CANDIDATES_PER_PASS,
+  GC_RUN_BUDGET_MS,
+  REFRESH_RUN_BUDGET_MS,
+  REAP_ID_LOG_CAP,
+  STALE_PENDING_MAX_AGE_MS,
   RENEWAL_LIFE_FRACTION,
   RENEWAL_MIN_LEAD_MS,
-  STALE_PENDING_MAX_AGE_MS,
   WATCH_TTL_MS,
 } from "@/lib/drive/watchErrors";
 import { log } from "@/lib/log";
@@ -18,7 +23,13 @@ import { maybeEscalateWatchOrphaned as defaultMaybeEscalate } from "@/lib/drive/
 
 export const WATCH_CHANNEL_ORPHANED = "WATCH_CHANNEL_ORPHANED" as const;
 
-export type WatchChannelStatus = "pending" | "active" | "superseded" | "orphaned" | "stopped";
+export type WatchChannelStatus =
+  | "pending"
+  | "active"
+  | "superseded"
+  | "orphaned"
+  | "expired"
+  | "stopped";
 
 export class DriveWatchInfraError extends Error {
   readonly kind = "drive_watch_infra_error";
@@ -41,28 +52,58 @@ export type WatchChannelRow = {
   webhookSecret: string;
   resourceId: string | null;
   expiresAt: string | null;
+  /** Needed by GC's young-orphan guard. postgres.js yields a Date here; the
+   *  DB-free fakes yield an ISO string, so both shapes are accepted. */
+  createdAt?: string | Date | null;
 };
 
 export type WatchTx = {
   insertPending(row: { id: string; watchedFolderId: string; webhookSecret: string }): Promise<void>;
+  /**
+   * Promote the pending row, superseding any prior active row for the folder.
+   * Returns the number of PENDING rows it actually promoted — the canonical
+   * spec has required a zero-row rollback since v1
+   * (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1318) and nothing
+   * checked it, so activation reported success while the row stayed put.
+   */
   activatePending(row: {
     id: string;
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }): Promise<void>;
-  markOrphaned(id: string): Promise<void>;
+  }): Promise<number>;
+  /**
+   * Orphan a still-`pending` row, recording the Drive `resourceId` when the
+   * caller knows it. Without that id GC's `channels.stop` exits early on the
+   * null and marks the row stopped, leaving the Drive channel live until its
+   * lease expires (whole-diff finding 2) — `files.watch` had already succeeded
+   * in exactly the case that matters.
+   */
+  markOrphaned(id: string, resourceId?: string | null): Promise<void>;
   upsertAdminAlert(input: {
     code: typeof WATCH_CHANNEL_ORPHANED;
     context: Record<string, unknown>;
   }): Promise<void>;
+  /**
+   * Retire every `active` row that is provably not delivering, and report what
+   * each became. Takes NO clock: the predicate reads the DATABASE's `now()`, so
+   * a skewed application clock cannot retire a live channel (spec §3.1.2).
+   *
+   * TWO arms, TWO target statuses, and the difference is load-bearing:
+   * - `expires_at <= now()` — Google stopped delivering, nothing left to stop
+   *   at Drive → `expired`, which GC collects without a `channels.stop` call.
+   * - `expires_at <= created_at` — the timestamps are nonsense but Drive granted
+   *   SOMETHING and the channel may still be live → `superseded`, whose GC path
+   *   does stop it. Collapsing these leaks a live channel.
+   */
+  expireDeadActive(): Promise<Array<{ id: string; status: "expired" | "superseded" }>>;
   listRenewalDue(args: {
     nowIso: string;
     minLeadMs: number;
     lifeFraction: number;
   }): Promise<WatchChannelRow[]>;
-  listGcCandidates(): Promise<WatchChannelRow[]>;
-  markStopped(id: string): Promise<void>;
+  listGcCandidates(limit?: number): Promise<WatchChannelRow[]>;
+  markStopped(id: string, expectedResourceId?: string | null): Promise<number>;
   deleteOldStopped(): Promise<void>;
   sweepStalePending(cutoffIso: string): Promise<string[]>;
   hasLiveActiveChannel(folderId: string, nowIso: string): Promise<boolean>;
@@ -95,12 +136,18 @@ export type RefreshDeps = {
   withTx?: <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R>;
   now?: () => Date;
   subscribeToWatchedFolder?: (folderId: string) => Promise<SubscribeResult>;
+  /** Injected so DB-free and real-DB tests never reach the ambient service-role
+   *  settings read. Wired to the folder FILTER in Task 3 (spec §3.2). */
+  getActiveWatchedFolder?: typeof defaultGetActiveWatchedFolder;
 };
 
 export type GcDeps = {
   tx?: WatchTx;
   withTx?: <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R>;
   stopChannel?: (channel: { id: string; resourceId: string | null }) => Promise<void>;
+  /** Injectable so the elapsed budget and the young-orphan window are testable
+   *  without wall-clock sleeps. */
+  now?: () => number;
 };
 
 type PostgresConnection = {
@@ -137,6 +184,10 @@ async function callWatchTx<T>(operation: string, fn: () => Promise<T>): Promise<
   }
 }
 
+export function createPostgresWatchTx(sql: PostgresConnection): WatchTx {
+  return new PostgresWatchTx(sql);
+}
+
 class PostgresWatchTx implements WatchTx {
   constructor(private readonly sql: PostgresConnection) {}
 
@@ -159,7 +210,7 @@ class PostgresWatchTx implements WatchTx {
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }) {
+  }): Promise<number> {
     await this.rows(
       `
         update public.drive_watch_channels
@@ -171,7 +222,7 @@ class PostgresWatchTx implements WatchTx {
       `,
       [row.watchedFolderId, row.id],
     );
-    await this.rows(
+    const promoted = await this.rows<{ id: string }>(
       `
         update public.drive_watch_channels
            set status = 'active',
@@ -180,20 +231,48 @@ class PostgresWatchTx implements WatchTx {
                activated_at = now()
          where id = $1
            and status = 'pending'
+        returning id
       `,
       [row.id, row.resourceId, row.expiresAt],
     );
+    return promoted.length;
   }
 
-  async markOrphaned(id: string) {
+  async markOrphaned(id: string, resourceId?: string | null) {
+    // Matches `pending` OR an already-`orphaned` row. The second arm is
+    // load-bearing, not defensive: promotion orphans the row BEFORE activation
+    // fails (finalize-cas promoteSettings), and the stale-pending sweep does the
+    // same — so a pending-only UPDATE matches zero rows and the `resourceId`
+    // that `files.watch` just returned is never persisted. GC then hands null to
+    // channels.stop, which exits early, and marks the row stopped: the Drive
+    // channel stays live to its lease with nothing pointing at it.
+    //
+    // `coalesce` so a re-orphan never CLEARS a resource id we already hold, and
+    // the whole statement stays idempotent.
     await this.rows(
       `
         update public.drive_watch_channels
-           set status = 'orphaned'
+           set status = 'orphaned',
+               resource_id = coalesce($2, resource_id)
          where id = $1
-           and status = 'pending'
+           and (
+             status in ('pending', 'orphaned')
+             -- A stopped row holding NO resource id was never stopped at
+             -- Drive: GC skipped the call precisely because it had nothing to
+             -- stop. If a subscribe that stalled past the young-orphan window
+             -- later returns a resource id, this is the ONLY chance to record
+             -- it, so the row reopens to orphaned and GC stops it on a later
+             -- pass. Without this arm the credential fetch's admitted
+             -- unboundedness turns into a live Drive channel we can never stop
+             -- (whole-diff R5 finding 1). The guard is resource_id is null,
+             -- so a genuinely stopped row — which necessarily HAD a resource
+             -- id for GC to call with — never matches. The ::text cast is
+             -- required: a bare $2 in a null test gives Postgres no type to
+             -- infer, and the statement fails at PREPARE, not at runtime.
+             or (status = 'stopped' and resource_id is null and $2::text is not null)
+           )
       `,
-      [id],
+      [id, resourceId ?? null],
     );
   }
 
@@ -201,7 +280,44 @@ class PostgresWatchTx implements WatchTx {
     code: typeof WATCH_CHANNEL_ORPHANED;
     context: Record<string, unknown>;
   }) {
-    await defaultUpsertAdminAlert({ showId: null, code: input.code, context: input.context });
+    // Issue the canonical RPC over THIS transaction's connection rather than
+    // through the service-role helper, which builds its own Supabase client and
+    // so committed independently of the channel mutation it appears to
+    // accompany (BL-WATCH-ALERT-RAISE-NOT-ATOMIC).
+    //
+    // `input.context` is passed as the OBJECT, never JSON.stringify'd. Measured
+    // against the real RPC: stringify stores a jsonb STRING, so jsonb_typeof is
+    // "string" and every `context->>'…'` read returns NULL — silently, since the
+    // row is written and occurrence_count still increments. That would blind
+    // watchEscalation's error_class/error_message reads with nothing indicating
+    // a fault.
+    //
+    // not-subject-to-meta: raw pg call on the enclosing sql.begin connection,
+    // not a Supabase client boundary; AGENTS.md invariant 9 covers `supabase.*`
+    // call sites.
+    await this.rows(`select public.upsert_admin_alert($1::uuid, $2::text, $3::jsonb)`, [
+      null,
+      input.code,
+      input.context,
+    ]);
+  }
+
+  async expireDeadActive(): Promise<Array<{ id: string; status: "expired" | "superseded" }>> {
+    // `now()` is evaluated in SQL, never passed in — see the port doc.
+    // `expires_at` is NOT NULL for any `active` row (the
+    // drive_watch_channels_active_requires_drive_state CHECK), so neither arm
+    // needs a null guard.
+    const rows = await this.rows<{ id: string; status: "expired" | "superseded" }>(
+      `
+        update public.drive_watch_channels
+           set status        = case when expires_at <= now() then 'expired' else 'superseded' end,
+               superseded_at = case when expires_at <= now() then superseded_at else now() end
+         where status = 'active'
+           and (expires_at <= now() or expires_at <= created_at)
+         returning id, status
+      `,
+    );
+    return rows;
   }
 
   async listRenewalDue(args: {
@@ -254,7 +370,7 @@ class PostgresWatchTx implements WatchTx {
     return rows.map(fromDbRow);
   }
 
-  async listGcCandidates(): Promise<WatchChannelRow[]> {
+  async listGcCandidates(limit: number = GC_CANDIDATES_PER_PASS): Promise<WatchChannelRow[]> {
     const rows = await this.rows<{
       id: string;
       status: WatchChannelStatus;
@@ -262,26 +378,83 @@ class PostgresWatchTx implements WatchTx {
       webhook_secret: string;
       resource_id: string | null;
       expires_at: string | null;
+      created_at: string | null;
     }>(
       `
-        select id, status, watched_folder_id, webhook_secret, resource_id, expires_at
+        select id, status, watched_folder_id, webhook_secret, resource_id, expires_at, created_at
           from public.drive_watch_channels
-         where status in ('superseded', 'orphaned')
+         where status in ('superseded', 'orphaned', 'expired')
+           -- Young null-resource orphans are excluded HERE, not skipped in JS
+           -- after the fact. The collector skips them (a subscribe may still be
+           -- in flight), but a skipped row has already consumed one of the
+           -- LIMIT slots, and orphaned outranks superseded: a few hundred such
+           -- rows filled an entire pass, made zero progress, and left a
+           -- possibly-live superseded channel unattempted every tick
+           -- (whole-diff R8 finding 2). The JS guard stays as the port-level
+           -- contract for any other WatchTx implementation.
+           and not (
+             status = 'orphaned'
+             and resource_id is null
+             and created_at > now() - ($2::double precision * interval '1 millisecond')
+           )
+         -- Two-level ordering, and BOTH levels matter.
+         --
+         -- Status tier first: expired needs no Drive call and orphaned resolves
+         -- either way, so both always drain and can never be starved.
+         --
+         -- Then RANDOM, not created_at. A superseded row whose stop keeps
+         -- failing is retried forever by design and keeps its status and age,
+         -- so any deterministic order re-selects the same poisoned prefix every
+         -- pass and the rows behind it are never attempted at all. Random
+         -- selection makes it fair IN EXPECTATION: every superseded row is
+         -- reached eventually. It is not a strict queue, and this comment does
+         -- not claim one — an earlier revision claimed fairness that the
+         -- ordering did not deliver.
+         -- The tier keys on WHETHER THE ROW NEEDS A DRIVE CALL, which is the
+         -- same discriminator the stop-failure retry uses -- not on status.
+         -- Tiering by status was correct only while every orphaned row resolved
+         -- either way; once a resource-bearing orphan began retrying like a
+         -- superseded row (R8 finding 1), an entire tier of poisoned, retrying
+         -- rows sat AHEAD of superseded and, at 200 of them, no superseded row
+         -- was ever selected again (whole-diff R9). Rows that need no call
+         -- drain first and can never be starved; every row that does need one
+         -- shares a single tier and is shuffled with the rest, so none can
+         -- monopolise the front of the queue.
+         order by case
+                    when status = 'expired' then 0
+                    when status = 'orphaned' and resource_id is null then 0
+                    else 1
+                  end,
+                  random()
+         limit $1
       `,
+      [limit, STALE_PENDING_MAX_AGE_MS],
     );
     return rows.map(fromDbRow);
   }
 
-  async markStopped(id: string) {
-    await this.rows(
+  async markStopped(id: string, expectedResourceId: string | null = null): Promise<number> {
+    // Guarded by the resource id GC READ, not applied blindly. GC selects
+    // candidates in one transaction and stops them in later ones, so a subscribe
+    // that was stalled in the credential fetch can commit a resource id onto the
+    // row in between. Marking stopped anyway would leave a row that is stopped,
+    // holds a live channel's id, and matches neither listGcCandidates nor the
+    // markOrphaned reopen arm -- the channel would then run to lease expiry with
+    // nothing able to stop it (whole-diff R6 finding 1). On a mismatch this
+    // matches zero rows, the row stays orphaned, and the NEXT pass stops it with
+    // the id it now has. `is not distinct from` so the null case compares equal.
+    const rows = await this.rows<{ id: string }>(
       `
         update public.drive_watch_channels
            set status = 'stopped',
                stopped_at = now()
          where id = $1
+           and resource_id is not distinct from $2::text
+        returning id
       `,
-      [id],
+      [id, expectedResourceId],
     );
+    return rows.length;
   }
 
   async deleteOldStopped() {
@@ -335,6 +508,23 @@ class PostgresWatchTx implements WatchTx {
   }
 }
 
+/**
+ * Age check that survives BOTH shapes this value arrives in. postgres.js parses
+ * `timestamptz` into a JavaScript Date, while the DB-free fakes hand back ISO
+ * strings — an earlier revision tested `typeof === "string"`, which is false for
+ * every production row, so the guard it protected was dead code (whole-diff R4).
+ */
+function isYoungerThan(
+  createdAt: string | Date | null | undefined,
+  windowMs: number,
+  nowMs: number,
+): boolean {
+  if (createdAt === null || createdAt === undefined) return false;
+  const parsed = createdAt instanceof Date ? createdAt.getTime() : Date.parse(createdAt);
+  if (!Number.isFinite(parsed)) return false;
+  return nowMs - parsed < windowMs;
+}
+
 function fromDbRow(row: {
   id: string;
   status: WatchChannelStatus;
@@ -342,6 +532,7 @@ function fromDbRow(row: {
   webhook_secret: string;
   resource_id: string | null;
   expires_at: string | null;
+  created_at?: string | null;
 }): WatchChannelRow {
   return {
     id: row.id,
@@ -350,6 +541,7 @@ function fromDbRow(row: {
     webhookSecret: row.webhook_secret,
     resourceId: row.resource_id,
     expiresAt: row.expires_at,
+    createdAt: row.created_at ?? null,
   };
 }
 
@@ -380,27 +572,35 @@ async function defaultWatchFolder(args: {
   webhookSecret: string;
   nowMs: number;
 }): Promise<{ id: string; resourceId: string; expiration: string }> {
-  const response = await getDriveClient().files.watch({
-    fileId: args.folderId,
-    requestBody: {
-      id: args.channelId,
-      type: "web_hook",
-      address: webhookPublicUrl(),
-      token: args.webhookSecret,
-      // Ask for Google's documented maximum for the `files` resource. Omitting
-      // this yields their 1-hour default, which is what left every lease being
-      // renewed at the instant it expired (spec §1.2). MILLISECONDS as a string
-      // — seconds here would request an expiry decades in the past. Google
-      // documents the 1h default ONLY for an OMITTED expiration, so do not
-      // expect that fallback to rescue a units regression: an explicit past
-      // timestamp is undefined territory (rejection, or a channel that is
-      // already expired on arrival). Whole-diff R9 finding 3 — the earlier
-      // comment asserted the fallback and would have sent diagnosis the wrong
-      // way. The `expiration` assertion in tests/drive/watchExpiration.test.ts
-      // is what actually pins the units.
-      expiration: String(args.nowMs + WATCH_TTL_MS),
+  const response = await getDriveClient().files.watch(
+    {
+      fileId: args.folderId,
+      requestBody: {
+        id: args.channelId,
+        type: "web_hook",
+        address: webhookPublicUrl(),
+        token: args.webhookSecret,
+        // Ask for Google's documented maximum for the `files` resource. Omitting
+        // this yields their 1-hour default, which is what left every lease being
+        // renewed at the instant it expired (spec §1.2). MILLISECONDS as a string
+        // — seconds here would request an expiry decades in the past. Google
+        // documents the 1h default ONLY for an OMITTED expiration, so do not
+        // expect that fallback to rescue a units regression: an explicit past
+        // timestamp is undefined territory (rejection, or a channel that is
+        // already expired on arrival). Whole-diff R9 finding 3 — the earlier
+        // comment asserted the fallback and would have sent diagnosis the wrong
+        // way. The `expiration` assertion in tests/drive/watchExpiration.test.ts
+        // is what actually pins the units.
+        expiration: String(args.nowMs + WATCH_TTL_MS),
+      },
     },
-  });
+    // Spec §3.3.1, the idiom proven at lib/drive/fetch.ts:359. `timeout` is a
+    // gaxios-7 per-call budget that fires via AbortSignal.timeout and aborts the
+    // socket itself, so no separate `signal` is passed. `retry: false` is
+    // load-bearing: gaxios has its own retry layer, and without it this budget
+    // is multiplied by that layer's attempts and bounds nothing.
+    { timeout: DRIVE_CALL_TIMEOUT_MS, retry: false },
+  );
   const data = response.data;
   if (!data.id || !data.resourceId || !data.expiration) {
     throw new Error("Drive files.watch response missing id/resourceId/expiration");
@@ -417,12 +617,15 @@ async function defaultStopChannel(channel: {
   resourceId: string | null;
 }): Promise<void> {
   if (!channel.resourceId) return;
-  await getDriveClient().channels.stop({
-    requestBody: {
-      id: channel.id,
-      resourceId: channel.resourceId,
+  await getDriveClient().channels.stop(
+    {
+      requestBody: {
+        id: channel.id,
+        resourceId: channel.resourceId,
+      },
     },
-  });
+    { timeout: DRIVE_CALL_TIMEOUT_MS, retry: false },
+  );
 }
 
 async function subscribeWithTx(
@@ -442,7 +645,7 @@ async function activateWithTx(
   folderId: string,
   watch: { id: string; resourceId: string; expiration: string },
 ): Promise<SubscribeResult> {
-  await callWatchTx("drive_watch_channels.activate_pending", () =>
+  const promoted = await callWatchTx("drive_watch_channels.activate_pending", () =>
     tx.activatePending({
       id: watch.id,
       watchedFolderId: folderId,
@@ -450,15 +653,37 @@ async function activateWithTx(
       expiresAt: watch.expiration,
     }),
   );
+  if (promoted === 0) {
+    // The pending row was not there to promote — most often because a folder
+    // promotion orphaned it (§3.2.4). Throwing routes into the caller's
+    // existing activate_failed_after_watch_created path, which orphans the
+    // channel, raises WATCH_CHANNEL_ORPHANED and lets GC stop it at Drive. The
+    // previous silent success left a live Drive channel with nothing recording
+    // it.
+    throw new DriveWatchInfraError(
+      "drive_watch_channels.activate_pending",
+      new Error("activation matched no pending row"),
+    );
+  }
   return { outcome: "active", channelId: watch.id };
 }
 
-async function markWatchOrphanedWithTx(
+/**
+ * Exported so the ATOMICITY CONTRACT is testable. Both this and
+ * `createPostgresWatchTx` below are the real production paths; without them the
+ * seam is module-private and the public subscribe paths call this helper as
+ * their FINAL transactional act, leaving nowhere to inject a post-alert failure.
+ * Exporting them adds no test-only branch to the behaviour.
+ */
+export async function markWatchOrphanedWithTx(
   tx: WatchTx,
   pendingChannelId: string,
   context: Record<string, unknown>,
+  resourceId?: string | null,
 ): Promise<void> {
-  await callWatchTx("drive_watch_channels.mark_orphaned", () => tx.markOrphaned(pendingChannelId));
+  await callWatchTx("drive_watch_channels.mark_orphaned", () =>
+    tx.markOrphaned(pendingChannelId, resourceId),
+  );
   await callWatchTx("admin_alerts.upsert_watch_orphaned", () =>
     tx.upsertAdminAlert({
       code: WATCH_CHANNEL_ORPHANED,
@@ -594,16 +819,22 @@ export async function subscribeToWatchedFolder(
       webhookSecret,
     });
     await runTx((tx) =>
-      markWatchOrphanedWithTx(tx, channelId, {
-        watched_folder_id: folderId,
-        channel_id: watch.id,
-        requested_channel_id: channelId,
-        resource_id: watch.resourceId,
-        expiration: watch.expiration,
-        reason: "activate_failed_after_watch_created",
-        error_class: errorClass,
-        error_message: errorMessage,
-      }),
+      markWatchOrphanedWithTx(
+        tx,
+        channelId,
+        {
+          watched_folder_id: folderId,
+          channel_id: watch.id,
+          requested_channel_id: channelId,
+          resource_id: watch.resourceId,
+          expiration: watch.expiration,
+          reason: "activate_failed_after_watch_created",
+          error_class: errorClass,
+          error_message: errorMessage,
+        },
+        // Drive DID create this channel, so GC must be able to stop it.
+        watch.resourceId,
+      ),
     );
     await log.error("drive watch subscribe failed", {
       source: "drive.watch",
@@ -634,24 +865,43 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
   const failures: Array<{ folderId: string; operation: string }> = [];
 
   let due: WatchChannelRow[];
+  let reaped: Array<{ id: string; status: "expired" | "superseded" }> = [];
   try {
-    due = await runTx((tx) =>
-      callWatchTx("drive_watch_channels.list_renewal_due", () =>
+    // Reap FIRST, then read, both in ONE transaction. What that buys is
+    // atomicity and ORDERING — not a single snapshot: `sql.begin` runs at READ
+    // COMMITTED, where each statement takes its own. What the design needs is
+    // that no reaped row can appear in `due`, which ordering inside one
+    // transaction does deliver (spec §3.1.3).
+    ({ reaped, due } = await runTx(async (tx) => {
+      const r = await callWatchTx("drive_watch_channels.expire_dead_active", () =>
+        tx.expireDeadActive(),
+      );
+      const d = await callWatchTx("drive_watch_channels.list_renewal_due", () =>
         tx.listRenewalDue({
           nowIso: now().toISOString(),
           minLeadMs: RENEWAL_MIN_LEAD_MS,
           lifeFraction: 1 - RENEWAL_LIFE_FRACTION,
         }),
-      ),
-    );
+      );
+      return { reaped: r, due: d };
+    }));
   } catch (err) {
     // Prefer the wrapped root cause (DriveWatchInfraError's own message only
     // names the operation) — redacted string, never the raw object (R5-1).
     const cause = err instanceof DriveWatchInfraError ? err.rootCause : err;
-    await log.error("refresh-watch list_expiring failed", {
+    await log.error("refresh-watch renewal read failed", {
       source: "drive.watch",
       code: "DRIVE_WATCH_INFRA_FAULT",
-      operation: "drive_watch_channels.list_renewal_due",
+      // Read the REAL operation off the typed error rather than hardcoding it:
+      // the reap now precedes the read inside the same transaction, and an
+      // UPDATE permission/CHECK/connectivity failure reported as a SELECT
+      // failure sends operators to the wrong statement (spec §3.1.3a). The
+      // fallback keeps the pre-existing assertion green for a genuine read
+      // failure, which is what that test injects.
+      operation:
+        err instanceof DriveWatchInfraError
+          ? err.operation
+          : "drive_watch_channels.list_renewal_due",
       errorMessage: redactWatchError(String((cause as { message?: unknown })?.message ?? cause)),
     });
     return {
@@ -661,9 +911,108 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
     };
   }
 
+  if (reaped.length > 0) {
+    // POST-COMMIT (AGENTS.md invariant 10) and populations kept SEPARATE: a
+    // merged id list would file a future-dated invalid lease under "expired",
+    // the exact misattribution the two-status split exists to prevent. Ids are
+    // SORTED before capping because `RETURNING` has no ordering contract.
+    const expiredIds = reaped.filter((r) => r.status === "expired").map((r) => r.id);
+    const supersededIds = reaped.filter((r) => r.status === "superseded").map((r) => r.id);
+    void log.info("expired watch channels reaped", {
+      source: "drive.watch",
+      code: "DRIVE_WATCH_EXPIRED_REAPED",
+      expiredIds: [...expiredIds].sort().slice(0, REAP_ID_LOG_CAP),
+      supersededIds: [...supersededIds].sort().slice(0, REAP_ID_LOG_CAP),
+      expiredCount: expiredIds.length,
+      supersededCount: supersededIds.length,
+    });
+  }
+
+  // Read the configured folder ONCE, before the loop (spec §3.2.1). A per-row
+  // read would additionally admit more than one folder if configuration changed
+  // mid-loop, which is why §6 asserts the call count rather than only the
+  // resulting selection.
+  //
+  // Behaviour is the §3.2.2 table, which is the single normative statement of
+  // it — see the spec, not this comment, for the contract.
+  let folderRead: Awaited<ReturnType<typeof defaultGetActiveWatchedFolder>>;
+  try {
+    folderRead = await (deps.getActiveWatchedFolder ?? defaultGetActiveWatchedFolder)();
+  } catch (cause) {
+    // Recorded-not-thrown: an unhandled throw here would reach the cron route
+    // handler, and `refreshWatchSubscriptions` never rejects — a registered,
+    // executable contract (tests/sync/_metaInfraContract.test.ts).
+    folderRead = {
+      kind: "infra_error",
+      operation: "readActiveWatchedFolderId",
+      source: "thrown_error",
+      cause,
+    };
+  }
+
+  if ("kind" in folderRead && folderRead.kind === "infra_error") {
+    // FAIL CLOSED: renew nothing. Fail-open is what unbounded the promotion-race
+    // residual, and the lease already absorbs a transient read failure (a
+    // channel is due ~6h before expiry against an hourly cron).
+    void log.warn("refresh-watch configured-folder read failed", {
+      source: "drive.watch",
+      code: "DRIVE_WATCH_FOLDER_READ_FAILED",
+      dueCount: due.length,
+      errorMessage: redactWatchError(
+        String((folderRead.cause as { message?: unknown })?.message ?? folderRead.cause),
+      ),
+    });
+    return {
+      refreshed: [],
+      orphaned: [],
+      // Gated on `due.length` (spec §3.2.2, fourth row): on a tick where nothing
+      // was due, the renewal query already established that no row needed
+      // renewing, so nothing was skipped. Recording the wildcard there would
+      // force a false 500 and mark a live channel renewal-dirty.
+      failures: due.length > 0 ? [{ folderId: "*", operation: "folder_read" }] : [],
+    };
+  }
+
+  const configuredFolderId = "kind" in folderRead ? null : folderRead.folderId;
+  const renewable = configuredFolderId
+    ? due.filter((row) => row.watchedFolderId === configuredFolderId)
+    : [];
+  const skipped = due.filter((row) => !renewable.includes(row));
+  if (skipped.length > 0) {
+    const skippedFolderIds = [...new Set(skipped.map((row) => row.watchedFolderId))].sort();
+    void log.info("watch renewal skipped a non-configured folder", {
+      source: "drive.watch",
+      code: "DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER",
+      skippedFolderIds: skippedFolderIds.slice(0, REAP_ID_LOG_CAP),
+      skippedCount: skippedFolderIds.length,
+      configuredFolderId,
+      reason: configuredFolderId ? "not_configured_folder" : "no_folder_configured",
+    });
+  }
+
   const subscribe =
     deps.subscribeToWatchedFolder ?? ((folderId: string) => subscribeToWatchedFolder(folderId));
-  for (const row of due) {
+  const runStartedMs = now().getTime();
+  for (const [index, row] of renewable.entries()) {
+    // Stop STARTING rows once the budget is spent. This does not bound the
+    // in-flight iteration — a pre-iteration check cannot bound the iteration it
+    // admits — so the honest bound on a run is the budget plus one worst-case
+    // iteration (see T_EXEC_BUDGET_MS's comment).
+    if (now().getTime() - runStartedMs >= REFRESH_RUN_BUDGET_MS) {
+      const remaining = renewable.slice(index);
+      for (const skippedRow of remaining) {
+        failures.push({ folderId: skippedRow.watchedFolderId, operation: "run_budget" });
+      }
+      void log.warn("refresh-watch run budget exhausted", {
+        source: "drive.watch",
+        code: "DRIVE_WATCH_RUN_BUDGET_EXHAUSTED",
+        processedCount: index,
+        remainingCount: remaining.length,
+        elapsedMs: now().getTime() - runStartedMs,
+        budgetMs: REFRESH_RUN_BUDGET_MS,
+      });
+      break;
+    }
     try {
       const result = await subscribe(row.watchedFolderId);
       if (result.outcome === "active") {
@@ -702,13 +1051,98 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     const runTx = watchTxRunner(deps);
     const stopChannel = deps.stopChannel ?? defaultStopChannel;
     const candidates = await runTx((tx) =>
-      callWatchTx("drive_watch_channels.list_gc_candidates", () => tx.listGcCandidates()),
+      // Passed EXPLICITLY. The cap used to live only as a default parameter on
+      // the Postgres adapter, which left every other WatchTx implementation
+      // unbounded — the cap is the collector's policy, not one adapter's
+      // (whole-diff R4).
+      callWatchTx("drive_watch_channels.list_gc_candidates", () =>
+        tx.listGcCandidates(GC_CANDIDATES_PER_PASS),
+      ),
     );
     const stopped: string[] = [];
+    // Bound the pass. Candidates arrive in status tiers — rows needing no Drive
+    // call first — shuffled WITHIN each tier, and capped; the
+    // loop also stops on elapsed time: a `superseded` row whose stop keeps
+    // failing is retried forever BY DESIGN, so without both bounds ~20 such
+    // rows would consume the GC cron's 300s window and, under a deterministic
+    // order, would be served first on every subsequent pass, starving every
+    // expired and orphaned row behind them (whole-diff finding 1).
+    const nowMs = deps.now ?? (() => Date.now());
+    const gcStartedMs = nowMs();
+    let attempted = 0;
+    // ONE write for every branch, so no branch can drift into an unguarded
+    // call. Returns whether the row actually became `stopped`; zero means the
+    // row changed under this pass (see markStopped), so it is left for the next
+    // one rather than reported as a stop that did not happen.
+    const commitStopped = async (channel: WatchChannelRow): Promise<boolean> => {
+      const marked = await runTx((tx) =>
+        callWatchTx("drive_watch_channels.mark_stopped", () =>
+          tx.markStopped(channel.id, channel.resourceId),
+        ),
+      );
+      if (marked === 0) {
+        void log.warn("drive watch GC skipped a row whose resource id changed mid-pass", {
+          source: "drive.watch",
+          code: "DRIVE_WATCH_GC_ROW_CHANGED",
+          channelId: channel.id,
+          channelStatus: String(channel.status),
+        });
+        return false;
+      }
+      return true;
+    };
+
     for (const channel of candidates) {
+      if (nowMs() - gcStartedMs >= GC_RUN_BUDGET_MS) {
+        void log.warn("drive watch GC run budget exhausted", {
+          source: "drive.watch",
+          code: "DRIVE_WATCH_GC_BUDGET_EXHAUSTED",
+          stoppedCount: stopped.length,
+          // Rows never ATTEMPTED, not rows not stopped — a failed superseded
+          // stop was attempted and stays superseded, so subtracting `stopped`
+          // would overstate the backlog by every retry in the pass.
+          remainingCount: candidates.length - attempted,
+          budgetMs: GC_RUN_BUDGET_MS,
+        });
+        break;
+      }
+      attempted += 1;
+      // `expired` means the lease ran out, so Google already stopped delivering
+      // and there is nothing left to stop (spec §3.1.4). Reading the STATUS
+      // rather than comparing `expires_at` keeps this population distinct from
+      // the never-activated `orphaned` rows, which exit `defaultStopChannel`
+      // early on their null `resourceId`.
+      // An `orphaned` row with no resource_id may be an in-flight subscribe:
+      // promotion and the stale-pending sweep both orphan a PENDING row, and
+      // `files.watch` can still be running. Consuming it here would mark it
+      // stopped, after which markOrphaned (which excludes `stopped`) can never
+      // record the resourceId — the live channel becomes untrackable. Leave it
+      // until it is older than the stale-pending window, by which point no
+      // subscribe can still be in flight.
+      if (
+        channel.status === "orphaned" &&
+        channel.resourceId === null &&
+        isYoungerThan(channel.createdAt, STALE_PENDING_MAX_AGE_MS, nowMs())
+      ) {
+        continue;
+      }
+      if (channel.status === "expired") {
+        // Through the SAME guarded write as every other branch. Calling
+        // markStopped without the resource id defaulted the guard's expectation
+        // to null, and an expired row was formerly ACTIVE so it always holds
+        // one: the predicate matched zero rows, the row stayed `expired`, and
+        // listGcCandidates re-selected it every pass while the result reported
+        // it stopped. Expired rows sort into the FIRST tier, so a couple of
+        // hundred of them would starve orphaned and superseded cleanup
+        // indefinitely (whole-diff R7 finding 1).
+        if (await commitStopped(channel)) stopped.push(channel.id);
+        continue;
+      }
+      let stopFailedStatus: number | null | undefined;
       try {
         await stopChannel({ id: channel.id, resourceId: channel.resourceId });
       } catch (error) {
+        stopFailedStatus = driveErrorStatus(error);
         // Best-effort cleanup: Drive may already have dropped an orphaned channel.
         // Finding #18: the swallowed error left GC failures untraceable. Emit a
         // fail-open forensic warn but stay non-fatal — still mark the row stopped
@@ -720,10 +1154,33 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
           error,
         });
       }
-      await runTx((tx) =>
-        callWatchTx("drive_watch_channels.mark_stopped", () => tx.markStopped(channel.id)),
-      );
-      stopped.push(channel.id);
+      // A `superseded` row whose stop failed with anything other than a 404 is
+      // LEFT superseded and retried next pass — the canonical contract
+      // (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1327), which
+      // the previous "control flow UNCHANGED" behaviour violated. That matters
+      // more now: §3.3's per-call timeout makes this error path routine, and
+      // §3.1.2 routes possibly-live channels here SPECIFICALLY so they get
+      // stopped. `orphaned` keeps its "either way" behaviour. An unrecognised
+      // error shape counts as non-404, so ambiguity retries rather than
+      // abandoning a live channel.
+      // The discriminator is WHETHER WE HOLD A RESOURCE ID, not the status.
+      // The canonical "either way" for `orphaned`
+      // (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1329) was
+      // written when an orphaned row never had one. It does now: a
+      // `files.watch` that succeeds and then fails to activate persists the id
+      // precisely so GC can stop the channel Drive created. Marking such a row
+      // stopped on a 503 or a timeout retires the only record of a LIVE channel
+      // — it stops matching listGcCandidates, and deleteOldStopped eventually
+      // removes it (whole-diff R8 finding 1). A row with no resource id keeps
+      // the old behaviour: there is nothing to retry with.
+      if (
+        channel.resourceId !== null &&
+        stopFailedStatus !== undefined &&
+        stopFailedStatus !== 404
+      ) {
+        continue;
+      }
+      if (await commitStopped(channel)) stopped.push(channel.id);
     }
     await runTx((tx) =>
       callWatchTx("drive_watch_channels.delete_old_stopped", () => tx.deleteOldStopped()),

@@ -14,14 +14,25 @@ import type { WatchTx } from "@/lib/drive/watch";
 
 const driveMock = {
   watchArgs: [] as Array<{ fileId?: string; requestBody?: Record<string, unknown> }>,
+  // The SECOND argument (MethodOptions). The mock used to take one parameter,
+  // which made the §3.3 option-pair assertion unwritable rather than merely
+  // weak — nothing could observe what was forwarded.
+  watchOptions: [] as Array<Record<string, unknown> | undefined>,
+  stopOptions: [] as Array<Record<string, unknown> | undefined>,
   expiration: "",
+  watchRejectsWith: null as unknown,
 };
 
 vi.mock("@/lib/drive/client", () => ({
   getDriveClient: () => ({
     files: {
-      watch: async (args: { fileId?: string; requestBody?: Record<string, unknown> }) => {
+      watch: async (
+        args: { fileId?: string; requestBody?: Record<string, unknown> },
+        options?: Record<string, unknown>,
+      ) => {
         driveMock.watchArgs.push(args);
+        driveMock.watchOptions.push(options);
+        if (driveMock.watchRejectsWith) throw driveMock.watchRejectsWith;
         return {
           data: {
             id: String(args.requestBody?.id ?? "channel-1"),
@@ -29,6 +40,12 @@ vi.mock("@/lib/drive/client", () => ({
             expiration: driveMock.expiration,
           },
         };
+      },
+    },
+    channels: {
+      stop: async (_args: unknown, options?: Record<string, unknown>) => {
+        driveMock.stopOptions.push(options);
+        return { data: {} };
       },
     },
   }),
@@ -49,7 +66,8 @@ function fakeTx(): WatchTx {
   };
   return {
     insertPending: async () => {},
-    activatePending: async () => {},
+    activatePending: async () => 1,
+    expireDeadActive: unexpected("expireDeadActive"),
     markOrphaned: unexpected("markOrphaned"),
     upsertAdminAlert: unexpected("upsertAdminAlert"),
     listRenewalDue: unexpected("listRenewalDue"),
@@ -137,6 +155,7 @@ describe("files.watch expiration request (§3.1)", () => {
     const tx = fakeTx();
     tx.activatePending = async (row) => {
       activated.push({ expiresAt: row.expiresAt });
+      return 1;
     };
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
 
@@ -157,6 +176,7 @@ describe("files.watch expiration request (§3.1)", () => {
     const tx = fakeTx();
     tx.activatePending = async (row) => {
       activated.push({ expiresAt: row.expiresAt });
+      return 1;
     };
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
 
@@ -431,5 +451,90 @@ describe("renewalLeadMs is the single definition of the lead (§2.1)", () => {
     // And the heuristic sits above one bare sampling period, so a lease that
     // could only ever be seen once is still flagged.
     expect(SAMPLING_PERIOD_MS + 2 * T_EXEC_BUDGET_MS).toBeGreaterThan(SAMPLING_PERIOD_MS);
+  });
+});
+
+describe("Drive-call bounds (spec §3.3)", () => {
+  test("files.watch forwards { timeout: DRIVE_CALL_TIMEOUT_MS, retry: false }", async () => {
+    driveMock.watchOptions.length = 0;
+    driveMock.expiration = String(NOW_MS + 86_400_000);
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const { DRIVE_CALL_TIMEOUT_MS } = await import("@/lib/drive/watchErrors");
+
+    await subscribeToWatchedFolder("folder-1", {
+      tx: fakeTx(),
+      uuid: () => "channel-1",
+      webhookSecret: () => "secret-1",
+      now: () => NOW_MS,
+    });
+
+    // `retry: false` is the half that matters: without it gaxios's internal
+    // retry multiplies the budget and the timeout bounds nothing, which no
+    // timing test would notice.
+    expect(driveMock.watchOptions[0]).toEqual({
+      timeout: DRIVE_CALL_TIMEOUT_MS,
+      retry: false,
+    });
+  });
+
+  test("channels.stop forwards the same pair", async () => {
+    driveMock.stopOptions.length = 0;
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+    const { DRIVE_CALL_TIMEOUT_MS } = await import("@/lib/drive/watchErrors");
+
+    await gcWatchChannels({
+      tx: {
+        listGcCandidates: async () => [
+          {
+            id: "c1",
+            status: "orphaned" as const,
+            watchedFolderId: "f",
+            webhookSecret: "s",
+            resourceId: "r",
+            expiresAt: null,
+          },
+        ],
+        markStopped: async () => {},
+        deleteOldStopped: async () => {},
+      } as never,
+    });
+
+    expect(driveMock.stopOptions[0]).toEqual({
+      timeout: DRIVE_CALL_TIMEOUT_MS,
+      retry: false,
+    });
+  });
+
+  test("DRIVE_CALL_TIMEOUT_MS is exactly 15_000", async () => {
+    // Every forwarding assertion above names the CONSTANT, so defining it as
+    // 150_000 or 1_500 would satisfy them all.
+    const { DRIVE_CALL_TIMEOUT_MS } = await import("@/lib/drive/watchErrors");
+    expect(DRIVE_CALL_TIMEOUT_MS).toBe(15_000);
+  });
+
+  test("a TimeoutError-shaped rejection orphans the channel and classifies as drive_api", async () => {
+    const tx = fakeTx();
+    const alerts: Array<{ context: Record<string, unknown> }> = [];
+    tx.markOrphaned = async () => {};
+    tx.upsertAdminAlert = async (input) => {
+      alerts.push(input as { context: Record<string, unknown> });
+    };
+    driveMock.watchRejectsWith = Object.assign(new Error("request timed out"), {
+      code: "TimeoutError",
+    });
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "channel-1",
+      webhookSecret: () => "secret-1",
+      now: () => NOW_MS,
+    });
+    driveMock.watchRejectsWith = null;
+
+    // Drives the REAL defaultWatchFolder: injecting deps.watchFolder would
+    // bypass it entirely and prove only that a rejecting function rejects.
+    expect(result).toMatchObject({ outcome: "orphaned", reason: "watch_create_failed" });
+    expect(alerts[0]?.context.error_class).toBe("drive_api");
   });
 });
