@@ -801,7 +801,43 @@ async function promoteSettings(
     `,
     [wizardSessionId],
   );
-  return rows[0]?.watched_folder_id ?? null;
+  const promoted = rows[0]?.watched_folder_id ?? null;
+  if (promoted !== null) {
+    // AC-6.18 (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3846) has
+    // required this since v1 and it was never implemented — the exact site
+    // BL-WATCH-ALERT-FOLDER-SCOPE names. In the SAME transaction as the settings
+    // swap, so a rolled-back promotion cannot orphan the previous folder's
+    // channel.
+    //
+    // Scoped by `is distinct from` the newly promoted folder rather than by
+    // naming the old one: the old value is already overwritten by the time this
+    // runs, and any OTHER stale active row deserves the same treatment.
+    //
+    // `pending` rows go to `orphaned`, not `superseded`: they were never
+    // activated, which is precisely what `orphaned` already means on this table.
+    //
+    // NOTE: this closes the window where the row exists when promotion runs. A
+    // subscriber that inserts AFTER promotion commits is not covered — closing
+    // that needs serialization this surface deliberately does not have, and is
+    // filed as BL-WATCH-PROMOTION-ACTIVATION-RACE.
+    await tx.query(
+      `
+        update public.drive_watch_channels
+           set status = 'superseded', superseded_at = now()
+         where status = 'active' and watched_folder_id is distinct from $1
+      `,
+      [promoted],
+    );
+    await tx.query(
+      `
+        update public.drive_watch_channels
+           set status = 'orphaned'
+         where status = 'pending' and watched_folder_id is distinct from $1
+      `,
+      [promoted],
+    );
+  }
+  return promoted;
 }
 
 async function markFinalCasDone(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<void> {

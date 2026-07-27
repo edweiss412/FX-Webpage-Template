@@ -42,13 +42,17 @@ async function cleanup(): Promise<void> {
   await sql`delete from public.drive_watch_channels where watched_folder_id like ${PREFIX + "%"}`;
 }
 
+// File-scope teardown: the postgres client is shared across every describe in
+// this file, so closing it inside one of them would end the connection for the
+// rest.
+beforeAll(cleanup);
+afterAll(async () => {
+  await cleanup();
+  await sql.end({ timeout: 5 });
+});
+
 describe("drive_watch_channels status CHECK (§3.1.1)", () => {
-  beforeAll(cleanup);
   afterEach(cleanup);
-  afterAll(async () => {
-    await cleanup();
-    await sql.end({ timeout: 5 });
-  });
 
   test.each(ACCEPTED_STATUSES)("accepts status %s", async (status) => {
     const id = `${PREFIX}${status}`;
@@ -73,5 +77,74 @@ describe("drive_watch_channels status CHECK (§3.1.1)", () => {
         values (${PREFIX + "bogus"}, 'not-a-status', ${PREFIX + "folder"}, 'secret')
       `,
     ).rejects.toThrow(/drive_watch_channels_status_check/);
+  });
+});
+
+describe("promotion supersedes the prior folder's channels (spec §3.2.4)", () => {
+  const OLD = `${PREFIX}old`;
+  const NEW = `${PREFIX}new`;
+
+  async function seed(): Promise<void> {
+    await sql`
+      insert into public.drive_watch_channels
+        (id, status, watched_folder_id, webhook_secret, resource_id, expires_at)
+      values
+        (${PREFIX + "old-active"}, 'active', ${OLD}, 's', 'r', now() + interval '10 h'),
+        (${PREFIX + "new-active"}, 'active', ${NEW}, 's', 'r', now() + interval '10 h')
+    `;
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret)
+      values (${PREFIX + "old-pending"}, 'pending', ${OLD}, 's')
+    `;
+  }
+
+  /** The two statements promoteSettings runs, verbatim, against a promoted id. */
+  async function promoteTo(tx: postgres.TransactionSql, promoted: string): Promise<void> {
+    await tx`
+      update public.drive_watch_channels
+         set status = 'superseded', superseded_at = now()
+       where status = 'active' and watched_folder_id is distinct from ${promoted}
+    `;
+    await tx`
+      update public.drive_watch_channels
+         set status = 'orphaned'
+       where status = 'pending' and watched_folder_id is distinct from ${promoted}
+    `;
+  }
+
+  async function statuses(): Promise<Record<string, string>> {
+    const rows = await sql<{ id: string; status: string }[]>`
+      select id, status from public.drive_watch_channels where watched_folder_id like ${PREFIX + "%"}
+    `;
+    return Object.fromEntries(rows.map((r) => [r.id, r.status]));
+  }
+
+  afterEach(cleanup);
+
+  test("committed: prior folder's active -> superseded, pending -> orphaned, new folder untouched", async () => {
+    await seed();
+    await sql.begin(async (tx) => {
+      await promoteTo(tx, NEW);
+    });
+    const s = await statuses();
+    expect(s[`${PREFIX}old-active`]).toBe("superseded");
+    expect(s[`${PREFIX}old-pending`]).toBe("orphaned");
+    // Preservation: assertion one alone passes if EVERY channel is superseded.
+    expect(s[`${PREFIX}new-active`]).toBe("active");
+  });
+
+  test("rolled back: BOTH writes are undone, not just the active one", async () => {
+    await seed();
+    await expect(
+      sql.begin(async (tx) => {
+        await promoteTo(tx, NEW);
+        throw new Error("promotion failed after the channel sweep");
+      }),
+    ).rejects.toThrow(/promotion failed/);
+    const s = await statuses();
+    // Observing only the active row would let the pending-orphaning commit in a
+    // separate transaction while this assertion still passed.
+    expect(s[`${PREFIX}old-active`]).toBe("active");
+    expect(s[`${PREFIX}old-pending`]).toBe("pending");
   });
 });

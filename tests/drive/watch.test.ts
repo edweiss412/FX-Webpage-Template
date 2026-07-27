@@ -65,7 +65,7 @@ class FakeWatchTx {
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }) {
+  }): Promise<number> {
     this.operations.push(`activatePending:${row.id}`);
     for (const existing of this.rows) {
       if (
@@ -76,11 +76,17 @@ class FakeWatchTx {
         existing.status = "superseded";
       }
     }
-    const pending = this.rows.find((existing) => existing.id === row.id);
-    if (!pending) throw new Error("pending row missing");
+    // Mirrors production: only a row still in `pending` is promoted, and the
+    // COUNT is returned so the caller can detect the zero-row case that the
+    // canonical spec has always required to roll back.
+    const pending = this.rows.find(
+      (existing) => existing.id === row.id && existing.status === "pending",
+    );
+    if (!pending) return 0;
     pending.status = "active";
     pending.resourceId = row.resourceId;
     pending.expiresAt = row.expiresAt;
+    return 1;
   }
 
   async markOrphaned(id: string) {
@@ -463,7 +469,7 @@ describe("Drive watch lifecycle", () => {
         watchedFolderId: string;
         resourceId: string;
         expiresAt: string;
-      }) {
+      }): Promise<number> {
         this.operations.push(`activatePending:${row.id}`);
         throw new Error("database unavailable after Drive watch");
       }

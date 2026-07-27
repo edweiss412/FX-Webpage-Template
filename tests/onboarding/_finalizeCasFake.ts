@@ -275,6 +275,16 @@ export class FakeFinalizeCasDb implements FinalizeCasRouteTx {
       };
     }
 
+    if (normalized.startsWith("update public.drive_watch_channels")) {
+      // AC-6.18 supersession/orphaning, run inside the promotion transaction
+      // (spec §3.2.4). This fake tracks no channel rows, so the statements are
+      // accepted as no-ops — their behaviour is proved against a real database
+      // in tests/db/watchLifecycle.db.test.ts. Without this arm the closed
+      // dispatcher below throws and every finalize-CAS test fails before
+      // reaching its own assertions.
+      return { rows: [], rowCount: 0 };
+    }
+
     if (normalized.startsWith("update public.wizard_finalize_checkpoints")) {
       if (this.checkpoint) this.checkpoint.status = "final_cas_done";
       return { rows: [this.checkpoint as T], rowCount: this.checkpoint ? 1 : 0 };

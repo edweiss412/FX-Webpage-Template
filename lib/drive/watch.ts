@@ -53,12 +53,19 @@ export type WatchChannelRow = {
 
 export type WatchTx = {
   insertPending(row: { id: string; watchedFolderId: string; webhookSecret: string }): Promise<void>;
+  /**
+   * Promote the pending row, superseding any prior active row for the folder.
+   * Returns the number of PENDING rows it actually promoted — the canonical
+   * spec has required a zero-row rollback since v1
+   * (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1318) and nothing
+   * checked it, so activation reported success while the row stayed put.
+   */
   activatePending(row: {
     id: string;
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }): Promise<void>;
+  }): Promise<number>;
   markOrphaned(id: string): Promise<void>;
   upsertAdminAlert(input: {
     code: typeof WATCH_CHANNEL_ORPHANED;
@@ -183,7 +190,7 @@ class PostgresWatchTx implements WatchTx {
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }) {
+  }): Promise<number> {
     await this.rows(
       `
         update public.drive_watch_channels
@@ -195,7 +202,7 @@ class PostgresWatchTx implements WatchTx {
       `,
       [row.watchedFolderId, row.id],
     );
-    await this.rows(
+    const promoted = await this.rows<{ id: string }>(
       `
         update public.drive_watch_channels
            set status = 'active',
@@ -204,9 +211,11 @@ class PostgresWatchTx implements WatchTx {
                activated_at = now()
          where id = $1
            and status = 'pending'
+        returning id
       `,
       [row.id, row.resourceId, row.expiresAt],
     );
+    return promoted.length;
   }
 
   async markOrphaned(id: string) {
@@ -485,7 +494,7 @@ async function activateWithTx(
   folderId: string,
   watch: { id: string; resourceId: string; expiration: string },
 ): Promise<SubscribeResult> {
-  await callWatchTx("drive_watch_channels.activate_pending", () =>
+  const promoted = await callWatchTx("drive_watch_channels.activate_pending", () =>
     tx.activatePending({
       id: watch.id,
       watchedFolderId: folderId,
@@ -493,6 +502,18 @@ async function activateWithTx(
       expiresAt: watch.expiration,
     }),
   );
+  if (promoted === 0) {
+    // The pending row was not there to promote — most often because a folder
+    // promotion orphaned it (§3.2.4). Throwing routes into the caller's
+    // existing activate_failed_after_watch_created path, which orphans the
+    // channel, raises WATCH_CHANNEL_ORPHANED and lets GC stop it at Drive. The
+    // previous silent success left a live Drive channel with nothing recording
+    // it.
+    throw new DriveWatchInfraError(
+      "drive_watch_channels.activate_pending",
+      new Error("activation matched no pending row"),
+    );
+  }
   return { outcome: "active", channelId: watch.id };
 }
 
