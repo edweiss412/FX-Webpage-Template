@@ -203,6 +203,11 @@ describe("agenda fold — refresh reconciliation (spec §5.2)", () => {
       true,
       false,
     ]);
+    // Both halves of the compound state, not just the open flags (review R11, LOW): row 1 is now
+    // the viewer's, so it must GAIN its marker while staying open. Asserting open state alone
+    // would pass on a render that moved `open` correctly and left the marker behind.
+    expect(container.querySelector('[data-testid="agenda-day-marker-1"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="agenda-day-marker-0"]')).not.toBeNull();
   });
 
   it("EVERY row collapsed still renders every row, with no empty state", () => {

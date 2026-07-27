@@ -499,17 +499,29 @@ test("a11y: the disclosure keeps BOTH its expandable state and its heading", asy
     TOTAL_DAYS,
   );
 
-  // 4. NO element in this summary can truncate, and that is asserted rather than assumed.
-  //    Review R8 listed "marker clientWidth === scrollWidth" as a missing acceptance case. Two
-  //    attempts at it were vacuous before the markup was read properly: the marker has no width
-  //    clamp, and neither does the count, so a scrollWidth/clientWidth comparison on either can
-  //    never fail. The ONLY clamped element (`max-w-[12ch] truncate`) is the date chip at
-  //    AgendaScheduleBlock.tsx:122, and it renders behind `{day.date ? ... : null}` -- where
-  //    `day.date` is ALWAYS null in production, the ratified fact this whole feature rests on
-  //    (`lib/agenda/extractAgendaSchedule.ts` is its sole constructor and hardcodes null).
-  //    So the acceptance case has no applicable element. Pinned by asserting the chip's absence,
-  //    which fails if that branch ever becomes reachable and the case becomes real.
-  await expect(page.locator(".truncate")).toHaveCount(0);
+  // 4. The clamped date chip TRUNCATES rather than overflowing. Review R11 (MEDIUM) was right
+  //    that the previous version of this assertion rested on a false premise: it proved the chip
+  //    ABSENT because `day.date` is null in everything the current extractor writes. But the
+  //    normalizer accepts and preserves a stored string, so legacy rows render it, and the spec
+  //    classifies that branch as live. The fixture now carries an overlong legacy date, so the
+  //    real behaviour is measurable: `max-w-[12ch] truncate` must clip it, not let it push the
+  //    summary wide.
+  const chip = page.locator('[data-testid="agenda-day-2"] .truncate');
+  await expect(chip).toHaveCount(1);
+  const clip = await chip.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { c: el.clientWidth, s: el.scrollWidth, right: r.right };
+  });
+  expect(clip.s, "an overlong date is actually clipped, not laid out full-width").toBeGreaterThan(
+    clip.c,
+  );
+  const sum2 = await page
+    .getByTestId("agenda-day-summary-2")
+    .evaluate((el) => el.getBoundingClientRect().right);
+  expect(
+    clip.right,
+    `the clipped chip stays inside its summary (${clip.right} vs ${sum2})`,
+  ).toBeLessThanOrEqual(sum2 + 0.5);
 
   // 5. The summary shows OUR focus ring on keyboard focus. Asserted on box-shadow specifically,
   //    not outline: `focus-visible:ring-2` renders as a box-shadow, while Chromium draws its own

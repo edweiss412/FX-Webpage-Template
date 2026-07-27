@@ -79,14 +79,18 @@ const EXTRACTION_B = {
 };
 
 /** The restriction lives on the crew_members ROW, not on the viewer handle. */
-function renderWith(dateRestriction: { kind: "explicit"; days: string[] } | { kind: "none" }) {
+function renderWith(
+  dateRestriction: { kind: "explicit"; days: string[] } | { kind: "none" },
+  /** Overrides link A's extraction, for cases that need a row outside the show's own dates. */
+  extractionA: typeof EXTRACTION_A = EXTRACTION_A,
+) {
   received.length = 0;
   const show = makeShowForViewer({
     // `dates` and `agenda_links` live under `show`; only crewMembers is top-level.
     show: {
       dates: DATES,
       agenda_links: [
-        { fileId: "file-a", label: "RFI", extracted: EXTRACTION_A },
+        { fileId: "file-a", label: "RFI", extracted: extractionA },
         { fileId: "file-b", label: "PCF", extracted: EXTRACTION_B },
       ],
     },
@@ -141,6 +145,57 @@ describe("ScheduleSection threads viewerDays per agenda link", () => {
       // Every day is theirs, so nothing distinguishes and nothing folds (THE MARKER RULE).
       expect(r.viewerDays).toEqual({ kind: "all" });
     }
+  });
+
+  test("a TRAVEL date the viewer is assigned reaches the matcher", () => {
+    // Review R11 (MEDIUM): the fixture declared a travel-in date and no assertion ever proved it
+    // survives into `viewerDates`. That matters because the ratified rule is that travel days
+    // ARE the viewer's -- `visibleShowDays` returns show days only, so a seam that fed its
+    // output to the matcher would silently drop an assigned travel day, and every existing
+    // assertion here used show dates only and would have stayed green.
+    renderWith({ kind: "explicit", days: ["2026-05-13", "2026-05-14"] }); // travel-in + show day
+    const [a] = received.map((r) => r.viewerDays);
+    // EXTRACTION_A's labels are May 14 and May 15. Only May 14 is assigned here, and the travel
+    // day has no agenda row -- so completeness must see the travel date in R and fail open
+    // rather than folding a day it could not place.
+    expect(a, "the travel date is in R, so an unplaceable assigned day fails open").toEqual({
+      kind: "all",
+    });
+  });
+
+  test("the matcher gets RAW restriction days, not the intersected set", () => {
+    // The distinguishing input, and it took a mutation to find it: the disagreement guard only
+    // fires for a date that is in the RAW restriction, PRESENT in the extraction, and absent
+    // from the show's aggregate. A first draft used an off-aggregate date with no matching
+    // agenda row, so `restriction \\ viewerDates` never met a parsed label and passing
+    // `viewerDates` for both arguments stayed green.
+    const withJune = {
+      ...EXTRACTION_A,
+      days: [
+        ...EXTRACTION_A.days,
+        {
+          dayLabel: "Thursday, June 25, 2026",
+          date: null,
+          sessions: [{ time: "9:00am", title: "S", room: null, tracks: [], drift: null }],
+        },
+      ],
+    };
+    renderWith({ kind: "explicit", days: ["2026-05-14", "2026-06-25"] }, withJune);
+    // June 25 IS in the extraction and IS assigned, but the show's dates do not contain it --
+    // partial knowledge, so the whole link fails open rather than folding the June 25 row.
+    expect(received.map((r) => r.viewerDays)[0]).toEqual({ kind: "all" });
+  });
+
+  test("an off-aggregate restriction date with NO agenda row still folds", () => {
+    // The disagreement guard needs `restriction \\ viewerDates` -- the days the viewer is
+    // assigned that the show's own dates do NOT contain. Passing `viewerDates` for both
+    // arguments makes that difference empty and the guard dead. Review R11 (MEDIUM) noted no
+    // case distinguished them: every fixture restriction sat inside the aggregate.
+    renderWith({ kind: "explicit", days: ["2026-05-14", "2026-06-25"] }); // June 25 is off-aggregate
+    const [a] = received.map((r) => r.viewerDays);
+    // May 14 is placeable and June 25 is not in the show's dates at all, so this is the
+    // "restriction date in NEITHER the aggregate nor the extraction" case: it still folds.
+    expect(a).toEqual({ kind: "subset", rows: new Set([0]) });
   });
 
   test("every block receives the prop — none is left undefined", () => {

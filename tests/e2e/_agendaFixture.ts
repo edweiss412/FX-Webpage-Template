@@ -38,7 +38,17 @@ export const AGENDA_DAYS = [
     sessions: [sess("9:00 AM", "Welcome"), sess("10:00 AM", LONG_TITLE)],
   },
   { dayLabel: "Wednesday, May 15, 2026", date: null, sessions: [sess("11:00 AM", "Later")] },
-  { dayLabel: "Thursday, May 16, 2026", date: null, sessions: [] },
+  {
+    // A NON-NULL, deliberately overlong date. `day.date` is null in everything the CURRENT
+    // extractor writes (extractAgendaSchedule.ts hardcodes it), but the normalizer accepts and
+    // preserves a stored string (`lib/agenda/normalizeAgendaExtraction.ts:39,47`), so legacy
+    // rows can carry one and the clamped chip IS reachable. An earlier version of this fixture
+    // used null everywhere and the spec then "proved" the chip absent -- an assertion resting
+    // on a premise that is only true of newly-written data.
+    dayLabel: "Thursday, May 16, 2026",
+    date: "Thursday 16 May 2026 (rescheduled from the 15th)",
+    sessions: [],
+  },
 ];
 
 export const AGENDA_EXTRACTION = {
