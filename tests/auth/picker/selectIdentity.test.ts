@@ -26,7 +26,7 @@ const logMock = vi.hoisted(() => ({
   debug: vi.fn(),
 }));
 vi.mock("@/lib/log", () => ({ log: logMock }));
-const upsertAdminAlertMock = vi.hoisted(() => vi.fn(async () => {}));
+const upsertAdminAlertMock = vi.hoisted(() => vi.fn(async (_input: unknown): Promise<void> => {}));
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
   upsertAdminAlert: upsertAdminAlertMock,
 }));
